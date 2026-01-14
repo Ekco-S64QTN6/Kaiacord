@@ -1,0 +1,20 @@
+# Virtual Environment
+venv/
+.venv/
+env/
+bin/
+lib/
+share/
+pyvenv.cfg
+
+# Python
+__pycache__/
+*.py[cod]
+*$py.class
+
+# Environment Variables
+.env
+
+# OS files
+.DS_Store
+Thumbs.db
