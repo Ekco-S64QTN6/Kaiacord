@@ -1,5 +1,6 @@
 import os
 from llama_index.core import VectorStoreIndex, SimpleDirectoryReader, StorageContext, Settings, load_index_from_storage
+from llama_index.llms.ollama import Ollama
 from llama_index.embeddings.ollama import OllamaEmbedding
 from llama_index.core.node_parser import SentenceSplitter
 
@@ -17,7 +18,7 @@ class KaiaRAG:
         # Set global settings
         Settings.embed_model = self.embed_model
         Settings.node_parser = SentenceSplitter(chunk_size=512, chunk_overlap=20)
-        Settings.llm = None
+        Settings.llm = Ollama(model="gemma3:12b", request_timeout=360.0)
         
         self.index = None
         

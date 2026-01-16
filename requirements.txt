@@ -3,6 +3,13 @@ ollama>=0.6.0
 python-dotenv>=1.0.0
 llama-index-core
 llama-index-embeddings-ollama
+llama-index-llms-ollama
 llama-index-readers-file
 tiktoken
 pypdf
+diffusers
+transformers
+accelerate
+sentencepiece
+protobuf
+bitsandbytes

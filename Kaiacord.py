@@ -9,6 +9,7 @@ import time
 import datetime
 from discord.ext import tasks
 from kaia_rag import KaiaRAG
+from kaia_image import generate_image
 
 # setup environment variables
 load_dotenv()
@@ -123,6 +124,36 @@ async def on_message(msg):
 
     # Trigger logic: Original working "kaia" check
     if "kaia" not in msg.content.lower() and not bot.user.mentioned_in(msg):
+        return
+
+    # Trigger logic: Image generation
+    if "kaia, draw" in msg.content.lower():
+        # Extract prompt after 'draw'
+        try:
+            prompt = msg.content.lower().split("draw", 1)[1].strip()
+        except IndexError:
+            prompt = ""
+            
+        if not prompt:
+            await msg.channel.send("```\ndraw what? i need a prompt.\n```")
+            return
+            
+        # Persona confirmation
+        await msg.channel.send("```\nflickering the screen. give me a second.\n```")
+        
+        try:
+            print(f"Generating image for prompt: {prompt}")
+            image_path = await generate_image(prompt)
+            await msg.channel.send(file=discord.File(image_path))
+            # Cleanup
+            if os.path.exists(image_path):
+                os.remove(image_path)
+                print(f"Cleaned up {image_path}")
+        except Exception as e:
+            print(f"Image generation error: {e}")
+            import traceback
+            traceback.print_exc()
+            await msg.channel.send(f"```\nsomething went wrong with the render. check the logs.\n```")
         return
 
     # "kaia remember" command
