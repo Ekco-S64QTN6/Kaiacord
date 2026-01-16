@@ -1,3 +1,7 @@
 discord.py>=2.6.0
 ollama>=0.6.0
 python-dotenv>=1.0.0
+llama-index-core
+llama-index-embeddings-ollama
+llama-index-readers-file
+tiktoken

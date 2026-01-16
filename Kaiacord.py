@@ -8,6 +8,7 @@ import random
 import time
 import datetime
 from discord.ext import tasks
+from kaia_rag import KaiaRAG
 
 # setup environment variables
 load_dotenv()
@@ -41,6 +42,9 @@ def load_persona():
 
 # Create async client
 ollama_client = ollama.AsyncClient()
+
+# Initialize RAG
+rag = KaiaRAG()
 
 @bot.event
 async def on_ready():
@@ -148,6 +152,25 @@ async def on_message(msg):
         # Include all messages from memory
         for m in channel_memory[msg.channel.id]:
             messages.append(m)
+        
+        # RAG RETRIEVAL
+        # Retrieve relevant context from the local knowledge base
+        print(f"Retrieving context for: {msg.content}")
+        context_nodes = rag.retrieve(msg.content)
+        
+        if context_nodes:
+            print(f"Found {len(context_nodes)} relevant context nodes.")
+            # Format context as 'memory' or 'stored logs' to preserve persona
+            context_str = "\n\n".join(context_nodes)
+            rag_context = (
+                "\n\n[SYSTEM LOGS DETECTED - RECOVERED MEMORY FRAGMENT]\n"
+                f"{context_str}\n"
+                "[END OF LOGS]"
+            )
+            # Inject into system prompt
+            messages[0]["content"] += rag_context
+        else:
+            print("No relevant context found.")
         
         print("Calling ollama.chat...")
         response = await ollama_client.chat(
