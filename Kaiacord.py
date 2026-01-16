@@ -125,9 +125,18 @@ async def on_message(msg):
     if "kaia" not in msg.content.lower() and not bot.user.mentioned_in(msg):
         return
 
-    # Update interaction tracking
-    last_interaction_time = time.time()
-    last_active_channel_id = msg.channel.id
+    # "kaia remember" command
+    if msg.content.lower().startswith("kaia remember"):
+        memory_content = msg.content[len("kaia remember"):].strip()
+        if memory_content:
+            print(f"Storing memory: {memory_content}")
+            if rag.add_memory(memory_content):
+                await msg.channel.send("```\nLogged it.\n```")
+            else:
+                await msg.channel.send("```\nMemory buffer error. Try again.\n```")
+        else:
+            await msg.channel.send("```\nRemember what? I'm not a mind reader.\n```")
+        return
 
     try:
         print(f"Received message from {msg.author}: {msg.content}")

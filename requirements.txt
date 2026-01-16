@@ -5,3 +5,4 @@ llama-index-core
 llama-index-embeddings-ollama
 llama-index-readers-file
 tiktoken
+pypdf

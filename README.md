@@ -5,14 +5,16 @@ Kaia is a Linux-native AI assistant for Discord, powered by Ollama.
 ## Features
 - Integrates with Discord using `discord.py`.
 - Uses Ollama for local LLM inference (`gemma3:12b`).
-- **Local RAG System**: Remembers information from local text files using `llama-index`.
+- **Local RAG System**: Remembers information from local text files and PDFs using `llama-index`.
+- **Dynamic Memory**: Use `kaia remember <text>` to store new information on the fly.
 - Customizable persona via `kaia_persona.md`.
 - Handles long messages by splitting them into chunks.
 
 ## Local RAG System
 Kaia uses a Retrieval-Augmented Generation (RAG) system to access local knowledge.
 - **Stack**: `llama-index` with `SimpleVectorStore` and `OllamaEmbedding` (`nomic-embed-text`).
-- **Knowledge Base**: Place `.txt` files in the `./knowledge_base` folder.
+- **Knowledge Base**: Place `.txt` or `.pdf` files in the `./knowledge_base` folder.
+- **Dynamic Memory**: If you tell her `kaia remember <something>`, she'll log it to her `user_memories.txt` and re-index it immediately.
 - **Framing**: Retrieved info is presented as "recovered logs" or "memory fragments" to maintain Kaia's hacker persona.
 
 ## Setup

@@ -43,27 +43,39 @@ class KaiaRAG:
             self.index = VectorStoreIndex.from_documents([])
 
     def refresh_knowledge_base(self):
-        """Load all text files from the knowledge base directory and update the index."""
+        """Load all supported files from the knowledge base directory and update the index."""
         if not os.path.exists(self.knowledge_base_dir):
             os.makedirs(self.knowledge_base_dir)
             return
 
         print(f"Refreshing knowledge base from {self.knowledge_base_dir}...")
         try:
+            # SimpleDirectoryReader automatically handles .txt, .pdf, etc. if dependencies are met
             documents = SimpleDirectoryReader(self.knowledge_base_dir).load_data()
             if documents:
-                # For SimpleVectorStore, we can just rebuild or insert
-                # To avoid duplicates, we'll just rebuild for now if it's small
-                # or use refresh_ref_docs if we had doc_ids.
-                # For simplicity, we'll just insert and persist.
-                for doc in documents:
-                    self.index.insert(doc)
+                # For SimpleVectorStore, we'll rebuild the index to avoid duplicates 
+                # and ensure we have the latest data from all files.
+                self.index = VectorStoreIndex.from_documents(documents)
                 self.index.storage_context.persist(persist_dir=self.persist_dir)
-                print(f"Added {len(documents)} documents to the index.")
+                print(f"Indexed {len(documents)} documents.")
             else:
                 print("No documents found in knowledge base.")
         except Exception as e:
             print(f"Error refreshing knowledge base: {e}")
+
+    def add_memory(self, text):
+        """Append a user-provided memory to user_memories.txt and re-index."""
+        memory_file = os.path.join(self.knowledge_base_dir, "user_memories.txt")
+        try:
+            with open(memory_file, "a", encoding="utf-8") as f:
+                f.write(f"\n---\n[RECOVERED MEMORY]: {text}\n")
+            
+            print(f"Stored new memory fragment in {memory_file}")
+            self.refresh_knowledge_base()
+            return True
+        except Exception as e:
+            print(f"Error adding memory: {e}")
+            return False
 
     def retrieve(self, query, top_k=3):
         """Retrieve the top_k relevant nodes for a given query."""
