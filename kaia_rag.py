@@ -1,6 +1,7 @@
 import os
 from llama_index.core import VectorStoreIndex, SimpleDirectoryReader, StorageContext, Settings, load_index_from_storage
 from llama_index.embeddings.ollama import OllamaEmbedding
+from llama_index.core.node_parser import SentenceSplitter
 
 class KaiaRAG:
     def __init__(self, knowledge_base_dir="./knowledge_base", persist_dir="./storage"):
@@ -15,6 +16,7 @@ class KaiaRAG:
         
         # Set global settings
         Settings.embed_model = self.embed_model
+        Settings.node_parser = SentenceSplitter(chunk_size=512, chunk_overlap=20)
         Settings.llm = None
         
         self.index = None
@@ -50,14 +52,31 @@ class KaiaRAG:
 
         print(f"Refreshing knowledge base from {self.knowledge_base_dir}...")
         try:
-            # SimpleDirectoryReader automatically handles .txt, .pdf, etc. if dependencies are met
-            documents = SimpleDirectoryReader(self.knowledge_base_dir).load_data()
-            if documents:
-                # For SimpleVectorStore, we'll rebuild the index to avoid duplicates 
-                # and ensure we have the latest data from all files.
-                self.index = VectorStoreIndex.from_documents(documents)
+            all_docs = []
+            
+            # 1. Load regular files (excluding user_memories.txt for special handling)
+            reader = SimpleDirectoryReader(
+                self.knowledge_base_dir, 
+                exclude=["user_memories.txt"]
+            )
+            all_docs.extend(reader.load_data())
+            
+            # 2. Special handling for user_memories.txt to split by '---'
+            memory_file = os.path.join(self.knowledge_base_dir, "user_memories.txt")
+            if os.path.exists(memory_file):
+                with open(memory_file, "r", encoding="utf-8") as f:
+                    content = f.read()
+                    # Split by '---' and filter out empty fragments
+                    fragments = [f.strip() for f in content.split("---") if f.strip()]
+                    from llama_index.core import Document
+                    for frag in fragments:
+                        all_docs.append(Document(text=frag, metadata={"source": "user_memories.txt"}))
+            
+            if all_docs:
+                # Rebuild index with all documents
+                self.index = VectorStoreIndex.from_documents(all_docs)
                 self.index.storage_context.persist(persist_dir=self.persist_dir)
-                print(f"Indexed {len(documents)} documents.")
+                print(f"Indexed {len(all_docs)} document nodes.")
             else:
                 print("No documents found in knowledge base.")
         except Exception as e:

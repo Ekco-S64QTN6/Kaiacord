@@ -163,18 +163,23 @@ async def on_message(msg):
             messages.append(m)
         
         # RAG RETRIEVAL
-        # Retrieve relevant context from the local knowledge base
-        print(f"Retrieving context for: {msg.content}")
-        context_nodes = rag.retrieve(msg.content)
+        # Clean query: strip "kaia" and common punctuation to improve retrieval
+        clean_query = msg.content.lower().replace("kaia", "").strip("?,. ")
+        print(f"Retrieving context for: {clean_query}")
+        context_nodes = rag.retrieve(clean_query)
         
         if context_nodes:
             print(f"Found {len(context_nodes)} relevant context nodes.")
-            # Format context as 'memory' or 'stored logs' to preserve persona
+            # Use a framing that sounds like her own logs/notes
             context_str = "\n\n".join(context_nodes)
             rag_context = (
-                "\n\n[SYSTEM LOGS DETECTED - RECOVERED MEMORY FRAGMENT]\n"
+                "\n\n[RECOVERED_LOG_ENTRY]\n"
+                "you found these fragments in your local storage. they're part of your history and facts you know. "
+                "don't act like a bot or an assistant. just use this information as if you've always known it. "
+                "if the user asks about something here, you have the answer.\n"
+                "---\n"
                 f"{context_str}\n"
-                "[END OF LOGS]"
+                "[END_OF_LOGS]"
             )
             # Inject into system prompt
             messages[0]["content"] += rag_context
