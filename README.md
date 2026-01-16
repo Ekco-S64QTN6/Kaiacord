@@ -3,19 +3,19 @@
 Kaia is a Linux-native AI assistant for Discord, powered by Ollama.
 
 ## Features
-- Integrates with Discord using `discord.py`.
-- Uses Ollama for local LLM inference (`gemma3:12b`).
+- **Discord Integration**: Connects seamlessly using `discord.py`.
+- **Local Inference**: Powered by Ollama (`gemma3:12b`) for private, local processing.
 - **Local RAG System**: Remembers information from local text files and PDFs using `llama-index`.
 - **Dynamic Memory**: Use `kaia remember <text>` to store new information on the fly.
-- Customizable persona via `kaia_persona.md`.
-- Handles long messages by splitting them into chunks.
+- **Customizable Persona**: Tailor her personality via `kaia_persona.md`.
+- **Message Handling**: Automatically splits long responses into chunks.
 
 ## Local RAG System
 Kaia uses a Retrieval-Augmented Generation (RAG) system to access local knowledge.
-- **Stack**: `llama-index` with `SimpleVectorStore` and `OllamaEmbedding` (`nomic-embed-text`).
-- **Knowledge Base**: Place `.txt` or `.pdf` files in the `./knowledge_base` folder.
-- **Dynamic Memory**: If you tell her `kaia remember <something>`, she'll log it to her `user_memories.txt` and re-index it immediately.
-- **Framing**: Retrieved info is presented as "recovered logs" or "memory fragments" to maintain Kaia's hacker persona.
+- **Stack**: Built with `llama-index`, `SimpleVectorStore`, and `OllamaEmbedding` (`nomic-embed-text`).
+- **Knowledge Base**: Supports `.txt` and `.pdf` files in the `./knowledge_base` folder.
+- **Dynamic Memory**: Use `kaia remember <something>` to log info to `user_memories.txt` and re-index immediately.
+- **Framing**: Context is presented as "recovered logs" or "memory fragments" to maintain the hacker persona.
 
 ## Setup
 
@@ -55,4 +55,4 @@ Kaia uses a Retrieval-Augmented Generation (RAG) system to access local knowledg
 
 ## Customization
 - **Persona**: Modify `kaia_persona.md` to change her personality.
-- **Knowledge**: Add or remove text files in `./knowledge_base` to update her "memory".
+- **Knowledge**: Add or remove files in `./knowledge_base` to update her "memory".
