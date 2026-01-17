@@ -19,5 +19,7 @@ __pycache__/
 .DS_Store
 Thumbs.db
 storage/
+knowledge_base/
 test_integration.py
 test_rag_imports.py
+*.log
