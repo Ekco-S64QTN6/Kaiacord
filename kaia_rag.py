@@ -3,6 +3,7 @@ import time
 import shutil
 import logging
 import warnings
+import pypdf
 
 # Suppress noisy logs from libraries
 logging.getLogger("httpx").setLevel(logging.WARNING)
@@ -161,17 +162,43 @@ class KaiaRAG:
                             
                     except Exception as e:
                         print(f"CRITICAL ERROR: Failed to load file {file_path}: {e}")
-                        # Move corrupt file to quarantine
-                        try:
-                            dest_path = os.path.join(corrupt_dir, os.path.basename(file_path))
-                            # Handle name collisions in corrupt_dir
-                            if os.path.exists(dest_path):
-                                dest_path = f"{dest_path}_{int(time.time())}"
-                            
-                            shutil.move(file_path, dest_path)
-                            print(f"!!! MOVED CORRUPT FILE TO: {dest_path}")
-                        except Exception as move_err:
-                            print(f"Failed to move corrupt file: {move_err}")
+                        
+                        conversion_succeeded = False
+                        
+                        # Attempt conversion if it's a PDF
+                        if file_path.lower().endswith(".pdf"):
+                            print(f"Attempting to recover {file_path} by converting to Markdown...")
+                            md_path = self._convert_pdf_to_md(file_path)
+                            if md_path:
+                                try:
+                                    # Load the newly created MD file
+                                    md_reader = SimpleDirectoryReader(input_files=[md_path])
+                                    md_docs = md_reader.load_data()
+                                    if md_docs:
+                                        for doc in md_docs:
+                                            self.index.insert(doc)
+                                        self.indexed_files.add(os.path.abspath(md_path))
+                                        # Also track original PDF as "handled" so we don't retry
+                                        self.indexed_files.add(os.path.abspath(file_path))
+                                        print(f"✓ Successfully indexed converted Markdown: {md_path}")
+                                        conversion_succeeded = True
+                                    else:
+                                        print(f"Warning: Converted MD {md_path} was empty.")
+                                except Exception as md_err:
+                                    print(f"Failed to index converted MD {md_path}: {md_err}")
+
+                        # Only move to corrupt_files if conversion failed or wasn't attempted
+                        if not conversion_succeeded:
+                            try:
+                                dest_path = os.path.join(corrupt_dir, os.path.basename(file_path))
+                                # Handle name collisions in corrupt_dir
+                                if os.path.exists(dest_path):
+                                    dest_path = f"{dest_path}_{int(time.time())}"
+                                
+                                shutil.move(file_path, dest_path)
+                                print(f"!!! MOVED CORRUPT FILE TO: {dest_path}")
+                            except Exception as move_err:
+                                print(f"Failed to move corrupt file: {move_err}")
 
                 # Persist after adding new documents
                 self.index.storage_context.persist(persist_dir=self.persist_dir)
@@ -185,7 +212,7 @@ class KaiaRAG:
                     with open(memory_file, "r", encoding="utf-8") as f:
                         content = f.read()
                         # Split by '---' and filter out empty fragments
-                        fragments = [f.strip() for f in content.split("---") if f.strip()]
+                        fragments = [frag.strip() for frag in content.split("---") if frag.strip()]
                         if fragments:
                             print(f"Indexing {len(fragments)} fragments from user_memories.txt...")
                             for idx, frag in enumerate(fragments):
@@ -204,6 +231,37 @@ class KaiaRAG:
             print(f"Error refreshing knowledge base: {e}")
             import traceback
             traceback.print_exc()
+
+    def _convert_pdf_to_md(self, pdf_path):
+        """Convert a PDF file to a Markdown file by extracting text."""
+        try:
+            # Strip .pdf extension before adding .md for cleaner filenames
+            base_path = pdf_path[:-4] if pdf_path.lower().endswith('.pdf') else pdf_path
+            md_path = base_path + ".md"
+            print(f"Extracting text from {pdf_path}...")
+            
+            reader = pypdf.PdfReader(pdf_path)
+            basename = os.path.basename(pdf_path)
+            title = basename[:-4] if basename.lower().endswith('.pdf') else basename
+            
+            extracted_pages = []
+            for i, page in enumerate(reader.pages):
+                page_text = page.extract_text()
+                if page_text and page_text.strip():
+                    extracted_pages.append(f"## Page {i+1}\n\n{page_text}")
+            
+            if extracted_pages:
+                text = f"# {title}\n\n" + "\n\n".join(extracted_pages)
+                with open(md_path, "w", encoding="utf-8") as f:
+                    f.write(text)
+                print(f"✓ Successfully converted to: {md_path}")
+                return md_path
+            else:
+                print(f"Warning: No text extracted from {pdf_path}")
+                return None
+        except Exception as e:
+            print(f"Error converting PDF to MD: {e}")
+            return None
 
     def add_memory(self, text):
         """Append a user-provided memory to user_memories.txt and add it incrementally."""

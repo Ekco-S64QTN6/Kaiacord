@@ -250,6 +250,17 @@ async def on_message(msg):
         
         # Update interaction time after sending
         last_interaction_time = time.time()
+        last_active_channel_id = msg.channel.id
+        
+        # Log interaction for persistent memory
+        await asyncio.to_thread(
+            rag.log_user_interaction,
+            msg.author.id,
+            msg.author.display_name,
+            msg.content,
+            content[:500]
+        )
+        
         print("Response sent successfully!")
         
     except Exception as e:
