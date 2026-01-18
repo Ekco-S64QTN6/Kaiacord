@@ -26,11 +26,20 @@ async def get_session():
     return _session
 
 
+async def cleanup_session():
+    """Cleanup the aiohttp session. Call this on bot shutdown."""
+    global _session
+    if _session and not _session.closed:
+        await _session.close()
+        _session = None
+
+
 async def download_image(url: str) -> str:
     """
     Download an image from a URL to a temporary file.
     Returns the path to the downloaded file.
     """
+    temp_path = None
     try:
         logger.info(f"Downloading image from: {url}")
         
@@ -64,6 +73,12 @@ async def download_image(url: str) -> str:
             return temp_path
                 
     except Exception as e:
+        # Clean up temp file on error
+        if temp_path and os.path.exists(temp_path):
+            try:
+                os.remove(temp_path)
+            except Exception:
+                pass
         logger.error(f"Error downloading image: {e}")
         raise
 

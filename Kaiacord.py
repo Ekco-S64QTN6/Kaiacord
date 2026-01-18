@@ -13,7 +13,7 @@ import discord
 from discord.ext import tasks
 from kaia_rag import KaiaRAG
 from kaia_image import generate_image
-from kaia_vision import kaia_sees_image
+from kaia_vision import kaia_sees_image, cleanup_session
 
 # setup environment variables
 load_dotenv()
@@ -279,9 +279,12 @@ async def on_message(msg):
             image_path = await generate_image(prompt)
             await msg.channel.send(file=discord.File(image_path))
             # Cleanup
-            if os.path.exists(image_path):
-                os.remove(image_path)
-                print(f"Cleaned up {image_path}")
+            try:
+                if os.path.exists(image_path):
+                    os.remove(image_path)
+                    print(f"Cleaned up {image_path}")
+            except Exception as cleanup_err:
+                print(f"Warning: Failed to cleanup temp file {image_path}: {cleanup_err}")
         except Exception as e:
             print(f"Image generation error: {e}")
             traceback.print_exc()
@@ -394,7 +397,7 @@ async def on_message(msg):
             clean_query, 
             user_id=target_user_id, 
             user_name=target_user_name, 
-            top_k=15
+            top_k=7
         )
         
         if context_nodes:
@@ -537,15 +540,13 @@ async def on_message(msg):
 
         print(f"Got response: {content[:100]}...")
 
-        # Add the bot's response to memory (truncated to 1000 chars to prevent verbosity creep)
-        channel_memory[msg.channel.id].append({"role": "assistant", "content": content[:1000]})
-
         # Use the helper to handle long text and formatting
         await send_kaia_response(msg.channel, content)
         
         # Add the current interaction to memory AFTER the response
+        # (truncated to 1000 chars to prevent verbosity creep)
         channel_memory[msg.channel.id].append({"role": "user", "content": msg.content})
-        channel_memory[msg.channel.id].append({"role": "assistant", "content": content})
+        channel_memory[msg.channel.id].append({"role": "assistant", "content": content[:1000]})
         
         # Update interaction time after sending
         last_interaction_time = time.time()
@@ -574,3 +575,9 @@ finally:
     print("Shutting down... Persisting RAG index.")
     if rag:
         rag.persist(force=True)
+    # Cleanup vision session
+    import asyncio
+    try:
+        asyncio.get_event_loop().run_until_complete(cleanup_session())
+    except Exception:
+        pass  # Event loop may be closed

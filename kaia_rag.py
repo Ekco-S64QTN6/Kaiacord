@@ -110,9 +110,6 @@ class KaiaRAG:
             print("✓ Index cleanup complete and persisted.")
 
         self.indexed_files = valid_files
-        
-        self.indexed_files = valid_files
-                
         print(f"Populated {len(self.indexed_files)} valid indexed files from storage.")
 
     def refresh_knowledge_base(self):
@@ -334,10 +331,6 @@ class KaiaRAG:
                 # Mark for persistence
                 self.persist_needed = True
                 print("New documents indexed. Persistence marked as needed.")
-            
-                # Mark for persistence
-                self.persist_needed = True
-                print("New documents indexed. Persistence marked as needed.")
                 
         except Exception as e:
             print(f"Error refreshing knowledge base: {e}")
@@ -495,6 +488,8 @@ Kaia: {bot_response}
         """
         Retrieve relevant nodes, ensuring user logs are prioritized and not drowned out.
         If user_id is provided, specifically looks for that user's history and preferences.
+        
+        OPTIMIZED: No longer iterates through entire docstore. Uses retriever results only.
         """
         if not self.index:
             return []
@@ -503,91 +498,103 @@ Kaia: {bot_response}
             return []
         
         try:
-            # 1. Broad retrieval for general context
-            retriever = self.index.as_retriever(similarity_top_k=20)
-            nodes = retriever.retrieve(query)
-            
-            # 2. Identify the type of query
-            is_kaia_query = any(phrase in query.lower() for phrase in ["who are you", "who is kaia", "tell me about yourself", "what are you"])
-            is_user_identity_query = any(phrase in query.lower() for phrase in ["who am i", "what is my name", "my pronoun", "who is"]) and not is_kaia_query
+            # 1. Identify the type of query FIRST to determine retrieval strategy
+            query_lower = query.lower()
+            is_kaia_query = any(phrase in query_lower for phrase in ["who are you", "who is kaia", "tell me about yourself", "what are you"])
+            is_user_identity_query = any(phrase in query_lower for phrase in ["who am i", "what is my name", "my pronoun", "who is"]) and not is_kaia_query
             is_identity_query = is_kaia_query or is_user_identity_query
             
-            if user_id and is_identity_query:
-                u_id_str = str(user_id)
-                # Search specifically for this user's logs
-                identity_query = f"Details about user {user_name} with ID {u_id_str}"
-                identity_nodes = retriever.retrieve(identity_query)
-                
-                # Also try to find nodes by metadata directly (more reliable)
-                meta_nodes = []
-                count = 0
-                for node in self.index.docstore.docs.values():
-                    if str(node.metadata.get('user_id')) == u_id_str:
-                        meta_nodes.append(node)
-                        count += 1
-                        if count >= 10: break # Don't grab too many
-                
-                # Add identity and meta nodes to the pool, prioritizing them
-                nodes = meta_nodes + identity_nodes[:5] + nodes
-
-                # 3. If the target is Kaia herself, also pull from her persona file
-                if user_name and "kaia" in user_name.lower():
-                    persona_nodes = [n for n in self.index.docstore.docs.values() if n.metadata.get('user_id') == "KAIA_SYSTEM"]
-                    nodes = persona_nodes + nodes
+            # Detect casual/social conversation that doesn't need knowledge retrieval
+            casual_patterns = [
+                "how are you", "what's up", "hey", "hello", "hi ", "sup", "yo ",
+                "good morning", "good night", "thanks", "thank you", "bye",
+                "my name is", "i'm ", "i am ", "nice to meet", "what do you think",
+                "how's it going", "what are you doing", "what are you up to"
+            ]
+            is_casual = any(phrase in query_lower for phrase in casual_patterns) or len(query_lower.split()) <= 4
             
-            # Separate logs and lore
+            # 2. Single retrieval pass with query enrichment
+            enriched_query = query
+            if user_id and (is_user_identity_query or is_casual) and user_name:
+                # Add user context to query to improve retrieval for user-specific questions
+                enriched_query = f"{query} user:{user_name}"
+            
+            # Retrieve with a reasonable limit - fewer for casual chat
+            if is_casual:
+                retrieve_count = 8
+            elif is_identity_query:
+                retrieve_count = 15
+            else:
+                retrieve_count = 12
+            retriever = self.index.as_retriever(similarity_top_k=retrieve_count)
+            nodes = retriever.retrieve(enriched_query)
+            
+            # 3. Categorize nodes from retrieval results ONLY (no docstore iteration!)
             persona_results = []
             current_user_logs = []
-            other_user_logs = []
             lore_results = []
             seen_texts = set()
+            u_id_str = str(user_id) if user_id else None
             
-            for node in nodes:
+            # Lore relevance threshold - higher for casual to filter noise
+            lore_threshold = 0.65 if is_casual else 0.45
+            
+            for node_result in nodes:
+                # Handle both NodeWithScore and raw Node objects
+                node = node_result.node if hasattr(node_result, 'node') else node_result
+                score = node_result.score if hasattr(node_result, 'score') else 1.0
                 content = node.get_content()
-                if content in seen_texts:
-                    continue
                 
-                # Filter out garbage text (e.g. bad PDF extractions with lots of non-ASCII)
-                # If more than 15% of characters are non-printable/non-ASCII, skip it
-                printable_count = sum(1 for c in content if c.isprintable() and ord(c) < 128)
-                if len(content) > 0 and (printable_count / len(content)) < 0.85:
+                # Skip duplicates
+                content_hash = hash(content[:200]) if len(content) > 200 else hash(content)
+                if content_hash in seen_texts:
                     continue
-                    
-                seen_texts.add(content)
+                seen_texts.add(content_hash)
+                
+                # Quick quality filter - only check first 500 chars for speed
+                sample = content[:500]
+                if sample:
+                    ascii_count = sum(1 for c in sample if c.isascii() and c.isprintable())
+                    if (ascii_count / len(sample)) < 0.80:
+                        continue
+                
+                # Truncate very long content to reduce context size
+                if len(content) > 800:
+                    content = content[:800] + "..."
                 
                 # Check source metadata
                 source = node.metadata.get('source', '')
                 file_path = node.metadata.get('file_path', '')
                 node_user_id = str(node.metadata.get('user_id', ''))
                 
-                if source == "user_logs" or "user_logs" in file_path or source == "persona":
+                if source == "persona" or node_user_id == "KAIA_SYSTEM":
+                    persona_results.append(f"[KAIA_PERSONA_FRAGMENT]\n{content}")
+                elif source == "user_logs" or "user_logs" in file_path:
                     node_user_name = node.metadata.get('user_name', 'Unknown')
-                    
-                    # Tag persona file specifically
-                    if node_user_id == "KAIA_SYSTEM" or source == "persona":
-                        persona_results.append(f"[KAIA_PERSONA_FRAGMENT]\n{content}")
-                    elif user_id and node_user_id == str(user_id):
+                    if u_id_str and node_user_id == u_id_str:
                         current_user_logs.append(f"[USER_PROFILE_AND_HISTORY: {node_user_name.upper()}]\n{content}")
-                    else:
-                        other_user_logs.append(f"[OTHER_USER_LOG: {node_user_name}]\n{content}")
+                    # Skip other users' logs entirely to reduce noise
                 else:
-                    lore_results.append(f"[GENERAL_KNOWLEDGE]\n{content}")
+                    # Apply relevance threshold to lore - filter out noise
+                    if score >= lore_threshold:
+                        lore_results.append(f"[GENERAL_KNOWLEDGE]\n{content}")
             
-            # Combine: Persona -> Current User Logs -> Lore -> Other Logs
-            # We prioritize based on the query type.
+            # 4. Combine based on query type with TIGHTER limits
             if is_kaia_query:
-                # Asking about Kaia: Persona is top priority
-                combined = persona_results[:8] + current_user_logs[:5] + lore_results[:3]
+                combined = persona_results[:3] + lore_results[:2]
             elif is_user_identity_query:
-                # Asking about User: User logs are top priority, persona is secondary context
-                combined = current_user_logs[:12] + persona_results[:2] + lore_results[:3]
+                combined = current_user_logs[:5] + persona_results[:1]
+            elif is_casual:
+                # Casual conversation: prioritize user context, include only highly relevant lore
+                combined = current_user_logs[:3] + persona_results[:1] + lore_results[:1]
             else:
-                # General query: Lore is top priority
-                combined = lore_results[:12] + persona_results[:2] + current_user_logs[:3]
+                # Knowledge query: Lore priority with some user context
+                combined = lore_results[:5] + current_user_logs[:2]
             
             # Final top_k slice
             final_results = combined[:top_k]
-            print(f"Final combined results count: {len(final_results)} (Persona: {len(persona_results[:8] if is_kaia_query else persona_results[:2])}, Lore: {len(lore_results[:12] if not is_identity_query else lore_results[:3])})")
+            query_type = "casual" if is_casual else ("identity" if is_identity_query else "knowledge")
+            print(f"Retrieved {len(final_results)} results [{query_type}] (P:{len(persona_results)}, U:{len(current_user_logs)}, L:{len(lore_results)}, thresh:{lore_threshold:.2f})")
             return final_results
             
         except Exception as e:
