@@ -39,29 +39,29 @@ async def download_image(url: str) -> str:
             if response.status != 200:
                 raise Exception(f"Failed to download image: HTTP {response.status}")
                 
-                # Get the file extension from the URL or content-type
-                content_type = response.headers.get('content-type', '')
-                if 'png' in content_type:
-                    ext = '.png'
-                elif 'jpeg' in content_type or 'jpg' in content_type:
-                    ext = '.jpg'
-                elif 'gif' in content_type:
-                    ext = '.gif'
-                elif 'webp' in content_type:
-                    ext = '.webp'
-                else:
-                    ext = '.png'  # default
-                
-                # Create temporary file
-                temp_fd, temp_path = tempfile.mkstemp(suffix=ext)
-                os.close(temp_fd)
-                
-                # Write image data
-                with open(temp_path, 'wb') as f:
-                    f.write(await response.read())
-                
-                logger.info(f"Image downloaded to: {temp_path}")
-                return temp_path
+            # Get the file extension from the URL or content-type
+            content_type = response.headers.get('content-type', '')
+            if 'png' in content_type:
+                ext = '.png'
+            elif 'jpeg' in content_type or 'jpg' in content_type:
+                ext = '.jpg'
+            elif 'gif' in content_type:
+                ext = '.gif'
+            elif 'webp' in content_type:
+                ext = '.webp'
+            else:
+                ext = '.png'  # default
+            
+            # Create temporary file
+            temp_fd, temp_path = tempfile.mkstemp(suffix=ext)
+            os.close(temp_fd)
+            
+            # Write image data
+            with open(temp_path, 'wb') as f:
+                f.write(await response.read())
+            
+            logger.info(f"Image downloaded to: {temp_path}")
+            return temp_path
                 
     except Exception as e:
         logger.error(f"Error downloading image: {e}")

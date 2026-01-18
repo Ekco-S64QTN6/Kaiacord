@@ -271,6 +271,10 @@ async def on_message(msg):
             await msg.channel.send("```\nRemember what? I'm not a mind reader.\n```")
         return
 
+    # Initialize memory for the channel if it doesn't exist
+    if msg.channel.id not in channel_memory:
+        channel_memory[msg.channel.id] = deque(maxlen=MAX_MEMORY)
+
     # IMAGE VISION: Handle images uploaded with "kaia" mention
     if msg.attachments:
         # Check if any attachment is an image
@@ -323,10 +327,6 @@ async def on_message(msg):
 
     try:
         print(f"Received message from {msg.author}: {msg.content}")
-        
-        # Initialize memory for the channel if it doesn't exist
-        if msg.channel.id not in channel_memory:
-            channel_memory[msg.channel.id] = deque(maxlen=MAX_MEMORY)
         
         # history = list(channel_memory[msg.channel.id])
         # We'll add the current message to memory AFTER the LLM call to avoid double-counting
