@@ -585,6 +585,13 @@ Kaia: {bot_response}
                 content = node.get_content()
                 if content in seen_texts:
                     continue
+                
+                # Filter out garbage text (e.g. bad PDF extractions with lots of non-ASCII)
+                # If more than 30% of characters are non-printable/non-ASCII, skip it
+                printable_count = sum(1 for c in content if c.isprintable() and ord(c) < 128)
+                if len(content) > 0 and (printable_count / len(content)) < 0.7:
+                    continue
+                    
                 seen_texts.add(content)
                 
                 # Check source metadata

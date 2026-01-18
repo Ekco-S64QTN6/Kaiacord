@@ -373,6 +373,12 @@ async def on_message(msg):
                 messages[-1]["content"] += f"\n\n{m['content']}"
             else:
                 messages.append(m.copy())
+        
+        # 3. Add the CURRENT user message
+        if messages and messages[-1]["role"] == "user":
+            messages[-1]["content"] += f"\n\n{msg.content}"
+        else:
+            messages.append({"role": "user", "content": msg.content})
 
         # 3. Inject RAG context and Reinforcement at the VERY END
         # This ensures the model sees it right before generating.
@@ -398,11 +404,11 @@ async def on_message(msg):
             "5. If the user asks who they are, use your memories to answer them directly."
         )
 
-        # Append to the last message (which is always the user's current query)
+        # Append to the last message (which is now the user's current query)
         if messages and messages[-1]["role"] == "user":
             messages[-1]["content"] += f"{rag_reminder}{reinforcement}"
         else:
-            # Fallback if history is empty or ends weirdly
+            # Fallback (should not happen now)
             messages.append({"role": "user", "content": f"{rag_reminder}{reinforcement}"})
 
         print("Calling ollama.chat...")
