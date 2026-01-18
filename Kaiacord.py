@@ -59,7 +59,8 @@ def load_persona():
             # Append strict formatting and brevity rules
             content += (
                 "\n\n## FORMATTING RULES\n"
-                "- NEVER use Markdown code blocks (backticks ```). Your entire response is already wrapped in one.\n"
+                "- NEVER use Markdown code blocks (backticks ```). It breaks the terminal UI.\n"
+                "- NEVER use bolding (**text**) or italics (*text*).\n"
                 "- BE CONCISE. Provide general overviews for technical tasks. No fluff.\n"
                 "- Use lowercase by default."
             )
@@ -436,14 +437,15 @@ async def on_message(msg):
 
         reinforcement = (
             "\n\n[CRITICAL_RULES]\n"
-            "1. NEVER use backticks (```). Your response is already in a code block.\n"
+            "1. NEVER use backticks (```) or any Markdown formatting. Your response is already wrapped in a code block; adding more breaks the UI.\n"
             "2. NO META-TALK. Never mention being an AI, a model, or 'processing' data.\n"
             "3. BE CONCISE. Blunt, grounded, lowercase. No fluff.\n"
-            "4. DO NOT prefix your response with a name (e.g., 'ekco.', 'kaia:', 'Response:'). Just start speaking.\n"
-            "5. If the user asks who they are, use the [USER_PROFILE_AND_HISTORY] fragments to answer them directly. Do NOT use the persona examples if you have real history.\n"
-            "6. [KAIA_PERSONA_FRAGMENT] nodes are facts about YOUR identity. Use them only when asked about yourself.\n"
-            "7. If the recovered logs are irrelevant, IGNORE THEM. Answer the user directly.\n"
-            "8. DO NOT parrot logs verbatim. Speak naturally as Kaia."
+            "4. NO BOLDING or ITALICS. Just plain text.\n"
+            "5. DO NOT prefix your response with a name (e.g., 'ekco.', 'kaia:', 'Response:'). Just start speaking.\n"
+            "6. If the user asks who they are, use the [USER_PROFILE_AND_HISTORY] fragments to answer them directly. Do NOT use the persona examples if you have real history.\n"
+            "7. [KAIA_PERSONA_FRAGMENT] nodes are facts about YOUR identity. Use them only when asked about yourself.\n"
+            "8. If the recovered logs are irrelevant, IGNORE THEM. Answer the user directly.\n"
+            "9. DO NOT parrot logs verbatim. Speak naturally as Kaia."
         )
 
         messages.append({
@@ -477,6 +479,9 @@ async def on_message(msg):
         for prefix in prefixes_to_strip:
             if content.startswith(prefix):
                 content = content[len(prefix):].strip()
+        
+        # FAIL-SAFE: Strip all backticks to prevent broken code blocks
+        content = content.replace("`", "")
         
         # List of patterns that indicate a safety lecture or helpline
         safety_patterns = [
