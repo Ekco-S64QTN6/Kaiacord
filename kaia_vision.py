@@ -210,7 +210,7 @@ async def kaia_sees_image(image_url: str, user_message: str = "", system_prompt:
         
     except Exception as e:
         logger.error(f"Error in kaia_sees_image: {e}")
-        return f"can't process that image. {str(e)[:50]}"
+        raise
         
     finally:
         # Clean up temp file
