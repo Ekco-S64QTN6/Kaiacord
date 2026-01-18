@@ -502,7 +502,6 @@ Kaia: {bot_response}
             query_lower = query.lower()
             is_kaia_query = any(phrase in query_lower for phrase in ["who are you", "who is kaia", "tell me about yourself", "what are you"])
             is_user_identity_query = any(phrase in query_lower for phrase in ["who am i", "what is my name", "my pronoun", "who is"]) and not is_kaia_query
-            is_identity_query = is_kaia_query or is_user_identity_query
             
             # Detect casual/social conversation that doesn't need knowledge retrieval
             casual_patterns = [
@@ -511,7 +510,9 @@ Kaia: {bot_response}
                 "my name is", "i'm ", "i am ", "nice to meet", "what do you think",
                 "how's it going", "what are you doing", "what are you up to"
             ]
-            is_casual = any(phrase in query_lower for phrase in casual_patterns) or len(query_lower.split()) <= 4
+            # A query is casual if it matches patterns AND isn't a specific identity query
+            is_casual = (any(phrase in query_lower for phrase in casual_patterns) or len(query_lower.split()) <= 4) and not (is_kaia_query or is_user_identity_query)
+            is_identity_query = is_kaia_query or is_user_identity_query
             
             # 2. Single retrieval pass with query enrichment
             enriched_query = query
@@ -581,9 +582,12 @@ Kaia: {bot_response}
             
             # 4. Combine based on query type with TIGHTER limits
             if is_kaia_query:
+                # Asking about Kaia: Persona is top priority
                 combined = persona_results[:3] + lore_results[:2]
             elif is_user_identity_query:
-                combined = current_user_logs[:5] + persona_results[:1]
+                # Asking about User: User logs ONLY. 
+                # CRITICAL: Exclude persona fragments to avoid identity confusion.
+                combined = current_user_logs[:5]
             elif is_casual:
                 # Casual conversation: prioritize user context, include only highly relevant lore
                 combined = current_user_logs[:3] + persona_results[:1] + lore_results[:1]
