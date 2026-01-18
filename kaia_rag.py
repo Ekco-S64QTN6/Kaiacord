@@ -4,6 +4,7 @@ import shutil
 import logging
 import warnings
 import pypdf
+import glob
 
 # Suppress noisy logs from libraries
 logging.getLogger("httpx").setLevel(logging.WARNING)
@@ -30,7 +31,7 @@ class KaiaRAG:
     def __init__(self, knowledge_base_dir="./knowledge_base", persist_dir="./storage"):
         self.knowledge_base_dir = knowledge_base_dir
         self.persist_dir = persist_dir
-        self.indexed_files = set()  # Track indexed files to avoid duplicates
+        self.indexed_files = {}  # Track indexed files {path: mtime} to detect updates
         
         # Configure Ollama Embedding
         self.embed_model = OllamaEmbedding(
@@ -41,7 +42,7 @@ class KaiaRAG:
         # Set global settings
         Settings.embed_model = self.embed_model
         Settings.node_parser = SentenceSplitter(chunk_size=512, chunk_overlap=20)
-        Settings.llm = Ollama(model="gemma3:12b", request_timeout=360.0)
+        Settings.llm = Ollama(model="gemma3:12b", request_timeout=360.0, additional_kwargs={"num_predict": 1536})
         
         self.index = None
         
@@ -77,26 +78,56 @@ class KaiaRAG:
             self.index = VectorStoreIndex.from_documents([])
 
     def _populate_indexed_files(self):
-        """Populate the set of indexed files from the existing index to avoid re-indexing."""
+        """Populate the set of indexed files from the existing index and clean up stale entries."""
         if not self.index:
             return
         
-        count = 0
-        for node in self.index.docstore.docs.values():
+        stale_nodes = []
+        valid_files = {} # path -> mtime
+        
+        for node_id, node in self.index.docstore.docs.items():
             file_path = node.metadata.get('file_path')
             if file_path:
-                # Normalize to absolute path to match scanning logic
-                self.indexed_files.add(os.path.abspath(file_path))
-                count += 1
+                abs_path = os.path.abspath(file_path)
+                if os.path.exists(abs_path):
+                    # Get the timestamp from metadata. 
+                    # OPTIMIZATION: If missing, use the current disk mtime as the baseline.
+                    # This prevents a mass re-index of static files on the first run.
+                    indexed_mtime = node.metadata.get('last_modified_at', os.path.getmtime(abs_path))
+                    # Keep the OLDEST timestamp found for this file to be safe
+                    if abs_path not in valid_files or indexed_mtime < valid_files[abs_path]:
+                        valid_files[abs_path] = indexed_mtime
+                else:
+                    stale_nodes.append(node_id)
+        
+        # Remove stale nodes from index
+        if stale_nodes:
+            print(f"Cleaning up {len(stale_nodes)} stale index entries...")
+            for node_id in stale_nodes:
+                try:
+                    self.index.delete_nodes([node_id])
+                except Exception as e:
+                    print(f"Warning: Could not delete node {node_id}: {e}")
+            
+            # Persist after cleanup
+            self.index.storage_context.persist(persist_dir=self.persist_dir)
+            print("✓ Index cleanup complete and persisted.")
+
+        self.indexed_files = valid_files
         
         # Also check for user_memories.txt specifically
         memory_file = os.path.join(self.knowledge_base_dir, "user_memories.txt")
-        for node in self.index.docstore.docs.values():
-            if node.metadata.get('source') == "user_memories.txt":
-                self.indexed_files.add(memory_file)
-                break
+        norm_memory_path = os.path.abspath(memory_file)
+        if os.path.exists(norm_memory_path):
+            # Check if any node has this source
+            for node in self.index.docstore.docs.values():
+                if node.metadata.get('source') == "user_memories.txt":
+                    indexed_mtime = node.metadata.get('last_modified_at', os.path.getmtime(norm_memory_path))
+                    if norm_memory_path not in self.indexed_files or indexed_mtime < self.indexed_files[norm_memory_path]:
+                        self.indexed_files[norm_memory_path] = indexed_mtime
+                    break
                 
-        print(f"Populated {len(self.indexed_files)} already indexed files from storage.")
+        print(f"Populated {len(self.indexed_files)} valid indexed files from storage.")
 
     def refresh_knowledge_base(self):
         """Load all supported files from the knowledge base directory and update the index incrementally."""
@@ -115,7 +146,7 @@ class KaiaRAG:
             # 1. Manually walk the directory to find NEW files
             # This is MUCH faster than letting SimpleDirectoryReader scan everything
             new_file_paths = []
-            supported_exts = [".pdf", ".txt", ".md"]
+            supported_exts = [".pdf", ".txt", ".md", ".docx"]
             
             for root, dirs, files in os.walk(self.knowledge_base_dir):
                 # Skip ONLY the corrupt_files directory (allow user_logs to be scanned)
@@ -128,26 +159,48 @@ class KaiaRAG:
                         full_path = os.path.join(root, file)
                         # Normalize path for tracking
                         norm_path = os.path.abspath(full_path)
-                        if norm_path not in self.indexed_files and "user_memories.txt" not in file:
-                            new_file_paths.append(full_path)
+                        mtime = os.path.getmtime(norm_path)
+                        
+                        # Check if new OR modified
+                        is_new = norm_path not in self.indexed_files
+                        is_modified = not is_new and mtime > self.indexed_files[norm_path]
+                        
+                        if (is_new or is_modified) and "user_memories.txt" not in file:
+                            new_file_paths.append((full_path, is_modified))
 
             if not new_file_paths:
                 print("No new documents to index.")
             else:
                 print(f"Found {len(new_file_paths)} new documents. Processing...")
                 
-                for file_path in new_file_paths:
-                    print(f"Processing: {file_path}")
+                for file_path, is_modified in new_file_paths:
+                    if is_modified:
+                        print(f"Detected update in: {file_path}. Re-indexing...")
+                        # Delete old nodes for this file
+                        abs_path = os.path.abspath(file_path)
+                        nodes_to_delete = [
+                            node_id for node_id, node in self.index.docstore.docs.items()
+                            if node.metadata.get('file_path') == file_path or os.path.abspath(node.metadata.get('file_path', '')) == abs_path
+                        ]
+                        if nodes_to_delete:
+                            print(f"Deleting {len(nodes_to_delete)} old nodes for {file_path}")
+                            for node_id in nodes_to_delete:
+                                self.index.delete_nodes([node_id])
+                    else:
+                        print(f"Processing new file: {file_path}")
+                        
                     try:
                         # Load single file
                         reader = SimpleDirectoryReader(input_files=[file_path])
                         docs = reader.load_data()
                         
                         if docs:
+                            mtime = os.path.getmtime(file_path)
                             for doc in docs:
+                                doc.metadata['last_modified_at'] = mtime
                                 self.index.insert(doc)
                             
-                            self.indexed_files.add(os.path.abspath(file_path))
+                            self.indexed_files[os.path.abspath(file_path)] = mtime
                             print(f"✓ Successfully indexed: {file_path}")
                         else:
                             print(f"Warning: No data loaded from {file_path}. Moving to corrupt_files.")
@@ -175,11 +228,14 @@ class KaiaRAG:
                                     md_reader = SimpleDirectoryReader(input_files=[md_path])
                                     md_docs = md_reader.load_data()
                                     if md_docs:
+                                        mtime = os.path.getmtime(md_path)
+                                        orig_mtime = os.path.getmtime(file_path)
                                         for doc in md_docs:
+                                            doc.metadata['last_modified_at'] = mtime
                                             self.index.insert(doc)
-                                        self.indexed_files.add(os.path.abspath(md_path))
+                                        self.indexed_files[os.path.abspath(md_path)] = mtime
                                         # Also track original PDF as "handled" so we don't retry
-                                        self.indexed_files.add(os.path.abspath(file_path))
+                                        self.indexed_files[os.path.abspath(file_path)] = orig_mtime
                                         print(f"✓ Successfully indexed converted Markdown: {md_path}")
                                         conversion_succeeded = True
                                     else:
@@ -207,7 +263,23 @@ class KaiaRAG:
             # 2. Special handling for user_memories.txt to split by '---'
             memory_file = os.path.join(self.knowledge_base_dir, "user_memories.txt")
             norm_memory_path = os.path.abspath(memory_file)
-            if os.path.exists(memory_file) and norm_memory_path not in self.indexed_files:
+            
+            # For user_memories.txt, we also want to detect updates
+            mem_is_new = norm_memory_path not in self.indexed_files
+            mem_is_modified = not mem_is_new and os.path.getmtime(norm_memory_path) > self.indexed_files[norm_memory_path]
+
+            if os.path.exists(memory_file) and (mem_is_new or mem_is_modified):
+                if mem_is_modified:
+                    print("Detected update in user_memories.txt. Re-indexing fragments...")
+                    # Delete old fragments
+                    nodes_to_delete = [
+                        node_id for node_id, node in self.index.docstore.docs.items()
+                        if node.metadata.get('source') == "user_memories.txt"
+                    ]
+                    if nodes_to_delete:
+                        for node_id in nodes_to_delete:
+                            self.index.delete_nodes([node_id])
+                
                 try:
                     with open(memory_file, "r", encoding="utf-8") as f:
                         content = f.read()
@@ -215,13 +287,18 @@ class KaiaRAG:
                         fragments = [frag.strip() for frag in content.split("---") if frag.strip()]
                         if fragments:
                             print(f"Indexing {len(fragments)} fragments from user_memories.txt...")
+                            mtime = os.path.getmtime(memory_file)
                             for idx, frag in enumerate(fragments):
                                 self.index.insert(Document(
                                     text=frag, 
-                                    metadata={"source": "user_memories.txt", "fragment_id": idx}
+                                    metadata={
+                                        "source": "user_memories.txt", 
+                                        "fragment_id": idx,
+                                        "last_modified_at": mtime
+                                    }
                                 ))
                             
-                            self.indexed_files.add(norm_memory_path)
+                            self.indexed_files[norm_memory_path] = mtime
                             self.index.storage_context.persist(persist_dir=self.persist_dir)
                             print("✓ user_memories.txt indexed.")
                 except Exception as e:
@@ -301,17 +378,25 @@ class KaiaRAG:
                 os.makedirs(user_log_dir)
                 print(f"Created user log directory: {user_log_dir}")
             
-            # Use a single file: interactions.txt
-            log_file = os.path.join(user_log_dir, "interactions.txt")
+            # Find existing log file or create new one with today's date
+            # Pattern: interactions_YYYYMMDD.txt
+            existing_logs = sorted(glob.glob(os.path.join(user_log_dir, "interactions_*.txt")))
             
-            # Check if file exists and if it exceeds 100MB
             MAX_SIZE = 100 * 1024 * 1024  # 100MB in bytes
-            if os.path.exists(log_file) and os.path.getsize(log_file) >= MAX_SIZE:
-                # Rotate the file by renaming it with a timestamp
-                rotation_timestamp = datetime.now().strftime("%Y%m%d_%H%M%S")
-                rotated_file = os.path.join(user_log_dir, f"interactions_{rotation_timestamp}.txt")
-                shutil.move(log_file, rotated_file)
-                print(f"Rotated log file to {rotated_file}")
+            
+            if existing_logs:
+                # Use the most recent log file
+                log_file = existing_logs[-1]
+                
+                # Check if it exceeds 100MB - if so, create a new file with today's date
+                if os.path.getsize(log_file) >= MAX_SIZE:
+                    new_timestamp = datetime.now().strftime("%Y%m%d")
+                    log_file = os.path.join(user_log_dir, f"interactions_{new_timestamp}.txt")
+                    print(f"Previous log full, starting new log: {log_file}")
+            else:
+                # No existing logs - create first one with today's date
+                new_timestamp = datetime.now().strftime("%Y%m%d")
+                log_file = os.path.join(user_log_dir, f"interactions_{new_timestamp}.txt")
             
             # Append interaction to the single file
             timestamp = datetime.now().strftime("%Y%m%d_%H%M%S")
@@ -326,6 +411,7 @@ Kaia: {bot_response}
             print(f"Logged interaction to {log_file}")
             
             # INCREMENTAL INSERT: Add the interaction to the index
+            mtime = os.path.getmtime(log_file)
             new_doc = Document(
                 text=interaction_text,
                 metadata={
@@ -333,13 +419,18 @@ Kaia: {bot_response}
                     "user_id": str(user_id),
                     "user_name": user_name,
                     "timestamp": timestamp,
-                    "file_path": log_file
+                    "file_path": os.path.abspath(log_file),
+                    "last_modified_at": mtime
                 }
             )
             self.index.insert(new_doc)
-            self.index.storage_context.persist(persist_dir=self.persist_dir)
-            self.indexed_files.add(os.path.abspath(log_file))
+            # NOTE: We don't persist here to avoid blocking on every message.
+            # The index is persisted on bot shutdown or next boot.
+            self.indexed_files[os.path.abspath(log_file)] = mtime
             print(f"Interaction indexed for user {user_name} ({user_id}).")
+            
+            # Persist periodically or after interaction
+            self.persist()
             
             return True
         except Exception as e:
@@ -348,20 +439,56 @@ Kaia: {bot_response}
             traceback.print_exc()
             return False
 
-    def retrieve(self, query, top_k=3):
-        """Retrieve the top_k relevant nodes for a given query."""
+    def retrieve(self, query, top_k=5):
+        """Retrieve relevant nodes, ensuring user logs are prioritized and not drowned out."""
         if not self.index:
             return []
         
+        if not query or not query.strip():
+            return []
+        
         try:
-            retriever = self.index.as_retriever(similarity_top_k=top_k)
+            # Search for a larger set of nodes to ensure we catch logs
+            retriever = self.index.as_retriever(similarity_top_k=20)
             nodes = retriever.retrieve(query)
-            return [node.get_content() for node in nodes]
+            
+            # Separate logs and lore
+            log_results = []
+            lore_results = []
+            seen_texts = set()
+            
+            for node in nodes:
+                content = node.get_content()
+                if content in seen_texts:
+                    continue
+                seen_texts.add(content)
+                
+                # Check source metadata - handle both 'user_logs' and potential variations
+                source = node.metadata.get('source', '')
+                if source == "user_logs" or "user_logs" in node.metadata.get('file_path', ''):
+                    user_name = node.metadata.get('user_name', 'Unknown')
+                    log_results.append(f"[USER LOG: {user_name}]\n{content}")
+                else:
+                    lore_results.append(content)
+            
+            # Combine: Logs first, then lore, up to top_k
+            combined = log_results + lore_results
+            return combined[:top_k]
+            
         except Exception as e:
             print(f"Error during retrieval: {e}")
             import traceback
             traceback.print_exc()
             return []
+
+    def persist(self):
+        """Persist the index to storage."""
+        if self.index:
+            try:
+                self.index.storage_context.persist(persist_dir=self.persist_dir)
+                print(f"✓ Index persisted to {self.persist_dir}")
+            except Exception as e:
+                print(f"Error persisting index: {e}")
 
 if __name__ == "__main__":
     rag = KaiaRAG()

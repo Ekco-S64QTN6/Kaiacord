@@ -1,15 +1,25 @@
+import os
+
+# Set PyTorch CUDA allocator to use expandable segments to reduce fragmentation
+# These MUST be set before torch is imported
+os.environ["PYTORCH_ALLOC_CONF"] = "expandable_segments:True,max_split_size_mb:512"
+os.environ["PYTORCH_CUDA_ALLOC_CONF"] = "expandable_segments:True,max_split_size_mb:512"
+
 import torch
 from diffusers import FluxPipeline, FluxTransformer2DModel
 from transformers import T5EncoderModel, CLIPTextModel, BitsAndBytesConfig
 import asyncio
-import os
 import tempfile
 import logging
 import gc
+import time
 
 # Set up logging
 logging.basicConfig(level=logging.INFO)
 logger = logging.getLogger("kaia_image")
+
+# Allow full use of GPU memory
+torch.cuda.set_per_process_memory_fraction(1.0)
 
 # Global lock to prevent concurrent generations
 generation_lock = asyncio.Lock()
@@ -38,20 +48,30 @@ def unload_ollama_models():
             logger.info(f"Unloading Ollama model: {name}...")
             
             # Send request to unload (keep_alive=0)
+            # We try /api/generate as it's more generic than /api/chat
             payload = json.dumps({"model": name, "keep_alive": 0}).encode('utf-8')
             req = urllib.request.Request(
-                "http://localhost:11434/api/chat", 
+                "http://localhost:11434/api/generate", 
                 data=payload, 
                 headers={'Content-Type': 'application/json'}
             )
             try:
                 with urllib.request.urlopen(req) as resp:
-                    # We just need to trigger the unload, response doesn't matter much
-                    pass
+                    resp.read() # Ensure request is sent
             except Exception as e:
-                logger.warning(f"Failed to unload model {name}: {e}")
-                
-        logger.info("All Ollama models unloaded.")
+                logger.warning(f"Failed to unload model {name} via /api/generate: {e}")
+
+        # 3. Verify they are gone (wait up to 5 seconds)
+        for i in range(5):
+            await_req = urllib.request.Request("http://localhost:11434/api/ps")
+            with urllib.request.urlopen(await_req) as response:
+                data = json.loads(response.read().decode('utf-8'))
+                if not data.get('models', []):
+                    logger.info("All Ollama models successfully unloaded.")
+                    return
+            time.sleep(1)
+            
+        logger.warning("Some Ollama models might still be loading/unloading.")
         
     except Exception as e:
         logger.error(f"Error checking/unloading Ollama models: {e}")
@@ -122,9 +142,12 @@ def _generate_image_sync(prompt: str):
                 device="cuda"
             )
             
-        # Move embeddings to CPU
+        # Move embeddings to CPU and delete GPU versions
         prompt_embeds = prompt_embeds.cpu()
         pooled_prompt_embeds = pooled_prompt_embeds.cpu()
+        text_ids = text_ids.cpu()
+        
+        logger.info(f"Embeddings moved to CPU. GPU memory: {torch.cuda.memory_allocated() / 1024**3:.2f} GiB allocated")
         
         # Cleanup Encoders
         logger.info("Deleting encoders from GPU...")
@@ -141,11 +164,31 @@ def _generate_image_sync(prompt: str):
         text_encoder = None
         text_encoder_2 = None
         
+        # Clear any other local variables that might hold GPU tensors
+        if 'text_ids' in locals():
+            del text_ids
+        
         # Run GC multiple times
         for _ in range(3):
             gc.collect()
         torch.cuda.empty_cache()
+        
+        # Additional aggressive cleanup to prevent fragmentation
+        torch.cuda.synchronize()  # Wait for all CUDA operations to complete
+        torch.cuda.reset_peak_memory_stats()  # Reset memory stats
+        
+        # Force another cache clear after sync
+        torch.cuda.empty_cache()
+        
         logger.info("Encoders unloaded.")
+        logger.info(f"GPU memory allocated: {torch.cuda.memory_allocated() / 1024**3:.2f} GiB")
+        logger.info(f"GPU memory reserved: {torch.cuda.memory_reserved() / 1024**3:.2f} GiB")
+        
+        # Check if we have enough free memory before loading transformer
+        free_memory = (torch.cuda.get_device_properties(0).total_memory - torch.cuda.memory_allocated()) / 1024**3
+        logger.info(f"Free GPU memory: {free_memory:.2f} GiB")
+        if free_memory < 6.0:
+            raise RuntimeError(f"Insufficient GPU memory to load transformer. Need at least 6 GiB, have {free_memory:.2f} GiB. Try restarting the bot to clear all memory.")
         
         # --- STEP 2: GENERATION ---
         logger.info("Step 2/2: Loading transformer...")
@@ -156,8 +199,11 @@ def _generate_image_sync(prompt: str):
             subfolder="transformer",
             quantization_config=quant_config,
             torch_dtype=torch.bfloat16,
-            local_files_only=True
+            local_files_only=True,
+            device_map={"": 0} # Force to GPU 0
         )
+        
+        logger.info(f"Transformer loaded. Device: {next(transformer.parameters()).device}")
         
         # Load Pipeline with Transformer only
         pipe_gen = FluxPipeline.from_pretrained(
@@ -170,6 +216,13 @@ def _generate_image_sync(prompt: str):
             torch_dtype=torch.bfloat16,
             local_files_only=True
         )
+        
+        # Move pipeline to CUDA (this handles VAE and other components)
+        # For quantized models, this is usually safe if the model is already on GPU
+        logger.info("Moving pipeline to CUDA...")
+        pipe_gen.to("cuda")
+        
+        logger.info(f"Pipeline moved. Transformer device: {next(transformer.parameters()).device}")
         
         # Enable CPU offload for VAE and other small parts
         # pipe_gen.enable_model_cpu_offload() <-- REMOVED: We manage lifecycle manually
@@ -195,6 +248,16 @@ def _generate_image_sync(prompt: str):
         logger.info(f"Image generated and saved to {temp_path}")
         return temp_path
         
+    except torch.cuda.OutOfMemoryError as oom_err:
+        logger.error(f"CUDA Out of Memory: {oom_err}")
+        logger.error("="*60)
+        logger.error("RECOVERY STEPS:")
+        logger.error("1. Run: python clear_gpu_memory.py")
+        logger.error("2. If that doesn't help, restart the bot to fully clear VRAM")
+        logger.error("3. Ensure Ollama models are unloaded: curl http://localhost:11434/api/ps")
+        logger.error("="*60)
+        raise RuntimeError(f"GPU out of memory. {torch.cuda.memory_allocated() / 1024**3:.2f} GiB allocated. Please restart the bot.") from oom_err
+        
     except Exception as e:
         logger.error(f"Error during image generation: {e}")
         raise
@@ -218,6 +281,8 @@ def _generate_image_sync(prompt: str):
             del prompt_embeds
         if 'pooled_prompt_embeds' in locals() and pooled_prompt_embeds is not None:
             del pooled_prompt_embeds
+        if 'text_ids' in locals() and text_ids is not None:
+            del text_ids
         if 'image' in locals() and image is not None:
             del image
             
