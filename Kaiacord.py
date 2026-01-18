@@ -393,13 +393,13 @@ async def on_message(msg):
         if context_nodes:
             context_str = "\n\n".join(context_nodes)
             rag_reminder = (
-                "\n\n[INTERNAL_MEMORY_RECOVERY]\n"
-                "The following fragments were recovered from my internal database. "
-                "I will use them ONLY if they are relevant to the current conversation. "
-                "If a fragment is irrelevant (e.g. a book excerpt that doesn't answer the question), I will ignore it completely.\n"
+                "\n\n[RECOVERED_DATA]\n"
+                "The following fragments were found in my knowledge base. "
+                "I will use them ONLY if they are directly relevant to the current question. "
+                "If they are irrelevant, I will ignore them and answer from my own knowledge.\n"
                 "---\n"
                 f"{context_str}\n"
-                "[END_MEMORY]"
+                "[END_DATA]"
             )
         else:
             rag_reminder = ""
@@ -411,7 +411,7 @@ async def on_message(msg):
             "3. If you know something about the user, it's because you REMEMBER it. Speak as a human.\n"
             "4. Stay in character. You are Kaia. Use lowercase. Be blunt. Be a person.\n"
             "5. If the user asks who they are, use your memories to answer them directly.\n"
-            "6. If the recovered memories are irrelevant to the user's question, IGNORE them and answer based on your own knowledge."
+            "6. If the recovered data is irrelevant to the user's question, IGNORE it. Prioritize the user's direct question over the fragments."
         )
 
         # Append to the last message (which is now the user's current query)

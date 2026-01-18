@@ -507,17 +507,17 @@ Kaia: {bot_response}
             retriever = self.index.as_retriever(similarity_top_k=20)
             nodes = retriever.retrieve(query)
             
-            # 2. If user_id is provided, do a targeted search for user identity/preferences
-            # This helps Kaia remember pronouns/facts even if the query doesn't match them well.
-            if user_id:
+            # 2. If user_id is provided, check if we should do a targeted identity search
+            # We only do this if the query seems to be about the user's identity/facts
+            is_identity_query = any(word in query.lower() for word in ["who", "me", "i", "name", "pronoun", "am i", "are you", "kaia"])
+            
+            if user_id and is_identity_query:
                 u_id_str = str(user_id)
                 # Search specifically for this user's logs
                 identity_query = f"Details about user {user_name} with ID {u_id_str}"
                 identity_nodes = retriever.retrieve(identity_query)
                 
                 # Also try to find nodes by metadata directly (more reliable)
-                # We'll manually check the docstore for nodes matching this user_id
-                # as a fallback/supplement to vector search
                 meta_nodes = []
                 count = 0
                 for node in self.index.docstore.docs.values():
@@ -546,9 +546,9 @@ Kaia: {bot_response}
                     continue
                 
                 # Filter out garbage text (e.g. bad PDF extractions with lots of non-ASCII)
-                # If more than 30% of characters are non-printable/non-ASCII, skip it
+                # If more than 15% of characters are non-printable/non-ASCII, skip it
                 printable_count = sum(1 for c in content if c.isprintable() and ord(c) < 128)
-                if len(content) > 0 and (printable_count / len(content)) < 0.7:
+                if len(content) > 0 and (printable_count / len(content)) < 0.85:
                     continue
                     
                 seen_texts.add(content)
@@ -570,12 +570,16 @@ Kaia: {bot_response}
                     lore_results.append(f"[REFERENCE_MATERIAL]\n{content}")
             
             # Combine: Current User Logs -> Lore -> Other Logs
-            # We prioritize current user logs (for pronouns/preferences).
-            combined = current_user_logs[:20] + lore_results[:5] + other_user_logs[:3]
+            # We balance the results: User logs for context, Lore for facts.
+            # If it's an identity query, we take more logs. Otherwise, we take more lore.
+            if is_identity_query:
+                combined = current_user_logs[:12] + lore_results[:5] + other_user_logs[:3]
+            else:
+                combined = lore_results[:12] + current_user_logs[:5] + other_user_logs[:3]
             
             # Final top_k slice
             final_results = combined[:top_k]
-            print(f"Final combined results count: {len(final_results)} (User Logs: {len(current_user_logs[:20])})")
+            print(f"Final combined results count: {len(final_results)} (Lore: {len(lore_results[:12]) if not is_identity_query else len(lore_results[:5])})")
             return final_results
             
         except Exception as e:
