@@ -9,6 +9,7 @@ import torch
 from diffusers import FluxPipeline, FluxTransformer2DModel
 from transformers import T5EncoderModel, CLIPTextModel, BitsAndBytesConfig
 import asyncio
+import aiohttp
 import tempfile
 import logging
 import gc
@@ -27,59 +28,53 @@ generation_lock = asyncio.Lock()
 import urllib.request
 import json
 
-def unload_ollama_models():
+async def unload_ollama_models():
     """
     Unloads all running Ollama models to free up VRAM for image generation.
+    Uses aiohttp for efficiency.
     """
     try:
-        # 1. List running models
-        req = urllib.request.Request("http://localhost:11434/api/ps")
-        with urllib.request.urlopen(req) as response:
-            data = json.loads(response.read().decode('utf-8'))
-            models = data.get('models', [])
-            
-        if not models:
-            logger.info("No Ollama models running.")
-            return
-
-        # 2. Unload each model
-        for model in models:
-            name = model['name']
-            logger.info(f"Unloading Ollama model: {name}...")
-            
-            # Send request to unload (keep_alive=0)
-            # We try /api/generate as it's more generic than /api/chat
-            payload = json.dumps({"model": name, "keep_alive": 0}).encode('utf-8')
-            req = urllib.request.Request(
-                "http://localhost:11434/api/generate", 
-                data=payload, 
-                headers={'Content-Type': 'application/json'}
-            )
-            try:
-                with urllib.request.urlopen(req) as resp:
-                    resp.read() # Ensure request is sent
-            except Exception as e:
-                logger.warning(f"Failed to unload model {name} via /api/generate: {e}")
-
-        # 3. Verify they are gone (wait up to 5 seconds)
-        for i in range(5):
-            await_req = urllib.request.Request("http://localhost:11434/api/ps")
-            with urllib.request.urlopen(await_req) as response:
-                data = json.loads(response.read().decode('utf-8'))
-                if not data.get('models', []):
-                    logger.info("All Ollama models successfully unloaded.")
+        async with aiohttp.ClientSession() as session:
+            # 1. List running models
+            async with session.get("http://localhost:11434/api/ps") as response:
+                if response.status != 200:
+                    logger.warning(f"Failed to list Ollama models: HTTP {response.status}")
                     return
-            time.sleep(1)
+                data = await response.json()
+                models = data.get('models', [])
+                
+            if not models:
+                logger.info("No Ollama models running.")
+                return
+
+            # 2. Unload each model
+            for model in models:
+                name = model['name']
+                logger.info(f"Unloading Ollama model: {name}...")
+                
+                # Send request to unload (keep_alive=0)
+                payload = {"model": name, "keep_alive": 0}
+                try:
+                    async with session.post("http://localhost:11434/api/generate", json=payload) as resp:
+                        await resp.read() # Ensure request is sent
+                except Exception as e:
+                    logger.warning(f"Failed to unload model {name}: {e}")
+
+            # 3. Verify they are gone (wait up to 5 seconds)
+            for i in range(5):
+                async with session.get("http://localhost:11434/api/ps") as response:
+                    data = await response.json()
+                    if not data.get('models', []):
+                        logger.info("All Ollama models successfully unloaded.")
+                        return
+                await asyncio.sleep(1)
             
-        logger.warning("Some Ollama models might still be loading/unloading.")
+            logger.warning("Some Ollama models might still be loading/unloading.")
         
     except Exception as e:
         logger.error(f"Error checking/unloading Ollama models: {e}")
 
 def _generate_image_sync(prompt: str):
-    # Free up VRAM from Ollama first
-    unload_ollama_models()
-    
     model_id = "black-forest-labs/FLUX.1-schnell"
     
     # 4-bit quantization config
@@ -298,4 +293,6 @@ async def generate_image(prompt: str):
     Uses a lock to ensure only one generation runs at a time.
     """
     async with generation_lock:
+        # Free up VRAM from Ollama first (async)
+        await unload_ollama_models()
         return await asyncio.to_thread(_generate_image_sync, prompt)

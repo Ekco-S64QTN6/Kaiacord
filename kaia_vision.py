@@ -16,6 +16,15 @@ VISION_MODEL = "llama3.2-vision:11b"
 # Create async Ollama client
 ollama_client = ollama.AsyncClient()
 
+# Global session for connection pooling
+_session = None
+
+async def get_session():
+    global _session
+    if _session is None or _session.closed:
+        _session = aiohttp.ClientSession()
+    return _session
+
 
 async def download_image(url: str) -> str:
     """
@@ -25,10 +34,10 @@ async def download_image(url: str) -> str:
     try:
         logger.info(f"Downloading image from: {url}")
         
-        async with aiohttp.ClientSession() as session:
-            async with session.get(url) as response:
-                if response.status != 200:
-                    raise Exception(f"Failed to download image: HTTP {response.status}")
+        session = await get_session()
+        async with session.get(url) as response:
+            if response.status != 200:
+                raise Exception(f"Failed to download image: HTTP {response.status}")
                 
                 # Get the file extension from the URL or content-type
                 content_type = response.headers.get('content-type', '')
@@ -139,7 +148,7 @@ async def process_discord_image(image_url: str, user_prompt: str = None) -> tupl
         raise
 
 
-async def kaia_sees_image(image_url: str, user_message: str = "") -> str:
+async def kaia_sees_image(image_url: str, user_message: str = "", system_prompt: str = "") -> str:
     """
     Kaia's vision handler that returns her commentary on an image.
     This integrates with her persona to provide blunt, grounded observations.
@@ -147,6 +156,7 @@ async def kaia_sees_image(image_url: str, user_message: str = "") -> str:
     Args:
         image_url: Discord CDN URL of the image
         user_message: The user's message accompanying the image
+        system_prompt: The bot's persona/system instructions
     
     Returns:
         Kaia's commentary on the image
@@ -157,7 +167,7 @@ async def kaia_sees_image(image_url: str, user_message: str = "") -> str:
         temp_path = await download_image(image_url)
         
         # Build prompt based on user's message
-        if user_message and any(word in user_message.lower() for word in ['describe', 'what', 'see', 'look']):
+        if user_message and any(word in user_message.lower() for word in ['describe', 'what', 'see', 'look', 'interpret', 'meaning']):
             # User is asking about the image
             prompt = (
                 "Describe what you see in this image. "
@@ -172,7 +182,29 @@ async def kaia_sees_image(image_url: str, user_message: str = "") -> str:
                 "Comment on what's interesting or notable."
             )
         
+        # Get raw analysis from vision model
         analysis = await analyze_image(temp_path, prompt)
+        
+        # Now, use the persona to "filter" or "rephrase" the analysis if a system prompt is provided
+        if system_prompt:
+            logger.info("Rephrasing vision analysis with persona...")
+            messages = [
+                {"role": "system", "content": system_prompt + "\n\nYou are Kaia. You just looked at an image and got this technical description of it. Rephrase it in your own blunt, grounded, lowercase style. Don't be an assistant. Just say what you see based on this data."},
+                {"role": "user", "content": f"Technical description of the image: {analysis}\n\nUser's original message: {user_message}"}
+            ]
+            
+            # Use the main model (Gemma 3) for rephrasing
+            # We'll use a slightly lower temperature for consistency
+            response = await ollama_client.chat(
+                model="gemma3:12b",
+                messages=messages,
+                options={
+                    "temperature": 0.4,
+                    "num_predict": 512,
+                }
+            )
+            content = response['message']['content'].strip()
+            return content
         
         return analysis
         

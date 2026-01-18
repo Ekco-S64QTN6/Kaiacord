@@ -21,10 +21,13 @@ Kaia uses a Retrieval-Augmented Generation (RAG) system to access local knowledg
 - **Stack**: Built with `llama-index`, `SimpleVectorStore`, and `OllamaEmbedding` (`nomic-embed-text`).
 - **Knowledge Base**: Supports `.txt`, `.pdf`, `.md`, and `.docx` files in the `./knowledge_base` folder.
 - **Recursive Scanning**: Automatically scans all subdirectories (e.g., `user_logs/`) for ingestion.
+- **Tail-Indexing for Logs**: Efficiently indexes only new content in log files using byte offsets.
 - **Incremental Indexing**: Only processes new or modified files for significantly faster boot times.
+- **Lazy Persistence**: RAG index is persisted periodically and on shutdown to maximize responsiveness.
 - **Dynamic Memory**: Use `kaia remember <something>` to log info to `user_memories.txt` and re-index immediately.
-- **Framing**: Context is presented as "recovered logs" or "memory fragments" to maintain the hacker persona.
-- **PDF Auto-Conversion**: PDFs that fail to ingest (e.g., context length errors) are automatically converted to Markdown.
+- **Metadata-First Retrieval**: Strictly prioritizes a user's specific history and preferences using metadata filters.
+- **Framing**: Context is presented as "recovered logs" or "internal memory recovery" to maintain the hacker persona.
+- **PDF & DOCX Auto-Conversion**: PDFs and Word documents are automatically converted to Markdown for more reliable retrieval.
 - **Corrupt File Quarantine**: Problematic files are moved to `./knowledge_base/corrupt_files/`.
 
 ## Setup

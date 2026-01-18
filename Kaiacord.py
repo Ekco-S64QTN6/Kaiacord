@@ -1,12 +1,15 @@
 import os
 import asyncio
+import re
+import traceback
+import random
+import time
+import datetime
+import logging
 from collections import deque
 from dotenv import load_dotenv
 import ollama
 import discord
-import random
-import time
-import datetime
 from discord.ext import tasks
 from kaia_rag import KaiaRAG
 from kaia_image import generate_image
@@ -37,13 +40,27 @@ consecutive_quips = 0
 MAX_CONSECUTIVE_QUIPS = 3
 
 # Load persona from file
+# PERSONA CACHING
+_persona_cache = None
+_persona_last_load = 0
+
 def load_persona():
-    """Load the bot's persona from kaia_persona.md"""
+    """Load the bot's persona from kaia_persona.md with caching"""
+    global _persona_cache, _persona_last_load
     persona_file = os.path.join(os.path.dirname(__file__), 'kaia_persona.md')
+    
     try:
+        mtime = os.path.getmtime(persona_file)
+        if _persona_cache and mtime <= _persona_last_load:
+            return _persona_cache
+            
         with open(persona_file, 'r', encoding='utf-8') as f:
-            return f.read().strip()
+            _persona_cache = f.read().strip()
+            _persona_last_load = mtime
+            return _persona_cache
     except Exception:
+        if _persona_cache:
+            return _persona_cache
         return "You are Kaia, a blunt and grounded resident of this server."
 
 # Create async client
@@ -70,6 +87,13 @@ async def on_ready():
     
     if not idle_quip_task.is_running():
         idle_quip_task.start()
+        
+    if not rag_maintenance_task.is_running():
+        rag_maintenance_task.start()
+    
+    # Refresh knowledge base in the background to avoid blocking boot
+    print("Refreshing knowledge base in background...")
+    asyncio.create_task(asyncio.to_thread(rag.refresh_knowledge_base))
 
 @tasks.loop(minutes=15)
 async def idle_quip_task():
@@ -176,6 +200,16 @@ async def idle_quip_task():
             except Exception as e:
                 print(f"Error in idle quip: {e}")
 
+@tasks.loop(minutes=5)
+async def rag_maintenance_task():
+    """Periodic RAG maintenance: persist index and check for updates"""
+    try:
+        if rag.persist_needed:
+            print("Periodic RAG persistence...")
+            await asyncio.to_thread(rag.persist)
+    except Exception as e:
+        print(f"Error in RAG maintenance: {e}")
+
 @bot.event
 async def on_message(msg):
     global last_interaction_time, last_active_channel_id, consecutive_quips
@@ -191,7 +225,6 @@ async def on_message(msg):
     consecutive_quips = 0
 
     # Trigger logic: Image generation (accepts both "kaia, draw" and "kaia draw")
-    import re
     draw_match = re.search(r'kaia[\s,]+draw\s+(.*)', msg.content.lower())
     if draw_match:
         prompt = draw_match.group(1).strip()
@@ -213,7 +246,6 @@ async def on_message(msg):
                 print(f"Cleaned up {image_path}")
         except Exception as e:
             print(f"Image generation error: {e}")
-            import traceback
             traceback.print_exc()
             await msg.channel.send(f"```\nsomething went wrong with the render. check the logs.\n```")
         return
@@ -248,8 +280,9 @@ async def on_message(msg):
                 # Show that Kaia is "looking"
                 await msg.channel.send("```\nlooking...\n```")
                 
-                # Get Kaia's vision analysis
-                analysis = await kaia_sees_image(image_url, msg.content)
+                # Get Kaia's vision analysis (passing persona for characterful response)
+                system_prompt = load_persona()
+                analysis = await kaia_sees_image(image_url, msg.content, system_prompt=system_prompt)
                 
                 # Send response
                 await msg.channel.send(f"```\n{analysis}\n```")
@@ -272,7 +305,6 @@ async def on_message(msg):
                 
             except Exception as e:
                 print(f"Vision error: {e}")
-                import traceback
                 traceback.print_exc()
                 await msg.channel.send("```\ncan't process that image. something broke.\n```")
                 return
@@ -295,36 +327,84 @@ async def on_message(msg):
         current_time_str = now.strftime("%A, %B %d, %Y %I:%M %p")
         system_prompt += f"\n\nToday is {current_time_str}."
         
-        messages = [{"role": "system", "content": system_prompt}]
-        
-        # Include all messages from memory
-        for m in channel_memory[msg.channel.id]:
-            messages.append(m)
-        
         # RAG RETRIEVAL
         # Clean query: strip "kaia" and common punctuation to improve retrieval
+        # Also handle "who am i" specifically to trigger identity retrieval
         clean_query = msg.content.lower().replace("kaia", "").strip("?,. ")
+        display_name = msg.author.display_name.strip(".")
+        
+        if not clean_query or clean_query in ["who am i", "who are you", "what am i"]:
+            clean_query = f"Who is {display_name}?"
+            
         print(f"Retrieving context for: {clean_query}")
-        context_nodes = rag.retrieve(clean_query, user_id=msg.author.id, user_name=msg.author.display_name, top_k=15)
+        
+        # Wrap RAG retrieval in a thread to avoid blocking the event loop
+        print(f"Retrieving context for user_id: {msg.author.id}")
+        context_nodes = await asyncio.to_thread(
+            rag.retrieve, 
+            clean_query, 
+            user_id=msg.author.id, 
+            user_name=msg.author.display_name, 
+            top_k=25
+        )
         
         if context_nodes:
             print(f"Found {len(context_nodes)} relevant context nodes.")
-            # Use a framing that sounds like her own logs/notes
+            # Debug: Print first 100 chars of each node
+            for i, node in enumerate(context_nodes):
+                print(f"Node {i}: {node[:100]}...")
+        
+        # CONSTRUCT MESSAGES: Gemma 3 template maps 'system' to 'user'.
+        # To avoid consecutive 'user' turns and ensure the model follows instructions,
+        # we start with the system prompt as a 'user' message and then merge history.
+        history = list(channel_memory[msg.channel.id])
+        messages = []
+        
+        # 1. Start with core persona (as 'user' to avoid template mapping issues)
+        messages.append({
+            "role": "user", 
+            "content": f"[CORE_IDENTITY]\n{system_prompt}\n[END_IDENTITY]\n\n(The above is your identity. Follow it strictly. Below is the conversation history.)"
+        })
+        
+        # 2. Add history, merging consecutive messages of the same role
+        for m in history:
+            if messages and messages[-1]["role"] == m["role"]:
+                # Merge consecutive messages of the same role
+                messages[-1]["content"] += f"\n\n{m['content']}"
+            else:
+                messages.append(m.copy())
+
+        # 3. Inject RAG context and Reinforcement at the VERY END
+        # This ensures the model sees it right before generating.
+        if context_nodes:
             context_str = "\n\n".join(context_nodes)
-            rag_context = (
-                "\n\n[RECOVERED_LOG_ENTRY]\n"
-                "you found these fragments in your local storage. they're part of your history and facts you know. "
-                "don't act like a bot or an assistant. just use this information as if you've always known it. "
-                "if the user asks about something here, you have the answer.\n"
+            rag_reminder = (
+                "\n\n[INTERNAL_MEMORY_RECOVERY]\n"
+                "i remember these details about the person i'm talking to and the world. "
+                "i'll use this information naturally as if i've always known it:\n"
                 "---\n"
                 f"{context_str}\n"
-                "[END_OF_LOGS]"
+                "[END_MEMORY]"
             )
-            # Inject into system prompt
-            messages[0]["content"] += rag_context
         else:
-            print("No relevant context found.")
-        
+            rag_reminder = ""
+
+        reinforcement = (
+            "\n\n[CRITICAL_REINFORCEMENT]\n"
+            "1. NEVER mention 'display names', 'input', 'processing', 'metadata', 'logs', or 'strings'.\n"
+            "2. NEVER acknowledge that you are an AI or that you are retrieving information from a database.\n"
+            "3. If you know something about the user, it's because you REMEMBER it. Speak as a human.\n"
+            "4. Stay in character. You are Kaia. Use lowercase. Be blunt. Be a person.\n"
+            "5. If the user asks who they are, use your memories to answer them directly."
+        )
+
+        # Append to the last message (which is always the user's current query)
+        if messages and messages[-1]["role"] == "user":
+            messages[-1]["content"] += f"{rag_reminder}{reinforcement}"
+        else:
+            # Fallback if history is empty or ends weirdly
+            messages.append({"role": "user", "content": f"{rag_reminder}{reinforcement}"})
+
         print("Calling ollama.chat...")
         response = await ollama_client.chat(
             model=model,
@@ -332,6 +412,7 @@ async def on_message(msg):
             options={
                 "temperature": 0.8,      # Increased to allow for more natural phrasing
                 "num_predict": 1024,     # Increased to allow for longer responses like stories
+                "num_ctx": 8192,         # Explicitly set context window to avoid truncation
                 "repeat_penalty": 1.1,   # Lowered to reduce the "robotic" feel
                 "presence_penalty": 0.0, # Removed to stop the forced avoidance of words
                 "frequency_penalty": 0.0, # Removed to stop the model from tripping over itself
@@ -341,6 +422,15 @@ async def on_message(msg):
         
         # Post-processing: Surgically strip safety lectures and helplines
         content = response['message']['content']
+        
+        # Strip common prefixes the model might hallucinate
+        prefixes_to_strip = [
+            "Kaia:", "kaia:", "Assistant:", "Model:", "System:", 
+            "Response:", "Observation:", "Thought:"
+        ]
+        for prefix in prefixes_to_strip:
+            if content.startswith(prefix):
+                content = content[len(prefix):].strip()
         
         # List of patterns that indicate a safety lecture or helpline
         safety_patterns = [
@@ -437,21 +527,17 @@ async def on_message(msg):
             content[:500]
         )
         
-        # Also log to Kaia's own log for her "thoughts" history
-        await asyncio.to_thread(
-            rag.log_user_interaction,
-            bot.user.id,
-            bot.user.name,
-            f"Response to {msg.author.display_name}: {msg.content}",
-            content[:500]
-        )
-        
         print("Response sent successfully!")
         
     except Exception as e:
         print(f"ERROR: {type(e).__name__}: {e}")
-        import traceback
         traceback.print_exc()
         await msg.channel.send(f"Sorry, I encountered an error: {e}")
 
-bot.run(DISCORD_TOKEN)
+try:
+    bot.run(DISCORD_TOKEN)
+finally:
+    # Ensure index is persisted on shutdown
+    print("Shutting down... Persisting RAG index.")
+    if rag:
+        rag.persist(force=True)
