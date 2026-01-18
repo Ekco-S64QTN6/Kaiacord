@@ -71,6 +71,35 @@ def load_persona():
             return _persona_cache
         return "You are Kaia, a blunt and grounded resident of this server."
 
+async def send_kaia_response(channel, text):
+    """Helper to split long messages and wrap them in Kaia's code block style"""
+    if not text:
+        return
+        
+    limit = 1980 # Leave room for backticks and newlines
+    chunks = []
+    
+    # If it's already short, just one chunk
+    if len(text) <= limit:
+        chunks.append(text)
+    else:
+        # Word-aware splitting
+        while len(text) > limit:
+            split_idx = text.rfind('\n', 0, limit)
+            if split_idx == -1:
+                split_idx = text.rfind(' ', 0, limit)
+            if split_idx == -1:
+                split_idx = limit
+            
+            chunks.append(text[:split_idx].strip())
+            text = text[split_idx:].strip()
+        if text:
+            chunks.append(text)
+            
+    for chunk in chunks:
+        if chunk:
+            await channel.send(f"```\n{chunk}\n```")
+
 # Create async client
 ollama_client = ollama.AsyncClient()
 
@@ -295,8 +324,8 @@ async def on_message(msg):
                 # Get Kaia's vision analysis
                 analysis = await kaia_sees_image(image_url, msg.content)
                 
-                # Send response
-                await msg.channel.send(f"```\n{analysis}\n```")
+                # Send response using the helper to handle long text
+                await send_kaia_response(msg.channel, analysis)
                 
                 # Add the current interaction to memory AFTER the response
                 channel_memory[msg.channel.id].append({"role": "user", "content": msg.content})
@@ -506,30 +535,8 @@ async def on_message(msg):
         # Add the bot's response to memory (truncated to 1000 chars to prevent verbosity creep)
         channel_memory[msg.channel.id].append({"role": "assistant", "content": content[:1000]})
 
-        # WORD-AWARE CHUNKING
-        def split_message(text, limit=1990):
-            chunks = []
-            while len(text) > limit:
-                # Find the last newline within the limit
-                split_idx = text.rfind('\n', 0, limit)
-                # If no newline, find the last space
-                if split_idx == -1:
-                    split_idx = text.rfind(' ', 0, limit)
-                # If no space, just hard cut
-                if split_idx == -1:
-                    split_idx = limit
-                
-                chunks.append(text[:split_idx].strip())
-                text = text[split_idx:].strip()
-            
-            if text:
-                chunks.append(text)
-            return chunks
-
-        chunks = split_message(content)
-        for chunk in chunks:
-            if chunk:
-                await msg.channel.send(f"```\n{chunk}\n```")
+        # Use the helper to handle long text and formatting
+        await send_kaia_response(msg.channel, content)
         
         # Add the current interaction to memory AFTER the response
         channel_memory[msg.channel.id].append({"role": "user", "content": msg.content})
@@ -553,7 +560,7 @@ async def on_message(msg):
     except Exception as e:
         print(f"ERROR: {type(e).__name__}: {e}")
         traceback.print_exc()
-        await msg.channel.send(f"Sorry, I encountered an error: {e}")
+        await send_kaia_response(msg.channel, f"something broke: {e}")
 
 try:
     bot.run(DISCORD_TOKEN)
