@@ -99,49 +99,63 @@ def _get_pipeline():
 
     logger.info("Initializing Flux pipeline (first run will load from disk)...")
     
+    # Aggressive cleanup before loading
+    gc.collect()
+    torch.cuda.empty_cache()
+    torch.cuda.synchronize()
+
     try:
-        # Load T5 in 4-bit (saves ~7GB VRAM)
+        # Load components one by one on CPU to avoid GPU spike
+        logger.info("Loading T5 (4-bit)...")
         text_encoder_2 = T5EncoderModel.from_pretrained(
             model_id,
             subfolder="text_encoder_2",
             quantization_config=quant_config,
             torch_dtype=torch.bfloat16,
-            local_files_only=True
+            local_files_only=True,
+            device_map="cpu" # Load on CPU
         )
         
-        # Load Transformer in 4-bit (saves ~15GB VRAM)
+        logger.info("Loading Transformer (4-bit)...")
         transformer = FluxTransformer2DModel.from_pretrained(
             model_id,
             subfolder="transformer",
             quantization_config=quant_config,
             torch_dtype=torch.bfloat16,
-            local_files_only=True
+            local_files_only=True,
+            device_map="cpu" # Load on CPU
         )
         
-        # Load the full pipeline
+        # Load the full pipeline on CPU
+        logger.info("Assembling pipeline...")
         _pipe = FluxPipeline.from_pretrained(
             model_id,
             text_encoder_2=text_encoder_2,
             transformer=transformer,
             torch_dtype=torch.bfloat16,
-            local_files_only=True
+            local_files_only=True,
+            device_map="cpu" # Load on CPU
         )
         
         # CRITICAL: Enable model CPU offload
         # This moves components to CPU RAM and only loads them to GPU when needed.
-        # This is much faster than disk loading and keeps VRAM free for Ollama when idle.
+        # This is the key to running Flux on 12GB VRAM.
+        logger.info("Enabling model CPU offload...")
         _pipe.enable_model_cpu_offload()
         
         # Memory optimizations
         _pipe.enable_vae_slicing()
         _pipe.enable_vae_tiling()
         
-        logger.info("Flux pipeline initialized with CPU offloading.")
+        logger.info("Flux pipeline initialized successfully.")
         return _pipe
         
     except Exception as e:
         logger.error(f"Failed to initialize Flux pipeline: {e}")
         _pipe = None
+        # Clean up any partial loads
+        gc.collect()
+        torch.cuda.empty_cache()
         raise
 
 def _generate_image_sync(prompt: str):
@@ -149,6 +163,11 @@ def _generate_image_sync(prompt: str):
     Synchronous image generation logic.
     """
     try:
+        # Ensure VRAM is as clean as possible
+        gc.collect()
+        torch.cuda.empty_cache()
+        torch.cuda.synchronize()
+        
         pipe = _get_pipeline()
         
         logger.info(f"Generating image for prompt: {prompt}")
@@ -156,13 +175,14 @@ def _generate_image_sync(prompt: str):
         
         # Generate image using the pipeline
         # Flux Schnell is optimized for 4 steps and 0 guidance
-        result = pipe(
-            prompt=prompt,
-            num_inference_steps=4,
-            guidance_scale=0.0,
-            max_sequence_length=256,
-            output_type="pil"
-        )
+        with torch.inference_mode():
+            result = pipe(
+                prompt=prompt,
+                num_inference_steps=4,
+                guidance_scale=0.0,
+                max_sequence_length=256,
+                output_type="pil"
+            )
         
         image = result.images[0]
         
@@ -178,10 +198,12 @@ def _generate_image_sync(prompt: str):
         
     except torch.cuda.OutOfMemoryError as oom_err:
         logger.error(f"CUDA Out of Memory during generation: {oom_err}")
-        # Clear the pipe on OOM to allow a fresh start
+        # Clear the pipe on OOM to allow a fresh start next time
         global _pipe
         _pipe = None
-        raise RuntimeError("GPU out of memory. Try clearing memory or restarting the bot.") from oom_err
+        gc.collect()
+        torch.cuda.empty_cache()
+        raise RuntimeError("GPU out of memory. Try restarting the bot to fully clear VRAM.") from oom_err
         
     except Exception as e:
         logger.error(f"Error during image generation: {e}")
@@ -201,4 +223,5 @@ async def generate_image(prompt: str):
     async with generation_lock:
         # Free up VRAM from Ollama first (async)
         await unload_ollama_models()
+        # Run generation in a separate thread
         return await asyncio.to_thread(_generate_image_sync, prompt)
