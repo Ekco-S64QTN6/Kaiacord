@@ -439,8 +439,11 @@ Kaia: {bot_response}
             traceback.print_exc()
             return False
 
-    def retrieve(self, query, top_k=5):
-        """Retrieve relevant nodes, ensuring user logs are prioritized and not drowned out."""
+    def retrieve(self, query, user_id=None, user_name=None, top_k=5):
+        """
+        Retrieve relevant nodes, ensuring user logs are prioritized and not drowned out.
+        If user_id is provided, specifically looks for that user's history and preferences.
+        """
         if not self.index:
             return []
         
@@ -448,12 +451,21 @@ Kaia: {bot_response}
             return []
         
         try:
-            # Search for a larger set of nodes to ensure we catch logs
+            # 1. Broad retrieval for general context
             retriever = self.index.as_retriever(similarity_top_k=20)
             nodes = retriever.retrieve(query)
             
+            # 2. If user_id is provided, do a targeted search for user identity/preferences
+            # This helps Kaia remember pronouns/facts even if the query doesn't match them well.
+            if user_id and user_name:
+                identity_query = f"Who is {user_name}? What are their pronouns, preferences, and history?"
+                identity_nodes = retriever.retrieve(identity_query)
+                # Add identity nodes to the pool, prioritizing them
+                nodes = identity_nodes[:5] + nodes
+            
             # Separate logs and lore
-            log_results = []
+            current_user_logs = []
+            other_user_logs = []
             lore_results = []
             seen_texts = set()
             
@@ -463,16 +475,25 @@ Kaia: {bot_response}
                     continue
                 seen_texts.add(content)
                 
-                # Check source metadata - handle both 'user_logs' and potential variations
+                # Check source metadata
                 source = node.metadata.get('source', '')
-                if source == "user_logs" or "user_logs" in node.metadata.get('file_path', ''):
-                    user_name = node.metadata.get('user_name', 'Unknown')
-                    log_results.append(f"[USER LOG: {user_name}]\n{content}")
+                file_path = node.metadata.get('file_path', '')
+                node_user_id = str(node.metadata.get('user_id', ''))
+                
+                if source == "user_logs" or "user_logs" in file_path:
+                    node_user_name = node.metadata.get('user_name', 'Unknown')
+                    
+                    # Prioritize current user
+                    if user_id and node_user_id == str(user_id):
+                        current_user_logs.append(f"[YOUR_HISTORY_WITH_{node_user_name.upper()}]\n{content}")
+                    else:
+                        other_user_logs.append(f"[OTHER_USER_LOG: {node_user_name}]\n{content}")
                 else:
                     lore_results.append(content)
             
-            # Combine: Logs first, then lore, up to top_k
-            combined = log_results + lore_results
+            # Combine: Current User Logs -> Lore -> Other Logs
+            # We prioritize current user logs (for pronouns/preferences) but keep lore for factual queries.
+            combined = current_user_logs[:3] + lore_results[:3] + other_user_logs[:1]
             return combined[:top_k]
             
         except Exception as e:
