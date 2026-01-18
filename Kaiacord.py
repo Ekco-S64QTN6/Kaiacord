@@ -305,7 +305,7 @@ async def on_message(msg):
         # Clean query: strip "kaia" and common punctuation to improve retrieval
         clean_query = msg.content.lower().replace("kaia", "").strip("?,. ")
         print(f"Retrieving context for: {clean_query}")
-        context_nodes = rag.retrieve(clean_query, user_id=msg.author.id, user_name=msg.author.display_name)
+        context_nodes = rag.retrieve(clean_query, user_id=msg.author.id, user_name=msg.author.display_name, top_k=15)
         
         if context_nodes:
             print(f"Found {len(context_nodes)} relevant context nodes.")

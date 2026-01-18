@@ -493,7 +493,8 @@ Kaia: {bot_response}
             
             # Combine: Current User Logs -> Lore -> Other Logs
             # We prioritize current user logs (for pronouns/preferences) but keep lore for factual queries.
-            combined = current_user_logs[:3] + lore_results[:3] + other_user_logs[:1]
+            # Increased limits to provide more depth.
+            combined = current_user_logs[:10] + lore_results[:5] + other_user_logs[:2]
             return combined[:top_k]
             
         except Exception as e:
