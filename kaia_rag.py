@@ -567,7 +567,7 @@ Kaia: {bot_response}
                     else:
                         other_user_logs.append(f"[OTHER_USER_LOG: {node_user_name}]\n{content}")
                 else:
-                    lore_results.append(content)
+                    lore_results.append(f"[REFERENCE_MATERIAL]\n{content}")
             
             # Combine: Current User Logs -> Lore -> Other Logs
             # We prioritize current user logs (for pronouns/preferences).

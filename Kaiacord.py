@@ -353,7 +353,7 @@ async def on_message(msg):
             clean_query, 
             user_id=target_user_id, 
             user_name=target_user_name, 
-            top_k=25
+            top_k=15
         )
         
         if context_nodes:
@@ -394,8 +394,9 @@ async def on_message(msg):
             context_str = "\n\n".join(context_nodes)
             rag_reminder = (
                 "\n\n[INTERNAL_MEMORY_RECOVERY]\n"
-                "i remember these details about the person i'm talking to and the world. "
-                "i'll use this information naturally as if i've always known it:\n"
+                "The following fragments were recovered from my internal database. "
+                "I will use them ONLY if they are relevant to the current conversation. "
+                "If a fragment is irrelevant (e.g. a book excerpt that doesn't answer the question), I will ignore it completely.\n"
                 "---\n"
                 f"{context_str}\n"
                 "[END_MEMORY]"
@@ -409,7 +410,8 @@ async def on_message(msg):
             "2. NEVER acknowledge that you are an AI or that you are retrieving information from a database.\n"
             "3. If you know something about the user, it's because you REMEMBER it. Speak as a human.\n"
             "4. Stay in character. You are Kaia. Use lowercase. Be blunt. Be a person.\n"
-            "5. If the user asks who they are, use your memories to answer them directly."
+            "5. If the user asks who they are, use your memories to answer them directly.\n"
+            "6. If the recovered memories are irrelevant to the user's question, IGNORE them and answer based on your own knowledge."
         )
 
         # Append to the last message (which is now the user's current query)
