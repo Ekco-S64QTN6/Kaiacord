@@ -6,7 +6,7 @@ Kaia is a Linux-native AI assistant for Discord, powered by Ollama.
 - **Discord Integration**: Connects seamlessly using `discord.py`.
 - **Local Inference**: Powered by Ollama (`gemma3:12b`) for private, local processing.
 - **Local RAG System**: Remembers information from local text files, PDFs, Markdown, and Word documents using `llama-index`.
-- **Dynamic Memory**: Use `kaia remember <text>` to store new information on the fly.
+- **Dynamic Memory**: Use `kaia remember <text>` to store new information directly into her interaction logs.
 - **Image Generation**: Use `kaia, draw <prompt>` or `kaia draw <prompt>` to generate images locally with FLUX.1-schnell. Includes automatic VRAM management by unloading Ollama models.
 - **Image Vision & Analysis**: Upload images with "kaia" mention for her to analyze and comment on them (uses llama3.2-vision).
 - **Idle Quips**: Generates random comments when left alone too long (max 3 consecutive).
@@ -24,8 +24,10 @@ Kaia uses a Retrieval-Augmented Generation (RAG) system to access local knowledg
 - **Tail-Indexing for Logs**: Efficiently indexes only new content in log files using byte offsets.
 - **Incremental Indexing**: Only processes new or modified files for significantly faster boot times.
 - **Lazy Persistence**: RAG index is persisted periodically and on shutdown to maximize responsiveness.
-- **Dynamic Memory**: Use `kaia remember <something>` to log info to `user_memories.txt` and re-index immediately.
+- **Dynamic Memory**: Use `kaia remember <something>` to log info directly to her interaction logs for immediate re-indexing.
 - **Metadata-First Retrieval**: Strictly prioritizes a user's specific history and preferences using metadata filters.
+- **Self-Identity Retrieval**: Explicitly indexes `kaia_persona.md` and her own logs to provide accurate answers about her own identity.
+- **Garbage Text Filter**: Automatically filters out corrupted or low-quality text fragments (e.g., from bad PDF extractions) during retrieval.
 - **Framing**: Context is presented as "recovered logs" or "internal memory recovery" to maintain the hacker persona.
 - **PDF & DOCX Auto-Conversion**: PDFs and Word documents are automatically converted to Markdown for more reliable retrieval.
 - **Corrupt File Quarantine**: Problematic files are moved to `./knowledge_base/corrupt_files/`.

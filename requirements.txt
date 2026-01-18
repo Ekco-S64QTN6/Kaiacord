@@ -14,3 +14,4 @@ sentencepiece
 protobuf
 bitsandbytes
 python-docx
+docx2txt
