@@ -507,10 +507,10 @@ Kaia: {bot_response}
             retriever = self.index.as_retriever(similarity_top_k=20)
             nodes = retriever.retrieve(query)
             
-            # 2. If user_id is provided, check if we should do a targeted identity search
-            # We only do this if the query seems to be about the user's identity/facts or Kaia's identity
-            identity_keywords = ["who am i", "what is my name", "my pronoun", "who are you", "who is kaia", "tell me about yourself", "what are you", "who is"]
-            is_identity_query = any(phrase in query.lower() for phrase in identity_keywords)
+            # 2. Identify the type of query
+            is_kaia_query = any(phrase in query.lower() for phrase in ["who are you", "who is kaia", "tell me about yourself", "what are you"])
+            is_user_identity_query = any(phrase in query.lower() for phrase in ["who am i", "what is my name", "my pronoun", "who is"]) and not is_kaia_query
+            is_identity_query = is_kaia_query or is_user_identity_query
             
             if user_id and is_identity_query:
                 u_id_str = str(user_id)
@@ -565,7 +565,7 @@ Kaia: {bot_response}
                     
                     # Tag persona file specifically
                     if node_user_id == "KAIA_SYSTEM" or source == "persona":
-                        persona_results.append(f"[MY_IDENTITY]\n{content}")
+                        persona_results.append(f"[KAIA_PERSONA_FRAGMENT]\n{content}")
                     elif user_id and node_user_id == str(user_id):
                         current_user_logs.append(f"[USER_PROFILE_AND_HISTORY: {node_user_name.upper()}]\n{content}")
                     else:
@@ -574,15 +574,20 @@ Kaia: {bot_response}
                     lore_results.append(f"[GENERAL_KNOWLEDGE]\n{content}")
             
             # Combine: Persona -> Current User Logs -> Lore -> Other Logs
-            # Persona always comes first if available.
-            if is_identity_query:
-                combined = persona_results[:5] + current_user_logs[:12] + lore_results[:5] + other_user_logs[:3]
+            # We prioritize based on the query type.
+            if is_kaia_query:
+                # Asking about Kaia: Persona is top priority
+                combined = persona_results[:8] + current_user_logs[:5] + lore_results[:3]
+            elif is_user_identity_query:
+                # Asking about User: User logs are top priority, persona is secondary context
+                combined = current_user_logs[:12] + persona_results[:2] + lore_results[:3]
             else:
-                combined = persona_results[:3] + lore_results[:12] + current_user_logs[:5] + other_user_logs[:3]
+                # General query: Lore is top priority
+                combined = lore_results[:12] + persona_results[:2] + current_user_logs[:3]
             
             # Final top_k slice
             final_results = combined[:top_k]
-            print(f"Final combined results count: {len(final_results)} (Persona: {len(persona_results[:5])}, Lore: {len(lore_results[:12]) if not is_identity_query else len(lore_results[:5])})")
+            print(f"Final combined results count: {len(final_results)} (Persona: {len(persona_results[:8] if is_kaia_query else persona_results[:2])}, Lore: {len(lore_results[:12] if not is_identity_query else lore_results[:3])})")
             return final_results
             
         except Exception as e:
