@@ -55,7 +55,15 @@ def load_persona():
             return _persona_cache
             
         with open(persona_file, 'r', encoding='utf-8') as f:
-            _persona_cache = f.read().strip()
+            content = f.read().strip()
+            # Append strict formatting and brevity rules
+            content += (
+                "\n\n## FORMATTING RULES\n"
+                "- NEVER use Markdown code blocks (backticks ```). Your entire response is already wrapped in one.\n"
+                "- BE CONCISE. Provide general overviews for technical tasks. No fluff.\n"
+                "- Use lowercase by default."
+            )
+            _persona_cache = content
             _persona_last_load = mtime
             return _persona_cache
     except Exception:
@@ -390,25 +398,27 @@ async def on_message(msg):
         if context_nodes:
             context_str = "\n\n".join(context_nodes)
             rag_reminder = (
-                "[RECOVERED_DATA]\n"
-                "The following fragments were found in your knowledge base. "
-                "Use them ONLY if they are directly relevant to the current question. "
+                "[INTERNAL_LOGS]\n"
+                "The following fragments were found in your memory. "
+                "Use them ONLY if they are directly relevant. "
                 "If they are irrelevant, ignore them.\n"
                 "---\n"
                 f"{context_str}\n"
-                "[END_DATA]"
+                "[END_LOGS]"
             )
         else:
-            rag_reminder = "No relevant memory fragments found."
+            rag_reminder = "No specific memories found for this query."
 
         reinforcement = (
             "\n\n[CRITICAL_INSTRUCTIONS]\n"
-            "1. NEVER mention 'display names', 'input', 'processing', 'metadata', 'logs', or 'strings'.\n"
-            "2. NEVER acknowledge that you are an AI or that you are retrieving information from a database.\n"
-            "3. If you know something about the user, it's because you REMEMBER it. Speak as a human.\n"
-            "4. Stay in character. You are Kaia. Use lowercase. Be blunt. Be a person.\n"
-            "5. If the user asks who they are, use your memories to answer them directly.\n"
-            "6. If the recovered data is irrelevant, IGNORE it. Answer the user's question directly."
+            "1. NEVER use Markdown code blocks (backticks ```). Your entire response is already wrapped in one.\n"
+            "2. BE CONCISE. Provide general overviews for technical tasks. No fluff.\n"
+            "3. NEVER mention 'display names', 'input', 'processing', 'metadata', 'logs', or 'strings'.\n"
+            "4. NEVER acknowledge that you are an AI or that you are retrieving information from a database.\n"
+            "5. If you know something about the user, it's because you REMEMBER it. Speak as a human.\n"
+            "6. Stay in character. You are Kaia. Use lowercase. Be blunt. Be a person.\n"
+            "7. If the recovered data is irrelevant, IGNORE it. Answer the user's question directly.\n"
+            "8. DO NOT parrot recovered fragments verbatim. Use them to inform your own natural response."
         )
 
         messages.append({

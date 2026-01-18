@@ -561,13 +561,15 @@ Kaia: {bot_response}
                 if source == "user_logs" or "user_logs" in file_path:
                     node_user_name = node.metadata.get('user_name', 'Unknown')
                     
-                    # Prioritize current user
-                    if user_id and node_user_id == str(user_id):
+                    # Tag persona file specifically
+                    if node.metadata.get('user_id') == "KAIA_SYSTEM":
+                        current_user_logs.append(f"[MY_IDENTITY]\n{content}")
+                    elif user_id and node_user_id == str(user_id):
                         current_user_logs.append(f"[USER_PROFILE_AND_HISTORY: {node_user_name.upper()}]\n{content}")
                     else:
                         other_user_logs.append(f"[OTHER_USER_LOG: {node_user_name}]\n{content}")
                 else:
-                    lore_results.append(f"[REFERENCE_MATERIAL]\n{content}")
+                    lore_results.append(f"[GENERAL_KNOWLEDGE]\n{content}")
             
             # Combine: Current User Logs -> Lore -> Other Logs
             # We balance the results: User logs for context, Lore for facts.
