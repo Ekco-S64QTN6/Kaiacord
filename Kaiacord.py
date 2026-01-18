@@ -255,7 +255,7 @@ async def on_message(msg):
         memory_content = msg.content[len("kaia remember"):].strip()
         if memory_content:
             print(f"Storing memory: {memory_content}")
-            if rag.add_memory(memory_content):
+            if rag.add_memory(bot.user.id, bot.user.name, memory_content):
                 await msg.channel.send("```\nLogged it.\n```")
             else:
                 await msg.channel.send("```\nMemory buffer error. Try again.\n```")
@@ -329,22 +329,30 @@ async def on_message(msg):
         
         # RAG RETRIEVAL
         # Clean query: strip "kaia" and common punctuation to improve retrieval
-        # Also handle "who am i" specifically to trigger identity retrieval
+        # Also handle identity queries specifically to trigger better retrieval
         clean_query = msg.content.lower().replace("kaia", "").strip("?,. ")
         display_name = msg.author.display_name.strip(".")
         
-        if not clean_query or clean_query in ["who am i", "who are you", "what am i"]:
+        target_user_id = msg.author.id
+        target_user_name = msg.author.display_name
+        
+        if not clean_query or clean_query in ["who am i", "what am i"]:
             clean_query = f"Who is {display_name}?"
+        elif clean_query in ["who are you", "what are you", "who is kaia"]:
+            clean_query = "Who is Kaia?"
+            # If asking about Kaia, we want to prioritize her own logs
+            target_user_id = bot.user.id
+            target_user_name = bot.user.name
             
         print(f"Retrieving context for: {clean_query}")
         
         # Wrap RAG retrieval in a thread to avoid blocking the event loop
-        print(f"Retrieving context for user_id: {msg.author.id}")
+        print(f"Retrieving context for target_user_id: {target_user_id}")
         context_nodes = await asyncio.to_thread(
             rag.retrieve, 
             clean_query, 
-            user_id=msg.author.id, 
-            user_name=msg.author.display_name, 
+            user_id=target_user_id, 
+            user_name=target_user_name, 
             top_k=25
         )
         

@@ -111,17 +111,7 @@ class KaiaRAG:
 
         self.indexed_files = valid_files
         
-        # Also check for user_memories.txt specifically
-        memory_file = os.path.join(self.knowledge_base_dir, "user_memories.txt")
-        norm_memory_path = os.path.abspath(memory_file)
-        if os.path.exists(norm_memory_path):
-            # Check if any node has this source
-            for node in self.index.docstore.docs.values():
-                if node.metadata.get('source') == "user_memories.txt":
-                    indexed_mtime = node.metadata.get('last_modified_at', os.path.getmtime(norm_memory_path))
-                    if norm_memory_path not in self.indexed_files or indexed_mtime < self.indexed_files[norm_memory_path]:
-                        self.indexed_files[norm_memory_path] = indexed_mtime
-                    break
+        self.indexed_files = valid_files
                 
         print(f"Populated {len(self.indexed_files)} valid indexed files from storage.")
 
@@ -176,6 +166,14 @@ class KaiaRAG:
                             # For user logs, we use a special 'is_log' flag to trigger tail-indexing
                             is_log = "user_logs" in full_path
                             new_file_paths.append((full_path, is_modified or missing_meta, is_log))
+
+            # 2. Also index the persona file from root
+            persona_file = "kaia_persona.md"
+            if os.path.exists(persona_file):
+                norm_path = os.path.abspath(persona_file)
+                mtime = os.path.getmtime(norm_path)
+                if norm_path not in self.indexed_files or mtime > self.indexed_files[norm_path]:
+                    new_file_paths.append((persona_file, norm_path in self.indexed_files, False))
 
             if not new_file_paths:
                 print("No new documents to index.")
@@ -263,6 +261,12 @@ class KaiaRAG:
                                 for doc in docs:
                                     doc.metadata['last_modified_at'] = mtime
                                     doc.metadata['file_path'] = os.path.abspath(file_path)
+                                    
+                                    # Tag persona file specifically
+                                    if "kaia_persona.md" in file_path:
+                                        doc.metadata['source'] = "persona"
+                                        doc.metadata['user_id'] = "KAIA_SYSTEM"
+                                        
                                     self.index.insert(doc)
                                 
                                 self.indexed_files[os.path.abspath(file_path)] = mtime
@@ -331,49 +335,9 @@ class KaiaRAG:
                 self.persist_needed = True
                 print("New documents indexed. Persistence marked as needed.")
             
-            # 2. Special handling for user_memories.txt to split by '---'
-            memory_file = os.path.join(self.knowledge_base_dir, "user_memories.txt")
-            norm_memory_path = os.path.abspath(memory_file)
-            
-            # For user_memories.txt, we also want to detect updates
-            mem_is_new = norm_memory_path not in self.indexed_files
-            mem_is_modified = not mem_is_new and os.path.getmtime(norm_memory_path) > self.indexed_files[norm_memory_path]
-
-            if os.path.exists(memory_file) and (mem_is_new or mem_is_modified):
-                if mem_is_modified:
-                    print("Detected update in user_memories.txt. Re-indexing fragments...")
-                    # Delete old fragments
-                    nodes_to_delete = [
-                        node_id for node_id, node in self.index.docstore.docs.items()
-                        if node.metadata.get('source') == "user_memories.txt"
-                    ]
-                    if nodes_to_delete:
-                        for node_id in nodes_to_delete:
-                            self.index.delete_nodes([node_id])
-                
-                try:
-                    with open(memory_file, "r", encoding="utf-8") as f:
-                        content = f.read()
-                        # Split by '---' and filter out empty fragments
-                        fragments = [frag.strip() for frag in content.split("---") if frag.strip()]
-                        if fragments:
-                            print(f"Indexing {len(fragments)} fragments from user_memories.txt...")
-                            mtime = os.path.getmtime(memory_file)
-                            for idx, frag in enumerate(fragments):
-                                self.index.insert(Document(
-                                    text=frag, 
-                                    metadata={
-                                        "source": "user_memories.txt", 
-                                        "fragment_id": idx,
-                                        "last_modified_at": mtime
-                                    }
-                                ))
-                            
-                            self.indexed_files[norm_memory_path] = mtime
-                            self.persist_needed = True
-                            print("✓ user_memories.txt indexed.")
-                except Exception as e:
-                    print(f"Warning: Error loading user_memories.txt: {e}")
+                # Mark for persistence
+                self.persist_needed = True
+                print("New documents indexed. Persistence marked as needed.")
                 
         except Exception as e:
             print(f"Error refreshing knowledge base: {e}")
@@ -437,29 +401,19 @@ class KaiaRAG:
             print(f"Error converting DOCX {docx_path} to MD: {e}")
             return None
 
-    def add_memory(self, text):
-        """Append a user-provided memory to user_memories.txt and add it incrementally."""
-        memory_file = os.path.join(self.knowledge_base_dir, "user_memories.txt")
+    def add_memory(self, user_id, user_name, text):
+        """Log a 'remembered' fact into the user's interaction log."""
         try:
-            with open(memory_file, "a", encoding="utf-8") as f:
-                f.write(f"\n---\n[RECOVERED MEMORY]: {text}\n")
-            
-            print(f"Stored new memory fragment in {memory_file}")
-            
-            # INCREMENTAL INSERT: Add only the new memory
-            new_doc = Document(
-                text=f"[RECOVERED MEMORY]: {text}",
-                metadata={"source": "user_memories.txt", "timestamp": datetime.now().isoformat()}
+            # We treat this as a special interaction where the user says "remember this" 
+            # and Kaia acknowledges it.
+            return self.log_user_interaction(
+                user_id, 
+                user_name, 
+                f"[REMEMBER_COMMAND]: {text}", 
+                "Logged it. I'll remember that."
             )
-            self.index.insert(new_doc)
-            self.persist_needed = True
-            print("Memory indexed incrementally.")
-            
-            return True
         except Exception as e:
             print(f"Error adding memory: {e}")
-            import traceback
-            traceback.print_exc()
             return False
 
     def log_user_interaction(self, user_id, user_name, message_content, bot_response):
@@ -574,6 +528,11 @@ Kaia: {bot_response}
                 
                 # Add identity and meta nodes to the pool, prioritizing them
                 nodes = meta_nodes + identity_nodes[:5] + nodes
+
+                # 3. If the target is Kaia herself, also pull from her persona file
+                if user_name and "kaia" in user_name.lower():
+                    persona_nodes = [n for n in self.index.docstore.docs.values() if n.metadata.get('user_id') == "KAIA_SYSTEM"]
+                    nodes = persona_nodes + nodes
             
             # Separate logs and lore
             current_user_logs = []
@@ -610,16 +569,13 @@ Kaia: {bot_response}
                 else:
                     lore_results.append(content)
             
-            # Combine: Current User Logs -> user_memories -> Lore -> Other Logs
-            # We prioritize current user logs (for pronouns/preferences) and their specific memories.
-            # Increased limits to provide more depth.
-            user_memories = [f"[RECOVERED_MEMORY]\n{content}" for node in nodes if node.metadata.get('source') == "user_memories.txt"]
-            
-            combined = current_user_logs[:15] + user_memories[:5] + lore_results[:5] + other_user_logs[:2]
+            # Combine: Current User Logs -> Lore -> Other Logs
+            # We prioritize current user logs (for pronouns/preferences).
+            combined = current_user_logs[:20] + lore_results[:5] + other_user_logs[:3]
             
             # Final top_k slice
             final_results = combined[:top_k]
-            print(f"Final combined results count: {len(final_results)} (User Logs: {len(current_user_logs[:15])})")
+            print(f"Final combined results count: {len(final_results)} (User Logs: {len(current_user_logs[:20])})")
             return final_results
             
         except Exception as e:
