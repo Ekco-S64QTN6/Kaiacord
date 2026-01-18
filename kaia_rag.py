@@ -508,8 +508,9 @@ Kaia: {bot_response}
             nodes = retriever.retrieve(query)
             
             # 2. If user_id is provided, check if we should do a targeted identity search
-            # We only do this if the query seems to be about the user's identity/facts
-            is_identity_query = any(word in query.lower() for word in ["who", "me", "i", "name", "pronoun", "am i", "are you", "kaia"])
+            # We only do this if the query seems to be about the user's identity/facts or Kaia's identity
+            identity_keywords = ["who am i", "what is my name", "my pronoun", "who are you", "who is kaia", "tell me about yourself", "what are you"]
+            is_identity_query = any(phrase in query.lower() for phrase in identity_keywords)
             
             if user_id and is_identity_query:
                 u_id_str = str(user_id)

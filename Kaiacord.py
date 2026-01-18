@@ -295,6 +295,10 @@ async def on_message(msg):
                 # Send response
                 await msg.channel.send(f"```\n{analysis}\n```")
                 
+                # Add the current interaction to memory AFTER the response
+                channel_memory[msg.channel.id].append({"role": "user", "content": msg.content})
+                channel_memory[msg.channel.id].append({"role": "assistant", "content": analysis})
+                
                 # Update interaction tracking
                 last_interaction_time = time.time()
                 last_active_channel_id = msg.channel.id
@@ -324,8 +328,8 @@ async def on_message(msg):
         if msg.channel.id not in channel_memory:
             channel_memory[msg.channel.id] = deque(maxlen=MAX_MEMORY)
         
-        # Add the current user message to memory
-        channel_memory[msg.channel.id].append({"role": "user", "content": msg.content})
+        # history = list(channel_memory[msg.channel.id])
+        # We'll add the current message to memory AFTER the LLM call to avoid double-counting
         
         # Build the message history for Ollama
         system_prompt = load_persona()
@@ -370,22 +374,17 @@ async def on_message(msg):
             for i, node in enumerate(context_nodes):
                 print(f"Node {i}: {node[:100]}...")
         
-        # CONSTRUCT MESSAGES: Gemma 3 template maps 'system' to 'user'.
-        # To avoid consecutive 'user' turns and ensure the model follows instructions,
-        # we start with the system prompt as a 'user' message and then merge history.
-        history = list(channel_memory[msg.channel.id])
-        messages = []
-        
         # 1. Start with core persona in the SYSTEM role
+        messages = []
         messages.append({
             "role": "system", 
             "content": system_prompt
         })
         
-        # 2. Add history
+        # 2. Add history (excluding the current message which isn't in memory yet)
+        history = list(channel_memory[msg.channel.id])
         for m in history:
             if messages and messages[-1]["role"] == m["role"] and m["role"] != "system":
-                # Merge consecutive messages of the same role (except system)
                 messages[-1]["content"] += f"\n\n{m['content']}"
             else:
                 messages.append(m.copy())
@@ -394,36 +393,31 @@ async def on_message(msg):
         messages.append({"role": "user", "content": msg.content})
 
         # 4. Inject RAG context and Reinforcement as a final SYSTEM instruction
-        # This ensures the model sees it as a command, not part of the user's query.
         if context_nodes:
             context_str = "\n\n".join(context_nodes)
-            rag_reminder = (
+            rag_block = (
                 "[INTERNAL_LOGS]\n"
-                "The following fragments were found in your memory. "
-                "Use them ONLY if they are directly relevant. "
-                "If they are irrelevant, ignore them.\n"
+                "The following fragments are from your own memory. Use them ONLY if relevant. "
+                "If they are irrelevant, ignore them completely.\n"
                 "---\n"
                 f"{context_str}\n"
                 "[END_LOGS]"
             )
         else:
-            rag_reminder = "No specific memories found for this query."
+            rag_block = "No specific memories found for this query."
 
         reinforcement = (
-            "\n\n[CRITICAL_INSTRUCTIONS]\n"
-            "1. NEVER use Markdown code blocks (backticks ```). Your entire response is already wrapped in one.\n"
-            "2. BE CONCISE. Provide general overviews for technical tasks. No fluff.\n"
-            "3. NEVER mention 'display names', 'input', 'processing', 'metadata', 'logs', or 'strings'.\n"
-            "4. NEVER acknowledge that you are an AI or that you are retrieving information from a database.\n"
-            "5. If you know something about the user, it's because you REMEMBER it. Speak as a human.\n"
-            "6. Stay in character. You are Kaia. Use lowercase. Be blunt. Be a person.\n"
-            "7. If the recovered data is irrelevant, IGNORE it. Answer the user's question directly.\n"
-            "8. DO NOT parrot recovered fragments verbatim. Use them to inform your own natural response."
+            "\n\n[CRITICAL_RULES]\n"
+            "1. NEVER use backticks (```). Your response is already in a code block.\n"
+            "2. NO META-TALK. Never mention being an AI, a model, or 'processing' data.\n"
+            "3. BE CONCISE. Blunt, grounded, lowercase. No fluff.\n"
+            "4. If the recovered logs are irrelevant, IGNORE THEM. Answer the user directly.\n"
+            "5. DO NOT parrot logs verbatim. Speak naturally as Kaia."
         )
 
         messages.append({
             "role": "system",
-            "content": f"{rag_reminder}{reinforcement}"
+            "content": f"{rag_block}{reinforcement}"
         })
 
         print("Calling ollama.chat...")
@@ -534,6 +528,10 @@ async def on_message(msg):
         for chunk in chunks:
             if chunk:
                 await msg.channel.send(f"```\n{chunk}\n```")
+        
+        # Add the current interaction to memory AFTER the response
+        channel_memory[msg.channel.id].append({"role": "user", "content": msg.content})
+        channel_memory[msg.channel.id].append({"role": "assistant", "content": content})
         
         # Update interaction time after sending
         last_interaction_time = time.time()
