@@ -148,7 +148,7 @@ async def process_discord_image(image_url: str, user_prompt: str = None) -> tupl
         raise
 
 
-async def kaia_sees_image(image_url: str, user_message: str = "", system_prompt: str = "") -> str:
+async def kaia_sees_image(image_url: str, user_message: str = "") -> str:
     """
     Kaia's vision handler that returns her commentary on an image.
     This integrates with her persona to provide blunt, grounded observations.
@@ -156,7 +156,6 @@ async def kaia_sees_image(image_url: str, user_message: str = "", system_prompt:
     Args:
         image_url: Discord CDN URL of the image
         user_message: The user's message accompanying the image
-        system_prompt: The bot's persona/system instructions
     
     Returns:
         Kaia's commentary on the image
@@ -170,42 +169,21 @@ async def kaia_sees_image(image_url: str, user_message: str = "", system_prompt:
         if user_message and any(word in user_message.lower() for word in ['describe', 'what', 'see', 'look', 'interpret', 'meaning']):
             # User is asking about the image
             prompt = (
-                "Describe what you see in this image. "
-                "Be direct and specific. No fluff. "
+                "You are Kaia. Describe what you see in this image. "
+                "Be blunt, grounded, and use lowercase. No fluff. "
                 "Focus on: objects, people, actions, setting, text, and anything notable."
             )
         else:
             # User just uploaded an image, give a brief comment
             prompt = (
-                "Give a brief, blunt observation about this image. "
-                "1-2 sentences. Be direct and grounded. "
+                "You are Kaia. Give a brief, blunt observation about this image. "
+                "1-2 sentences. Use lowercase. Be direct and grounded. "
                 "Comment on what's interesting or notable."
             )
         
-        # Get raw analysis from vision model
+        # Get analysis from vision model
+        # We've updated the prompt to be more Kaia-like directly to avoid a second rephrasing step
         analysis = await analyze_image(temp_path, prompt)
-        
-        # Now, use the persona to "filter" or "rephrase" the analysis if a system prompt is provided
-        if system_prompt:
-            logger.info("Rephrasing vision analysis with persona...")
-            messages = [
-                {"role": "system", "content": system_prompt + "\n\nYou are Kaia. You just looked at an image and got this technical description of it. Rephrase it in your own blunt, grounded, lowercase style. Don't be an assistant. Just say what you see based on this data."},
-                {"role": "user", "content": f"Technical description of the image: {analysis}\n\nUser's original message: {user_message}"}
-            ]
-            
-            # Use the main model (Gemma 3) for rephrasing
-            # We'll use a slightly lower temperature for consistency
-            response = await ollama_client.chat(
-                model="gemma3:12b",
-                messages=messages,
-                options={
-                    "temperature": 0.4,
-                    "num_predict": 512,
-                }
-            )
-            content = response['message']['content'].strip()
-            return content
-        
         return analysis
         
     except Exception as e:

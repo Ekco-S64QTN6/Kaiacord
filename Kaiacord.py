@@ -292,9 +292,8 @@ async def on_message(msg):
                 # Show that Kaia is "looking"
                 await msg.channel.send("```\nlooking...\n```")
                 
-                # Get Kaia's vision analysis (passing persona for characterful response)
-                system_prompt = load_persona()
-                analysis = await kaia_sees_image(image_url, msg.content, system_prompt=system_prompt)
+                # Get Kaia's vision analysis
+                analysis = await kaia_sees_image(image_url, msg.content)
                 
                 # Send response
                 await msg.channel.send(f"```\n{analysis}\n```")
