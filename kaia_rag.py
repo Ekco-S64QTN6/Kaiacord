@@ -509,7 +509,7 @@ Kaia: {bot_response}
             
             # 2. If user_id is provided, check if we should do a targeted identity search
             # We only do this if the query seems to be about the user's identity/facts or Kaia's identity
-            identity_keywords = ["who am i", "what is my name", "my pronoun", "who are you", "who is kaia", "tell me about yourself", "what are you"]
+            identity_keywords = ["who am i", "what is my name", "my pronoun", "who are you", "who is kaia", "tell me about yourself", "what are you", "who is"]
             is_identity_query = any(phrase in query.lower() for phrase in identity_keywords)
             
             if user_id and is_identity_query:
@@ -536,6 +536,7 @@ Kaia: {bot_response}
                     nodes = persona_nodes + nodes
             
             # Separate logs and lore
+            persona_results = []
             current_user_logs = []
             other_user_logs = []
             lore_results = []
@@ -559,12 +560,12 @@ Kaia: {bot_response}
                 file_path = node.metadata.get('file_path', '')
                 node_user_id = str(node.metadata.get('user_id', ''))
                 
-                if source == "user_logs" or "user_logs" in file_path:
+                if source == "user_logs" or "user_logs" in file_path or source == "persona":
                     node_user_name = node.metadata.get('user_name', 'Unknown')
                     
                     # Tag persona file specifically
-                    if node.metadata.get('user_id') == "KAIA_SYSTEM":
-                        current_user_logs.append(f"[MY_IDENTITY]\n{content}")
+                    if node_user_id == "KAIA_SYSTEM" or source == "persona":
+                        persona_results.append(f"[MY_IDENTITY]\n{content}")
                     elif user_id and node_user_id == str(user_id):
                         current_user_logs.append(f"[USER_PROFILE_AND_HISTORY: {node_user_name.upper()}]\n{content}")
                     else:
@@ -572,17 +573,16 @@ Kaia: {bot_response}
                 else:
                     lore_results.append(f"[GENERAL_KNOWLEDGE]\n{content}")
             
-            # Combine: Current User Logs -> Lore -> Other Logs
-            # We balance the results: User logs for context, Lore for facts.
-            # If it's an identity query, we take more logs. Otherwise, we take more lore.
+            # Combine: Persona -> Current User Logs -> Lore -> Other Logs
+            # Persona always comes first if available.
             if is_identity_query:
-                combined = current_user_logs[:12] + lore_results[:5] + other_user_logs[:3]
+                combined = persona_results[:5] + current_user_logs[:12] + lore_results[:5] + other_user_logs[:3]
             else:
-                combined = lore_results[:12] + current_user_logs[:5] + other_user_logs[:3]
+                combined = persona_results[:3] + lore_results[:12] + current_user_logs[:5] + other_user_logs[:3]
             
             # Final top_k slice
             final_results = combined[:top_k]
-            print(f"Final combined results count: {len(final_results)} (Lore: {len(lore_results[:12]) if not is_identity_query else len(lore_results[:5])})")
+            print(f"Final combined results count: {len(final_results)} (Persona: {len(persona_results[:5])}, Lore: {len(lore_results[:12]) if not is_identity_query else len(lore_results[:5])})")
             return final_results
             
         except Exception as e:
