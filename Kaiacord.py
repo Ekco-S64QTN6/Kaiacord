@@ -368,70 +368,65 @@ async def on_message(msg):
         history = list(channel_memory[msg.channel.id])
         messages = []
         
-        # 1. Start with core persona (as 'user' to avoid template mapping issues)
+        # 1. Start with core persona in the SYSTEM role
         messages.append({
-            "role": "user", 
-            "content": f"[CORE_IDENTITY]\n{system_prompt}\n[END_IDENTITY]\n\n(The above is your identity. Follow it strictly. Below is the conversation history.)"
+            "role": "system", 
+            "content": system_prompt
         })
         
-        # 2. Add history, merging consecutive messages of the same role
+        # 2. Add history
         for m in history:
-            if messages and messages[-1]["role"] == m["role"]:
-                # Merge consecutive messages of the same role
+            if messages and messages[-1]["role"] == m["role"] and m["role"] != "system":
+                # Merge consecutive messages of the same role (except system)
                 messages[-1]["content"] += f"\n\n{m['content']}"
             else:
                 messages.append(m.copy())
         
         # 3. Add the CURRENT user message
-        if messages and messages[-1]["role"] == "user":
-            messages[-1]["content"] += f"\n\n{msg.content}"
-        else:
-            messages.append({"role": "user", "content": msg.content})
+        messages.append({"role": "user", "content": msg.content})
 
-        # 3. Inject RAG context and Reinforcement at the VERY END
-        # This ensures the model sees it right before generating.
+        # 4. Inject RAG context and Reinforcement as a final SYSTEM instruction
+        # This ensures the model sees it as a command, not part of the user's query.
         if context_nodes:
             context_str = "\n\n".join(context_nodes)
             rag_reminder = (
-                "\n\n[RECOVERED_DATA]\n"
-                "The following fragments were found in my knowledge base. "
-                "I will use them ONLY if they are directly relevant to the current question. "
-                "If they are irrelevant, I will ignore them and answer from my own knowledge.\n"
+                "[RECOVERED_DATA]\n"
+                "The following fragments were found in your knowledge base. "
+                "Use them ONLY if they are directly relevant to the current question. "
+                "If they are irrelevant, ignore them.\n"
                 "---\n"
                 f"{context_str}\n"
                 "[END_DATA]"
             )
         else:
-            rag_reminder = ""
+            rag_reminder = "No relevant memory fragments found."
 
         reinforcement = (
-            "\n\n[CRITICAL_REINFORCEMENT]\n"
+            "\n\n[CRITICAL_INSTRUCTIONS]\n"
             "1. NEVER mention 'display names', 'input', 'processing', 'metadata', 'logs', or 'strings'.\n"
             "2. NEVER acknowledge that you are an AI or that you are retrieving information from a database.\n"
             "3. If you know something about the user, it's because you REMEMBER it. Speak as a human.\n"
             "4. Stay in character. You are Kaia. Use lowercase. Be blunt. Be a person.\n"
             "5. If the user asks who they are, use your memories to answer them directly.\n"
-            "6. If the recovered data is irrelevant to the user's question, IGNORE it. Prioritize the user's direct question over the fragments."
+            "6. If the recovered data is irrelevant, IGNORE it. Answer the user's question directly."
         )
 
-        # Append to the last message (which is now the user's current query)
-        if messages and messages[-1]["role"] == "user":
-            messages[-1]["content"] += f"{rag_reminder}{reinforcement}"
-        else:
-            # Fallback (should not happen now)
-            messages.append({"role": "user", "content": f"{rag_reminder}{reinforcement}"})
+        messages.append({
+            "role": "system",
+            "content": f"{rag_reminder}{reinforcement}"
+        })
 
         print("Calling ollama.chat...")
         response = await ollama_client.chat(
             model=model,
             messages=messages,
             options={
-                "temperature": 0.8,      # Increased to allow for more natural phrasing
-                "num_predict": 1024,     # Increased to allow for longer responses like stories
-                "num_ctx": 8192,         # Explicitly set context window to avoid truncation
-                "repeat_penalty": 1.1,   # Lowered to reduce the "robotic" feel
-                "presence_penalty": 0.0, # Removed to stop the forced avoidance of words
-                "frequency_penalty": 0.0, # Removed to stop the model from tripping over itself
+                "temperature": 0.7,
+                "num_predict": 1024,
+                "num_ctx": 8192,
+                "repeat_penalty": 1.2,
+                "presence_penalty": 0.1,
+                "frequency_penalty": 0.1,
                 "top_p": 0.9,
             }
         )
