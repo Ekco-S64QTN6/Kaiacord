@@ -111,9 +111,10 @@ def _get_pipeline():
             model_id,
             subfolder="text_encoder_2",
             quantization_config=quant_config,
-            torch_dtype=torch.bfloat16,
+            dtype=torch.bfloat16,
             local_files_only=True,
-            device_map="cpu" # Load on CPU
+            device_map="balanced",
+            low_cpu_mem_usage=True
         )
         
         logger.info("Loading Transformer (4-bit)...")
@@ -121,9 +122,10 @@ def _get_pipeline():
             model_id,
             subfolder="transformer",
             quantization_config=quant_config,
-            torch_dtype=torch.bfloat16,
+            dtype=torch.bfloat16,
             local_files_only=True,
-            device_map="cpu" # Load on CPU
+            device_map="balanced",
+            low_cpu_mem_usage=True
         )
         
         # Load the full pipeline on CPU
@@ -132,9 +134,10 @@ def _get_pipeline():
             model_id,
             text_encoder_2=text_encoder_2,
             transformer=transformer,
-            torch_dtype=torch.bfloat16,
+            dtype=torch.bfloat16,
             local_files_only=True,
-            device_map="cpu" # Load on CPU
+            device_map="balanced",
+            low_cpu_mem_usage=True
         )
         
         # CRITICAL: Enable model CPU offload
