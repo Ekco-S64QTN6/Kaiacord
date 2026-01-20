@@ -1,6 +1,6 @@
 # Kaiacord
 
-Kaia is a Linux-native AI assistant for Discord, powered by Ollama.
+Kaia is a Linux-native AI chatbot for Discord, powered by Ollama.
 
 ## Features
 - **Discord Integration**: Connects seamlessly using `discord.py`.
