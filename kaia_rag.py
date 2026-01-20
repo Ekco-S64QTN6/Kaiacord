@@ -6,6 +6,7 @@ import warnings
 import pypdf
 import glob
 import docx2txt
+import threading
 
 # Suppress noisy logs from libraries
 logging.getLogger("httpx").setLevel(logging.WARNING)
@@ -47,38 +48,41 @@ class KaiaRAG:
         
         self.index = None
         self.persist_needed = False
+        self._lock = threading.RLock()
         
         # Load or create index
         self._initialize_index()
 
     def _initialize_index(self):
         """Initialize the index from storage or create a new one."""
-        try:
-            if os.path.exists(self.persist_dir) and os.listdir(self.persist_dir):
-                print(f"Loading existing index from {self.persist_dir}...")
-                storage_context = StorageContext.from_defaults(persist_dir=self.persist_dir)
-                self.index = load_index_from_storage(storage_context)
-                self._populate_indexed_files()
-                print("✓ Existing index loaded successfully.")
-                # We'll call refresh_knowledge_base separately to avoid blocking init
-            else:
-                print("No existing index found. Initializing knowledge base...")
+        with self._lock:
+            try:
+                if os.path.exists(self.persist_dir) and os.listdir(self.persist_dir):
+                    print(f"Loading existing index from {self.persist_dir}...")
+                    storage_context = StorageContext.from_defaults(persist_dir=self.persist_dir)
+                    self.index = load_index_from_storage(storage_context)
+                    self._populate_indexed_files()
+                    print("✓ Existing index loaded successfully.")
+                    # We'll call refresh_knowledge_base separately to avoid blocking init
+                else:
+                    print("No existing index found. Initializing knowledge base...")
+                    self.index = VectorStoreIndex.from_documents([])
+                    if not os.path.exists(self.persist_dir):
+                        os.makedirs(self.persist_dir)
+                    self.index.storage_context.persist(persist_dir=self.persist_dir)
+                    print("New index created.")
+                
+            except Exception as e:
+                print(f"Error initializing RAG index: {e}")
+                import traceback
+                traceback.print_exc()
                 self.index = VectorStoreIndex.from_documents([])
-                if not os.path.exists(self.persist_dir):
-                    os.makedirs(self.persist_dir)
-                self.index.storage_context.persist(persist_dir=self.persist_dir)
-                print("New index created.")
-            
-        except Exception as e:
-            print(f"Error initializing RAG index: {e}")
-            import traceback
-            traceback.print_exc()
-            self.index = VectorStoreIndex.from_documents([])
 
     def _populate_indexed_files(self):
         """Populate the set of indexed files from the existing index and clean up stale entries."""
-        if not self.index:
-            return
+        with self._lock:
+            if not self.index:
+                return
         
         stale_nodes = []
         valid_files = {} # path -> mtime
@@ -114,9 +118,10 @@ class KaiaRAG:
 
     def refresh_knowledge_base(self):
         """Load all supported files from the knowledge base directory and update the index incrementally."""
-        if not os.path.exists(self.knowledge_base_dir):
-            os.makedirs(self.knowledge_base_dir)
-            return
+        with self._lock:
+            if not os.path.exists(self.knowledge_base_dir):
+                os.makedirs(self.knowledge_base_dir)
+                return
 
         print(f"Refreshing knowledge base from {self.knowledge_base_dir}...")
         
@@ -409,80 +414,87 @@ class KaiaRAG:
             print(f"Error adding memory: {e}")
             return False
 
-    def log_user_interaction(self, user_id, user_name, message_content, bot_response):
-        """Log user interaction to a single file per user, rotating at 100MB."""
-        # Sanitize user_name for filesystem
-        safe_user_name = "".join([c for c in user_name if c.isalnum() or c in (' ', '-', '_')]).strip().replace(' ', '_')
-        user_dir_name = f"{safe_user_name}_{user_id}"
-        user_log_dir = os.path.join(self.knowledge_base_dir, "user_logs", user_dir_name)
+    def log_user_interaction(self, user_id, user_name, message_content, bot_response, is_vision_response=False):
+        """Log user interaction to a single file per user, rotating at 100MB.
         
-        try:
-            # Create user directory if it doesn't exist
-            if not os.path.exists(user_log_dir):
-                os.makedirs(user_log_dir)
-                print(f"Created user log directory: {user_log_dir}")
+        Args:
+            is_vision_response: If True, marks this as a vision analysis response
+                               to be filtered from non-vision RAG retrievals.
+        """
+        with self._lock:
+            # Sanitize user_name for filesystem
+            safe_user_name = "".join([c for c in user_name if c.isalnum() or c in (' ', '-', '_')]).strip().replace(' ', '_')
+            user_dir_name = f"{safe_user_name}_{user_id}"
+            user_log_dir = os.path.join(self.knowledge_base_dir, "user_logs", user_dir_name)
             
-            # Find existing log file or create new one with today's date
-            # Pattern: interactions_YYYYMMDD.txt
-            existing_logs = sorted(glob.glob(os.path.join(user_log_dir, "interactions_*.txt")))
-            
-            MAX_SIZE = 100 * 1024 * 1024  # 100MB in bytes
-            
-            if existing_logs:
-                # Use the most recent log file
-                log_file = existing_logs[-1]
+            try:
+                # Create user directory if it doesn't exist
+                if not os.path.exists(user_log_dir):
+                    os.makedirs(user_log_dir)
+                    print(f"Created user log directory: {user_log_dir}")
                 
-                # Check if it exceeds 100MB - if so, create a new file with today's date
-                if os.path.getsize(log_file) >= MAX_SIZE:
+                # Find existing log file or create new one with today's date
+                # Pattern: interactions_YYYYMMDD.txt
+                existing_logs = sorted(glob.glob(os.path.join(user_log_dir, "interactions_*.txt")))
+                
+                MAX_SIZE = 100 * 1024 * 1024  # 100MB in bytes
+                
+                if existing_logs:
+                    # Use the most recent log file
+                    log_file = existing_logs[-1]
+                    
+                    # Check if it exceeds 100MB - if so, create a new file with today's date
+                    if os.path.getsize(log_file) >= MAX_SIZE:
+                        new_timestamp = datetime.now().strftime("%Y%m%d")
+                        log_file = os.path.join(user_log_dir, f"interactions_{new_timestamp}.txt")
+                        print(f"Previous log full, starting new log: {log_file}")
+                else:
+                    # No existing logs - create first one with today's date
                     new_timestamp = datetime.now().strftime("%Y%m%d")
                     log_file = os.path.join(user_log_dir, f"interactions_{new_timestamp}.txt")
-                    print(f"Previous log full, starting new log: {log_file}")
-            else:
-                # No existing logs - create first one with today's date
-                new_timestamp = datetime.now().strftime("%Y%m%d")
-                log_file = os.path.join(user_log_dir, f"interactions_{new_timestamp}.txt")
-            
-            # Append interaction to the single file
-            timestamp = datetime.now().strftime("%Y%m%d_%H%M%S")
-            interaction_text = f"""--- {timestamp} ---
+                
+                # Append interaction to the single file
+                timestamp = datetime.now().strftime("%Y%m%d_%H%M%S")
+                interaction_text = f"""--- {timestamp} ---
 User ({user_name}): {message_content}
 Kaia: {bot_response}
 
 """
-            # Get current size before appending for the offset
-            file_offset = os.path.getsize(log_file) if os.path.exists(log_file) else 0
-            
-            with open(log_file, "a", encoding="utf-8") as f:
-                f.write(interaction_text)
-            
-            print(f"Logged interaction to {log_file}")
-            
-            # INCREMENTAL INSERT: Add the interaction to the index
-            mtime = os.path.getmtime(log_file)
-            new_doc = Document(
-                text=interaction_text,
-                metadata={
-                    "source": "user_logs",
-                    "user_id": str(user_id),
-                    "user_name": user_name,
-                    "timestamp": timestamp,
-                    "file_path": os.path.abspath(log_file),
-                    "last_modified_at": mtime,
-                    "file_offset": file_offset,
-                    "content_length": len(interaction_text)
-                }
-            )
-            self.index.insert(new_doc)
-            self.indexed_files[os.path.abspath(log_file)] = mtime
-            self.persist_needed = True
-            print(f"Interaction indexed for user {user_name} ({user_id}).")
-            
-            return True
-        except Exception as e:
-            print(f"Error logging user interaction: {e}")
-            import traceback
-            traceback.print_exc()
-            return False
+                # Get current size before appending for the offset
+                file_offset = os.path.getsize(log_file) if os.path.exists(log_file) else 0
+                
+                with open(log_file, "a", encoding="utf-8") as f:
+                    f.write(interaction_text)
+                
+                print(f"Logged interaction to {log_file}")
+                
+                # INCREMENTAL INSERT: Add the interaction to the index
+                mtime = os.path.getmtime(log_file)
+                new_doc = Document(
+                    text=interaction_text,
+                    metadata={
+                        "source": "user_logs",
+                        "user_id": str(user_id),
+                        "user_name": user_name,
+                        "timestamp": timestamp,
+                        "file_path": os.path.abspath(log_file),
+                        "last_modified_at": mtime,
+                        "file_offset": file_offset,
+                        "content_length": len(interaction_text),
+                        "is_vision_response": is_vision_response
+                    }
+                )
+                self.index.insert(new_doc)
+                self.indexed_files[os.path.abspath(log_file)] = mtime
+                self.persist_needed = True
+                print(f"Interaction indexed for user {user_name} ({user_id}).")
+                
+                return True
+            except Exception as e:
+                print(f"Error logging user interaction: {e}")
+                import traceback
+                traceback.print_exc()
+                return False
 
     def retrieve(self, query, user_id=None, user_name=None, top_k=5):
         """
@@ -491,8 +503,9 @@ Kaia: {bot_response}
         
         OPTIMIZED: No longer iterates through entire docstore. Uses retriever results only.
         """
-        if not self.index:
-            return []
+        with self._lock:
+            if not self.index:
+                return []
         
         if not query or not query.strip():
             return []
@@ -514,36 +527,68 @@ Kaia: {bot_response}
             is_casual = (any(phrase in query_lower for phrase in casual_patterns) or len(query_lower.split()) <= 4) and not (is_kaia_query or is_user_identity_query)
             is_identity_query = is_kaia_query or is_user_identity_query
             
+            # Detect if this is a vision-related query
+            is_vision_query = any(word in query_lower for word in ["analyze", "look", "image", "picture", "what is this", "describe this"])
+            
             # 2. Single retrieval pass with query enrichment
             enriched_query = query
-            if user_id and (is_user_identity_query or is_casual) and user_name:
-                # Add user context to query to improve retrieval for user-specific questions
-                enriched_query = f"{query} user:{user_name}"
             
-            # Retrieve with a reasonable limit - fewer for casual chat
+            # Detect known user names in the query to improve retrieval
+            known_users = []
+            user_logs_path = os.path.join(self.knowledge_base_dir, "user_logs")
+            if os.path.exists(user_logs_path):
+                for d in os.scandir(user_logs_path):
+                    if d.is_dir() and "_" in d.name:
+                        u_name = d.name.rsplit("_", 1)[0].replace("_", " ")
+                        known_users.append(u_name)
+            
+            detected_user = None
+            for u_name in known_users:
+                if u_name.lower() in query_lower:
+                    detected_user = u_name
+                    break
+                # Also check parts of the name
+                for part in u_name.split():
+                    if len(part) > 3 and part.lower() in query_lower:
+                        detected_user = u_name
+                        break
+                if detected_user: break
+            
+            # Only enrich with user context if the query is specifically about the current user
+            is_self_query = any(phrase in query_lower for phrase in ["who am i", "what am i", "my character", "my profile", "my history", "my name", "my pronoun"])
+            
+            # ENRICHMENT STRATEGY:
+            # Always boost the current user for casual/identity queries to ensure their nodes are in the top_k
+            if user_name and (is_casual or is_self_query):
+                enriched_query = f"{query} user:{user_name} {user_name}"
+            
+            # If another user is detected, boost them too
+            if detected_user:
+                # Repeat the name to boost its importance in the embedding
+                enriched_query += f" user:{detected_user} {detected_user} {detected_user}"
+            
+            # Retrieve with a significantly higher limit to ensure profiles are found
             if is_casual:
-                retrieve_count = 8
+                retrieve_count = 40
             elif is_identity_query:
-                retrieve_count = 15
+                retrieve_count = 60
             else:
-                retrieve_count = 12
+                retrieve_count = 50
+            
             retriever = self.index.as_retriever(similarity_top_k=retrieve_count)
             nodes = retriever.retrieve(enriched_query)
             
-            # 3. Categorize nodes from retrieval results ONLY (no docstore iteration!)
-            persona_results = []
-            current_user_logs = []
-            lore_results = []
+            # 3. Categorize and Score nodes
+            scored_nodes = [] # List of (score, content, label)
             seen_texts = set()
             u_id_str = str(user_id) if user_id else None
             
-            # Lore relevance threshold - higher for casual to filter noise
-            lore_threshold = 0.65 if is_casual else 0.45
+            # Lore relevance threshold (Recalibrated: higher threshold to reduce anchoring)
+            lore_threshold = 0.80 if is_casual else 0.60
             
             for node_result in nodes:
-                # Handle both NodeWithScore and raw Node objects
                 node = node_result.node if hasattr(node_result, 'node') else node_result
-                score = node_result.score if hasattr(node_result, 'score') else 1.0
+                similarity_score = node_result.score if hasattr(node_result, 'score') else 0.5
                 content = node.get_content()
                 
                 # Skip duplicates
@@ -552,54 +597,105 @@ Kaia: {bot_response}
                     continue
                 seen_texts.add(content_hash)
                 
-                # Quick quality filter - only check first 500 chars for speed
+                # FILTER: Skip vision response nodes for non-vision queries to prevent feedback loop
+                if node.metadata.get('is_vision_response') and not is_vision_query:
+                    continue
+                
+                # Quality filter
                 sample = content[:500]
                 if sample:
                     ascii_count = sum(1 for c in sample if c.isascii() and c.isprintable())
                     if (ascii_count / len(sample)) < 0.80:
                         continue
                 
-                # Truncate very long content to reduce context size
                 if len(content) > 800:
                     content = content[:800] + "..."
                 
-                # Check source metadata
+                # Determine node type and priority
                 source = node.metadata.get('source', '')
                 file_path = node.metadata.get('file_path', '')
                 node_user_id = str(node.metadata.get('user_id', ''))
+                node_user_name = node.metadata.get('user_name', 'Unknown')
+                
+                priority = 0
+                label = ""
                 
                 if source == "persona" or node_user_id == "KAIA_SYSTEM":
-                    persona_results.append(f"[KAIA_PERSONA_FRAGMENT]\n{content}")
+                    priority = 150 if is_kaia_query else 80
+                    label = "[KAIA_PERSONA_FRAGMENT]"
                 elif source == "user_logs" or "user_logs" in file_path:
-                    node_user_name = node.metadata.get('user_name', 'Unknown')
-                    if u_id_str and node_user_id == u_id_str:
-                        current_user_logs.append(f"[USER_PROFILE_AND_HISTORY: {node_user_name.upper()}]\n{content}")
-                    # Skip other users' logs entirely to reduce noise
+                    if "user_profile.md" in file_path:
+                        label = f"[USER_SUMMARY_PROFILE: {node_user_name.upper()}]"
+                    else:
+                        label = f"[USER_HISTORY_LOG: {node_user_name.upper()}]"
+                    
+                    # Handle underscores in names (common in user log folders)
+                    node_user_name_clean = node_user_name.replace("_", " ")
+                    
+                    # IS THIS THE CURRENT USER?
+                    is_current_user = u_id_str and node_user_id == u_id_str
+                    # IS THIS THE DETECTED USER?
+                    is_detected_user = detected_user and detected_user.lower() in node_user_name_clean.lower()
+                    
+                    # SCORING LOGIC:
+                    if is_current_user:
+                        label += " (CURRENT USER)"
+                        if "user_profile.md" in file_path:
+                            priority = 100 # Highest priority for current user profile
+                        else:
+                            priority = 90 if is_self_query else 85
+                    elif is_detected_user:
+                        if "user_profile.md" in file_path:
+                            priority = 95 # High priority for detected user profile
+                        else:
+                            priority = 80
+                    else:
+                        # OTHER USERS: Strictly exclude unless they are the current or detected user
+                        # This prevents "random" nodes from other users leaking into context
+                        continue 
                 else:
-                    # Apply relevance threshold to lore - filter out noise
-                    if score >= lore_threshold:
-                        lore_results.append(f"[GENERAL_KNOWLEDGE]\n{content}")
+                    # Lore (Recalibrated: lower priority, historical reference only)
+                    if similarity_score >= lore_threshold:
+                        priority = 20
+                        label = "[USER_PROFILE_AND_HISTORY]"
+                    else:
+                        continue # Skip low-relevance lore
+                
+                # Final score combines priority and similarity
+                # Priority is the primary sort key (multiplied by 1000), similarity is secondary
+                final_score = (priority * 1000) + (similarity_score * 100)
+                scored_nodes.append((final_score, f"{label}\n{content}", label))
             
-            # 4. Combine based on query type with TIGHTER limits
-            if is_kaia_query:
-                # Asking about Kaia: Persona is top priority
-                combined = persona_results[:3] + lore_results[:2]
-            elif is_user_identity_query:
-                # Asking about User: User logs ONLY. 
-                # CRITICAL: Exclude persona fragments to avoid identity confusion.
-                combined = current_user_logs[:5]
-            elif is_casual:
-                # Casual conversation: prioritize user context, include only highly relevant lore
-                combined = current_user_logs[:3] + persona_results[:1] + lore_results[:1]
-            else:
-                # Knowledge query: Lore priority with some user context
-                combined = lore_results[:5] + current_user_logs[:2]
+            # 4. Sort and Filter
+            scored_nodes.sort(key=lambda x: x[0], reverse=True)
             
-            # Final top_k slice
-            final_results = combined[:top_k]
+            # Apply query-type specific filtering
+            final_results = []
+            persona_count = 0
+            user_log_count = 0
+            lore_count = 0
+            
+            for _, content, label in scored_nodes:
+                if "KAIA_PERSONA" in label:
+                    if is_user_identity_query: continue # Skip persona for user identity queries
+                    if persona_count >= (4 if is_kaia_query else 1): continue
+                    persona_count += 1
+                elif "USER_PROFILE" in label or "USER_SUMMARY" in label:
+                    if user_log_count >= (6 if is_identity_query else 5): continue
+                    user_log_count += 1
+                elif "[HISTORICAL_REFERENCE]" in label:
+                    if is_identity_query: continue # Skip lore for identity queries
+                    if lore_count >= (2 if is_casual else 4): continue
+                    lore_count += 1
+                
+                final_results.append(content)
+                if len(final_results) >= top_k:
+                    break
+            
             query_type = "casual" if is_casual else ("identity" if is_identity_query else "knowledge")
-            print(f"Retrieved {len(final_results)} results [{query_type}] (P:{len(persona_results)}, U:{len(current_user_logs)}, L:{len(lore_results)}, thresh:{lore_threshold:.2f})")
+            print(f"Retrieved {len(final_results)} results [{query_type}] (P:{persona_count}, U:{user_log_count}, L:{lore_count}, thresh:{lore_threshold:.2f})")
             return final_results
+
             
         except Exception as e:
             print(f"Error during retrieval: {e}")
@@ -609,13 +705,14 @@ Kaia: {bot_response}
 
     def persist(self, force=False):
         """Persist the index to storage if needed."""
-        if self.index and (self.persist_needed or force):
-            try:
-                self.index.storage_context.persist(persist_dir=self.persist_dir)
-                self.persist_needed = False
-                print(f"✓ Index persisted to {self.persist_dir}")
-            except Exception as e:
-                print(f"Error persisting index: {e}")
+        with self._lock:
+            if self.index and (self.persist_needed or force):
+                try:
+                    self.index.storage_context.persist(persist_dir=self.persist_dir)
+                    self.persist_needed = False
+                    print(f"✓ Index persisted to {self.persist_dir}")
+                except Exception as e:
+                    print(f"Error persisting index: {e}")
 
 if __name__ == "__main__":
     rag = KaiaRAG()

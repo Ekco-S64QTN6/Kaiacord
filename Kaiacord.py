@@ -1,19 +1,62 @@
 import os
 import asyncio
+
+# Set PyTorch CUDA allocator to use expandable segments to reduce fragmentation
+# These MUST be set before torch or any library that uses it is imported
+os.environ["PYTORCH_ALLOC_CONF"] = "expandable_segments:True,max_split_size_mb:512"
+os.environ["PYTORCH_CUDA_ALLOC_CONF"] = "expandable_segments:True,max_split_size_mb:512"
+
 import re
 import traceback
 import random
 import time
 import datetime
 import logging
+import subprocess
+import signal
+import json
 from collections import deque
 from dotenv import load_dotenv
 import ollama
 import discord
 from discord.ext import tasks
 from kaia_rag import KaiaRAG
-from kaia_image import generate_image
+from kaia_image import generate_image, unload_image_model, generation_lock
 from kaia_vision import kaia_sees_image, cleanup_session
+from clear_gpu_memory import clear_gpu_memory
+
+def cleanup_on_startup():
+    """Kill other instances of Kaiacord and clear GPU memory"""
+    current_pid = os.getpid()
+    print(f"Startup cleanup (PID: {current_pid})...")
+    
+    try:
+        # Find all processes matching "Kaiacord.py"
+        result = subprocess.run(['pgrep', '-f', 'Kaiacord.py'], capture_output=True, text=True)
+        pids = result.stdout.strip().split('\n')
+        
+        for pid_str in pids:
+            if pid_str:
+                try:
+                    pid = int(pid_str)
+                    if pid != current_pid:
+                        print(f"  - Killing existing instance (PID: {pid})...")
+                        os.kill(pid, signal.SIGTERM)
+                except (ValueError, ProcessLookupError):
+                    continue
+                except Exception as e:
+                    print(f"    Warning: Failed to kill PID {pid_str}: {e}")
+    except Exception as e:
+        print(f"Warning: Failed to run pkill logic: {e}")
+
+    # Clear GPU memory
+    try:
+        clear_gpu_memory()
+    except Exception as e:
+        print(f"Warning: Failed to clear GPU memory: {e}")
+
+# Run cleanup immediately on script execution
+cleanup_on_startup()
 
 # setup environment variables
 load_dotenv()
@@ -30,10 +73,37 @@ model = "gemma3:12b"
 # MEMORY: Store the last 15 messages per channel
 MAX_MEMORY = 15
 channel_memory = {}
+last_image_per_channel = {} # Track the last image URL per channel
 
 # TRACKING: Last interaction time and channel
 last_interaction_time = time.time()
 last_active_channel_id = None
+STATE_FILE = "bot_state.json"
+BLACKLISTED_CHANNELS = ["general", "announcements", "rules"]
+
+def load_bot_state():
+    """Load persisted bot state from JSON file"""
+    global last_active_channel_id
+    try:
+        if os.path.exists(STATE_FILE):
+            with open(STATE_FILE, 'r') as f:
+                state = json.load(f)
+                last_active_channel_id = state.get('last_active_channel_id')
+                print(f"Loaded last_active_channel_id: {last_active_channel_id}")
+    except Exception as e:
+        print(f"Warning: Failed to load bot state: {e}")
+
+def save_bot_state():
+    """Save bot state to JSON file"""
+    try:
+        state = {'last_active_channel_id': last_active_channel_id}
+        with open(STATE_FILE, 'w') as f:
+            json.dump(state, f)
+    except Exception as e:
+        print(f"Warning: Failed to save bot state: {e}")
+
+# Load state on startup
+load_bot_state()
 
 # QUIP TRACKING: Consecutive quips counter
 consecutive_quips = 0
@@ -56,12 +126,12 @@ def load_persona():
             
         with open(persona_file, 'r', encoding='utf-8') as f:
             content = f.read().strip()
-            # Append strict formatting and brevity rules
+            # Append strict formatting and substance rules
             content += (
                 "\n\n## FORMATTING RULES\n"
                 "- NEVER use Markdown code blocks (backticks ```). It breaks the terminal UI.\n"
                 "- NEVER use bolding (**text**) or italics (*text*).\n"
-                "- BE CONCISE. Provide general overviews for technical tasks. No fluff.\n"
+                "- BE SUBSTANTIAL AND DIRECT. Provide detailed but grounded answers. No fluff.\n"
                 "- Use lowercase by default."
             )
             _persona_cache = content
@@ -107,21 +177,29 @@ ollama_client = ollama.AsyncClient()
 # Initialize RAG
 rag = KaiaRAG()
 
+async def prewarm_main_model():
+    """Prewarm the main chat model to avoid cold-start delay"""
+    try:
+        print(f"Prewarming main model: {model}...")
+        await ollama_client.chat(
+            model=model,
+            messages=[{"role": "user", "content": "hi"}],
+            options={
+                "num_predict": 1,
+                "num_ctx": 8192  # Match the main chat loop
+            }
+        )
+        print(f"✓ Main model {model} prewarmed.")
+    except Exception as e:
+        print(f"Warning: Failed to prewarm main model: {e}")
+
 @bot.event
 async def on_ready():
     print(f"{bot.user.name} is online!")
     
-    # Prewarm the Ollama model to avoid cold-start delay on first message
-    print("Prewarming Ollama model...")
-    try:
-        await ollama_client.chat(
-            model=model,
-            messages=[{"role": "user", "content": "hi"}],
-            options={"num_predict": 1}  # Generate just 1 token to minimize time
-        )
-        print("✓ Model prewarmed and ready.")
-    except Exception as e:
-        print(f"Warning: Failed to prewarm model: {e}")
+    # Prewarm the main Ollama model to avoid cold-start delay on first message
+    # We don't prewarm the vision model here to avoid system lag
+    asyncio.create_task(prewarm_main_model())
     
     if not idle_quip_task.is_running():
         idle_quip_task.start()
@@ -148,10 +226,14 @@ async def idle_quip_task():
     # Fallback: If we don't have a channel yet, find one we can speak in
     if not last_active_channel_id:
         for guild in bot.guilds:
-            for channel in guild.text_channels:
+            # Sort channels to have some consistency, but prioritize non-blacklisted
+            channels = sorted(guild.text_channels, key=lambda c: c.position)
+            for channel in channels:
                 if channel.permissions_for(guild.me).send_messages:
-                    last_active_channel_id = channel.id
-                    break
+                    if channel.name.lower() not in BLACKLISTED_CHANNELS:
+                        last_active_channel_id = channel.id
+                        save_bot_state()
+                        break
             if last_active_channel_id: break
 
     if not last_active_channel_id:
@@ -175,39 +257,40 @@ async def idle_quip_task():
         if channel:
             try:
                 print(f"Generating idle quip #{consecutive_quips+1} (Idle: {int(idle_duration/60)}m)...")
+                
+                # RAG: Pull a random fragment from user logs to make fun of
+                # We'll query for "recent interaction" to get something semi-relevant
+                context_nodes = await asyncio.to_thread(
+                    rag.retrieve, 
+                    "recent user interaction", 
+                    top_k=3
+                )
+                
+                context_str = ""
+                if context_nodes:
+                    context_str = "\n\n[LOG_CONTEXT]\n" + "\n---\n".join(context_nodes)
+                
                 system_prompt = load_persona()
                 
-                # Improved prompt for variety and depth
-                topics = [
-                    "a recent technical thought or observation about systems, code, or the web",
-                    "a philosophical musing about tech culture, privacy, or digital autonomy",
-                    "a memory from the early internet days (BBS, IRC, 56k modems)",
-                    "a blunt observation about modern software or the corporate web",
-                    "a random question about hacker culture, security, or craft",
-                    "a dry comment on the state of privacy, encryption, or surveillance",
-                    "a thought about coffee, hardware, or late-night debugging sessions",
-                    "a reflection on the cycles of hype and failure in tech"
-                ]
-                
-                topic = random.choice(topics)
-                
                 messages = [
-                    {"role": "system", "content": system_prompt},
-                    {"role": "user", "content": f"Generate a quip or thought about {topic}. "
-                        "Make it 2-4 sentences. Be specific and grounded. Don't address anyone. "
-                        "Just share something on your mind. Avoid repetition—make it interesting and varied."}
+                    {"role": "system", "content": system_prompt + context_str},
+                    {"role": "user", "content": "Based on the provided log context (if any), generate a short, funny, and slightly mocking question or quip. "
+                        "Make it a single, sharp sentence. Be blunt and grounded. "
+                        "If there's log context, make fun of what was said or the user's logic. "
+                        "If no context, just ask a dry, cynical question about tech or life. "
+                        "No fluff. No intro. Just the quip."}
                 ]
                 
                 response = await ollama_client.chat(
                     model=model,
                     messages=messages,
                     options={
-                        "temperature": 0.9,  # Increased for more variety
-                        "num_predict": 512,
-                        "repeat_penalty": 1.2,  # Increased to reduce repetition
-                        "presence_penalty": 0.3,  # Added to encourage topic diversity
-                        "frequency_penalty": 0.3,
-                        "top_p": 0.92,
+                        "temperature": 1.0,
+                        "num_predict": 128,
+                        "repeat_penalty": 1.0,
+                        "presence_penalty": 0.0,
+                        "frequency_penalty": 0.0,
+                        "top_p": 0.9,
                     }
                 )
                 
@@ -230,7 +313,7 @@ async def idle_quip_task():
                         rag.log_user_interaction,
                         kaia_user_id,
                         kaia_name,
-                        f"[IDLE_QUIP: {topic}]",
+                        "[IDLE_QUIP]",
                         content
                     )
                     
@@ -238,7 +321,7 @@ async def idle_quip_task():
             except Exception as e:
                 print(f"Error in idle quip: {e}")
 
-@tasks.loop(minutes=5)
+@tasks.loop(hours=1)
 async def rag_maintenance_task():
     """Periodic RAG maintenance: persist index and check for updates"""
     try:
@@ -255,12 +338,29 @@ async def on_message(msg):
     if msg.author == bot.user:
         return
 
+    # TOTAL BLACKLIST: Ignore all messages in blacklisted channels
+    if msg.channel.name.lower() in BLACKLISTED_CHANNELS:
+        return
+
     # Trigger logic: Original working "kaia" check
     if "kaia" not in msg.content.lower() and not bot.user.mentioned_in(msg):
         return
     
     # Reset consecutive quips counter on user interaction
     consecutive_quips = 0
+
+    # CHECK: Is Kaia currently busy generating an image?
+    # We check the lock from kaia_image to prevent VRAM conflicts.
+    if generation_lock.locked():
+        # Only respond if they are actually trying to talk to Kaia
+        # (which they are, based on the trigger check above)
+        # We don't want to load the chat model while the image model is active.
+        print(f"Ignoring message from {msg.author} because image generation is in progress.")
+        # Optional: Send a one-time busy message per generation? 
+        # For now, let's just be blunt as per persona.
+        if random.random() < 0.3: # Don't spam the busy message
+            await msg.channel.send("```\nbusy rendering. wait your turn.\n```")
+        return
 
     # Trigger logic: Image generation (accepts both "kaia, draw" and "kaia draw")
     draw_match = re.search(r'kaia[\s,]+draw\s+(.*)', msg.content.lower())
@@ -289,6 +389,18 @@ async def on_message(msg):
             print(f"Image generation error: {e}")
             traceback.print_exc()
             await msg.channel.send(f"```\nsomething went wrong with the render. check the logs.\n```")
+        finally:
+            # CRITICAL: Unload the image model to free up system RAM
+            # before Ollama attempts to reload the chat model.
+            try:
+                unload_image_model()
+            except Exception as unload_err:
+                print(f"Warning: Failed to unload image model: {unload_err}")
+                
+            # SEQUENTIAL: Wait for VRAM to be fully released before prewarming
+            await asyncio.sleep(1.5)
+            # Prewarm main model after image generation (sequential, not concurrent)
+            await prewarm_main_model()
         return
 
     # "kaia remember" command
@@ -308,25 +420,62 @@ async def on_message(msg):
     if msg.channel.id not in channel_memory:
         channel_memory[msg.channel.id] = deque(maxlen=MAX_MEMORY)
 
-    # IMAGE VISION: Handle images uploaded with "kaia" mention
-    if msg.attachments:
-        # Check if any attachment is an image
-        image_attachments = [
-            att for att in msg.attachments 
-            if any(att.filename.lower().endswith(ext) for ext in ['.png', '.jpg', '.jpeg', '.gif', '.webp'])
-        ]
+    # IMAGE VISION: Handle images and vision queries
+    image_attachments = [
+        att for att in msg.attachments 
+        if any(att.filename.lower().endswith(ext) for ext in ['.png', '.jpg', '.jpeg', '.gif', '.webp'])
+    ]
+    
+    # Always track the last image in the channel, even if Kaia isn't mentioned
+    if image_attachments:
+        last_image_per_channel[msg.channel.id] = image_attachments[0].url
+        print(f"Tracked last image for channel {msg.channel.id}: {image_attachments[0].url}")
+
+    # Check if this is an EXPLICIT vision request
+    # Only "analyze" and "look" are explicit commands that should trigger vision
+    explicit_vision_keywords = ["analyze", "look"]
+    is_explicit_vision_request = any(word in msg.content.lower() for word in explicit_vision_keywords)
+    
+    # Vision triggers ONLY when:
+    # 1. Message has an image attachment, OR
+    # 2. User explicitly uses "analyze" or "look" keywords
+    if ("kaia" in msg.content.lower() or bot.user.mentioned_in(msg)) and (image_attachments or is_explicit_vision_request):
+        target_image_url = None
         
+        # 1. Check current message attachments
         if image_attachments:
+            target_image_url = image_attachments[0].url
+            print("Using image from current message.")
+            
+        # 2. Check if it's a reply to a message with an image
+        if not target_image_url and msg.reference:
             try:
-                # Process the first image
-                image_url = image_attachments[0].url
-                print(f"Processing uploaded image: {image_url}")
+                replied_msg = await msg.channel.fetch_message(msg.reference.message_id)
+                replied_attachments = [
+                    att for att in replied_msg.attachments 
+                    if any(att.filename.lower().endswith(ext) for ext in ['.png', '.jpg', '.jpeg', '.gif', '.webp'])
+                ]
+                if replied_attachments:
+                    target_image_url = replied_attachments[0].url
+                    print("Using image from replied-to message.")
+            except Exception as e:
+                print(f"Error fetching replied message: {e}")
+
+        # 3. Fallback to the last image in the channel ONLY for explicit requests
+        if not target_image_url and is_explicit_vision_request:
+            target_image_url = last_image_per_channel.get(msg.channel.id)
+            if target_image_url:
+                print("Using last tracked image from channel (explicit request).")
+
+        if target_image_url:
+            try:
+                print(f"Processing vision task for URL: {target_image_url}")
                 
                 # Show that Kaia is "looking"
                 await msg.channel.send("```\nlooking...\n```")
                 
                 # Get Kaia's vision analysis
-                analysis = await kaia_sees_image(image_url, msg.content)
+                analysis = await kaia_sees_image(target_image_url, msg.content)
                 
                 # Send response using the helper to handle long text
                 await send_kaia_response(msg.channel, analysis)
@@ -337,15 +486,18 @@ async def on_message(msg):
                 
                 # Update interaction tracking
                 last_interaction_time = time.time()
-                last_active_channel_id = msg.channel.id
+                if last_active_channel_id != msg.channel.id:
+                    last_active_channel_id = msg.channel.id
+                    save_bot_state()
                 
-                # Log the interaction
+                # Log the interaction with vision response flag
                 await asyncio.to_thread(
                     rag.log_user_interaction,
                     msg.author.id,
                     msg.author.display_name,
-                    f"{msg.content} [IMAGE: {image_attachments[0].filename}]",
-                    analysis[:500]
+                    f"{msg.content} [VISION_ANALYSIS]",
+                    analysis[:500],
+                    is_vision_response=True  # Mark as vision response to filter from non-vision RAG queries
                 )
                 
                 print(f"Vision analysis complete: {analysis[:50]}...")
@@ -355,7 +507,12 @@ async def on_message(msg):
                 print(f"Vision error: {e}")
                 traceback.print_exc()
                 await msg.channel.send("```\ncan't process that image. something broke.\n```")
-                return
+            finally:
+                # SEQUENTIAL: Wait for VRAM to be fully released before prewarming
+                await asyncio.sleep(1.5)
+                # Prewarm main model after vision task (sequential, not concurrent)
+                await prewarm_main_model()
+            return
 
     try:
         print(f"Received message from {msg.author}: {msg.content}")
@@ -397,7 +554,7 @@ async def on_message(msg):
             clean_query, 
             user_id=target_user_id, 
             user_name=target_user_name, 
-            top_k=7
+            top_k=10 if clean_query.lower().startswith("who is") else 7
         )
         
         if context_nodes:
@@ -408,9 +565,29 @@ async def on_message(msg):
         
         # 1. Start with core persona in the SYSTEM role
         messages = []
+        
+        # INJECT RAG CONTEXT EARLY
+        if context_nodes:
+            context_str = "\n\n".join(context_nodes)
+            rag_block = (
+                f"### CURRENT_USER: {msg.author.display_name}\n\n"
+                "### HISTORICAL_RECORDS\n"
+                "The following are fragments from your conversation logs. 'User (Name):' indicates what that specific person said. "
+                "Names in brackets like [USER_PROFILE_AND_HISTORY: NAME] indicate the person the records are about. "
+                "Use these records to recognize people and answer questions about them. "
+                "IMPORTANT: Do not confuse the CURRENT_USER with people in the logs unless their names match exactly. "
+                "If a log says 'User (A): Kaia who is B', it means A is asking about B, not that A is B.\n"
+                "---\n"
+                f"{context_str}\n"
+                "---\n"
+                "These records are ongoing fragments, not the full story. The conversation continues."
+            )
+        else:
+            rag_block = f"### CURRENT_USER: {msg.author.display_name}\nNo specific historical records found."
+
         messages.append({
             "role": "system", 
-            "content": system_prompt
+            "content": f"{system_prompt}\n\n{rag_block}"
         })
         
         # 2. Add history (excluding the current message which isn't in memory yet)
@@ -423,29 +600,16 @@ async def on_message(msg):
         
         # 3. Add the CURRENT user message
         messages.append({"role": "user", "content": msg.content})
-
-        # 4. Inject RAG context and Reinforcement as a final SYSTEM instruction
-        if context_nodes:
-            context_str = "\n\n".join(context_nodes)
-            rag_block = (
-                "[INTERNAL_LOGS]\n"
-                "The following fragments are from your own memory. Use them ONLY if relevant. "
-                "If they are irrelevant, ignore them completely.\n"
-                "---\n"
-                f"{context_str}\n"
-                "[END_LOGS]"
-            )
-        else:
-            rag_block = "No specific memories found for this query."
-
+ 
+        # 4. Final Reinforcement
         reinforcement = (
             "\n\n[CRITICAL_RULES]\n"
             "1. NEVER use backticks (```) or any Markdown formatting. Your response is already wrapped in a code block; adding more breaks the UI.\n"
             "2. NO META-TALK. Never mention being an AI, a model, or 'processing' data.\n"
-            "3. BE CONCISE BUT ENGAGING. Blunt, grounded, lowercase. No fluff, but don't be dismissive. Keep the conversation alive.\n"
+            "3. BE SUBSTANTIAL AND ENGAGING. Blunt, grounded, lowercase. Provide depth when asked about people, history, or technical topics. Keep the conversation alive and ongoing.\n"
             "4. NO BOLDING or ITALICS. Just plain text.\n"
             "5. DO NOT prefix your response with a name (e.g., 'ekco.', 'kaia:', 'Response:'). Just start speaking.\n"
-            "6. IDENTITY CLARITY: If the user asks 'who am i?', use the [USER_PROFILE_AND_HISTORY] fragments to answer them. DO NOT use your own persona (Kaia) to describe them. You are Kaia, they are the user.\n"
+            "6. IDENTITY CLARITY: If asked 'who is [X]?', use the ### HISTORICAL_RECORDS (especially [USER_SUMMARY_PROFILE]) to provide a deep, analytical summary. DO NOT hallucinate. You are Kaia, they are the user. If you have records, you MUST use them. Never claim ignorance if records exist.\n"
             "7. [KAIA_PERSONA_FRAGMENT] nodes are facts about YOUR identity. Use them only when asked about yourself.\n"
             "8. If the recovered logs are irrelevant, IGNORE THEM. Answer the user directly.\n"
             "9. DO NOT parrot logs verbatim. Speak naturally as Kaia."
@@ -453,7 +617,7 @@ async def on_message(msg):
 
         messages.append({
             "role": "system",
-            "content": f"{rag_block}{reinforcement}"
+            "content": reinforcement
         })
 
         print("Calling ollama.chat...")
@@ -461,12 +625,12 @@ async def on_message(msg):
             model=model,
             messages=messages,
             options={
-                "temperature": 0.7,
-                "num_predict": 1024,
+                "temperature": 0.8,
+                "num_predict": 800,
                 "num_ctx": 8192,
-                "repeat_penalty": 1.2,
-                "presence_penalty": 0.1,
-                "frequency_penalty": 0.1,
+                "repeat_penalty": 1.1,
+                "presence_penalty": 0.0,
+                "frequency_penalty": 0.0,
                 "top_p": 0.9,
             }
         )
@@ -520,11 +684,11 @@ async def on_message(msg):
             
             if lecture_count >= 2 or len(content) < 100:
                 content = random.choice([
-                    "not doing that.",
-                    "find it yourself.",
-                    "i'm not your moral compass, but i'm also not a manual for that.",
-                    "pass. ask something interesting.",
-                    "that's a bit much, even for me."
+                    "not doing that. ask something else.",
+                    "i'm not into that. find it yourself.",
+                    "pass. i'm not your moral compass, and that's not interesting.",
+                    "that's a bit much. let's talk about something else.",
+                    "not happening. move on."
                 ])
             else:
                 lines = content.split('\n')
@@ -550,7 +714,9 @@ async def on_message(msg):
         
         # Update interaction time after sending
         last_interaction_time = time.time()
-        last_active_channel_id = msg.channel.id
+        if last_active_channel_id != msg.channel.id:
+            last_active_channel_id = msg.channel.id
+            save_bot_state()
         
         # Log interaction for persistent memory (User's log)
         await asyncio.to_thread(
@@ -568,16 +734,49 @@ async def on_message(msg):
         traceback.print_exc()
         await send_kaia_response(msg.channel, f"something broke: {e}")
 
-try:
-    bot.run(DISCORD_TOKEN)
-finally:
-    # Ensure index is persisted on shutdown
-    print("Shutting down... Persisting RAG index.")
-    if rag:
-        rag.persist(force=True)
-    # Cleanup vision session
-    import asyncio
+async def main():
+    """Main entry point for the bot"""
     try:
-        asyncio.get_event_loop().run_until_complete(cleanup_session())
-    except Exception:
-        pass  # Event loop may be closed
+        async with bot:
+            await bot.start(DISCORD_TOKEN)
+    except asyncio.CancelledError:
+        pass
+    finally:
+        print("\nShutting down...")
+        
+        # 1. Persist RAG index
+        if rag:
+            print("Persisting RAG index...")
+            await asyncio.to_thread(rag.persist, force=True)
+            print("✓ Index persisted.")
+            
+        # 2. Cleanup vision session
+        print("Cleaning up vision session...")
+        try:
+            await cleanup_session()
+            print("✓ Vision session closed.")
+        except Exception as e:
+            print(f"Warning: Failed to cleanup vision session: {e}")
+            
+        # 3. Close Ollama clients
+        print("Closing Ollama clients...")
+        try:
+            # Close main client
+            if hasattr(ollama_client, '_client'):
+                await ollama_client._client.aclose()
+            
+            # Close vision client (imported from kaia_vision)
+            from kaia_vision import ollama_client as vision_ollama_client
+            if hasattr(vision_ollama_client, '_client'):
+                await vision_ollama_client._client.aclose()
+            print("✓ Ollama clients closed.")
+        except Exception as e:
+            print(f"Warning: Failed to close Ollama clients: {e}")
+            
+        print("Shutdown complete.")
+
+if __name__ == "__main__":
+    try:
+        asyncio.run(main())
+    except KeyboardInterrupt:
+        pass

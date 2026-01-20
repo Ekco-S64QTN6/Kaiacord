@@ -167,14 +167,14 @@ async def kaia_sees_image(image_url: str, user_message: str = "") -> str:
     """
     Kaia's vision handler that returns her commentary on an image.
     This integrates with her persona to provide blunt, grounded observations.
-    
-    Args:
-        image_url: Discord CDN URL of the image
-        user_message: The user's message accompanying the image
-    
-    Returns:
-        Kaia's commentary on the image
     """
+    # Import here to avoid circular dependency
+    from kaia_image import generation_lock, unload_ollama_models
+    
+    # CHECK: Is Kaia currently busy generating an image?
+    if generation_lock.locked():
+        return "busy rendering something else. ask me later."
+
     temp_path = None
     try:
         # Download and analyze
@@ -210,6 +210,16 @@ async def kaia_sees_image(image_url: str, user_message: str = "") -> str:
         if temp_path and os.path.exists(temp_path):
             os.remove(temp_path)
             logger.info(f"Cleaned up {temp_path}")
+        
+        # CRITICAL: Unload vision model from Ollama to free VRAM
+        try:
+            logger.info("Unloading vision model...")
+            await unload_ollama_models()
+            # Wait to ensure VRAM is fully released
+            await asyncio.sleep(1)
+            logger.info("Vision model unloaded successfully.")
+        except Exception as unload_err:
+            logger.error(f"Failed to unload vision model: {unload_err}")
 
 
 # Test function for debugging
