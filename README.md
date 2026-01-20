@@ -14,7 +14,8 @@ Kaia is a Linux-native AI assistant for Discord, powered by Ollama.
 - **Message Handling**: Automatically splits long responses into chunks.
 - **Per-User Logging**: Tracks interactions per user for persistent memory and ingestion.
 - **Personalized Memory**: Automatically retrieves and prioritizes a user's specific history and preferences (like pronouns) during interactions.
-- **Kaia's Own History**: Logs her own quips and responses for self-ingestion.
+- **Color-Coded Logging System**: Enhanced terminal output with high-visibility timestamps, success markers, and color-coded message types (actions, users, responses, errors).
+- **RAG Context Visualization**: Displays retrieved context nodes in a structured table for easier debugging and transparency.
 
 ## Local RAG System
 Kaia uses a Retrieval-Augmented Generation (RAG) system to access local knowledge.

@@ -27,6 +27,7 @@ generation_lock = asyncio.Lock()
 
 import urllib.request
 import json
+from clear_gpu_memory import clear_gpu_memory
 
 async def unload_ollama_models():
     """
@@ -60,12 +61,17 @@ async def unload_ollama_models():
                 except Exception as e:
                     logger.warning(f"Failed to unload model {name}: {e}")
 
-            # 3. Verify they are gone (wait up to 5 seconds)
-            for i in range(5):
+            # 3. Verify they are gone (wait up to 10 seconds)
+            # Increased wait time and added explicit garbage collection
+            for i in range(10):
                 async with session.get("http://localhost:11434/api/ps") as response:
                     data = await response.json()
                     if not data.get('models', []):
                         logger.info("All Ollama models successfully unloaded.")
+                        # Final aggressive cleanup
+                        gc.collect()
+                        torch.cuda.empty_cache()
+                        torch.cuda.synchronize()
                         return
                 await asyncio.sleep(1)
             
@@ -81,7 +87,7 @@ def _get_pipeline():
     """
     Initializes and returns the Flux pipeline.
     Uses a global cache to avoid reloading from disk on every call.
-    Uses CPU offloading to manage VRAM efficiently.
+    Uses sequential loading and CPU offloading to manage VRAM efficiently.
     """
     global _pipe
     if _pipe is not None:
@@ -100,12 +106,19 @@ def _get_pipeline():
     logger.info("Initializing Flux pipeline (first run will load from disk)...")
     
     # Aggressive cleanup before loading
+    try:
+        clear_gpu_memory()
+    except Exception as e:
+        logger.warning(f"Failed to run clear_gpu_memory: {e}")
+    
     gc.collect()
     torch.cuda.empty_cache()
     torch.cuda.synchronize()
 
     try:
-        # Load components one by one on CPU to avoid GPU spike
+        # Load components one by one and move to CPU immediately to save VRAM
+        # during the loading of the next component.
+        
         logger.info("Loading T5 (4-bit)...")
         text_encoder_2 = T5EncoderModel.from_pretrained(
             model_id,
@@ -113,53 +126,82 @@ def _get_pipeline():
             quantization_config=quant_config,
             dtype=torch.bfloat16,
             local_files_only=True,
-            device_map="balanced",
+            device_map="cuda:0",
             low_cpu_mem_usage=True
         )
+        # Move to CPU after loading to free VRAM for the Transformer
+        text_encoder_2.to("cpu")
+        gc.collect()
+        torch.cuda.empty_cache()
         
         logger.info("Loading Transformer (4-bit)...")
         transformer = FluxTransformer2DModel.from_pretrained(
             model_id,
             subfolder="transformer",
             quantization_config=quant_config,
-            dtype=torch.bfloat16,
+            torch_dtype=torch.bfloat16,
             local_files_only=True,
-            device_map="balanced",
+            device_map="cuda:0",
             low_cpu_mem_usage=True
         )
+        # Move to CPU
+        transformer.to("cpu")
+        gc.collect()
+        torch.cuda.empty_cache()
         
-        # Load the full pipeline on CPU
+        # Load the full pipeline
         logger.info("Assembling pipeline...")
         _pipe = FluxPipeline.from_pretrained(
             model_id,
             text_encoder_2=text_encoder_2,
             transformer=transformer,
-            dtype=torch.bfloat16,
-            local_files_only=True,
-            device_map="balanced",
-            low_cpu_mem_usage=True
+            torch_dtype=torch.bfloat16,
+            local_files_only=True
         )
         
         # CRITICAL: Enable model CPU offload
-        # This moves components to CPU RAM and only loads them to GPU when needed.
-        # This is the key to running Flux on 12GB VRAM.
+        # This moves components back to CPU and only loads them to GPU when needed during inference.
         logger.info("Enabling model CPU offload...")
         _pipe.enable_model_cpu_offload()
         
         # Memory optimizations
-        _pipe.enable_vae_slicing()
-        _pipe.enable_vae_tiling()
+        _pipe.vae.enable_slicing()
+        _pipe.vae.enable_tiling()
         
         logger.info("Flux pipeline initialized successfully.")
         return _pipe
         
     except Exception as e:
         logger.error(f"Failed to initialize Flux pipeline: {e}")
-        _pipe = None
-        # Clean up any partial loads
-        gc.collect()
-        torch.cuda.empty_cache()
+        unload_image_model()
         raise
+
+def unload_image_model():
+    """
+    Explicitly unloads the Flux pipeline and clears memory.
+    This is critical to prevent system RAM exhaustion.
+    """
+    global _pipe
+    if _pipe is not None:
+        logger.info("Unloading Flux pipeline and clearing memory...")
+        # Move to CPU first to ensure we can delete it cleanly
+        try:
+            _pipe.to("cpu")
+        except:
+            pass
+            
+        del _pipe
+        _pipe = None
+        
+    # Aggressive garbage collection and VRAM clearing
+    try:
+        clear_gpu_memory()
+    except:
+        pass
+    gc.collect()
+    torch.cuda.empty_cache()
+    torch.cuda.synchronize()
+    logger.info("Flux pipeline unloaded.")
 
 def _generate_image_sync(prompt: str):
     """

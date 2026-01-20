@@ -24,11 +24,12 @@ from kaia_rag import KaiaRAG
 from kaia_image import generate_image, unload_image_model, generation_lock
 from kaia_vision import kaia_sees_image, cleanup_session
 from clear_gpu_memory import clear_gpu_memory
+from kaia_logger import *
 
 def cleanup_on_startup():
     """Kill other instances of Kaiacord and clear GPU memory"""
     current_pid = os.getpid()
-    print(f"Startup cleanup (PID: {current_pid})...")
+    log_action(f"Startup cleanup (PID: {current_pid})...")
     
     try:
         # Find all processes matching "Kaiacord.py"
@@ -40,20 +41,20 @@ def cleanup_on_startup():
                 try:
                     pid = int(pid_str)
                     if pid != current_pid:
-                        print(f"  - Killing existing instance (PID: {pid})...")
+                        log_action(f"  - Killing existing instance (PID: {pid})...") 
                         os.kill(pid, signal.SIGTERM)
                 except (ValueError, ProcessLookupError):
                     continue
                 except Exception as e:
-                    print(f"    Warning: Failed to kill PID {pid_str}: {e}")
+                    log_warning(f"Failed to kill PID {pid_str}: {e}")
     except Exception as e:
-        print(f"Warning: Failed to run pkill logic: {e}")
+        log_warning(f"Failed to run pkill logic: {e}")
 
     # Clear GPU memory
     try:
         clear_gpu_memory()
     except Exception as e:
-        print(f"Warning: Failed to clear GPU memory: {e}")
+        log_warning(f"Failed to clear GPU memory: {e}")
 
 # Run cleanup immediately on script execution
 cleanup_on_startup()
@@ -89,9 +90,9 @@ def load_bot_state():
             with open(STATE_FILE, 'r') as f:
                 state = json.load(f)
                 last_active_channel_id = state.get('last_active_channel_id')
-                print(f"Loaded last_active_channel_id: {last_active_channel_id}")
+                log_info(f"Loaded last_active_channel_id: {last_active_channel_id}")
     except Exception as e:
-        print(f"Warning: Failed to load bot state: {e}")
+        log_warning(f"Failed to load bot state: {e}")
 
 def save_bot_state():
     """Save bot state to JSON file"""
@@ -100,7 +101,7 @@ def save_bot_state():
         with open(STATE_FILE, 'w') as f:
             json.dump(state, f)
     except Exception as e:
-        print(f"Warning: Failed to save bot state: {e}")
+        log_warning(f"Failed to save bot state: {e}")
 
 # Load state on startup
 load_bot_state()
@@ -180,7 +181,7 @@ rag = KaiaRAG()
 async def prewarm_main_model():
     """Prewarm the main chat model to avoid cold-start delay"""
     try:
-        print(f"Prewarming main model: {model}...")
+        log_model_action(model, "Prewarming main model")
         await ollama_client.chat(
             model=model,
             messages=[{"role": "user", "content": "hi"}],
@@ -189,13 +190,13 @@ async def prewarm_main_model():
                 "num_ctx": 8192  # Match the main chat loop
             }
         )
-        print(f"✓ Main model {model} prewarmed.")
+        log_success(f"Main model {model} prewarmed.")
     except Exception as e:
-        print(f"Warning: Failed to prewarm main model: {e}")
+        log_warning(f"Failed to prewarm main model: {e}")
 
 @bot.event
 async def on_ready():
-    print(f"{bot.user.name} is online!")
+    log_success(f"{bot.user.name} is online!")
     
     # Prewarm the main Ollama model to avoid cold-start delay on first message
     # We don't prewarm the vision model here to avoid system lag
@@ -208,7 +209,7 @@ async def on_ready():
         rag_maintenance_task.start()
     
     # Refresh knowledge base in the background to avoid blocking boot
-    print("Refreshing knowledge base in background...")
+    log_action("Refreshing knowledge base in background...")
     asyncio.create_task(asyncio.to_thread(rag.refresh_knowledge_base))
 
 @tasks.loop(minutes=15)
@@ -220,7 +221,7 @@ async def idle_quip_task():
     
     # Don't quip if we've hit consecutive limit
     if consecutive_quips >= MAX_CONSECUTIVE_QUIPS:
-        print(f"Max consecutive quips ({MAX_CONSECUTIVE_QUIPS}) reached. Waiting for user interaction.")
+        log_info(f"Max consecutive quips ({MAX_CONSECUTIVE_QUIPS}) reached. Waiting for user interaction.")
         return
     
     # Fallback: If we don't have a channel yet, find one we can speak in
@@ -256,7 +257,7 @@ async def idle_quip_task():
         channel = bot.get_channel(last_active_channel_id)
         if channel:
             try:
-                print(f"Generating idle quip #{consecutive_quips+1} (Idle: {int(idle_duration/60)}m)...")
+                log_action(f"Generating idle quip #{consecutive_quips+1} (Idle: {int(idle_duration/60)}m)...")
                 
                 # RAG: Pull a random fragment from user logs to make fun of
                 # We'll query for "recent interaction" to get something semi-relevant
@@ -317,19 +318,19 @@ async def idle_quip_task():
                         content
                     )
                     
-                    print(f"Sent idle quip #{consecutive_quips}: {content[:50]}...")
+                    log_success(f"Sent idle quip #{consecutive_quips}: {content[:50]}...")
             except Exception as e:
-                print(f"Error in idle quip: {e}")
+                log_error(f"Idle quip failed: {e}")
 
 @tasks.loop(hours=1)
 async def rag_maintenance_task():
     """Periodic RAG maintenance: persist index and check for updates"""
     try:
         if rag.persist_needed:
-            print("Periodic RAG persistence...")
+            log_action("Periodic RAG persistence...")
             await asyncio.to_thread(rag.persist)
     except Exception as e:
-        print(f"Error in RAG maintenance: {e}")
+        log_error(f"RAG maintenance failed: {e}")
 
 @bot.event
 async def on_message(msg):
@@ -355,7 +356,7 @@ async def on_message(msg):
         # Only respond if they are actually trying to talk to Kaia
         # (which they are, based on the trigger check above)
         # We don't want to load the chat model while the image model is active.
-        print(f"Ignoring message from {msg.author} because image generation is in progress.")
+        log_warning(f"Ignoring message from {msg.author.name} (image generation in progress)")
         # Optional: Send a one-time busy message per generation? 
         # For now, let's just be blunt as per persona.
         if random.random() < 0.3: # Don't spam the busy message
@@ -375,18 +376,18 @@ async def on_message(msg):
         await msg.channel.send("```\nflickering the screen. give me a second.\n```")
         
         try:
-            print(f"Generating image for prompt: {prompt}")
+            log_action(f"Generating image for prompt: {prompt}")
             image_path = await generate_image(prompt)
             await msg.channel.send(file=discord.File(image_path))
             # Cleanup
             try:
                 if os.path.exists(image_path):
                     os.remove(image_path)
-                    print(f"Cleaned up {image_path}")
+                    log_success(f"Cleaned up temp file")
             except Exception as cleanup_err:
-                print(f"Warning: Failed to cleanup temp file {image_path}: {cleanup_err}")
+                log_warning(f"Failed to cleanup temp file: {cleanup_err}")
         except Exception as e:
-            print(f"Image generation error: {e}")
+            log_error(f"Image generation failed: {e}")
             traceback.print_exc()
             await msg.channel.send(f"```\nsomething went wrong with the render. check the logs.\n```")
         finally:
@@ -395,7 +396,7 @@ async def on_message(msg):
             try:
                 unload_image_model()
             except Exception as unload_err:
-                print(f"Warning: Failed to unload image model: {unload_err}")
+                log_warning(f"Failed to unload image model: {unload_err}")
                 
             # SEQUENTIAL: Wait for VRAM to be fully released before prewarming
             await asyncio.sleep(1.5)
@@ -407,7 +408,7 @@ async def on_message(msg):
     if msg.content.lower().startswith("kaia remember"):
         memory_content = msg.content[len("kaia remember"):].strip()
         if memory_content:
-            print(f"Storing memory: {memory_content}")
+            log_action(f"Storing memory: {memory_content}")
             if rag.add_memory(bot.user.id, bot.user.name, memory_content):
                 await msg.channel.send("```\nLogged it.\n```")
             else:
@@ -429,7 +430,7 @@ async def on_message(msg):
     # Always track the last image in the channel, even if Kaia isn't mentioned
     if image_attachments:
         last_image_per_channel[msg.channel.id] = image_attachments[0].url
-        print(f"Tracked last image for channel {msg.channel.id}: {image_attachments[0].url}")
+        log_info(f"Tracked last image for channel {msg.channel.id}")
 
     # Check if this is an EXPLICIT vision request
     # Only "analyze" and "look" are explicit commands that should trigger vision
@@ -445,7 +446,7 @@ async def on_message(msg):
         # 1. Check current message attachments
         if image_attachments:
             target_image_url = image_attachments[0].url
-            print("Using image from current message.")
+            log_info("Using image from current message.")
             
         # 2. Check if it's a reply to a message with an image
         if not target_image_url and msg.reference:
@@ -457,19 +458,19 @@ async def on_message(msg):
                 ]
                 if replied_attachments:
                     target_image_url = replied_attachments[0].url
-                    print("Using image from replied-to message.")
+                    log_info("Using image from replied-to message.")
             except Exception as e:
-                print(f"Error fetching replied message: {e}")
+                log_warning(f"Error fetching replied message: {e}")
 
         # 3. Fallback to the last image in the channel ONLY for explicit requests
         if not target_image_url and is_explicit_vision_request:
             target_image_url = last_image_per_channel.get(msg.channel.id)
             if target_image_url:
-                print("Using last tracked image from channel (explicit request).")
+                log_info("Using last tracked image from channel (explicit request).")
 
         if target_image_url:
             try:
-                print(f"Processing vision task for URL: {target_image_url}")
+                log_action("Processing vision task...")
                 
                 # Show that Kaia is "looking"
                 await msg.channel.send("```\nlooking...\n```")
@@ -500,11 +501,12 @@ async def on_message(msg):
                     is_vision_response=True  # Mark as vision response to filter from non-vision RAG queries
                 )
                 
-                print(f"Vision analysis complete: {analysis[:50]}...")
+                log_response("Got response:", analysis[:100] + "...")
+                log_separator()
                 return
                 
             except Exception as e:
-                print(f"Vision error: {e}")
+                log_error(f"Vision analysis failed: {e}")
                 traceback.print_exc()
                 await msg.channel.send("```\ncan't process that image. something broke.\n```")
             finally:
@@ -515,7 +517,7 @@ async def on_message(msg):
             return
 
     try:
-        print(f"Received message from {msg.author}: {msg.content}")
+        log_message_received(msg.author.name, str(msg.author.id), msg.content)
         
         # history = list(channel_memory[msg.channel.id])
         # We'll add the current message to memory AFTER the LLM call to avoid double-counting
@@ -545,10 +547,9 @@ async def on_message(msg):
             target_user_id = bot.user.id
             target_user_name = bot.user.name
             
-        print(f"Retrieving context for: {clean_query}")
+        log_context_retrieval(clean_query)
         
         # Wrap RAG retrieval in a thread to avoid blocking the event loop
-        print(f"Retrieving context for target_user_id: {target_user_id}")
         context_nodes = await asyncio.to_thread(
             rag.retrieve, 
             clean_query, 
@@ -558,10 +559,8 @@ async def on_message(msg):
         )
         
         if context_nodes:
-            print(f"Found {len(context_nodes)} relevant context nodes.")
-            # Debug: Print first 100 chars of each node
-            for i, node in enumerate(context_nodes):
-                print(f"Node {i}: {node[:100]}...")
+            # Display RAG context as a Rich table instead of ugly plain text
+            format_rag_table(context_nodes)
         
         # 1. Start with core persona in the SYSTEM role
         messages = []
@@ -620,7 +619,7 @@ async def on_message(msg):
             "content": reinforcement
         })
 
-        print("Calling ollama.chat...")
+        log_action("Calling ollama.chat...")
         response = await ollama_client.chat(
             model=model,
             messages=messages,
@@ -675,7 +674,7 @@ async def on_message(msg):
         ]
         
         if any(pattern.lower() in content.lower() for pattern in safety_patterns):
-            print("Detected safety lecture/helpline in response. Surgically stripping...")
+            log_warning("Detected safety lecture/helpline in response. Surgically stripping...")
             
             # If the response is MOSTLY a safety lecture, replace it with a blunt refusal
             # instead of just stripping lines which might leave it empty or weird.
@@ -702,7 +701,7 @@ async def on_message(msg):
                 if not content:
                     content = "not doing that."
 
-        print(f"Got response: {content[:100]}...")
+        log_response("Got response:", content[:100] + "..." if len(content) > 100 else content)
 
         # Use the helper to handle long text and formatting
         await send_kaia_response(msg.channel, content)
@@ -727,10 +726,11 @@ async def on_message(msg):
             content[:500]
         )
         
-        print("Response sent successfully!")
+        log_success("Response sent successfully!")
+        log_separator()
         
     except Exception as e:
-        print(f"ERROR: {type(e).__name__}: {e}")
+        log_error(f"{type(e).__name__}: {e}")
         traceback.print_exc()
         await send_kaia_response(msg.channel, f"something broke: {e}")
 
@@ -742,24 +742,24 @@ async def main():
     except asyncio.CancelledError:
         pass
     finally:
-        print("\nShutting down...")
+        log_critical("\nShutting down...")
         
         # 1. Persist RAG index
         if rag:
-            print("Persisting RAG index...")
+            log_action("Persisting RAG index...")
             await asyncio.to_thread(rag.persist, force=True)
-            print("✓ Index persisted.")
+            log_success("Index persisted.")
             
         # 2. Cleanup vision session
-        print("Cleaning up vision session...")
+        log_action("Cleaning up vision session...")
         try:
             await cleanup_session()
-            print("✓ Vision session closed.")
+            log_success("Vision session closed.")
         except Exception as e:
-            print(f"Warning: Failed to cleanup vision session: {e}")
+            log_warning(f"Failed to cleanup vision session: {e}")
             
         # 3. Close Ollama clients
-        print("Closing Ollama clients...")
+        log_action("Closing Ollama clients...")
         try:
             # Close main client
             if hasattr(ollama_client, '_client'):
@@ -769,11 +769,11 @@ async def main():
             from kaia_vision import ollama_client as vision_ollama_client
             if hasattr(vision_ollama_client, '_client'):
                 await vision_ollama_client._client.aclose()
-            print("✓ Ollama clients closed.")
+            log_success("Ollama clients closed.")
         except Exception as e:
-            print(f"Warning: Failed to close Ollama clients: {e}")
+            log_warning(f"Failed to close Ollama clients: {e}")
             
-        print("Shutdown complete.")
+        log_success("Shutdown complete.")
 
 if __name__ == "__main__":
     try:

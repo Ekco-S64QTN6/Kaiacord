@@ -28,6 +28,7 @@ from llama_index.core import VectorStoreIndex, SimpleDirectoryReader, StorageCon
 from llama_index.llms.ollama import Ollama
 from llama_index.embeddings.ollama import OllamaEmbedding
 from llama_index.core.node_parser import SentenceSplitter
+from kaia_logger import *
 
 class KaiaRAG:
     def __init__(self, knowledge_base_dir="./knowledge_base", persist_dir="./storage"):
@@ -58,22 +59,22 @@ class KaiaRAG:
         with self._lock:
             try:
                 if os.path.exists(self.persist_dir) and os.listdir(self.persist_dir):
-                    print(f"Loading existing index from {self.persist_dir}...")
+                    log_action(f"Loading existing index from storage...")
                     storage_context = StorageContext.from_defaults(persist_dir=self.persist_dir)
                     self.index = load_index_from_storage(storage_context)
                     self._populate_indexed_files()
-                    print("✓ Existing index loaded successfully.")
+                    log_success("Existing index loaded successfully.")
                     # We'll call refresh_knowledge_base separately to avoid blocking init
                 else:
-                    print("No existing index found. Initializing knowledge base...")
+                    log_action("Initializing knowledge base...")
                     self.index = VectorStoreIndex.from_documents([])
                     if not os.path.exists(self.persist_dir):
                         os.makedirs(self.persist_dir)
                     self.index.storage_context.persist(persist_dir=self.persist_dir)
-                    print("New index created.")
+                    log_success("New index created.")
                 
             except Exception as e:
-                print(f"Error initializing RAG index: {e}")
+                log_error(f"Error initializing RAG index: {e}")
                 import traceback
                 traceback.print_exc()
                 self.index = VectorStoreIndex.from_documents([])
@@ -102,19 +103,19 @@ class KaiaRAG:
         
         # Remove stale nodes from index
         if stale_nodes:
-            print(f"Cleaning up {len(stale_nodes)} stale index entries...")
+            log_action(f"Cleaning up {len(stale_nodes)} stale index entries...")
             for node_id in stale_nodes:
                 try:
                     self.index.delete_nodes([node_id])
                 except Exception as e:
-                    print(f"Warning: Could not delete node {node_id}: {e}")
+                    log_warning(f"Could not delete node {node_id}: {e}")
             
             # Persist after cleanup
             self.index.storage_context.persist(persist_dir=self.persist_dir)
-            print("✓ Index cleanup complete and persisted.")
+            log_success("Index cleanup complete and persisted.")
 
         self.indexed_files = valid_files
-        print(f"Populated {len(self.indexed_files)} valid indexed files from storage.")
+        log_success(f"Populated {len(self.indexed_files)} valid indexed files from storage.")
 
     def refresh_knowledge_base(self):
         """Load all supported files from the knowledge base directory and update the index incrementally."""
@@ -123,7 +124,7 @@ class KaiaRAG:
                 os.makedirs(self.knowledge_base_dir)
                 return
 
-        print(f"Refreshing knowledge base from {self.knowledge_base_dir}...")
+        log_action(f"Refreshing knowledge base...")
         
         # Create corrupt_files directory if it doesn't exist
         corrupt_dir = os.path.join(self.knowledge_base_dir, "corrupt_files")
@@ -178,13 +179,14 @@ class KaiaRAG:
                     new_file_paths.append((persona_file, norm_path in self.indexed_files, False))
 
             if not new_file_paths:
-                print("No new documents to index.")
+                log_info("No new documents to index.")
             else:
-                print(f"Found {len(new_file_paths)} new or modified documents. Processing...")
+                log_action(f"Found {len(new_file_paths)} new or modified documents. Processing...")
                 
                 for file_path, is_modified, is_log in new_file_paths:
                     if is_modified and not is_log:
-                        print(f"Detected update in: {file_path}. Re-indexing...")
+                        log_action(f"Detected update in file. Re-indexing...")
+                        log_file(file_path)
                         # Delete old nodes for this file (only for non-log files)
                         abs_path = os.path.abspath(file_path)
                         nodes_to_delete = [
@@ -196,9 +198,11 @@ class KaiaRAG:
                             for node_id in nodes_to_delete:
                                 self.index.delete_nodes([node_id])
                     elif is_log:
-                        print(f"Checking for new content in log: {file_path}")
+                        log_action(f"Checking for new content in log...")
+                        log_file(file_path)
                     else:
-                        print(f"Processing new file: {file_path}")
+                        log_action(f"Processing new file...")
+                        log_file(file_path)
                         
                     try:
                         # Load file content
@@ -215,11 +219,11 @@ class KaiaRAG:
                             
                             file_size = os.path.getsize(file_path)
                             if file_size <= last_offset:
-                                print(f"No new content in log {file_path} (Offset: {last_offset})")
+                                log_info(f"No new content in log (Offset: {last_offset})")
                                 self.indexed_files[abs_path] = os.path.getmtime(file_path)
                                 continue
                                 
-                            print(f"Indexing new log content from offset {last_offset}...")
+                            log_action(f"Indexing new log content from offset {last_offset}...")
                             with open(file_path, 'r', encoding='utf-8') as f:
                                 f.seek(last_offset)
                                 new_content = f.read()
@@ -250,7 +254,7 @@ class KaiaRAG:
                                 
                                 self.index.insert(doc)
                                 self.indexed_files[abs_path] = mtime
-                                print(f"✓ Indexed {len(new_content)} new characters from log.")
+                                log_success(f"Indexed {len(new_content)} new characters from log.")
                             else:
                                 self.indexed_files[abs_path] = os.path.getmtime(file_path)
                         else:
@@ -272,27 +276,31 @@ class KaiaRAG:
                                     self.index.insert(doc)
                                 
                                 self.indexed_files[os.path.abspath(file_path)] = mtime
-                                print(f"✓ Successfully indexed: {file_path}")
+                                log_success(f"Successfully indexed file")
+                                log_file(file_path)
                             else:
-                                print(f"Warning: No data loaded from {file_path}. Moving to corrupt_files.")
+                                log_warning(f"No data loaded from file. Moving to corrupt_files.")
+                                log_file(file_path)
                                 try:
                                     dest_path = os.path.join(corrupt_dir, os.path.basename(file_path))
                                     if os.path.exists(dest_path):
                                         dest_path = f"{dest_path}_{int(time.time())}"
                                     shutil.move(file_path, dest_path)
-                                    print(f"!!! MOVED EMPTY/CORRUPT FILE TO: {dest_path}")
+                                    log_critical(f"MOVED EMPTY/CORRUPT FILE TO: {dest_path}")
                                 except Exception as move_err:
-                                    print(f"Failed to move empty file: {move_err}")
+                                    log_warning(f"Failed to move empty file: {move_err}")
                             
                     except Exception as e:
-                        print(f"CRITICAL ERROR: Failed to load file {file_path}: {e}")
+                        log_error(f"Failed to load file: {e}")
+                        log_file(file_path)
                         
                         conversion_succeeded = False
                         
                         # Attempt conversion if it's a PDF or DOCX
                         if file_path.lower().endswith((".pdf", ".docx")):
                             ext = ".pdf" if file_path.lower().endswith(".pdf") else ".docx"
-                            print(f"Attempting to recover {file_path} by converting to Markdown...")
+                            log_action(f"Attempting to recover file by converting to Markdown...")
+                            log_file(file_path)
                             
                             if ext == ".pdf":
                                 md_path = self._convert_pdf_to_md(file_path)
@@ -313,12 +321,13 @@ class KaiaRAG:
                                         self.indexed_files[os.path.abspath(md_path)] = mtime
                                         # Also track original PDF as "handled" so we don't retry
                                         self.indexed_files[os.path.abspath(file_path)] = orig_mtime
-                                        print(f"✓ Successfully indexed converted Markdown: {md_path}")
+                                        log_success(f"Successfully indexed converted Markdown")
+                                        log_file(md_path)
                                         conversion_succeeded = True
                                     else:
-                                        print(f"Warning: Converted MD {md_path} was empty.")
+                                        log_warning(f"Converted MD was empty.")
                                 except Exception as md_err:
-                                    print(f"Failed to index converted MD {md_path}: {md_err}")
+                                    log_error(f"Failed to index converted MD: {md_err}")
 
                         # Only move to corrupt_files if conversion failed or wasn't attempted
                         if not conversion_succeeded:
@@ -329,16 +338,16 @@ class KaiaRAG:
                                     dest_path = f"{dest_path}_{int(time.time())}"
                                 
                                 shutil.move(file_path, dest_path)
-                                print(f"!!! MOVED CORRUPT FILE TO: {dest_path}")
+                                log_critical(f"MOVED CORRUPT FILE TO: {dest_path}")
                             except Exception as move_err:
-                                print(f"Failed to move corrupt file: {move_err}")
+                                log_warning(f"Failed to move corrupt file: {move_err}")
 
                 # Mark for persistence
                 self.persist_needed = True
-                print("New documents indexed. Persistence marked as needed.")
+                log_info("New documents indexed. Persistence marked as needed.")
                 
         except Exception as e:
-            print(f"Error refreshing knowledge base: {e}")
+            log_error(f"Error refreshing knowledge base: {e}")
             import traceback
             traceback.print_exc()
 
@@ -348,7 +357,8 @@ class KaiaRAG:
             # Strip .pdf extension before adding .md for cleaner filenames
             base_path = pdf_path[:-4] if pdf_path.lower().endswith('.pdf') else pdf_path
             md_path = base_path + ".md"
-            print(f"Extracting text from {pdf_path}...")
+            log_action(f"Extracting text from PDF...")
+            log_file(pdf_path)
             
             reader = pypdf.PdfReader(pdf_path)
             basename = os.path.basename(pdf_path)
@@ -364,13 +374,14 @@ class KaiaRAG:
                 text = f"# {title}\n\n" + "\n\n".join(extracted_pages)
                 with open(md_path, "w", encoding="utf-8") as f:
                     f.write(text)
-                print(f"✓ Successfully converted to: {md_path}")
+                log_success(f"Successfully converted to Markdown")
+                log_file(md_path)
                 return md_path
             else:
-                print(f"Warning: No text extracted from {pdf_path}")
+                log_warning(f"No text extracted from PDF")
                 return None
         except Exception as e:
-            print(f"Error converting PDF to MD: {e}")
+            log_error(f"Error converting PDF to MD: {e}")
             return None
 
     def _convert_docx_to_md(self, docx_path):
@@ -379,7 +390,8 @@ class KaiaRAG:
             # Strip .docx extension before adding .md
             base_path = docx_path[:-5] if docx_path.lower().endswith('.docx') else docx_path
             md_path = base_path + ".md"
-            print(f"Extracting text from {docx_path}...")
+            log_action(f"Extracting text from DOCX...")
+            log_file(docx_path)
             
             text = docx2txt.process(docx_path)
             
@@ -390,13 +402,14 @@ class KaiaRAG:
                 md_content = f"# {title}\n\n{text}"
                 with open(md_path, "w", encoding="utf-8") as f:
                     f.write(md_content)
-                print(f"✓ Successfully converted to: {md_path}")
+                log_success(f"Successfully converted to Markdown")
+                log_file(md_path)
                 return md_path
             else:
-                print(f"Warning: No text extracted from {docx_path}")
+                log_warning(f"No text extracted from DOCX")
                 return None
         except Exception as e:
-            print(f"Error converting DOCX {docx_path} to MD: {e}")
+            log_error(f"Error converting DOCX to MD: {e}")
             return None
 
     def add_memory(self, user_id, user_name, text):
@@ -411,7 +424,7 @@ class KaiaRAG:
                 "Logged it. I'll remember that."
             )
         except Exception as e:
-            print(f"Error adding memory: {e}")
+            log_error(f"Error adding memory: {e}")
             return False
 
     def log_user_interaction(self, user_id, user_name, message_content, bot_response, is_vision_response=False):
@@ -431,7 +444,8 @@ class KaiaRAG:
                 # Create user directory if it doesn't exist
                 if not os.path.exists(user_log_dir):
                     os.makedirs(user_log_dir)
-                    print(f"Created user log directory: {user_log_dir}")
+                    log_success(f"Created user log directory")
+                    log_file(user_log_dir)
                 
                 # Find existing log file or create new one with today's date
                 # Pattern: interactions_YYYYMMDD.txt
@@ -447,7 +461,7 @@ class KaiaRAG:
                     if os.path.getsize(log_file) >= MAX_SIZE:
                         new_timestamp = datetime.now().strftime("%Y%m%d")
                         log_file = os.path.join(user_log_dir, f"interactions_{new_timestamp}.txt")
-                        print(f"Previous log full, starting new log: {log_file}")
+                        log_info(f"Previous log full, starting new log")
                 else:
                     # No existing logs - create first one with today's date
                     new_timestamp = datetime.now().strftime("%Y%m%d")
@@ -466,7 +480,7 @@ Kaia: {bot_response}
                 with open(log_file, "a", encoding="utf-8") as f:
                     f.write(interaction_text)
                 
-                print(f"Logged interaction to {log_file}")
+                log_success(f"Logged interaction for {user_name}")
                 
                 # INCREMENTAL INSERT: Add the interaction to the index
                 mtime = os.path.getmtime(log_file)
@@ -487,11 +501,11 @@ Kaia: {bot_response}
                 self.index.insert(new_doc)
                 self.indexed_files[os.path.abspath(log_file)] = mtime
                 self.persist_needed = True
-                print(f"Interaction indexed for user {user_name} ({user_id}).")
+                log_success(f"Interaction indexed for user {user_name} ({user_id})")
                 
                 return True
             except Exception as e:
-                print(f"Error logging user interaction: {e}")
+                log_error(f"Error logging user interaction: {e}")
                 import traceback
                 traceback.print_exc()
                 return False
@@ -693,12 +707,12 @@ Kaia: {bot_response}
                     break
             
             query_type = "casual" if is_casual else ("identity" if is_identity_query else "knowledge")
-            print(f"Retrieved {len(final_results)} results [{query_type}] (P:{persona_count}, U:{user_log_count}, L:{lore_count}, thresh:{lore_threshold:.2f})")
+            log_success(f"Retrieved {len(final_results)} results [{query_type}] (P:{persona_count}, U:{user_log_count}, L:{lore_count}, thresh:{lore_threshold:.2f})")
             return final_results
 
             
         except Exception as e:
-            print(f"Error during retrieval: {e}")
+            log_error(f"Error during retrieval: {e}")
             import traceback
             traceback.print_exc()
             return []
@@ -710,9 +724,9 @@ Kaia: {bot_response}
                 try:
                     self.index.storage_context.persist(persist_dir=self.persist_dir)
                     self.persist_needed = False
-                    print(f"✓ Index persisted to {self.persist_dir}")
+                    log_success(f"Index persisted to {self.persist_dir}")
                 except Exception as e:
-                    print(f"Error persisting index: {e}")
+                    log_error(f"Error persisting index: {e}")
 
 if __name__ == "__main__":
     rag = KaiaRAG()

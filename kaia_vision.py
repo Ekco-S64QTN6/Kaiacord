@@ -5,10 +5,7 @@ import tempfile
 import os
 import ollama
 from pathlib import Path
-
-# Set up logging
-logging.basicConfig(level=logging.INFO)
-logger = logging.getLogger("kaia_vision")
+from kaia_logger import *
 
 # Vision model configuration
 VISION_MODEL = "llama3.2-vision:11b"
@@ -41,7 +38,8 @@ async def download_image(url: str) -> str:
     """
     temp_path = None
     try:
-        logger.info(f"Downloading image from: {url}")
+        log_action(f"Downloading image...")
+        log_file(url)
         
         session = await get_session()
         async with session.get(url) as response:
@@ -69,7 +67,8 @@ async def download_image(url: str) -> str:
             with open(temp_path, 'wb') as f:
                 f.write(await response.read())
             
-            logger.info(f"Image downloaded to: {temp_path}")
+            log_success(f"Image downloaded")
+            log_file(temp_path)
             return temp_path
                 
     except Exception as e:
@@ -79,7 +78,7 @@ async def download_image(url: str) -> str:
                 os.remove(temp_path)
             except Exception:
                 pass
-        logger.error(f"Error downloading image: {e}")
+        log_error(f"Error downloading image: {e}")
         raise
 
 
@@ -95,7 +94,8 @@ async def analyze_image(image_path: str, prompt: str = None) -> str:
         The model's analysis of the image
     """
     try:
-        logger.info(f"Analyzing image: {image_path}")
+        log_action("Processing vision task...")
+        log_file(image_path)
         
         # Default prompt if none provided
         if not prompt:
@@ -126,11 +126,11 @@ async def analyze_image(image_path: str, prompt: str = None) -> str:
         )
         
         analysis = response['message']['content'].strip()
-        logger.info(f"Vision analysis complete: {analysis[:100]}...")
+        log_response("Got response:", analysis[:100] + "..." if len(analysis) > 100 else analysis)
         return analysis
         
     except Exception as e:
-        logger.error(f"Error analyzing image: {e}")
+        log_error(f"Error analyzing image: {e}")
         raise
 
 
@@ -202,24 +202,24 @@ async def kaia_sees_image(image_url: str, user_message: str = "") -> str:
         return analysis
         
     except Exception as e:
-        logger.error(f"Error in kaia_sees_image: {e}")
+        log_error(f"Error in kaia_sees_image: {e}")
         raise
         
     finally:
         # Clean up temp file
         if temp_path and os.path.exists(temp_path):
             os.remove(temp_path)
-            logger.info(f"Cleaned up {temp_path}")
+            log_success(f"Cleaned up temp file")
         
         # CRITICAL: Unload vision model from Ollama to free VRAM
         try:
-            logger.info("Unloading vision model...")
+            log_action("Unloading vision model...")
             await unload_ollama_models()
             # Wait to ensure VRAM is fully released
             await asyncio.sleep(1)
-            logger.info("Vision model unloaded successfully.")
+            log_success("Vision model unloaded successfully.")
         except Exception as unload_err:
-            logger.error(f"Failed to unload vision model: {unload_err}")
+            log_error(f"Failed to unload vision model: {unload_err}")
 
 
 # Test function for debugging
