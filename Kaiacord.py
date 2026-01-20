@@ -11,6 +11,7 @@ import traceback
 import random
 import time
 import datetime
+from datetime import datetime
 import logging
 import subprocess
 import signal
@@ -526,7 +527,7 @@ async def on_message(msg):
         system_prompt = load_persona()
         
         # Add current date/time context
-        now = datetime.datetime.now()
+        now = datetime.now()
         current_time_str = now.strftime("%A, %B %d, %Y %I:%M %p")
         system_prompt += f"\n\nToday is {current_time_str}."
         
