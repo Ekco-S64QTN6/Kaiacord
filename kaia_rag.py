@@ -29,7 +29,7 @@ from typing import List, Dict, Optional, Any, Tuple
 from llama_index.core import VectorStoreIndex, SimpleDirectoryReader, StorageContext, Settings, load_index_from_storage, Document
 from llama_index.llms.ollama import Ollama
 from llama_index.embeddings.ollama import OllamaEmbedding
-from llama_index.core.node_parser import SentenceSplitter
+from llama_index.core.node_parser import SentenceSplitter, SemanticSplitterNodeParser, CodeSplitter
 from utils.kaia_logger import *
 
 class CircuitOpenError(Exception):
@@ -110,76 +110,92 @@ class KaiaRAG:
         Settings.node_parser = SentenceSplitter(chunk_size=512, chunk_overlap=20)
         Settings.llm = Ollama(model="gemma3:12b", request_timeout=360.0, additional_kwargs={"num_predict": 1536})
         
-        self.index = None
+        self.index = None # Legacy index reference
+        self.indices = {} # Hierarchical indices
         self.persist_needed = False
         self._lock = threading.RLock()
         self._indexing_in_progress = False
         
-        # Load or create index
-        self._initialize_index()
+        # Load or create indices
+        self._initialize_indices()
 
-    def _initialize_index(self):
-        """Initialize the index from storage or create a new one."""
+    def _initialize_indices(self):
+        """Initialize hierarchical indices from storage or create new ones."""
         with self._lock:
+            index_types = ['persona', 'user_profiles', 'conversations', 'knowledge', 'logs']
+            for itype in index_types:
+                itype_dir = os.path.join(self.persist_dir, itype)
+                try:
+                    if os.path.exists(itype_dir) and os.listdir(itype_dir):
+                        log_action(f"Loading {itype} index...")
+                        storage_context = StorageContext.from_defaults(persist_dir=itype_dir)
+                        self.indices[itype] = load_index_from_storage(storage_context)
+                    else:
+                        log_action(f"Initializing {itype} index...")
+                        self.indices[itype] = VectorStoreIndex.from_documents([])
+                        if not os.path.exists(itype_dir):
+                            os.makedirs(itype_dir)
+                        self.indices[itype].storage_context.persist(persist_dir=itype_dir)
+                except Exception as e:
+                    log_error(f"Error initializing {itype} index: {e}")
+                    self.indices[itype] = VectorStoreIndex.from_documents([])
+            
+            # Populate indexed files from all indices
+            self._populate_indexed_files()
+            log_success("All hierarchical indices initialized.")
+
+    def _get_node_parser_for_doc(self, itype: str, file_path: str):
+        """Dynamic chunking based on content type and index target"""
+        if itype == 'logs' or itype == 'conversations':
+            # Keep conversations together with larger chunks
+            return SentenceSplitter(chunk_size=1024, chunk_overlap=100)
+        elif file_path.endswith(('.py', '.js', '.html', '.css', '.go', '.rs')):
+            # Code files: preserve structure
+            lang = file_path.split('.')[-1]
+            if lang == 'py': lang = 'python'
+            elif lang == 'js': lang = 'javascript'
             try:
-                if os.path.exists(self.persist_dir) and os.listdir(self.persist_dir):
-                    log_action(f"Loading existing index from storage...")
-                    storage_context = StorageContext.from_defaults(persist_dir=self.persist_dir)
-                    self.index = load_index_from_storage(storage_context)
-                    self._populate_indexed_files()
-                    log_success("Existing index loaded successfully.")
-                    # We'll call refresh_knowledge_base separately to avoid blocking init
-                else:
-                    log_action("Initializing knowledge base...")
-                    self.index = VectorStoreIndex.from_documents([])
-                    if not os.path.exists(self.persist_dir):
-                        os.makedirs(self.persist_dir)
-                    self.index.storage_context.persist(persist_dir=self.persist_dir)
-                    log_success("New index created.")
-                
-            except Exception as e:
-                log_error(f"Error initializing RAG index: {e}")
-                import traceback
-                traceback.print_exc()
-                self.index = VectorStoreIndex.from_documents([])
+                return CodeSplitter(language=lang, chunk_lines=100, chunk_overlap=10)
+            except:
+                return SentenceSplitter(chunk_size=512, chunk_overlap=50)
+        elif itype == 'knowledge':
+            # Semantic chunking for dense content
+            return SemanticSplitterNodeParser(
+                buffer_size=1,
+                breakpoint_percentile_threshold=95,
+                embed_model=self.embed_model
+            )
+        else:
+            return SentenceSplitter(chunk_size=512, chunk_overlap=50)
 
     def _populate_indexed_files(self):
-        """Populate the set of indexed files from the existing index and clean up stale entries."""
+        """Populate the set of indexed files from all hierarchical indices."""
         with self._lock:
-            if not self.index:
-                return
-        
-        stale_nodes = []
-        valid_files = {} # path -> mtime
-        
-        for node_id, node in self.index.docstore.docs.items():
-            file_path = node.metadata.get('file_path')
-            if file_path:
-                abs_path = os.path.abspath(file_path)
-                if os.path.exists(abs_path):
-                    # Get the timestamp from metadata. 
-                    indexed_mtime = node.metadata.get('last_modified_at', 0)
-                    # Keep the NEWEST timestamp found for this file to be safe
-                    if abs_path not in valid_files or indexed_mtime > valid_files[abs_path]:
-                        valid_files[abs_path] = indexed_mtime
-                else:
-                    stale_nodes.append(node_id)
-        
-        # Remove stale nodes from index
-        if stale_nodes:
-            log_action(f"Cleaning up {len(stale_nodes)} stale index entries...")
-            for node_id in stale_nodes:
-                try:
-                    self.index.delete_nodes([node_id])
-                except Exception as e:
-                    log_warning(f"Could not delete node {node_id}: {e}")
+            valid_files = {} # path -> mtime
             
-            # Persist after cleanup
-            self.index.storage_context.persist(persist_dir=self.persist_dir)
-            log_success("Index cleanup complete and persisted.")
-
-        self.indexed_files = valid_files
-        log_success(f"Populated {len(self.indexed_files)} valid indexed files from storage.")
+            for itype, index in self.indices.items():
+                stale_nodes = []
+                for node_id, node in index.docstore.docs.items():
+                    file_path = node.metadata.get('file_path')
+                    if file_path:
+                        abs_path = os.path.abspath(file_path)
+                        if os.path.exists(abs_path):
+                            indexed_mtime = node.metadata.get('last_modified_at', 0)
+                            if abs_path not in valid_files or indexed_mtime > valid_files[abs_path]:
+                                valid_files[abs_path] = indexed_mtime
+                        else:
+                            stale_nodes.append(node_id)
+                
+                if stale_nodes:
+                    log_action(f"Cleaning up {len(stale_nodes)} stale entries from {itype} index...")
+                    for node_id in stale_nodes:
+                        try:
+                            index.delete_nodes([node_id])
+                        except Exception as e:
+                            log_warning(f"Could not delete node {node_id} in {itype}: {e}")
+            
+            self.indexed_files = valid_files
+            log_success(f"Populated {len(self.indexed_files)} valid indexed files.")
 
     @thread_safe_rag_operation
     def refresh_knowledge_base(self):
@@ -198,12 +214,10 @@ class KaiaRAG:
                 os.makedirs(corrupt_dir)
 
             # 1. Manually walk the directory to find NEW files
-            # This is MUCH faster than letting SimpleDirectoryReader scan everything
             new_file_paths = []
             supported_exts = [".pdf", ".txt", ".md", ".docx"]
             
             for root, dirs, files in os.walk(self.knowledge_base_dir):
-                # Skip ONLY the corrupt_files directory (allow user_logs to be scanned)
                 if "corrupt_files" in root:
                     continue
                     
@@ -211,29 +225,23 @@ class KaiaRAG:
                     ext = os.path.splitext(file)[1].lower()
                     if ext in supported_exts:
                         full_path = os.path.join(root, file)
-                        # Normalize path for tracking
                         norm_path = os.path.abspath(full_path)
                         mtime = os.path.getmtime(norm_path)
                         
-                        # Check if new OR modified OR missing metadata
+                        # Determine target index
+                        itype = 'knowledge'
+                        if "user_logs" in full_path:
+                            if "user_profile.md" in file:
+                                itype = 'user_profiles'
+                            else:
+                                itype = 'logs'
+                        
                         is_new = norm_path not in self.indexed_files
                         is_modified = not is_new and mtime > self.indexed_files[norm_path]
                         
-                        # Check if metadata is missing (e.g. from an old version of the bot)
-                        missing_meta = False
-                        if not is_new and not is_modified and "user_logs" in full_path:
-                            # Sample a node for this file to check metadata
-                            for node in self.index.docstore.docs.values():
-                                if node.metadata.get('file_path') == full_path or os.path.abspath(node.metadata.get('file_path', '')) == norm_path:
-                                    if not node.metadata.get('user_id'):
-                                        missing_meta = True
-                                        break
-                                    break
-                        
-                        if (is_new or is_modified or missing_meta) and "user_memories.txt" not in file:
-                            # For user logs, we use a special 'is_log' flag to trigger tail-indexing
-                            is_log = "user_logs" in full_path
-                            new_file_paths.append((full_path, is_modified or missing_meta, is_log))
+                        if (is_new or is_modified) and "user_memories.txt" not in file:
+                            is_log = itype == 'logs'
+                            new_file_paths.append((full_path, is_modified, is_log, itype))
 
             # 2. Also index the persona file from root
             persona_file = "kaia_persona.md"
@@ -241,42 +249,41 @@ class KaiaRAG:
                 norm_path = os.path.abspath(persona_file)
                 mtime = os.path.getmtime(norm_path)
                 if norm_path not in self.indexed_files or mtime > self.indexed_files[norm_path]:
-                    new_file_paths.append((persona_file, norm_path in self.indexed_files, False))
+                    new_file_paths.append((persona_file, norm_path in self.indexed_files, False, 'persona'))
 
             if not new_file_paths:
                 log_info("No new documents to index.")
             else:
                 log_action(f"Found {len(new_file_paths)} new or modified documents. Processing...")
                 
-                for file_path, is_modified, is_log in new_file_paths:
+                for file_path, is_modified, is_log, itype in new_file_paths:
+                    target_index = self.indices[itype]
                     if is_modified and not is_log:
-                        log_action(f"Detected update in file. Re-indexing...")
+                        log_action(f"Detected update in {itype} file. Re-indexing...")
                         log_file(file_path)
-                        # Delete old nodes for this file (only for non-log files)
                         abs_path = os.path.abspath(file_path)
                         nodes_to_delete = [
-                            node_id for node_id, node in self.index.docstore.docs.items()
+                            node_id for node_id, node in target_index.docstore.docs.items()
                             if node.metadata.get('file_path') == file_path or os.path.abspath(node.metadata.get('file_path', '')) == abs_path
                         ]
                         if nodes_to_delete:
-                            print(f"Deleting {len(nodes_to_delete)} old nodes for {file_path}")
+                            print(f"Deleting {len(nodes_to_delete)} old nodes from {itype} for {file_path}")
                             for node_id in nodes_to_delete:
-                                self.index.delete_nodes([node_id])
+                                target_index.delete_nodes([node_id])
                     elif is_log:
-                        log_action(f"Checking for new content in log...")
+                        log_action(f"Checking for new content in {itype} log...")
                         log_file(file_path)
                     else:
-                        log_action(f"Processing new file...")
+                        log_action(f"Processing new {itype} file...")
                         log_file(file_path)
                         
                     try:
+                        abs_path = os.path.abspath(file_path)
                         # Load file content
                         if is_log:
                             # TAIL-INDEXING for logs: only index what's new
-                            # 1. Find the last byte offset we indexed
                             last_offset = 0
-                            abs_path = os.path.abspath(file_path)
-                            for node in self.index.docstore.docs.values():
+                            for node in target_index.docstore.docs.values():
                                 if os.path.abspath(node.metadata.get('file_path', '')) == abs_path:
                                     offset = node.metadata.get('file_offset', 0)
                                     length = node.metadata.get('content_length', 0)
@@ -284,11 +291,11 @@ class KaiaRAG:
                             
                             file_size = os.path.getsize(file_path)
                             if file_size <= last_offset:
-                                log_info(f"No new content in log (Offset: {last_offset})")
+                                log_info(f"No new content in {itype} log (Offset: {last_offset})")
                                 self.indexed_files[abs_path] = os.path.getmtime(file_path)
                                 continue
                                 
-                            log_action(f"Indexing new log content from offset {last_offset}...")
+                            log_action(f"Indexing new {itype} content from offset {last_offset}...")
                             with open(file_path, 'r', encoding='utf-8') as f:
                                 f.seek(last_offset)
                                 new_content = f.read()
@@ -306,20 +313,13 @@ class KaiaRAG:
                                         "source": "user_logs"
                                     }
                                 )
-                                # Extract user metadata for the new doc
-                                parts = file_path.split(os.sep)
-                                try:
-                                    ul_idx = parts.index("user_logs")
-                                    user_folder = parts[ul_idx + 1]
-                                    if "_" in user_folder:
-                                        u_name, u_id = user_folder.rsplit("_", 1)
-                                        doc.metadata['user_id'] = u_id
-                                        doc.metadata['user_name'] = u_name
-                                except: pass
+                                # Use specialized node parser
+                                parser = self._get_node_parser_for_doc(itype, file_path)
+                                nodes = parser.get_nodes_from_documents([doc])
+                                target_index.insert_nodes(nodes)
                                 
-                                self.index.insert(doc)
                                 self.indexed_files[abs_path] = mtime
-                                log_success(f"Indexed {len(new_content)} new characters from log.")
+                                log_success(f"Indexed {len(new_content)} new characters from {itype} log.")
                             else:
                                 self.indexed_files[abs_path] = os.path.getmtime(file_path)
                         else:
@@ -329,20 +329,33 @@ class KaiaRAG:
                             
                             if docs:
                                 mtime = os.path.getmtime(file_path)
+                                parser = self._get_node_parser_for_doc(itype, file_path)
                                 for doc in docs:
                                     doc.metadata['last_modified_at'] = mtime
                                     doc.metadata['file_path'] = os.path.abspath(file_path)
+                                    doc.metadata['itype'] = itype
                                     
-                                    # Tag persona file specifically
-                                    if "kaia_persona.md" in file_path:
+                                    if itype == 'persona':
                                         doc.metadata['source'] = "persona"
                                         doc.metadata['user_id'] = "KAIA_SYSTEM"
-                                        
-                                    self.index.insert(doc)
+                                    
+                                    # Extract user metadata if in user_logs
+                                    if "user_logs" in file_path:
+                                        parts = file_path.split(os.sep)
+                                        try:
+                                            ul_idx = parts.index("user_logs")
+                                            user_folder = parts[ul_idx + 1]
+                                            if "_" in user_folder:
+                                                u_name, u_id = user_folder.rsplit("_", 1)
+                                                doc.metadata['user_id'] = u_id
+                                                doc.metadata['user_name'] = u_name
+                                        except: pass
+                                    
+                                    nodes = parser.get_nodes_from_documents([doc])
+                                    target_index.insert_nodes(nodes)
                                 
-                                self.indexed_files[os.path.abspath(file_path)] = mtime
-                                log_success(f"Successfully indexed file")
-                                log_file(file_path)
+                                self.indexed_files[abs_path] = mtime
+                                log_success(f"Indexed {file_path} into {itype} index.")
                             else:
                                 log_warning(f"No data loaded from file. Moving to corrupt_files.")
                                 log_file(file_path)
@@ -382,7 +395,10 @@ class KaiaRAG:
                                         orig_mtime = os.path.getmtime(file_path)
                                         for doc in md_docs:
                                             doc.metadata['last_modified_at'] = mtime
-                                            self.index.insert(doc)
+                                            doc.metadata['itype'] = itype
+                                            parser = self._get_node_parser_for_doc(itype, md_path)
+                                            nodes = parser.get_nodes_from_documents([doc])
+                                            target_index.insert_nodes(nodes)
                                         self.indexed_files[os.path.abspath(md_path)] = mtime
                                         # Also track original PDF as "handled" so we don't retry
                                         self.indexed_files[os.path.abspath(file_path)] = orig_mtime
@@ -559,6 +575,7 @@ Kaia: {bot_response}
                     text=interaction_text,
                     metadata={
                         "source": "user_logs",
+                        "itype": "logs",
                         "user_id": str(user_id),
                         "user_name": user_name,
                         "timestamp": timestamp,
@@ -569,10 +586,15 @@ Kaia: {bot_response}
                         "is_vision_response": is_vision_response
                     }
                 )
-                self.index.insert(new_doc)
+                
+                # Use specialized node parser for logs
+                parser = self._get_node_parser_for_doc('logs', log_file)
+                nodes = parser.get_nodes_from_documents([new_doc])
+                self.indices['logs'].insert_nodes(nodes)
+                
                 self.indexed_files[os.path.abspath(log_file)] = mtime
                 self.persist_needed = True
-                log_success(f"Interaction indexed for user {user_name} ({user_id})")
+                log_success(f"Interaction indexed for user {user_name} into logs index")
                 
                 return True
             except Exception as e:
@@ -590,7 +612,7 @@ Kaia: {bot_response}
         OPTIMIZED: No longer iterates through entire docstore. Uses retriever results only.
         """
         with self._lock:
-            if not self.index:
+            if not self.indices:
                 return []
         
         if not query or not query.strip():
@@ -653,26 +675,36 @@ Kaia: {bot_response}
                 # Repeat the name to boost its importance in the embedding
                 enriched_query += f" user:{detected_user} {detected_user} {detected_user}"
             
-            # Retrieve with a significantly higher limit to ensure profiles are found
-            if is_casual:
-                retrieve_count = 20
-            elif is_identity_query:
-                retrieve_count = 30
+            # 2. ROUTING: Determine which indices to hit
+            target_itypes = []
+            if is_kaia_query:
+                target_itypes = ['persona']
+            elif is_user_identity_query:
+                target_itypes = ['user_profiles', 'logs']
+            elif is_vision_query:
+                target_itypes = ['logs']
             else:
-                retrieve_count = 25
+                # General query: hit everything except persona (unless explicitly asked)
+                target_itypes = ['knowledge', 'logs', 'user_profiles']
             
-            retriever = self.index.as_retriever(similarity_top_k=retrieve_count)
-            nodes = retriever.retrieve(enriched_query)
+            # Retrieve with a significantly higher limit to ensure profiles are found
+            retrieve_count = 15 if is_casual else 25
+            
+            all_node_results = []
+            for itype in target_itypes:
+                if itype in self.indices:
+                    retriever = self.indices[itype].as_retriever(similarity_top_k=retrieve_count)
+                    all_node_results.extend(retriever.retrieve(enriched_query))
             
             # 3. Categorize and Score nodes
             scored_nodes = [] # List of (score, content, label)
             seen_texts = set()
             u_id_str = str(user_id) if user_id else None
             
-            # Lore relevance threshold (Recalibrated: higher threshold to reduce anchoring)
+            # Lore relevance threshold
             lore_threshold = 0.80 if is_casual else 0.60
             
-            for node_result in nodes:
+            for node_result in all_node_results:
                 node = node_result.node if hasattr(node_result, 'node') else node_result
                 similarity_score = node_result.score if hasattr(node_result, 'score') else 0.5
                 content = node.get_content()
@@ -788,14 +820,16 @@ Kaia: {bot_response}
 
     @thread_safe_rag_operation
     def persist(self, force: bool = False):
-        """Persist the index to storage if needed."""
-        if self.index and (self.persist_needed or force):
-                try:
-                    self.index.storage_context.persist(persist_dir=self.persist_dir)
-                    self.persist_needed = False
-                    log_success(f"Index persisted to {self.persist_dir}")
-                except Exception as e:
-                    log_error(f"Error persisting index: {e}")
+        """Persist all hierarchical indices to storage if needed."""
+        if self.persist_needed or force:
+            try:
+                for itype, index in self.indices.items():
+                    itype_dir = os.path.join(self.persist_dir, itype)
+                    index.storage_context.persist(persist_dir=itype_dir)
+                self.persist_needed = False
+                log_success(f"All hierarchical indices persisted to {self.persist_dir}")
+            except Exception as e:
+                log_error(f"Error persisting indices: {e}")
 
 if __name__ == "__main__":
     rag = KaiaRAG()

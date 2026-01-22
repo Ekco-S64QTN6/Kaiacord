@@ -239,6 +239,12 @@ def load_persona() -> str:
             return _persona_cache
         return "You are Kaia, a blunt and grounded resident of this server."
 
+async def load_persona_async() -> str:
+    """Load the bot's persona from kaia_persona.md with caching (Async)"""
+    # File I/O is small, but we run it in a thread to keep the loop free
+    loop = asyncio.get_running_loop()
+    return await loop.run_in_executor(None, load_persona)
+
 async def send_kaia_response(channel: discord.abc.Messageable, text: str):
     """Helper to split long messages and wrap them in Kaia's code block style"""
     if not text:
@@ -573,11 +579,7 @@ async def on_message(msg: discord.Message):
     try:
         log_message_received(msg.author.name, str(msg.author.id), sanitized_content)
         
-        system_prompt = load_persona()
-        now = datetime.now()
-        current_time_str = now.strftime("%A, %B %d, %Y %I:%M %p")
-        system_prompt += f"\n\nToday is {current_time_str}."
-        
+        # PARALLEL PIPELINE: Fire off tasks concurrently
         clean_query = sanitized_content.lower().replace("kaia", "").strip("?,. ")
         display_name = msg.author.display_name.strip(".")
         
@@ -590,16 +592,25 @@ async def on_message(msg: discord.Message):
             clean_query = "Who is Kaia?"
             target_user_id = bot.user.id
             target_user_name = bot.user.name
-            
+
         log_context_retrieval(clean_query)
         
-        context_nodes = await run_rag(
+        # Define tasks
+        persona_task = asyncio.create_task(load_persona_async())
+        rag_task = asyncio.create_task(run_rag(
             rag.retrieve, 
             clean_query, 
             user_id=target_user_id, 
             user_name=target_user_name, 
             top_k=config.rag_top_k
-        )
+        ))
+        
+        # Wait for both to complete
+        system_prompt, context_nodes = await asyncio.gather(persona_task, rag_task)
+        
+        now = datetime.now()
+        current_time_str = now.strftime("%A, %B %d, %Y %I:%M %p")
+        system_prompt += f"\n\nToday is {current_time_str}."
         
         if context_nodes:
             format_rag_table(context_nodes)
