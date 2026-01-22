@@ -31,8 +31,8 @@ from kaia_vision import kaia_sees_image, cleanup_session
 
 # Load environment variables early so Config can use them
 load_dotenv()
-from clear_gpu_memory import clear_gpu_memory
-from kaia_logger import *
+from utils.clear_gpu_memory import clear_gpu_memory
+from utils.kaia_logger import *
 
 @dataclass
 class Config:
@@ -66,7 +66,7 @@ config = Config.from_env()
 
 class BotState:
     """Encapsulates global bot state and persistence"""
-    def __init__(self, state_file: str = "bot_state.json"):
+    def __init__(self, state_file: str = "storage/bot_state.json"):
         self.state_file = state_file
         self.channel_memory: Dict[int, Deque[Dict[str, str]]] = {}
         self.last_interaction_time: float = time.time()

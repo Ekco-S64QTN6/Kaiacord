@@ -27,7 +27,7 @@ generation_lock = asyncio.Lock()
 
 import urllib.request
 import json
-from clear_gpu_memory import clear_gpu_memory
+from utils.clear_gpu_memory import clear_gpu_memory
 
 async def unload_ollama_models():
     """

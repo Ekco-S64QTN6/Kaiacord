@@ -5,7 +5,7 @@ import tempfile
 import os
 import ollama
 from pathlib import Path
-from kaia_logger import *
+from utils.kaia_logger import *
 
 # Vision model configuration
 VISION_MODEL = "llama3.2-vision:11b"

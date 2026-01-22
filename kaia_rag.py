@@ -30,7 +30,7 @@ from llama_index.core import VectorStoreIndex, SimpleDirectoryReader, StorageCon
 from llama_index.llms.ollama import Ollama
 from llama_index.embeddings.ollama import OllamaEmbedding
 from llama_index.core.node_parser import SentenceSplitter
-from kaia_logger import *
+from utils.kaia_logger import *
 
 class CircuitOpenError(Exception):
     """Raised when the circuit breaker is open"""

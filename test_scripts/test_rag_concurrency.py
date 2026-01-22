@@ -4,7 +4,7 @@ import sys
 import os
 
 # Add current directory to path so we can import kaia_rag
-sys.path.append(os.path.dirname(os.path.abspath(__file__)))
+sys.path.append(os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
 
 from kaia_rag import KaiaRAG
 
