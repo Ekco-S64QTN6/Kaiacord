@@ -194,9 +194,7 @@ def log_model_action(model_name, action):
 def log_message_received(author_name, author_id, content):
     """Log received Discord message."""
     user_str = _colorize(f"{author_name}", Fore.CYAN)
-    # Truncate long messages
-    truncated = content[:100] + "..." if len(content) > 100 else content
-    print(f"{_get_timestamp()}Message from {user_str}: {truncated}")
+    print(f"{_get_timestamp()}Message from {user_str}: {content}")
 
 
 def log_context_retrieval(query, count=None):

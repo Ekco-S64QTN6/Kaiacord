@@ -16,7 +16,7 @@ ollama_client = ollama.AsyncClient()
 # Global session for connection pooling
 _session = None
 
-async def get_session():
+async def get_session() -> aiohttp.ClientSession:
     global _session
     if _session is None or _session.closed:
         _session = aiohttp.ClientSession()
@@ -36,7 +36,7 @@ async def download_image(url: str) -> str:
     Download an image from a URL to a temporary file.
     Returns the path to the downloaded file.
     """
-    temp_path = None
+    temp_path: Optional[str] = None
     try:
         log_action(f"Downloading image...")
         log_file(url)
@@ -82,7 +82,7 @@ async def download_image(url: str) -> str:
         raise
 
 
-async def analyze_image(image_path: str, prompt: str = None) -> str:
+async def analyze_image(image_path: str, prompt: Optional[str] = None) -> str:
     """
     Analyze an image using Ollama's vision model.
     
@@ -134,7 +134,7 @@ async def analyze_image(image_path: str, prompt: str = None) -> str:
         raise
 
 
-async def process_discord_image(image_url: str, user_prompt: str = None) -> tuple[str, str]:
+async def process_discord_image(image_url: str, user_prompt: Optional[str] = None) -> tuple[str, Optional[str]]:
     """
     Download and analyze an image from Discord.
     
@@ -146,7 +146,7 @@ async def process_discord_image(image_url: str, user_prompt: str = None) -> tupl
         Tuple of (analysis_text, temp_file_path)
         The temp file path should be cleaned up by the caller
     """
-    temp_path = None
+    temp_path: Optional[str] = None
     try:
         # Download the image
         temp_path = await download_image(image_url)

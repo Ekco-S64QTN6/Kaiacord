@@ -24,11 +24,74 @@ logging.getLogger("pdfminer").propagate = False
 # Suppress all warnings
 warnings.filterwarnings("ignore")
 from datetime import datetime
+from functools import wraps
+from typing import List, Dict, Optional, Any, Tuple
 from llama_index.core import VectorStoreIndex, SimpleDirectoryReader, StorageContext, Settings, load_index_from_storage, Document
 from llama_index.llms.ollama import Ollama
 from llama_index.embeddings.ollama import OllamaEmbedding
 from llama_index.core.node_parser import SentenceSplitter
 from kaia_logger import *
+
+class CircuitOpenError(Exception):
+    """Raised when the circuit breaker is open"""
+    pass
+
+class CircuitBreaker:
+    """Circuit breaker for external services"""
+    def __init__(self, failure_threshold: int = 3, reset_timeout: int = 60):
+        self.failures = 0
+        self.last_failure = 0.0
+        self.threshold = failure_threshold
+        self.timeout = reset_timeout
+        
+    def __call__(self, func):
+        @wraps(func)
+        def wrapper(*args, **kwargs):
+            if self.is_open():
+                log_warning(f"Circuit breaker open for {func.__name__}")
+                raise CircuitOpenError(f"Service {func.__name__} unavailable")
+            try:
+                result = func(*args, **kwargs)
+                self._reset()
+                return result
+            except Exception as e:
+                self.failures += 1
+                self.last_failure = time.time()
+                raise
+        return wrapper
+        
+    def is_open(self) -> bool:
+        return (self.failures >= self.threshold and 
+                time.time() - self.last_failure < self.timeout)
+                
+    def _reset(self):
+        self.failures = 0
+
+def thread_safe_rag_operation(func):
+    """Decorator to ensure thread safety for RAG operations with timeout and graceful fallback"""
+    @wraps(func)
+    def wrapper(self, *args, **kwargs):
+        # Try to acquire the lock with a timeout to avoid hanging the bot
+        # 10 seconds is generous but prevents permanent deadlocks
+        if not self._lock.acquire(timeout=10):
+            log_warning(f"RAG operation {func.__name__} timed out waiting for lock")
+            if func.__name__ == 'retrieve': return []
+            if func.__name__ in ['add_memory', 'log_user_interaction']: return False
+            return None
+            
+        try:
+            # If indexing is in progress, skip other operations to avoid VRAM/CPU contention
+            # and potentially long wait times.
+            if getattr(self, '_indexing_in_progress', False) and func.__name__ != 'refresh_knowledge_base':
+                log_warning(f"RAG operation {func.__name__} skipped: indexing in progress")
+                if func.__name__ == 'retrieve': return []
+                if func.__name__ in ['add_memory', 'log_user_interaction']: return False
+                return None
+                
+            return func(self, *args, **kwargs)
+        finally:
+            self._lock.release()
+    return wrapper
 
 class KaiaRAG:
     def __init__(self, knowledge_base_dir="./knowledge_base", persist_dir="./storage"):
@@ -50,6 +113,7 @@ class KaiaRAG:
         self.index = None
         self.persist_needed = False
         self._lock = threading.RLock()
+        self._indexing_in_progress = False
         
         # Load or create index
         self._initialize_index()
@@ -117,21 +181,22 @@ class KaiaRAG:
         self.indexed_files = valid_files
         log_success(f"Populated {len(self.indexed_files)} valid indexed files from storage.")
 
+    @thread_safe_rag_operation
     def refresh_knowledge_base(self):
         """Load all supported files from the knowledge base directory and update the index incrementally."""
-        with self._lock:
+        self._indexing_in_progress = True
+        try:
             if not os.path.exists(self.knowledge_base_dir):
                 os.makedirs(self.knowledge_base_dir)
                 return
 
-        log_action(f"Refreshing knowledge base...")
-        
-        # Create corrupt_files directory if it doesn't exist
-        corrupt_dir = os.path.join(self.knowledge_base_dir, "corrupt_files")
-        if not os.path.exists(corrupt_dir):
-            os.makedirs(corrupt_dir)
+            log_action(f"Refreshing knowledge base...")
+            
+            # Create corrupt_files directory if it doesn't exist
+            corrupt_dir = os.path.join(self.knowledge_base_dir, "corrupt_files")
+            if not os.path.exists(corrupt_dir):
+                os.makedirs(corrupt_dir)
 
-        try:
             # 1. Manually walk the directory to find NEW files
             # This is MUCH faster than letting SimpleDirectoryReader scan everything
             new_file_paths = []
@@ -350,8 +415,11 @@ class KaiaRAG:
             log_error(f"Error refreshing knowledge base: {e}")
             import traceback
             traceback.print_exc()
+        finally:
+            self._indexing_in_progress = False
 
-    def _convert_pdf_to_md(self, pdf_path):
+    @CircuitBreaker(failure_threshold=3)
+    def _convert_pdf_to_md(self, pdf_path: str) -> Optional[str]:
         """Convert a PDF file to a Markdown file by extracting text."""
         try:
             # Strip .pdf extension before adding .md for cleaner filenames
@@ -384,7 +452,8 @@ class KaiaRAG:
             log_error(f"Error converting PDF to MD: {e}")
             return None
 
-    def _convert_docx_to_md(self, docx_path):
+    @CircuitBreaker(failure_threshold=3)
+    def _convert_docx_to_md(self, docx_path: str) -> Optional[str]:
         """Convert a DOCX file to a Markdown file by extracting text."""
         try:
             # Strip .docx extension before adding .md
@@ -412,7 +481,8 @@ class KaiaRAG:
             log_error(f"Error converting DOCX to MD: {e}")
             return None
 
-    def add_memory(self, user_id, user_name, text):
+    @thread_safe_rag_operation
+    def add_memory(self, user_id: int, user_name: str, text: str) -> bool:
         """Log a 'remembered' fact into the user's interaction log."""
         try:
             # We treat this as a special interaction where the user says "remember this" 
@@ -427,7 +497,8 @@ class KaiaRAG:
             log_error(f"Error adding memory: {e}")
             return False
 
-    def log_user_interaction(self, user_id, user_name, message_content, bot_response, is_vision_response=False):
+    @thread_safe_rag_operation
+    def log_user_interaction(self, user_id: int, user_name: str, message_content: str, bot_response: str, is_vision_response: bool = False) -> bool:
         """Log user interaction to a single file per user, rotating at 100MB.
         
         Args:
@@ -510,7 +581,8 @@ Kaia: {bot_response}
                 traceback.print_exc()
                 return False
 
-    def retrieve(self, query, user_id=None, user_name=None, top_k=5):
+    @thread_safe_rag_operation
+    def retrieve(self, query: str, user_id: Optional[int] = None, user_name: Optional[str] = None, top_k: int = 4) -> List[str]:
         """
         Retrieve relevant nodes, ensuring user logs are prioritized and not drowned out.
         If user_id is provided, specifically looks for that user's history and preferences.
@@ -583,11 +655,11 @@ Kaia: {bot_response}
             
             # Retrieve with a significantly higher limit to ensure profiles are found
             if is_casual:
-                retrieve_count = 40
+                retrieve_count = 20
             elif is_identity_query:
-                retrieve_count = 60
+                retrieve_count = 30
             else:
-                retrieve_count = 50
+                retrieve_count = 25
             
             retriever = self.index.as_retriever(similarity_top_k=retrieve_count)
             nodes = retriever.retrieve(enriched_query)
@@ -622,9 +694,6 @@ Kaia: {bot_response}
                     if (ascii_count / len(sample)) < 0.80:
                         continue
                 
-                if len(content) > 800:
-                    content = content[:800] + "..."
-                
                 # Determine node type and priority
                 source = node.metadata.get('source', '')
                 file_path = node.metadata.get('file_path', '')
@@ -636,12 +705,12 @@ Kaia: {bot_response}
                 
                 if source == "persona" or node_user_id == "KAIA_SYSTEM":
                     priority = 150 if is_kaia_query else 80
-                    label = "[KAIA_PERSONA_FRAGMENT]"
+                    label = "Kaia Persona Fragment"
                 elif source == "user_logs" or "user_logs" in file_path:
                     if "user_profile.md" in file_path:
-                        label = f"[USER_SUMMARY_PROFILE: {node_user_name.upper()}]"
+                        label = f"User Profile: {node_user_name.upper()}"
                     else:
-                        label = f"[USER_HISTORY_LOG: {node_user_name.upper()}]"
+                        label = f"Conversation History: {node_user_name.upper()}"
                     
                     # Handle underscores in names (common in user log folders)
                     node_user_name_clean = node_user_name.replace("_", " ")
@@ -671,7 +740,7 @@ Kaia: {bot_response}
                     # Lore (Recalibrated: lower priority, historical reference only)
                     if similarity_score >= lore_threshold:
                         priority = 20
-                        label = "[USER_PROFILE_AND_HISTORY]"
+                        label = "Historical Reference"
                     else:
                         continue # Skip low-relevance lore
                 
@@ -690,14 +759,14 @@ Kaia: {bot_response}
             lore_count = 0
             
             for _, content, label in scored_nodes:
-                if "KAIA_PERSONA" in label:
+                if "Kaia Persona" in label:
                     if is_user_identity_query: continue # Skip persona for user identity queries
                     if persona_count >= (4 if is_kaia_query else 1): continue
                     persona_count += 1
-                elif "USER_PROFILE" in label or "USER_SUMMARY" in label:
+                elif "User Profile" in label or "Conversation History" in label:
                     if user_log_count >= (6 if is_identity_query else 5): continue
                     user_log_count += 1
-                elif "[HISTORICAL_REFERENCE]" in label:
+                elif "Historical Reference" in label:
                     if is_identity_query: continue # Skip lore for identity queries
                     if lore_count >= (2 if is_casual else 4): continue
                     lore_count += 1
@@ -717,10 +786,10 @@ Kaia: {bot_response}
             traceback.print_exc()
             return []
 
-    def persist(self, force=False):
+    @thread_safe_rag_operation
+    def persist(self, force: bool = False):
         """Persist the index to storage if needed."""
-        with self._lock:
-            if self.index and (self.persist_needed or force):
+        if self.index and (self.persist_needed or force):
                 try:
                     self.index.storage_context.persist(persist_dir=self.persist_dir)
                     self.persist_needed = False

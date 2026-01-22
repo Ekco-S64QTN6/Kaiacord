@@ -16,6 +16,16 @@ Kaia is a Linux-native AI chatbot for Discord, powered by Ollama.
 - **Personalized Memory**: Automatically retrieves and prioritizes a user's specific history and preferences (like pronouns) during interactions.
 - **Color-Coded Logging System**: Enhanced terminal output with high-visibility timestamps, success markers, and color-coded message types (actions, users, responses, errors).
 - **RAG Context Visualization**: Displays retrieved context nodes in a structured table for easier debugging and transparency.
+- **Robustness & Security**:
+    - **Per-User Rate Limiting**: Prevents abuse with configurable request limits.
+    - **Prompt Injection Defense**: Sanitizes user input to prevent system prompt manipulation.
+    - **Safe Process Management**: Uses `psutil` for reliable cleanup of orphaned instances on startup.
+    - **Circuit Breakers**: Gracefully handles failures in external services like PDF/DOCX conversion.
+- **Architectural Improvements**:
+    - **Global State Management**: Centralized bot state (`BotState`) with persistent storage.
+    - **Configuration Management**: Centralized settings (`Config`) with environment variable support.
+    - **Non-Blocking RAG**: Dedicated thread pool for RAG operations to keep the event loop responsive.
+    - **Concurrency Control**: Semaphore-based image generation to prevent VRAM conflicts.
 
 ## Local RAG System
 Kaia uses a Retrieval-Augmented Generation (RAG) system to access local knowledge.
