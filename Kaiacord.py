@@ -30,7 +30,7 @@ from kaia_image import generate_image, unload_image_model, generation_lock
 from kaia_vision import kaia_sees_image, cleanup_session
 from watchdog.observers import Observer
 from watchdog.events import FileSystemEventHandler
-from utils.kaia_intelligence import SemanticCache, ModelWarmPool, QueryClassifier, ContextOptimizer, RelevanceFeedback
+from utils.kaia_intelligence import SemanticCache, ModelWarmPool, QueryClassifier, ContextOptimizer, RelevanceFeedback, PerformanceMonitor, PersonalizationEngine
 
 # Load environment variables early so Config can use them
 load_dotenv()
@@ -290,6 +290,40 @@ model_warm_pool = ModelWarmPool(ollama_client)
 query_classifier = QueryClassifier(ollama_client)
 context_optimizer = ContextOptimizer(model_name=config.chat_model)
 relevance_feedback = RelevanceFeedback(rag)
+personalization_engine = PersonalizationEngine()
+
+class SelfHealingSystem:
+    """Execute functions with fallback strategies."""
+    @staticmethod
+    async def call_with_fallback(func, *args, **kwargs):
+        try:
+            return await func(*args, **kwargs)
+        except Exception as e:
+            log_warning(f"Primary strategy failed: {e}. Trying simplified fallback...")
+            # Fallback: Reduce context or simplify request
+            if 'messages' in kwargs:
+                # Keep only system and last few messages
+                kwargs['messages'] = [kwargs['messages'][0]] + kwargs['messages'][-2:]
+            if 'options' in kwargs:
+                kwargs['options']['num_predict'] = 512 # Shorter response
+            try:
+                return await func(*args, **kwargs)
+            except Exception as e2:
+                log_error(f"Fallback failed: {e2}")
+                raise e2
+
+async def send_typing_feedback(channel, query):
+    """Show typing indicator based on query complexity."""
+    words = query.split()
+    # Estimate complexity: long queries or technical keywords
+    is_complex = len(words) > 10 or any(kw in query.lower() for kw in ['how', 'why', 'code', 'explain'])
+    
+    if is_complex:
+        async with channel.typing():
+            await asyncio.sleep(2) # Artificial delay for "thinking" feel
+    else:
+        async with channel.typing():
+            await asyncio.sleep(0.5)
 
 class KnowledgeBaseWatcher(FileSystemEventHandler):
     def __init__(self, rag, loop):
@@ -681,6 +715,9 @@ async def on_message(msg: discord.Message):
         
         log_info(f"Query classified as: {category.upper()}")
 
+        # Start typing indicator
+        asyncio.create_task(send_typing_feedback(msg.channel, msg.content))
+
         clean_query = sanitized_content.lower().replace("kaia", "").strip("?,. ")
         display_name = msg.author.display_name.strip(".")
         
@@ -707,9 +744,15 @@ async def on_message(msg: discord.Message):
             top_k=config.rag_top_k
         ))
         
-        # Wait for both to complete
-        system_prompt, context_nodes = await asyncio.gather(persona_task, rag_task)
+        # Personalization traits
+        traits_task = asyncio.create_task(personalization_engine.get_user_traits(msg.author.id))
+        
+        # Wait for all to complete
+        system_prompt, context_nodes, user_traits = await asyncio.gather(persona_task, rag_task, traits_task)
         performance_monitor.stop_timer('retrieval', 'retrieval_time')
+        
+        # Adapt prompt based on traits
+        system_prompt = personalization_engine.adapt_prompt(system_prompt, user_traits)
         
         now = datetime.now()
         current_time_str = now.strftime("%A, %B %d, %Y %I:%M %p")
@@ -772,8 +815,9 @@ async def on_message(msg: discord.Message):
             "content": reinforcement
         })
 
-        log_action("Calling ollama.chat...")
-        response = await ollama_client.chat(
+        log_action("Calling ollama.chat with self-healing...")
+        response = await SelfHealingSystem.call_with_fallback(
+            ollama_client.chat,
             model=config.chat_model,
             messages=messages,
             options={
@@ -791,9 +835,10 @@ async def on_message(msg: discord.Message):
         performance_monitor.stop_timer('total', 'response_time')
         content = response['message']['content']
         
-        # 4. CACHE & FEEDBACK
+        # 4. CACHE, FEEDBACK & PERSONALIZATION
         await semantic_cache.set(msg.content, content, msg.author.id)
         await relevance_feedback.log_interaction(msg.content, content, msg.author.id)
+        await personalization_engine.learn_from_interaction(msg.author.id, msg.content, content)
         
         # Transparency indicator for optimization
         if optimized_context.get('tokens_saved', 0) > 500:

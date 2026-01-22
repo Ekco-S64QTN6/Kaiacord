@@ -61,6 +61,7 @@ class SemanticCache:
     def __init__(self, model_name="nomic-embed-text", max_size=200, threshold=0.80):
         self.exact_cache = {} # {user_id:query_hash: response}
         self.cache = {} # {query: data}
+        self.access_counts = {} # {query_hash: count}
         self.embed_model = OllamaEmbedding(model_name=model_name)
         self.max_size = max_size
         self.threshold = threshold
@@ -77,6 +78,7 @@ class SemanticCache:
         exact_key = self._get_exact_key(query, user_id)
         if exact_key in self.exact_cache:
             log_success(f"Exact cache hit for user {user_id}")
+            self.access_counts[exact_key] = self.access_counts.get(exact_key, 0) + 1
             if monitor: monitor.record_hit(exact=True)
             return self.exact_cache[exact_key]
 
@@ -110,6 +112,9 @@ class SemanticCache:
             
             if highest_similarity * decay >= self.threshold:
                 log_success(f"Semantic cache hit: {highest_similarity:.3f}")
+                # Update access count for the matched query
+                matched_query = list(self.cache.keys())[list(self.cache.values()).index(best_match)]
+                self.access_counts[matched_query] = self.access_counts.get(matched_query, 0) + 1
                 if monitor: monitor.record_hit()
                 return best_match['response']
         
@@ -125,11 +130,7 @@ class SemanticCache:
             
             # Set Semantic
             if len(self.cache) >= self.max_size:
-                oldest_key = min(self.cache.keys(), key=lambda k: self.cache[k]['timestamp'])
-                del self.cache[oldest_key]
-                # Also prune exact cache if it gets too large
-                if len(self.exact_cache) > self.max_size * 2:
-                    self.exact_cache.clear()
+                await self.prune_adaptive()
             
             query_embedding = await self.embed_model.aget_text_embedding(query)
             self.cache[query] = {
@@ -140,6 +141,28 @@ class SemanticCache:
             }
         except Exception as e:
             log_error(f"Error setting cache: {e}")
+
+    async def prune_adaptive(self):
+        """Prune based on LRU + access frequency."""
+        if not self.cache: return
+        
+        log_action("Pruning cache adaptively...")
+        # Score = timestamp * sqrt(access_count)
+        scores = {}
+        for query, data in self.cache.items():
+            count = self.access_counts.get(query, 1)
+            scores[query] = data['timestamp'] * np.sqrt(count)
+            
+        # Keep top 80%
+        keep_count = int(self.max_size * 0.8)
+        sorted_keys = sorted(scores.keys(), key=lambda k: scores[k], reverse=True)
+        
+        keys_to_keep = set(sorted_keys[:keep_count])
+        self.cache = {k: v for k, v in self.cache.items() if k in keys_to_keep}
+        
+        # Also prune exact cache
+        if len(self.exact_cache) > self.max_size * 2:
+            self.exact_cache = {k: v for k, v in self.exact_cache.items() if k in keys_to_keep or any(k.endswith(q) for q in keys_to_keep)}
 
 class ModelWarmPool:
     """Keep models warm between uses to prevent cold starts."""
@@ -328,3 +351,56 @@ class RelevanceFeedback:
                 log_success(f"Added {len(synthetic_docs)} feedback nodes to RAG.")
             except Exception as e:
                 log_error(f"Error adding feedback to RAG: {e}")
+
+class PersonalizationEngine:
+    """Learn user preferences and adapt responses."""
+    def __init__(self):
+        self.user_profiles = {} # user_id -> {traits}
+        
+    async def get_user_traits(self, user_id):
+        return self.user_profiles.get(str(user_id), {
+            'conciseness': 0.5,
+            'technicality': 0.5,
+            'formality': 0.5,
+            'humor': 0.5
+        })
+
+    def adapt_prompt(self, system_prompt, traits):
+        """Inject style instructions into the system prompt."""
+        adaptation = "\n\n[STYLE_ADAPTATION]\n"
+        if traits['conciseness'] > 0.7:
+            adaptation += "- Be extremely concise and brief.\n"
+        elif traits['conciseness'] < 0.3:
+            adaptation += "- Be verbose and detailed.\n"
+            
+        if traits['technicality'] > 0.7:
+            adaptation += "- Use technical language and deep analysis.\n"
+        elif traits['technicality'] < 0.3:
+            adaptation += "- Use simple, everyday language.\n"
+            
+        return system_prompt + adaptation
+
+    async def learn_from_interaction(self, user_id, query, response):
+        """Update user profile based on interaction characteristics."""
+        user_id = str(user_id)
+        traits = await self.get_user_traits(user_id)
+        
+        # Simple heuristics for learning
+        word_count = len(response.split())
+        
+        # Conciseness: if user gets long responses and doesn't complain, maybe they like them?
+        # Or if they ask short questions, they might want short answers.
+        query_len = len(query.split())
+        
+        # EMA update
+        target_conciseness = 1.0 if query_len < 5 else 0.3
+        traits['conciseness'] = 0.9 * traits['conciseness'] + 0.1 * target_conciseness
+        
+        # Technicality: detect technical keywords in query
+        tech_keywords = ['how', 'why', 'code', 'implement', 'system', 'architecture', 'error', 'bug']
+        has_tech = any(kw in query.lower() for kw in tech_keywords)
+        target_tech = 0.9 if has_tech else 0.3
+        traits['technicality'] = 0.9 * traits['technicality'] + 0.1 * target_tech
+        
+        self.user_profiles[user_id] = traits
+        log_info(f"Updated personalization for {user_id}: C={traits['conciseness']:.2f}, T={traits['technicality']:.2f}")
