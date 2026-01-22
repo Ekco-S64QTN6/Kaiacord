@@ -25,7 +25,7 @@ logging.getLogger("pdfminer").propagate = False
 warnings.filterwarnings("ignore")
 from datetime import datetime
 from functools import wraps
-from typing import List, Dict, Optional, Any, Tuple
+from typing import List, Dict, Optional, Any, Tuple, Set
 from llama_index.core import VectorStoreIndex, SimpleDirectoryReader, StorageContext, Settings, load_index_from_storage, Document
 from llama_index.llms.ollama import Ollama
 from llama_index.embeddings.ollama import OllamaEmbedding
@@ -706,7 +706,7 @@ Kaia: {bot_response}
             
             for node_result in all_node_results:
                 node = node_result.node if hasattr(node_result, 'node') else node_result
-                similarity_score = node_result.score if hasattr(node_result, 'score') else 0.5
+                base_score = node_result.score if hasattr(node_result, 'score') else 0.5
                 content = node.get_content()
                 
                 # Skip duplicates
@@ -726,60 +726,68 @@ Kaia: {bot_response}
                     if (ascii_count / len(sample)) < 0.80:
                         continue
                 
-                # Determine node type and priority
-                source = node.metadata.get('source', '')
-                file_path = node.metadata.get('file_path', '')
-                node_user_id = str(node.metadata.get('user_id', ''))
-                node_user_name = node.metadata.get('user_name', 'Unknown')
+                # ENHANCED SCORING LOGIC
+                # 1. Recency boost
+                timestamp = node.metadata.get('timestamp')
+                if timestamp:
+                    if isinstance(timestamp, str):
+                        try:
+                            dt = datetime.fromisoformat(timestamp)
+                            ts = dt.timestamp()
+                        except:
+                            ts = time.time() - 86400 * 30
+                    else:
+                        ts = timestamp
+                    days_old = (time.time() - ts) / 86400
+                    recency_boost = max(0, 1 - (days_old / 30))
+                else:
+                    recency_boost = 0.5
                 
-                priority = 0
+                # 2. User specificity boost
+                node_user_id = str(node.metadata.get('user_id', ''))
+                user_match_boost = 2.0 if node_user_id == u_id_str else 1.0
+                
+                # 3. Content type boost
+                source = node.metadata.get('source', '')
+                type_boost = {
+                    'user_profile': 3.0,
+                    'persona': 2.5,
+                    'conversation': 1.5,
+                    'knowledge': 1.0
+                }.get(source, 1.0)
+                
+                # 4. Length penalty
+                content_len = len(content)
+                if 50 < content_len < 2000:
+                    length_penalty = 1.0
+                elif content_len <= 50:
+                    length_penalty = 0.7
+                else:
+                    length_penalty = 0.8
+                
+                final_score = (
+                    base_score * 0.4 +
+                    recency_boost * 0.2 +
+                    user_match_boost * 0.3 +
+                    type_boost * 0.1
+                ) * length_penalty
+                
+                # Determine label for display
+                file_path = node.metadata.get('file_path', '')
+                node_user_name = node.metadata.get('user_name', 'Unknown')
                 label = ""
                 
                 if source == "persona" or node_user_id == "KAIA_SYSTEM":
-                    priority = 150 if is_kaia_query else 80
                     label = "Kaia Persona Fragment"
                 elif source == "user_logs" or "user_logs" in file_path:
                     if "user_profile.md" in file_path:
                         label = f"User Profile: {node_user_name.upper()}"
                     else:
                         label = f"Conversation History: {node_user_name.upper()}"
-                    
-                    # Handle underscores in names (common in user log folders)
-                    node_user_name_clean = node_user_name.replace("_", " ")
-                    
-                    # IS THIS THE CURRENT USER?
-                    is_current_user = u_id_str and node_user_id == u_id_str
-                    # IS THIS THE DETECTED USER?
-                    is_detected_user = detected_user and detected_user.lower() in node_user_name_clean.lower()
-                    
-                    # SCORING LOGIC:
-                    if is_current_user:
-                        label += " (CURRENT USER)"
-                        if "user_profile.md" in file_path:
-                            priority = 100 # Highest priority for current user profile
-                        else:
-                            priority = 90 if is_self_query else 85
-                    elif is_detected_user:
-                        if "user_profile.md" in file_path:
-                            priority = 95 # High priority for detected user profile
-                        else:
-                            priority = 80
-                    else:
-                        # OTHER USERS: Strictly exclude unless they are the current or detected user
-                        # This prevents "random" nodes from other users leaking into context
-                        continue 
                 else:
-                    # Lore (Recalibrated: lower priority, historical reference only)
-                    if similarity_score >= lore_threshold:
-                        priority = 20
-                        label = "Historical Reference"
-                    else:
-                        continue # Skip low-relevance lore
+                    label = f"Knowledge: {os.path.basename(file_path)}"
                 
-                # Final score combines priority and similarity
-                # Priority is the primary sort key (multiplied by 1000), similarity is secondary
-                final_score = (priority * 1000) + (similarity_score * 100)
-                scored_nodes.append((final_score, f"{label}\n{content}", label))
+                scored_nodes.append((final_score, content, label))
             
             # 4. Sort and Filter
             scored_nodes.sort(key=lambda x: x[0], reverse=True)

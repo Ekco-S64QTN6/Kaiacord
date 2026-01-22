@@ -28,6 +28,9 @@ from discord.ext import commands, tasks
 from kaia_rag import KaiaRAG
 from kaia_image import generate_image, unload_image_model, generation_lock
 from kaia_vision import kaia_sees_image, cleanup_session
+from watchdog.observers import Observer
+from watchdog.events import FileSystemEventHandler
+from utils.kaia_intelligence import SemanticCache, ModelWarmPool, QueryClassifier, ContextOptimizer, RelevanceFeedback
 
 # Load environment variables early so Config can use them
 load_dotenv()
@@ -280,6 +283,49 @@ ollama_client = ollama.AsyncClient()
 # Initialize RAG
 rag = KaiaRAG()
 
+# Initialize Intelligence Layer
+semantic_cache = SemanticCache()
+model_warm_pool = ModelWarmPool(ollama_client)
+query_classifier = QueryClassifier(ollama_client)
+context_optimizer = ContextOptimizer()
+relevance_feedback = RelevanceFeedback(rag)
+
+class KnowledgeBaseWatcher(FileSystemEventHandler):
+    def __init__(self, rag, loop):
+        self.rag = rag
+        self.loop = loop
+        self.debounce_task = None
+        
+    def on_modified(self, event):
+        if event.is_directory:
+            return
+        # Schedule the update on the main loop
+        asyncio.run_coroutine_threadsafe(self._debounced_update(event.src_path), self.loop)
+
+    async def _debounced_update(self, path):
+        if self.debounce_task:
+            self.debounce_task.cancel()
+            
+        async def do_update():
+            try:
+                await asyncio.sleep(2) # Wait for writes to finish
+                log_action(f"File changed: {path}. Triggering RAG refresh...")
+                await asyncio.to_thread(self.rag.refresh_knowledge_base)
+                log_success("Incremental RAG refresh complete.")
+            except Exception as e:
+                log_error(f"Incremental RAG refresh failed: {e}")
+            
+        self.debounce_task = asyncio.create_task(do_update())
+
+def start_watcher(rag, loop):
+    """Start the file system watcher for the knowledge base"""
+    observer = Observer()
+    event_handler = KnowledgeBaseWatcher(rag, loop)
+    observer.schedule(event_handler, rag.knowledge_base_dir, recursive=True)
+    observer.start()
+    log_success(f"Knowledge base watcher started on {rag.knowledge_base_dir}")
+    return observer
+
 async def prewarm_main_model():
     """Prewarm the main chat model to avoid cold-start delay"""
     try:
@@ -300,6 +346,10 @@ async def prewarm_main_model():
 @bot.event
 async def on_ready():
     log_success(f"{bot.user.name} is online!")
+    
+    # Start the knowledge base watcher
+    loop = asyncio.get_running_loop()
+    start_watcher(rag, loop)
     
     # Prewarm the main Ollama model to avoid cold-start delay on first message
     # We don't prewarm the vision model here to avoid system lag
