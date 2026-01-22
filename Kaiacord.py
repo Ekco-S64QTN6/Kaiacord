@@ -228,12 +228,6 @@ def load_persona() -> str:
             
         with open(persona_file, 'r', encoding='utf-8') as f:
             content = f.read().strip()
-            # Append strict formatting and substance rules
-            content += (
-                "\n\n## CORE RULES\n"
-                "- NO backticks (```), bolding (**), or italics (*).\n"
-                "- BE SUBSTANTIAL & DIRECT. Grounded, lowercase, no fluff."
-            )
             _persona_cache = content
             _persona_last_load = mtime
             return _persona_cache
@@ -797,7 +791,8 @@ async def on_message(msg: discord.Message):
             )
         else:
             rag_block = f"### CURRENT_USER: {msg.author.display_name}\nNo specific historical records found."
-
+        
+        messages = []
         messages.append({
             "role": "system", 
             "content": f"{system_prompt}\n\n{rag_block}\n\n[RECENT_HISTORY]\n{history_str}"
@@ -819,7 +814,7 @@ async def on_message(msg: discord.Message):
             "3. BE SUBSTANTIAL. Blunt, grounded, lowercase. Provide depth on people/history. Keep it alive.\n"
             "4. NO name prefixes. Just start speaking.\n"
             "5. IDENTITY: Use 'User Profile' for deep summaries. No hallucinations. Never claim ignorance if records exist.\n"
-            "6. 'Kaia Persona Fragment' are facts about YOU. Use only when asked about yourself.\n"
+            "6. BANNED WORDS: 'signal', 'noise', 'system', 'function', 'analyze', 'relevant', 'information', 'aspect', 'curious', 'parameters', 'observe', 'identify', 'patterns', 'processing', 'request', 'operating within', 'as an AI', 'my purpose is'.\n"
             "7. PRIVATE THOUGHTS: Never include internal labels like 'User Profile', 'Conversation History', or any bracketed tags in your response. Your inner thoughts and data labels must remain private."
         )
 
