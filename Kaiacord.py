@@ -537,12 +537,15 @@ async def memory_audit_task():
         rss_mb = process.memory_info().rss / 1024 / 1024
         log_info(f"Memory Audit: RSS {rss_mb:.1f} MB | Cache: {len(semantic_cache.cache)} entries")
         
-        # If RSS > 4GB, trigger emergency cleanup
-        if rss_mb > 4096:
+        # If RSS > 8GB, trigger emergency cleanup
+        # Skip if image generation is active to avoid interrupting Flux load
+        if rss_mb > 8192 and not generation_lock.locked():
             log_critical("Memory usage critical! Clearing caches and GPU memory.")
             semantic_cache.cache.clear()
             semantic_cache.exact_cache.clear()
             clear_gpu_memory()
+        elif rss_mb > 8192 and generation_lock.locked():
+            log_warning("Memory usage high, but skipping cleanup due to active image generation.")
             
         # Report performance stats
         log_info(performance_monitor.get_report())

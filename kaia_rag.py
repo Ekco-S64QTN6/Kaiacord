@@ -228,6 +228,26 @@ class KaiaRAG:
         else:
             return SentenceSplitter(chunk_size=512, chunk_overlap=50)
 
+    def _pre_chunk_document(self, doc: Document, chunk_size: int = 4000) -> List[Document]:
+        """Break a giant document into smaller documents before node parsing."""
+        if len(doc.text) <= chunk_size:
+            return [doc]
+            
+        log_action(f"Pre-chunking large document ({len(doc.text)} chars)...")
+        chunks = []
+        # Simple character-based split with overlap for efficiency
+        overlap = 200
+        for i in range(0, len(doc.text), chunk_size - overlap):
+            chunk_text = doc.text[i:i + chunk_size]
+            new_doc = Document(
+                text=chunk_text,
+                metadata=doc.metadata.copy()
+            )
+            # Add chunk info to metadata
+            new_doc.metadata['chunk_index'] = len(chunks)
+            chunks.append(new_doc)
+        return chunks
+
     def _populate_indexed_files(self):
         """Populate the set of indexed files from all hierarchical indices."""
         with self._lock:
@@ -417,8 +437,11 @@ class KaiaRAG:
                                                 doc.metadata['user_name'] = u_name
                                         except: pass
                                     
-                                    nodes = parser.get_nodes_from_documents([doc])
-                                    target_index.insert_nodes(nodes)
+                                    # Pre-chunk large documents to avoid embedding overflows
+                                    sub_docs = self._pre_chunk_document(doc)
+                                    for sub_doc in sub_docs:
+                                        nodes = parser.get_nodes_from_documents([sub_doc])
+                                        target_index.insert_nodes(nodes)
                                 
                                 self.indexed_files[abs_path] = mtime
                                 log_success(f"Indexed {file_path} into {itype} index.")
