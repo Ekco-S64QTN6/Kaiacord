@@ -107,6 +107,23 @@ The longer Kaia goes without interaction, the LESS likely she is to quip (as req
 
 ---
 
+### 4. Hardening & Architecture Overhaul ✅
+**Problem**: The bot lacked centralized state, configuration, and robustness measures (rate limiting, thread safety).
+
+**Solution**:
+- **BotState**: Centralized and persistent global state.
+- **Config**: Centralized configuration via environment variables.
+- **RateLimiter**: Per-user request limiting.
+- **Sanitize Prompt**: Defense against prompt injection.
+- **Thread-Safe RAG**: Lock timeouts and non-blocking execution.
+- **psutil Cleanup**: Reliable process termination on startup.
+
+**Files**: `Kaiacord.py`, `kaia_rag.py`, `kaia_vision.py`
+
+---
+
 ## Files Modified
 - `/home/ekco/github/Kaiacord/kaia_image.py` - CUDA memory management
-- `/home/ekco/github/Kaiacord/Kaiacord.py` - Image parsing + quip system improvements
+- `/home/ekco/github/Kaiacord/Kaiacord.py` - Core logic, state, config, security
+- `/home/ekco/github/Kaiacord/kaia_rag.py` - RAG thread safety and circuit breakers
+- `/home/ekco/github/Kaiacord/kaia_vision.py` - Vision module type hints

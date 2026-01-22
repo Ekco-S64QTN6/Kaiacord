@@ -76,6 +76,7 @@ Kaia: says "no parking 8am-6pm weekdays". someone's getting towed.
 4. **Response**: Kaia provides commentary in her voice
 5. **Cleanup**: Temporary file is deleted
 6. **Logging**: Interaction is logged to user's log with `[IMAGE: filename]` tag
+7. **State Management**: Updates `BotState` to track the interaction and reset quip counters.
 
 ### Files
 
@@ -199,15 +200,12 @@ Kaia: segmentation fault at address 0x0. null pointer dereference.
 
 ### Change Vision Model
 
-Edit `kaia_vision.py`:
-```python
-# Options:
-# - llama3.2-vision:11b (default, 7.8 GB)
-# - llama3.2-vision:90b (larger, more accurate, 55 GB)
-# - llava:latest (older, 4.7 GB)
-
-VISION_MODEL = "llama3.2-vision:11b"
+Edit the `Config` class in `Kaiacord.py` or set environment variables:
+```env
+VISION_MODEL=llama3.2-vision:11b
 ```
+
+Default is `llama3.2-vision:11b`.
 
 ### Adjust Response Style
 

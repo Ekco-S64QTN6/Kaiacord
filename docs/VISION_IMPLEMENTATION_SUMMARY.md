@@ -28,6 +28,7 @@
    - Added image detection logic in `on_message()`
    - Handles PNG, JPG, JPEG, GIF, WebP formats
    - Logs vision interactions to user logs
+   - Updates `BotState` and respects `RateLimiter`
 
 2. **`README.md`**
    - Added vision feature to features list
@@ -190,12 +191,9 @@ Kaia: programmers fixing one bug and creating three more. yeah,
 
 ### Change Vision Model
 
-In `kaia_vision.py`:
-```python
-# Options:
-VISION_MODEL = "llama3.2-vision:11b"  # Default (7.8 GB)
-# VISION_MODEL = "llama3.2-vision:90b"  # Larger, more accurate (55 GB)
-# VISION_MODEL = "llava:latest"  # Older model (4.7 GB)
+Now managed via the `Config` class in `Kaiacord.py`. Can be overridden via environment variables:
+```env
+VISION_MODEL=llama3.2-vision:11b
 ```
 
 ### Adjust Temperature
