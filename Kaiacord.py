@@ -284,38 +284,47 @@ ollama_client = ollama.AsyncClient()
 rag = KaiaRAG()
 
 # Initialize Intelligence Layer
+performance_monitor = PerformanceMonitor()
 semantic_cache = SemanticCache()
 model_warm_pool = ModelWarmPool(ollama_client)
 query_classifier = QueryClassifier(ollama_client)
-context_optimizer = ContextOptimizer()
+context_optimizer = ContextOptimizer(model_name=config.chat_model)
 relevance_feedback = RelevanceFeedback(rag)
 
 class KnowledgeBaseWatcher(FileSystemEventHandler):
     def __init__(self, rag, loop):
         self.rag = rag
         self.loop = loop
-        self.debounce_task = None
+        self.queue = asyncio.Queue()
+        self.processing_task = None
         
     def on_modified(self, event):
-        if event.is_directory:
-            return
-        # Schedule the update on the main loop
-        asyncio.run_coroutine_threadsafe(self._debounced_update(event.src_path), self.loop)
+        if event.is_directory: return
+        # Add to queue
+        asyncio.run_coroutine_threadsafe(self.queue.put(event.src_path), self.loop)
 
-    async def _debounced_update(self, path):
-        if self.debounce_task:
-            self.debounce_task.cancel()
-            
-        async def do_update():
+    async def start_processing(self):
+        """Dedicated task to process the file change queue."""
+        log_success("Watchdog queue processor started.")
+        while True:
+            path = await self.queue.get()
             try:
-                await asyncio.sleep(2) # Wait for writes to finish
-                log_action(f"File changed: {path}. Triggering RAG refresh...")
+                # Debounce: wait a bit for more changes
+                await asyncio.sleep(2)
+                # Clear any other pending changes for the same path
+                while not self.queue.empty():
+                    try:
+                        self.queue.get_nowait()
+                        self.queue.task_done()
+                    except asyncio.QueueEmpty: break
+                
+                log_action(f"Processing queued change: {path}")
                 await asyncio.to_thread(self.rag.refresh_knowledge_base)
                 log_success("Incremental RAG refresh complete.")
             except Exception as e:
-                log_error(f"Incremental RAG refresh failed: {e}")
-            
-        self.debounce_task = asyncio.create_task(do_update())
+                log_error(f"Watchdog processing failed: {e}")
+            finally:
+                self.queue.task_done()
 
 def start_watcher(rag, loop):
     """Start the file system watcher for the knowledge base"""
@@ -323,6 +332,8 @@ def start_watcher(rag, loop):
     event_handler = KnowledgeBaseWatcher(rag, loop)
     observer.schedule(event_handler, rag.knowledge_base_dir, recursive=True)
     observer.start()
+    # Start the queue processor
+    event_handler.processing_task = asyncio.create_task(event_handler.start_processing())
     log_success(f"Knowledge base watcher started on {rag.knowledge_base_dir}")
     return observer
 
@@ -350,6 +361,9 @@ async def on_ready():
     # Start the knowledge base watcher
     loop = asyncio.get_running_loop()
     start_watcher(rag, loop)
+    
+    # Start the memory audit task
+    memory_audit_task.start()
     
     # Prewarm the main Ollama model to avoid cold-start delay on first message
     # We don't prewarm the vision model here to avoid system lag
@@ -473,6 +487,26 @@ async def rag_maintenance_task():
             await asyncio.to_thread(rag.persist)
     except Exception as e:
         log_error(f"RAG maintenance failed: {e}")
+
+@tasks.loop(minutes=15)
+async def memory_audit_task():
+    """Periodic memory audit and cleanup."""
+    try:
+        process = psutil.Process()
+        rss_mb = process.memory_info().rss / 1024 / 1024
+        log_info(f"Memory Audit: RSS {rss_mb:.1f} MB | Cache: {len(semantic_cache.cache)} entries")
+        
+        # If RSS > 4GB, trigger emergency cleanup
+        if rss_mb > 4096:
+            log_critical("Memory usage critical! Clearing caches and GPU memory.")
+            semantic_cache.cache.clear()
+            semantic_cache.exact_cache.clear()
+            clear_gpu_memory()
+            
+        # Report performance stats
+        log_info(performance_monitor.get_report())
+    except Exception as e:
+        log_error(f"Memory audit failed: {e}")
 
 @bot.event
 async def on_message(msg: discord.Message):
@@ -629,7 +663,24 @@ async def on_message(msg: discord.Message):
     try:
         log_message_received(msg.author.name, str(msg.author.id), sanitized_content)
         
-        # PARALLEL PIPELINE: Fire off tasks concurrently
+        # 1. TWO-LEVEL CACHE CHECK
+        performance_monitor.start_timer('total')
+        cached_response = await semantic_cache.get(msg.content, msg.author.id, monitor=performance_monitor)
+        if cached_response:
+            # Transparency indicator
+            await send_kaia_response(msg.channel, f"💾 {cached_response}")
+            performance_monitor.stop_timer('total', 'response_time')
+            # Still log interaction for future RAG
+            await run_rag(rag.log_user_interaction, msg.author.id, msg.author.display_name, msg.content, cached_response)
+            return
+
+        # 2. HYBRID CLASSIFICATION & PARALLEL PIPELINE
+        performance_monitor.start_timer('classify')
+        category = await query_classifier.classify(msg.content)
+        performance_monitor.stop_timer('classify', 'classification_time')
+        
+        log_info(f"Query classified as: {category.upper()}")
+
         clean_query = sanitized_content.lower().replace("kaia", "").strip("?,. ")
         display_name = msg.author.display_name.strip(".")
         
@@ -646,6 +697,7 @@ async def on_message(msg: discord.Message):
         log_context_retrieval(clean_query)
         
         # Define tasks
+        performance_monitor.start_timer('retrieval')
         persona_task = asyncio.create_task(load_persona_async())
         rag_task = asyncio.create_task(run_rag(
             rag.retrieve, 
@@ -657,17 +709,25 @@ async def on_message(msg: discord.Message):
         
         # Wait for both to complete
         system_prompt, context_nodes = await asyncio.gather(persona_task, rag_task)
+        performance_monitor.stop_timer('retrieval', 'retrieval_time')
         
         now = datetime.now()
         current_time_str = now.strftime("%A, %B %d, %Y %I:%M %p")
         system_prompt += f"\n\nToday is {current_time_str}."
         
-        if context_nodes:
-            format_rag_table(context_nodes)
+        # 3. CONTEXT OPTIMIZATION
+        optimized_context = context_optimizer.optimize_context(
+            category, 
+            system_prompt, 
+            context_nodes, 
+            list(bot_state.channel_memory.get(msg.channel.id, []))
+        )
         
-        messages = []
-        if context_nodes:
-            context_str = "\n\n".join(context_nodes)
+        system_prompt = optimized_context['persona']
+        context_str = optimized_context['rag']
+        history_str = optimized_context['history']
+        
+        if context_str:
             rag_block = (
                 f"### USER: {msg.author.display_name}\n"
                 "### LOGS\n"
@@ -684,7 +744,7 @@ async def on_message(msg: discord.Message):
 
         messages.append({
             "role": "system", 
-            "content": f"{system_prompt}\n\n{rag_block}"
+            "content": f"{system_prompt}\n\n{rag_block}\n\n[RECENT_HISTORY]\n{history_str}"
         })
         
         history = list(bot_state.channel_memory[msg.channel.id])
@@ -728,7 +788,16 @@ async def on_message(msg: discord.Message):
             }
         )
         
+        performance_monitor.stop_timer('total', 'response_time')
         content = response['message']['content']
+        
+        # 4. CACHE & FEEDBACK
+        await semantic_cache.set(msg.content, content, msg.author.id)
+        await relevance_feedback.log_interaction(msg.content, content, msg.author.id)
+        
+        # Transparency indicator for optimization
+        if optimized_context.get('tokens_saved', 0) > 500:
+            content += f"\n\n`[optimized: saved {int(optimized_context['tokens_saved'])} tokens]`"
         prefixes_to_strip = [
             "Kaia:", "kaia:", "Assistant:", "Model:", "System:", 
             "Response:", "Observation:", "Thought:"
