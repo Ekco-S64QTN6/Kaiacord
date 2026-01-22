@@ -1,0 +1,17 @@
+{
+  "strict_mode": true,
+  "required_metadata": [
+    "source_type"
+  ],
+  "banned_source_types": [
+    "garbage"
+  ],
+  "minimum_priority": 0.5,
+  "identity_query_filters": {
+    "require_source": [
+      "persona",
+      "user_logs"
+    ],
+    "max_results": 3
+  }
+}

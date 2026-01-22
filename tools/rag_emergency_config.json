@@ -1,0 +1,31 @@
+{
+  "rag_filters": {
+    "stop_words": [
+      "juanita",
+      "deane",
+      "bonbons",
+      "agency",
+      "university network",
+      "internal comms",
+      "slow burn",
+      "roundabout questions",
+      "terrier with a scent"
+    ],
+    "minimum_relevance": 0.85,
+    "max_retrieved_chunks": 3,
+    "identity_query_override": {
+      "use_only_persona": true,
+      "max_chunks": 2
+    }
+  },
+  "cache_settings": {
+    "identity_cache_bypass": true,
+    "semantic_threshold": 0.95,
+    "never_cache": [
+      "who",
+      "what",
+      "status",
+      "identity"
+    ]
+  }
+}

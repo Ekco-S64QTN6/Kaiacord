@@ -39,6 +39,52 @@ class CircuitOpenError(Exception):
     """Raised when the circuit breaker is open"""
     pass
 
+class HallucinationDetector:
+    """Detect and prevent hallucination feedback loops"""
+    
+    HALLUCINATION_PATTERNS = [
+        r"juanita", r"deane", r"bonbons", r"agency",
+        r"university network", r"behind the curtain",
+        r"slow burn", r"roundabout questions",
+        r"terrier with a scent", r"internal comms"
+    ]
+    
+    @classmethod
+    def contains_hallucination(cls, text: str) -> bool:
+        """Check if text contains known hallucination patterns"""
+        text_lower = text.lower()
+        
+        for pattern in cls.HALLUCINATION_PATTERNS:
+            if re.search(pattern, text_lower):
+                return True
+        return False
+    
+    @classmethod
+    def clean_response(cls, response: str) -> str:
+        """Remove hallucinated content from response"""
+        if not cls.contains_hallucination(response):
+            return response
+        
+        # Split into lines and filter out hallucinated ones
+        lines = response.split('\n')
+        clean_lines = []
+        
+        for line in lines:
+            if not cls.contains_hallucination(line):
+                clean_lines.append(line)
+            else:
+                # Replace hallucinated line with something neutral
+                clean_lines.append("...")  # Or empty line
+        
+        # If we removed too much, provide a fallback
+        clean_response = '\n'.join(clean_lines).strip()
+        if len(clean_response) < 20:
+            clean_response = "yeah. what's up?\n\ncoffee's getting cold. what do you need?"
+        
+        return clean_response
+
+
+
 class SimpleBM25Retriever:
     """Simple BM25 retriever for hybrid search."""
     def __init__(self, nodes):
@@ -209,6 +255,9 @@ class KaiaRAG:
         if itype == 'logs' or itype == 'conversations':
             # Keep conversations together with larger chunks
             return SentenceSplitter(chunk_size=1024, chunk_overlap=100)
+        elif "news_brief" in file_path or "news_summary" in file_path:
+            # News briefs: smaller chunks, split by headings
+            return SentenceSplitter(chunk_size=1000, chunk_overlap=200, paragraph_separator="\n## ")
         elif file_path.endswith(('.py', '.js', '.html', '.css', '.go', '.rs')):
             # Code files: preserve structure
             lang = file_path.split('.')[-1]
@@ -247,6 +296,63 @@ class KaiaRAG:
             new_doc.metadata['chunk_index'] = len(chunks)
             chunks.append(new_doc)
         return chunks
+
+    def is_garbage_text(self, text: str) -> bool:
+        """Detect garbage text from bad PDF extractions"""
+        garbage_patterns = [
+            r"Page \d+ of \d+",
+            r"© \d+",
+            r"All rights reserved",
+            r"Confidential",
+            r"Proprietary",
+            r"\[.*?\]",  # Too many brackets
+            r"\x00",  # Null characters
+        ]
+        
+        text_lower = text.lower()
+        
+        # If it's very short and looks like metadata
+        if len(text.strip()) < 50 and ("page" in text_lower or "chapter" in text_lower):
+            return True
+        
+        # Check patterns
+        for pattern in garbage_patterns:
+            if re.search(pattern, text, re.IGNORECASE):
+                return True
+        
+        return False
+
+    def _apply_priority_metadata(self, doc: Document, itype: str, file_path: str):
+        """Apply priority and source type metadata to a document"""
+        # Set priority based on file type
+        if itype == 'persona' or "kaia_persona" in file_path:
+            doc.metadata["priority"] = 1.0
+            doc.metadata["source_type"] = "persona"
+        elif itype == 'logs' or "user_logs" in file_path:
+            doc.metadata["priority"] = 0.9
+            doc.metadata["source_type"] = "user_logs"
+        elif itype == 'user_profiles' or "user_profile" in file_path:
+            doc.metadata["priority"] = 0.8
+            doc.metadata["source_type"] = "user_profile"
+        elif "news_brief" in file_path or "news_summary" in file_path:
+            doc.metadata["priority"] = 0.85
+            doc.metadata["source_type"] = "news_brief"
+            # Extract date from filename if possible
+            try:
+                date_match = re.search(r'(\d{8})', os.path.basename(file_path))
+                if date_match:
+                    date_str = date_match.group(1)
+                    doc.metadata["date"] = f"{date_str[:4]}-{date_str[4:6]}-{date_str[6:]}"
+            except: pass
+        else:
+            doc.metadata["priority"] = 0.1  # Low priority for general knowledge
+            doc.metadata["source_type"] = "general_knowledge"
+        
+        # Add garbage detection metadata
+        if self.is_garbage_text(doc.text):
+            doc.metadata["priority"] = 0.0
+            doc.metadata["source_type"] = "garbage"
+            doc.metadata["garbage"] = True
 
     def _populate_indexed_files(self):
         """Populate the set of indexed files from all hierarchical indices."""
@@ -399,6 +505,7 @@ class KaiaRAG:
                                         "source": "user_logs"
                                     }
                                 )
+                                self._apply_priority_metadata(doc, itype, file_path)
                                 # Use specialized node parser
                                 parser = self._get_node_parser_for_doc(itype, file_path)
                                 nodes = parser.get_nodes_from_documents([doc])
@@ -421,8 +528,9 @@ class KaiaRAG:
                                     doc.metadata['file_path'] = os.path.abspath(file_path)
                                     doc.metadata['itype'] = itype
                                     
+                                    self._apply_priority_metadata(doc, itype, file_path)
+                                    
                                     if itype == 'persona':
-                                        doc.metadata['source'] = "persona"
                                         doc.metadata['user_id'] = "KAIA_SYSTEM"
                                     
                                     # Extract user metadata if in user_logs
@@ -440,6 +548,8 @@ class KaiaRAG:
                                     # Pre-chunk large documents to avoid embedding overflows
                                     sub_docs = self._pre_chunk_document(doc)
                                     for sub_doc in sub_docs:
+                                        # Ensure sub-docs inherit priority metadata
+                                        self._apply_priority_metadata(sub_doc, itype, file_path)
                                         nodes = parser.get_nodes_from_documents([sub_doc])
                                         target_index.insert_nodes(nodes)
                                 
@@ -629,37 +739,44 @@ class KaiaRAG:
                 
                 MAX_SIZE = 100 * 1024 * 1024  # 100MB in bytes
                 
+                interaction_log_path = None
                 if existing_logs:
                     # Use the most recent log file
-                    log_file = existing_logs[-1]
+                    interaction_log_path = existing_logs[-1]
                     
                     # Check if it exceeds 100MB - if so, create a new file with today's date
-                    if os.path.getsize(log_file) >= MAX_SIZE:
+                    if os.path.getsize(interaction_log_path) >= MAX_SIZE:
                         new_timestamp = datetime.now().strftime("%Y%m%d")
-                        log_file = os.path.join(user_log_dir, f"interactions_{new_timestamp}.txt")
+                        interaction_log_path = os.path.join(user_log_dir, f"interactions_{new_timestamp}.txt")
                         log_info(f"Previous log full, starting new log")
                 else:
                     # No existing logs - create first one with today's date
                     new_timestamp = datetime.now().strftime("%Y%m%d")
-                    log_file = os.path.join(user_log_dir, f"interactions_{new_timestamp}.txt")
+                    interaction_log_path = os.path.join(user_log_dir, f"interactions_{new_timestamp}.txt")
                 
                 # Append interaction to the single file
                 timestamp = datetime.now().strftime("%Y%m%d_%H%M%S")
+                
+                # CLEAN HALLUCINATIONS FROM RESPONSE BEFORE LOGGING
+                if HallucinationDetector.contains_hallucination(bot_response):
+                    log_warning(f"Hallucination detected in response for {user_name}. Cleaning before logging.")
+                    bot_response = HallucinationDetector.clean_response(bot_response)
+
                 interaction_text = f"""--- {timestamp} ---
 User ({user_name}): {message_content}
 Kaia: {bot_response}
 
 """
                 # Get current size before appending for the offset
-                file_offset = os.path.getsize(log_file) if os.path.exists(log_file) else 0
+                file_offset = os.path.getsize(interaction_log_path) if os.path.exists(interaction_log_path) else 0
                 
-                with open(log_file, "a", encoding="utf-8") as f:
+                with open(interaction_log_path, "a", encoding="utf-8") as f:
                     f.write(interaction_text)
                 
                 log_success(f"Logged interaction for {user_name}")
                 
                 # INCREMENTAL INSERT: Add the interaction to the index
-                mtime = os.path.getmtime(log_file)
+                mtime = os.path.getmtime(interaction_log_path)
                 new_doc = Document(
                     text=interaction_text,
                     metadata={
@@ -668,7 +785,7 @@ Kaia: {bot_response}
                         "user_id": str(user_id),
                         "user_name": user_name,
                         "timestamp": timestamp,
-                        "file_path": os.path.abspath(log_file),
+                        "file_path": os.path.abspath(interaction_log_path),
                         "last_modified_at": mtime,
                         "file_offset": file_offset,
                         "content_length": len(interaction_text),
@@ -677,7 +794,7 @@ Kaia: {bot_response}
                 )
                 
                 # Use specialized node parser for logs
-                parser = self._get_node_parser_for_doc('logs', log_file)
+                parser = self._get_node_parser_for_doc('logs', interaction_log_path)
                 nodes = parser.get_nodes_from_documents([new_doc])
                 self.indices['logs'].insert_nodes(nodes)
                 
@@ -685,7 +802,7 @@ Kaia: {bot_response}
                 if 'logs' in self.bm25_cache:
                     self.bm25_cache['logs'] = None
                 
-                self.indexed_files[os.path.abspath(log_file)] = mtime
+                self.indexed_files[os.path.abspath(interaction_log_path)] = mtime
                 self.persist_needed = True
                 log_success(f"Interaction indexed for user {user_name} into logs index")
                 
@@ -697,7 +814,7 @@ Kaia: {bot_response}
                 return False
 
     @thread_safe_rag_operation
-    def retrieve(self, query: str, user_id: Optional[int] = None, user_name: Optional[str] = None, top_k: int = 4) -> List[str]:
+    def retrieve(self, query: str, user_id: Optional[int] = None, user_name: Optional[str] = None, top_k: int = 4, strict_identity: bool = False) -> List[str]:
         """
         Retrieve relevant nodes, ensuring user logs are prioritized and not drowned out.
         If user_id is provided, specifically looks for that user's history and preferences.
@@ -772,7 +889,7 @@ Kaia: {bot_response}
             target_itypes = []
             if is_kaia_query:
                 target_itypes = ['persona']
-            elif is_user_identity_query:
+            elif is_user_identity_query or strict_identity:
                 target_itypes = ['user_profiles', 'logs']
             elif is_vision_query:
                 target_itypes = ['logs']
@@ -833,6 +950,13 @@ Kaia: {bot_response}
                     if (ascii_count / len(sample)) < 0.80:
                         continue
                 
+                # STRICT IDENTITY FILTER: Only allow persona and current user's logs
+                if strict_identity:
+                    is_persona = node.metadata.get('source_type') == 'persona'
+                    is_current_user = str(node.metadata.get('user_id')) == u_id_str
+                    if not (is_persona or is_current_user):
+                        continue
+                
                 # ENHANCED SCORING LOGIC
                 # 1. Recency boost
                 timestamp = node.metadata.get('timestamp')
@@ -872,11 +996,15 @@ Kaia: {bot_response}
                 else:
                     length_penalty = 0.8
                 
+                # 5. Priority metadata boost
+                priority_boost = node.metadata.get('priority', 0.1)
+                
                 final_score = (
-                    base_score * 0.4 +
-                    recency_boost * 0.2 +
+                    base_score * 0.3 +
+                    recency_boost * 0.1 +
                     user_match_boost * 0.3 +
-                    type_boost * 0.1
+                    type_boost * 0.1 +
+                    priority_boost * 0.2
                 ) * length_penalty
                 
                 # Determine label for display

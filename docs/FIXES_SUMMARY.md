@@ -107,23 +107,50 @@ The longer Kaia goes without interaction, the LESS likely she is to quip (as req
 
 ---
 
-### 4. Hardening & Architecture Overhaul ✅
-**Problem**: The bot lacked centralized state, configuration, and robustness measures (rate limiting, thread safety).
+---
+
+### 5. User Profiling & Social Intelligence (Kaia 2.4) ✅
+**Problem**: Kaia lacked a deep understanding of individual users, leading to generic interactions.
 
 **Solution**:
-- **BotState**: Centralized and persistent global state.
-- **Config**: Centralized configuration via environment variables.
-- **RateLimiter**: Per-user request limiting.
-- **Sanitize Prompt**: Defense against prompt injection.
-- **Thread-Safe RAG**: Lock timeouts and non-blocking execution.
-- **psutil Cleanup**: Reliable process termination on startup.
+- **Automated Profiling**: Implemented `generate_user_profiles.py` to synthesize interaction logs into structured profiles.
+- **Relationship Tracker**: Added `relationship_tracker.py` to quantify and visualize user bonds.
+- **Identity Recall**: Optimized RAG to prioritize these profiles for "who am i" queries.
 
-**Files**: `Kaiacord.py`, `kaia_rag.py`, `kaia_vision.py`
+**Files**: `generate_user_profiles.py`, `relationship_tracker.py`, `Kaiacord.py`
+
+---
+
+### 6. Hallucination Prevention & Feedback Loop Protection (Kaia 2.5) ✅
+**Problem**: Recursive hallucinations (e.g., "Juanita") were contaminating logs and being reinforced via RAG.
+
+**Solution**:
+- **Hallucination Detector**: Real-time monitoring and sanitization of inputs/outputs.
+- **Feedback Loop Protection**: Sanitized logging and cache bypass for identity queries.
+- **Strict Identity Filtering**: Enforced source-specific retrieval for identity questions.
+- **Nuclear Cleanup**: Created emergency scripts to purge contaminated data.
+
+**Files**: `kaia_rag.py`, `Kaiacord.py`, `stop_hallucination_feedback.py`, `quick_fix.py`
+
+---
+
+### 7. Intelligence Layer & Performance Optimization ✅
+**Problem**: High latency and redundant LLM calls for repetitive or simple queries.
+
+**Solution**:
+- **Semantic Cache**: Two-level caching with high-threshold similarity (0.92).
+- **Query Classification**: Intent-based optimization of retrieval and prompts.
+- **Self-Healing System**: Robust error handling and context pruning.
+- **Model Warm Pool**: Reduced first-token latency by keeping models loaded.
+
+**Files**: `Kaiacord.py`, `kaia_rag.py`
 
 ---
 
 ## Files Modified
 - `/home/ekco/github/Kaiacord/kaia_image.py` - CUDA memory management
-- `/home/ekco/github/Kaiacord/Kaiacord.py` - Core logic, state, config, security
-- `/home/ekco/github/Kaiacord/kaia_rag.py` - RAG thread safety and circuit breakers
+- `/home/ekco/github/Kaiacord/Kaiacord.py` - Core logic, intelligence layer, security
+- `/home/ekco/github/Kaiacord/kaia_rag.py` - RAG thread safety, hallucination detection, strict filtering
 - `/home/ekco/github/Kaiacord/kaia_vision.py` - Vision module type hints
+- `/home/ekco/github/Kaiacord/generate_user_profiles.py` - User profiling logic
+- `/home/ekco/github/Kaiacord/relationship_tracker.py` - Social bonding metrics

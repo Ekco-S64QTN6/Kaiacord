@@ -1,0 +1,67 @@
+Generate today's news brief for Kaia using this RAG-optimized structure:
+
+# NEWS_BRIEF: [Today's Date YYYY-MM-DD]
+
+## EXECUTIVE_SUMMARY
+[2-3 sentences: Overall technical landscape]
+
+## TECH_OUTAGES
+- Azure: Intermittent slowdowns in multiple regions, network congestion
+- Service X: Issue description, duration, impact
+
+## SECURITY_INCIDENTS
+- CVE-202X-XXXX: Buffer overflow in [software], CVSS X.X
+- Breach: Company name, records exposed, cause
+
+## HARDWARE_RELEASES  
+- NVIDIA: Product name, specs, availability
+- AMD: Product name, specs
+- Samsung: Product name, context about past issues
+
+## INTERNET_INFRASTRUCTURE
+- BGP incident: Brief description, duration, AS numbers
+- DNS changes: TLD updates, root server maintenance
+- CDN performance: Stats, changes
+
+## AI_DEVELOPMENTS
+- Model releases: Name, parameters, license
+- Regulations: Country, law name, impact
+- Research: Key paper findings
+
+## GEOPOLITICAL_TECH
+- Legislation: Country, bill name, tech impact
+- Trade: Restrictions on chips/software
+- Surveillance: New powers, technology used
+
+## FAILURE_METRICS
+- Incidents today: X
+- Downtime hours: Y
+- Records exposed: Z
+
+## QUOTES
+- "[Direct quote about tech issue]" - Name, Title
+- "[Direct quote about security]" - Name, Title
+
+## TIMELINE
+- 09:00 UTC: Azure latency spikes begin
+- 11:30 UTC: CVE disclosure published
+- 15:00 UTC: SpaceX launch window opens
+
+## SOURCES
+- Reuters
+- BleepingComputer  
+- AWS Status Page
+- CVE database
+
+---
+**Generated**: [Current timestamp]
+**Format**: RAG-optimized technical digest
+
+RULES:
+1. Each bullet is one complete fact
+2. Include technical details: version numbers, CVEs, ASNs, etc.
+3. Keep language factual, no commentary
+4. Maximum 15 bullet points total across all sections
+5. Prioritize events that affect systems Kaia would care about
+6. Include historical context when relevant (e.g., "after S21 fiasco")
+7. Use Kaia's vocabulary: "hiccups" not "issues", "messed up" not "configuration error"

@@ -25,7 +25,7 @@ from dotenv import load_dotenv
 import ollama
 import discord
 from discord.ext import commands, tasks
-from kaia_rag import KaiaRAG
+from kaia_rag import KaiaRAG, HallucinationDetector
 from kaia_image import generate_image, unload_image_model, generation_lock
 from kaia_vision import kaia_sees_image, cleanup_session
 from watchdog.observers import Observer
@@ -60,6 +60,19 @@ class Config:
     
     # Rate Limiting
     requests_per_minute: int = 30
+
+    def should_use_cache(self, query_text: str, query_classification: str) -> bool:
+        """Determine if semantic cache should be used for this query"""
+        # NEVER use cache for identity questions
+        if query_classification in ["IDENTITY", "SELF", "WHOAMI"]:
+            return False
+        
+        # Never use cache for "who are you" or "who am i"
+        identity_keywords = ["who are you", "who am i", "what are you", "define yourself"]
+        if any(keyword in query_text.lower() for keyword in identity_keywords):
+            return False
+        
+        return True
 
     @classmethod
     def from_env(cls):
@@ -277,9 +290,227 @@ ollama_client = ollama.AsyncClient()
 # Initialize RAG
 rag = KaiaRAG()
 
+# ADD THIS TO YOUR IMPORTS
+import re
+from datetime import datetime, timedelta
+
+class ImprovedSemanticCache:
+    """Enhanced semantic cache with keyword pollution protection"""
+    
+    def __init__(self, threshold: float = 0.85):
+        self.cache = {}
+        self.exact_cache = {} # For compatibility with PersistentStateManager
+        self.access_counts = {} # For compatibility with IntelligentCacheInvalidator
+        self.threshold = threshold
+        self.load_exceptions()
+        self.load()
+    
+    def load_exceptions(self):
+        """Load cache exceptions from file"""
+        try:
+            with open("cache_exceptions.json", "r") as f:
+                self.exceptions = json.load(f)
+        except:
+            # Default exceptions
+            self.exceptions = {
+                "never_cache": [
+                    "68k.news", "headlines from", "january", "february",
+                    "news", "update", "breaking", "latest"
+                ],
+                "always_regenerate": ["news", "headline", "report", "update"],
+                "keyword_blacklist": []
+            }
+    
+    def should_cache_query(self, query: str, classification: str) -> bool:
+        """Determine if a query should be cached at all"""
+        query_lower = query.lower()
+        
+        # Never cache identity queries
+        if classification in ["IDENTITY", "WHOAMI", "SELF"]:
+            return False
+        
+        # Never cache queries with time/date references
+        if any(phrase in query_lower for phrase in self.exceptions["never_cache"]):
+            return False
+        
+        # Don't cache very short queries
+        if len(query.strip()) < 10:
+            return False
+        
+        # Don't cache queries with numbers (likely dates/versions)
+        if re.search(r'\b\d{4}\b', query):  # Years like 2026
+            return False
+        
+        # Don't cache queries with URLs
+        if re.search(r'https?://', query_lower):
+            return False
+        
+        return True
+    
+    def get_cache_key(self, query: str) -> str:
+        """Create a normalized cache key"""
+        # Remove extra whitespace
+        normalized = ' '.join(query.strip().split())
+        
+        # Remove specific date patterns
+        normalized = re.sub(r'\b(january|february|march|april|may|june|july|august|september|october|november|december)\s+\d{1,2},\s+\d{4}\b', 
+                          '[DATE]', normalized, flags=re.IGNORECASE)
+        
+        # Remove years
+        normalized = re.sub(r'\b\d{4}\b', '[YEAR]', normalized)
+        
+        # Remove numbers in headlines
+        normalized = re.sub(r'\b\d+\b', '[NUMBER]', normalized)
+        
+        return normalized.lower()
+    
+    def get(self, query: str, classification: str) -> Optional[str]:
+        """Get cached response if available and relevant"""
+        if not self.should_cache_query(query, classification):
+            if hasattr(performance_monitor, 'record_miss'):
+                performance_monitor.record_miss()
+            return None
+        
+        cache_key = self.get_cache_key(query)
+        
+        # Check for exact match first
+        if cache_key in self.cache:
+            entry = self.cache[cache_key]
+            # Check if entry is expired (24 hours for news, 7 days for others)
+            expiry_hours = 24 if any(word in query.lower() for word in ["news", "headline"]) else 168
+            if datetime.now() - datetime.fromisoformat(entry["timestamp"]) < timedelta(hours=expiry_hours):
+                if hasattr(performance_monitor, 'record_hit'):
+                    performance_monitor.record_hit(exact=True)
+                return entry["response"]
+        
+        # Check for semantic similarity (existing logic)
+        for cached_query, entry in self.cache.items():
+            similarity = self.calculate_similarity(cache_key, cached_query)
+            
+            # Higher threshold for news-related queries
+            required_threshold = 0.95 if any(word in query.lower() for word in ["news", "headline"]) else self.threshold
+            
+            if similarity > required_threshold:
+                # Additional check: don't return cached news for different dates
+                if self.is_different_news(query, cached_query):
+                    continue
+                if hasattr(performance_monitor, 'record_hit'):
+                    performance_monitor.record_hit()
+                return entry["response"]
+        
+        if hasattr(performance_monitor, 'record_miss'):
+            performance_monitor.record_miss()
+        return None
+    
+    def is_different_news(self, query1: str, query2: str) -> bool:
+        """Check if two news queries are about different dates/topics"""
+        # Extract dates
+        date_pattern = r'\b(january|february|march|april|may|june|july|august|september|october|november|december)\s+\d{1,2},\s+\d{4}\b'
+        
+        date1 = re.search(date_pattern, query1, re.IGNORECASE)
+        date2 = re.search(date_pattern, query2, re.IGNORECASE)
+        
+        # If both have dates and they're different, they're different news
+        if date1 and date2 and date1.group(0).lower() != date2.group(0).lower():
+            return True
+        
+        # Check for different years
+        year1 = re.search(r'\b\d{4}\b', query1)
+        year2 = re.search(r'\b\d{4}\b', query2)
+        if year1 and year2 and year1.group(0) != year2.group(0):
+            return True
+        
+        return False
+    
+    def set(self, query: str, classification: str, response: str):
+        """Cache a response"""
+        if not self.should_cache_query(query, classification):
+            return
+        
+        cache_key = self.get_cache_key(query)
+        
+        self.cache[cache_key] = {
+            "response": response,
+            "timestamp": datetime.now().isoformat(),
+            "classification": classification,
+            "original_query": query[:200]  # Store original for debugging
+        }
+        
+        # Limit cache size
+        if len(self.cache) > 1000:
+            # Remove oldest entries
+            sorted_entries = sorted(self.cache.items(), 
+                                   key=lambda x: x[1]["timestamp"])
+            for key, _ in sorted_entries[:100]:
+                del self.cache[key]
+    
+    def calculate_similarity(self, query1: str, query2: str) -> float:
+        """Calculate similarity between two queries"""
+        # Simple Jaccard similarity for now
+        # In production, you'd use embeddings
+        words1 = set(query1.lower().split())
+        words2 = set(query2.lower().split())
+        
+        if not words1 or not words2:
+            return 0.0
+        
+        intersection = len(words1.intersection(words2))
+        union = len(words1.union(words2))
+        
+        return intersection / union
+    
+    def save(self):
+        """Save cache to disk"""
+        with open("semantic_cache.json", "w") as f:
+            json.dump(self.cache, f, indent=2)
+    
+    def load(self):
+        """Load cache from disk"""
+        try:
+            if os.path.exists("semantic_cache.json"):
+                with open("semantic_cache.json", "r") as f:
+                    self.cache = json.load(f)
+        except:
+            self.cache = {}
+
+    def invalidate_exact(self, query):
+        """For compatibility with IntelligentCacheInvalidator"""
+        cache_key = self.get_cache_key(query)
+        if cache_key in self.cache:
+            del self.cache[cache_key]
+            return True
+        return False
+
+    def invalidate_semantic_by_query(self, query):
+        """For compatibility with IntelligentCacheInvalidator"""
+        return self.invalidate_exact(query)
+
+        return filtered_response
+    
+    @classmethod
+    def expand_news_query(cls, query: str) -> List[str]:
+        """Expand news-related queries for better RAG retrieval"""
+        expansions = []
+        
+        news_keywords = ["news", "update", "recent", "happening", "today", "latest", "headlines"]
+        
+        if any(keyword in query.lower() for keyword in news_keywords):
+            # Add date-based expansions
+            today = datetime.now().strftime("%Y-%m-%d")
+            expansions.append(f"{query} {today}")
+            expansions.append(f"news brief {today}")
+            expansions.append(f"daily digest {today}")
+            
+            # Add section-based expansions
+            expansions.append(f"tech outages {today}")
+            expansions.append(f"security incidents {today}")
+            expansions.append(f"AI developments {today}")
+        
+        return expansions
+
 # Initialize Intelligence Layer
 performance_monitor = PerformanceMonitor()
-semantic_cache = SemanticCache()
+semantic_cache = ImprovedSemanticCache(threshold=0.92)
 model_warm_pool = ModelWarmPool(ollama_client)
 query_classifier = QueryClassifier(ollama_client)
 context_optimizer = ContextOptimizer(model_name=config.chat_model)
@@ -458,9 +689,15 @@ async def idle_quip_task():
                 # RAG: Pull a random fragment from user logs to make fun of
                 context_nodes = await run_rag(rag.retrieve, "recent user interaction", top_k=3)
                 
+                # Add news to idle quips
+                news_nodes = await run_rag(rag.retrieve, f"news brief {datetime.now().strftime('%Y-%m-%d')}", top_k=2)
+                
                 context_str = ""
                 if context_nodes:
                     context_str = "\n\n[LOG_CONTEXT]\n" + "\n---\n".join(context_nodes)
+                
+                if news_nodes:
+                    context_str += "\n\n[NEWS_CONTEXT]\n" + "\n---\n".join(news_nodes)
                 
                 system_prompt = load_persona()
                 
@@ -702,24 +939,34 @@ async def on_message(msg: discord.Message):
             return
 
     try:
+        # EMERGENCY HALLUCINATION CHECK
+        if HallucinationDetector.contains_hallucination(sanitized_content):
+            log_warning(f"Hallucination detected in query from {msg.author.name}. Blocking.")
+            await msg.channel.send("```\nnot following. try that again.\n```")
+            return
+
         log_message_received(msg.author.name, str(msg.author.id), sanitized_content)
         
         # 1. TWO-LEVEL CACHE CHECK
         performance_monitor.start_timer('total')
-        cached_response = await semantic_cache.get(msg.content, msg.author.id, monitor=performance_monitor)
-        if cached_response:
-            # Transparency indicator
-            await send_kaia_response(msg.channel, f"💾 {cached_response}")
-            performance_monitor.stop_timer('total', 'response_time')
-            # Still log interaction for future RAG
-            await run_rag(rag.log_user_interaction, msg.author.id, msg.author.display_name, msg.content, cached_response)
-            return
+        
+        # Pre-classify for cache bypass
+        category = await query_classifier.classify(msg.content)
+        
+        if semantic_cache.should_cache_query(msg.content, category):
+            cached_response = semantic_cache.get(msg.content, category)
+            if cached_response:
+                # Transparency indicator
+                await send_kaia_response(msg.channel, f"💾 {cached_response}")
+                performance_monitor.stop_timer('total', 'response_time')
+                # Still log interaction for future RAG
+                await run_rag(rag.log_user_interaction, msg.author.id, msg.author.display_name, msg.content, cached_response)
+                return
+        else:
+            log_info(f"Cache bypassed for {category} query")
 
         # 2. HYBRID CLASSIFICATION & PARALLEL PIPELINE
-        performance_monitor.start_timer('classify')
-        category = await query_classifier.classify(msg.content)
-        performance_monitor.stop_timer('classify', 'classification_time')
-        
+        # (Category already determined for cache check)
         log_info(f"Query classified as: {category.upper()}")
 
         # Start typing indicator
@@ -748,14 +995,33 @@ async def on_message(msg: discord.Message):
             clean_query, 
             user_id=target_user_id, 
             user_name=target_user_name, 
-            top_k=config.rag_top_k
+            top_k=config.rag_top_k,
+            strict_identity=(category in ["IDENTITY", "SELF", "WHOAMI"])
         ))
+        
+        # News Query Expansion
+        news_expansions = EmergencyContaminationFilter.expand_news_query(clean_query)
+        news_tasks = []
+        for expansion in news_expansions:
+            news_tasks.append(asyncio.create_task(run_rag(
+                rag.retrieve,
+                expansion,
+                top_k=2
+            )))
         
         # Personalization traits
         traits_task = asyncio.create_task(personalization_engine.get_user_traits(msg.author.id))
         
         # Wait for all to complete
-        system_prompt, context_nodes, user_traits = await asyncio.gather(persona_task, rag_task, traits_task)
+        results = await asyncio.gather(persona_task, rag_task, traits_task, *news_tasks)
+        system_prompt = results[0]
+        context_nodes = results[1]
+        user_traits = results[2]
+        
+        # Add news results to context nodes
+        for news_result in results[3:]:
+            context_nodes.extend(news_result)
+        
         performance_monitor.stop_timer('retrieval', 'retrieval_time')
         
         # Adapt prompt based on traits
@@ -824,6 +1090,20 @@ async def on_message(msg: discord.Message):
         })
 
         log_action("Calling ollama.chat with self-healing...")
+        
+        # Check if context contains hallucinations
+        context_hallucination = False
+        for m in messages:
+            if HallucinationDetector.contains_hallucination(m['content']):
+                context_hallucination = True
+                break
+        
+        if context_hallucination:
+            log_warning("Hallucination detected in RAG context! Cleaning before sending to LLM.")
+            for m in messages:
+                if m['role'] == 'system' and '### LOGS' in m['content']:
+                    m['content'] = HallucinationDetector.clean_response(m['content'])
+
         response = await SelfHealingSystem.call_with_fallback(
             ollama_client.chat,
             model=config.chat_model,
@@ -843,8 +1123,17 @@ async def on_message(msg: discord.Message):
         performance_monitor.stop_timer('total', 'response_time')
         content = response['message']['content']
         
+        # CLEAN HALLUCINATIONS FROM RESPONSE
+        if HallucinationDetector.contains_hallucination(content):
+            log_critical(f"Hallucination detected in response for {msg.author.name}!")
+            content = HallucinationDetector.clean_response(content)
+
+        # EMERGENCY CONTAMINATION FILTER
+        content = EmergencyContaminationFilter.filter_response(content)
+
         # 4. CACHE, FEEDBACK & PERSONALIZATION
-        await semantic_cache.set(msg.content, content, msg.author.id)
+        semantic_cache.set(msg.content, category, content)
+        semantic_cache.save()
         await relevance_feedback.log_interaction(msg.content, content, msg.author.id)
         await personalization_engine.learn_from_interaction(msg.author.id, msg.content, content)
         

@@ -1,0 +1,37 @@
+{
+  "never_cache": [
+    "68k.news",
+    "headlines from",
+    "january",
+    "february",
+    "march",
+    "april",
+    "may",
+    "june",
+    "july",
+    "august",
+    "september",
+    "october",
+    "november",
+    "december",
+    "2025",
+    "2026",
+    "2027"
+  ],
+  "always_regenerate": [
+    "news",
+    "headline",
+    "article",
+    "report",
+    "update",
+    "breaking",
+    "latest"
+  ],
+  "keyword_blacklist": [
+    "68k.news",
+    "juanita",
+    "deane",
+    "agency",
+    "bonbons"
+  ]
+}
