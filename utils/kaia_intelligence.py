@@ -1,8 +1,12 @@
 import time
+import os
 import asyncio
 import numpy as np
 import re
+import json
+import hashlib
 from datetime import datetime
+from collections import defaultdict
 from llama_index.embeddings.ollama import OllamaEmbedding
 from utils.kaia_logger import log_info, log_action, log_success, log_error
 
@@ -71,6 +75,31 @@ class SemanticCache:
 
     def cosine_similarity(self, a, b):
         return np.dot(a, b) / (np.linalg.norm(a) * np.linalg.norm(b))
+        
+    def _get_query_hash(self, query):
+        """Stable hash for query invalidation."""
+        return hashlib.sha256(query.strip().lower().encode()).hexdigest()
+
+    def invalidate_exact(self, query_hash_or_key):
+        """Invalidate exact cache entry."""
+        if query_hash_or_key in self.exact_cache:
+            del self.exact_cache[query_hash_or_key]
+            return True
+        # Also check if it's a full key (user_id:query)
+        for key in list(self.exact_cache.keys()):
+            if query_hash_or_key in key:
+                del self.exact_cache[key]
+                return True
+        return False
+
+    def invalidate_semantic_by_query(self, query):
+        """Invalidate semantic cache entry."""
+        if query in self.cache:
+            del self.cache[query]
+            if query in self.access_counts:
+                del self.access_counts[query]
+            return True
+        return False
         
     async def get(self, query, user_id=None, monitor=None):
         """Get cached response for similar query."""
@@ -262,9 +291,11 @@ class ContextOptimizer:
             'llama3.2': {'persona': 0.15, 'rag': 0.45, 'history': 0.35, 'system': 0.05},
             'default': {'persona': 0.10, 'rag': 0.50, 'history': 0.30, 'system': 0.10}
         }
+        self.min_rag_tokens = 1024
+        self.min_history_tokens = 512
         
     def optimize_context(self, category, persona, rag_nodes, history):
-        model_ratios = self.ratios.get(self.model_name, self.ratios['default'])
+        model_ratios = self.ratios.get(self.model_name, self.ratios['default']).copy()
         
         # Adjust ratios based on category
         if category == 'identity':
@@ -276,6 +307,22 @@ class ContextOptimizer:
             model_ratios['rag'] -= 0.20
             
         token_budget = {k: int(v * self.max_tokens) for k, v in model_ratios.items()}
+        
+        # Apply minimum guarantees
+        token_budget['rag'] = max(token_budget.get('rag', 0), self.min_rag_tokens)
+        token_budget['history'] = max(token_budget.get('history', 0), self.min_history_tokens)
+        
+        # Re-balance if over budget
+        total_budget = sum(token_budget.values())
+        if total_budget > self.max_tokens:
+            excess = total_budget - self.max_tokens
+            # Reduce persona and system first
+            for key in ['persona', 'system']:
+                if token_budget.get(key, 0) > 200:
+                    reduction = min(excess, token_budget[key] - 200)
+                    token_budget[key] -= reduction
+                    excess -= reduction
+                if excess <= 0: break
         
         optimized_persona = self.trim_to_tokens(persona, token_budget['persona'])
         rag_text = "\n\n".join([n.text if hasattr(n, 'text') else str(n) for n in rag_nodes])
@@ -300,6 +347,7 @@ class ContextOptimizer:
         }
     
     def trim_to_tokens(self, text, max_tokens):
+        if not text: return ""
         words = text.split()
         if len(words) * 1.3 <= max_tokens: return text
             
@@ -308,7 +356,8 @@ class ContextOptimizer:
         important_tokens = sum(len(l.split()) * 1.3 for l in important_lines)
         remaining_tokens = max_tokens - important_tokens
         
-        if remaining_tokens <= 0: return '\n'.join(important_lines[:5])
+        if remaining_tokens <= 0: 
+            return '\n'.join(important_lines[:5]) if important_lines else ' '.join(words[:int(max_tokens/1.3)])
             
         regular_lines = []
         for line in reversed(lines):
@@ -317,8 +366,17 @@ class ContextOptimizer:
                 if line_tokens <= remaining_tokens:
                     regular_lines.insert(0, line)
                     remaining_tokens -= line_tokens
-                else: break
-        return '\n'.join(important_lines + regular_lines)
+                else: 
+                    # If we still have room but the line is too big, take a chunk of it
+                    if remaining_tokens > 100:
+                        chunk = ' '.join(line.split()[:int(remaining_tokens/1.3)])
+                        regular_lines.insert(0, chunk)
+                    break
+        
+        result = '\n'.join(important_lines + regular_lines)
+        if not result and words:
+            return ' '.join(words[:int(max_tokens/1.3)])
+        return result
 
 class RelevanceFeedback:
     """Learn from user interactions to improve retrieval."""
@@ -404,3 +462,92 @@ class PersonalizationEngine:
         
         self.user_profiles[user_id] = traits
         log_info(f"Updated personalization for {user_id}: C={traits['conciseness']:.2f}, T={traits['technicality']:.2f}")
+
+class PersistentStateManager:
+    """Save and load system state to survive restarts."""
+    def __init__(self, state_dir="./storage/state"):
+        self.state_dir = state_dir
+        os.makedirs(state_dir, exist_ok=True)
+        self.state_path = os.path.join(self.state_dir, "kaia_state.json")
+        
+    def save_state(self, cache, personalization, monitor):
+        """Atomic save of critical state."""
+        try:
+            state = {
+                'exact_cache': cache.exact_cache,
+                'user_profiles': personalization.user_profiles,
+                'performance_metrics': {
+                    'cache_hits': monitor.metrics['cache_hits'],
+                    'cache_misses': monitor.metrics['cache_misses'],
+                    'exact_hits': monitor.metrics['exact_hits']
+                },
+                'saved_at': time.time()
+            }
+            
+            temp_path = self.state_path + ".tmp"
+            with open(temp_path, 'w') as f:
+                json.dump(state, f)
+            os.replace(temp_path, self.state_path)
+            log_success("Cold state persisted successfully.")
+        except Exception as e:
+            log_error(f"Failed to save state: {e}")
+
+    def load_state(self, cache, personalization, monitor):
+        """Load state if not too stale."""
+        if not os.path.exists(self.state_path): return False
+        
+        try:
+            with open(self.state_path, 'r') as f:
+                state = json.load(f)
+            
+            # 24h stale check
+            if time.time() - state.get('saved_at', 0) > 86400:
+                log_warning("Persisted state is too old (>24h), skipping.")
+                return False
+                
+            cache.exact_cache.update(state.get('exact_cache', {}))
+            personalization.user_profiles.update(state.get('user_profiles', {}))
+            
+            metrics = state.get('performance_metrics', {})
+            monitor.metrics['cache_hits'] = metrics.get('cache_hits', 0)
+            monitor.metrics['cache_misses'] = metrics.get('cache_misses', 0)
+            monitor.metrics['exact_hits'] = metrics.get('exact_hits', 0)
+            
+            log_success(f"Loaded cold state: {len(cache.exact_cache)} cache entries, {len(personalization.user_profiles)} profiles.")
+            return True
+        except Exception as e:
+            log_error(f"Failed to load state: {e}")
+            return False
+
+class IntelligentCacheInvalidator:
+    """Invalidate cache entries when source files change."""
+    def __init__(self, cache):
+        self.cache = cache
+        self.file_query_map = defaultdict(set) # file_path -> {queries}
+        
+    def track(self, query, nodes):
+        """Track which files contributed to a query."""
+        files = set()
+        for node in nodes:
+            # Handle both llama_index nodes and raw strings
+            metadata = getattr(node, 'metadata', {})
+            file_path = metadata.get('file_path') or metadata.get('file_name')
+            if file_path:
+                files.add(file_path)
+        
+        for file_path in files:
+            self.file_query_map[file_path].add(query)
+            
+    def invalidate_for_file(self, file_path):
+        """Invalidate all queries associated with a file."""
+        queries = self.file_query_map.get(file_path, set())
+        count = 0
+        for query in list(queries):
+            exact_removed = self.cache.invalidate_exact(query)
+            semantic_removed = self.cache.invalidate_semantic_by_query(query)
+            if exact_removed or semantic_removed:
+                count += 1
+        
+        if count > 0:
+            log_info(f"Invalidated {count} cache entries due to change in {file_path}")
+            del self.file_query_map[file_path]

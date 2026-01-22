@@ -1,4 +1,5 @@
 import os
+import re
 import time
 import shutil
 import logging
@@ -26,6 +27,8 @@ warnings.filterwarnings("ignore")
 from datetime import datetime
 from functools import wraps
 from typing import List, Dict, Optional, Any, Tuple, Set
+import numpy as np
+from rank_bm25 import BM25Okapi
 from llama_index.core import VectorStoreIndex, SimpleDirectoryReader, StorageContext, Settings, load_index_from_storage, Document
 from llama_index.llms.ollama import Ollama
 from llama_index.embeddings.ollama import OllamaEmbedding
@@ -35,6 +38,62 @@ from utils.kaia_logger import *
 class CircuitOpenError(Exception):
     """Raised when the circuit breaker is open"""
     pass
+
+class SimpleBM25Retriever:
+    """Simple BM25 retriever for hybrid search."""
+    def __init__(self, nodes):
+        self.nodes = nodes
+        self.tokenized_docs = [self._tokenize(node.get_content()) for node in nodes]
+        self.bm25 = BM25Okapi(self.tokenized_docs) if self.tokenized_docs else None
+        
+    def _tokenize(self, text):
+        return re.sub(r'[^\w\s]', '', text.lower()).split()
+    
+    def retrieve(self, query, top_k=10):
+        if not self.bm25: return []
+        tokenized_query = self._tokenize(query)
+        scores = self.bm25.get_scores(tokenized_query)
+        top_indices = np.argsort(scores)[::-1][:top_k]
+        
+        results = []
+        for idx in top_indices:
+            if scores[idx] > 0:
+                results.append((self.nodes[idx], float(scores[idx])))
+        return results
+
+class HybridRetriever:
+    """Combines Vector and BM25 retrieval using RRF."""
+    def __init__(self, vector_index, bm25_retriever):
+        self.vector_index = vector_index
+        self.bm25 = bm25_retriever
+        
+    def retrieve(self, query, top_k=5, alpha=0.5):
+        # 1. Vector Retrieval
+        vector_retriever = self.vector_index.as_retriever(similarity_top_k=top_k*2)
+        vector_nodes = vector_retriever.retrieve(query)
+        
+        # 2. BM25 Retrieval
+        bm25_results = self.bm25.retrieve(query, top_k=top_k*2)
+        
+        # 3. Reciprocal Rank Fusion (RRF)
+        combined_scores = {} # node_id -> score
+        node_map = {} # node_id -> node
+        
+        # Vector RRF
+        for rank, node in enumerate(vector_nodes):
+            node_id = node.node_id
+            node_map[node_id] = node
+            combined_scores[node_id] = combined_scores.get(node_id, 0) + alpha * (1.0 / (rank + 60))
+            
+        # BM25 RRF
+        for rank, (node, score) in enumerate(bm25_results):
+            node_id = node.node_id
+            node_map[node_id] = node
+            combined_scores[node_id] = combined_scores.get(node_id, 0) + (1.0 - alpha) * (1.0 / (rank + 60))
+            
+        # Sort and return top_k
+        sorted_ids = sorted(combined_scores.items(), key=lambda x: x[1], reverse=True)
+        return [node_map[node_id] for node_id, _ in sorted_ids[:top_k]]
 
 class CircuitBreaker:
     """Circuit breaker for external services"""
@@ -112,6 +171,7 @@ class KaiaRAG:
         
         self.index = None # Legacy index reference
         self.indices = {} # Hierarchical indices
+        self.bm25_cache = {} # Cache for BM25 retrievers {itype: (timestamp, retriever)}
         self.persist_needed = False
         self._lock = threading.RLock()
         self._indexing_in_progress = False
@@ -199,8 +259,14 @@ class KaiaRAG:
 
     @thread_safe_rag_operation
     def refresh_knowledge_base(self):
-        """Load all supported files from the knowledge base directory and update the index incrementally."""
-        self._indexing_in_progress = True
+        """Scan knowledge base for new/modified files and update indices."""
+        with self._lock:
+            if self._indexing_in_progress:
+                return
+            self._indexing_in_progress = True
+            # Clear BM25 cache as indices are changing
+            self.bm25_cache.clear()
+        
         try:
             if not os.path.exists(self.knowledge_base_dir):
                 os.makedirs(self.knowledge_base_dir)
@@ -592,6 +658,10 @@ Kaia: {bot_response}
                 nodes = parser.get_nodes_from_documents([new_doc])
                 self.indices['logs'].insert_nodes(nodes)
                 
+                # Clear BM25 cache for logs
+                if 'logs' in self.bm25_cache:
+                    self.bm25_cache['logs'] = None
+                
                 self.indexed_files[os.path.abspath(log_file)] = mtime
                 self.persist_needed = True
                 log_success(f"Interaction indexed for user {user_name} into logs index")
@@ -693,8 +763,22 @@ Kaia: {bot_response}
             all_node_results = []
             for itype in target_itypes:
                 if itype in self.indices:
-                    retriever = self.indices[itype].as_retriever(similarity_top_k=retrieve_count)
-                    all_node_results.extend(retriever.retrieve(enriched_query))
+                    # Get or build BM25 retriever
+                    if itype not in self.bm25_cache or self.bm25_cache[itype] is None:
+                        index_nodes = list(self.indices[itype].storage_context.docstore.docs.values())
+                        if index_nodes:
+                            self.bm25_cache[itype] = SimpleBM25Retriever(index_nodes)
+                        else:
+                            self.bm25_cache[itype] = None
+                    
+                    bm25_retriever = self.bm25_cache.get(itype)
+                    if bm25_retriever:
+                        hybrid = HybridRetriever(self.indices[itype], bm25_retriever)
+                        all_node_results.extend(hybrid.retrieve(enriched_query, top_k=retrieve_count))
+                    else:
+                        # Fallback to vector only
+                        retriever = self.indices[itype].as_retriever(similarity_top_k=retrieve_count)
+                        all_node_results.extend(retriever.retrieve(enriched_query))
             
             # 3. Categorize and Score nodes
             scored_nodes = [] # List of (score, content, label)

@@ -30,7 +30,7 @@ from kaia_image import generate_image, unload_image_model, generation_lock
 from kaia_vision import kaia_sees_image, cleanup_session
 from watchdog.observers import Observer
 from watchdog.events import FileSystemEventHandler
-from utils.kaia_intelligence import SemanticCache, ModelWarmPool, QueryClassifier, ContextOptimizer, RelevanceFeedback, PerformanceMonitor, PersonalizationEngine
+from utils.kaia_intelligence import SemanticCache, ModelWarmPool, QueryClassifier, ContextOptimizer, RelevanceFeedback, PerformanceMonitor, PersonalizationEngine, PersistentStateManager, IntelligentCacheInvalidator
 
 # Load environment variables early so Config can use them
 load_dotenv()
@@ -291,6 +291,8 @@ query_classifier = QueryClassifier(ollama_client)
 context_optimizer = ContextOptimizer(model_name=config.chat_model)
 relevance_feedback = RelevanceFeedback(rag)
 personalization_engine = PersonalizationEngine()
+state_manager = PersistentStateManager()
+cache_invalidator = IntelligentCacheInvalidator(semantic_cache)
 
 class SelfHealingSystem:
     """Execute functions with fallback strategies."""
@@ -353,6 +355,8 @@ class KnowledgeBaseWatcher(FileSystemEventHandler):
                     except asyncio.QueueEmpty: break
                 
                 log_action(f"Processing queued change: {path}")
+                # Invalidate cache for this file
+                cache_invalidator.invalidate_for_file(path)
                 await asyncio.to_thread(self.rag.refresh_knowledge_base)
                 log_success("Incremental RAG refresh complete.")
             except Exception as e:
@@ -398,6 +402,9 @@ async def on_ready():
     
     # Start the memory audit task
     memory_audit_task.start()
+    
+    # Load cold state
+    state_manager.load_state(semantic_cache, personalization_engine, performance_monitor)
     
     # Prewarm the main Ollama model to avoid cold-start delay on first message
     # We don't prewarm the vision model here to avoid system lag
@@ -539,6 +546,9 @@ async def memory_audit_task():
             
         # Report performance stats
         log_info(performance_monitor.get_report())
+        
+        # Save state
+        state_manager.save_state(semantic_cache, personalization_engine, performance_monitor)
     except Exception as e:
         log_error(f"Memory audit failed: {e}")
 
@@ -839,6 +849,9 @@ async def on_message(msg: discord.Message):
         await semantic_cache.set(msg.content, content, msg.author.id)
         await relevance_feedback.log_interaction(msg.content, content, msg.author.id)
         await personalization_engine.learn_from_interaction(msg.author.id, msg.content, content)
+        
+        # Track context for invalidation
+        cache_invalidator.track(msg.content, context_nodes)
         
         # Transparency indicator for optimization
         if optimized_context.get('tokens_saved', 0) > 500:
