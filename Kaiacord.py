@@ -485,6 +485,45 @@ class ImprovedSemanticCache:
         """For compatibility with IntelligentCacheInvalidator"""
         return self.invalidate_exact(query)
 
+class EmergencyContaminationFilter:
+    """Emergency filter to prevent ANY fictional content"""
+    
+    CONTAMINATION_PATTERNS = [
+        r'\belena\b', r'\bjuanita\b', r'\bdeane\b', r'\bbonbons\b',
+        r'\bthink tank\b', r'\bmiddle eastern affairs\b',
+        r'\bi remember (a|the) conversation with\b',
+        r'\bshe (said|worked|was)\b.*?\b(?:in|at|for)\b',
+        r"\bback in (?:'90s|\d{4})\b"
+    ]
+    
+    @classmethod
+    def filter_response(cls, response: str) -> str:
+        """Remove ANY contamination from response"""
+        import re
+        
+        lines = response.split('\n')
+        filtered_lines = []
+        
+        for line in lines:
+            line_lower = line.lower()
+            
+            # Skip lines with contamination
+            skip_line = False
+            for pattern in cls.CONTAMINATION_PATTERNS:
+                if re.search(pattern, line_lower):
+                    skip_line = True
+                    log_warning(f"[EMERGENCY FILTER] Removed contaminated line: {line[:80]}...")
+                    break
+            
+            if not skip_line:
+                filtered_lines.append(line)
+        
+        filtered_response = '\n'.join(filtered_lines)
+        
+        # If we removed too much, provide clean fallback
+        if len(filtered_response.strip()) < 20:
+            filtered_response = "yeah. what's up?\n\ncoffee's cold. what do you need?"
+        
         return filtered_response
     
     @classmethod
