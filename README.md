@@ -21,6 +21,7 @@
 *   **Dynamic RAG System** – Remembers information from text files, PDFs, Markdown, and Word documents.
 *   **Query Classification** – Automatically detects intent (Identity, Knowledge, Casual) for optimized responses.
 *   **Self-Healing System** – Retries failed LLM calls with simplified prompts or reduced context.
+*   **Btop-Style Dashboard** – New cyberpunk terminal UI with real-time metrics, live logs, and responsive layout.
 *   **Color-Coded Logging** – Beautiful terminal output with high-visibility timestamps and message types.
 
 ### 🧠 Advanced Memory & Learning
@@ -88,10 +89,21 @@ python Kaiacord.py
 ```text
 Kaiacord/
 ├── Kaiacord.py              # Main bot entry point
-├── kaia_persona.md          # Customizable personality & backstory
+├── config/                  # Configuration & Persona
+│   ├── kaia_persona.md      # Customizable personality & backstory
+│   └── cache_exceptions.json
+├── utils/                   # Core modules & utilities
+│   ├── kaia_rag.py          # RAG System
+│   ├── kaia_image.py        # Image Generation
+│   ├── kaia_vision.py       # Vision System
+│   ├── gpu_manager.py       # GPU Management
+│   ├── btop_dashboard.py    # New Btop-style Dashboard
+│   └── terminal_manager.py  # Terminal Control Utilities
 ├── knowledge_base/          # Local knowledge storage
 │   ├── user_logs/           # Per-user interaction logs
 │   └── corrupt_files/       # Quarantined problematic files
+├── storage/                 # Persistent data
+│   └── semantic_cache.json  # Semantic Cache
 ├── tools/                   # Maintenance & diagnostics
 │   ├── nuclear_reset.py     # Complete system purge
 │   ├── find_contamination.py # Hallucination detection
@@ -100,7 +112,10 @@ Kaiacord/
 └── docs/                   # Detailed documentation
     ├── HALLUCINATION_FIXES.md
     ├── INTELLIGENCE_LAYER.md
-    └── DAILY_NEWS_UPDATER.md
+    ├── HALLUCINATION_FIXES.md
+    ├── INTELLIGENCE_LAYER.md
+    ├── DAILY_NEWS_UPDATER.md
+    └── DASHBOARD_SUMMARY.md
 ```
 
 ---
@@ -130,7 +145,7 @@ Kaiacord/
 ## 🔧 Customization
 
 ### Persona Customization
-Edit `kaia_persona.md` to define her personality, backstory, and behavior patterns. She is designed to be blunt, grounded, and technically proficient.
+Edit `config/kaia_persona.md` to define her personality, backstory, and behavior patterns. She is designed to be blunt, grounded, and technically proficient.
 
 ### Knowledge Base
 Add files to `./knowledge_base/` in supported formats:

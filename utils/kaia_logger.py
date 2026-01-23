@@ -20,6 +20,14 @@ console = Console()
 # Detect if output is a TTY (terminal) or being redirected
 IS_TTY = sys.stdout.isatty()
 
+# Global monitor reference for dashboard integration
+_monitor = None
+
+def set_monitor(monitor):
+    """Set the monitor instance for dashboard integration."""
+    global _monitor
+    _monitor = monitor
+
 
 def _get_timestamp():
     """Return current timestamp in dim gray (only if TTY)."""
@@ -46,6 +54,8 @@ def log_success(message):
     """Log success messages with bold green checkmark."""
     prefix = _colorize("✓", Fore.GREEN + Style.BRIGHT)
     print(f"{_get_timestamp()}{prefix} {_colorize(message, Fore.GREEN + Style.BRIGHT)}")
+    if _monitor:
+        _monitor.log_system_event("SUCCESS", message)
 
 
 def log_user(user_name, user_id, context=""):
@@ -62,13 +72,28 @@ def log_user(user_name, user_id, context=""):
 def log_action(message):
     """Log core action messages in yellow."""
     print(f"{_get_timestamp()}{_colorize(message, Fore.YELLOW)}")
+    if _monitor:
+        _monitor.log_system_event("ACTION", message)
 
 
-def log_response(prefix, content):
+def log_response(prefix, content, response_time=0.0):
     """Log AI response with magenta prefix and white content."""
     formatted_prefix = _colorize(prefix, Fore.MAGENTA + Style.BRIGHT)
     formatted_content = _colorize(content, Fore.WHITE)
-    print(f"{_get_timestamp()}{formatted_prefix} {formatted_content}")
+    
+    time_str = ""
+    if response_time > 0:
+        time_str = f" ({response_time:.2f}s)"
+        
+    print(f"{_get_timestamp()}{formatted_prefix}{time_str} {formatted_content}")
+    if _monitor:
+        # Extract tokens saved if present in content
+        tokens_saved = 0
+        if "[optimized: saved" in content:
+            try:
+                tokens_saved = int(content.split("saved")[1].split()[0])
+            except: pass
+        _monitor.log_response(content, tokens_saved=tokens_saved, response_time=response_time)
 
 
 def log_file(path):
@@ -83,18 +108,24 @@ def log_file(path):
 def log_critical(message):
     """Log critical messages in bold red."""
     print(f"{_get_timestamp()}{_colorize(message, Fore.RED + Style.BRIGHT)}")
+    if _monitor:
+        _monitor.log_system_event("CRITICAL", message)
 
 
 def log_warning(message):
     """Log warning messages in yellow with 'Warning:' prefix."""
     prefix = _colorize("Warning:", Fore.YELLOW + Style.BRIGHT)
     print(f"{_get_timestamp()}{prefix} {message}")
+    if _monitor:
+        _monitor.log_system_event("WARNING", message)
 
 
 def log_error(message):
     """Log error messages in red with 'ERROR:' prefix."""
     prefix = _colorize("ERROR:", Fore.RED + Style.BRIGHT)
     print(f"{_get_timestamp()}{prefix} {message}")
+    if _monitor:
+        _monitor.log_system_event("ERROR", message)
 
 
 def log_info(message):

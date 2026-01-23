@@ -8,7 +8,7 @@ import hashlib
 from datetime import datetime
 from collections import defaultdict
 from llama_index.embeddings.ollama import OllamaEmbedding
-from utils.kaia_logger import log_info, log_action, log_success, log_error
+from utils.kaia_logger import log_info, log_action, log_success, log_error, log_warning
 
 class PerformanceMonitor:
     """Track and report system performance metrics."""

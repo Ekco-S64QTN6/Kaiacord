@@ -12,6 +12,7 @@ import random
 import time
 import datetime
 from datetime import datetime
+from pathlib import Path
 import logging
 import subprocess
 import signal
@@ -25,17 +26,53 @@ from dotenv import load_dotenv
 import ollama
 import discord
 from discord.ext import commands, tasks
-from kaia_rag import KaiaRAG, HallucinationDetector
-from kaia_image import generate_image, unload_image_model, generation_lock
-from kaia_vision import kaia_sees_image, cleanup_session
+from utils.kaia_rag import KaiaRAG, HallucinationDetector
+from utils.kaia_image import generate_image, unload_image_model, generation_lock
+from utils.kaia_vision import kaia_sees_image, cleanup_session
 from watchdog.observers import Observer
 from watchdog.events import FileSystemEventHandler
 from utils.kaia_intelligence import SemanticCache, ModelWarmPool, QueryClassifier, ContextOptimizer, RelevanceFeedback, PerformanceMonitor, PersonalizationEngine, PersistentStateManager, IntelligentCacheInvalidator
-
 # Load environment variables early so Config can use them
 load_dotenv()
+
+# EMERGENCY GPU FALLBACK
+try:
+    from utils.gpu_manager import OllamaGPUManager, GPUMonitor, LoggingPatcher
+    gpu_available = True
+except ImportError as e:
+    print(f"⚠️  GPU Manager import failed: {e}")
+    print("⚠️  Using CPU fallback mode")
+    
+    # Create dummy GPU classes
+    class GPUMonitor:
+        @staticmethod
+        def get_gpu_info():
+            return None
+        
+        @staticmethod 
+        def is_gpu_available():
+            return False
+    
+    class OllamaGPUManager:
+        def __init__(self, model_name):
+            self.model_name = model_name
+            self.gpu_available = False
+        
+        async def ensure_gpu_loading(self, ollama_client):
+            return False
+        
+        def get_gpu_options(self, for_chat=True):
+            return {'num_thread': 8}  # CPU fallback
+    
+    gpu_available = False
 from utils.clear_gpu_memory import clear_gpu_memory
-from utils.kaia_logger import *
+from utils.kaia_logger import (
+    log_success, log_info, log_warning, log_error, log_critical,
+    log_action, log_model_action, log_message_received, log_response,
+    log_context_retrieval, log_separator, set_monitor
+)
+from utils.kaia_news import NewsRetrievalEnhancer, ResponseEnhancer, RAGEnhancer
+from utils.btop_dashboard import BtopDashboard, KaiaMonitor, BtopLoggingPatcher
 
 @dataclass
 class Config:
@@ -80,6 +117,15 @@ class Config:
 
 config = Config.from_env()
 
+# Initialize Btop Dashboard
+dashboard = BtopDashboard(update_interval=1.0)
+monitor = KaiaMonitor(dashboard)
+set_monitor(monitor)
+
+# Patch logging
+patcher = BtopLoggingPatcher(dashboard)
+patcher.patch_print()
+
 class BotState:
     """Encapsulates global bot state and persistence"""
     def __init__(self, state_file: str = "storage/bot_state.json"):
@@ -88,6 +134,7 @@ class BotState:
         self.last_interaction_time: float = time.time()
         self.last_active_channel_id: Optional[int] = None
         self.consecutive_quips: int = 0
+        self.is_generating_image: bool = False
         self.load()
 
     def load(self):
@@ -217,7 +264,62 @@ def cleanup_on_startup():
     except Exception as e:
         log_warning(f"Failed to clear GPU memory: {e}")
 
-# setup bot
+# Initialize Enhancers
+news_enhancer = NewsRetrievalEnhancer()
+response_enhancer = ResponseEnhancer()
+rag_enhancer = RAGEnhancer()
+
+def get_known_users() -> List[str]:
+    """Scan knowledge base for actual user profiles to prevent hallucinations"""
+    users = []
+    
+    # Check logs (primary source of truth)
+    logs_dir = Path("./knowledge_base/user_logs")
+    if logs_dir.exists():
+        # user_logs contains directories like "Username_123456789/"
+        for d in logs_dir.iterdir():
+            if d.is_dir():
+                # Extract name part (everything before the last underscore usually, but ID is long digits)
+                # Format is usually Name_ID
+                parts = d.name.split('_')
+                if len(parts) > 1 and parts[-1].isdigit():
+                    name = "_".join(parts[:-1]).replace("_", " ")
+                else:
+                    name = d.name.replace("_", " ")
+                
+                # Try to read profile summary
+                profile_path = d / "user_profile.md"
+                summary = "No profile available."
+                if profile_path.exists():
+                    try:
+                        with open(profile_path, 'r', encoding='utf-8') as f:
+                            content = f.read()
+                            # Extract QUICK REFERENCE section
+                            if "QUICK REFERENCE" in content:
+                                start = content.find("QUICK REFERENCE")
+                                end = content.find("\n\n", start + 20) # Find next double newline
+                                if end == -1: end = len(content)
+                                summary = content[start:end].replace("QUICK REFERENCE", "").strip()
+                            else:
+                                # Fallback to first few lines
+                                summary = "\n".join(content.split('\n')[:5])
+                    except Exception:
+                        pass
+                
+                # Check if we already have this user (by name)
+                # We need to store dicts or formatted strings now
+                # Let's use a dict for deduplication then convert
+                users.append({"name": name, "summary": summary})
+                 
+    # Deduplicate by name
+    unique_users = {}
+    for u in users:
+        unique_users[u['name']] = u['summary']
+        
+    # Format as strings
+    return [f"User: {name}\nSummary: {summary}" for name, summary in sorted(unique_users.items())]
+
+# Initialize Bot
 intents = discord.Intents.default()
 intents.message_content = True
 bot = commands.Bot(command_prefix="!", intents=intents)
@@ -232,7 +334,7 @@ _persona_last_load = 0
 def load_persona() -> str:
     """Load the bot's persona from kaia_persona.md with caching"""
     global _persona_cache, _persona_last_load
-    persona_file = os.path.join(os.path.dirname(__file__), 'kaia_persona.md')
+    persona_file = os.path.join(os.path.dirname(__file__), 'config', 'kaia_persona.md')
     
     try:
         mtime = os.path.getmtime(persona_file)
@@ -260,6 +362,12 @@ async def send_kaia_response(channel: discord.abc.Messageable, text: str):
     if not text:
         return
         
+    # Clean response for Discord
+    text = EmergencyContaminationFilter.clean_response_for_discord(text)
+    
+    if not text:
+        return
+
     limit = 1980 # Leave room for backticks and newlines
     chunks = []
     
@@ -308,7 +416,7 @@ class ImprovedSemanticCache:
     def load_exceptions(self):
         """Load cache exceptions from file"""
         try:
-            with open("cache_exceptions.json", "r") as f:
+            with open("config/cache_exceptions.json", "r") as f:
                 self.exceptions = json.load(f)
         except:
             # Default exceptions
@@ -461,14 +569,14 @@ class ImprovedSemanticCache:
     
     def save(self):
         """Save cache to disk"""
-        with open("semantic_cache.json", "w") as f:
+        with open("storage/semantic_cache.json", "w") as f:
             json.dump(self.cache, f, indent=2)
     
     def load(self):
         """Load cache from disk"""
         try:
-            if os.path.exists("semantic_cache.json"):
-                with open("semantic_cache.json", "r") as f:
+            if os.path.exists("storage/semantic_cache.json"):
+                with open("storage/semantic_cache.json", "r") as f:
                     self.cache = json.load(f)
         except:
             self.cache = {}
@@ -522,9 +630,101 @@ class EmergencyContaminationFilter:
         
         # If we removed too much, provide clean fallback
         if len(filtered_response.strip()) < 20:
-            filtered_response = "yeah. what's up?\n\ncoffee's cold. what do you need?"
+            filtered_response = random.choice([
+                "yeah. what's up?",
+                "coffee's cold. what do you need?",
+                "i'm here. what's on your mind?",
+                "listening. go ahead.",
+                "not much to say about that. anything else?"
+            ])
         
         return filtered_response
+    
+    @classmethod
+    def clean_response_for_discord(cls, response: str) -> str:
+        """
+        Remove any user profile data, metadata, or analysis text from responses.
+        This prevents Kaia from accidentally including internal profiling data in her chat responses.
+        """
+        # Split response into lines
+        lines = response.split('\n')
+        cleaned_lines = []
+        
+        # Skip any lines that look like user profiles or system metadata
+        skip_patterns = [
+            'user profile:',
+            '## user profile:',
+            'updated personalization for',
+            '[optimized: saved',
+            'interaction indexed',
+            'logs indexed:',
+            'rag context:',
+            'metadata:',
+            'nodes retrieved:',
+            'quick reference',
+            'how to interact with them',
+            'shared history & context',
+            'their interests & expertise',
+            'conversation style notes',
+            'relationship status with kaia',
+            'potential triggers & sensitivities',
+            'growth opportunities'
+        ]
+        
+        in_profile_block = False
+        
+        for line in lines:
+            stripped = line.strip()
+            if not stripped:
+                if not in_profile_block:
+                    cleaned_lines.append(line)
+                continue
+                
+            # Check if line starts a profile block (case-insensitive)
+            line_lower = line.lower()
+            should_skip = any(pattern in line_lower for pattern in skip_patterns)
+            
+            if should_skip:
+                in_profile_block = True
+                continue
+                
+            # If in a profile block, check if we should exit
+            # Exit if the line looks like dialogue (starts with lowercase or common dialogue words)
+            # or if it doesn't look like a bullet point/metadata
+            if in_profile_block:
+                # Dialogue usually starts with lowercase in Kaia's persona
+                is_dialogue = stripped[0].islower() or any(stripped.lower().startswith(w) for w in ["yeah", "no", "well", "i ", "you "])
+                is_bullet = stripped.startswith('- ') or stripped.startswith('* ')
+                
+                if is_dialogue and not is_bullet:
+                    in_profile_block = False
+                else:
+                    continue
+            
+            # Final check for specific contamination
+            if 'Alan Turing' in line and ('mathematician' in line or 'computer scientist' in line):
+                continue
+            if 'This response was generated' in line or 'The following analysis' in line:
+                continue
+                
+            cleaned_lines.append(line)
+        
+        # Rejoin lines
+        cleaned_response = '\n'.join(cleaned_lines)
+        
+        # Additional cleanup: Remove any trailing metadata that might have slipped through
+        end_markers = ['.', '?', '!', '...', '...']
+        for marker in end_markers:
+            if marker in cleaned_response:
+                last_marker_pos = cleaned_response.rfind(marker)
+                if last_marker_pos > len(cleaned_response) * 0.5:
+                    next_char = cleaned_response[last_marker_pos + len(marker):].strip()
+                    if next_char and not next_char[0].islower():
+                        following_text = cleaned_response[last_marker_pos + len(marker):]
+                        if any(x in following_text for x in ['User', 'Profile:', 'optimized:', 'Updated']):
+                            cleaned_response = cleaned_response[:last_marker_pos + len(marker)]
+        
+        return cleaned_response.strip()
     
     @classmethod
     def expand_news_query(cls, query: str) -> List[str]:
@@ -562,16 +762,22 @@ class SelfHealingSystem:
     """Execute functions with fallback strategies."""
     @staticmethod
     async def call_with_fallback(func, *args, **kwargs):
+        original_options = kwargs.get('options', {}).copy()  # Save GPU options
+        
         try:
             return await func(*args, **kwargs)
         except Exception as e:
             log_warning(f"Primary strategy failed: {e}. Trying simplified fallback...")
-            # Fallback: Reduce context or simplify request
+            
+            # Fallback: Reduce context but PRESERVE GPU SETTINGS
             if 'messages' in kwargs:
                 # Keep only system and last few messages
                 kwargs['messages'] = [kwargs['messages'][0]] + kwargs['messages'][-2:]
+            
             if 'options' in kwargs:
-                kwargs['options']['num_predict'] = 512 # Shorter response
+                # Merge: Keep original GPU options, only adjust response length
+                kwargs['options'] = {**original_options, 'num_predict': 512}
+            
             try:
                 return await func(*args, **kwargs)
             except Exception as e2:
@@ -640,24 +846,40 @@ def start_watcher(rag, loop):
     return observer
 
 async def prewarm_main_model():
-    """Prewarm the main chat model to avoid cold-start delay"""
+    """Pre-warm the main chat model with GPU settings"""
     try:
-        log_model_action(config.chat_model, "Prewarming main model")
-        await ollama_client.chat(
+        gpu_manager = OllamaGPUManager(config.chat_model)
+        gpu_options = gpu_manager.get_gpu_options(for_chat=True)
+        
+        # Force GPU load
+        success = await gpu_manager.ensure_gpu_loading(ollama_client)
+        
+        if success:
+            print(f"✅ {config.chat_model} loaded on GPU")
+        else:
+            print(f"⚠️  {config.chat_model} falling back to CPU")
+            gpu_options = {'num_thread': 8}  # CPU fallback
+        
+        # Warm up with GPU settings
+        response = await ollama_client.chat(
             model=config.chat_model,
-            messages=[{"role": "user", "content": "hi"}],
-            options={
-                "num_predict": 1,
-                "num_ctx": 6144,  # Reduced from 8192 to save VRAM
-                "num_thread": 8   # Explicitly set threads for faster processing
-            }
+            messages=[{"role": "user", "content": "Hello"}],
+            options=gpu_options
         )
-        log_success(f"Main model {config.chat_model} prewarmed.")
+        print(f"✅ Model pre-warmed with options: {list(gpu_options.keys())}")
+        
     except Exception as e:
-        log_warning(f"Failed to prewarm main model: {e}")
+        print(f"⚠️  Pre-warm failed: {e}")
 
 @bot.event
 async def on_ready():
+    # Dashboard is started in main()
+    
+    # Set initial metrics
+    dashboard.metrics.ollama_status = "🟢 ONLINE"
+    dashboard.metrics.active_model = config.chat_model
+    dashboard.add_log(f"{bot.user.name} is online!")
+    
     log_success(f"{bot.user.name} is online!")
     
     # Start the knowledge base watcher
@@ -809,13 +1031,16 @@ async def memory_audit_task():
         
         # If RSS > 8GB, trigger emergency cleanup
         # Skip if image generation is active to avoid interrupting Flux load
-        if rss_mb > 8192 and not generation_lock.locked():
-            log_critical("Memory usage critical! Clearing caches and GPU memory.")
+        # Flux needs more headroom (10GB)
+        threshold = 10240 if bot_state.is_generating_image else 8192
+        
+        if rss_mb > threshold and not bot_state.is_generating_image:
+            log_critical(f"Memory usage critical ({rss_mb:.1f}MB > {threshold}MB)! Clearing caches and GPU memory.")
             semantic_cache.cache.clear()
             semantic_cache.exact_cache.clear()
             clear_gpu_memory()
-        elif rss_mb > 8192 and generation_lock.locked():
-            log_warning("Memory usage high, but skipping cleanup due to active image generation.")
+        elif rss_mb > threshold and bot_state.is_generating_image:
+             log_warning(f"Memory usage high ({rss_mb:.1f}MB), but skipping cleanup due to active image generation.")
             
         # Report performance stats
         log_info(performance_monitor.get_report())
@@ -872,6 +1097,7 @@ async def on_message(msg: discord.Message):
             
             try:
                 log_action(f"Generating image for prompt: {prompt}")
+                bot_state.is_generating_image = True
                 image_path = await generate_image(prompt)
                 await msg.channel.send(file=discord.File(image_path))
                 # Cleanup
@@ -886,6 +1112,7 @@ async def on_message(msg: discord.Message):
                 traceback.print_exc()
                 await msg.channel.send(f"```\nsomething went wrong with the render. check the logs.\n```")
             finally:
+                bot_state.is_generating_image = False
                 try:
                     unload_image_model()
                 except Exception as unload_err:
@@ -918,6 +1145,33 @@ async def on_message(msg: discord.Message):
         att for att in msg.attachments 
         if any(att.filename.lower().endswith(ext) for ext in ['.png', '.jpg', '.jpeg', '.gif', '.webp'])
     ]
+    
+    # Check for user list queries - MUST be BEFORE other processing
+    q_lower = sanitized_content.lower()
+    is_user_list_query = (
+        ("user" in q_lower and any(w in q_lower for w in ["list", "know", "aware", "who", "what"])) or
+        "who do you know" in q_lower or
+        "profiles" in q_lower or
+        "list all users" in q_lower
+    )
+
+    if is_user_list_query:
+        log_info("Detected user list query - fetching known users")
+        known_users_formatted = get_known_users()
+        log_info(f"Found {len(known_users_formatted)} known users")
+        
+        # Direct response construction
+        if known_users_formatted:
+            response_text = "Here are the users I'm aware of:\n\n" + "\n\n".join(known_users_formatted)
+        else:
+            response_text = "I'm aware of you, but I can't seem to access the full user database right now."
+        
+        # Send directly
+        await send_kaia_response(msg.channel, response_text)
+        
+        # Log interaction
+        await run_rag(rag.log_user_interaction, msg.author.id, msg.author.display_name, sanitized_content, response_text)
+        return
     
     # Check if this is an EXPLICIT vision request
     explicit_vision_keywords = ["analyze", "look"]
@@ -985,7 +1239,38 @@ async def on_message(msg: discord.Message):
             return
 
         log_message_received(msg.author.name, str(msg.author.id), sanitized_content)
+        monitor.log_message(msg.author.name, sanitized_content, str(msg.author.id))
         
+        # 0. SPECIAL HANDLERS (Bypass Cache)
+        # Check if this is a user listing query
+        # Broader detection: contains "user" AND (list/know/aware/who/what)
+        # OR specific phrases like "who do you know"
+        q_lower = sanitized_content.lower()
+        is_user_list_query = (
+            ("user" in q_lower and any(w in q_lower for w in ["list", "know", "aware", "who", "what"])) or
+            "who do you know" in q_lower or
+            "profiles" in q_lower or
+            "list all users" in q_lower
+        )
+        
+        if is_user_list_query:
+            log_info("Detected user list query - fetching known users")
+            known_users_formatted = get_known_users()
+            log_info(f"Found {len(known_users_formatted)} known users")
+            
+            # Direct response construction to bypass potential LLM hallucinations/cache issues
+            if known_users_formatted:
+                response_text = "Here are the users I'm aware of:\n\n" + "\n\n".join(known_users_formatted)
+            else:
+                response_text = "I'm aware of you, Ekco. But I can't seem to access the full user database right now."
+            
+            # Send directly
+            await send_kaia_response(msg.channel, response_text)
+            
+            # Log interaction
+            await run_rag(rag.log_user_interaction, msg.author.id, msg.author.display_name, sanitized_content, response_text)
+            return
+
         # 1. TWO-LEVEL CACHE CHECK
         performance_monitor.start_timer('total')
         
@@ -995,8 +1280,9 @@ async def on_message(msg: discord.Message):
         if semantic_cache.should_cache_query(msg.content, category):
             cached_response = semantic_cache.get(msg.content, category)
             if cached_response:
-                # Transparency indicator
-                await send_kaia_response(msg.channel, f"💾 {cached_response}")
+                # Transparency indicator (Log only, don't show to user)
+                log_info("Cache hit - serving cached response")
+                await send_kaia_response(msg.channel, cached_response)
                 performance_monitor.stop_timer('total', 'response_time')
                 # Still log interaction for future RAG
                 await run_rag(rag.log_user_interaction, msg.author.id, msg.author.display_name, msg.content, cached_response)
@@ -1029,37 +1315,129 @@ async def on_message(msg: discord.Message):
         # Define tasks
         performance_monitor.start_timer('retrieval')
         persona_task = asyncio.create_task(load_persona_async())
-        rag_task = asyncio.create_task(run_rag(
-            rag.retrieve, 
-            clean_query, 
-            user_id=target_user_id, 
-            user_name=target_user_name, 
-            top_k=config.rag_top_k,
-            strict_identity=(category in ["IDENTITY", "SELF", "WHOAMI"])
-        ))
         
-        # News Query Expansion
-        news_expansions = EmergencyContaminationFilter.expand_news_query(clean_query)
-        news_tasks = []
-        for expansion in news_expansions:
-            news_tasks.append(asyncio.create_task(run_rag(
-                rag.retrieve,
-                expansion,
-                top_k=2
-            )))
+        # Check if this is a news query
+        is_news_query = any(word in clean_query.lower() for word in ['news', 'latest', 'update', 'happening', 'today'])
+        
+        if is_news_query:
+            log_info("Detected news query - activating enhanced retrieval")
+            # 1. Enhance Query
+            enhanced_query = news_enhancer.enhance_news_query(clean_query, msg.author.id)
+            
+            # 2. Prepare RAG Query
+            rag_params = rag_enhancer.prepare_news_query(enhanced_query)
+            
+            # 3. Retrieve
+            rag_task = asyncio.create_task(run_rag(
+                rag.retrieve, 
+                rag_params['query'], 
+                top_k=rag_params['params']['similarity_top_k']
+            ))
+            news_tasks = [] # No separate expansion needed as it's handled in prepare_news_query
+        else:
+            rag_task = asyncio.create_task(run_rag(
+                rag.retrieve, 
+                clean_query, 
+                user_id=target_user_id, 
+                user_name=target_user_name, 
+                top_k=config.rag_top_k,
+                strict_identity=(category in ["IDENTITY", "SELF", "WHOAMI"])
+            ))
+            
+            # News Query Expansion (Legacy fallback)
+            news_expansions = EmergencyContaminationFilter.expand_news_query(clean_query)
+            news_tasks = []
+            for expansion in news_expansions:
+                news_tasks.append(asyncio.create_task(run_rag(
+                    rag.retrieve,
+                    expansion,
+                    top_k=2
+                )))
         
         # Personalization traits
         traits_task = asyncio.create_task(personalization_engine.get_user_traits(msg.author.id))
         
         # Wait for all to complete
+        # Wait for all to complete
         results = await asyncio.gather(persona_task, rag_task, traits_task, *news_tasks)
         system_prompt = results[0]
-        context_nodes = results[1]
+        raw_nodes = results[1]
         user_traits = results[2]
         
-        # Add news results to context nodes
-        for news_result in results[3:]:
-            context_nodes.extend(news_result)
+        context_nodes = []
+        if is_news_query:
+            # 4. Process and diversify results
+            deduplicated = rag_enhancer.deduplicate_results(raw_nodes)
+            
+            # Convert to news items format
+            news_items = []
+            for node in deduplicated:
+                # SAFE FIX: Handle both strings and node objects
+                if hasattr(node, 'text'):
+                    content = node.text
+                elif hasattr(node, 'content'):
+                    content = node.content
+                elif isinstance(node, dict) and 'text' in node:
+                    content = node['text']
+                elif isinstance(node, dict) and 'content' in node:
+                    content = node['content']
+                else:
+                    content = str(node)
+
+                # Also get metadata safely
+                if hasattr(node, 'metadata'):
+                    metadata = node.metadata
+                elif isinstance(node, dict) and 'metadata' in node:
+                    metadata = node['metadata']
+                else:
+                    metadata = {}
+                
+                news_items.append({
+                    'content': content[:500],  # Limit content
+                    'metadata': metadata,
+                    'id': f"{hash(content) % 10000:04d}"
+                })
+            
+            # Diversify and track
+            diversified_items = news_enhancer.diversify_news_results(news_items, str(msg.author.id))
+            news_ids = [item.get('id') for item in diversified_items]
+            news_enhancer.track_mentioned_news(news_ids, str(msg.author.id))
+            
+            # Reconstruct context nodes
+            context_nodes = [f"News: {item['content']}" for item in diversified_items]
+        else:
+            # Standard context processing
+            context_nodes = []
+            for node in raw_nodes:
+                # SAFE FIX: Handle both strings and node objects
+                if hasattr(node, 'text'):
+                    content = node.text
+                elif hasattr(node, 'content'):
+                    content = node.content
+                elif isinstance(node, dict) and 'text' in node:
+                    content = node['text']
+                elif isinstance(node, dict) and 'content' in node:
+                    content = node['content']
+                else:
+                    content = str(node)
+                
+                context_nodes.append(content)
+
+            # Add legacy news expansion results if any
+            if len(results) > 3:
+                for res in results[3:]:
+                    for node in res:
+                        if hasattr(node, 'text'):
+                            context_nodes.append(node.text)
+                        elif hasattr(node, 'content'):
+                            context_nodes.append(node.content)
+                        elif isinstance(node, dict) and 'text' in node:
+                            context_nodes.append(node['text'])
+                        elif isinstance(node, dict) and 'content' in node:
+                            context_nodes.append(node['content'])
+                        else:
+                            context_nodes.append(str(node))   
+
         
         performance_monitor.stop_timer('retrieval', 'retrieval_time')
         
@@ -1120,7 +1498,7 @@ async def on_message(msg: discord.Message):
             "4. NO name prefixes. Just start speaking.\n"
             "5. IDENTITY: Use 'User Profile' for deep summaries. No hallucinations. Never claim ignorance if records exist.\n"
             "6. BANNED WORDS: 'signal', 'noise', 'system', 'function', 'analyze', 'relevant', 'information', 'aspect', 'curious', 'parameters', 'observe', 'identify', 'patterns', 'processing', 'request', 'operating within', 'as an AI', 'my purpose is'.\n"
-            "7. PRIVATE THOUGHTS: Never include internal labels like 'User Profile', 'Conversation History', or any bracketed tags in your response. Your inner thoughts and data labels must remain private."
+            "7. PRIVATE THOUGHTS: Never include internal labels like 'USER PROFILE', 'QUICK REFERENCE', or any bracketed tags in your response. Your inner thoughts and data labels must remain private. DO NOT dump raw profile data."
         )
 
         messages.append({
@@ -1143,21 +1521,19 @@ async def on_message(msg: discord.Message):
                 if m['role'] == 'system' and '### LOGS' in m['content']:
                     m['content'] = HallucinationDetector.clean_response(m['content'])
 
+        # Get GPU options
+        gpu_manager = OllamaGPUManager(config.chat_model)
+        gpu_options = gpu_manager.get_gpu_options(for_chat=True)
+
+        start_time = time.time()
         response = await SelfHealingSystem.call_with_fallback(
             ollama_client.chat,
             model=config.chat_model,
             messages=messages,
-            options={
-                "temperature": 0.8,
-                "num_predict": 1536,
-                "num_ctx": 6144,
-                "num_thread": 8,
-                "repeat_penalty": 1.1,
-                "presence_penalty": 0.0,
-                "frequency_penalty": 0.0,
-                "top_p": 0.9,
-            }
+            options=gpu_options
         )
+        end_time = time.time()
+        response_time = end_time - start_time
         
         performance_monitor.stop_timer('total', 'response_time')
         content = response['message']['content']
@@ -1170,18 +1546,32 @@ async def on_message(msg: discord.Message):
         # EMERGENCY CONTAMINATION FILTER
         content = EmergencyContaminationFilter.filter_response(content)
 
+        # ENHANCE RESPONSE
+        if is_news_query:
+            # If the model didn't use the enhanced format, force it or wrap it
+            # But actually, we want to use the enhancer to format the raw news items if the model failed
+            # For now, let's trust the model but maybe apply the tone enhancer
+            pass
+        elif category in ["IDENTITY", "SELF", "WHOAMI"]:
+            log_info(f"Enhancing identity response for query: {clean_query}")
+            content = response_enhancer.enhance_identity_response(content, 'casual' if 'who' in clean_query.lower() else 'direct')
+
         # 4. CACHE, FEEDBACK & PERSONALIZATION
-        semantic_cache.set(msg.content, category, content)
+        # Clean response before caching to prevent feedback loops
+        clean_content = EmergencyContaminationFilter.clean_response_for_discord(content)
+        
+        semantic_cache.set(msg.content, category, clean_content)
         semantic_cache.save()
-        await relevance_feedback.log_interaction(msg.content, content, msg.author.id)
-        await personalization_engine.learn_from_interaction(msg.author.id, msg.content, content)
+        await relevance_feedback.log_interaction(msg.content, clean_content, msg.author.id)
+        await personalization_engine.learn_from_interaction(msg.author.id, msg.content, clean_content)
         
         # Track context for invalidation
         cache_invalidator.track(msg.content, context_nodes)
         
-        # Transparency indicator for optimization
+        # Transparency indicator for optimization (moved to logs, not Discord)
         if optimized_context.get('tokens_saved', 0) > 500:
-            content += f"\n\n`[optimized: saved {int(optimized_context['tokens_saved'])} tokens]`"
+            log_info(f"Context optimization saved {int(optimized_context['tokens_saved'])} tokens")
+            
         prefixes_to_strip = [
             "Kaia:", "kaia:", "Assistant:", "Model:", "System:", 
             "Response:", "Observation:", "Thought:"
@@ -1221,7 +1611,7 @@ async def on_message(msg: discord.Message):
                 if not content:
                     content = "not doing that."
 
-        log_response("Got response:", content)
+        log_response("Got response:", content, response_time=response_time)
         await send_kaia_response(msg.channel, content)
         
         bot_state.channel_memory[msg.channel.id].append({"role": "user", "content": sanitized_content})
@@ -1254,12 +1644,71 @@ async def main():
     # Run cleanup immediately on script execution
     cleanup_on_startup()
     
+    # Start dashboard in background
+    dashboard_task = asyncio.create_task(dashboard.run())
+    
+    # Patch logging to dashboard - FIX: Only do this ONCE
+    patcher = BtopLoggingPatcher(dashboard)
+    patcher.patch_print()
+    
+    # Background task for system metrics
+    async def update_metrics_loop():
+        import time
+        first_run = True
+        while dashboard.running:
+            try:
+                monitor.update_system_metrics()
+                
+                # Update RAG stats
+                try:
+                    stats = rag.get_stats()
+                    dashboard.metrics.rag_documents = stats.get('total_documents', 0)
+                    dashboard.metrics.rag_size = stats.get('index_size', '0 MB')
+                    
+                    # On first run, force dashboard update
+                    if first_run and dashboard.metrics.rag_documents > 0:
+                        dashboard.metrics.ollama_status = "🟡 Loading Ollama"
+                        first_run = False
+                        
+                except Exception as e:
+                    if first_run:
+                        dashboard.metrics.ollama_status = "🔴 RAG Error"
+                        first_run = False
+            
+                # Update uptime
+                if hasattr(dashboard, 'start_time'):
+                    uptime_sec = time.time() - dashboard.start_time
+                    dashboard.metrics.uptime = dashboard.format_uptime(uptime_sec)
+                
+                # Update active users count
+                try:
+                    active_count = len([
+                        s for s in dashboard.active_sessions.values()
+                        if (time.time() - s['last_active']) < 300
+                    ]) if hasattr(dashboard, 'active_sessions') else 0
+                    dashboard.metrics.active_users = active_count
+                except:
+                    pass
+                
+            except Exception as e:
+                error_msg = str(e)
+                if "unsupported operand" not in error_msg:
+                    dashboard.add_log(f"Background metrics error: {error_msg}")
+            
+            await asyncio.sleep(5)
+        
+    metrics_task = asyncio.create_task(update_metrics_loop())
+    
     try:
         async with bot:
             await bot.start(config.discord_token)
     except asyncio.CancelledError:
         pass
     finally:
+        # Shutdown dashboard
+        dashboard.running = False
+        await dashboard_task
+        
         log_critical("\nShutting down...")
         
         # 1. Persist RAG index
@@ -1284,7 +1733,7 @@ async def main():
                 await ollama_client._client.aclose()
             
             # Close vision client (imported from kaia_vision)
-            from kaia_vision import ollama_client as vision_ollama_client
+            from utils.kaia_vision import ollama_client as vision_ollama_client
             if hasattr(vision_ollama_client, '_client'):
                 await vision_ollama_client._client.aclose()
             log_success("Ollama clients closed.")

@@ -3,7 +3,7 @@ import os
 import asyncio
 
 # Add parent directory to path
-sys.path.append(os.path.dirname(os.path.abspath(__file__)))
+sys.path.append(os.path.abspath(os.path.join(os.path.dirname(__file__), '..')))
 
 from kaia_rag import KaiaRAG
 from utils.kaia_logger import log_success, log_info, log_error

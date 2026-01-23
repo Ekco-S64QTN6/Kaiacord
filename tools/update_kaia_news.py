@@ -23,47 +23,58 @@ class KaiaNewsUpdater:
         """Initialize with Gemini API key"""
         genai.configure(api_key=gemini_api_key)
         self.model = genai.GenerativeModel('gemini-flash-latest')
-        self.knowledge_dir = Path("./knowledge_base")
+        self.knowledge_dir = Path("./knowledge_base/news_briefs")
+        self.knowledge_dir.mkdir(parents=True, exist_ok=True)
         self.today = datetime.datetime.now().strftime("%Y-%m-%d")
         
-    def generate_daily_brief(self) -> str:
-        """Generate daily news brief using Gemini with RAG-optimized structure"""
+    def generate_daily_brief(self, target_date: str = None) -> str:
+        """Generate news brief using Gemini with RAG-optimized structure"""
+        date_to_use = target_date or self.today
         
         prompt = f"""
-Generate today's news brief for Kaia using this RAG-optimized structure:
+Generate the news brief for Kaia for the date: {date_to_use}
 
-# NEWS_BRIEF: {self.today}
+Use this RAG-optimized structure:
+
+# NEWS_BRIEF: {date_to_use}
 
 ## EXECUTIVE_SUMMARY
-[2-3 sentences: Overall technical landscape]
+[3-4 sentences: High-level overview of the day's chaos, major geopolitical shifts, and tech landscape]
 
-## TECH_OUTAGES
-- Azure: Intermittent slowdowns in multiple regions, network congestion
+## TECH_OUTAGES_AND_FAILURES
+- Azure/AWS/GCP: Downtime, latency, region failures
+- ISP/CDN: Cloudflare, Akamai, major ISP outages
 - Service X: Issue description, duration, impact
 
 ## SECURITY_INCIDENTS
-- CVE-202X-XXXX: Buffer overflow in [software], CVSS X.X
-- Breach: Company name, records exposed, cause
+- CVE-202X-XXXX: Critical vulnerabilities (CVSS > 7.0)
+- Data Breaches: Company, records exposed, vector
+- Ransomware: Active campaigns, major victims
 
-## HARDWARE_RELEASES  
-- NVIDIA: Product name, specs, availability
-- AMD: Product name, specs
-- Samsung: Product name, context about past issues
-
-## INTERNET_INFRASTRUCTURE
-- BGP incident: Brief description, duration, AS numbers
-- DNS changes: TLD updates, root server maintenance
-- CDN performance: Stats, changes
+## HACKER_CULTURE_AND_CYBERWARFARE
+- Groups: Lapsus$, Anonymous, state-sponsored APT activity
+- Leaks: Manifesto releases, source code dumps
+- Events: Defcon/BlackHat news, major CTF results
 
 ## AI_DEVELOPMENTS
-- Model releases: Name, parameters, license
-- Regulations: Country, law name, impact
-- Research: Key paper findings
+- Models: New LLM releases (OpenAI, Anthropic, Meta, Mistral)
+- Open Source: HuggingFace trending, local LLM breakthroughs
+- Regulation: EU AI Act updates, US executive orders
 
-## GEOPOLITICAL_TECH
-- Legislation: Country, bill name, tech impact
-- Trade: Restrictions on chips/software
-- Surveillance: New powers, technology used
+## US_POLITICS
+- Legislation: Bills affecting privacy, crypto, surveillance, net neutrality
+- Elections: Tech impact, disinformation campaigns, candidate stances on tech
+- Agency Actions: FCC, FTC, NSA, CISA announcements
+
+## GLOBAL_GEOPOLITICS
+- Conflict: Cyber components of kinetic wars (Ukraine, Gaza, etc.)
+- Trade: Chip bans, export controls, sanctions (US/China)
+- Internet Freedom: Shutdowns, censorship, surveillance laws
+
+## GENERAL_TECH_AND_SOCIETY
+- Social Media: Platform changes (X/Twitter, Reddit, Bluesky), moderation scandals
+- Crypto/Finance: Major hacks, regulatory crackdowns, ETF news
+- Science: Space launches (SpaceX), breakthrough physics/bio
 
 ## FAILURE_METRICS
 - Incidents today: X
@@ -71,32 +82,28 @@ Generate today's news brief for Kaia using this RAG-optimized structure:
 - Records exposed: Z
 
 ## QUOTES
-- "[Direct quote about tech issue]" - Name, Title
+- "[Direct quote about tech/politics]" - Name, Title
 - "[Direct quote about security]" - Name, Title
-
-## TIMELINE
-- 09:00 UTC: Azure latency spikes begin
-- 11:30 UTC: CVE disclosure published
-- 15:00 UTC: SpaceX launch window opens
 
 ## SOURCES
 - Reuters
-- BleepingComputer  
-- AWS Status Page
-- CVE database
+- BleepingComputer
+- The Record
+- 404 Media
+- KrebsOnSecurity
 
 ---
 **Generated**: {datetime.datetime.now().strftime('%Y-%m-%dT%H:%M:%SZ')}
 **Format**: RAG-optimized technical digest
 
 RULES:
-1. Each bullet is one complete fact
-2. Include technical details: version numbers, CVEs, ASNs, etc.
-3. Keep language factual, no commentary
-4. Maximum 15 bullet points total across all sections
-5. Prioritize events that affect systems Kaia would care about
-6. Include historical context when relevant (e.g., "after S21 fiasco")
-7. Use Kaia's vocabulary: "hiccups" not "issues", "messed up" not "configuration error"
+1. Each bullet is one complete fact.
+2. Include technical details: version numbers, CVEs, ASNs, bill numbers.
+3. Keep language factual, no commentary.
+4. **MINIMUM 40 bullet points total** across all sections.
+5. **BROADEN SCOPE**: Don't just stick to enterprise tech. Include politics, war, and culture.
+6. Prioritize events that affect systems, freedom, and infrastructure.
+7. Use Kaia's vocabulary: "hiccups", "messed up", "glitch", "patch".
 """
         
         # Generate using Gemini
@@ -107,10 +114,11 @@ RULES:
         
         return brief
     
-    def save_to_knowledge_base(self, brief: str):
+    def save_to_knowledge_base(self, brief: str, target_date: str = None):
         """Save the brief to Kaia's knowledge base"""
+        date_to_use = target_date or self.today
         # Create daily file
-        filename = f"news_brief_{self.today.replace('-', '')}.md"
+        filename = f"news_brief_{date_to_use.replace('-', '')}.md"
         filepath = self.knowledge_dir / filename
         
         with open(filepath, 'w', encoding='utf-8') as f:
@@ -119,10 +127,11 @@ RULES:
         print(f"✓ Saved daily brief to: {filepath}")
         
         # Also create a summary for immediate ingestion
-        self.create_summary_for_rag(brief)
+        self.create_summary_for_rag(brief, date_to_use)
     
-    def create_summary_for_rag(self, full_brief: str):
+    def create_summary_for_rag(self, full_brief: str, target_date: str = None):
         """Create a condensed version optimized for RAG retrieval"""
+        date_to_use = target_date or self.today
         
         # Use Ollama to create a summary
         summary_prompt = f"""
@@ -147,23 +156,23 @@ RULES:
             summary = response['message']['content']
             
             # Save summary
-            summary_file = self.knowledge_dir / f"news_summary_{self.today.replace('-', '')}.md"
+            summary_file = self.knowledge_dir / f"news_summary_{date_to_use.replace('-', '')}.md"
             with open(summary_file, 'w', encoding='utf-8') as f:
-                f.write(f"# QUICK REFERENCE: {self.today}\n\n{summary}")
+                f.write(f"# QUICK REFERENCE: {date_to_use}\n\n{summary}")
             
             print(f"✓ Created quick reference: {summary_file}")
             
         except Exception as e:
             print(f"⚠️ Could not create summary: {e}")
             # Save raw brief as summary
-            summary_file = self.knowledge_dir / f"news_summary_{self.today.replace('-', '')}.md"
+            summary_file = self.knowledge_dir / f"news_summary_{date_to_use.replace('-', '')}.md"
             with open(summary_file, 'w', encoding='utf-8') as f:
                 # Extract just bullet points
                 lines = full_brief.split('\n')
                 bullet_lines = [line for line in lines if line.strip().startswith('- ')]
-                f.write(f"# QUICK REFERENCE: {self.today}\n\n" + '\n'.join(bullet_lines[:10]))
+                f.write(f"# QUICK REFERENCE: {date_to_use}\n\n" + '\n'.join(bullet_lines[:10]))
     
-    def clean_old_briefs(self, keep_days: int = 7):
+    def clean_old_briefs(self, keep_days: int = 14):
         """Remove news briefs older than specified days"""
         news_files = list(self.knowledge_dir.glob("news_*.md"))
         
@@ -187,9 +196,32 @@ RULES:
         if removed > 0:
             print(f"✓ Removed {removed} old news files")
     
+    def backfill_week(self):
+        """Check for and generate news for the last 7 days if missing"""
+        print("🔍 Checking for missing news briefs in the last 7 days...")
+        
+        for i in range(7, 0, -1):
+            date_obj = datetime.datetime.now() - datetime.timedelta(days=i)
+            date_str = date_obj.strftime("%Y-%m-%d")
+            filename = f"news_brief_{date_str.replace('-', '')}.md"
+            filepath = self.knowledge_dir / filename
+            
+            if not filepath.exists():
+                print(f"📅 Backfilling news for {date_str}...")
+                try:
+                    brief = self.generate_daily_brief(date_str)
+                    self.save_to_knowledge_base(brief, date_str)
+                except Exception as e:
+                    print(f"❌ Failed to backfill {date_str}: {e}")
+            else:
+                print(f"✅ News for {date_str} already exists.")
+
     def run(self):
         """Execute full update process"""
-        print(f"📰 Generating daily news brief for {self.today}...")
+        # First, backfill missing news
+        self.backfill_week()
+        
+        print(f"\n📰 Generating daily news brief for {self.today}...")
         
         try:
             # Generate brief
@@ -215,12 +247,12 @@ RULES:
         """Optionally trigger RAG reindexing"""
         # This would depend on how your Kaiacord handles new files
         # One approach: create a trigger file
-        trigger_file = self.knowledge_dir / ".trigger_reindex"
+        trigger_file = self.knowledge_dir.parent / ".trigger_reindex"
         trigger_file.touch()
         print("✓ Reindex trigger created")
         
         # Also create a small python script to trigger it if needed
-        trigger_script = self.knowledge_dir.parent / "tools" / "trigger_reindex.py"
+        trigger_script = self.knowledge_dir.parent.parent / "tools" / "trigger_reindex.py"
         if not trigger_script.exists():
             with open(trigger_script, 'w') as f:
                 f.write("import os\nfrom pathlib import Path\nPath('./knowledge_base/.trigger_reindex').touch()\nprint('RAG reindex triggered.')\n")
@@ -244,13 +276,16 @@ def manual_news_update():
     - Cybersecurity incidents and vulnerabilities
     - Internet governance and network events
     - AI/ML developments with practical implications
-    - Geopolitical events affecting digital rights or infrastructure
-    - Surveillance and privacy legislation
-    - Notable system failures/downtime
+    - **US Politics**: Legislation, elections, policy changes affecting tech/society
+    - **Global Geopolitics**: Conflicts, treaties, international relations
+    - **Hacker Culture**: Leaks, Defcon, community events
+    - **General Tech**: Social media, crypto, science
     
     Use technical details where relevant (version numbers, CVEs, protocols).
     Present facts without opinion or sensationalism.
     Include concrete data points and statistics.
+    
+    **CRITICAL**: Generate at least 40 bullet points total. Cover all sections.
     
     Now generate the daily brief for {datetime.datetime.now().strftime("%Y-%m-%d")}.
     ```
