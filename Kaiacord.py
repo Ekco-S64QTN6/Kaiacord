@@ -764,7 +764,7 @@ performance_monitor = PerformanceMonitor()
 semantic_cache = ImprovedSemanticCache(threshold=0.92)
 model_warm_pool = ModelWarmPool(ollama_client)
 model_warm_pool = ModelWarmPool(ollama_client)
-query_classifier = FixedQueryClassifier(ollama_client, model=config.chat_model, timeout=5.0)
+query_classifier = FixedQueryClassifier(ollama_client, model=config.chat_model, timeout=2.0)
 fast_news_retriever = FastNewsRetriever()
 news_handler = EnhancedNewsHandler()
 response_optimizer = ResponseOptimizer()
@@ -1659,8 +1659,9 @@ async def on_message(msg: discord.Message):
         # 3. CONTEXT OPTIMIZATION
         # Wait for full classification to finish (if not already done)
         try:
-            # We already have fast_category as a fallback
-            category = await asyncio.wait_for(classification_task, timeout=5.0)
+            # We already have fast_category as a fallback. 
+            # Only wait a very short time if it's not already done.
+            category = await asyncio.wait_for(classification_task, timeout=0.5)
             log_info(f"Full classification result: {category.upper()}")
         except asyncio.TimeoutError:
             log_warning(f"Full classification timed out, using fast-path: {fast_category.upper()}")

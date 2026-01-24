@@ -12,7 +12,7 @@ class FixedQueryClassifier:
         # Note: ollama_client arg kept for compatibility but we create a new sync client for the thread
         self.model = model
         self.logger = logger or print
-        self.timeout = timeout
+        self.timeout = 2.0 # Reduced from 5.0 for better responsiveness
         self.host = host
         
         # Create Ollama client with shorter timeout for the synchronous thread
@@ -24,7 +24,7 @@ class FixedQueryClassifier:
         # Define classification options - CPU ONLY for speed
         self.classification_options = {
             "num_gpu": 0,           # CPU only for classification
-            "num_thread": 8,        # Use CPU threads
+            "num_thread": 4,        # Reduced from 8 to avoid contention
             "num_ctx": 1024,        # Smaller context for classification
             "temperature": 0.1,     # Low temperature for consistent classification
             "top_p": 0.9,
@@ -70,7 +70,8 @@ class FixedQueryClassifier:
             "TECH": [
                 r"tech(nology)?|software|hardware|ai\s+news|llm|gpt",
                 r"openai|google|meta|microsoft|apple|tesla|spacex",
-                r"quantum|computer|chip|processor|gpu|cpu"
+                r"quantum|computer|chip|processor|gpu|cpu",
+                r"starkind|architecture|mitigate"
             ],
             "SECURITY": [
                 r"security|hack|breach|cyber|attack|vulnerability|cve",
