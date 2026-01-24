@@ -18,17 +18,18 @@ class FixedQueryClassifier:
         # Create Ollama client with shorter timeout for the synchronous thread
         self.sync_client = Client(host=host, timeout=timeout)
         
-        # Lighter model for classification (faster response)
-        self.classification_model = "gemma2:2b"  # Smaller, faster model
+        # Use the main model for classification (it's already loaded/hot)
+        self.classification_model = model
         
-        # Define classification options - CPU ONLY for speed
+        # Define classification options - Use GPU for speed
         self.classification_options = {
-            "num_gpu": 0,           # CPU only for classification
-            "num_thread": 4,        # Reduced from 8 to avoid contention
-            "num_ctx": 1024,        # Smaller context for classification
-            "temperature": 0.1,     # Low temperature for consistent classification
+            "num_gpu": -1,          # Use all layers (main model is already loaded)
+            "num_thread": 4,
+            "num_ctx": 1024,        # Standard context
+            "temperature": 0.0,     # Deterministic
             "top_p": 0.9,
-            "top_k": 40,
+            "top_k": 20,
+            "num_predict": 10       # Stop immediately after category
         }
         
         # Enhanced rule-based patterns (fast, no model needed)
@@ -145,22 +146,8 @@ class FixedQueryClassifier:
         
         def run_classification():
             try:
-                # Simple prompt for classification
-                prompt = f"""Classify this user query into ONE category:
-
-Query: "{query}"
-
-Categories:
-- GREETING: Casual greetings like "hi", "hello"
-- IDENTITY: Questions about identity like "who are you", "who am i"
-- NEWS: Questions about news, current events, headlines
-- POLITICS: Political discussions, elections, government
-- TECH: Technology, software, hardware, AI
-- SECURITY: Cybersecurity, hacks, vulnerabilities
-- COMMAND: Bot commands like "status", "list users"
-- GENERAL: General conversation, other topics
-
-Return ONLY the category name, nothing else."""
+                # Minimal prompt for speed and accuracy
+                prompt = f"Classify this query into ONE category (GREETING, IDENTITY, NEWS, POLITICS, TECH, SECURITY, COMMAND, GENERAL).\n\nQuery: \"{query}\"\n\nCategory:"
 
                 response = self.sync_client.chat(
                     model=self.classification_model,
@@ -199,3 +186,21 @@ Return ONLY the category name, nothing else."""
         """Main classification method (Async wrapper)"""
         # Run the synchronous timeout logic in a thread to avoid blocking the event loop
         return await asyncio.to_thread(self.classify_with_timeout, query)
+
+    async def pre_warm(self):
+        """Pre-warm the classification model"""
+        self.logger("🔥 Pre-warming classification model (this may take a moment)...")
+        try:
+            # First call can take longer due to model loading
+            start_time = time.time()
+            
+            # Use a longer timeout for the initial load
+            original_timeout = self.timeout
+            self.timeout = 30.0 
+            
+            await self.classify("warm up")
+            
+            self.timeout = original_timeout
+            self.logger(f"✅ Classification model warmed up in {time.time() - start_time:.2f}s")
+        except Exception as e:
+            self.logger(f"⚠️ Pre-warm failed: {e}")

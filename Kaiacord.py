@@ -1659,9 +1659,9 @@ async def on_message(msg: discord.Message):
         # 3. CONTEXT OPTIMIZATION
         # Wait for full classification to finish (if not already done)
         try:
-            # We already have fast_category as a fallback. 
-            # Only wait a very short time if it's not already done.
-            category = await asyncio.wait_for(classification_task, timeout=0.5)
+            # Wait for full classification to finish
+            # With GPU acceleration and pre-warming, this should be < 0.5s
+            category = await asyncio.wait_for(classification_task, timeout=3.0)
             log_info(f"Full classification result: {category.upper()}")
         except asyncio.TimeoutError:
             log_warning(f"Full classification timed out, using fast-path: {fast_category.upper()}")
@@ -1904,6 +1904,9 @@ async def main():
     
     # 4. News module is now updated directly in utils/kaia_news.py
     print("✅ News module loaded")
+    
+    # 5. Pre-warm classification model
+    asyncio.create_task(query_classifier.pre_warm())
     
     # 5. Run dashboard
     print("🚀 Starting dashboard...")
