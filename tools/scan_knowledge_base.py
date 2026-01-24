@@ -10,6 +10,7 @@ from pathlib import Path
 def scan_for_phantom_names():
     """Scan knowledge base for phantom names that shouldn't be there"""
     knowledge_base_dir = Path("./knowledge_base")
+    config_dir = Path("./config")
     quarantine_dir = knowledge_base_dir / "quarantine"
     quarantine_dir.mkdir(exist_ok=True)
     
@@ -57,10 +58,10 @@ def scan_for_phantom_names():
 
 def check_persona_integrity():
     """Ensure kaia_persona.md is properly indexed and has priority"""
-    persona_path = Path("./knowledge_base/kaia_persona.md")
+    persona_path = Path("./config/kaia_persona.md")
     
     if not persona_path.exists():
-        print("❌ CRITICAL: kaia_persona.md not found in knowledge_base/")
+        print("❌ CRITICAL: kaia_persona.md not found in config/")
         return False
     
     # Check if persona contains any phantom names

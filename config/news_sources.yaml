@@ -1,0 +1,36 @@
+rss_feeds:
+  - url: "https://rss.nytimes.com/services/xml/rss/nyt/Technology.xml"
+    category: "technology"
+    enabled: true
+  - url: "https://feeds.bbci.co.uk/news/rss.xml"
+    category: "general"
+    enabled: true
+  - url: "https://hnrss.org/frontpage"
+    category: "technology"
+    enabled: true
+  - url: "https://www.reddit.com/r/worldnews/.rss"
+    category: "politics"
+    enabled: true
+  - url: "https://www.theguardian.com/technology/rss"
+    category: "technology"
+    enabled: true
+  - url: "https://www.reutersagency.com/feed/?best-topics=tech&post_type=best"
+    category: "technology"
+    enabled: true
+
+api_sources:
+  newsapi:
+    enabled: false
+    api_key: ""
+    categories: ["technology", "science", "business", "entertainment"]
+  
+  hackernews:
+    enabled: true
+    endpoint: "https://hacker-news.firebaseio.com/v0"
+    
+  reddit:
+    enabled: true
+    subreddits: ["worldnews", "technology", "science", "politics"]
+
+update_interval: 300  # 5 minutes
+cache_ttl: 600  # 10 minutes

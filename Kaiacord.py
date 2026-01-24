@@ -1,10 +1,25 @@
 import os
+import sys
 import asyncio
 
 # Set PyTorch CUDA allocator to use expandable segments to reduce fragmentation
 # These MUST be set before torch or any library that uses it is imported
 os.environ["PYTORCH_ALLOC_CONF"] = "expandable_segments:True,max_split_size_mb:512"
 os.environ["PYTORCH_CUDA_ALLOC_CONF"] = "expandable_segments:True,max_split_size_mb:512"
+
+# Initialize Unified Logging EARLY
+from utils.unified_logging import replace_all_logging, logger
+replace_all_logging()
+
+# Initialize Stats Tracker
+from utils.stats_tracker import stats_tracker
+
+# Initialize Dashboard
+from utils.btop_dashboard import BtopDashboard
+from utils.shutdown_fixed import shutdown_manager
+from utils.news_debug import diagnose_news_pipeline, fix_news_ingestion
+import curses
+import threading
 
 import re
 import traceback
@@ -31,7 +46,13 @@ from utils.kaia_image import generate_image, unload_image_model, generation_lock
 from utils.kaia_vision import kaia_sees_image, cleanup_session
 from watchdog.observers import Observer
 from watchdog.events import FileSystemEventHandler
-from utils.kaia_intelligence import SemanticCache, ModelWarmPool, QueryClassifier, ContextOptimizer, RelevanceFeedback, PerformanceMonitor, PersonalizationEngine, PersistentStateManager, IntelligentCacheInvalidator
+from utils.boilerplate_detector import BoilerplateDetector
+from utils.kaia_intelligence import SemanticCache, ModelWarmPool, ContextOptimizer, RelevanceFeedback, PerformanceMonitor, PersonalizationEngine, PersistentStateManager, IntelligentCacheInvalidator
+from utils.kaia_intelligence_fixed import FixedQueryClassifier
+from utils.fast_news import FastNewsRetriever
+from utils.enhanced_news_integration import EnhancedNewsHandler
+from utils.performance_optimizer import ResponseOptimizer, timed_response
+from utils.knowledge_boundary import KnowledgeBoundary
 # Load environment variables early so Config can use them
 load_dotenv()
 
@@ -72,7 +93,7 @@ from utils.kaia_logger import (
     log_context_retrieval, log_separator, set_monitor
 )
 from utils.kaia_news import NewsRetrievalEnhancer, ResponseEnhancer, RAGEnhancer
-from utils.btop_dashboard import BtopDashboard, KaiaMonitor, BtopLoggingPatcher
+# from utils.btop_dashboard import BtopDashboard, KaiaMonitor, BtopLoggingPatcher # Removed conflicting import
 
 @dataclass
 class Config:
@@ -117,14 +138,11 @@ class Config:
 
 config = Config.from_env()
 
-# Initialize Btop Dashboard
-dashboard = BtopDashboard(update_interval=1.0)
-monitor = KaiaMonitor(dashboard)
-set_monitor(monitor)
+# Dashboard will be initialized in main()
+# monitor = KaiaMonitor(dashboard) # Deprecated
+# set_monitor(monitor) # Deprecated
 
-# Patch logging
-patcher = BtopLoggingPatcher(dashboard)
-patcher.patch_print()
+# No need for BtopLoggingPatcher anymore, ConsolidatedLogger handles it
 
 class BotState:
     """Encapsulates global bot state and persistence"""
@@ -630,13 +648,7 @@ class EmergencyContaminationFilter:
         
         # If we removed too much, provide clean fallback
         if len(filtered_response.strip()) < 20:
-            filtered_response = random.choice([
-                "yeah. what's up?",
-                "coffee's cold. what do you need?",
-                "i'm here. what's on your mind?",
-                "listening. go ahead.",
-                "not much to say about that. anything else?"
-            ])
+            filtered_response = ""
         
         return filtered_response
     
@@ -751,7 +763,11 @@ class EmergencyContaminationFilter:
 performance_monitor = PerformanceMonitor()
 semantic_cache = ImprovedSemanticCache(threshold=0.92)
 model_warm_pool = ModelWarmPool(ollama_client)
-query_classifier = QueryClassifier(ollama_client)
+model_warm_pool = ModelWarmPool(ollama_client)
+query_classifier = FixedQueryClassifier(ollama_client, model=config.chat_model, timeout=3.0)
+fast_news_retriever = FastNewsRetriever()
+news_handler = EnhancedNewsHandler()
+response_optimizer = ResponseOptimizer()
 context_optimizer = ContextOptimizer(model_name=config.chat_model)
 relevance_feedback = RelevanceFeedback(rag)
 personalization_engine = PersonalizationEngine()
@@ -876,9 +892,9 @@ async def on_ready():
     # Dashboard is started in main()
     
     # Set initial metrics
-    dashboard.metrics.ollama_status = "🟢 ONLINE"
-    dashboard.metrics.active_model = config.chat_model
-    dashboard.add_log(f"{bot.user.name} is online!")
+    stats_tracker.set_stat('ollama_status', "🟢 ONLINE")
+    stats_tracker.set_stat('active_model', config.chat_model)
+    logger.log(f"{bot.user.name} is online!", "SUCCESS")
     
     log_success(f"{bot.user.name} is online!")
     
@@ -1050,7 +1066,158 @@ async def memory_audit_task():
     except Exception as e:
         log_error(f"Memory audit failed: {e}")
 
+async def handle_proper_news_query(message, query, category=None):
+    """PROPER news handler that reads from actual files"""
+    try:
+        async with message.channel.typing():
+            
+            # Initialize proper news reader
+            from utils.proper_news_reader import ProperNewsReader
+            news_reader = ProperNewsReader()
+            
+            # Extract category from query
+            query_lower = query.lower()
+            
+            if not category:
+                if 'politic' in query_lower:
+                    category = 'politics'
+                elif 'tech' in query_lower or 'ai' in query_lower or 'software' in query_lower:
+                    category = 'technology'
+                elif 'security' in query_lower or 'cyber' in query_lower or 'hack' in query_lower or 'cve' in query_lower:
+                    category = 'security'
+                elif 'business' in query_lower or 'econom' in query_lower or 'market' in query_lower:
+                    category = 'business'
+                elif 'science' in query_lower or 'research' in query_lower:
+                    category = 'science'
+                elif 'news' in query_lower or 'latest' in query_lower or 'update' in query_lower:
+                    category = 'general'
+                else:
+                    category = 'general'
+            
+            # Get ACTUAL news from files
+            news_items = news_reader.get_news_by_category(category, limit=7)
+            
+            if not news_items:
+                # If no news found, scan for any news
+                news_reader.scan_news_files()
+                news_items = news_reader.get_news_by_category(category, limit=7)
+            
+            if not news_items:
+                # Still no news - show what directories exist
+                dirs = news_reader.news_dirs
+                dir_list = ", ".join(str(d) for d in dirs)
+                await message.reply(
+                    f"No news found for '{category}'.\n"
+                    f"I looked in: {dir_list}\n"
+                    f"Add news files to knowledge_base/news/daily/"
+                )
+                return
+            
+            # Format response in Kaia's voice
+            response = _format_news_response(news_items, category, query)
+            
+            # Send response
+            await send_kaia_response(message.channel, response)
+            
+            # Log interaction
+            await run_rag(rag.log_user_interaction, message.author.id, message.author.display_name, query, response)
+            
+    except Exception as e:
+        log_error(f"Proper news error: {e}")
+        # Fallback to RAG if available
+        await handle_general_query(message, query)
+
+def _format_news_response(news_items, category, query):
+    """Format actual news items in Kaia's voice"""
+    import random
+    
+    # Kaia's opening lines
+    openings = {
+        'technology': [
+            "Tech news from the logs:",
+            "On the tech front:",
+            "Digital developments:"
+        ],
+        'politics': [
+            "Political movements:",
+            "Government and policy:",
+            "Political landscape:"
+        ],
+        'security': [
+            "Security updates:",
+            "Vulnerabilities and breaches:",
+            "Cybersecurity situation:"
+        ],
+        'business': [
+            "Business and markets:",
+            "Economic developments:",
+            "Corporate updates:"
+        ],
+        'science': [
+            "Scientific developments:",
+            "Research updates:",
+            "Science news:"
+        ],
+        'general': [
+            "Here's what I found:",
+            "Latest from the feeds:",
+            "Current events:"
+        ]
+    }
+    
+    opening = random.choice(openings.get(category, openings['general']))
+    
+    # Build response
+    lines = [f"{opening}\n"]
+    
+    for i, item in enumerate(news_items, 1):
+        text = item.get('text', 'No content')
+        # Truncate long items
+        if len(text) > 200:
+            text = text[:197] + "..."
+        
+        date_str = ""
+        if item.get('date'):
+            # Format date nicely
+            try:
+                from datetime import datetime
+                dt = datetime.strptime(item['date'], "%Y-%m-%d")
+                date_str = f" [{dt.strftime('%b %d')}]"
+            except:
+                date_str = f" [{item['date']}]"
+        
+        lines.append(f"{i}. {text}{date_str}")
+    
+    # Add Kaia's commentary
+    commentaries = {
+        'technology': "\nThe future's here. It's just unevenly distributed.",
+        'politics': "\nSame shit, different day.",
+        'security': "\nPatch. Everything.",
+        'business': "\nMoney never sleeps.",
+        'science': "\nProgress, one breakthrough at a time.",
+        'general': "\nIt's always something."
+    }
+    
+    closing = commentaries.get(category, "\nThat's the latest.")
+    lines.append(closing)
+    
+    return "\n".join(lines)
+
+def _is_entity_query(query: str) -> bool:
+    """Check if query is asking about specific entities"""
+    query_lower = query.lower()
+    entity_indicators = [
+        'who is', 'who are', 'who was', 'who were',
+        'what is', 'what are',
+        'tell me about',
+        'explain',
+        'describe'
+    ]
+    
+    return any(indicator in query_lower for indicator in entity_indicators)
+
 @bot.event
+@timed_response(threshold=8.0)
 async def on_message(msg: discord.Message):
     if msg.author == bot.user:
         return
@@ -1080,6 +1247,23 @@ async def on_message(msg: discord.Message):
 
     # Sanitize input
     sanitized_content = sanitize_prompt(msg.content)
+
+    # Check if query is about unknown entities BEFORE RAG
+    boundary = KnowledgeBoundary()
+    
+    query_entities = boundary.extract_entities(sanitized_content)
+    if query_entities and _is_entity_query(sanitized_content):
+        # Check if we know these entities
+        entity_check = boundary.check_known_entities(sanitized_content, "")
+        
+        if entity_check["unknown_in_context"] and len(entity_check["unknown_in_context"]) > 0:
+            # We don't know these entities, respond immediately
+            response = boundary.generate_boundary_response(
+                entity_check["unknown_in_context"], 
+                sanitized_content
+            )
+            await msg.reply(response)
+            return
 
     # Trigger logic: Image generation
     draw_match = re.search(r'kaia[\s,]+draw\s+(.*)', sanitized_content.lower())
@@ -1127,7 +1311,7 @@ async def on_message(msg: discord.Message):
         memory_content = sanitized_content[len("kaia remember"):].strip()
         if memory_content:
             log_action(f"Storing memory: {memory_content}")
-            success = await run_rag(rag.add_memory, bot.user.id, bot.user.name, memory_content)
+            success = await run_rag(rag.add_memory, msg.author.id, msg.author.display_name, memory_content)
             if success:
                 await msg.channel.send("```\nLogged it.\n```")
             else:
@@ -1239,7 +1423,8 @@ async def on_message(msg: discord.Message):
             return
 
         log_message_received(msg.author.name, str(msg.author.id), sanitized_content)
-        monitor.log_message(msg.author.name, sanitized_content, str(msg.author.id))
+        # Log message (monitor is deprecated)
+        # monitor.log_message(msg.author.name, sanitized_content, str(msg.author.id))
         
         # 0. SPECIAL HANDLERS (Bypass Cache)
         # Check if this is a user listing query
@@ -1269,6 +1454,26 @@ async def on_message(msg: discord.Message):
             
             # Log interaction
             await run_rag(rag.log_user_interaction, msg.author.id, msg.author.display_name, sanitized_content, response_text)
+            # Log interaction
+            await run_rag(rag.log_user_interaction, msg.author.id, msg.author.display_name, sanitized_content, response_text)
+            return
+
+        # DIRECT NEWS QUERY BYPASS (fast path)
+        query_lower = sanitized_content.lower()
+        news_keywords = ['news', 'headlines', 'current events', 'latest', 'update', 'happening']
+        
+        # Check if it's clearly a news query
+        is_direct_news = any(keyword in query_lower for keyword in news_keywords)
+        if is_direct_news and ('kaia' in query_lower or bot.user.mentioned_in(msg)):
+            log_info("Detected direct news query - bypassing classification")
+            # Skip classification, go directly to news handling
+            # Use optimized response with caching
+            await response_optimizer.get_optimized_response(
+                sanitized_content,
+                handle_proper_news_query,
+                msg,
+                sanitized_content
+            )
             return
 
         # 1. TWO-LEVEL CACHE CHECK
@@ -1582,6 +1787,9 @@ async def on_message(msg: discord.Message):
         
         content = content.replace("`", "")
         
+        # REMOVE BOILERPLATE QUESTION ENDINGS
+        content = BoilerplateDetector.clean_response(content)
+        
         safety_patterns = [
             "Crisis Text Line", "National Domestic Violence Hotline", "National Suicide Prevention Lifeline",
             "1-800-", "reach out for help", "I am an AI", "Your question is harmful",
@@ -1617,7 +1825,13 @@ async def on_message(msg: discord.Message):
         bot_state.channel_memory[msg.channel.id].append({"role": "user", "content": sanitized_content})
         bot_state.channel_memory[msg.channel.id].append({"role": "assistant", "content": content})
         
+        bot_state.channel_memory[msg.channel.id].append({"role": "assistant", "content": content})
+        
         bot_state.update_interaction(msg.channel.id)
+        
+        # Update stats
+        stats_tracker.increment_messages(msg.author.id)
+        stats_tracker.record_response_time(response_time)
         
         await run_rag(
             rag.log_user_interaction,
@@ -1644,80 +1858,106 @@ async def main():
     # Run cleanup immediately on script execution
     cleanup_on_startup()
     
+    stats_poller = None
+    
     # Start dashboard in background
-    dashboard_task = asyncio.create_task(dashboard.run())
+    # dashboard_task = # DISABLED: # DISABLED: asyncio.create_task(dashboard.run()) # REMOVED: DashboardUI runs in thread
     
-    # Patch logging to dashboard - FIX: Only do this ONCE
-    patcher = BtopLoggingPatcher(dashboard)
-    patcher.patch_print()
+    # 1. Fix news ingestion first
+    print("📰 Checking news pipeline...")
+    # diagnose_news_pipeline() # Deprecated
+    # fix_news_ingestion() # Deprecated
     
-    # Background task for system metrics
-    async def update_metrics_loop():
-        import time
-        first_run = True
-        while dashboard.running:
-            try:
-                monitor.update_system_metrics()
-                
-                # Update RAG stats
-                try:
-                    stats = rag.get_stats()
-                    dashboard.metrics.rag_documents = stats.get('total_documents', 0)
-                    dashboard.metrics.rag_size = stats.get('index_size', '0 MB')
-                    
-                    # On first run, force dashboard update
-                    if first_run and dashboard.metrics.rag_documents > 0:
-                        dashboard.metrics.ollama_status = "🟡 Loading Ollama"
-                        first_run = False
-                        
-                except Exception as e:
-                    if first_run:
-                        dashboard.metrics.ollama_status = "🔴 RAG Error"
-                        first_run = False
-            
-                # Update uptime
-                if hasattr(dashboard, 'start_time'):
-                    uptime_sec = time.time() - dashboard.start_time
-                    dashboard.metrics.uptime = dashboard.format_uptime(uptime_sec)
-                
-                # Update active users count
-                try:
-                    active_count = len([
-                        s for s in dashboard.active_sessions.values()
-                        if (time.time() - s['last_active']) < 300
-                    ]) if hasattr(dashboard, 'active_sessions') else 0
-                    dashboard.metrics.active_users = active_count
-                except:
-                    pass
-                
-            except Exception as e:
-                error_msg = str(e)
-                if "unsupported operand" not in error_msg:
-                    dashboard.add_log(f"Background metrics error: {error_msg}")
-            
-            await asyncio.sleep(5)
+    # Check proper news system
+    from utils.proper_news_reader import ProperNewsReader
+    news_reader = ProperNewsReader()
+    news_reader.scan_news_files()
+    total_items = sum(len(items) for items in news_reader.news_cache.values())
+    categories = list(news_reader.news_cache.keys())
+    log_info(f"News system initialized: {total_items} items in {len(categories)} categories")
+    if total_items == 0:
+        log_warning("⚠️ No news found! Add markdown files to knowledge_base/news/daily/")
+    
+    # 2. Initialize stats poller
+    from utils.stats_poller import stats_poller
+    stats_poller.start()
+    
+    # 3. Register with shutdown manager
+    shutdown_manager.register_stats_poller(stats_poller)
+    shutdown_manager.setup()
+    
+    # 4. News module is now updated directly in utils/kaia_news.py
+    print("✅ News module loaded")
+    
+    # 5. Run dashboard
+    print("🚀 Starting dashboard...")
+    # DISABLED DASHBOARD - USING SIMPLE LOGGER
+    class SimpleLogger:
+        def __init__(self):
+            self.metrics = type('obj', (object,), {
+                'ollama_status': '🟢 ONLINE',
+                'active_model': 'gemma3:12b',
+                'uptime': '0s',
+                'cpu_percent': 0.0,
+                'gpu_percent': 0.0,
+                'gpu_memory': '0/0 MB',
+                'ram_usage': '0/0 MB',
+                'active_users': 0,
+                'total_messages': 0,
+                'response_time': 0.0,
+                'rag_documents': 0,
+                'rag_size': '0 MB',
+                'cache_hit_rate': 0.0,
+                'request_queue': 0
+            })()
         
-    metrics_task = asyncio.create_task(update_metrics_loop())
+        def add_log(self, msg): print(f"[LOG] {msg}")
+        def update_metrics(self, metrics): pass
+        def add_alert(self, msg, level): print(f"[{level.upper()}] {msg}")
+        def run(self): pass
+        async def run(self): pass
+
+    dashboard = SimpleLogger()
+    # DISABLED: asyncio.create_task(dashboard.run())
+    
+    # Clean shutdown
+    # shutdown_manager.cleanup() is called in main finally block
+        
+    # Wait a bit for dashboard to initialize
+    import time
+    time.sleep(2)
     
     try:
         async with bot:
             await bot.start(config.discord_token)
-    except asyncio.CancelledError:
-        pass
+    except KeyboardInterrupt:
+        print("\n⚠️  Keyboard interrupt received")
+    except Exception as e:
+        print(f"\n❌ Error: {e}")
     finally:
-        # Shutdown dashboard
-        dashboard.running = False
-        await dashboard_task
+        # CRITICAL: Reset terminal before printing shutdown messages
+        print("\n" + "="*80)
+        print("🔄 Resetting terminal state...")
+        print("="*80 + "\n")
         
-        log_critical("\nShutting down...")
+        # Manually reset terminal to ensure clean output
+        import sys
+        sys.stdout.write('\033[0m\033[?25h\033[?1049l\033[H\033[2J')
+        sys.stdout.flush()
         
-        # 1. Persist RAG index
+        # Clean shutdown
+        if stats_poller:
+            stats_poller.stop()
+        
+        shutdown_manager.cleanup()
+        
+        # Async cleanup (must be done here, not in dashboard thread)
         if rag:
             log_action("Persisting RAG index...")
             await run_rag(rag.persist, force=True)
             log_success("Index persisted.")
             
-        # 2. Cleanup vision session
+        # Cleanup vision session
         log_action("Cleaning up vision session...")
         try:
             await cleanup_session()
@@ -1725,9 +1965,13 @@ async def main():
         except Exception as e:
             log_warning(f"Failed to cleanup vision session: {e}")
             
-        # 3. Close Ollama clients
+        # Close Ollama clients
         log_action("Closing Ollama clients...")
         try:
+            # Unload main model to free VRAM
+            log_action("Unloading main model...")
+            await ollama_client.generate(model=config.chat_model, keep_alive=0)
+            
             # Close main client
             if hasattr(ollama_client, '_client'):
                 await ollama_client._client.aclose()
@@ -1736,11 +1980,27 @@ async def main():
             from utils.kaia_vision import ollama_client as vision_ollama_client
             if hasattr(vision_ollama_client, '_client'):
                 await vision_ollama_client._client.aclose()
-            log_success("Ollama clients closed.")
+            log_success("Ollama clients closed and models unloaded.")
         except Exception as e:
             log_warning(f"Failed to close Ollama clients: {e}")
             
         log_success("Shutdown complete.")
+
+def run_dashboard(stdscr):
+    """Dashboard runner with clean setup"""
+    # Initialize dashboard
+    dashboard = MinimalDashboard(stdscr, logger, stats_tracker)
+    
+    try:
+        # Run dashboard
+        dashboard.run()
+    finally:
+        # Clean up dashboard
+        dashboard.cleanup()
+        
+        # Final cleanup
+        shutdown_manager.restore_terminal_state()
+
 
 if __name__ == "__main__":
     try:

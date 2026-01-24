@@ -23,7 +23,7 @@ class KaiaNewsUpdater:
         """Initialize with Gemini API key"""
         genai.configure(api_key=gemini_api_key)
         self.model = genai.GenerativeModel('gemini-flash-latest')
-        self.knowledge_dir = Path("./knowledge_base/news_briefs")
+        self.knowledge_dir = Path("./knowledge_base/news/daily")
         self.knowledge_dir.mkdir(parents=True, exist_ok=True)
         self.today = datetime.datetime.now().strftime("%Y-%m-%d")
         
@@ -252,7 +252,8 @@ RULES:
         print("✓ Reindex trigger created")
         
         # Also create a small python script to trigger it if needed
-        trigger_script = self.knowledge_dir.parent.parent / "tools" / "trigger_reindex.py"
+        # Path is relative to knowledge_base/news/daily
+        trigger_script = self.knowledge_dir.parent.parent.parent / "tools" / "trigger_reindex.py"
         if not trigger_script.exists():
             with open(trigger_script, 'w') as f:
                 f.write("import os\nfrom pathlib import Path\nPath('./knowledge_base/.trigger_reindex').touch()\nprint('RAG reindex triggered.')\n")

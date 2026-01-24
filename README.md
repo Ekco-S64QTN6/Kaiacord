@@ -23,6 +23,7 @@
 *   **Self-Healing System** – Retries failed LLM calls with simplified prompts or reduced context.
 *   **Btop-Style Dashboard** – New cyberpunk terminal UI with real-time metrics, live logs, and responsive layout.
 *   **Color-Coded Logging** – Beautiful terminal output with high-visibility timestamps and message types.
+*   **Smart Boilerplate Detector** – Automatically strips repetitive, formulaic endings from responses.
 
 ### 🧠 Advanced Memory & Learning
 *   **Deep User Profiling** – Generates structured user profiles analyzing topics, style, and interaction patterns.
@@ -37,6 +38,7 @@
 | **Hallucination Detector** | Real-time detection of known hallucination patterns (Juanita, Deane, etc.). |
 | **Emergency Filter** | Surgical removal of hallucinated lines before sending or logging. |
 | **Feedback Loop Protection** | Prevents hallucinated content from being logged or cached. |
+| **Smart Fiction Filter** | Prevents indexing of specific fictional story patterns while preserving real user data. |
 | **Nuclear Reset** | Automated process to purge persistent hallucinations from all systems. |
 | **Strict Identity Filtering** | Enforces source-specific retrieval for identity-related queries. |
 
@@ -96,26 +98,25 @@ Kaiacord/
 │   ├── kaia_rag.py          # RAG System
 │   ├── kaia_image.py        # Image Generation
 │   ├── kaia_vision.py       # Vision System
+│   ├── kaia_news.py         # News Retrieval & Enhancement
 │   ├── gpu_manager.py       # GPU Management
-│   ├── btop_dashboard.py    # New Btop-style Dashboard
-│   └── terminal_manager.py  # Terminal Control Utilities
+│   ├── btop_dashboard.py    # Btop-style Dashboard
+│   ├── boilerplate_detector.py # Response cleaning
+│   └── unified_logging.py   # Logging infrastructure
 ├── knowledge_base/          # Local knowledge storage
 │   ├── user_logs/           # Per-user interaction logs
 │   └── corrupt_files/       # Quarantined problematic files
 ├── storage/                 # Persistent data
 │   └── semantic_cache.json  # Semantic Cache
 ├── tools/                   # Maintenance & diagnostics
+│   ├── proper_fix.py        # Surgical boilerplate/hallucination fix
 │   ├── nuclear_reset.py     # Complete system purge
 │   ├── find_contamination.py # Hallucination detection
-│   └── update_kaia_news.py  # Daily news updater (RAG-optimized)
-├── test_scripts/           # Core test utilities & verification
-└── docs/                   # Detailed documentation
-    ├── HALLUCINATION_FIXES.md
-    ├── INTELLIGENCE_LAYER.md
-    ├── HALLUCINATION_FIXES.md
-    ├── INTELLIGENCE_LAYER.md
-    ├── DAILY_NEWS_UPDATER.md
-    └── DASHBOARD_SUMMARY.md
+│   ├── update_kaia_news.py  # Daily news updater
+│   └── legacy/              # Archived/unused code
+├── tests/                   # Test utilities & verification
+├── logs/                    # System logs
+└── docs/                    # Detailed documentation
 ```
 
 ---
@@ -160,6 +161,7 @@ Kaia will automatically index them and use them as context for her responses.
 | :--- | :--- |
 | **nuclear_reset.py** | Complete system purge of hallucinations and corrupted data. |
 | **find_contamination.py** | Diagnostic tool for identifying fictional elements in logs. |
+| **proper_fix.py** | Surgical tool to remove boilerplate and specific hallucinations without affecting real data. |
 | **update_kaia_news.py** | Automated daily news brief generator with RAG-optimized formatting. |
 
 Run maintenance scripts from the `tools/` directory.

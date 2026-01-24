@@ -10,6 +10,7 @@ from colorama import Fore, Back, Style, init
 from rich.console import Console
 from rich.table import Table
 from rich.panel import Panel
+from utils.unified_logging import logger as global_logger
 
 # Initialize colorama with autoreset
 init(autoreset=True)
@@ -51,41 +52,37 @@ def _colorize(text, color_code):
 # ============================================================================
 
 def log_success(message):
-    """Log success messages with bold green checkmark."""
-    prefix = _colorize("✓", Fore.GREEN + Style.BRIGHT)
-    print(f"{_get_timestamp()}{prefix} {_colorize(message, Fore.GREEN + Style.BRIGHT)}")
+    """Log success messages."""
+    # Consolidated logger handles formatting and printing
+    global_logger.log(message, "SUCCESS")
     if _monitor:
         _monitor.log_system_event("SUCCESS", message)
 
 
 def log_user(user_name, user_id, context=""):
-    """Log user identity in cyan."""
-    user_str = _colorize(f"{user_name}", Fore.CYAN)
-    user_id_str = _colorize(f"({user_id})", Fore.CYAN)
-    
+    """Log user identity."""
+    message = f"{user_name} ({user_id})"
     if context:
-        print(f"{_get_timestamp()}{user_str} {user_id_str}: {context}")
-    else:
-        print(f"{_get_timestamp()}{user_str} {user_id_str}")
+        message += f": {context}"
+    
+    global_logger.log(message, "INFO")
 
 
 def log_action(message):
-    """Log core action messages in yellow."""
-    print(f"{_get_timestamp()}{_colorize(message, Fore.YELLOW)}")
+    """Log core action messages."""
+    global_logger.log(message, "ACTION")
     if _monitor:
         _monitor.log_system_event("ACTION", message)
 
 
 def log_response(prefix, content, response_time=0.0):
-    """Log AI response with magenta prefix and white content."""
-    formatted_prefix = _colorize(prefix, Fore.MAGENTA + Style.BRIGHT)
-    formatted_content = _colorize(content, Fore.WHITE)
-    
-    time_str = ""
+    """Log AI response."""
+    message = f"{prefix} {content}"
     if response_time > 0:
-        time_str = f" ({response_time:.2f}s)"
+        message = f"{prefix} ({response_time:.2f}s) {content}"
         
-    print(f"{_get_timestamp()}{formatted_prefix}{time_str} {formatted_content}")
+    global_logger.log(message, "INFO")
+    
     if _monitor:
         # Extract tokens saved if present in content
         tokens_saved = 0
@@ -97,49 +94,41 @@ def log_response(prefix, content, response_time=0.0):
 
 
 def log_file(path):
-    """Log file paths with underlined blue."""
-    if IS_TTY:
-        formatted_path = f"{Fore.BLUE}{Style.BRIGHT}\033[4m{path}\033[0m{Style.RESET_ALL}"
-    else:
-        formatted_path = path
-    print(f"{_get_timestamp()}{formatted_path}")
+    """Log file paths."""
+    global_logger.log(path, "INFO")
 
 
 def log_critical(message):
-    """Log critical messages in bold red."""
-    print(f"{_get_timestamp()}{_colorize(message, Fore.RED + Style.BRIGHT)}")
+    """Log critical messages."""
+    global_logger.log(message, "CRITICAL")
     if _monitor:
         _monitor.log_system_event("CRITICAL", message)
 
 
 def log_warning(message):
-    """Log warning messages in yellow with 'Warning:' prefix."""
-    prefix = _colorize("Warning:", Fore.YELLOW + Style.BRIGHT)
-    print(f"{_get_timestamp()}{prefix} {message}")
+    """Log warning messages."""
+    global_logger.log(message, "WARNING")
     if _monitor:
         _monitor.log_system_event("WARNING", message)
 
 
 def log_error(message):
-    """Log error messages in red with 'ERROR:' prefix."""
-    prefix = _colorize("ERROR:", Fore.RED + Style.BRIGHT)
-    print(f"{_get_timestamp()}{prefix} {message}")
+    """Log error messages."""
+    global_logger.log(message, "ERROR")
     if _monitor:
         _monitor.log_system_event("ERROR", message)
 
 
 def log_info(message):
-    """Log general info messages without special color."""
-    print(f"{_get_timestamp()}{message}")
+    """Log general info messages."""
+    global_logger.log(message, "INFO")
 
 
 def log_separator():
-    """Print a horizontal separator line after interactions."""
-    if IS_TTY:
-        separator = f"{Style.DIM}{Fore.WHITE}{'─' * 80}{Style.RESET_ALL}"
-    else:
-        separator = "─" * 80
-    print(separator)
+    """Print a horizontal separator line."""
+    # Separators are visual clutter in dashboard logs, so we might skip them
+    # or log them as a special info message
+    pass
 
 
 # ============================================================================
@@ -224,8 +213,7 @@ def log_model_action(model_name, action):
 
 def log_message_received(author_name, author_id, content):
     """Log received Discord message."""
-    user_str = _colorize(f"{author_name}", Fore.CYAN)
-    print(f"{_get_timestamp()}Message from {user_str}: {content}")
+    global_logger.log(f"Message from {author_name}: {content}", "INFO")
 
 
 def log_context_retrieval(query, count=None):

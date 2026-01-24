@@ -79,7 +79,7 @@ class HallucinationDetector:
         # If we removed too much, provide a fallback
         clean_response = '\n'.join(clean_lines).strip()
         if len(clean_response) < 20:
-            clean_response = "yeah. what's up?\n\ncoffee's getting cold. what do you need?"
+            clean_response = ""
         
         return clean_response
 
@@ -205,15 +205,29 @@ class KaiaRAG:
         self.indexed_files = {}  # Track indexed files {path: mtime} to detect updates
         
         # Configure Ollama Embedding
+        # Force GPU for embeddings too
         self.embed_model = OllamaEmbedding(
             model_name="nomic-embed-text",
-            base_url="http://localhost:11434"
+            base_url="http://localhost:11434",
+            ollama_additional_kwargs={"num_gpu": 100, "main_gpu": 0}
         )
         
         # Set global settings
         Settings.embed_model = self.embed_model
         Settings.node_parser = SentenceSplitter(chunk_size=1024, chunk_overlap=200)
-        Settings.llm = Ollama(model="gemma3:12b", request_timeout=360.0, additional_kwargs={"num_predict": 1536, "num_gpu": -1})
+        
+        # Use GPU Manager for LLM settings
+        from utils.gpu_manager import OllamaGPUManager
+        gpu_manager = OllamaGPUManager("gemma3:12b")
+        gpu_options = gpu_manager.get_gpu_options(for_chat=True)
+        
+        # Ensure num_gpu is passed correctly to Ollama LLM
+        # LlamaIndex passes additional_kwargs to the API options
+        Settings.llm = Ollama(
+            model="gemma3:12b", 
+            request_timeout=360.0, 
+            additional_kwargs=gpu_options
+        )
         
         self.index = None # Legacy index reference
         self.indices = {} # Hierarchical indices
@@ -514,6 +528,23 @@ class KaiaRAG:
                                 new_content = f.read()
                                 
                             if new_content.strip():
+                                # === SMART FICTION FILTER ===
+                                # Only filter specific fictional story patterns, NOT user names
+                                fictional_story_patterns = [
+                                    r"i remember you working on the data pipeline",
+                                    r"back in '21.*?(?:you were|memory leak|server farm)",
+                                    r"you were chasing a memory leak for days",
+                                    r"almost burned out the whole server farm",
+                                    r"good work.*?you're good at digging",
+                                ]
+                                
+                                for pattern in fictional_story_patterns:
+                                    if re.search(pattern, new_content, re.IGNORECASE):
+                                        log_warning(f"Skipping contaminated content in {itype} log")
+                                        new_content = "" # Clear it so it doesn't get indexed
+                                        break
+                                # ============================
+
                                 mtime = os.path.getmtime(file_path)
                                 # Create a document from the new content
                                 doc = Document(
@@ -798,10 +829,14 @@ Kaia: {bot_response}
                 
                 # INCREMENTAL INSERT: Add the interaction to the index
                 mtime = os.path.getmtime(interaction_log_path)
+                
+                # Determine source type
+                source_type = "memory" if "[REMEMBER_COMMAND]" in message_content else "user_logs"
+                
                 new_doc = Document(
                     text=interaction_text,
                     metadata={
-                        "source": "user_logs",
+                        "source": source_type,
                         "itype": "logs",
                         "user_id": str(user_id),
                         "user_name": user_name,
@@ -854,6 +889,9 @@ Kaia: {bot_response}
             query_lower = query.lower()
             is_kaia_query = any(phrase in query_lower for phrase in ["who are you", "who is kaia", "tell me about yourself", "what are you"])
             is_user_identity_query = any(phrase in query_lower for phrase in ["who am i", "what is my name", "my pronoun", "who is"]) and not is_kaia_query
+            # Detect memory-related queries
+            memory_keywords = ["remember", "recall", "what did i tell you", "what did we discuss"]
+            is_memory_query = any(word in query_lower for word in memory_keywords)
             
             # Detect casual/social conversation that doesn't need knowledge retrieval
             casual_patterns = [
@@ -1008,6 +1046,8 @@ Kaia: {bot_response}
                 # 3. Content type boost
                 source = node.metadata.get('source', '')
                 type_boost = {
+                    'memory': 4.0,
+                    'memory': 5.0,
                     'user_profile': 3.0,
                     'persona': 2.5,
                     'conversation': 1.5,
@@ -1041,6 +1081,8 @@ Kaia: {bot_response}
                 
                 if source == "persona" or node_user_id == "KAIA_SYSTEM":
                     label = "Kaia Persona Fragment"
+                elif source == "memory":
+                    label = f"User Memory: {node_user_name.upper()}"
                 elif source == "user_logs" or "user_logs" in file_path:
                     if "user_profile.md" in file_path:
                         label = f"User Profile: {node_user_name.upper()}"
@@ -1068,6 +1110,9 @@ Kaia: {bot_response}
                 elif "User Profile" in label or "Conversation History" in label:
                     if user_log_count >= (6 if is_identity_query else 5): continue
                     user_log_count += 1
+                elif "User Memory" in label:
+                    # Always include memories if they score high enough
+                    pass
                 elif "Historical Reference" in label:
                     if is_identity_query: continue # Skip lore for identity queries
                     if lore_count >= (2 if is_casual else 4): continue

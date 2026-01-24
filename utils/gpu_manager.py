@@ -62,10 +62,9 @@ class OllamaGPUManager:
         try:
             # Force GPU load with specific settings
             gpu_options = {
-                'num_gpu': -1,  # Use -1 for "all layers"
+                'num_gpu': 100,  # Offload all layers (clamped by model depth)
                 'num_thread': 4,
                 'main_gpu': 0,
-                'gpu_layers': 40,  # Specific layer count for gemma3:12b
                 'num_ctx': 4096,
                 'num_batch': 512,
             }
@@ -100,11 +99,11 @@ class OllamaGPUManager:
         
         if self.gpu_available:
             base_options['main_gpu'] = 0
-            base_options['gpu_layers'] = 40
+            base_options['num_gpu'] = 100
         
         if for_chat:
             base_options.update({
-                'num_ctx': 8192,
+                'num_ctx': 4096,
                 'num_batch': 512,
                 'num_predict': -1,
                 'temperature': 0.7,

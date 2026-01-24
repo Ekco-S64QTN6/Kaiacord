@@ -3,6 +3,9 @@ import sys
 import time
 import asyncio
 from utils.terminal_manager import TerminalManager
+from utils.unified_logging import logger
+from utils.stats_poller import stats_poller
+from utils.stats_tracker import stats_tracker
 from datetime import datetime
 from typing import List, Dict, Deque
 from collections import deque
@@ -137,8 +140,8 @@ class BtopDashboard:
         self.layout = DashboardLayout()
         self.update_interval = update_interval
         self.running = True
-        self.log_buffer = deque(maxlen=1000)  # Stores all logs
-        self.filtered_logs = deque(maxlen=500)  # Currently displayed logs
+        # self.log_buffer = deque(maxlen=1000)  # REMOVED: Use global_logger buffer
+        # self.filtered_logs = deque(maxlen=500)  # REMOVED
         self.alerts = deque(maxlen=50)
         self.log_filters = [
             "ALL", "ERROR", "WARNING", "INFO", "SUCCESS", "DEBUG"
@@ -209,6 +212,11 @@ class BtopDashboard:
             self.boxes = self.layout.calculate_boxes()
             
             # Clear and set background
+            if not self.in_dashboard_mode:
+                 sys.stdout.write('\033[?1049h')  # Enter alternate buffer
+                 self.in_dashboard_mode = True
+                 sys.stdout.flush()
+            
             self.clear_screen()
             
             # Header
@@ -316,28 +324,52 @@ class BtopDashboard:
         """Render live logs in bottom box - NO FLICKERING"""
         x, y, width, height = box['x'], box['y'], box['width'], box['height']
         
-        # Get filtered logs
+        # Get logs from unified logger
+        recent_logs = logger.get_recent_logs(count=height*2)
+        
         current_filter = self.log_filters[self.current_filter]
         if current_filter == "ALL":
-            display_logs = list(self.log_buffer)[-height+1:]
+            display_logs = recent_logs[-height+1:]
         else:
-            display_logs = [log for log in list(self.log_buffer)[-height*2:]
-                          if current_filter in log][-height+1:]
+            display_logs = [log for log in recent_logs
+                          if log['type'] == current_filter][-height+1:]
         
-        # Apply color coding
+        # Apply color coding and wrapping
         colored_logs = []
         for log in display_logs:
-            if "ERROR" in log or "FAILED" in log:
-                colored = f"{CyberpunkColors.ERROR}{log}"
-            elif "WARNING" in log:
-                colored = f"{CyberpunkColors.WARNING}{log}"
-            elif "SUCCESS" in log or "✓" in log:
-                colored = f"{CyberpunkColors.SUCCESS}{log}"
-            elif "INFO" in log:
-                colored = f"{CyberpunkColors.INFO}{log}"
+            msg = f"{log['timestamp']} | {log['message']}"
+            log_type = log['type']
+            
+            # Determine color
+            if log_type in ["ERROR", "CRITICAL"]:
+                color = CyberpunkColors.ERROR
+            elif log_type == "WARNING":
+                color = CyberpunkColors.WARNING
+            elif log_type == "SUCCESS":
+                color = CyberpunkColors.SUCCESS
+            elif log_type == "INFO":
+                color = CyberpunkColors.INFO
+            elif log_type == "ACTION":
+                color = CyberpunkColors.CYBER_PURPLE
             else:
-                colored = f"{CyberpunkColors.CYBER_WHITE}{log}"
-            colored_logs.append(colored[:width])
+                color = CyberpunkColors.CYBER_WHITE
+            
+            # Wrap lines
+            wrapped_lines = []
+            current_line = ""
+            words = msg.split(' ')
+            
+            for word in words:
+                if len(current_line) + len(word) + 1 <= width:
+                    current_line += (word + " ")
+                else:
+                    wrapped_lines.append(f"{color}{current_line.strip()}")
+                    current_line = f"  {word} " # Indent continuation lines
+            
+            if current_line:
+                wrapped_lines.append(f"{color}{current_line.strip()}")
+                
+            colored_logs.extend(wrapped_lines)
         
         # Display logs (bottom-aligned)
         start_idx = max(0, len(colored_logs) - (height - 1))
@@ -387,20 +419,11 @@ class BtopDashboard:
     # ==================== LOG MANAGEMENT ====================
     
     def add_log(self, message: str):
-        """Add a log message to the buffer"""
-        timestamp = datetime.now().strftime("%H:%M:%S")
-        log_entry = f"{timestamp} | {message}"
-        
-        # Truncate if too long for current terminal width
-        max_len = self.boxes.get('logs', {}).get('width', 80) - 10
-        if len(log_entry) > max_len:
-            log_entry = log_entry[:max_len-3] + "..."
-        
-        self.log_buffer.append(log_entry)
-        
-        # Auto-scroll to show new logs
+        """Add a log message (Wrapper for unified logger)"""
+        logger.log(message, "INFO", source="dashboard")
         if self.show_raw_logs:
-            self.render_dashboard()  # Only re-render logs section
+            # Schedule async refresh for immediate update
+            asyncio.create_task(self.schedule_refresh())
     
     def clear_logs(self):
         """Clear all logs"""
@@ -412,71 +435,43 @@ class BtopDashboard:
             filename = f"kaiacord_logs_{datetime.now().strftime('%Y%m%d_%H%M%S')}.log"
         
         with open(filename, 'w', encoding='utf-8') as f:
-            for log in self.log_buffer:
-                f.write(log + '\n')
+            for log in logger.get_recent_logs(1000):
+                f.write(f"{log['timestamp']} [{log['type']}] {log['message']}\n")
         
         self.add_log(f"Logs saved to {filename}")
     
     # ==================== METRICS UPDATES ====================
     
     async def update_metrics_loop(self):
-        """Background task to update metrics - FIXED VERSION"""
-        import psutil
-        import subprocess
-        import time
-        
-        # Initialize metrics
-        self.metrics.cpu_percent = 0.0
-        self.metrics.gpu_percent = 0.0
-        self.metrics.ram_usage = "0/0 MB"
-        self.metrics.gpu_memory = "N/A"
-        
+        """Background task to update metrics from poller"""
         while self.running:
             try:
-                # CPU - handle potential errors
-                try:
-                    self.metrics.cpu_percent = psutil.cpu_percent(interval=0.1)
-                except:
-                    self.metrics.cpu_percent = 0.0
+                # Get stats from poller
+                stats = stats_poller.get_stats()
                 
-                # RAM
-                try:
-                    ram = psutil.virtual_memory()
-                    self.metrics.ram_usage = f"{ram.used//1024//1024}/{ram.total//1024//1024} MB"
-                except:
-                    self.metrics.ram_usage = "0/0 MB"
+                # Update dashboard metrics
+                self.metrics.cpu_percent = stats.get('cpu_percent', 0.0)
+                self.metrics.gpu_percent = stats.get('gpu_util', 0.0)
+                self.metrics.ram_usage = f"{int(stats.get('memory_mb', 0))} MB"
+                self.metrics.gpu_memory = stats.get('gpu_memory', "N/A")
+                self.metrics.uptime = f"{int(stats.get('uptime_minutes', 0))}m"
                 
-                # GPU
-                try:
-                    result = subprocess.run(
-                        ['nvidia-smi', '--query-gpu=utilization.gpu,memory.used,memory.total', 
-                         '--format=csv,noheader,nounits'],
-                        capture_output=True, text=True, timeout=2
-                    )
-                    if result.returncode == 0:
-                        util, mem_used, mem_total = result.stdout.strip().split(', ')
-                        self.metrics.gpu_percent = float(util.strip())
-                        self.metrics.gpu_memory = f"{int(mem_used.strip())}/{int(mem_total.strip())} MB"
-                    else:
-                        self.metrics.gpu_percent = 0.0
-                        self.metrics.gpu_memory = "N/A"
-                except:
-                    self.metrics.gpu_percent = 0.0
-                    self.metrics.gpu_memory = "N/A"
-                
-                # FIXED: Uptime calculation - ensure both are floats
-                current_time = time.time()  # This is a float
-                uptime_sec = current_time - self.start_time  # Both floats
-                self.metrics.uptime = self.format_uptime(uptime_sec)
+                # Get stats from tracker
+                tracker_stats = stats_tracker.get_stats()
+                self.metrics.active_users = tracker_stats.get('users', 0)
+                self.metrics.total_messages = tracker_stats.get('messages', 0)
+                self.metrics.response_time = stats.get('avg_response_time', 0.0)
+                self.metrics.request_queue = stats.get('queue_size', 0)
+                self.metrics.rag_documents = stats.get('rag_documents', 0)
+                self.metrics.rag_size = stats.get('rag_size', "0 MB")
+                self.metrics.ollama_status = stats.get('ollama_status', "🔴 OFFLINE")
+                self.metrics.active_model = stats.get('active_model', "None")
                 
             except Exception as e:
-                # Don't log the same error repeatedly
-                error_msg = str(e)
-                if "unsupported operand" not in error_msg and "datetime" not in error_msg:
-                    # Only add log for non-datetime errors
-                    self.add_log(f"Metrics error: {error_msg[:100]}")
+                pass
             
-            await asyncio.sleep(self.update_interval)
+            # Update frequently for smooth UI
+            await asyncio.sleep(0.5)
     
     def format_uptime(self, seconds: float) -> str:
         """Format seconds into human readable uptime"""
@@ -586,6 +581,21 @@ class BtopDashboard:
             'level': level
         })
     
+    async def schedule_refresh(self):
+        """Schedule a dashboard refresh on next tick"""
+        # Cancel any pending refresh to avoid multiple refreshes
+        if hasattr(self, '_refresh_task') and not self._refresh_task.done():
+            self._refresh_task.cancel()
+        
+        # Schedule refresh on next event loop iteration
+        self._refresh_task = asyncio.create_task(self.delayed_refresh())
+
+    async def delayed_refresh(self):
+        """Perform a delayed refresh to batch multiple log updates"""
+        await asyncio.sleep(0.1)  # Small delay to batch rapid updates
+        if self.running:
+            self.render_dashboard()
+
     async def run(self):
         """Main dashboard loop"""
         # Enter dashboard mode (like htop)
@@ -606,7 +616,7 @@ class BtopDashboard:
         try:
             while self.running:
                 # Only re-render if needed (logs auto-update)
-                await asyncio.sleep(0.5)
+                await asyncio.sleep(0.2)
                 
         except KeyboardInterrupt:
             self.running = False
@@ -623,10 +633,32 @@ class BtopDashboard:
             # Exit dashboard mode
             if self.in_dashboard_mode:
                 self.terminal.exit_dashboard_mode()
+                logger.set_dashboard_mode(False)
             
-            # Reset terminal
-            sys.stdout.write('\033[0m\033[?25h')
+            # RESET TERMINAL STATE - CRITICAL FIX
+            self.reset_terminal_completely()
+
+    def reset_terminal_completely(self):
+        """Completely reset terminal to normal state"""
+        try:
+            # Clear any pending escape sequences
+            sys.stdout.write('\033[0m')  # Reset all attributes
+            sys.stdout.write('\033[?25h')  # Show cursor
+            sys.stdout.write('\033[?1049l')  # Exit alternate screen buffer if we entered it
+            sys.stdout.write('\033[H')  # Move cursor to home
+            sys.stdout.write('\033[2J')  # Clear entire screen
+            sys.stdout.write('\033[3J')  # Clear scrollback buffer
             sys.stdout.flush()
+            
+            # Also reset colorama
+            try:
+                from colorama import Style
+                sys.stdout.write(Style.RESET_ALL)
+                sys.stdout.flush()
+            except ImportError:
+                pass
+        except Exception as e:
+            print(f"Warning: Failed to reset terminal: {e}")
 
 class KaiaMonitor:
     def __init__(self, dashboard: BtopDashboard):
@@ -683,6 +715,8 @@ class BtopLoggingPatcher:
         self.original_print = print
         self.last_message = None
         self.message_count = 0
+        self.duplicate_buffer = set()
+        self.log_cache = []
     
     def patch_print(self):
         """Patch print function to capture output without duplicates"""
@@ -692,19 +726,24 @@ class BtopLoggingPatcher:
             
             # Skip empty messages
             if not message.strip():
-                self.original_print(*args, **kwargs)
+                if not self.dashboard.in_dashboard_mode:
+                    self.original_print(*args, **kwargs)
                 return
             
-            # Skip duplicate messages (with cooldown)
-            if message == self.last_message:
-                self.message_count += 1
-                # Only log duplicates every 10 occurrences
-                if self.message_count % 10 != 0:
-                    self.original_print(*args, **kwargs)
-                    return
+            # Create fingerprint for deduplication
+            line_fingerprint = hash(message.strip())
             
-            self.last_message = message
-            self.message_count = 0
+            # Skip if seen recently (deduplication)
+            if line_fingerprint in self.duplicate_buffer:
+                return
+                
+            self.duplicate_buffer.add(line_fingerprint)
+            
+            # Clean old fingerprints (keep last 100)
+            if len(self.duplicate_buffer) > 100:
+                # Convert to list, slice, convert back to set
+                # This is a simple way to keep buffer size managed
+                self.duplicate_buffer = set(list(self.duplicate_buffer)[-100:])
             
             # Clean the message
             import re
@@ -720,7 +759,8 @@ class BtopLoggingPatcher:
             
             # Skip if empty after cleaning
             if not clean_message:
-                self.original_print(*args, **kwargs)
+                if not self.dashboard.in_dashboard_mode:
+                    self.original_print(*args, **kwargs)
                 return
             
             # Add to dashboard with current timestamp
@@ -729,8 +769,10 @@ class BtopLoggingPatcher:
             log_entry = f"{timestamp} | {clean_message}"
             self.dashboard.add_log(log_entry)
             
-            # Also print to original stdout
-            self.original_print(*args, **kwargs)
+            # CRITICAL: Only print to original stdout if NOT in dashboard mode
+            # This prevents logs from printing below the UI
+            if not self.dashboard.in_dashboard_mode:
+                self.original_print(*args, **kwargs)
         
         import builtins
         builtins.print = new_print

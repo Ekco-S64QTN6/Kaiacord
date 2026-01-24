@@ -207,10 +207,16 @@ class ModelWarmPool:
             
         log_action(f"Pre-warming model: {model_name}...")
         try:
+            # Import gpu_manager dynamically to avoid circular imports
+            from utils.gpu_manager import OllamaGPUManager
+            gpu_manager = OllamaGPUManager(model_name)
+            options = gpu_manager.get_gpu_options(for_chat=True)
+            options['num_predict'] = 1
+            
             await self.ollama_client.chat(
                 model=model_name,
                 messages=[{"role": "user", "content": "ready?"}],
-                options={"num_predict": 1}
+                options=options
             )
             self.pool[model_name] = {'last_used': time.time(), 'status': 'ready'}
             if model_name not in self.keep_alive_tasks:
@@ -229,7 +235,13 @@ class ModelWarmPool:
                 del self.pool[model_name]
                 break
             try:
-                await self.ollama_client.chat(model=model_name, messages=[{"role": "user", "content": "ping"}], options={"num_predict": 1})
+                # Use GPU options for keep-alive too
+                from utils.gpu_manager import OllamaGPUManager
+                gpu_manager = OllamaGPUManager(model_name)
+                options = gpu_manager.get_gpu_options(for_chat=True)
+                options['num_predict'] = 1
+                
+                await self.ollama_client.chat(model=model_name, messages=[{"role": "user", "content": "ping"}], options=options)
             except Exception:
                 if model_name in self.pool: del self.pool[model_name]
                 break
@@ -267,14 +279,26 @@ class QueryClassifier:
         )
         
         try:
-            response = await self.ollama_client.chat(
-                model=self.model_name,
-                messages=[{"role": "system", "content": system_prompt}, {"role": "user", "content": query}],
-                options={"temperature": 0.1, "num_predict": 10}
+            response = await asyncio.wait_for(
+                self.ollama_client.chat(
+                    model=self.model_name,
+                    messages=[{"role": "system", "content": system_prompt}, {"role": "user", "content": query}],
+                    options={
+                        "temperature": 0.1, 
+                        "num_predict": 10,
+                        "num_ctx": 1024,
+                        # "num_gpu": 100, # Removed to prevent potential resource locking
+                        # "main_gpu": 0
+                    }
+                ),
+                timeout=5.0
             )
             category = response['message']['content'].strip().lower()
             for cat in ['casual', 'identity', 'knowledge', 'memory', 'creative', 'command']:
                 if cat in category: return cat
+            return 'knowledge'
+        except asyncio.TimeoutError:
+            log_warning("Classification timed out, defaulting to 'knowledge'")
             return 'knowledge'
         except Exception as e:
             log_error(f"Classification error: {e}")
