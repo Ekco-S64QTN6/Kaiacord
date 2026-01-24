@@ -4,12 +4,14 @@ Utility script to aggressively clear GPU memory when Kaiacord has OOM issues.
 Run this script to reset PyTorch's CUDA allocator without restarting the bot.
 """
 
-import torch
 import gc
 import sys
 
 def clear_gpu_memory():
     """Aggressively clear all GPU memory"""
+    # Lazy import to avoid Python 3.14 startup hang from torch.quantization
+    import torch
+    
     if not torch.cuda.is_available():
         print("CUDA not available")
         return
