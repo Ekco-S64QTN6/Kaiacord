@@ -19,7 +19,7 @@ class FixedQueryClassifier:
         self.sync_client = Client(host=host, timeout=timeout)
         
         # Lighter model for classification (faster response)
-        self.classification_model = "gemma3:4b"  # Smaller, faster model
+        self.classification_model = "gemma2:2b"  # Smaller, faster model
         
         # Define classification options - CPU ONLY for speed
         self.classification_options = {
@@ -39,9 +39,9 @@ class FixedQueryClassifier:
                 r"^\s*kaia\s*(hi|hello|hey)"
             ],
             "IDENTITY": [
-                r"^\s*(who\s*(are\s*you|am\s*i|is\s*this))\s*$",
-                r"^\s*tell\s+me\s+about\s+(yourself|you)\s*$",
-                r"^\s*what\s+are\s+you\s*$"
+                r"^\s*(who\s*(are\s*you|am\s*i|is\s*this))\s*[?]?\s*$",
+                r"^\s*tell\s+me\s+about\s+(yourself|you)\s*[?]?\s*$",
+                r"^\s*what\s+are\s+you\s*[?]?\s*$"
             ],
             "ENTITY": [  # NEW: Entity/identity queries
                 r"^\s*who (is|are|was|were) ",
@@ -80,6 +80,18 @@ class FixedQueryClassifier:
                 r"^\s*(status|statistics|stats|info|ping|uptime)\s*$",
                 r"^\s*(list|show|display)\s+users?\s*$",
                 r"^\s*(clear|reset|clean|refresh)\s*$"
+            ],
+            "PERSONAL": [
+                r"how (are|is) you",
+                r"how'?s it going",
+                r"how are you feeling",
+                r"you okay",
+                r"what'?s up",
+                r"feeling now"
+            ],
+            "CASUAL": [
+                r"^(yeah|no|maybe|ok|okay|sure|cool|nice|thanks|thank you|thx)$",
+                r"^(lol|lmao|haha|wow|interesting)$"
             ]
         }
         
@@ -93,11 +105,16 @@ class FixedQueryClassifier:
             "COMMAND": "Bot commands and status requests",
             "GENERAL": "General conversation and questions",
             "KNOWLEDGE": "Knowledge-based questions",
-            "PERSONAL": "Personal or emotional topics"
+            "PERSONAL": "Personal or emotional topics",
+            "CASUAL": "Casual short responses"
         }
         
         self.logger(f"✅ QueryClassifier initialized with timeout: {timeout}s")
     
+    def fast_classify(self, query: str) -> str:
+        """Rule-based ONLY classification (extremely fast)"""
+        return self._classify_rules(query).lower()
+
     def classify_with_timeout(self, query: str) -> str:
         """Classify query with timeout protection"""
         # First, try rule-based classification

@@ -1479,8 +1479,9 @@ async def on_message(msg: discord.Message):
         # 1. TWO-LEVEL CACHE CHECK
         performance_monitor.start_timer('total')
         
-        # Pre-classify for cache bypass
-        category = await query_classifier.classify(msg.content)
+        # Pre-classify for cache bypass (FAST PATH - Regex only)
+        fast_category = query_classifier.fast_classify(msg.content)
+        category = fast_category # Initial guess
         
         if semantic_cache.should_cache_query(msg.content, category):
             cached_response = semantic_cache.get(msg.content, category)
@@ -1496,8 +1497,10 @@ async def on_message(msg: discord.Message):
             log_info(f"Cache bypassed for {category} query")
 
         # 2. HYBRID CLASSIFICATION & PARALLEL PIPELINE
-        # (Category already determined for cache check)
-        log_info(f"Query classified as: {category.upper()}")
+        # Start full classification in parallel with RAG and Persona
+        classification_task = asyncio.create_task(query_classifier.classify(msg.content))
+        
+        log_info(f"Fast-path classification: {fast_category.upper()}")
 
         # Start typing indicator
         asyncio.create_task(send_typing_feedback(msg.channel, msg.content))
@@ -1521,8 +1524,8 @@ async def on_message(msg: discord.Message):
         performance_monitor.start_timer('retrieval')
         persona_task = asyncio.create_task(load_persona_async())
         
-        # Check if this is a news query
-        is_news_query = any(word in clean_query.lower() for word in ['news', 'latest', 'update', 'happening', 'today'])
+        # Check if this is a news query (Use fast_category if available)
+        is_news_query = (fast_category == 'news') or any(word in clean_query.lower() for word in ['news', 'latest', 'update', 'happening', 'today'])
         
         if is_news_query:
             log_info("Detected news query - activating enhanced retrieval")
@@ -1546,7 +1549,7 @@ async def on_message(msg: discord.Message):
                 user_id=target_user_id, 
                 user_name=target_user_name, 
                 top_k=config.rag_top_k,
-                strict_identity=(category in ["IDENTITY", "SELF", "WHOAMI"])
+                strict_identity=(fast_category in ["identity", "self", "whoami", "entity"])
             ))
             
             # News Query Expansion (Legacy fallback)
@@ -1654,6 +1657,18 @@ async def on_message(msg: discord.Message):
         system_prompt += f"\n\nToday is {current_time_str}."
         
         # 3. CONTEXT OPTIMIZATION
+        # Wait for full classification to finish (if not already done)
+        try:
+            # We already have fast_category as a fallback
+            category = await asyncio.wait_for(classification_task, timeout=5.0)
+            log_info(f"Full classification result: {category.upper()}")
+        except asyncio.TimeoutError:
+            log_warning(f"Full classification timed out, using fast-path: {fast_category.upper()}")
+            category = fast_category
+        except Exception as e:
+            log_error(f"Classification task failed: {e}, using fast-path: {fast_category.upper()}")
+            category = fast_category
+
         optimized_context = context_optimizer.optimize_context(
             category, 
             system_prompt, 
