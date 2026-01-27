@@ -9,15 +9,13 @@ Kaia uses an enhanced caching system to provide near-instant responses while pre
 - **Adaptive Expiry**: News-related queries expire in 24 hours, while general queries last for 7 days.
 - **Bypass**: Identity-related queries (e.g., "who are you") automatically bypass the cache.
 
-## 2. Query Classification
-Before processing a query, Kaia's `QueryClassifier` (using Ollama) categorizes the intent:
-- **IDENTITY**: Questions about Kaia's self or the user's identity.
-- **KNOWLEDGE**: Factual questions requiring RAG retrieval.
-- **CASUAL**: General chat.
-- **VISION**: Queries related to image analysis.
-- **IMAGE_GEN**: Requests to generate images.
+## 2. Query Classification (Consolidated)
+Before processing a query, Kaia's consolidated `QueryClassifier` categorizes the intent using a hybrid approach:
+- **Rule-Based (Fast)**: Uses regex patterns for instant classification of common intents (Greetings, Identity, News, Commands).
+- **Model-Based (Accurate)**: Falls back to the main LLM (`gemma3:12b`) for complex queries, with a **5.0s timeout protection** to prevent hanging.
+- **Categories**: GREETING, IDENTITY, NEWS, POLITICS, TECH, SECURITY, COMMAND, GENERAL, KNOWLEDGE, PERSONAL, CASUAL.
 
-This classification allows the bot to optimize retrieval (e.g., using `strict_identity` for identity queries) and choose the best system prompt.
+This classification allows the bot to optimize retrieval (e.g., using `strict_identity` for identity queries) and choose the best system prompt or news category.
 
 ## 3. Context Optimization
 The `ContextOptimizer` dynamically manages the limited context window of the LLM:

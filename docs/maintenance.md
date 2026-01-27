@@ -53,3 +53,25 @@ This directory contains scripts for maintaining, debugging, and fixing the Kaiac
 
 ## Archived Tools (tools/legacy/)
 One-time fix scripts and deprecated tools are stored in `tools/legacy/`. These are kept for reference but should not be used in normal operation.
+
+---
+
+## Operational Notes
+
+### Log Deduplication
+The `unified_logging.py` system implements a 60-second deduplication window for `DEBUG`-level maintenance messages (containing "refresh", "watcher", or "maintenance"). This prevents log spam during idle periods.
+
+### Idle Log Behavior
+During idle:
+- **RAG refresh**: Logs "No new documents to index." at `DEBUG` level.
+- **Memory audit**: Logs only if RSS changes by ≥50MB or cache size changes. Otherwise, logs at `DEBUG`.
+- **Cold state persistence**: Only logs if the state hash changes.
+
+### Terminal UI Notes
+| Status | Condition |
+| :--- | :--- |
+| `unloaded (idle)` | GPU VRAM < 2GB |
+| `warming` | GPU VRAM 2-6GB |
+| `loaded (active)` | GPU VRAM > 6GB |
+| `0 (idle)` | No active users in the last 15 minutes |
+

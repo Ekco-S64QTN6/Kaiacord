@@ -1,25 +1,51 @@
 #!/usr/bin/env python3
 """
 Script to refresh and populate news database
-Run periodically via cron: */30 * * * * cd /path/to/Kaiacord && python scripts/refresh_news.py
+Run periodically via cron: */30 * * * * cd /path/to/Kaiacord && python tools/refresh_news.py
 """
 
 import asyncio
 import sys
 import os
 import json
-from datetime import datetime
+import subprocess
+from datetime import datetime, timedelta
 
 # Add project root to path
 sys.path.append(os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
 
-from utils.enhanced_news_integration import EnhancedNewsHandler
+from utils.kaia_news import NewsManager
 
-async def refresh_news():
-    """Refresh all news categories"""
+async def refresh_news(force_update=False):
+    """Refresh all news categories and trigger update if needed"""
     print(f"🔄 Refreshing news at {datetime.now()}")
     
-    handler = EnhancedNewsHandler()
+    manager = NewsManager()
+    
+    # Check if we have recent news
+    total_items = sum(len(v) for v in manager.news_cache.values())
+    
+    # If no news or force_update, run the update script
+    if total_items == 0 or force_update:
+        print("⚠️ No news found or update forced. Triggering update_kaia_news.py...")
+        try:
+            # Run update_kaia_news.py
+            process = subprocess.run(
+                [sys.executable, "tools/update_kaia_news.py"],
+                capture_output=True,
+                text=True,
+                check=True
+            )
+            print("✅ Update script completed successfully.")
+            # Re-initialize manager to pick up new files
+            manager = NewsManager()
+            total_items = sum(len(v) for v in manager.news_cache.values())
+        except subprocess.CalledProcessError as e:
+            print(f"❌ Update script failed: {e.stderr}")
+        except Exception as e:
+            print(f"❌ Error running update script: {e}")
+
+    print(f"📰 Loaded {total_items} news items across categories")
     
     categories = [
         "technology",
@@ -30,47 +56,17 @@ async def refresh_news():
         "general"
     ]
     
-    all_news = {}
-    
     for category in categories:
-        print(f"  📰 Fetching {category} news...")
-        try:
-            news = await handler.fetch_news(category, limit=10)
-            all_news[category] = news
-            print(f"    ✅ Got {len(news) if isinstance(news, list) else 1} items")
-        except Exception as e:
-            print(f"    ❌ Error: {e}")
-    
-    # Save to knowledge base
-    output_dir = "./knowledge_base/news/daily"
-    os.makedirs(output_dir, exist_ok=True)
-    
-    timestamp = datetime.now().strftime("%Y%m%d_%H%M")
-    output_file = os.path.join(output_dir, f"news_{timestamp}.json")
-    
-    with open(output_file, 'w') as f:
-        json.dump({
-            "timestamp": timestamp,
-            "categories": all_news
-        }, f, indent=2)
-    
-    print(f"💾 Saved to {output_file}")
-    
-    # Keep only last 7 days of files
-    cleanup_old_files(output_dir, days=7)
+        news = manager.get_news(category=category, limit=10)
+        count = len(news) if isinstance(news, list) else 0
+        print(f"  📰 {category}: {count} items")
     
     print("✅ News refresh complete")
 
-def cleanup_old_files(directory, days=7):
-    """Clean up old news files"""
-    import time
-    cutoff = time.time() - (days * 86400)
-    
-    for filename in os.listdir(directory):
-        filepath = os.path.join(directory, filename)
-        if os.path.getmtime(filepath) < cutoff:
-            os.remove(filepath)
-            print(f"  🗑️ Removed old file: {filename}")
-
 if __name__ == "__main__":
-    asyncio.run(refresh_news())
+    import argparse
+    parser = argparse.ArgumentParser(description="Refresh Kaia's news database")
+    parser.add_argument("--force", action="store_true", help="Force a fresh news update")
+    args = parser.parse_args()
+    
+    asyncio.run(refresh_news(force_update=args.force))

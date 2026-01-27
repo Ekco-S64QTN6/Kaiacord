@@ -154,3 +154,67 @@ The longer Kaia goes without interaction, the LESS likely she is to quip (as req
 - `/home/ekco/github/Kaiacord/kaia_vision.py` - Vision module type hints
 - `/home/ekco/github/Kaiacord/generate_user_profiles.py` - User profiling logic
 - `/home/ekco/github/Kaiacord/relationship_tracker.py` - Social bonding metrics
+
+---
+
+### 8. Filter Safety Net & Bug Fixes (2026-01-24) ✅
+**Problem**: Aggressive security filters were stripping valid LLM responses entirely, causing Kaia to send empty or "..." fallback responses.
+
+**Root Cause**: 
+- `BoilerplateDetector` matched patterns like "yeah. what's up?" as boilerplate and stripped the entire response.
+- `HallucinationDetector`, `EmergencyContaminationFilter`, and `clean_response_for_discord` all lacked safety nets.
+
+**Solution**:
+All filters now implement a **critical safety net**: if cleaning/filtering would result in an empty response, they return the original unchanged.
+
+**Additional Fixes**:
+- Removed duplicate `channel_memory.append()` line that was doubling assistant messages.
+- Added missing `import time` in `kaia_vision.py`.
+- Increased query classification timeout from 2.0s to 5.0s.
+- Reduced default `num_ctx` from 16384 to 8192 for better performance.
+
+**Files Modified**:
+- `utils/boilerplate_detector.py` - Never return empty
+- `utils/kaia_rag.py` - HallucinationDetector never returns empty
+- `Kaiacord.py` - EmergencyContaminationFilter and clean_response_for_discord never return empty
+- `utils/kaia_vision.py` - Added missing `import time`
+- `utils/gpu_manager.py` - Reduced num_ctx for performance
+
+---
+
+### 9. Architectural Consolidation & Cleanup (2026-01-25) ✅
+**Problem**: Fragmented utility files for news and intelligence led to redundancy and maintenance overhead.
+
+**Solution**:
+- **Intelligence Layer**: Merged `FixedQueryClassifier` into `kaia_intelligence.py` and replaced the old `QueryClassifier`.
+- **News Layer**: Consolidated `fast_news.py`, `enhanced_news_integration.py`, and `proper_news_reader.py` into a unified `NewsManager` in `kaia_news.py`.
+- **Logging**: Enabled active bot logging to `logs/kaiacord.log` and Ollama interaction logging to `logs/ollama_client.log`.
+- **Cleanup**: Removed redundant utility files and empty log folders.
+
+**Files Modified**:
+- `utils/kaia_intelligence.py` - Consolidated intelligence layer
+- `utils/kaia_news.py` - Consolidated news manager
+- `utils/unified_logging.py` - Active file logging
+- `Kaiacord.py` - Updated to use consolidated utilities
+- `README.md` & `docs/` - Updated documentation
+
+### 10. News System & Rate Limiter Refinement (2026-01-25) ✅
+**Problem**: 
+- `RateLimiter` crashed with `KeyError` for new users after a cleanup cycle.
+- `NewsManager` incorrectly stringified structured news data (JSON).
+- News category detection was inaccurate (e.g., "daily" -> "technology").
+- News responses included unnecessary commentary and metadata (SOURCES).
+
+**Solution**:
+- **Rate Limiter**: Fixed `cleanup` to use `del` instead of reassigning the `defaultdict`, preserving its type.
+- **News Parsing**: Implemented intelligent extraction for structured news items (JSON/YAML).
+- **Category Detection**: Updated to use regex with word boundaries (`\b`) to prevent false positives.
+- **Data Quality**: Updated the parser to skip metadata sections like `SOURCES`, `FAILURE_METRICS`, and `EXECUTIVE_SUMMARY`.
+- **Formatting**: Removed opening/closing commentary and added a standardized category options footer.
+- **Generation**: Updated `update_kaia_news.py` to explicitly generate culture and society sections.
+
+**Files Modified**:
+- `Kaiacord.py` - Rate limiter fix, category detection, formatting
+- `utils/kaia_news.py` - Improved parsing, category mapping, fallback logic
+- `tools/update_kaia_news.py` - Improved generation prompt
+- `docs/DAILY_NEWS_UPDATER.md` & `README.md` - Updated documentation

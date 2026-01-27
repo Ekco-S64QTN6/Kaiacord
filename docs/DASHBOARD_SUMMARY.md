@@ -36,18 +36,19 @@ The new dashboard provides a real-time, high-performance terminal interface for 
 
 ## 🛠️ Technical Implementation
 
-### `utils/btop_dashboard.py`
-The core dashboard logic, handling rendering, metrics collection, and input processing. It uses a `TerminalManager` to interact with the TTY.
+### Curses Dashboard (Primary): `utils/btop_dashboard_v2.py`
+The production curses dashboard uses snapshot-based rendering and a pane-based layout. It runs in curses' alternate screen buffer.
 
-### `utils/terminal_manager.py`
-A low-level utility class that manages:
-- Raw mode switching
-- Alternate screen buffer (enter/exit)
-- Cursor visibility
-- Signal handling (SIGINT, SIGTERM)
+### ANSI Dashboard (Legacy): `utils/btop_dashboard_legacy.py`
+The legacy ANSI fallback is preserved for terminals that don't support curses.
 
-### `BtopLoggingPatcher`
-Intercepts Python's `print` statements and redirects them to the dashboard's log buffer while stripping ANSI codes for clean display. It also implements intelligent duplicate detection.
+### `utils/stats_poller.py` & `utils/stats_tracker.py`
+Authoritative sources for GPU metrics and user activity:
+- **Model Status**: Derived from VRAM thresholds (<2GB = idle, 2-6GB = warming, >6GB = loaded).
+- **Active Users**: Counted via a 15-minute sliding window.
+
+### `BtopLoggingPatcher` (Deprecated)
+Log interception is now handled by `unified_logging.py` which provides built-in deduplication.
 
 ## 🐛 Recent Fixes
 - **Scrolling Fix**: Implemented alternate screen buffer to prevent terminal history pollution.

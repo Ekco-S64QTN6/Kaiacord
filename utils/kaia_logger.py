@@ -124,6 +124,11 @@ def log_info(message):
     global_logger.log(message, "INFO")
 
 
+def log_debug(message):
+    """Log debug messages."""
+    global_logger.log(message, "DEBUG")
+
+
 def log_separator():
     """Print a horizontal separator line."""
     # Separators are visual clutter in dashboard logs, so we might skip them

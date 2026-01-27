@@ -85,6 +85,54 @@ class RealTimeStatsPoller:
             if self.response_times:
                 self.stats['avg_response_time'] = sum(self.response_times) / len(self.response_times)
                 
+            # Update Ollama status and active model
+            try:
+                import ollama
+                # Check if Ollama is responsive and get running models
+                models_info = ollama.ps()
+                if hasattr(models_info, 'models'):
+                    running_models = models_info.models
+                else:
+                    running_models = models_info.get('models', [])
+                
+                if running_models:
+                    self.stats['ollama_status'] = "🟢 ONLINE"
+                    # Get the first running model name
+                    model = running_models[0]
+                    model_name = "Unknown"
+                    if hasattr(model, 'model'):
+                        model_name = model.model
+                    elif isinstance(model, dict):
+                        model_name = model.get('model', 'Unknown')
+                    else:
+                        model_name = str(model)
+                    
+                    # VRAM-based status correction
+                    # < 2 GB -> unloaded (idle)
+                    # 2-6 GB -> warming
+                    # > 6 GB -> loaded (active)
+                    try:
+                        mem_used = 0
+                        if '/' in self.stats['gpu_memory']:
+                            mem_used = int(self.stats['gpu_memory'].split('/')[0])
+                        
+                        if mem_used < 2048: # Less than 2GB
+                            self.stats['active_model'] = f"unloaded (idle)"
+                        elif mem_used < 6144: # 2-6GB
+                            self.stats['active_model'] = f"warming"
+                        else:
+                            self.stats['active_model'] = model_name
+                    except:
+                        self.stats['active_model'] = model_name
+                else:
+                    # Check if service is up even if no model is loaded
+                    ollama.list()
+                    self.stats['ollama_status'] = "🟢 ONLINE"
+                    self.stats['active_model'] = "unloaded (idle)"
+            except Exception:
+                self.stats['ollama_status'] = "🔴 OFFLINE"
+                self.stats['active_model'] = "None"
+                
             self.stats['last_update'] = time.time()
             
     def record_response_time(self, response_time_seconds):

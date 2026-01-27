@@ -53,6 +53,17 @@ class OllamaGPUManager:
         self.model_name = model_name
         self.gpu_available = GPUMonitor.is_gpu_available()
         
+    @staticmethod
+    async def unload_model(ollama_client, model_name: str):
+        """Unload a model from Ollama to free VRAM"""
+        try:
+            print(f"🔄 Unloading model: {model_name}")
+            await ollama_client.generate(model=model_name, keep_alive=0)
+            return True
+        except Exception as e:
+            print(f"⚠️  Failed to unload model {model_name}: {e}")
+            return False
+
     async def ensure_gpu_loading(self, ollama_client):
         """Ensure model loads on GPU with proper parameters"""
         if not self.gpu_available:
@@ -62,13 +73,17 @@ class OllamaGPUManager:
         try:
             # Force GPU load with specific settings
             gpu_options = {
-                'num_gpu': 100,  # Offload all layers (clamped by model depth)
+                'num_gpu': -1,  # Offload all layers (clamped by model depth)
                 'num_thread': 4,
                 'main_gpu': 0,
                 'num_ctx': 4096,
                 'num_batch': 512,
             }
             
+            # Check if client is closed
+            if hasattr(ollama_client, '_client') and ollama_client._client.is_closed:
+                return False
+
             print("🔄 Testing GPU model load...")
             test_response = await ollama_client.chat(
                 model=self.model_name,
@@ -89,6 +104,19 @@ class OllamaGPUManager:
         except Exception as e:
             print(f"❌ GPU load test failed: {e}")
             return False
+
+    async def load_only(self, ollama_client):
+        """Trigger a model load without a full chat test"""
+        if not self.gpu_available:
+            return False
+        try:
+            print(f"🔄 Triggering GPU load for {self.model_name}...")
+            # Using generate with empty prompt and long keep_alive to trigger load
+            await ollama_client.generate(model=self.model_name, prompt="", keep_alive=3600)
+            return True
+        except Exception as e:
+            print(f"❌ GPU load failed: {e}")
+            return False
     
     def get_gpu_options(self, for_chat: bool = True) -> Dict[str, Any]:
         """Get optimal GPU options based on context"""
@@ -99,11 +127,11 @@ class OllamaGPUManager:
         
         if self.gpu_available:
             base_options['main_gpu'] = 0
-            base_options['num_gpu'] = 100
+            base_options['num_gpu'] = -1
         
         if for_chat:
             base_options.update({
-                'num_ctx': 4096,
+                'num_ctx': 8192, # Balanced for context and performance
                 'num_batch': 512,
                 'num_predict': -1,
                 'temperature': 0.7,

@@ -9,9 +9,8 @@ Core utility modules used by Kaiacord.
 | `kaia_rag.py` | Retrieval-Augmented Generation system, vector indexing, and hallucination detection |
 | `kaia_image.py` | Image generation with FLUX.1-schnell |
 | `kaia_vision.py` | Image analysis with llama3.2-vision |
-| `kaia_news.py` | News retrieval and enhancement |
-| `kaia_intelligence.py` | Semantic cache, context optimization, personalization |
-| `kaia_intelligence_fixed.py` | Fixed query classifier |
+| `kaia_news.py` | Unified News Manager (Consolidated) - news scanning, parsing, and retrieval |
+| `kaia_intelligence.py` | Intelligence Layer: Semantic cache, context optimization, personalization, and Query Classifier (Consolidated) |
 
 ## Infrastructure
 
@@ -39,11 +38,3 @@ Core utility modules used by Kaiacord.
 | `gpu_manager.py` | GPU management for Ollama |
 | `clear_gpu_memory.py` | GPU memory cleanup |
 | `shutdown_fixed.py` | Graceful shutdown handling |
-
-## News System
-
-| Module | Purpose |
-|--------|---------|
-| `fast_news.py` | Fast news retrieval |
-| `enhanced_news_integration.py` | Enhanced news handler |
-| `news_debug.py` | News pipeline debugging |

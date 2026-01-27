@@ -71,7 +71,12 @@ Use this RAG-optimized structure:
 - Trade: Chip bans, export controls, sanctions (US/China)
 - Internet Freedom: Shutdowns, censorship, surveillance laws
 
-## GENERAL_TECH_AND_SOCIETY
+## CULTURE_AND_ENTERTAINMENT
+- Entertainment: Movie/TV releases, gaming news, celebrity tech impact
+- Trends: Internet memes, viral challenges, digital subcultures
+- Events: Concerts, art exhibitions, cultural festivals
+
+## TECH_AND_SOCIETY
 - Social Media: Platform changes (X/Twitter, Reddit, Bluesky), moderation scandals
 - Crypto/Finance: Major hacks, regulatory crackdowns, ETF news
 - Science: Space launches (SpaceX), breakthrough physics/bio
@@ -221,6 +226,17 @@ RULES:
         # First, backfill missing news
         self.backfill_week()
         
+        # Check if today's news already exists (prevent duplicate regeneration)
+        today_filename = f"news_brief_{self.today.replace('-', '')}.md"
+        today_filepath = self.knowledge_dir / today_filename
+        
+        if today_filepath.exists():
+            print(f"\n✅ Today's news ({self.today}) already exists at {today_filepath}")
+            print("   Skipping generation. Delete the file to force regeneration.")
+            # Still clean old files to maintain retention
+            self.clean_old_briefs()
+            return
+        
         print(f"\n📰 Generating daily news brief for {self.today}...")
         
         try:
@@ -230,6 +246,12 @@ RULES:
             
             # Save to knowledge base
             self.save_to_knowledge_base(brief)
+            
+            # Verify file was actually saved
+            if today_filepath.exists():
+                print(f"✓ Verified: {today_filepath} exists ({today_filepath.stat().st_size} bytes)")
+            else:
+                print(f"⚠️ WARNING: File {today_filepath} was not saved!")
             
             # Clean old files
             self.clean_old_briefs()

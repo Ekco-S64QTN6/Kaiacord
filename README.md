@@ -42,16 +42,20 @@
 | **Nuclear Reset** | Automated process to purge persistent hallucinations from all systems. |
 | **Strict Identity Filtering** | Enforces source-specific retrieval for identity-related queries. |
 
-### 🎨 Multimodal Capabilities
+### 🎨 Multimodal & Information Layer
 *   **Image Generation** – `kaia draw <prompt>` generates images locally with FLUX.1-schnell.
 *   **Image Vision & Analysis** – Upload images for analysis using `llama3.2-vision`.
+*   **Daily News System** – Automated technical briefs across multiple categories:
+    - `technology`, `politics`, `business`, `security`, `science`, `culture`, `hacker`.
+    - ⚠️ **Note**: Automatic news injection is disabled by default. Use `!news` to fetch briefs manually.
 *   **Automatic VRAM Management** – Unloads Ollama models during image generation to prevent OOM.
 
 ### ⚡ Performance & Architecture
 *   **Non-Blocking RAG** – Dedicated thread pool keeps the Discord event loop responsive.
 *   **Concurrency Control** – Semaphore-based image generation prevents VRAM conflicts.
-*   **Circuit Breakers** – Gracefully handles failures in external services (e.g., PDF conversion).
-*   **Improved Semantic Cache** – Date-aware caching with keyword blacklisting to prevent stale data.
+*   **Circuit Breakers** – Gracefully handles failures in external services.
+*   **Improved Semantic Cache** – Date-aware caching with keyword blacklisting.
+*   **Rate Limiting** – Per-user rate limiting to prevent abuse and ensure stability.
 
 ---
 
@@ -98,22 +102,23 @@ Kaiacord/
 │   ├── kaia_rag.py          # RAG System
 │   ├── kaia_image.py        # Image Generation
 │   ├── kaia_vision.py       # Vision System
-│   ├── kaia_news.py         # News Retrieval & Enhancement
+│   ├── kaia_news.py         # Unified News Manager (Consolidated)
 │   ├── gpu_manager.py       # GPU Management
 │   ├── btop_dashboard.py    # Btop-style Dashboard
-│   ├── boilerplate_detector.py # Response cleaning
+│   ├── kaia_intelligence.py # Intelligence Layer (Consolidated)
+│   ├── btop_dashboard_legacy.py  # Legacy ANSI Dashboard (fallback)
+│   ├── btop_dashboard_v2.py  # Curses Dashboard (primary)
 │   └── unified_logging.py   # Logging infrastructure
 ├── knowledge_base/          # Local knowledge storage
+│   ├── news/                # Structured news storage
+│   │   └── daily/           # Daily briefs and summaries
 │   ├── user_logs/           # Per-user interaction logs
-│   └── corrupt_files/       # Quarantined problematic files
+│   └── user_profiles/       # Generated user profiles
 ├── storage/                 # Persistent data
 │   └── semantic_cache.json  # Semantic Cache
 ├── tools/                   # Maintenance & diagnostics
-│   ├── proper_fix.py        # Surgical boilerplate/hallucination fix
-│   ├── nuclear_reset.py     # Complete system purge
-│   ├── find_contamination.py # Hallucination detection
 │   ├── update_kaia_news.py  # Daily news updater
-│   └── legacy/              # Archived/unused code
+│   └── nuclear_reset.py     # Complete system purge
 ├── tests/                   # Test utilities & verification
 ├── logs/                    # System logs
 └── docs/                    # Detailed documentation
@@ -131,6 +136,13 @@ Kaiacord/
 > **User**: @kaia remember that I prefer dark mode
 >
 > **Kaia**: ```Logged it.```
+
+### 📰 News Retrieval (Manual Only)
+> **User**: !news technology
+>
+> **Kaia**: *(Placeholder response while the system is being refined.)*
+>
+> **Note**: Automatic news injection is disabled. Future versions will support `!news [category]`.
 
 ### 🖼️ Image Generation & Analysis
 > **User**: kaia draw a cyberpunk cityscape

@@ -5,6 +5,9 @@ from collections import defaultdict
 import re
 import random
 import hashlib
+import os
+import yaml
+from pathlib import Path
 
 # --- NEW FUNCTIONS FOR DIVERSITY ---
 def get_diverse_news_topics():
@@ -122,6 +125,204 @@ def get_news_summary(category=None):
     return generate_news_summary(category)
 
 # --- END NEW FUNCTIONS ---
+
+class NewsManager:
+    """Unified news manager for scanning, parsing, and retrieving news (Consolidated)"""
+    
+    def __init__(self, base_path="./knowledge_base/news"):
+        self.base_path = Path(base_path)
+        self.news_cache = defaultdict(list)
+        self.last_refresh = None
+        self.categories = {
+            "technology": ["ai", "tech", "software", "hardware", "internet", "cyber", "digital", "chip", "tsmc", "nvidia"],
+            "politics": ["election", "government", "policy", "senate", "congress", "president", "diplomatic", "legislation"],
+            "business": ["market", "stock", "economy", "company", "corporate", "financial", "merger", "acquisition"],
+            "security": ["hack", "breach", "cyber", "attack", "vulnerability", "cve", "ransomware", "exploit", "patch"],
+            "science": ["research", "discovery", "study", "scientific", "breakthrough", "medical", "space", "astronomy"],
+            "culture": ["movie", "tv", "celebrity", "music", "game", "art", "book", "fashion", "travel", "entertainment", "society", "trend"],
+            "hacker": ["lapsus", "anonymous", "apt", "manifesto", "defcon", "blackhat", "ctf", "hacker", "cyberwarfare"]
+        }
+        self._ensure_base_path()
+        self.refresh()
+
+    def _ensure_base_path(self):
+        """Ensure the news directory exists"""
+        if not self.base_path.exists():
+            self.base_path.mkdir(parents=True, exist_ok=True)
+            (self.base_path / "daily").mkdir(exist_ok=True)
+
+    def refresh(self):
+        """Scan and parse all news files"""
+        self.news_cache.clear()
+        
+        # Scan all supported files in the news directory recursively
+        for ext in ["*.md", "*.json", "*.yaml", "*.yml"]:
+            for file_path in self.base_path.rglob(ext):
+                try:
+                    if ext == "*.md":
+                        self._parse_md_file(file_path)
+                    elif ext == "*.json":
+                        with open(file_path, 'r') as f:
+                            data = json.load(f)
+                            self._cache_structured_data(data, str(file_path))
+                    else: # yaml/yml
+                        with open(file_path, 'r') as f:
+                            data = yaml.safe_load(f)
+                            self._cache_structured_data(data, str(file_path))
+                except Exception as e:
+                    # Use print here as logger might not be initialized or passed
+                    print(f"⚠️ Error parsing {file_path}: {e}")
+        
+        self.last_refresh = datetime.now()
+
+    def _parse_md_file(self, file_path: Path):
+        """Parse markdown news file"""
+        with open(file_path, 'r') as f:
+            content = f.read()
+        
+        # Extract date from filename or content
+        date_match = re.search(r'(\d{4}-\d{2}-\d{2})', file_path.name)
+        date = date_match.group(1) if date_match else datetime.now().strftime("%Y-%m-%d")
+        
+        current_section = None
+        current_items = []
+        
+        for line in content.split('\n'):
+            if line.startswith('## '):
+                if current_section:
+                    self._add_to_cache(current_section, current_items, date, str(file_path))
+                current_section = line[3:].strip()
+                
+                # Skip irrelevant sections
+                if current_section.upper() in ['SOURCES', 'FAILURE_METRICS', 'QUOTES', 'EXECUTIVE_SUMMARY', 'HEADLINES']:
+                    current_section = None
+                    
+                current_items = []
+            elif line.startswith('- ') and current_section:
+                current_items.append(line[2:].strip())
+        
+        if current_section and current_items:
+            self._add_to_cache(current_section, current_items, date, str(file_path))
+
+    def _cache_structured_data(self, data: Dict, source: str):
+        """Cache JSON/YAML news data"""
+        if not isinstance(data, dict): return
+        
+        # Handle different common structures
+        if 'categories' in data:
+            for cat, items in data['categories'].items():
+                self._add_to_cache(cat, items, data.get('date'), source)
+        elif 'items' in data:
+            for item in data['items']:
+                if isinstance(item, dict) and 'category' in item and 'items' in item:
+                    self._add_to_cache(item['category'], item['items'], data.get('date'), source)
+                else:
+                    self._add_to_cache('general', [item], data.get('date'), source)
+        else:
+            # Direct category mapping
+            for cat, items in data.items():
+                if isinstance(items, list):
+                    self._add_to_cache(cat, items, None, source)
+
+    def _add_to_cache(self, section: str, items: List, date: str = None, source: str = None):
+        """Add items to cache with category mapping"""
+        category = self._map_to_category(section)
+        if not category:
+            return
+            
+        for item in items:
+            text = ""
+            item_date = date
+            
+            if isinstance(item, dict):
+                # Try to find content in common keys
+                text = item.get('text') or item.get('summary') or item.get('title') or item.get('content') or str(item)
+                item_date = item.get('date') or item_date
+            else:
+                text = str(item)
+            
+            # DEDUPLICATION: Check if this text already exists in this category
+            if any(existing['text'] == text for existing in self.news_cache[category]):
+                continue
+                
+            self.news_cache[category].append({
+                'text': text,
+                'date': item_date or datetime.now().strftime("%Y-%m-%d"),
+                'source': source or 'Unknown',
+                'original_section': section
+            })
+
+    def _map_to_category(self, section: str) -> str:
+        """Map a section name or text to a known category"""
+        section_upper = section.upper()
+        if section_upper in ['SOURCES', 'FAILURE_METRICS', 'QUOTES', 'EXECUTIVE_SUMMARY', 'HEADLINES']:
+            return None
+            
+        section_lower = section.lower()
+        
+        # Prioritize hacker if mentioned
+        if 'hacker' in section_lower or 'cyberwarfare' in section_lower:
+            return 'hacker'
+            
+        # Prioritize culture if explicitly mentioned in section name (and not hacker)
+        if 'culture' in section_lower or 'entertainment' in section_lower:
+            return 'culture'
+            
+        # Society can be general or culture depending on context, but let's map it to general if it has tech
+        if 'society' in section_lower:
+            if 'tech' in section_lower:
+                return 'technology'
+            return 'general'
+            
+        for cat, keywords in self.categories.items():
+            if cat in section_lower or any(kw in section_lower for kw in keywords):
+                return cat
+        return 'general'
+
+    def get_news(self, category: str = None, limit: int = 5) -> List[Dict]:
+        """Retrieve news items, falling back to generated news if empty"""
+        # Refresh if stale (5 mins)
+        if not self.last_refresh or (datetime.now() - self.last_refresh).seconds > 300:
+            self.refresh()
+            
+        category_lower = (category or 'general').lower()
+        
+        # Find best matching category
+        matched_cat = None
+        
+        # Check if it matches a known category first
+        for cat in self.categories.keys():
+            if cat in category_lower or category_lower in cat:
+                matched_cat = cat
+                break
+        
+        if not matched_cat:
+            matched_cat = 'general'
+        
+        items = self.news_cache.get(matched_cat, [])
+        
+        # NO FALLBACK to general if a specific category was requested
+        if not items:
+            return []
+
+        # If still no items, generate some diverse news as fallback
+        if not items:
+            generated = generate_news_summary(category)
+            return [{
+                'text': generated['summary'],
+                'date': datetime.now().strftime("%Y-%m-%d"),
+                'source': 'Kaia Intelligence',
+                'category': generated['category'],
+                'topic': generated['topic']
+            }]
+
+        # Sort by date descending
+        items.sort(key=lambda x: x.get('date', ''), reverse=True)
+        
+        # Random sample if we have many
+        if len(items) > limit * 2:
+            return random.sample(items[:limit*2], limit)
+        return items[:limit]
 
 class NewsRetrievalEnhancer:
     """Advanced news retrieval system for Kaia"""

@@ -1,6 +1,8 @@
+import os
 import sys
 import time
 import threading
+import logging
 from datetime import datetime
 from collections import OrderedDict, deque
 
@@ -15,6 +17,9 @@ class UnifiedLogger:
         self.last_message_time = 0
         self.duplicate_window = 0.05  # 50ms window
         self.dashboard_mode = False
+        self.log_file = "logs/kaiacord.log"
+        self._ensure_log_dir()
+        self.debug_dedup = {}  # (message_hash): timestamp
         
         # Color codes for terminal
         self.colors = {
@@ -27,6 +32,10 @@ class UnifiedLogger:
             'BOLD': '\033[1m'
         }
         
+    def _ensure_log_dir(self):
+        """Ensure the logs directory exists"""
+        os.makedirs(os.path.dirname(self.log_file), exist_ok=True)
+
     def set_dashboard_mode(self, enabled: bool):
         """Enable/disable dashboard mode (suppresses stdout)"""
         self.dashboard_mode = enabled
@@ -50,9 +59,37 @@ class UnifiedLogger:
             
             return True
     
+    def _is_debug_duplicate(self, message, log_type):
+        """Check if this is a repeating maintenance debug message"""
+        if log_type != "DEBUG":
+            return False
+            
+        msg_lower = message.lower()
+        if not any(kw in msg_lower for kw in ["refresh", "watcher", "maintenance"]):
+            return False
+            
+        current_time = time.time()
+        msg_hash = hash(message)
+        
+        with self.lock:
+            if msg_hash in self.debug_dedup:
+                last_time = self.debug_dedup[msg_hash]
+                if current_time - last_time < 60:
+                    return True
+            
+            self.debug_dedup[msg_hash] = current_time
+            # Cleanup old entries occasionally
+            if len(self.debug_dedup) > 100:
+                self.debug_dedup = {k: v for k, v in self.debug_dedup.items() if current_time - v < 60}
+                
+            return False
+    
     def log(self, message, log_type="INFO", source=None):
         """Main logging method - all logs go through here"""
         if not self._should_log(message, log_type):
+            return
+            
+        if self._is_debug_duplicate(message, log_type):
             return
         
         timestamp = datetime.now().strftime("%H:%M:%S")
@@ -74,10 +111,21 @@ class UnifiedLogger:
         # Write to console (once, formatted)
         self._write_to_console(log_entry)
         
+        # Write to file
+        self._write_to_file(log_entry)
+        
         # Update stats if needed
         self._update_stats_from_log(log_entry)
         
         return log_entry
+    
+    def _write_to_file(self, log_entry):
+        """Write log entry to file"""
+        try:
+            with open(self.log_file, "a", encoding="utf-8") as f:
+                f.write(f"[{log_entry['timestamp']}] {log_entry['type']}: {log_entry['message']}\n")
+        except Exception:
+            pass
     
     def _write_to_console(self, log_entry):
         """Write formatted log to console"""
@@ -229,3 +277,15 @@ def replace_all_logging():
     root_logger.setLevel(logging.INFO)
     
     print("✅ Unified logging system initialized")
+
+def log_ollama_interaction(prompt, response):
+    """Log Ollama interactions to a separate file"""
+    try:
+        os.makedirs("logs", exist_ok=True)
+        with open("logs/ollama_client.log", "a", encoding="utf-8") as f:
+            timestamp = datetime.now().strftime("%Y-%m-%d %H:%M:%S")
+            f.write(f"--- {timestamp} ---\n")
+            f.write(f"PROMPT: {str(prompt)[:500]}...\n")
+            f.write(f"RESPONSE: {str(response)[:500]}...\n\n")
+    except Exception:
+        pass

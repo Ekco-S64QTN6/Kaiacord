@@ -3,12 +3,20 @@ import logging
 import aiohttp
 import tempfile
 import os
+import time
 import ollama
 from pathlib import Path
+from PIL import Image
+from typing import Optional
 from utils.kaia_logger import *
+from utils.unified_logging import log_ollama_interaction
 
 # Vision model configuration
 VISION_MODEL = "llama3.2-vision:11b"
+
+# Image optimization settings
+MAX_VISION_SIZE = 1024  # Max dimension for vision processing
+JPEG_QUALITY = 85  # Quality for JPEG conversion
 
 # Create async Ollama client
 ollama_client = ollama.AsyncClient()
@@ -81,6 +89,72 @@ async def download_image(url: str) -> str:
         log_error(f"Error downloading image: {e}")
         raise
 
+def optimize_image_for_vision(image_path: str) -> tuple[str, dict]:
+    """
+    Optimize an image for vision model processing.
+    Resizes large images and converts to JPEG for faster processing.
+    
+    Args:
+        image_path: Path to the original image
+        
+    Returns:
+        Tuple of (optimized_path, stats_dict)
+    """
+    stats = {
+        'original_size': os.path.getsize(image_path),
+        'original_dimensions': None,
+        'optimized_dimensions': None,
+        'was_resized': False,
+        'optimized_size': None
+    }
+    
+    try:
+        with Image.open(image_path) as img:
+            original_width, original_height = img.size
+            stats['original_dimensions'] = (original_width, original_height)
+            
+            # Check if resize needed
+            needs_resize = original_width > MAX_VISION_SIZE or original_height > MAX_VISION_SIZE
+            
+            if needs_resize:
+                # Calculate new dimensions maintaining aspect ratio
+                if original_width > original_height:
+                    new_width = MAX_VISION_SIZE
+                    new_height = int(original_height * (MAX_VISION_SIZE / original_width))
+                else:
+                    new_height = MAX_VISION_SIZE
+                    new_width = int(original_width * (MAX_VISION_SIZE / original_height))
+                
+                log_action(f"Resizing image: {original_width}x{original_height} -> {new_width}x{new_height}")
+                
+                # Resize with high-quality resampling
+                img_resized = img.resize((new_width, new_height), Image.Resampling.LANCZOS)
+                stats['optimized_dimensions'] = (new_width, new_height)
+                stats['was_resized'] = True
+            else:
+                img_resized = img
+                stats['optimized_dimensions'] = (original_width, original_height)
+            
+            # Convert to RGB if necessary (for JPEG compatibility)
+            if img_resized.mode in ('RGBA', 'P', 'LA'):
+                img_resized = img_resized.convert('RGB')
+            
+            # Save as optimized JPEG
+            temp_fd, optimized_path = tempfile.mkstemp(suffix='.jpg')
+            os.close(temp_fd)
+            
+            img_resized.save(optimized_path, 'JPEG', quality=JPEG_QUALITY, optimize=True)
+            stats['optimized_size'] = os.path.getsize(optimized_path)
+            
+            reduction = ((stats['original_size'] - stats['optimized_size']) / stats['original_size']) * 100
+            log_success(f"Image optimized: {stats['original_size']//1024}KB -> {stats['optimized_size']//1024}KB ({reduction:.1f}% reduction)")
+            
+            return optimized_path, stats
+            
+    except Exception as e:
+        log_error(f"Image optimization failed: {e}, using original")
+        return image_path, stats
+
 
 async def analyze_image(image_path: str, prompt: Optional[str] = None) -> str:
     """
@@ -93,9 +167,15 @@ async def analyze_image(image_path: str, prompt: Optional[str] = None) -> str:
     Returns:
         The model's analysis of the image
     """
+    optimized_path = None
     try:
         log_action("Processing vision task...")
         log_file(image_path)
+        
+        # OPTIMIZE IMAGE FIRST - This dramatically speeds up processing
+        optimized_path, stats = optimize_image_for_vision(image_path)
+        if stats['was_resized']:
+            log_info(f"Using optimized image: {stats['optimized_dimensions']}")
         
         # Default prompt if none provided
         if not prompt:
@@ -105,34 +185,77 @@ async def analyze_image(image_path: str, prompt: Optional[str] = None) -> str:
                 "Keep it concise but informative."
             )
         
-        # Read image as bytes
-        with open(image_path, 'rb') as f:
+        # Read optimized image as bytes
+        with open(optimized_path, 'rb') as f:
             image_data = f.read()
         
-        # Call Ollama vision API
-        response = await ollama_client.chat(
-            model=VISION_MODEL,
-            messages=[
-                {
-                    'role': 'user',
-                    'content': prompt,
-                    'images': [image_data]
-                }
-            ],
-            options={
-                "temperature": 0.7,
-                "num_predict": 512,
-                "num_gpu": -1, # Force GPU offload
-            }
-        )
+        # Use GPU Manager for consistent options
+        from utils.gpu_manager import OllamaGPUManager
+        gpu_manager = OllamaGPUManager(VISION_MODEL)
         
-        analysis = response['message']['content'].strip()
-        log_response("Got response:", analysis[:100] + "..." if len(analysis) > 100 else analysis)
-        return analysis
+        # Ensure model is loaded on GPU without a full test chat
+        log_action(f"Ensuring {VISION_MODEL} is loaded on GPU...")
+        await gpu_manager.load_only(ollama_client)
+        
+        gpu_options = gpu_manager.get_gpu_options(for_chat=False)
+        
+        # TIERED TIMEOUT STRATEGY: Try 60s first, then 90s on retry
+        timeouts = [60.0, 90.0]
+        last_error = None
+        
+        for attempt, timeout in enumerate(timeouts, 1):
+            log_action(f"Vision analysis attempt {attempt}/{len(timeouts)} (timeout: {timeout}s)...")
+            start_time = time.time()
+            try:
+                response = await asyncio.wait_for(
+                    ollama_client.chat(
+                        model=VISION_MODEL,
+                        messages=[
+                            {
+                                'role': 'user',
+                                'content': prompt,
+                                'images': [image_data]
+                            }
+                        ],
+                        options=gpu_options
+                    ),
+                    timeout=timeout
+                )
+                end_time = time.time()
+                log_success(f"Vision analysis completed in {end_time - start_time:.2f}s")
+                
+                # Log interaction
+                log_ollama_interaction(prompt, response['message']['content'])
+                
+                analysis = response['message']['content'].strip()
+                log_response("Got response:", analysis[:100] + "..." if len(analysis) > 100 else analysis)
+                return analysis
+                
+            except asyncio.TimeoutError:
+                elapsed = time.time() - start_time
+                log_error(f"Vision attempt {attempt} TIMED OUT after {elapsed:.2f}s")
+                last_error = asyncio.TimeoutError(f"Timed out after {elapsed:.2f}s")
+                if attempt < len(timeouts):
+                    log_action("Retrying with longer timeout...")
+                continue
+            except Exception as e:
+                log_error(f"Vision attempt {attempt} FAILED after {time.time() - start_time:.2f}s: {e}")
+                last_error = e
+                break  # Don't retry on non-timeout errors
+        
+        # All attempts failed
+        raise last_error or Exception("Vision analysis failed")
         
     except Exception as e:
         log_error(f"Error analyzing image: {e}")
         raise
+    finally:
+        # Clean up optimized temp file if different from original
+        if optimized_path and optimized_path != image_path and os.path.exists(optimized_path):
+            try:
+                os.remove(optimized_path)
+            except Exception:
+                pass
 
 
 async def process_discord_image(image_url: str, user_prompt: Optional[str] = None) -> tuple[str, Optional[str]]:
@@ -164,17 +287,30 @@ async def process_discord_image(image_url: str, user_prompt: Optional[str] = Non
         raise
 
 
+async def unload_ollama_models():
+    """Unload the vision model from Ollama to free VRAM"""
+    try:
+        # Sending a request with keep_alive=0 unloads the model
+        # Use a minimal message instead of empty list
+        await ollama_client.chat(
+            model=VISION_MODEL, 
+            messages=[{'role': 'user', 'content': 'unload'}], 
+            keep_alive=0
+        )
+    except Exception:
+        pass
+
+
 async def kaia_sees_image(image_url: str, user_message: str = "") -> str:
     """
     Kaia's vision handler that returns her commentary on an image.
     This integrates with her persona to provide blunt, grounded observations.
     """
     # Import here to avoid circular dependency
-    from kaia_image import generation_lock, unload_ollama_models
+    from utils.kaia_image import generation_lock
     
-    # CHECK: Is Kaia currently busy generating an image?
-    if generation_lock.locked():
-        return "busy rendering something else. ask me later."
+    # VRAM Lock is now managed by the caller (Kaiacord.py)
+    # to ensure chat model is unloaded first.
 
     temp_path = None
     try:

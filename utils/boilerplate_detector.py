@@ -21,14 +21,22 @@ class BoilerplateDetector:
         r"i'm here\. what's on your mind[.?]?$",
         r"listening\. go ahead[.?]?$",
         r"not much to say about that\. anything else[.?]?$",
+        r"what are you building, really[.?]?$",
+        r"what’s it supposed to \*do\*[.?]?$",
+        r"what’s the problem, really[.?]?$",
     ]
     
     @classmethod
     def clean_response(cls, response: str) -> str:
-        """Remove boilerplate questions from the end of responses"""
+        """Remove boilerplate questions from the end of responses.
+        
+        IMPORTANT: Never returns empty string - if stripping would make response
+        empty, return the original response unchanged.
+        """
         if not response:
             return response
         
+        original_response = response
         lines = response.split('\n')
         clean_lines = []
         
@@ -46,25 +54,29 @@ class BoilerplateDetector:
             
             if not is_boilerplate:
                 clean_lines.append(line)
-            else:
-                # Don't add boilerplate lines
-                continue
+            # else: skip the boilerplate line
         
         # Rejoin and strip
         clean_response = '\n'.join(clean_lines).strip()
         
+        # CRITICAL: If cleaning resulted in empty response, return original
+        if not clean_response:
+            return original_response
+        
         # Also check the last line specifically
-        if clean_response:
-            last_line = clean_response.split('\n')[-1].strip()
-            is_last_line_boilerplate = any(
-                re.search(pattern, last_line, re.IGNORECASE)
-                for pattern in cls.BOILERPLATE_ENDINGS
-            )
-            
-            if is_last_line_boilerplate:
-                # Remove the last line
-                lines = clean_response.split('\n')
-                clean_response = '\n'.join(lines[:-1]).strip()
+        last_line = clean_response.split('\n')[-1].strip()
+        is_last_line_boilerplate = any(
+            re.search(pattern, last_line, re.IGNORECASE)
+            for pattern in cls.BOILERPLATE_ENDINGS
+        )
+        
+        if is_last_line_boilerplate:
+            # Remove the last line
+            lines = clean_response.split('\n')
+            potential_clean = '\n'.join(lines[:-1]).strip()
+            # Only remove if there's still content left
+            if potential_clean:
+                clean_response = potential_clean
         
         return clean_response
 

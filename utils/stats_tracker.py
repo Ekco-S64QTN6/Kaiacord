@@ -11,6 +11,7 @@ class StatsTracker:
         self.stats = {
             'users': 0,
             'active_users': set(),
+            'user_last_seen': {}, # user_id -> timestamp
             'messages': 0,
             'queries': 0,
             'response_times': deque(maxlen=100),
@@ -65,6 +66,7 @@ class StatsTracker:
             self.stats['users'] += 1
             if user_id:
                 self.stats['active_users'].add(user_id)
+                self.stats['user_last_seen'][user_id] = time.time()
                 self.stats['active_channels'] = len(self.stats['active_users'])
             self.stats['last_update'] = time.time()
         self.save_stats()
@@ -75,6 +77,7 @@ class StatsTracker:
             self.stats['messages'] += 1
             if user_id:
                 self.stats['interactions_by_user'][user_id] += 1
+                self.stats['user_last_seen'][user_id] = time.time()
                 
                 # Track by hour
                 hour = datetime.now().strftime("%H:00")
@@ -120,8 +123,16 @@ class StatsTracker:
             stats_copy['uptime_minutes'] = (time.time() - stats_copy['uptime_start']) / 60
             stats_copy['uptime_hours'] = stats_copy['uptime_minutes'] / 60
             
-            # Add active user count
-            stats_copy['active_users_count'] = len(stats_copy['active_users'])
+            # Add active user count (users seen in the last 15 minutes)
+            now = time.time()
+            active_window = 15 * 60 # 15 minutes
+            recent_users = [uid for uid, last_seen in self.stats['user_last_seen'].items() 
+                           if now - last_seen < active_window]
+            active_count = len(recent_users)
+            stats_copy['active_users_count'] = active_count
+            
+            # UI display helper
+            stats_copy['active_users_display'] = f"{active_count}" if active_count > 0 else "0 (idle)"
             
             # Calculate messages per minute
             uptime_minutes = max(1, stats_copy['uptime_minutes'])

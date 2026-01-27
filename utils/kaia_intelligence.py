@@ -5,10 +5,12 @@ import numpy as np
 import re
 import json
 import hashlib
+import threading
 from datetime import datetime
 from collections import defaultdict
+from ollama import Client
 from llama_index.embeddings.ollama import OllamaEmbedding
-from utils.kaia_logger import log_info, log_action, log_success, log_error, log_warning
+from utils.kaia_logger import log_info, log_action, log_success, log_error, log_warning, log_debug
 
 class PerformanceMonitor:
     """Track and report system performance metrics."""
@@ -17,6 +19,7 @@ class PerformanceMonitor:
             'cache_hits': 0,
             'cache_misses': 0,
             'exact_hits': 0,
+            'cache_lookup_time': [],
             'classification_time': [],
             'retrieval_time': [],
             'response_time': [],
@@ -29,6 +32,9 @@ class PerformanceMonitor:
     def stop_timer(self, key, metric_name):
         if key in self.start_times:
             duration = (time.time() - self.start_times[key]) * 1000 # ms
+            # Defensive: initialize metric list if it doesn't exist
+            if metric_name not in self.metrics:
+                self.metrics[metric_name] = []
             self.metrics[metric_name].append(duration)
             del self.start_times[key]
             return duration
@@ -47,6 +53,7 @@ class PerformanceMonitor:
         hit_rate = (self.metrics['cache_hits'] / total * 100) if total > 0 else 0
         exact_rate = (self.metrics['exact_hits'] / total * 100) if total > 0 else 0
         
+        avg_cache = np.mean(self.metrics['cache_lookup_time'][-50:]) if self.metrics.get('cache_lookup_time') else 0
         avg_classify = np.mean(self.metrics['classification_time'][-50:]) if self.metrics['classification_time'] else 0
         avg_retrieval = np.mean(self.metrics['retrieval_time'][-50:]) if self.metrics['retrieval_time'] else 0
         avg_response = np.mean(self.metrics['response_time'][-50:]) if self.metrics['response_time'] else 0
@@ -54,6 +61,7 @@ class PerformanceMonitor:
         return (
             f"\n⚡ Kaia 2.0 Performance Report ⚡\n"
             f"Cache Hit Rate: {hit_rate:.1f}% (Exact: {exact_rate:.1f}%)\n"
+            f"Avg Cache Lookup: {avg_cache:.0f}ms\n"
             f"Avg Classification: {avg_classify:.0f}ms\n"
             f"Avg Retrieval: {avg_retrieval:.0f}ms\n"
             f"Avg Response: {avg_response:.0f}ms\n"
@@ -247,66 +255,242 @@ class ModelWarmPool:
                 break
 
 class QueryClassifier:
-    """Hybrid classification: Rules (fast) + Model (accurate)."""
-    def __init__(self, ollama_client, model_name="gemma2:2b"):
-        self.ollama_client = ollama_client
-        self.model_name = model_name
-        self.rules = [
-            (r'^(hi|hello|hey|sup|yo|morning|evening|greetings)', 'casual'),
-            (r'who (am i|is (kaia|you))', 'identity'),
-            (r'(my|your) (name|pronoun|profile|history)', 'identity'),
-            (r'(draw|paint|generate|create).*(image|picture|art)', 'command'),
-            (r'(analyze|look at|describe|what is in).*(image|picture|this)', 'command'), # Routes to vision
-            (r'(do you|can you) remember', 'memory'),
-            (r'what did (i|we) say', 'memory'),
-        ]
+    """Query classifier with timeout and improved performance (Consolidated)"""
     
-    async def classify(self, query):
-        """Classify query using rules first, then model."""
+    def __init__(self, ollama_client=None, model="gemma3:12b", logger=None, host="http://localhost:11434", timeout=5.0):
+        # Note: ollama_client arg kept for compatibility but we create a new sync client for the thread
+        self.model = model
+        self.logger = logger or log_info
+        self.timeout = 5.0 # Restored to 5.0s per user request
+        self.host = host
+        
+        # Create Ollama client with shorter timeout for the synchronous thread
+        self.sync_client = Client(host=host, timeout=timeout)
+        
+        # Use the main model for classification (it's already loaded/hot)
+        self.classification_model = model
+        
+        # Define classification options - Use GPU for speed
+        self.classification_options = {
+            "num_gpu": -1,          # Use all layers (main model is already loaded)
+            "num_thread": 4,
+            "num_ctx": 1024,        # Standard context
+            "temperature": 0.0,     # Deterministic
+            "top_p": 0.9,
+            "top_k": 20,
+            "num_predict": 10       # Stop immediately after category
+        }
+        
+        # Enhanced rule-based patterns (fast, no model needed)
+        self.patterns = {
+            "GREETING": [
+                r"^\s*(hi|hello|hey|greetings|sup|yo)\s*$",
+                r"^\s*(hi|hello|hey)\s+kaia",
+                r"^\s*kaia\s*(hi|hello|hey)"
+            ],
+            "IDENTITY": [
+                r"^\s*(who\s*(are\s*you|am\s*i|is\s*this))\s*[?]?\s*$",
+                r"^\s*tell\s+me\s+about\s+(yourself|you)\s*[?]?\s*$",
+                r"^\s*what\s+are\s+you\s*[?]?\s*$"
+            ],
+            "ENTITY": [  # Entity/identity queries
+                r"^\s*who (is|are|was|were) ",
+                r"^\s*tell me about ",
+                r"^\s*what do you know about ",
+                r"^\s*who the (hell|fuck) is ",
+                r"^\s*who's ",
+                r"^\s*explain ",
+                r"^\s*describe ",
+                r"^\b(mark|elara|thorne|jules|elias)\b"  # Specific names mentioned
+            ],
+            "NEWS": [  # Direct news pattern matching
+                r"news\s+(about|on|regarding)",
+                r"what('?s| is) the (latest|recent|current|today'?s)?\s*news",
+                r"tell\s+me\s+(the\s+)?news",
+                r"any\s+(new|recent)\s+updates",
+                r"what'?s\s+happening",
+                r"current\s+events",
+                r"headlines",
+                r"breaking\s+news"
+            ],
+            "POLITICS": [
+                r"politics|political|election|government|senate|congress",
+                r"president|prime minister|minister|policy|legislation"
+            ],
+            "TECH": [
+                r"tech(nology)?|software|hardware|ai\s+news|llm|gpt",
+                r"openai|google|meta|microsoft|apple|tesla|spacex",
+                r"quantum|computer|chip|processor|gpu|cpu",
+                r"starkind|architecture|mitigate"
+            ],
+            "SECURITY": [
+                r"security|hack|breach|cyber|attack|vulnerability|cve",
+                r"ransomware|malware|phishing|zero.?day|exploit"
+            ],
+            "COMMAND": [
+                r"^\s*(status|statistics|stats|info|ping|uptime)(\s+|$)",
+                r"^\s*(list|show|display)\s+users?(\s+|$)",
+                r"^\s*(clear|reset|clean|refresh)(\s+|$)",
+                r"(draw|paint|generate|create).*(image|picture|art)",
+                r"(analyze|look at|describe|what is in).*(image|picture|this)"
+            ],
+            "PERSONAL": [
+                r"how (are|is) you",
+                r"how'?s it going",
+                r"how are you feeling",
+                r"you okay",
+                r"what'?s up",
+                r"feeling now"
+            ],
+            "CASUAL": [
+                r"^(yeah|no|maybe|ok|okay|sure|cool|nice|thanks|thank you|thx)$",
+                r"^(lol|lmao|haha|wow|interesting)$"
+            ]
+        }
+        
+        self.category_descriptions = {
+            "GREETING": "Greeting or casual conversation",
+            "IDENTITY": "Questions about identity",
+            "NEWS": "News and current events",
+            "POLITICS": "Political news and discussions",
+            "TECH": "Technology news and developments",
+            "SECURITY": "Security and cybersecurity topics",
+            "COMMAND": "Bot commands and status requests",
+            "GENERAL": "General conversation and questions",
+            "KNOWLEDGE": "Knowledge-based questions",
+            "PERSONAL": "Personal or emotional topics",
+            "CASUAL": "Casual short responses"
+        }
+        
+        log_success(f"QueryClassifier initialized with timeout: {timeout}s")
+    
+    def fast_classify(self, query: str) -> str:
+        """Rule-based ONLY classification (extremely fast)"""
+        return self._classify_rules(query).lower()
+
+    def classify_with_timeout(self, query: str) -> str:
+        """Classify query with timeout protection"""
+        # Check if NEWS is disabled globally
+        from Kaiacord import NEWS_AUTO_TRIGGER_ENABLED
+        
+        query_clean = query.strip()
+        query_lower = query_clean.lower()
+        word_count = len(query_lower.split())
+        
+        # First, try rule-based classification
+        rule_based_result = self._classify_rules(query_clean)
+        
+        # Safety Fix: Prevent NEWS from overriding core intents
+        if rule_based_result == "NEWS" and not NEWS_AUTO_TRIGGER_ENABLED:
+            log_debug("NEWS auto-trigger disabled, suppressing rule-based NEWS match.")
+            rule_based_result = "GENERAL"
+
+        # GUARDRAIL: Short conversational turns (<= 6 words) 
+        # should stay GENERAL unless they match a specific high-confidence rule (GREETING, IDENTITY, COMMAND, CASUAL)
+        if word_count <= 6 and rule_based_result not in ["GREETING", "IDENTITY", "COMMAND", "CASUAL", "PERSONAL"]:
+            log_debug(f"Short query ({word_count} words) detected, defaulting to general.")
+            return "general"
+
+        if rule_based_result != "GENERAL":
+            return rule_based_result.lower() # Return lowercase to match existing code expectations
+        
+        # FAST-PATH GUARDRAIL: If rule-based returns GENERAL and it's a simple query, skip model entirely
+        # This prevents unnecessary model calls for simple conversational turns
+        if word_count <= 10 and not any(kw in query_lower for kw in ["who", "what", "how", "why", "tell", "explain", "news"]):
+            log_debug("Simple query detected, skipping model classification.")
+            return "general"
+        
+        # If no rule matches, use model with timeout
+        model_result = self._classify_with_model_timeout(query_clean)
+        
+        # Safety Fix: Prevent NEWS from overriding core intents late in pipeline
+        if model_result == "NEWS" and not NEWS_AUTO_TRIGGER_ENABLED:
+            log_debug("NEWS auto-trigger disabled, suppressing model-based NEWS match.")
+            return "general"
+            
+        return model_result.lower()
+    
+    def _classify_rules(self, query: str) -> str:
+        """Rule-based classification (fast, no model)"""
         query_lower = query.lower().strip()
         
-        # 1. Rule-based (Fast)
-        for pattern, category in self.rules:
-            if re.search(pattern, query_lower):
-                log_info(f"Rule-based classification: {category}")
-                return category
+        # Check each pattern category
+        for category, patterns in self.patterns.items():
+            for pattern in patterns:
+                if re.search(pattern, query_lower, re.IGNORECASE):
+                    log_info(f"Rule-based classification: {category}")
+                    return category
         
-        # 2. Model-based (Accurate)
-        system_prompt = (
-            "Classify the user query into ONE primary category.\n"
-            "Categories: casual, identity, knowledge, memory, creative, command.\n"
-            "Respond with ONLY the category name."
-        )
+        return "GENERAL"
+    
+    def _classify_with_model_timeout(self, query: str) -> str:
+        """Classify using model with timeout protection"""
+        classification_result = {"result": "GENERAL"}  # Default
         
+        def run_classification():
+            try:
+                # Minimal prompt for speed and accuracy
+                prompt = f"Classify this query into ONE category (GREETING, IDENTITY, NEWS, POLITICS, TECH, SECURITY, COMMAND, GENERAL).\n\nQuery: \"{query}\"\n\nCategory:"
+
+                response = self.sync_client.chat(
+                    model=self.classification_model,
+                    messages=[{"role": "user", "content": prompt}],
+                    stream=False,
+                    options=self.classification_options
+                )
+                
+                result = response['message']['content'].strip().upper()
+                
+                # Map to known categories
+                for category in self.category_descriptions.keys():
+                    if category in result:
+                        classification_result["result"] = category
+                        return
+                
+                classification_result["result"] = "GENERAL"
+                
+            except Exception as e:
+                log_error(f"Classification error: {e}")
+                classification_result["result"] = "GENERAL"
+        
+        # Run in thread with timeout
+        thread = threading.Thread(target=run_classification)
+        thread.daemon = True
+        thread.start()
+        thread.join(timeout=self.timeout)
+        
+        if thread.is_alive():
+            log_warning(f"Classification timeout after {self.timeout}s")
+            return "GENERAL"  # Fallback
+        
+        return classification_result["result"]
+    
+    async def classify(self, query: str) -> str:
+        """Main classification method (Async wrapper)"""
+        # Run the synchronous timeout logic in a thread to avoid blocking the event loop
+        return await asyncio.to_thread(self.classify_with_timeout, query)
+
+    async def pre_warm(self):
+        """Pre-warm the classification model"""
+        log_action("Pre-warming classification model (this may take a moment)...")
         try:
-            response = await asyncio.wait_for(
-                self.ollama_client.chat(
-                    model=self.model_name,
-                    messages=[{"role": "system", "content": system_prompt}, {"role": "user", "content": query}],
-                    options={
-                        "temperature": 0.1, 
-                        "num_predict": 10,
-                        "num_ctx": 1024,
-                        # "num_gpu": 100, # Removed to prevent potential resource locking
-                        # "main_gpu": 0
-                    }
-                ),
-                timeout=5.0
-            )
-            category = response['message']['content'].strip().lower()
-            for cat in ['casual', 'identity', 'knowledge', 'memory', 'creative', 'command']:
-                if cat in category: return cat
-            return 'knowledge'
-        except asyncio.TimeoutError:
-            log_warning("Classification timed out, defaulting to 'knowledge'")
-            return 'knowledge'
+            # First call can take longer due to model loading
+            start_time = time.time()
+            
+            # Use a longer timeout for the initial load
+            original_timeout = self.timeout
+            self.timeout = 30.0 
+            
+            await self.classify("warm up")
+            
+            self.timeout = original_timeout
+            log_success(f"Classification model warmed up in {time.time() - start_time:.2f}s")
         except Exception as e:
-            log_error(f"Classification error: {e}")
-            return 'knowledge'
+            log_error(f"Pre-warm failed: {e}")
 
 class ContextOptimizer:
     """Model-aware token allocation and context trimming."""
-    def __init__(self, model_name="gemma3:12b", max_tokens=6000):
+    def __init__(self, model_name="gemma3:12b", max_tokens=12000):
         self.model_name = model_name
         self.max_tokens = max_tokens
         # Optimal ratios for different models
@@ -450,15 +634,17 @@ class PersonalizationEngine:
     def adapt_prompt(self, system_prompt, traits):
         """Inject style instructions into the system prompt."""
         adaptation = "\n\n[STYLE_ADAPTATION]\n"
-        if traits['conciseness'] > 0.7:
-            adaptation += "- Be extremely concise and brief.\n"
-        elif traits['conciseness'] < 0.3:
-            adaptation += "- Be verbose and detailed.\n"
+        if traits['conciseness'] > 0.9:
+            adaptation += "- Be concise. 1-2 sentences is plenty.\n"
+        else:
+            adaptation += "- Be human. Aim for 3-8 sentences for complex topics. A paragraph is fine. No fluff, but don't be a robot.\n"
             
         if traits['technicality'] > 0.7:
             adaptation += "- Use technical language and deep analysis.\n"
         elif traits['technicality'] < 0.3:
             adaptation += "- Use simple, everyday language.\n"
+
+        adaptation += "- STRICTLY FORBIDDEN: Do not invent personal anecdotes, fictional people, or historical dates. No 'I remember back in...' tropes.\n"
             
         return system_prompt + adaptation
 
@@ -475,7 +661,7 @@ class PersonalizationEngine:
         query_len = len(query.split())
         
         # EMA update
-        target_conciseness = 1.0 if query_len < 5 else 0.3
+        target_conciseness = 0.7 if query_len < 3 else 0.2
         traits['conciseness'] = 0.9 * traits['conciseness'] + 0.1 * target_conciseness
         
         # Technicality: detect technical keywords in query
@@ -508,9 +694,20 @@ class PersistentStateManager:
                 'saved_at': time.time()
             }
             
+            # Delta check: only save if content actually changed
+            current_state_str = json.dumps(state, sort_keys=True)
+            if hasattr(self, '_last_state_hash'):
+                current_hash = hashlib.md5(current_state_str.encode()).hexdigest()
+                if current_hash == self._last_state_hash:
+                    log_debug("Cold state unchanged, skipping persistence.")
+                    return
+                self._last_state_hash = current_hash
+            else:
+                self._last_state_hash = hashlib.md5(current_state_str.encode()).hexdigest()
+
             temp_path = self.state_path + ".tmp"
             with open(temp_path, 'w') as f:
-                json.dump(state, f)
+                f.write(current_state_str)
             os.replace(temp_path, self.state_path)
             log_success("Cold state persisted successfully.")
         except Exception as e:

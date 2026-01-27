@@ -33,7 +33,7 @@ from llama_index.core import VectorStoreIndex, SimpleDirectoryReader, StorageCon
 from llama_index.llms.ollama import Ollama
 from llama_index.embeddings.ollama import OllamaEmbedding
 from llama_index.core.node_parser import SentenceSplitter, SemanticSplitterNodeParser, CodeSplitter
-from utils.kaia_logger import *
+from utils.kaia_logger import log_success, log_info, log_warning, log_error, log_action, log_debug
 
 class CircuitOpenError(Exception):
     """Raised when the circuit breaker is open"""
@@ -43,10 +43,18 @@ class HallucinationDetector:
     """Detect and prevent hallucination feedback loops"""
     
     HALLUCINATION_PATTERNS = [
-        r"juanita", r"deane", r"bonbons", r"agency",
-        r"university network", r"behind the curtain",
+        r"juanita", r"deane", r"bonbons",
+        r"behind the curtain",
         r"slow burn", r"roundabout questions",
-        r"terrier with a scent", r"internal comms"
+        r"terrier with a scent", r"internal comms",
+        r"elara vance", r"aurora labs", r"aurora project",
+        r"kael drakkel", r"xylarite", r"stonecutters",
+        r"crimson hand",
+        r"elias thorne", r"maya thorne", r"aurora's team",
+        r"aurora's people", r"water reclamation fiasco",
+        r"routing protocols", r"car accident", r"daughter, maya",
+        r"\baurora\b", r"\baurora's\b", r"\bkael\b", r"\belara\b",
+        r"ghost in the machine", r"council's scrutiny"
     ]
     
     @classmethod
@@ -78,8 +86,10 @@ class HallucinationDetector:
         
         # If we removed too much, provide a fallback
         clean_response = '\n'.join(clean_lines).strip()
-        if len(clean_response) < 20:
-            clean_response = ""
+        
+        # CRITICAL: Never return empty - if cleaning emptied response, return original
+        if not clean_response:
+            return response
         
         return clean_response
 
@@ -209,7 +219,7 @@ class KaiaRAG:
         self.embed_model = OllamaEmbedding(
             model_name="nomic-embed-text",
             base_url="http://localhost:11434",
-            ollama_additional_kwargs={"num_gpu": 100, "main_gpu": 0}
+            ollama_additional_kwargs={"num_gpu": -1, "main_gpu": 0}
         )
         
         # Set global settings
@@ -479,7 +489,7 @@ class KaiaRAG:
                     new_file_paths.append((persona_file, norm_path in self.indexed_files, False, 'persona'))
 
             if not new_file_paths:
-                log_info("No new documents to index.")
+                log_debug("No new documents to index.")
             else:
                 log_action(f"Found {len(new_file_paths)} new or modified documents. Processing...")
                 
@@ -487,7 +497,7 @@ class KaiaRAG:
                     target_index = self.indices[itype]
                     if is_modified and not is_log:
                         log_action(f"Detected update in {itype} file. Re-indexing...")
-                        log_file(file_path)
+                        log_info(file_path)
                         abs_path = os.path.abspath(file_path)
                         nodes_to_delete = [
                             node_id for node_id, node in target_index.docstore.docs.items()
@@ -499,10 +509,10 @@ class KaiaRAG:
                                 target_index.delete_nodes([node_id])
                     elif is_log:
                         log_action(f"Checking for new content in {itype} log...")
-                        log_file(file_path)
+                        log_info(file_path)
                     else:
                         log_action(f"Processing new {itype} file...")
-                        log_file(file_path)
+                        log_info(file_path)
                         
                     try:
                         abs_path = os.path.abspath(file_path)
@@ -528,21 +538,24 @@ class KaiaRAG:
                                 new_content = f.read()
                                 
                             if new_content.strip():
-                                # === SMART FICTION FILTER ===
+                                # [DISABLED] === SMART FICTION FILTER ===
                                 # Only filter specific fictional story patterns, NOT user names
-                                fictional_story_patterns = [
-                                    r"i remember you working on the data pipeline",
-                                    r"back in '21.*?(?:you were|memory leak|server farm)",
-                                    r"you were chasing a memory leak for days",
-                                    r"almost burned out the whole server farm",
-                                    r"good work.*?you're good at digging",
-                                ]
-                                
-                                for pattern in fictional_story_patterns:
-                                    if re.search(pattern, new_content, re.IGNORECASE):
-                                        log_warning(f"Skipping contaminated content in {itype} log")
-                                        new_content = "" # Clear it so it doesn't get indexed
-                                        break
+                                # fictional_story_patterns = [
+                                #     r"i remember you working on the data pipeline",
+                                #     r"back in '21.*?(?:you were|memory leak|server farm)",
+                                #     r"you were chasing a memory leak for days",
+                                #     r"almost burned out the whole server farm",
+                                #     r"good work.*?you're good at digging",
+                                #     r"elias thorne", r"maya thorne", r"aurora's team",
+                                #     r"aurora's people", r"water reclamation fiasco",
+                                #     r"routing protocols", r"car accident", r"daughter, maya"
+                                # ]
+                                # 
+                                # for pattern in fictional_story_patterns:
+                                #     if re.search(pattern, new_content, re.IGNORECASE):
+                                #         log_warning(f"Skipping contaminated content in {itype} log")
+                                #         new_content = "" # Clear it so it doesn't get indexed
+                                #         break
                                 # ============================
 
                                 mtime = os.path.getmtime(file_path)
@@ -609,7 +622,7 @@ class KaiaRAG:
                                 log_success(f"Indexed {file_path} into {itype} index.")
                             else:
                                 log_warning(f"No data loaded from file. Moving to corrupt_files.")
-                                log_file(file_path)
+                                log_info(file_path)
                                 try:
                                     dest_path = os.path.join(corrupt_dir, os.path.basename(file_path))
                                     if os.path.exists(dest_path):
@@ -621,7 +634,7 @@ class KaiaRAG:
                             
                     except Exception as e:
                         log_error(f"Failed to load file: {e}")
-                        log_file(file_path)
+                        log_info(file_path)
                         
                         conversion_succeeded = False
                         
@@ -629,7 +642,7 @@ class KaiaRAG:
                         if file_path.lower().endswith((".pdf", ".docx")):
                             ext = ".pdf" if file_path.lower().endswith(".pdf") else ".docx"
                             log_action(f"Attempting to recover file by converting to Markdown...")
-                            log_file(file_path)
+                            log_info(file_path)
                             
                             if ext == ".pdf":
                                 md_path = self._convert_pdf_to_md(file_path)
@@ -654,7 +667,7 @@ class KaiaRAG:
                                         # Also track original PDF as "handled" so we don't retry
                                         self.indexed_files[os.path.abspath(file_path)] = orig_mtime
                                         log_success(f"Successfully indexed converted Markdown")
-                                        log_file(md_path)
+                                        log_info(md_path)
                                         conversion_succeeded = True
                                     else:
                                         log_warning(f"Converted MD was empty.")
@@ -693,7 +706,7 @@ class KaiaRAG:
             base_path = pdf_path[:-4] if pdf_path.lower().endswith('.pdf') else pdf_path
             md_path = base_path + ".md"
             log_action(f"Extracting text from PDF...")
-            log_file(pdf_path)
+            log_info(pdf_path)
             
             reader = pypdf.PdfReader(pdf_path)
             basename = os.path.basename(pdf_path)
@@ -710,7 +723,7 @@ class KaiaRAG:
                 with open(md_path, "w", encoding="utf-8") as f:
                     f.write(text)
                 log_success(f"Successfully converted to Markdown")
-                log_file(md_path)
+                log_info(md_path)
                 return md_path
             else:
                 log_warning(f"No text extracted from PDF")
@@ -727,7 +740,7 @@ class KaiaRAG:
             base_path = docx_path[:-5] if docx_path.lower().endswith('.docx') else docx_path
             md_path = base_path + ".md"
             log_action(f"Extracting text from DOCX...")
-            log_file(docx_path)
+            log_info(docx_path)
             
             text = docx2txt.process(docx_path)
             
@@ -739,7 +752,7 @@ class KaiaRAG:
                 with open(md_path, "w", encoding="utf-8") as f:
                     f.write(md_content)
                 log_success(f"Successfully converted to Markdown")
-                log_file(md_path)
+                log_info(md_path)
                 return md_path
             else:
                 log_warning(f"No text extracted from DOCX")
@@ -783,7 +796,7 @@ class KaiaRAG:
                 if not os.path.exists(user_log_dir):
                     os.makedirs(user_log_dir)
                     log_success(f"Created user log directory")
-                    log_file(user_log_dir)
+                    log_info(user_log_dir)
                 
                 # Find existing log file or create new one with today's date
                 # Pattern: interactions_YYYYMMDD.txt
