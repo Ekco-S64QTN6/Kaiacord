@@ -1265,7 +1265,9 @@ async def handle_proper_news_query(message, query, category=None):
     except Exception as e:
         log_error(f"Proper news error: {e}")
         # Fallback to RAG if available
-        await handle_general_query(message, query)
+        # Note: handle_general_query was removed in refactor, using general RAG flow
+        await message.reply("I'm having trouble fetching the news right now. Let me check my general knowledge.")
+        return
 
 def _format_news_response(news_items, category, query):
     """Format actual news items without commentary and with available options"""
@@ -1358,18 +1360,49 @@ async def on_message(msg: discord.Message):
     #         return
 
     # Trigger logic: Image generation
-    draw_match = re.search(r'kaia[\s,]+draw\s+(.*)', sanitized_content.lower())
-    if draw_match:
-        prompt = draw_match.group(1).strip()
+    # Refined phrase-based detection to catch natural language requests while preventing false positives
+    request_phrases = [r"will you", r"can you", r"could you", r"please", r"kaia", r"i want you to", r"i'd like you to"]
+    draw_intents = [r"draw", r"paint", r"generate", r"create", r"sketch", r"render"]
+    shape_words = [r"portrait", r"landscape", r"picture", r"art", r"square", r"circle", r"triangle"]
+    
+    trigger_patterns = [
+        # "kaia draw", "please draw", "will you draw a square"
+        rf"(?:{'|'.join(request_phrases)})[\s,]+(?:a|an|the|some|me\s+a|to)?\s*(?:{'|'.join(draw_intents + shape_words)})",
+        # "draw a cat kaia", "paint a sunset please" (Intent must be at the very start)
+        rf"^(?:{'|'.join(draw_intents)})[\s,]+.*(?:kaia|please)"
+    ]
+    
+    intent_match = None
+    for pattern in trigger_patterns:
+        match = re.search(pattern, sanitized_content.lower())
+        if match:
+            intent_match = match
+            break
+    
+    if intent_match:
+        # Extract everything after the draw word/intent
+        all_keywords = draw_intents + shape_words
+        draw_word_match = re.search(rf"\b({'|'.join(all_keywords)})\b", sanitized_content.lower())
+        
+        if draw_word_match:
+            start_pos = draw_word_match.end()
+            prompt = sanitized_content[start_pos:].strip()
             
-        if not prompt:
-            await msg.channel.send("```\ndraw what? i need a prompt.\n```")
-            return
+            # Clean up leading noise (articles, filler words)
+            prompt = re.sub(r'^(?:an|a|the|some|me\s+a|picture\s+of|image\s+of|art\s+of|portrait\s+of|sketch\s+of|landscape\s+of|square\s+of|circle\s+of|triangle\s+of|of|[\s,])+', '', prompt, flags=re.IGNORECASE).strip()
             
-        # Use semaphore to ensure only one image generation at a time
-        async with image_semaphore:
-            # Persona confirmation
-            await msg.channel.send("```\nflickering the screen. give me a second.\n```")
+            # Clean up trailing noise (kaia, please)
+            prompt = re.sub(r'\b(kaia|please|for me)\b[.!?]*$', '', prompt, flags=re.IGNORECASE).strip()
+            
+            # Final punctuation cleanup
+            prompt = re.sub(r'[?.!,;:]+$', '', prompt).strip()
+                
+            # Final safety check: If the prompt is too long, it's likely a false positive
+            if prompt and len(prompt.split()) <= 20:
+                # Use semaphore to ensure only one image generation at a time
+                async with image_semaphore:
+                    # Persona confirmation
+                    await msg.channel.send("```\nflickering the screen. give me a second.\n```")
             
             try:
                 log_action(f"Generating image for prompt: {prompt}")

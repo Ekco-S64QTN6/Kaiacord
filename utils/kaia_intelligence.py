@@ -331,7 +331,7 @@ class QueryClassifier:
                 r"^\s*(status|statistics|stats|info|ping|uptime)(\s+|$)",
                 r"^\s*(list|show|display)\s+users?(\s+|$)",
                 r"^\s*(clear|reset|clean|refresh)(\s+|$)",
-                r"(draw|paint|generate|create).*(image|picture|art)",
+                r"(draw|paint|generate|create|sketch|render|portrait|landscape|picture|art|square|circle|triangle)",
                 r"(analyze|look at|describe|what is in).*(image|picture|this)"
             ],
             "PERSONAL": [
