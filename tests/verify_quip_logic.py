@@ -46,13 +46,13 @@ async def verify_quip_logic():
         
         messages = [
             {"role": "system", "content": "Persona" + context_str},
-            {"role": "user", "content": "Based on the provided log context (if any), generate a short, funny, and slightly mocking question or quip. "
-                "Make it a single, sharp sentence. Be blunt and grounded. "
-                "If there's log context, make fun of what was said or the user's logic. "
-                "If there's news context, you can reference it, but don't obsess over Okta or AeroDyn breaches unless they are actually in the context. "
-                "If no context, just ask a dry, cynical question about tech or life. "
+            {"role": "user", "content": "Generate a short, witty idle thought or observation. 1-2 sentences max. "
+                "If there's log context, comment on something interesting or amusing from it - NO mocking. "
+                "Tone: dry humor, observational, like a coworker sharing a random thought. "
+                "If no context, share a wry observation about tech, coffee, or the strange things people do. "
+                "NO questions directed AT users. Just a standalone musing. "
                 "CRITICAL: Do not repeat or rephrase anything in the [RECENT_QUIPS_TO_AVOID_REPEATING] section. "
-                "No fluff. No intro. Just the quip."}
+                "No fluff. No intro. Just the thought."}
         ]
         print("User Message Content:")
         print(messages[1]['content'])

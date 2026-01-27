@@ -883,7 +883,7 @@ Kaia: {bot_response}
                 return False
 
     @thread_safe_rag_operation
-    def retrieve(self, query: str, user_id: Optional[int] = None, user_name: Optional[str] = None, top_k: int = 4, strict_identity: bool = False) -> List[str]:
+    def retrieve(self, query: str, user_id: Optional[int] = None, user_name: Optional[str] = None, top_k: int = 4, strict_identity: bool = False, include_news: bool = True) -> List[str]:
         """
         Retrieve relevant nodes, ensuring user logs are prioritized and not drowned out.
         If user_id is provided, specifically looks for that user's history and preferences.
@@ -1013,6 +1013,10 @@ Kaia: {bot_response}
                 
                 # FILTER: Skip vision response nodes for non-vision queries to prevent feedback loop
                 if node.metadata.get('is_vision_response') and not is_vision_query:
+                    continue
+                
+                # FILTER: Skip news nodes if include_news is False
+                if not include_news and (node.metadata.get('source_type') == 'news_brief' or "news_brief" in node.metadata.get('file_path', '')):
                     continue
                 
                 # FILTER: Skip user profile nodes for general queries to prevent leaks

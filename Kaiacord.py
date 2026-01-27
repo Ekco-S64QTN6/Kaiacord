@@ -1049,13 +1049,16 @@ async def idle_quip_task():
                 
                 messages = [
                     {"role": "system", "content": system_prompt + context_str},
-                    {"role": "user", "content": "Based on the provided log context (if any), generate a short, funny, and slightly mocking question or quip. "
-                        "Make it a single, sharp sentence. Be blunt and grounded. "
-                        "If there's log context, make fun of what was said or the user's logic. "
-                        "If there's news context, you can reference it, but don't obsess over Okta or AeroDyn breaches unless they are actually in the context. "
-                        "If no context, just ask a dry, cynical question about tech or life. "
+                    {"role": "user", "content": "Generate a short, witty idle thought or observation. 1-2 sentences max. "
+                        "If there's log context, comment on something interesting or amusing from it - NO mocking. "
+                        "Tone: dry humor, observational, like a coworker sharing a random thought. "
+                        "Examples: 'why does every third error message include the word unexpected?', "
+                        "'noticed someone was debugging at 3am again. respect.', "
+                        "'that mana curve you posted is bold. i respect the chaos.' "
+                        "If no context, share a wry observation about tech, coffee, or the strange things people do. "
+                        "NO questions directed AT users. Just a standalone musing. "
                         "CRITICAL: Do not repeat or rephrase anything in the [RECENT_QUIPS_TO_AVOID_REPEATING] section. "
-                        "No fluff. No intro. Just the quip."}
+                        "No fluff. No intro. Just the thought."}
                 ]
                 
                 response = await ollama_client.chat(
@@ -1656,7 +1659,8 @@ async def on_message(msg: discord.Message):
                 user_id=target_user_id, 
                 user_name=target_user_name, 
                 top_k=config.rag_top_k,
-                strict_identity=(fast_category in ["identity", "self", "whoami", "entity"])
+                strict_identity=(fast_category in ["identity", "self", "whoami", "entity"]),
+                include_news=NEWS_AUTO_TRIGGER_ENABLED
             ))
             
             # News Query Expansion (Legacy fallback)

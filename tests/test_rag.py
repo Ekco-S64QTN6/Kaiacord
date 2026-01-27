@@ -47,7 +47,8 @@ async def test_retrieval_rank(rag):
     
     print(f"Enriched Query: '{enriched_query}'")
     
-    retriever = rag.index.as_retriever(similarity_top_k=10)
+    # Use knowledge index for general ranking test
+    retriever = rag.indices['knowledge'].as_retriever(similarity_top_k=10)
     nodes = retriever.retrieve(enriched_query)
     
     found = False
