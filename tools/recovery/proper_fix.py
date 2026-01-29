@@ -221,7 +221,7 @@ def update_persona_no_questions():
     """Update persona to discourage ending with questions"""
     print("\n📝 Updating persona to avoid question endings...")
     
-    persona_path = "config/kaia_persona.md"
+    persona_path = "knowledge_base/kaia_persona.md"
     if os.path.exists(persona_path):
         with open(persona_path, 'r') as f:
             content = f.read()

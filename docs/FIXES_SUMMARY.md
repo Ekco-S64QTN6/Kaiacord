@@ -218,3 +218,23 @@ All filters now implement a **critical safety net**: if cleaning/filtering would
 - `utils/kaia_news.py` - Improved parsing, category mapping, fallback logic
 - `tools/update_kaia_news.py` - Improved generation prompt
 - `docs/DAILY_NEWS_UPDATER.md` & `README.md` - Updated documentation
+
+---
+
+### 11. Stabilization Rollback & Corrective Refactor (2026-01-27) ✅
+**Problem**: System instability including startup freeze, RAG deadlocks, GPU memory poisoning during image generation, and blocking shutdowns.
+
+**Solution**:
+- **Hard Startup Freeze**: Disabled non-essential tasks (news updates/refreshes) at boot to ensure rapid startup.
+- **RAG Locking**: Implemented single-flight logic for refreshes and non-blocking retrieval to eliminate deadlocks.
+- **GPU Ownership Law**: Enforced strict 8GB VRAM check for image generation and removed dangerous chat model unloading.
+- **Task Isolation**: Suppressed RAG and stats polling during active image generation to prevent resource contention.
+- **Dashboard Integrity**: Aggressively suppressed external logs (torch, diffusers, transformers) to protect the curses UI.
+- **Clean Shutdown**: Implemented task cancellation and lock timeouts to ensure reliable exit.
+
+**Files Modified**:
+- `Kaiacord.py` - Startup logic, task isolation, shutdown flow
+- `utils/kaia_rag.py` - Single-flight locking, non-blocking retrieval, shutdown safety
+- `utils/kaia_news.py` - Disabled auto-refresh at init
+- `utils/kaia_image.py` - Strict VRAM check, removed model unloading
+- `utils/btop_dashboard_v2.py` - Logging suppression

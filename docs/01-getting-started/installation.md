@@ -1,0 +1,291 @@
+# Installation Guide
+
+Complete installation guide for Kaiacord v2.0.
+
+## Prerequisites
+
+### Required
+- **Operating System**: Linux (Ubuntu 20.04+, Debian 11+, Arch, etc.)
+- **Python**: 3.9 or higher
+- **GPU**: NVIDIA GPU with 8GB+ VRAM (12GB recommended)
+  - RTX 3060 (12GB) - Recommended ✅
+  - RTX 3070 (8GB) - Works but tight on VRAM
+  - RTX 3080+ (10GB+) - Excellent
+- **Disk Space**: 30GB+ for models
+- **RAM**: 16GB+ system RAM (32GB recommended)
+- **Discord**: Bot token ([Get one here](https://discord.com/developers/applications))
+
+### Optional
+- **Gemini API Key**: For news generation feature
+- **SSD Storage**: Recommended for faster model loading
+
+---
+
+## Step 1: System Dependencies
+
+### Ubuntu/Debian
+```bash
+sudo apt update
+sudo apt install python3 python3-pip python3-venv git
+```
+
+### Arch Linux
+```bash
+sudo pacman -S python python-pip git
+```
+
+---
+
+## Step 2: Install Ollama
+
+Ollama is required for local AI inference.
+
+```bash
+# Download and install
+curl -fsSL https://ollama.ai/install.sh | sh
+
+# Verify installation
+ollama --version
+
+# Start Ollama service
+sudo systemctl start ollama
+sudo systemctl enable ollama  # Auto-start on boot
+```
+
+---
+
+## Step 3: Clone Repository
+
+```bash
+git clone https://github.com/YOUR_USERNAME/Kaiacord.git
+cd Kaiacord
+```
+
+---
+
+## Step 4: Python Environment
+
+```bash
+# Create virtual environment
+python3 -m venv venv
+
+# Activate virtual environment
+source venv/bin/activate
+
+# Install dependencies
+pip install -r requirements.txt
+pip install -r requirements_yaml.txt  # YAML config support
+```
+
+---
+
+## Step 5: Pull AI Models
+
+**This will download ~20GB of models. Ensure you have space and bandwidth.**
+
+```bash
+# Chat model (8GB)
+ollama pull gemma3:12b
+
+# Vision model (7.5GB)
+ollama pull llama3.2-vision:11b
+
+# Embedding model (small)
+ollama pull nomic-embed-text
+```
+
+**For image generation**, you'll also need:
+```bash
+# The image gen model is auto-downloaded by diffusers
+# Requires ~6-8GB VRAM during use
+```
+
+---
+
+## Step 6: Configuration
+
+### Option A: Quick Setup (.env)
+```bash
+# Create .env file
+cat > .env << EOF
+DISCORD_TOKEN=your_discord_bot_token_here
+GEMINI_API_KEY=your_gemini_api_key_here  # Optional
+EOF
+```
+
+### Option B: Advanced Setup (YAML)
+```bash
+# Copy default config
+cp config/default_config.yaml config/kaia.yaml
+
+# Edit configuration
+nano config/kaia.yaml
+```
+
+**See**: [Configuration Guide](configuration.md) for details
+
+---
+
+## Step 7: Verify Installation
+
+```bash
+# Run health check
+python tools/maintenance/health_check.py
+```
+
+Expected output:
+```
+✅ Ollama server: ONLINE
+✅ gemma3:12b: Found
+✅ llama3.2-vision:11b: Found
+✅ nomic-embed-text: Found
+✅ GPU: NVIDIA RTX 3060 (12GB)
+✅ Knowledge base: Accessible
+✅ Configuration: Valid
+```
+
+---
+
+## Step 8: First Run
+
+```bash
+# Start Kaiacord
+python Kaiacord.py
+```
+
+You should see:
+```
+[INFO] 🤖 Kaia is online!
+[INFO] 📊 Dashboard started (curses mode)
+[INFO] 🟢 Ollama: ONLINE
+```
+
+---
+
+## Step 9: Test in Discord
+
+In your Discord server:
+```
+@kaia status
+```
+
+Expected response:
+```
+online. gpu loaded. all systems nominal.
+```
+
+---
+
+## Troubleshooting Installation
+
+### Ollama Not Found
+```bash
+# Check if Ollama is running
+ollama list
+
+# If not, start the service
+sudo systemctl start ollama
+```
+
+### GPU Not Detected
+```bash
+# Check NVIDIA driver
+nvidia-smi
+
+# If not installed, install NVIDIA drivers
+sudo ubuntu-drivers autoinstall  # Ubuntu
+sudo pacman -S nvidia nvidia-utils  # Arch
+```
+
+### Module Import Errors
+```bash
+# Ensure virtual environment is activated
+source venv/bin/activate
+
+# Reinstall dependencies
+pip install -r requirements.txt --force-reinstall
+```
+
+### Models Not Loading
+```bash
+# Verify models are pulled
+ollama list
+
+# Re-pull if needed
+ollama pull gemma3:12b
+```
+
+---
+
+## Next Steps
+
+1. **[Quick Start Guide](quick-start.md)** - Get started in 5 minutes
+2. **[Configuration Guide](configuration.md)** - Advanced configuration
+3. **[Basic Usage](../02-user-guide/basic-usage.md)** - Using Kaia
+
+---
+
+## Advanced Installation Options
+
+### Docker (Coming Soon)
+```bash
+# Not yet available
+# docker-compose up -d
+```
+
+### Systemd Service
+```bash
+# Create service file
+sudo nano /etc/systemd/system/kaiacord.service
+```
+
+```ini
+[Unit]
+Description=Kaiacord Discord Bot
+After=network.target ollama.service
+
+[Service]
+Type=simple
+User=your_username
+WorkingDirectory=/home/your_username/Kaiacord
+Environment="PATH=/home/your_username/Kaiacord/venv/bin"
+ExecStart=/home/your_username/Kaiacord/venv/bin/python Kaiacord.py
+Restart=always
+
+[Install]
+WantedBy=multi-user.target
+```
+
+```bash
+# Enable and start
+sudo systemctl enable kaiacord
+sudo systemctl start kaiacord
+
+# Check status
+sudo systemctl status kaiacord
+```
+
+---
+
+## Uninstallation
+
+```bash
+# Stop bot
+# Ctrl+C or:
+sudo systemctl stop kaiacord
+
+# Remove repository
+cd ..
+rm -rf Kaiacord
+
+# Remove Ollama (optional)
+sudo systemctl stop ollama
+sudo systemctl disable ollama
+sudo rm /usr/local/bin/ollama
+```
+
+---
+
+<p align="center">
+  <sub>Installation complete? Head to <a href="quick-start.md">Quick Start</a>!</sub>
+</p>

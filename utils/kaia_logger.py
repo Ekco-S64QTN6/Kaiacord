@@ -11,6 +11,7 @@ from rich.console import Console
 from rich.table import Table
 from rich.panel import Panel
 from utils.unified_logging import logger as global_logger
+from utils.logging_bridge import get_logging_registry, LogLevel
 
 # Initialize colorama with autoreset
 init(autoreset=True)
@@ -57,6 +58,8 @@ def log_success(message):
     global_logger.log(message, "SUCCESS")
     if _monitor:
         _monitor.log_system_event("SUCCESS", message)
+    # Also send to logging bridge registry
+    get_logging_registry().log(LogLevel.SUCCESS, message)
 
 
 def log_user(user_name, user_id, context=""):
@@ -73,6 +76,7 @@ def log_action(message):
     global_logger.log(message, "ACTION")
     if _monitor:
         _monitor.log_system_event("ACTION", message)
+    get_logging_registry().log(LogLevel.ACTION, message)
 
 
 def log_response(prefix, content, response_time=0.0):
@@ -103,6 +107,7 @@ def log_critical(message):
     global_logger.log(message, "CRITICAL")
     if _monitor:
         _monitor.log_system_event("CRITICAL", message)
+    get_logging_registry().log(LogLevel.CRITICAL, message)
 
 
 def log_warning(message):
@@ -110,6 +115,7 @@ def log_warning(message):
     global_logger.log(message, "WARNING")
     if _monitor:
         _monitor.log_system_event("WARNING", message)
+    get_logging_registry().log(LogLevel.WARNING, message)
 
 
 def log_error(message):
@@ -117,6 +123,7 @@ def log_error(message):
     global_logger.log(message, "ERROR")
     if _monitor:
         _monitor.log_system_event("ERROR", message)
+    get_logging_registry().log(LogLevel.ERROR, message)
 
 
 def log_info(message):

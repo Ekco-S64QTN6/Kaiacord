@@ -1,0 +1,159 @@
+"""
+Default Configuration
+====================
+
+Hierarchical configuration with environment variable override support.
+
+This YAML file provides default configuration values. Environment variables
+and user config files can override these defaults.
+"""
+
+# ============================================================================
+# Models Configuration
+# ============================================================================
+models:
+  # Main chat model
+  chat: "gemma3:12b"
+  
+  # Vision analysis model
+  vision: "llama3.2-vision:11b"
+  
+  # Embedding model for RAG
+  embedding: "nomic-embed-text"
+
+# ============================================================================
+# GPU Configuration
+# ============================================================================
+gpu:
+  # Minimum free VRAM (in GiB) required for image generation
+  image_gen_min_vram_gb: 8.0
+  
+  # Enable automatic model unloading (DISABLED for stability)
+  enable_auto_unload: false
+  
+  # PyTorch memory fraction (0.0-1.0)
+  memory_fraction: 0.80
+  
+  # Enable GPU memory preemption
+  enable_preemption: true
+
+# ============================================================================
+# Performance Configuration
+# ============================================================================
+performance:
+  # Maximum messages to keep in memory per channel
+  max_memory_messages: 30
+  
+  # Maximum consecutive quips before requiring substantive response
+  max_consecutive_quips: 3
+  
+  # Number of top RAG results to retrieve
+  rag_top_k: 8
+  
+  # Requests per minute per user (rate limiting)
+  requests_per_minute: 30
+  
+  # Enable semantic cache
+  enable_semantic_cache: true
+  
+  # Maximum RAG log size (MB) before rotation
+  max_log_size_mb: 100
+
+# ============================================================================
+# Paths Configuration
+# ============================================================================
+paths:
+  # Knowledge base directory
+  knowledge_base: "./knowledge_base"
+  
+  # Persistence directory for indices and cache
+  persist: "./storage"
+  
+  # Bot state file
+  bot_state: "./storage/bot_state.json"
+  
+  # Semantic cache file
+  semantic_cache: "./storage/semantic_cache.json"
+
+# ============================================================================
+# Startup Configuration
+# ============================================================================
+startup:
+  # Enable news updates at startup (DISABLED for faster boot)
+  news_update: false
+  
+  # Timeout for news update (seconds)
+  news_timeout: 10
+  
+  # Enable GPU memory cleanup at startup
+  gpu_cleanup: true
+  
+  # Kill orphaned instances at startup
+  kill_orphans: true
+
+# ============================================================================
+# Discord Configuration
+# ============================================================================
+discord:
+  # Blacklisted channels (comma-separated)
+  blacklisted_channels: "general,announcements,rules"
+  
+  # Command prefix
+  command_prefix: "!"
+  
+  # Enable message content intent
+  message_content_intent: true
+
+# ============================================================================
+# Logging Configuration
+# ============================================================================
+logging:
+  # Log level (DEBUG, INFO, WARNING, ERROR, CRITICAL)
+  level: "INFO"
+  
+  # Enable structured logging (JSON format)
+  structured: false
+  
+  # Enable request ID tracking
+  request_ids: true
+  
+  # Log file path (empty for console only)
+  file_path: ""
+
+# ============================================================================
+# Dashboard Configuration
+# ============================================================================
+dashboard:
+  # Dashboard type (curses, ansi, none)
+  type: "curses"
+  
+  # Update interval (seconds)
+  update_interval: 1.5
+  
+  # Enable dashboard logging
+  enable_logging: true
+  
+  # Fallback to ANSI if curses fails
+  ansi_fallback: true
+
+# ============================================================================
+# Feature Flags
+# ============================================================================
+features:
+  # Enable vision analysis
+  vision_enabled: true
+  
+  # Enable image generation
+  image_gen_enabled: true
+  
+  # Enable news system
+  news_enabled: true
+  
+  # Enable auto news injection (DISABLED)
+  news_auto_trigger: false
+  
+  # Enable hallucination detection
+  hallucination_detection: true
+  
+  # Enable boilerplate filtering
+  boilerplate_filtering: true

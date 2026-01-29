@@ -178,12 +178,16 @@ RULES:
                 f.write(f"# QUICK REFERENCE: {date_to_use}\n\n" + '\n'.join(bullet_lines[:10]))
     
     def clean_old_briefs(self, keep_days: int = 14):
-        """Remove news briefs older than specified days"""
+        """Archive news briefs older than specified days instead of deleting"""
         news_files = list(self.knowledge_dir.glob("news_*.md"))
+        
+        # Create archive directory
+        archive_dir = self.knowledge_dir.parent / "archive"
+        archive_dir.mkdir(parents=True, exist_ok=True)
         
         cutoff_date = datetime.datetime.now() - datetime.timedelta(days=keep_days)
         
-        removed = 0
+        archived = 0
         for file in news_files:
             # Try to extract date from filename
             try:
@@ -193,13 +197,16 @@ RULES:
                     file_date = datetime.datetime.strptime(date_str, "%Y%m%d")
                     
                     if file_date < cutoff_date:
-                        file.unlink()
-                        removed += 1
+                        # Move to archive instead of delete
+                        archive_path = archive_dir / file.name
+                        file.rename(archive_path)
+                        archived += 1
             except:
                 continue
         
-        if removed > 0:
-            print(f"✓ Removed {removed} old news files")
+        if archived > 0:
+            print(f"✓ Archived {archived} old news files to {archive_dir}")
+
     
     def backfill_week(self):
         """Check for and generate news for the last 7 days if missing"""

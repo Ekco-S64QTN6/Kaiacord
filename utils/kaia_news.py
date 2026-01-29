@@ -143,7 +143,7 @@ class NewsManager:
             "hacker": ["lapsus", "anonymous", "apt", "manifesto", "defcon", "blackhat", "ctf", "hacker", "cyberwarfare"]
         }
         self._ensure_base_path()
-        self.refresh()
+        # self.refresh() # DISABLED at boot for stabilization
 
     def _ensure_base_path(self):
         """Ensure the news directory exists"""

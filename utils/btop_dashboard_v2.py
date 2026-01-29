@@ -283,6 +283,13 @@ class BtopDashboardV2:
         # Initialize colors
         self._init_colors()
         
+        # REQUIREMENT: Suppress ALL stdout/stderr from noisy libraries
+        import logging
+        for logger_name in ["torch", "diffusers", "transformers", "tokenizers", "httpx", "httpcore"]:
+            l = logging.getLogger(logger_name)
+            l.setLevel(logging.ERROR)
+            l.propagate = False
+            
         # Calculate initial layout
         height, width = stdscr.getmaxyx()
         self.layout.calculate_layout(height, width)

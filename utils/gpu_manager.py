@@ -112,8 +112,17 @@ class OllamaGPUManager:
         try:
             print(f"🔄 Triggering GPU load for {self.model_name}...")
             # Using generate with empty prompt and long keep_alive to trigger load
-            await ollama_client.generate(model=self.model_name, prompt="", keep_alive=3600)
+            # CRITICAL: Add timeout to prevent hanging forever
+            # 60s timeout: llama3.2-vision:11b is ~7.5GB, can take 30-60s to load from disk
+            await asyncio.wait_for(
+                ollama_client.generate(model=self.model_name, prompt="", keep_alive=3600),
+                timeout=60.0  # 60 second timeout for large model load
+            )
+            print(f"✅ {self.model_name} loaded successfully")
             return True
+        except asyncio.TimeoutError:
+            print(f"❌ GPU load TIMED OUT after 60s for {self.model_name}")
+            return False
         except Exception as e:
             print(f"❌ GPU load failed: {e}")
             return False

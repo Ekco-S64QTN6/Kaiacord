@@ -68,7 +68,7 @@ def find_elena_contamination():
 
 def check_persona_for_fiction():
     """Check the persona file for any fictional elements"""
-    persona_path = Path("./kaia_persona.md") # Fixed path based on project structure
+    persona_path = Path("knowledge_base/kaia_persona.md") # Fixed path based on project structure
     
     if not persona_path.exists():
         persona_path = Path("./knowledge_base/kaia_persona.md")

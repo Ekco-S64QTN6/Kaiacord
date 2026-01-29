@@ -1,0 +1,13 @@
+# Kaia User Configuration Example
+#
+# Copy this to config/kaia.yaml and fill in your values
+# 
+# Hierarchy (highest to lowest priority):
+# 1. Environment variables (e.g., DISCORD_TOKEN)
+# 2. config/kaia.yaml (this file, user-specific)
+# 3. config/default_config.yaml (defaults)
+#
+discord:
+  token: "YOUR_DISCORD_BOT_TOKEN_HERE"  # Or use ${DISCORD_TOKEN} to reference env var
+api:
+  gemini_key: "YOUR_GEMINI_API_KEY_HERE"  # Or use ${GEMINI_API_KEY} for env var

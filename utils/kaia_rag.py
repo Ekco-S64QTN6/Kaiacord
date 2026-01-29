@@ -186,20 +186,24 @@ def thread_safe_rag_operation(func):
     """Decorator to ensure thread safety for RAG operations with timeout and graceful fallback"""
     @wraps(func)
     def wrapper(self, *args, **kwargs):
-        # Try to acquire the lock with a timeout to avoid hanging the bot
-        # 10 seconds is generous but prevents permanent deadlocks
-        if not self._lock.acquire(timeout=10):
-            log_warning(f"RAG operation {func.__name__} timed out waiting for lock")
-            if func.__name__ == 'retrieve': return []
-            if func.__name__ in ['add_memory', 'log_user_interaction']: return False
-            return None
+        # For retrieval, we want to be extremely fast and NEVER block on a long refresh
+        if func.__name__ == 'retrieve':
+            # Try to acquire the lock without blocking if possible, or with a very short timeout
+            if not self._lock.acquire(timeout=0.5):
+                log_warning(f"RAG retrieval skipped: lock held by another operation (likely refresh)")
+                return []
+        else:
+            # For other operations, wait up to 5 seconds
+            if not self._lock.acquire(timeout=5.0):
+                log_warning(f"RAG operation {func.__name__} timed out waiting for lock")
+                if func.__name__ in ['add_memory', 'log_user_interaction']: return False
+                return None
             
         try:
             # If indexing is in progress, skip other operations to avoid VRAM/CPU contention
-            # and potentially long wait times.
-            if getattr(self, '_indexing_in_progress', False) and func.__name__ != 'refresh_knowledge_base':
+            # EXCEPT for retrieval which we want to allow if the lock was acquired
+            if getattr(self, '_indexing_in_progress', False) and func.__name__ not in ['retrieve', 'refresh_knowledge_base']:
                 log_warning(f"RAG operation {func.__name__} skipped: indexing in progress")
-                if func.__name__ == 'retrieve': return []
                 if func.__name__ in ['add_memory', 'log_user_interaction']: return False
                 return None
                 
@@ -244,7 +248,9 @@ class KaiaRAG:
         self.bm25_cache = {} # Cache for BM25 retrievers {itype: (timestamp, retriever)}
         self.persist_needed = False
         self._lock = threading.RLock()
+        self._refresh_lock = threading.Lock() # Exclusive lock for the refresh process
         self._indexing_in_progress = False
+        self._refresh_pending = False # Single-flight "dirty" flag
         
         # Load or create indices
         self._initialize_indices()
@@ -428,17 +434,24 @@ class KaiaRAG:
             self.indexed_files = valid_files
             log_success(f"Populated {len(self.indexed_files)} valid indexed files.")
 
-    @thread_safe_rag_operation
     def refresh_knowledge_base(self):
-        """Scan knowledge base for new/modified files and update indices."""
-        with self._lock:
-            if self._indexing_in_progress:
-                return
-            self._indexing_in_progress = True
-            # Clear BM25 cache as indices are changing
-            self.bm25_cache.clear()
-        
+        """Scan knowledge base for new/modified files and update indices.
+        Uses single-flight logic: only one refresh at a time, subsequent calls mark it dirty.
+        """
+        # Single-flight check
+        if not self._refresh_lock.acquire(blocking=False):
+            log_info("RAG refresh already in progress, marking as pending.")
+            self._refresh_pending = True
+            return
+
         try:
+            self._indexing_in_progress = True
+            self._refresh_pending = False
+            
+            # Clear BM25 cache as indices are changing
+            with self._lock:
+                self.bm25_cache.clear()
+            
             if not os.path.exists(self.knowledge_base_dir):
                 os.makedirs(self.knowledge_base_dir)
                 return
@@ -480,8 +493,8 @@ class KaiaRAG:
                             is_log = itype == 'logs'
                             new_file_paths.append((full_path, is_modified, is_log, itype))
 
-            # 2. Also index the persona file from root
-            persona_file = "config/kaia_persona.md"
+            # 2. Also index the persona file from knowledge_base
+            persona_file = "knowledge_base/kaia_persona.md"
             if os.path.exists(persona_file):
                 norm_path = os.path.abspath(persona_file)
                 mtime = os.path.getmtime(norm_path)
@@ -697,6 +710,13 @@ class KaiaRAG:
             traceback.print_exc()
         finally:
             self._indexing_in_progress = False
+            self._refresh_lock.release()
+            
+            # If another refresh was requested while we were running, trigger it once more
+            if self._refresh_pending:
+                log_info("Triggering pending RAG refresh...")
+                # Use a small delay to prevent tight loops
+                threading.Timer(5.0, self.refresh_knowledge_base).start()
 
     @CircuitBreaker(failure_threshold=3)
     def _convert_pdf_to_md(self, pdf_path: str) -> Optional[str]:
@@ -1153,15 +1173,22 @@ Kaia: {bot_response}
     @thread_safe_rag_operation
     def persist(self, force: bool = False):
         """Persist all hierarchical indices to storage if needed."""
-        if self.persist_needed or force:
-            try:
+        # REQUIREMENT: Never wait on locks during shutdown
+        if not self._lock.acquire(timeout=2.0):
+            log_warning("RAG persist skipped: could not acquire lock (likely shutdown or heavy indexing)")
+            return
+            
+        try:
+            if self.persist_needed or force:
                 for itype, index in self.indices.items():
                     itype_dir = os.path.join(self.persist_dir, itype)
                     index.storage_context.persist(persist_dir=itype_dir)
                 self.persist_needed = False
                 log_success(f"All hierarchical indices persisted to {self.persist_dir}")
-            except Exception as e:
-                log_error(f"Error persisting indices: {e}")
+        except Exception as e:
+            log_error(f"Error persisting indices: {e}")
+        finally:
+            self._lock.release()
 
 if __name__ == "__main__":
     rag = KaiaRAG()

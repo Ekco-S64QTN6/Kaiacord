@@ -58,7 +58,7 @@ def scan_for_phantom_names():
 
 def check_persona_integrity():
     """Ensure kaia_persona.md is properly indexed and has priority"""
-    persona_path = Path("./config/kaia_persona.md")
+    persona_path = Path("knowledge_base/kaia_persona.md")
     
     if not persona_path.exists():
         print("❌ CRITICAL: kaia_persona.md not found in config/")

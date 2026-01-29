@@ -14,6 +14,11 @@ replace_all_logging()
 
 # Initialize Stats Tracker
 from utils.stats_tracker import stats_tracker
+from utils.stats_poller import stats_poller
+from utils.stats_helpers import (
+    set_stats_poller, safe_start_stats_poller, safe_stop_stats_poller,
+    is_stats_poller_available
+)
 
 # Initialize Dashboard (ANSI fallback)
 from utils.btop_dashboard_legacy import BtopDashboard
@@ -45,7 +50,8 @@ import ollama
 import discord
 from discord.ext import commands, tasks
 from utils.kaia_rag import KaiaRAG, HallucinationDetector
-from utils.kaia_image import generate_image, unload_image_model, generation_lock
+from utils.kaia_image import generate_image, unload_image_model, generation_lock, is_image_gen_available
+from utils.async_task_registry import task_registry
 from utils.kaia_vision import kaia_sees_image, cleanup_session
 from watchdog.observers import Observer
 from watchdog.events import FileSystemEventHandler
@@ -100,137 +106,12 @@ from utils.kaia_news import NewsRetrievalEnhancer, ResponseEnhancer, RAGEnhancer
 # TODO: Re-enable only via explicit command (e.g. /news or kaia news).
 NEWS_AUTO_TRIGGER_ENABLED = False
 
-@dataclass
-class Config:
-    """Configuration management for Kaiacord"""
-    discord_token: str = field(default_factory=lambda: os.getenv('DISCORD_TOKEN'))
-    blacklisted_channels: List[str] = field(default_factory=lambda: os.getenv('BLACKLISTED_CHANNELS', 'general,announcements,rules').split(','))
-    
-    # Models
-    chat_model: str = "gemma3:12b"
-    vision_model: str = "llama3.2-vision:11b"
-    embedding_model: str = "nomic-embed-text"
-    
-    # RAG
-    knowledge_base_dir: str = "./knowledge_base"
-    persist_dir: str = "./storage"
-    max_log_size_mb: int = 100
-    
-    # Performance
-    max_memory_messages: int = 30 # Increased for better context
-    max_consecutive_quips: int = 3
-    rag_top_k: int = 8 # Increased to find more relevant history
-    
-    # Rate Limiting
-    requests_per_minute: int = 30
+# Import managers from bot package
+from bot.managers.config import Config, config
+from bot.managers.state import BotState, bot_state
+from bot.managers.rate_limiter import RateLimiter
 
-    def should_use_cache(self, query_text: str, query_classification: str) -> bool:
-        """Determine if semantic cache should be used for this query"""
-        # NEVER use cache for identity questions
-        if query_classification in ["IDENTITY", "SELF", "WHOAMI"]:
-            return False
-        
-        # Never use cache for "who are you" or "who am i"
-        identity_keywords = ["who are you", "who am i", "what are you", "define yourself"]
-        if any(keyword in query_text.lower() for keyword in identity_keywords):
-            return False
-        
-        return True
-
-    @classmethod
-    def from_env(cls):
-        return cls()
-
-config = Config.from_env()
-
-# Dashboard will be initialized in main()
-# monitor = KaiaMonitor(dashboard) # Deprecated
-# set_monitor(monitor) # Deprecated
-
-# No need for BtopLoggingPatcher anymore, ConsolidatedLogger handles it
-
-class BotState:
-    """Encapsulates global bot state and persistence"""
-    def __init__(self, state_file: str = "storage/bot_state.json"):
-        self.state_file = state_file
-        self.channel_memory: Dict[int, Deque[Dict[str, str]]] = {}
-        self.last_interaction_time: float = time.time()
-        self.last_active_channel_id: Optional[int] = None
-        self.consecutive_quips: int = 0
-        self.is_generating_image: bool = False
-        self.load()
-
-    def load(self):
-        """Load persisted bot state from JSON file"""
-        try:
-            if os.path.exists(self.state_file):
-                with open(self.state_file, 'r') as f:
-                    state = json.load(f)
-                    self.last_active_channel_id = state.get('last_active_channel_id')
-                    self.consecutive_quips = state.get('consecutive_quips', 0)
-                    log_info(f"Loaded last_active_channel_id: {self.last_active_channel_id}, quips: {self.consecutive_quips}")
-        except Exception as e:
-            log_warning(f"Failed to load bot state: {e}")
-
-    def save(self):
-        """Save bot state to JSON file"""
-        try:
-            state = {
-                'last_active_channel_id': self.last_active_channel_id,
-                'consecutive_quips': self.consecutive_quips,
-                'saved_at': time.time()
-            }
-            with open(self.state_file, 'w') as f:
-                json.dump(state, f)
-        except Exception as e:
-            log_warning(f"Failed to save bot state: {e}")
-
-    def reset_quips(self):
-        self.consecutive_quips = 0
-        self.save()
-
-    def increment_quips(self):
-        self.consecutive_quips += 1
-        self.save()
-
-    def update_interaction(self, channel_id: int):
-        self.last_interaction_time = time.time()
-        if self.last_active_channel_id != channel_id:
-            self.last_active_channel_id = channel_id
-            self.save()
-
-bot_state = BotState()
-
-class RateLimiter:
-    """Per-user rate limiting"""
-    def __init__(self, requests_per_minute: int = 30):
-        self.requests = defaultdict(list)
-        self.limit = requests_per_minute
-        
-    def is_allowed(self, user_id: int) -> bool:
-        now = time.time()
-        user_requests = self.requests[user_id]
-        
-        # Remove old requests
-        user_requests = [req for req in user_requests if now - req < 60]
-        self.requests[user_id] = user_requests
-        
-        if len(user_requests) >= self.limit:
-            return False
-            
-        user_requests.append(now)
-        return True
-
-    def cleanup(self):
-        """Remove inactive users to prevent unbounded memory growth."""
-        now = time.time()
-        # Remove users with no requests in the last 5 minutes
-        # We must use del to maintain the defaultdict type
-        to_remove = [uid for uid, reqs in self.requests.items() 
-                     if not reqs or now - max(reqs) >= 300]
-        for uid in to_remove:
-            del self.requests[uid]
-
+# Rate limiter instance
 rate_limiter = RateLimiter(config.requests_per_minute)
 
 def sanitize_prompt(prompt: str, max_length: int = 2000) -> str:
@@ -256,6 +137,14 @@ rag_executor = concurrent.futures.ThreadPoolExecutor(
 
 async def run_rag(fn, *args, **kwargs):
     """Centralized helper to run RAG operations in the executor"""
+    # REQUIREMENT: Prevent RAG from running during image gen
+    if getattr(bot_state, 'is_generating_image', False):
+        log_warning(f"RAG operation suppressed: image generation in progress")
+        # Return empty list for retrieve, None for others
+        fn_name = str(fn)
+        if 'retrieve' in fn_name: return []
+        return None
+        
     loop = asyncio.get_running_loop()
     return await loop.run_in_executor(rag_executor, lambda: fn(*args, **kwargs))
 
@@ -368,7 +257,7 @@ _persona_last_load = 0
 def load_persona() -> str:
     """Load the bot's persona from kaia_persona.md with caching"""
     global _persona_cache, _persona_last_load
-    persona_file = os.path.join(os.path.dirname(__file__), 'config', 'kaia_persona.md')
+    persona_file = os.path.join(os.path.dirname(__file__), 'knowledge_base', 'kaia_persona.md')
     
     try:
         mtime = os.path.getmtime(persona_file)
@@ -936,9 +825,39 @@ async def unload_chat_model():
 
 @bot.command(name="news")
 async def news_command(ctx, *, category: Optional[str] = None):
-    """Stub for future news command"""
-    log_action(f"Manual news request from {ctx.author} (Category: {category or 'None'})")
-    await ctx.send("```\nNews retrieval is temporarily disabled while the system is being refined.\n```")
+    """Manual news retrieval command
+    
+    Usage:
+        !news - Get latest technology news
+        !news technology - Get technology news
+        !news politics - Get politics news
+        !news [category] - Get news for specific category
+    """
+    log_action(f"Manual news request from {ctx.author} (Category: {category or 'technology'})")
+    
+    try:
+        # Default to technology if no category specified
+        if not category:
+            category = "technology"
+        
+        # Normalize category
+        category = category.lower().strip()
+        
+        # Get news from manager
+        news_content = news_manager.get_news(category)
+        
+        if news_content:
+            # Send news in chunks if needed
+            await send_kaia_response(ctx.channel, f"📰 **{category.title()} News**\n\n{news_content}")
+            log_success(f"Sent {category} news to {ctx.author}")
+        else:
+            await ctx.send(f"```\nNo {category} news found. Try updating: `python tools/maintenance/update_kaia_news.py`\n```")
+            log_warning(f"No {category} news available")
+    
+    except Exception as e:
+        log_error(f"Error retrieving news: {e}")
+        await ctx.send("```\nError retrieving news. Check logs for details.\n```")
+
 
 @bot.event
 async def on_ready():
@@ -1121,7 +1040,7 @@ async def news_refresh_task():
         log_action("Running periodic news refresh...")
         # Run refresh_news.py as a subprocess to avoid blocking
         process = await asyncio.create_subprocess_exec(
-            sys.executable, "tools/refresh_news.py",
+            sys.executable, "tools/maintenance/refresh_news.py",
             stdout=asyncio.subprocess.PIPE,
             stderr=asyncio.subprocess.PIPE
         )
@@ -1142,18 +1061,27 @@ async def run_news_update():
             log_warning("GEMINI_API_KEY not set, skipping automated news update.")
             return
 
+        # Run with live output streaming
         process = await asyncio.create_subprocess_exec(
-            sys.executable, "tools/update_kaia_news.py",
+            sys.executable, "tools/maintenance/update_kaia_news.py",
             stdout=asyncio.subprocess.PIPE,
-            stderr=asyncio.subprocess.PIPE
+            stderr=asyncio.subprocess.STDOUT  # Merge stderr to stdout
         )
-        stdout, stderr = await process.communicate()
+        
+        # Stream output line by line for live progress
+        async for line in process.stdout:
+            decoded = line.decode().strip()
+            if decoded:
+                print(f"  {decoded}")  # Show in dashboard
+        
+        await process.wait()
+        
         if process.returncode == 0:
             log_success("Daily news update completed.")
             # Trigger RAG refresh after news update
             await run_rag(rag.refresh_knowledge_base)
         else:
-            log_error(f"Daily news update failed: {stderr.decode()}")
+            log_error("Daily news update failed. Check output above.")
     except Exception as e:
         log_error(f"Failed to run news update: {e}")
 
@@ -1320,6 +1248,47 @@ async def on_message(msg: discord.Message):
     if msg.channel.name.lower() in config.blacklisted_channels:
         return
 
+    # QUICK FIX: Handle !news command BEFORE kaia filter (so !news works alone)
+    if msg.content.strip().startswith("!news"):
+        try:
+            # Parse category from command
+            parts = msg.content.strip().split(maxsplit=1)
+            category = parts[1].lower().strip() if len(parts) > 1 else "technology"
+            
+            log_action(f"News request from {msg.author} (Category: {category})")
+            
+            # Get news from manager (returns list of dicts)
+            news_items = news_manager.get_news(category)
+            
+            if news_items and len(news_items) > 0:
+                # Format news items nicely
+                formatted_news = f"📰 **{category.title()} News**\n\n"
+                
+                for i, item in enumerate(news_items[:10], 1):  # Limit to 10 items
+                    if isinstance(item, dict):
+                        text = item.get('text', str(item))
+                        formatted_news += f"{i}. {text}\n\n"
+                    else:
+                        formatted_news += f"{i}. {item}\n\n"
+                
+                # Add category options footer
+                available_categories = ["technology", "security", "hacking", "politics", "business", "science", "culture", "general"]
+                formatted_news += "---\n"
+                formatted_news += "**Other categories:** " + " ".join([f"`!news {cat}`" for cat in available_categories if cat != category])
+                
+                # Send WITHOUT code block
+                await msg.channel.send(formatted_news.strip())
+                log_success(f"Sent {category} news to {msg.author}")
+            else:
+                await msg.channel.send(f"```\nNo {category} news found. Try updating: `python tools/maintenance/update_kaia_news.py`\n```")
+                log_warning(f"No {category} news available")
+            
+            return  # Exit early, don't process as normal message
+        except Exception as e:
+            log_error(f"Error retrieving news: {e}")
+            await msg.channel.send("```\nError retrieving news. Check logs for details.\n```")
+            return
+
     # Trigger logic: Original working "kaia" check
     if "kaia" not in msg.content.lower() and not bot.user.mentioned_in(msg):
         return
@@ -1359,9 +1328,11 @@ async def on_message(msg: discord.Message):
     #         await msg.reply(response)
     #         return
 
+
     # Trigger logic: Image generation
     # Refined phrase-based detection to catch natural language requests while preventing false positives
     request_phrases = [r"will you", r"can you", r"could you", r"please", r"kaia", r"i want you to", r"i'd like you to"]
+
     draw_intents = [r"draw", r"paint", r"generate", r"create", r"sketch", r"render"]
     shape_words = [r"portrait", r"landscape", r"picture", r"art", r"square", r"circle", r"triangle"]
     
@@ -1378,6 +1349,7 @@ async def on_message(msg: discord.Message):
         if match:
             intent_match = match
             break
+
     
     if intent_match:
         # Extract everything after the draw word/intent
@@ -1399,6 +1371,11 @@ async def on_message(msg: discord.Message):
                 
             # Final safety check: If the prompt is too long, it's likely a false positive
             if prompt and len(prompt.split()) <= 20:
+                # Circuit breaker check - is image gen available?
+                if not is_image_gen_available():
+                    await msg.channel.send("```\nimage generation is offline. ask me normally instead.\n```")
+                    return
+                    
                 # Use semaphore to ensure only one image generation at a time
                 async with image_semaphore:
                     # Persona confirmation
@@ -1413,7 +1390,19 @@ async def on_message(msg: discord.Message):
                 temp_path = os.path.join("data", temp_filename)
                 os.makedirs("data", exist_ok=True)
                 
+                # Unload chat model to free VRAM for image generation
+                # CRITICAL: With 12GB VRAM, gemma3:12b (8GB) won't fit with Flux
+                await unload_chat_model()
+                await asyncio.sleep(1.0)  # Wait for VRAM to be released
+                
+                # REQUIREMENT: Prevent stats from running during image gen
+                # Use safe helper to avoid NameError
+                safe_stop_stats_poller()
+                
                 success, result = await generate_image(prompt, temp_path)
+                
+                # Restart stats poller
+                safe_start_stats_poller()
                 
                 if success:
                     await msg.channel.send(file=discord.File(result))
@@ -1531,8 +1520,10 @@ async def on_message(msg: discord.Message):
                 async with generation_lock:
                     log_action("VRAM Lock acquired for vision task.")
                     
-                    # 1. Unload chat model to make room
+                    # 1. Unload chat model to free VRAM for vision
+                    # CRITICAL: With 12GB VRAM, gemma3:12b (8GB) + llama3.2-vision (7GB) won't fit
                     await unload_chat_model()
+                    await asyncio.sleep(1.0)  # Wait for VRAM to be released
                     
                     # 2. Process vision task
                     log_action("Processing vision task...")
@@ -2049,36 +2040,33 @@ def perform_startup_tasks():
     """
     Perform startup tasks that need to run before either mode.
     Returns stats_poller for cleanup.
+    
+    IMPORTANT: This function must NOT block. All potentially slow
+    operations run in background threads with timeouts.
     """
     # Run cleanup immediately on script execution
     cleanup_on_startup()
     
-    # 1. Update news (idempotent - won't regenerate if exists)
-    print("📰 Updating news brief...")
-    try:
-        subprocess.run(["python3", "tools/update_kaia_news.py"], check=False)
-    except Exception as e:
-        log_warning(f"Failed to update news on startup: {e}")
+    # 1. News update DISABLED at startup (Rollback)
+    print("📰 News update disabled at startup (Rollback)")
     
-    print("📰 Checking news pipeline...")
+    # 2. Check news system (fast, non-blocking)
+    print("📰 News system initialization skipped at boot (Rollback)")
     
-    # Check news system using consolidated NewsManager
-    news_manager.refresh()
-    total_items = sum(len(items) for items in news_manager.news_cache.values())
-    log_info(f"News system initialized: {total_items} items cached")
-    if total_items == 0:
-        log_warning(f"⚠️ No news found in {news_manager.base_path}! Check if news generation is working.")
-    
-    # 2. Initialize stats poller
-    from utils.stats_poller import stats_poller
+    # 3. Initialize stats poller
     stats_poller.start()
+    log_success("Stats poller started.")
     
-    # 3. Register with shutdown manager
+    # Register stats_poller with helper module for safe access
+    set_stats_poller(stats_poller)
+    log_success("Stats poller registered with helper module.")
+    
+    # 4. Register with shutdown manager
     shutdown_manager.register_stats_poller(stats_poller)
     shutdown_manager.setup()
     
-    # 4. News module loaded
-    print("✅ News module loaded")
+    # 5. Done
+    print("✅ Startup tasks complete")
     
     return stats_poller
 
@@ -2087,8 +2075,9 @@ async def run_bot_async(stats_poller, stop_event=None):
     Run the Discord bot with asyncio.
     If stop_event is provided, will exit when it's set.
     """
-    # Pre-warm classification model
-    asyncio.create_task(query_classifier.pre_warm())
+    # Pre-warm classification model (register for tracking)
+    prewarm_task = asyncio.create_task(query_classifier.pre_warm())
+    task_registry.register("prewarm_classifier", prewarm_task)
     
     # Wait a bit for initialization
     await asyncio.sleep(2)
@@ -2102,7 +2091,8 @@ async def run_bot_async(stats_poller, stop_event=None):
                         await asyncio.sleep(0.5)
                     # Signal bot to close
                     await bot.close()
-                asyncio.create_task(check_stop())
+                stop_task = asyncio.create_task(check_stop())
+                task_registry.register("stop_checker", stop_task)
             
             await bot.start(config.discord_token)
     except KeyboardInterrupt:
@@ -2172,6 +2162,9 @@ def run_curses_mode():
     Run in curses dashboard mode.
     curses runs in MAIN THREAD (required for signal handling).
     Discord bot runs in BACKGROUND THREAD with its own asyncio loop.
+    
+    IMPORTANT: Signal handlers are set up FIRST before any blocking
+    operations, so Ctrl+C always triggers clean shutdown.
     """
     if not config.discord_token:
         log_critical("DISCORD_TOKEN not found in environment variables!")
@@ -2181,13 +2174,15 @@ def run_curses_mode():
     print("   Dashboard runs in main thread, bot in background thread")
     print("   Press Q in dashboard to quit\n")
     
-    # Perform startup tasks
-    stats_poller = perform_startup_tasks()
+    # Set up shutdown handler FIRST (before any blocking operations)
+    # This ensures Ctrl+C is always handled cleanly
+    shutdown_manager.setup()
     
-    # Create stop event for coordinating shutdown
+    # Initialize variables for cleanup
     stop_event = threading.Event()
     bot_thread = None
     dashboard = None
+    stats_poller = None
     
     def run_bot_in_thread():
         """Run the async bot in a background thread"""
@@ -2199,6 +2194,9 @@ def run_curses_mode():
             loop.close()
     
     try:
+        # Perform startup tasks (now non-blocking)
+        stats_poller = perform_startup_tasks()
+        
         # Start Discord bot in background thread
         bot_thread = threading.Thread(target=run_bot_in_thread, daemon=True, name="DiscordBot")
         bot_thread.start()
@@ -2227,6 +2225,9 @@ def run_curses_mode():
         # Signal bot to stop
         stop_event.set()
         
+        # Give bot thread time to notice stop event
+        time.sleep(0.5)
+        
         # Stop dashboard if it exists
         if dashboard:
             try:
@@ -2241,16 +2242,37 @@ def run_curses_mode():
         sys.stdout.write('\033[0m\033[?25h\033[?1049l\033[H\033[2J')
         sys.stdout.flush()
         
-        # Wait for bot thread to finish
+        # Wait for bot thread with longer timeout
         if bot_thread and bot_thread.is_alive():
             print("Waiting for bot to shut down...")
-            bot_thread.join(timeout=5)
+            bot_thread.join(timeout=10)
+            if bot_thread.is_alive():
+                print("⚠️  Bot thread still alive after timeout - forcing cleanup")
+        
+        # Force GPU cleanup
+        try:
+            from utils.clear_gpu_memory import force_clear_gpu
+            if force_clear_gpu():
+                print("  ✅ GPU memory released")
+            else:
+                print("  ⚠️  GPU cleanup incomplete")
+        except Exception as e:
+            print(f"  ❌ GPU cleanup error: {e}")
         
         # Stop stats poller
         if stats_poller:
             stats_poller.stop()
         
-        shutdown_manager.cleanup()
+        # Run async cleanup in new event loop
+        print("  🔄 Running async cleanup...")
+        cleanup_loop = asyncio.new_event_loop()
+        try:
+            cleanup_loop.run_until_complete(shutdown_manager.async_shutdown())
+        except Exception as e:
+            print(f"  ❌ Async cleanup error: {e}")
+        finally:
+            cleanup_loop.close()
+        
         print("Curses mode shutdown complete.")
 
 # ==================== SIMPLE MODE (Original Behavior) ====================
@@ -2309,7 +2331,7 @@ def main():
     KAIA_DASHBOARD=curses: Run curses dashboard in main thread, bot in background
     Otherwise: Run in simple mode with asyncio in main thread (original behavior)
     """
-    dashboard_mode = os.environ.get('KAIA_DASHBOARD', 'simple').lower()
+    dashboard_mode = os.environ.get('KAIA_DASHBOARD', 'curses').lower()  # Default: curses
     
     if dashboard_mode == 'curses':
         # Curses mode: curses in main thread, bot in background

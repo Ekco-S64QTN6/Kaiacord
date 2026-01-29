@@ -11,8 +11,8 @@ import json
 import subprocess
 from datetime import datetime, timedelta
 
-# Add project root to path
-sys.path.append(os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
+# Add project root to path (go up 2 levels from tools/maintenance/)
+sys.path.append(os.path.dirname(os.path.dirname(os.path.dirname(os.path.abspath(__file__)))))
 
 from utils.kaia_news import NewsManager
 
@@ -31,7 +31,7 @@ async def refresh_news(force_update=False):
         try:
             # Run update_kaia_news.py
             process = subprocess.run(
-                [sys.executable, "tools/update_kaia_news.py"],
+                [sys.executable, "tools/maintenance/update_kaia_news.py"],
                 capture_output=True,
                 text=True,
                 check=True
