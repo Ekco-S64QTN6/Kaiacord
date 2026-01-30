@@ -282,3 +282,7 @@ class YAMLConfig:
         if not is_valid:
             error_msg = "Configuration validation failed:\n" + "\n".join(f"  - {e}" for e in errors)
             raise ValueError(error_msg)
+
+
+# Global config instance for easy import
+config = YAMLConfig()

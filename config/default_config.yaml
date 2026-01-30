@@ -1,12 +1,12 @@
-"""
-Default Configuration
-====================
-
-Hierarchical configuration with environment variable override support.
-
-This YAML file provides default configuration values. Environment variables
-and user config files can override these defaults.
-"""
+# ==============================================================================
+# Default Configuration
+# ==============================================================================
+#
+# Hierarchical configuration with environment variable override support.
+#
+# This YAML file provides default configuration values. Environment variables
+# and user config files can override these defaults.
+# ==============================================================================
 
 # ============================================================================
 # Models Configuration

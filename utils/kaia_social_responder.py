@@ -61,7 +61,7 @@ async def _generate_response(mention_text: str, author_name: str, platform: str)
     """Generate a response using Ollama chat model."""
     try:
         import ollama
-        from bot.managers.config import config
+        from bot.managers.yaml_config import config
         
         persona = _get_persona()
         
@@ -241,7 +241,7 @@ async def check_and_reply_mentions():
     if not _replied_ids:
         _load_replied_ids()
     
-    from bot.managers.config import config
+    from bot.managers.yaml_config import config
     
     total_replies = 0
     
