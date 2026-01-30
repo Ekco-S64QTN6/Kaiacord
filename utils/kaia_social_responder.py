@@ -189,16 +189,26 @@ async def _reply_to_bluesky(mention: Dict[str, Any], response_text: str) -> bool
         if not client:
             return False
         
-        # Build reply reference
-        reply_ref = models.AppBskyFeedPost.ReplyRef(
-            root=models.create_strong_ref(
-                mention.get('root_uri') or mention['uri'],
-                mention.get('cid', '')
-            ),
-            parent=models.create_strong_ref(
-                mention['uri'],
-                mention.get('cid', '')
+        # Build reply reference using StrongRef directly
+        # The parent is what we're replying to, root is the thread root
+        parent_ref = models.ComAtprotoRepoStrongRef.Main(
+            uri=mention['uri'],
+            cid=mention.get('cid', '')
+        )
+        
+        # For root, use the thread root if available, otherwise the parent
+        root_uri = mention.get('root_uri')
+        if root_uri and hasattr(root_uri, 'uri'):
+            root_ref = models.ComAtprotoRepoStrongRef.Main(
+                uri=root_uri.uri,
+                cid=getattr(root_uri, 'cid', '')
             )
+        else:
+            root_ref = parent_ref
+        
+        reply_ref = models.AppBskyFeedPost.ReplyRef(
+            root=root_ref,
+            parent=parent_ref
         )
         
         await client.send_post(response_text, reply_to=reply_ref)
