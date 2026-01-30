@@ -1,19 +1,19 @@
 #!/usr/bin/env python3
 """
 Daily News Updater for Kaia
-Uses Gemini API to generate daily brief and adds to Kaia's knowledge base
+Uses Gemini API with Google Search grounding to generate accurate daily briefs
 """
 
 import os
 import json
 import datetime
-try:
-    import google.generativeai as genai
-except ImportError:
-    genai = None
 from pathlib import Path
 import ollama
 from dotenv import load_dotenv
+
+# New Google GenAI SDK
+from google import genai
+from google.genai import types
 
 # Load environment variables from .env file
 load_dotenv()
@@ -21,101 +21,111 @@ load_dotenv()
 class KaiaNewsUpdater:
     def __init__(self, gemini_api_key: str):
         """Initialize with Gemini API key"""
-        genai.configure(api_key=gemini_api_key)
-        self.model = genai.GenerativeModel('gemini-flash-latest')
+        self.client = genai.Client(api_key=gemini_api_key)
+        self.model_name = 'gemini-2.0-flash'  # Using a stable model with grounding support
         self.knowledge_dir = Path("./knowledge_base/news/daily")
         self.knowledge_dir.mkdir(parents=True, exist_ok=True)
         self.today = datetime.datetime.now().strftime("%Y-%m-%d")
         
     def generate_daily_brief(self, target_date: str = None) -> str:
-        """Generate news brief using Gemini with RAG-optimized structure"""
+        """Generate news brief using Gemini with Google Search grounding for accuracy"""
         date_to_use = target_date or self.today
         
-        prompt = f"""
-Generate the news brief for Kaia for the date: {date_to_use}
+        prompt = f"""You are a news aggregator. Search for and compile REAL news stories from today ({date_to_use}).
 
-Use this RAG-optimized structure:
+CRITICAL: You MUST use Google Search to find actual news. Do NOT invent or hallucinate any stories.
+Only include news items that you can verify from your search results.
+
+Compile the news into this structure:
 
 # NEWS_BRIEF: {date_to_use}
 
 ## EXECUTIVE_SUMMARY
-[3-4 sentences: High-level overview of the day's chaos, major geopolitical shifts, and tech landscape]
+[3-4 sentences summarizing the major verified news of the day]
 
-## TECH_OUTAGES_AND_FAILURES
-- Azure/AWS/GCP: Downtime, latency, region failures
-- ISP/CDN: Cloudflare, Akamai, major ISP outages
-- Service X: Issue description, duration, impact
-
-## SECURITY_INCIDENTS
-- CVE-202X-XXXX: Critical vulnerabilities (CVSS > 7.0)
-- Data Breaches: Company, records exposed, vector
-- Ransomware: Active campaigns, major victims
-
-## HACKER_CULTURE_AND_CYBERWARFARE
-- Groups: Lapsus$, Anonymous, state-sponsored APT activity
-- Leaks: Manifesto releases, source code dumps
-- Events: Defcon/BlackHat news, major CTF results
-
-## AI_DEVELOPMENTS
-- Models: New LLM releases (OpenAI, Anthropic, Meta, Mistral)
-- Open Source: HuggingFace trending, local LLM breakthroughs
-- Regulation: EU AI Act updates, US executive orders
+## GENERAL_NEWS
+- World Events: Major breaking news stories (with source)
+- International: Significant global developments
+- Domestic: Important national news, policy changes
 
 ## US_POLITICS
-- Legislation: Bills affecting privacy, crypto, surveillance, net neutrality
-- Elections: Tech impact, disinformation campaigns, candidate stances on tech
-- Agency Actions: FCC, FTC, NSA, CISA announcements
+- White House: Presidential actions, announcements
+- Congress: Major legislation, votes
+- Elections: Campaign news, polls
 
 ## GLOBAL_GEOPOLITICS
-- Conflict: Cyber components of kinetic wars (Ukraine, Gaza, etc.)
-- Trade: Chip bans, export controls, sanctions (US/China)
-- Internet Freedom: Shutdowns, censorship, surveillance laws
+- International Relations: Diplomacy, treaties
+- Conflicts: Ongoing situations, peace negotiations
+- Trade: Trade deals, tariffs, sanctions
 
 ## CULTURE_AND_ENTERTAINMENT
-- Entertainment: Movie/TV releases, gaming news, celebrity tech impact
-- Trends: Internet memes, viral challenges, digital subcultures
-- Events: Concerts, art exhibitions, cultural festivals
+- Entertainment: Movie/TV releases, awards
+- Sports: Major games, championships
+- Trends: Viral stories, pop culture
 
-## TECH_AND_SOCIETY
-- Social Media: Platform changes (X/Twitter, Reddit, Bluesky), moderation scandals
-- Crypto/Finance: Major hacks, regulatory crackdowns, ETF news
-- Science: Space launches (SpaceX), breakthrough physics/bio
+## SCIENCE_AND_HEALTH
+- Medical: Health news, breakthroughs
+- Space: NASA, SpaceX, astronomy
+- Environment: Climate news, natural disasters
 
-## FAILURE_METRICS
-- Incidents today: X
-- Downtime hours: Y
-- Records exposed: Z
+## BUSINESS_AND_ECONOMY
+- Markets: Stock market, crypto movements
+- Companies: Major corporate news
+- Jobs: Employment trends
 
-## QUOTES
-- "[Direct quote about tech/politics]" - Name, Title
-- "[Direct quote about security]" - Name, Title
+## TECHNOLOGY
+- AI: New developments, regulations
+- Consumer Tech: Product launches
+- Industry: Tech company news
+
+## SECURITY_INCIDENTS
+- Vulnerabilities: Critical CVEs (if any)
+- Data Breaches: Major incidents
+- Ransomware: Active campaigns
 
 ## SOURCES
-- Reuters
-- BleepingComputer
-- The Record
-- 404 Media
-- KrebsOnSecurity
+[List the news sources you found these stories from]
 
 ---
 **Generated**: {datetime.datetime.now().strftime('%Y-%m-%dT%H:%M:%SZ')}
-**Format**: RAG-optimized technical digest
 
 RULES:
-1. Each bullet is one complete fact.
-2. Include technical details: version numbers, CVEs, ASNs, bill numbers.
-3. Keep language factual, no commentary.
-4. **MINIMUM 40 bullet points total** across all sections.
-5. **BROADEN SCOPE**: Don't just stick to enterprise tech. Include politics, war, and culture.
-6. Prioritize events that affect systems, freedom, and infrastructure.
-7. Use Kaia's vocabulary: "hiccups", "messed up", "glitch", "patch".
+1. ONLY include news you found via search - NO invented stories.
+2. Each bullet should be one complete, verified fact.
+3. Include source names when possible (e.g., "per Reuters", "according to AP").
+4. If you cannot find news for a category, write "No major news in this category today."
+5. Prioritize major, widely-reported stories over obscure ones.
 """
         
-        # Generate using Gemini
-        response = self.model.generate_content(prompt)
-        
-        # Clean up response
-        brief = response.text.strip()
+        # Generate using Gemini WITH Google Search grounding (new SDK syntax)
+        try:
+            response = self.client.models.generate_content(
+                model=self.model_name,
+                contents=prompt,
+                config=types.GenerateContentConfig(
+                    tools=[
+                        types.Tool(google_search=types.GoogleSearch())
+                    ]
+                ),
+            )
+            brief = response.text.strip()
+            
+            # Log grounding metadata if available
+            try:
+                metadata = response.candidates[0].grounding_metadata
+                if metadata and metadata.web_search_queries:
+                    print(f"✓ Grounding used search queries: {metadata.web_search_queries}")
+            except:
+                pass
+                
+        except Exception as e:
+            print(f"⚠️ Grounding failed ({e}), falling back to standard generation")
+            # Fallback to standard generation if grounding fails
+            response = self.client.models.generate_content(
+                model=self.model_name,
+                contents=prompt
+            )
+            brief = response.text.strip()
         
         return brief
     
@@ -140,13 +150,27 @@ RULES:
         
         # Use Ollama to create a summary
         summary_prompt = f"""
-        Extract the most critical 5-7 bullet points from this daily brief for immediate awareness.
-        Format as very concise bullet points that can be quickly referenced.
+        Create a BALANCED news summary with 1-2 bullet points from EACH category below.
+        Format as concise bullet points grouped by category.
         
-        Brief:
-        {full_brief[:2000]}
+        SOURCE BRIEF:
+        {full_brief[:3000]}
         
-        Extract only facts that would be most relevant for a systems analyst monitoring critical infrastructure.
+        REQUIRED CATEGORIES (include 1-2 items from EACH):
+        - **General/World**: Major breaking world news
+        - **Politics**: US or international political developments
+        - **Business/Economy**: Markets, companies, economic news
+        - **Culture/Entertainment**: Movies, sports, celebrity, trends
+        - **Science/Health**: Medical, space, research, environment
+        - **Technology**: AI, consumer tech, industry news
+        - **Security**: Only if major (breaches, CVEs for !news hacker)
+        
+        CRITICAL RULES:
+        1. Keep each bullet to ONE sentence. Total: 10-14 bullets covering ALL categories.
+        2. DO NOT invent or hallucinate specific numbers, prices, statistics, or data points that are NOT in the source brief.
+        3. If the source doesn't include a specific number (like stock prices, gold prices, dollar amounts), describe the trend WITHOUT the specific number.
+        4. NO blank lines between bullets or categories - output should be compact with no empty lines.
+        5. Start each category header on its own line immediately followed by its bullets.
         """
         
         try:
@@ -228,10 +252,14 @@ RULES:
             else:
                 print(f"✅ News for {date_str} already exists.")
 
-    def run(self):
+    def run(self, skip_backfill: bool = True):
         """Execute full update process"""
-        # First, backfill missing news
-        self.backfill_week()
+        # Backfill disabled by default to conserve API quota
+        # Enable with --backfill flag
+        if not skip_backfill:
+            self.backfill_week()
+        else:
+            print("ℹ️ Skipping backfill to conserve API quota. Use --backfill to enable.")
         
         # Check if today's news already exists (prevent duplicate regeneration)
         today_filename = f"news_brief_{self.today.replace('-', '')}.md"
@@ -356,5 +384,8 @@ if __name__ == "__main__":
             print("2. Run manual version: python update_kaia_news.py --manual")
             sys.exit(1)
         
+        # Check for --backfill flag
+        do_backfill = "--backfill" in sys.argv
+        
         updater = KaiaNewsUpdater(api_key)
-        updater.run()
+        updater.run(skip_backfill=not do_backfill)

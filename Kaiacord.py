@@ -828,17 +828,18 @@ async def news_command(ctx, *, category: Optional[str] = None):
     """Manual news retrieval command
     
     Usage:
-        !news - Get latest technology news
+        !news - Get latest general/world news
+        !news today - Get today's news summary
         !news technology - Get technology news
-        !news politics - Get politics news
+        !news hacker - Get hacker/security news
         !news [category] - Get news for specific category
     """
-    log_action(f"Manual news request from {ctx.author} (Category: {category or 'technology'})")
+    log_action(f"Manual news request from {ctx.author} (Category: {category or 'general'})")
     
     try:
-        # Default to technology if no category specified
+        # Default to general if no category specified
         if not category:
-            category = "technology"
+            category = "general"
         
         # Normalize category
         category = category.lower().strip()
@@ -857,6 +858,46 @@ async def news_command(ctx, *, category: Optional[str] = None):
     except Exception as e:
         log_error(f"Error retrieving news: {e}")
         await ctx.send("```\nError retrieving news. Check logs for details.\n```")
+
+
+async def sequenced_boot_tasks():
+    """
+    Run heavy boot tasks SEQUENTIALLY to prevent system overload.
+    
+    Order:
+    1. RAG refresh/storage rebuild (CPU + Disk I/O intensive)
+    2. News update (Network + CPU)
+    3. GPU model loading (GPU + Memory intensive)
+    
+    This prevents the system freeze that occurs when all three run concurrently.
+    """
+    log_info("📦 Phase 1/3: Rebuilding knowledge index...")
+    
+    # 1. FIRST: RAG refresh/storage rebuild
+    try:
+        await run_rag(rag.refresh_knowledge_base)
+        log_success("📦 Knowledge index ready.")
+    except Exception as e:
+        log_error(f"RAG refresh failed: {e}")
+    
+    # 2. SECOND: News update
+    log_info("📰 Phase 2/3: Updating news...")
+    try:
+        await run_news_update()
+        log_success("📰 News update complete.")
+    except Exception as e:
+        log_error(f"News update failed: {e}")
+    
+    # 3. LAST: GPU model loading
+    log_info("🧠 Phase 3/3: Loading chat model into VRAM...")
+    try:
+        await prewarm_main_model()
+        log_success("🧠 Chat model ready.")
+    except Exception as e:
+        log_error(f"Model prewarm failed: {e}")
+    
+    log_success("✅ Boot sequence complete.")
+    bot_state.boot_complete = True
 
 
 @bot.event
@@ -880,27 +921,19 @@ async def on_ready():
     # Load cold state
     state_manager.load_state(semantic_cache, personalization_engine, performance_monitor)
     
-    # Prewarm the main Ollama model to avoid cold-start delay on first message
-    # We don't prewarm the vision model here to avoid system lag
-    asyncio.create_task(prewarm_main_model())
-    
     if not idle_quip_task.is_running():
         idle_quip_task.start()
         
     if not rag_maintenance_task.is_running():
         rag_maintenance_task.start()
     
-    # Refresh knowledge base in the background to avoid blocking boot
-    log_action("Refreshing knowledge base in background...")
-    asyncio.create_task(run_rag(rag.refresh_knowledge_base))
-    
-    # Trigger daily news update on startup
-    log_action("Triggering daily news update...")
-    asyncio.create_task(run_news_update())
-    
-    # Start periodic news refresh
+    # Start periodic news refresh (this just schedules future runs, doesn't run immediately)
     if not news_refresh_task.is_running():
         news_refresh_task.start()
+    
+    # SEQUENCED BOOT: Run heavy tasks in order to prevent system overload
+    # This replaces the previous concurrent asyncio.create_task() calls
+    asyncio.create_task(sequenced_boot_tasks())
 
 @tasks.loop(minutes=15)
 async def idle_quip_task():
@@ -1212,7 +1245,6 @@ def _format_news_response(news_items, category, query):
         if item.get('date'):
             # Format date nicely
             try:
-                from datetime import datetime
                 dt = datetime.strptime(item['date'], "%Y-%m-%d")
                 date_str = f" [{dt.strftime('%b %d')}]"
             except:
@@ -1248,12 +1280,70 @@ async def on_message(msg: discord.Message):
     if msg.channel.name.lower() in config.blacklisted_channels:
         return
 
+    # BOOT GUARD: Don't process messages until boot sequence completes
+    if not bot_state.boot_complete:
+        log_info(f"Message from {msg.author.display_name} ignored - still booting")
+        try:
+            await msg.channel.send("```\nstill waking up. give me a minute.\n```")
+        except:
+            pass  # Silently fail if we can't send
+        return
+
     # QUICK FIX: Handle !news command BEFORE kaia filter (so !news works alone)
     if msg.content.strip().startswith("!news"):
         try:
             # Parse category from command
             parts = msg.content.strip().split(maxsplit=1)
-            category = parts[1].lower().strip() if len(parts) > 1 else "technology"
+            category = parts[1].lower().strip() if len(parts) > 1 else "general"
+            
+            # SPECIAL CASE: !news today - returns today's news summary
+            if category == "today":
+                log_action(f"Today's news summary request from {msg.author}")
+                from pathlib import Path
+                
+                # Get today's date and look for most recent news summary
+                today = datetime.now()
+                news_dir = Path("knowledge_base/news/daily")
+                
+                # Look for today's summary first, then fall back to most recent
+                todays_summary = news_dir / f"news_summary_{today.strftime('%Y%m%d')}.md"
+                
+                if todays_summary.exists():
+                    summary_content = todays_summary.read_text()
+                    # Remove empty lines for compact formatting
+                    lines = [line for line in summary_content.split('\n') if line.strip()]
+                    compact_summary = '\n'.join(lines)
+                    formatted = f"📰 **Today's News Summary ({today.strftime('%B %d, %Y')})**\n\n{compact_summary}"
+                    # Add category options footer
+                    formatted += "\n\n---\n**Other categories:** `!news general` `!news technology` `!news security` `!news hacker` `!news politics` `!news business` `!news science` `!news culture`"
+                    await msg.channel.send(formatted.strip())
+                    log_success(f"Sent today's news summary to {msg.author}")
+                else:
+                    # Find most recent summary file
+                    summary_files = sorted(news_dir.glob("news_summary_*.md"), reverse=True)
+                    if summary_files:
+                        most_recent = summary_files[0]
+                        # Extract date from filename
+                        date_str = most_recent.stem.replace("news_summary_", "")
+                        try:
+                            file_date = datetime.strptime(date_str, "%Y%m%d")
+                            date_display = file_date.strftime("%B %d, %Y")
+                        except:
+                            date_display = date_str
+                        
+                        summary_content = most_recent.read_text()
+                        # Remove empty lines for compact formatting
+                        lines = [line for line in summary_content.split('\n') if line.strip()]
+                        compact_summary = '\n'.join(lines)
+                        formatted = f"📰 **Latest News Summary ({date_display})**\n\n{compact_summary}"
+                        # Add category options footer
+                        formatted += "\n\n---\n**Other categories:** `!news general` `!news technology` `!news security` `!news hacker` `!news politics` `!news business` `!news science` `!news culture`"
+                        await msg.channel.send(formatted.strip())
+                        log_success(f"Sent latest news summary ({date_display}) to {msg.author}")
+                    else:
+                        await msg.channel.send("```\nNo news summaries found. Run: python tools/maintenance/update_kaia_news.py\n```")
+                        log_warning("No news summary files found")
+                return  # Exit early
             
             log_action(f"News request from {msg.author} (Category: {category})")
             
@@ -1272,7 +1362,7 @@ async def on_message(msg: discord.Message):
                         formatted_news += f"{i}. {item}\n\n"
                 
                 # Add category options footer
-                available_categories = ["technology", "security", "hacking", "politics", "business", "science", "culture", "general"]
+                available_categories = ["today", "technology", "security", "hacking", "politics", "business", "science", "culture", "general"]
                 formatted_news += "---\n"
                 formatted_news += "**Other categories:** " + " ".join([f"`!news {cat}`" for cat in available_categories if cat != category])
                 
@@ -1375,63 +1465,65 @@ async def on_message(msg: discord.Message):
                 if not is_image_gen_available():
                     await msg.channel.send("```\nimage generation is offline. ask me normally instead.\n```")
                     return
+                
+                # Persona confirmation - send BEFORE acquiring semaphore
+                await msg.channel.send("```\nflickering the screen. give me a second.\n```")
                     
                 # Use semaphore to ensure only one image generation at a time
                 async with image_semaphore:
-                    # Persona confirmation
-                    await msg.channel.send("```\nflickering the screen. give me a second.\n```")
-            
-            try:
-                log_action(f"Generating image for prompt: {prompt}")
-                bot_state.is_generating_image = True
-                
-                # Generate a unique filename
-                temp_filename = f"gen_{uuid.uuid4().hex}.png"
-                temp_path = os.path.join("data", temp_filename)
-                os.makedirs("data", exist_ok=True)
-                
-                # Unload chat model to free VRAM for image generation
-                # CRITICAL: With 12GB VRAM, gemma3:12b (8GB) won't fit with Flux
-                await unload_chat_model()
-                await asyncio.sleep(1.0)  # Wait for VRAM to be released
-                
-                # REQUIREMENT: Prevent stats from running during image gen
-                # Use safe helper to avoid NameError
-                safe_stop_stats_poller()
-                
-                success, result = await generate_image(prompt, temp_path)
-                
-                # Restart stats poller
-                safe_start_stats_poller()
-                
-                if success:
-                    await msg.channel.send(file=discord.File(result))
-                    image_path = result # for cleanup
-                else:
-                    await msg.channel.send(f"```\nrender failed: {result}\n```")
-                    image_path = None
-                
-                # Cleanup
-                try:
-                    if image_path and os.path.exists(image_path):
-                        os.remove(image_path)
-                        log_success(f"Cleaned up temp file")
-                except Exception as cleanup_err:
-                    log_warning(f"Failed to cleanup temp file: {cleanup_err}")
-            except Exception as e:
-                log_error(f"Image generation failed: {e}")
-                traceback.print_exc()
-                await msg.channel.send(f"```\nsomething went wrong with the render. check the logs.\n```")
-            finally:
-                bot_state.is_generating_image = False
-                try:
-                    await unload_image_model()
-                except Exception as unload_err:
-                    log_warning(f"Failed to unload image model: {unload_err}")
-                    
-                await asyncio.sleep(1.5)
-                if not shutdown_manager.shutting_down:
-                    await prewarm_main_model()
+                    try:
+                        log_action(f"Generating image for prompt: {prompt}")
+                        bot_state.is_generating_image = True
+                        
+                        # Generate a unique filename
+                        temp_filename = f"gen_{uuid.uuid4().hex}.png"
+                        temp_path = os.path.join("data", temp_filename)
+                        os.makedirs("data", exist_ok=True)
+                        
+                        # Unload chat model to free VRAM for image generation
+                        # CRITICAL: With 12GB VRAM, gemma3:12b (8GB) won't fit with Flux
+                        await unload_chat_model()
+                        # INCREASED WAIT: Give Ollama more time to fully release VRAM
+                        await asyncio.sleep(3.0)
+                        
+                        # REQUIREMENT: Prevent stats from running during image gen
+                        # Use safe helper to avoid NameError
+                        safe_stop_stats_poller()
+                        
+                        success, result = await generate_image(prompt, temp_path)
+                        
+                        # Restart stats poller
+                        safe_start_stats_poller()
+                        
+                        if success:
+                            await msg.channel.send(file=discord.File(result))
+                            image_path = result # for cleanup
+                        else:
+                            await msg.channel.send(f"```\nrender failed: {result}\n```")
+                            image_path = None
+                        
+                        # Cleanup
+                        try:
+                            if image_path and os.path.exists(image_path):
+                                os.remove(image_path)
+                                log_success(f"Cleaned up temp file")
+                        except Exception as cleanup_err:
+                            log_warning(f"Failed to cleanup temp file: {cleanup_err}")
+
+                    except Exception as e:
+                        log_error(f"Image generation failed: {e}")
+                        traceback.print_exc()
+                        await msg.channel.send(f"```\nsomething went wrong with the render. check the logs.\n```")
+                    finally:
+                        bot_state.is_generating_image = False
+                        try:
+                            await unload_image_model()
+                        except Exception as unload_err:
+                            log_warning(f"Failed to unload image model: {unload_err}")
+                            
+                        await asyncio.sleep(1.5)
+                        if not shutdown_manager.shutting_down:
+                            await prewarm_main_model()
         return
 
     # "kaia remember" command

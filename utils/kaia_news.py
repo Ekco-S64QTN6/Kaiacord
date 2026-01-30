@@ -260,15 +260,42 @@ class NewsManager:
             
         section_lower = section.lower()
         
+        # Direct section name mappings (from updated news prompt)
+        direct_mappings = {
+            'general_news': 'general',
+            'us_politics': 'politics',
+            'global_geopolitics': 'politics',
+            'culture_and_entertainment': 'culture',
+            'science_and_health': 'science',
+            'business_and_economy': 'business',
+            'technology': 'technology',
+            'security_incidents': 'security',
+            'tech_outages': 'technology',
+            'hacker_culture': 'hacker',
+        }
+        
+        # Check direct section name match first
+        section_key = section_lower.replace(' ', '_').replace('-', '_')
+        if section_key in direct_mappings:
+            return direct_mappings[section_key]
+        
         # Prioritize hacker if mentioned
         if 'hacker' in section_lower or 'cyberwarfare' in section_lower:
             return 'hacker'
             
-        # Prioritize culture if explicitly mentioned in section name (and not hacker)
+        # Prioritize culture if explicitly mentioned in section name
         if 'culture' in section_lower or 'entertainment' in section_lower:
             return 'culture'
+        
+        # Politics mapping
+        if 'politic' in section_lower or 'geopolitic' in section_lower or 'congress' in section_lower or 'election' in section_lower:
+            return 'politics'
+        
+        # Science/Health mapping
+        if 'science' in section_lower or 'health' in section_lower or 'medical' in section_lower:
+            return 'science'
             
-        # Society can be general or culture depending on context, but let's map it to general if it has tech
+        # Society can be general or culture depending on context
         if 'society' in section_lower:
             if 'tech' in section_lower:
                 return 'technology'

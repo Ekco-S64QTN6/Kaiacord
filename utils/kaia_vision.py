@@ -192,15 +192,12 @@ async def analyze_image(image_path: str, prompt: Optional[str] = None) -> str:
         # Use GPU Manager for consistent options
         from utils.gpu_manager import OllamaGPUManager
         gpu_manager = OllamaGPUManager(VISION_MODEL)
-        
-        # Ensure model is loaded on GPU without a full test chat
-        log_action(f"Ensuring {VISION_MODEL} is loaded on GPU...")
-        await gpu_manager.load_only(ollama_client)
-        
         gpu_options = gpu_manager.get_gpu_options(for_chat=False)
         
-        # TIERED TIMEOUT STRATEGY: Try 60s first, then 90s on retry
-        timeouts = [60.0, 90.0]
+        # TIERED TIMEOUT STRATEGY: Generous timeouts for slow GPU model loading
+        # First request loads the model from disk (can take 1-2 minutes on slow GPU)
+        # Subsequent requests are much faster
+        timeouts = [120.0, 150.0, 180.0]  # 2min, 2.5min, 3min
         last_error = None
         
         for attempt, timeout in enumerate(timeouts, 1):
@@ -239,9 +236,19 @@ async def analyze_image(image_path: str, prompt: Optional[str] = None) -> str:
                     log_action("Retrying with longer timeout...")
                 continue
             except Exception as e:
-                log_error(f"Vision attempt {attempt} FAILED after {time.time() - start_time:.2f}s: {e}")
+                error_msg = str(e)
+                elapsed = time.time() - start_time
+                
+                # Check for "server loading model" error - this means Ollama is busy loading
+                if "llm server loading model" in error_msg.lower() or "status code: 500" in error_msg.lower():
+                    log_warning(f"Vision attempt {attempt} - Ollama is loading model, waiting 5s before retry...")
+                    await asyncio.sleep(5)  # Give Ollama time to finish loading
+                    if attempt < len(timeouts):
+                        continue  # Retry instead of failing
+                
+                log_error(f"Vision attempt {attempt} FAILED after {elapsed:.2f}s: {e}")
                 last_error = e
-                break  # Don't retry on non-timeout errors
+                break  # Don't retry on other non-timeout errors
         
         # All attempts failed
         raise last_error or Exception("Vision analysis failed")

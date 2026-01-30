@@ -24,6 +24,7 @@ class BotState:
         self.last_active_channel_id: Optional[int] = None
         self.consecutive_quips: int = 0
         self.is_generating_image: bool = False
+        self.boot_complete: bool = False  # Set True after sequenced_boot_tasks() completes
         self.load()
 
     def load(self):

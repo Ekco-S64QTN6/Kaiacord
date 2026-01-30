@@ -1,0 +1,19 @@
+# Kaia User Configuration
+#
+# This file is for user overrides only.
+# 
+# Hierarchy (highest to lowest priority):
+# 1. Environment variables (e.g., DISCORD_TOKEN)
+# 2. This file (config/kaia.yaml)
+# 3. Default config (config/default_config.yaml)
+#
+# IMPORTANT: Keep secrets in your .env file, not here!
+# Use ${ENV_VAR_NAME} syntax to reference environment variables.
+#
+# Example overrides:
+# discord:
+#   blacklisted_channels: "general,announcements"
+# 
+# models:
+#   chat: "gemma3:12b"
+#
