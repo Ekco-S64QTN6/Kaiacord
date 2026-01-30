@@ -357,21 +357,23 @@ Kaiacord/
 
 ## 📚 Documentation
 
+All docs are organized in [docs/](docs/README.md).
+
 ### 🎯 Essentials
-- **[README.md](README.md)** - This file (you are here!)
-- **[MIGRATION_GUIDE.md](MIGRATION_GUIDE.md)** - Upgrading from v1.0 → v2.0
-- **[TROUBLESHOOTING.md](TROUBLESHOOTING.md)** - Common issues & solutions
+- **[Quick Start](docs/01-getting-started/quick-start.md)** - Get running in 5 minutes
+- **[Migration Guide](docs/01-getting-started/migration.md)** - Upgrading from v1.0 → v2.0
 
 ### 🏗️ Technical
-- **[docs/ARCHITECTURE.md](docs/ARCHITECTURE.md)** - System design & data flows
-- **[docs/VRAM_MANAGEMENT.md](docs/VRAM_MANAGEMENT.md)** - GPU memory for RTX 3060 (12GB)
-- **[docs/VISION_FEATURE.md](docs/VISION_FEATURE.md)** - Vision system details
-- **[docs/SOCIAL_MEDIA_SETUP.md](docs/SOCIAL_MEDIA_SETUP.md)** - Bluesky & X integration
-- **[docs/TESTING_GUIDE.md](docs/TESTING_GUIDE.md)** - Testing infrastructure
+- **[System Overview](docs/03-architecture/overview.md)** - System design & data flows
+- **[GPU Management](docs/03-architecture/gpu-management.md)** - VRAM for RTX 3060 (12GB)
+- **[Vision Guide](docs/02-user-guide/vision-analysis.md)** - Vision system details
+- **[Social Media](docs/02-user-guide/social-media.md)** - Bluesky & X integration
+- **[Testing Guide](docs/04-development/testing.md)** - Testing infrastructure
 
 ### 🔧 Maintenance
 - **[tools/README.md](tools/README.md)** - Maintenance tools reference
-- **[docs/maintenance.md](docs/maintenance.md)** - Backup & update procedures
+- **[Procedures](docs/05-maintenance/procedures.md)** - Backup & update procedures
+- **[Troubleshooting](docs/06-troubleshooting/common-issues.md)** - Common issues
 
 ---
 
