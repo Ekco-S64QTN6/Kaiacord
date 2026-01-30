@@ -7,6 +7,8 @@
   <img src="https://img.shields.io/badge/RAG-Enabled-10B981?style=for-the-badge" />
   <img src="https://img.shields.io/badge/Vision-Capable-8A2BE2?style=for-the-badge" />
   <img src="https://img.shields.io/badge/GPU-12GB%20VRAM-F59E0B?style=for-the-badge&logo=nvidia" />
+  <img src="https://img.shields.io/badge/Bluesky-Connected-0085FF?style=for-the-badge" />
+  <img src="https://img.shields.io/badge/X-Connected-000000?style=for-the-badge&logo=x" />
 </p>
 
 <p align="center">
@@ -63,6 +65,7 @@ python Kaiacord.py
 ✅ **Comprehensive Testing**: Unit, integration, and performance test suites  
 ✅ **100% Backward Compatible**: Existing setups work without changes  
 ✅ **Complete Documentation**: Architecture, migration, troubleshooting, and VRAM guides  
+✅ **Social Media Integration**: Cross-post to Bluesky & X, auto-reply to mentions  
 
 **Code Quality**: Reduced from 2390 → 2260 lines (target: <1000)  
 **Test Coverage**: 12/12 tests passing (100%)  
@@ -83,6 +86,7 @@ python Kaiacord.py
 | **🎯 Intelligence** | Query Classification, Personalization, Hallucination Prevention | ✅ |
 | **⚡ Performance** | VRAM Management (12GB), Model Unload/Reload, Rate Limiting | ✅ |
 | **📰 News** | Daily Tech Briefs, Manual Retrieval (`!news technology`), 14-day Retention, Archive System | ✅ |
+| **🌐 Social Media** | Cross-post to Bluesky & X, Auto-reply to mentions with AI persona | ✅ |
 
 ---
 
@@ -182,6 +186,19 @@ Kaia: 📰 **Security News**
 - Auto-generates daily on boot (requires `GEMINI_API_KEY`)
 - 14-day retention → Auto-archives to `knowledge_base/news/archive/`
 - Weekly summaries from archived news
+
+### 🌐 Social Media
+Kaia can cross-post to Bluesky and X, and reply to mentions:
+```
+# Idle quips auto-post to:
+# - @kaiakuroshi.bsky.social (Bluesky)
+# - @Nokifusignal (X)
+
+# When someone mentions Kaia on Bluesky or X,
+# she replies using her AI persona (checked every 5 min)
+```
+
+**Setup**: See [`docs/SOCIAL_MEDIA_SETUP.md`](docs/SOCIAL_MEDIA_SETUP.md)
 
 ### 📊 Dashboard
 ```bash
@@ -349,6 +366,7 @@ Kaiacord/
 - **[docs/ARCHITECTURE.md](docs/ARCHITECTURE.md)** - System design & data flows
 - **[docs/VRAM_MANAGEMENT.md](docs/VRAM_MANAGEMENT.md)** - GPU memory for RTX 3060 (12GB)
 - **[docs/VISION_FEATURE.md](docs/VISION_FEATURE.md)** - Vision system details
+- **[docs/SOCIAL_MEDIA_SETUP.md](docs/SOCIAL_MEDIA_SETUP.md)** - Bluesky & X integration
 - **[docs/TESTING_GUIDE.md](docs/TESTING_GUIDE.md)** - Testing infrastructure
 
 ### 🔧 Maintenance

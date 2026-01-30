@@ -247,6 +247,32 @@ class YAMLConfig:
         
         return True
     
+    # Bluesky configuration
+    @property
+    def bluesky_enabled(self) -> bool:
+        return self.get('bluesky.enabled', False)
+    
+    @property
+    def bluesky_cross_post_quips(self) -> bool:
+        return self.get('bluesky.cross_post_quips', False)
+    
+    # X (Twitter) configuration
+    @property
+    def x_enabled(self) -> bool:
+        return self.get('x_twitter.enabled', False)
+    
+    @property
+    def x_cross_post_quips(self) -> bool:
+        return self.get('x_twitter.cross_post_quips', False)
+    
+    @property
+    def bluesky_reply_to_mentions(self) -> bool:
+        return self.get('bluesky.reply_to_mentions', True)
+    
+    @property
+    def x_reply_to_mentions(self) -> bool:
+        return self.get('x_twitter.reply_to_mentions', True)
+    
     def reload(self):
         """Reload configuration from files"""
         self._data = load_hierarchical_config()

@@ -157,3 +157,29 @@ features:
   
   # Enable boilerplate filtering
   boilerplate_filtering: true
+
+# ============================================================================
+# Bluesky Configuration
+# ============================================================================
+bluesky:
+  # Enable Bluesky integration
+  enabled: true
+  
+  # Cross-post idle quips to Bluesky
+  cross_post_quips: true
+  
+  # Reply to mentions on Bluesky
+  reply_to_mentions: true
+
+# ============================================================================
+# X (Twitter) Configuration
+# ============================================================================
+x_twitter:
+  # Enable X integration
+  enabled: true
+  
+  # Cross-post idle quips to X
+  cross_post_quips: true
+  
+  # Reply to mentions on X
+  reply_to_mentions: true

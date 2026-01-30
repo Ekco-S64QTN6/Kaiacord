@@ -931,6 +931,10 @@ async def on_ready():
     if not news_refresh_task.is_running():
         news_refresh_task.start()
     
+    # Start social media mention polling
+    if not social_mention_task.is_running():
+        social_mention_task.start()
+    
     # SEQUENCED BOOT: Run heavy tasks in order to prevent system overload
     # This replaces the previous concurrent asyncio.create_task() calls
     asyncio.create_task(sequenced_boot_tasks())
@@ -1053,6 +1057,28 @@ async def idle_quip_task():
                     )
                     
                     log_success(f"Sent idle quip #{bot_state.consecutive_quips}: {content[:50]}...")
+                    
+                    # Cross-post to Bluesky if enabled
+                    if config.bluesky_enabled and config.bluesky_cross_post_quips:
+                        try:
+                            from utils.kaia_bluesky import post_quip_to_bluesky, is_bluesky_configured
+                            if is_bluesky_configured():
+                                bluesky_success = await post_quip_to_bluesky(content)
+                                if bluesky_success:
+                                    log_success("Cross-posted quip to Bluesky")
+                        except Exception as bsky_e:
+                            log_warning(f"Bluesky cross-post failed: {bsky_e}")
+                    
+                    # Cross-post to X if enabled
+                    if config.x_enabled and config.x_cross_post_quips:
+                        try:
+                            from utils.kaia_twitter import post_quip_to_x, is_x_configured
+                            if is_x_configured():
+                                x_success = await post_quip_to_x(content)
+                                if x_success:
+                                    log_success("Cross-posted quip to X")
+                        except Exception as x_e:
+                            log_warning(f"X cross-post failed: {x_e}")
             except Exception as e:
                 log_error(f"Idle quip failed: {e}")
 
@@ -1084,6 +1110,19 @@ async def news_refresh_task():
             log_error(f"Periodic news refresh failed: {stderr.decode()}")
     except Exception as e:
         log_error(f"News refresh task failed: {e}")
+
+@tasks.loop(minutes=5)
+async def social_mention_task():
+    """Check and reply to social media mentions on Bluesky and X."""
+    # Skip if boot not complete
+    if not bot_state.boot_complete:
+        return
+    
+    try:
+        from utils.kaia_social_responder import check_and_reply_mentions
+        await check_and_reply_mentions()
+    except Exception as e:
+        log_error(f"Social mention task failed: {e}")
 
 async def run_news_update():
     """Run the daily news update script."""
