@@ -107,7 +107,7 @@ from utils.kaia_news import NewsRetrievalEnhancer, ResponseEnhancer, RAGEnhancer
 NEWS_AUTO_TRIGGER_ENABLED = False
 
 # Import managers from bot package
-from bot.managers.config import Config, config
+from bot.managers.yaml_config import YAMLConfig as Config, config
 from bot.managers.state import BotState, bot_state
 from bot.managers.rate_limiter import RateLimiter
 
@@ -898,6 +898,17 @@ async def sequenced_boot_tasks():
     
     log_success("✅ Boot sequence complete.")
     bot_state.boot_complete = True
+    
+    # Start social media mention polling immediately after boot
+    if not social_mention_task.is_running():
+        social_mention_task.start()
+    
+    # Check for missed Discord mentions from while bot was offline
+    try:
+        from utils.kaia_discord_responder import check_missed_discord_mentions
+        asyncio.create_task(check_missed_discord_mentions(bot))
+    except Exception as e:
+        log_error(f"Discord startup check failed: {e}")
 
 
 @bot.event
@@ -931,9 +942,9 @@ async def on_ready():
     if not news_refresh_task.is_running():
         news_refresh_task.start()
     
-    # Start social media mention polling
-    if not social_mention_task.is_running():
-        social_mention_task.start()
+    # Start social media mention polling (moved to sequenced_boot_tasks for immediate trigger)
+    # if not social_mention_task.is_running():
+    #     social_mention_task.start()
     
     # SEQUENCED BOOT: Run heavy tasks in order to prevent system overload
     # This replaces the previous concurrent asyncio.create_task() calls
@@ -1111,11 +1122,11 @@ async def news_refresh_task():
     except Exception as e:
         log_error(f"News refresh task failed: {e}")
 
-@tasks.loop(minutes=5)
+@tasks.loop(minutes=4)
 async def social_mention_task():
     """Check and reply to social media mentions on Bluesky and X."""
     # Skip if boot not complete
-    if not getattr(bot, 'boot_complete', False):
+    if not bot_state.boot_complete:
         return
     
     try:
@@ -1654,7 +1665,8 @@ async def on_message(msg: discord.Message):
                     # 1. Unload chat model to free VRAM for vision
                     # CRITICAL: With 12GB VRAM, gemma3:12b (8GB) + llama3.2-vision (7GB) won't fit
                     await unload_chat_model()
-                    await asyncio.sleep(1.0)  # Wait for VRAM to be released
+                    # Extended wait to ensure VRAM is fully released (was 1.0s)
+                    await asyncio.sleep(3.0)
                     
                     # 2. Process vision task
                     log_action("Processing vision task...")
@@ -1685,8 +1697,8 @@ async def on_message(msg: discord.Message):
                 traceback.print_exc()
                 await msg.channel.send("```\ncan't process that image. something broke.\n```")
             finally:
-                # 3. Re-warm chat model
-                await asyncio.sleep(1.5)
+                # 3. Re-warm chat model (increased wait time for safety)
+                await asyncio.sleep(2.0)
                 if not shutdown_manager.shutting_down:
                     log_action("Re-warming chat model after vision task...")
                     await prewarm_main_model()

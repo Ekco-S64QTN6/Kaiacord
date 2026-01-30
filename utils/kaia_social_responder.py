@@ -18,17 +18,19 @@ from utils.kaia_logger import log_info, log_success, log_warning, log_error, log
 # Replied mentions tracker (persisted to disk)
 _replied_ids_path = Path("storage/social_replied_ids.json")
 _replied_ids: set = set()
+_thread_counts: Dict[str, int] = {}  # Track replies per thread root
 _replied_ids_lock = asyncio.Lock()
 
 
 def _load_replied_ids():
     """Load set of already-replied mention IDs from disk."""
-    global _replied_ids
+    global _replied_ids, _thread_counts
     try:
         if _replied_ids_path.exists():
             with open(_replied_ids_path, 'r') as f:
                 data = json.load(f)
                 _replied_ids = set(data.get('bluesky', []) + data.get('x', []))
+                _thread_counts = data.get('thread_counts', {})
     except Exception as e:
         log_warning(f"Failed to load replied IDs: {e}")
 
@@ -41,7 +43,11 @@ def _save_replied_ids():
         bluesky_ids = [i for i in _replied_ids if i.startswith('bsky:')]
         x_ids = [i for i in _replied_ids if i.startswith('x:')]
         with open(_replied_ids_path, 'w') as f:
-            json.dump({'bluesky': bluesky_ids, 'x': x_ids}, f)
+            json.dump({
+                'bluesky': bluesky_ids, 
+                'x': x_ids,
+                'thread_counts': _thread_counts
+            }, f)
     except Exception as e:
         log_warning(f"Failed to save replied IDs: {e}")
 
@@ -126,13 +132,26 @@ async def _get_bluesky_mentions() -> List[Dict[str, Any]]:
                 mention_id = f"bsky:{notif.uri}"
                 
                 if mention_id not in _replied_ids:
+                    # Thread tracking: root_uri is the anchor for the thread
+                    root = getattr(getattr(notif.record, 'reply', None), 'root', None)
+                    root_uri = root.uri if root and hasattr(root, 'uri') else notif.uri
+                    
+                    # Check thread reply limit (max 3)
+                    if _thread_counts.get(root_uri, 0) >= 3:
+                        if mention_id not in _replied_ids:
+                            log_warning(f"Thread limit reached for Bluesky thread: {root_uri[:40]}... Skipping.")
+                            # Mark as replied so we don't keep logging it
+                            async with _replied_ids_lock:
+                                _replied_ids.add(mention_id)
+                        continue
+
                     mentions.append({
                         'id': mention_id,
                         'uri': notif.uri,
                         'cid': notif.cid,
                         'author': notif.author.handle,
                         'text': getattr(notif.record, 'text', ''),
-                        'root_uri': getattr(getattr(notif.record, 'reply', None), 'root', None),
+                        'root_uri': root,
                         'parent_uri': getattr(getattr(notif.record, 'reply', None), 'parent', None),
                     })
                     
@@ -271,7 +290,13 @@ async def check_and_reply_mentions():
                 if success:
                     async with _replied_ids_lock:
                         _replied_ids.add(mention['id'])
-                    log_success(f"Replied to @{author} on Bluesky: {response[:50]}...")
+                        
+                        # Increment thread count for Bluesky
+                        root = mention.get('root_uri')
+                        root_uri = root.uri if root and hasattr(root, 'uri') else mention['uri']
+                        _thread_counts[root_uri] = _thread_counts.get(root_uri, 0) + 1
+                        
+                    log_success(f"Replied to @{author} on Bluesky (Thread count: {_thread_counts[root_uri]}): {response[:50]}...")
                     total_replies += 1
     
     # Check X

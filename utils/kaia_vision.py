@@ -359,8 +359,9 @@ async def kaia_sees_image(image_url: str, user_message: str = "") -> str:
         try:
             log_action("Unloading vision model...")
             await unload_ollama_models()
-            # Wait to ensure VRAM is fully released
-            await asyncio.sleep(1)
+            # Wait to ensure VRAM is fully released (increased from 1s to 3s)
+            # This prevents race conditions where chat model loads before vision VRAM is freed
+            await asyncio.sleep(3)
             log_success("Vision model unloaded successfully.")
         except Exception as unload_err:
             log_error(f"Failed to unload vision model: {unload_err}")
