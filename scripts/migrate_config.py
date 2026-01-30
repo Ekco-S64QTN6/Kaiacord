@@ -64,7 +64,7 @@ def migrate_config(env_vars: Dict[str, str]) -> Dict[str, Any]:
     
     # Discord
     if 'DISCORD_TOKEN' in env_vars:
-        config['discord']['token'] = f"${{{env_vars['DISCORD_TOKEN']}}}"  # Keep as env var reference
+        config['discord']['token'] = "${DISCORD_TOKEN}"  # Reference to env var, not the value
     
     if 'BLACKLISTED_CHANNELS' in env_vars:
         config['discord']['blacklisted_channels'] = env_vars['BLACKLISTED_CHANNELS']
@@ -81,7 +81,7 @@ def migrate_config(env_vars: Dict[str, str]) -> Dict[str, Any]:
     
     # API Keys
     if 'GEMINI_API_KEY' in env_vars:
-        config['api']['gemini_key'] = f"${{{env_vars['GEMINI_API_KEY']}}}"  # Keep as env var reference
+        config['api']['gemini_key'] = "${GEMINI_API_KEY}"  # Reference to env var, not the value
     
     # Remove empty sections
     config = {k: v for k, v in config.items() if v}
