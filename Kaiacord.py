@@ -1111,11 +1111,11 @@ async def news_refresh_task():
     except Exception as e:
         log_error(f"News refresh task failed: {e}")
 
-@tasks.loop(minutes=1)
+@tasks.loop(minutes=5)
 async def social_mention_task():
     """Check and reply to social media mentions on Bluesky and X."""
     # Skip if boot not complete
-    if not bot_state.boot_complete:
+    if not getattr(bot, 'boot_complete', False):
         return
     
     try:

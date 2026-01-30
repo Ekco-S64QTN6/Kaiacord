@@ -183,3 +183,10 @@ x_twitter:
   
   # Reply to mentions on X
   reply_to_mentions: true
+
+# ============================================================================
+# Social Media Polling
+# ============================================================================
+social:
+  # How often to check for mentions (in minutes)
+  poll_interval_minutes: 3

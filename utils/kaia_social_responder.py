@@ -257,7 +257,6 @@ async def check_and_reply_mentions():
     
     # Check Bluesky
     if config.bluesky_enabled and config.get('bluesky.reply_to_mentions', True):
-        log_action("Checking Bluesky mentions...")
         mentions = await _get_bluesky_mentions()
         
         for mention in mentions[:3]:  # Limit to 3 per poll to avoid rate limits
@@ -277,7 +276,6 @@ async def check_and_reply_mentions():
     
     # Check X
     if config.x_enabled and config.get('x_twitter.reply_to_mentions', True):
-        log_action("Checking X mentions...")
         mentions = await _get_x_mentions()
         
         for mention in mentions[:3]:  # Limit to 3 per poll
