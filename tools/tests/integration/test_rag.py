@@ -7,7 +7,7 @@ import time
 # Add parent directory to path
 sys.path.append(os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
 
-from utils.kaia_rag import KaiaRAG
+from utils.core.kaia_rag import KaiaRAG
 
 async def test_single_query(rag):
     print("\n--- Testing Single Query ---")

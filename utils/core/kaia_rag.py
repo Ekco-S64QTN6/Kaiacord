@@ -190,13 +190,13 @@ def thread_safe_rag_operation(func):
     def wrapper(self, *args, **kwargs):
         # For retrieval, we want to be extremely fast and NEVER block on a long refresh
         if func.__name__ == 'retrieve':
-            # Try to acquire the lock without blocking if possible, or with a very short timeout
-            if not self._lock.acquire(timeout=0.5):
+            # Try to acquire the lock without blocking if possible, or with a reasonable timeout
+            if not self._lock.acquire(timeout=10.0):
                 log_warning(f"RAG retrieval skipped: lock held by another operation (likely refresh)")
                 return []
         else:
-            # For other operations, wait up to 5 seconds
-            if not self._lock.acquire(timeout=5.0):
+            # For other operations, wait up to 10 seconds
+            if not self._lock.acquire(timeout=10.0):
                 log_warning(f"RAG operation {func.__name__} timed out waiting for lock")
                 if func.__name__ in ['add_memory', 'log_user_interaction']: return False
                 return None
@@ -1217,11 +1217,11 @@ Kaia: {bot_response}
                 node_user_name = node.metadata.get('user_name', 'Unknown')
                 label = ""
                 
-                if source == "persona" or node_user_id == "KAIA_SYSTEM":
+                if source_type == "persona" or node_user_id == "KAIA_SYSTEM":
                     label = "Kaia Persona Fragment"
-                elif source == "memory":
+                elif source_type == "memory":
                     label = f"User Memory: {node_user_name.upper()}"
-                elif source == "user_logs" or "user_logs" in file_path:
+                elif source_type == "user_logs" or "user_logs" in file_path:
                     if "user_profile.md" in file_path:
                         label = f"User Profile: {node_user_name.upper()}"
                     else:
