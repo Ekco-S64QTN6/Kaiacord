@@ -272,7 +272,8 @@ YOUR IN-DEPTH REFLECTION:"""
                         "full_reflection_path": str(dream_file_path),
                         "generation_date": datetime.now().isoformat(),
                         "category": self._categorize_file(file_path),
-                        "used_count": 0
+                        "used_count": 0,
+                        "last_used": 0
                     }
                     new_dreams.append(dream_meta)
                     log_success(f"Generated in-depth dream: {dream_filename}")
@@ -304,21 +305,50 @@ YOUR IN-DEPTH REFLECTION:"""
         if not dreams:
             return []
             
-        # Prefer dreams that haven't been used much
-        # Use a simple weighting 1 / (used_count + 1)
-        weights = [1.0 / (d.get('used_count', 0) + 1) for d in dreams]
+        current_time = time.time()
+        
+        # Aggressive variety weighting:
+        # 1. Base weight is 1.0 / (used_count + 1)^2 (Quadratic penalty for use)
+        # 2. Add a temporal boost for dreams not used in the last 24 hours
+        # 3. Randomize the selection from the top weighted items
+        
+        weights = []
+        for d in dreams:
+            used_count = d.get('used_count', 0)
+            last_used = d.get('last_used', 0)
+            
+            # Quadratic penalty for usage
+            weight = 1.0 / ((used_count + 1) ** 2)
+            
+            # Temporal boost: if not used in last 24h, double the weight
+            if (current_time - last_used) > 86400:
+                weight *= 2.0
+                
+            weights.append(weight)
         
         sample_size = min(count, len(dreams))
-        # random.choices allows weighting
-        return random.choices(dreams, weights=weights, k=sample_size)
+        # Use random.choices for weighted selection
+        # We sample more than needed and then pick the ones with highest weight to ensure variety but quality
+        candidates = random.choices(dreams, weights=weights, k=sample_size * 2)
+        # Deduplicate candidates while preserving order
+        unique_candidates = []
+        seen_ids = set()
+        for c in candidates:
+            if c['id'] not in seen_ids:
+                unique_candidates.append(c)
+                seen_ids.add(c['id'])
+        
+        return unique_candidates[:count]
 
     def mark_dreams_used(self, dream_ids: List[str]):
         """Increment usage count for dream IDs"""
         dreams = self.load_cache()
         updated = False
+        current_time = time.time()
         for d in dreams:
             if d['id'] in dream_ids:
                 d['used_count'] = d.get('used_count', 0) + 1
+                d['last_used'] = current_time
                 updated = True
         if updated:
             self.save_cache(dreams)

@@ -126,6 +126,7 @@ This document tracks the linear history of failures, fixes, and architectural ev
     *   **Deep Book Ingestion:** Overhauled book-snippet extraction using random-offset logic and PDF/DOCX parsing libraries. She now reads 5,000-character narrative chunks instead of 300-character metadata headers.
     *   **Admin Command (`!cache clear`):** Implemented the `!cache` subsystem to allow manual purging of the semantic cache during persona tuning or conversation stagnation.
     *   **In-Depth Dreams:** Increased reflection depth to 2,500 characters, enabling nuanced thoughts on actual book content rather than frontmatter.
+    *   **Social Engine Hardening:** Reactivated the Bluesky/X mention responder with a 5-minute polling interval. Implemented immediate post-boot sync for offline backlog processing. Hardened persistence to save replied IDs instantly after each success, preventing duplication during restarts. Fixed character-limit truncation to cut only at full sentences.
 
 ---
 

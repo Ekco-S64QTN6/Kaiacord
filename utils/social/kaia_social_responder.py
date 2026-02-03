@@ -186,6 +186,7 @@ async def _get_bluesky_mentions() -> List[Dict[str, Any]]:
     mentions = []
     try:
         from utils.social.kaia_bluesky import get_bluesky_client, is_bluesky_configured
+        from utils.infrastructure.system.yaml_config import config
         
         if not is_bluesky_configured():
             return []
@@ -196,11 +197,24 @@ async def _get_bluesky_mentions() -> List[Dict[str, Any]]:
         
         # Get notifications
         notifs = await client.app.bsky.notification.list_notifications()
+
+        from datetime import datetime, timezone, timedelta
+        lookback_hours = config.get('social.mention_lookback_hours', 3)
+        cutoff_time = datetime.now(timezone.utc) - timedelta(hours=lookback_hours)
         
         for notif in notifs.notifications:
             # Filter for mentions/replies
             if notif.reason in ['mention', 'reply']:
                 mention_id = f"bsky:{notif.uri}"
+                
+                # Timestamp check: notifications have indexedAt
+                try:
+                    indexed_at = datetime.fromisoformat(notif.indexed_at.replace('Z', '+00:00'))
+                    if indexed_at < cutoff_time:
+                        continue
+                except Exception as e:
+                    log_warning(f"Failed to parse Bluesky notification timestamp: {e}")
+                
                 if mention_id not in _replied_ids:
                     # Thread tracking: root_uri is the anchor for the thread
                     root = getattr(getattr(notif.record, 'reply', None), 'root', None)
@@ -239,6 +253,7 @@ async def _get_x_mentions() -> List[Dict[str, Any]]:
     mentions = []
     try:
         from utils.social.kaia_twitter import get_x_client, is_x_configured
+        from utils.infrastructure.system.yaml_config import config
         
         if not is_x_configured():
             return []
@@ -250,11 +265,25 @@ async def _get_x_mentions() -> List[Dict[str, Any]]:
         # Get mentions notifications
         notifs = await client.get_notifications('Mentions')
         
+        from datetime import datetime, timezone, timedelta
+        lookback_hours = config.get('social.mention_lookback_hours', 3)
+        cutoff_time = datetime.now(timezone.utc) - timedelta(hours=lookback_hours)
+        
         for notif in notifs:
             tweet = notif.tweet if hasattr(notif, 'tweet') else notif
             if not tweet:
                 continue
                 
+            # Timestamp check for X (tweepy usually returns datetime objects)
+            try:
+                created_at = tweet.created_at
+                if created_at.tzinfo is None:
+                    created_at = created_at.replace(tzinfo=timezone.utc)
+                if created_at < cutoff_time:
+                    continue
+            except Exception as e:
+                log_warning(f"Failed to check X mention timestamp: {e}")
+
             mention_id = f"x:{tweet.id}"
             
             if mention_id not in _replied_ids:
@@ -408,6 +437,7 @@ async def check_and_reply_mentions(on_message_func):
                         _thread_counts[root_uri] = _thread_counts.get(root_uri, 0) + 1
                         
                     log_success(f"Replied to @{author} on Bluesky (Thread count: {_thread_counts[root_uri]}): {response[:50]}...")
+                    _save_replied_ids() # Immediate persistence
                     total_replies += 1
     
     # Check X
@@ -427,11 +457,10 @@ async def check_and_reply_mentions(on_message_func):
                     async with _replied_ids_lock:
                         _replied_ids.add(mention['id'])
                     log_success(f"Replied to @{author} on X: {response[:50]}...")
+                    _save_replied_ids() # Immediate persistence
                     total_replies += 1
     
-    # Save replied IDs
     if total_replies > 0:
-        _save_replied_ids()
         log_info(f"Social media polling complete: {total_replies} replies sent")
     
     return total_replies

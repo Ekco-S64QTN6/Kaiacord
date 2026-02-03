@@ -202,6 +202,9 @@ x_twitter:
 social:
   # How often to check for mentions (in minutes)
   poll_interval_minutes: 3
+  
+  # How far back to look for mentions when starting/catching up (in hours)
+  mention_lookback_hours: 2
 # ============================================================================
 # Dream Mode Configuration
 # ============================================================================

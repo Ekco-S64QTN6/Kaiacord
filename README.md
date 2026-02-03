@@ -52,23 +52,6 @@ python Kaiacord.py
 
 ---
 
-## 🎉 What's New in v2.1
-
-**v2.1** introduces a **Major Architectural Refactor** and **Hardened Logging**:
-
-✅ **Deep Modularization**: Clean separation into `utils/core`, `utils/infrastructure`, and `utils/social`.  
-✅ **Logging Consolidation**: Programmatic interception of `stdout/stderr`. All output now flows to `logs/kaiacord.log`.  
-✅ **Directory Cleanup**: Legacy `bot/` dissolved; `storage/` moved to `memory/`.  
-✅ **Unified GPU Manager**: Priority-based VRAM reservation with automatic preemption.  
-✅ **Improved News Pipeline**: Automated conversion of manual/weekly briefs into RAG-compliant Markdown.  
-✅ **Natural Mention Engine**: A core RAG enhancement. Kaia now "sees" snippets of newly added files across all corpora (Books, User Logs, News). Asking triggers like "what's new?" or "what's on your mind?" prompts an organic discussion of her entire evolving knowledge base.  
-✅ **RAG Echo Chamber Guard**: Hardened semantic cache and persona instructions to prevent repetitive "parrot" responses from history logs.  
-✅ **Self-Aware Logging**: Idle and manual quips are now persisted to Kaia's specialized user log for RAG reflection.  
-✅ **Sanitized Output**: Automatic ANSI color stripping for background log files.  
-✅ **Dream Mode (Associative Memory)**: Nightly deep-processing of archived knowledge (files > 2 days old) into persona-grounded reflections. This allows Kaia to recall older topics with more human-like, organic context during trigger-based responses.  
-
----
-
 ## ✨ Features
 
 | Category | Features | Status |

@@ -1819,7 +1819,8 @@ async def on_message(msg: discord.Message):
             # We'll inject this into the system prompt later. We DO NOT bypass RAG.
             category = "COMMAND"
 
-        if not bot_state.recent_ingestions and semantic_cache.should_cache_query(msg.content, category):
+        # Bypass cache for social mentions and recent ingestions
+        if not is_social and not bot_state.recent_ingestions and semantic_cache.should_cache_query(msg.content, category):
             performance_monitor.start_timer('cache_lookup')
             cached_response = semantic_cache.get(msg.content, category)
             performance_monitor.stop_timer('cache_lookup', 'cache_lookup_time')
@@ -1832,7 +1833,7 @@ async def on_message(msg: discord.Message):
                 await run_rag(rag.log_user_interaction, msg.author.id, msg.author.display_name, msg.content, cached_response)
                 return
         else:
-            log_info(f"Cache bypassed for {category} query")
+            log_info(f"Cache bypassed for {category} query (is_social={is_social})")
 
         # 2. HYBRID CLASSIFICATION & PARALLEL PIPELINE
         # Start full classification in parallel with RAG and Persona
@@ -2147,6 +2148,7 @@ async def on_message(msg: discord.Message):
         # Social Brevity Injection
         if is_social:
             reinforcement += "4. SOCIAL MEDIA BREVITY: You are responding on a social platform with strict limits. KEEP YOUR ENTIRE RESPONSE UNDER 280 CHARACTERS. Be punchy and direct. If you reference a dream or news, summarize the core thought in one short sentence.\n"
+            reinforcement += "5. NO GREETINGS: DO NOT start your response with 'Another handle', 'Another address', 'Been around', or 'I'm around'. Jump straight into your thought or a direct answer. NO formulaic introductions.\n"
         
         reinforcement += (
             "5. NO name prefixes. Just start speaking.\n"
@@ -2155,7 +2157,8 @@ async def on_message(msg: discord.Message):
             "8. PRIVATE THOUGHTS: Never include internal labels like 'USER PROFILE', 'QUICK REFERENCE', or any bracketed tags in your response. Your inner thoughts and data labels must remain private. DO NOT dump raw profile data.\n"
             "9. STRICT GROUNDING: ONLY speak from the provided [LOGS], [RECENT_ARCHIVE_SCANS], or [MEMORY_DREAMS]. NEVER invent personal activities (e.g., 'refining error handling', 'tuning parameters', 'optimizing routines') or personal history unless it is explicitly documented in the provided data. If the data is empty, just be briefly present, don't fill the void with technical thespianism.\n"
             "10. NO LEADING QUESTIONS: Never end responses with 'what are you building, really?' or similar formulaic questions.\n"
-            "11. TOPIC ROTATION: Do not repeat specific stories or news items mentioned in your [RECENT_HISTORY]. If you've already discussed a news item or dream reflection, move to a different fragment from [RECENT_ARCHIVE_SCANS] or [MEMORY_DREAMS] to keep the conversation from stalling. If everything feels stale, pivot to a brief system status or a direct reaction to the user."
+            "11. TOPIC ROTATION: Do not repeat specific stories or news items mentioned in your [RECENT_HISTORY]. If you've already discussed a news item or dream reflection, move to a different fragment from [RECENT_ARCHIVE_SCANS] or [MEMORY_DREAMS] to keep the conversation from stalling. If everything feels stale, pivot to a brief system status or a direct reaction to the user.\n"
+            "12. VARIETY: If you find yourself using the same words to open a response as you did in the previous message, STOP and rewrite it."
         )
 
         messages.append({
@@ -2230,13 +2233,14 @@ async def on_message(msg: discord.Message):
         # [DISABLED] clean_content = EmergencyContaminationFilter.clean_response_for_discord(content)
         clean_content = content
         
-        semantic_cache.set(msg.content, category, clean_content)
-        semantic_cache.save()
-        await relevance_feedback.log_interaction(msg.content, clean_content, msg.author.id)
-        await personalization_engine.learn_from_interaction(msg.author.id, msg.content, clean_content)
-        
-        # Track context for invalidation
-        cache_invalidator.track(msg.content, context_nodes)
+        # NEVER cache social responses to ensure variety and avoid feedback loops
+        if not is_social:
+            semantic_cache.set(msg.content, category, clean_content)
+            semantic_cache.save()
+            # Track context for invalidation
+            cache_invalidator.track(msg.content, context_nodes)
+        else:
+            log_info("Social response skipped for semantic cache to ensure variety.")
         
         # Transparency indicator for optimization (moved to logs, not Discord)
         if optimized_context.get('tokens_saved', 0) > 500:
