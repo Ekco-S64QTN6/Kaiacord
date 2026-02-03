@@ -902,8 +902,9 @@ async def sequenced_boot_tasks():
     bot_state.boot_complete = True
     
     # 4. Immediate Social Sync: Process any backlog from while we were offline
-    log_info("📱 Triggering first social media sync...")
-    asyncio.create_task(social_mention_task())
+    if not social_mention_task.is_running():
+        social_mention_task.start()
+        log_info("📱 Social media sync started (Backlog check)...")
     
     # Start periodic news refresh (will run every 12 hours)
     if not news_refresh_task.is_running():
@@ -943,9 +944,7 @@ async def on_ready():
     
     # Start periodic news refresh moved to end of sequenced_boot_tasks to avoid startup collision
     
-    # Start social media mention polling (moved to sequenced_boot_tasks for immediate trigger)
-    if not social_mention_task.is_running():
-        social_mention_task.start()
+    # Start social media mention polling (moved to end of sequenced_boot_tasks)
     
     # SEQUENCED BOOT: Run heavy tasks in order to prevent system overload
     # This replaces the previous concurrent asyncio.create_task() calls
