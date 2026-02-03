@@ -20,6 +20,10 @@ discord:
 bluesky:
   enabled: true
   cross_post_quips: true
+  reply_to_mentions: true
+
+social:
+  poll_interval_minutes: 5
 
 x_twitter:
   enabled: false

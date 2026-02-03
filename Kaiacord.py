@@ -940,8 +940,8 @@ async def on_ready():
     # Start periodic news refresh moved to end of sequenced_boot_tasks to avoid startup collision
     
     # Start social media mention polling (moved to sequenced_boot_tasks for immediate trigger)
-    # if not social_mention_task.is_running():
-    #     social_mention_task.start()
+    if not social_mention_task.is_running():
+        social_mention_task.start()
     
     # SEQUENCED BOOT: Run heavy tasks in order to prevent system overload
     # This replaces the previous concurrent asyncio.create_task() calls
@@ -1015,7 +1015,7 @@ async def dream_engine_task():
             except Exception as e:
                 log_error(f"Nightly dream task failed: {e}")
 
-@tasks.loop(minutes=4)
+@tasks.loop(minutes=5)
 async def social_mention_task():
     """Check and reply to social media mentions on Bluesky and X."""
     # Skip if boot not complete
