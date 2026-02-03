@@ -86,8 +86,8 @@ def save_entity_database(entities):
         "entities": {k: list(v) for k, v in entities.items()}
     }
     
-    os.makedirs("./data", exist_ok=True)
-    with open("./data/entity_database.json", 'w') as f:
+    os.makedirs("./memory", exist_ok=True)
+    with open("./memory/entity_database.json", 'w') as f:
         json.dump(output, f, indent=2)
     
     print(f"✅ Saved {sum(len(v) for v in entities.values())} entities to database")

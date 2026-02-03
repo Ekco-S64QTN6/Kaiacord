@@ -7,7 +7,6 @@ Welcome to the Kaiacord documentation! Organized by topic for easy navigation.
 ### 🚀 [01 - Getting Started](01-getting-started/)
 - [Installation Guide](01-getting-started/installation.md)
 - [Quick Start](01-getting-started/quick-start.md)
-- [Migration Guide (v1→v2)](01-getting-started/migration.md)
 
 ### 📘 [02 - User Guide](02-user-guide/)
 - [Dashboard](02-user-guide/dashboard.md)
@@ -17,6 +16,7 @@ Welcome to the Kaiacord documentation! Organized by topic for easy navigation.
 - [Social Media (Bluesky & X)](02-user-guide/social-media.md)
 - [Persona Guidelines](02-user-guide/persona.md)
 - [User Profiling](02-user-guide/user-profiling.md)
+- [Command Reference](02-user-guide/commands.md)
 
 ### 🏗️ [03 - Architecture](03-architecture/)
 - [System Overview](03-architecture/overview.md)

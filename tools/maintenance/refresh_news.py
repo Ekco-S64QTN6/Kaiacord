@@ -14,13 +14,21 @@ from datetime import datetime, timedelta
 # Add project root to path (go up 2 levels from tools/maintenance/)
 sys.path.append(os.path.dirname(os.path.dirname(os.path.dirname(os.path.abspath(__file__)))))
 
-from utils.kaia_news import NewsManager
+from utils.news.kaia_news import NewsManager
 
 async def refresh_news(force_update=False):
     """Refresh all news categories and trigger update if needed"""
     print(f"🔄 Refreshing news at {datetime.now()}")
     
+    # 1. First, always try to ingest manual files
+    try:
+        print("📁 Checking for manual news briefs to ingest...")
+        subprocess.run([sys.executable, "tools/maintenance/ingest_manual_news.py"], check=True)
+    except Exception as e:
+        print(f"⚠️ Manual ingestion failed: {e}")
+    
     manager = NewsManager()
+    manager.refresh()
     
     # Check if we have recent news
     total_items = sum(len(v) for v in manager.news_cache.values())

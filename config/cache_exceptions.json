@@ -16,7 +16,14 @@
     "december",
     "2025",
     "2026",
-    "2027"
+    "2027",
+    "learned",
+    "learning",
+    "doing",
+    "thinking",
+    "reading",
+    "scanned",
+    "ingested"
   ],
   "always_regenerate": [
     "news",
@@ -25,7 +32,14 @@
     "report",
     "update",
     "breaking",
-    "latest"
+    "latest",
+    "learned",
+    "learning",
+    "doing",
+    "thinking",
+    "reading",
+    "scanned",
+    "ingested"
   ],
   "keyword_blacklist": [
     "68k.news",

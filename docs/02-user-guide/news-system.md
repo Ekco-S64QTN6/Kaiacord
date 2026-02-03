@@ -29,11 +29,26 @@ python tools/maintenance/update_kaia_news.py
 # Generate with backfill (fills in missing days, uses more API quota)
 python tools/maintenance/update_kaia_news.py --backfill
 
-# Manual mode (if no API key)
+# Manual mode prompt generator (if no API key)
 python tools/maintenance/update_kaia_news.py --manual
 ```
 
-## 4. Automation
+## 4. Manual Ingestion
+If you manually generate a news brief (e.g., via the Gemini web interface), you can ingest it into Kaia's knowledge base using the ingestion tool:
+
+1. Save your manual brief as a `.md`, `.txt`, or `.json` file in the root `news/` folder, `knowledge_base/news/daily/`, or `knowledge_base/news/weekly/`.
+2. Name it with a date (e.g., `NEWS_BRIEF: 2026-02-01.md` or `WEEKLY_NEWS_BRIEF: 2026-01-26 to 2026-02-01.md`).
+3. Run the ingestion script:
+   ```bash
+   python tools/maintenance/ingest_manual_news.py
+   ```
+The script will:
+- Rename and move the file to the proper format (`news_brief_YYYYMMDD.md` for daily, `weekly_summary_YYYYMMDD.md` for weekly).
+- Normalize headers (adding `## ` to category names) for RAG optimization and NewsManager compatibility.
+- Generate a condensed summary (for daily briefs) using the local `gemma3:12b` model.
+- Trigger a RAG reindex.
+
+## 5. Automation
 To enable fully automated daily updates:
 1. **API Key**: Set the `GEMINI_API_KEY` in your `.env` file.
 2. **Billing**: Enable billing on your Google Cloud project for higher API quota.

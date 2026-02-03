@@ -112,7 +112,7 @@ class HealthCheck:
     def check_config(self):
         """Check configuration"""
         try:
-            from bot.managers.config import config
+            from utils.infrastructure.system.config_base import config
             
             # Check Discord token
             token_ok = bool(config.discord_token and len(config.discord_token) > 50)

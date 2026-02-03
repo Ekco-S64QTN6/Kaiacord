@@ -11,7 +11,7 @@ The ingestion pipeline handles the processing of new files in the `knowledge_bas
 - **Text Extraction**: Converts PDFs and DOCX files to Markdown.
 - **Chunking**: Splits text into manageable chunks (default 1024 tokens) with overlap.
 - **Embedding**: Generates vector embeddings using `nomic-embed-text`.
-- **Indexing**: Stores embeddings in a local vector store (`storage/`).
+- **Indexing**: Stores embeddings in a local vector store (`memory/`).
 
 ### 2. Smart Fiction Filter
 To prevent hallucinations from contaminating the knowledge base, a **Smart Fiction Filter** is applied during ingestion.

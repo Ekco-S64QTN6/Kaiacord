@@ -7,7 +7,7 @@ project_root = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
 sys.path.append(project_root)
 os.chdir(project_root) # Ensure we are in the project root
 
-from utils.kaia_rag import KaiaRAG
+from utils.core.kaia_rag import KaiaRAG
 
 async def main():
     print("🔄 Initializing RAG...")

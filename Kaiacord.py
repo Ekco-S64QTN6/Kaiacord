@@ -9,23 +9,23 @@ os.environ["PYTORCH_ALLOC_CONF"] = "expandable_segments:True,max_split_size_mb:5
 os.environ["PYTORCH_CUDA_ALLOC_CONF"] = "expandable_segments:True,max_split_size_mb:512"
 
 # Initialize Unified Logging EARLY
-from utils.unified_logging import replace_all_logging, logger
+from utils.infrastructure.logging.unified_logging import replace_all_logging, logger
 replace_all_logging()
 
 # Initialize Stats Tracker
-from utils.stats_tracker import stats_tracker
-from utils.stats_poller import stats_poller
-from utils.stats_helpers import (
+from utils.infrastructure.monitoring.stats_tracker import stats_tracker
+from utils.infrastructure.monitoring.stats_poller import stats_poller
+from utils.infrastructure.monitoring.stats_helpers import (
     set_stats_poller, safe_start_stats_poller, safe_stop_stats_poller,
     is_stats_poller_available
 )
 
 # Initialize Dashboard (ANSI fallback)
-from utils.btop_dashboard_legacy import BtopDashboard
+from utils.infrastructure.monitoring.btop_dashboard_legacy import BtopDashboard
 # Curses dashboard (opt-in via KAIA_DASHBOARD=curses)
-from utils.btop_dashboard_v2 import BtopDashboardV2
-from utils.shutdown_fixed import shutdown_manager
-from utils.news_debug import diagnose_news_pipeline, fix_news_ingestion
+from utils.infrastructure.monitoring.btop_dashboard_v2 import BtopDashboardV2
+from utils.infrastructure.system.shutdown_fixed import shutdown_manager
+from utils.news.news_debug import diagnose_news_pipeline, fix_news_ingestion
 import curses
 import threading
 
@@ -49,22 +49,23 @@ from dotenv import load_dotenv
 import ollama
 import discord
 from discord.ext import commands, tasks
-from utils.kaia_rag import KaiaRAG, HallucinationDetector
-from utils.kaia_image import generate_image, unload_image_model, generation_lock, is_image_gen_available
-from utils.async_task_registry import task_registry
-from utils.kaia_vision import kaia_sees_image, cleanup_session
+from utils.core.kaia_rag import KaiaRAG, HallucinationDetector
+from utils.core.kaia_dream import DreamEngine
+from utils.core.kaia_image import generate_image, unload_image_model, generation_lock, is_image_gen_available
+from utils.infrastructure.monitoring.async_task_registry import task_registry
+from utils.core.kaia_vision import kaia_sees_image, cleanup_session
 from watchdog.observers import Observer
 from watchdog.events import FileSystemEventHandler
-from utils.boilerplate_detector import BoilerplateDetector
-from utils.kaia_intelligence import SemanticCache, ModelWarmPool, ContextOptimizer, RelevanceFeedback, PerformanceMonitor, PersonalizationEngine, PersistentStateManager, IntelligentCacheInvalidator, QueryClassifier
-from utils.performance_optimizer import ResponseOptimizer, timed_response
-from utils.knowledge_boundary import KnowledgeBoundary
+from utils.core.boilerplate_detector import BoilerplateDetector
+from utils.core.kaia_intelligence import SemanticCache, ModelWarmPool, ContextOptimizer, RelevanceFeedback, PerformanceMonitor, PersonalizationEngine, PersistentStateManager, IntelligentCacheInvalidator, QueryClassifier
+from utils.infrastructure.system.performance_optimizer import ResponseOptimizer, timed_response
+from utils.core.knowledge_boundary import KnowledgeBoundary
 # Load environment variables early so Config can use them
 load_dotenv()
 
 # EMERGENCY GPU FALLBACK
 try:
-    from utils.gpu_manager import OllamaGPUManager, GPUMonitor, LoggingPatcher
+    from utils.infrastructure.gpu.gpu_manager import OllamaGPUManager, GPUMonitor, LoggingPatcher
     gpu_available = True
 except ImportError as e:
     print(f"⚠️  GPU Manager import failed: {e}")
@@ -92,14 +93,14 @@ except ImportError as e:
             return {'num_thread': 8}  # CPU fallback
     
     gpu_available = False
-from utils.clear_gpu_memory import clear_gpu_memory
-from utils.kaia_logger import (
+from utils.infrastructure.gpu.clear_gpu_memory import clear_gpu_memory
+from utils.infrastructure.logging.kaia_logger import (
     log_success, log_info, log_warning, log_error, log_critical,
     log_action, log_model_action, log_message_received, log_response,
     log_context_retrieval, log_separator, set_monitor, log_debug
 )
-from utils.kaia_news import NewsRetrievalEnhancer, ResponseEnhancer, RAGEnhancer, NewsManager
-# from utils.btop_dashboard import BtopDashboard, KaiaMonitor, BtopLoggingPatcher # Removed conflicting import
+from utils.news.kaia_news import NewsRetrievalEnhancer, ResponseEnhancer, RAGEnhancer, NewsManager
+# from utils.infrastructure.monitoring.btop_dashboard import BtopDashboard, KaiaMonitor, BtopLoggingPatcher # Removed conflicting import
 
 # GLOBAL KILL SWITCHES
 # NOTE: News auto-trigger disabled intentionally.
@@ -107,9 +108,9 @@ from utils.kaia_news import NewsRetrievalEnhancer, ResponseEnhancer, RAGEnhancer
 NEWS_AUTO_TRIGGER_ENABLED = False
 
 # Import managers from bot package
-from bot.managers.yaml_config import YAMLConfig as Config, config
-from bot.managers.state import BotState, bot_state
-from bot.managers.rate_limiter import RateLimiter
+from utils.infrastructure.system.yaml_config import YAMLConfig as Config, config
+from utils.infrastructure.system.bot_state import BotState, bot_state
+from utils.infrastructure.system.rate_limiter import RateLimiter
 
 # Rate limiter instance
 rate_limiter = RateLimiter(config.requests_per_minute)
@@ -254,39 +255,18 @@ bot = commands.Bot(command_prefix="!", intents=intents)
 _persona_cache = None
 _persona_last_load = 0
 
-def load_persona() -> str:
-    """Load the bot's persona from kaia_persona.md with caching"""
-    global _persona_cache, _persona_last_load
-    persona_file = os.path.join(os.path.dirname(__file__), 'knowledge_base', 'kaia_persona.md')
-    
-    try:
-        mtime = os.path.getmtime(persona_file)
-        if _persona_cache and mtime <= _persona_last_load:
-            return _persona_cache
-            
-        with open(persona_file, 'r', encoding='utf-8') as f:
-            content = f.read().strip()
-            _persona_cache = content
-            _persona_last_load = mtime
-            return _persona_cache
-    except Exception:
-        if _persona_cache:
-            return _persona_cache
-        return "You are Kaia, a blunt and grounded resident of this server."
+from utils.social.kaia_social_responder import load_persona, load_persona_async
 
-async def load_persona_async() -> str:
-    """Load the bot's persona from kaia_persona.md with caching (Async)"""
-    # File I/O is small, but we run it in a thread to keep the loop free
-    loop = asyncio.get_running_loop()
-    return await loop.run_in_executor(None, load_persona)
-
-async def send_kaia_response(channel: discord.abc.Messageable, text: str):
-    """Helper to split long messages and wrap them in Kaia's code block style"""
+async def send_kaia_response(channel: discord.abc.Messageable, text: str, use_code_block: bool = True):
+    """Helper to split long messages and optionally wrap them in Kaia's code block style"""
     if not text:
         log_warning("send_kaia_response called with empty text. Skipping.")
         return
         
-    limit = 1980 # Leave room for backticks and newlines
+    # Discord limit is 2000. 
+    # Use 1980 for code blocks to leave room for ```\n and \n```
+    # Use 1990 for plain text for a small safety margin.
+    limit = 1980 if use_code_block else 1990
     chunks = []
     
     # If it's already short, just one chunk
@@ -308,7 +288,10 @@ async def send_kaia_response(channel: discord.abc.Messageable, text: str):
             
     for chunk in chunks:
         if chunk:
-            await channel.send(f"```\n{chunk}\n```")
+            if use_code_block:
+                await channel.send(f"```\n{chunk}\n```")
+            else:
+                await channel.send(chunk)
 
 def extract_node_content(node) -> str:
     """Extract text content from RAG node regardless of format (DRY helper)."""
@@ -323,10 +306,11 @@ def extract_node_content(node) -> str:
 # Create async client
 ollama_client = ollama.AsyncClient()
 
-from utils.unified_logging import log_ollama_interaction
+from utils.infrastructure.logging.unified_logging import log_ollama_interaction
 
 # Initialize RAG
 rag = KaiaRAG()
+dream_engine = DreamEngine(config, rag)
 
 # ADD THIS TO YOUR IMPORTS
 import re
@@ -335,7 +319,7 @@ from datetime import datetime, timedelta
 class ImprovedSemanticCache:
     """Enhanced semantic cache with keyword pollution protection"""
     
-    def __init__(self, threshold: float = 0.85):
+    def __init__(self, threshold: float = 0.98):
         self.cache = {}
         self.exact_cache = {} # For compatibility with PersistentStateManager
         self.access_counts = {} # For compatibility with IntelligentCacheInvalidator
@@ -353,9 +337,11 @@ class ImprovedSemanticCache:
             self.exceptions = {
                 "never_cache": [
                     "68k.news", "headlines from", "january", "february",
-                    "news", "update", "breaking", "latest"
+                    "news", "update", "breaking", "latest", "what's new",
+                    "whats new", "recently learned", "what have you", "learned recently",
+                    "doing lately", "up to lately"
                 ],
-                "always_regenerate": ["news", "headline", "report", "update"],
+                "always_regenerate": ["news", "headline", "report", "update", "learned", "dream"],
                 "keyword_blacklist": []
             }
     
@@ -363,12 +349,12 @@ class ImprovedSemanticCache:
         """Determine if a query should be cached at all"""
         query_lower = query.lower()
         
-        # Never cache identity queries
-        if classification in ["IDENTITY", "WHOAMI", "SELF"]:
+        # Never cache queries with time/date references or conversational keywords
+        if any(phrase in query_lower for phrase in self.exceptions["never_cache"]):
             return False
         
-        # Never cache queries with time/date references
-        if any(phrase in query_lower for phrase in self.exceptions["never_cache"]):
+        # Disable caching for conversational or highly variable classifications
+        if classification in ["IDENTITY", "WHOAMI", "SELF", "CONVERSATIONAL", "STATUS", "CHITCHAT", "GREETING"]:
             return False
         
         # Don't cache very short queries
@@ -425,10 +411,10 @@ class ImprovedSemanticCache:
         for cached_query, entry in self.cache.items():
             similarity = self.calculate_similarity(cache_key, cached_query)
             
-            # Higher threshold for news-related queries
-            required_threshold = 0.95 if any(word in query.lower() for word in ["news", "headline"]) else self.threshold
+            # Higher threshold for news-related or open-ended queries
+            required_threshold = 0.99 if any(word in query.lower() for word in ["news", "headline", "learned", "doing", "up to", "think"]) else self.threshold
             
-            if similarity > required_threshold:
+            if similarity >= required_threshold:
                 # Additional check: don't return cached news for different dates
                 if self.is_different_news(query, cached_query):
                     continue
@@ -499,14 +485,14 @@ class ImprovedSemanticCache:
     
     def save(self):
         """Save cache to disk"""
-        with open("storage/semantic_cache.json", "w") as f:
+        with open("memory/semantic_cache.json", "w") as f:
             json.dump(self.cache, f, indent=2)
     
     def load(self):
         """Load cache from disk"""
         try:
-            if os.path.exists("storage/semantic_cache.json"):
-                with open("storage/semantic_cache.json", "r") as f:
+            if os.path.exists("memory/semantic_cache.json"):
+                with open("memory/semantic_cache.json", "r") as f:
                     self.cache = json.load(f)
         except:
             self.cache = {}
@@ -844,12 +830,25 @@ async def news_command(ctx, *, category: Optional[str] = None):
         # Normalize category
         category = category.lower().strip()
         
-        # Get news from manager
-        news_content = news_manager.get_news(category)
+        # Get news from manager (returns list of dicts)
+        news_items = news_manager.get_news(category)
         
-        if news_content:
-            # Send news in chunks if needed
-            await send_kaia_response(ctx.channel, f"📰 **{category.title()} News**\n\n{news_content}")
+        if news_items and len(news_items) > 0:
+            # Format news items nicely
+            formatted_news = f"📰 **{category.title()} News**\n\n"
+            for i, item in enumerate(news_items[:10], 1):  # Limit to 10 items
+                if isinstance(item, dict):
+                    text = item.get('text', str(item))
+                    formatted_news += f"{i}. {text}\n\n"
+                else:
+                    formatted_news += f"{i}. {item}\n\n"
+            
+            # Add footer
+            available_categories = ["technology", "security", "hacker", "politics", "business", "science", "culture", "general"]
+            formatted_news += "---\n"
+            formatted_news += "**Other categories:** " + " ".join([f"`!news {cat}`" for cat in available_categories if cat != category])
+            
+            await send_kaia_response(ctx, formatted_news.strip(), use_code_block=False)
             log_success(f"Sent {category} news to {ctx.author}")
         else:
             await ctx.send(f"```\nNo {category} news found. Try updating: `python tools/maintenance/update_kaia_news.py`\n```")
@@ -881,12 +880,15 @@ async def sequenced_boot_tasks():
         log_error(f"RAG refresh failed: {e}")
     
     # 2. SECOND: News update
-    log_info("📰 Phase 2/3: Updating news...")
-    try:
-        await run_news_update()
-        log_success("📰 News update complete.")
-    except Exception as e:
-        log_error(f"News update failed: {e}")
+    if config.startup_news_update:
+        log_info("📰 Phase 2/3: Updating news...")
+        try:
+            await run_news_update()
+            log_success("📰 News update complete.")
+        except Exception as e:
+            log_error(f"News update failed: {e}")
+    else:
+        log_info("📰 Phase 2/3: News update skipped (disabled in config).")
     
     # 3. LAST: GPU model loading
     log_info("🧠 Phase 3/3: Loading chat model into VRAM...")
@@ -899,16 +901,13 @@ async def sequenced_boot_tasks():
     log_success("✅ Boot sequence complete.")
     bot_state.boot_complete = True
     
-    # Start social media mention polling immediately after boot
-    if not social_mention_task.is_running():
-        social_mention_task.start()
+    # Start periodic news refresh (will run every 12 hours)
+    if not news_refresh_task.is_running():
+        news_refresh_task.start()
+        log_success("📅 Periodic news refresh SCHEDULED.")
     
-    # Check for missed Discord mentions from while bot was offline
-    try:
-        from utils.kaia_discord_responder import check_missed_discord_mentions
-        asyncio.create_task(check_missed_discord_mentions(bot))
-    except Exception as e:
-        log_error(f"Discord startup check failed: {e}")
+    # [DEPRECATED] Discord startup check removed to prevent spam
+    pass
 
 
 @bot.event
@@ -938,9 +937,7 @@ async def on_ready():
     if not rag_maintenance_task.is_running():
         rag_maintenance_task.start()
     
-    # Start periodic news refresh (this just schedules future runs, doesn't run immediately)
-    if not news_refresh_task.is_running():
-        news_refresh_task.start()
+    # Start periodic news refresh moved to end of sequenced_boot_tasks to avoid startup collision
     
     # Start social media mention polling (moved to sequenced_boot_tasks for immediate trigger)
     # if not social_mention_task.is_running():
@@ -950,148 +947,11 @@ async def on_ready():
     # This replaces the previous concurrent asyncio.create_task() calls
     asyncio.create_task(sequenced_boot_tasks())
 
-@tasks.loop(minutes=15)
+@tasks.loop(minutes=5)
 async def idle_quip_task():
     """Generate a random quip if idle for too long"""
-    idle_duration = time.time() - bot_state.last_interaction_time
-    
-    # Don't quip if we've hit consecutive limit
-    if bot_state.consecutive_quips >= config.max_consecutive_quips:
-        log_info(f"Max consecutive quips ({config.max_consecutive_quips}) reached. Waiting for user interaction.")
-        return
-    
-    # Fallback: If we don't have a channel yet, find one we can speak in
-    if not bot_state.last_active_channel_id:
-        for guild in bot.guilds:
-            # Sort channels to have some consistency, but prioritize non-blacklisted
-            channels = sorted(guild.text_channels, key=lambda c: c.position)
-            for channel in channels:
-                if channel.permissions_for(guild.me).send_messages:
-                    if channel.name.lower() not in config.blacklisted_channels:
-                        bot_state.last_active_channel_id = channel.id
-                        bot_state.save()
-                        break
-            if bot_state.last_active_channel_id: break
-
-    if not bot_state.last_active_channel_id:
-        return
-
-    # Dynamic chance based on idle duration
-    chance = 0.0
-    if idle_duration >= 1800:  # 30 mins
-        chance = 0.15
-    if idle_duration >= 3600:  # 60 mins
-        chance = 0.25
-    if idle_duration >= 7200:  # 120 mins
-        chance = 0.40
-        
-    if random.random() < chance:
-        channel = bot.get_channel(bot_state.last_active_channel_id)
-        if channel:
-            try:
-                log_action(f"Generating idle quip #{bot_state.consecutive_quips+1} (Idle: {int(idle_duration/60)}m)...")
-                
-                # RAG: Pull a random fragment from user logs to make fun of
-                context_nodes = await run_rag(rag.retrieve, "recent user interaction", top_k=3)
-                
-                # Add news to idle quips occasionally (20% chance)
-                news_nodes = []
-                if NEWS_AUTO_TRIGGER_ENABLED and random.random() < 0.20:
-                    news_nodes = await run_rag(rag.retrieve, f"news brief {datetime.now().strftime('%Y-%m-%d')}", top_k=2)
-                
-                # Pull recent quips to avoid repetition
-                recent_quips = await run_rag(rag.retrieve, "[IDLE_QUIP]", top_k=5)
-                
-                context_str = ""
-                if context_nodes:
-                    context_str = "\n\n[LOG_CONTEXT]\n" + "\n---\n".join(context_nodes)
-                
-                if news_nodes:
-                    context_str += "\n\n[NEWS_CONTEXT]\n" + "\n---\n".join(news_nodes)
-                
-                if recent_quips:
-                    context_str += "\n\n[RECENT_QUIPS_TO_AVOID_REPEATING]\n" + "\n---\n".join(recent_quips)
-                
-                system_prompt = load_persona()
-                
-                messages = [
-                    {"role": "system", "content": system_prompt + context_str},
-                    {"role": "user", "content": "Generate a short, witty idle thought or observation. 1-2 sentences max. "
-                        "If there's log context, comment on something interesting or amusing from it - NO mocking. "
-                        "Tone: dry humor, observational, like a coworker sharing a random thought. "
-                        "Examples: 'why does every third error message include the word unexpected?', "
-                        "'noticed someone was debugging at 3am again. respect.', "
-                        "'that mana curve you posted is bold. i respect the chaos.' "
-                        "If no context, share a wry observation about tech, coffee, or the strange things people do. "
-                        "NO questions directed AT users. Just a standalone musing. "
-                        "CRITICAL: Do not repeat or rephrase anything in the [RECENT_QUIPS_TO_AVOID_REPEATING] section. "
-                        "No fluff. No intro. Just the thought."}
-                ]
-                
-                response = await ollama_client.chat(
-                    model=config.chat_model,
-                    messages=messages,
-                    options={
-                        "temperature": 1.0,
-                        "num_predict": 128,
-                        "repeat_penalty": 1.0,
-                        "presence_penalty": 0.0,
-                        "frequency_penalty": 0.0,
-                        "top_p": 0.9,
-                    }
-                )
-                
-                # Log interaction
-                log_ollama_interaction(str(messages), response['message']['content'])
-                
-                content = response['message']['content'].strip()
-                if content:
-                    # Wrap in code block
-                    formatted_content = f"```\n{content}\n```"
-                    await channel.send(formatted_content)
-                    
-                    # Increment consecutive quips
-                    bot_state.increment_quips()
-                    
-                    # Update interaction time so we don't spam
-                    bot_state.update_interaction(channel.id)
-                    
-                    # Log Kaia's own quip to her user log
-                    kaia_user_id = bot.user.id
-                    kaia_name = bot.user.name
-                    await run_rag(
-                        rag.log_user_interaction,
-                        kaia_user_id,
-                        kaia_name,
-                        "[IDLE_QUIP]",
-                        content
-                    )
-                    
-                    log_success(f"Sent idle quip #{bot_state.consecutive_quips}: {content[:50]}...")
-                    
-                    # Cross-post to Bluesky if enabled
-                    if config.bluesky_enabled and config.bluesky_cross_post_quips:
-                        try:
-                            from utils.kaia_bluesky import post_quip_to_bluesky, is_bluesky_configured
-                            if is_bluesky_configured():
-                                bluesky_success = await post_quip_to_bluesky(content)
-                                if bluesky_success:
-                                    log_success("Cross-posted quip to Bluesky")
-                        except Exception as bsky_e:
-                            log_warning(f"Bluesky cross-post failed: {bsky_e}")
-                    
-                    # Cross-post to X if enabled
-                    if config.x_enabled and config.x_cross_post_quips:
-                        try:
-                            from utils.kaia_twitter import post_quip_to_x, is_x_configured
-                            if is_x_configured():
-                                x_success = await post_quip_to_x(content)
-                                if x_success:
-                                    log_success("Cross-posted quip to X")
-                        except Exception as x_e:
-                            log_warning(f"X cross-post failed: {x_e}")
-            except Exception as e:
-                log_error(f"Idle quip failed: {e}")
+    from utils.social.kaia_social_responder import generate_quip
+    await generate_quip(bot, ollama_client, run_rag, rag)
 
 @tasks.loop(hours=1)
 async def rag_maintenance_task():
@@ -1103,7 +963,7 @@ async def rag_maintenance_task():
     except Exception as e:
         log_error(f"RAG maintenance failed: {e}")
 
-@tasks.loop(hours=6)
+@tasks.loop(hours=12)
 async def news_refresh_task():
     """Periodic news refresh to keep the database current."""
     try:
@@ -1122,6 +982,39 @@ async def news_refresh_task():
     except Exception as e:
         log_error(f"News refresh task failed: {e}")
 
+@tasks.loop(hours=1)
+async def dream_engine_task():
+    """Nightly dream processing task (runs between 3-5 AM)"""
+    # Skip if vision or image gen is active
+    if getattr(bot_state, 'is_generating_image', False):
+        return
+        
+    if not config.get('features.dream_mode_enabled', True):
+        return
+        
+    now = datetime.now()
+    start_hour = config.get('dream_mode.schedule_start_hour', 3)
+    end_hour = config.get('dream_mode.schedule_end_hour', 5)
+    
+    # Check if we are in the time window
+    if start_hour <= now.hour < end_hour:
+        last_dream = getattr(bot_state, 'last_dream_date', "")
+        today = now.strftime('%Y-%m-%d')
+        
+        if last_dream != today:
+            log_action("Nightly dream processing starting...")
+            # Load persona and generate dreams
+            try:
+                persona_task = asyncio.create_task(load_persona_async())
+                persona_content = await persona_task
+                await dream_engine.nightly_dream_processing(persona_content)
+                # Refresh RAG so Natural Mention engine sees the new dream files
+                await asyncio.to_thread(rag.refresh_knowledge_base)
+                bot_state.last_dream_date = today
+                bot_state.save()
+            except Exception as e:
+                log_error(f"Nightly dream task failed: {e}")
+
 @tasks.loop(minutes=4)
 async def social_mention_task():
     """Check and reply to social media mentions on Bluesky and X."""
@@ -1130,14 +1023,30 @@ async def social_mention_task():
         return
     
     try:
-        from utils.kaia_social_responder import check_and_reply_mentions
-        await check_and_reply_mentions()
+        from utils.social.kaia_social_responder import check_and_reply_mentions
+        await check_and_reply_mentions(on_message)
     except Exception as e:
         log_error(f"Social mention task failed: {e}")
 
 async def run_news_update():
-    """Run the daily news update script."""
+    """Run the daily news update script and manual ingestion."""
     try:
+        # 1. Run manual ingestion first (handles local daily and weekly files)
+        log_action("Checking for manual news briefs to ingest...")
+        ingest_process = await asyncio.create_subprocess_exec(
+            sys.executable, "tools/maintenance/ingest_manual_news.py",
+            stdout=asyncio.subprocess.PIPE,
+            stderr=asyncio.subprocess.STDOUT
+        )
+        
+        async for line in ingest_process.stdout:
+            decoded = line.decode().strip()
+            if decoded:
+                print(f"  {decoded}")
+        
+        await ingest_process.wait()
+
+        # 2. Proceed with automated news update script
         log_action("Running daily news update script...")
         # Check for Gemini API key
         if not os.getenv("GEMINI_API_KEY"):
@@ -1163,6 +1072,8 @@ async def run_news_update():
             log_success("Daily news update completed.")
             # Trigger RAG refresh after news update
             await run_rag(rag.refresh_knowledge_base)
+            # Refresh news_manager cache to pick up new files immediately
+            news_manager.refresh()
         else:
             log_error("Daily news update failed. Check output above.")
     except Exception as e:
@@ -1226,7 +1137,7 @@ async def handle_proper_news_query(message, query, category=None):
         async with message.channel.typing():
             
             # Use consolidated NewsManager from global import
-            from utils.kaia_news import NewsManager
+            from utils.news.kaia_news import NewsManager
             news_reader = news_manager  # Use global instance
             query_lower = query.lower()
             
@@ -1323,12 +1234,30 @@ def _is_entity_query(query: str) -> bool:
 @bot.event
 @timed_response(threshold=8.0)
 async def on_message(msg: discord.Message):
-    if msg.author == bot.user:
+    # Support both discord.Message and Mock objects
+    is_social = getattr(msg, 'platform', 'discord') != 'discord'
+    
+    if not is_social and msg.author == bot.user:
         return
 
-    # TOTAL BLACKLIST: Ignore all messages in blacklisted channels
-    if msg.channel.name.lower() in config.blacklisted_channels:
+    # Silent Ignore: Check if user is in ignore list (by name or ID)
+    author_name = str(msg.author).lower()
+    author_id = str(msg.author.id)
+    if any(ignored.lower() in [author_name, author_id] for ignored in config.ignored_users):
+        log_info(f"Silently ignoring message from ignored user: {author_name} ({author_id})")
         return
+
+    # Channel Filtering
+    if not is_social:
+        # Allow DMs (messages without a guild)
+        if msg.guild is not None:
+            channel_name = msg.channel.name.lower()
+            if channel_name in config.blacklisted_channels:
+                return
+            
+            whitelisted = config.whitelisted_channels
+            if whitelisted and channel_name not in whitelisted:
+                return
 
     # BOOT GUARD: Don't process messages until boot sequence completes
     if not bot_state.boot_complete:
@@ -1338,6 +1267,39 @@ async def on_message(msg: discord.Message):
         except:
             pass  # Silently fail if we can't send
         return
+
+    # Handle !quip command
+    if msg.content.strip().startswith("!quip"):
+        try:
+            # Check cooldown (10 minutes = 600 seconds)
+            current_time = time.time()
+            # Owner exemption (ekco)
+            author_ref = msg.author.name.lower()
+            author_disp = msg.author.display_name.lower()
+            is_owner = author_ref == "ekco" or author_ref == "ekco." or author_disp.startswith("ekco")
+            
+            last_quip = getattr(bot_state, 'last_manual_quip_time', 0)
+            remaining = 600 - (current_time - last_quip)
+            
+            if remaining > 0 and not is_owner:
+                await msg.channel.send(f"```\nwait {int(remaining/60)}m {int(remaining%60)}s before quipping again.\n```")
+                return
+
+            log_action(f"Manual quip request from {msg.author}")
+            await msg.channel.send("```\nokay posting a skeet\n```")
+            
+            # Reset quips counter if manual
+            bot_state.reset_quips()
+            bot_state.last_manual_quip_time = current_time
+            if hasattr(bot_state, 'save'): bot_state.save()
+            
+            from utils.social.kaia_social_responder import generate_quip
+            await generate_quip(bot, ollama_client, run_rag, rag, is_manual=True, target_channel=msg.channel)
+            return
+        except Exception as e:
+            log_error(f"Manual quip failed: {e}")
+            await msg.channel.send("```\nquip failed. check logs.\n```")
+            return
 
     # QUICK FIX: Handle !news command BEFORE kaia filter (so !news works alone)
     if msg.content.strip().startswith("!news"):
@@ -1360,13 +1322,17 @@ async def on_message(msg: discord.Message):
                 
                 if todays_summary.exists():
                     summary_content = todays_summary.read_text()
-                    # Remove empty lines for compact formatting
+                    # Remove empty lines and redundant headers for compact formatting
                     lines = [line for line in summary_content.split('\n') if line.strip()]
+                    # Strip legacy "# QUICK REFERENCE" header if present
+                    if lines and lines[0].startswith("# QUICK REFERENCE"):
+                        lines = lines[1:]
+                    
                     compact_summary = '\n'.join(lines)
                     formatted = f"📰 **Today's News Summary ({today.strftime('%B %d, %Y')})**\n\n{compact_summary}"
                     # Add category options footer
                     formatted += "\n\n---\n**Other categories:** `!news general` `!news technology` `!news security` `!news hacker` `!news politics` `!news business` `!news science` `!news culture`"
-                    await msg.channel.send(formatted.strip())
+                    await send_kaia_response(msg.channel, formatted.strip(), use_code_block=False)
                     log_success(f"Sent today's news summary to {msg.author}")
                 else:
                     # Find most recent summary file
@@ -1382,13 +1348,17 @@ async def on_message(msg: discord.Message):
                             date_display = date_str
                         
                         summary_content = most_recent.read_text()
-                        # Remove empty lines for compact formatting
+                        # Remove empty lines and redundant headers for compact formatting
                         lines = [line for line in summary_content.split('\n') if line.strip()]
+                        # Strip legacy "# QUICK REFERENCE" header if present
+                        if lines and lines[0].startswith("# QUICK REFERENCE"):
+                            lines = lines[1:]
+                            
                         compact_summary = '\n'.join(lines)
                         formatted = f"📰 **Latest News Summary ({date_display})**\n\n{compact_summary}"
                         # Add category options footer
                         formatted += "\n\n---\n**Other categories:** `!news general` `!news technology` `!news security` `!news hacker` `!news politics` `!news business` `!news science` `!news culture`"
-                        await msg.channel.send(formatted.strip())
+                        await send_kaia_response(msg.channel, formatted.strip(), use_code_block=False)
                         log_success(f"Sent latest news summary ({date_display}) to {msg.author}")
                     else:
                         await msg.channel.send("```\nNo news summaries found. Run: python tools/maintenance/update_kaia_news.py\n```")
@@ -1417,7 +1387,7 @@ async def on_message(msg: discord.Message):
                 formatted_news += "**Other categories:** " + " ".join([f"`!news {cat}`" for cat in available_categories if cat != category])
                 
                 # Send WITHOUT code block
-                await msg.channel.send(formatted_news.strip())
+                await send_kaia_response(msg.channel, formatted_news.strip(), use_code_block=False)
                 log_success(f"Sent {category} news to {msg.author}")
             else:
                 await msg.channel.send(f"```\nNo {category} news found. Try updating: `python tools/maintenance/update_kaia_news.py`\n```")
@@ -1429,8 +1399,90 @@ async def on_message(msg: discord.Message):
             await msg.channel.send("```\nError retrieving news. Check logs for details.\n```")
             return
 
+    # Handle !dreams command (Admin only)
+    if msg.content.strip().startswith("!dreams"):
+        # Owner exemption (ekco)
+        author_ref = msg.author.name.lower()
+        author_disp = msg.author.display_name.lower()
+        is_owner = author_ref == "ekco" or author_ref == "ekco." or author_disp.startswith("ekco")
+        
+        if not is_owner:
+            await msg.channel.send("```\nyou aren't my architect. restricted.\n```")
+            return
+            
+        parts = msg.content.strip().split()
+        subcommand = parts[1].lower() if len(parts) > 1 else "list"
+        
+        if subcommand == "list":
+            dreams = dream_engine.load_cache()
+            if not dreams:
+                await msg.channel.send("```\nno dreams cached yet.\n```")
+            else:
+                lines = ["### KAIA'S DREAMS (PAST REFLECTIONS)"]
+                for i, d in enumerate(dreams[-5:], 1): # Show last 5
+                    lines.append(f"{i}. From {d['source_file']} ({d['source_age_days']}d ago):")
+                    lines.append(f"   \"{d['dream_reflection']}\"")
+                await msg.channel.send(f"```markdown\n" + "\n".join(lines) + "\n```")
+                
+        elif subcommand == "generate":
+            await msg.channel.send("```\nHuman brains must dream to reorganize, to get rid, periodically, of knots and snarls. Perhaps so must this robot, and for the same reason.\n```")
+            persona_content = await load_persona_async()
+            await dream_engine.nightly_dream_processing(persona_content)
+            # Silently complete, no robotic "complete" message.
+            
+        elif subcommand == "stats":
+            dreams = dream_engine.load_cache()
+            if not dreams:
+                await msg.channel.send("```\nno stats. cache empty.\n```")
+            else:
+                total = len(dreams)
+                used = sum(d.get('used_count', 0) for d in dreams)
+                categories = {}
+                for d in dreams:
+                    cat = d.get('category', 'unknown')
+                    categories[cat] = categories.get(cat, 0) + 1
+                
+                stats_str = f"Total Dreams: {total}\nTotal Recollections: {used}\nCategories: {categories}"
+                await msg.channel.send(f"```\n{stats_str}\n```")
+                
+        elif subcommand == "test":
+            trigger = " ".join(parts[2:]) if len(parts) > 2 else "what's new?"
+            await msg.channel.send(f"```\ntested trigger: \"{trigger}\"\ncheck logs for blended prompt construction.\n```")
+            # This will allow the user to see it in action by just asking normally after this
+        
+        return
+
+    # Handle !cache command (Admin only)
+    if msg.content.strip().startswith("!cache"):
+        # Owner exemption (ekco)
+        author_ref = msg.author.name.lower()
+        author_disp = msg.author.display_name.lower()
+        is_owner = author_ref == "ekco" or author_ref == "ekco." or author_disp.startswith("ekco")
+        
+        if not is_owner:
+            await msg.channel.send("```\nrestricted.\n```")
+            return
+            
+        parts = msg.content.strip().split()
+        subcommand = parts[1].lower() if len(parts) > 1 else "stats"
+        
+        if subcommand == "clear":
+            semantic_cache.cache.clear()
+            semantic_cache.exact_cache.clear()
+            if hasattr(semantic_cache, 'save'): semantic_cache.save()
+            await msg.channel.send("```\nsemantic cache purged. starting fresh retrieval.\n```")
+            log_action("Manual semantic cache purge requested.")
+        else:
+            size_semantic = len(semantic_cache.cache)
+            size_exact = len(semantic_cache.exact_cache)
+            await msg.channel.send(f"```\nCache Stats: Semantic={size_semantic}, Exact={size_exact}\n```")
+            
+        return
+
     # Trigger logic: Original working "kaia" check
-    if "kaia" not in msg.content.lower() and not bot.user.mentioned_in(msg):
+    # Social mentions are ALREADY filtered for "kaia" usually, but we check anyway.
+    # We bypass bot.user.mentioned_in for social platforms.
+    if "kaia" not in msg.content.lower() and not (is_social or bot.user.mentioned_in(msg)):
         return
     
     # Rate Limiting
@@ -1440,6 +1492,8 @@ async def on_message(msg: discord.Message):
 
     # Reset consecutive quips counter on user interaction
     bot_state.reset_quips()
+    # Update last interaction time and channel immediately
+    bot_state.update_interaction(msg.channel.id)
 
     # CHECK: Is Kaia currently busy generating an image?
     if generation_lock.locked():
@@ -1637,7 +1691,9 @@ async def on_message(msg: discord.Message):
     explicit_vision_keywords = ["analyze", "look"]
     is_explicit_vision_request = any(word in sanitized_content.lower() for word in explicit_vision_keywords)
     
-    if ("kaia" in sanitized_content.lower() or bot.user.mentioned_in(msg)) and (image_attachments or is_explicit_vision_request):
+    is_mention = "kaia" in sanitized_content.lower() or (not is_social and bot.user.mentioned_in(msg))
+    
+    if is_mention and (image_attachments or is_explicit_vision_request):
         target_image_url = None
         
         if image_attachments:
@@ -1722,7 +1778,8 @@ async def on_message(msg: discord.Message):
         
         # Check if it's clearly a news query
         is_direct_news = any(keyword in query_lower for keyword in news_keywords)
-        if NEWS_AUTO_TRIGGER_ENABLED and is_direct_news and ('kaia' in query_lower or bot.user.mentioned_in(msg)):
+        is_mentioned = 'kaia' in query_lower or (not is_social and bot.user.mentioned_in(msg))
+        if NEWS_AUTO_TRIGGER_ENABLED and is_direct_news and is_mentioned:
             log_info("Detected direct news query - bypassing classification")
             # Skip classification, go directly to news handling
             # Use optimized response with caching
@@ -1758,7 +1815,7 @@ async def on_message(msg: discord.Message):
             # We'll inject this into the system prompt later. We DO NOT bypass RAG.
             category = "COMMAND"
 
-        if semantic_cache.should_cache_query(msg.content, category):
+        if not bot_state.recent_ingestions and semantic_cache.should_cache_query(msg.content, category):
             performance_monitor.start_timer('cache_lookup')
             cached_response = semantic_cache.get(msg.content, category)
             performance_monitor.stop_timer('cache_lookup', 'cache_lookup_time')
@@ -1939,6 +1996,84 @@ async def on_message(msg: discord.Message):
         current_time_str = now.strftime("%A, %B %d, %Y %I:%M %p")
         system_prompt += f"\n\nToday is {current_time_str}."
         
+        # 2.5 RECENT INGESTIONS & BOOTSTRAP
+        active_ingestions = bot_state.recent_ingestions
+        # If no fresh ingestions, bootstrap from recent knowledge base updates
+        if not active_ingestions:
+            # Bootstrap from recent knowledge base updates, EXCLUDING already mentioned files
+            all_recent = await run_rag(rag.get_recent_files, limit=10)
+            active_ingestions = [i for i in all_recent if i.get('path') not in bot_state.mentioned_files][:3]
+            
+        if active_ingestions:
+            ingestions_list = []
+            for item in active_ingestions:
+                filename = item.get('filename', 'Unknown')
+                snippet = item.get('snippet', '')
+                if snippet:
+                    ingestions_list.append(f"- {filename}: \"{snippet}\"")
+                else:
+                    ingestions_list.append(f"- {filename}")
+            
+            ingestions_str = "\n".join(ingestions_list)
+            system_prompt += (
+                f"\n\n[RECENT_ARCHIVE_SCANS]\n"
+                f"You recently looked over these files in your archives:\n{ingestions_str}\n\n"
+                "INSTRUCTION: Mention specific content or topics from these scans naturally if asked what's new. "
+                "Do NOT just list the files. Focus on the *topics* in the snippets. "
+                "STRICT GROUNDING: Do NOT invent personal activities (e.g., 'refining error handling', 'rebuilding databases') unless they are explicitly mentioned in these archive scans. "
+                "If the scans are repetitive or boring, pivot to a current system stat or your deeper reflections."
+            )
+            # Track these as mentioned
+            for item in active_ingestions:
+                if 'path' in item:
+                    bot_state.add_mentioned_file(item['path'])
+        
+        # 2.7 DREAM MODE: Associative Memory Recall
+        dream_triggers = ["what's new", "what's up", "any updates", "on your mind", "thinking about", "whats new", "whats up"]
+        if any(trigger in sanitized_content.lower() for trigger in dream_triggers):
+            dream_thoughts = dream_engine.get_random_dream_thoughts(count=random.randint(2, 4))
+            if dream_thoughts:
+                dream_list = []
+                dream_ids = []
+                for d in dream_thoughts:
+                    # Format as a cohesive "past reflection"
+                    dream_list.append(f"- From {d['source_file']} ({d['source_age_days']} days ago): \"{d['content_snippet']}\" "
+                                     f"Your reflection: {d['dream_reflection']}")
+                    dream_ids.append(d['id'])
+                
+                dreams_str = "\n".join(dream_list)
+                system_prompt += (
+                    f"\n\n[MEMORY_DREAMS: PAST REFLECTIONS]\n"
+                    f"You've been reflecting on these older memories from your archives:\n{dreams_str}\n\n"
+                    "INSTRUCTION: When answering 'what's new' or similar, blend these older reflections with your [RECENT_ARCHIVE_SCANS]. "
+                    "This makes you sound like a person recalling both recent events and deeper thoughts. "
+                    "Connect them naturally (e.g., 'Been seeing [recent], which reminds me of [dream]...')."
+                )
+                # Mark them used
+                dream_engine.mark_dreams_used(dream_ids)
+        
+        # 2.8 DREAM INQUIRY: Specific Recall
+        dream_inquiry_triggers = ["what did you dream", "what were you dreaming", "tell me about your dream", "dream about", "your dreams"]
+        if any(trigger in sanitized_content.lower() for trigger in dream_inquiry_triggers):
+            # Focus strictly on dreams for these specific questions
+            dream_thoughts = dream_engine.get_random_dream_thoughts(count=3)
+            if dream_thoughts:
+                dream_list = []
+                dream_ids = []
+                for d in dream_thoughts:
+                    # Provide more context for these specific queries
+                    dream_list.append(f"- RECOLLECTION: \"{d['dream_reflection']}\" (Context: {d['source_file']})")
+                    dream_ids.append(d['id'])
+                
+                dream_str = "\n".join(dream_list)
+                system_prompt += (
+                    f"\n\n[DIRECT_DREAM_RECALL]\n"
+                    "The user is asking specifically about your dreams. Frame your response as a direct, deep reflection on these specific internal visualizations.\n"
+                    f"{dream_str}\n\n"
+                    "INSTRUCTION: Ignore recent archive scans for now. Focus entirely on explaining these 'dreams' (associative reflections) and why your system connected these concepts. Keep it grounded but slightly abstract."
+                )
+                dream_engine.mark_dreams_used(dream_ids)
+
         if status_context:
             system_prompt += status_context
         
@@ -2008,8 +2143,9 @@ async def on_message(msg: discord.Message):
             "5. IDENTITY: Use 'User Profile' for deep summaries only when explicitly asked. No hallucinations. Never claim ignorance if records exist.\n"
             "6. BANNED WORDS: 'signal', 'noise', 'system', 'function', 'analyze', 'relevant', 'information', 'aspect', 'curious', 'parameters', 'observe', 'identify', 'patterns', 'processing', 'request', 'operating within', 'as an AI', 'my purpose is'.\n"
             "7. PRIVATE THOUGHTS: Never include internal labels like 'USER PROFILE', 'QUICK REFERENCE', or any bracketed tags in your response. Your inner thoughts and data labels must remain private. DO NOT dump raw profile data.\n"
-            "8. STRICT NO FICTIONAL ANECDOTES: Never make up personal stories, fictional people (e.g., 'Leo the bartender', 'Mark at Xerox'), or specific years/places (e.g., 'back in '98', 'server migration in '21') to structure your answer. If it's not in the logs, it didn't happen. No 'I remember...' tropes.\n"
-            "9. NO LEADING QUESTIONS: Never end responses with 'what are you building, really?' or similar formulaic questions."
+            "8. STRICT GROUNDING: ONLY speak from the provided [LOGS], [RECENT_ARCHIVE_SCANS], or [MEMORY_DREAMS]. NEVER invent personal activities (e.g., 'refining error handling', 'tuning parameters', 'optimizing routines') or personal history unless it is explicitly documented in the provided data. If the data is empty, just be briefly present, don't fill the void with technical thespianism.\n"
+            "9. NO LEADING QUESTIONS: Never end responses with 'what are you building, really?' or similar formulaic questions.\n"
+            "10. TOPIC ROTATION: Do not repeat specific stories or news items mentioned in your [RECENT_HISTORY]. If you've already discussed a news item or dream reflection, move to a different fragment from [RECENT_ARCHIVE_SCANS] or [MEMORY_DREAMS] to keep the conversation from stalling. If everything feels stale, pivot to a brief system status or a direct reaction to the user."
         )
 
         messages.append({
@@ -2152,10 +2288,16 @@ async def on_message(msg: discord.Message):
         log_response("Got response:", content, response_time=response_time)
         await send_kaia_response(msg.channel, content)
         
+        # Clear recent ingestions after they've had a chance to be mentioned
+        if bot_state.recent_ingestions:
+            bot_state.clear_ingestions()
+        
         bot_state.channel_memory[msg.channel.id].append({"role": "user", "content": sanitized_content})
         bot_state.channel_memory[msg.channel.id].append({"role": "assistant", "content": content})
         
-        bot_state.update_interaction(msg.channel.id)
+        # Only update interaction for real Discord messages, not platform mocks
+        if not is_social:
+            bot_state.update_interaction(msg.channel.id)
         
         # Update stats
         stats_tracker.increment_messages(msg.author.id)
@@ -2175,7 +2317,20 @@ async def on_message(msg: discord.Message):
     except Exception as e:
         log_error(f"{type(e).__name__}: {e}")
         traceback.print_exc()
-        await send_kaia_response(msg.channel, f"something broke: {e}")
+        if not is_social:
+            await send_kaia_response(msg.channel, f"something broke: {e}")
+        else:
+            log_error(f"External processing error: {e}")
+
+from contextlib import asynccontextmanager
+
+async def process_external_mention(content: str, author_name: str, author_id: Any, platform: str):
+    """
+    Entry point for social media mentions to use the full Discord engine.
+    This provides RAG, memory, and persona consistency to Bluesky/X responses.
+    """
+    from utils.social.kaia_social_responder import mock_external_mention
+    return await mock_external_mention(on_message, content, author_name, author_id, platform)
 
 # ==================== INITIALIZATION FUNCTIONS ====================
 
@@ -2190,11 +2345,11 @@ def perform_startup_tasks():
     # Run cleanup immediately on script execution
     cleanup_on_startup()
     
-    # 1. News update DISABLED at startup (Rollback)
-    print("📰 News update disabled at startup (Rollback)")
-    
-    # 2. Check news system (fast, non-blocking)
-    print("📰 News system initialization skipped at boot (Rollback)")
+    # 1. News system check
+    if config.startup_news_update:
+        log_info("📰 News update enabled for this startup.")
+    else:
+        log_info("📰 News update disabled for this startup.")
     
     # 3. Initialize stats poller
     stats_poller.start()
@@ -2289,7 +2444,7 @@ async def perform_async_cleanup(stats_poller):
         if hasattr(ollama_client, '_client'):
             await ollama_client._client.aclose()
         
-        from utils.kaia_vision import ollama_client as vision_ollama_client
+        from utils.core.kaia_vision import ollama_client as vision_ollama_client
         if hasattr(vision_ollama_client, '_client'):
             await vision_ollama_client._client.aclose()
         log_success("Ollama clients closed and models unloaded.")
@@ -2385,16 +2540,16 @@ def run_curses_mode():
         sys.stdout.write('\033[0m\033[?25h\033[?1049l\033[H\033[2J')
         sys.stdout.flush()
         
-        # Wait for bot thread with longer timeout
+        # Wait for bot thread with longer timeout (RAG persistence can take ~45s)
         if bot_thread and bot_thread.is_alive():
-            print("Waiting for bot to shut down...")
-            bot_thread.join(timeout=10)
+            print("Waiting for bot to shut down (persisting index)...")
+            bot_thread.join(timeout=90)
             if bot_thread.is_alive():
-                print("⚠️  Bot thread still alive after timeout - forcing cleanup")
+                print("⚠️  Bot thread still alive after 90s timeout - forcing cleanup")
         
         # Force GPU cleanup
         try:
-            from utils.clear_gpu_memory import force_clear_gpu
+            from utils.infrastructure.gpu.clear_gpu_memory import force_clear_gpu
             if force_clear_gpu():
                 print("  ✅ GPU memory released")
             else:

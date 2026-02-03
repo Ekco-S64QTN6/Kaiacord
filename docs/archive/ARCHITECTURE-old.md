@@ -58,7 +58,7 @@ Kaiacord/
 │   ├── news/
 │   ├── user_logs/
 │   └── user_profiles/
-├── storage/                 # Persistent data
+├── memory/                 # Persistent data
 │   ├── bot_state.json
 │   └── semantic_cache.json
 ├── tests/                   # Test suite
@@ -116,7 +116,7 @@ Kaiacord/
 - ✅ Active channel tracking
 
 **Persistence**:
-- JSON file (`storage/bot_state.json`)
+- JSON file (`memory/bot_state.json`)
 - Automatic save on state changes
 
 ---
@@ -397,9 +397,9 @@ from Kaiacord import config, bot_state, rate_limiter
 
 **New (preferred)**:
 ```python
-from bot.managers.config import config
-from bot.managers.state import bot_state
-from bot.managers.rate_limiter import RateLimiter
+from utils.infrastructure.system.yaml_config import config
+from utils.infrastructure.system.bot_state import bot_state
+from utils.infrastructure.system.rate_limiter import RateLimiter
 ```
 
 ### Deprecation Warnings
@@ -409,7 +409,7 @@ from bot.managers.rate_limiter import RateLimiter
 import warnings
 warnings.warn(
     "Importing from Kaiacord is deprecated. "
-    "Use bot.managers.config instead.",
+    "Use utils.infrastructure.system.yaml_config instead.",
     DeprecationWarning
 )
 ```
@@ -537,12 +537,12 @@ gpu:
    from Kaiacord import config
    
    # After
-   from bot.managers.config import config
+   from utils.infrastructure.system.yaml_config import config
    ```
 
 2. **Use new exceptions**:
    ```python
-   from bot.exceptions import VRAMInsufficientError
+   from utils.infrastructure.system.bot_exceptions import VRAMInsufficientError
    
    try:
        await generate_image(prompt)

@@ -8,7 +8,7 @@
 ## Model Sizes
 - **gemma3:12b** (Chat): ~8.0 GB VRAM
 - **llama3.2-vision:11b** (Vision): ~7.5 GB VRAM  
-- **Flux.1-schnell-4bit** (Image Gen): ~6-8 GB VRAM
+- **Flux.1-schnell** (Image Gen): ~3.5-5 GB VRAM (via 4-bit quantization)
 
 ## Current VRAM Management Flow
 

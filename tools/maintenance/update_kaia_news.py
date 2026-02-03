@@ -8,6 +8,7 @@ import os
 import json
 import datetime
 from pathlib import Path
+from typing import Optional, List, Dict, Any
 import ollama
 from dotenv import load_dotenv
 
@@ -22,7 +23,7 @@ class KaiaNewsUpdater:
     def __init__(self, gemini_api_key: str):
         """Initialize with Gemini API key"""
         self.client = genai.Client(api_key=gemini_api_key)
-        self.model_name = 'gemini-2.0-flash'  # Using a stable model with grounding support
+        self.model_name = 'gemini-2.5-flash'  # Using a stable model with grounding support
         self.knowledge_dir = Path("./knowledge_base/news/daily")
         self.knowledge_dir.mkdir(parents=True, exist_ok=True)
         self.today = datetime.datetime.now().strftime("%Y-%m-%d")
@@ -41,50 +42,61 @@ Compile the news into this structure:
 # NEWS_BRIEF: {date_to_use}
 
 ## EXECUTIVE_SUMMARY
-[3-4 sentences summarizing the major verified news of the day]
+[3-4 sentences: A professional overview of today's top stories, including major geopolitical developments and important technical trends.]
 
 ## GENERAL_NEWS
-- World Events: Major breaking news stories (with source)
-- International: Significant global developments
-- Domestic: Important national news, policy changes
+- World Events: Major breaking news items - *Source*
+- International: Significant global developments - *Source*
+- Domestic: Important national news, policy changes - *Source*
+- QUOTE: [Include a notable quote specifically from today's coverage of general news] - Name, Title
 
 ## US_POLITICS
-- White House: Presidential actions, announcements
-- Congress: Major legislation, votes
-- Elections: Campaign news, polls
+- White House: Presidential actions, announcements - *Source*
+- Congress: Major legislation, votes - *Source*
+- Elections: Campaign news, polls - *Source*
+- QUOTE: [Include a notable quote specifically from today's coverage of US politics] - Name, Title
 
 ## GLOBAL_GEOPOLITICS
-- International Relations: Diplomacy, treaties
-- Conflicts: Ongoing situations, peace negotiations
-- Trade: Trade deals, tariffs, sanctions
+- International Relations: Diplomacy, treaties - *Source*
+- Conflicts: Ongoing situations, peace negotiations - *Source*
+- Trade: Trade deals, tariffs, sanctions - *Source*
+- QUOTE: [Include a notable quote specifically from today's coverage of global affairs] - Name, Title
 
 ## CULTURE_AND_ENTERTAINMENT
-- Entertainment: Movie/TV releases, awards
-- Sports: Major games, championships
-- Trends: Viral stories, pop culture
+- Entertainment: Movie/TV releases, awards - *Source*
+- Sports: Major games, championships - *Source*
+- Trends: Viral stories, pop culture - *Source*
+- QUOTE: [Include a notable quote specifically from today's coverage of culture/entertainment] - Name, Title
 
 ## SCIENCE_AND_HEALTH
-- Medical: Health news, breakthroughs
-- Space: NASA, SpaceX, astronomy
-- Environment: Climate news, natural disasters
+- Medical: Health news, breakthroughs - *Source*
+- Space: NASA, SpaceX, astronomy - *Source*
+- Environment: Climate news, natural disasters - *Source*
+- QUOTE: [Include a notable quote specifically from today's coverage of science/health] - Name, Title
 
 ## BUSINESS_AND_ECONOMY
-- Markets: Stock market, crypto movements
-- Companies: Major corporate news
-- Jobs: Employment trends
+- Markets: Stock market, crypto movements - *Source*
+- Companies: Major corporate news - *Source*
+- Jobs: Employment trends - *Source*
+- QUOTE: [Include a notable quote specifically from today's coverage of business/economy] - Name, Title
 
-## TECHNOLOGY
-- AI: New developments, regulations
-- Consumer Tech: Product launches
-- Industry: Tech company news
+## TECHNOLOGY_AND_INFRASTRUCTURE
+- AI: New developments, regulations, LLM releases - *Source*
+- Infrastructure: Major cloud outages (AWS/Azure/GCP), ISP failures - *Source*
+- Hardware: Chip manufacturing, consumer electronics launches - *Source*
+- QUOTE: [Include a notable quote specifically from today's coverage of tech/AI] - Name, Title
 
 ## SECURITY_INCIDENTS
-- Vulnerabilities: Critical CVEs (if any)
-- Data Breaches: Major incidents
-- Ransomware: Active campaigns
+- Vulnerabilities: Critical CVEs, zero-day exploits - *Source*
+- Data Breaches: Major corporate leaks, exposed databases - *Source*
+- Ransomware: Active extortion campaigns, new threat actors - *Source*
+- QUOTE: [Include a notable quote specifically from today's coverage of security] - Name, Title
 
-## SOURCES
-[List the news sources you found these stories from]
+## HACKER_CULTURE
+- Hacktivism: Group manifestos, major breaches for social causes - *Source*
+- Community: DEFCON/BlackHat updates, new hacking tools - *Source*
+- Cyberwarfare: State-sponsored operations, offensive signal metrics - *Source*
+- QUOTE: [Include a notable quote specifically from today's coverage of hacker culture] - Name, Title
 
 ---
 **Generated**: {datetime.datetime.now().strftime('%Y-%m-%dT%H:%M:%SZ')}
@@ -92,9 +104,10 @@ Compile the news into this structure:
 RULES:
 1. ONLY include news you found via search - NO invented stories.
 2. Each bullet should be one complete, verified fact.
-3. Include source names when possible (e.g., "per Reuters", "according to AP").
-4. If you cannot find news for a category, write "No major news in this category today."
-5. Prioritize major, widely-reported stories over obscure ones.
+3. **SOURCE ATTRIBUTION**: Every single news bullet MUST end with `- *Source Name*` representing where the info was found.
+4. **CATEGORY QUOTES**: Every section (except EXECUTIVE_SUMMARY) must include a "QUOTE:" bullet at the end. The quote MUST be taken from today's news coverage/sources specifically about that topic.
+5. BROADEN SCOPE: Ensure ALL categories above are populated.
+6. Do NOT include a 'SOURCES' or 'REFERENCES' section at the end of the brief.
 """
         
         # Generate using Gemini WITH Google Search grounding (new SDK syntax)
@@ -150,27 +163,26 @@ RULES:
         
         # Use Ollama to create a summary
         summary_prompt = f"""
-        Create a BALANCED news summary with 1-2 bullet points from EACH category below.
-        Format as concise bullet points grouped by category.
+        Create a high-density, ultra-concise news summary.
+        Format as short bullet points grouped by category.
         
         SOURCE BRIEF:
-        {full_brief[:3000]}
+        {full_brief[:3500]}
         
-        REQUIRED CATEGORIES (include 1-2 items from EACH):
-        - **General/World**: Major breaking world news
-        - **Politics**: US or international political developments
-        - **Business/Economy**: Markets, companies, economic news
-        - **Culture/Entertainment**: Movies, sports, celebrity, trends
-        - **Science/Health**: Medical, space, research, environment
-        - **Technology**: AI, consumer tech, industry news
-        - **Security**: Only if major (breaches, CVEs for !news hacker)
+        CATEGORIES:
+        - ## Infrastructure: Outages, ISP, cloud issues
+        - ## Security: CVEs, breaches, ransomware
+        - ## Intelligence/AI: LLM releases, regulations
+        - ## Geopolitics: World events, national policy
+        - ## Science/Culture: Space, research, tech trends
         
         CRITICAL RULES:
-        1. Keep each bullet to ONE sentence. Total: 10-14 bullets covering ALL categories.
-        2. DO NOT invent or hallucinate specific numbers, prices, statistics, or data points that are NOT in the source brief.
-        3. If the source doesn't include a specific number (like stock prices, gold prices, dollar amounts), describe the trend WITHOUT the specific number.
-        4. NO blank lines between bullets or categories - output should be compact with no empty lines.
-        5. Start each category header on its own line immediately followed by its bullets.
+        1. MAXIMUM 10-12 bullets TOTAL for the entire document.
+        2. NO "No news provided" items. If a category has no info, SKIP it entirely.
+        3. Keep each bullet to ONE SHORT sentence.
+        4. TOTAL character count must be under 1400 characters.
+        5. Use "## CategoryName" for headers.
+        6. NO blank lines between bullets.
         """
         
         try:
@@ -187,7 +199,7 @@ RULES:
             # Save summary
             summary_file = self.knowledge_dir / f"news_summary_{date_to_use.replace('-', '')}.md"
             with open(summary_file, 'w', encoding='utf-8') as f:
-                f.write(f"# QUICK REFERENCE: {date_to_use}\n\n{summary}")
+                f.write(summary)
             
             print(f"✓ Created quick reference: {summary_file}")
             
@@ -230,6 +242,34 @@ RULES:
         
         if archived > 0:
             print(f"✓ Archived {archived} old news files to {archive_dir}")
+
+    def get_latest_existing_brief(self) -> tuple[Optional[str], Optional[str]]:
+        """Find the most recent news brief in daily or archive folders"""
+        # Check daily dir first
+        briefs = list(self.knowledge_dir.glob("news_brief_*.md"))
+        
+        # Then check archive
+        archive_dir = self.knowledge_dir.parent / "archive"
+        if archive_dir.exists():
+            briefs.extend(list(archive_dir.glob("news_brief_*.md")))
+            
+        if not briefs:
+            return None, None
+            
+        # Sort by filename (contains date)
+        briefs.sort(key=lambda x: x.name, reverse=True)
+        latest_file = briefs[0]
+        
+        try:
+            with open(latest_file, 'r', encoding='utf-8') as f:
+                content = f.read()
+            # Extract date from filename news_brief_YYYYMMDD.md
+            date_str = latest_file.stem.split('_')[-1]
+            return content, date_str
+        except Exception as e:
+            print(f"⚠️ Failed to read latest brief {latest_file}: {e}")
+            return None, None
+
 
     
     def backfill_week(self):
@@ -295,10 +335,15 @@ RULES:
             self.trigger_reindex()
             
             print(f"\n✅ Daily update complete for {self.today}")
-            print(f"   Kaia now has current news up to {self.today}")
             
         except Exception as e:
-            print(f"❌ Error generating daily brief: {e}")
+            error_str = str(e)
+            print(f"❌ Error generating daily brief: {error_str}")
+            
+            if "429" in error_str or "RESOURCE_EXHAUSTED" in error_str:
+                print("⚠️ Gemini API quota exhausted. Skipping update.")
+            else:
+                print("\n❌ Unknown error. Skipping update.")
     
     def trigger_reindex(self):
         """Optionally trigger RAG reindexing"""
@@ -344,6 +389,7 @@ def manual_news_update():
     Include concrete data points and statistics.
     
     **CRITICAL**: Generate at least 40 bullet points total. Cover all sections.
+    Do NOT include a "SOURCES" or "REFERENCES" section at the end.
     
     Now generate the daily brief for {datetime.datetime.now().strftime("%Y-%m-%d")}.
     ```

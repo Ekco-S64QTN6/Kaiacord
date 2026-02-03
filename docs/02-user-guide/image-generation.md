@@ -1,8 +1,8 @@
-# Kaia Vision Feature - Image Analysis
+# Kaia Generation - Image Generation (FLUX)
 
 ## Overview
 
-Kaia can now "see" and analyze images uploaded to Discord! She uses the **llama3.2-vision:11b** model running locally via Ollama to provide commentary on images in her characteristic blunt, grounded style.
+Kaia can now generate stunning images using the **FLUX.1-schnell** model! She uses 4-bit quantization to run locally via `diffusers` even on cards with 12GB VRAM.
 
 ---
 

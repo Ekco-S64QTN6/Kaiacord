@@ -4,7 +4,7 @@ import shutil
 from datetime import datetime
 
 LOG_DIR = "knowledge_base/user_logs"
-BACKUP_DIR = "storage/backups/logs_pre_scrub_" + datetime.now().strftime("%Y%m%d_%H%M%S")
+BACKUP_DIR = "memory/backups/logs_pre_scrub_" + datetime.now().strftime("%Y%m%d_%H%M%S")
 
 # Patterns to remove
 SCRUB_PATTERNS = [

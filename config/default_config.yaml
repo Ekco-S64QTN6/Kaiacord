@@ -47,8 +47,11 @@ performance:
   # Maximum consecutive quips before requiring substantive response
   max_consecutive_quips: 3
   
+  # How often to quip when idle (in minutes)
+  idle_quip_timeout_minutes: 49
+  
   # Number of top RAG results to retrieve
-  rag_top_k: 8
+  rag_top_k: 10
   
   # Requests per minute per user (rate limiting)
   requests_per_minute: 30
@@ -57,7 +60,7 @@ performance:
   enable_semantic_cache: true
   
   # Maximum RAG log size (MB) before rotation
-  max_log_size_mb: 100
+  max_log_size_mb: 1000
 
 # ============================================================================
 # Paths Configuration
@@ -70,10 +73,13 @@ paths:
   persist: "./storage"
   
   # Bot state file
-  bot_state: "./storage/bot_state.json"
+  bot_state: "./memory/bot_state.json"
   
   # Semantic cache file
-  semantic_cache: "./storage/semantic_cache.json"
+  semantic_cache: "./memory/semantic_cache.json"
+  
+  # Dream thought cache file
+  dream_cache: "./memory/dream_cache.json"
 
 # ============================================================================
 # Startup Configuration
@@ -103,6 +109,9 @@ discord:
   
   # Enable message content intent
   message_content_intent: true
+
+  # Ignored users (comma-separated names or IDs)
+  ignored_users: ""
 
 # ============================================================================
 # Logging Configuration
@@ -141,10 +150,10 @@ dashboard:
 # ============================================================================
 features:
   # Enable vision analysis
-  vision_enabled: true
+  vision_enabled: false
   
   # Enable image generation
-  image_gen_enabled: true
+  image_gen_enabled: false
   
   # Enable news system
   news_enabled: true
@@ -157,32 +166,35 @@ features:
   
   # Enable boilerplate filtering
   boilerplate_filtering: true
+  
+  # Enable Dream Mode (nightly associative memory recall)
+  dream_mode_enabled: true
 
 # ============================================================================
 # Bluesky Configuration
 # ============================================================================
 bluesky:
   # Enable Bluesky integration
-  enabled: true
+  enabled: false
   
   # Cross-post idle quips to Bluesky
-  cross_post_quips: true
+  cross_post_quips: false
   
   # Reply to mentions on Bluesky
-  reply_to_mentions: true
+  reply_to_mentions: false
 
 # ============================================================================
 # X (Twitter) Configuration
 # ============================================================================
 x_twitter:
   # Enable X integration
-  enabled: true
+  enabled: false
   
   # Cross-post idle quips to X
-  cross_post_quips: true
+  cross_post_quips: false
   
   # Reply to mentions on X
-  reply_to_mentions: true
+  reply_to_mentions: false
 
 # ============================================================================
 # Social Media Polling
@@ -190,3 +202,23 @@ x_twitter:
 social:
   # How often to check for mentions (in minutes)
   poll_interval_minutes: 3
+# ============================================================================
+# Dream Mode Configuration
+# ============================================================================
+dream_mode:
+  # Schedule for nightly processing (24h format)
+  schedule_start_hour: 3  # 3 AM
+  schedule_end_hour: 5    # 5 AM
+  
+  # Cache limits
+  max_dreams_cached: 50
+  dreams_per_scan: 10
+  
+  # Minimum age of files to "dream" about (days)
+  dream_age_min_days: 2
+  
+  # Mix ratio for trigger responses
+  mix_ratio:
+    recent: 0.25
+    dreams: 0.50
+    reflection: 0.25

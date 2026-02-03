@@ -16,8 +16,8 @@ The codebase has been reorganized to improve maintainability and separate concer
 *   `kaia_persona.md` -> `config/kaia_persona.md`
 *   `cache_exceptions.json` -> `config/cache_exceptions.json`
 
-### Moved to `storage/`
-*   `semantic_cache.json` -> `storage/semantic_cache.json`
+### Moved to `memory/`
+*   `semantic_cache.json` -> `memory/semantic_cache.json`
 
 ### Moved to `test_scripts/`
 *   `test_gpu.py` -> `test_scripts/test_gpu.py`

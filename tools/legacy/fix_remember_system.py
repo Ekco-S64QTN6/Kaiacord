@@ -155,7 +155,7 @@ def force_reindex_all_memories():
         
         # Clear existing logs index
         print("🧹 Clearing existing logs index...")
-        logs_index_dir = "storage/logs"
+        logs_index_dir = "memory/logs"
         if os.path.exists(logs_index_dir):
             import shutil
             shutil.rmtree(logs_index_dir)

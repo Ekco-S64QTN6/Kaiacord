@@ -52,25 +52,20 @@ python Kaiacord.py
 
 ---
 
-## 🎉 What's New in v2.0
+## 🎉 What's New in v2.1
 
-**v2.0** brings **major stability and architecture improvements**:
+**v2.1** introduces a **Major Architectural Refactor** and **Hardened Logging**:
 
-✅ **Critical Bugs Fixed**: `stats_poller` NameError, circular logging dependencies, GPU memory issues  
-✅ **Modular Architecture**: Organized `bot/managers/` structure (config, state, rate limiting)  
-✅ **Unified GPU Manager**: Priority-based VRAM reservation with automatic preemption  
-✅ **VRAM Management**: Chat model unloads before vision/image tasks (12GB GPU support)  
-✅ **Exception Hierarchy**: User-friendly error messages and comprehensive error handling  
-✅ **YAML Configuration**: Hierarchical config with migration from `.env`  
-✅ **Comprehensive Testing**: Unit, integration, and performance test suites  
-✅ **100% Backward Compatible**: Existing setups work without changes  
-✅ **Complete Documentation**: Architecture, migration, troubleshooting, and VRAM guides  
-✅ **Social Media Integration**: Cross-post to Bluesky & X, auto-reply to mentions  
-
-**Code Quality**: Reduced from 2390 → 2260 lines (target: <1000)  
-**Test Coverage**: 12/12 tests passing (100%)  
-
-**Upgrade Guide**: See [`MIGRATION_GUIDE.md`](MIGRATION_GUIDE.md)
+✅ **Deep Modularization**: Clean separation into `utils/core`, `utils/infrastructure`, and `utils/social`.  
+✅ **Logging Consolidation**: Programmatic interception of `stdout/stderr`. All output now flows to `logs/kaiacord.log`.  
+✅ **Directory Cleanup**: Legacy `bot/` dissolved; `storage/` moved to `memory/`.  
+✅ **Unified GPU Manager**: Priority-based VRAM reservation with automatic preemption.  
+✅ **Improved News Pipeline**: Automated conversion of manual/weekly briefs into RAG-compliant Markdown.  
+✅ **Natural Mention Engine**: A core RAG enhancement. Kaia now "sees" snippets of newly added files across all corpora (Books, User Logs, News). Asking triggers like "what's new?" or "what's on your mind?" prompts an organic discussion of her entire evolving knowledge base.  
+✅ **RAG Echo Chamber Guard**: Hardened semantic cache and persona instructions to prevent repetitive "parrot" responses from history logs.  
+✅ **Self-Aware Logging**: Idle and manual quips are now persisted to Kaia's specialized user log for RAG reflection.  
+✅ **Sanitized Output**: Automatic ANSI color stripping for background log files.  
+✅ **Dream Mode (Associative Memory)**: Nightly deep-processing of archived knowledge (files > 2 days old) into persona-grounded reflections. This allows Kaia to recall older topics with more human-like, organic context during trigger-based responses.  
 
 ---
 
@@ -79,59 +74,49 @@ python Kaiacord.py
 | Category | Features | Status |
 |:---------|:---------|:-------|
 | **🤖 Core AI** | Local Inference (Ollama), Multi-Model Support (`gemma3:12b`) | ✅ |
-| **🧠 Memory** | RAG with File Indexing, User Profiles, Semantic Cache | ✅ |
-| **👁️ Vision** | Image Analysis (`llama3.2-vision`), Object Detection, Text Extraction | ✅ |
-| **🎨 Generation** | FLUX Image Generation (`flux.1-schnell-4bit`), Prompt Refinement | ✅ |
-| **📊 Interface** | Curses Dashboard (btop-style), Discord Bot, Color-Coded Logging | ✅ |
-| **🎯 Intelligence** | Query Classification, Personalization, Hallucination Prevention | ✅ |
 | **⚡ Performance** | VRAM Management (12GB), Model Unload/Reload, Rate Limiting | ✅ |
-| **📰 News** | Daily Tech Briefs, Manual Retrieval (`!news technology`), 14-day Retention, Archive System | ✅ |
-| **🌐 Social Media** | Cross-post to Bluesky & X, Auto-reply to mentions with AI persona | ✅ |
+| **📊 Interface** | Curses Dashboard (btop-style), Discord Bot, Consolided Logging | ✅ |
+| **🧠 Memory** | RAG with File Indexing, User Profiles, Semantic Cache, Natural Mention | ✅ |
+| **🎯 Intelligence** | Query Classification, Personalization, Hallucination Prevention | ✅ |
+| **💭 Dream Mode** | Associative memory recall (nightly 3-5 AM); processes archived knowledge into persona-deep reflections for more natural, organic RAG callbacks | ✅ |
+| **🌐 Social Media** | Cross-post to Bluesky & X, Auto-reply to mentions, Memory Mirror | ✅ |
+| **📰 News** | Daily Briefs, Manual Retrieval, Ingestion of manual/weekly briefs | ✅ |
+| **👁️ Vision** | Image Analysis (`llama3.2-vision`), Object Detection, Text Extraction | ✅ |
+| **🎨 Generation** | FLUX Image Generation (`FLUX.1-schnell` 4-bit), Prompt Refinement | ✅ |
 
 ---
 
 ## 🏗️ Architecture Overview
 
-```
-┌─────────────────────────────────────────────────────────────┐
-│                        Discord Bot                          │
-└────────────────────┬────────────────────────────────────────┘
-                     │
-         ┌───────────┴───────────┐
-         │                       │
-    ┌────▼─────┐          ┌─────▼─────┐
-    │ Handlers │          │ Commands  │
-    │ (Events) │          │  (!news)  │
-    └────┬─────┘          └─────┬─────┘
-         │                      │
-         └──────────┬───────────┘
-                    │
-            ┌───────▼────────┐
-            │   Services     │
-            │ ┌────────────┐ │
-            │ │ RAG System │ │◄─── knowledge_base/
-            │ ├────────────┤ │
-            │ │   Vision   │ │◄─── llama3.2-vision
-            │ ├────────────┤ │
-            │ │ Image Gen  │ │◄─── flux.1-schnell
-            │ └────────────┘ │
-            └───────┬────────┘
-                    │
-            ┌───────▼────────┐
-            │    Managers    │
-            │ ┌────────────┐ │
-            │ │   Config   │ │◄─── config/kaia.yaml
-            │ ├────────────┤ │
-            │ │ GPU Memory │ │◄─── VRAM Reservation
-            │ ├────────────┤ │
-            │ │   State    │ │◄─── storage/
-            │ └────────────┘ │
-            └───────┬────────┘
-                    │
-            ┌───────▼────────┐
-            │  Utils Layer   │
-            │  (kaia_*.py)   │
-            └────────────────┘
+```mermaid
+graph TB
+    Discord[Discord API] --> Kaiacord[Kaiacord.py]
+    Kaiacord --> Core[utils/core]
+    Kaiacord --> Infrastructure[utils/infrastructure]
+    Kaiacord --> Social[utils/social]
+    
+    subgraph Core
+        Image[kaia_image.py]
+        Vision[kaia_vision.py]
+        RAG[kaia_rag.py]
+        Intel[kaia_intelligence.py]
+    end
+    
+    subgraph Infrastructure
+        Logging[logging/]
+        System[system/ config, state]
+        Monitoring[monitoring/]
+    end
+    
+    subgraph Social
+        SResponder[social_responder.py]
+        BSky[bluesky_client.py]
+        X[x_client.py]
+    end
+    
+    Infrastructure --> Logs[(logs/kaiacord.log)]
+    Core --> Memory[(memory/)]
+    Core --> KB[(knowledge_base/)]
 ```
 
 **Key Principle**: Chat model (8GB) unloads before vision (7.5GB) or image gen (6-8GB) to prevent VRAM overflow on 12GB GPUs.
@@ -144,40 +129,26 @@ python Kaiacord.py
 ```
 User: @kaia what's Python?
 Kaia: programming language. general purpose. readable syntax. popular for automation and data work.
-
-User: @kaia remember I'm working on a Discord bot
-Kaia: logged it.
 ```
 
 ### 🎨 Image Generation
 ```
 User: kaia draw a cyberpunk cityscape at night
-Kaia: flickering the screen. give me a second.
+Kaia: flickering the screen...
 [Sends FLUX-generated image]
 ```
 
 ### 👁️ Vision Analysis
 ```
-User: [Uploads server rack image] kaia what do you see?
-Kaia: looking...
-Kaia: server racks. messy cable management. looks like a data center. couple switches on the left.
+User: [Uploads image] kaia what do you see?
+Kaia: looking... server racks. messy cable management.
 ```
 
 ### 📰 News Retrieval
 ```
-User: !news
+User: !news technology
 Kaia: 📰 **Technology News**
-
-1. **Azure/AWS/GCP:** AWS US-EAST-1 experienced severe DNS failure...
-2. **Models:** Meta released Llama 4.5 with 2.5 trillion parameters...
-...
-
----
-**Other categories:** `!news security` `!news hacking` `!news politics` ...
-
-User: !news security
-Kaia: 📰 **Security News**
-[Security briefings and vulnerabilities]
+[Briefings from daily/weekly ingestion]
 ```
 
 **Categories**: `technology`, `security`, `hacking`, `politics`, `business`, `science`, `culture`, `general`
@@ -196,20 +167,27 @@ Kaia can cross-post to Bluesky and X, and reply to mentions:
 
 # When someone mentions Kaia on Bluesky or X,
 # she replies using her AI persona (checked every 5 min)
+
+# Memory Mirror:
+# Idle quips are now grounded in Kaia's actual past conversations,
+# making her "skeets" and posts feel like genuine personal reflections.
 ```
 
 **Setup**: See [`docs/SOCIAL_MEDIA_SETUP.md`](docs/SOCIAL_MEDIA_SETUP.md)
 
-### 📊 Dashboard
-```bash
-python Kaiacord.py  # Launches curses dashboard
+## 📊 Monitoring & Logging
 
-# Dashboard shows:
-# - Real-time GPU memory usage
-# - Active model (gemma3:12b / llama3.2-vision)
-# - Live logs with color coding
-# - System stats (CPU, RAM, requests/min)
+### Consolidated Log
+All output (bot logs, system errors, library tracebacks) is consolidated into:
+`logs/kaiacord.log`
+
+### Curses Dashboard
+```bash
+python Kaiacord.py  # Launches dashboard
 ```
+- **Real-time VRAM/GPU monitoring**
+- **Active Model tracking**
+- **Live log stream with automatic color-to-plain conversion for file persistence**
 
 ---
 
@@ -239,14 +217,13 @@ performance:
   requests_per_minute: 30
 ```
 
-**Migration**: Use `python scripts/migrate_config.py` to convert `.env` → `kaia.yaml`
 
 ---
 
 ## 🎛️ Advanced Features
 
 ### Custom Persona
-Edit `config/kaia_persona.md` to customize personality:
+Edit `knowledge_base/kaia_persona.md` to customize personality:
 ```markdown
 # Kaia's Persona
 
@@ -314,43 +291,20 @@ python tools/health_check.py
 ```
 Kaiacord/
 ├── Kaiacord.py              # Main bot entry point
-├── bot/                     # NEW: Modular bot package
-│   ├── managers/            # Configuration, state, GPU, rate limiting
-│   ├── handlers/            # Message, command, event handlers (WIP)
-│   ├── services/            # RAG, vision, image services (WIP)
-│   └── exceptions.py        # Custom exception hierarchy
-├── utils/                   # Core utilities
-│   ├── kaia_rag.py          # RAG system
-│   ├── kaia_vision.py       # Vision analysis
-│   ├── kaia_image.py        # Image generation
-│   ├── kaia_news.py         # News manager
-│   ├── gpu_manager.py       # GPU/VRAM management
-│   ├── kaia_intelligence.py # Query classification
-│   └── btop_dashboard_v2.py # Curses dashboard
-├── config/                  # Configuration
-│   ├── kaia_persona.md      # Customizable personality
-│   ├── default_config.yaml  # Default settings
-│   └── kaia.yaml            # User overrides
-├── knowledge_base/          # RAG knowledge storage
-│   ├── news/daily/          # Daily news briefs
-│   ├── user_logs/           # Interaction logs
-│   └── user_profiles/       # Generated profiles
-├── storage/                 # Persistent data
-│   └── semantic_cache.json  # Response cache
-├── tests/                   # Test suites
-│   ├── unit/                # Fast, isolated tests
-│   ├── integration/         # End-to-end tests
-│   └── verification/        # System checks
-├── tools/                   # Utilities
-│   ├── maintenance/         # Regular maintenance
-│   ├── diagnostics/         # System diagnostics
-│   ├── recovery/            # Emergency recovery
-│   └── health_check.py      # System validation
-├── docs/                    # Documentation
-│   ├── ARCHITECTURE.md      # System architecture
-│   ├── VRAM_MANAGEMENT.md   # GPU memory guide
-│   └── [more guides]
-└── logs/                    # System logs
+├── utils/                   # NEW: Deeply modularized logic
+│   ├── core/                # RAG, Vision, Image, Intelligence
+│   ├── infrastructure/      # Logging, System (Config/State), Monitoring
+│   └── social/              # Twitter/X, Bluesky, Social Responders
+├── config/                  # Configuration & Personas
+├── knowledge_base/          # RAG text storage (News, User Logs)
+├── memory/                  # Persistent JSON data (Cache, State)
+├── logs/                    # ONE LOG FILE: kaiacord.log
+├── tools/                   # Standalone utilities
+│   ├── maintenance/         # RAG refresh, News cleanup
+│   ├── diagnostics/         # System checks
+│   └── tests/               # Dedicated verification scripts
+├── tests/                   # Pytest suite
+└── docs/                    # Detailed documentation
 ```
 
 ---
@@ -361,7 +315,7 @@ All docs are organized in [docs/](docs/README.md).
 
 ### 🎯 Essentials
 - **[Quick Start](docs/01-getting-started/quick-start.md)** - Get running in 5 minutes
-- **[Migration Guide](docs/01-getting-started/migration.md)** - Upgrading from v1.0 → v2.0
+- **[Command Reference](docs/02-user-guide/commands.md)** - Full list of commands and triggers
 
 ### 🏗️ Technical
 - **[System Overview](docs/03-architecture/overview.md)** - System design & data flows
@@ -377,17 +331,6 @@ All docs are organized in [docs/](docs/README.md).
 
 ---
 
-## 🤝 Contributing
-
-We welcome contributions! Please:
-1. Fork the repository
-2. Create a feature branch (`git checkout -b feature/amazing-feature`)
-3. Run tests (`pytest tests/ -v`)
-4. Commit changes (`git commit -m 'Add amazing feature'`)
-5. Push to branch (`git push origin feature/amazing-feature`)
-6. Open a Pull Request
-
-**Code Style**: Follow PEP 8, use type hints, add docstrings
 
 ---
 

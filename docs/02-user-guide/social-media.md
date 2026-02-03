@@ -75,7 +75,7 @@ Every 5 minutes, Kaia checks for mentions on both platforms. When found:
 
 ### Session Persistence
 - **Bluesky**: Uses app password (no session storage needed)
-- **X**: Saves session cookies to `storage/x_cookies.json` to avoid re-login
+- **X**: Saves session cookies to `memory/x_cookies.json` to avoid re-login
 
 ---
 
@@ -98,5 +98,5 @@ Every 5 minutes, Kaia checks for mentions on both platforms. When found:
 | `utils/kaia_bluesky.py` | Bluesky API client |
 | `utils/kaia_twitter.py` | X API client (twikit) |
 | `utils/kaia_social_responder.py` | Mention polling & AI replies |
-| `storage/x_cookies.json` | X session cookies (auto-created) |
-| `storage/social_replied_ids.json` | Tracks replied mentions |
+| `memory/x_cookies.json` | X session cookies (auto-created) |
+| `memory/social_replied_ids.json` | Tracks replied mentions |

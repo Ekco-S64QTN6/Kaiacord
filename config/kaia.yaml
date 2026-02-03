@@ -7,13 +7,23 @@
 # 2. This file (config/kaia.yaml)
 # 3. Default config (config/default_config.yaml)
 #
-# IMPORTANT: Keep secrets in your .env file, not here!
-# Use ${ENV_VAR_NAME} syntax to reference environment variables.
-#
-# Example overrides:
-# discord:
-#   blacklisted_channels: "general,announcements"
-# 
-# models:
-#   chat: "gemma3:12b"
-#
+
+startup:
+  news_update: true
+
+discord:
+  whitelisted_channels: "kaia-opolis"
+  ignored_users:
+    - "Thorondor_470028550951403531"
+    - "470028550951403531"
+
+bluesky:
+  enabled: true
+  cross_post_quips: true
+
+x_twitter:
+  enabled: false
+  cross_post_quips: false
+
+features:
+  dream_mode_enabled: true

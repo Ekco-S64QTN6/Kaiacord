@@ -1,1 +1,0 @@
-# bot/handlers package

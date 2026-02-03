@@ -17,7 +17,7 @@ grep "Unloading chat model" logs/kaiacord.log
 # This is fixed in v2.0 - update to latest
 
 # If found but still times out, increase timeout:
-# Edit utils/gpu_manager.py line 118:
+# Edit utils/infrastructure/system/gpu_memory_manager.py:
 timeout=90.0  # Increase from 60s to 90s for slow HDDs
 ```
 
@@ -39,7 +39,7 @@ nvidia-smi
 # Should see 8GB → 0GB → 7.5GB pattern during vision
 # If stuck at 8GB, chat model isn't unloading
 
-# Fix: Update to v2.0 (unload re-enabled)
+# Fix: Update to v2.1 (modular architecture)
 # Verify: grep "Unload" logs/kaiacord.log
 ```
 
@@ -51,6 +51,25 @@ nvidia-smi
 
 ---
 
+## 🔴 Missing Startup Logs / kaiacord_startup.log
+
+**Symptom**: `logs/kaiacord_startup.log` is missing, or you're looking for startup messages.
+
+**Cause**: Hardened Logging (v2.1+). All output is now consolidated.
+
+**Solution**:
+```bash
+# All startup and runtime messages are now in:
+tail -f logs/kaiacord.log
+
+# Search specifically for startup sequence:
+grep "Starting Kaia" logs/kaiacord.log
+```
+
+**Note**: External shell redirection (e.g., `> kaiacord_startup.log`) is no longer necessary as the bot programmatically captures all output.
+
+---
+
 ## 🔴 stats_poller NameError
 
 **Symptom**: `NameError: name 'stats_poller' is not defined`
@@ -59,12 +78,10 @@ nvidia-smi
 
 **Solution**:
 ```bash
-# Update to v2.0
+# Update to latest version
 git pull origin main
 
-# Verify fix exists:
-grep "stats_helpers" Kaiacord.py
-# Should see: from utils import stats_helpers
+# Verify fix references in Kaiacord.py
 ```
 
 ---
@@ -73,11 +90,11 @@ grep "stats_helpers" Kaiacord.py
 
 **Symptom**: `!news` says "temporarily disabled"
 
-**Cause**: Fixed in v2.0
+**Cause**: Fixed in v2.0+
 
 **Solution**:
 ```bash
-# Update to v2.0
+# Update to latest
 git pull origin main
 
 # Verify news exists:
@@ -186,8 +203,7 @@ nvidia-smi
 # Should see GPU at 90%+ during chat
 # If CPU-only, check Ollama GPU settings
 
-# Reduce context window:
-# Edit config/kaia.yaml:
+# Reduce context window in config/kaia.yaml:
 performance:
   max_memory_messages: 20  # Down from 30
 ```
@@ -225,8 +241,7 @@ grep "RAG" logs/kaiacord.log
 # Check bot status
 grep "online" logs/kaiacord.log
 
-# Verify Discord token
-# .env should have: DISCORD_TOKEN=MTxxxxx...
+# Verify Discord token in .env
 
 # Check bot permissions
 # Discord Developer Portal → Bot → Permissions
@@ -255,7 +270,7 @@ python tools/recovery/nuclear_reset.py
 
 1. **Check logs**: `tail -f logs/kaiacord.log`
 2. **Run health check**: `python tools/maintenance/health_check.py`
-3. **See docs**: [VRAM Issues](vram-issues.md), [Hallucination Fixes](hallucination-fixes.md)
+3. **See docs**: [03-Architecture](../03-architecture/overview.md)
 4. **GitHub Issues**: Report bugs with logs
 
 ---

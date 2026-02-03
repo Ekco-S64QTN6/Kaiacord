@@ -1,0 +1,51 @@
+Generate today's news brief for Kaia using this RAG-optimized structure:
+
+# NEWS_BRIEF: [Today's Date YYYY-MM-DD]
+
+## EXECUTIVE_SUMMARY
+[3-4 sentences: A professional overview of today's top stories, including major geopolitical developments and important technical trends.]
+
+## US_POLITICS
+- [Bullet points about US politics] - *Source Name*
+- QUOTE: [Include a notable quote specifically from today's coverage of US politics] - Name, Title
+
+## GLOBAL_GEOPOLITICS
+- [Bullet points about global affairs] - *Source Name*
+- QUOTE: [Include a notable quote specifically from today's coverage of global affairs] - Name, Title
+
+## BUSINESS_AND_ECONOMY
+- [Bullet points about business/economy] - *Source Name*
+- QUOTE: [Include a notable quote specifically from today's coverage of business/economy] - Name, Title
+
+## SCIENCE_AND_HEALTH
+- [Bullet points about science/health] - *Source Name*
+- QUOTE: [Include a notable quote specifically from today's coverage of science/health] - Name, Title
+
+## CULTURE_AND_ENTERTAINMENT
+- [Bullet points about culture/entertainment] - *Source Name*
+- QUOTE: [Include a notable quote specifically from today's coverage of culture/entertainment] - Name, Title
+
+## TECHNOLOGY_AND_INFRASTRUCTURE
+- [Bullet points about tech/AI] - *Source Name*
+- QUOTE: [Include a notable quote specifically from today's coverage of tech/AI] - Name, Title
+
+## SECURITY_INCIDENTS
+- [Bullet points about security] - *Source Name*
+- QUOTE: [Include a notable quote specifically from today's coverage of security] - Name, Title
+
+## HACKER_CULTURE_AND_CYBERWARFARE
+- [Bullet points about hacker culture] - *Source Name*
+- QUOTE: [Include a notable quote specifically from today's coverage of hacker culture] - Name, Title
+
+---
+**Generated**: [Current timestamp]
+**Format**: RAG-optimized technical digest
+
+RULES:
+1. Each bullet is one complete fact.
+2. **SOURCE ATTRIBUTION**: Every single news bullet MUST end with `- *Source Name*` representing where the info was found.
+3. Include technical details: version numbers, CVEs, ASNs, bill numbers where available.
+4. Keep language factual and professional.
+5. **MINIMUM 40 bullet points total** across all sections.
+6. **BROADEN SCOPE**: Ensure ALL categories above are populated with today's top stories.
+7. **CATEGORY QUOTES**: Every section must include a "QUOTE:" bullet at the end. The quote MUST be taken from today's news coverage/sources specifically about that topic.

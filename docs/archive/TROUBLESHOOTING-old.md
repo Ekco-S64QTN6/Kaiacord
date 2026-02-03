@@ -272,7 +272,7 @@ Kaia responds without relevant context from knowledge base
 
 #### Check Indices:
 ```bash
-ls storage/
+ls memory/
 # Should see:
 # - chroma_persona/
 # - chroma_user_logs/
@@ -282,7 +282,7 @@ ls storage/
 #### Force Reindex:
 ```bash
 # Delete indices
-rm -rf storage/chroma_*
+rm -rf memory/chroma_*
 
 # Restart bot (will reindex)
 python Kaiacord.py
@@ -323,7 +323,7 @@ cat .env
 
 #### Check .env Loading:
 ```python
-python -c "from bot.managers.config import config; print(config.discord_token[:10])"
+python -c "from utils.infrastructure.system.yaml_config import config; print(config.discord_token[:10])"
 # Should print first 10 chars of token
 ```
 
@@ -338,7 +338,7 @@ Bot responds in channels it shouldn't
 
 #### Check Config:
 ```python
-from bot.managers.config import config
+from utils.infrastructure.system.yaml_config import config
 print(config.blacklisted_channels)
 # Should show: ['general', 'announcements', ...]
 ```
@@ -466,7 +466,7 @@ rag_top_k: int = 5  # Reduce from 8
 
 #### Clear Semantic Cache:
 ```bash
-rm storage/semantic_cache.json
+rm memory/semantic_cache.json
 ```
 
 ---
@@ -531,9 +531,9 @@ pip install -r requirements.txt --upgrade
 
 #### Check File Permissions:
 ```bash
-ls -la storage/
+ls -la memory/
 # Should be writable
-chmod -R u+w storage/
+chmod -R u+w memory/
 ```
 
 ---
@@ -632,7 +632,7 @@ except FileNotFoundError:
 
 # Check Config
 try:
-    from bot.managers.config import config
+    from utils.infrastructure.system.yaml_config import config
     token_ok = bool(config.discord_token)
     checks.append(("Discord Token", token_ok))
 except Exception as e:
@@ -722,7 +722,7 @@ pip install -r requirements.txt
 
 5. **Backup Before Changes**:
    ```bash
-   tar -czf backup.tar.gz storage/ knowledge_base/
+   tar -czf backup.tar.gz memory/ knowledge_base/
    ```
 
 ---
@@ -752,10 +752,10 @@ pkill -9 -f Kaiacord.py
 python -c "import torch; torch.cuda.empty_cache()"
 
 # Reindex everything
-rm -rf storage/chroma_*
+rm -rf memory/chroma_*
 
 # Fresh start
-rm storage/bot_state.json storage/semantic_cache.json
+rm memory/bot_state.json memory/semantic_cache.json
 ```
 
 ---

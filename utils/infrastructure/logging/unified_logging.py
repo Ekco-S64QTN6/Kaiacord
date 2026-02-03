@@ -1,0 +1,345 @@
+import os
+import sys
+import time
+import threading
+import logging
+from datetime import datetime
+from collections import OrderedDict, deque
+
+class UnifiedLogger:
+    """Single source of truth for all logging"""
+    def __init__(self):
+        self.lock = threading.RLock()
+        self.console_buffer = []
+        self.dashboard_buffer = deque(maxlen=200)
+        self.message_history = OrderedDict()
+        self.last_console_message = None
+        self.last_message_time = 0
+        self.duplicate_window = 0.05  # 50ms window
+        self.dashboard_mode = False
+        self.log_file = "logs/kaiacord.log"
+        self._ensure_log_dir()
+        self.debug_dedup = {}  # (message_hash): timestamp
+        
+        # Color codes for terminal
+        self.colors = {
+            'ACTION': '\033[95m',     # Magenta
+            'SUCCESS': '\033[92m',    # Green
+            'INFO': '\033[94m',       # Blue
+            'WARNING': '\033[93m',    # Yellow
+            'ERROR': '\033[91m',      # Red
+            'RESET': '\033[0m',
+            'BOLD': '\033[1m'
+        }
+        
+    def _ensure_log_dir(self):
+        """Ensure the logs directory exists"""
+        os.makedirs(os.path.dirname(self.log_file), exist_ok=True)
+
+    def set_dashboard_mode(self, enabled: bool):
+        """Enable/disable dashboard mode (suppresses stdout)"""
+        self.dashboard_mode = enabled
+
+    def _should_log(self, message, log_type):
+        """Check if this message should be logged (deduplication)"""
+        current_time = time.time()
+        message_key = f"{log_type}:{hash(message)}"
+        
+        with self.lock:
+            # Check if this is a duplicate within time window
+            if message_key in self.message_history:
+                last_time = self.message_history[message_key]
+                if current_time - last_time < self.duplicate_window:
+                    return False
+            
+            # Update history (keep only last 1000 entries)
+            self.message_history[message_key] = current_time
+            if len(self.message_history) > 1000:
+                self.message_history.popitem(last=False)
+            
+            return True
+    
+    def _is_debug_duplicate(self, message, log_type):
+        """Check if this is a repeating maintenance debug message"""
+        if log_type != "DEBUG":
+            return False
+            
+        msg_lower = message.lower()
+        if not any(kw in msg_lower for kw in ["refresh", "watcher", "maintenance"]):
+            return False
+            
+        current_time = time.time()
+        msg_hash = hash(message)
+        
+        with self.lock:
+            if msg_hash in self.debug_dedup:
+                last_time = self.debug_dedup[msg_hash]
+                if current_time - last_time < 60:
+                    return True
+            
+            self.debug_dedup[msg_hash] = current_time
+            # Cleanup old entries occasionally
+            if len(self.debug_dedup) > 100:
+                self.debug_dedup = {k: v for k, v in self.debug_dedup.items() if current_time - v < 60}
+                
+            return False
+    
+    def log(self, message, log_type="INFO", source=None):
+        """Main logging method - all logs go through here"""
+        if not self._should_log(message, log_type):
+            return
+            
+        if self._is_debug_duplicate(message, log_type):
+            return
+        
+        timestamp = datetime.now().strftime("%H:%M:%S")
+        
+        # Create clean log entry (single timestamp)
+        log_entry = {
+            'timestamp': timestamp,
+            'type': log_type,
+            'message': message,
+            'source': source or 'system',
+            'raw_time': time.time()
+        }
+        
+        # Add to buffers
+        with self.lock:
+            self.dashboard_buffer.append(log_entry)
+            self.console_buffer.append(log_entry)
+        
+        # Write to console (once, formatted)
+        self._write_to_console(log_entry)
+        
+        # Write to file
+        self._write_to_file(log_entry)
+        
+        # Update stats if needed
+        self._update_stats_from_log(log_entry)
+        
+        return log_entry
+    
+    def _write_to_file(self, log_entry):
+        """Write log entry to file"""
+        try:
+            with open(self.log_file, "a", encoding="utf-8") as f:
+                f.write(f"[{log_entry['timestamp']}] {log_entry['type']}: {log_entry['message']}\n")
+        except Exception:
+            pass
+    
+    def _write_to_console(self, log_entry):
+        """Write formatted log to console"""
+        if self.dashboard_mode:
+            return
+
+        color = self.colors.get(log_entry['type'], self.colors['INFO'])
+        reset = self.colors['RESET']
+        
+        # Format: [TIME] TYPE: Message
+        formatted = f"{color}[{log_entry['timestamp']}] {log_entry['type']}:{reset} {log_entry['message']}"
+        
+        # Strip colors if NOT a TTY
+        is_tty = hasattr(sys.__stdout__, 'isatty') and sys.__stdout__.isatty()
+        if not is_tty:
+            # Simple regex to strip ANSI codes
+            import re
+            ansi_escape = re.compile(r'\x1B(?:[@-Z\\-_]|\[[0-?]*[ -/]*[@-~])')
+            formatted = ansi_escape.sub('', formatted)
+
+        # Skip if this is the same as last console message (rapid duplicates)
+        if formatted != self.last_console_message:
+            try:
+                # Use sys.__stdout__ to bypass any monkey-patching
+                # Check if it exists for safe interpreter finalization
+                if sys and hasattr(sys, '__stdout__') and sys.__stdout__ is not None:
+                    sys.__stdout__.write(formatted + "\n")
+                    sys.__stdout__.flush()
+                self.last_console_message = formatted
+                self.last_message_time = time.time()
+            except (AttributeError, TypeError, ImportError):
+                # Interpreter is likely finalizing - stop logging to console
+                pass
+
+    def _update_stats_from_log(self, log_entry):
+        """Extract stats from log messages"""
+        try:
+            from utils.infrastructure.monitoring.stats_tracker import stats_tracker  # Import here to avoid circular dependency
+        except ImportError:
+            return
+            
+        message = log_entry['message'].lower()
+        
+        # Detect user messages
+        if "message from" in message and ":" in message:
+            try:
+                # Extract username
+                parts = message.split("message from")
+                if len(parts) > 1:
+                    user_part = parts[1].split(":")[0].strip()
+                    if user_part and user_part not in ['.', 'system', '']:
+                        stats_tracker.increment_messages()
+                        
+                        # Check if this is a new user
+                        if "new user" in message or "connected" in message:
+                            stats_tracker.increment_users()
+            except:
+                pass
+        
+        # Detect responses
+        elif "got response:" in message or "response sent" in message:
+            # Extract response time if available
+            if "s)" in message:
+                try:
+                    time_str = message.split("(")[1].split("s)")[0]
+                    response_time = float(time_str)
+                    stats_tracker.record_response_time(response_time)
+                except:
+                    pass
+        
+        # Detect queries
+        elif "query classified as:" in message:
+            stats_tracker.increment_queries()
+    
+    def get_recent_logs(self, count=20, filter_type=None):
+        """Get recent logs for dashboard display"""
+        with self.lock:
+            logs = list(self.dashboard_buffer)[-count:]
+            
+            if filter_type:
+                logs = [log for log in logs if log['type'] == filter_type]
+            
+            return logs
+    
+    def clear_logs(self):
+        """Clear log buffers"""
+        with self.lock:
+            self.dashboard_buffer.clear()
+            self.console_buffer.clear()
+
+# Global logger instance
+logger = UnifiedLogger()
+
+# Interception classes
+class UnifiedStdout:
+    def write(self, text):
+        if text.strip():
+            # Avoid logging color codes directly as text
+            if not text.startswith('\x1B'):
+                logger.log(text.strip(), "INFO")
+    
+    def flush(self):
+        if sys and hasattr(sys, '__stdout__') and sys.__stdout__ is not None:
+            sys.__stdout__.flush()
+
+class UnifiedStderr:
+    def write(self, text):
+        if text.strip():
+            # Capture as ERROR
+            logger.log(text.strip(), "ERROR")
+    
+    def flush(self):
+        if sys and hasattr(sys, '__stderr__') and sys.__stderr__ is not None:
+            sys.__stderr__.flush()
+
+# Replace ALL existing logging
+def replace_all_logging():
+    """Monkey-patch all logging to use unified system"""
+    import builtins
+    import logging
+    
+    # Store originals if not already stored
+    if not hasattr(builtins, '_original_print'):
+        builtins._original_print = builtins.print
+    
+    if not hasattr(sys, '_original_stdout'):
+        sys._original_stdout = sys.stdout
+    
+    if not hasattr(sys, '_original_stderr'):
+        sys._original_stderr = sys.stderr
+    
+    # Custom print function
+    def unified_print(*args, **kwargs):
+        if args:
+            message = ' '.join(str(arg) for arg in args)
+            
+            if not message.strip():
+                return
+                
+            # Detect log type from common prefixes
+            log_type = "INFO"
+            if message.startswith("✅") or "SUCCESS" in message:
+                log_type = "SUCCESS"
+                clean_msg = message.replace("✅", "").replace("SUCCESS", "").strip()
+                if clean_msg.startswith(":"): clean_msg = clean_msg[1:].strip()
+                message = clean_msg
+            elif message.startswith("⚡") or "ACTION" in message:
+                log_type = "ACTION"
+                clean_msg = message.replace("⚡", "").replace("ACTION", "").strip()
+                if clean_msg.startswith(":"): clean_msg = clean_msg[1:].strip()
+                message = clean_msg
+            elif message.startswith("⚠️") or "WARNING" in message:
+                log_type = "WARNING"
+                clean_msg = message.replace("⚠️", "").replace("WARNING", "").strip()
+                if clean_msg.startswith(":"): clean_msg = clean_msg[1:].strip()
+                message = clean_msg
+            elif message.startswith("❌") or "ERROR" in message:
+                log_type = "ERROR"
+                clean_msg = message.replace("❌", "").replace("ERROR", "").strip()
+                if clean_msg.startswith(":"): clean_msg = clean_msg[1:].strip()
+                message = clean_msg
+            
+            # Remove any existing timestamps
+            if "|" in message and len(message.split("|")) >= 2:
+                # Check if it starts with timestamp pattern
+                parts = message.split("|", 2)
+                # HH:MM:SS pattern check
+                t_parts = parts[0].strip().split(":")
+                if len(t_parts) == 3 and all(p.isdigit() for p in t_parts):
+                    if len(parts) > 1:
+                        # Check if second part is also a timestamp (legacy redundancy)
+                        t2_parts = parts[1].strip().split(":")
+                        if len(t2_parts) == 3 and all(p.isdigit() for p in t2_parts):
+                            message = parts[2].strip()
+                        else:
+                            message = "|".join(parts[1:]).strip()
+            
+            # Log through unified system
+            logger.log(message, log_type)
+    
+    # Replace print
+    builtins.print = unified_print
+    
+    # Intercept stdout and stderr
+    sys.stdout = UnifiedStdout()
+    sys.stderr = UnifiedStderr()
+    
+    # Configure Python logging
+    class UnifiedLogHandler(logging.Handler):
+        def emit(self, record):
+            # Avoid infinite loops from our own logging
+            if record.name == 'root' and "Unified logging system initialized" in record.getMessage():
+                return
+            logger.log(self.format(record), record.levelname)
+    
+    root_logger = logging.getLogger()
+    for handler in root_logger.handlers[:]:
+        root_logger.removeHandler(handler)
+    
+    unified_handler = UnifiedLogHandler()
+    unified_handler.setFormatter(logging.Formatter('%(message)s'))
+    root_logger.addHandler(unified_handler)
+    root_logger.setLevel(logging.INFO)
+    
+    logger.log("Unified logging system initialized", "SUCCESS")
+
+def log_ollama_interaction(prompt, response):
+    """Log Ollama interactions to a separate file"""
+    try:
+        os.makedirs("logs", exist_ok=True)
+        with open("logs/ollama_client.log", "a", encoding="utf-8") as f:
+            timestamp = datetime.now().strftime("%Y-%m-%d %H:%M:%S")
+            f.write(f"--- {timestamp} ---\n")
+            f.write(f"PROMPT: {str(prompt)[:500]}...\n")
+            f.write(f"RESPONSE: {str(response)[:500]}...\n\n")
+    except Exception:
+        pass
