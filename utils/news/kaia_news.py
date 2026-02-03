@@ -376,6 +376,7 @@ class NewsRetrievalEnhancer:
     def __init__(self, max_news_per_query: int = 8, days_of_freshness: int = 7):
         self.max_news_per_query = max_news_per_query
         self.days_of_freshness = days_of_freshness
+        self.memory_path = Path("memory/mentioned_news.json")
         self.mentioned_news_cache = defaultdict(set)  # user_id -> set of news IDs
         self.news_categories = {
             'tech': ['tsmc', 'nvidia', 'azure', 'amd', 'intel', 'chip', 'hardware'],
@@ -385,6 +386,29 @@ class NewsRetrievalEnhancer:
             'science': ['discovery', 'research', 'study', 'breakthrough'],
             'gaming': ['game', 'console', 'steam', 'playstation', 'xbox']
         }
+        self.load_mentioned_news()
+
+    def save_mentioned_news(self):
+        """Save mentioned news cache to disk"""
+        try:
+            # Convert sets to lists for JSON serialization
+            serializable_cache = {user_id: list(news_ids) for user_id, news_ids in self.mentioned_news_cache.items()}
+            self.memory_path.parent.mkdir(parents=True, exist_ok=True)
+            with open(self.memory_path, 'w') as f:
+                json.dump(serializable_cache, f)
+        except Exception as e:
+            print(f"⚠️ Error saving mentioned news: {e}")
+
+    def load_mentioned_news(self):
+        """Load mentioned news cache from disk"""
+        try:
+            if self.memory_path.exists():
+                with open(self.memory_path, 'r') as f:
+                    data = json.load(f)
+                    # Convert lists back to sets
+                    self.mentioned_news_cache = defaultdict(set, {user_id: set(news_ids) for user_id, news_ids in data.items()})
+        except Exception as e:
+            print(f"⚠️ Error loading mentioned news: {e}")
     
     def enhance_news_query(self, original_query: str, user_id: str = None) -> str:
         """Enhance news queries for better retrieval"""
@@ -470,17 +494,13 @@ class NewsRetrievalEnhancer:
         if not user_id or not news_ids:
             return
             
-        if user_id not in self.mentioned_news_cache:
-            self.mentioned_news_cache[user_id] = set()
-        
         self.mentioned_news_cache[user_id].update(news_ids)
         
-        # Clean old cache (keep only last 50 mentioned items per user)
-        if len(self.mentioned_news_cache[user_id]) > 50:
-            # Convert to list to slice, then back to set
-            # Note: Sets are unordered, so this is just random eviction, which is fine for now
-            # Ideally we'd use an OrderedDict or similar if order mattered strictly
-            self.mentioned_news_cache[user_id] = set(list(self.mentioned_news_cache[user_id])[-50:])
+        # Clean old cache (keep only last 100 mentioned items per user)
+        if len(self.mentioned_news_cache[user_id]) > 100:
+            self.mentioned_news_cache[user_id] = set(list(self.mentioned_news_cache[user_id])[-100:])
+        
+        self.save_mentioned_news()
             
     def get_user_excluded_topics(self, user_id: str) -> List[str]:
         """Placeholder for future feature to exclude topics"""

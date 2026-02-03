@@ -288,7 +288,7 @@ class KaiaRAG:
                 # Boost latest daily news and DREAMS to ensure visibility
                 weight = mtime
                 if "daily" in root and f.startswith("news_brief"):
-                    weight += 3600 * 12 # Reduce boost to 12 hours (was 24)
+                    weight += 3600 * 48 # Boost daily news by 48 hours to ensure it beats old logs
                 elif "kaia_dreams" in root:
                     weight += 3600 * 18 # Boost dreams higher so she reflects on her thoughts
                 
@@ -476,6 +476,9 @@ class KaiaRAG:
                     date_str = date_match.group(1)
                     doc.metadata["date"] = f"{date_str[:4]}-{date_str[4:6]}-{date_str[6:]}"
             except: pass
+        elif "kaia_dreams" in file_path:
+            doc.metadata["priority"] = 0.95
+            doc.metadata["source_type"] = "dream"
         else:
             doc.metadata["priority"] = 0.1  # Low priority for general knowledge
             doc.metadata["source_type"] = "general_knowledge"
@@ -913,26 +916,25 @@ class KaiaRAG:
                     log_success(f"Created user log directory")
                     log_info(user_log_dir)
                 
-                # Find existing log file or create new one with today's date
-                # Pattern: interactions_YYYYMMDD.txt
-                existing_logs = sorted(glob.glob(os.path.join(user_log_dir, "interactions_*.txt")))
+                # Find existing log file for TODAY
+                today_str = datetime.now().strftime("%Y%m%d")
+                interaction_log_path = os.path.join(user_log_dir, f"interactions_{today_str}.txt")
                 
+                # Check for existing log files and handle oversized logs
                 MAX_SIZE = 100 * 1024 * 1024  # 100MB in bytes
                 
-                interaction_log_path = None
-                if existing_logs:
-                    # Use the most recent log file
-                    interaction_log_path = existing_logs[-1]
-                    
-                    # Check if it exceeds 100MB - if so, create a new file with today's date
+                if os.path.exists(interaction_log_path):
+                    # If today's log exists and is oversized, create a part 2
                     if os.path.getsize(interaction_log_path) >= MAX_SIZE:
-                        new_timestamp = datetime.now().strftime("%Y%m%d")
-                        interaction_log_path = os.path.join(user_log_dir, f"interactions_{new_timestamp}.txt")
-                        log_info(f"Previous log full, starting new log")
+                        # Find the next available part number
+                        part = 2
+                        while os.path.exists(os.path.join(user_log_dir, f"interactions_{today_str}_part{part}.txt")):
+                            part += 1
+                        interaction_log_path = os.path.join(user_log_dir, f"interactions_{today_str}_part{part}.txt")
                 else:
-                    # No existing logs - create first one with today's date
-                    new_timestamp = datetime.now().strftime("%Y%m%d")
-                    interaction_log_path = os.path.join(user_log_dir, f"interactions_{new_timestamp}.txt")
+                    # Check if there's a recent log from another day to potentially reference, 
+                    # but we ALWAYS start a new file for a new day to keep RAG indexing clean.
+                    log_info(f"Starting new interaction log for {today_str}")
                 
                 # Append interaction to the single file
                 timestamp = datetime.now().strftime("%Y%m%d_%H%M%S")
@@ -1030,6 +1032,7 @@ Kaia: {bot_response}
             ]
             # A query is casual if it matches patterns AND isn't a specific identity query
             is_casual = (any(phrase in query_lower for phrase in casual_patterns) or len(query_lower.split()) <= 4) and not (is_kaia_query or is_user_identity_query)
+            is_status_query = any(word in query_lower for word in ["status", "stats", "statistics", "uptime", "how are you"])
             is_identity_query = is_kaia_query or is_user_identity_query
             
             # Detect if this is a vision-related query
@@ -1078,8 +1081,9 @@ Kaia: {bot_response}
                 target_itypes = ['persona']
             elif is_user_identity_query or strict_identity:
                 target_itypes = ['user_profiles', 'logs']
-            elif is_vision_query:
-                target_itypes = ['logs']
+            elif is_status_query:
+                # Status queries should hit persona fragments, logs, and general knowledge (dreams)
+                target_itypes = ['persona', 'logs', 'user_profiles', 'knowledge']
             else:
                 # General query: hit everything except persona (unless explicitly asked)
                 target_itypes = ['knowledge', 'logs', 'user_profiles']
@@ -1176,15 +1180,17 @@ Kaia: {bot_response}
                 user_match_boost = 2.0 if node_user_id == u_id_str else 1.0
                 
                 # 3. Content type boost
-                source = node.metadata.get('source', '')
+                source_type = node.metadata.get('source_type', node.metadata.get('source', ''))
                 type_boost = {
-                    'memory': 4.0,
-                    'memory': 5.0,
+                    'dream': 4.5,
+                    'memory': 3.5,
                     'user_profile': 3.0,
                     'persona': 2.5,
                     'conversation': 1.5,
-                    'knowledge': 1.0
-                }.get(source, 1.0)
+                    'user_logs': 1.5,
+                    'knowledge': 1.0,
+                    'general_knowledge': 1.0
+                }.get(source_type, 1.0)
                 
                 # 4. Length penalty
                 content_len = len(content)

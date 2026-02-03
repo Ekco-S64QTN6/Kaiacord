@@ -1110,18 +1110,24 @@ async def memory_audit_task():
             # Downgrade to debug if not significant
             log_debug(f"Memory Audit: RSS {rss_mb:.1f} MB | Cache: {current_cache_size} entries")
         
-        # If RSS > 8GB, trigger emergency cleanup
-        # Skip if image generation is active to avoid interrupting Flux load
-        # Flux needs more headroom (10GB)
-        threshold = 10240 if bot_state.is_generating_image else 8192
+        # Memory cleanup thresholds (in MB)
+        # - Normal operations: 8GB threshold
+        # - Image generation: 10GB threshold (Flux needs more headroom)
+        NORMAL_THRESHOLD_MB = 8192
+        IMAGE_GEN_THRESHOLD_MB = 10240
         
-        if rss_mb > threshold and not bot_state.is_generating_image:
-            log_critical(f"Memory usage critical ({rss_mb:.1f}MB > {threshold}MB)! Clearing caches and GPU memory.")
-            semantic_cache.cache.clear()
-            semantic_cache.exact_cache.clear()
-            clear_gpu_memory()
-        elif rss_mb > threshold and bot_state.is_generating_image:
-             log_warning(f"Memory usage high ({rss_mb:.1f}MB), but skipping cleanup due to active image generation.")
+        # FIX: Simplified logic - check image gen state first, then apply appropriate threshold
+        if bot_state.is_generating_image:
+            # During image generation, only warn if over the higher threshold
+            if rss_mb > IMAGE_GEN_THRESHOLD_MB:
+                log_warning(f"Memory usage high ({rss_mb:.1f}MB > {IMAGE_GEN_THRESHOLD_MB}MB), but skipping cleanup due to active image generation.")
+        else:
+            # Normal operation: clean up if over the lower threshold
+            if rss_mb > NORMAL_THRESHOLD_MB:
+                log_critical(f"Memory usage critical ({rss_mb:.1f}MB > {NORMAL_THRESHOLD_MB}MB)! Clearing caches and GPU memory.")
+                semantic_cache.cache.clear()
+                semantic_cache.exact_cache.clear()
+                clear_gpu_memory()
             
         # Report performance stats (Disabled per user request to reduce clutter)
         # log_info(performance_monitor.get_report())
@@ -1277,10 +1283,8 @@ async def on_message(msg: discord.Message):
         try:
             # Check cooldown (10 minutes = 600 seconds)
             current_time = time.time()
-            # Owner exemption (ekco)
-            author_ref = msg.author.name.lower()
-            author_disp = msg.author.display_name.lower()
-            is_owner = author_ref == "ekco" or author_ref == "ekco." or author_disp.startswith("ekco")
+            # Owner exemption - uses configurable owner_ids from config
+            is_owner = config.is_owner(msg.author.name, msg.author.display_name, str(msg.author.id))
             
             last_quip = getattr(bot_state, 'last_manual_quip_time', 0)
             remaining = 600 - (current_time - last_quip)
@@ -1405,10 +1409,8 @@ async def on_message(msg: discord.Message):
 
     # Handle !dreams command (Admin only)
     if msg.content.strip().startswith("!dreams"):
-        # Owner exemption (ekco)
-        author_ref = msg.author.name.lower()
-        author_disp = msg.author.display_name.lower()
-        is_owner = author_ref == "ekco" or author_ref == "ekco." or author_disp.startswith("ekco")
+        # Owner exemption - uses configurable owner_ids from config
+        is_owner = config.is_owner(msg.author.name, msg.author.display_name, str(msg.author.id))
         
         if not is_owner:
             await msg.channel.send("```\nyou aren't my architect. restricted.\n```")
@@ -1458,10 +1460,8 @@ async def on_message(msg: discord.Message):
 
     # Handle !cache command (Admin only)
     if msg.content.strip().startswith("!cache"):
-        # Owner exemption (ekco)
-        author_ref = msg.author.name.lower()
-        author_disp = msg.author.display_name.lower()
-        is_owner = author_ref == "ekco" or author_ref == "ekco." or author_disp.startswith("ekco")
+        # Owner exemption - uses configurable owner_ids from config
+        is_owner = config.is_owner(msg.author.name, msg.author.display_name, str(msg.author.id))
         
         if not is_owner:
             await msg.channel.send("```\nrestricted.\n```")
@@ -1509,7 +1509,12 @@ async def on_message(msg: discord.Message):
     # Sanitize input
     sanitized_content = sanitize_prompt(msg.content)
 
-    # Check if query is about unknown entities BEFORE RAG
+    # =========================================================================
+    # DISABLED FEATURE: KnowledgeBoundary Entity Checks
+    # Disabled: Feb 2026 during stabilization phase
+    # Reason: Caused false positives on entity recognition, blocking legitimate queries
+    # TODO: Re-enable after improving entity extraction accuracy and adding whitelist
+    # =========================================================================
     # boundary = KnowledgeBoundary()
     # 
     # query_entities = boundary.extract_entities(sanitized_content)
@@ -1765,7 +1770,12 @@ async def on_message(msg: discord.Message):
             return
 
     try:
-        # [DISABLED] EMERGENCY HALLUCINATION CHECK
+        # =========================================================================
+        # DISABLED FEATURE: HallucinationDetector (Input Validation)
+        # Disabled: Feb 2026 during stabilization phase  
+        # Reason: Overly aggressive detection causing legitimate queries to be blocked
+        # TODO: Tune detection thresholds and add context-aware checks before re-enabling
+        # =========================================================================
         # if HallucinationDetector.contains_hallucination(sanitized_content):
         #     log_warning(f"Hallucination detected in query from {msg.author.name}. Blocking.")
         #     await msg.channel.send("```\nnot following. try that again.\n```")
@@ -1803,9 +1813,9 @@ async def on_message(msg: discord.Message):
         category = fast_category # Initial guess
         
 
-        # 1.5 PERSONA-DRIVEN STATUS CONTEXT (Fast path)
         status_context = ""
-        if fast_category == "COMMAND" and any(word in query_lower for word in ["status", "stats", "uptime", "info", "feeling", "how are you"]):
+        is_status_query = (fast_category == "COMMAND" and any(word in query_lower for word in ["status", "stats", "uptime", "info", "feeling", "how are you"]))
+        if is_status_query:
             log_info(f"Detected status/feeling query: {msg.content} - providing system stats as additional context")
             stats = stats_tracker.get_stats()
             status_context = (
@@ -1889,12 +1899,12 @@ async def on_message(msg: discord.Message):
                 user_name=target_user_name, 
                 top_k=config.rag_top_k,
                 strict_identity=(fast_category in ["identity", "self", "whoami", "entity"]),
-                include_news=NEWS_AUTO_TRIGGER_ENABLED
+                include_news=(NEWS_AUTO_TRIGGER_ENABLED and not is_status_query)
             ))
             
             # News Query Expansion (Legacy fallback)
             news_tasks = []
-            if NEWS_AUTO_TRIGGER_ENABLED:
+            if NEWS_AUTO_TRIGGER_ENABLED and not is_status_query:
                 news_expansions = EmergencyContaminationFilter.expand_news_query(clean_query)
                 for expansion in news_expansions:
                     news_tasks.append(asyncio.create_task(run_rag(
@@ -1917,79 +1927,84 @@ async def on_message(msg: discord.Message):
         raw_nodes = results[1]
         user_traits = results[2]
         
-        context_nodes = []
-        if is_news_query:
-            # 4. Process and diversify results
-            deduplicated = rag_enhancer.deduplicate_results(raw_nodes)
+        # 4. PROCESS & DIVERSIFY RESULTS
+        # Unified logic to ensure news diversification applies to all queries that pull news nodes
+        contains_news = is_news_query or NEWS_AUTO_TRIGGER_ENABLED or any(node.metadata.get('source_type') == 'news_brief' for node in raw_nodes if hasattr(node, 'metadata'))
+        
+        if contains_news:
+            log_info(f"Applying news diversification to {fast_category} query results")
             
-            # Convert to news items format
-            news_items = []
-            for node in deduplicated:
-                # SAFE FIX: Handle both strings and node objects
-                if hasattr(node, 'text'):
-                    content = node.text
-                elif hasattr(node, 'content'):
-                    content = node.content
-                elif isinstance(node, dict) and 'text' in node:
-                    content = node['text']
-                elif isinstance(node, dict) and 'content' in node:
-                    content = node['content']
-                else:
-                    content = str(node)
-
-                # Also get metadata safely
+            # Extract nodes that look like news
+            news_nodes = []
+            other_nodes = []
+            
+            for node in raw_nodes:
+                is_news_node = False
                 if hasattr(node, 'metadata'):
-                    metadata = node.metadata
-                elif isinstance(node, dict) and 'metadata' in node:
-                    metadata = node['metadata']
+                    is_news_node = node.metadata.get('source_type') in ['news_brief', 'news_summary'] or "news" in (node.metadata.get('file_path', '') or '').lower()
+                
+                if is_news_node:
+                    news_nodes.append(node)
                 else:
-                    metadata = {}
+                    other_nodes.append(node)
+            
+            # Diversify news nodes using rag_enhancer and news_enhancer
+            deduplicated_news = rag_enhancer.deduplicate_results(news_nodes)
+            
+            # Convert to news items format for diversifier
+            news_items = []
+            for node in deduplicated_news:
+                content = ""
+                if hasattr(node, 'text'): content = node.text
+                elif hasattr(node, 'content'): content = node.content
+                else: content = str(node)
+                
+                metadata = getattr(node, 'metadata', {})
+                # Stable ID from content
+                item_id = hashlib.md5(content[:200].encode()).hexdigest()[:8]
                 
                 news_items.append({
-                    'content': content[:500],  # Limit content
+                    'content': content,
                     'metadata': metadata,
-                    'id': f"{hash(content) % 10000:04d}"
+                    'id': item_id
                 })
             
-            # Diversify and track
             diversified_items = news_enhancer.diversify_news_results(news_items, str(msg.author.id))
             news_ids = [item.get('id') for item in diversified_items]
             news_enhancer.track_mentioned_news(news_ids, str(msg.author.id))
             
-            # Reconstruct context nodes
-            context_nodes = [f"News: {item['content']}" for item in diversified_items]
+            # Reconstruct context text
+            context_nodes = []
+            # 1. Add non-news nodes first (persona, logs)
+            for node in other_nodes:
+                if hasattr(node, 'text'): context_nodes.append(node.text)
+                elif hasattr(node, 'content'): context_nodes.append(node.content)
+                else: context_nodes.append(str(node))
+            
+            # 2. Add diversified news nodes
+            for item in diversified_items:
+                context_nodes.append(item['content'])
         else:
-            # Standard context processing
+            # Standard context processing (no news prioritization)
             context_nodes = []
             for node in raw_nodes:
-                # SAFE FIX: Handle both strings and node objects
-                if hasattr(node, 'text'):
-                    content = node.text
-                elif hasattr(node, 'content'):
-                    content = node.content
-                elif isinstance(node, dict) and 'text' in node:
-                    content = node['text']
-                elif isinstance(node, dict) and 'content' in node:
-                    content = node['content']
-                else:
-                    content = str(node)
-                
-                context_nodes.append(content)
+                if hasattr(node, 'text'): context_nodes.append(node.text)
+                elif hasattr(node, 'content'): context_nodes.append(node.content)
+                else: context_nodes.append(str(node))
 
-            # Add legacy news expansion results if any
-            if len(results) > 3:
-                for res in results[3:]:
-                    for node in res:
-                        if hasattr(node, 'text'):
-                            context_nodes.append(node.text)
-                        elif hasattr(node, 'content'):
-                            context_nodes.append(node.content)
-                        elif isinstance(node, dict) and 'text' in node:
-                            context_nodes.append(node['text'])
-                        elif isinstance(node, dict) and 'content' in node:
-                            context_nodes.append(node['content'])
-                        else:
-                            context_nodes.append(str(node))   
+        # Add legacy news expansion results if any (from parallel news_tasks)
+        if len(results) > 3:
+            for res in results[3:]:
+                if not res: continue
+                # These are usually already small top_k=2 results, but we still want variety
+                for node in res:
+                    text = ""
+                    if hasattr(node, 'text'): text = node.text
+                    elif hasattr(node, 'content'): text = node.content
+                    else: text = str(node)
+                    
+                    if text and text not in context_nodes:
+                        context_nodes.append(text)
 
         
         performance_monitor.stop_timer('retrieval', 'retrieval_time')
@@ -2207,15 +2222,25 @@ async def on_message(msg: discord.Message):
         # LOG RAW RESPONSE FOR DEBUGGING
         log_info(f"Raw LLM response: {content[:200]}...")
         
-        # [DISABLED] CLEAN HALLUCINATIONS FROM RESPONSE
+        # =========================================================================
+        # DISABLED FEATURE: HallucinationDetector (Output Cleaning)
+        # Disabled: Feb 2026 during stabilization phase
+        # Reason: Over-stripping responses, leaving empty or fragmented content
+        # TODO: Improve pattern matching to avoid false positives before re-enabling
+        # =========================================================================
         # if HallucinationDetector.contains_hallucination(content):
         #     log_critical(f"Hallucination detected in response for {msg.author.name}!")
         #     content = HallucinationDetector.clean_response(content)
         #     if not content:
         #         log_warning("Response stripped entirely by HallucinationDetector.")
         #         content = "..." # Fallback
-        # 
-        # # EMERGENCY CONTAMINATION FILTER
+        #
+        # =========================================================================
+        # DISABLED FEATURE: EmergencyContaminationFilter (Response Filtering)
+        # Disabled: Feb 2026 during stabilization phase
+        # Reason: Removed valuable content along with contamination
+        # TODO: Add configurable severity levels before re-enabling
+        # =========================================================================
         # content = EmergencyContaminationFilter.filter_response(content)
 
         # ENHANCE RESPONSE
@@ -2229,18 +2254,26 @@ async def on_message(msg: discord.Message):
             content = response_enhancer.enhance_identity_response(content, 'casual' if 'who' in clean_query.lower() else 'direct')
 
         # 4. CACHE, FEEDBACK & PERSONALIZATION
-        # Clean response before caching to prevent feedback loops
-        # [DISABLED] clean_content = EmergencyContaminationFilter.clean_response_for_discord(content)
+        # =========================================================================
+        # DISABLED FEATURE: EmergencyContaminationFilter (Cache Cleaning)
+        # Disabled: Feb 2026 during stabilization phase
+        # Reason: Same as response filtering - over-aggressive content removal
+        # TODO: Consolidate with response filtering when re-enabling
+        # =========================================================================
+        # clean_content = EmergencyContaminationFilter.clean_response_for_discord(content)
         clean_content = content
         
         # NEVER cache social responses to ensure variety and avoid feedback loops
-        if not is_social:
+        # ALSO skip caching for volatile categories (news, command, status, personal)
+        # to ensure fresh retrieval every time.
+        volatile_categories = ["news", "command", "status", "personal", "casual"]
+        if not is_social and category.lower() not in volatile_categories:
             semantic_cache.set(msg.content, category, clean_content)
             semantic_cache.save()
             # Track context for invalidation
             cache_invalidator.track(msg.content, context_nodes)
         else:
-            log_info("Social response skipped for semantic cache to ensure variety.")
+            log_info(f"Response caching skipped for category: {category} (volatile or social)")
         
         # Transparency indicator for optimization (moved to logs, not Discord)
         if optimized_context.get('tokens_saved', 0) > 500:
@@ -2256,9 +2289,13 @@ async def on_message(msg: discord.Message):
         
         content = content.replace("`", "")
         
-        # REMOVE BOILERPLATE QUESTION ENDINGS
-        # [DISABLED] content = BoilerplateDetector.clean_response(content)
-        pass
+        # =========================================================================
+        # DISABLED FEATURE: BoilerplateDetector (Question Ending Cleanup)
+        # Disabled: Feb 2026 during stabilization phase
+        # Reason: Was stripping intentional rhetorical questions from responses
+        # TODO: Add configurable patterns and severity before re-enabling
+        # =========================================================================
+        # content = BoilerplateDetector.clean_response(content)
         
         safety_patterns = [
             "Crisis Text Line", "National Domestic Violence Hotline", "National Suicide Prevention Lifeline",
@@ -2290,9 +2327,13 @@ async def on_message(msg: discord.Message):
                     log_warning("Response stripped entirely by safety filter.")
                     content = "not doing that."
         
-        # DISCORD-SPECIFIC CLEANING (Profile stripping, etc.)
-        # [DISABLED] content = EmergencyContaminationFilter.clean_response_for_discord(content)
-        pass
+        # =========================================================================
+        # DISABLED FEATURE: EmergencyContaminationFilter (Discord Cleaning)
+        # Disabled: Feb 2026 during stabilization phase
+        # Reason: Same as above - consolidate all filter work into one pass
+        # TODO: Re-enable with configurable severity levels
+        # =========================================================================
+        # content = EmergencyContaminationFilter.clean_response_for_discord(content)
         
         # FINAL FALLBACK: Ensure we never send an empty string
         if not content or not content.strip():
@@ -2554,12 +2595,20 @@ def run_curses_mode():
         sys.stdout.write('\033[0m\033[?25h\033[?1049l\033[H\033[2J')
         sys.stdout.flush()
         
-        # Wait for bot thread with longer timeout (RAG persistence can take ~45s)
+        # Phased shutdown with progress logging
+        # Reduced from 90s single timeout to 30s total with phases
         if bot_thread and bot_thread.is_alive():
-            print("Waiting for bot to shut down (persisting index)...")
-            bot_thread.join(timeout=90)
+            # Phase 1: Quick shutdown (10s) - most operations complete here
+            print("Phase 1: Waiting for graceful shutdown...")
+            bot_thread.join(timeout=10)
+            
             if bot_thread.is_alive():
-                print("⚠️  Bot thread still alive after 90s timeout - forcing cleanup")
+                # Phase 2: RAG persistence (20s additional)
+                print("Phase 2: Waiting for RAG index persistence...")
+                bot_thread.join(timeout=20)
+            
+            if bot_thread.is_alive():
+                print("⚠️  Bot thread still alive after 30s - forcing cleanup")
         
         # Force GPU cleanup
         try:

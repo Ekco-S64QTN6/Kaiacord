@@ -1,6 +1,6 @@
 # GEMINI REPORT 
-**Status:** OPERATIONAL (Temporal Grounding Fixed)
-**Last Update:** 2026-02-03 04:35
+**Status:** OPERATIONAL (Repetition Loops Broken)
+**Last Update:** 2026-02-03 12:55
 
 This document tracks the linear history of failures, fixes, and architectural evolutions performed by Gemini during the stabilization of the Kaiacord system.
 
@@ -127,6 +127,14 @@ This document tracks the linear history of failures, fixes, and architectural ev
     *   **Admin Command (`!cache clear`):** Implemented the `!cache` subsystem to allow manual purging of the semantic cache during persona tuning or conversation stagnation.
     *   **In-Depth Dreams:** Increased reflection depth to 2,500 characters, enabling nuanced thoughts on actual book content rather than frontmatter.
     *   **Social Engine Hardening:** Reactivated the Bluesky/X mention responder with a 5-minute polling interval. Implemented immediate post-boot sync for offline backlog processing. Hardened persistence to save replied IDs instantly after each success, preventing duplication during restarts. Fixed character-limit truncation to cut only at full sentences.
+*   **PHASE 20: REPETITION ARREST & STATUS REFINEMENT (Feb 03):**
+    *   **Log Partitioning Fix:** Resolved a critical RAG bug where Kaia appended to old logs indefinitely. Implemented strict daily partitioning (`interactions_YYYYMMDD.txt`) to prevent weeks-old history from dominating "recent" context.
+    *   **Persistent Mention Cache:** Implemented session-persistent tracking for mentioned news via `memory/mentioned_news.json`. Kaia now remembers discussed topics across bot restarts, ensuring continuous variety.
+    *   *Volatile Category Cache Bypass:** Optimized `SemanticCache` to skip caching for `news`, `status`, `personal`, and `command` categories, forcing fresh regeneration and broken stale-response loops.
+    *   **Unified Diversification Engine:** Refactored news rotation logic to apply to **any** query pulling news nodes (including `!status`), breaking the repetition loop regardless of the command used.
+    *   **Status Retrieval Refinement:** Hardened the `status` command to explicitly exclude news content. Prioritized persona fragments and "dream" reflections with a high-priority RAG boost (`4.5x`).
+    *   **Historical Log Cleansing:** Performed a manual deduplication of `knowledge_base/user_logs`, removing highly repetitive "START treaty", "government shutdown", and "Neuromancer" spam entries.
+    *   **RAG Reinforcement:** Deleted and rebuilt the `storage/logs` vector store from scratch to eliminate topic overweighting from legacy duplicate entries.
 
 ---
 
@@ -140,6 +148,9 @@ This document tracks the linear history of failures, fixes, and architectural ev
 7.  **Clean Namespace:** Standardized directory structure with all data in `memory/` and all logic in `utils/`.
 8.  **Natural Mention Engine (Knowledge Grounding)**: Kaia now "sees" snippets of newly added files across all corpora (Books, User Logs, News), allowing her to discuss her entire knowledge base naturally.
 9.  **Silent User Ignore Gate:** A pre-processing filter in `on_message` that silently drops traffic from blacklisted users at the config level.
+10. **Daily Log Partitioning**: Interaction logs are now strictly date-separated to ensure RAG "recency" remains accurate.
+11. **Persistent Item Tracking**: Cross-session JSON memory for news and topics mentioned to prevent short-term repetition.
+12. **Status Suppression Logic**: Granular control over RAG `itype` routing for status commands to exclude external news while boosting internal dreams.
 
 ## VERDICT
-Kaia is now functionally robust and exhibiting high-fidelity "active learning" characteristics. With the "Natural Mention" engine and RAG Echo Chamber guard in place, she can engage in organic, varied discussions about her evolving knowledge base without robotic repetition. Work has begun on "Dream Mode" to further enhance associative recall and emotional reflection.
+Kaia is now functionally robust with a significantly improved "variety engine." The feedback loops causing obsession with specific news topics have been broken through a combination of log partitioning, cache bypass for dynamic content, and historical log cleansing. Her status updates are now correctly grounded in her persona and internal dreams rather than external world events.

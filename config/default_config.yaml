@@ -112,6 +112,10 @@ discord:
 
   # Ignored users (comma-separated names or IDs)
   ignored_users: ""
+  
+  # Owner/Admin users who bypass cooldowns and can use admin commands
+  # Comma-separated usernames or Discord user IDs
+  owner_ids: "ekco"
 
 # ============================================================================
 # Logging Configuration

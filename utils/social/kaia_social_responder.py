@@ -23,10 +23,61 @@ _persona_last_load = 0
 
 # Replied mentions tracker (persisted to disk)
 _replied_ids_path = Path("memory/social_replied_ids.json")
+
+# =============================================================================
+# CIRCUIT BREAKER: API Resilience Pattern
+# Added: Feb 2026 for social media API stability
+# Opens after repeated failures to prevent cascade effects
+# =============================================================================
+class CircuitBreaker:
+    """Simple circuit breaker for API calls with exponential backoff."""
+    def __init__(self, name: str, failure_threshold: int = 3, reset_timeout: int = 300):
+        self.name = name
+        self.failures = 0
+        self.threshold = failure_threshold
+        self.reset_timeout = reset_timeout  # 5 minutes default
+        self.last_failure_time = 0
+        self.is_open = False
+    
+    def can_proceed(self) -> bool:
+        """Check if calls should be allowed through."""
+        if not self.is_open:
+            return True
+        # Check if reset timeout has passed
+        import time
+        if time.time() - self.last_failure_time >= self.reset_timeout:
+            self.is_open = False
+            self.failures = 0
+            log_info(f"Circuit breaker '{self.name}' reset after timeout")
+            return True
+        return False
+    
+    def record_success(self):
+        """Record successful API call."""
+        self.failures = 0
+        self.is_open = False
+    
+    def record_failure(self):
+        """Record failed API call."""
+        import time
+        self.failures += 1
+        self.last_failure_time = time.time()
+        if self.failures >= self.threshold:
+            self.is_open = True
+            log_warning(f"Circuit breaker '{self.name}' OPEN after {self.failures} failures")
+
+# Module-level circuit breaker instances
+_bluesky_breaker = CircuitBreaker("bluesky")
+_x_breaker = CircuitBreaker("x")
+
+
 def load_persona() -> str:
     """Load the bot's persona from kaia_persona.md with caching"""
     global _persona_cache, _persona_last_load
-    persona_file = Path(__file__).parent.parent / 'knowledge_base' / 'kaia_persona.md'
+    # FIX: Correct path traversal - from utils/social/ up to project root
+    # Path: utils/social/kaia_social_responder.py -> utils/social -> utils -> project_root
+    project_root = Path(__file__).parent.parent.parent
+    persona_file = project_root / 'knowledge_base' / 'kaia_persona.md'
     
     try:
         mtime = persona_file.stat().st_mtime
@@ -64,25 +115,50 @@ def _load_replied_ids():
                 data = json.load(f)
                 _replied_ids = set(data.get('bluesky', []) + data.get('x', []))
                 _thread_counts = data.get('thread_counts', {})
+                log_debug(f"Loaded {len(_replied_ids)} replied IDs from disk")
+    except json.JSONDecodeError as e:
+        log_warning(f"Corrupted replied IDs file, resetting: {e}")
+        _replied_ids = set()
+        _thread_counts = {}
     except Exception as e:
         log_warning(f"Failed to load replied IDs: {e}")
 
 
 def _save_replied_ids():
-    """Save replied IDs to disk."""
+    """Save replied IDs to disk with atomic write to prevent corruption."""
     try:
         _replied_ids_path.parent.mkdir(exist_ok=True)
         # Split by platform prefix
         bluesky_ids = [i for i in _replied_ids if i.startswith('bsky:')]
         x_ids = [i for i in _replied_ids if i.startswith('x:')]
-        with open(_replied_ids_path, 'w') as f:
-            json.dump({
-                'bluesky': bluesky_ids, 
-                'x': x_ids,
-                'thread_counts': _thread_counts
-            }, f)
+        
+        data = {
+            'bluesky': bluesky_ids, 
+            'x': x_ids,
+            'thread_counts': _thread_counts
+        }
+        
+        # Atomic write: write to temp file then rename
+        # This prevents corruption if the process crashes mid-write
+        temp_path = _replied_ids_path.with_suffix('.tmp')
+        with open(temp_path, 'w') as f:
+            json.dump(data, f, indent=2)
+        
+        # Atomic rename (on POSIX systems)
+        temp_path.replace(_replied_ids_path)
+        log_debug(f"Saved {len(_replied_ids)} replied IDs to disk")
+        
     except Exception as e:
         log_warning(f"Failed to save replied IDs: {e}")
+
+
+async def _save_replied_ids_async():
+    """Async-safe wrapper for saving replied IDs.
+    Uses asyncio.to_thread to avoid blocking the event loop."""
+    try:
+        await asyncio.to_thread(_save_replied_ids)
+    except Exception as e:
+        log_warning(f"Async save of replied IDs failed: {e}")
 
 
 async def _reconstruct_bluesky_history():
@@ -184,6 +260,12 @@ async def _generate_response(mention_text: str, author_name: str, platform: str,
 async def _get_bluesky_mentions() -> List[Dict[str, Any]]:
     """Fetch unread mentions from Bluesky."""
     mentions = []
+    
+    # Circuit breaker check
+    if not _bluesky_breaker.can_proceed():
+        log_debug("Bluesky circuit breaker open - skipping fetch")
+        return []
+    
     try:
         from utils.social.kaia_bluesky import get_bluesky_client, is_bluesky_configured
         from utils.infrastructure.system.yaml_config import config
@@ -238,12 +320,13 @@ async def _get_bluesky_mentions() -> List[Dict[str, Any]]:
                         'root_uri': root,
                         'parent_uri': getattr(getattr(notif.record, 'reply', None), 'parent', None),
                     })
+        
+        # Record success - API is healthy
+        _bluesky_breaker.record_success()
                     
-        # Sort mentions by URI or timestamp if available to process oldest first
-        # (notifications don't have a simple timestamp in the loop but are usually chronological)
-        pass
     except Exception as e:
         log_error(f"Failed to fetch Bluesky mentions: {e}")
+        _bluesky_breaker.record_failure()
     
     return mentions
 
@@ -251,6 +334,12 @@ async def _get_bluesky_mentions() -> List[Dict[str, Any]]:
 async def _get_x_mentions() -> List[Dict[str, Any]]:
     """Fetch unread mentions from X."""
     mentions = []
+    
+    # Circuit breaker check
+    if not _x_breaker.can_proceed():
+        log_debug("X circuit breaker open - skipping fetch")
+        return []
+    
     try:
         from utils.social.kaia_twitter import get_x_client, is_x_configured
         from utils.infrastructure.system.yaml_config import config
@@ -293,9 +382,13 @@ async def _get_x_mentions() -> List[Dict[str, Any]]:
                     'author': tweet.user.screen_name if hasattr(tweet, 'user') else 'unknown',
                     'text': tweet.text if hasattr(tweet, 'text') else str(tweet),
                 })
+        
+        # Record success - API is healthy
+        _x_breaker.record_success()
                 
     except Exception as e:
         log_error(f"Failed to fetch X mentions: {e}")
+        _x_breaker.record_failure()
     
     return mentions
 
@@ -387,20 +480,17 @@ async def check_and_reply_mentions(on_message_func):
         await _reconstruct_bluesky_history()
         # (X reconstruction can be added when X client supports author feed fetching)
         
-        _save_replied_ids()
+        await _save_replied_ids_async()
         _first_poll_done = True
         log_success("Social safety initialization complete. Thread caps and history restored.")
         # Proceed immediately to process any missed mentions
     
-    _first_poll_done = True
+    # FIX: Removed duplicate _first_poll_done = True and total_replies = 0 assignments
     total_replies = 0
     
     # helper for generating response that uses the passed on_message_func
     async def generate_response_with_callback(text, author, platform):
         return await _generate_response(text, author, platform, on_message_func)
-    
-    _first_poll_done = True
-    total_replies = 0
     
     # Check Bluesky
     if config.bluesky_enabled and config.get('bluesky.reply_to_mentions', True):
@@ -437,7 +527,7 @@ async def check_and_reply_mentions(on_message_func):
                         _thread_counts[root_uri] = _thread_counts.get(root_uri, 0) + 1
                         
                     log_success(f"Replied to @{author} on Bluesky (Thread count: {_thread_counts[root_uri]}): {response[:50]}...")
-                    _save_replied_ids() # Immediate persistence
+                    await _save_replied_ids_async()  # Async persistence
                     total_replies += 1
     
     # Check X
@@ -457,7 +547,7 @@ async def check_and_reply_mentions(on_message_func):
                     async with _replied_ids_lock:
                         _replied_ids.add(mention['id'])
                     log_success(f"Replied to @{author} on X: {response[:50]}...")
-                    _save_replied_ids() # Immediate persistence
+                    await _save_replied_ids_async()  # Async persistence
                     total_replies += 1
     
     if total_replies > 0:

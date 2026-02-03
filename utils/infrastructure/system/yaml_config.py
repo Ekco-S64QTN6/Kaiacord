@@ -121,11 +121,11 @@ def validate_config(config: Dict[str, Any]) -> tuple[bool, list[str]]:
     # Model names
     models = get_nested(config, 'models', {})
     if not models.get('chat'):
-        errors.append("Chat model not configured")
+        errors.append("Chat model not configured (models.chat)")
     if not models.get('vision'):
-        errors.append("Vision model not configured")
+        errors.append("Vision model not configured (models.vision)")
     if not models.get('embedding'):
-        errors.append("Embedding model not configured")
+        errors.append("Embedding model not configured (models.embedding)")
     
     # NOTE: Paths validation is optional - directories will be created if needed
     # No longer error on missing knowledge_base directory
@@ -146,6 +146,47 @@ def validate_config(config: Dict[str, Any]) -> tuple[bool, list[str]]:
     min_vram = gpu.get('image_gen_min_vram_gb', 0)
     if min_vram < 4:
         errors.append(f"image_gen_min_vram_gb too low: {min_vram} (minimum 4.0)")
+    
+    # ==========================================================================
+    # Type validation - catch misconfigurations early
+    # Added: Feb 2026 for configuration robustness
+    # ==========================================================================
+    type_checks = [
+        ('performance.max_memory_messages', int, 'integer'),
+        ('performance.rag_top_k', int, 'integer'),
+        ('performance.requests_per_minute', int, 'integer'),
+        ('performance.idle_quip_timeout_minutes', int, 'integer'),
+        ('performance.max_consecutive_quips', int, 'integer'),
+        ('gpu.image_gen_min_vram_gb', (int, float), 'number'),
+    ]
+    
+    for path, expected_type, type_name in type_checks:
+        value = get_nested(config, path)
+        if value is not None and not isinstance(value, expected_type):
+            actual_type = type(value).__name__
+            errors.append(f"{path} must be {type_name}, got {actual_type}: {value}")
+    
+    # ==========================================================================
+    # Social media config validation (warnings only - bot should still start)
+    # Added: Feb 2026 for early detection of missing credentials
+    # NOTE: These are warnings, not errors - social features will be disabled
+    # ==========================================================================
+    warnings = []
+    if get_nested(config, 'bluesky.enabled', False):
+        if not os.getenv('BLUESKY_HANDLE'):
+            warnings.append("Bluesky enabled but BLUESKY_HANDLE not set - Bluesky features disabled")
+        if not os.getenv('BLUESKY_APP_PASSWORD'):
+            warnings.append("Bluesky enabled but BLUESKY_APP_PASSWORD not set - Bluesky features disabled")
+    
+    if get_nested(config, 'x_twitter.enabled', False):
+        required_x_vars = ['X_API_KEY', 'X_API_SECRET', 'X_ACCESS_TOKEN', 'X_ACCESS_SECRET']
+        missing = [v for v in required_x_vars if not os.getenv(v)]
+        if missing:
+            warnings.append(f"X/Twitter enabled but missing: {', '.join(missing)} - X features disabled")
+    
+    # Log warnings but don't fail
+    for w in warnings:
+        print(f"[CONFIG WARNING] {w}")
     
     return len(errors) == 0, errors
 
@@ -290,8 +331,34 @@ class YAMLConfig:
         """List of users to ignore (names or IDs)"""
         users = self.get('discord.ignored_users', [])
         if isinstance(users, str):
-            return [u.strip().lower() for u in users.split(',')]
+            return [u.strip().lower() for u in users.split(',') if u.strip()]
         return [str(u).lower() for u in users]
+
+    @property
+    def owner_ids(self) -> list:
+        """List of owner/admin users who bypass cooldowns (names or IDs)"""
+        owners = self.get('discord.owner_ids', 'ekco')
+        if isinstance(owners, str):
+            return [o.strip().lower() for o in owners.split(',') if o.strip()]
+        return [str(o).lower() for o in owners]
+    
+    def is_owner(self, author_name: str, display_name: str = None, user_id: str = None) -> bool:
+        """Check if a user is an owner/admin"""
+        owner_list = self.owner_ids
+        checks = [author_name.lower()]
+        if display_name:
+            checks.append(display_name.lower())
+        if user_id:
+            checks.append(str(user_id).lower())
+        
+        for check in checks:
+            if check in owner_list:
+                return True
+            # Handle common username variations (e.g., "ekco" matches "ekco.")
+            for owner in owner_list:
+                if check.startswith(owner) or owner.startswith(check):
+                    return True
+        return False
 
     def reload(self):
         """Reload configuration from files"""
