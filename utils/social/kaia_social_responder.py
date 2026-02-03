@@ -154,9 +154,23 @@ async def _generate_response(mention_text: str, author_name: str, platform: str,
         # LOG SUCCESSFUL RETRIEVAL
         log_info(f"Main engine response: {response[:100]}...")
         
-        # Enforce char limit strictly for social
+        # Enforce char limit strictly for social (Try cutting at sentence end first)
         if len(response) > char_limit:
-            response = response[:char_limit-3].strip() + "..."
+            # Try to cut at the last sentence end (., !, ?) within the limit
+            import re
+            sentences = re.split(r'(?<=[.!?])\s+', response)
+            short_resp = ""
+            for s in sentences:
+                candidate = (short_resp + " " + s).strip()
+                if len(candidate) <= char_limit:
+                    short_resp = candidate
+                else: break
+            
+            if short_resp:
+                response = short_resp
+            else:
+                # Absolute fallback: hard truncation
+                response = response[:char_limit-3].strip() + "..."
             
         return response
         

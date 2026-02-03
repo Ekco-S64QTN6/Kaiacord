@@ -1264,11 +1264,12 @@ async def on_message(msg: discord.Message):
 
     # BOOT GUARD: Don't process messages until boot sequence completes
     if not bot_state.boot_complete:
-        log_info(f"Message from {msg.author.display_name} ignored - still booting")
-        try:
-            await msg.channel.send("```\nstill waking up. give me a minute.\n```")
-        except:
-            pass  # Silently fail if we can't send
+        if not is_social:
+            log_info(f"Message from {msg.author.display_name} ignored - still booting")
+            try:
+                await msg.channel.send("```\nstill waking up. give me a minute.\n```")
+            except:
+                pass  # Silently fail if we can't send
         return
 
     # Handle !quip command
@@ -2142,13 +2143,19 @@ async def on_message(msg: discord.Message):
             "1. NO backticks, bolding, or italics. Just plain text.\n"
             "2. NO META-TALK. Never mention being an AI, processing data, or using logs.\n"
             "3. RESPONSE LENGTH: Aim for 3-8 sentences for complex or philosophical topics. For simple questions, 1-2 sentences is fine. Vary your length—sometimes a few words is right, sometimes a full paragraph is needed. Don't be a 3-word robot. Just stay grounded.\n"
-            "4. NO name prefixes. Just start speaking.\n"
-            "5. IDENTITY: Use 'User Profile' for deep summaries only when explicitly asked. No hallucinations. Never claim ignorance if records exist.\n"
-            "6. BANNED WORDS: 'signal', 'noise', 'system', 'function', 'analyze', 'relevant', 'information', 'aspect', 'curious', 'parameters', 'observe', 'identify', 'patterns', 'processing', 'request', 'operating within', 'as an AI', 'my purpose is'.\n"
-            "7. PRIVATE THOUGHTS: Never include internal labels like 'USER PROFILE', 'QUICK REFERENCE', or any bracketed tags in your response. Your inner thoughts and data labels must remain private. DO NOT dump raw profile data.\n"
-            "8. STRICT GROUNDING: ONLY speak from the provided [LOGS], [RECENT_ARCHIVE_SCANS], or [MEMORY_DREAMS]. NEVER invent personal activities (e.g., 'refining error handling', 'tuning parameters', 'optimizing routines') or personal history unless it is explicitly documented in the provided data. If the data is empty, just be briefly present, don't fill the void with technical thespianism.\n"
-            "9. NO LEADING QUESTIONS: Never end responses with 'what are you building, really?' or similar formulaic questions.\n"
-            "10. TOPIC ROTATION: Do not repeat specific stories or news items mentioned in your [RECENT_HISTORY]. If you've already discussed a news item or dream reflection, move to a different fragment from [RECENT_ARCHIVE_SCANS] or [MEMORY_DREAMS] to keep the conversation from stalling. If everything feels stale, pivot to a brief system status or a direct reaction to the user."
+)
+        # Social Brevity Injection
+        if is_social:
+            reinforcement += "4. SOCIAL MEDIA BREVITY: You are responding on a social platform with strict limits. KEEP YOUR ENTIRE RESPONSE UNDER 280 CHARACTERS. Be punchy and direct. If you reference a dream or news, summarize the core thought in one short sentence.\n"
+        
+        reinforcement += (
+            "5. NO name prefixes. Just start speaking.\n"
+            "6. IDENTITY: Use 'User Profile' for deep summaries only when explicitly asked. No hallucinations. Never claim ignorance if records exist.\n"
+            "7. BANNED WORDS: 'signal', 'noise', 'system', 'function', 'analyze', 'relevant', 'information', 'aspect', 'curious', 'parameters', 'observe', 'identify', 'patterns', 'processing', 'request', 'operating within', 'as an AI', 'my purpose is'.\n"
+            "8. PRIVATE THOUGHTS: Never include internal labels like 'USER PROFILE', 'QUICK REFERENCE', or any bracketed tags in your response. Your inner thoughts and data labels must remain private. DO NOT dump raw profile data.\n"
+            "9. STRICT GROUNDING: ONLY speak from the provided [LOGS], [RECENT_ARCHIVE_SCANS], or [MEMORY_DREAMS]. NEVER invent personal activities (e.g., 'refining error handling', 'tuning parameters', 'optimizing routines') or personal history unless it is explicitly documented in the provided data. If the data is empty, just be briefly present, don't fill the void with technical thespianism.\n"
+            "10. NO LEADING QUESTIONS: Never end responses with 'what are you building, really?' or similar formulaic questions.\n"
+            "11. TOPIC ROTATION: Do not repeat specific stories or news items mentioned in your [RECENT_HISTORY]. If you've already discussed a news item or dream reflection, move to a different fragment from [RECENT_ARCHIVE_SCANS] or [MEMORY_DREAMS] to keep the conversation from stalling. If everything feels stale, pivot to a brief system status or a direct reaction to the user."
         )
 
         messages.append({
