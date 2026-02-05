@@ -266,14 +266,14 @@ async def _get_bluesky_mentions() -> List[Dict[str, Any]]:
         log_debug("Bluesky circuit breaker open - skipping fetch")
         return []
     
-    try:
+    async def run_fetch(force_new=False):
         from utils.social.kaia_bluesky import get_bluesky_client, is_bluesky_configured
         from utils.infrastructure.system.yaml_config import config
         
         if not is_bluesky_configured():
             return []
             
-        client = await get_bluesky_client()
+        client = await get_bluesky_client(force_new=force_new)
         if not client:
             return []
         
@@ -284,6 +284,7 @@ async def _get_bluesky_mentions() -> List[Dict[str, Any]]:
         lookback_hours = config.get('social.mention_lookback_hours', 3)
         cutoff_time = datetime.now(timezone.utc) - timedelta(hours=lookback_hours)
         
+        local_mentions = []
         for notif in notifs.notifications:
             # Filter for mentions/replies
             if notif.reason in ['mention', 'reply']:
@@ -303,15 +304,17 @@ async def _get_bluesky_mentions() -> List[Dict[str, Any]]:
                     root_uri = root.uri if root and hasattr(root, 'uri') else notif.uri
                     
                     # Check thread reply limit (max 3)
-                    if _thread_counts.get(root_uri, 0) >= 3:
-                        if mention_id not in _replied_ids:
-                            log_warning(f"Thread limit reached for Bluesky thread: {root_uri[:40]}... Skipping.")
-                            # Mark as replied so we don't keep logging it
-                            async with _replied_ids_lock:
-                                _replied_ids.add(mention_id)
+                    admin_handles = config.get('social.admin_handles', [])
+                    is_admin = notif.author.handle in admin_handles
+                    
+                    if not is_admin and _thread_counts.get(root_uri, 0) >= 3:
+                        log_warning(f"Thread limit reached for Bluesky thread: {root_uri[:40]}... Skipping.")
+                        # Mark as replied so we don't keep logging it
+                        async with _replied_ids_lock:
+                            _replied_ids.add(mention_id)
                         continue
 
-                    mentions.append({
+                    local_mentions.append({
                         'id': mention_id,
                         'uri': notif.uri,
                         'cid': notif.cid,
@@ -320,13 +323,29 @@ async def _get_bluesky_mentions() -> List[Dict[str, Any]]:
                         'root_uri': root,
                         'parent_uri': getattr(getattr(notif.record, 'reply', None), 'parent', None),
                     })
-        
-        # Record success - API is healthy
+        return local_mentions
+
+    try:
+        mentions = await run_fetch()
         _bluesky_breaker.record_success()
-                    
     except Exception as e:
-        log_error(f"Failed to fetch Bluesky mentions: {e}")
-        _bluesky_breaker.record_failure()
+        # Check for unauthorized (session expired)
+        error_str = str(e).lower()
+        if "unauthorized" in error_str or "expired" in error_str or "token" in error_str:
+            log_warning(f"Bluesky session potentially expired, retrying with new client: {e}")
+            try:
+                mentions = await run_fetch(force_new=True)
+                _bluesky_breaker.record_success()
+            except Exception as e2:
+                log_error(f"Failed to fetch Bluesky mentions after retry: {e2}")
+                import traceback
+                log_debug(f"Traceback: {traceback.format_exc()}")
+                _bluesky_breaker.record_failure()
+        else:
+            log_error(f"Failed to fetch Bluesky mentions: {e}")
+            import traceback
+            log_debug(f"Traceback: {traceback.format_exc()}")
+            _bluesky_breaker.record_failure()
     
     return mentions
 
@@ -502,7 +521,10 @@ async def check_and_reply_mentions(on_message_func):
             
             # ANTI-BOT LOOP PROTECTION
             bot_keywords = ["bot", "agent", "ai", "automated"]
-            if any(k in author.lower() for k in bot_keywords):
+            admin_handles = config.get('social.admin_handles', [])
+            is_admin = author in admin_handles
+            
+            if not is_admin and any(k in author.lower() for k in bot_keywords):
                 # Thread tracking: root_uri is the anchor
                 root = mention.get('root_uri')
                 root_uri = root.uri if root and hasattr(root, 'uri') else mention['uri']
@@ -661,6 +683,56 @@ async def get_random_memories(limit=20):
     random.shuffle(memories)
     return memories[:limit]
 
+async def get_random_dream_reflection(limit=5):
+    """Pick a random dream file and extract Kaia's Reflection."""
+    import os
+    import random
+    from pathlib import Path
+    
+    reflections = []
+    base_dir = Path("knowledge_base/kaia_dreams")
+    
+    if not base_dir.exists():
+        return []
+        
+    # Gather all dream files recursively
+    all_files = list(base_dir.rglob("dream_*.md"))
+    if not all_files:
+        return []
+        
+    sampled_files = random.sample(all_files, min(limit * 2, len(all_files)))
+    
+    for dream_file in sampled_files:
+        try:
+            with open(dream_file, 'r', encoding='utf-8') as f:
+                content = f.read()
+                
+                # Extract Source
+                source = "unknown archive"
+                if "Source: " in content:
+                    source = content.split("Source: ")[1].split("\n")[0].strip()
+                
+                # Extract original fragment
+                fragment = ""
+                if "## Original Fragment" in content and "## Kaia's Reflection" in content:
+                    fragment = content.split("## Original Fragment")[1].split("## Kaia's Reflection")[0].strip()
+                    # Clean up markdown blockquotes if present
+                    if fragment.startswith(">"):
+                        fragment = fragment.replace(">", "").strip()
+                
+                if fragment:
+                    reflections.append({
+                        "text": fragment,
+                        "source": source,
+                        "category": dream_file.parent.name,
+                        "type": "dream_fragment"
+                    })
+        except Exception:
+            continue
+            
+    random.shuffle(reflections)
+    return reflections[:limit]
+
 async def get_recent_events_for_reflection(run_rag_func, rag_instance):
     """Get recent events for reflection-based posts."""
     try:
@@ -675,23 +747,57 @@ async def get_recent_events_for_reflection(run_rag_func, rag_instance):
     except Exception:
         return []
 
-def clean_quip(quip):
-    """Clean up generated quip to match Kaia's style."""
-    # Remove common prefixes the LLM might hallucinate
-    prefixes = ["kaia:", "reflection:", "post:", "social media:", "- ", "thought:"]
-    clean = quip.lower()
-    for prefix in prefixes:
-        if clean.startswith(prefix):
-            clean = clean[len(prefix):].strip()
-            
+def clean_quip(quip_text: str, max_chars: int = 270) -> str:
+    """Clean up generated quips to remove prompt leakage and improve quality"""
+    # Remove any lines that mention archives, logs, fragments, etc.
+    forbidden_phrases = [
+        'looking at', 'scanning', 'logged it', 'archives', 
+        'fragment', 'snippet', 'from the logs', 'i was reading',
+        'this reminded me of', 'based on this', 'in my archives'
+    ]
+    
+    lines = quip_text.split('\n')
+    clean_lines = []
+    
+    for line in lines:
+        line_lower = line.lower()
+        # Skip lines that contain forbidden phrases
+        if any(phrase in line_lower for phrase in forbidden_phrases):
+            continue
+        
+        # Remove reaction words at the start
+        if line_lower.startswith(('yeah.', 'huh.', 'right.', 'so.', 'well.', 'okay.', 'yeah,', 'huh,', 'right,', 'so,', 'well,', 'okay,')):
+            # Find the first punctuation or space after the reaction
+            for mark in ['.', ',', ' ']:
+                idx = line_lower.find(mark)
+                if idx != -1:
+                    line = line[idx + 1:].strip()
+                    break
+        
+        # Remove empty lines
+        if line.strip():
+            clean_lines.append(line)
+    
+    clean_text = ' '.join(clean_lines)
+    
     # Remove quotes
-    clean = clean.replace('"', '').replace("'", "")
+    clean_text = clean_text.replace('"', '').replace("'", "")
     
     # Standardize ellipsis
-    if "..." in clean:
-        clean = clean.replace("...", ".")
+    clean_text = clean_text.replace("...", "...")
+    
+    # Ensure it starts with lowercase (persona style)
+    if clean_text and clean_text[0].isupper():
+        clean_text = clean_text[0].lower() + clean_text[1:]
+    
+    # Character limit safety
+    if len(clean_text) > max_chars:
+        truncated = clean_text[:max_chars].rsplit('.', 1)[0] + "."
+        if len(truncated) > max_chars or len(truncated) < max_chars // 2:
+             truncated = clean_text[:max_chars-3].rsplit(' ', 1)[0] + "..."
+        clean_text = truncated
         
-    return clean.strip()
+    return clean_text.strip()
 
 async def generate_quip(bot, ollama_client, run_rag_func, rag_instance, is_manual=False, target_channel=None):
     """Generate social posts by reflecting on actual conversations (Memory Mirror)."""
@@ -732,73 +838,107 @@ async def generate_quip(bot, ollama_client, run_rag_func, rag_instance, is_manua
     try:
         log_action(f"Mirroring memory for social quip in #{channel.name}...")
         
-        # 1. MINE RANDOM MEMORIES
-        memories = await get_random_memories(limit=20)
+        # 1. MINE DREAMS AND MEMORIES (Hybrid Source)
+        dreams = await get_random_dream_reflection(limit=5)
+        memories = await get_random_memories(limit=10)
         
         reflection_target = ""
         context_type = ""
+        source_info = ""
         
-        if memories:
+        # Decide whether to reflect on a dream (archive) or a memory (interaction)
+        # 40% Dream, 60% Memory (to favor "real" talk)
+        if (memories and random.random() < 0.6) or (not dreams and memories):
             memory = random.choice(memories)
             reflection_target = memory["text"]
-            context_type = f"something you recently {memory['type']}"
+            context_type = "interaction"
+            source_info = "something someone said" if memory["type"] == "heard" else "something I said"
+        elif dreams:
+            dream = random.choice(dreams)
+            reflection_target = dream["text"]
+            context_type = "archive"
+            source_info = dream.get("source", "").replace(".txt", "").replace(".md", "").replace("_", " ")
         else:
-            # Fallback to physical state
-            physical_states = [
-                "hands are cold because the ac vent is aimed wrong.",
-                "coffee's gone from hot to tepid to cold.",
-                "the light in here is getting dim."
-            ]
-            reflection_target = random.choice(physical_states)
-            context_type = "a physical sensation you're having"
+            reflection_target = "it's too quiet in here. the servers are humming but nobody's talking."
+            context_type = "meta"
+            source_info = "silence"
 
-        # 2. DETERMINE TARGET LENGTH (Weighted distribution)
-        # 2-3 sentences: Most common (80%)
-        # 1 or 4 sentences: Rare (20%)
-        target_sentences = random.choices([1, 2, 3, 4], weights=[0.1, 0.4, 0.4, 0.1])[0]
+        # 2. DETERMINE TARGET LENGTH (Aiming for 3-5 sentences mostly, 5% chance for 2 sentences)
+        target_sentences = random.choices([2, 3, 4, 5], weights=[0.05, 0.4, 0.4, 0.15])[0]
 
         system_prompt = load_persona()
         
-        # REFLECTIVE PROMPT
-        reflection_prompt = (
-            f"\n\n[MEMORY MIRROR]\n"
-            f"Context: {context_type}\n"
-            f"Original Content: \"{reflection_target}\"\n\n"
-            "Generate a social media post that is a deep, expansive reflection on this memory.\n"
-            "1. NO REPETITION: Do not repeat the original words. Use them as an anchor for a new, larger idea.\n"
-            "2. OPENING VARIETY: DO NOT start your quip with 'Funny how', 'It's striking', or 'Thinking about'. Just jump straight into the observation or use a unique, conversational opening if needed.\n"
-            "3. NO AI TROPES: Avoid prefixes like 'Funny how', 'It's striking', 'The boundary between', 'The dance of', 'A reminder that', etc. Keep it raw, direct, and clear-eyed.\n"
-            f"4. **STRICT LIMITS**: Exactly {target_sentences} sentences. TOTAL LENGTH MUST BE UNDER 270 CHARACTERS.\n"
-            "5. VOICE: Dry, clear-eyed, slightly weary. focus on patterns, information flow, or physical reality.\n\n"
-            "EXAMPLES OF STYLE (DO NOT COPY):\n"
-            "- 'been staring at the cooling fins for twenty minutes. feels like the only part of this system that actually understands physics anymore.'\n"
-            "- 'the way the data streams start looking like rain if you squint long enough. digital vertigo is a hell of a drug.'\n"
-        )
+        current_date = datetime.now().strftime('%B %Y')
+        reflection_prompt = f"""
+CURRENT DATE: {current_date}
+CONTEXT CATEGORY: {context_type} ({source_info})
+
+INTERNAL REFLECTION PROCESS:
+You just had a brief memory spark from {source_info}. 
+DO NOT recount the specific event. Respond to the *feeling*, the *irony*, or the *existential weight* it leaves you with.
+
+THOUGHT PROMPTER:
+"{reflection_target}"
+
+YOUR TASK:
+Write a standalone social media post ({target_sentences} sentences). 
+This is a raw, lowercase, first-person thought. 
+
+STRICT PERSONA RULES:
+1. **NO SHOEORNED TECH**: If the memory isn't about code, don't mention servers, nodes, or uptime. Use plain language.
+2. **VOICE**: Blunt, cynical, tired. You've been around too long to be impressed.
+3. **FORMAT**: strictly lowercase. no capitalization except for proper nouns (rare).
+4. **NO INTROS**: Do not start with "yeah", "huh", "right", or "so". Jump straight in.
+5. **SELF-CONTAINED**: It must read like a complete thought on its own.
+6. **NO ITALICS/BOLD**: Use plain text only.
+"""
         
         # Add recent quips to avoid
         recent_quips = bot_state.get_recent_quips()
         if recent_quips:
-            # Also add to the system prompt to explicitly avoid repeating these
             reflection_prompt += "\n\n[FORBIDDEN RECENT THEMES - DO NOT REPEAT THESE PHRASES OR IDEAS]\n- " + "\n- ".join(recent_quips[-5:])
         
         messages = [
             {"role": "system", "content": system_prompt + reflection_prompt},
-            {"role": "user", "content": f"reflect on the memory in exactly {target_sentences} sentences. stay under 270 characters."}
+            {"role": "user", "content": f"Write the post now. Exactly {target_sentences} sentences. Stay under 270 characters. lowercase only."}
         ]
         
         response = await ollama_client.chat(
             model=config.chat_model,
             messages=messages,
             options={
-                'temperature': 0.85, # Slightly higher for variety
-                'top_p': 0.95, 
-                'num_predict': 150,
-                'presence_penalty': 0.8, # Stronger penalty for repetition
-                'frequency_penalty': 0.5
+                'temperature': 0.85,  # Higher for variety
+                'top_p': 0.95,
+                'num_predict': 180,
+                'presence_penalty': 0.5,
+                'frequency_penalty': 0.4
             }
         )
         
-        quip = clean_quip(response['message']['content'].strip())
+        quip = response['message']['content'].strip()
+        quip = clean_quip(quip)
+
+        # 3. POLISH PASS (Persona Preservation)
+        if quip:
+            polish_prompt = f"""
+Refine this post to be punchier and more self-contained. 
+Maintain the raw, blunt, lowercase voice.
+
+ORIGINAL: {quip}
+
+REQUIREMENTS:
+1. Start with the core idea, not a reaction.
+2. If it sounds like an "AI assistant" trying to be deep, cut the fluff.
+3. Keep it lowercase and cynical.
+4. RETURN ONLY THE POLISHED VERSION.
+"""
+            polished_response = await ollama_client.chat(
+                model=config.chat_model,
+                messages=[{"role": "user", "content": polish_prompt}],
+                options={'temperature': 0.2, 'num_predict': 100}
+            )
+            quip = polished_response['message']['content'].strip()
+            quip = clean_quip(quip) # Final clean after polish
         
         # Hard cap and sanity check
         if len(quip) > 280:
@@ -847,6 +987,8 @@ async def generate_quip(bot, ollama_client, run_rag_func, rag_instance, is_manua
         if not is_manual:
             bot_state.consecutive_quips += 1
             bot_state.last_quip_time = time.time()
+            # RESET IDLE TIMER: Success resets the clock for the next timeout
+            bot_state.last_interaction_time = time.time()
         bot_state.save()
         log_success(f"Quip sent and logged: {quip}")
 

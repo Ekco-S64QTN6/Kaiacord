@@ -42,17 +42,7 @@ def clear_gpu_memory(silent: bool = False):
     torch.cuda.empty_cache()
     
     if not silent:
-        # Show memory stats
-        allocated = torch.cuda.memory_allocated() / 1024**3
-        reserved = torch.cuda.memory_reserved() / 1024**3
-        total = torch.cuda.get_device_properties(0).total_memory / 1024**3
-        
-        print(f"\n=== GPU Memory Status ===")
-        print(f"Allocated: {allocated:.2f} GiB")
-        print(f"Reserved:  {reserved:.2f} GiB")
-        print(f"Total:     {total:.2f} GiB")
-        print(f"Free:      {total - allocated:.2f} GiB")
-        print("="*25)
+        print("GPU memory cleared")
 
 
 def force_clear_gpu() -> bool:

@@ -56,12 +56,13 @@ python Kaiacord.py
 
 | Category | Features | Status |
 |:---------|:---------|:-------|
-| **🤖 Core AI** | Local Inference (Ollama), Multi-Model Support (`gemma3:12b`) | ✅ |
-| **⚡ Performance** | VRAM Management (12GB), Model Unload/Reload, Rate Limiting | ✅ |
-| **📊 Interface** | Curses Dashboard (btop-style), Discord Bot, Consolided Logging | ✅ |
+| **🤖 Core AI** | Local Inference (Ollama), Multi-Model Support (`gemma3:12b`), Identity Anchor (Non-truncating persona core protection) | ✅ |
+| **⚡ Performance** | Smart VRAM Management (Auto-unloading models for 12GB GPUs), Optimized 28k Context Scaling, Rate Limiting | ✅ |
+| **📊 Interface** | Curses Dashboard (btop-style), Discord Bot, Consolidated Logging | ✅ |
 | **🧠 Memory** | RAG with File Indexing, User Profiles, Semantic Cache, Natural Mention | ✅ |
-| **🎯 Intelligence** | Query Classification, Personalization, Hallucination Prevention | ✅ |
+| **🎯 Intelligence** | Query Classification, Personalization, Temporal Calibration | ✅ |
 | **💭 Dream Mode** | Associative memory recall (nightly 3-5 AM); processes archived knowledge into persona-deep reflections for more natural, organic RAG callbacks | ✅ |
+| **🔄 Self-Healing** | 3-pass generation loop with automatic parameter scaling to recover from LLM failures or hallucinations | ✅ |
 | **🌐 Social Media** | Cross-post to Bluesky & X, Auto-reply to mentions, Memory Mirror | ✅ |
 | **📰 News** | Daily Briefs, Manual Retrieval, Ingestion of manual/weekly briefs | ✅ |
 | **👁️ Vision** | Image Analysis (`llama3.2-vision`), Object Detection, Text Extraction | ✅ |
@@ -102,8 +103,6 @@ graph TB
     Core --> KB[(knowledge_base/)]
 ```
 
-**Key Principle**: Chat model (8GB) unloads before vision (7.5GB) or image gen (6-8GB) to prevent VRAM overflow on 12GB GPUs.
-
 ---
 
 ## 📋 Usage Examples
@@ -140,6 +139,7 @@ Kaia: 📰 **Technology News**
 - Auto-generates daily on boot (requires `GEMINI_API_KEY`)
 - 14-day retention → Auto-archives to `knowledge_base/news/archive/`
 - Weekly summaries from archived news
+- Supports manual ingestion of briefings via `tools/maintenance/ingest_manual_news.py`
 
 ### 🌐 Social Media
 Kaia can cross-post to Bluesky and X, and reply to mentions:
@@ -197,6 +197,7 @@ gpu:
 
 performance:
   max_memory_messages: 30
+  max_context_tokens: 28000     # Hardware-optimized context (RTX 3060 12GB default)
   requests_per_minute: 30
 ```
 
@@ -229,8 +230,9 @@ python tools/maintenance/refresh_rag_index.py
 ### GPU Management (12GB VRAM)
 Kaia automatically manages VRAM:
 1. **Chat**: gemma3:12b loaded (8GB)
-2. **Image/Vision**: Unload chat → Load vision/flux → Process → Reload chat
-3. **Monitor**: `watch -n 1 nvidia-smi` to see VRAM usage
+2. **Context**: 28,000 token context window (~2.3GB) optimized for 12GB cards.
+3. **Image/Vision**: Unload chat → Load vision/flux → Process → Reload chat
+4. **Monitor**: `watch -n 1 nvidia-smi` to see VRAM usage
 
 **See**: [`docs/VRAM_MANAGEMENT.md`](docs/VRAM_MANAGEMENT.md) for details
 

@@ -9,6 +9,7 @@ import glob
 import docx2txt
 import threading
 import random
+import concurrent.futures
 
 # Suppress noisy logs from libraries
 logging.getLogger("httpx").setLevel(logging.WARNING)
@@ -30,7 +31,7 @@ from functools import wraps
 from typing import List, Dict, Optional, Any, Tuple, Set
 import numpy as np
 from rank_bm25 import BM25Okapi
-from llama_index.core import VectorStoreIndex, SimpleDirectoryReader, StorageContext, Settings, load_index_from_storage, Document
+from llama_index.core import VectorStoreIndex, SimpleDirectoryReader, StorageContext, Settings, load_index_from_storage, Document, QueryBundle
 from llama_index.llms.ollama import Ollama
 from llama_index.embeddings.ollama import OllamaEmbedding
 from llama_index.core.node_parser import SentenceSplitter, SemanticSplitterNodeParser, CodeSplitter
@@ -45,29 +46,24 @@ class HallucinationDetector:
     """Detect and prevent hallucination feedback loops"""
     
     HALLUCINATION_PATTERNS = [
-        r"juanita", r"deane", r"bonbons",
-        r"behind the curtain",
-        r"slow burn", r"roundabout questions",
-        r"terrier with a scent", r"internal comms",
-        r"elara vance", r"aurora labs", r"aurora project",
-        r"kael drakkel", r"xylarite", r"stonecutters",
-        r"crimson hand",
-        r"elias thorne", r"maya thorne", r"aurora's team",
-        r"aurora's people", r"water reclamation fiasco",
-        r"routing protocols", r"car accident", r"daughter, maya",
-        r"\baurora\b", r"\baurora's\b", r"\bkael\b", r"\belara\b",
-        r"ghost in the machine", r"council's scrutiny"
+        # Structural leaks - indicating the LLM is printing its internal prompt/tags
+        r"<external_data_record",
+        r"</external_data_record>",
+        r"\[INTERNAL REFLECTION",
+        r"\[CONVERSATION HISTORY",
+        r"\[IDENTITY CORE",
     ]
     
+    _compiled_pattern = None
+
     @classmethod
     def contains_hallucination(cls, text: str) -> bool:
         """Check if text contains known hallucination patterns"""
-        text_lower = text.lower()
+        if cls._compiled_pattern is None:
+            combined = "|".join(cls.HALLUCINATION_PATTERNS)
+            cls._compiled_pattern = re.compile(combined, re.IGNORECASE)
         
-        for pattern in cls.HALLUCINATION_PATTERNS:
-            if re.search(pattern, text_lower):
-                return True
-        return False
+        return bool(cls._compiled_pattern.search(text))
     
     @classmethod
     def clean_response(cls, response: str) -> str:
@@ -86,12 +82,11 @@ class HallucinationDetector:
                 # Replace hallucinated line with something neutral
                 clean_lines.append("...")  # Or empty line
         
-        # If we removed too much, provide a fallback
+        # If we removed too much, signal failure by returning None
         clean_response = '\n'.join(clean_lines).strip()
         
-        # CRITICAL: Never return empty - if cleaning emptied response, return original
         if not clean_response:
-            return response
+            return None
         
         return clean_response
 
@@ -125,10 +120,13 @@ class HybridRetriever:
         self.vector_index = vector_index
         self.bm25 = bm25_retriever
         
-    def retrieve(self, query, top_k=5, alpha=0.5):
+    def retrieve(self, query, top_k=5, alpha=0.5, query_bundle=None):
         # 1. Vector Retrieval
         vector_retriever = self.vector_index.as_retriever(similarity_top_k=top_k*2)
-        vector_nodes = vector_retriever.retrieve(query)
+        
+        # Use provided query_bundle if available
+        bundle = query_bundle if query_bundle is not None else query
+        vector_nodes = vector_retriever.retrieve(bundle)
         
         # 2. BM25 Retrieval
         bm25_results = self.bm25.retrieve(query, top_k=top_k*2)
@@ -250,6 +248,11 @@ class KaiaRAG:
         self.bm25_cache = {} # Cache for BM25 retrievers {itype: (timestamp, retriever)}
         self.persist_needed = False
         self._lock = threading.RLock()
+        
+        # Performance Cache: Known Users (避免每次检索都扫描目录)
+        self._known_users_cache = []
+        self._last_user_scan = 0
+        self._user_scan_interval = 300 # 5 minutes
         self._refresh_lock = threading.Lock() # Exclusive lock for the refresh process
         self._indexing_in_progress = False
         self._refresh_pending = False # Single-flight "dirty" flag
@@ -365,11 +368,11 @@ class KaiaRAG:
                 itype_dir = os.path.join(self.persist_dir, itype)
                 try:
                     if os.path.exists(itype_dir) and os.listdir(itype_dir):
-                        log_action(f"Loading {itype} index...")
+                        log_debug(f"Loading {itype} index...")
                         storage_context = StorageContext.from_defaults(persist_dir=itype_dir)
                         self.indices[itype] = load_index_from_storage(storage_context)
                     else:
-                        log_action(f"Initializing {itype} index...")
+                        log_debug(f"Initializing {itype} index...")
                         self.indices[itype] = VectorStoreIndex.from_documents([])
                         if not os.path.exists(itype_dir):
                             os.makedirs(itype_dir)
@@ -380,7 +383,7 @@ class KaiaRAG:
             
             # Populate indexed files from all indices
             self._populate_indexed_files()
-            log_success("All hierarchical indices initialized.")
+            log_debug("All hierarchical indices initialized.")
 
     def _get_node_parser_for_doc(self, itype: str, file_path: str):
         """Dynamic chunking based on content type and index target"""
@@ -455,33 +458,35 @@ class KaiaRAG:
         return False
 
     def _apply_priority_metadata(self, doc: Document, itype: str, file_path: str):
-        """Apply priority and source type metadata to a document"""
-        # Set priority based on file type
+        """Apply neutral priority and source type metadata"""
+        # Neutralize all priorities to let search relevance decide
+        doc.metadata["priority"] = 0.5
+        
         if itype == 'persona' or "kaia_persona" in file_path:
-            doc.metadata["priority"] = 1.0
             doc.metadata["source_type"] = "persona"
+            doc.metadata["user_id"] = "KAIA_SYSTEM"
         elif itype == 'logs' or "user_logs" in file_path:
-            doc.metadata["priority"] = 0.9
             doc.metadata["source_type"] = "user_logs"
         elif itype == 'user_profiles' or "user_profile" in file_path:
-            doc.metadata["priority"] = 0.8
             doc.metadata["source_type"] = "user_profile"
         elif "news_brief" in file_path or "news_summary" in file_path:
-            doc.metadata["priority"] = 0.85
-            doc.metadata["source_type"] = "news_brief"
-            # Extract date from filename if possible
-            try:
-                date_match = re.search(r'(\d{8})', os.path.basename(file_path))
-                if date_match:
-                    date_str = date_match.group(1)
-                    doc.metadata["date"] = f"{date_str[:4]}-{date_str[4:6]}-{date_str[6:]}"
-            except: pass
+            doc.metadata["source_type"] = "news"
         elif "kaia_dreams" in file_path:
-            doc.metadata["priority"] = 0.95
             doc.metadata["source_type"] = "dream"
         else:
-            doc.metadata["priority"] = 0.1  # Low priority for general knowledge
             doc.metadata["source_type"] = "general_knowledge"
+            
+        # Extract user metadata from path if it's in user_logs
+        if "user_logs" in file_path:
+            parts = file_path.split(os.sep)
+            try:
+                ul_idx = parts.index("user_logs")
+                user_folder = parts[ul_idx + 1]
+                if "_" in user_folder:
+                    u_name, u_id = user_folder.rsplit("_", 1)
+                    doc.metadata['user_id'] = u_id
+                    doc.metadata['user_name'] = u_name
+            except: pass
         
         # Add garbage detection metadata
         if self.is_garbage_text(doc.text):
@@ -508,7 +513,7 @@ class KaiaRAG:
                             stale_nodes.append(node_id)
                 
                 if stale_nodes:
-                    log_action(f"Cleaning up {len(stale_nodes)} stale entries from {itype} index...")
+                    log_debug(f"Cleaning up {len(stale_nodes)} stale entries from {itype} index...")
                     for node_id in stale_nodes:
                         try:
                             index.delete_nodes([node_id])
@@ -635,24 +640,9 @@ class KaiaRAG:
                                 new_content = f.read()
                                 
                             if new_content.strip():
-                                # [DISABLED] === SMART FICTION FILTER ===
+                                # === SMART FICTION FILTER ===
                                 # Only filter specific fictional story patterns, NOT user names
-                                # fictional_story_patterns = [
-                                #     r"i remember you working on the data pipeline",
-                                #     r"back in '21.*?(?:you were|memory leak|server farm)",
-                                #     r"you were chasing a memory leak for days",
-                                #     r"almost burned out the whole server farm",
-                                #     r"good work.*?you're good at digging",
-                                #     r"elias thorne", r"maya thorne", r"aurora's team",
-                                #     r"aurora's people", r"water reclamation fiasco",
-                                #     r"routing protocols", r"car accident", r"daughter, maya"
-                                # ]
-                                # 
-                                # for pattern in fictional_story_patterns:
-                                #     if re.search(pattern, new_content, re.IGNORECASE):
-                                #         log_warning(f"Skipping contaminated content in {itype} log")
-                                #         new_content = "" # Clear it so it doesn't get indexed
-                                #         break
+                                # Perspective decoupling handles first-person artifacts at context time.
                                 # ============================
 
                                 mtime = os.path.getmtime(file_path)
@@ -881,16 +871,35 @@ class KaiaRAG:
 
     @thread_safe_rag_operation
     def add_memory(self, user_id: int, user_name: str, text: str) -> bool:
-        """Log a 'remembered' fact into the user's interaction log."""
+        """Log a 'remembered' fact into a separate file AND the interaction log."""
         try:
-            # We treat this as a special interaction where the user says "remember this" 
-            # and Kaia acknowledges it.
-            return self.log_user_interaction(
+            # 1. Standard interaction log (redundancy/perspective)
+            self.log_user_interaction(
                 user_id, 
                 user_name, 
                 f"[REMEMBER_COMMAND]: {text}", 
                 "Logged it. I'll remember that."
             )
+            
+            # 2. SEPARATE INJECTED FILE (Legacy behavior for Dream Mode/Isolation)
+            with self._lock:
+                safe_user_name = "".join([c for c in user_name if c.isalnum() or c in (' ', '-', '_')]).strip().replace(' ', '_')
+                user_dir_name = f"{safe_user_name}_{user_id}"
+                user_log_dir = os.path.join(self.knowledge_base_dir, "user_logs", user_dir_name)
+                
+                os.makedirs(user_log_dir, exist_ok=True)
+                
+                timestamp = datetime.now().strftime("%Y%m%d_%H%M%S")
+                log_file = os.path.join(user_log_dir, f"injected_{timestamp}.txt")
+                
+                log_text = f"User ({user_name}): [REMEMBER_COMMAND]: {text}\nKaia: Logged it. I'll remember that.\n"
+                
+                with open(log_file, "w", encoding="utf-8") as f:
+                    f.write(log_text)
+                    
+                log_success(f"Separate memory file created: injected_{timestamp}.txt")
+                return True
+                
         except Exception as e:
             log_error(f"Error adding memory: {e}")
             return False
@@ -906,7 +915,13 @@ class KaiaRAG:
         with self._lock:
             # Sanitize user_name for filesystem
             safe_user_name = "".join([c for c in user_name if c.isalnum() or c in (' ', '-', '_')]).strip().replace(' ', '_')
-            user_dir_name = f"{safe_user_name}_{user_id}"
+            
+            # CLEANUP: For social media users, use the ID directly to avoid redundancy
+            # (Original: michaelschellhornlink_social_bluesky_michaelschellhorn.link)
+            if str(user_id).startswith("social_"):
+                user_dir_name = str(user_id)
+            else:
+                user_dir_name = f"{safe_user_name}_{user_id}"
             user_log_dir = os.path.join(self.knowledge_base_dir, "user_logs", user_dir_name)
             
             try:
@@ -1000,12 +1015,12 @@ Kaia: {bot_response}
                 return False
 
     @thread_safe_rag_operation
-    def retrieve(self, query: str, user_id: Optional[int] = None, user_name: Optional[str] = None, top_k: int = 4, strict_identity: bool = False, include_news: bool = True) -> List[str]:
+    def retrieve(self, query: str, user_id: Optional[int] = None, user_name: Optional[str] = None, top_k: int = 4, strict_identity: bool = False, include_news: bool = True) -> List[Dict[str, Any]]:
         """
         Retrieve relevant nodes, ensuring user logs are prioritized and not drowned out.
         If user_id is provided, specifically looks for that user's history and preferences.
         
-        OPTIMIZED: No longer iterates through entire docstore. Uses retriever results only.
+        RETURNS: List of dicts {"content": str, "metadata": dict}
         """
         with self._lock:
             if not self.indices:
@@ -1042,13 +1057,18 @@ Kaia: {bot_response}
             enriched_query = query
             
             # Detect known user names in the query to improve retrieval
-            known_users = []
-            user_logs_path = os.path.join(self.knowledge_base_dir, "user_logs")
-            if os.path.exists(user_logs_path):
-                for d in os.scandir(user_logs_path):
-                    if d.is_dir() and "_" in d.name:
-                        u_name = d.name.rsplit("_", 1)[0].replace("_", " ")
-                        known_users.append(u_name)
+            # USE CACHED LIST to avoid redundant I/O
+            if time.time() - self._last_user_scan > self._user_scan_interval:
+                self._known_users_cache = []
+                user_logs_path = os.path.join(self.knowledge_base_dir, "user_logs")
+                if os.path.exists(user_logs_path):
+                    for d in os.scandir(user_logs_path):
+                        if d.is_dir() and "_" in d.name:
+                            u_name = d.name.rsplit("_", 1)[0].replace("_", " ")
+                            self._known_users_cache.append(u_name)
+                self._last_user_scan = time.time()
+            
+            known_users = self._known_users_cache
             
             detected_user = None
             for u_name in known_users:
@@ -1091,27 +1111,52 @@ Kaia: {bot_response}
             # Retrieve with a significantly higher limit to ensure profiles are found
             retrieve_count = 15 if is_casual else 25
             
-            all_node_results = []
-            for itype in target_itypes:
-                if itype in self.indices:
-                    # Get or build BM25 retriever
-                    if itype not in self.bm25_cache or self.bm25_cache[itype] is None:
-                        index_nodes = list(self.indices[itype].storage_context.docstore.docs.values())
-                        if index_nodes:
-                            self.bm25_cache[itype] = SimpleBM25Retriever(index_nodes)
-                        else:
-                            self.bm25_cache[itype] = None
-                    
-                    bm25_retriever = self.bm25_cache.get(itype)
-                    if bm25_retriever:
-                        hybrid = HybridRetriever(self.indices[itype], bm25_retriever)
-                        all_node_results.extend(hybrid.retrieve(enriched_query, top_k=retrieve_count))
+            # 2. PRE-COMPUTE EMBEDDING ONCE (Massive speedup for multiple indices)
+            query_bundle = None
+            try:
+                # Only embed if any targeted index is a VectorStoreIndex
+                needs_embedding = any(itype in self.indices for itype in target_itypes)
+                if needs_embedding:
+                    log_debug(f"Pre-computing query embedding for {len(target_itypes)} indices...")
+                    embedding = self.embed_model.get_query_embedding(enriched_query)
+                    query_bundle = QueryBundle(query_str=enriched_query, embedding=embedding)
+            except Exception as e:
+                log_error(f"Failed to pre-compute query embedding: {e}")
+
+            # 3. Parallel retrieval pass across targeted indices
+            def fetch_results(itype):
+                if itype not in self.indices: return []
+                
+                # Get or build BM25 retriever
+                if itype not in self.bm25_cache or self.bm25_cache[itype] is None:
+                    # Thread-safe access to docs
+                    index_nodes = list(self.indices[itype].storage_context.docstore.docs.values())
+                    if index_nodes:
+                        self.bm25_cache[itype] = SimpleBM25Retriever(index_nodes)
                     else:
-                        # Fallback to vector only
-                        retriever = self.indices[itype].as_retriever(similarity_top_k=retrieve_count)
-                        all_node_results.extend(retriever.retrieve(enriched_query))
+                        self.bm25_cache[itype] = None
+                
+                bm25_retriever = self.bm25_cache.get(itype)
+                if bm25_retriever:
+                    hybrid = HybridRetriever(self.indices[itype], bm25_retriever)
+                    # Use pre-computed query_bundle
+                    return hybrid.retrieve(enriched_query, top_k=retrieve_count, query_bundle=query_bundle)
+                else:
+                    # Fallback to vector only
+                    retriever = self.indices[itype].as_retriever(similarity_top_k=retrieve_count)
+                    # Use provided query_bundle if available
+                    return retriever.retrieve(query_bundle if query_bundle else enriched_query)
+
+            all_node_results = []
+            with concurrent.futures.ThreadPoolExecutor(max_workers=min(len(target_itypes), 4)) as executor:
+                future_to_itype = {executor.submit(fetch_results, itype): itype for itype in target_itypes}
+                for future in concurrent.futures.as_completed(future_to_itype):
+                    try:
+                        all_node_results.extend(future.result())
+                    except Exception as e:
+                        log_error(f"Index retrieval failed for {future_to_itype[future]}: {e}")
             
-            # 3. Categorize and Score nodes
+            # 4. Categorize and Score nodes
             scored_nodes = [] # List of (score, content, label)
             seen_texts = set()
             u_id_str = str(user_id) if user_id else None
@@ -1151,6 +1196,23 @@ Kaia: {bot_response}
                     if (ascii_count / len(sample)) < 0.80:
                         continue
                 
+                # USER ISOLATION FILTER: Prevent leakage from other users' logs and profiles
+                source_type = node.metadata.get('source_type', node.metadata.get('source', ''))
+                # Files in user_logs or specific user_profile markings
+                is_user_data = source_type in ['logs', 'user_logs', 'user_profile'] or "user_logs" in node.metadata.get('file_path', '')
+                
+                if is_user_data:
+                    node_user_id = str(node.metadata.get('user_id', ''))
+                    node_user_name = str(node.metadata.get('user_name', '')).lower()
+                    
+                    # If this isn't the current user AND it's not the user explicitly mentioned in the query
+                    target_matches = False
+                    if detected_user and (detected_user.lower() in node_user_name or detected_user.lower() in content.lower()):
+                        target_matches = True
+                        
+                    if node_user_id != u_id_str and not target_matches:
+                        continue
+                
                 # STRICT IDENTITY FILTER: Only allow persona and current user's logs
                 if strict_identity:
                     is_persona = node.metadata.get('source_type') == 'persona'
@@ -1188,6 +1250,7 @@ Kaia: {bot_response}
                     'persona': 2.5,
                     'conversation': 1.5,
                     'user_logs': 1.5,
+                    'news': 1.5,
                     'knowledge': 1.0,
                     'general_knowledge': 1.0
                 }.get(source_type, 1.0)
@@ -1204,13 +1267,18 @@ Kaia: {bot_response}
                 # 5. Priority metadata boost
                 priority_boost = node.metadata.get('priority', 0.1)
                 
+                # BALANCED SCORING (More "Human")
+                # Similarity is still king (70%), but we bring back recency (15%) and identity (10%)
+                # to ensure she remembers *current* context better than distant history.
                 final_score = (
-                    base_score * 0.3 +
-                    recency_boost * 0.1 +
-                    user_match_boost * 0.3 +
-                    type_boost * 0.1 +
-                    priority_boost * 0.2
+                    base_score * 0.7 +
+                    recency_boost * 0.15 +
+                    user_match_boost * 0.1 +
+                    (type_boost / 5.0) * 0.05  # Slight preference for persona/profile
                 ) * length_penalty
+                
+                # Boost priority-flagged content slightly
+                final_score += priority_boost * 0.05
                 
                 # Determine label for display
                 file_path = node.metadata.get('file_path', '')
@@ -1226,6 +1294,8 @@ Kaia: {bot_response}
                         label = f"User Profile: {node_user_name.upper()}"
                     else:
                         label = f"Conversation History: {node_user_name.upper()}"
+                elif source_type == "news":
+                    label = f"Latest News: {os.path.basename(file_path)}"
                 else:
                     label = f"Knowledge: {os.path.basename(file_path)}"
                 
@@ -1239,6 +1309,7 @@ Kaia: {bot_response}
             persona_count = 0
             user_log_count = 0
             lore_count = 0
+            news_count = 0
             
             for _, content, label in scored_nodes:
                 if "Kaia Persona" in label:
@@ -1255,8 +1326,18 @@ Kaia: {bot_response}
                     if is_identity_query: continue # Skip lore for identity queries
                     if lore_count >= (2 if is_casual else 4): continue
                     lore_count += 1
+                elif "Latest News" in label:
+                    # Natural News: allow news nodes if they are relevant
+                    pass
+                elif "Knowledge" in label:
+                    if lore_count >= 6: continue
+                    lore_count += 1
                 
-                final_results.append(content)
+                final_results.append({
+                    "content": content,
+                    "metadata": node.metadata,
+                    "label": label
+                })
                 if len(final_results) >= top_k:
                     break
             

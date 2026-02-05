@@ -86,13 +86,27 @@ class UnifiedLogger:
     
     def log(self, message, log_type="INFO", source=None):
         """Main logging method - all logs go through here"""
+        # Safety check for late-stage shutdown
+        try:
+            if sys is None or not hasattr(sys, 'meta_path') or sys.meta_path is None:
+                return
+        except (NameError, AttributeError):
+            return
+
         if not self._should_log(message, log_type):
             return
             
         if self._is_debug_duplicate(message, log_type):
             return
         
-        timestamp = datetime.now().strftime("%H:%M:%S")
+        try:
+            # Check if datetime is still available
+            if 'datetime' not in globals() and 'datetime' not in sys.modules:
+                return
+            timestamp = datetime.now().strftime("%H:%M:%S")
+        except (AttributeError, NameError, TypeError, ImportError):
+            # Interpreter is likely finalizing
+            return
         
         # Create clean log entry (single timestamp)
         log_entry = {
@@ -136,7 +150,7 @@ class UnifiedLogger:
         reset = self.colors['RESET']
         
         # Format: [TIME] TYPE: Message
-        formatted = f"{color}[{log_entry['timestamp']}] {log_entry['type']}:{reset} {log_entry['message']}"
+        formatted = f"\r{color}[{log_entry['timestamp']}] {log_entry['type']}:{reset} {log_entry['message']}"
         
         # Strip colors if NOT a TTY
         is_tty = hasattr(sys.__stdout__, 'isatty') and sys.__stdout__.isatty()
@@ -152,7 +166,7 @@ class UnifiedLogger:
                 # Use sys.__stdout__ to bypass any monkey-patching
                 # Check if it exists for safe interpreter finalization
                 if sys and hasattr(sys, '__stdout__') and sys.__stdout__ is not None:
-                    sys.__stdout__.write(formatted + "\n")
+                    sys.__stdout__.write(formatted + "\r\n")
                     sys.__stdout__.flush()
                 self.last_console_message = formatted
                 self.last_message_time = time.time()

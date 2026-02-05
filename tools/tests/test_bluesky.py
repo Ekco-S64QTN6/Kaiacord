@@ -14,30 +14,31 @@ class TestBlueskyModule:
     
     def test_is_bluesky_configured_without_env(self):
         """Test that unconfigured Bluesky returns False"""
-        with patch.dict('os.environ', {}, clear=True):
-            from utils.kaia_bluesky import is_bluesky_configured
+        with patch.dict('os.environ', {'DISCORD_TOKEN': 'dummy'}, clear=True):
+            from utils.social.kaia_bluesky import is_bluesky_configured
             assert is_bluesky_configured() is False
     
     def test_is_bluesky_configured_with_env(self):
         """Test that configured Bluesky returns True"""
         with patch.dict('os.environ', {
+            'DISCORD_TOKEN': 'dummy',
             'BLUESKY_HANDLE': 'test.bsky.social',
             'BLUESKY_APP_PASSWORD': 'test-password'
         }):
-            from utils.kaia_bluesky import is_bluesky_configured
+            from utils.social.kaia_bluesky import is_bluesky_configured
             # Need to reimport to pick up env change
             import importlib
-            import utils.kaia_bluesky as bsky_module
+            import utils.social.kaia_bluesky as bsky_module
             importlib.reload(bsky_module)
             assert bsky_module.is_bluesky_configured() is True
     
     @pytest.mark.asyncio
     async def test_post_to_bluesky_without_client(self):
         """Test posting fails gracefully without credentials"""
-        with patch.dict('os.environ', {}, clear=True):
-            from utils.kaia_bluesky import post_to_bluesky
+        with patch.dict('os.environ', {'DISCORD_TOKEN': 'dummy'}, clear=True):
+            from utils.social.kaia_bluesky import post_to_bluesky
             import importlib
-            import utils.kaia_bluesky as bsky_module
+            import utils.social.kaia_bluesky as bsky_module
             importlib.reload(bsky_module)
             
             # Clear the client
@@ -56,13 +57,13 @@ class TestBlueskyModule:
             'BLUESKY_HANDLE': 'test.bsky.social',
             'BLUESKY_APP_PASSWORD': 'test-password'
         }):
-            from utils.kaia_bluesky import post_to_bluesky
+            from utils.social.kaia_bluesky import post_to_bluesky
             
             # Mock the client
             mock_client = AsyncMock()
             mock_client.send_post = AsyncMock(return_value=Mock(uri="at://test/post/123"))
             
-            with patch('utils.kaia_bluesky.get_bluesky_client', return_value=mock_client):
+            with patch('utils.social.kaia_bluesky.get_bluesky_client', return_value=mock_client):
                 success, result = await post_to_bluesky(long_text)
                 
                 if success:

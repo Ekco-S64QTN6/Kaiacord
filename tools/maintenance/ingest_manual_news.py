@@ -38,14 +38,7 @@ def ingest_manual_news():
             manual_files.extend(list(sdir.glob("manual_news_*.md")))
             manual_files.extend(list(sdir.glob("*.txt")))
     
-    if not manual_files:
-        # Check if there are any briefs missing summaries in daily
-        existing_briefs = list(KNOWLEDGE_DIR_DAILY.glob("news_brief_[0-9][0-9][0-9][0-9][0-9][0-9][0-9][0-9].md"))
-        if not existing_briefs:
-            print("🔍 No news briefs found to process.")
-            return
-    else:
-        print(f"📂 Found {len(manual_files)} manual files to process.")
+    ingested_count = 0
 
     # 1. Process and Move manual files
     for file in manual_files:
@@ -69,7 +62,6 @@ def ingest_manual_news():
             dest_filename = f"news_brief_{clean_date}.md"
             dest_path = KNOWLEDGE_DIR_DAILY / dest_filename
         
-        print(f"\n📄 Ingesting: {file.name}")
         
         # Handle JSON conversion if needed
         content = ""
@@ -133,6 +125,8 @@ def ingest_manual_news():
                 pass
         
         if has_changed:
+            ingested_count += 1
+            print(f"\n📄 Ingesting: {file.name}")
             with open(dest_path, 'w', encoding='utf-8') as f:
                 f.write(content)
             
@@ -148,11 +142,9 @@ def ingest_manual_news():
             if file.absolute() != dest_path.absolute():
                 file.unlink()
                 print(f"✓ Content identical, cleaned up source: {file.name}")
-            else:
-                print(f"✓ No change detected: {dest_filename}")
 
     # 2. Check for missing summaries (ONLY for Daily for now, as Weekly IS a summary)
-    print("\n🔍 Checking for missing summaries in daily...")
+    summarized_count = 0
     all_briefs = list(KNOWLEDGE_DIR_DAILY.glob("news_brief_[0-9][0-9][0-9][0-9][0-9][0-9][0-9][0-9].md"))
     for brief_path in all_briefs:
         clean_date = brief_path.stem.split('_')[-1]
@@ -163,6 +155,7 @@ def ingest_manual_news():
         if summary_path.exists():
             continue
             
+        summarized_count += 1
         print(f"🧠 Generating summary for: {brief_path.name}")
         try:
             with open(brief_path, 'r', encoding='utf-8') as f:
@@ -171,10 +164,11 @@ def ingest_manual_news():
         except Exception as e:
             print(f"❌ Failed to process {brief_path.name}: {e}")
             
-    # Trigger reindex
-    trigger_file = KNOWLEDGE_DIR_DAILY.parent / ".trigger_reindex"
-    trigger_file.touch()
-    print("\n✅ RAG reindex triggered.")
+    # Trigger reindex if work was done
+    if ingested_count > 0 or summarized_count > 0:
+        trigger_file = KNOWLEDGE_DIR_DAILY.parent / ".trigger_reindex"
+        trigger_file.touch()
+        print(f"\n✅ Ingested {ingested_count} files and generated {summarized_count} summaries. RAG reindex triggered.")
 
 def generate_summary(full_brief, target_date, summary_path):
     summary_prompt = f"""
@@ -216,7 +210,6 @@ def generate_summary(full_brief, target_date, summary_path):
         if summary_path.exists():
             with open(summary_path, 'r', encoding='utf-8') as f:
                 if f.read().strip() == final_summary.strip():
-                    print(f"✓ Summary identical: {summary_path.name}")
                     return
 
         with open(summary_path, 'w', encoding='utf-8') as f:

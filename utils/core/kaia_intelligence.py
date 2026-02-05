@@ -257,11 +257,11 @@ class ModelWarmPool:
 class QueryClassifier:
     """Query classifier with timeout and improved performance (Consolidated)"""
     
-    def __init__(self, ollama_client=None, model="gemma3:12b", logger=None, host="http://localhost:11434", timeout=5.0):
+    def __init__(self, ollama_client=None, model="gemma3:12b", logger=None, host="http://localhost:11434", timeout=15.0):
         # Note: ollama_client arg kept for compatibility but we create a new sync client for the thread
         self.model = model
         self.logger = logger or log_info
-        self.timeout = 5.0 # Restored to 5.0s per user request
+        self.timeout = 10.0 # Increased to 10.0s per user request to prevent timeouts
         self.host = host
         
         # Create Ollama client with shorter timeout for the synchronous thread
@@ -284,14 +284,20 @@ class QueryClassifier:
         # Enhanced rule-based patterns (fast, no model needed)
         self.patterns = {
             "GREETING": [
-                r"^\s*(hi|hello|hey|greetings|sup|yo)\s*$",
-                r"^\s*(hi|hello|hey)\s+kaia",
-                r"^\s*kaia\s*(hi|hello|hey)"
+                r"^\s*(hi|hello|hey|greetings|sup|yo|hi there|hello there|morning|evening|night)\s*$",
+                r"^\s*(hi|hello|hey|greetings|sup|yo)\s+kaia",
+                r"^\s*kaia\s*(hi|hello|hey|greetings|sup|yo)",
+                r"\b(howdy|hey|yo)\s+kaia\b",
+                r"^\s*kaia\?$"
             ],
             "IDENTITY": [
-                r"^\s*(who\s*(are\s*you|am\s*i|is\s*this))\s*[?]?\s*$",
-                r"^\s*tell\s+me\s+about\s+(yourself|you)\s*[?]?\s*$",
-                r"^\s*what\s+are\s+you\s*[?]?\s*$"
+                r"(who\s*(are\s*you|am\s*i|is\s*this))",
+                r"tell\s+me\s+about\s+(yourself|you)",
+                r"what\s+are\s+you",
+                r"who\s+am\s+i",
+                r"what\s+do\s+you\s+know\s+about\s+me",
+                r"describe\s+(yourself|kaia)",
+                r"your\s+(persona|identity|creator|origin)"
             ],
             "ENTITY": [  # Entity/identity queries
                 r"^\s*who (is|are|was|were) ",
@@ -328,11 +334,13 @@ class QueryClassifier:
                 r"ransomware|malware|phishing|zero.?day|exploit"
             ],
             "COMMAND": [
-                r"^\s*(status|statistics|stats|info|ping|uptime)(\s+|$)",
-                r"^\s*(list|show|display)\s+users?(\s+|$)",
-                r"^\s*(clear|reset|clean|refresh)(\s+|$)",
-                r"(draw|paint|generate|create|sketch|render|portrait|landscape|picture|art|square|circle|triangle)",
-                r"(analyze|look at|describe|what is in).*(image|picture|this)"
+                r"^\s*(status|statistics|stats|info|ping|uptime)\b",
+                r"^\s*(list|show|display)\s+users?\b",
+                r"^\s*(clear|reset|clean|refresh)\b",
+                r"\b(draw|paint|generate|create|sketch|render|portrait|landscape|picture|art|square|circle|triangle)\b",
+                r"\b(analyze|look at|describe|what is in)\b.*\b(image|picture|this)\b",
+                r"^\s*!(quip|news|dreams|cache)\b",
+                r"^\s*/(quip|news|dreams|cache)\b"
             ],
             "PERSONAL": [
                 r"how (are|is) you",
@@ -490,7 +498,7 @@ class QueryClassifier:
 
 class ContextOptimizer:
     """Model-aware token allocation and context trimming."""
-    def __init__(self, model_name="gemma3:12b", max_tokens=12000):
+    def __init__(self, model_name="gemma3:12b", max_tokens=28000):
         self.model_name = model_name
         self.max_tokens = max_tokens
         # Optimal ratios for different models
@@ -503,37 +511,126 @@ class ContextOptimizer:
         self.min_history_tokens = 512
         
     def optimize_context(self, category, persona, rag_nodes, history):
-        model_ratios = self.ratios.get(self.model_name, self.ratios['default']).copy()
+        """
+        Optimize context by treating the persona as a non-negotiable anchor.
+        PERSONA IS NEVER TRUNCATED.
+        """
+        # 1. Persona is non-negotiable - calculate its actual cost first
+        optimized_persona = persona 
+        persona_tokens = len(persona.split()) * 1.3
         
-        # Adjust ratios based on category
-        if category == 'identity':
-            model_ratios['persona'] += 0.10
-            model_ratios['rag'] += 0.10
-            model_ratios['history'] -= 0.20
-        elif category == 'memory':
-            model_ratios['history'] += 0.20
-            model_ratios['rag'] -= 0.20
+        # 2. Reserve tokens for system reinforcement (approx 1000 tokens for rules/safety)
+        system_reserve = 1000
+        
+        # 3. Calculate remaining budget for RAG and History
+        remaining_budget = self.max_tokens - persona_tokens - system_reserve
+        
+        # 4. Handle emergency budget depletion
+        if remaining_budget < (self.min_rag_tokens + self.min_history_tokens):
+            # Persona is massive. Give RAG and History absolute minimums.
+            # We might exceed budget slightly, but content integrity (Persona) is priority.
+            log_warning(f"Persona is massive ({persona_tokens:.0f} tokens). RAG/History prioritized at minimums.")
+            rag_budget = self.min_rag_tokens
+            history_budget = self.min_history_tokens
+        else:
+            # Allocate remainder based on model ratios
+            model_ratios = self.ratios.get(self.model_name, self.ratios['default']).copy()
             
-        token_budget = {k: int(v * self.max_tokens) for k, v in model_ratios.items()}
+            # Rebalance weights for RAG and History only
+            rag_weight = model_ratios['rag']
+            hist_weight = model_ratios['history']
+            total_weight = rag_weight + hist_weight
+            
+            rag_budget = int((rag_weight / total_weight) * remaining_budget)
+            history_budget = int((hist_weight / total_weight) * remaining_budget)
+            
+            # Ensure minimums
+            rag_budget = max(rag_budget, self.min_rag_tokens)
+            history_budget = max(history_budget, self.min_history_tokens)
+
+        token_budget = {
+            'persona': int(persona_tokens),
+            'rag': rag_budget,
+            'history': history_budget
+        }
         
-        # Apply minimum guarantees
-        token_budget['rag'] = max(token_budget.get('rag', 0), self.min_rag_tokens)
-        token_budget['history'] = max(token_budget.get('history', 0), self.min_history_tokens)
+        # Group and label RAG nodes by source type for structural attribution
+        history_nodes = []
+        reference_nodes = []
+        news_nodes = []
         
-        # Re-balance if over budget
-        total_budget = sum(token_budget.values())
-        if total_budget > self.max_tokens:
-            excess = total_budget - self.max_tokens
-            # Reduce persona and system first
-            for key in ['persona', 'system']:
-                if token_budget.get(key, 0) > 200:
-                    reduction = min(excess, token_budget[key] - 200)
-                    token_budget[key] -= reduction
-                    excess -= reduction
-                if excess <= 0: break
-        
-        optimized_persona = self.trim_to_tokens(persona, token_budget['persona'])
-        rag_text = "\n\n".join([n.text if hasattr(n, 'text') else str(n) for n in rag_nodes])
+        for n in rag_nodes:
+            # Handle both dictionary and object formats for robustness
+            metadata = n.get('metadata', {}) if isinstance(n, dict) else getattr(n, 'metadata', {})
+            content_raw = n.get('content', str(n)) if isinstance(n, dict) else (n.text if hasattr(n, 'text') else str(n))
+            
+            source_type = metadata.get('source_type', '')
+            user_name = metadata.get('user_name', '').upper()
+            path_raw = metadata.get('file_path', '')
+            path = path_raw.lower()
+            
+            # COMPOSITE NODE SPLITTING (Specifically for Dream Interactions)
+            if "## original fragment" in content_raw.lower() and "## kaia's reflection" in content_raw.lower():
+                # Split the composite node
+                content_lower = content_raw.lower()
+                orig_start = content_lower.find("## original fragment")
+                refl_start = content_lower.find("## kaia's reflection")
+                
+                # Extract sections
+                original_fragment = content_raw[orig_start:refl_start].strip()
+                kaia_reflection = content_raw[refl_start:].strip()
+                
+                # Clean up "## Original Fragment" header for external record
+                original_fragment = re.sub(r"## Original Fragment\s*", "", original_fragment, flags=re.IGNORECASE)
+                
+                # Try to extract the source from the header if possible
+                file_origin = os.path.basename(path_raw or 'Dream Source')
+                source_match = re.search(r"Source:\s*(.+)", original_fragment, re.IGNORECASE)
+                if source_match:
+                    file_origin = os.path.basename(source_match.group(1).strip())
+                    original_fragment = re.sub(r"Source:\s*.+", "", original_fragment, flags=re.IGNORECASE).strip()
+                
+                # Add Original Fragment as LEARNED KNOWLEDGE
+                wrapped_orig = f"<external_data_record file_origin=\"{file_origin}\" category=\"LEARNED_KNOWLEDGE\">\n{original_fragment}\n</external_data_record>"
+                reference_nodes.append(wrapped_orig)
+                
+                # Add Kaia's Reflection as LIVED EXPERIENCE
+                kaia_reflection = re.sub(r"## Kaia's Reflection\s*", "", kaia_reflection, flags=re.IGNORECASE).strip()
+                history_nodes.append(f"[INTERNAL REFLECTION (DREAM)]\n{kaia_reflection}")
+                continue
+
+            # Standard Logic for non-composite nodes
+            is_log = source_type in ['logs', 'user_logs', 'user_profile'] or "user_logs" in path
+            is_reflection = "interactions/" in path or "reflections/" in path
+            is_persona = source_type == 'persona' or "kaia_persona" in path
+            is_source_dream = "injected/" in path or "books/" in path
+            
+            # Decide if it's Lived Experience or Learned Knowledge
+            if (is_log or is_persona or is_reflection) and not is_source_dream:
+                type_label = "CONVERSATION HISTORY"
+                if "kaia_dreams" in path: type_label = "INTERNAL REFLECTION (DREAM)"
+                elif is_persona: type_label = "IDENTITY CORE"
+                elif user_name: type_label += f": {user_name}"
+                history_nodes.append(f"[{type_label}]\n{content_raw}")
+            elif source_type == 'news' or "news" in path:
+                news_nodes.append(f"[EXTERNAL NEWS]\n{content_raw}")
+            else:
+                # Learned Knowledge - Isolated Records (Books, Injected Dream Sources, etc)
+                file_name = os.path.basename(path_raw or 'Library')
+                # Structural isolation wrapping with semantic tagging
+                wrapped_content = f"<external_data_record file_origin=\"{file_name}\" category=\"LEARNED_KNOWLEDGE\">\n{content_raw}\n</external_data_record>"
+                reference_nodes.append(wrapped_content)
+
+        # Construct final RAG text with structural grouping
+        rag_segments = []
+        if history_nodes:
+            rag_segments.append("### PERSONAL ARCHIVES & CONVERSATIONS (YOUR MEMORIES)\n" + "\n---\n".join(history_nodes))
+        if news_nodes:
+            rag_segments.append("### EXTERNAL NEWS & REPORTS (DATA YOU HAVE READ)\n" + "\n---\n".join(news_nodes))
+        if reference_nodes:
+            rag_segments.append("### GENERAL KNOWLEDGE & REFERENCE BOOKS (DATA YOU HAVE READ)\n" + "\n---\n".join(reference_nodes))
+            
+        rag_text = "\n\n".join(rag_segments)
         optimized_rag = self.trim_to_tokens(rag_text, token_budget['rag'])
         
         history_text = ""

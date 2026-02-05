@@ -44,11 +44,11 @@ performance:
   # Maximum messages to keep in memory per channel
   max_memory_messages: 30
   
-  # Maximum consecutive quips before requiring substantive response
-  max_consecutive_quips: 3
+  # Maximum number of quips to send in a single idle period
+  max_consecutive_quips: 1
   
   # How often to quip when idle (in minutes)
-  idle_quip_timeout_minutes: 49
+  idle_quip_timeout_minutes: 120
   
   # Number of top RAG results to retrieve
   rag_top_k: 10
@@ -61,6 +61,10 @@ performance:
   
   # Maximum RAG log size (MB) before rotation
   max_log_size_mb: 1000
+
+  # Context budget (Total tokens for system prompt + history)
+  # RTX 3060 (12GB) Safety Max: 28,000 (allows OS/YouTube headroom).
+  max_context_tokens: 28000
 
 # ============================================================================
 # Paths Configuration

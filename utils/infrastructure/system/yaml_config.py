@@ -226,11 +226,13 @@ class YAMLConfig:
     
     @property
     def whitelisted_channels(self) -> list:
-        channels = self.get('discord.whitelisted_channels', '')
+        """List of channel names that are whitelisted"""
+        channels = self.get('discord.whitelisted_channels', [])
+        if channels is None:
+            return []
         if isinstance(channels, str):
-            if not channels: return []
-            return [c.strip().lower() for c in channels.split(',')]
-        return [c.lower() for c in channels]
+            return [c.strip().lower() for c in channels.split(',') if c.strip()]
+        return [str(c).lower() for c in channels]
     
     @property
     def chat_model(self) -> str:
@@ -275,6 +277,10 @@ class YAMLConfig:
     @property
     def requests_per_minute(self) -> int:
         return self.get('performance.requests_per_minute', 30)
+    
+    @property
+    def max_context_tokens(self) -> int:
+        return self.get('performance.max_context_tokens', 32000)
     
     @property
     def startup_news_update(self) -> bool:
@@ -330,6 +336,8 @@ class YAMLConfig:
     def ignored_users(self) -> list:
         """List of users to ignore (names or IDs)"""
         users = self.get('discord.ignored_users', [])
+        if users is None:
+            return []
         if isinstance(users, str):
             return [u.strip().lower() for u in users.split(',') if u.strip()]
         return [str(u).lower() for u in users]
@@ -338,6 +346,8 @@ class YAMLConfig:
     def owner_ids(self) -> list:
         """List of owner/admin users who bypass cooldowns (names or IDs)"""
         owners = self.get('discord.owner_ids', 'ekco')
+        if owners is None:
+            return ['ekco']
         if isinstance(owners, str):
             return [o.strip().lower() for o in owners.split(',') if o.strip()]
         return [str(o).lower() for o in owners]

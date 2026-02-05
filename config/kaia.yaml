@@ -14,8 +14,8 @@ startup:
 discord:
   whitelisted_channels: "kaia-opolis"
   ignored_users:
-    - "Thorondor_470028550951403531"
-    - "470028550951403531"
+    #- "Thorondor_470028550951403531"
+    #- "470028550951403531"
 
 bluesky:
   enabled: true
@@ -23,7 +23,8 @@ bluesky:
   reply_to_mentions: true
 
 social:
-  poll_interval_minutes: 5
+  poll_interval_minutes: 1
+  admin_handles: ["ekco-thewizard.bsky.social", "michaelschellhorn.link"]
 
 x_twitter:
   enabled: false
@@ -31,3 +32,7 @@ x_twitter:
 
 features:
   dream_mode_enabled: true
+
+performance:
+  max_consecutive_quips: 5
+  idle_quip_timeout_minutes: 90

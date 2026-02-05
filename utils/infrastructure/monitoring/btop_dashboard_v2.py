@@ -17,6 +17,7 @@ import sys
 import os
 import threading
 import signal
+from utils.infrastructure.system.shutdown_fixed import shutdown_manager
 from dataclasses import dataclass, field
 from typing import List, Dict, Optional, Tuple, Deque
 from collections import deque
@@ -204,6 +205,8 @@ class BtopDashboardV2:
                  stats_poller=None, 
                  logger=None,
                  stats_tracker=None,
+                 stop_event=None,
+                 cleanup_complete_event=None,
                  frame_interval: float = 0.1,  # ~10 FPS
                  update_interval: float = 1.0):  # Stats update interval
         """
@@ -213,12 +216,16 @@ class BtopDashboardV2:
             stats_poller: RealTimeStatsPoller instance for system metrics
             logger: UnifiedLogger instance for log buffer
             stats_tracker: StatsTracker instance for bot stats
+            stop_event: Optional threading.Event to signal bot to stop
+            cleanup_complete_event: Optional threading.Event signaled when bot cleanup is done
             frame_interval: Time between frame draws (seconds)
             update_interval: Time between full data updates (seconds)
         """
         self.stats_poller = stats_poller
         self.logger = logger
         self.stats_tracker = stats_tracker
+        self.stop_event = stop_event
+        self.cleanup_complete_event = cleanup_complete_event
         self.frame_interval = frame_interval
         self.update_interval = update_interval
         
@@ -294,21 +301,6 @@ class BtopDashboardV2:
         height, width = stdscr.getmaxyx()
         self.layout.calculate_layout(height, width)
         
-    def _setup_signals(self):
-        """Setup signal handlers for clean shutdown"""
-        def signal_handler(signum, frame):
-            self.running = False
-            
-        self._original_sigint = signal.signal(signal.SIGINT, signal_handler)
-        self._original_sigterm = signal.signal(signal.SIGTERM, signal_handler)
-        
-    def _restore_signals(self):
-        """Restore original signal handlers"""
-        if self._original_sigint:
-            signal.signal(signal.SIGINT, self._original_sigint)
-        if self._original_sigterm:
-            signal.signal(signal.SIGTERM, self._original_sigterm)
-            
     def _restore_terminal(self):
         """Ensure terminal is fully restored"""
         try:
@@ -373,6 +365,9 @@ class BtopDashboardV2:
             try:
                 raw_logs = self.logger.get_recent_logs(50)
                 for log in raw_logs:
+                    if log.get('type') == 'DEBUG':
+                        continue
+                        
                     entry = LogEntry(
                         timestamp=log.get('timestamp', ''),
                         log_type=log.get('type', 'INFO'),
@@ -748,6 +743,8 @@ class BtopDashboardV2:
                 return True
                 
             if key in (ord('q'), ord('Q')):
+                if self.stop_event:
+                    self.stop_event.set()
                 return False
             elif key in (ord('c'), ord('C')):
                 self._clear_logs()
@@ -833,11 +830,13 @@ class BtopDashboardV2:
         """Main UI loop - runs in main thread only"""
         self._init_curses(stdscr)
         self.running = True
-        
-        while self.running:
-            # Handle input
-            if not self._handle_input():
-                break
+        while (self.running and not shutdown_manager.shutting_down) or (self.cleanup_complete_event and not self.cleanup_complete_event.is_set()):
+            # Handle input ONLY if still running and NOT shutting down
+            if self.running and not shutdown_manager.shutting_down:
+                if not self._handle_input():
+                    self.running = False
+                    if self.stop_event:
+                        self.stop_event.set()
                 
             # Take snapshot and draw
             try:
@@ -856,7 +855,7 @@ class BtopDashboardV2:
         Run the dashboard.
         This MUST be called from the main thread.
         """
-        self._setup_signals()
+        # Signals are handled globally by shutdown_manager
         
         try:
             # Use curses.wrapper for safe initialization and cleanup
@@ -864,10 +863,12 @@ class BtopDashboardV2:
         except KeyboardInterrupt:
             pass
         except Exception as e:
-            # Ensure terminal is restored even on unexpected errors
-            pass
+            # Report error to stderr since dashboard failed
+            import traceback
+            sys.__stderr__.write(f"\n❌ Dashboard error: {e}\n")
+            traceback.print_exc(file=sys.__stderr__)
+            sys.__stderr__.flush()
         finally:
-            self._restore_signals()
             self._restore_terminal()
             
     def stop(self):

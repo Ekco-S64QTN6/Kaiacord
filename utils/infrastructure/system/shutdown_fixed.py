@@ -16,6 +16,7 @@ import asyncio
 import signal
 import threading
 from typing import Optional
+from utils.infrastructure.logging.kaia_logger import log_info, log_success, log_error, log_warning
 
 
 class CleanShutdown:
@@ -50,26 +51,26 @@ class CleanShutdown:
             return
         
         self.shutting_down = True
-        print(f"\n\033[93m⚠️  Received shutdown signal\033[0m")
+        log_warning("Received shutdown signal")
         
         # Stop stats poller if registered
         if self.stats_poller:
             try:
                 self.stats_poller.stop()
-                print("  ✅ Stopped stats poller")
+                log_info("  ✅ Stopped stats poller")
             except Exception as e:
-                print(f"  ❌ Error stopping stats poller: {e}")
+                log_error(f"  ❌ Error stopping stats poller: {e}")
         
         # Cancel bot task if registered
         if self.bot_task:
             try:
                 self.bot_task.cancel()
-                print("  ✅ Cancelled bot task")
+                log_info("  ✅ Cancelled bot task")
             except Exception as e:
-                print(f"  ❌ Error cancelling bot task: {e}")
+                log_error(f"  ❌ Error cancelling bot task: {e}")
         
-        # Restore terminal - but don't exit
-        self.restore_terminal()
+        # Restore terminal is now handled by the dashboard or main loop
+        # self.restore_terminal()
         
         # NOTE: We do NOT call sys.exit() here!
         # The main loop should detect shutting_down flag and exit cleanly.
@@ -80,32 +81,32 @@ class CleanShutdown:
         
         Call this from an event loop before exiting.
         """
-        print("  🔄 Running async shutdown...")
+        log_info("  🔄 Running async shutdown...")
         
         # Cancel all registered tasks via registry
         try:
             from utils.infrastructure.monitoring.async_task_registry import task_registry
             cancelled = await task_registry.cancel_all(timeout=5.0)
-            print(f"  ✅ Cancelled {cancelled} async tasks")
+            log_info(f"  ✅ Cancelled {cancelled} async tasks")
         except ImportError:
-            print("  ⚠️  Task registry not available")
+            log_warning("  ⚠️  Task registry not available")
         except Exception as e:
-            print(f"  ❌ Error cancelling tasks: {e}")
+            log_error(f"  ❌ Error cancelling tasks: {e}")
         
         # Force GPU cleanup
         try:
             from utils.infrastructure.gpu.clear_gpu_memory import force_clear_gpu
             if force_clear_gpu():
-                print("  ✅ GPU memory released")
+                log_info("  ✅ GPU memory released")
             else:
-                print("  ⚠️  GPU cleanup incomplete")
+                log_warning("  ⚠️  GPU cleanup incomplete")
         except ImportError:
             pass
         except Exception as e:
-            print(f"  ❌ GPU cleanup error: {e}")
+            log_error(f"  ❌ Error GPU cleanup: {e}")
         
         self._shutdown_complete.set()
-        print("  ✅ Async shutdown complete")
+        log_info("  ✅ Async shutdown complete")
     
     def restore_terminal(self):
         """Restore terminal to normal state"""

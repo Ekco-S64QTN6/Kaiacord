@@ -28,7 +28,7 @@ def is_bluesky_configured() -> bool:
     return bool(handle and password)
 
 
-async def get_bluesky_client():
+async def get_bluesky_client(force_new: bool = False):
     """Get or create the Bluesky client (lazy initialization)."""
     global _client
     
@@ -36,6 +36,10 @@ async def get_bluesky_client():
         return None
     
     async with _client_lock:
+        if force_new:
+            _client = None
+            log_info("Forcing new Bluesky client session...")
+            
         if _client is None:
             try:
                 from atproto import AsyncClient
@@ -48,6 +52,7 @@ async def get_bluesky_client():
                 log_success(f"Bluesky client logged in as {handle}")
             except Exception as e:
                 log_error(f"Failed to create Bluesky client: {e}")
+                _client = None
                 return None
         
         return _client

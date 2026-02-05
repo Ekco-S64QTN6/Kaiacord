@@ -127,7 +127,7 @@ class OllamaGPUManager:
             print(f"❌ GPU load failed: {e}")
             return False
     
-    def get_gpu_options(self, for_chat: bool = True) -> Dict[str, Any]:
+    def get_gpu_options(self, for_chat: bool = True, num_ctx: int = 28000) -> Dict[str, Any]:
         """Get optimal GPU options based on context"""
         base_options = {
             'num_gpu': -1,  # -1 = all layers to GPU
@@ -140,7 +140,7 @@ class OllamaGPUManager:
         
         if for_chat:
             base_options.update({
-                'num_ctx': 8192, # Balanced for context and performance
+                'num_ctx': num_ctx, # Dynamic context sizing
                 'num_batch': 512,
                 'num_predict': -1,
                 'temperature': 0.7,

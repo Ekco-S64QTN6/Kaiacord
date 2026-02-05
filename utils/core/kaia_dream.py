@@ -239,11 +239,23 @@ YOUR IN-DEPTH REFLECTION:"""
                 
                 if reflection:
                     # 5. Save as a Markdown file in the KB
+                    # Determine subfolder based on source
+                    subfolder = "other"
+                    if "injected" in file_path.name.lower():
+                        subfolder = "injected"
+                    elif "interactions" in file_path.name.lower() or "user_logs" in str(file_path):
+                        subfolder = "interactions"
+                    elif "books" in str(file_path).lower() or self._classify_source(file_path) == "book":
+                        subfolder = "books"
+                    
+                    target_dir = self.dreams_kb_dir / subfolder
+                    target_dir.mkdir(parents=True, exist_ok=True)
+                    
                     # Sanitize filename
                     safe_name = "".join([c if c.isalnum() else "_" for c in file_path.stem])[:30]
                     date_str = datetime.now().strftime('%Y%m%d_%H%M%S')
                     dream_filename = f"dream_{date_str}_{safe_name}.md"
-                    dream_file_path = self.dreams_kb_dir / dream_filename
+                    dream_file_path = target_dir / dream_filename
                     
                     with open(dream_file_path, 'w', encoding='utf-8') as df:
                         df.write(f"# Dream Reflection: {display_path}\n")
@@ -253,6 +265,9 @@ YOUR IN-DEPTH REFLECTION:"""
                         df.write(f"## Kaia's Reflection\n{reflection}\n")
 
                     # 6. Create metadata for cache
+                    # Store relative path from dreams_kb_dir for dream_file
+                    cache_dream_path = str(Path(subfolder) / dream_filename)
+                    
                     mtime = file_path.stat().st_mtime
                     age_days = int((time.time() - mtime) / 86400)
                     
@@ -264,7 +279,7 @@ YOUR IN-DEPTH REFLECTION:"""
                     dream_meta = {
                         "id": str(uuid.uuid4()),
                         "source_file": display_path,
-                        "dream_file": dream_filename,
+                        "dream_file": cache_dream_path,
                         "source_type": self._classify_source(file_path),
                         "source_age_days": age_days,
                         "content_snippet": snippet[:200] + "...",

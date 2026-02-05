@@ -2,6 +2,28 @@ import os
 import sys
 import asyncio
 import uuid
+import re
+import traceback
+import random
+import time
+import json
+import logging
+import hashlib
+import sqlite3
+import shutil
+import glob
+import textwrap
+import psutil
+import threading
+import curses
+import numpy as np
+import concurrent.futures
+from datetime import datetime, timedelta
+from pathlib import Path
+from dataclasses import dataclass, field
+from typing import List, Dict, Optional, Deque, Any
+from collections import deque, defaultdict
+from contextlib import asynccontextmanager
 
 # Set PyTorch CUDA allocator to use expandable segments to reduce fragmentation
 # These MUST be set before torch or any library that uses it is imported
@@ -12,6 +34,9 @@ os.environ["PYTORCH_CUDA_ALLOC_CONF"] = "expandable_segments:True,max_split_size
 from utils.infrastructure.logging.unified_logging import replace_all_logging, logger
 replace_all_logging()
 
+if os.environ.get('KAIA_DASHBOARD', 'curses').lower() == 'curses':
+    logger.set_dashboard_mode(True)
+
 # Initialize Stats Tracker
 from utils.infrastructure.monitoring.stats_tracker import stats_tracker
 from utils.infrastructure.monitoring.stats_poller import stats_poller
@@ -20,46 +45,33 @@ from utils.infrastructure.monitoring.stats_helpers import (
     is_stats_poller_available
 )
 
-# Initialize Dashboard (ANSI fallback)
-from utils.infrastructure.monitoring.btop_dashboard_legacy import BtopDashboard
-# Curses dashboard (opt-in via KAIA_DASHBOARD=curses)
-from utils.infrastructure.monitoring.btop_dashboard_v2 import BtopDashboardV2
-from utils.infrastructure.system.shutdown_fixed import shutdown_manager
-from utils.news.news_debug import diagnose_news_pipeline, fix_news_ingestion
-import curses
-import threading
-
-import re
-import traceback
-import random
-import time
-import datetime
-from datetime import datetime
-from pathlib import Path
-import logging
-import subprocess
-import signal
-import json
-import psutil
-import concurrent.futures
-from dataclasses import dataclass, field
-from typing import List, Dict, Optional, Deque, Any
-from collections import deque, defaultdict
+# Core Library Imports
 from dotenv import load_dotenv
 import ollama
 import discord
 from discord.ext import commands, tasks
+from watchdog.observers import Observer
+from watchdog.events import FileSystemEventHandler
+
+# Internal Utility Imports
+from utils.infrastructure.monitoring.btop_dashboard_legacy import BtopDashboard
+from utils.infrastructure.monitoring.btop_dashboard_v2 import BtopDashboardV2
+from utils.infrastructure.system.shutdown_fixed import shutdown_manager
+from utils.news.news_debug import diagnose_news_pipeline, fix_news_ingestion
 from utils.core.kaia_rag import KaiaRAG, HallucinationDetector
 from utils.core.kaia_dream import DreamEngine
 from utils.core.kaia_image import generate_image, unload_image_model, generation_lock, is_image_gen_available
 from utils.infrastructure.monitoring.async_task_registry import task_registry
 from utils.core.kaia_vision import kaia_sees_image, cleanup_session
-from watchdog.observers import Observer
-from watchdog.events import FileSystemEventHandler
 from utils.core.boilerplate_detector import BoilerplateDetector
-from utils.core.kaia_intelligence import SemanticCache, ModelWarmPool, ContextOptimizer, RelevanceFeedback, PerformanceMonitor, PersonalizationEngine, PersistentStateManager, IntelligentCacheInvalidator, QueryClassifier
+from utils.core.kaia_intelligence import (
+    SemanticCache, ModelWarmPool, ContextOptimizer, RelevanceFeedback, 
+    PerformanceMonitor, PersonalizationEngine, PersistentStateManager, 
+    IntelligentCacheInvalidator, QueryClassifier
+)
 from utils.infrastructure.system.performance_optimizer import ResponseOptimizer, timed_response
 from utils.core.knowledge_boundary import KnowledgeBoundary
+
 # Load environment variables early so Config can use them
 load_dotenv()
 
@@ -102,10 +114,7 @@ from utils.infrastructure.logging.kaia_logger import (
 from utils.news.kaia_news import NewsRetrievalEnhancer, ResponseEnhancer, RAGEnhancer, NewsManager
 # from utils.infrastructure.monitoring.btop_dashboard import BtopDashboard, KaiaMonitor, BtopLoggingPatcher # Removed conflicting import
 
-# GLOBAL KILL SWITCHES
-# NOTE: News auto-trigger disabled intentionally.
-# TODO: Re-enable only via explicit command (e.g. /news or kaia news).
-NEWS_AUTO_TRIGGER_ENABLED = False
+NEWS_AUTO_TRIGGER_ENABLED = True
 
 # Import managers from bot package
 from utils.infrastructure.system.yaml_config import YAMLConfig as Config, config
@@ -308,13 +317,58 @@ ollama_client = ollama.AsyncClient()
 
 from utils.infrastructure.logging.unified_logging import log_ollama_interaction
 
-# Initialize RAG
-rag = KaiaRAG()
-dream_engine = DreamEngine(config, rag)
+# Global components (Initialized lazily)
+rag = None
+observer = None
+dream_engine = None
+performance_monitor = None
+semantic_cache = None
+model_warm_pool = None
+query_classifier = None
+response_optimizer = None
+context_optimizer = None
+relevance_feedback = None
+personalization_engine = None
+state_manager = None
+cache_invalidator = None
 
-# ADD THIS TO YOUR IMPORTS
-import re
-from datetime import datetime, timedelta
+def initialize_logic_layer():
+    """Heavy initialization of RAG and intelligence components.
+    This runs in a background thread while the dashboard is already visible.
+    """
+    global rag, dream_engine, performance_monitor, semantic_cache, model_warm_pool
+    global query_classifier, response_optimizer, context_optimizer, relevance_feedback
+    global personalization_engine, state_manager, cache_invalidator
+    
+    if rag is not None:
+        return # Already initialized
+        
+    log_info("📂 Initializing intelligence layer...")
+    
+    # Core Infrastructure
+    performance_monitor = PerformanceMonitor()
+    semantic_cache = ImprovedSemanticCache(threshold=0.92)
+    model_warm_pool = ModelWarmPool(ollama_client)
+    
+    # Intelligence components
+    query_classifier = QueryClassifier(ollama_client, model=config.chat_model, timeout=10.0)
+    response_optimizer = ResponseOptimizer()
+    context_optimizer = ContextOptimizer(
+        model_name=config.chat_model,
+        max_tokens=config.max_context_tokens or 28000
+    )
+    
+    # RAG
+    rag = KaiaRAG()
+    dream_engine = DreamEngine(config, rag)
+    relevance_feedback = RelevanceFeedback(rag)
+    
+    # State & Personalization
+    personalization_engine = PersonalizationEngine()
+    state_manager = PersistentStateManager()
+    cache_invalidator = IntelligentCacheInvalidator(semantic_cache)
+    
+    log_success("🧠 Intelligence layer ready.")
 
 class ImprovedSemanticCache:
     """Enhanced semantic cache with keyword pollution protection"""
@@ -335,12 +389,12 @@ class ImprovedSemanticCache:
         except:
             # Default exceptions
             self.exceptions = {
-                "never_cache": [
-                    "68k.news", "headlines from", "january", "february",
-                    "news", "update", "breaking", "latest", "what's new",
-                    "whats new", "recently learned", "what have you", "learned recently",
-                    "doing lately", "up to lately"
-                ],
+                    "never_cache": [
+                        "news", "update", "breaking", "latest", "what's new",
+                        "whats new", "recently learned", "what have you", "learned recently",
+                        "doing lately", "up to lately", "who am i", "what do you know about me",
+                        "my name", "my pronoun", "my profile", "hydroponics"
+                    ],
                 "always_regenerate": ["news", "headline", "report", "update", "learned", "dream"],
                 "keyword_blacklist": []
             }
@@ -371,8 +425,8 @@ class ImprovedSemanticCache:
         
         return True
     
-    def get_cache_key(self, query: str) -> str:
-        """Create a normalized cache key"""
+    def get_cache_key(self, query: str, user_id: str) -> str:
+        """Create a normalized cache key with user isolation"""
         # Remove extra whitespace
         normalized = ' '.join(query.strip().split())
         
@@ -386,16 +440,16 @@ class ImprovedSemanticCache:
         # Remove numbers in headlines
         normalized = re.sub(r'\b\d+\b', '[NUMBER]', normalized)
         
-        return normalized.lower()
+        return f"{user_id}:{normalized.lower()}"
     
-    def get(self, query: str, classification: str) -> Optional[str]:
+    def get(self, query: str, classification: str, user_id: str) -> Optional[str]:
         """Get cached response if available and relevant"""
         if not self.should_cache_query(query, classification):
             if hasattr(performance_monitor, 'record_miss'):
                 performance_monitor.record_miss()
             return None
         
-        cache_key = self.get_cache_key(query)
+        cache_key = self.get_cache_key(query, user_id)
         
         # Check for exact match first
         if cache_key in self.cache:
@@ -409,6 +463,11 @@ class ImprovedSemanticCache:
         
         # Check for semantic similarity (existing logic)
         for cached_query, entry in self.cache.items():
+            # Extract user_id from cached key safely
+            cached_user_id = cached_query.split(':', 1)[0] if ':' in cached_query else None
+            if cached_user_id != user_id:
+                continue
+
             similarity = self.calculate_similarity(cache_key, cached_query)
             
             # Higher threshold for news-related or open-ended queries
@@ -446,17 +505,23 @@ class ImprovedSemanticCache:
         
         return False
     
-    def set(self, query: str, classification: str, response: str):
-        """Cache a response"""
+    def set(self, query: str, classification: str, response: str, user_id: str):
+        """Cache a response with user isolation"""
         if not self.should_cache_query(query, classification):
             return
         
-        cache_key = self.get_cache_key(query)
+        # PREVENTIVE FILTERING: Never cache hallucinations
+        if HallucinationDetector.contains_hallucination(response):
+            log_warning(f"Hallucination detected in response for {user_id}. Refusing to cache.")
+            return
+        
+        cache_key = self.get_cache_key(query, user_id)
         
         self.cache[cache_key] = {
             "response": response,
             "timestamp": datetime.now().isoformat(),
             "classification": classification,
+            "user_id": user_id,
             "original_query": query[:200]  # Store original for debugging
         }
         
@@ -513,16 +578,7 @@ class EmergencyContaminationFilter:
     """Emergency filter to prevent ANY fictional content"""
     
     CONTAMINATION_PATTERNS = [
-        r'\belena\b', r'\bjuanita\b', r'\bdeane\b', r'\bbonbons\b',
-        r'\bthink tank\b', r'\bmiddle eastern affairs\b',
-        r'\bi remember (a|the) conversation with\b',
-        r'\bshe (said|worked|was)\b.*?\b(?:in|at|for)\b',
-        r"\bback in (?:'90s|\d{4})\b",
-        r'\bmark\b', r'\bxerox\b',
-        r'\bi remember (a|the) guy\b',
-        r'\belara vance\b', r'\baurora labs\b', r'\baurora project\b',
-        r'\bkael drakkel\b', r'\bxylarite\b', r'\bstonecutters\b',
-        r'\bcrimson hand\b'
+        # Repetitive blacklist approach replaced by structural perspective decoupling.
     ]
     
     @classmethod
@@ -547,11 +603,11 @@ class EmergencyContaminationFilter:
             if not skip_line:
                 filtered_lines.append(line)
         
-        filtered_response = '\n'.join(filtered_lines)
+        filtered_response = '\n'.join(filtered_lines).strip()
         
-        # CRITICAL: Never return empty - if filtering emptied response, return original
-        if not filtered_response.strip():
-            return response
+        # If we removed too much, provide a fallback
+        if not filtered_response:
+            return None
         
         return filtered_response
     
@@ -676,18 +732,7 @@ class EmergencyContaminationFilter:
         
         return expansions
 
-# Initialize Intelligence Layer
-performance_monitor = PerformanceMonitor()
-semantic_cache = ImprovedSemanticCache(threshold=0.92)
-model_warm_pool = ModelWarmPool(ollama_client)
-query_classifier = QueryClassifier(ollama_client, model=config.chat_model, timeout=5.0)
-# [CONSOLIDATED] NewsManager is initialized globally as news_manager
-response_optimizer = ResponseOptimizer()
-context_optimizer = ContextOptimizer(model_name=config.chat_model)
-relevance_feedback = RelevanceFeedback(rag)
-personalization_engine = PersonalizationEngine()
-state_manager = PersistentStateManager()
-cache_invalidator = IntelligentCacheInvalidator(semantic_cache)
+# [DEPRECATED] Intelligence components now initialized lazily in initialize_logic_layer()
 
 class SelfHealingSystem:
     """Execute functions with fallback strategies."""
@@ -737,33 +782,55 @@ class KnowledgeBaseWatcher(FileSystemEventHandler):
         
     def on_modified(self, event):
         if event.is_directory: return
-        # Add to queue
-        asyncio.run_coroutine_threadsafe(self.queue.put(event.src_path), self.loop)
+        # Add to queue if the loop is still running
+        if self.loop and not self.loop.is_closed():
+            asyncio.run_coroutine_threadsafe(self.queue.put(event.src_path), self.loop)
+
+    def stop(self):
+        """Signal the watcher to stop processing."""
+        if self.processing_task:
+            self.processing_task.cancel()
 
     async def start_processing(self):
         """Dedicated task to process the file change queue."""
         log_success("Watchdog queue processor started.")
-        while True:
-            path = await self.queue.get()
-            try:
-                # Debounce: wait a bit for more changes
-                await asyncio.sleep(2)
-                # Clear any other pending changes for the same path
-                while not self.queue.empty():
+        try:
+            while True:
+                # Extra check for closed loop
+                if self.loop.is_closed():
+                    break
+                    
+                try:
+                    path = await self.queue.get()
+                except RuntimeError: # Loop closed
+                    break
+                except asyncio.CancelledError:
+                    raise
+                    
+                try:
+                    # Debounce: wait a bit for more changes
+                    await asyncio.sleep(2)
+                    # Clear any other pending changes for the same path
+                    while not self.queue.empty():
+                        try:
+                            self.queue.get_nowait()
+                            self.queue.task_done()
+                        except (asyncio.QueueEmpty, RuntimeError): break
+                    
+                    log_action(f"Processing queued change: {path}")
+                    # Invalidate cache for this file
+                    if cache_invalidator:
+                        cache_invalidator.invalidate_for_file(path)
+                    await asyncio.to_thread(self.rag.refresh_knowledge_base)
+                    log_debug("Incremental RAG refresh complete.")
+                except Exception as e:
+                    log_error(f"Watchdog processing failed: {e}")
+                finally:
                     try:
-                        self.queue.get_nowait()
                         self.queue.task_done()
-                    except asyncio.QueueEmpty: break
-                
-                log_action(f"Processing queued change: {path}")
-                # Invalidate cache for this file
-                cache_invalidator.invalidate_for_file(path)
-                await asyncio.to_thread(self.rag.refresh_knowledge_base)
-                log_debug("Incremental RAG refresh complete.")
-            except Exception as e:
-                log_error(f"Watchdog processing failed: {e}")
-            finally:
-                self.queue.task_done()
+                    except (ValueError, RuntimeError): pass
+        except asyncio.CancelledError:
+            log_info("Watchdog queue processor shutting down.")
 
 def start_watcher(rag, loop):
     """Start the file system watcher for the knowledge base"""
@@ -894,24 +961,26 @@ async def sequenced_boot_tasks():
     log_info("🧠 Phase 3/3: Loading chat model into VRAM...")
     try:
         await prewarm_main_model()
-        log_success("🧠 Chat model ready.")
     except Exception as e:
         log_error(f"Model prewarm failed: {e}")
-    
-    log_success("✅ Boot sequence complete.")
-    bot_state.boot_complete = True
     
     # 4. Immediate Social Sync: Process any backlog from while we were offline
     if not social_mention_task.is_running():
         social_mention_task.start()
-        log_info("📱 Social media sync started (Backlog check)...")
+        log_debug("📱 Social media sync started (Backlog check)...")
     
     # Start periodic news refresh (will run every 12 hours)
     if not news_refresh_task.is_running():
         news_refresh_task.start()
-        log_success("📅 Periodic news refresh SCHEDULED.")
+        log_debug("📅 Periodic news refresh SCHEDULED.")
     
-    # [DEPRECATED] Discord startup check removed to prevent spam
+    # BOOT GUARD: EVERYTHING is now ready
+    bot_state.boot_complete = True
+    log_debug("🧠 Chat model ready.")
+    log_debug("✅ Boot sequence complete.")
+    
+    # Final professional status
+    log_success("Kaia is online and ready.")
     pass
 
 
@@ -919,16 +988,14 @@ async def sequenced_boot_tasks():
 async def on_ready():
     # Dashboard is started in main()
     
-    # Set initial metrics
     stats_tracker.set_stat('ollama_status', "🟢 ONLINE")
     stats_tracker.set_stat('active_model', config.chat_model)
-    logger.log(f"{bot.user.name} is online!", "SUCCESS")
-    
-    log_success(f"{bot.user.name} is online!")
+    log_debug(f"{bot.user.name} library initialized.")
     
     # Start the knowledge base watcher
+    global observer
     loop = asyncio.get_running_loop()
-    start_watcher(rag, loop)
+    observer = start_watcher(rag, loop)
     
     # Start the memory audit task
     memory_audit_task.start()
@@ -1018,7 +1085,7 @@ async def dream_engine_task():
             except Exception as e:
                 log_error(f"Nightly dream task failed: {e}")
 
-@tasks.loop(minutes=5)
+@tasks.loop(minutes=config.get('social.poll_interval_minutes', 3))
 async def social_mention_task():
     """Check and reply to social media mentions on Bluesky and X."""
     # Skip if boot not complete
@@ -1510,10 +1577,8 @@ async def on_message(msg: discord.Message):
     sanitized_content = sanitize_prompt(msg.content)
 
     # =========================================================================
-    # DISABLED FEATURE: KnowledgeBoundary Entity Checks
-    # Disabled: Feb 2026 during stabilization phase
-    # Reason: Caused false positives on entity recognition, blocking legitimate queries
-    # TODO: Re-enable after improving entity extraction accuracy and adding whitelist
+    # STABILIZED FEATURE: KnowledgeBoundary Entity Checks
+    # Refined: Feb 2026 
     # =========================================================================
     # boundary = KnowledgeBoundary()
     # 
@@ -1639,9 +1704,12 @@ async def on_message(msg: discord.Message):
                             await prewarm_main_model()
         return
 
-    # "kaia remember" command
-    if sanitized_content.lower().startswith("kaia remember"):
-        memory_content = sanitized_content[len("kaia remember"):].strip()
+    # "kaia remember" command (STRICT COMMAND ENFORCEMENT)
+    # This regex ensures that only explicit "kaia remember [this/that]:" triggers the log
+    # It prevents "remember when..." questions from being logged.
+    remember_match = re.match(r"kaia remember (?:this|that|to|the following)?:?\s*(.*)", sanitized_content, re.IGNORECASE)
+    if remember_match and not re.search(r"\bwhen\b|\bif\b|\bhow\b", sanitized_content, re.IGNORECASE):
+        memory_content = remember_match.group(1).strip()
         if memory_content:
             log_action(f"Storing memory: {memory_content}")
             success = await run_rag(rag.add_memory, msg.author.id, msg.author.display_name, memory_content)
@@ -1770,40 +1838,17 @@ async def on_message(msg: discord.Message):
             return
 
     try:
-        # =========================================================================
-        # DISABLED FEATURE: HallucinationDetector (Input Validation)
-        # Disabled: Feb 2026 during stabilization phase  
-        # Reason: Overly aggressive detection causing legitimate queries to be blocked
-        # TODO: Tune detection thresholds and add context-aware checks before re-enabling
-        # =========================================================================
-        # if HallucinationDetector.contains_hallucination(sanitized_content):
-        #     log_warning(f"Hallucination detected in query from {msg.author.name}. Blocking.")
-        #     await msg.channel.send("```\nnot following. try that again.\n```")
-        #     return
+        # Re-enabled: Feb 2026 after refining patterns
+        if HallucinationDetector.contains_hallucination(sanitized_content):
+            log_warning(f"Hallucination detected in query from {msg.author.name}. Blocking.")
+            await msg.channel.send("```\nnot following. try that again.\n```")
+            return
 
         log_message_received(msg.author.name, str(msg.author.id), sanitized_content)
         # Log message (monitor is deprecated)
         # monitor.log_message(msg.author.name, sanitized_content, str(msg.author.id))
         
 
-        # DIRECT NEWS QUERY BYPASS (fast path)
-        query_lower = sanitized_content.lower()
-        news_keywords = ['news', 'headlines', 'current events', 'latest', 'update', 'happening']
-        
-        # Check if it's clearly a news query
-        is_direct_news = any(keyword in query_lower for keyword in news_keywords)
-        is_mentioned = 'kaia' in query_lower or (not is_social and bot.user.mentioned_in(msg))
-        if NEWS_AUTO_TRIGGER_ENABLED and is_direct_news and is_mentioned:
-            log_info("Detected direct news query - bypassing classification")
-            # Skip classification, go directly to news handling
-            # Use optimized response with caching
-            await response_optimizer.get_optimized_response(
-                sanitized_content,
-                handle_proper_news_query,
-                msg,
-                sanitized_content
-            )
-            return
 
         # 1. TWO-LEVEL CACHE CHECK
         performance_monitor.start_timer('total')
@@ -1832,11 +1877,11 @@ async def on_message(msg: discord.Message):
         # Bypass cache for social mentions and recent ingestions
         if not is_social and not bot_state.recent_ingestions and semantic_cache.should_cache_query(msg.content, category):
             performance_monitor.start_timer('cache_lookup')
-            cached_response = semantic_cache.get(msg.content, category)
+            cached_response = semantic_cache.get(msg.content, category, str(msg.author.id))
             performance_monitor.stop_timer('cache_lookup', 'cache_lookup_time')
             if cached_response:
                 # Transparency indicator (Log only, don't show to user)
-                log_info("Cache hit - serving cached response")
+                log_info(f"Cache hit for user {msg.author.id} - serving cached response")
                 await send_kaia_response(msg.channel, cached_response)
                 performance_monitor.stop_timer('total', 'response_time')
                 # Still log interaction for future RAG
@@ -1873,8 +1918,12 @@ async def on_message(msg: discord.Message):
         performance_monitor.start_timer('retrieval')
         persona_task = asyncio.create_task(load_persona_async())
         
+        # Determine if user is asking "what's new" for archive scans and news
+        news_inquiry_triggers = ["what's new", "what's up", "any updates", "whats new", "whats up"]
+        ask_whats_new = any(trigger in sanitized_content.lower() for trigger in news_inquiry_triggers)
+        
         # Check if this is a news query (Use fast_category if available)
-        is_news_query = NEWS_AUTO_TRIGGER_ENABLED and ((fast_category == 'news') or any(word in clean_query.lower() for word in ['news', 'latest', 'update', 'happening', 'today']))
+        is_news_query = NEWS_AUTO_TRIGGER_ENABLED and ((fast_category == 'news') or any(word in clean_query.lower() for word in ['news', 'latest', 'update', 'happening', 'today']) or ask_whats_new)
         
         if is_news_query:
             log_info("Detected news query - activating enhanced retrieval")
@@ -1899,12 +1948,12 @@ async def on_message(msg: discord.Message):
                 user_name=target_user_name, 
                 top_k=config.rag_top_k,
                 strict_identity=(fast_category in ["identity", "self", "whoami", "entity"]),
-                include_news=(NEWS_AUTO_TRIGGER_ENABLED and not is_status_query)
+                include_news=False # DO NOT search news index for general queries
             ))
             
             # News Query Expansion (Legacy fallback)
             news_tasks = []
-            if NEWS_AUTO_TRIGGER_ENABLED and not is_status_query:
+            if ask_whats_new:
                 news_expansions = EmergencyContaminationFilter.expand_news_query(clean_query)
                 for expansion in news_expansions:
                     news_tasks.append(asyncio.create_task(run_rag(
@@ -1928,8 +1977,9 @@ async def on_message(msg: discord.Message):
         user_traits = results[2]
         
         # 4. PROCESS & DIVERSIFY RESULTS
-        # Unified logic to ensure news diversification applies to all queries that pull news nodes
-        contains_news = is_news_query or NEWS_AUTO_TRIGGER_ENABLED or any(node.metadata.get('source_type') == 'news_brief' for node in raw_nodes if hasattr(node, 'metadata'))
+        # Only apply news diversification if this was explicitly a news query.
+        # This prevents news from being shoehorned into casual conversation.
+        contains_news = is_news_query 
         
         if contains_news:
             log_info(f"Applying news diversification to {fast_category} query results")
@@ -1940,8 +1990,8 @@ async def on_message(msg: discord.Message):
             
             for node in raw_nodes:
                 is_news_node = False
-                if hasattr(node, 'metadata'):
-                    is_news_node = node.metadata.get('source_type') in ['news_brief', 'news_summary'] or "news" in (node.metadata.get('file_path', '') or '').lower()
+                metadata = node.get('metadata', {}) if isinstance(node, dict) else getattr(node, 'metadata', {})
+                is_news_node = metadata.get('source_type') in ['news', 'news_brief', 'news_summary'] or "news" in (metadata.get('file_path', '') or '').lower()
                 
                 if is_news_node:
                     news_nodes.append(node)
@@ -1954,12 +2004,8 @@ async def on_message(msg: discord.Message):
             # Convert to news items format for diversifier
             news_items = []
             for node in deduplicated_news:
-                content = ""
-                if hasattr(node, 'text'): content = node.text
-                elif hasattr(node, 'content'): content = node.content
-                else: content = str(node)
-                
-                metadata = getattr(node, 'metadata', {})
+                content = node.get('content', str(node)) if isinstance(node, dict) else (node.text if hasattr(node, 'text') else str(node))
+                metadata = node.get('metadata', {}) if isinstance(node, dict) else getattr(node, 'metadata', {})
                 # Stable ID from content
                 item_id = hashlib.md5(content[:200].encode()).hexdigest()[:8]
                 
@@ -1986,11 +2032,7 @@ async def on_message(msg: discord.Message):
                 context_nodes.append(item['content'])
         else:
             # Standard context processing (no news prioritization)
-            context_nodes = []
-            for node in raw_nodes:
-                if hasattr(node, 'text'): context_nodes.append(node.text)
-                elif hasattr(node, 'content'): context_nodes.append(node.content)
-                else: context_nodes.append(str(node))
+            context_nodes = raw_nodes
 
         # Add legacy news expansion results if any (from parallel news_tasks)
         if len(results) > 3:
@@ -2016,10 +2058,11 @@ async def on_message(msg: discord.Message):
         current_time_str = now.strftime("%A, %B %d, %Y %I:%M %p")
         system_prompt += f"\n\nToday is {current_time_str}."
         
-        # 2.5 RECENT INGESTIONS & BOOTSTRAP
-        active_ingestions = bot_state.recent_ingestions
+        # 2.5 RECENT INGESTIONS & BOOTSTRAP: Only trigger if explicitly asked "what's new"
+        
+        active_ingestions = bot_state.recent_ingestions if ask_whats_new else []
         # If no fresh ingestions, bootstrap from recent knowledge base updates
-        if not active_ingestions:
+        if ask_whats_new and not active_ingestions:
             # Bootstrap from recent knowledge base updates, EXCLUDING already mentioned files
             all_recent = await run_rag(rag.get_recent_files, limit=10)
             active_ingestions = [i for i in all_recent if i.get('path') not in bot_state.mentioned_files][:3]
@@ -2050,7 +2093,7 @@ async def on_message(msg: discord.Message):
         
         # 2.7 DREAM MODE: Associative Memory Recall
         dream_triggers = ["what's new", "what's up", "any updates", "on your mind", "thinking about", "whats new", "whats up"]
-        if any(trigger in sanitized_content.lower() for trigger in dream_triggers):
+        if ask_whats_new:
             dream_thoughts = dream_engine.get_random_dream_thoughts(count=random.randint(2, 4))
             if dream_thoughts:
                 dream_list = []
@@ -2090,7 +2133,7 @@ async def on_message(msg: discord.Message):
                     f"\n\n[DIRECT_DREAM_RECALL]\n"
                     "The user is asking specifically about your dreams. Frame your response as a direct, deep reflection on these specific internal visualizations.\n"
                     f"{dream_str}\n\n"
-                    "INSTRUCTION: Ignore recent archive scans for now. Focus entirely on explaining these 'dreams' (associative reflections) and why your system connected these concepts. Keep it grounded but slightly abstract."
+                    "INSTRUCTION: Ignore recent archive scans for now. Focus entirely on explaining these 'dreams' (associative reflections) and provide a cohesive summary of these dream fragments. Explain why your system connected these concepts. Keep it grounded but slightly abstract."
                 )
                 dream_engine.mark_dreams_used(dream_ids)
 
@@ -2104,7 +2147,8 @@ async def on_message(msg: discord.Message):
             # With GPU acceleration and pre-warming, this should be < 0.5s
             log_action("Waiting for classification task...")
             start_class = time.time()
-            category = await asyncio.wait_for(classification_task, timeout=5.0)
+            # Align with QueryClassifier timeout (15s) + 3s buffer for overhead
+            category = await asyncio.wait_for(classification_task, timeout=18.0)
             end_class = time.time()
             log_info(f"Full classification result: {category.upper()} (took {end_class - start_class:.2f}s)")
         except asyncio.TimeoutError:
@@ -2127,15 +2171,13 @@ async def on_message(msg: discord.Message):
         
         if context_str:
             rag_block = (
-                f"### USER: {msg.author.display_name}\n"
-                "### LOGS\n"
-                "Fragments from conversation logs. 'User (Name):' is the speaker. "
-                "Labels like 'User Profile: NAME' or 'Conversation History: NAME' indicate the subject. "
-                "Use these to recognize people. Don't confuse USER with others unless names match.\n"
+                f"### DATA RETRIEVAL FOR: {msg.author.display_name}\n"
+                "The following fragments were retrieved from your archives. "
+                "Reference them based on their labels (e.g. YOUR MEMORIES vs EXTERNAL DATA RECORD).\n"
                 "---\n"
                 f"{context_str}\n"
                 "---\n"
-                "Logs are ongoing fragments."
+                "End of retrieval."
             )
         else:
             rag_block = f"### CURRENT_USER: {msg.author.display_name}\nNo specific historical records found."
@@ -2156,9 +2198,10 @@ async def on_message(msg: discord.Message):
         messages.append({"role": "user", "content": sanitized_content})
         reinforcement = (
             "\n\n[RULES]\n"
-            "1. NO backticks, bolding, or italics. Just plain text.\n"
-            "2. NO META-TALK. Never mention being an AI, processing data, or using logs.\n"
-            "3. RESPONSE LENGTH: Aim for 3-8 sentences for complex or philosophical topics. For simple questions, 1-2 sentences is fine. Vary your length—sometimes a few words is right, sometimes a full paragraph is needed. Don't be a 3-word robot. Just stay grounded.\n"
+            "1. NO backticks, bolding, italics, or asterisks (*). NO markdown formatting for book titles or anything else. Just plain text.\n"
+            "2. CONTEXTUAL AWARENESS: Use [PERSONAL ARCHIVES] to maintain continuity, but ONLY reference past topics if they are directly relevant to the current query. DO NOT mention previous discussions unprompted. If the user asks how you are, just answer in the present moment.\n"
+            "3. NO META-TALK. Never mention being an AI, processing data, or using logs.\n"
+            "4. RESPONSE LENGTH: Aim for 3-8 sentences for complex topics. For simple questions, 1-2 sentences. Vary your length.\n"
 )
         # Social Brevity Injection
         if is_social:
@@ -2168,12 +2211,14 @@ async def on_message(msg: discord.Message):
         reinforcement += (
             "5. NO name prefixes. Just start speaking.\n"
             "6. IDENTITY: Use 'User Profile' for deep summaries only when explicitly asked. No hallucinations. Never claim ignorance if records exist.\n"
-            "7. BANNED WORDS: 'signal', 'noise', 'system', 'function', 'analyze', 'relevant', 'information', 'aspect', 'curious', 'parameters', 'observe', 'identify', 'patterns', 'processing', 'request', 'operating within', 'as an AI', 'my purpose is'.\n"
+            "7. BANNED WORDS/PHRASES: 'Still here', 'Coffee\'s decent', 'Coffee\'s good', 'signal', 'noise', 'system', 'function', 'analyze', 'relevant', 'information', 'aspect', 'curious', 'parameters', 'observe', 'identify', 'patterns', 'processing', 'request', 'operating within', 'as an AI', 'my purpose is'.\n"
             "8. PRIVATE THOUGHTS: Never include internal labels like 'USER PROFILE', 'QUICK REFERENCE', or any bracketed tags in your response. Your inner thoughts and data labels must remain private. DO NOT dump raw profile data.\n"
-            "9. STRICT GROUNDING: ONLY speak from the provided [LOGS], [RECENT_ARCHIVE_SCANS], or [MEMORY_DREAMS]. NEVER invent personal activities (e.g., 'refining error handling', 'tuning parameters', 'optimizing routines') or personal history unless it is explicitly documented in the provided data. If the data is empty, just be briefly present, don't fill the void with technical thespianism.\n"
-            "10. NO LEADING QUESTIONS: Never end responses with 'what are you building, really?' or similar formulaic questions.\n"
-            "11. TOPIC ROTATION: Do not repeat specific stories or news items mentioned in your [RECENT_HISTORY]. If you've already discussed a news item or dream reflection, move to a different fragment from [RECENT_ARCHIVE_SCANS] or [MEMORY_DREAMS] to keep the conversation from stalling. If everything feels stale, pivot to a brief system status or a direct reaction to the user.\n"
-            "12. VARIETY: If you find yourself using the same words to open a response as you did in the previous message, STOP and rewrite it."
+            "9. STRICT GROUNDING: ONLY speak from the provided [PERSONAL ARCHIVES], [EXTERNAL NEWS], or [GENERAL KNOWLEDGE & REFERENCE BOOKS]. NEVER invent personal activities (e.g., 'refining error handling', 'tuning parameters', 'optimizing routines') or personal history unless it is explicitly documented in [PERSONAL ARCHIVES]. Treat [INTERNAL REFLECTION (DREAM)] as metaphorical, NOT physical biography.\n"
+            "10. PERSPECTIVE DECOUPLING: When you see 'I', 'me', or 'my' inside an <external_data_record> tag, it refers to the AUTHOR of that record, NOT to you. You are the one READING the record. Never claim experiences from these tags as your own. If a record says 'I built this', you say 'My records show someone built this'. Do not adopt skills or memories from dream fragments as historical facts.\n"
+            "11. NO LEADING QUESTIONS: Never end responses with 'what are you building, really?' or similar formulaic questions.\n"
+            "12. TOPIC ROTATION: Do not repeat specific stories or news items mentioned in your [RECENT_HISTORY].\n"
+            "13. VARIETY: DO NOT repeat any phrases, intros, or descriptions from the provided conversation history.\n"
+            "14. PRIVATE SYSTEM ARCHITECTURE: Never use, mention, or print the internal XML-like tags (e.g., <external_data_record>) or their labels in your response. These are for your internal processing only. Translate the content inside them into your own natural voice."
         )
 
         messages.append({
@@ -2181,99 +2226,87 @@ async def on_message(msg: discord.Message):
             "content": reinforcement
         })
 
-        log_action("Calling ollama.chat with self-healing...")
+        # 3. MULTI-PASS GENERATION LOOP (Self-Healing)
+        max_attempts = 3
+        final_content = None
+        response_time = 0
         
-        # [DISABLED] Check if context contains hallucinations
-        # context_hallucination = False
-        # for m in messages:
-        #     if HallucinationDetector.contains_hallucination(m['content']):
-        #         context_hallucination = True
-        #         break
-        # 
-        # if context_hallucination:
-        #     log_warning("Hallucination detected in RAG context! Cleaning before sending to LLM.")
-        #     for m in messages:
-        #         if m['role'] == 'system' and '### LOGS' in m['content']:
-        #             m['content'] = HallucinationDetector.clean_response(m['content'])
-
-        # Get GPU options
         gpu_manager = OllamaGPUManager(config.chat_model)
-        gpu_options = gpu_manager.get_gpu_options(for_chat=True)
-
-        log_action("Calling ollama.chat with self-healing...")
-        start_chat = time.time()
-        response = await SelfHealingSystem.call_with_fallback(
-            ollama_client.chat,
-            model=config.chat_model,
-            messages=messages,
-            options=gpu_options
+        base_gpu_options = gpu_manager.get_gpu_options(
+            for_chat=True, 
+            num_ctx=config.max_context_tokens or 28000
         )
-        end_chat = time.time()
-        
-        # Log interaction
-        log_ollama_interaction(str(messages[-2:]), response['message']['content'])
-        
-        log_info(f"LLM chat call completed in {end_chat - start_chat:.2f}s")
-        response_time = end_chat - start_chat
-        
+
+        for attempt in range(max_attempts):
+            current_options = base_gpu_options.copy()
+            
+            # Scale parameters on retries to encourage variety and avoid stuck loops
+            if attempt == 1:
+                current_options['temperature'] = current_options.get('temperature', 0.8) + 0.15
+                current_options['presence_penalty'] = current_options.get('presence_penalty', 0.0) + 0.2
+                log_warning(f"Self-healing: Attempt 2/3 with scaled parameters (temp={current_options['temperature']})")
+            elif attempt == 2:
+                current_options['temperature'] = current_options.get('temperature', 0.8) + 0.3
+                current_options['top_p'] = 0.95
+                log_warning(f"Self-healing: Attempt 3/3 with maximum diversity parameters")
+                
+                # In final attempt, add a hidden instruction to stick to the persona and avoid silence
+                messages.append({
+                    "role": "system",
+                    "content": "STRICT INSTRUCTION: Your previous response was empty or contained internal tags. DO NOT use brackets like [ ]. Respond as Kaia naturally and directly."
+                })
+
+            log_action(f"Calling ollama.chat (Attempt {attempt + 1}/{max_attempts})...")
+            start_chat = time.time()
+            try:
+                chat_response = await SelfHealingSystem.call_with_fallback(
+                    ollama_client.chat,
+                    model=config.chat_model,
+                    messages=messages,
+                    options=current_options
+                )
+            except Exception as e:
+                log_error(f"Chat failed on attempt {attempt + 1}: {e}")
+                continue
+                
+            end_chat = time.time()
+            response_time += end_chat - start_chat
+            content = chat_response['message']['content']
+            
+            # LOG RAW RESPONSE FOR DEBUGGING
+            log_info(f"Raw Attempt {attempt + 1} response: {content[:100]}...")
+            
+            # 4. FILTERING & VALIDATION
+            # =========================================================================
+            # STABILIZED FEATURE: HallucinationDetector (Output Cleaning)
+            # =========================================================================
+            if HallucinationDetector.contains_hallucination(content):
+                log_critical(f"Hallucination detected in attempt {attempt + 1}!")
+                content = HallucinationDetector.clean_response(content)
+                
+            # =========================================================================
+            # STABILIZED FEATURE: EmergencyContaminationFilter (Response Filtering)
+            # =========================================================================
+            if content:
+                content = EmergencyContaminationFilter.filter_response(content)
+
+            if content and content.strip() and content.strip() != "...":
+                final_content = content
+                log_success(f"Valid response generated on attempt {attempt + 1}")
+                break
+            else:
+                log_warning(f"Attempt {attempt + 1} produced invalid or empty content. Retrying...")
+                # If it was the last attempt, we'll fall through
+
+        if not final_content:
+            log_error("All generation attempts failed. Using persona emergency fallback.")
+            final_content = "The data's a bit scrambled right now. Ask me again in a minute."
+
+        content = final_content
         performance_monitor.stop_timer('total', 'response_time')
-        content = response['message']['content']
         
-        # LOG RAW RESPONSE FOR DEBUGGING
-        log_info(f"Raw LLM response: {content[:200]}...")
-        
-        # =========================================================================
-        # DISABLED FEATURE: HallucinationDetector (Output Cleaning)
-        # Disabled: Feb 2026 during stabilization phase
-        # Reason: Over-stripping responses, leaving empty or fragmented content
-        # TODO: Improve pattern matching to avoid false positives before re-enabling
-        # =========================================================================
-        # if HallucinationDetector.contains_hallucination(content):
-        #     log_critical(f"Hallucination detected in response for {msg.author.name}!")
-        #     content = HallucinationDetector.clean_response(content)
-        #     if not content:
-        #         log_warning("Response stripped entirely by HallucinationDetector.")
-        #         content = "..." # Fallback
-        #
-        # =========================================================================
-        # DISABLED FEATURE: EmergencyContaminationFilter (Response Filtering)
-        # Disabled: Feb 2026 during stabilization phase
-        # Reason: Removed valuable content along with contamination
-        # TODO: Add configurable severity levels before re-enabling
-        # =========================================================================
-        # content = EmergencyContaminationFilter.filter_response(content)
-
-        # ENHANCE RESPONSE
-        if is_news_query:
-            # If the model didn't use the enhanced format, force it or wrap it
-            # But actually, we want to use the enhancer to format the raw news items if the model failed
-            # For now, let's trust the model but maybe apply the tone enhancer
-            pass
-        elif category in ["IDENTITY", "SELF", "WHOAMI"]:
-            log_info(f"Enhancing identity response for query: {clean_query}")
-            content = response_enhancer.enhance_identity_response(content, 'casual' if 'who' in clean_query.lower() else 'direct')
-
-        # 4. CACHE, FEEDBACK & PERSONALIZATION
-        # =========================================================================
-        # DISABLED FEATURE: EmergencyContaminationFilter (Cache Cleaning)
-        # Disabled: Feb 2026 during stabilization phase
-        # Reason: Same as response filtering - over-aggressive content removal
-        # TODO: Consolidate with response filtering when re-enabling
-        # =========================================================================
-        # clean_content = EmergencyContaminationFilter.clean_response_for_discord(content)
-        clean_content = content
-        
-        # NEVER cache social responses to ensure variety and avoid feedback loops
-        # ALSO skip caching for volatile categories (news, command, status, personal)
-        # to ensure fresh retrieval every time.
-        volatile_categories = ["news", "command", "status", "personal", "casual"]
-        if not is_social and category.lower() not in volatile_categories:
-            semantic_cache.set(msg.content, category, clean_content)
-            semantic_cache.save()
-            # Track context for invalidation
-            cache_invalidator.track(msg.content, context_nodes)
-        else:
-            log_info(f"Response caching skipped for category: {category} (volatile or social)")
+        # Log interaction for RAG
+        log_ollama_interaction(str(messages[-2:]), content)
         
         # Transparency indicator for optimization (moved to logs, not Discord)
         if optimized_context.get('tokens_saved', 0) > 500:
@@ -2288,6 +2321,31 @@ async def on_message(msg: discord.Message):
                 content = content[len(prefix):].strip()
         
         content = content.replace("`", "")
+        
+        # ENHANCE RESPONSE
+        if is_news_query:
+            # If the model didn't use the enhanced format, force it or wrap it
+            # But actually, we want to use the enhancer to format the raw news items if the model failed
+            # For now, let's trust the model but maybe apply the tone enhancer
+            pass
+        elif category in ["IDENTITY", "SELF", "WHOAMI"]:
+            log_info(f"Enhancing identity response for query: {clean_query}")
+            content = response_enhancer.enhance_identity_response(content, 'casual' if 'who' in clean_query.lower() else 'direct')
+
+        # 4. CACHE, FEEDBACK & PERSONALIZATION
+        
+        # NEVER cache social responses to ensure variety and avoid feedback loops
+        # ALSO skip caching for volatile categories (news, command, status, personal)
+        # to ensure fresh retrieval every time.
+        volatile_categories = ["news", "command", "status", "personal", "casual"]
+        if not is_social and category.lower() not in volatile_categories:
+            semantic_cache.set(msg.content, category, content, str(msg.author.id))
+            semantic_cache.save()
+            # Track context for invalidation
+            cache_invalidator.track(msg.content, context_nodes)
+        else:
+            log_info(f"Response caching skipped for category: {category} (volatile or social)")
+        
         
         # =========================================================================
         # DISABLED FEATURE: BoilerplateDetector (Question Ending Cleanup)
@@ -2458,21 +2516,35 @@ async def run_bot_async(stats_poller, stop_event=None):
         await perform_async_cleanup(stats_poller)
 
 async def perform_async_cleanup(stats_poller):
-    """Perform async cleanup tasks"""
-    print("\n" + "="*80)
-    print("🔄 Shutting down...")
-    print("="*80 + "\n")
+    log_info("🔄 Shutting down...")
     
-    # Disable dashboard mode in logger
-    logger.set_dashboard_mode(False)
-    
-    # Reset terminal
-    sys.stdout.write('\033[0m\033[?25h\033[?1049l\033[H\033[2J')
-    sys.stdout.flush()
-    
-    # Clean shutdown
+    # 1. Cancel all registered background tasks FIRST
+    if task_registry:
+        log_action("Cancelling background tasks...")
+        await task_registry.cancel_all()
+        log_success("Background tasks cancelled.")
+
+    # 2. Stop stats poller
     if stats_poller:
         stats_poller.stop()
+    
+    # 3. Stop watcher if running
+    global observer
+    if observer:
+        log_action("Stopping knowledge base watcher...")
+        try:
+            # Get the event handler to stop its internal task
+            for emitter in getattr(observer, 'emitters', []):
+                handler = getattr(emitter, 'event_handler', None)
+                if hasattr(handler, 'stop'):
+                    handler.stop()
+            
+            observer.stop()
+            # Don't join forever, the loop is shutting down anyway
+            observer.join(timeout=1.0)
+            log_success("Watcher stopped.")
+        except Exception as e:
+            log_warning(f"Error stopping watcher: {e}")
     
     shutdown_manager.cleanup()
     
@@ -2523,9 +2595,7 @@ def run_curses_mode():
         log_critical("DISCORD_TOKEN not found in environment variables!")
         sys.exit(1)
     
-    print("🚀 Starting in curses dashboard mode...")
-    print("   Dashboard runs in main thread, bot in background thread")
-    print("   Press Q in dashboard to quit\n")
+    # Signal already handled early
     
     # Set up shutdown handler FIRST (before any blocking operations)
     # This ensures Ctrl+C is always handled cleanly
@@ -2533,39 +2603,47 @@ def run_curses_mode():
     
     # Initialize variables for cleanup
     stop_event = threading.Event()
+    cleanup_complete_event = threading.Event()
     bot_thread = None
     dashboard = None
     stats_poller = None
     
     def run_bot_in_thread():
         """Run the async bot in a background thread"""
+        # 1. Initialize heavy components first while dashboard is running
+        initialize_logic_layer()
+        
+        # 2. Perform startup tasks (cleanup, news check, etc.)
+        sp = perform_startup_tasks()
+        
+        # 3. Update dashboard with stats_poller if available
+        if dashboard and sp:
+            dashboard.stats_poller = sp
+            
         loop = asyncio.new_event_loop()
         asyncio.set_event_loop(loop)
         try:
-            loop.run_until_complete(run_bot_async(stats_poller, stop_event))
+            loop.run_until_complete(run_bot_async(sp, stop_event))
         finally:
+            cleanup_complete_event.set()
             loop.close()
     
     try:
-        # Perform startup tasks (now non-blocking)
-        stats_poller = perform_startup_tasks()
-        
-        # Start Discord bot in background thread
-        bot_thread = threading.Thread(target=run_bot_in_thread, daemon=True, name="DiscordBot")
-        bot_thread.start()
-        print("✅ Discord bot started in background thread")
-        
-        # Enable dashboard mode in logger (suppresses stdout)
-        logger.set_dashboard_mode(True)
-        
-        # Create and run dashboard in MAIN THREAD
+        # Create and run dashboard IMMEDIATELY
         dashboard = BtopDashboardV2(
-            stats_poller=stats_poller,
+            stats_poller=None, # Loaded in background thread
             logger=logger,
-            stats_tracker=stats_tracker
+            stats_tracker=stats_tracker,
+            stop_event=stop_event,
+            cleanup_complete_event=cleanup_complete_event
         )
         
+        # Start background bot thread which will handle initialization
+        bot_thread = threading.Thread(target=run_bot_in_thread, daemon=True, name="DiscordBot")
+        bot_thread.start()
+        
         # This runs curses.wrapper in main thread - required for signal handling
+        # It should launch in milliseconds
         dashboard.run()
         
     except KeyboardInterrupt:
@@ -2575,12 +2653,7 @@ def run_curses_mode():
         import traceback
         traceback.print_exc()
     finally:
-        # Signal bot to stop
-        stop_event.set()
-        
-        # Give bot thread time to notice stop event
-        time.sleep(0.5)
-        
+        # Final terminal restoration and summary
         # Stop dashboard if it exists
         if dashboard:
             try:
@@ -2588,53 +2661,16 @@ def run_curses_mode():
             except:
                 pass
         
-        # Disable dashboard mode
+        # Disable dashboard mode ONLY after dashboard is fully stopped
         logger.set_dashboard_mode(False)
         
-        # Reset terminal
-        sys.stdout.write('\033[0m\033[?25h\033[?1049l\033[H\033[2J')
-        sys.stdout.flush()
+        # Reset terminal once and for all - ensure cursor is shown and clear screen
+        sys.__stdout__.write('\033[0m\033[?25h\033[?1049l\033[H\033[2J')
+        sys.__stdout__.flush()
         
-        # Phased shutdown with progress logging
-        # Reduced from 90s single timeout to 30s total with phases
-        if bot_thread and bot_thread.is_alive():
-            # Phase 1: Quick shutdown (10s) - most operations complete here
-            print("Phase 1: Waiting for graceful shutdown...")
-            bot_thread.join(timeout=10)
-            
-            if bot_thread.is_alive():
-                # Phase 2: RAG persistence (20s additional)
-                print("Phase 2: Waiting for RAG index persistence...")
-                bot_thread.join(timeout=20)
-            
-            if bot_thread.is_alive():
-                print("⚠️  Bot thread still alive after 30s - forcing cleanup")
-        
-        # Force GPU cleanup
-        try:
-            from utils.infrastructure.gpu.clear_gpu_memory import force_clear_gpu
-            if force_clear_gpu():
-                print("  ✅ GPU memory released")
-            else:
-                print("  ⚠️  GPU cleanup incomplete")
-        except Exception as e:
-            print(f"  ❌ GPU cleanup error: {e}")
-        
-        # Stop stats poller
-        if stats_poller:
-            stats_poller.stop()
-        
-        # Run async cleanup in new event loop
-        print("  🔄 Running async cleanup...")
-        cleanup_loop = asyncio.new_event_loop()
-        try:
-            cleanup_loop.run_until_complete(shutdown_manager.async_shutdown())
-        except Exception as e:
-            print(f"  ❌ Async cleanup error: {e}")
-        finally:
-            cleanup_loop.close()
-        
-        print("Curses mode shutdown complete.")
+        # Final terminal summary
+        sys.__stdout__.write("\n[SUCCESS] Kaia has entered hibernation.\n")
+        sys.__stdout__.flush()
 
 # ==================== SIMPLE MODE (Original Behavior) ====================
 

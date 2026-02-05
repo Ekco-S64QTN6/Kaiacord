@@ -22,7 +22,7 @@ async def refresh_news(force_update=False):
     
     # 1. First, always try to ingest manual files
     try:
-        print("📁 Checking for manual news briefs to ingest...")
+        # print("📁 Checking for manual news briefs to ingest...")
         subprocess.run([sys.executable, "tools/maintenance/ingest_manual_news.py"], check=True)
     except Exception as e:
         print(f"⚠️ Manual ingestion failed: {e}")
