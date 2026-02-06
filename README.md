@@ -5,14 +5,13 @@
   <img src="https://img.shields.io/badge/Discord-API-7289DA?style=for-the-badge&logo=discord" />
   <img src="https://img.shields.io/badge/Ollama-Local-FF6B35?style=for-the-badge" />
   <img src="https://img.shields.io/badge/RAG-Enabled-10B981?style=for-the-badge" />
-  <img src="https://img.shields.io/badge/Vision-Capable-8A2BE2?style=for-the-badge" />
   <img src="https://img.shields.io/badge/GPU-12GB%20VRAM-F59E0B?style=for-the-badge&logo=nvidia" />
   <img src="https://img.shields.io/badge/Bluesky-Connected-0085FF?style=for-the-badge" />
   <img src="https://img.shields.io/badge/X-Connected-000000?style=for-the-badge&logo=x" />
 </p>
 
 <p align="center">
-  <strong>A Linux-native, self-hosted AI chatbot for Discord with local inference, memory, vision, and image generation.</strong>
+  <strong>A Linux-native, self-hosted AI chatbot for Discord with local inference, memory, and social media integration.</strong>
 </p>
 
 ---
@@ -36,7 +35,6 @@ pip install -r requirements.txt
 
 # 2. Pull AI models (this will take a while)
 ollama pull gemma3:12b           # Chat model (8GB)
-ollama pull llama3.2-vision:11b  # Vision model (7.5GB)
 ollama pull nomic-embed-text     # Embedding model
 
 # 3. Configure
@@ -65,8 +63,6 @@ python Kaiacord.py
 | **🔄 Self-Healing** | 3-pass generation loop with automatic parameter scaling to recover from LLM failures or hallucinations | ✅ |
 | **🌐 Social Media** | Cross-post to Bluesky & X, Auto-reply to mentions, Memory Mirror | ✅ |
 | **📰 News** | Daily Briefs, Manual Retrieval, Ingestion of manual/weekly briefs | ✅ |
-| **👁️ Vision** | Image Analysis (`llama3.2-vision`), Object Detection, Text Extraction | ✅ |
-| **🎨 Generation** | FLUX Image Generation (`FLUX.1-schnell` 4-bit), Prompt Refinement | ✅ |
 
 ---
 
@@ -80,10 +76,9 @@ graph TB
     Kaiacord --> Social[utils/social]
     
     subgraph Core
-        Image[kaia_image.py]
-        Vision[kaia_vision.py]
         RAG[kaia_rag.py]
         Intel[kaia_intelligence.py]
+        Dream[kaia_dream.py]
     end
     
     subgraph Infrastructure
@@ -111,19 +106,6 @@ graph TB
 ```
 User: @kaia what's Python?
 Kaia: programming language. general purpose. readable syntax. popular for automation and data work.
-```
-
-### 🎨 Image Generation
-```
-User: kaia draw a cyberpunk cityscape at night
-Kaia: flickering the screen...
-[Sends FLUX-generated image]
-```
-
-### 👁️ Vision Analysis
-```
-User: [Uploads image] kaia what do you see?
-Kaia: looking... server racks. messy cable management.
 ```
 
 ### 📰 News Retrieval
@@ -190,10 +172,6 @@ discord:
 
 models:
   chat: "gemma3:12b"
-  vision: "llama3.2-vision:11b"
-
-gpu:
-  image_gen_min_vram_gb: 8.0  # Minimum VRAM for image gen
 
 performance:
   max_memory_messages: 30
@@ -231,8 +209,7 @@ python tools/maintenance/refresh_rag_index.py
 Kaia automatically manages VRAM:
 1. **Chat**: gemma3:12b loaded (8GB)
 2. **Context**: 28,000 token context window (~2.3GB) optimized for 12GB cards.
-3. **Image/Vision**: Unload chat → Load vision/flux → Process → Reload chat
-4. **Monitor**: `watch -n 1 nvidia-smi` to see VRAM usage
+3. **Monitor**: `watch -n 1 nvidia-smi` to see VRAM usage
 
 **See**: [`docs/VRAM_MANAGEMENT.md`](docs/VRAM_MANAGEMENT.md) for details
 
@@ -261,7 +238,6 @@ python tools/health_check.py
 
 | Issue | Solution |
 |:------|:---------|
-| **Vision timeout (5+ min)** | Model load timeout. Increase timeout in `utils/gpu_manager.py:118` to 90s |
 | **CUDA Out of Memory** | Chat model not unloading. Check logs for "Unloading chat model" |
 | **stats_poller NameError** | Fixed in v2.0. Update to latest version |
 | **!news not working** | Fixed in v2.0. Use `!news technology`, `!news security`, etc. |
@@ -277,7 +253,7 @@ python tools/health_check.py
 Kaiacord/
 ├── Kaiacord.py              # Main bot entry point
 ├── utils/                   # NEW: Deeply modularized logic
-│   ├── core/                # RAG, Vision, Image, Intelligence
+│   ├── core/                # RAG, Intelligence, Dream
 │   ├── infrastructure/      # Logging, System (Config/State), Monitoring
 │   └── social/              # Twitter/X, Bluesky, Social Responders
 ├── config/                  # Configuration & Personas
@@ -305,7 +281,6 @@ All docs are organized in [docs/](docs/README.md).
 ### 🏗️ Technical
 - **[System Overview](docs/03-architecture/overview.md)** - System design & data flows
 - **[GPU Management](docs/03-architecture/gpu-management.md)** - VRAM for RTX 3060 (12GB)
-- **[Vision Guide](docs/02-user-guide/vision-analysis.md)** - Vision system details
 - **[Social Media](docs/02-user-guide/social-media.md)** - Bluesky & X integration
 - **[Testing Guide](docs/04-development/testing.md)** - Testing infrastructure
 

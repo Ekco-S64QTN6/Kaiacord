@@ -60,9 +60,8 @@ from utils.infrastructure.system.shutdown_fixed import shutdown_manager
 from utils.news.news_debug import diagnose_news_pipeline, fix_news_ingestion
 from utils.core.kaia_rag import KaiaRAG, HallucinationDetector
 from utils.core.kaia_dream import DreamEngine
-from utils.core.kaia_image import generate_image, unload_image_model, generation_lock, is_image_gen_available
+# REMOVED: kaia_image and kaia_vision imports (features deprecated)
 from utils.infrastructure.monitoring.async_task_registry import task_registry
-from utils.core.kaia_vision import kaia_sees_image, cleanup_session
 from utils.core.boilerplate_detector import BoilerplateDetector
 from utils.core.kaia_intelligence import (
     SemanticCache, ModelWarmPool, ContextOptimizer, RelevanceFeedback, 
@@ -158,8 +157,6 @@ async def run_rag(fn, *args, **kwargs):
     loop = asyncio.get_running_loop()
     return await loop.run_in_executor(rag_executor, lambda: fn(*args, **kwargs))
 
-# Semaphore for image generation to prevent concurrent runs
-image_semaphore = asyncio.Semaphore(1)
 
 def cleanup_on_startup():
     """Kill other instances of Kaiacord and clear GPU memory"""
@@ -1577,13 +1574,6 @@ async def on_message(msg: discord.Message):
     # Update last interaction time and channel immediately
     bot_state.update_interaction(msg.channel.id)
 
-    # CHECK: Is Kaia currently busy generating an image?
-    if generation_lock.locked():
-        log_warning(f"Ignoring message from {msg.author.name} (image generation in progress)")
-        if random.random() < 0.3: # Don't spam the busy message
-            await msg.channel.send("```\nbusy rendering. wait your turn.\n```")
-        return
-
     # Sanitize input
     sanitized_content = sanitize_prompt(msg.content)
 
@@ -1608,117 +1598,7 @@ async def on_message(msg: discord.Message):
     #         return
 
 
-    # Trigger logic: Image generation
-    # Refined phrase-based detection to catch natural language requests while preventing false positives
-    request_phrases = [r"will you", r"can you", r"could you", r"please", r"kaia", r"i want you to", r"i'd like you to"]
-
-    draw_intents = [r"draw", r"paint", r"generate", r"create", r"sketch", r"render"]
-    shape_words = [r"portrait", r"landscape", r"picture", r"art", r"square", r"circle", r"triangle"]
-    
-    trigger_patterns = [
-        # "kaia draw", "please draw", "will you draw a square"
-        rf"(?:{'|'.join(request_phrases)})[\s,]+(?:a|an|the|some|me\s+a|to)?\s*(?:{'|'.join(draw_intents + shape_words)})",
-        # "draw a cat kaia", "paint a sunset please" (Intent must be at the very start)
-        rf"^(?:{'|'.join(draw_intents)})[\s,]+.*(?:kaia|please)"
-    ]
-    
-    intent_match = None
-    for pattern in trigger_patterns:
-        match = re.search(pattern, sanitized_content.lower())
-        if match:
-            intent_match = match
-            break
-
-    
-    if intent_match:
-        # Extract everything after the draw word/intent
-        all_keywords = draw_intents + shape_words
-        draw_word_match = re.search(rf"\b({'|'.join(all_keywords)})\b", sanitized_content.lower())
-        
-        if draw_word_match:
-            start_pos = draw_word_match.end()
-            prompt = sanitized_content[start_pos:].strip()
-            
-            # Clean up leading noise (articles, filler words)
-            prompt = re.sub(r'^(?:an|a|the|some|me\s+a|picture\s+of|image\s+of|art\s+of|portrait\s+of|sketch\s+of|landscape\s+of|square\s+of|circle\s+of|triangle\s+of|of|[\s,])+', '', prompt, flags=re.IGNORECASE).strip()
-            
-            # Clean up trailing noise (kaia, please)
-            prompt = re.sub(r'\b(kaia|please|for me)\b[.!?]*$', '', prompt, flags=re.IGNORECASE).strip()
-            
-            # Final punctuation cleanup
-            prompt = re.sub(r'[?.!,;:]+$', '', prompt).strip()
-                
-            # Final safety check: If the prompt is too long, it's likely a false positive
-            if prompt and len(prompt.split()) <= 20:
-                # Circuit breaker check - is image gen enabled and available?
-                if not config.image_gen_enabled:
-                    await msg.channel.send("```\nimage generation is currently disabled.\n```")
-                    return
-                if not is_image_gen_available():
-                    await msg.channel.send("```\nimage generation is offline. ask me normally instead.\n```")
-                    return
-                
-                # Persona confirmation - send BEFORE acquiring semaphore
-                await msg.channel.send("```\nflickering the screen. give me a second.\n```")
-                    
-                # Use semaphore to ensure only one image generation at a time
-                async with image_semaphore:
-                    try:
-                        log_action(f"Generating image for prompt: {prompt}")
-                        bot_state.is_generating_image = True
-                        
-                        # Generate a unique filename
-                        temp_filename = f"gen_{uuid.uuid4().hex}.png"
-                        temp_path = os.path.join("data", temp_filename)
-                        os.makedirs("data", exist_ok=True)
-                        
-                        # Unload chat model to free VRAM for image generation
-                        # CRITICAL: With 12GB VRAM, gemma3:12b (8GB) won't fit with Flux
-                        await unload_chat_model()
-                        # INCREASED WAIT: Give Ollama more time to fully release VRAM
-                        await asyncio.sleep(3.0)
-                        
-                        # REQUIREMENT: Prevent stats from running during image gen
-                        # Use safe helper to avoid NameError
-                        safe_stop_stats_poller()
-                        
-                        success, result = await generate_image(prompt, temp_path)
-                        
-                        # Restart stats poller
-                        safe_start_stats_poller()
-                        
-                        if success:
-                            await msg.channel.send(file=discord.File(result))
-                            image_path = result # for cleanup
-                        else:
-                            await msg.channel.send(f"```\nrender failed: {result}\n```")
-                            image_path = None
-                        
-                        # Cleanup
-                        try:
-                            if image_path and os.path.exists(image_path):
-                                os.remove(image_path)
-                                log_success(f"Cleaned up temp file")
-                        except Exception as cleanup_err:
-                            log_warning(f"Failed to cleanup temp file: {cleanup_err}")
-
-                    except Exception as e:
-                        log_error(f"Image generation failed: {e}")
-                        traceback.print_exc()
-                        await msg.channel.send(f"```\nsomething went wrong with the render. check the logs.\n```")
-                    finally:
-                        bot_state.is_generating_image = False
-                        try:
-                            await unload_image_model()
-                        except Exception as unload_err:
-                            log_warning(f"Failed to unload image model: {unload_err}")
-                            
-                        await asyncio.sleep(1.5)
-                        if not shutdown_manager.shutting_down:
-                            await prewarm_main_model()
-        return
-
-    # "kaia remember" command (STRICT COMMAND ENFORCEMENT)
+    # \"kaia remember\" command (STRICT COMMAND ENFORCEMENT)
     # This regex ensures that only explicit "kaia remember [this/that]:" triggers the log
     # It prevents "remember when..." questions from being logged.
     remember_match = re.match(r"kaia remember (?:this|that|to|the following)?:?\s*(.*)", sanitized_content, re.IGNORECASE)
@@ -1778,91 +1658,7 @@ async def on_message(msg: discord.Message):
         await run_rag(rag.log_user_interaction, msg.author.id, msg.author.display_name, sanitized_content, response_text)
         return
     
-    # Check if this is an EXPLICIT vision request
-    # TODO: Re-enable when vision_enabled is True and fix substring matching
-    # explicit_vision_keywords = ["analyze", "look"]
-    # is_explicit_vision_request = any(word in sanitized_content.lower() for word in explicit_vision_keywords)
-    is_explicit_vision_request = False  # Vision disabled - skip trigger detection
-    
     is_mention = "kaia" in sanitized_content.lower() or (not is_social and bot.user.mentioned_in(msg))
-    
-    # VISION BLOCK DISABLED - config.vision_enabled is False
-    # if is_mention and (image_attachments or is_explicit_vision_request):
-    if False:  # Vision processing disabled
-        # Circuit breaker check: Is vision enabled?
-        if not config.vision_enabled:
-            # If vision is disabled, we just let it fall through to normal chat processing
-            # unless it was an EXPLICIT vision request like "!analyze"
-            if is_explicit_vision_request:
-                await msg.channel.send("```\nvision analysis is currently disabled.\n```")
-                return
-        else:
-            target_image_url = None
-        
-        if image_attachments:
-            target_image_url = image_attachments[0].url
-            log_info("Using image from current message.")
-            
-        if not target_image_url and msg.reference:
-            try:
-                replied_msg = await msg.channel.fetch_message(msg.reference.message_id)
-                replied_attachments = [
-                    att for att in replied_msg.attachments 
-                    if any(att.filename.lower().endswith(ext) for ext in ['.png', '.jpg', '.jpeg', '.gif', '.webp'])
-                ]
-                if replied_attachments:
-                    target_image_url = replied_attachments[0].url
-                    log_info("Using image from replied-to message.")
-            except Exception as e:
-                log_warning(f"Error fetching replied message: {e}")
-
-        if target_image_url:
-            try:
-                async with generation_lock:
-                    log_action("VRAM Lock acquired for vision task.")
-                    
-                    # 1. Unload chat model to free VRAM for vision
-                    # CRITICAL: With 12GB VRAM, gemma3:12b (8GB) + llama3.2-vision (7GB) won't fit
-                    await unload_chat_model()
-                    # Extended wait to ensure VRAM is fully released (was 1.0s)
-                    await asyncio.sleep(3.0)
-                    
-                    # 2. Process vision task
-                    log_action("Processing vision task...")
-                    await msg.channel.send("```\nlooking...\n```")
-                    analysis = await kaia_sees_image(target_image_url, sanitized_content)
-                    await send_kaia_response(msg.channel, analysis)
-                    
-                    bot_state.channel_memory[msg.channel.id].append({"role": "user", "content": sanitized_content})
-                    bot_state.channel_memory[msg.channel.id].append({"role": "assistant", "content": analysis})
-                    
-                    bot_state.update_interaction(msg.channel.id)
-                    
-                    await run_rag(
-                        rag.log_user_interaction,
-                        msg.author.id,
-                        msg.author.display_name,
-                        f"{sanitized_content} [VISION_ANALYSIS]",
-                        analysis,
-                        is_vision_response=True
-                    )
-                    
-                    log_response("Got response:", analysis)
-                    log_separator()
-                return
-                
-            except Exception as e:
-                log_error(f"Vision analysis failed: {e}")
-                traceback.print_exc()
-                await msg.channel.send("```\ncan't process that image. something broke.\n```")
-            finally:
-                # 3. Re-warm chat model (increased wait time for safety)
-                if not shutdown_manager.shutting_down:
-                    await asyncio.sleep(2.0)
-                    if not shutdown_manager.shutting_down:
-                        log_action("Re-warming chat model after vision task...")
-                        await prewarm_main_model()
-            return
 
     try:
         # Re-enabled: Feb 2026 after refining patterns
@@ -2625,14 +2421,6 @@ async def perform_async_cleanup(stats_poller):
         except Exception as e:
             log_error(f"Error during RAG persistence: {e}")
         
-    # Cleanup vision session
-    log_action("Cleaning up vision session...")
-    try:
-        await cleanup_session()
-        log_success("Vision session closed.")
-    except Exception as e:
-        log_warning(f"Failed to cleanup vision session: {e}")
-        
     # Close Ollama clients
     log_action("Closing Ollama clients...")
     try:
@@ -2642,9 +2430,6 @@ async def perform_async_cleanup(stats_poller):
         if hasattr(ollama_client, '_client'):
             await ollama_client._client.aclose()
         
-        from utils.core.kaia_vision import ollama_client as vision_ollama_client
-        if hasattr(vision_ollama_client, '_client'):
-            await vision_ollama_client._client.aclose()
         log_success("Ollama clients closed and models unloaded.")
     except Exception as e:
         log_warning(f"Failed to close Ollama clients: {e}")
