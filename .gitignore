@@ -20,6 +20,7 @@ __pycache__/
 Thumbs.db
 storage/
 knowledge_base/
+memory/
 test_integration.py
 test_rag_imports.py
 *.log
