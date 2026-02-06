@@ -306,6 +306,15 @@ class YAMLConfig:
         
         return True
     
+    # Features
+    @property
+    def vision_enabled(self) -> bool:
+        return self.get('features.vision_enabled', False)
+    
+    @property
+    def image_gen_enabled(self) -> bool:
+        return self.get('features.image_gen_enabled', False)
+
     # Bluesky configuration
     @property
     def bluesky_enabled(self) -> bool:
@@ -331,6 +340,47 @@ class YAMLConfig:
     @property
     def x_reply_to_mentions(self) -> bool:
         return self.get('x_twitter.reply_to_mentions', True)
+    
+    # =========================================================================
+    # Timeout Configuration (extracted from magic numbers)
+    # =========================================================================
+    @property
+    def classification_timeout(self) -> float:
+        """Query classification timeout in seconds"""
+        return self.get('timeouts.classification_seconds', 15.0)
+    
+    @property
+    def orchestration_classification_timeout(self) -> float:
+        """Orchestration wait timeout for classification in seconds"""
+        return self.get('timeouts.orchestration_classification_seconds', 18.0)
+    
+    @property
+    def prewarm_timeout(self) -> float:
+        """Model pre-warm timeout in seconds"""
+        return self.get('timeouts.prewarm_seconds', 30.0)
+    
+    @property
+    def rag_retrieval_timeout(self) -> float:
+        """RAG retrieval timeout in seconds"""
+        return self.get('timeouts.rag_retrieval_seconds', 30.0)
+    
+    @property
+    def vision_analysis_timeout(self) -> float:
+        """Vision analysis timeout in seconds"""
+        return self.get('timeouts.vision_analysis_seconds', 90.0)
+    
+    # =========================================================================
+    # Token Estimation Configuration
+    # =========================================================================
+    @property
+    def token_multiplier(self) -> float:
+        """Multiplier for word-to-token estimation (1.3 default for English)"""
+        return self.get('performance.token_multiplier', 1.3)
+    
+    @property
+    def system_reserve_tokens(self) -> int:
+        """Reserved tokens for system reinforcement rules and safety prompts"""
+        return self.get('performance.system_reserve_tokens', 1000)
     
     @property
     def ignored_users(self) -> list:

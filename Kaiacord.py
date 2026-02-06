@@ -141,7 +141,7 @@ def sanitize_prompt(prompt: str, max_length: int = 2000) -> str:
 
 # Dedicated thread pool for RAG operations
 rag_executor = concurrent.futures.ThreadPoolExecutor(
-    max_workers=2,
+    max_workers=4,
     thread_name_prefix='rag_worker'
 )
 
@@ -400,29 +400,30 @@ class ImprovedSemanticCache:
             }
     
     def should_cache_query(self, query: str, classification: str) -> bool:
-        """Determine if a query should be cached at all"""
-        query_lower = query.lower()
+        """
+        Determine if a query should be cached.
         
-        # Never cache queries with time/date references or conversational keywords
-        if any(phrase in query_lower for phrase in self.exceptions["never_cache"]):
+        We bypass caching for:
+        1. Social/Casual queries (to ensure personality variety)
+        2. Short queries (under 20 characters)
+        3. Identity queries (to ensure fresh contextual grounding)
+        
+        This allows us to save tokens on technical/knowledge queries while
+        maintaining a fresh and varied conversational personality.
+        """
+        # 1. Bypass for social/casual categories
+        if classification in ["SOCIAL", "CASUAL", "GREETING"]:
             return False
-        
-        # Disable caching for conversational or highly variable classifications
-        if classification in ["IDENTITY", "WHOAMI", "SELF", "CONVERSATIONAL", "STATUS", "CHITCHAT", "GREETING"]:
+            
+        # 2. Bypass for very short queries
+        if len(query.strip()) < 20:
             return False
-        
-        # Don't cache very short queries
-        if len(query.strip()) < 10:
+            
+        # 3. Bypass for identity queries
+        identity_keywords = ["who are you", "who am i", "your name", "tell me about yourself"]
+        if any(kw in query.lower() for kw in identity_keywords):
             return False
-        
-        # Don't cache queries with numbers (likely dates/versions)
-        if re.search(r'\b\d{4}\b', query):  # Years like 2026
-            return False
-        
-        # Don't cache queries with URLs
-        if re.search(r'https?://', query_lower):
-            return False
-        
+            
         return True
     
     def get_cache_key(self, query: str, user_id: str) -> str:
@@ -840,6 +841,7 @@ def start_watcher(rag, loop):
     observer.start()
     # Start the queue processor
     event_handler.processing_task = asyncio.create_task(event_handler.start_processing())
+    task_registry.register("knowledge_base_watcher", event_handler.processing_task)
     log_success(f"Knowledge base watcher started on {rag.knowledge_base_dir}")
     return observer
 
@@ -964,6 +966,10 @@ async def sequenced_boot_tasks():
     except Exception as e:
         log_error(f"Model prewarm failed: {e}")
     
+    # 4. Background: Pre-warm RAG BM25 indices
+    # Now safe because it's sequential and non-blocking to the main bot loop
+    asyncio.create_task(run_rag(rag.pre_warm))
+    
     # 4. Immediate Social Sync: Process any backlog from while we were offline
     if not social_mention_task.is_running():
         social_mention_task.start()
@@ -1015,7 +1021,8 @@ async def on_ready():
     
     # SEQUENCED BOOT: Run heavy tasks in order to prevent system overload
     # This replaces the previous concurrent asyncio.create_task() calls
-    asyncio.create_task(sequenced_boot_tasks())
+    boot_task = asyncio.create_task(sequenced_boot_tasks())
+    task_registry.register("sequenced_boot_tasks", boot_task)
 
 @tasks.loop(minutes=5)
 async def idle_quip_task():
@@ -1561,6 +1568,10 @@ async def on_message(msg: discord.Message):
         log_warning(f"Rate limit hit for user {msg.author.name}")
         return
 
+    # Shutdown Guard: Don't process new messages if shutting down
+    if shutdown_manager.shutting_down:
+        return
+
     # Reset consecutive quips counter on user interaction
     bot_state.reset_quips()
     # Update last interaction time and channel immediately
@@ -1639,7 +1650,10 @@ async def on_message(msg: discord.Message):
                 
             # Final safety check: If the prompt is too long, it's likely a false positive
             if prompt and len(prompt.split()) <= 20:
-                # Circuit breaker check - is image gen available?
+                # Circuit breaker check - is image gen enabled and available?
+                if not config.image_gen_enabled:
+                    await msg.channel.send("```\nimage generation is currently disabled.\n```")
+                    return
                 if not is_image_gen_available():
                     await msg.channel.send("```\nimage generation is offline. ask me normally instead.\n```")
                     return
@@ -1771,7 +1785,15 @@ async def on_message(msg: discord.Message):
     is_mention = "kaia" in sanitized_content.lower() or (not is_social and bot.user.mentioned_in(msg))
     
     if is_mention and (image_attachments or is_explicit_vision_request):
-        target_image_url = None
+        # Circuit breaker check: Is vision enabled?
+        if not config.vision_enabled:
+            # If vision is disabled, we just let it fall through to normal chat processing
+            # unless it was an EXPLICIT vision request like "!analyze"
+            if is_explicit_vision_request:
+                await msg.channel.send("```\nvision analysis is currently disabled.\n```")
+                return
+        else:
+            target_image_url = None
         
         if image_attachments:
             target_image_url = image_attachments[0].url
@@ -1831,10 +1853,11 @@ async def on_message(msg: discord.Message):
                 await msg.channel.send("```\ncan't process that image. something broke.\n```")
             finally:
                 # 3. Re-warm chat model (increased wait time for safety)
-                await asyncio.sleep(2.0)
                 if not shutdown_manager.shutting_down:
-                    log_action("Re-warming chat model after vision task...")
-                    await prewarm_main_model()
+                    await asyncio.sleep(2.0)
+                    if not shutdown_manager.shutting_down:
+                        log_action("Re-warming chat model after vision task...")
+                        await prewarm_main_model()
             return
 
     try:
@@ -2147,12 +2170,13 @@ async def on_message(msg: discord.Message):
             # With GPU acceleration and pre-warming, this should be < 0.5s
             log_action("Waiting for classification task...")
             start_class = time.time()
-            # Align with QueryClassifier timeout (15s) + 3s buffer for overhead
-            category = await asyncio.wait_for(classification_task, timeout=18.0)
+            # Use configurable timeout (classification + overhead buffer)
+            orch_timeout = config.orchestration_classification_timeout
+            category = await asyncio.wait_for(classification_task, timeout=orch_timeout)
             end_class = time.time()
             log_info(f"Full classification result: {category.upper()} (took {end_class - start_class:.2f}s)")
         except asyncio.TimeoutError:
-            log_warning(f"Full classification timed out after 5s, using fast-path: {fast_category.upper()}")
+            log_warning(f"Full classification timed out after {config.orchestration_classification_timeout}s, using fast-path: {fast_category.upper()}")
             category = fast_category
         except Exception as e:
             log_error(f"Classification task failed: {e}, using fast-path: {fast_category.upper()}")
@@ -2202,23 +2226,26 @@ async def on_message(msg: discord.Message):
             "2. CONTEXTUAL AWARENESS: Use [PERSONAL ARCHIVES] to maintain continuity, but ONLY reference past topics if they are directly relevant to the current query. DO NOT mention previous discussions unprompted. If the user asks how you are, just answer in the present moment.\n"
             "3. NO META-TALK. Never mention being an AI, processing data, or using logs.\n"
             "4. RESPONSE LENGTH: Aim for 3-8 sentences for complex topics. For simple questions, 1-2 sentences. Vary your length.\n"
-)
-        # Social Brevity Injection
+        )
+        # Social Brevity Injection (uses rules 5-6 for social, then continues from 5 for non-social)
         if is_social:
-            reinforcement += "4. SOCIAL MEDIA BREVITY: You are responding on a social platform with strict limits. KEEP YOUR ENTIRE RESPONSE UNDER 280 CHARACTERS. Be punchy and direct. If you reference a dream or news, summarize the core thought in one short sentence.\n"
-            reinforcement += "5. NO GREETINGS: DO NOT start your response with 'Another handle', 'Another address', 'Been around', or 'I'm around'. Jump straight into your thought or a direct answer. NO formulaic introductions.\n"
+            reinforcement += "5. SOCIAL MEDIA BREVITY: You are responding on a social platform with strict limits. KEEP YOUR ENTIRE RESPONSE UNDER 280 CHARACTERS. Be punchy and direct. If you reference a dream or news, summarize the core thought in one short sentence.\n"
+            reinforcement += "6. NO GREETINGS: DO NOT start your response with 'Another handle', 'Another address', 'Been around', or 'I'm around'. Jump straight into your thought or a direct answer. NO formulaic introductions.\n"
+            start_rule = 7
+        else:
+            start_rule = 5
         
         reinforcement += (
-            "5. NO name prefixes. Just start speaking.\n"
-            "6. IDENTITY: Use 'User Profile' for deep summaries only when explicitly asked. No hallucinations. Never claim ignorance if records exist.\n"
-            "7. BANNED WORDS/PHRASES: 'Still here', 'Coffee\'s decent', 'Coffee\'s good', 'signal', 'noise', 'system', 'function', 'analyze', 'relevant', 'information', 'aspect', 'curious', 'parameters', 'observe', 'identify', 'patterns', 'processing', 'request', 'operating within', 'as an AI', 'my purpose is'.\n"
-            "8. PRIVATE THOUGHTS: Never include internal labels like 'USER PROFILE', 'QUICK REFERENCE', or any bracketed tags in your response. Your inner thoughts and data labels must remain private. DO NOT dump raw profile data.\n"
-            "9. STRICT GROUNDING: ONLY speak from the provided [PERSONAL ARCHIVES], [EXTERNAL NEWS], or [GENERAL KNOWLEDGE & REFERENCE BOOKS]. NEVER invent personal activities (e.g., 'refining error handling', 'tuning parameters', 'optimizing routines') or personal history unless it is explicitly documented in [PERSONAL ARCHIVES]. Treat [INTERNAL REFLECTION (DREAM)] as metaphorical, NOT physical biography.\n"
-            "10. PERSPECTIVE DECOUPLING: When you see 'I', 'me', or 'my' inside an <external_data_record> tag, it refers to the AUTHOR of that record, NOT to you. You are the one READING the record. Never claim experiences from these tags as your own. If a record says 'I built this', you say 'My records show someone built this'. Do not adopt skills or memories from dream fragments as historical facts.\n"
-            "11. NO LEADING QUESTIONS: Never end responses with 'what are you building, really?' or similar formulaic questions.\n"
-            "12. TOPIC ROTATION: Do not repeat specific stories or news items mentioned in your [RECENT_HISTORY].\n"
-            "13. VARIETY: DO NOT repeat any phrases, intros, or descriptions from the provided conversation history.\n"
-            "14. PRIVATE SYSTEM ARCHITECTURE: Never use, mention, or print the internal XML-like tags (e.g., <external_data_record>) or their labels in your response. These are for your internal processing only. Translate the content inside them into your own natural voice."
+            f"{start_rule}. NO name prefixes. Just start speaking.\n"
+            f"{start_rule + 1}. IDENTITY: Use 'User Profile' for deep summaries only when explicitly asked. No hallucinations. Never claim ignorance if records exist.\n"
+            f"{start_rule + 2}. BANNED WORDS/PHRASES: 'Still here', 'Coffee\'s decent', 'Coffee\'s good', 'signal', 'noise', 'system', 'function', 'analyze', 'relevant', 'information', 'aspect', 'curious', 'parameters', 'observe', 'identify', 'patterns', 'processing', 'request', 'operating within', 'as an AI', 'my purpose is'.\n"
+            f"{start_rule + 3}. PRIVATE THOUGHTS: Never include internal labels like 'USER PROFILE', 'QUICK REFERENCE', or any bracketed tags in your response. Your inner thoughts and data labels must remain private. DO NOT dump raw profile data.\n"
+            f"{start_rule + 4}. STRICT GROUNDING: ONLY speak from the provided [PERSONAL ARCHIVES], [EXTERNAL NEWS], or [GENERAL KNOWLEDGE & REFERENCE BOOKS]. NEVER invent personal activities (e.g., 'refining error handling', 'tuning parameters', 'optimizing routines') or personal history unless it is explicitly documented in [PERSONAL ARCHIVES]. Treat [INTERNAL REFLECTION (DREAM)] as metaphorical, NOT physical biography.\n"
+            f"{start_rule + 5}. PERSPECTIVE DECOUPLING: When you see 'I', 'me', or 'my' inside an <external_data_record> tag, it refers to the AUTHOR of that record, NOT to you. You are the one READING the record. Never claim experiences from these tags as your own. If a record says 'I built this', you say 'My records show someone built this'. Do not adopt skills or memories from dream fragments as historical facts.\n"
+            f"{start_rule + 6}. NO LEADING QUESTIONS: Never end responses with 'what are you building, really?' or similar formulaic questions.\n"
+            f"{start_rule + 7}. TOPIC ROTATION: Do not repeat specific stories or news items mentioned in your [RECENT_HISTORY].\n"
+            f"{start_rule + 8}. VARIETY: DO NOT repeat any phrases, intros, or descriptions from the provided conversation history.\n"
+            f"{start_rule + 9}. PRIVATE SYSTEM ARCHITECTURE: Never use, mention, or print the internal XML-like tags (e.g., <external_data_record>) or their labels in your response. These are for your internal processing only. Translate the content inside them into your own natural voice."
         )
 
         messages.append({
@@ -2518,7 +2545,41 @@ async def run_bot_async(stats_poller, stop_event=None):
 async def perform_async_cleanup(stats_poller):
     log_info("🔄 Shutting down...")
     
-    # 1. Cancel all registered background tasks FIRST
+    # 1. Stop all discord.ext.tasks loops FIRST
+    # We need to both stop() AND cancel the internal _task to prevent "Event loop is closed" errors
+    log_action("Stopping discord tasks...")
+    active_tasks = [
+        idle_quip_task, rag_maintenance_task, news_refresh_task,
+        dream_engine_task, social_mention_task, memory_audit_task
+    ]
+    
+    pending_cancellations = []
+    for d_task in active_tasks:
+        try:
+            if d_task.is_running():
+                d_task.stop()
+                # Also cancel the internal asyncio task if it exists
+                internal_task = getattr(d_task, '_task', None)
+                if internal_task and not internal_task.done():
+                    internal_task.cancel()
+                    pending_cancellations.append(internal_task)
+        except Exception as e:
+            log_warning(f"Failed to stop discord task: {e}")
+    
+    # Wait for all internal tasks to complete their cancellation
+    if pending_cancellations:
+        log_action(f"Waiting for {len(pending_cancellations)} task(s) to cancel...")
+        for task in pending_cancellations:
+            try:
+                await asyncio.wait_for(asyncio.shield(task), timeout=2.0)
+            except (asyncio.CancelledError, asyncio.TimeoutError):
+                pass  # Expected - task was cancelled or timed out
+            except Exception as e:
+                log_warning(f"Error waiting for task cancellation: {e}")
+    
+    log_success("Discord tasks stopped.")
+
+    # 2. Cancel all registered background tasks
     if task_registry:
         log_action("Cancelling background tasks...")
         await task_registry.cancel_all()
@@ -2551,8 +2612,14 @@ async def perform_async_cleanup(stats_poller):
     # Async cleanup
     if rag:
         log_action("Persisting RAG index...")
-        await run_rag(rag.persist, force=True)
-        log_success("Index persisted.")
+        try:
+            # Shield the persistence task but keep a short timeout to prevent hang
+            await asyncio.wait_for(run_rag(rag.persist, force=True), timeout=5.0)
+            log_success("Index persisted.")
+        except asyncio.TimeoutError:
+            log_warning("RAG persistence timed out. Continuing shutdown.")
+        except Exception as e:
+            log_error(f"Error during RAG persistence: {e}")
         
     # Cleanup vision session
     log_action("Cleaning up vision session...")
@@ -2595,11 +2662,15 @@ def run_curses_mode():
         log_critical("DISCORD_TOKEN not found in environment variables!")
         sys.exit(1)
     
+    # Diagnostic logging
+    log_info("Starting curses dashboard mode...")
+    
     # Signal already handled early
     
     # Set up shutdown handler FIRST (before any blocking operations)
     # This ensures Ctrl+C is always handled cleanly
     shutdown_manager.setup()
+    log_info("Shutdown handler configured.")
     
     # Initialize variables for cleanup
     stop_event = threading.Event()
@@ -2641,10 +2712,13 @@ def run_curses_mode():
         # Start background bot thread which will handle initialization
         bot_thread = threading.Thread(target=run_bot_in_thread, daemon=True, name="DiscordBot")
         bot_thread.start()
+        log_info("Bot thread started.")
         
         # This runs curses.wrapper in main thread - required for signal handling
         # It should launch in milliseconds
+        log_info("Launching curses dashboard...")
         dashboard.run()
+        log_info("Dashboard exited normally.")
         
     except KeyboardInterrupt:
         print("\n⚠️  Keyboard interrupt received")

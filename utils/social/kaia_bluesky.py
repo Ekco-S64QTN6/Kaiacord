@@ -42,16 +42,20 @@ async def get_bluesky_client(force_new: bool = False):
             
         if _client is None:
             try:
-                from atproto import AsyncClient
+                from atproto import AsyncClient, AsyncRequest
                 
                 handle = os.getenv("BLUESKY_HANDLE")
                 password = os.getenv("BLUESKY_APP_PASSWORD")
                 
-                _client = AsyncClient()
+                # Increase timeout from default 5s to 20s to handle orbital network lag
+                request = AsyncRequest(timeout=20.0)
+                _client = AsyncClient(request=request)
                 await _client.login(handle, password)
-                log_success(f"Bluesky client logged in as {handle}")
+                log_success(f"Bluesky client logged in as {handle} (Timeout: 20s)")
             except Exception as e:
-                log_error(f"Failed to create Bluesky client: {e}")
+                log_error(f"Failed to create Bluesky client ({type(e).__name__}): {e}")
+                import traceback
+                log_debug(f"Client creation traceback:\n{traceback.format_exc()}")
                 _client = None
                 return None
         

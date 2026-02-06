@@ -66,6 +66,34 @@ performance:
   # RTX 3060 (12GB) Safety Max: 28,000 (allows OS/YouTube headroom).
   max_context_tokens: 28000
 
+  # Token estimation multiplier (words * multiplier = approx tokens)
+  # 1.3 is a reasonable estimate for English text; adjust for other languages
+  token_multiplier: 1.3
+
+  # Reserved tokens for system reinforcement rules and safety prompts
+  system_reserve_tokens: 1000
+
+# ============================================================================
+# Timeouts Configuration
+# ============================================================================
+timeouts:
+  # Query classification timeout (seconds)
+  # The classifier uses a synchronous thread with this timeout
+  classification_seconds: 15.0
+
+  # Orchestration wait timeout for classification (seconds)
+  # Should be classification_seconds + buffer for overhead
+  orchestration_classification_seconds: 18.0
+
+  # Model pre-warm timeout (seconds)
+  prewarm_seconds: 30.0
+
+  # RAG retrieval timeout (seconds)
+  rag_retrieval_seconds: 30.0
+
+  # Vision analysis timeout (seconds)
+  vision_analysis_seconds: 90.0
+
 # ============================================================================
 # Paths Configuration
 # ============================================================================

@@ -12,6 +12,8 @@ from ollama import Client
 from llama_index.embeddings.ollama import OllamaEmbedding
 from utils.infrastructure.logging.kaia_logger import log_info, log_action, log_success, log_error, log_warning, log_debug
 
+# NOTE: config is imported lazily in ContextOptimizer.__init__ to avoid circular import
+
 class PerformanceMonitor:
     """Track and report system performance metrics."""
     def __init__(self):
@@ -70,13 +72,53 @@ class PerformanceMonitor:
 
 class SemanticCache:
     """Two-level cache: Exact match (fast) + Semantic match (embeddings)."""
-    def __init__(self, model_name="nomic-embed-text", max_size=200, threshold=0.80):
+    
+    # Short conversational patterns that should NEVER be cached or matched
+    # These are acknowledgments and simple responses that don't warrant caching
+    CACHE_BYPASS_PATTERNS = {
+        'affirmative', 'yes', 'no', 'ok', 'okay', 'sure', 'thanks', 'thank you',
+        'understood', 'got it', 'cool', 'nice', 'good', 'great', 'perfect',
+        'agreed', 'agree', 'confirmed', 'roger', 'acknowledged', 'noted',
+        'yep', 'yup', 'nope', 'nah', 'mhm', 'uh huh', 'alright', 'right',
+        'indeed', 'exactly', 'correct', 'true', 'false', 'maybe', 'perhaps'
+    }
+    
+    # Minimum query length to be eligible for caching (prevents short query over-matching)
+    MIN_CACHEABLE_LENGTH = 15
+    
+    def __init__(self, model_name="nomic-embed-text", max_size=200, threshold=0.92):
+        """
+        Initialize semantic cache.
+        
+        Args:
+            threshold: Semantic similarity threshold (0.92 = very strict matching)
+                       Higher values prevent unrelated queries from matching.
+        """
         self.exact_cache = {} # {user_id:query_hash: response}
         self.cache = {} # {query: data}
         self.access_counts = {} # {query_hash: count}
         self.embed_model = OllamaEmbedding(model_name=model_name)
         self.max_size = max_size
         self.threshold = threshold
+    
+    def _should_bypass_cache(self, query: str) -> bool:
+        """Check if query should bypass caching entirely."""
+        normalized = query.strip().lower()
+        
+        # Too short to cache meaningfully
+        if len(normalized) < self.MIN_CACHEABLE_LENGTH:
+            return True
+        
+        # Check against bypass patterns (exact match on normalized form)
+        if normalized in self.CACHE_BYPASS_PATTERNS:
+            return True
+        
+        # Check if query is just a bypass pattern with punctuation
+        stripped = normalized.rstrip('.,!?')
+        if stripped in self.CACHE_BYPASS_PATTERNS:
+            return True
+        
+        return False
         
     def _get_exact_key(self, query, user_id):
         return f"{user_id}:{query.strip().lower()}"
@@ -110,14 +152,15 @@ class SemanticCache:
         return False
         
     async def get(self, query, user_id=None, monitor=None):
-        """Get cached response for similar query."""
-        # Level 1: Exact Match
-        exact_key = self._get_exact_key(query, user_id)
-        if exact_key in self.exact_cache:
-            log_success(f"Exact cache hit for user {user_id}")
-            self.access_counts[exact_key] = self.access_counts.get(exact_key, 0) + 1
-            if monitor: monitor.record_hit(exact=True)
-            return self.exact_cache[exact_key]
+        """
+        Get cached response for similar query.
+        
+        Uses semantic similarity to find if we've answered this before.
+        """
+        # Level 1: Exact Match (Fast)
+        if query in self.exact_cache:
+            if monitor: monitor.record_hit()
+            return self.exact_cache[query]
 
         # Level 2: Semantic Match
         if not self.cache:
@@ -160,6 +203,11 @@ class SemanticCache:
     
     async def set(self, query, response, user_id=None):
         """Cache query-response pair in both levels."""
+        # BYPASS: Don't cache short queries or conversational patterns
+        if self._should_bypass_cache(query):
+            log_debug(f"Cache set bypass: query not cacheable")
+            return
+        
         try:
             # Set Exact
             exact_key = self._get_exact_key(query, user_id)
@@ -499,8 +547,15 @@ class QueryClassifier:
 class ContextOptimizer:
     """Model-aware token allocation and context trimming."""
     def __init__(self, model_name="gemma3:12b", max_tokens=28000):
+        # Lazy import to avoid circular import during module loading
+        from utils.infrastructure.system.yaml_config import config
+        
         self.model_name = model_name
         self.max_tokens = max_tokens
+        # Token estimation multiplier (configurable for different languages/content types)
+        self.token_multiplier = config.token_multiplier
+        # Reserved tokens for system reinforcement rules
+        self.system_reserve = config.system_reserve_tokens
         # Optimal ratios for different models
         self.ratios = {
             'gemma3:12b': {'persona': 0.10, 'rag': 0.50, 'history': 0.35, 'system': 0.05},
@@ -517,10 +572,10 @@ class ContextOptimizer:
         """
         # 1. Persona is non-negotiable - calculate its actual cost first
         optimized_persona = persona 
-        persona_tokens = len(persona.split()) * 1.3
+        persona_tokens = len(persona.split()) * self.token_multiplier
         
-        # 2. Reserve tokens for system reinforcement (approx 1000 tokens for rules/safety)
-        system_reserve = 1000
+        # 2. Reserve tokens for system reinforcement (configurable)
+        system_reserve = self.system_reserve
         
         # 3. Calculate remaining budget for RAG and History
         remaining_budget = self.max_tokens - persona_tokens - system_reserve
@@ -648,39 +703,39 @@ class ContextOptimizer:
             'persona': optimized_persona,
             'rag': optimized_rag,
             'history': optimized_history,
-            'tokens_saved': self.max_tokens - (len(optimized_persona.split()) + len(optimized_rag.split()) + len(optimized_history.split())) * 1.3
+            'tokens_saved': self.max_tokens - (len(optimized_persona.split()) + len(optimized_rag.split()) + len(optimized_history.split())) * self.token_multiplier
         }
     
     def trim_to_tokens(self, text, max_tokens):
         if not text: return ""
         words = text.split()
-        if len(words) * 1.3 <= max_tokens: return text
+        if len(words) * self.token_multiplier <= max_tokens: return text
             
         lines = text.split('\n')
         important_lines = [l for l in lines if any(marker in l.lower() for marker in ['###', 'important:', 'core:', 'rule:'])]
-        important_tokens = sum(len(l.split()) * 1.3 for l in important_lines)
+        important_tokens = sum(len(l.split()) * self.token_multiplier for l in important_lines)
         remaining_tokens = max_tokens - important_tokens
         
         if remaining_tokens <= 0: 
-            return '\n'.join(important_lines[:5]) if important_lines else ' '.join(words[:int(max_tokens/1.3)])
+            return '\n'.join(important_lines[:5]) if important_lines else ' '.join(words[:int(max_tokens/self.token_multiplier)])
             
         regular_lines = []
         for line in reversed(lines):
             if line not in important_lines:
-                line_tokens = len(line.split()) * 1.3
+                line_tokens = len(line.split()) * self.token_multiplier
                 if line_tokens <= remaining_tokens:
                     regular_lines.insert(0, line)
                     remaining_tokens -= line_tokens
                 else: 
                     # If we still have room but the line is too big, take a chunk of it
                     if remaining_tokens > 100:
-                        chunk = ' '.join(line.split()[:int(remaining_tokens/1.3)])
+                        chunk = ' '.join(line.split()[:int(remaining_tokens/self.token_multiplier)])
                         regular_lines.insert(0, chunk)
                     break
         
         result = '\n'.join(important_lines + regular_lines)
         if not result and words:
-            return ' '.join(words[:int(max_tokens/1.3)])
+            return ' '.join(words[:int(max_tokens/self.token_multiplier)])
         return result
 
 class RelevanceFeedback:

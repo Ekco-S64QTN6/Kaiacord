@@ -329,22 +329,25 @@ async def _get_bluesky_mentions() -> List[Dict[str, Any]]:
         mentions = await run_fetch()
         _bluesky_breaker.record_success()
     except Exception as e:
-        # Check for unauthorized (session expired)
+        # Check for specific error types
         error_str = str(e).lower()
+        error_type = type(e).__name__
+        
         if "unauthorized" in error_str or "expired" in error_str or "token" in error_str:
             log_warning(f"Bluesky session potentially expired, retrying with new client: {e}")
             try:
                 mentions = await run_fetch(force_new=True)
                 _bluesky_breaker.record_success()
             except Exception as e2:
-                log_error(f"Failed to fetch Bluesky mentions after retry: {e2}")
-                import traceback
-                log_debug(f"Traceback: {traceback.format_exc()}")
+                log_error(f"Failed to fetch Bluesky mentions after retry ({type(e2).__name__}): {e2}")
                 _bluesky_breaker.record_failure()
+        elif "timeout" in error_str or "invoketimeouterror" in error_type.lower():
+            log_warning(f"Bluesky fetch timed out (transient network issue).")
+            _bluesky_breaker.record_failure()
         else:
-            log_error(f"Failed to fetch Bluesky mentions: {e}")
+            log_error(f"Failed to fetch Bluesky mentions ({error_type}): {e}")
             import traceback
-            log_debug(f"Traceback: {traceback.format_exc()}")
+            log_debug(f"Fetch failure traceback:\n{traceback.format_exc()}")
             _bluesky_breaker.record_failure()
     
     return mentions

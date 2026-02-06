@@ -35,7 +35,7 @@ from llama_index.core import VectorStoreIndex, SimpleDirectoryReader, StorageCon
 from llama_index.llms.ollama import Ollama
 from llama_index.embeddings.ollama import OllamaEmbedding
 from llama_index.core.node_parser import SentenceSplitter, SemanticSplitterNodeParser, CodeSplitter
-from utils.infrastructure.logging.kaia_logger import log_success, log_info, log_warning, log_error, log_action, log_debug
+from utils.infrastructure.logging.kaia_logger import log_success, log_info, log_warning, log_error, log_critical, log_action, log_debug
 from utils.infrastructure.system.bot_state import bot_state
 
 class CircuitOpenError(Exception):
@@ -222,8 +222,7 @@ class KaiaRAG:
         # Force GPU for embeddings too
         self.embed_model = OllamaEmbedding(
             model_name="nomic-embed-text",
-            base_url="http://localhost:11434",
-            ollama_additional_kwargs={"num_gpu": -1, "main_gpu": 0}
+            base_url="http://localhost:11434"
         )
         
         # Set global settings
@@ -537,9 +536,10 @@ class KaiaRAG:
             self._indexing_in_progress = True
             self._refresh_pending = False
             
-            # Clear BM25 cache as indices are changing
-            with self._lock:
-                self.bm25_cache.clear()
+            # Selective BM25 cache clearing moved inside the update loop
+            # and finalized at the end of the refresh to avoid redundant rebuilds.
+            # with self._lock:
+            #     self.bm25_cache.clear()
             
             if not os.path.exists(self.knowledge_base_dir):
                 os.makedirs(self.knowledge_base_dir)
@@ -672,59 +672,50 @@ class KaiaRAG:
                             reader = SimpleDirectoryReader(input_files=[file_path])
                             docs = reader.load_data()
                             
-                            if docs:
-                                mtime = os.path.getmtime(file_path)
-                                parser = self._get_node_parser_for_doc(itype, file_path)
-                                for doc in docs:
-                                    doc.metadata['last_modified_at'] = mtime
-                                    doc.metadata['file_path'] = os.path.abspath(file_path)
-                                    doc.metadata['itype'] = itype
-                                    
-                                    self._apply_priority_metadata(doc, itype, file_path)
-                                    
-                                    if itype == 'persona':
-                                        doc.metadata['user_id'] = "KAIA_SYSTEM"
-                                    
-                                    # Extract user metadata if in user_logs
-                                    if "user_logs" in file_path:
-                                        parts = file_path.split(os.sep)
-                                        try:
-                                            ul_idx = parts.index("user_logs")
-                                            user_folder = parts[ul_idx + 1]
-                                            if "_" in user_folder:
-                                                u_name, u_id = user_folder.rsplit("_", 1)
-                                                doc.metadata['user_id'] = u_id
-                                                doc.metadata['user_name'] = u_name
-                                        except: pass
-                                    
-                                    # Pre-chunk large documents to avoid embedding overflows
-                                    sub_docs = self._pre_chunk_document(doc)
-                                    for sub_doc in sub_docs:
-                                        # Ensure sub-docs inherit priority metadata
-                                        self._apply_priority_metadata(sub_doc, itype, file_path)
-                                        nodes = parser.get_nodes_from_documents([sub_doc])
-                                        target_index.insert_nodes(nodes)
+                            if not docs:
+                                raise ValueError("No data loaded from file (empty list)")
                                 
-                                self.indexed_files[abs_path] = mtime
-                                log_success(f"Indexed {file_path} into {itype} index.")
-                                if itype != 'logs':
-                                    snippet = ""
+                            mtime = os.path.getmtime(file_path)
+                            parser = self._get_node_parser_for_doc(itype, file_path)
+                            for doc in docs:
+                                doc.metadata['last_modified_at'] = mtime
+                                doc.metadata['file_path'] = os.path.abspath(file_path)
+                                doc.metadata['itype'] = itype
+                                
+                                self._apply_priority_metadata(doc, itype, file_path)
+                                
+                                if itype == 'persona':
+                                    doc.metadata['user_id'] = "KAIA_SYSTEM"
+                                
+                                # Extract user metadata if in user_logs
+                                if "user_logs" in file_path:
+                                    parts = file_path.split(os.sep)
                                     try:
-                                        # Extract direct snippet from first doc
-                                        snippet = docs[0].text[:300].replace("\n", " ") + "..."
+                                        ul_idx = parts.index("user_logs")
+                                        user_folder = parts[ul_idx + 1]
+                                        if "_" in user_folder:
+                                            u_name, u_id = user_folder.rsplit("_", 1)
+                                            doc.metadata['user_id'] = u_id
+                                            doc.metadata['user_name'] = u_name
                                     except: pass
-                                    bot_state.add_ingestion(os.path.basename(file_path), snippet=snippet)
-                            else:
-                                log_warning(f"No data loaded from file. Moving to corrupt_files.")
-                                log_info(file_path)
+                                
+                                # Pre-chunk large documents to avoid embedding overflows
+                                sub_docs = self._pre_chunk_document(doc)
+                                for sub_doc in sub_docs:
+                                    # Ensure sub-docs inherit priority metadata
+                                    self._apply_priority_metadata(sub_doc, itype, file_path)
+                                    nodes = parser.get_nodes_from_documents([sub_doc])
+                                    target_index.insert_nodes(nodes)
+                            
+                            self.indexed_files[abs_path] = mtime
+                            log_success(f"Indexed {file_path} into {itype} index.")
+                            if itype != 'logs':
+                                snippet = ""
                                 try:
-                                    dest_path = os.path.join(corrupt_dir, os.path.basename(file_path))
-                                    if os.path.exists(dest_path):
-                                        dest_path = f"{dest_path}_{int(time.time())}"
-                                    shutil.move(file_path, dest_path)
-                                    log_critical(f"MOVED EMPTY/CORRUPT FILE TO: {dest_path}")
-                                except Exception as move_err:
-                                    log_warning(f"Failed to move empty file: {move_err}")
+                                    # Extract direct snippet from first doc
+                                    snippet = docs[0].text[:300].replace("\n", " ") + "..."
+                                except: pass
+                                bot_state.add_ingestion(os.path.basename(file_path), snippet=snippet)
                             
                     except Exception as e:
                         log_error(f"Failed to load file: {e}")
@@ -791,6 +782,23 @@ class KaiaRAG:
                 # Mark for persistence
                 self.persist_needed = True
                 log_info("New documents indexed. Persistence marked as needed.")
+                
+                # Selective BM25 cache invalidation
+                if new_file_paths:
+                    with self._lock:
+                        for _, _, _, itype in new_file_paths:
+                            if itype in self.bm25_cache:
+                                log_info(f"Invalidating BM25 cache for '{itype}' index due to updates.")
+                                self.bm25_cache[itype] = None
+                            
+                            # IMMEDIATE PERSISTENCE: Save the index state now so we don't 
+                            # lose the "indexed" status if the bot is killed ungracefully.
+                            try:
+                                itype_dir = os.path.join(self.persist_dir, itype)
+                                self.indices[itype].storage_context.persist(persist_dir=itype_dir)
+                                log_success(f"Index '{itype}' persisted to storage.")
+                            except Exception as p_err:
+                                log_error(f"Failed to persist {itype} index: {p_err}")
                 
         except Exception as e:
             log_error(f"Error refreshing knowledge base: {e}")
@@ -1111,50 +1119,43 @@ Kaia: {bot_response}
             # Retrieve with a significantly higher limit to ensure profiles are found
             retrieve_count = 15 if is_casual else 25
             
-            # 2. PRE-COMPUTE EMBEDDING ONCE (Massive speedup for multiple indices)
-            query_bundle = None
-            try:
-                # Only embed if any targeted index is a VectorStoreIndex
-                needs_embedding = any(itype in self.indices for itype in target_itypes)
-                if needs_embedding:
-                    log_debug(f"Pre-computing query embedding for {len(target_itypes)} indices...")
-                    embedding = self.embed_model.get_query_embedding(enriched_query)
-                    query_bundle = QueryBundle(query_str=enriched_query, embedding=embedding)
-            except Exception as e:
-                log_error(f"Failed to pre-compute query embedding: {e}")
-
-            # 3. Parallel retrieval pass across targeted indices
-            def fetch_results(itype):
-                if itype not in self.indices: return []
-                
-                # Get or build BM25 retriever
-                if itype not in self.bm25_cache or self.bm25_cache[itype] is None:
-                    # Thread-safe access to docs
-                    index_nodes = list(self.indices[itype].storage_context.docstore.docs.values())
-                    if index_nodes:
-                        self.bm25_cache[itype] = SimpleBM25Retriever(index_nodes)
-                    else:
-                        self.bm25_cache[itype] = None
-                
-                bm25_retriever = self.bm25_cache.get(itype)
-                if bm25_retriever:
-                    hybrid = HybridRetriever(self.indices[itype], bm25_retriever)
-                    # Use pre-computed query_bundle
-                    return hybrid.retrieve(enriched_query, top_k=retrieve_count, query_bundle=query_bundle)
-                else:
-                    # Fallback to vector only
-                    retriever = self.indices[itype].as_retriever(similarity_top_k=retrieve_count)
-                    # Use provided query_bundle if available
-                    return retriever.retrieve(query_bundle if query_bundle else enriched_query)
-
+            # 3. Retrieval pass across targeted indices (Sequential to avoid RLock deadlocks)
             all_node_results = []
-            with concurrent.futures.ThreadPoolExecutor(max_workers=min(len(target_itypes), 4)) as executor:
-                future_to_itype = {executor.submit(fetch_results, itype): itype for itype in target_itypes}
-                for future in concurrent.futures.as_completed(future_to_itype):
-                    try:
-                        all_node_results.extend(future.result())
-                    except Exception as e:
-                        log_error(f"Index retrieval failed for {future_to_itype[future]}: {e}")
+            for itype in target_itypes:
+                if itype not in self.indices:
+                    continue
+                
+                try:
+                    # Get or build BM25 retriever (Thread-safe)
+                    bm25_retriever = None
+                    with self._lock:
+                        bm25_retriever = self.bm25_cache.get(itype)
+                    
+                    if bm25_retriever is None:
+                        with self._lock:
+                            # Double-check inside lock
+                            bm25_retriever = self.bm25_cache.get(itype)
+                            if bm25_retriever is None:
+                                # Thread-safe access to docs
+                                index_nodes = list(self.indices[itype].storage_context.docstore.docs.values())
+                                if index_nodes:
+                                    log_action(f"Building BM25 retriever for {itype} ({len(index_nodes)} nodes)...")
+                                    bm25_retriever = SimpleBM25Retriever(index_nodes)
+                                    self.bm25_cache[itype] = bm25_retriever
+                                else:
+                                    self.bm25_cache[itype] = None
+                    
+                    if bm25_retriever:
+                        hybrid = HybridRetriever(self.indices[itype], bm25_retriever)
+                        results = hybrid.retrieve(enriched_query, top_k=retrieve_count)
+                        all_node_results.extend(results)
+                    else:
+                        # Fallback to vector only
+                        retriever = self.indices[itype].as_retriever(similarity_top_k=retrieve_count)
+                        results = retriever.retrieve(enriched_query)
+                        all_node_results.extend(results)
+                except Exception as e:
+                    log_error(f"Index retrieval failed for {itype}: {e}")
             
             # 4. Categorize and Score nodes
             scored_nodes = [] # List of (score, content, label)
@@ -1279,6 +1280,11 @@ Kaia: {bot_response}
                 
                 # Boost priority-flagged content slightly
                 final_score += priority_boost * 0.05
+
+                # DIVERSITY INJECTION: For casual queries, add score jitter to break determinism
+                if is_casual:
+                    jitter = random.uniform(-0.1, 0.1)
+                    final_score += jitter
                 
                 # Determine label for display
                 file_path = node.metadata.get('file_path', '')
@@ -1340,6 +1346,14 @@ Kaia: {bot_response}
                 })
                 if len(final_results) >= top_k:
                     break
+            
+            # DIVERSITY INJECTION: Shuffle top results for casual queries to break parrotting
+            if is_casual and len(final_results) > 2:
+                # Shuffle the top 3 results if we have enough
+                shuffle_count = min(3, len(final_results))
+                top_slice = final_results[:shuffle_count]
+                random.shuffle(top_slice)
+                final_results = top_slice + final_results[shuffle_count:]
             
             query_type = "casual" if is_casual else ("identity" if is_identity_query else "knowledge")
             log_success(f"Retrieved {len(final_results)} results [{query_type}] (P:{persona_count}, U:{user_log_count}, L:{lore_count}, thresh:{lore_threshold:.2f})")
@@ -1491,21 +1505,57 @@ Kaia: {bot_response}
     def persist(self, force: bool = False):
         """Persist all hierarchical indices to storage if needed."""
         # REQUIREMENT: Never wait on locks during shutdown
-        if not self._lock.acquire(timeout=2.0):
-            log_warning("RAG persist skipped: could not acquire lock (likely shutdown or heavy indexing)")
+        if not force and not self.persist_needed:
             return
             
+        log_action("Persisting all RAG indices...")
+        for itype, index in self.indices.items():
+            try:
+                itype_dir = os.path.join(self.persist_dir, itype)
+                index.storage_context.persist(persist_dir=itype_dir)
+            except Exception as e:
+                log_error(f"Failed to persist {itype} index: {e}")
+        
+        self.persist_needed = False
+        log_success("RAG indices persisted.")
+
+    def pre_warm(self):
+        """
+        Should be called in a background thread on startup.
+        """
         try:
-            if self.persist_needed or force:
-                for itype, index in self.indices.items():
-                    itype_dir = os.path.join(self.persist_dir, itype)
-                    index.storage_context.persist(persist_dir=itype_dir)
-                self.persist_needed = False
-                log_success(f"All hierarchical indices persisted to {self.persist_dir}")
+            log_action("Pre-warming RAG BM25 indices...")
+            # Use local copy of indices keys to avoid concurrent mod
+            index_list = list(self.indices.items())
+            
+            for itype, index in index_list:
+                # 1. Quick check with lock
+                with self._lock:
+                    if itype in self.bm25_cache and self.bm25_cache[itype] is not None:
+                        continue
+                    # Get nodes while holding lock
+                    nodes = list(index.storage_context.docstore.docs.values())
+                
+                if nodes:
+                    log_info(f"Tokenizing {len(nodes)} nodes for '{itype}' index (background)...")
+                    start = time.time()
+                    
+                    # 2. HEAVY WORK: Tokenize and build BM25 WITHOUT holding the lock
+                    # This allows other threads (like retrieval) to proceed
+                    retriever = SimpleBM25Retriever(nodes)
+                    
+                    # 3. Final update with lock
+                    with self._lock:
+                        self.bm25_cache[itype] = retriever
+                        
+                    log_success(f"Index '{itype}' pre-warmed in {time.time() - start:.2f}s")
+                    
+                    # Brief breath between indices to keep CPU usage sane
+                    time.sleep(0.5)
+            
+            log_success("All RAG indices pre-warmed.")
         except Exception as e:
-            log_error(f"Error persisting indices: {e}")
-        finally:
-            self._lock.release()
+            log_error(f"RAG pre-warm failed: {e}")
 
 if __name__ == "__main__":
     rag = KaiaRAG()
