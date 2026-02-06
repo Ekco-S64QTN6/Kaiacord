@@ -1779,12 +1779,16 @@ async def on_message(msg: discord.Message):
         return
     
     # Check if this is an EXPLICIT vision request
-    explicit_vision_keywords = ["analyze", "look"]
-    is_explicit_vision_request = any(word in sanitized_content.lower() for word in explicit_vision_keywords)
+    # TODO: Re-enable when vision_enabled is True and fix substring matching
+    # explicit_vision_keywords = ["analyze", "look"]
+    # is_explicit_vision_request = any(word in sanitized_content.lower() for word in explicit_vision_keywords)
+    is_explicit_vision_request = False  # Vision disabled - skip trigger detection
     
     is_mention = "kaia" in sanitized_content.lower() or (not is_social and bot.user.mentioned_in(msg))
     
-    if is_mention and (image_attachments or is_explicit_vision_request):
+    # VISION BLOCK DISABLED - config.vision_enabled is False
+    # if is_mention and (image_attachments or is_explicit_vision_request):
+    if False:  # Vision processing disabled
         # Circuit breaker check: Is vision enabled?
         if not config.vision_enabled:
             # If vision is disabled, we just let it fall through to normal chat processing

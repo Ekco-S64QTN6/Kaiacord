@@ -903,7 +903,7 @@ STRICT PERSONA RULES:
         
         messages = [
             {"role": "system", "content": system_prompt + reflection_prompt},
-            {"role": "user", "content": f"Write the post now. Exactly {target_sentences} sentences. Stay under 270 characters. lowercase only."}
+            {"role": "user", "content": f"Write the post now. Exactly {target_sentences} sentences. Aim for 180-280 characters. lowercase only. Complete thoughts, not fragments."}
         ]
         
         response = await ollama_client.chat(
@@ -912,7 +912,7 @@ STRICT PERSONA RULES:
             options={
                 'temperature': 0.85,  # Higher for variety
                 'top_p': 0.95,
-                'num_predict': 180,
+                'num_predict': 300,  # Increased for longer posts
                 'presence_penalty': 0.5,
                 'frequency_penalty': 0.4
             }
@@ -938,7 +938,7 @@ REQUIREMENTS:
             polished_response = await ollama_client.chat(
                 model=config.chat_model,
                 messages=[{"role": "user", "content": polish_prompt}],
-                options={'temperature': 0.2, 'num_predict': 100}
+                options={'temperature': 0.2, 'num_predict': 150}  # Increased for complete thoughts
             )
             quip = polished_response['message']['content'].strip()
             quip = clean_quip(quip) # Final clean after polish
