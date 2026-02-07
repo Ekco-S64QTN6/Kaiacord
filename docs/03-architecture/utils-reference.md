@@ -2,39 +2,39 @@
 
 Core utility modules used by Kaiacord.
 
-## Core Modules
+## Core Modules (`utils/core/`)
 
 | Module | Purpose |
 |--------|---------|
-| `kaia_rag.py` | Retrieval-Augmented Generation system, vector indexing, and hallucination detection |
-| `kaia_image.py` | Image generation with FLUX.1-schnell |
-| `kaia_vision.py` | Image analysis with llama3.2-vision |
-| `kaia_news.py` | Unified News Manager (Consolidated) - news scanning, parsing, and retrieval |
-| `kaia_intelligence.py` | Intelligence Layer: Semantic cache, context optimization, personalization, and Query Classifier (Consolidated) |
+| `kaia_rag.py` | Retrieval-Augmented Generation system and vector indexing |
+| `kaia_intelligence.py` | Intelligence Layer: Context optimization, personalization, and Query Classifier |
+| `kaia_dream.py` | Dream Engine for nightly associative memory processing |
+| `message_processor.py` | Modular on_message pipeline stage management |
+| `semantic_cache.py` | Enhanced semantic cache with pollution protection |
+| `response_filter.py` | Hallucination detection and response cleaning |
 
-## Infrastructure
-
-| Module | Purpose |
-|--------|---------|
-| `unified_logging.py` | Centralized logging with color-coded output |
-| `kaia_logger.py` | Logging helper functions |
-| `btop_dashboard.py` | Btop-style terminal dashboard |
-| `terminal_manager.py` | Terminal control utilities |
-| `stats_tracker.py` | Statistics collection |
-| `stats_poller.py` | Statistics polling |
-
-## Response Processing
+## Infrastructure (`utils/infrastructure/`)
 
 | Module | Purpose |
 |--------|---------|
-| `boilerplate_detector.py` | Removes repetitive endings from responses |
-| `performance_optimizer.py` | Response optimization |
-| `knowledge_boundary.py` | Knowledge boundary enforcement |
+| `system/dashboard_manager.py` | **Lifecycle Manager**: Run modes, startup, and cleanup |
+| `logging/unified_logging.py` | Centralized logging with color-coded output |
+| `system/yaml_config.py` | Hierarchical configuration management |
+| `system/bot_state.py` | Persistent state and interaction tracking |
+| `system/rate_limiter.py` | Per-user interaction rate limiting |
+| `monitoring/stats_tracker.py` | Statistics collection and dashboard data |
+
+## Specialized Handlers
+
+| Folder | Purpose |
+|--------|---------|
+| `utils/commands/` | Extracted logic for `!news`, `!dreams`, `!vram`, etc. |
+| `utils/news/` | News retrieval, parsing, and ingestion logic |
+| `utils/social/` | Bluesky, X/Twitter, and Social Responder logic |
 
 ## GPU & System
 
 | Module | Purpose |
 |--------|---------|
-| `gpu_manager.py` | GPU management for Ollama |
-| `clear_gpu_memory.py` | GPU memory cleanup |
-| `shutdown_fixed.py` | Graceful shutdown handling |
+| `gpu/gpu_manager.py` | Smart GPU management for Ollama models |
+| `system/shutdown_fixed.py` | Graceful shutdown orchestration |

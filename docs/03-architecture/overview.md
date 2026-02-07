@@ -2,36 +2,49 @@
 
 ## Overview
 
-Kaia is a self-hosted Discord AI bot with local inference, RAG-based memory, vision capabilities, and image generation. This document describes the technical architecture after the v2.1 modular refactor.
+Kaia is a self-hosted Discord AI bot with local inference and RAG-based memory. This document describes the technical architecture after the Phase 8 modular refactor.
 
 ## System Architecture
 
 ```mermaid
 graph TB
-    Discord[Discord API] --> Bot[Bot Core]
-    Bot --> Handlers[Message Handlers]
-    Handlers --> Services[AI Services]
-    Services --> Models[Ollama Models]
-    Services --> RAG[RAG System]
-    Services --> GPU[GPU Manager]
-    GPU --> CUDA[CUDA/PyTorch]
-    RAG --> Storage[(Storage)]
-    Bot --> Dashboard[Curses Dashboard]
-    Bot --> Config[Configuration]
+    Discord[Discord API] --> Kaiacord[Kaiacord.py]
+    Kaiacord --> DM[DashboardManager]
+    Kaiacord --> MP[MessageProcessor]
+    
+    subgraph Core Logic
+        RAG[kaia_rag.py]
+        Intel[kaia_intelligence.py]
+        Dream[kaia_dream.py]
+    end
+    
+    subgraph Infrastructure
+        Logging[logging/]
+        System[system/ config, state]
+        Monitoring[monitoring/]
+    end
+    
+    MP --> Core Logic
+    Kaiacord --> Infrastructure
+    DM --> Logging
+    DM --> Monitoring
+    
+    Infrastructure --> Logs[(logs/kaiacord.log)]
+    Core Logic --> Memory[(memory/)]
+    Core Logic --> KB[(knowledge_base/)]
 ```
 
 ## Directory Structure
 
 ```
 Kaiacord/
-├── Kaiacord.py              # Main entry point (~800 lines, down from 2390)
+├── Kaiacord.py              # Minimal Orchestrator (~170 lines)
 ├── utils/                   # Deeply modularized components
-│   ├── core/                # Core AI logic (RAG, Vision, Image, Intelligence)
-│   ├── infrastructure/      # System foundations
-│   │   ├── logging/         # Unified & Hardened Logging
-│   │   ├── system/          # Config, State, Rate Limiting, Shutdown
-│   │   └── monitoring/      # Dashboards & Stats
-│   └── social/              # Twitter/X, Bluesky & Social Responder
+│   ├── core/                # Core AI logic (RAG, Intelligence, Dream, MessageProcessor)
+│   ├── infrastructure/      # System foundations (DashboardManager, Config, State)
+│   ├── social/              # Twitter/X, Bluesky & Social Responder
+│   ├── commands/            # Specialized command handlers
+│   └── news/                # News retrieval & management
 ├── config/                  # Configuration & Bot Persona
 ├── knowledge_base/          # RAG text storage (News, Interaction Logs)
 ├── memory/                  # Persistent data (bot_state.json, semantic_cache.json)
@@ -45,114 +58,53 @@ Kaiacord/
 
 ### 1. Bot Core (`Kaiacord.py`)
 
-**Responsibility**: Discord bot initialization, event loop management
+**Responsibility**: High-level orchestration, event rooting, and dependency injection.
 
-**Key Classes**:
-- `KaiaBot`: Main bot class extending `discord.Client`
-
-**Functions**:
-- Bot initialization
-- Event loop setup
-- Startup/shutdown orchestration
+**Key Flow**:
+1. Initializes `DashboardManager`.
+2. Starts `initialize_logic_layer`.
+3. Routes events to `MessageProcessor`.
 
 ---
 
-### 2. Configuration System (`utils/infrastructure/system/yaml_config.py`)
+### 2. Dashboard & Lifecycle (`utils/infrastructure/system/dashboard_manager.py`)
 
-**Responsibility**: Hierarchical configuration management
+**Responsibility**: Manages run modes (Curses/Simple), startup tasks, and clean shutdown.
 
 **Features**:
-- ✅ Environment variable support
-- ✅ Dataclass-based configuration
-- ✅ YAML configuration loading
-- ✅ Runtime validation
-- ✅ Hot-reload for safe settings
-
-**Configuration Hierarchy**:
-1. `config/default_config.yaml` (defaults)
-2. `config/kaia.yaml` (user overrides)
-3. Environment variables (highest priority)
+- ✅ Phased boot sequence (RAG -> News -> Model Warmup).
+- ✅ Curses-based real-time dashboard.
+- ✅ Graceful asynchronous cleanup.
 
 ---
 
-### 3. State Management (`utils/infrastructure/system/bot_state.py`)
+### 3. Message Pipeline (`utils/core/message_processor.py`)
 
-**Responsibility**: Bot state persistence and channel memory
+**Responsibility**: Decomposes the complex `on_message` logic into a modular pipeline.
 
-**State Tracked**:
-- ✅ Channel memory (recent messages)
-- ✅ Last interaction time  
-- ✅ Consecutive quips counter
-- ✅ Image generation status
-- ✅ Active channel tracking
-
-**Persistence**:
-- JSON file (`memory/bot_state.json`)
-- Automatic save on state changes
+**Pipeline Stages**:
+1. **Entry Checks**: Rate limiting, blacklist/whitelist, boot guard.
+2. **Intelligence**: Classification, Hallucination detection, Semantic Cache check.
+3. **Retrieval**: Parallel RAG retrieval, News enhancement, Persona adaptation.
+4. **Generation**: Self-healing prompt construction and multi-pass AI call.
 
 ---
 
-### 4. Rate Limiting (`utils/infrastructure/system/rate_limiter.py`)
+### 4. Configuration System (`utils/infrastructure/system/yaml_config.py`)
 
-**Responsibility**: Per-user rate limiting
-
-**Features**:
-- ✅ Sliding window (60 seconds)
-- ✅ Per-user tracking
-- ✅ Automatic cleanup of inactive users
-- ✅ Configurable limits
+**Responsibility**: Hierarchical configuration management.
 
 ---
 
-### 5. GPU Memory Manager (`utils/infrastructure/system/gpu_memory_manager.py`)
+### 5. State Management (`utils/infrastructure/system/bot_state.py`)
 
-**Responsibility**: Unified GPU memory management
-
-**Features**:
-- ✅ VRAM reservation system
-- ✅ Priority queue (Chat > Vision > Image Gen)
-- ✅ Preemption of lower-priority tasks
-- ✅ Memory pressure monitoring
-
-**Priority Levels**:
-1. **CHAT** (Priority 1): Highest - chat model stays loaded
-2. **VISION** (Priority 2): Medium - can preempt image gen
-3. **IMAGE_GEN** (Priority 3): Lowest - yields to others
+**Responsibility**: Bot state persistence and interaction tracking.
 
 ---
 
-### 6. Exception Hierarchy (`utils/infrastructure/system/bot_exceptions.py`)
+### 6. Logging System
 
-**Responsibility**: Centralized error handling
-
-**Structure**:
-```
-KaiaError (base)
-├── GPUError
-├── ModelError
-├── VisionError
-├── ImageGenerationError
-├── RAGError
-├── ConfigError
-├── RateLimitError
-└── NewsError
-```
-
----
-
-### 7. Logging System
-
-**Components**:
-- ✅ `utils/infrastructure/logging/unified_logging.py`: Core logging infrastructure
-- ✅ `utils/infrastructure/logging/kaia_logger.py`: Formatted logging functions
-- ✅ `utils/infrastructure/logging/logging_bridge.py`: Logging abstraction
-- ✅ `utils/infrastructure/monitoring/stats_helpers.py`: Safe stats_poller access
-
-**Features**:
-- ✅ Color-coded terminal output
-- ✅ Dashboard integration via bridge pattern
-- ✅ Programmatic interception of stdout/stderr (Consolidated)
-- ✅ ANSI color stripping for log files
+**Responsibility**: Consolidated, color-coded, and hardened logging across all modules.
 
 ---
 
@@ -164,120 +116,44 @@ KaiaError (base)
 sequenceDiagram
     participant User
     participant Discord
-    participant Bot
-    participant RateLimiter
-    participant Handlers
+    participant Kaiacord
+    participant MP[MessageProcessor]
     participant RAG
     participant Ollama
-    participant GPU
 
     User->>Discord: Send message
-    Discord->>Bot: on_message event
-    Bot->>RateLimiter: Check rate limit
-    RateLimiter-->>Bot: Allowed/Denied
-    
-    alt Rate limited
-        Bot->>Discord: Rate limit message
-        Discord->>User: Response
-    else Allowed
-        Bot->>Handlers: Process message
-        Handlers->>RAG: Retrieve context
-        RAG-->>Handlers: Context nodes
-        Handlers->>GPU: Check availability
-        GPU-->>Handlers: GPU status
-        Handlers->>Ollama: Generate response
-        Ollama-->>Handlers: AI response
-        Handlers->>Bot: Formatted response
-        Bot->>Discord: Send response
-        Discord->>User: Response
-    end
+    Discord->>Kaiacord: on_message event
+    Kaiacord->>MP: process(msg)
+    MP->>RAG: Retrieve context
+    RAG-->>MP: Context nodes
+    MP->>Ollama: Generate response (Self-Healing)
+    Ollama-->>MP: AI response
+    MP->>Kaiacord: send_response
+    Kaiacord->>Discord: await send
 ```
 
 ---
 
 ## GPU Memory Management Strategy
 
-### Priority-Based Reservation System
-
 **Priority Levels**:
-1. **CHAT** (P1): Always loaded
-2. **VISION** (P2): Loaded on demand, can preempt image gen
-3. **IMAGE_GEN** (P3): Loaded on demand, lowest priority
+1. **CHAT** (P1): Main LLM (e.g., gemma3:12b) remains resident in VRAM for fast response.
+2. **MAINTENANCE**: Periodic RAG re-indexing and nightly Dream cycles.
 
-**Rules**:
-- Chat model NEVER unloaded
-- Image gen requires 8GB free VRAM
-- Vision can preempt image gen if needed
-- Lower priority tasks yield to higher priority
+Kaia is optimized for 12GB VRAM GPUs (like the RTX 3060), ensuring high-quality inference with enough headroom for the 28k context window.
 
 ---
 
-## Circuit Breakers
+## Circuit Breakers & Self-Healing
 
-### Image Generation Circuit Breaker
-
-**Purpose**: Prevent repeated CUDA OOM errors
-
-**States**:
-- `enabled`: Normal operation
-- `disabled`: Circuit open, all requests fail fast
-- `recovering`: Attempting GPU recovery
-
-**Trigger**:
-- `torch.cuda.OutOfMemoryError` exception
-
----
-
-## Backward Compatibility
-
-### Import Forwarding
-
-All existing imports continue to work:
-
-**Old (still works)**:
-```python
-from Kaiacord import config, bot_state, rate_limiter
-```
-
-**New (preferred)**:
-```python
-from utils.infrastructure.system.yaml_config import config
-from utils.infrastructure.system.bot_state import bot_state
-from utils.infrastructure.system.rate_limiter import RateLimiter
-```
-
----
-
-## Testing Strategy
-
-### Unit Tests
-- ✅ `tests/unit/test_stats_helpers.py`
-- ✅ `tests/unit/test_logging_bridge.py`
-- ✅ `tests/unit/test_rate_limiter.py`
-- ✅ `tests/unit/test_yaml_config.py`
-
----
-
-## Configuration Management
-
-### Current Status
-
-✅ **Implemented**:
-- Dataclass-based `Config` class
-- Hierarchical merge (defaults → user → env)
-- YAML file loading
-- Runtime validation
-- Hot-reload support
-
----
-
-## Troubleshooting
-
-See [Common Issues](../06-troubleshooting/common-issues.md) for solutions.
+Kaia implements a 3-pass self-healing generation loop:
+1. **Attempt 1**: Standard parameters.
+2. **Attempt 2**: Temperature scaling on failure/hallucination.
+3. **Attempt 3**: Fallback safety response if generation persists in failing.
 
 ---
 
 ## References
 
 - [GEMINI_Report.md](../../GEMINI_Report.md)
-- [MIGRATION_GUIDE.md](../../MIGRATION_GUIDE.md)
+- [task.md](../../.gemini/antigravity/brain/979b42e5-c563-4647-9547-8b696c335ae6/task.md)

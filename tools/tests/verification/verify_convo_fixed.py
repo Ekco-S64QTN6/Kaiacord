@@ -9,7 +9,8 @@ sys.path.append(str(Path(__file__).parent.parent.parent.parent))
 # Import the core components to test
 from utils.core.kaia_rag import KaiaRAG
 from utils.core.kaia_intelligence import QueryClassifier, ContextOptimizer
-from Kaiacord import EmergencyContaminationFilter, NEWS_AUTO_TRIGGER_ENABLED
+from utils.core.message_processor import NEWS_AUTO_TRIGGER_ENABLED
+from utils.core.response_filter import EmergencyContaminationFilter
 
 async def test_conversational_variety():
     print("\n--- Starting Conversational Smoke Tests ---\n")

@@ -10,8 +10,6 @@ Welcome to the Kaiacord documentation! Organized by topic for easy navigation.
 
 ### 📘 [02 - User Guide](02-user-guide/)
 - [Dashboard](02-user-guide/dashboard.md)
-- [Image Generation](02-user-guide/image-generation.md)
-- [Vision Analysis](02-user-guide/vision-analysis.md)
 - [News System](02-user-guide/news-system.md)
 - [Social Media (Bluesky & X)](02-user-guide/social-media.md)
 - [Persona Guidelines](02-user-guide/persona.md)

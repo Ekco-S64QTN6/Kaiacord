@@ -42,17 +42,6 @@ Kaia responds naturally to specific phrases when mentioned or addressed.
 | **System Status** | Provides real-time GPU/VRAM health and Ollama status. | "status", "stats", "info", "how are you" |
 | **Natural Mention** | Discusses recently ingested documents or news briefings. | "what's new?", "what's up?", "what have you been reading?" |
 | **Dream Recall** | Triggers direct reflections from the associative memory cache. | "what did you dream?", "tell me about your dreams" |
-| **Image Generation** | Generates high-fidelity images using FLUX.1-schnell. | "draw a cat", "generate a cyberpunk city", "sketch a..." |
-
----
-
-## 🎨 Creative Commands
-
-### Image Generation
-Instead of a strict `!draw` command, Kaia detects creative intent in natural language.
-- **Syntax**: `kaia draw [prompt]` or `will you paint [prompt] please?`
-- **Supported Intents**: `draw`, `paint`, `generate`, `create`, `sketch`, `render`.
-- **Supported Shapes**: `portrait`, `landscape`, `square`, `circle`, etc.
 
 ---
 

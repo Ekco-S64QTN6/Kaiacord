@@ -14,240 +14,8 @@ from utils.infrastructure.logging.kaia_logger import log_info, log_action, log_s
 
 # NOTE: config is imported lazily in ContextOptimizer.__init__ to avoid circular import
 
-class PerformanceMonitor:
-    """Track and report system performance metrics."""
-    def __init__(self):
-        self.metrics = {
-            'cache_hits': 0,
-            'cache_misses': 0,
-            'exact_hits': 0,
-            'cache_lookup_time': [],
-            'classification_time': [],
-            'retrieval_time': [],
-            'response_time': [],
-        }
-        self.start_times = {}
-        
-    def start_timer(self, key):
-        self.start_times[key] = time.time()
-        
-    def stop_timer(self, key, metric_name):
-        if key in self.start_times:
-            duration = (time.time() - self.start_times[key]) * 1000 # ms
-            # Defensive: initialize metric list if it doesn't exist
-            if metric_name not in self.metrics:
-                self.metrics[metric_name] = []
-            self.metrics[metric_name].append(duration)
-            del self.start_times[key]
-            return duration
-        return 0
-
-    def record_hit(self, exact=False):
-        self.metrics['cache_hits'] += 1
-        if exact:
-            self.metrics['exact_hits'] += 1
-            
-    def record_miss(self):
-        self.metrics['cache_misses'] += 1
-
-    def get_report(self):
-        total = self.metrics['cache_hits'] + self.metrics['cache_misses']
-        hit_rate = (self.metrics['cache_hits'] / total * 100) if total > 0 else 0
-        exact_rate = (self.metrics['exact_hits'] / total * 100) if total > 0 else 0
-        
-        avg_cache = np.mean(self.metrics['cache_lookup_time'][-50:]) if self.metrics.get('cache_lookup_time') else 0
-        avg_classify = np.mean(self.metrics['classification_time'][-50:]) if self.metrics['classification_time'] else 0
-        avg_retrieval = np.mean(self.metrics['retrieval_time'][-50:]) if self.metrics['retrieval_time'] else 0
-        avg_response = np.mean(self.metrics['response_time'][-50:]) if self.metrics['response_time'] else 0
-        
-        return (
-            f"\n⚡ Kaia 2.0 Performance Report ⚡\n"
-            f"Cache Hit Rate: {hit_rate:.1f}% (Exact: {exact_rate:.1f}%)\n"
-            f"Avg Cache Lookup: {avg_cache:.0f}ms\n"
-            f"Avg Classification: {avg_classify:.0f}ms\n"
-            f"Avg Retrieval: {avg_retrieval:.0f}ms\n"
-            f"Avg Response: {avg_response:.0f}ms\n"
-            f"Total Queries: {total}"
-        )
-
-class SemanticCache:
-    """Two-level cache: Exact match (fast) + Semantic match (embeddings)."""
-    
-    # Short conversational patterns that should NEVER be cached or matched
-    # These are acknowledgments and simple responses that don't warrant caching
-    CACHE_BYPASS_PATTERNS = {
-        'affirmative', 'yes', 'no', 'ok', 'okay', 'sure', 'thanks', 'thank you',
-        'understood', 'got it', 'cool', 'nice', 'good', 'great', 'perfect',
-        'agreed', 'agree', 'confirmed', 'roger', 'acknowledged', 'noted',
-        'yep', 'yup', 'nope', 'nah', 'mhm', 'uh huh', 'alright', 'right',
-        'indeed', 'exactly', 'correct', 'true', 'false', 'maybe', 'perhaps'
-    }
-    
-    # Minimum query length to be eligible for caching (prevents short query over-matching)
-    MIN_CACHEABLE_LENGTH = 15
-    
-    def __init__(self, model_name="nomic-embed-text", max_size=200, threshold=0.92):
-        """
-        Initialize semantic cache.
-        
-        Args:
-            threshold: Semantic similarity threshold (0.92 = very strict matching)
-                       Higher values prevent unrelated queries from matching.
-        """
-        self.exact_cache = {} # {user_id:query_hash: response}
-        self.cache = {} # {query: data}
-        self.access_counts = {} # {query_hash: count}
-        self.embed_model = OllamaEmbedding(model_name=model_name)
-        self.max_size = max_size
-        self.threshold = threshold
-    
-    def _should_bypass_cache(self, query: str) -> bool:
-        """Check if query should bypass caching entirely."""
-        normalized = query.strip().lower()
-        
-        # Too short to cache meaningfully
-        if len(normalized) < self.MIN_CACHEABLE_LENGTH:
-            return True
-        
-        # Check against bypass patterns (exact match on normalized form)
-        if normalized in self.CACHE_BYPASS_PATTERNS:
-            return True
-        
-        # Check if query is just a bypass pattern with punctuation
-        stripped = normalized.rstrip('.,!?')
-        if stripped in self.CACHE_BYPASS_PATTERNS:
-            return True
-        
-        return False
-        
-    def _get_exact_key(self, query, user_id):
-        return f"{user_id}:{query.strip().lower()}"
-
-    def cosine_similarity(self, a, b):
-        return np.dot(a, b) / (np.linalg.norm(a) * np.linalg.norm(b))
-        
-    def _get_query_hash(self, query):
-        """Stable hash for query invalidation."""
-        return hashlib.sha256(query.strip().lower().encode()).hexdigest()
-
-    def invalidate_exact(self, query_hash_or_key):
-        """Invalidate exact cache entry."""
-        if query_hash_or_key in self.exact_cache:
-            del self.exact_cache[query_hash_or_key]
-            return True
-        # Also check if it's a full key (user_id:query)
-        for key in list(self.exact_cache.keys()):
-            if query_hash_or_key in key:
-                del self.exact_cache[key]
-                return True
-        return False
-
-    def invalidate_semantic_by_query(self, query):
-        """Invalidate semantic cache entry."""
-        if query in self.cache:
-            del self.cache[query]
-            if query in self.access_counts:
-                del self.access_counts[query]
-            return True
-        return False
-        
-    async def get(self, query, user_id=None, monitor=None):
-        """
-        Get cached response for similar query.
-        
-        Uses semantic similarity to find if we've answered this before.
-        """
-        # Level 1: Exact Match (Fast)
-        if query in self.exact_cache:
-            if monitor: monitor.record_hit()
-            return self.exact_cache[query]
-
-        # Level 2: Semantic Match
-        if not self.cache:
-            if monitor: monitor.record_miss()
-            return None
-            
-        try:
-            query_embedding = await self.embed_model.aget_text_embedding(query)
-        except Exception as e:
-            log_error(f"Error generating embedding for cache: {e}")
-            if monitor: monitor.record_miss()
-            return None
-        
-        best_match = None
-        highest_similarity = -1
-        
-        for cached_query, data in self.cache.items():
-            if user_id and data.get('user_id') and data['user_id'] != user_id:
-                continue
-                
-            similarity = self.cosine_similarity(query_embedding, data['embedding'])
-            if similarity > highest_similarity:
-                highest_similarity = similarity
-                best_match = data
-        
-        if highest_similarity >= self.threshold:
-            age = time.time() - best_match['timestamp']
-            decay = max(0.5, 1 - (age / 86400))
-            
-            if highest_similarity * decay >= self.threshold:
-                log_success(f"Semantic cache hit: {highest_similarity:.3f}")
-                # Update access count for the matched query
-                matched_query = list(self.cache.keys())[list(self.cache.values()).index(best_match)]
-                self.access_counts[matched_query] = self.access_counts.get(matched_query, 0) + 1
-                if monitor: monitor.record_hit()
-                return best_match['response']
-        
-        if monitor: monitor.record_miss()
-        return None
-    
-    async def set(self, query, response, user_id=None):
-        """Cache query-response pair in both levels."""
-        # BYPASS: Don't cache short queries or conversational patterns
-        if self._should_bypass_cache(query):
-            log_debug(f"Cache set bypass: query not cacheable")
-            return
-        
-        try:
-            # Set Exact
-            exact_key = self._get_exact_key(query, user_id)
-            self.exact_cache[exact_key] = response
-            
-            # Set Semantic
-            if len(self.cache) >= self.max_size:
-                await self.prune_adaptive()
-            
-            query_embedding = await self.embed_model.aget_text_embedding(query)
-            self.cache[query] = {
-                'embedding': query_embedding,
-                'response': response,
-                'user_id': user_id,
-                'timestamp': time.time()
-            }
-        except Exception as e:
-            log_error(f"Error setting cache: {e}")
-
-    async def prune_adaptive(self):
-        """Prune based on LRU + access frequency."""
-        if not self.cache: return
-        
-        log_action("Pruning cache adaptively...")
-        # Score = timestamp * sqrt(access_count)
-        scores = {}
-        for query, data in self.cache.items():
-            count = self.access_counts.get(query, 1)
-            scores[query] = data['timestamp'] * np.sqrt(count)
-            
-        # Keep top 80%
-        keep_count = int(self.max_size * 0.8)
-        sorted_keys = sorted(scores.keys(), key=lambda k: scores[k], reverse=True)
-        
-        keys_to_keep = set(sorted_keys[:keep_count])
-        self.cache = {k: v for k, v in self.cache.items() if k in keys_to_keep}
-        
-        # Also prune exact cache
-        if len(self.exact_cache) > self.max_size * 2:
-            self.exact_cache = {k: v for k, v in self.exact_cache.items() if k in keys_to_keep or any(k.endswith(q) for q in keys_to_keep)}
+# PerformanceMonitor and SemanticCache have been moved to dedicated utility modules.
+# See utils/core/semantic_cache.py for the current implementation.
 
 class ModelWarmPool:
     """Keep models warm between uses to prevent cold starts."""
@@ -306,14 +74,12 @@ class QueryClassifier:
     """Query classifier with timeout and improved performance (Consolidated)"""
     
     def __init__(self, ollama_client=None, model="gemma3:12b", logger=None, host="http://localhost:11434", timeout=15.0):
-        # Note: ollama_client arg kept for compatibility but we create a new sync client for the thread
+        # Use the provided async ollama_client
+        self.ollama_client = ollama_client
         self.model = model
         self.logger = logger or log_info
-        self.timeout = 10.0 # Increased to 10.0s per user request to prevent timeouts
+        self.timeout = timeout
         self.host = host
-        
-        # Create Ollama client with shorter timeout for the synchronous thread
-        self.sync_client = Client(host=host, timeout=timeout)
         
         # Use the main model for classification (it's already loaded/hot)
         self.classification_model = model
@@ -339,13 +105,13 @@ class QueryClassifier:
                 r"^\s*kaia\?$"
             ],
             "IDENTITY": [
-                r"(who\s*(are\s*you|am\s*i|is\s*this))",
-                r"tell\s+me\s+about\s+(yourself|you)",
-                r"what\s+are\s+you",
-                r"who\s+am\s+i",
-                r"what\s+do\s+you\s+know\s+about\s+me",
-                r"describe\s+(yourself|kaia)",
-                r"your\s+(persona|identity|creator|origin)"
+                r"\b(who\s*(are\s*you|am\s*i|is\s*this))\b",
+                r"\btell\s+me\s+about\s+(yourself|you)\b",
+                r"\bwhat\s+are\s+you\b",
+                r"\bwho\s+am\s+i\b",
+                r"\bwhat\s+do\s+you\s+know\s+about\s+me\b",
+                r"\bdescribe\s+(yourself|kaia)\b",
+                r"\byour\s+(persona|identity|creator|origin)\b"
             ],
             "ENTITY": [  # Entity/identity queries
                 r"^\s*who (is|are|was|were) ",
@@ -355,31 +121,31 @@ class QueryClassifier:
                 r"^\s*who's ",
                 r"^\s*explain ",
                 r"^\s*describe ",
-                r"^\b(mark|elara|thorne|jules|elias)\b"  # Specific names mentioned
+                r"\b(mark|elara|thorne|jules|elias)\b"  # Specific names mentioned
             ],
             "NEWS": [  # Direct news pattern matching
-                r"news\s+(about|on|regarding)",
-                r"what('?s| is) the (latest|recent|current|today'?s)?\s*news",
-                r"tell\s+me\s+(the\s+)?news",
-                r"any\s+(new|recent)\s+updates",
-                r"what'?s\s+happening",
-                r"current\s+events",
-                r"headlines",
-                r"breaking\s+news"
+                r"\bnews\s+(about|on|regarding)\b",
+                r"\bwhat('?s| is) the (latest|recent|current|today'?s)?\s*news\b",
+                r"\btell\s+me\s+(the\s+)?news\b",
+                r"\bany\s+(new|recent)\s+updates\b",
+                r"\bwhat'?s\s+happening\b",
+                r"\bcurrent\s+events\b",
+                r"\bheadlines\b",
+                r"\bbreaking\s+news\b"
             ],
             "POLITICS": [
-                r"politics|political|election|government|senate|congress",
-                r"president|prime minister|minister|policy|legislation"
+                r"\b(politics|political|election|government|senate|congress)\b",
+                r"\b(president|prime minister|minister|policy|legislation)\b"
             ],
             "TECH": [
-                r"tech(nology)?|software|hardware|ai\s+news|llm|gpt",
-                r"openai|google|meta|microsoft|apple|tesla|spacex",
-                r"quantum|computer|chip|processor|gpu|cpu",
-                r"starkind|architecture|mitigate"
+                r"\b(tech(nology)?|software|hardware|ai\b|llm|gpt)\b",
+                r"\b(openai|google|meta|microsoft|apple|tesla|spacex)\b",
+                r"\b(quantum|computer|chip|processor|gpu|cpu)\b",
+                r"\b(starkind|architecture|mitigate)\b"
             ],
             "SECURITY": [
-                r"security|hack|breach|cyber|attack|vulnerability|cve",
-                r"ransomware|malware|phishing|zero.?day|exploit"
+                r"\b(security|hack|breach|cyber(?!punk)|attack|vulnerability|cve)\b",
+                r"\b(ransomware|malware|phishing|zero.?day|exploit)\b"
             ],
             "COMMAND": [
                 r"^\s*(status|statistics|stats|info|ping|uptime)\b",
@@ -424,10 +190,10 @@ class QueryClassifier:
         """Rule-based ONLY classification (extremely fast)"""
         return self._classify_rules(query).lower()
 
-    def classify_with_timeout(self, query: str) -> str:
-        """Classify query with timeout protection"""
+    async def _classify_async(self, query: str) -> str:
+        """Classify query with async timeout protection"""
         # Check if NEWS is disabled globally
-        from Kaiacord import NEWS_AUTO_TRIGGER_ENABLED
+        from utils.core.message_processor import NEWS_AUTO_TRIGGER_ENABLED
         
         query_clean = query.strip()
         query_lower = query_clean.lower()
@@ -442,24 +208,22 @@ class QueryClassifier:
             rule_based_result = "GENERAL"
 
         # GUARDRAIL: Short conversational turns (<= 6 words) 
-        # should stay GENERAL unless they match a specific high-confidence rule (GREETING, IDENTITY, COMMAND, CASUAL)
         if word_count <= 6 and rule_based_result not in ["GREETING", "IDENTITY", "COMMAND", "CASUAL", "PERSONAL"]:
             log_debug(f"Short query ({word_count} words) detected, defaulting to general.")
             return "general"
 
         if rule_based_result != "GENERAL":
-            return rule_based_result.lower() # Return lowercase to match existing code expectations
+            return rule_based_result.lower()
         
-        # FAST-PATH GUARDRAIL: If rule-based returns GENERAL and it's a simple query, skip model entirely
-        # This prevents unnecessary model calls for simple conversational turns
+        # FAST-PATH GUARDRAIL
         if word_count <= 10 and not any(kw in query_lower for kw in ["who", "what", "how", "why", "tell", "explain", "news"]):
             log_debug("Simple query detected, skipping model classification.")
             return "general"
         
-        # If no rule matches, use model with timeout
-        model_result = self._classify_with_model_timeout(query_clean)
+        # Async model classification
+        model_result = await self._classify_with_model_timeout(query_clean)
         
-        # Safety Fix: Prevent NEWS from overriding core intents late in pipeline
+        # Safety Fix: Prevent NEWS from overriding core intents
         if model_result == "NEWS" and not NEWS_AUTO_TRIGGER_ENABLED:
             log_debug("NEWS auto-trigger disabled, suppressing model-based NEWS match.")
             return "general"
@@ -474,57 +238,47 @@ class QueryClassifier:
         for category, patterns in self.patterns.items():
             for pattern in patterns:
                 if re.search(pattern, query_lower, re.IGNORECASE):
-                    log_info(f"Rule-based classification: {category}")
+                    log_info(f"Rule-based classification: {category} (Matched: {pattern})")
                     return category
         
         return "GENERAL"
     
-    def _classify_with_model_timeout(self, query: str) -> str:
-        """Classify using model with timeout protection"""
-        classification_result = {"result": "GENERAL"}  # Default
-        
-        def run_classification():
-            try:
-                # Minimal prompt for speed and accuracy
-                prompt = f"Classify this query into ONE category (GREETING, IDENTITY, NEWS, POLITICS, TECH, SECURITY, COMMAND, GENERAL).\n\nQuery: \"{query}\"\n\nCategory:"
+    async def _classify_with_model_timeout(self, query: str) -> str:
+        """Classify using model with async timeout protection"""
+        try:
+            # Minimal prompt for speed and accuracy
+            prompt = f"Classify this query into ONE category (GREETING, IDENTITY, NEWS, POLITICS, TECH, SECURITY, COMMAND, GENERAL).\n\nQuery: \"{query}\"\n\nCategory:"
 
-                response = self.sync_client.chat(
+            # Use asyncio.wait_for for clean cancellation
+            response = await asyncio.wait_for(
+                self.ollama_client.chat(
                     model=self.classification_model,
                     messages=[{"role": "user", "content": prompt}],
                     stream=False,
                     options=self.classification_options
-                )
-                
-                result = response['message']['content'].strip().upper()
-                
-                # Map to known categories
-                for category in self.category_descriptions.keys():
-                    if category in result:
-                        classification_result["result"] = category
-                        return
-                
-                classification_result["result"] = "GENERAL"
-                
-            except Exception as e:
-                log_error(f"Classification error: {e}")
-                classification_result["result"] = "GENERAL"
-        
-        # Run in thread with timeout
-        thread = threading.Thread(target=run_classification)
-        thread.daemon = True
-        thread.start()
-        thread.join(timeout=self.timeout)
-        
-        if thread.is_alive():
+                ),
+                timeout=self.timeout
+            )
+            
+            result = response['message']['content'].strip().upper()
+            
+            # Map to known categories
+            for category in self.category_descriptions.keys():
+                if category in result:
+                    return category
+            
+            return "GENERAL"
+            
+        except asyncio.TimeoutError:
             log_warning(f"Classification timeout after {self.timeout}s")
-            return "GENERAL"  # Fallback
-        
-        return classification_result["result"]
+            return "GENERAL"
+        except Exception as e:
+            log_error(f"Classification error: {e}")
+            return "GENERAL"
     
     async def classify(self, query: str) -> str:
-        """Main classification method (Async wrapper)"""
-        # Run the synchronous timeout logic in a thread to avoid blocking the event loop
-        return await asyncio.to_thread(self.classify_with_timeout, query)
+        """Main classification method (Async)"""
+        return await self._classify_async(query)
 
     async def pre_warm(self):
         """Pre-warm the classification model"""
@@ -645,8 +399,8 @@ class ContextOptimizer:
                     file_origin = os.path.basename(source_match.group(1).strip())
                     original_fragment = re.sub(r"Source:\s*.+", "", original_fragment, flags=re.IGNORECASE).strip()
                 
-                # Add Original Fragment as LEARNED KNOWLEDGE
-                wrapped_orig = f"<external_data_record file_origin=\"{file_origin}\" category=\"LEARNED_KNOWLEDGE\">\n{original_fragment}\n</external_data_record>"
+                # Add Original Fragment as RECORDED KNOWLEDGE
+                wrapped_orig = f"<recorded_knowledge source=\"{file_origin}\">\n{original_fragment}\n</recorded_knowledge>"
                 reference_nodes.append(wrapped_orig)
                 
                 # Add Kaia's Reflection as LIVED EXPERIENCE
@@ -673,17 +427,18 @@ class ContextOptimizer:
                 # Learned Knowledge - Isolated Records (Books, Injected Dream Sources, etc)
                 file_name = os.path.basename(path_raw or 'Library')
                 # Structural isolation wrapping with semantic tagging
-                wrapped_content = f"<external_data_record file_origin=\"{file_name}\" category=\"LEARNED_KNOWLEDGE\">\n{content_raw}\n</external_data_record>"
+                # Tagging as 'RECORDED_KNOWLEDGE' to imply it's something she read/stored
+                wrapped_content = f"<recorded_knowledge source=\"{file_name}\">\n{content_raw}\n</recorded_knowledge>"
                 reference_nodes.append(wrapped_content)
 
         # Construct final RAG text with structural grouping
         rag_segments = []
         if history_nodes:
-            rag_segments.append("### PERSONAL ARCHIVES & CONVERSATIONS (YOUR MEMORIES)\n" + "\n---\n".join(history_nodes))
+            rag_segments.append("### YOUR SAVED CONVERSATIONS & PERSONAL NOTES\n" + "\n---\n".join(history_nodes))
         if news_nodes:
-            rag_segments.append("### EXTERNAL NEWS & REPORTS (DATA YOU HAVE READ)\n" + "\n---\n".join(news_nodes))
+            rag_segments.append("### RECENT REPORTS & ARTICLES YOU HAVE READ\n" + "\n---\n".join(news_nodes))
         if reference_nodes:
-            rag_segments.append("### GENERAL KNOWLEDGE & REFERENCE BOOKS (DATA YOU HAVE READ)\n" + "\n---\n".join(reference_nodes))
+            rag_segments.append("### DOCUMENTS, BOOKS & SAVED FILES YOU HAVE READ\n" + "\n---\n".join(reference_nodes))
             
         rag_text = "\n\n".join(rag_segments)
         optimized_rag = self.trim_to_tokens(rag_text, token_budget['rag'])
@@ -844,6 +599,7 @@ class PersistentStateManager:
         try:
             state = {
                 'exact_cache': cache.exact_cache,
+                'full_cache': getattr(cache, 'cache', {}),
                 'user_profiles': personalization.user_profiles,
                 'performance_metrics': {
                     'cache_hits': monitor.metrics['cache_hits'],
@@ -885,6 +641,10 @@ class PersistentStateManager:
                 log_warning("Persisted state is too old (>24h), skipping.")
                 return False
                 
+            # Correctly handle ImprovedSemanticCache state
+            if hasattr(cache, 'cache') and isinstance(cache.cache, dict):
+                cache.cache.update(state.get('full_cache', {}))
+            
             cache.exact_cache.update(state.get('exact_cache', {}))
             personalization.user_profiles.update(state.get('user_profiles', {}))
             
@@ -893,7 +653,7 @@ class PersistentStateManager:
             monitor.metrics['cache_misses'] = metrics.get('cache_misses', 0)
             monitor.metrics['exact_hits'] = metrics.get('exact_hits', 0)
             
-            log_success(f"Loaded cold state: {len(cache.exact_cache)} cache entries, {len(personalization.user_profiles)} profiles.")
+            log_success(f"Loaded cold state: {len(getattr(cache, 'cache', cache.exact_cache))} cache entries, {len(personalization.user_profiles)} profiles.")
             return True
         except Exception as e:
             log_error(f"Failed to load state: {e}")

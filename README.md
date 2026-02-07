@@ -11,7 +11,7 @@
 </p>
 
 <p align="center">
-  <strong>A Linux-native, self-hosted AI chatbot for Discord with local inference, memory, and social media integration.</strong>
+  <strong>A Linux-native, self-hosted Synthetic Intelligence for Discord, featuring an integrated cognitive architecture and autonomous cross-platform presence.</strong>
 </p>
 
 ---
@@ -66,36 +66,116 @@ python Kaiacord.py
 
 ---
 
+# 🧠 Cognitive Architectures & Synthetic Consciousness
+### Advanced Systems for Human-Emulating AI Agents
+
+Kaia is not just a chatbot; she is an experiment in **synthetic consciousness**, leveraging a multi-layered cognitive architecture to emulate human-like reasoning, memory consolidation, and social intuition.
+
+## 1. Cognitive Systems Integration (CSI)
+The CSI is the central nervous system of Kaia, orchestrated by the `MessageProcessor`. It manages the flow between pre-conscious filtering, intent classification, and multi-stage reasoning.
+
+```mermaid
+graph TD
+    Input[User Input] --> CSG[CSI Gatekeeper]
+    CSG --> Class[Internal Monologue / Classification]
+    Class --> RAG[Associative Retrieval]
+    RAG --> SelfHeal[Adversarial Response Validator]
+    SelfHeal --> Output[Human-Like Response]
+```
+
+## 2. Internal Monologue Manager (IMM)
+Before Kaia speaks, she "thinks." The IMM handles intent classification through a dual-path system:
+- **Fast-Path**: Instantaneous heuristic-based intent detection.
+- **Full-Path**: LLM-driven deep reasoning to determine persona alignment and knowledge requirements.
+
+```mermaid
+graph LR
+    Input --> FP[Fast-Path Classification]
+    Input --> FL[Full-Path Logic]
+    FP --> Decision{Intent Found?}
+    FL --> Decision
+    Decision --> Action[Set Persona Tone & Retrieval Strategy]
+```
+
+## 3. The Dream System (Memory Consolidation)
+To emulate human sleep, Kaia runs a nightly **Dream Mode** (3-5 AM). It processes raw interaction logs from the day into **Deep Reflections**—associative memory nodes that are periodically re-injected into her active RAG context.
+
+```mermaid
+sequenceDiagram
+    participant Logs as Daily Logs
+    participant Dream as Dream Engine
+    participant Memory as Reflection Store
+    Dream->>Logs: Scan raw interactions
+    Dream->>Dream: Form deep associations
+    Dream->>Memory: Store "Reflections"
+    Memory-->>RAG: Inject into active context
+```
+
+## 4. Adversarial Response Validator (Self-Healing)
+Kaia employs a 3-pass **Self-Healing Loop**. This emulates human social inhibition, where she validates her own response against her persona and factual grounding before speaking.
+
+```mermaid
+graph TD
+    Gen[Generate Response] --> Valid[Hallucination Check]
+    Valid -->|Contaminated| Retry[Scale Temperature & Retry]
+    Retry --> Gen
+    Valid -->|Clean| Send[Dispatch Message]
+```
+
+## 5. Social RAG (Memory Mirror)
+For social media, Kaia uses **Social RAG** to project a lived experience. It samples random memories and dream reflections, allowing her "skeets" on Bluesky and X to feel like genuine personal recollections.
+
+```mermaid
+graph LR
+    Trigger[Idle Quip Trigger] --> Mirror[Memory Mirror]
+    Mirror -->|Sample| Memories[Real Past Conversations]
+    Mirror -->|Sample| Reflections[Dream Reflections]
+    Memories --> Post[Persona-Grounded Social Post]
+    Reflections --> Post
+```
+
+## 6. Multi-Vector RAG (Long-term Memory)
+The base of Kaia's memory is a multi-vector RAG system with keyword pollution protection, ensuring she retrieves relevant facts without being distracted by semantic noise.
+
+```mermaid
+graph TD
+    Query --> Embed[Similarity Search]
+    Query --> Filter[Keyword Protection]
+    Embed --> Nodes[Context Nodes]
+    Filter --> Nodes
+    Nodes --> Grounding[Factual Response Grounding]
+```
+
+---
+
 ## 🏗️ Architecture Overview
 
 ```mermaid
 graph TB
     Discord[Discord API] --> Kaiacord[Kaiacord.py]
-    Kaiacord --> Core[utils/core]
-    Kaiacord --> Infrastructure[utils/infrastructure]
-    Kaiacord --> Social[utils/social]
+    Kaiacord --> DM[DashboardManager]
+    Kaiacord --> MP[MessageProcessor]
     
-    subgraph Core
+    subgraph CoreLogic ["Core Logic"]
         RAG[kaia_rag.py]
         Intel[kaia_intelligence.py]
         Dream[kaia_dream.py]
     end
     
-    subgraph Infrastructure
+    subgraph Infra ["Infrastructure"]
         Logging[logging/]
-        System[system/ config, state]
+        System["system/ config, state"]
         Monitoring[monitoring/]
     end
     
-    subgraph Social
-        SResponder[social_responder.py]
-        BSky[bluesky_client.py]
-        X[x_client.py]
-    end
+    MP --> CoreLogic
+    Kaiacord --> Infra
+    DM --> Logging
+    DM --> Monitoring
     
-    Infrastructure --> Logs[(logs/kaiacord.log)]
-    Core --> Memory[(memory/)]
-    Core --> KB[(knowledge_base/)]
+    Infra --> Logs[(logs/kaiacord.log)]
+    CoreLogic --> Memory[(memory/)]
+    CoreLogic --> KB[(knowledge_base/)]
 ```
 
 ---
@@ -251,11 +331,13 @@ python tools/health_check.py
 
 ```
 Kaiacord/
-├── Kaiacord.py              # Main bot entry point
-├── utils/                   # NEW: Deeply modularized logic
-│   ├── core/                # RAG, Intelligence, Dream
-│   ├── infrastructure/      # Logging, System (Config/State), Monitoring
-│   └── social/              # Twitter/X, Bluesky, Social Responders
+├── Kaiacord.py              # Minimal Orchestrator
+├── utils/                   # Deeply modularized logic
+│   ├── core/                # RAG, Intelligence, Dream, MessageProcessor
+│   ├── infrastructure/      # DashboardManager, Logging, System, Monitoring
+│   ├── social/              # Twitter/X, Bluesky, Social Responders
+│   ├── commands/            # Extracted command handlers
+│   └── news/                # News retrieval & management
 ├── config/                  # Configuration & Personas
 ├── knowledge_base/          # RAG text storage (News, User Logs)
 ├── memory/                  # Persistent JSON data (Cache, State)

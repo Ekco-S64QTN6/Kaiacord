@@ -13,9 +13,13 @@ Hierarchy (highest to lowest priority):
 
 import os
 import yaml
+from dotenv import load_dotenv
 from pathlib import Path
 from typing import Any, Dict, Optional
 from dataclasses import dataclass, field, fields
+
+# Load environment variables from .env
+load_dotenv()
 
 
 def load_yaml_file(path: Path) -> Dict[str, Any]:
@@ -90,7 +94,6 @@ def load_hierarchical_config() -> Dict[str, Any]:
         'BLACKLISTED_CHANNELS': 'discord.blacklisted_channels',
         'GEMINI_API_KEY': 'api.gemini_key',
         'CHAT_MODEL': 'models.chat',
-        'VISION_MODEL': 'models.vision',
         'EMBEDDING_MODEL': 'models.embedding',
     }
     
@@ -122,8 +125,6 @@ def validate_config(config: Dict[str, Any]) -> tuple[bool, list[str]]:
     models = get_nested(config, 'models', {})
     if not models.get('chat'):
         errors.append("Chat model not configured (models.chat)")
-    if not models.get('vision'):
-        errors.append("Vision model not configured (models.vision)")
     if not models.get('embedding'):
         errors.append("Embedding model not configured (models.embedding)")
     
@@ -140,12 +141,6 @@ def validate_config(config: Dict[str, Any]) -> tuple[bool, list[str]]:
     
     if perf.get('requests_per_minute', 0) < 1:
         errors.append("requests_per_minute must be >= 1")
-    
-    # GPU settings
-    gpu = get_nested(config, 'gpu', {})
-    min_vram = gpu.get('image_gen_min_vram_gb', 0)
-    if min_vram < 4:
-        errors.append(f"image_gen_min_vram_gb too low: {min_vram} (minimum 4.0)")
     
     # ==========================================================================
     # Type validation - catch misconfigurations early
@@ -239,10 +234,6 @@ class YAMLConfig:
         return self.get('models.chat', 'gemma3:12b')
     
     @property
-    def vision_model(self) -> str:
-        return self.get('models.vision', 'llama3.2-vision:11b')
-    
-    @property
     def embedding_model(self) -> str:
         return self.get('models.embedding', 'nomic-embed-text')
     
@@ -305,15 +296,6 @@ class YAMLConfig:
             return False
         
         return True
-    
-    # Features
-    @property
-    def vision_enabled(self) -> bool:
-        return self.get('features.vision_enabled', False)
-    
-    @property
-    def image_gen_enabled(self) -> bool:
-        return self.get('features.image_gen_enabled', False)
 
     # Bluesky configuration
     @property
@@ -364,11 +346,6 @@ class YAMLConfig:
         """RAG retrieval timeout in seconds"""
         return self.get('timeouts.rag_retrieval_seconds', 30.0)
     
-    @property
-    def vision_analysis_timeout(self) -> float:
-        """Vision analysis timeout in seconds"""
-        return self.get('timeouts.vision_analysis_seconds', 90.0)
-    
     # =========================================================================
     # Token Estimation Configuration
     # =========================================================================
@@ -381,6 +358,30 @@ class YAMLConfig:
     def system_reserve_tokens(self) -> int:
         """Reserved tokens for system reinforcement rules and safety prompts"""
         return self.get('performance.system_reserve_tokens', 1000)
+    
+    # =========================================================================
+    # Generation Configuration (Self-Healing Loop)
+    # =========================================================================
+    @property
+    def generation_max_retry_attempts(self) -> int:
+        """Maximum retry attempts for failed LLM calls"""
+        return self.get('generation.max_retry_attempts', 3)
+    
+    @property
+    def generation_base_temperature(self) -> float:
+        """Base temperature for generation"""
+        return self.get('generation.base_temperature', 0.8)
+    
+    @property
+    def generation_temperature_scaling(self) -> float:
+        """Temperature increment per retry attempt"""
+        return self.get('generation.temperature_scaling', 0.15)
+    
+    @property
+    def generation_fallback_num_predict(self) -> int:
+        """Fallback num_predict on context reduction"""
+        return self.get('generation.fallback_num_predict', 512)
+
     
     @property
     def ignored_users(self) -> list:

@@ -1,0 +1,177 @@
+import asyncio
+import re
+from datetime import datetime
+from pathlib import Path
+from utils.infrastructure.logging.kaia_logger import log_action, log_success, log_error, log_warning
+
+async def handle_news_command(msg, news_manager, send_kaia_response):
+    """Handle the !news command"""
+    try:
+        # Parse category from command
+        parts = msg.content.strip().split(maxsplit=1)
+        category = parts[1].lower().strip() if len(parts) > 1 else "general"
+        
+        # SPECIAL CASE: !news today - returns today's news summary
+        if category == "today":
+            log_action(f"Today's news summary request from {msg.author}")
+            
+            # Get today's date and look for most recent news summary
+            today = datetime.now()
+            news_dir = Path("knowledge_base/news/daily")
+            
+            # Look for today's summary first, then fall back to most recent
+            todays_summary = news_dir / f"news_summary_{today.strftime('%Y%m%d')}.md"
+            
+            if todays_summary.exists():
+                summary_content = todays_summary.read_text()
+                # Remove empty lines and redundant headers for compact formatting
+                lines = [line for line in summary_content.split('\n') if line.strip()]
+                # Strip legacy "# QUICK REFERENCE" header if present
+                if lines and lines[0].startswith("# QUICK REFERENCE"):
+                    lines = lines[1:]
+                
+                compact_summary = '\n'.join(lines)
+                formatted = f"📰 **Today's News Summary ({today.strftime('%B %d, %Y')})**\n\n{compact_summary}"
+                # Add category options footer
+                formatted += "\n\n---\n**Other categories:** `!news general` `!news technology` `!news security` `!news hacker` `!news politics` `!news business` `!news science` `!news culture`"
+                await send_kaia_response(msg.channel, formatted.strip(), use_code_block=False)
+                log_success(f"Sent today's news summary to {msg.author}")
+            else:
+                # Find most recent summary file
+                summary_files = sorted(news_dir.glob("news_summary_*.md"), reverse=True)
+                if summary_files:
+                    most_recent = summary_files[0]
+                    # Extract date from filename
+                    date_str = most_recent.stem.replace("news_summary_", "")
+                    try:
+                        file_date = datetime.strptime(date_str, "%Y%m%d")
+                        date_display = file_date.strftime("%B %d, %Y")
+                    except:
+                        date_display = date_str
+                    
+                    summary_content = most_recent.read_text()
+                    # Remove empty lines and redundant headers for compact formatting
+                    lines = [line for line in summary_content.split('\n') if line.strip()]
+                    # Strip legacy "# QUICK REFERENCE" header if present
+                    if lines and lines[0].startswith("# QUICK REFERENCE"):
+                        lines = lines[1:]
+                        
+                    compact_summary = '\n'.join(lines)
+                    formatted = f"📰 **Latest News Summary ({date_display})**\n\n{compact_summary}"
+                    # Add category options footer
+                    formatted += "\n\n---\n**Other categories:** `!news general` `!news technology` `!news security` `!news hacker` `!news politics` `!news business` `!news science` `!news culture`"
+                    await send_kaia_response(msg.channel, formatted.strip(), use_code_block=False)
+                    log_success(f"Sent latest news summary ({date_display}) to {msg.author}")
+                else:
+                    await msg.channel.send("```\nNo news summaries found. Run: python tools/maintenance/update_kaia_news.py\n```")
+                    log_warning("No news summary files found")
+            return
+        
+        log_action(f"News request from {msg.author} (Category: {category})")
+        
+        # Get news from manager (returns list of dicts)
+        news_items = news_manager.get_news(category)
+        
+        if news_items and len(news_items) > 0:
+            # Format news items nicely
+            formatted_news = f"📰 **{category.title()} News**\n\n"
+            
+            for i, item in enumerate(news_items[:10], 1):  # Limit to 10 items
+                if isinstance(item, dict):
+                    text = item.get('text', str(item))
+                    formatted_news += f"{i}. {text}\n\n"
+                else:
+                    formatted_news += f"{i}. {item}\n\n"
+            
+            # Add category options footer
+            available_categories = ["today", "technology", "security", "hacking", "politics", "business", "science", "culture", "general"]
+            formatted_news += "---\n"
+            formatted_news += "**Other categories:** " + " ".join([f"`!news {cat}`" for cat in available_categories if cat != category])
+            
+            # Send WITHOUT code block
+            await send_kaia_response(msg.channel, formatted_news.strip(), use_code_block=False)
+            log_success(f"Sent {category} news to {msg.author}")
+        else:
+            await msg.channel.send(f"```\nNo {category} news found. Try updating: `python tools/maintenance/update_kaia_news.py`\n```")
+            log_warning(f"No {category} news available")
+            
+    except Exception as e:
+        log_error(f"Error retrieving news: {e}")
+        await msg.channel.send("```\nError retrieving news. Check logs for details.\n```")
+
+async def handle_proper_news_query(message, query, news_manager, send_kaia_response, run_rag, rag, category=None):
+    """PROPER news handler that reads from actual files"""
+    try:
+        async with message.channel.typing():
+            query_lower = query.lower()
+            
+            if not category:
+                # Use regex with word boundaries to avoid partial matches
+                cat_patterns = {
+                    'politics': [r'\bpolitic', r'\belection', r'\bgovernment'],
+                    'technology': [r'\btech', r'\bai\b', r'\bsoftware', r'\bhardware'],
+                    'security': [r'\bsecurity', r'\bcyber', r'\bhack', r'\bcve'],
+                    'business': [r'\bbusiness', r'\beconom', r'\bmarket'],
+                    'science': [r'\bscience', r'\bresearch'],
+                    'culture': [r'\bculture', r'\bmovie', r'\btv', r'\bmusic', r'\bgame', r'\bart', r'\bsociety'],
+                    'hacker': [r'\bhacker', r'\blapsus', r'\banonymous', r'\bapt', r'\bctf']
+                }
+                
+                # Check for specific categories first
+                for cat, patterns in cat_patterns.items():
+                    if any(re.search(p, query_lower) for p in patterns):
+                        category = cat
+                        break
+                
+                # Default to general if no specific category found
+                if not category:
+                    category = 'general'
+            
+            # Get ACTUAL news from NewsManager
+            news_items = news_manager.get_news(category, limit=7)
+            
+            if not news_items:
+                # Still no news - inform user
+                await message.reply(
+                    f"No news found for '{category}'.\n"
+                    f"Add news files to knowledge_base/news/daily/"
+                )
+                return
+            
+            # Format response in Kaia's voice
+            response = _format_news_response(news_items, category, query)
+            
+            # Send response
+            await send_kaia_response(message.channel, response)
+            
+            # Log interaction
+            if run_rag and rag:
+                await run_rag(rag.log_user_interaction, message.author.id, message.author.display_name, query, response)
+            
+    except Exception as e:
+        log_error(f"Proper news error: {e}")
+        await message.reply("I'm having trouble fetching the news right now. Let me check my general knowledge.")
+
+def _format_news_response(news_items, category, query):
+    """Format actual news items without commentary and with available options"""
+    # Build response
+    lines = []
+    
+    for i, item in enumerate(news_items, 1):
+        text = item.get('text', 'No content')
+        # Truncate long items
+        if len(text) > 200:
+            text = text[:197] + "..."
+        
+        date_str = ""
+        if item.get('date'):
+            # Format date nicely
+            try:
+                dt = datetime.strptime(item['date'], "%Y-%m-%d")
+                date_str = f" [{dt.strftime('%b %d')}]"
+            except:
+                date_str = f" [{item['date']}]"
+        
+        lines.append(f"{i}. {text}{date_str}")
+    
+    return "\n".join(lines)

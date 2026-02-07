@@ -321,16 +321,18 @@ class NewsManager:
         if 'politic' in section_lower or 'geopolitic' in section_lower or 'congress' in section_lower or 'election' in section_lower:
             return 'politics'
         
-        # Science/Health mapping
-        if 'science' in section_lower or 'health' in section_lower or 'medical' in section_lower:
+        # Prioritize science if mentioned (often combined as Science/Culture)
+        if 'science' in section_lower:
             return 'science'
             
-        # Society can be general or culture depending on context
-        if 'society' in section_lower:
-            if 'tech' in section_lower:
-                return 'technology'
-            return 'general'
+        # Intelligence/AI mapping
+        if 'intelligence' in section_lower or 'ai' in section_lower:
+            return 'technology'
             
+        # Infrastructure mapping
+        if 'infrastructure' in section_lower:
+            return 'technology'
+
         for cat, keywords in self.categories.items():
             if cat in section_lower or any(kw in section_lower for kw in keywords):
                 return cat
@@ -362,13 +364,22 @@ class NewsManager:
         if not items:
             return []
 
-        # Sort by date descending
-        items.sort(key=lambda x: x.get('date', ''), reverse=True)
+        # PRIORITIZE RECENCY: 
+        # 1. Get today's date
+        today_str = datetime.now().strftime("%Y-%m-%d")
         
-        # Random sample if we have many
-        if len(items) > limit * 2:
-            return random.sample(items[:limit*2], limit)
-        return items[:limit]
+        # 2. Separate today's news from older news
+        today_items = [i for i in items if i.get('date') == today_str]
+        older_items = [i for i in items if i.get('date') != today_str]
+        
+        # 3. Sort older items by date descending
+        older_items.sort(key=lambda x: x.get('date', ''), reverse=True)
+        
+        # 4. Build final list: today's news first, then fill with older news
+        all_prioritized = today_items + older_items
+        
+        # 5. Return latest items up to limit
+        return all_prioritized[:limit]
 
 class NewsRetrievalEnhancer:
     """Advanced news retrieval system for Kaia"""

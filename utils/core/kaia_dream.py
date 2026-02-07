@@ -1,9 +1,7 @@
 import os
 import random
-import json
 import time
 import asyncio
-import uuid
 from datetime import datetime, timedelta
 from pathlib import Path
 from typing import List, Dict, Any, Optional
@@ -27,36 +25,13 @@ class DreamEngine:
         # Accessing nested config keys via .get() or attribute access if implemented
         self.kb_dir = Path(getattr(config_instance, 'paths', {}).get('knowledge_base', './knowledge_base'))
         self.dreams_kb_dir = self.kb_dir / 'kaia_dreams'
-        self.cache_path = Path(getattr(config_instance, 'paths', {}).get('dream_cache', './memory/dream_cache.json'))
         
-        dream_cfg = getattr(config_instance, 'dream_mode', {})
-        self.max_dreams = dream_cfg.get('max_dreams_cached', 50)
         self.chat_model = getattr(config_instance, 'models', {}).get('chat', 'gemma3:12b')
         
         # Ensure directories exist
         self.dreams_kb_dir.mkdir(parents=True, exist_ok=True)
-        self.cache_path.parent.mkdir(parents=True, exist_ok=True)
         
-    def load_cache(self) -> List[Dict[str, Any]]:
-        """Load dream thoughts from JSON cache"""
-        if not self.cache_path.exists():
-            return []
-        try:
-            with open(self.cache_path, 'r') as f:
-                return json.load(f)
-        except Exception as e:
-            log_error(f"Failed to load dream cache: {e}")
-            return []
 
-    def save_cache(self, dreams: List[Dict[str, Any]]):
-        """Save dream thoughts to JSON cache"""
-        try:
-            # Keep only the most recent dreams up to max_dreams
-            rotated_dreams = dreams[-self.max_dreams:]
-            with open(self.cache_path, 'w') as f:
-                json.dump(rotated_dreams, f, indent=2)
-        except Exception as e:
-            log_error(f"Failed to save dream cache: {e}")
 
     async def generate_dream_reflection(self, file_path: str, snippet: str, persona_content: str) -> Optional[str]:
         """Generate an in-depth, multi-paragraph persona-based reflection"""
@@ -155,8 +130,7 @@ YOUR IN-DEPTH REFLECTION:"""
         sample_size = min(dreams_per_scan, len(all_files))
         sample_files = random.sample(all_files, sample_size)
         
-        existing_dreams = self.load_cache()
-        new_dreams = []
+        new_dreams_count = 0
         
         for file_path in sample_files:
             try:
@@ -264,40 +238,12 @@ YOUR IN-DEPTH REFLECTION:"""
                         df.write(f"## Original Fragment\n> {snippet[:2000]}...\n\n")
                         df.write(f"## Kaia's Reflection\n{reflection}\n")
 
-                    # 6. Create metadata for cache
-                    # Store relative path from dreams_kb_dir for dream_file
-                    cache_dream_path = str(Path(subfolder) / dream_filename)
-                    
-                    mtime = file_path.stat().st_mtime
-                    age_days = int((time.time() - mtime) / 86400)
-                    
-                    # Create a summary (first paragraph) for chat quick-recall
-                    summary = reflection.split('\n\n')[0].strip()
-                    if len(summary) > 300:
-                        summary = summary[:297] + "..."
-
-                    dream_meta = {
-                        "id": str(uuid.uuid4()),
-                        "source_file": display_path,
-                        "dream_file": cache_dream_path,
-                        "source_type": self._classify_source(file_path),
-                        "source_age_days": age_days,
-                        "content_snippet": snippet[:200] + "...",
-                        "dream_reflection": summary, # Store summary for quick trigger response
-                        "full_reflection_path": str(dream_file_path),
-                        "generation_date": datetime.now().isoformat(),
-                        "category": self._categorize_file(file_path),
-                        "used_count": 0,
-                        "last_used": 0
-                    }
-                    new_dreams.append(dream_meta)
+                    new_dreams_count += 1
                     log_success(f"Generated in-depth dream: {dream_filename}")
             except Exception as e:
                 log_error(f"Failed to process dream for {file_path.name}: {e}")
 
-        # 6. Update cache
-        self.save_cache(existing_dreams + new_dreams)
-        log_info(f"Nightly dreaming complete. Added {len(new_dreams)} new thoughts.")
+        log_info(f"Nightly dreaming complete. Added {new_dreams_count} new thoughts.")
 
     def _classify_source(self, path: Path) -> str:
         parts = path.parts
@@ -314,56 +260,52 @@ YOUR IN-DEPTH REFLECTION:"""
         if "interactions" in name or "user_logs" in str(path): return "people"
         return "memory"
 
-    def get_random_dream_thoughts(self, count: int = 3) -> List[Dict[str, Any]]:
-        """Retrieve weighted random thoughts from cache"""
-        dreams = self.load_cache()
-        if not dreams:
-            return []
+    def get_dreams_from_files(self) -> Dict[str, Any]:
+        """Get dream stats and recent dreams directly from .md files (no cache).
+        
+        Returns:
+            dict with 'total', 'categories', and 'recent' (last 5 dreams)
+        """
+        stats = {'total': 0, 'categories': {}, 'recent': []}
+        all_dreams = []
+        
+        for subdir in ['books', 'interactions', 'injected', 'other']:
+            folder = self.dreams_kb_dir / subdir
+            if not folder.exists():
+                continue
             
-        current_time = time.time()
+            for dream_file in folder.glob('dream_*.md'):
+                try:
+                    mtime = dream_file.stat().st_mtime
+                    
+                    # Read first few lines for summary
+                    with open(dream_file, 'r', encoding='utf-8') as f:
+                        content = f.read(2000)
+                    
+                    # Extract source and reflection
+                    source = "unknown"
+                    reflection = ""
+                    if "Source: " in content:
+                        source = content.split("Source: ")[1].split("\n")[0].strip()
+                    if "## Kaia's Reflection" in content:
+                        reflection = content.split("## Kaia's Reflection")[1].strip()[:300]
+                    
+                    all_dreams.append({
+                        'file': dream_file.name,
+                        'source': source,
+                        'category': subdir,
+                        'reflection': reflection,
+                        'mtime': mtime
+                    })
+                    
+                    stats['categories'][subdir] = stats['categories'].get(subdir, 0) + 1
+                except Exception:
+                    continue
         
-        # Aggressive variety weighting:
-        # 1. Base weight is 1.0 / (used_count + 1)^2 (Quadratic penalty for use)
-        # 2. Add a temporal boost for dreams not used in the last 24 hours
-        # 3. Randomize the selection from the top weighted items
+        stats['total'] = len(all_dreams)
         
-        weights = []
-        for d in dreams:
-            used_count = d.get('used_count', 0)
-            last_used = d.get('last_used', 0)
-            
-            # Quadratic penalty for usage
-            weight = 1.0 / ((used_count + 1) ** 2)
-            
-            # Temporal boost: if not used in last 24h, double the weight
-            if (current_time - last_used) > 86400:
-                weight *= 2.0
-                
-            weights.append(weight)
+        # Get 5 most recent
+        all_dreams.sort(key=lambda x: x['mtime'], reverse=True)
+        stats['recent'] = all_dreams[:5]
         
-        sample_size = min(count, len(dreams))
-        # Use random.choices for weighted selection
-        # We sample more than needed and then pick the ones with highest weight to ensure variety but quality
-        candidates = random.choices(dreams, weights=weights, k=sample_size * 2)
-        # Deduplicate candidates while preserving order
-        unique_candidates = []
-        seen_ids = set()
-        for c in candidates:
-            if c['id'] not in seen_ids:
-                unique_candidates.append(c)
-                seen_ids.add(c['id'])
-        
-        return unique_candidates[:count]
-
-    def mark_dreams_used(self, dream_ids: List[str]):
-        """Increment usage count for dream IDs"""
-        dreams = self.load_cache()
-        updated = False
-        current_time = time.time()
-        for d in dreams:
-            if d['id'] in dream_ids:
-                d['used_count'] = d.get('used_count', 0) + 1
-                d['last_used'] = current_time
-                updated = True
-        if updated:
-            self.save_cache(dreams)
+        return stats

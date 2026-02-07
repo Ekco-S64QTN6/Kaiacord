@@ -8,7 +8,7 @@ sys.path.append(str(Path(__file__).parent.parent.parent.parent))
 
 from utils.core.kaia_rag import KaiaRAG
 from utils.core.kaia_intelligence import QueryClassifier
-from Kaiacord import NEWS_AUTO_TRIGGER_ENABLED
+from utils.core.message_processor import NEWS_AUTO_TRIGGER_ENABLED
 
 async def run_batch_test():
     print("\n--- Starting Batch Conversational Test (10 Queries) ---\n")

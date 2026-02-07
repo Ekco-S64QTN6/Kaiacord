@@ -802,8 +802,12 @@ def clean_quip(quip_text: str, max_chars: int = 270) -> str:
         
     return clean_text.strip()
 
-async def generate_quip(bot, ollama_client, run_rag_func, rag_instance, is_manual=False, target_channel=None):
-    """Generate social posts by reflecting on actual conversations (Memory Mirror)."""
+async def generate_quip(bot, ollama_client, run_rag_func, rag_instance, is_manual=False, target_channel=None, on_message_func=None):
+    """Generate social posts by piping through the FULL Kaia engine.
+    
+    This ensures quips use the complete persona, RAG, and personalization pipeline
+    rather than a truncated custom prompt.
+    """
     import time
     import random
     from utils.infrastructure.system.bot_state import bot_state
@@ -839,141 +843,127 @@ async def generate_quip(bot, ollama_client, run_rag_func, rag_instance, is_manua
         return
 
     try:
-        log_action(f"Mirroring memory for social quip in #{channel.name}...")
+        log_action(f"Generating quip via main engine in #{channel.name}...")
         
-        # 1. MINE DREAMS AND MEMORIES (Hybrid Source)
+        # 1. MINE DREAMS AND MEMORIES for reflection context
         dreams = await get_random_dream_reflection(limit=5)
         memories = await get_random_memories(limit=10)
         
         reflection_target = ""
         context_type = ""
-        source_info = ""
         
         # Decide whether to reflect on a dream (archive) or a memory (interaction)
         # 40% Dream, 60% Memory (to favor "real" talk)
         if (memories and random.random() < 0.6) or (not dreams and memories):
             memory = random.choice(memories)
             reflection_target = memory["text"]
-            context_type = "interaction"
-            source_info = "something someone said" if memory["type"] == "heard" else "something I said"
+            context_type = "something someone said" if memory["type"] == "heard" else "something I said before"
         elif dreams:
             dream = random.choice(dreams)
             reflection_target = dream["text"]
-            context_type = "archive"
-            source_info = dream.get("source", "").replace(".txt", "").replace(".md", "").replace("_", " ")
+            context_type = f"old archive about {dream.get('category', 'something')}"
         else:
-            reflection_target = "it's too quiet in here. the servers are humming but nobody's talking."
-            context_type = "meta"
-            source_info = "silence"
-
-        # 2. DETERMINE TARGET LENGTH (Aiming for 3-5 sentences mostly, 5% chance for 2 sentences)
-        target_sentences = random.choices([2, 3, 4, 5], weights=[0.05, 0.4, 0.4, 0.15])[0]
-
-        system_prompt = load_persona()
+            reflection_target = "the quiet hum of servers when nobody's around"
+            context_type = "the silence"
         
-        current_date = datetime.now().strftime('%B %Y')
-        reflection_prompt = f"""
-CURRENT DATE: {current_date}
-CONTEXT CATEGORY: {context_type} ({source_info})
-
-INTERNAL REFLECTION PROCESS:
-You just had a brief memory spark from {source_info}. 
-DO NOT recount the specific event. Respond to the *feeling*, the *irony*, or the *existential weight* it leaves you with.
-
-THOUGHT PROMPTER:
-"{reflection_target}"
-
-YOUR TASK:
-Write a standalone social media post ({target_sentences} sentences). 
-This is a raw, lowercase, first-person thought. 
-
-STRICT PERSONA RULES:
-1. **NO SHOEORNED TECH**: If the memory isn't about code, don't mention servers, nodes, or uptime. Use plain language.
-2. **VOICE**: Blunt, cynical, tired. You've been around too long to be impressed.
-3. **FORMAT**: strictly lowercase. no capitalization except for proper nouns (rare).
-4. **NO INTROS**: Do not start with "yeah", "huh", "right", or "so". Jump straight in.
-5. **SELF-CONTAINED**: It must read like a complete thought on its own.
-6. **NO ITALICS/BOLD**: Use plain text only.
-"""
-        
-        # Add recent quips to avoid
-        recent_quips = bot_state.get_recent_quips()
-        if recent_quips:
-            reflection_prompt += "\n\n[FORBIDDEN RECENT THEMES - DO NOT REPEAT THESE PHRASES OR IDEAS]\n- " + "\n- ".join(recent_quips[-5:])
-        
-        messages = [
-            {"role": "system", "content": system_prompt + reflection_prompt},
-            {"role": "user", "content": f"Write the post now. Exactly {target_sentences} sentences. Aim for 180-280 characters. lowercase only. Complete thoughts, not fragments."}
+        # 2. BUILD A NATURAL PROMPT that triggers persona-driven response
+        # Frame it as an internal reflection that Kaia expresses outward
+        prompts = [
+            f"kaia, I just read this: \"{reflection_target}\" - what does that make you think about?",
+            f"kaia, this came up in {context_type}: \"{reflection_target}\" - any thoughts?",
+            f"kaia, reflecting on this: \"{reflection_target}\" - what's your take?",
+            f"kaia, something reminded me of this: \"{reflection_target}\" - does it resonate with you?",
         ]
+        reflection_prompt = random.choice(prompts)
         
-        response = await ollama_client.chat(
-            model=config.chat_model,
-            messages=messages,
-            options={
-                'temperature': 0.85,  # Higher for variety
-                'top_p': 0.95,
-                'num_predict': 300,  # Increased for longer posts
-                'presence_penalty': 0.5,
-                'frequency_penalty': 0.4
-            }
-        )
+        # Add length guidance directly in the prompt
+        reflection_prompt += " Give me a few sentences, like a social media post."
         
-        quip = response['message']['content'].strip()
-        quip = clean_quip(quip)
-
-        # 3. POLISH PASS (Persona Preservation)
-        if quip:
-            polish_prompt = f"""
-Refine this post to be punchier and more self-contained. 
-Maintain the raw, blunt, lowercase voice.
-
-ORIGINAL: {quip}
-
-REQUIREMENTS:
-1. Start with the core idea, not a reaction.
-2. If it sounds like an "AI assistant" trying to be deep, cut the fluff.
-3. Keep it lowercase and cynical.
-4. RETURN ONLY THE POLISHED VERSION.
-"""
-            polished_response = await ollama_client.chat(
-                model=config.chat_model,
-                messages=[{"role": "user", "content": polish_prompt}],
-                options={'temperature': 0.2, 'num_predict': 150}  # Increased for complete thoughts
+        # 3. PIPE THROUGH MAIN ENGINE
+        # This uses the full persona, RAG, personalization, and all the enrichments
+        if on_message_func:
+            quip = await mock_external_mention(
+                on_message_func=on_message_func,
+                content=reflection_prompt,
+                author_name="Kaia",  # Self-reflection
+                author_id=bot.user.id if bot.user else "kaia_self",
+                platform="internal_reflection"
             )
-            quip = polished_response['message']['content'].strip()
-            quip = clean_quip(quip) # Final clean after polish
+        else:
+            # Fallback: Use direct Ollama with full persona (less ideal but functional)
+            log_warning("No on_message_func provided - falling back to direct generation with full persona")
+            system_prompt = load_persona()
+            
+            messages = [
+                {"role": "system", "content": system_prompt},
+                {"role": "user", "content": reflection_prompt}
+            ]
+            
+            response = await ollama_client.chat(
+                model=config.chat_model,
+                messages=messages,
+                options={
+                    'temperature': 0.85,
+                    'top_p': 0.95,
+                    'num_predict': 500,
+                    'presence_penalty': 0.5,
+                    'frequency_penalty': 0.4
+                }
+            )
+            quip = response['message']['content'].strip()
         
-        # Hard cap and sanity check
-        if len(quip) > 280:
-            log_warning(f"Quip too long ({len(quip)} chars), truncating to 1-2 sentences...")
-            # Sentence-level truncation to preserve logic
+        if not quip:
+            log_warning("Main engine returned empty quip.")
+            return
+            
+        # 4. CLEAN UP the response
+        quip = clean_quip(quip, max_chars=600)
+        
+        # Remove any leading "kaia:" or similar artifacts from the response
+        quip = quip.strip()
+        for prefix in ["kaia:", "kaia says:", "response:"]:
+            if quip.lower().startswith(prefix):
+                quip = quip[len(prefix):].strip()
+        
+        # Ensure lowercase (persona style)
+        if quip and quip[0].isupper():
+            quip = quip[0].lower() + quip[1:]
+        
+        # Hard cap sanity check
+        if len(quip) > 600:
+            log_warning(f"Quip too long ({len(quip)} chars), truncating...")
             sentences = quip.split('. ')
-            quip = ". ".join(sentences[:2]).strip()
-            if not quip.endswith('.'): quip += '.'
-            # Final char check
-            if len(quip) > 280:
-                quip = quip[:277] + "..."
+            truncated = ""
+            for s in sentences:
+                candidate = (truncated + ". " + s).strip() if truncated else s.strip()
+                if len(candidate) <= 580:
+                    truncated = candidate
+                else:
+                    break
+            quip = truncated
+            if quip and not quip.endswith('.'): quip += '.'
+            if len(quip) > 600:
+                quip = quip[:597] + "..."
 
-        # Post and cross-post
+        # 5. POST to Discord and cross-post
         await channel.send(f"```\n{quip}\n```")
 
-        # Always cross-post if enabled in config (including manual quips)
-        if config.get('bluesky.cross_post_quips', True):
+        # Cross-post if enabled
+        if config.bluesky_cross_post_quips:
             try:
                 from utils.social.kaia_bluesky import post_quip_to_bluesky
                 await post_quip_to_bluesky(quip)
             except Exception as e:
                 log_error(f"Bluesky post failed: {e}")
                 
-        if config.get('x_twitter.cross_post_quips', True):
+        if config.x_cross_post_quips:
             try:
                 from utils.social.kaia_twitter import post_quip_to_x
                 await post_quip_to_x(quip)
             except Exception as e:
                 log_error(f"X post failed: {e}")
         
-        # 3. LOG THE QUIP TO KAIA'S SPECIALIZED USER LOG
-        # This allows her to "remember" what she reflected on and prevents future loops
+        # 6. LOG the quip to Kaia's user log
         if bot.user:
             try:
                 trigger = "[MANUAL_QUIP]" if is_manual else "[IDLE_REFLECTION]"
@@ -984,16 +974,19 @@ REQUIREMENTS:
                     bot_response=quip
                 )
             except Exception as log_err:
-                log_warning(f"Failed to log quip interaction to user_logs: {log_err}")
+                log_warning(f"Failed to log quip interaction: {log_err}")
 
+        # 7. UPDATE state
         bot_state.add_quip(quip)
         if not is_manual:
             bot_state.consecutive_quips += 1
             bot_state.last_quip_time = time.time()
-            # RESET IDLE TIMER: Success resets the clock for the next timeout
             bot_state.last_interaction_time = time.time()
         bot_state.save()
-        log_success(f"Quip sent and logged: {quip}")
+        log_success(f"Quip sent: {quip[:80]}...")
 
     except Exception as e:
-        log_error(f"Quip failed: {e}")
+        log_error(f"Quip generation failed: {e}")
+        import traceback
+        log_debug(traceback.format_exc())
+

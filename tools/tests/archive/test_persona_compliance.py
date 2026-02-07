@@ -4,7 +4,7 @@ import os
 # Add the project root to sys.path
 sys.path.append(os.path.abspath(os.path.join(os.path.dirname(__file__), '..')))
 
-from Kaiacord import EmergencyContaminationFilter
+from utils.core.response_filter import EmergencyContaminationFilter
 
 def test_filter():
     test_cases = [

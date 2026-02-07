@@ -15,43 +15,24 @@ models:
   # Main chat model
   chat: "gemma3:12b"
   
-  # Vision analysis model
-  vision: "llama3.2-vision:11b"
-  
   # Embedding model for RAG
   embedding: "nomic-embed-text"
-
-# ============================================================================
-# GPU Configuration
-# ============================================================================
-gpu:
-  # Minimum free VRAM (in GiB) required for image generation
-  image_gen_min_vram_gb: 8.0
-  
-  # Enable automatic model unloading (DISABLED for stability)
-  enable_auto_unload: false
-  
-  # PyTorch memory fraction (0.0-1.0)
-  memory_fraction: 0.80
-  
-  # Enable GPU memory preemption
-  enable_preemption: true
 
 # ============================================================================
 # Performance Configuration
 # ============================================================================
 performance:
   # Maximum messages to keep in memory per channel
-  max_memory_messages: 30
+  max_memory_messages: 35
   
   # Maximum number of quips to send in a single idle period
-  max_consecutive_quips: 1
+  max_consecutive_quips: 2
   
   # How often to quip when idle (in minutes)
-  idle_quip_timeout_minutes: 120
+  idle_quip_timeout_minutes: 55
   
   # Number of top RAG results to retrieve
-  rag_top_k: 10
+  rag_top_k: 25
   
   # Requests per minute per user (rate limiting)
   requests_per_minute: 30
@@ -71,7 +52,23 @@ performance:
   token_multiplier: 1.3
 
   # Reserved tokens for system reinforcement rules and safety prompts
-  system_reserve_tokens: 1000
+  system_reserve_tokens: 1250
+
+# ============================================================================
+# Generation Configuration (Self-Healing Loop)
+# ============================================================================
+generation:
+  # Maximum retry attempts for failed LLM calls
+  max_retry_attempts: 3
+  
+  # Base temperature for generation
+  base_temperature: 0.8
+  
+  # Temperature increment per retry attempt
+  temperature_scaling: 0.15
+  
+  # Fallback num_predict on context reduction
+  fallback_num_predict: 512
 
 # ============================================================================
 # Timeouts Configuration
@@ -79,20 +76,17 @@ performance:
 timeouts:
   # Query classification timeout (seconds)
   # The classifier uses a synchronous thread with this timeout
-  classification_seconds: 15.0
+  classification_seconds: 25.0
 
   # Orchestration wait timeout for classification (seconds)
   # Should be classification_seconds + buffer for overhead
-  orchestration_classification_seconds: 18.0
+  orchestration_classification_seconds: 30.0
 
   # Model pre-warm timeout (seconds)
   prewarm_seconds: 30.0
 
   # RAG retrieval timeout (seconds)
   rag_retrieval_seconds: 30.0
-
-  # Vision analysis timeout (seconds)
-  vision_analysis_seconds: 90.0
 
 # ============================================================================
 # Paths Configuration
@@ -185,12 +179,6 @@ dashboard:
 # Feature Flags
 # ============================================================================
 features:
-  # Enable vision analysis
-  vision_enabled: false
-  
-  # Enable image generation
-  image_gen_enabled: false
-  
   # Enable news system
   news_enabled: true
   

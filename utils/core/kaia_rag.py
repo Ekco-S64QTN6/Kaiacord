@@ -35,6 +35,7 @@ from llama_index.core import VectorStoreIndex, SimpleDirectoryReader, StorageCon
 from llama_index.llms.ollama import Ollama
 from llama_index.embeddings.ollama import OllamaEmbedding
 from llama_index.core.node_parser import SentenceSplitter, SemanticSplitterNodeParser, CodeSplitter
+from llama_index.core.schema import NodeWithScore
 from utils.infrastructure.logging.kaia_logger import log_success, log_info, log_warning, log_error, log_critical, log_action, log_debug
 from utils.infrastructure.system.bot_state import bot_state
 
@@ -42,53 +43,8 @@ class CircuitOpenError(Exception):
     """Raised when the circuit breaker is open"""
     pass
 
-class HallucinationDetector:
-    """Detect and prevent hallucination feedback loops"""
-    
-    HALLUCINATION_PATTERNS = [
-        # Structural leaks - indicating the LLM is printing its internal prompt/tags
-        r"<external_data_record",
-        r"</external_data_record>",
-        r"\[INTERNAL REFLECTION",
-        r"\[CONVERSATION HISTORY",
-        r"\[IDENTITY CORE",
-    ]
-    
-    _compiled_pattern = None
-
-    @classmethod
-    def contains_hallucination(cls, text: str) -> bool:
-        """Check if text contains known hallucination patterns"""
-        if cls._compiled_pattern is None:
-            combined = "|".join(cls.HALLUCINATION_PATTERNS)
-            cls._compiled_pattern = re.compile(combined, re.IGNORECASE)
-        
-        return bool(cls._compiled_pattern.search(text))
-    
-    @classmethod
-    def clean_response(cls, response: str) -> str:
-        """Remove hallucinated content from response"""
-        if not cls.contains_hallucination(response):
-            return response
-        
-        # Split into lines and filter out hallucinated ones
-        lines = response.split('\n')
-        clean_lines = []
-        
-        for line in lines:
-            if not cls.contains_hallucination(line):
-                clean_lines.append(line)
-            else:
-                # Replace hallucinated line with something neutral
-                clean_lines.append("...")  # Or empty line
-        
-        # If we removed too much, signal failure by returning None
-        clean_response = '\n'.join(clean_lines).strip()
-        
-        if not clean_response:
-            return None
-        
-        return clean_response
+# HallucinationDetector has been moved to utils/core/response_filter.py
+from utils.core.response_filter import HallucinationDetector
 
 
 
@@ -136,7 +92,8 @@ class HybridRetriever:
         node_map = {} # node_id -> node
         
         # Vector RRF
-        for rank, node in enumerate(vector_nodes):
+        for rank, node_with_score in enumerate(vector_nodes):
+            node = node_with_score.node
             node_id = node.node_id
             node_map[node_id] = node
             combined_scores[node_id] = combined_scores.get(node_id, 0) + alpha * (1.0 / (rank + 60))
@@ -147,9 +104,9 @@ class HybridRetriever:
             node_map[node_id] = node
             combined_scores[node_id] = combined_scores.get(node_id, 0) + (1.0 - alpha) * (1.0 / (rank + 60))
             
-        # Sort and return top_k
-        sorted_ids = sorted(combined_scores.items(), key=lambda x: x[1], reverse=True)
-        return [node_map[node_id] for node_id, _ in sorted_ids[:top_k]]
+        # Sort and return top_k as NodeWithScore objects
+        sorted_nodes = sorted(combined_scores.items(), key=lambda x: x[1], reverse=True)
+        return [NodeWithScore(node=node_map[node_id], score=score) for node_id, score in sorted_nodes[:top_k]]
 
 class CircuitBreaker:
     """Circuit breaker for external services"""
@@ -1061,6 +1018,10 @@ Kaia: {bot_response}
             # Detect if this is a vision-related query
             is_vision_query = any(word in query_lower for word in ["analyze", "look", "image", "picture", "what is this", "describe this"])
             
+            # FIX 1: Detect follow-up queries (short queries that rely on context)
+            # These should prioritize the current user's recent conversation
+            is_followup_query = len(query_lower.split()) <= 6 and not is_identity_query and not is_kaia_query and not is_memory_query
+            
             # 2. Single retrieval pass with query enrichment
             enriched_query = query
             
@@ -1167,7 +1128,10 @@ Kaia: {bot_response}
             
             for node_result in all_node_results:
                 node = node_result.node if hasattr(node_result, 'node') else node_result
-                base_score = node_result.score if hasattr(node_result, 'score') else 0.5
+                # Normalize RRF scores (which are usually ~0.016) to a 0.0-1.0 range
+                base_raw_score = node_result.score if hasattr(node_result, 'score') else 0.5
+                # If it looks like an RRF score (very small), scale it up
+                base_score = min(1.0, base_raw_score * 60.0) if base_raw_score < 0.1 else base_raw_score
                 content = node.get_content()
                 
                 # Skip duplicates
@@ -1212,7 +1176,20 @@ Kaia: {bot_response}
                         target_matches = True
                         
                     if node_user_id != u_id_str and not target_matches:
-                        continue
+                        # FIX 1 ENHANCED: For follow-up queries, be STRICT about cross-user logs
+                        if is_followup_query:
+                            continue
+                        
+                        # FIX 3: Semantic relevance check for cross-user logs
+                        # If there's no keyword overlap, skip this node
+                        stopwords = {'the', 'a', 'is', 'of', 'to', 'in', 'and', 'what', 'do', 'you', 'think', 'how', 'it', 'this', 'that', 'for', 'on', 'with', 'as', 'be', 'at', 'or', 'an', 'was', 'are'}
+                        query_words = set(w.lower() for w in query.split() if len(w) > 3 and w.lower() not in stopwords)
+                        content_sample = content[:500]  # Check first 500 chars for efficiency
+                        content_words = set(w.lower() for w in content_sample.split() if len(w) > 3)
+                        
+                        overlap = query_words & content_words
+                        if not overlap:
+                            continue
                 
                 # STRICT IDENTITY FILTER: Only allow persona and current user's logs
                 if strict_identity:
@@ -1245,7 +1222,7 @@ Kaia: {bot_response}
                 # 3. Content type boost
                 source_type = node.metadata.get('source_type', node.metadata.get('source', ''))
                 type_boost = {
-                    'dream': 4.5,
+                    'dream': 2.0,      # Lowered from 4.5 to prevent drowning out facts
                     'memory': 3.5,
                     'user_profile': 3.0,
                     'persona': 2.5,
@@ -1256,7 +1233,22 @@ Kaia: {bot_response}
                     'general_knowledge': 1.0
                 }.get(source_type, 1.0)
                 
-                # 4. Length penalty
+                # 4. Path-match boost: If the query explicitly mentions a filename that matches this node
+                path_boost = 0.0
+                file_path = node.metadata.get('file_path', '')
+                if file_path:
+                    # Look for filename overlap with query
+                    # REPLACING special slashes for comparison just in case
+                    norm_query = query_lower.replace('⁄', '/').replace('\\', '/')
+                    norm_path = file_path.lower().replace('⁄', '/').replace('\\', '/')
+                    file_name = os.path.basename(file_path).lower().replace('⁄', '/')
+                    
+                    if len(file_name) > 8 and file_name in norm_query:
+                        path_boost = 5.0 # HUGE boost for near-perfect filename match
+                    elif any(part in norm_query for part in norm_path.split('/') if len(part) > 10):
+                        path_boost = 2.0 # Significant boost for partial path/long component match
+                
+                # 5. Length penalty
                 content_len = len(content)
                 if 50 < content_len < 2000:
                     length_penalty = 1.0
@@ -1268,14 +1260,14 @@ Kaia: {bot_response}
                 # 5. Priority metadata boost
                 priority_boost = node.metadata.get('priority', 0.1)
                 
-                # BALANCED SCORING (More "Human")
-                # Similarity is still king (70%), but we bring back recency (15%) and identity (10%)
-                # to ensure she remembers *current* context better than distant history.
+                # BALANCED SCORING (Prioritize Relevance)
+                # Similarity (base_score) is weighted significantly, but path_boost wins for explicit calls
                 final_score = (
-                    base_score * 0.7 +
-                    recency_boost * 0.15 +
-                    user_match_boost * 0.1 +
-                    (type_boost / 5.0) * 0.05  # Slight preference for persona/profile
+                    base_score * 0.70 +        # Search relevance
+                    path_boost * 0.25 +         # High priority for explicit file mentions
+                    recency_boost * 0.02 +      # Very minor recency preference
+                    user_match_boost * 0.01 +   # Very minor current-user preference
+                    (type_boost / 5.0) * 0.02   # Very minor source-type preference
                 ) * length_penalty
                 
                 # Boost priority-flagged content slightly
@@ -1303,9 +1295,11 @@ Kaia: {bot_response}
                 elif source_type == "news":
                     label = f"Latest News: {os.path.basename(file_path)}"
                 else:
-                    label = f"Knowledge: {os.path.basename(file_path)}"
+                    # FIX 2: Include source document name for disambiguation
+                    doc_name = os.path.basename(file_path) if file_path else "Unknown"
+                    label = f"Knowledge [{doc_name}]"
                 
-                scored_nodes.append((final_score, content, label))
+                scored_nodes.append((final_score, content, label, node))
             
             # 4. Sort and Filter
             scored_nodes.sort(key=lambda x: x[0], reverse=True)
@@ -1317,7 +1311,7 @@ Kaia: {bot_response}
             lore_count = 0
             news_count = 0
             
-            for _, content, label in scored_nodes:
+            for _, content, label, node in scored_nodes:
                 if "Kaia Persona" in label:
                     if is_user_identity_query: continue # Skip persona for user identity queries
                     if persona_count >= (4 if is_kaia_query else 1): continue

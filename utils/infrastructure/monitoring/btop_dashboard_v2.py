@@ -292,10 +292,15 @@ class BtopDashboardV2:
         
         # REQUIREMENT: Suppress ALL stdout/stderr from noisy libraries
         import logging
-        for logger_name in ["torch", "diffusers", "transformers", "tokenizers", "httpx", "httpcore"]:
+        noisy_libs = ["torch", "diffusers", "transformers", "tokenizers", "httpx", "httpcore", "llama_index", "ollama", "asyncio"]
+        for logger_name in noisy_libs:
             l = logging.getLogger(logger_name)
             l.setLevel(logging.ERROR)
             l.propagate = False
+            
+        # Enable dashboard mode in logger to suppress stdout
+        if self.logger:
+            self.logger.set_dashboard_mode(True)
             
         # Calculate initial layout
         height, width = stdscr.getmaxyx()

@@ -4,7 +4,7 @@ import os
 # Add project root to path
 sys.path.append('/home/ekco/github/Kaiacord')
 
-from utils.knowledge_boundary import KnowledgeBoundary
+from utils.core.knowledge_boundary import KnowledgeBoundary
 
 def test_knowledge_boundary():
     print("Testing KnowledgeBoundary...")

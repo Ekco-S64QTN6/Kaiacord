@@ -4,8 +4,8 @@ import os
 # Add the project root to sys.path
 sys.path.append(os.getcwd())
 
-from utils.boilerplate_detector import BoilerplateDetector
-from Kaiacord import EmergencyContaminationFilter
+from utils.core.boilerplate_detector import BoilerplateDetector
+from utils.core.response_filter import EmergencyContaminationFilter
 
 def test_boilerplate_detector():
     print("Testing BoilerplateDetector...")

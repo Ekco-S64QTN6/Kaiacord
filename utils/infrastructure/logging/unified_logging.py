@@ -98,6 +98,13 @@ class UnifiedLogger:
             
         if self._is_debug_duplicate(message, log_type):
             return
+            
+        # Default level suppression (unless in debug mode, which we don't have a simple flag for yet)
+        if log_type == "DEBUG":
+            # For now, only log DEBUG to file, not to buffers or console unless explicitly allowed
+            # This prevents LlamaIndex and others from spamming the UI
+            self._write_to_file({'timestamp': datetime.now().strftime("%H:%M:%S"), 'type': log_type, 'message': f"[HIDDEN] {message}"})
+            return
         
         try:
             # Check if datetime is still available
