@@ -76,7 +76,7 @@ async def run_news_update():
         
         async for line in ingest_process.stdout:
             decoded = line.decode().strip()
-            if decoded:
+            if decoded and not decoded.startswith("[DEBUG]"):
                 print(f"  {decoded}")
         
         await ingest_process.wait()
@@ -98,7 +98,7 @@ async def run_news_update():
         # Stream output line by line for live progress
         async for line in process.stdout:
             decoded = line.decode().strip()
-            if decoded:
+            if decoded and not decoded.startswith("[DEBUG]"):
                 print(f"  {decoded}")  # Show in dashboard
         
         await process.wait()

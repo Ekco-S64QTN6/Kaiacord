@@ -11,7 +11,7 @@
 </p>
 
 <p align="center">
-  <strong>A Linux-native, self-hosted Synthetic Intelligence for Discord, featuring an integrated cognitive architecture and autonomous cross-platform presence.</strong>
+  <strong>A Linux-native, self-hosted Stateful Agent for Discord, featuring an integrated cognitive architecture and autonomous cross-platform presence.</strong>
 </p>
 
 ---
@@ -68,8 +68,6 @@ python Kaiacord.py
 
 # 🧠 Cognitive Architectures & Synthetic Consciousness
 ### Advanced Systems for Human-Emulating AI Agents
-
-Kaia is not just a chatbot; she is an experiment in **synthetic consciousness**, leveraging a multi-layered cognitive architecture to emulate human-like reasoning, memory consolidation, and social intuition.
 
 ## 1. Cognitive Systems Integration (CSI)
 The CSI is the central nervous system of Kaia, orchestrated by the `MessageProcessor`. It manages the flow between pre-conscious filtering, intent classification, and multi-stage reasoning.
@@ -309,21 +307,6 @@ pytest tests/verification/ -v   # System checks
 # Health check
 python tools/health_check.py
 ```
-
----
-
-## 🛠️ Troubleshooting
-
-### Common Issues
-
-| Issue | Solution |
-|:------|:---------|
-| **CUDA Out of Memory** | Chat model not unloading. Check logs for "Unloading chat model" |
-| **stats_poller NameError** | Fixed in v2.0. Update to latest version |
-| **!news not working** | Fixed in v2.0. Use `!news technology`, `!news security`, etc. |
-| **Dashboard crashes** | Try `KAIA_DASHBOARD=simple python Kaiacord.py` for fallback mode |
-
-**Full Guide**: [`TROUBLESHOOTING.md`](TROUBLESHOOTING.md)
 
 ---
 

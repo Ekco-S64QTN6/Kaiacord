@@ -38,6 +38,8 @@ from llama_index.core.node_parser import SentenceSplitter, SemanticSplitterNodeP
 from llama_index.core.schema import NodeWithScore
 from utils.infrastructure.logging.kaia_logger import log_success, log_info, log_warning, log_error, log_critical, log_action, log_debug
 from utils.infrastructure.system.bot_state import bot_state
+from utils.infrastructure.system.yaml_config import config
+from utils.core.kaia_intelligence import Intent
 
 class CircuitOpenError(Exception):
     """Raised when the circuit breaker is open"""
@@ -144,14 +146,17 @@ def thread_safe_rag_operation(func):
     @wraps(func)
     def wrapper(self, *args, **kwargs):
         # For retrieval, we want to be extremely fast and NEVER block on a long refresh
+        from utils.infrastructure.system.yaml_config import config
+        lock_timeout = getattr(config, 'rag_lock_seconds', 10.0)
+        
         if func.__name__ == 'retrieve':
             # Try to acquire the lock without blocking if possible, or with a reasonable timeout
-            if not self._lock.acquire(timeout=10.0):
+            if not self._lock.acquire(timeout=lock_timeout):
                 log_warning(f"RAG retrieval skipped: lock held by another operation (likely refresh)")
                 return []
         else:
             # For other operations, wait up to 10 seconds
-            if not self._lock.acquire(timeout=10.0):
+            if not self._lock.acquire(timeout=lock_timeout):
                 log_warning(f"RAG operation {func.__name__} timed out waiting for lock")
                 if func.__name__ in ['add_memory', 'log_user_interaction']: return False
                 return None
@@ -193,9 +198,10 @@ class KaiaRAG:
         
         # Ensure num_gpu is passed correctly to Ollama LLM
         # LlamaIndex passes additional_kwargs to the API options
+        llm_timeout = getattr(config, 'llm_request_seconds', 360.0)
         Settings.llm = Ollama(
             model="gemma3:12b", 
-            request_timeout=360.0, 
+            request_timeout=llm_timeout, 
             additional_kwargs=gpu_options
         )
         
@@ -208,7 +214,8 @@ class KaiaRAG:
         # Performance Cache: Known Users (避免每次检索都扫描目录)
         self._known_users_cache = []
         self._last_user_scan = 0
-        self._user_scan_interval = 300 # 5 minutes
+
+        self._user_scan_interval = getattr(config, 'rag_user_scan_interval', 300)
         self._refresh_lock = threading.Lock() # Exclusive lock for the refresh process
         self._indexing_in_progress = False
         self._refresh_pending = False # Single-flight "dirty" flag
@@ -246,10 +253,15 @@ class KaiaRAG:
                 
                 # Boost latest daily news and DREAMS to ensure visibility
                 weight = mtime
+                
+                from utils.infrastructure.system.yaml_config import config
+                daily_news_boost = getattr(config, 'rag_boost_daily_news', 172800)
+                dream_boost = getattr(config, 'rag_boost_dreams', 64800)
+                
                 if "daily" in root and f.startswith("news_brief"):
-                    weight += 3600 * 48 # Boost daily news by 48 hours to ensure it beats old logs
+                    weight += daily_news_boost 
                 elif "kaia_dreams" in root:
-                    weight += 3600 * 18 # Boost dreams higher so she reflects on her thoughts
+                    weight += dream_boost
                 
                 files.append({
                     "filename": f,
@@ -281,7 +293,7 @@ class KaiaRAG:
                     snippet = "[PDF Content Indexed]"
                 else:
                     snippet = "[Document Indexed]"
-            except: pass
+            except Exception: pass
             
             # Combine context prefix with filename or just use prefix if filename is generic
             display_name = f_info["filename"]
@@ -319,7 +331,7 @@ class KaiaRAG:
     def _initialize_indices(self):
         """Initialize hierarchical indices from storage or create new ones."""
         with self._lock:
-            index_types = ['persona', 'user_profiles', 'conversations', 'knowledge', 'logs']
+            index_types = ['persona', 'user_profiles', 'conversations', 'knowledge', 'logs', 'dreams']
             for itype in index_types:
                 itype_dir = os.path.join(self.persist_dir, itype)
                 try:
@@ -427,12 +439,12 @@ class KaiaRAG:
             doc.metadata["source_type"] = "user_profile"
         elif "news_brief" in file_path or "news_summary" in file_path:
             doc.metadata["source_type"] = "news"
-        elif "kaia_dreams" in file_path:
+        elif itype == 'dreams' or "kaia_dreams" in file_path:
             doc.metadata["source_type"] = "dream"
         else:
             doc.metadata["source_type"] = "general_knowledge"
             
-        # Extract user metadata from path if it's in user_logs
+        # Extract user metadata from path or content
         if "user_logs" in file_path:
             parts = file_path.split(os.sep)
             try:
@@ -442,7 +454,22 @@ class KaiaRAG:
                     u_name, u_id = user_folder.rsplit("_", 1)
                     doc.metadata['user_id'] = u_id
                     doc.metadata['user_name'] = u_name
-            except: pass
+            except Exception: pass
+        elif doc.metadata.get("source_type") == "dream":
+        # Check if this dream is derived from user interaction logs
+            if "interactions" in file_path or "interactions" in doc.text[:200]:
+                # Extract from content header: Source: user_logs/Name_ID/interactions_YYYYMMDD.txt
+                import re
+                # Look for the last set of digits in the user_logs path fragment
+                # Example: user_logs/Ekco_177011971818782721/interactions...
+                match = re.search(r'user_logs/[^/]+?_(\d{15,20})', doc.text[:500])
+                if match:
+                    doc.metadata['user_id'] = match.group(1)
+                    # Also try to get the name
+                    name_match = re.search(r'user_logs/([^/]+?)_\d{15,20}', doc.text[:500])
+                    if name_match:
+                        doc.metadata['user_name'] = name_match.group(1).replace("_", " ")
+
         
         # Add garbage detection metadata
         if self.is_garbage_text(doc.text):
@@ -531,6 +558,8 @@ class KaiaRAG:
                                 itype = 'user_profiles'
                             else:
                                 itype = 'logs'
+                        elif "kaia_dreams" in full_path:
+                            itype = 'dreams'
                         
                         is_new = norm_path not in self.indexed_files
                         is_modified = not is_new and mtime > self.indexed_files[norm_path]
@@ -567,11 +596,10 @@ class KaiaRAG:
                             for node_id in nodes_to_delete:
                                 target_index.delete_nodes([node_id])
                     elif is_log:
-                        log_action(f"Checking for new content in {itype} log...")
-                        log_info(file_path)
+                        # Don't spam the individual files
+                        log_debug(f"Checking for new content in {itype} log: {file_path}")
                     else:
-                        log_action(f"Processing new {itype} file...")
-                        log_info(file_path)
+                        log_debug(f"Processing new {itype} file: {file_path}")
                         
                     try:
                         abs_path = os.path.abspath(file_path)
@@ -587,7 +615,7 @@ class KaiaRAG:
                             
                             file_size = os.path.getsize(file_path)
                             if file_size <= last_offset:
-                                log_info(f"No new content in {itype} log (Offset: {last_offset})")
+                                log_debug(f"No new content for index '{itype}' at offset {last_offset}")
                                 self.indexed_files[abs_path] = os.path.getmtime(file_path)
                                 continue
                                 
@@ -654,7 +682,7 @@ class KaiaRAG:
                                             u_name, u_id = user_folder.rsplit("_", 1)
                                             doc.metadata['user_id'] = u_id
                                             doc.metadata['user_name'] = u_name
-                                    except: pass
+                                    except Exception: pass
                                 
                                 # Pre-chunk large documents to avoid embedding overflows
                                 sub_docs = self._pre_chunk_document(doc)
@@ -671,7 +699,7 @@ class KaiaRAG:
                                 try:
                                     # Extract direct snippet from first doc
                                     snippet = docs[0].text[:300].replace("\n", " ") + "..."
-                                except: pass
+                                except Exception: pass
                                 bot_state.add_ingestion(os.path.basename(file_path), snippet=snippet)
                             
                     except Exception as e:
@@ -716,7 +744,7 @@ class KaiaRAG:
                                             try:
                                                 with open(md_path, 'r', encoding='utf-8') as f:
                                                     snippet = f.read(300).replace("\n", " ") + "..."
-                                            except: pass
+                                            except Exception: pass
                                             bot_state.add_ingestion(os.path.basename(file_path), snippet=snippet)
                                     else:
                                         log_warning(f"Converted MD was empty.")
@@ -738,24 +766,26 @@ class KaiaRAG:
 
                 # Mark for persistence
                 self.persist_needed = True
-                log_info("New documents indexed. Persistence marked as needed.")
                 
-                # Selective BM25 cache invalidation
+                # Consolidate updates by index type
+                updated_itypes = set()
                 if new_file_paths:
-                    with self._lock:
-                        for _, _, _, itype in new_file_paths:
-                            if itype in self.bm25_cache:
-                                log_info(f"Invalidating BM25 cache for '{itype}' index due to updates.")
-                                self.bm25_cache[itype] = None
-                            
-                            # IMMEDIATE PERSISTENCE: Save the index state now so we don't 
-                            # lose the "indexed" status if the bot is killed ungracefully.
-                            try:
-                                itype_dir = os.path.join(self.persist_dir, itype)
-                                self.indices[itype].storage_context.persist(persist_dir=itype_dir)
-                                log_success(f"Index '{itype}' persisted to storage.")
-                            except Exception as p_err:
-                                log_error(f"Failed to persist {itype} index: {p_err}")
+                    for _, _, _, itype in new_file_paths:
+                        updated_itypes.add(itype)
+
+                # Selective BM25 cache invalidation & Consolidated Persistence
+                for itype in updated_itypes:
+                    if itype in self.bm25_cache:
+                        log_info(f"Invalidating BM25 cache for '{itype}' index due to updates.")
+                        self.bm25_cache[itype] = None
+                    
+                    # IMMEDIATE PERSISTENCE: Save the index state once per type
+                    try:
+                        itype_dir = os.path.join(self.persist_dir, itype)
+                        self.indices[itype].storage_context.persist(persist_dir=itype_dir)
+                        log_success(f"Index '{itype}' persisted to storage.")
+                    except Exception as p_err:
+                        log_error(f"Failed to persist {itype} index: {p_err}")
                 
         except Exception as e:
             log_error(f"Error refreshing knowledge base: {e}")
@@ -882,8 +912,10 @@ class KaiaRAG:
             safe_user_name = "".join([c for c in user_name if c.isalnum() or c in (' ', '-', '_')]).strip().replace(' ', '_')
             
             # CLEANUP: For social media users, use the ID directly to avoid redundancy
-            # (Original: michaelschellhornlink_social_bluesky_michaelschellhorn.link)
-            if str(user_id).startswith("social_"):
+            # SPECIAL CASE: Link user's Bluesky account to their primary Discord log folder
+            if str(user_id) == "social_bluesky_michaelschellhorn.link":
+                user_dir_name = "Ekco_177011971818782721"
+            elif str(user_id).startswith("social_"):
                 user_dir_name = str(user_id)
             else:
                 user_dir_name = f"{safe_user_name}_{user_id}"
@@ -980,53 +1012,67 @@ Kaia: {bot_response}
                 return False
 
     @thread_safe_rag_operation
-    def retrieve(self, query: str, user_id: Optional[int] = None, user_name: Optional[str] = None, top_k: int = 4, strict_identity: bool = False, include_news: bool = True) -> List[Dict[str, Any]]:
+    def retrieve(self, query: str, user_id: Any = None, user_name: str = None, top_k: int = 5, 
+                strict_identity: bool = False, include_news: bool = False,
+                category: str = "general", intent: Optional[Intent] = None) -> List[Dict[str, Any]]:
         """
-        Retrieve relevant nodes, ensuring user logs are prioritized and not drowned out.
-        If user_id is provided, specifically looks for that user's history and preferences.
-        
-        RETURNS: List of dicts {"content": str, "metadata": dict}
+        Hierarchical retrieval with reciprocal rank fusion, intent-aware routing, 
+        and dynamic relevance scoring.
         """
-        with self._lock:
-            if not self.indices:
-                return []
-        
+        if not self.indices:
+            return []
+            
         if not query or not query.strip():
             return []
-        
+            
         try:
-            # 1. Identify the type of query FIRST to determine retrieval strategy
             query_lower = query.lower()
-            is_kaia_query = any(phrase in query_lower for phrase in ["who are you", "who is kaia", "tell me about yourself", "what are you"])
-            is_user_identity_query = any(phrase in query_lower for phrase in ["who am i", "what is my name", "my pronoun", "who is"]) and not is_kaia_query
-            # Detect memory-related queries
-            memory_keywords = ["remember", "recall", "what did i tell you", "what did we discuss"]
-            is_memory_query = any(word in query_lower for word in memory_keywords)
+            base_top_k = top_k
             
-            # Detect casual/social conversation that doesn't need knowledge retrieval
-            casual_patterns = [
-                "how are you", "what's up", "hey", "hello", "hi ", "sup", "yo ",
-                "good morning", "good night", "thanks", "thank you", "bye",
-                "my name is", "i'm ", "i am ", "nice to meet", "what do you think",
-                "how's it going", "what are you doing", "what are you up to"
-            ]
-            # A query is casual if it matches patterns AND isn't a specific identity query
-            is_casual = (any(phrase in query_lower for phrase in casual_patterns) or len(query_lower.split()) <= 4) and not (is_kaia_query or is_user_identity_query)
-            is_status_query = any(word in query_lower for word in ["status", "stats", "statistics", "uptime", "how are you"])
-            is_identity_query = is_kaia_query or is_user_identity_query
+            # 1. INTENT-AWARE ROUTING & CONFIGURATION
+            # Initialize flags with legacy category
+            is_kaia_query = (category == "identity")
+            is_social_identity = (category == "social_identity")
+            is_dream_query = (category == "dream")
+            is_entity_query = (category == "entity")
+            is_news_query = (category == "news")
+            is_casual = (category == "casual" or category == "greeting" or len(query_lower.split()) <= 4)
             
-            # Detect if this is a vision-related query
-            is_vision_query = any(word in query_lower for word in ["analyze", "look", "image", "picture", "what is this", "describe this"])
+            # Override with Intent if available
+            strategy = None
+            if intent:
+                strategy = intent.suggested_strategy
+                # Map strategies to retrieval contexts
+                if strategy == "PRECISE_RECALL":
+                    if any(x in query_lower for x in ["who", "what", "kaia", "yourself"]):
+                        is_kaia_query = True
+                    else:
+                        is_entity_query = True
+                elif strategy == "RELATIONAL_MIRROR":
+                    is_social_identity = True
+                elif strategy == "ASSOCIATIVE_WANDERING":
+                    # Legacy fallback
+                    if "dream" in query_lower:
+                        is_dream_query = True
+                elif strategy == "DREAM_RECALL":
+                    is_dream_query = True
+                elif strategy == "SYNTHESIS_SCAN":
+                    is_news_query = True
+                elif strategy == "DIAGNOSTIC_DEEP_DIVE":
+                    # Deep dive into error logs and system knowledge
+                    pass 
+                elif strategy in ["SOCIAL_GREETING", "COMMAND_EXECUTION"]:
+                    is_casual = True
+                
+                # Trust the intent explicitly - NO length penalties
+                if is_casual:
+                    # Specific casual queries might still need context, but less recall
+                    pass
             
-            # FIX 1: Detect follow-up queries (short queries that rely on context)
-            # These should prioritize the current user's recent conversation
-            is_followup_query = len(query_lower.split()) <= 6 and not is_identity_query and not is_kaia_query and not is_memory_query
+            # Legacy fallback: Filter short queries that weren't caught by Intent
+            is_followup_query = (not intent and len(query_lower.split()) <= 6 and not is_kaia_query and not is_social_identity and not is_dream_query)
             
-            # 2. Single retrieval pass with query enrichment
-            enriched_query = query
-            
-            # Detect known user names in the query to improve retrieval
-            # USE CACHED LIST to avoid redundant I/O
+            # Detect known user names for enrichment (Optimized)
             if time.time() - self._last_user_scan > self._user_scan_interval:
                 self._known_users_cache = []
                 user_logs_path = os.path.join(self.knowledge_base_dir, "user_logs")
@@ -1038,320 +1084,236 @@ Kaia: {bot_response}
                 self._last_user_scan = time.time()
             
             known_users = self._known_users_cache
+            detected_user = next((u for u in known_users if u.lower() in query_lower), None)
             
-            detected_user = None
-            for u_name in known_users:
-                if u_name.lower() in query_lower:
-                    detected_user = u_name
-                    break
-                # Also check parts of the name
-                for part in u_name.split():
-                    if len(part) > 3 and part.lower() in query_lower:
-                        detected_user = u_name
-                        break
-                if detected_user: break
-            
-            # Only enrich with user context if the query is specifically about the current user
-            is_self_query = any(phrase in query_lower for phrase in ["who am i", "what am i", "my character", "my profile", "my history", "my name", "my pronoun"])
-            
-            # ENRICHMENT STRATEGY:
-            # Always boost the current user for casual/identity queries to ensure their nodes are in the top_k
-            if user_name and (is_casual or is_self_query):
+            # 2. QUERY ENRICHMENT
+            enriched_query = query
+            if user_name and (is_casual or is_social_identity):
                 enriched_query = f"{query} user:{user_name} {user_name}"
-            
-            # If another user is detected, boost them too
             if detected_user:
-                # Repeat the name to boost its importance in the embedding
-                enriched_query += f" user:{detected_user} {detected_user} {detected_user}"
+                enriched_query += f" user:{detected_user} {detected_user}"
             
-            # 2. ROUTING: Determine which indices to hit
+            # 3. ROUTING: Determine target indices
+            # 3. ROUTING: Strict Index Targeting (User Request)
             target_itypes = []
-            if is_kaia_query:
-                target_itypes = ['persona']
-            elif is_user_identity_query or strict_identity:
-                target_itypes = ['user_profiles', 'logs']
-            elif is_status_query:
-                # Status queries should hit persona fragments, logs, and general knowledge (dreams)
-                target_itypes = ['persona', 'logs', 'user_profiles', 'knowledge']
-            else:
-                # General query: hit everything except persona (unless explicitly asked)
+            
+            # IDENTITY / PRECISE RECALL -> Knowledge + Logs + Profiles
+            # "Who is Thorne?" -> Entity search across all memory types
+            if is_kaia_query or strategy == "PRECISE_RECALL" or is_entity_query:
                 target_itypes = ['knowledge', 'logs', 'user_profiles']
+                
+            # TECH / DIAGNOSTIC -> Logs ONLY
+            # "Error logs", "Status", "Restart" -> Operational data
+            elif strategy == "DIAGNOSTIC_DEEP_DIVE":
+                target_itypes = ['logs']
+                retrieve_count = 15
+                
+            # DREAMS -> Dreams Index ONLY
+            # "What did you dream?" -> Specific dream file storage
+            elif strategy == "DREAM_RECALL" or is_dream_query:
+                target_itypes = ['dreams']
+                retrieve_count = 10
+
+            # CREATIVE / GENERAL -> Knowledge ONLY
+            # "Explain transformers", "Tell me about AI" -> Documents
+            elif strategy == "CREATIVE_ASSOCIATION":
+                target_itypes = ['knowledge']
+
+            # CASUAL / SOCIAL -> Profiles + Logs (Richness)
+            # "Hi Kaia" -> Chat history + Who they are
+            elif strategy == "SOCIAL_GREETING" or is_casual:
+                target_itypes = ['user_profiles', 'logs']
+                retrieve_count = 10
+
+            # RELATIONAL / SOCIAL IDENTITY -> Profiles + Logs
+            # "Who am I?", "Our history"
+            elif strategy == "RELATIONAL_MIRROR" or is_social_identity:
+                target_itypes = ['user_profiles', 'logs']
+
+            # FALLBACK -> Knowledge (Documents)
+            else:
+                target_itypes = ['knowledge']
             
-            # Retrieve with a significantly higher limit to ensure profiles are found
-            retrieve_count = 15 if is_casual else 25
+            # Use config for retrieval count, with a slight reduction for casual queries
+            if not intent and is_casual:
+                 retrieve_count = max(5, int(base_top_k * 0.6))
+            elif not 'retrieve_count' in locals():
+                 retrieve_count = base_top_k
             
-            # 3. Retrieval pass across targeted indices (Sequential to avoid RLock deadlocks)
+            # 4. HIERARCHICAL RETRIEVAL
             all_node_results = []
             for itype in target_itypes:
-                if itype not in self.indices:
-                    continue
-                
+                if itype not in self.indices: continue
                 try:
-                    # Get or build BM25 retriever (Thread-safe)
-                    bm25_retriever = None
-                    with self._lock:
-                        bm25_retriever = self.bm25_cache.get(itype)
-                    
+                    bm25_retriever = self.bm25_cache.get(itype)
                     if bm25_retriever is None:
-                        with self._lock:
-                            # Double-check inside lock
-                            bm25_retriever = self.bm25_cache.get(itype)
-                            if bm25_retriever is None:
-                                # Thread-safe access to docs
-                                index_nodes = list(self.indices[itype].storage_context.docstore.docs.values())
-                                if index_nodes:
-                                    log_action(f"Building BM25 retriever for {itype} ({len(index_nodes)} nodes)...")
-                                    bm25_retriever = SimpleBM25Retriever(index_nodes)
-                                    self.bm25_cache[itype] = bm25_retriever
-                                else:
-                                    self.bm25_cache[itype] = None
+                        index_nodes = list(self.indices[itype].storage_context.docstore.docs.values())
+                        if index_nodes:
+                            bm25_retriever = SimpleBM25Retriever(index_nodes)
+                            self.bm25_cache[itype] = bm25_retriever
                     
                     if bm25_retriever:
                         hybrid = HybridRetriever(self.indices[itype], bm25_retriever)
-                        results = hybrid.retrieve(enriched_query, top_k=retrieve_count)
-                        all_node_results.extend(results)
+                        all_node_results.extend(hybrid.retrieve(enriched_query, top_k=retrieve_count))
                     else:
-                        # Fallback to vector only
                         retriever = self.indices[itype].as_retriever(similarity_top_k=retrieve_count)
-                        results = retriever.retrieve(enriched_query)
-                        all_node_results.extend(results)
+                        all_node_results.extend(retriever.retrieve(enriched_query))
                 except Exception as e:
-                    log_error(f"Index retrieval failed for {itype}: {e}")
+                    log_error(f"Retrieval failed for {itype}: {e}")
             
-            # 4. Categorize and Score nodes
-            scored_nodes = [] # List of (score, content, label)
+            # 5. DYNAMIC SCORING & FILTERING
+            scored_nodes = [] 
             seen_texts = set()
             u_id_str = str(user_id) if user_id else None
             
-            # Lore relevance threshold
-            lore_threshold = 0.80 if is_casual else 0.60
-            
             for node_result in all_node_results:
                 node = node_result.node if hasattr(node_result, 'node') else node_result
-                # Normalize RRF scores (which are usually ~0.016) to a 0.0-1.0 range
                 base_raw_score = node_result.score if hasattr(node_result, 'score') else 0.5
-                # If it looks like an RRF score (very small), scale it up
                 base_score = min(1.0, base_raw_score * 60.0) if base_raw_score < 0.1 else base_raw_score
                 content = node.get_content()
                 
-                # Skip duplicates
-                content_hash = hash(content[:200]) if len(content) > 200 else hash(content)
-                if content_hash in seen_texts:
-                    continue
+                # Deduplication
+                content_hash = hash(content[:200])
+                if content_hash in seen_texts: continue
                 seen_texts.add(content_hash)
                 
-                # FILTER: Skip vision response nodes for non-vision queries to prevent feedback loop
-                if node.metadata.get('is_vision_response') and not is_vision_query:
-                    continue
-                
-                # FILTER: Skip news nodes if include_news is False
-                if not include_news and (node.metadata.get('source_type') == 'news_brief' or "news_brief" in node.metadata.get('file_path', '')):
-                    continue
-                
-                # FILTER: Skip user profile nodes for general queries to prevent leaks
-                # Only allow profiles if it's an identity query, strict_identity is True, or it's a self-query
-                if node.metadata.get('source_type') == 'user_profile' or "user_profile.md" in node.metadata.get('file_path', ''):
-                    if not (is_user_identity_query or strict_identity or is_self_query):
-                        continue
-                
-                # Quality filter
-                sample = content[:500]
-                if sample:
-                    ascii_count = sum(1 for c in sample if c.isascii() and c.isprintable())
-                    if (ascii_count / len(sample)) < 0.80:
-                        continue
-                
-                # USER ISOLATION FILTER: Prevent leakage from other users' logs and profiles
-                source_type = node.metadata.get('source_type', node.metadata.get('source', ''))
-                # Files in user_logs or specific user_profile markings
-                is_user_data = source_type in ['logs', 'user_logs', 'user_profile'] or "user_logs" in node.metadata.get('file_path', '')
-                
-                if is_user_data:
-                    node_user_id = str(node.metadata.get('user_id', ''))
-                    node_user_name = str(node.metadata.get('user_name', '')).lower()
-                    
-                    # If this isn't the current user AND it's not the user explicitly mentioned in the query
-                    target_matches = False
-                    if detected_user and (detected_user.lower() in node_user_name or detected_user.lower() in content.lower()):
-                        target_matches = True
-                        
-                    if node_user_id != u_id_str and not target_matches:
-                        # FIX 1 ENHANCED: For follow-up queries, be STRICT about cross-user logs
-                        if is_followup_query:
-                            continue
-                        
-                        # FIX 3: Semantic relevance check for cross-user logs
-                        # If there's no keyword overlap, skip this node
-                        stopwords = {'the', 'a', 'is', 'of', 'to', 'in', 'and', 'what', 'do', 'you', 'think', 'how', 'it', 'this', 'that', 'for', 'on', 'with', 'as', 'be', 'at', 'or', 'an', 'was', 'are'}
-                        query_words = set(w.lower() for w in query.split() if len(w) > 3 and w.lower() not in stopwords)
-                        content_sample = content[:500]  # Check first 500 chars for efficiency
-                        content_words = set(w.lower() for w in content_sample.split() if len(w) > 3)
-                        
-                        overlap = query_words & content_words
-                        if not overlap:
-                            continue
-                
-                # STRICT IDENTITY FILTER: Only allow persona and current user's logs
-                if strict_identity:
-                    is_persona = node.metadata.get('source_type') == 'persona'
-                    is_current_user = str(node.metadata.get('user_id')) == u_id_str
-                    if not (is_persona or is_current_user):
-                        continue
-                
-                # ENHANCED SCORING LOGIC
-                # 1. Recency boost
-                timestamp = node.metadata.get('timestamp')
-                if timestamp:
-                    if isinstance(timestamp, str):
-                        try:
-                            dt = datetime.fromisoformat(timestamp)
-                            ts = dt.timestamp()
-                        except:
-                            ts = time.time() - 86400 * 30
-                    else:
-                        ts = timestamp
-                    days_old = (time.time() - ts) / 86400
-                    recency_boost = max(0, 1 - (days_old / 30))
-                else:
-                    recency_boost = 0.5
-                
-                # 2. User specificity boost
+                # Metadata extraction
+                source_type = node.metadata.get('source_type', 'general')
+                file_path = node.metadata.get('file_path', '')
                 node_user_id = str(node.metadata.get('user_id', ''))
-                user_match_boost = 2.0 if node_user_id == u_id_str else 1.0
-                
-                # 3. Content type boost
-                source_type = node.metadata.get('source_type', node.metadata.get('source', ''))
-                type_boost = {
-                    'dream': 2.0,      # Lowered from 4.5 to prevent drowning out facts
-                    'memory': 3.5,
-                    'user_profile': 3.0,
-                    'persona': 2.5,
-                    'conversation': 1.5,
-                    'user_logs': 1.5,
-                    'news': 1.5,
-                    'knowledge': 1.0,
-                    'general_knowledge': 1.0
-                }.get(source_type, 1.0)
-                
-                # 4. Path-match boost: If the query explicitly mentions a filename that matches this node
-                path_boost = 0.0
-                file_path = node.metadata.get('file_path', '')
-                if file_path:
-                    # Look for filename overlap with query
-                    # REPLACING special slashes for comparison just in case
-                    norm_query = query_lower.replace('⁄', '/').replace('\\', '/')
-                    norm_path = file_path.lower().replace('⁄', '/').replace('\\', '/')
-                    file_name = os.path.basename(file_path).lower().replace('⁄', '/')
-                    
-                    if len(file_name) > 8 and file_name in norm_query:
-                        path_boost = 5.0 # HUGE boost for near-perfect filename match
-                    elif any(part in norm_query for part in norm_path.split('/') if len(part) > 10):
-                        path_boost = 2.0 # Significant boost for partial path/long component match
-                
-                # 5. Length penalty
-                content_len = len(content)
-                if 50 < content_len < 2000:
-                    length_penalty = 1.0
-                elif content_len <= 50:
-                    length_penalty = 0.7
-                else:
-                    length_penalty = 0.8
-                
-                # 5. Priority metadata boost
-                priority_boost = node.metadata.get('priority', 0.1)
-                
-                # BALANCED SCORING (Prioritize Relevance)
-                # Similarity (base_score) is weighted significantly, but path_boost wins for explicit calls
-                final_score = (
-                    base_score * 0.70 +        # Search relevance
-                    path_boost * 0.25 +         # High priority for explicit file mentions
-                    recency_boost * 0.02 +      # Very minor recency preference
-                    user_match_boost * 0.01 +   # Very minor current-user preference
-                    (type_boost / 5.0) * 0.02   # Very minor source-type preference
-                ) * length_penalty
-                
-                # Boost priority-flagged content slightly
-                final_score += priority_boost * 0.05
-
-                # DIVERSITY INJECTION: For casual queries, add score jitter to break determinism
-                if is_casual:
-                    jitter = random.uniform(-0.1, 0.1)
-                    final_score += jitter
-                
-                # Determine label for display
-                file_path = node.metadata.get('file_path', '')
                 node_user_name = node.metadata.get('user_name', 'Unknown')
-                label = ""
+
+                # Filter: News (if not requested)
+                if not include_news and (source_type == 'news' or "news" in file_path.lower()):
+                    continue
                 
-                if source_type == "persona" or node_user_id == "KAIA_SYSTEM":
-                    label = "Kaia Persona Fragment"
-                elif source_type == "memory":
-                    label = f"User Memory: {node_user_name.upper()}"
-                elif source_type == "user_logs" or "user_logs" in file_path:
-                    if "user_profile.md" in file_path:
-                        label = f"User Profile: {node_user_name.upper()}"
-                    else:
-                        label = f"Conversation History: {node_user_name.upper()}"
-                elif source_type == "news":
-                    label = f"Latest News: {os.path.basename(file_path)}"
+                # Filter: Identity Isolation
+                if source_type == 'user_profile' and not (is_social_identity or strict_identity):
+                    continue
+                
+                # Filter: User Isolation (Cross-user logs & shared dreams)
+                if source_type in ['logs', 'user_logs', 'dream'] or "user_logs" in file_path:
+                    # For dreams, we only isolate if they are derived from interaction logs
+                    is_personal_dream = source_type == 'dream' and ("interactions" in file_path or "user_logs" in file_path)
+                    if is_personal_dream or source_type in ['logs', 'user_logs']:
+                        if node_user_id and node_user_id != u_id_str and not (detected_user and detected_user.lower() in node_user_name.lower()):
+                            # Only allow cross-user logs/dreams if they are semantically high value and not casual
+                            if is_casual or base_score < 0.85: continue
+
+                # Filter: Strict Dream Isolation (User Request)
+                if is_dream_query:
+                    is_dream_source = source_type == 'dream' or "kaia_dreams" in file_path or "dreams" in file_path
+                    # Allow content if it explicitly mentions "dream" or comes from a dream source
+                    if not is_dream_source and "dream" not in content.lower():
+                        continue
+
+                # DYNAMIC SCORING
+                # Path boost (explicit mentions)
+                path_boost = 0.0
+                if file_path:
+                    fname = os.path.basename(file_path).lower()
+                    if len(fname) > 8 and fname in query_lower:
+                        path_boost = config.rag_path_boost if hasattr(config, 'rag_path_boost') else 0.5
+                
+                # Type boosts
+                # Use config values or fallback to defaults if not present (migration safety)
+                type_boosts = getattr(config, 'rag_type_boosts', {
+                    'persona': 0.15,
+                    'user_profile': 0.20,
+                    'dream': 0.10,
+                    'memory': 0.25
+                })
+                type_boost = type_boosts.get(source_type, 0.0)
+
+                # Final score composition
+                final_score = base_score + path_boost + type_boost
+                
+                # Contextual Boosts & Strategy Adjustments
+                if intent:
+                    strategy = intent.suggested_strategy
+                    
+                    # PRECISE_RECALL: Boost exact matches and knowledge
+                    if strategy == "PRECISE_RECALL":
+                        if source_type in ['knowledge', 'user_profile']:
+                            final_score += 0.15
+                        # Penalize fuzzy/associative content slightly
+                        if source_type == 'dream':
+                            final_score -= 0.1
+                            
+                    # DIAGNOSTIC_DEEP_DIVE: Boost error logs
+                    elif strategy == "DIAGNOSTIC_DEEP_DIVE":
+                        if source_type == 'logs':
+                            # Heavy boost for logs containing error keywords
+                            if any(w in content.lower() for w in ['error', 'exception', 'traceback', 'fail', 'bug']):
+                                final_score += 0.4
+                            else:
+                                final_score += 0.1
+                        # Lower threshold for diagnostic queries to catch obscure errors
+                        
+                    elif strategy == "DREAM_RECALL":
+                        # STRICTLY boost dream files
+                        if source_type == 'dream' or "kaia_dreams" in file_path:
+                            final_score += 0.5  # Massive boost for genuine dream logs
+                        else:
+                            final_score -= 0.1  # Penalize non-dream content slightly
+                            
+                    elif strategy == "CREATIVE_ASSOCIATION":
+                         # Loose associations, lower threshold
+                         # Encourage diversity but don't prioritize dreams unless relevant
+                         if source_type == 'dream':
+                             final_score -= 0.05 # Slight penalty to avoid dream spam
+                         pass
+                            
+                    # RELATIONAL_MIRROR: Boost user interaction history
+                    elif strategy == "RELATIONAL_MIRROR":
+                        if source_type == 'user_profile':
+                            final_score += 0.4
+                        elif source_type == 'logs' and node_user_id == u_id_str:
+                            final_score += 0.25
+
                 else:
-                    # FIX 2: Include source document name for disambiguation
-                    doc_name = os.path.basename(file_path) if file_path else "Unknown"
-                    label = f"Knowledge [{doc_name}]"
+                    # Legacy Contextual Boosts (Fallback)
+                    if is_dream_query and source_type == 'dream':
+                        final_score += 0.3
+                    if is_social_identity and source_type == 'user_profile':
+                        final_score += 0.3
                 
-                scored_nodes.append((final_score, content, label, node))
-            
-            # 4. Sort and Filter
-            scored_nodes.sort(key=lambda x: x[0], reverse=True)
-            
-            # Apply query-type specific filtering
-            final_results = []
-            persona_count = 0
-            user_log_count = 0
-            lore_count = 0
-            news_count = 0
-            
-            for _, content, label, node in scored_nodes:
-                if "Kaia Persona" in label:
-                    if is_user_identity_query: continue # Skip persona for user identity queries
-                    if persona_count >= (4 if is_kaia_query else 1): continue
-                    persona_count += 1
-                elif "User Profile" in label or "Conversation History" in label:
-                    if user_log_count >= (6 if is_identity_query else 5): continue
-                    user_log_count += 1
-                elif "User Memory" in label:
-                    # Always include memories if they score high enough
-                    pass
-                elif "Historical Reference" in label:
-                    if is_identity_query: continue # Skip lore for identity queries
-                    if lore_count >= (2 if is_casual else 4): continue
-                    lore_count += 1
-                elif "Latest News" in label:
-                    # Natural News: allow news nodes if they are relevant
-                    pass
-                elif "Knowledge" in label:
-                    if lore_count >= 6: continue
-                    lore_count += 1
+                # DYNAMIC THRESHOLDING (User Request: Simple & Rigid)
+                if strategy == "DREAM_RECALL":
+                    min_threshold = 0.40 # Low threshold to ensure fragment recall
+                elif strategy in ["PRECISE_RECALL", "DIAGNOSTIC_DEEP_DIVE"]:
+                    min_threshold = 0.7 # Low filter to get results
+                elif strategy == "SOCIAL_GREETING" or is_casual:
+                    min_threshold = 0.9 # High filter for noise
+                else:
+                    min_threshold = config.rag_threshold_knowledge # Default (~0.75-0.8)
+
+                if final_score < min_threshold:
+                    continue
+
+                # Generate label
+                label = f"Knowledge [{os.path.basename(file_path)}]"
+                if source_type == "persona": label = "Kaia Persona Fragment"
+                elif "profile" in file_path: label = f"Profile: {node_user_name}"
+                elif "user_logs" in file_path: label = f"Log: {node_user_name}"
                 
-                final_results.append({
+                scored_nodes.append({
                     "content": content,
                     "metadata": node.metadata,
-                    "label": label
+                    "label": label,
+                    "score": final_score
                 })
-                if len(final_results) >= top_k:
-                    break
             
-            # DIVERSITY INJECTION: Shuffle top results for casual queries to break parrotting
-            if is_casual and len(final_results) > 2:
-                # Shuffle the top 3 results if we have enough
-                shuffle_count = min(3, len(final_results))
-                top_slice = final_results[:shuffle_count]
-                random.shuffle(top_slice)
-                final_results = top_slice + final_results[shuffle_count:]
+            # 6. DE-DOGSHITTED SORT & LIMIT
+            scored_nodes.sort(key=lambda x: x["score"], reverse=True)
+            results = scored_nodes[:top_k]
             
-            query_type = "casual" if is_casual else ("identity" if is_identity_query else "knowledge")
-            log_success(f"Retrieved {len(final_results)} results [{query_type}] (P:{persona_count}, U:{user_log_count}, L:{lore_count}, thresh:{lore_threshold:.2f})")
-            return final_results
+            if results:
+                log_success(f"RAG retrieved {len(results)} nodes for query (category: {category})")
+            else:
+                log_debug(f"RAG: No relevant nodes found for query (category: {category})")
+                
+            return results
 
             
         except Exception as e:
@@ -1389,7 +1351,7 @@ Kaia: {bot_response}
                                 ts = dt.timestamp()
                             else:
                                 ts = datetime.fromisoformat(ts_val).timestamp()
-                        except:
+                        except Exception:
                             ts = 0
                     else:
                         ts = ts_val
@@ -1466,7 +1428,7 @@ Kaia: {bot_response}
                                 ts = dt.timestamp()
                             else:
                                 ts = datetime.fromisoformat(ts_val).timestamp()
-                        except: pass
+                        except Exception: pass
                     else:
                         ts = ts_val
                 
@@ -1531,7 +1493,7 @@ Kaia: {bot_response}
                     nodes = list(index.storage_context.docstore.docs.values())
                 
                 if nodes:
-                    log_info(f"Tokenizing {len(nodes)} nodes for '{itype}' index (background)...")
+                    log_debug(f"Tokenizing {len(nodes)} nodes for '{itype}' index (background)...")
                     start = time.time()
                     
                     # 2. HEAVY WORK: Tokenize and build BM25 WITHOUT holding the lock

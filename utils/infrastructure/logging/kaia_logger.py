@@ -62,6 +62,14 @@ def log_success(message):
     get_logging_registry().log(LogLevel.SUCCESS, message)
 
 
+def log_ready(message):
+    """Log readiness messages in pink."""
+    global_logger.log(message, "READY")
+    if _monitor:
+        _monitor.log_system_event("READY", message)
+    get_logging_registry().log(LogLevel.SUCCESS, message)
+
+
 def log_user(user_name, user_id, context=""):
     """Log user identity."""
     message = f"{user_name} ({user_id})"

@@ -110,18 +110,30 @@ class OllamaGPUManager:
         if not self.gpu_available:
             return False
         try:
-            print(f"🔄 Triggering GPU load for {self.model_name}...")
-            # CRITICAL FIX: Use keep_alive=0 to allow proper model unloading
-            # Previous value of 3600 (1 hour) kept models in VRAM, preventing vision model from loading
-            # This caused 7+ minute timeouts when trying to swap models
+            from utils.infrastructure.system.yaml_config import config
+            ctx_size = getattr(config, 'max_context_tokens', 28000)
+            timeout = getattr(config, 'model_load_timeout', 180.0)
+            
+            print(f"🔄 Triggering GPU load for {self.model_name} (num_ctx: {ctx_size})...")
+            print(f"⏳ Waiting up to {timeout}s for Ollama to allocate VRAM...")
+            
+            # Use same options as chat to avoid reload
+            options = self.get_gpu_options(for_chat=True, num_ctx=ctx_size)
+            
+            # Start timer
+            start_time = time.time()
+            
             await asyncio.wait_for(
-                ollama_client.generate(model=self.model_name, prompt="", keep_alive=0),
-                timeout=60.0  # 60 second timeout for large model load
+                ollama_client.generate(model=self.model_name, prompt="", keep_alive=-1, options=options),
+                timeout=timeout
             )
-            print(f"✅ {self.model_name} loaded successfully")
+            
+            elapsed = time.time() - start_time
+            print(f"✅ {self.model_name} pre-warmed and locked in VRAM ({elapsed:.1f}s)")
             return True
         except asyncio.TimeoutError:
-            print(f"❌ GPU load TIMED OUT after 60s for {self.model_name}")
+            print(f"❌ GPU load TIMED OUT after {timeout}s for {self.model_name}")
+            print(f"⚠️  This model with {ctx_size} context may be too large for your VRAM.")
             return False
         except Exception as e:
             print(f"❌ GPU load failed: {e}")

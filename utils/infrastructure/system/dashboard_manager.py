@@ -20,7 +20,7 @@ class DashboardManager:
     """Manages the lifecycle of the bot's terminal dashboard and run modes."""
     
     def __init__(self, bot, config, bot_state, stats_tracker, stats_poller, 
-                 logger, model_warm_pool, query_classifier):
+                 logger, model_warm_pool, intent_parser):
         self.bot = bot
         self.config = config
         self.bot_state = bot_state
@@ -28,7 +28,7 @@ class DashboardManager:
         self.stats_poller = stats_poller
         self.logger = logger
         self.model_warm_pool = model_warm_pool
-        self.query_classifier = query_classifier
+        self.intent_parser = intent_parser
         
         # Internal state
         self.dashboard = None
@@ -82,6 +82,7 @@ class DashboardManager:
         set_stats_poller(self.stats_poller)
         
         shutdown_manager.register_stats_poller(self.stats_poller)
+        shutdown_manager.register_stop_event(self.stop_event)
         shutdown_manager.setup()
         
         print("✅ Startup tasks complete")
@@ -115,8 +116,22 @@ class DashboardManager:
             log_error(f"Error stopping tasks: {e}")
         
         # 2. Cancel registered background tasks in registry
-        await task_registry.cancel_all()
+        await task_registry.cancel_all(timeout=3.0)
         log_success("Background tasks cancelled.")
+
+        # 2.5 Shut down RAG thread pool
+        try:
+            from Kaiacord import rag_executor
+            if rag_executor:
+                log_action("Shutting down RAG thread pool...")
+                # cancel_futures=True requires Python 3.9+
+                try:
+                    rag_executor.shutdown(wait=False, cancel_futures=True)
+                except TypeError:
+                    rag_executor.shutdown(wait=False)
+                log_success("RAG thread pool shutdown initiated.")
+        except Exception as e:
+            log_warning(f"Error shutting down RAG executor: {e}")
         
         if self.stats_poller:
             self.stats_poller.stop()
@@ -140,7 +155,15 @@ class DashboardManager:
         log_action("Closing Ollama clients...")
         try:
             log_action("Unloading main model...")
-            await ollama_client.generate(model=self.config.chat_model, keep_alive=0)
+            # Add timeout to prevent hang if Ollama service is toast
+            try:
+                await asyncio.wait_for(
+                    ollama_client.generate(model=self.config.chat_model, keep_alive=0),
+                    timeout=5.0
+                )
+            except asyncio.TimeoutError:
+                log_warning("Ollama unload timed out. Moving on.")
+            
             if hasattr(ollama_client, '_client'):
                 await ollama_client._client.aclose()
             log_success("Ollama clients closed and models unloaded.")
@@ -152,10 +175,6 @@ class DashboardManager:
     async def run_bot_async(self, stats_poller, initialize_logic_layer, 
                             sequenced_boot_tasks, stop_event=None):
         """Run the Discord bot with asyncio."""
-        # Pre-warm classification model
-        prewarm_task = asyncio.create_task(self.query_classifier.pre_warm())
-        task_registry.register("prewarm_classifier", prewarm_task)
-        
         await asyncio.sleep(2)
         
         try:
@@ -207,20 +226,29 @@ class DashboardManager:
         log_info("🧠 Phase 3/3: Loading chat model into VRAM...")
         try:
             await prewarm_main_model()
+            log_success("🧠 Chat model hot.")
+            
+            # Now pre-warm classifier sequentially to avoid VRAM contention
+            log_info("🧠 Warming classifier...")
+            await self.intent_parser.pre_warm()
         except Exception as e:
             log_error(f"Model prewarm failed: {e}")
         
-        asyncio.create_task(run_rag(rag.pre_warm))
-        
-        # Start background tasks
+        # Start background tasks loops (allow them to run initial sync while we pre-warm)
         from utils.social.social_tasks import start_social_tasks
         from utils.core.background_tasks import start_background_core_tasks
         
         start_social_tasks(self.bot, self.bot.ollama_client if hasattr(self.bot, 'ollama_client') else None, run_rag, rag, on_message)
         start_background_core_tasks(rag, run_rag, news_manager, dream_engine, load_persona_async)
+
+        # Pre-warm RAG (mostly CPU/disk/IO) - Await this so it finishes before Ready
+        log_action("Pre-warming RAG cache...")
+        await run_rag(rag.pre_warm)
         
+        # Final Readiness Milestone
         self.bot_state.boot_complete = True
-        log_success("Kaia is online and ready.")
+        from utils.infrastructure.logging.kaia_logger import log_ready
+        log_ready("Kaia is online and ready.")
     def run_curses_mode(self, initialize_logic_layer, run_bot_async):
         """Run in curses dashboard mode."""
         if not self.config.discord_token:
@@ -235,7 +263,6 @@ class DashboardManager:
         self.logger.set_dashboard_mode(True)
         
         def run_bot_in_thread():
-            initialize_logic_layer()
             sp = self.perform_startup_tasks()
             
             if self.dashboard and sp:
@@ -244,6 +271,8 @@ class DashboardManager:
             loop = asyncio.new_event_loop()
             asyncio.set_event_loop(loop)
             try:
+                # Initialize logic inside the loop
+                initialize_logic_layer()
                 loop.run_until_complete(run_bot_async(sp, self.stop_event))
             finally:
                 self.cleanup_complete_event.set()
@@ -286,4 +315,7 @@ class DashboardManager:
             
         print("🚀 Using simple logger")
         sp = self.perform_startup_tasks()
+        # Ensure logic layer is initialized
+        from Kaiacord import initialize_logic_layer
+        initialize_logic_layer()
         await run_bot_async(sp)

@@ -187,23 +187,67 @@ class EmergencyContaminationFilter:
         
         return result
     
+class ResponseStyleHarden:
+    """Programmatically enforce Kaia's persona rules on generated text."""
+    
+    BAIT_PATTERNS = [
+        r"(?i)what('s|\s+is)\s+on\s+your\s+mind\??",
+        r"(?i)what\s+are\s+you\s+(working\s+on|up\s+to)\??",
+        r"(?i)any\s+thoughts\??",
+        r"(?i)do\s+you\s+have\s+any\s+questions\??",
+        r"(?i)let\s+me\s+know\s+if\s+you\s+need\??",
+        r"(?i)how\s+can\s+i\s+(help|assist)\??",
+        r"(?i)why\?",
+        r"(?i)what(’|')s\s+driving\s+your\s+interest\??",
+        r"(?i)you\s+following\s+anything\s+specific\??",
+        r"(?i)what\s+do\s+you\s+(think|need)\??",
+        r"(?i)anything\s+else\??",
+        r"(?i)(rag\s+classifier|dream\s+fragments?|retrieved\s+nodes?|semantic\s+search|context\s+nodes?)",
+    ]
+
     @classmethod
-    def expand_news_query(cls, query: str) -> List[str]:
-        """Expand news-related queries for better RAG retrieval"""
-        expansions = []
-        
-        news_keywords = ["news", "update", "recent", "happening", "today", "latest", "headlines"]
-        
-        if any(keyword in query.lower() for keyword in news_keywords):
-            # Add date-based expansions
-            today = datetime.now().strftime("%Y-%m-%d")
-            expansions.append(f"{query} {today}")
-            expansions.append(f"news brief {today}")
-            expansions.append(f"daily digest {today}")
+    def strip_trailing_questions(cls, text: str) -> str:
+        """Remove engagement bait questions from the end of a response."""
+        if not text:
+            return text
             
-            # Add section-based expansions
-            expansions.append(f"tech outages {today}")
-            expansions.append(f"security incidents {today}")
-            expansions.append(f"AI developments {today}")
+        lines = text.split('\n')
+        if not lines:
+            return text
+            
+        last_line = lines[-1].strip()
+        if not last_line:
+            return text
+
+        # Split into sentences (simple split)
+        # We look for the last sentence
+        sentences = re.split(r'(?<=[.!?])\s+', last_line)
+        if not sentences:
+            return text
+            
+        # Iteratively remove trailing bait sentences
+        modified = False
+        while sentences:
+            last_sentence = sentences[-1].strip()
+            if not last_sentence.endswith('?'):
+                break
+                
+            is_bait = False
+            for pattern in cls.BAIT_PATTERNS:
+                if re.search(pattern, last_sentence):
+                    is_bait = True
+                    break
+            
+            if is_bait:
+                sentences.pop()
+                modified = True
+            else:
+                break
         
-        return expansions
+        if modified:
+            new_last_line = " ".join(sentences).strip()
+            lines[-1] = new_last_line
+            # Rejoin all lines
+            return "\n".join(lines).strip()
+        
+        return text

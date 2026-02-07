@@ -1,6 +1,7 @@
 from dataclasses import dataclass, field
 from typing import List, Dict, Optional, Any
 import discord
+from utils.core.kaia_intelligence import Intent
 
 @dataclass
 class MessageContext:
@@ -10,6 +11,7 @@ class MessageContext:
     is_social: bool = False
     is_mention: bool = False
     category: str = "GENERAL"
+    intent: Optional[Intent] = None
     
     # Retrieval & Intelligence
     cached_response: Optional[str] = None
@@ -29,7 +31,7 @@ class MessageContext:
         
     @property
     def author_name(self) -> str:
-        return self.message.author.name
+        return self.message.author.display_name
         
     @property
     def channel_id(self) -> int:

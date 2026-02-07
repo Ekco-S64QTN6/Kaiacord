@@ -2,7 +2,7 @@ import asyncio
 import time
 from functools import wraps
 
-def timed_response(threshold=5.0):
+def timed_response(threshold=30.0):
     """Decorator to log slow responses"""
     def decorator(func):
         @wraps(func)

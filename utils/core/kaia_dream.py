@@ -5,6 +5,7 @@ import asyncio
 from datetime import datetime, timedelta
 from pathlib import Path
 from typing import List, Dict, Any, Optional
+from collections import defaultdict
 import ollama
 try:
     import pypdf
@@ -78,10 +79,10 @@ YOUR IN-DEPTH REFLECTION:"""
             log_error(f"In-depth dream reflection generation failed: {e}")
             return None
 
-    def scan_knowledge_base(self, min_days: int = 2) -> List[Path]:
-        """Scan KB for files older than min_days"""
+    def scan_knowledge_base(self, min_days: int = 2) -> Dict[str, List[Path]]:
+        """Scan KB for files older than min_days, grouped by category"""
         target_folders = ["Books", "news", "user_logs", "documents"]
-        all_files = []
+        categorized_files = {k: [] for k in target_folders}
         cutoff_time = time.time() - (min_days * 86400)
         
         for folder in target_folders:
@@ -97,6 +98,10 @@ YOUR IN-DEPTH REFLECTION:"""
                     # Skip user profiles for now (low quality for dreams)
                     if f.lower() == "user_profile.md":
                         continue
+
+                    # Skip injection logs (repetitive/low quality)
+                    if "injected" in f.lower():
+                        continue
                         
                     # Prefer .md versions of the same file if they exist (to avoid binary parsing)
                     if f.lower().endswith(('.pdf', '.docx')):
@@ -107,10 +112,10 @@ YOUR IN-DEPTH REFLECTION:"""
                     path = Path(root) / f
                     try:
                         if path.stat().st_mtime < cutoff_time:
-                            all_files.append(path)
-                    except: continue
+                            categorized_files[folder].append(path)
+                    except Exception: continue
         
-        return all_files
+        return categorized_files
 
     async def nightly_dream_processing(self, persona_content: str):
         """Perform the nightly dream generation cycle"""
@@ -121,14 +126,57 @@ YOUR IN-DEPTH REFLECTION:"""
         dreams_per_scan = dream_cfg.get('dreams_per_scan', 10)
         
         # 1. Scan for older files
-        all_files = self.scan_knowledge_base(min_days=min_days)
-        if not all_files:
+        categorized_files = self.scan_knowledge_base(min_days=min_days)
+        total_files = sum(len(f) for f in categorized_files.values())
+        
+        if total_files == 0:
             log_warning("No suitable files found for dreaming.")
             return
 
-        # 2. Select random sample
-        sample_size = min(dreams_per_scan, len(all_files))
-        sample_files = random.sample(all_files, sample_size)
+        # 2. Select samples with Fair User Representation
+        sample_files = []
+        
+        # A. User Quota (Target ~40% of dreams from interactions)
+        user_logs = categorized_files.get('user_logs', [])
+        user_quota = dream_cfg.get('user_quota', 0.4)
+        target_user_dreams = int(dreams_per_scan * user_quota)
+        if target_user_dreams < 1 and user_quota > 0: target_user_dreams = 1
+        
+        if user_logs:
+            # Group by User ID (parent folder) to ensure fair representation
+            user_map = defaultdict(list)
+            for f in user_logs:
+                user_map[f.parent.name].append(f)
+            
+            users = list(user_map.keys())
+            
+            for _ in range(target_user_dreams):
+                # Pick a random user, then a random file from them
+                # (This gives equal weight to 'Ekco' (few files) and 'gnownm' (many files))
+                selected_user = random.choice(users)
+                selected_file = random.choice(user_map[selected_user])
+                sample_files.append(selected_file)
+                
+        # B. General Content Quota (Populate rest from books, news, docs)
+        other_files = []
+        for cat in ['Books', 'news', 'documents']:
+            other_files.extend(categorized_files.get(cat, []))
+            
+        remaining_slots = dreams_per_scan - len(sample_files)
+        
+        if remaining_slots > 0 and other_files:
+            # Randomly sample from the rest
+            count = min(len(other_files), remaining_slots)
+            sample_files.extend(random.sample(other_files, count))
+            
+        # If we still have slots (e.g., no other files), fill with more user logs if possible
+        remaining_slots = dreams_per_scan - len(sample_files)
+        if remaining_slots > 0 and user_logs:
+             # Just random fill from the flat list for the surplus
+             sample_files.extend(random.choices(user_logs, k=remaining_slots))
+
+        # Shuffle again to mix types in processing order
+        random.shuffle(sample_files)
         
         new_dreams_count = 0
         

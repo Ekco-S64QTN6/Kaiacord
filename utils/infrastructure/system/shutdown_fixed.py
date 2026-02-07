@@ -28,6 +28,7 @@ class CleanShutdown:
         self.original_sigterm = signal.getsignal(signal.SIGTERM)
         self.stats_poller = None
         self.bot_task = None
+        self.stop_event = None
         self._shutdown_complete = threading.Event()
         self._setup_complete = False
         
@@ -38,6 +39,10 @@ class CleanShutdown:
     def register_bot_task(self, task):
         """Register bot task for cleanup"""
         self.bot_task = task
+    
+    def register_stop_event(self, event):
+        """Register stop event for dashboard/main loop"""
+        self.stop_event = event
     
     def shutdown_handler(self, signum, frame):
         """
@@ -69,6 +74,14 @@ class CleanShutdown:
             except Exception as e:
                 log_error(f"  ❌ Error cancelling bot task: {e}")
         
+        # Trigger stop event if registered
+        if self.stop_event:
+            try:
+                self.stop_event.set()
+                log_info("  ✅ Triggered stop event")
+            except Exception as e:
+                log_error(f"  ❌ Error triggering stop event: {e}")
+        
         # Restore terminal is now handled by the dashboard or main loop
         # self.restore_terminal()
         
@@ -83,7 +96,7 @@ class CleanShutdown:
         """
         log_info("  🔄 Running async shutdown...")
         
-        # Cancel all registered tasks via registry
+        # 1. Cancel all registered tasks via registry
         try:
             from utils.infrastructure.monitoring.async_task_registry import task_registry
             cancelled = await task_registry.cancel_all(timeout=5.0)
@@ -93,7 +106,21 @@ class CleanShutdown:
         except Exception as e:
             log_error(f"  ❌ Error cancelling tasks: {e}")
         
-        # Force GPU cleanup
+        # 2. Force Ollama Model Unload (Crucial for VRAM release)
+        try:
+            from utils.infrastructure.gpu.gpu_manager import OllamaGPUManager
+            from utils.infrastructure.system.yaml_config import config
+            import ollama
+            
+            client = ollama.AsyncClient()
+            log_info(f"  🔄 Unloading Ollama model: {config.chat_model}")
+            # keep_alive=0 tells Ollama to release the model immediately
+            await asyncio.wait_for(client.generate(model=config.chat_model, keep_alive=0), timeout=5.0)
+            log_info("  ✅ Ollama VRAM released")
+        except Exception as e:
+            log_warning(f"  ⚠️  Failed to unload Ollama model: {e}")
+
+        # 3. Force GPU cleanup (Internal Torch/CUDA buffers)
         try:
             from utils.infrastructure.gpu.clear_gpu_memory import force_clear_gpu
             if force_clear_gpu():
@@ -105,6 +132,23 @@ class CleanShutdown:
         except Exception as e:
             log_error(f"  ❌ Error GPU cleanup: {e}")
         
+        # 4. Aggressive Process Termination
+        try:
+            import psutil
+            import os
+            current_pid = os.getpid()
+            for proc in psutil.process_iter(['pid', 'name', 'cmdline']):
+                try:
+                    # Look for orphaned ollama processes or sub-processes the bot might have spawned
+                    cmdline = proc.info.get('cmdline') or []
+                    if proc.info['pid'] != current_pid and any('ollama' in str(arg).lower() for arg in cmdline):
+                        log_warning(f"  ⚠️  Killing orphaned ollama process: {proc.info['pid']}")
+                        proc.kill()
+                except (psutil.NoSuchProcess, psutil.AccessDenied):
+                    pass
+        except Exception as e:
+            log_error(f"  ❌ Error during process cleanup: {e}")
+
         self._shutdown_complete.set()
         log_info("  ✅ Async shutdown complete")
     

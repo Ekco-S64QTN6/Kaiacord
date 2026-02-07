@@ -615,6 +615,7 @@ async def mock_external_mention(on_message_func, content: str, author_name: str,
             self.author = MockAuthor()
             self.channel = MockChannel()
             self.attachments = []
+            self.embeds = []
             self.platform = platform
             self.id = uuid.uuid4().int >> 64
             self.guild = None
@@ -814,12 +815,28 @@ async def generate_quip(bot, ollama_client, run_rag_func, rag_instance, is_manua
     from utils.infrastructure.system.yaml_config import config
 
     if not is_manual:
-        idle_duration = time.time() - bot_state.last_interaction_time
-        timeout = config.idle_quip_timeout_minutes
-        if idle_duration < timeout * 60:
-            return
-        if bot_state.consecutive_quips >= config.max_consecutive_quips:
-            return
+        # Check if we need to FORCE a post due to time elapsed
+        last_quip = bot_state.last_quip_time
+        # Handle 0.0 case where it was never set (backward compatibility)
+        if last_quip == 0.0:
+            last_quip = bot_state.last_manual_quip_time
+            
+        time_since_last = time.time() - last_quip
+        max_interval_seconds = config.social_max_interval_hours * 3600
+        
+        force_post = time_since_last > max_interval_seconds
+        
+        if not force_post:
+            # Normal idle check
+            idle_duration = time.time() - bot_state.last_interaction_time
+            timeout = config.idle_quip_timeout_minutes
+            
+            if idle_duration < timeout * 60:
+                return
+            if bot_state.consecutive_quips >= config.max_consecutive_quips:
+                return
+        else:
+            log_action(f"Forcing social post due to max interval ({time_since_last/3600:.1f}h > {config.social_max_interval_hours}h)")
 
     # Find target channel
     channel = target_channel
@@ -852,32 +869,70 @@ async def generate_quip(bot, ollama_client, run_rag_func, rag_instance, is_manua
         reflection_target = ""
         context_type = ""
         
-        # Decide whether to reflect on a dream (archive) or a memory (interaction)
-        # 40% Dream, 60% Memory (to favor "real" talk)
-        if (memories and random.random() < 0.6) or (not dreams and memories):
+        # Decide whether to reflect on a dream (news archive) or a memory (chat log)
+        # 70% Dream (news/archive - produces grounded takes), 30% Memory (may be more casual)
+        if dreams and random.random() < 0.70:
+            # Prefer dreams - they have actual news content like materials science, Bad Bunny, etc
+            dream = random.choice(dreams)
+            reflection_target = dream["text"]
+            context_type = f"recent news about {dream.get('category', 'something')}"
+        elif memories:
             memory = random.choice(memories)
             reflection_target = memory["text"]
             context_type = "something someone said" if memory["type"] == "heard" else "something I said before"
         elif dreams:
+            # Fallback to dreams if no memories
             dream = random.choice(dreams)
             reflection_target = dream["text"]
-            context_type = f"old archive about {dream.get('category', 'something')}"
-        else:
-            reflection_target = "the quiet hum of servers when nobody's around"
-            context_type = "the silence"
+            context_type = f"recent news about {dream.get('category', 'something')}"
+        
+        # QUALITY CHECK: If reflection target is too short/vague, use a concrete fallback
+        if not reflection_target or len(reflection_target) < 30:
+            # Use concrete topics instead of vague aesthetic bullshit
+            concrete_fallbacks = [
+                ("the way AI labs keep promising AGI next year like it's going five more minutes in the oven", "tech predictions"),
+                ("how every social platform eventually becomes a shopping mall with worse vibes", "platform decay"),
+                ("the eternal cycle of 'this new framework will fix everything' followed by six months of regret", "developer culture"),
+                ("people who reply 'skill issue' to genuine bug reports", "internet culture"),
+                ("the specific exhaustion of explaining the same thing for the fifth time", "digital labor"),
+                ("how every app update removes a feature someone actually used", "software entropy"),
+            ]
+            reflection_target, context_type = random.choice(concrete_fallbacks)
         
         # 2. BUILD A NATURAL PROMPT that triggers persona-driven response
-        # Frame it as an internal reflection that Kaia expresses outward
+        # Frame it as INSPIRATION for a standalone thought, NOT something to reply to
         prompts = [
-            f"kaia, I just read this: \"{reflection_target}\" - what does that make you think about?",
-            f"kaia, this came up in {context_type}: \"{reflection_target}\" - any thoughts?",
-            f"kaia, reflecting on this: \"{reflection_target}\" - what's your take?",
-            f"kaia, something reminded me of this: \"{reflection_target}\" - does it resonate with you?",
+            f"kaia, this crossed your mind: \"{reflection_target}\" - use this as inspiration for a standalone social media post. don't reply to it or reference it directly, just let it spark your own complete thought.",
+            f"kaia, something about {context_type} reminded you of this: \"{reflection_target}\" - write a standalone observation inspired by this. the post should make sense on its own without any context.",
+            f"kaia, you were thinking about {context_type} and this came up: \"{reflection_target}\" - now share your own take as a complete, standalone thought for social media.",
         ]
         reflection_prompt = random.choice(prompts)
         
-        # Add length guidance directly in the prompt
-        reflection_prompt += " Give me a few sentences, like a social media post."
+        # Add LENGTH VARIANCE - sometimes short, sometimes thread-worthy
+        # 40% short (single skeet), 40% medium (may need 2 posts), 20% long (2-3 post thread)
+        length_roll = random.random()
+        
+        # STANDALONE REQUIREMENT: Output must be complete thought, not a reply
+        standalone_req = "Your output must be a COMPLETE, STANDALONE thought that makes sense on its own. Don't reference 'this' or reply to the spark text. Write something that would make sense to someone who has no idea what prompted it."
+        
+        if length_roll < 0.40:
+            # Short - punchy single post, but still grounded
+            length_mode = "short"
+            length_guidance = f" Keep it brief - one or two punchy sentences, under 280 characters. {standalone_req}"
+            max_quip_chars = 300
+        elif length_roll < 0.80:
+            # Medium - might thread
+            length_mode = "medium"
+            length_guidance = f" Give me a few sentences, like a social media post. {standalone_req}"
+            max_quip_chars = 600
+        else:
+            # Long - go off, make a thread
+            length_mode = "long"
+            length_guidance = f" Really dig into this one. Give me your full take - multiple paragraphs if you want. This could be a whole thread. {standalone_req}"
+            max_quip_chars = 900  # ~3 posts worth
+        
+        reflection_prompt += length_guidance
+        log_debug(f"Quip length mode: {length_mode} (max {max_quip_chars} chars)")
         
         # 3. PIPE THROUGH MAIN ENGINE
         # This uses the full persona, RAG, personalization, and all the enrichments
@@ -916,8 +971,8 @@ async def generate_quip(bot, ollama_client, run_rag_func, rag_instance, is_manua
             log_warning("Main engine returned empty quip.")
             return
             
-        # 4. CLEAN UP the response
-        quip = clean_quip(quip, max_chars=600)
+        # 4. CLEAN UP the response (use dynamic max based on length mode)
+        quip = clean_quip(quip, max_chars=max_quip_chars)
         
         # Remove any leading "kaia:" or similar artifacts from the response
         quip = quip.strip()
@@ -929,21 +984,21 @@ async def generate_quip(bot, ollama_client, run_rag_func, rag_instance, is_manua
         if quip and quip[0].isupper():
             quip = quip[0].lower() + quip[1:]
         
-        # Hard cap sanity check
-        if len(quip) > 600:
-            log_warning(f"Quip too long ({len(quip)} chars), truncating...")
+        # Cap sanity check (uses dynamic limit from length mode)
+        if len(quip) > max_quip_chars:
+            log_warning(f"Quip too long ({len(quip)} chars), truncating to {max_quip_chars}...")
             sentences = quip.split('. ')
             truncated = ""
             for s in sentences:
                 candidate = (truncated + ". " + s).strip() if truncated else s.strip()
-                if len(candidate) <= 580:
+                if len(candidate) <= max_quip_chars - 20:
                     truncated = candidate
                 else:
                     break
             quip = truncated
             if quip and not quip.endswith('.'): quip += '.'
-            if len(quip) > 600:
-                quip = quip[:597] + "..."
+            if len(quip) > max_quip_chars:
+                quip = quip[:max_quip_chars-3] + "..."
 
         # 5. POST to Discord and cross-post
         await channel.send(f"```\n{quip}\n```")
@@ -951,11 +1006,67 @@ async def generate_quip(bot, ollama_client, run_rag_func, rag_instance, is_manua
         # Cross-post if enabled
         if config.bluesky_cross_post_quips:
             try:
-                from utils.social.kaia_bluesky import post_quip_to_bluesky
-                await post_quip_to_bluesky(quip)
+                from utils.social.kaia_bluesky import (
+                    post_quip_to_bluesky, 
+                    needs_thread_expansion, 
+                    post_thread_to_bluesky,
+                    _split_into_thread
+                )
+                
+                # Check if this would create an awkwardly short second post
+                needs_expansion, short_remainder = needs_thread_expansion(quip, min_second_chunk=100)
+                
+                if needs_expansion and on_message_func:
+                    log_info(f"Thread second post too short ({len(short_remainder)} chars), expanding...")
+                    
+                    # Get the first chunk to understand context
+                    chunks = _split_into_thread(quip, max_chars=300)
+                    first_part = chunks[0] if chunks else quip[:300]
+                    
+                    # Ask Kaia to expand on the short remainder
+                    expansion_prompt = (
+                        f"kaia, you just said this: \"{first_part}\" "
+                        f"and you were about to add \"{short_remainder}\" but that's too short. "
+                        f"expand on that last thought - explain what you mean or add another observation. "
+                        f"give me just the continuation, about 2-3 sentences, under 280 characters."
+                    )
+                    
+                    expanded = await mock_external_mention(
+                        on_message_func=on_message_func,
+                        content=expansion_prompt,
+                        author_name="Kaia",
+                        author_id=bot.user.id if bot.user else "kaia_self",
+                        platform="thread_expansion"
+                    )
+                    
+                    if expanded and len(expanded) > len(short_remainder):
+                        # Clean up the expansion
+                        expanded = expanded.strip()
+                        for prefix in ["kaia:", "kaia says:", "response:", "continuation:"]:
+                            if expanded.lower().startswith(prefix):
+                                expanded = expanded[len(prefix):].strip()
+                        
+                        # Ensure lowercase persona style
+                        if expanded and expanded[0].isupper():
+                            expanded = expanded[0].lower() + expanded[1:]
+                        
+                        # Cap at 300 for the second post
+                        if len(expanded) > 300:
+                            expanded = expanded[:297] + "..."
+                        
+                        log_success(f"Expanded thread continuation: {expanded[:50]}...")
+                        await post_thread_to_bluesky([first_part, expanded])
+                    else:
+                        # Expansion failed, just post normally
+                        log_warning("Thread expansion failed, posting with short second chunk")
+                        await post_quip_to_bluesky(quip)
+                else:
+                    # Normal case - no expansion needed
+                    await post_quip_to_bluesky(quip)
+                    
             except Exception as e:
                 log_error(f"Bluesky post failed: {e}")
-                
+        
         if config.x_cross_post_quips:
             try:
                 from utils.social.kaia_twitter import post_quip_to_x
@@ -981,6 +1092,8 @@ async def generate_quip(bot, ollama_client, run_rag_func, rag_instance, is_manua
         if not is_manual:
             bot_state.consecutive_quips += 1
             bot_state.last_quip_time = time.time()
+            # Don't update last_interaction_time for forced posts to allow normal idle logic to resume?
+            # actually we should, so we don't double post.
             bot_state.last_interaction_time = time.time()
         bot_state.save()
         log_success(f"Quip sent: {quip[:80]}...")

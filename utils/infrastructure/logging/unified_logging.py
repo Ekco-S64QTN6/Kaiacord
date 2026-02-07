@@ -25,6 +25,7 @@ class UnifiedLogger:
         self.colors = {
             'ACTION': '\033[95m',     # Magenta
             'SUCCESS': '\033[92m',    # Green
+            'READY': '\033[95;1m',    # Bold Pink/Light Magenta
             'INFO': '\033[94m',       # Blue
             'WARNING': '\033[93m',    # Yellow
             'ERROR': '\033[91m',      # Red
@@ -96,6 +97,10 @@ class UnifiedLogger:
         if not self._should_log(message, log_type):
             return
             
+        # Suppression: Silence the PyNaCl warning (voice not supported)
+        if "PyNaCl is not installed" in message:
+            return
+            
         if self._is_debug_duplicate(message, log_type):
             return
             
@@ -156,8 +161,12 @@ class UnifiedLogger:
         color = self.colors.get(log_entry['type'], self.colors['INFO'])
         reset = self.colors['RESET']
         
-        # Format: [TIME] TYPE: Message
-        formatted = f"\r{color}[{log_entry['timestamp']}] {log_entry['type']}:{reset} {log_entry['message']}"
+        if log_entry['type'] == 'READY':
+            # Highlight the ENTIRE line for readiness
+            formatted = f"\r{color}[{log_entry['timestamp']}] {log_entry['type']}: {log_entry['message']}{reset}"
+        else:
+            # Format: [TIME] TYPE: Message (only prefix colored)
+            formatted = f"\r{color}[{log_entry['timestamp']}] {log_entry['type']}:{reset} {log_entry['message']}"
         
         # Strip colors if NOT a TTY
         is_tty = hasattr(sys.__stdout__, 'isatty') and sys.__stdout__.isatty()

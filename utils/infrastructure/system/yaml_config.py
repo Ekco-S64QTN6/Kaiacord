@@ -152,6 +152,7 @@ def validate_config(config: Dict[str, Any]) -> tuple[bool, list[str]]:
         ('performance.requests_per_minute', int, 'integer'),
         ('performance.idle_quip_timeout_minutes', int, 'integer'),
         ('performance.max_consecutive_quips', int, 'integer'),
+        ('social.max_interval_hours', (int, float), 'number'),
         ('gpu.image_gen_min_vram_gb', (int, float), 'number'),
     ]
     
@@ -247,23 +248,28 @@ class YAMLConfig:
     
     @property
     def max_log_size_mb(self) -> int:
-        return self.get('performance.max_log_size_mb', 100)
+        return self.get('performance.max_log_size_mb', 1000)
     
     @property
     def max_memory_messages(self) -> int:
-        return self.get('performance.max_memory_messages', 30)
+        return self.get('performance.max_memory_messages', 35)
     
     @property
     def max_consecutive_quips(self) -> int:
-        return self.get('performance.max_consecutive_quips', 3)
+        return self.get('performance.max_consecutive_quips', 2)
     
     @property
     def rag_top_k(self) -> int:
-        return self.get('performance.rag_top_k', 8)
+        return self.get('performance.rag_top_k', 25)
+    
+    @property
+    def dream_user_quota(self) -> float:
+        """Percentage of dreams dedicated to user logs (0.0 - 1.0)"""
+        return self.get('features.dream_mode.user_quota', 0.4)
     
     @property
     def idle_quip_timeout_minutes(self) -> int:
-        return self.get('performance.idle_quip_timeout_minutes', 15)
+        return self.get('performance.idle_quip_timeout_minutes', 55)
     
     @property
     def requests_per_minute(self) -> int:
@@ -271,7 +277,7 @@ class YAMLConfig:
     
     @property
     def max_context_tokens(self) -> int:
-        return self.get('performance.max_context_tokens', 32000)
+        return self.get('performance.max_context_tokens', 24000)
     
     @property
     def startup_news_update(self) -> bool:
@@ -323,18 +329,47 @@ class YAMLConfig:
     def x_reply_to_mentions(self) -> bool:
         return self.get('x_twitter.reply_to_mentions', True)
     
+    @property
+    def news_auto_trigger(self) -> bool:
+        """Whether to automatically trigger news retrieval for relevant queries"""
+        return self.get('features.news_auto_trigger', False)
+
+    @property
+    def social_max_interval_hours(self) -> float:
+        """Maximum hours between social posts before forcing a quip"""
+        return self.get('social.max_interval_hours', 2.0)
+    
+    # =========================================================================
+    # RAG Threshold Configuration
+    # =========================================================================
+    @property
+    def rag_threshold_persona(self) -> float:
+        return self.get('performance.rag_thresholds.persona', 0.50)
+    
+    @property
+    def rag_threshold_user_identity(self) -> float:
+        return self.get('performance.rag_thresholds.user_identity', 0.50)
+    
+    @property
+    def rag_threshold_knowledge(self) -> float:
+        return self.get('performance.rag_thresholds.knowledge', 0.75)
+    
+    @property
+    def rag_threshold_casual_penalty(self) -> float:
+        return self.get('performance.rag_thresholds.casual_penalty', 0.10)
+    
     # =========================================================================
     # Timeout Configuration (extracted from magic numbers)
     # =========================================================================
     @property
     def classification_timeout(self) -> float:
         """Query classification timeout in seconds"""
-        return self.get('timeouts.classification_seconds', 15.0)
+        return self.get('timeouts.classification_seconds', 25.0)
     
     @property
     def orchestration_classification_timeout(self) -> float:
         """Orchestration wait timeout for classification in seconds"""
-        return self.get('timeouts.orchestration_classification_seconds', 18.0)
+        return self.get('timeouts.orchestration_classification_seconds', 30.0)
     
     @property
     def prewarm_timeout(self) -> float:
@@ -345,6 +380,59 @@ class YAMLConfig:
     def rag_retrieval_timeout(self) -> float:
         """RAG retrieval timeout in seconds"""
         return self.get('timeouts.rag_retrieval_seconds', 30.0)
+    
+    @property
+    def typing_indication_timeout(self) -> float:
+        """Typing indication duration in seconds"""
+        return self.get('timeouts.typing_indication_seconds', 2.0)
+    
+    @property
+    def model_load_timeout(self) -> float:
+        """Model load timeout in seconds"""
+        return self.get('timeouts.model_load_seconds', 180.0)
+
+    @property
+    def rag_lock_seconds(self) -> float:
+        """RAG internal lock timeout in seconds"""
+        return self.get('timeouts.rag_lock_seconds', 10.0)
+
+    @property
+    def llm_request_seconds(self) -> float:
+        """LLM request timeout in seconds"""
+        return self.get('timeouts.llm_request_seconds', 360.0)
+
+    @property
+    def classification_join_seconds(self) -> float:
+        """Join timeout for classification task in seconds"""
+        return self.get('timeouts.classification_join_seconds', 5.0)
+
+    # =========================================================================
+    # RAG Scoring & Boosts
+    # =========================================================================
+    @property
+    def rag_path_boost(self) -> float:
+        return self.get('rag_scoring.path_boost', 0.5)
+
+    @property
+    def rag_type_boosts(self) -> dict:
+        return self.get('rag_scoring.type_boosts', {
+            'persona': 0.15,
+            'user_profile': 0.20,
+            'dream': 0.10,
+            'memory': 0.25
+        })
+
+    @property
+    def rag_boost_daily_news(self) -> int:
+        return self.get('rag_boosts.daily_news', 172800)
+
+    @property
+    def rag_boost_dreams(self) -> int:
+        return self.get('rag_boosts.dreams', 64800)
+
+    @property
+    def rag_user_scan_interval(self) -> int:
+        return self.get('rag_boosts.user_scan_interval', 300)
     
     # =========================================================================
     # Token Estimation Configuration
@@ -357,7 +445,7 @@ class YAMLConfig:
     @property
     def system_reserve_tokens(self) -> int:
         """Reserved tokens for system reinforcement rules and safety prompts"""
-        return self.get('performance.system_reserve_tokens', 1000)
+        return self.get('performance.system_reserve_tokens', 1250)
     
     # =========================================================================
     # Generation Configuration (Self-Healing Loop)

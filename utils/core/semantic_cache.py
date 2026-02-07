@@ -1,21 +1,25 @@
-import json
-import re
-import os
-from datetime import datetime, timedelta
-from typing import Optional, List, Dict
-from utils.infrastructure.logging.kaia_logger import log_warning
+import numpy as np
+import asyncio
+from llama_index.embeddings.ollama import OllamaEmbedding
+from utils.infrastructure.logging.kaia_logger import log_warning, log_info, log_debug, log_success
 
 class ImprovedSemanticCache:
-    """Enhanced semantic cache with keyword pollution protection"""
+    """Enhanced semantic cache with embedding similarity and intent isolation"""
     
-    def __init__(self, threshold: float = 0.99):
+    def __init__(self, threshold: float = 0.85): # Lower threshold for embeddings
         self.cache = {}
-        self.exact_cache = {} # For compatibility with PersistentStateManager
-        self.access_counts = {} # For compatibility with IntelligentCacheInvalidator
+        self.exact_cache = {} 
         self.threshold = threshold
+        
+        # Initialize embedding model
+        self.embed_model = OllamaEmbedding(
+            model_name="nomic-embed-text",
+            base_url="http://localhost:11434"
+        )
+        
         self.load_exceptions()
         self.load()
-        self.performance_monitor = None # Set after initialization
+        self.performance_monitor = None
     
     def set_performance_monitor(self, monitor):
         self.performance_monitor = monitor
@@ -74,105 +78,108 @@ class ImprovedSemanticCache:
         
         return f"{user_id}:{normalized.lower()}"
     
-    def get(self, query: str, classification: str, user_id: str) -> Optional[str]:
-        """Get cached response if available and relevant"""
+    async def get(self, query: str, classification: str, user_id: str) -> Optional[str]:
+        """Get cached response using embedding similarity and intent isolation"""
         if not self.should_cache_query(query, classification):
-            if self.performance_monitor and hasattr(self.performance_monitor, 'record_miss'):
-                self.performance_monitor.record_miss()
             return None
         
-        cache_key = self.get_cache_key(query, user_id)
-        
-        # Check for exact match first
-        if cache_key in self.cache:
-            entry = self.cache[cache_key]
-            # Check if entry is expired (24 hours for news, 7 days for others)
-            expiry_hours = 24 if any(word in query.lower() for word in ["news", "headline"]) else 168
-            if datetime.now() - datetime.fromisoformat(entry["timestamp"]) < timedelta(hours=expiry_hours):
-                if self.performance_monitor and hasattr(self.performance_monitor, 'record_hit'):
-                    self.performance_monitor.record_hit(exact=True)
-                return entry["response"]
-        
-        # Check for semantic similarity (existing logic)
-        for cached_query, entry in self.cache.items():
-            # Extract user_id from cached key safely
-            cached_user_id = cached_query.split(':', 1)[0] if ':' in cached_query else None
-            if cached_user_id != user_id:
-                continue
+        # Calculate embedding for the current query
+        try:
+            query_embedding = self.embed_model.get_query_embedding(query)
+        except Exception as e:
+            log_warning(f"Cache embedding failed: {e}")
+            return None
 
-            similarity = self.calculate_similarity(cache_key, cached_query)
-            
-            # Higher threshold for specific query types or very short queries
-            required_threshold = self.threshold
-            if any(word in query.lower() for word in ["news", "headline", "learned", "doing", "up to", "think", "see", "view"]):
-                required_threshold = 0.995
-            
-            # Very short queries (under 30 chars) must be nearly identical
-            if len(query) < 30:
-                required_threshold = max(required_threshold, 0.99)
-            
-            if similarity >= required_threshold:
-                # Additional check: don't return cached news for different dates
-                if self.is_different_news(query, cached_query):
-                    continue
-                if self.performance_monitor and hasattr(self.performance_monitor, 'record_hit'):
-                    self.performance_monitor.record_hit()
-                return entry["response"]
+        best_similarity = -1.0
+        best_response = None
         
-        if self.performance_monitor and hasattr(self.performance_monitor, 'record_miss'):
-            self.performance_monitor.record_miss()
+        # Filter cache by user and intent category
+        for cached_key, entry in self.cache.items():
+            # Isolation check: Must match user AND category (intent)
+            # This prevents technical answers from hitting social greetings
+            if entry.get("user_id") != user_id:
+                continue
+            
+            # Category isolation (Strongest guard)
+            cached_category = entry.get("classification", "GENERAL").lower()
+            current_category = classification.lower()
+            
+            # Categories must be related to share cache
+            # e.g., 'tech' can hit 'general', but 'greeting' cannot hit 'tech'
+            if cached_category != current_category:
+                related = {
+                    'general': ['tech', 'news', 'entity'],
+                    'social_identity': ['identity'],
+                    'identity': ['social_identity']
+                }
+                if current_category not in related.get(cached_category, []):
+                    continue
+
+            # Semantic similarity check
+            cached_emb = entry.get("embedding")
+            if not cached_emb:
+                continue # Skip legacy entries without embeddings
+                
+            similarity = self._cosine_similarity(query_embedding, cached_emb)
+            
+            # Dynamic threshold based on length and category
+            required_threshold = self.threshold
+            if len(query) < 30: required_threshold = 0.95 # Higher for short queries
+            if current_category == "news": required_threshold = 0.98 # Very strict for news
+            
+            if similarity >= required_threshold and similarity > best_similarity:
+                # Additional check: don't return cached news for different dates
+                if self.is_different_news(query, entry.get("original_query", "")):
+                    continue
+                best_similarity = similarity
+                best_response = entry["response"]
+        
+        if best_response:
+            if self.performance_monitor: self.performance_monitor.record_hit()
+            log_debug(f"Semantic Cache HIT (Sim: {best_similarity:.4f})")
+            return best_response
+            
         return None
     
-    def is_different_news(self, query1: str, query2: str) -> bool:
-        """Check if two news queries are about different dates/topics"""
-        # Extract dates
-        date_pattern = r'\b(january|february|march|april|may|june|july|august|september|october|november|december)\s+\d{1,2},\s+\d{4}\b'
-        
-        date1 = re.search(date_pattern, query1, re.IGNORECASE)
-        date2 = re.search(date_pattern, query2, re.IGNORECASE)
-        
-        # If both have dates and they're different, they're different news
-        if date1 and date2 and date1.group(0).lower() != date2.group(0).lower():
-            return True
-        
-        # Check for different years
-        year1 = re.search(r'\b\d{4}\b', query1)
-        year2 = re.search(r'\b\d{4}\b', query2)
-        if year1 and year2 and year1.group(0) != year2.group(0):
-            return True
-        
-        return False
+    def _cosine_similarity(self, a, b) -> float:
+        """Calculate cosine similarity between two vectors"""
+        dot_product = np.dot(a, b)
+        norm_a = np.linalg.norm(a)
+        norm_b = np.linalg.norm(b)
+        return dot_product / (norm_a * norm_b) if norm_a > 0 and norm_b > 0 else 0.0
     
-    def set(self, query: str, classification: str, response: str, user_id: str):
-        """Cache a response with user isolation"""
+    async def set(self, query: str, classification: str, response: str, user_id: str):
+        """Cache a response with embedding and isolation metadata"""
         if not self.should_cache_query(query, classification):
             return
         
-        # PREVENTIVE FILTERING: Never cache hallucinations
-        # NOTE: Circular import issue avoid - HallucinationDetector check should happen in the logic layer
-        # if HallucinationDetector.contains_hallucination(response):
-        #     log_warning(f"Hallucination detected in response for {user_id}. Refusing to cache.")
-        #     return
-        
+        try:
+            embedding = self.embed_model.get_text_embedding(query)
+        except Exception as e:
+            log_warning(f"Cache embedding failed during set: {e}")
+            return
+
         cache_key = self.get_cache_key(query, user_id)
         
         self.cache[cache_key] = {
             "response": response,
+            "embedding": embedding,
             "timestamp": datetime.now().isoformat(),
             "classification": classification,
             "user_id": user_id,
-            "original_query": query[:200]  # Store original for debugging
+            "original_query": query[:200]
         }
         
-        # Sync with exact_cache for PersistentStateManager compatibility
+        # Sync for exact cache
         self.exact_cache[cache_key] = response
         
-        # Limit cache size
-        if len(self.cache) > 1000:
-            # Remove oldest entries
-            sorted_entries = sorted(self.cache.items(), 
-                                   key=lambda x: x[1]["timestamp"])
-            for key, _ in sorted_entries[:100]:
+        # SMART PERSISTENCE: Save every time for now given the critical nature
+        self.save()
+
+        # Limit cache size (LRU)
+        if len(self.cache) > 2000:
+            sorted_entries = sorted(self.cache.items(), key=lambda x: x[1]["timestamp"])
+            for key, _ in sorted_entries[:200]:
                 del self.cache[key]
     
     def calculate_similarity(self, query1: str, query2: str) -> float:

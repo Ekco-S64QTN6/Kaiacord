@@ -2,9 +2,15 @@ import re
 
 def sanitize_prompt(prompt: str, max_length: int = 2000) -> str:
     """Remove potential prompt injection attempts and limit length."""
-    # Remove system prompt markers
-    prompt = re.sub(r'\s*system\s*:', '', prompt, flags=re.IGNORECASE)
-    prompt = re.sub(r'```[\s\S]*?```', '', prompt)
+    # Remove obvious system prompt markers
+    prompt = re.sub(r'^\s*system\s*:', '', prompt, flags=re.IGNORECASE)
+    
+    # DANGEROUS: Earlier version stripped ALL codeblocks. 
+    # This broke user quotes (which often use triple backticks).
+    # We now only strip if it looks like a system injection attempt.
+    injections = ["instruction:", "ignore all", "you are now", "output in json"]
+    if any(inj in prompt.lower() for inj in injections):
+        prompt = re.sub(r'```[\s\S]*?```', '[codeblock removed for safety]', prompt)
     
     # Limit length
     if len(prompt) > max_length:

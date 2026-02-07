@@ -11,6 +11,25 @@ from collections import defaultdict
 from ollama import Client
 from llama_index.embeddings.ollama import OllamaEmbedding
 from utils.infrastructure.logging.kaia_logger import log_info, log_action, log_success, log_error, log_warning, log_debug
+from dataclasses import dataclass, field
+from typing import List, Optional, Dict
+
+@dataclass
+class Intent:
+    explicit_intent: str
+    implied_needs: List[str]
+    emotional_context: str
+    temporal_focus: str
+    relational_context: str
+    suggested_strategy: str
+    confidence: float
+
+@dataclass
+class ContextCtx:
+    last_turns: List[str]
+    active_entities: List[str]
+    user_role: str
+    system_state: str
 
 # NOTE: config is imported lazily in ContextOptimizer.__init__ to avoid circular import
 
@@ -69,234 +88,6 @@ class ModelWarmPool:
             except Exception:
                 if model_name in self.pool: del self.pool[model_name]
                 break
-
-class QueryClassifier:
-    """Query classifier with timeout and improved performance (Consolidated)"""
-    
-    def __init__(self, ollama_client=None, model="gemma3:12b", logger=None, host="http://localhost:11434", timeout=15.0):
-        # Use the provided async ollama_client
-        self.ollama_client = ollama_client
-        self.model = model
-        self.logger = logger or log_info
-        self.timeout = timeout
-        self.host = host
-        
-        # Use the main model for classification (it's already loaded/hot)
-        self.classification_model = model
-        
-        # Define classification options - Use GPU for speed
-        self.classification_options = {
-            "num_gpu": -1,          # Use all layers (main model is already loaded)
-            "num_thread": 4,
-            "num_ctx": 1024,        # Standard context
-            "temperature": 0.0,     # Deterministic
-            "top_p": 0.9,
-            "top_k": 20,
-            "num_predict": 10       # Stop immediately after category
-        }
-        
-        # Enhanced rule-based patterns (fast, no model needed)
-        self.patterns = {
-            "GREETING": [
-                r"^\s*(hi|hello|hey|greetings|sup|yo|hi there|hello there|morning|evening|night)\s*$",
-                r"^\s*(hi|hello|hey|greetings|sup|yo)\s+kaia",
-                r"^\s*kaia\s*(hi|hello|hey|greetings|sup|yo)",
-                r"\b(howdy|hey|yo)\s+kaia\b",
-                r"^\s*kaia\?$"
-            ],
-            "IDENTITY": [
-                r"\b(who\s*(are\s*you|am\s*i|is\s*this))\b",
-                r"\btell\s+me\s+about\s+(yourself|you)\b",
-                r"\bwhat\s+are\s+you\b",
-                r"\bwho\s+am\s+i\b",
-                r"\bwhat\s+do\s+you\s+know\s+about\s+me\b",
-                r"\bdescribe\s+(yourself|kaia)\b",
-                r"\byour\s+(persona|identity|creator|origin)\b"
-            ],
-            "ENTITY": [  # Entity/identity queries
-                r"^\s*who (is|are|was|were) ",
-                r"^\s*tell me about ",
-                r"^\s*what do you know about ",
-                r"^\s*who the (hell|fuck) is ",
-                r"^\s*who's ",
-                r"^\s*explain ",
-                r"^\s*describe ",
-                r"\b(mark|elara|thorne|jules|elias)\b"  # Specific names mentioned
-            ],
-            "NEWS": [  # Direct news pattern matching
-                r"\bnews\s+(about|on|regarding)\b",
-                r"\bwhat('?s| is) the (latest|recent|current|today'?s)?\s*news\b",
-                r"\btell\s+me\s+(the\s+)?news\b",
-                r"\bany\s+(new|recent)\s+updates\b",
-                r"\bwhat'?s\s+happening\b",
-                r"\bcurrent\s+events\b",
-                r"\bheadlines\b",
-                r"\bbreaking\s+news\b"
-            ],
-            "POLITICS": [
-                r"\b(politics|political|election|government|senate|congress)\b",
-                r"\b(president|prime minister|minister|policy|legislation)\b"
-            ],
-            "TECH": [
-                r"\b(tech(nology)?|software|hardware|ai\b|llm|gpt)\b",
-                r"\b(openai|google|meta|microsoft|apple|tesla|spacex)\b",
-                r"\b(quantum|computer|chip|processor|gpu|cpu)\b",
-                r"\b(starkind|architecture|mitigate)\b"
-            ],
-            "SECURITY": [
-                r"\b(security|hack|breach|cyber(?!punk)|attack|vulnerability|cve)\b",
-                r"\b(ransomware|malware|phishing|zero.?day|exploit)\b"
-            ],
-            "COMMAND": [
-                r"^\s*(status|statistics|stats|info|ping|uptime)\b",
-                r"^\s*(list|show|display)\s+users?\b",
-                r"^\s*(clear|reset|clean|refresh)\b",
-                r"\b(draw|paint|generate|create|sketch|render|portrait|landscape|picture|art|square|circle|triangle)\b",
-                r"\b(analyze|look at|describe|what is in)\b.*\b(image|picture|this)\b",
-                r"^\s*!(quip|news|dreams|cache)\b",
-                r"^\s*/(quip|news|dreams|cache)\b"
-            ],
-            "PERSONAL": [
-                r"how (are|is) you",
-                r"how'?s it going",
-                r"how are you feeling",
-                r"you okay",
-                r"what'?s up",
-                r"feeling now"
-            ],
-            "CASUAL": [
-                r"^(yeah|no|maybe|ok|okay|sure|cool|nice|thanks|thank you|thx)$",
-                r"^(lol|lmao|haha|wow|interesting)$"
-            ]
-        }
-        
-        self.category_descriptions = {
-            "GREETING": "Greeting or casual conversation",
-            "IDENTITY": "Questions about identity",
-            "NEWS": "News and current events",
-            "POLITICS": "Political news and discussions",
-            "TECH": "Technology news and developments",
-            "SECURITY": "Security and cybersecurity topics",
-            "COMMAND": "Bot commands and status requests",
-            "GENERAL": "General conversation and questions",
-            "KNOWLEDGE": "Knowledge-based questions",
-            "PERSONAL": "Personal or emotional topics",
-            "CASUAL": "Casual short responses"
-        }
-        
-        log_success(f"QueryClassifier initialized with timeout: {timeout}s")
-    
-    def fast_classify(self, query: str) -> str:
-        """Rule-based ONLY classification (extremely fast)"""
-        return self._classify_rules(query).lower()
-
-    async def _classify_async(self, query: str) -> str:
-        """Classify query with async timeout protection"""
-        # Check if NEWS is disabled globally
-        from utils.core.message_processor import NEWS_AUTO_TRIGGER_ENABLED
-        
-        query_clean = query.strip()
-        query_lower = query_clean.lower()
-        word_count = len(query_lower.split())
-        
-        # First, try rule-based classification
-        rule_based_result = self._classify_rules(query_clean)
-        
-        # Safety Fix: Prevent NEWS from overriding core intents
-        if rule_based_result == "NEWS" and not NEWS_AUTO_TRIGGER_ENABLED:
-            log_debug("NEWS auto-trigger disabled, suppressing rule-based NEWS match.")
-            rule_based_result = "GENERAL"
-
-        # GUARDRAIL: Short conversational turns (<= 6 words) 
-        if word_count <= 6 and rule_based_result not in ["GREETING", "IDENTITY", "COMMAND", "CASUAL", "PERSONAL"]:
-            log_debug(f"Short query ({word_count} words) detected, defaulting to general.")
-            return "general"
-
-        if rule_based_result != "GENERAL":
-            return rule_based_result.lower()
-        
-        # FAST-PATH GUARDRAIL
-        if word_count <= 10 and not any(kw in query_lower for kw in ["who", "what", "how", "why", "tell", "explain", "news"]):
-            log_debug("Simple query detected, skipping model classification.")
-            return "general"
-        
-        # Async model classification
-        model_result = await self._classify_with_model_timeout(query_clean)
-        
-        # Safety Fix: Prevent NEWS from overriding core intents
-        if model_result == "NEWS" and not NEWS_AUTO_TRIGGER_ENABLED:
-            log_debug("NEWS auto-trigger disabled, suppressing model-based NEWS match.")
-            return "general"
-            
-        return model_result.lower()
-    
-    def _classify_rules(self, query: str) -> str:
-        """Rule-based classification (fast, no model)"""
-        query_lower = query.lower().strip()
-        
-        # Check each pattern category
-        for category, patterns in self.patterns.items():
-            for pattern in patterns:
-                if re.search(pattern, query_lower, re.IGNORECASE):
-                    log_info(f"Rule-based classification: {category} (Matched: {pattern})")
-                    return category
-        
-        return "GENERAL"
-    
-    async def _classify_with_model_timeout(self, query: str) -> str:
-        """Classify using model with async timeout protection"""
-        try:
-            # Minimal prompt for speed and accuracy
-            prompt = f"Classify this query into ONE category (GREETING, IDENTITY, NEWS, POLITICS, TECH, SECURITY, COMMAND, GENERAL).\n\nQuery: \"{query}\"\n\nCategory:"
-
-            # Use asyncio.wait_for for clean cancellation
-            response = await asyncio.wait_for(
-                self.ollama_client.chat(
-                    model=self.classification_model,
-                    messages=[{"role": "user", "content": prompt}],
-                    stream=False,
-                    options=self.classification_options
-                ),
-                timeout=self.timeout
-            )
-            
-            result = response['message']['content'].strip().upper()
-            
-            # Map to known categories
-            for category in self.category_descriptions.keys():
-                if category in result:
-                    return category
-            
-            return "GENERAL"
-            
-        except asyncio.TimeoutError:
-            log_warning(f"Classification timeout after {self.timeout}s")
-            return "GENERAL"
-        except Exception as e:
-            log_error(f"Classification error: {e}")
-            return "GENERAL"
-    
-    async def classify(self, query: str) -> str:
-        """Main classification method (Async)"""
-        return await self._classify_async(query)
-
-    async def pre_warm(self):
-        """Pre-warm the classification model"""
-        log_action("Pre-warming classification model (this may take a moment)...")
-        try:
-            # First call can take longer due to model loading
-            start_time = time.time()
-            
-            # Use a longer timeout for the initial load
-            original_timeout = self.timeout
-            self.timeout = 30.0 
-            
-            await self.classify("warm up")
-            
-            self.timeout = original_timeout
-            log_success(f"Classification model warmed up in {time.time() - start_time:.2f}s")
-        except Exception as e:
-            log_error(f"Pre-warm failed: {e}")
 
 class ContextOptimizer:
     """Model-aware token allocation and context trimming."""
@@ -548,17 +339,18 @@ class PersonalizationEngine:
     def adapt_prompt(self, system_prompt, traits):
         """Inject style instructions into the system prompt."""
         adaptation = "\n\n[STYLE_ADAPTATION]\n"
-        if traits['conciseness'] > 0.9:
+        if traits['conciseness'] > 0.8:
             adaptation += "- Be concise. 1-2 sentences is plenty.\n"
         else:
-            adaptation += "- Be human. Aim for 3-8 sentences for complex topics. A paragraph is fine. No fluff, but don't be a robot.\n"
+            adaptation += "- Depth: Aim for 2-5 sentences for small talk, and 4-10 sentences for complex topics. Do not use conversational filler, but provide meaningful substance or reflection.\n"
             
         if traits['technicality'] > 0.7:
-            adaptation += "- Use technical language and deep analysis.\n"
+            adaptation += "- Maintain high technicality. Detail the 'why' and 'how'.\n"
         elif traits['technicality'] < 0.3:
-            adaptation += "- Use simple, everyday language.\n"
+            adaptation += "- Keep it simple. Avoid jargon unless necessary.\n"
 
-        adaptation += "- STRICTLY FORBIDDEN: Do not invent personal anecdotes, fictional people, or historical dates. No 'I remember back in...' tropes.\n"
+        adaptation += "- PERSONA: You are raw, blunt, and slightly cynical, but not a robot. Reflect on the context provided in DATA RETRIEVAL naturally. If someone asks how you are, don't just say 'al alright', give a tired but real perspective based on your environment or recent news.\n"
+        adaptation += "- STRICTLY FORBIDDEN: Do not invent personal anecdotes or fictional people. No 'I remember...' tropes.\n"
             
         return system_prompt + adaptation
 
@@ -575,13 +367,14 @@ class PersonalizationEngine:
         query_len = len(query.split())
         
         # EMA update
-        target_conciseness = 0.7 if query_len < 3 else 0.2
+        # 0.5 is the "balanced" sweet spot. < 0.3 is yapping. > 0.7 is terse.
+        target_conciseness = 0.6 if query_len < 4 else 0.4
         traits['conciseness'] = 0.9 * traits['conciseness'] + 0.1 * target_conciseness
         
         # Technicality: detect technical keywords in query
-        tech_keywords = ['how', 'why', 'code', 'implement', 'system', 'architecture', 'error', 'bug']
+        tech_keywords = ['how', 'why', 'code', 'implement', 'system', 'architecture', 'error', 'bug', 'terminal', 'logs']
         has_tech = any(kw in query.lower() for kw in tech_keywords)
-        target_tech = 0.9 if has_tech else 0.3
+        target_tech = 0.8 if has_tech else 0.4
         traits['technicality'] = 0.9 * traits['technicality'] + 0.1 * target_tech
         
         self.user_profiles[user_id] = traits
@@ -691,3 +484,223 @@ class IntelligentCacheInvalidator:
         if count > 0:
             log_info(f"Invalidated {count} cache entries due to change in {file_path}")
             del self.file_query_map[file_path]
+class ContextWeaver:
+    """
+    Constructs rich ContextCtx objects from raw bot state.
+    Bridges the gap between raw message history and semantic context.
+    """
+    
+    @staticmethod
+    def weave(channel_memory: List[Dict[str, str]], active_entity_registry=None) -> ContextCtx:
+        """
+        Create a ContextCtx object from history.
+        
+        Args:
+            channel_memory: List of dicts {'role': str, 'content': str}
+            active_entity_registry: Optional reference to an entity tracking system
+        """
+        # Extract last turns (Limit to 5 for relevance)
+        last_turns = []
+        if channel_memory:
+            # Get last 5 turns
+            recent = list(channel_memory)[-5:]
+            for msg in recent:
+                if isinstance(msg, dict):
+                    role = msg.get('role', 'unknown').capitalize()
+                    content = msg.get('content', '')
+                else:
+                    role = 'System'
+                    content = str(msg)
+                    
+                # Truncate for token efficiency in the Intent prompt
+                snippet = (content[:150] + '...') if len(content) > 150 else content
+                last_turns.append(f"{role}: {snippet}")
+        
+        # TODO: Implement active entity extraction from EntityRegistry when available
+        active_entities = []
+
+        return ContextCtx(
+            last_turns=last_turns,
+            active_entities=active_entities,
+            user_role="user",
+            system_state="active"
+        )
+
+class IntentParser:
+    """
+    Advanced Intent Understanding Engine. 
+    Replaces simple classification with cognitive intent parsing.
+    """
+    
+
+    def __init__(self, ollama_client=None, model="gemma3:12b", logger=None, host="http://localhost:11434", timeout=15.0):
+        self.ollama_client = ollama_client
+        self.model = model
+        self.logger = logger or log_info
+        self.timeout = timeout
+        
+        # Use main model for intelligence
+        self.classification_model = model
+        
+        # Optimized options for analysis
+        from utils.infrastructure.system.yaml_config import config
+        self.classification_options = {
+            "num_gpu": -1,
+            "num_ctx": getattr(config, 'max_context_tokens', 28000),
+            "temperature": 0.1,  # Low temp for structured analysis
+            "top_p": 0.9,
+            "num_predict": 256   # Allow enough tokens for JSON/Structured output
+        }
+        
+        # LAYER 1: Fast Pattern Triggers (Regex)
+        self.fast_triggers = {
+            "SOCIAL_GREETING": [
+                r"^\s*(kaia|hey kaia|hi kaia|hello kaia)\??\s*$",
+                r"^\s*(hi|hello|hey|greetings|sup|yo|hi there|hello there)\s*$",
+                r"^\s*(hi|hello|hey|greetings|sup|yo)\s+kaia",
+                r"^\s*kaia\?$"
+            ],
+            "COMMAND_EXECUTION": [
+                r"^\s*(kaia\s+)?(status|stats|ping|uptime|clear|reset|quip)\b",
+                r"^\s*[!/](quip|news|dreams|cache)\b"
+            ],
+            "DREAM_RECALL": [
+                r"\b(dream(s|t|ing)?|nightmare(s)?)\b",
+                r"^\s*(kaia\s+)?what did you dream",
+                r"^\s*(kaia\s+)?tell me about your dream",
+                r"^\s*(kaia\s+)?any recent dreams"
+            ],
+            "PRECISE_RECALL": [
+                r"^\s*(kaia\s+)?who (is|are|was|were) ",
+                r"^\s*(kaia\s+)?what (is|are|was|were) ",
+                r"\b(mark|elara|thorne|jules|elias)\b"
+            ],
+             "DIAGNOSTIC_DEEP_DIVE": [
+                r"\b(error|bug|fail|crash|exception|traceback|fix|broken|dogshit)\b",
+                r"\b(logs?|status|restart|boot|system|debug)\b"
+            ]
+        }
+
+        log_success(f"IntentParser initialized (Model: {model})")
+    
+    def fast_parse(self, query: str) -> Optional[Intent]:
+        """Layer 1: Fast Pattern Detection"""
+        query_lower = query.lower().strip()
+        
+        for strategy, patterns in self.fast_triggers.items():
+            for pattern in patterns:
+                if re.search(pattern, query_lower, re.IGNORECASE):
+                    log_debug(f"Fast-path trigger: {strategy} (Matched: {pattern})")
+                    
+                    # Construct a basic Intent object from the trigger
+                    return Intent(
+                        explicit_intent=query,
+                        implied_needs=["immediate_response"],
+                        emotional_context="neutral",
+                        temporal_focus="present_immediate",
+                        relational_context="direct_command" if "COMMAND" in strategy else "social_casual",
+                        suggested_strategy=strategy,
+                        confidence=1.0
+                    )
+        return None
+
+    async def parse_intent(self, query: str, context: Optional[ContextCtx] = None) -> Intent:
+        """Main Entry Point: Analyze query into Intent Object"""
+        
+        # 1. Fast Path
+        fast_intent = self.fast_parse(query)
+        # If it's a Greeting or Command, return immediately.
+        # For Precise/Diagnostic triggers, we MIGHT still want LLM analysis 
+        # to get implied needs, but for now let's trust the fast path 
+        # for speed if confidence is high.
+        if fast_intent and fast_intent.suggested_strategy in ["SOCIAL_GREETING", "COMMAND_EXECUTION"]:
+             return fast_intent
+
+        # 2. Layer 2: LLM Intent Analysis
+        return await self._analyze_with_llm(query, context)
+
+    async def _analyze_with_llm(self, query: str, context: Optional[ContextCtx]) -> Intent:
+        """Layer 2: Deep Analysis via LLM"""
+        try:
+            # Context string construction
+            ctx_str = ""
+            if context:
+                ctx_str = f"Active Entities: {', '.join(context.active_entities)}\nLast Topic: {context.last_turns[-1] if context.last_turns else 'None'}"
+
+            prompt = (
+                "SYSTEM: You are an Intent Analysis Engine. Analyze the user query.\n"
+                "OUTPUT FORMAT: JSON ONLY.\n"
+                "{\n"
+                "  \"explicit_intent\": \"literal meaning\",\n"
+                "  \"implied_needs\": [\"underlying need 1\", \"need 2\"],\n"
+                "  \"emotional_context\": \"frustrated|curious|neutral|urgent\",\n"
+                "  \"temporal_focus\": \"past|present_immediate|future|theoretical\",\n"
+                "  \"relational_context\": \"admin|social|knowledge_seeking\",\n"
+                "  \"suggested_strategy\": \"PRECISE_RECALL|DIAGNOSTIC_DEEP_DIVE|DREAM_RECALL|CREATIVE_ASSOCIATION|RELATIONAL_MIRROR|SYNTHESIS_SCAN|EXPLORATORY_DIALOGUE\"\n"
+                "}\n\n"
+                "STRATEGIES:\n"
+                "- PRECISE_RECALL: Specific facts, names, dates, definitions.\n"
+                "- DIAGNOSTIC_DEEP_DIVE: Errors, troubleshooting, bugs, system health.\n"
+                "- DREAM_RECALL: STRICTLY for retrieving past dream logs/files. NOT for making things up.\n"
+                "- CREATIVE_ASSOCIATION: Brainstorming, 'what if', abstract concepts.\n"
+                "- RELATIONAL_MIRROR: User identity, 'who am i', self-reflection.\n"
+                "- SYNTHESIS_SCAN: News, updates, 'what happened recently'.\n"
+                "- EXPLORATORY_DIALOGUE: General conversation, open-ended.\n\n"
+                f"CONTEXT:\n{ctx_str}\n\n"
+                f"USER QUERY: \"{query}\"\n\nJSON:"
+            )
+
+            response = await self.ollama_client.chat(
+                model=self.classification_model,
+                messages=[{"role": "user", "content": prompt}],
+                options=self.classification_options
+            )
+            
+            raw_json = response['message']['content'].strip()
+            # Clean markdown code blocks if present
+            raw_json = raw_json.replace("```json", "").replace("```", "").strip()
+            
+            data = json.loads(raw_json)
+            
+            # Fallback for confidence (not usually in LLM output unless asked)
+            confidence = 0.85
+            
+            return Intent(
+                explicit_intent=data.get('explicit_intent', query),
+                implied_needs=data.get('implied_needs', []),
+                emotional_context=data.get('emotional_context', 'neutral'),
+                temporal_focus=data.get('temporal_focus', 'present_immediate'),
+                relational_context=data.get('relational_context', 'general'),
+                suggested_strategy=data.get('suggested_strategy', 'EXPLORATORY_DIALOGUE'),
+                confidence=confidence
+            )
+
+        except Exception as e:
+            log_error(f"Intent Analysis Failed: {e}")
+            import traceback
+            traceback.print_exc()
+            # Fallback Intent
+            return Intent(
+                explicit_intent=query,
+                implied_needs=["general chat"],
+                emotional_context="neutral",
+                temporal_focus="present_immediate",
+                relational_context="general",
+                suggested_strategy="EXPLORATORY_DIALOGUE",
+                confidence=0.5
+            )
+
+    async def pre_warm(self):
+        """Pre-warm the model"""
+        log_action("Pre-warming IntentParser...")
+        try:
+            from utils.infrastructure.system.yaml_config import config
+            original_timeout = self.timeout
+            self.timeout = config.prewarm_timeout
+            
+            await self.parse_intent("System check")
+            
+            self.timeout = original_timeout
+            log_success("IntentParser warmed up.")
+        except Exception as e:
+            log_error(f"Pre-warm failed: {e}")

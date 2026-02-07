@@ -127,7 +127,7 @@ RULES:
             try:
                 metadata = response.candidates[0].grounding_metadata
                 if metadata and metadata.web_search_queries:
-                    print(f"✓ Grounding used search queries: {metadata.web_search_queries}")
+                    print(f"[DEBUG] Grounding used search queries: {metadata.web_search_queries}")
             except:
                 pass
                 
@@ -152,7 +152,7 @@ RULES:
         with open(filepath, 'w', encoding='utf-8') as f:
             f.write(brief)
         
-        print(f"✓ Saved daily brief to: {filepath}")
+        print(f"[DEBUG] Saved daily brief to: {filepath}")
         
         # Also create a summary for immediate ingestion
         self.create_summary_for_rag(brief, date_to_use)
@@ -201,7 +201,7 @@ RULES:
             with open(summary_file, 'w', encoding='utf-8') as f:
                 f.write(summary)
             
-            print(f"✓ Created quick reference: {summary_file}")
+            print(f"[DEBUG] Created quick reference: {summary_file}")
             
         except Exception as e:
             print(f"⚠️ Could not create summary: {e}")
@@ -241,7 +241,7 @@ RULES:
                 continue
         
         if archived > 0:
-            print(f"✓ Archived {archived} old news files to {archive_dir}")
+            print(f"[DEBUG] Archived {archived} old news files to {archive_dir}")
 
     def get_latest_existing_brief(self) -> tuple[Optional[str], Optional[str]]:
         """Find the most recent news brief in daily or archive folders"""
@@ -290,7 +290,7 @@ RULES:
                 except Exception as e:
                     print(f"❌ Failed to backfill {date_str}: {e}")
             else:
-                print(f"✅ News for {date_str} already exists.")
+                print(f"[DEBUG] News for {date_str} already exists.")
 
     def run(self, skip_backfill: bool = True):
         """Execute full update process"""
@@ -299,15 +299,14 @@ RULES:
         if not skip_backfill:
             self.backfill_week()
         else:
-            print("ℹ️ Skipping backfill to conserve API quota. Use --backfill to enable.")
+            print("[DEBUG] Skipping backfill to conserve API quota. Use --backfill to enable.")
         
         # Check if today's news already exists (prevent duplicate regeneration)
         today_filename = f"news_brief_{self.today.replace('-', '')}.md"
         today_filepath = self.knowledge_dir / today_filename
         
         if today_filepath.exists():
-            print(f"\n✅ Today's news ({self.today}) already exists at {today_filepath}")
-            print("   Skipping generation. Delete the file to force regeneration.")
+            print(f"[DEBUG] Today's news ({self.today}) already exists. Skipping generation.")
             # Still clean old files to maintain retention
             self.clean_old_briefs()
             return
@@ -317,14 +316,14 @@ RULES:
         try:
             # Generate brief
             brief = self.generate_daily_brief()
-            print("✓ Brief generated successfully")
+            print("[DEBUG] Brief generated successfully")
             
             # Save to knowledge base
             self.save_to_knowledge_base(brief)
             
             # Verify file was actually saved
             if today_filepath.exists():
-                print(f"✓ Verified: {today_filepath} exists ({today_filepath.stat().st_size} bytes)")
+                print(f"[DEBUG] Verified: {today_filepath} exists")
             else:
                 print(f"⚠️ WARNING: File {today_filepath} was not saved!")
             
@@ -351,7 +350,7 @@ RULES:
         # One approach: create a trigger file
         trigger_file = self.knowledge_dir.parent / ".trigger_reindex"
         trigger_file.touch()
-        print("✓ Reindex trigger created")
+        print("[DEBUG] Reindex trigger created")
         
         # Also create a small python script to trigger it if needed
         # Path is relative to knowledge_base/news/daily

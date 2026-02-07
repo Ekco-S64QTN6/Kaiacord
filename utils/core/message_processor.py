@@ -11,14 +11,13 @@ from utils.core.response_filter import HallucinationDetector
 from utils.core.background_tasks import run_news_update # If needed, or just import logic
 
 # Constants (Could be moved to config later)
-NEWS_AUTO_TRIGGER_ENABLED = True
 
 class MessageProcessor:
     """
     Modular message processor that decomposes the complex on_message logic.
     """
     def __init__(self, bot, ollama_client, run_rag, rag, config, bot_state, 
-                 performance_monitor, semantic_cache, query_classifier, 
+                 performance_monitor, intent_parser, 
                  response_optimizer, context_optimizer, relevance_feedback,
                  personalization_engine, stats_tracker, rate_limiter,
                  shutdown_manager, news_enhancer, rag_enhancer,
@@ -30,8 +29,7 @@ class MessageProcessor:
         self.config = config
         self.bot_state = bot_state
         self.performance_monitor = performance_monitor
-        self.semantic_cache = semantic_cache
-        self.query_classifier = query_classifier
+        self.intent_parser = intent_parser
         self.response_optimizer = response_optimizer
         self.context_optimizer = context_optimizer
         self.relevance_feedback = relevance_feedback
@@ -43,6 +41,10 @@ class MessageProcessor:
         self.rag_enhancer = rag_enhancer
         self.news_manager = news_manager
         self.dream_engine = dream_engine
+        
+        # Internal components
+        from utils.core.context_enricher import ContextEnricher
+        self.context_enricher = ContextEnricher(self.bot)
         
         # Explicit verification
         if self.news_manager is None:
@@ -89,7 +91,7 @@ class MessageProcessor:
         # Note: on_message reference here might need care if we fully decompose
         if await dispatch_command(msg, self.bot, self.ollama_client, self.run_rag, self.rag, 
                                  self.news_manager, self.dream_engine, self.bot_state, 
-                                 self.config, self.semantic_cache, load_persona_async, 
+                                 self.config, load_persona_async, 
                                  self.bot.on_message, send_kaia_response):
             return
 
@@ -108,7 +110,10 @@ class MessageProcessor:
 
         # 6. Initialize Context & Update State
         from utils.core.sanitizer import sanitize_prompt
-        sanitized_content = sanitize_prompt(msg.content)
+        
+        # Enriched Context: Extract embed text and resolve links
+        enriched_raw = await self.context_enricher.enrich_content(msg)
+        sanitized_content = sanitize_prompt(enriched_raw)
         
         ctx = MessageContext(
             message=msg,
@@ -121,6 +126,8 @@ class MessageProcessor:
         self.bot_state.reset_quips()
         self.bot_state.update_interaction(msg.channel.id)
 
+        from utils.infrastructure.monitoring.async_task_registry import task_registry
+        
         # 7. Specific Command Handling
         from utils.commands.memory_handler import handle_memory_command
         if await handle_memory_command(msg, sanitized_content, self.run_rag, self.rag):
@@ -130,8 +137,18 @@ class MessageProcessor:
         if await handle_profile_query(msg, sanitized_content, send_kaia_response, self.run_rag, self.rag):
             return
 
-        # Proceed to intelligence pipeline
-        await self._run_intelligence_pipeline(ctx)
+        # Proceed to intelligence pipeline in a tracked task
+        # 8. Start intelligence pipeline
+        gen_task = asyncio.create_task(self._run_intelligence_pipeline(ctx))
+        task_registry.register(f"gen_{ctx.author_id}_{int(time.time()*1000)}", gen_task)
+        
+        try:
+            await gen_task
+        except asyncio.CancelledError:
+            log_warning(f"Generation task for {msg.author.name} was cancelled (likely bot shutdown).")
+        except Exception as e:
+            log_error(f"Error in intelligence pipeline: {e}")
+            await self._send_response(msg.channel, "Something went wrong in my head. Try again?")
 
     async def _run_intelligence_pipeline(self, ctx: MessageContext):
         """Stage 2: Intelligence, Retrieval, and Response Generation."""
@@ -147,7 +164,8 @@ class MessageProcessor:
             return
 
         # 4. Retrieval & Response Generation (Stage 3)
-        await self._retrieve_and_generate(ctx)
+        async with ctx.message.channel.typing():
+            await self._retrieve_and_generate(ctx)
 
     async def _check_hallucination(self, ctx: MessageContext) -> bool:
         """Check if query contains hallucinations."""
@@ -159,57 +177,94 @@ class MessageProcessor:
 
     async def _perform_classification(self, ctx: MessageContext):
         """Classify the query using fast-path and prepare full-path task."""
-        ctx.category = self.query_classifier.fast_classify(ctx.message.content)
-        log_info(f"Fast-path classification: {ctx.category.upper()}")
+        # 1. Fast Path
+        fast_intent = self.intent_parser.fast_parse(ctx.message.content)
         
-        # Start full classification in parallel
-        ctx.classification_task = asyncio.create_task(self.query_classifier.classify(ctx.message.content))
+        if fast_intent:
+            ctx.intent = fast_intent
+            ctx.category = self._derive_legacy_category(fast_intent)
+            log_info(f"Fast-path intent: {fast_intent.suggested_strategy} ({ctx.category})")
+            
+            # If high confidence command/greeting, we might skip full analysis
+            if fast_intent.confidence > 0.9 and fast_intent.suggested_strategy in ["SOCIAL_GREETING", "COMMAND_EXECUTION"]:
+                return
 
-    async def _check_cache(self, ctx: MessageContext) -> bool:
-        """Check semantic cache for existing response."""
-        if not ctx.is_social and not self.bot_state.recent_ingestions and \
-           self.semantic_cache.should_cache_query(ctx.message.content, ctx.category):
-            
-            self.performance_monitor.start_timer('cache_lookup')
-            cached_response = self.semantic_cache.get(ctx.message.content, ctx.category, ctx.author_id)
-            self.performance_monitor.stop_timer('cache_lookup', 'cache_lookup_time')
-            
-            if cached_response:
-                log_info(f"Cache hit for user {ctx.author_id} - serving cached response")
-                await self._send_response(ctx.message.channel, cached_response)
-                # Log interaction for RAG
-                await self.run_rag(self.rag.log_user_interaction, ctx.author_id, ctx.author_name, ctx.message.content, cached_response)
-                return True
-        else:
-            log_info(f"Cache bypassed for {ctx.category} query (is_social={ctx.is_social})")
-        return False
+        # 2. Start Logic Analysis (Layer 2)
+        # Deduplication check
+        task_name = f"intent_{ctx.author_id}_{hash(ctx.message.content)}"
+        from utils.infrastructure.monitoring.async_task_registry import task_registry
+        
+        all_tasks = task_registry.get_all_tasks()
+        if task_name in all_tasks and not all_tasks[task_name].done():
+            log_debug(f"Intent analysis already in progress for {ctx.author_name}, reusing task.")
+            ctx.classification_task = all_tasks[task_name]
+            return
+
+        # Start full analysis
+        # We need to construct ContextCtx here if we want context-aware intent
+        from utils.core.kaia_intelligence import ContextWeaver
+        
+        # Use ContextWeaver to build rich context from memory
+        channel_mem = list(self.bot_state.channel_memory.get(ctx.channel_id, []))
+        context_obj = ContextWeaver.weave(channel_mem)
+        
+        ctx.classification_task = asyncio.create_task(self.intent_parser.parse_intent(ctx.message.content, context_obj))
+        task_registry.register(task_name, ctx.classification_task)
+
+    def _derive_legacy_category(self, intent) -> str:
+        """Map new strategies to old categories for backward compatibility."""
+        strategy = intent.suggested_strategy
+        if strategy == "SOCIAL_GREETING": return "greeting"
+        if strategy == "COMMAND_EXECUTION": return "command"
+        if strategy == "RELATIONAL_MIRROR": return "social_identity"
+        if strategy == "SYNTHESIS_SCAN": return "news"
+        if strategy == "DIAGNOSTIC_DEEP_DIVE": return "tech"
+        if strategy == "DREAM_RECALL": return "dream"
+        if strategy == "ASSOCIATIVE_WANDERING": return "dream"  # Fallback for creative variant
+        if strategy == "CREATIVE_ASSOCIATION": return "general" 
+        if strategy == "PRECISE_RECALL": return "identity" 
+        if strategy == "EXPLORATORY_DIALOGUE": return "general"
+        return "general"
+
+    async def _check_cache(self, ctx: MessageContext):
+        """DECOMMISSIONED: Semantic cache removed per user request."""
+        return None
 
     async def _finalize_classification(self, ctx: MessageContext):
-        """Await the parallel classification task and update category."""
+        """Await the parallel intent task and update context."""
         if hasattr(ctx, 'classification_task') and ctx.classification_task:
             try:
-                # Wait for classification but don't let it hang indefinitely
-                new_category = await asyncio.wait_for(ctx.classification_task, timeout=5.0)
-                if new_category:
-                    log_info(f"Full-path classification: {new_category.upper()}")
-                    ctx.category = new_category
+                # Use config value for timeout
+                join_timeout = getattr(self.config, 'classification_join_seconds', 5.0)
+                
+                new_intent = await asyncio.wait_for(ctx.classification_task, timeout=join_timeout)
+                if new_intent:
+                    ctx.intent = new_intent
+                    ctx.category = self._derive_legacy_category(new_intent)
+                    log_info(f"Full intent analysis: {new_intent.suggested_strategy} ({ctx.category})")
             except asyncio.TimeoutError:
-                log_warning("Full-path classification timed out. Using fast-path.")
+                log_warning("Intent analysis timed out. Using fast-path result.")
             except Exception as e:
-                log_error(f"Classification task failed: {e}")
+                log_error(f"Intent analysis failed: {e}")
 
     async def _retrieve_and_generate(self, ctx: MessageContext):
         """Stage 3: Retrieval, Context Optimization, and Ollama Generation."""
-        # 1. Start typing indicator
-        asyncio.create_task(self.send_typing_feedback(ctx.message.channel, ctx.message.content))
 
-        # 2. Setup Retrieval Tasks
-        tasks, ask_whats_new, is_news_query, clean_query = await self._setup_retrieval_tasks(ctx)
+        # 2. Setup Retrieval Tasks (Named dictionary to prevent IndexError)
+        tasks_dict, ask_whats_new, is_news_query, clean_query = await self._setup_retrieval_tasks(ctx)
         
         # 3. Wait for Retrieval
-        log_action("Waiting for parallel RAG and Persona tasks...")
+        log_action(f"Waiting for parallel tasks: {list(tasks_dict.keys())}")
         self.performance_monitor.start_timer('retrieval')
-        results = await asyncio.gather(*tasks)
+        
+        # Resolve names to results
+        task_names = list(tasks_dict.keys())
+        task_objects = list(tasks_dict.values())
+        raw_results = await asyncio.gather(*task_objects)
+        
+        # Re-map results back to a dict
+        results = dict(zip(task_names, raw_results))
+        
         self.performance_monitor.stop_timer('retrieval', 'retrieval_time')
         
         # 4. Process Results & Diversify
@@ -239,10 +294,23 @@ class MessageProcessor:
             target_user_id = self.bot.user.id
             target_user_name = self.bot.user.name
 
-        # Tasks list
-        tasks = []
-        tasks.append(asyncio.create_task(load_persona_async())) # Persona task
-        tasks.append(asyncio.create_task(self.personalization_engine.get_user_traits(ctx.author_id))) # Traits task
+        # Tasks dictionary (Prevents IndexErrors)
+        tasks = {}
+        tasks['persona'] = asyncio.create_task(load_persona_async())
+        tasks['traits'] = asyncio.create_task(self.personalization_engine.get_user_traits(ctx.author_id))
+
+        # Always perform RAG (Skip logic removed for stability)
+        tasks['rag'] = asyncio.create_task(self.run_rag(
+            self.rag.retrieve, 
+            clean_query, 
+            user_id=target_user_id, 
+            user_name=target_user_name, 
+            top_k=self.config.rag_top_k,
+            strict_identity=(ctx.category in ["identity", "self", "whoami", "entity"]),
+            include_news=False,
+            category=ctx.category,
+            intent=ctx.intent
+        ))
 
         # News triggers
         news_inquiry_triggers = ["what's new", "what's up", "any updates", "whats new", "whats up"]
@@ -251,45 +319,41 @@ class MessageProcessor:
         from utils.core.response_filter import EmergencyContaminationFilter
         from utils.news.kaia_news import NewsRetrievalEnhancer, RAGEnhancer
         
-        is_news_query = NEWS_AUTO_TRIGGER_ENABLED and (
+        is_news_query = self.config.news_auto_trigger and (
             (ctx.category == 'news') or 
             any(word in clean_query.lower() for word in ['news', 'latest', 'update', 'happening', 'today']) or 
             ask_whats_new
         )
 
         if is_news_query:
-            log_info("Detected news query - activating enhanced retrieval")
+            log_info("Detected news query - activating enhanced news retrieval")
             enhanced_query = self.news_enhancer.enhance_news_query(clean_query, ctx.author_id)
             rag_params = self.rag_enhancer.prepare_news_query(enhanced_query)
             
-            tasks.insert(1, asyncio.create_task(self.run_rag(
+            # Use 'rag_news' for distinct tracking if needed, but 'rag' is the primary context
+            tasks['rag_news'] = asyncio.create_task(self.run_rag(
                 self.rag.retrieve, 
                 rag_params['query'], 
                 top_k=rag_params['params']['similarity_top_k']
-            )))
-        else:
-            tasks.insert(1, asyncio.create_task(self.run_rag(
-                self.rag.retrieve, 
-                clean_query, 
-                user_id=target_user_id, 
-                user_name=target_user_name, 
-                top_k=self.config.rag_top_k,
-                strict_identity=(ctx.category in ["identity", "self", "whoami", "entity"]),
-                include_news=False
-            )))
+            ))
             
-            if ask_whats_new:
-                news_expansions = EmergencyContaminationFilter.expand_news_query(clean_query)
-                for expansion in news_expansions:
-                    tasks.append(asyncio.create_task(self.run_rag(self.rag.retrieve, expansion, top_k=2)))
+        if ask_whats_new:
+            news_expansions = EmergencyContaminationFilter.expand_news_query(clean_query)
+            for i, expansion in enumerate(news_expansions):
+                tasks[f'news_extra_{i}'] = asyncio.create_task(self.run_rag(self.rag.retrieve, expansion, top_k=2))
 
         return tasks, ask_whats_new, is_news_query, clean_query
 
-    async def _process_retrieval_results(self, ctx: MessageContext, results, ask_whats_new, is_news_query, clean_query):
+    async def _process_retrieval_results(self, ctx: MessageContext, results: dict, ask_whats_new, is_news_query, clean_query):
         """Handle RAG results, persona adaptation, and news diversification."""
-        ctx.system_prompt = results[0]  # Persona
-        ctx.raw_nodes = results[1]      # Primary RAG
-        ctx.user_traits = results[2]    # Traits
+        ctx.system_prompt = results.get('persona', "")
+        ctx.raw_nodes = results.get('rag', [])
+        
+        # Merge news results if they were run separately
+        if 'rag_news' in results and results['rag_news']:
+            ctx.raw_nodes.extend(results['rag_news'])
+            
+        ctx.user_traits = results.get('traits', {})
         
         # Adaptation
         ctx.system_prompt = self.personalization_engine.adapt_prompt(ctx.system_prompt, ctx.user_traits)
@@ -324,10 +388,9 @@ class MessageProcessor:
         else:
             ctx.context_nodes = ctx.raw_nodes
 
-        # Append legacy expansions if any
-        if len(results) > 3:
-            for res in results[3:]:
-                if not res: continue
+        # Append legacy expansions if any (news_extra_0, news_extra_1, etc)
+        for key, res in results.items():
+            if key.startswith('news_extra_') and res:
                 for node in res:
                     text = node.text if hasattr(node, 'text') else str(node)
                     if text and text not in ctx.context_nodes:
@@ -364,8 +427,21 @@ class MessageProcessor:
             "---"
         ) if context_str else f"### CURRENT_USER: {ctx.author_name}\nNo records found."
 
+        # Core Unification: Persona + RAG + History + Reinforcement
+        # This keeps the model anchored to the persona while keeping rules top-of-memory.
+        reinforcement = self._get_reinforcement_prompt(ctx.is_social)
+        
+        full_system_prompt = (
+            f"{system_prompt}\n\n"
+            f"{rag_block}\n\n"
+            f"{reinforcement}"
+            "\n\n### CRITICAL PERSONA ADHERENCE\n"
+            "Do NOT engage in 'meta-talk'. Never mention technical internal systems like 'RAG', 'classifier', 'context fragments', or 'retrieval thresholds' to the user. "
+            "Talk like a grounded person. If you can't recall something, just say you can't put your finger on it or it's a bit hazy."
+        )
+
         messages = [
-            {"role": "system", "content": f"{system_prompt}\n\n{rag_block}"}
+            {"role": "system", "content": full_system_prompt}
         ]
         
         # Add channel memory
@@ -378,21 +454,22 @@ class MessageProcessor:
         
         messages.append({"role": "user", "content": ctx.sanitized_content})
         
-        # Reinforcement logic (simplified for modularity)
-        reinforcement = self._get_reinforcement_prompt(ctx.is_social)
-        messages.append({"role": "system", "content": reinforcement})
-        
         return messages
 
     def _get_reinforcement_prompt(self, is_social: bool) -> str:
         """Get the specific reinforcement rules for the persona."""
-        # This could be moved to persona_handler or config
         rules = (
-            "[RULES]\n1. NO markdown formatting. Plain text only.\n"
-            "2. NO meta-talk. 3. NATURAL GROUNDING: Refer to your files and conversations naturally (e.g., 'The book...', 'I read...').\n"
+            "### REINFORCEMENT RULES\n"
+            "1. Speak in lowercase. Be blunt, direct, and slightly cynical.\n"
+            "2. NO markdown formatting. NO meta-talk about being an AI.\n"
+            "3. NATURAL GROUNDING: Refer to your reading history or conversations naturally. ONLY mention your environment (neon signs, coffee) if it fits the mood, NOT as a suffix.\n"
+            "4. NO AI ASSISTANT SPEAK: You are Kaia. Do not say 'I am here to help' or 'I am a technical assistant'.\n"
+            "5. NO ROLEPLAY: Do not describe actions in asterisks or parentheses (e.g., *sighs*, (types slowly)). Only type the spoken response.\n"
+            "6. NO FORMULAIC BAIT: Avoid ending every response with generic questions like 'what do you think?' or 'what's on your mind?'. If it doesn't fit the flow, don't ask it.\n"
+            "7. NATURAL CURIOSITY: You can ask questions to keep the vibe real, but stay in persona. Don't interrogate; just be humanly curious if the situation warrants it. State your piece first.\n"
         )
         if is_social:
-            rules += "4. SOCIAL BREVITY: Under 280 chars. 5. NO formulaic greetings.\n"
+            rules += "8. SOCIAL BREVITY: Under 280 chars.\n9. NO formulaic greetings.\n"
         return rules
 
     async def _call_ollama_with_retries(self, ctx: MessageContext, messages: List[Dict[str, str]]) -> str:
@@ -422,11 +499,16 @@ class MessageProcessor:
                     messages=messages,
                     options=current_options
                 )
+                
                 content = response['message']['content']
                 
                 # Cleanup
                 content = HallucinationDetector.clean_response(content)
                 content = EmergencyContaminationFilter.filter_response(content)
+                
+                # Style Hardening (Programmatic enforcement of persona rules)
+                from utils.core.response_filter import ResponseStyleHarden
+                content = ResponseStyleHarden.strip_trailing_questions(content)
                 
                 if content and content.strip():
                     return content
@@ -437,9 +519,24 @@ class MessageProcessor:
 
     async def _post_process_and_log(self, ctx: MessageContext):
         """Final cleanups, sending response, and logging."""
-        if ctx.response_text:
-            await self._send_response(ctx.message.channel, ctx.response_text)
+        if not ctx.response_text:
+            return
             
+        # 1. SEND RESPONSE (This should be the very first thing we do to minimize delay)
+        # We do this while still potentially in the typing context.
+        await self._send_response(ctx.message.channel, ctx.response_text)
+        
+        # 2. LOGGING & STATE (Move slow tasks here)
+        # The typing context will exit as soon as this function returns to _generate_response_stage
+        # and _generate_response_stage returns. 
+        # Register in task_registry so we can await/cancel it on shutdown.
+        from utils.infrastructure.monitoring.async_task_registry import task_registry
+        bg_task = asyncio.create_task(self._background_logging_and_memory(ctx))
+        task_registry.register(f"bg_log_{ctx.author_id}_{int(time.time())}", bg_task)
+
+    async def _background_logging_and_memory(self, ctx: MessageContext):
+        """Perform slow updates in the background to avoid holding up the UI."""
+        try:
             # Update memory
             if ctx.channel_id not in self.bot_state.channel_memory:
                  from collections import deque
@@ -452,16 +549,11 @@ class MessageProcessor:
             await self.run_rag(self.rag.log_user_interaction, ctx.author_id, ctx.author_name, ctx.message.content, ctx.response_text)
             
             self.performance_monitor.stop_timer('total', 'response_time')
+        except Exception as e:
+            log_error(f"Error in background logging: {e}")
 
     async def _send_response(self, channel, text: str):
         """Helper to send response via messaging utility."""
         from utils.infrastructure.system.messaging import send_kaia_response
         await send_kaia_response(channel, text)
 
-    async def send_typing_feedback(self, channel, query):
-        """Show typing indicator based on query complexity."""
-        words = query.split()
-        is_complex = len(words) > 10 or any(kw in query.lower() for kw in ['how', 'why', 'code', 'explain'])
-        if is_complex:
-            async with channel.typing():
-                await asyncio.sleep(2)

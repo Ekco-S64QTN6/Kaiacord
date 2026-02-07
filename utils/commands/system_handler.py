@@ -1,6 +1,7 @@
 from utils.infrastructure.logging.kaia_logger import log_action
 
-async def handle_cache_command(msg, semantic_cache, config):
+async def handle_cache_command(msg, config):
+    """Reflect that cache is decommissioned."""
     """Handle the !cache command (Admin only)"""
     # Owner exemption - uses configurable owner_ids from config
     is_owner = config.is_owner(msg.author.name, msg.author.display_name, str(msg.author.id))
@@ -12,13 +13,8 @@ async def handle_cache_command(msg, semantic_cache, config):
     parts = msg.content.strip().split()
     subcommand = parts[1].lower() if len(parts) > 1 else "stats"
     
-    if subcommand == "clear":
-        semantic_cache.cache.clear()
-        semantic_cache.exact_cache.clear()
-        if hasattr(semantic_cache, 'save'): semantic_cache.save()
-        await msg.channel.send("```\nsemantic cache purged. starting fresh retrieval.\n```")
-        log_action("Manual semantic cache purge requested.")
-    else:
-        size_semantic = len(semantic_cache.cache)
-        size_exact = len(semantic_cache.exact_cache)
-        await msg.channel.send(f"```\nCache Stats: Semantic={size_semantic}, Exact={size_exact}\n```")
+    if "clear" in msg.content.lower().split():
+        await msg.channel.send("⚠️ **Semantic Cache is decommissioned.** No data to clear.")
+        return
+        
+    await msg.channel.send("⚠️ **Semantic Cache has been permanently disabled.** All responses are now generated in real-time for maximum reliability.")

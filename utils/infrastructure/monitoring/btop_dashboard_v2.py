@@ -653,6 +653,7 @@ class BtopDashboardV2:
         type_colors = {
             'INFO': 6,
             'SUCCESS': 3,
+            'READY': 2,
             'ACTION': 1,
             'WARNING': 4,
             'ERROR': 5,
@@ -663,11 +664,21 @@ class BtopDashboardV2:
         logs_to_show = list(state.log_entries)[-max_logs:]
         
         for i, log in enumerate(logs_to_show):
-            color = type_colors.get(log.log_type, 6)
-            log_text = f"{log.timestamp} {log.log_type}: {log.message}"
+            color_pair = type_colors.get(log.log_type, 6)
+            attr = curses.color_pair(color_pair)
+            
+            # Special handling for READY - make it bold and fill line
+            if log.log_type == 'READY':
+                attr |= curses.A_BOLD
+                log_text = f"{log.timestamp} {log.log_type}: {log.message}"
+                # Pad to fill the pane width for maximum impact
+                log_text = log_text.ljust(inner_width)
+            else:
+                log_text = f"{log.timestamp} {log.log_type}: {log.message}"
+                
             if len(log_text) > inner_width:
                 log_text = log_text[:inner_width - 3] + "..."
-            self._safe_addstr(inner_y + i, inner_x, log_text, curses.color_pair(color))
+            self._safe_addstr(inner_y + i, inner_x, log_text, attr)
             
     def _draw_footer(self, state: DashboardState):
         """Draw footer with menu and status"""

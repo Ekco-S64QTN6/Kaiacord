@@ -24,6 +24,7 @@ class BotState:
         self.last_active_channel_id: Optional[int] = None
         self.consecutive_quips: int = 0
         self.last_manual_quip_time: float = 0.0
+        self.last_quip_time: float = 0.0  # Time of last generated quip (manual or idle)
         self.quip_history: Deque[str] = deque(maxlen=10)
         self.is_generating_image: bool = False
         self.boot_complete: bool = False  # Set True after sequenced_boot_tasks() completes
@@ -41,6 +42,7 @@ class BotState:
                     self.last_active_channel_id = state.get('last_active_channel_id')
                     self.consecutive_quips = state.get('consecutive_quips', 0)
                     self.last_manual_quip_time = state.get('last_manual_quip_time', 0.0)
+                    self.last_quip_time = state.get('last_quip_time', 0.0)
                     self.recent_ingestions = state.get('recent_ingestions', [])
                     self.last_dream_date = state.get('last_dream_date', "")
                     
@@ -52,7 +54,7 @@ class BotState:
                     mentions = state.get('mentioned_files', [])
                     self.mentioned_files = deque(mentions, maxlen=20)
                     
-                    log_info(f"Loaded state: channel={self.last_active_channel_id}, quips={self.consecutive_quips}, history={len(self.quip_history)}")
+
         except Exception as e:
             log_warning(f"Failed to load bot state: {e}")
 
@@ -66,6 +68,7 @@ class BotState:
                 'last_active_channel_id': self.last_active_channel_id,
                 'consecutive_quips': self.consecutive_quips,
                 'last_manual_quip_time': self.last_manual_quip_time,
+                'last_quip_time': self.last_quip_time,
                 'quip_history': list(self.quip_history),
                 'recent_ingestions': self.recent_ingestions,
                 'last_dream_date': self.last_dream_date,
@@ -98,6 +101,7 @@ class BotState:
         """Add a quip to history to avoid repetition"""
         self.quip_history.append(quip)
         self.last_manual_quip_time = time.time()
+        self.last_quip_time = time.time()
         self.save()
 
     def get_recent_quips(self) -> list:

@@ -34,6 +34,23 @@ performance:
   # Number of top RAG results to retrieve
   rag_top_k: 25
   
+  # RAG Relevance Thresholds
+  rag_thresholds:
+    persona: 0.50
+    user_identity: 0.50
+    knowledge: 0.75
+    casual_penalty: 0.10
+
+  # RAG Scoring Weights (Magic Numbers Extracted)
+  rag_scoring:
+    base_score_multiplier: 60.0
+    path_boost: 0.5
+    type_boosts:
+      persona: 0.15
+      user_profile: 0.20
+      dream: 0.10
+      memory: 0.25
+  
   # Requests per minute per user (rate limiting)
   requests_per_minute: 30
   
@@ -44,8 +61,8 @@ performance:
   max_log_size_mb: 1000
 
   # Context budget (Total tokens for system prompt + history)
-  # RTX 3060 (12GB) Safety Max: 28,000 (allows OS/YouTube headroom).
-  max_context_tokens: 28000
+  # RTX 3060 (12GB) Safety Max: 24,000 (allows OS/YouTube headroom).
+  max_context_tokens: 24000
 
   # Token estimation multiplier (words * multiplier = approx tokens)
   # 1.3 is a reasonable estimate for English text; adjust for other languages
@@ -53,6 +70,12 @@ performance:
 
   # Reserved tokens for system reinforcement rules and safety prompts
   system_reserve_tokens: 1250
+
+  # RAG Time-Based Boosts (Seconds)
+  rag_boosts:
+    daily_news: 172800  # 48 hours
+    dreams: 64800       # 18 hours
+    user_scan_interval: 300 # 5 minutes
 
 # ============================================================================
 # Generation Configuration (Self-Healing Loop)
@@ -76,17 +99,32 @@ generation:
 timeouts:
   # Query classification timeout (seconds)
   # The classifier uses a synchronous thread with this timeout
-  classification_seconds: 25.0
+  classification_seconds: 35.0
 
   # Orchestration wait timeout for classification (seconds)
   # Should be classification_seconds + buffer for overhead
-  orchestration_classification_seconds: 30.0
+  orchestration_classification_seconds: 40.0
+
+  # Join timeout for classification task (seconds)
+  classification_join_seconds: 15.0
 
   # Model pre-warm timeout (seconds)
   prewarm_seconds: 30.0
 
   # RAG retrieval timeout (seconds)
   rag_retrieval_seconds: 30.0
+
+  # Typing indicator duration (seconds)
+  typing_indication_seconds: 2.0
+
+  # Model load timeout (seconds) - for full context allocation
+  model_load_seconds: 180.0
+
+  # RAG internal lock timeout (seconds)
+  rag_lock_seconds: 10.0
+
+  # LLM request timeout (seconds)
+  llm_request_seconds: 360.0
 
 # ============================================================================
 # Paths Configuration
@@ -240,6 +278,7 @@ dream_mode:
   # Cache limits
   max_dreams_cached: 50
   dreams_per_scan: 10
+  user_quota: 0.4 # Percentage of dreams dedicated to user logs
   
   # Minimum age of files to "dream" about (days)
   dream_age_min_days: 2

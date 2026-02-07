@@ -6,7 +6,7 @@ from utils.infrastructure.system.bot_state import bot_state
 
 # Dependencies
 _rag = None
-_semantic_cache = None
+# _semantic_cache = None
 _personalization_engine = None
 _performance_monitor = None
 _state_manager = None
@@ -34,8 +34,8 @@ async def rag_maintenance_task():
 @tasks.loop(minutes=15)
 async def memory_audit_task():
     """Periodic memory audit and cleanup."""
-    global _last_log_rss, _last_log_cache_size, _first_run
-    if not _semantic_cache or not _rate_limiter or not _state_manager:
+    global _last_log_rss, _first_run
+    if not _rate_limiter or not _state_manager:
         return
         
     try:
@@ -43,7 +43,6 @@ async def memory_audit_task():
         rss_mb = process.memory_info().rss / 1024 / 1024
         
         current_rss = rss_mb
-        current_cache_size = len(_semantic_cache.cache)
         
         rss_delta = abs(current_rss - _last_log_rss)
         cache_changed = current_cache_size != _last_log_cache_size
@@ -67,8 +66,7 @@ async def memory_audit_task():
             if rss_mb > NORMAL_THRESHOLD_MB:
                 from utils.infrastructure.logging.kaia_logger import log_critical
                 log_critical(f"Memory usage critical ({rss_mb:.1f}MB > {NORMAL_THRESHOLD_MB}MB)! Clearing caches and GPU memory.")
-                _semantic_cache.cache.clear()
-                _semantic_cache.exact_cache.clear()
+                # Cache clearing removed
                 if _clear_gpu_memory:
                     _clear_gpu_memory()
             
@@ -76,15 +74,15 @@ async def memory_audit_task():
         _rate_limiter.cleanup()
         
         # Save state
-        _state_manager.save_state(_semantic_cache, _personalization_engine, _performance_monitor)
+        _state_manager.save_state(_personalization_engine, _performance_monitor)
             
     except Exception as e:
         log_error(f"Memory audit task failed: {e}")
 
-def start_maintenance_tasks(rag, semantic_cache, personalization_engine, performance_monitor, state_manager, rate_limiter, clear_gpu_memory_func=None):
-    global _rag, _semantic_cache, _personalization_engine, _performance_monitor, _state_manager, _rate_limiter, _clear_gpu_memory
+def start_maintenance_tasks(rag, personalization_engine, performance_monitor, state_manager, rate_limiter, clear_gpu_memory_func=None):
+    global _rag, _personalization_engine, _performance_monitor, _state_manager, _rate_limiter, _clear_gpu_memory
     _rag = rag
-    _semantic_cache = semantic_cache
+    # _semantic_cache = semantic_cache
     _personalization_engine = personalization_engine
     _performance_monitor = performance_monitor
     _state_manager = state_manager

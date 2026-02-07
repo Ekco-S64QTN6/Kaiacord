@@ -9,6 +9,7 @@ class RealTimeStatsPoller:
     def __init__(self, update_interval=1.5):
         self.update_interval = update_interval
         self.running = False
+        self.polling_in_progress = False
         self.thread = None
         self.stats = {
             'users': 0,
@@ -47,93 +48,98 @@ class RealTimeStatsPoller:
     def _polling_loop(self):
         """Main polling loop - runs in background thread"""
         while self.running:
-            try:
-                self._update_all_stats()
-                time.sleep(self.update_interval)
-            except Exception as e:
-                # Silently fail or log to debug if needed, but avoid spamming main logs
-                time.sleep(1)
+            if not self.polling_in_progress:
+                try:
+                    self._update_all_stats()
+                except Exception as e:
+                    # Silently fail
+                    pass
+            time.sleep(self.update_interval)
                 
     def _update_all_stats(self):
-        """Update all statistics"""
-        with self.lock:
-            # Get system metrics
+        """Update all statistics (Non-blocking for the lock)"""
+        self.polling_in_progress = True
+        try:
+            new_stats = {}
+            
+            # 1. System Metrics (psutil is usually fast)
             try:
-                self.stats['cpu_percent'] = psutil.cpu_percent(interval=0.1)
-                self.stats['memory_mb'] = psutil.Process().memory_info().rss / 1024 / 1024
-                self.stats['uptime_minutes'] = (time.time() - self.start_time) / 60
+                new_stats['cpu_percent'] = psutil.cpu_percent(interval=0.1)
+                new_stats['memory_mb'] = psutil.Process().memory_info().rss / 1024 / 1024
+                new_stats['uptime_minutes'] = (time.time() - self.start_time) / 60
             except:
                 pass
             
-            # GPU utilization (if available)
+            # 2. GPU utilization (Subprocess with 1s timeout)
             try:
                 import subprocess
                 result = subprocess.run(
                     ['nvidia-smi', '--query-gpu=utilization.gpu,memory.used,memory.total', 
                      '--format=csv,noheader,nounits'],
-                    capture_output=True, text=True, timeout=1
+                    capture_output=True, text=True, timeout=1.0 # STRENGTHENED TIMEOUT
                 )
                 if result.returncode == 0:
                     util, mem_used, mem_total = result.stdout.strip().split(', ')
-                    self.stats['gpu_util'] = float(util.strip())
-                    self.stats['gpu_memory'] = f"{int(mem_used.strip())}/{int(mem_total.strip())} MB"
+                    new_stats['gpu_util'] = float(util.strip())
+                    new_stats['gpu_memory'] = f"{int(mem_used.strip())}/{int(mem_total.strip())} MB"
+                else:
+                    new_stats['gpu_util'] = 0.0
+                    new_stats['gpu_memory'] = "N/A"
             except:
-                self.stats['gpu_util'] = 0.0
-                self.stats['gpu_memory'] = "N/A"
+                new_stats['gpu_util'] = 0.0
+                new_stats['gpu_memory'] = "N/A"
             
-            # Calculate average response time
-            if self.response_times:
-                self.stats['avg_response_time'] = sum(self.response_times) / len(self.response_times)
-                
-            # Update Ollama status and active model
+            # 3. Ollama Status (DANGEROUS: CAN HANG)
+            # We use subprocess instead of the library to ensure timeout control
             try:
-                import ollama
-                # Check if Ollama is responsive and get running models
-                models_info = ollama.ps()
-                if hasattr(models_info, 'models'):
-                    running_models = models_info.models
-                else:
-                    running_models = models_info.get('models', [])
+                import subprocess
+                # Check for running models
+                # Use --format json for parsing if needed, but simple grep works for "alive"
+                ps_result = subprocess.run(
+                    ['ollama', 'ps'], 
+                    capture_output=True, text=True, timeout=2.0
+                )
                 
-                if running_models:
-                    self.stats['ollama_status'] = "🟢 ONLINE"
-                    # Get the first running model name
-                    model = running_models[0]
-                    model_name = "Unknown"
-                    if hasattr(model, 'model'):
-                        model_name = model.model
-                    elif isinstance(model, dict):
-                        model_name = model.get('model', 'Unknown')
-                    else:
-                        model_name = str(model)
-                    
-                    # VRAM-based status correction
-                    # < 2 GB -> unloaded (idle)
-                    # 2-6 GB -> warming
-                    # > 6 GB -> loaded (active)
-                    try:
-                        mem_used = 0
-                        if '/' in self.stats['gpu_memory']:
-                            mem_used = int(self.stats['gpu_memory'].split('/')[0])
+                if ps_result.returncode == 0:
+                    new_stats['ollama_status'] = "🟢 ONLINE"
+                    # Simple heuristic for active model
+                    lines = ps_result.stdout.strip().split('\n')
+                    if len(lines) > 1: # Header + at least one model
+                        model_name = lines[1].split()[0]
                         
-                        if mem_used < 2048: # Less than 2GB
-                            self.stats['active_model'] = f"unloaded (idle)"
-                        elif mem_used < 6144: # 2-6GB
-                            self.stats['active_model'] = f"warming"
+                        # VRAM-based status correction
+                        mem_used = 0
+                        if 'gpu_memory' in new_stats and '/' in new_stats['gpu_memory']:
+                            mem_used = int(new_stats['gpu_memory'].split('/')[0])
+                        
+                        if mem_used < 2048:
+                            new_stats['active_model'] = "unloaded (idle)"
+                        elif mem_used < 6144:
+                            new_stats['active_model'] = "warming"
                         else:
-                            self.stats['active_model'] = model_name
-                    except:
-                        self.stats['active_model'] = model_name
+                            new_stats['active_model'] = model_name
+                    else:
+                        new_stats['active_model'] = "unloaded (idle)"
                 else:
-                    # Check if service is up even if no model is loaded
-                    ollama.list()
-                    self.stats['ollama_status'] = "🟢 ONLINE"
-                    self.stats['active_model'] = "unloaded (idle)"
-            except Exception:
-                self.stats['ollama_status'] = "🔴 OFFLINE"
-                self.stats['active_model'] = "None"
+                    new_stats['ollama_status'] = "🔴 OFFLINE"
+                    new_stats['active_model'] = "None"
+            except (subprocess.TimeoutExpired, Exception):
+                new_stats['ollama_status'] = "🔴 TIMEOUT/OFFLINE"
+                new_stats['active_model'] = "None"
                 
-            self.stats['last_update'] = time.time()
+            # 4. Apply Updates Under Lock (MINIMAL DURATION)
+            with self.lock:
+                # Merge new stats into main dict
+                self.stats.update(new_stats)
+                
+                # Calculate average response time
+                if self.response_times:
+                    self.stats['avg_response_time'] = sum(self.response_times) / len(self.response_times)
+                
+                self.stats['last_update'] = time.time()
+                
+        finally:
+            self.polling_in_progress = False
             
     def record_response_time(self, response_time_seconds):
         """Record a new response time measurement"""

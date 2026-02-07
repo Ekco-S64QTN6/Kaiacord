@@ -41,10 +41,9 @@ from utils.infrastructure.monitoring.stats_tracker import stats_tracker
 # Logic Imports
 from utils.core.kaia_rag import KaiaRAG
 from utils.core.kaia_dream import DreamEngine
-from utils.core.semantic_cache import ImprovedSemanticCache
 from utils.core.performance_monitor import PerformanceMonitor
 from utils.core.kaia_intelligence import (
-    ModelWarmPool, ContextOptimizer, RelevanceFeedback, QueryClassifier
+    ModelWarmPool, ContextOptimizer, RelevanceFeedback, IntentParser
 )
 from utils.infrastructure.system.performance_optimizer import ResponseOptimizer, timed_response
 from utils.core.message_processor import MessageProcessor
@@ -56,9 +55,8 @@ from utils.core.background_tasks import run_news_update
 rag = None
 dream_engine = None
 performance_monitor = None
-semantic_cache = None
 model_warm_pool = None
-query_classifier = None
+intent_parser = None
 response_optimizer = None
 context_optimizer = None
 relevance_feedback = None
@@ -77,21 +75,20 @@ bot = commands.Bot(command_prefix="!", intents=intents)
 
 def initialize_logic_layer():
     """Initializes RAG and intelligence components."""
-    global rag, dream_engine, performance_monitor, semantic_cache, model_warm_pool
-    global query_classifier, response_optimizer, context_optimizer, relevance_feedback
+    global rag, dream_engine, performance_monitor, model_warm_pool
+    global intent_parser, response_optimizer, context_optimizer, relevance_feedback
     global personalization_engine, message_processor
     
     if rag is not None:
         return
         
     performance_monitor = PerformanceMonitor()
-    semantic_cache = ImprovedSemanticCache(threshold=0.92)
-    semantic_cache.set_performance_monitor(performance_monitor)
     model_warm_pool = ModelWarmPool(ollama_client)
     
-    query_classifier = QueryClassifier(ollama_client, model=config.chat_model, timeout=config.classification_timeout)
+    intent_parser = IntentParser(ollama_client, model=config.chat_model, timeout=config.classification_timeout)
+    # ... (rest of the initializations) ...
     response_optimizer = ResponseOptimizer()
-    context_optimizer = ContextOptimizer(model_name=config.chat_model, max_tokens=config.max_context_tokens or 28000)
+    context_optimizer = ContextOptimizer(model_name=config.chat_model, max_tokens=config.max_context_tokens or 24000)
     
     rag = KaiaRAG()
     dream_engine = DreamEngine(config, rag)
@@ -103,7 +100,7 @@ def initialize_logic_layer():
     message_processor = MessageProcessor(
         bot=bot, ollama_client=ollama_client, run_rag=run_rag, rag=rag, 
         config=config, bot_state=bot_state, performance_monitor=performance_monitor, 
-        semantic_cache=semantic_cache, query_classifier=query_classifier, 
+        intent_parser=intent_parser, 
         response_optimizer=response_optimizer, context_optimizer=context_optimizer, 
         relevance_feedback=relevance_feedback, personalization_engine=personalization_engine, 
         stats_tracker=stats_tracker, rate_limiter=rate_limiter, shutdown_manager=shutdown_manager, 
@@ -122,6 +119,7 @@ async def prewarm_main_model():
     from utils.infrastructure.gpu.gpu_manager import OllamaGPUManager
     try:
         gpu_manager = OllamaGPUManager(config.chat_model)
+        log_action(f"Pre-warming {config.chat_model} with {config.max_context_tokens // 1000}k context...")
         await gpu_manager.load_only(ollama_client)
     except Exception as e:
         print(f"⚠️ Pre-warm failed: {e}")
@@ -131,17 +129,29 @@ async def on_ready():
     from utils.infrastructure.system.file_watcher import start_watcher
     from utils.infrastructure.system.maintenance_tasks import start_maintenance_tasks
     
-    global rag, semantic_cache, personalization_engine, performance_monitor
+    global rag, personalization_engine, performance_monitor
     
-    log_info(f"{bot.user.name} online.")
+    # Wait up to 30s for logic layer to initialize if needed
+    for _ in range(30):
+        if rag is not None:
+            break
+        await asyncio.sleep(1)
+        
+    if rag is None:
+        log_error("CRITICAL: Bot ready but RAG layer not initialized!")
+        return
+
     start_watcher(rag, asyncio.get_running_loop(), task_registry=task_registry)
-    start_maintenance_tasks(rag, semantic_cache, personalization_engine, performance_monitor, None, rate_limiter, None)
+    start_maintenance_tasks(rag, personalization_engine, performance_monitor, None, rate_limiter, None)
 
 @bot.event
-@timed_response(threshold=8.0)
+@timed_response(threshold=30.0)
 async def on_message(msg: discord.Message):
+    global message_processor
     if message_processor:
         await message_processor.process(msg)
+    else:
+        log_warning("Message received but processor not yet initialized. Skipping.")
 
 async def process_external_mention(content: str, author_name: str, author_id: Any, platform: str):
     from utils.social.kaia_social_responder import mock_external_mention
@@ -154,12 +164,12 @@ def main():
     
     dm = DashboardManager(
         bot=bot, config=config, bot_state=bot_state, stats_tracker=stats_tracker, 
-        stats_poller=stats_poller, logger=logger, model_warm_pool=None, query_classifier=None
+        stats_poller=stats_poller, logger=logger, model_warm_pool=None, intent_parser=None
     )
     
     # Pass necessary functions to the manager
     async def run_bot_wrapper(sp, stop_event=None):
-        dm.query_classifier = query_classifier
+        dm.intent_parser = intent_parser
         await dm.run_bot_async(sp, initialize_logic_layer, dm_sequenced_boot, stop_event)
 
     async def dm_sequenced_boot():
