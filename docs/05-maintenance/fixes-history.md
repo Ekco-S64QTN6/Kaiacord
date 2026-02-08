@@ -125,12 +125,13 @@ The longer Kaia goes without interaction, the LESS likely she is to quip (as req
 **Problem**: Recursive hallucinations (e.g., "Juanita") were contaminating logs and being reinforced via RAG.
 
 **Solution**:
-- **Hallucination Detector**: Real-time monitoring and sanitization of inputs/outputs.
+- **Hallucination Detector**: Real-time monitoring and sanitization of inputs/outputs via `HallucinationDetector`.
 - **Feedback Loop Protection**: Sanitized logging and cache bypass for identity queries.
-- **Strict Identity Filtering**: Enforced source-specific retrieval for identity questions.
-- **Nuclear Cleanup**: Created emergency scripts to purge contaminated data.
+- **Strict Identity Filtering**: Enforced source-specific retrieval (persona + user logs) for identity questions.
+- **Emergency Contamination Filter**: surgical removal of hallucinated lines before they reach the user or logs.
+- **Veracity Retries**: Implemented a 3-pass generation loop to "self-heal" if hallucinations are detected.
 
-**Files**: `kaia_rag.py`, `Kaiacord.py`, `stop_hallucination_feedback.py`, `quick_fix.py`
+**Files**: `kaia_rag.py`, `Kaiacord.py`, `stop_hallucination_feedback.py`, `utils/core/response_filter.py`
 
 ---
 

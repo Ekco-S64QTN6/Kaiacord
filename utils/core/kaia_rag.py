@@ -1086,10 +1086,28 @@ Kaia: {bot_response}
             known_users = self._known_users_cache
             detected_user = next((u for u in known_users if u.lower() in query_lower), None)
             
-            # 2. QUERY ENRICHMENT
+            # 2. QUERY ENRICHMENT & ID MAPPING
+            # Extract Discord IDs: <@123456789> or <@!123456789>
+            id_mentions = re.findall(r"<@!?(\d+)>", query)
+            mapped_names = []
+            
+            if id_mentions:
+                user_logs_path = os.path.join(self.knowledge_base_dir, "user_logs")
+                if os.path.exists(user_logs_path):
+                    # Cache directory scan for mapping
+                    for d in os.scandir(user_logs_path):
+                        if d.is_dir() and "_" in d.name:
+                            name_part, id_part = d.name.rsplit("_", 1)
+                            if id_part in id_mentions:
+                                mapped_names.append(name_part.replace("_", " "))
+            
             enriched_query = query
+            if mapped_names:
+                enriched_query += " " + " ".join(mapped_names)
+                
             if user_name and (is_casual or is_social_identity):
-                enriched_query = f"{query} user:{user_name} {user_name}"
+                enriched_query = f"{enriched_query} user:{user_name} {user_name}"
+            
             if detected_user:
                 enriched_query += f" user:{detected_user} {detected_user}"
             
@@ -1130,9 +1148,9 @@ Kaia: {bot_response}
             elif strategy == "RELATIONAL_MIRROR" or is_social_identity:
                 target_itypes = ['user_profiles', 'logs']
 
-            # FALLBACK -> Knowledge (Documents)
+            # FALLBACK -> Knowledge (Documents) + Logs
             else:
-                target_itypes = ['knowledge']
+                target_itypes = ['knowledge', 'logs']
             
             # Use config for retrieval count, with a slight reduction for casual queries
             if not intent and is_casual:
@@ -1169,7 +1187,7 @@ Kaia: {bot_response}
             for node_result in all_node_results:
                 node = node_result.node if hasattr(node_result, 'node') else node_result
                 base_raw_score = node_result.score if hasattr(node_result, 'score') else 0.5
-                base_score = min(1.0, base_raw_score * 60.0) if base_raw_score < 0.1 else base_raw_score
+                base_score = base_raw_score
                 content = node.get_content()
                 
                 # Deduplication
@@ -1199,6 +1217,24 @@ Kaia: {bot_response}
                         if node_user_id and node_user_id != u_id_str and not (detected_user and detected_user.lower() in node_user_name.lower()):
                             # Only allow cross-user logs/dreams if they are semantically high value and not casual
                             if is_casual or base_score < 0.85: continue
+
+                # Filter: Name Verification (Hallucination Guard)
+                # If a specific name is detected in the query (via detected_user or mapping), 
+                # ensure the retrieved node actually contains that name or a fragment of it.
+                # This prevents low-affinity 'noise' from one person bleeding into another.
+                if detected_user or mapped_names:
+                    names_to_check = mapped_names + ([detected_user] if detected_user else [])
+                    # Check first 500 chars for efficiency/relevance
+                    content_preview = content[:500].lower()
+                    has_name_match = any(name.lower() in content_preview for name in names_to_check)
+                    
+                    # Also allow if the node metadata explicitly matches the user_name
+                    meta_name_match = any(name.lower() in node_user_name.lower() for name in names_to_check)
+                    
+                    if not (has_name_match or meta_name_match):
+                        # Only skip if it's a high-precision attempt or if score is mediocre
+                        if is_social_identity or base_score < 0.8:
+                            continue
 
                 # Filter: Strict Dream Isolation (User Request)
                 if is_dream_query:

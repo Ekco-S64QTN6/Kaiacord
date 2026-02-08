@@ -18,9 +18,19 @@ __pycache__/
 # OS files
 .DS_Store
 Thumbs.db
-storage/
-knowledge_base/
-memory/
+!**/.gitkeep
+# Data and Knowledge
+storage/*
+!storage/*/
+storage/*/*
+memory/*
+!memory/*/
+memory/*/*
+knowledge_base/*
+!knowledge_base/kaia_persona.md
+!knowledge_base/*/
+knowledge_base/*/*
+
 test_integration.py
 test_rag_imports.py
 *.log

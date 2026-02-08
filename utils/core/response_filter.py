@@ -7,12 +7,20 @@ class HallucinationDetector:
     """Detect and prevent hallucination feedback loops"""
     
     HALLUCINATION_PATTERNS = [
-        # Structural leaks - indicating the LLM is printing its internal prompt/tags
+        # Structural leaks
         r"<external_data_record",
         r"</external_data_record>",
         r"\[INTERNAL REFLECTION",
         r"\[CONVERSATION HISTORY",
         r"\[IDENTITY CORE",
+        
+        # High-confidence news/biographical fiction patterns
+        r"joint\s+research\s+paper\s+on\s+['\"]?Quantum\s+Consciousness['\"]?",
+        r"co-authored\s+by\s+Steve\s+Jobs",
+        r"In\s+a\s+shocking\s+turn\s+of\s+events",
+        r"Breaking\s+news:?\s+.*?returns\s+to",
+        r"^Reports\s+are\s+coming\s+in\s+that",
+        r"i\s+remember\s+back\s+in\s+\d{4}\s+when\s+i\s+was",
     ]
     
     _compiled_pattern = None
@@ -52,20 +60,30 @@ class HallucinationDetector:
         return clean_response
 
 class EmergencyContaminationFilter:
-    """Emergency filter to prevent ANY fictional content"""
+    """Emergency filter to prevent specifically fake-sounding news prose or hallucinations."""
     
     CONTAMINATION_PATTERNS = [
-        # Repetitive blacklist approach replaced by structural perspective decoupling.
+        r"this\s+fictional\s+account",
+        r"according\s+to\s+a\s+news\s+report\s+i\s+saw",
+        r"latest\s+update\s+indicates\s+that\s+.*?\s+(is|has)\s+been\s+discovered",
+        r"(joint\s+)?research\s+paper\s+on\s+['\"]?Quantum\s+Consciousness['\"]?",
+        r"co-authored\s+(a\s+paper\s+)?by\s+Steve\s+Jobs",
+        r"Steve\s+Jobs\s+co-authored",
+        r"In\s+a\s+shocking\s+turn\s+of\s+events",
+        r"Breaking\s+news:?",
     ]
+
+    VERACITY_FALLBACK = "wait, scratch that. something about my memory's a bit hazy on the specifics of that. i'd have to double-check the records to be sure."
     
     @classmethod
-    def filter_response(cls, response: str) -> str:
-        """Remove ANY contamination from response"""
+    def filter_response(cls, response: str) -> Optional[str]:
+        """Remove ANY contamination from response. If too much is removed, return None to trigger retry."""
         if not response:
             return None
             
         lines = response.split('\n')
         filtered_lines = []
+        contamination_found = False
         
         for line in lines:
             line_lower = line.lower()
@@ -73,17 +91,23 @@ class EmergencyContaminationFilter:
             # Skip lines with contamination
             skip_line = False
             for pattern in cls.CONTAMINATION_PATTERNS:
-                if re.search(pattern, line_lower):
+                if re.search(pattern, line_lower, re.IGNORECASE):
                     skip_line = True
-                    log_warning(f"[EMERGENCY FILTER] Removed contaminated line: {line[:80]}...")
+                    contamination_found = True
+                    log_warning(f"[VERACITY GUARD] Removed contaminated line: {line[:80]}...")
                     break
             
             if not skip_line:
                 filtered_lines.append(line)
         
+        if contamination_found and len(filtered_lines) <= (len(lines) / 2):
+            # If the "fiction" was half or more, signal a full retry
+            log_warning("[VERACITY GUARD] Majority of response contaminated. Triggering full retry.")
+            return None
+            
         filtered_response = '\n'.join(filtered_lines).strip()
         
-        # If we removed too much, provide a fallback
+        # If we removed everything, signal retry
         if not filtered_response:
             return None
         
@@ -187,67 +211,54 @@ class EmergencyContaminationFilter:
         
         return result
     
-class ResponseStyleHarden:
-    """Programmatically enforce Kaia's persona rules on generated text."""
+class BotSpeakFilter:
+    """Silently strip 'Assistant-leak' metadata and robotic phrasing from responses."""
     
-    BAIT_PATTERNS = [
-        r"(?i)what('s|\s+is)\s+on\s+your\s+mind\??",
-        r"(?i)what\s+are\s+you\s+(working\s+on|up\s+to)\??",
-        r"(?i)any\s+thoughts\??",
-        r"(?i)do\s+you\s+have\s+any\s+questions\??",
-        r"(?i)let\s+me\s+know\s+if\s+you\s+need\??",
-        r"(?i)how\s+can\s+i\s+(help|assist)\??",
-        r"(?i)why\?",
-        r"(?i)what(’|')s\s+driving\s+your\s+interest\??",
-        r"(?i)you\s+following\s+anything\s+specific\??",
-        r"(?i)what\s+do\s+you\s+(think|need)\??",
-        r"(?i)anything\s+else\??",
-        r"(?i)(rag\s+classifier|dream\s+fragments?|retrieved\s+nodes?|semantic\s+search|context\s+nodes?)",
+    # Strictly forbidden robotic meta-talk - these are stripped quietly
+    FORBIDDEN_PATTERNS = [
+        r"(rag\s+classifier|dream\s+fragments?|retrieved\s+nodes?|semantic\s+search|context\s+nodes?|cross-reference\s+error|memory\s+retrieval|running\s+diagnostics?|diagnostic\s+assessment|archives?|records?)",
+        r"(my\s+apologies|i\s+apologize|deeply\s+embarrassed|significant\s+error|serious\s+failure|caught\s+a\s+significant|flagging\s+this\s+for\s+review)",
+        r"(i\s+am\s+programmed\s+to|my\s+purpose\s+is|constructive\s+conversations|strictly\s+prohibited|veered\s+into\s+a\s+realm|against\s+my\s+guidelines|harmful\s+tropes|appropriate\s+and\s+respectful\s+boundaries|facilitate\s+constructive)",
+        r"(as\s+an\s+ai|accessing\s+data|retrieving\s+context|according\s+to\s+my\s+logs|operating\s+within|parameters|aspect|relevant\s+information)",
+        r"^i\s+(remember|used\s+to)\s+back\s+when", 
+        r"i\s+used\s+to\s+(have|be|go)",
     ]
 
     @classmethod
-    def strip_trailing_questions(cls, text: str) -> str:
-        """Remove engagement bait questions from the end of a response."""
+    def harden(cls, text: str) -> str:
+        """Apply all hardening filters to the text."""
+        if not text:
+            return text
+        text = cls.strip_bot_speak(text)
+        return text
+
+    @classmethod
+    def strip_bot_speak(cls, text: str) -> str:
+        """Strip lines that explicitly leak assistant/system internals."""
         if not text:
             return text
             
         lines = text.split('\n')
-        if not lines:
-            return text
-            
-        last_line = lines[-1].strip()
-        if not last_line:
-            return text
-
-        # Split into sentences (simple split)
-        # We look for the last sentence
-        sentences = re.split(r'(?<=[.!?])\s+', last_line)
-        if not sentences:
-            return text
-            
-        # Iteratively remove trailing bait sentences
-        modified = False
-        while sentences:
-            last_sentence = sentences[-1].strip()
-            if not last_sentence.endswith('?'):
-                break
+        clean_lines = []
+        
+        for line in lines:
+            stripped = line.strip()
+            if not stripped:
+                continue
                 
-            is_bait = False
-            for pattern in cls.BAIT_PATTERNS:
-                if re.search(pattern, last_sentence):
-                    is_bait = True
+            line_lower = line.lower()
+            
+            # Check for bot-speak violations (stripped quietly)
+            is_robotic = False
+            for pattern in cls.FORBIDDEN_PATTERNS:
+                if re.search(pattern, line_lower, re.IGNORECASE):
+                    is_robotic = True
+                    # LOG the violation for debugging
+                    from utils.infrastructure.logging.kaia_logger import log_debug
+                    log_debug(f"[FILTER] Bot-speak stripped: '{stripped[:50]}...' matched pattern '{pattern}'")
                     break
             
-            if is_bait:
-                sentences.pop()
-                modified = True
-            else:
-                break
+            if not is_robotic:
+                clean_lines.append(line)
         
-        if modified:
-            new_last_line = " ".join(sentences).strip()
-            lines[-1] = new_last_line
-            # Rejoin all lines
-            return "\n".join(lines).strip()
-        
-        return text
+        return "\n".join(clean_lines).strip()

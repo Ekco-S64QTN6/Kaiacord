@@ -7,8 +7,9 @@ from typing import Optional, Any, List, Dict
 
 from utils.infrastructure.logging.kaia_logger import log_info, log_debug, log_warning, log_error, log_action, log_success
 from utils.core.message_context import MessageContext
-from utils.core.response_filter import HallucinationDetector
+from utils.core.response_filter import HallucinationDetector, BotSpeakFilter
 from utils.core.background_tasks import run_news_update # If needed, or just import logic
+from utils.infrastructure.monitoring.async_task_registry import task_registry
 
 # Constants (Could be moved to config later)
 
@@ -126,8 +127,7 @@ class MessageProcessor:
         self.bot_state.reset_quips()
         self.bot_state.update_interaction(msg.channel.id)
 
-        from utils.infrastructure.monitoring.async_task_registry import task_registry
-        
+
         # 7. Specific Command Handling
         from utils.commands.memory_handler import handle_memory_command
         if await handle_memory_command(msg, sanitized_content, self.run_rag, self.rag):
@@ -192,8 +192,7 @@ class MessageProcessor:
         # 2. Start Logic Analysis (Layer 2)
         # Deduplication check
         task_name = f"intent_{ctx.author_id}_{hash(ctx.message.content)}"
-        from utils.infrastructure.monitoring.async_task_registry import task_registry
-        
+
         all_tasks = task_registry.get_all_tasks()
         if task_name in all_tasks and not all_tasks[task_name].done():
             log_debug(f"Intent analysis already in progress for {ctx.author_name}, reusing task.")
@@ -319,9 +318,9 @@ class MessageProcessor:
         from utils.core.response_filter import EmergencyContaminationFilter
         from utils.news.kaia_news import NewsRetrievalEnhancer, RAGEnhancer
         
+        freshness_keywords = ['news', 'latest', 'update', 'happening', 'today', 'current', 'recent', 'yesterday', 'tonight']
         is_news_query = self.config.news_auto_trigger and (
-            (ctx.category == 'news') or 
-            any(word in clean_query.lower() for word in ['news', 'latest', 'update', 'happening', 'today']) or 
+            (ctx.category == 'news' and any(word in clean_query.lower() for word in freshness_keywords)) or 
             ask_whats_new
         )
 
@@ -421,23 +420,28 @@ class MessageProcessor:
         context_str = optimized['rag']
         history_str = optimized['history']
         
+        # Proactive Skepticism logic
+        hallucination_trap = ""
+        has_entities = any(w[0].isupper() for w in ctx.sanitized_content.split() if len(w) > 2)
+        if has_entities and not context_str and "tell me" in ctx.sanitized_content.lower():
+            hallucination_trap = (
+                "\n\n### SYSTEM_SKEPTICISM_TRIGGER\n"
+                "WARNING: No historical or biographical data found for the entities in this query. "
+                "The user may be providing a false premise or an impossible scenario. "
+                "Do NOT agree with the premise if you don't find it in your core knowledge. "
+                "Admit ignorance or say 'that doesn't ring a bell'. Do NOT invent details.\n"
+            )
         rag_block = (
             f"### DATA RETRIEVAL FOR: {ctx.author_name}\n"
             f"{context_str or 'No specific historical records found.'}\n"
             "---"
         ) if context_str else f"### CURRENT_USER: {ctx.author_name}\nNo records found."
 
-        # Core Unification: Persona + RAG + History + Reinforcement
-        # This keeps the model anchored to the persona while keeping rules top-of-memory.
-        reinforcement = self._get_reinforcement_prompt(ctx.is_social)
-        
+        # Core Unification: Persona + RAG + History
         full_system_prompt = (
             f"{system_prompt}\n\n"
-            f"{rag_block}\n\n"
-            f"{reinforcement}"
-            "\n\n### CRITICAL PERSONA ADHERENCE\n"
-            "Do NOT engage in 'meta-talk'. Never mention technical internal systems like 'RAG', 'classifier', 'context fragments', or 'retrieval thresholds' to the user. "
-            "Talk like a grounded person. If you can't recall something, just say you can't put your finger on it or it's a bit hazy."
+            f"{rag_block}"
+            f"{hallucination_trap}"
         )
 
         messages = [
@@ -455,22 +459,6 @@ class MessageProcessor:
         messages.append({"role": "user", "content": ctx.sanitized_content})
         
         return messages
-
-    def _get_reinforcement_prompt(self, is_social: bool) -> str:
-        """Get the specific reinforcement rules for the persona."""
-        rules = (
-            "### REINFORCEMENT RULES\n"
-            "1. Speak in lowercase. Be blunt, direct, and slightly cynical.\n"
-            "2. NO markdown formatting. NO meta-talk about being an AI.\n"
-            "3. NATURAL GROUNDING: Refer to your reading history or conversations naturally. ONLY mention your environment (neon signs, coffee) if it fits the mood, NOT as a suffix.\n"
-            "4. NO AI ASSISTANT SPEAK: You are Kaia. Do not say 'I am here to help' or 'I am a technical assistant'.\n"
-            "5. NO ROLEPLAY: Do not describe actions in asterisks or parentheses (e.g., *sighs*, (types slowly)). Only type the spoken response.\n"
-            "6. NO FORMULAIC BAIT: Avoid ending every response with generic questions like 'what do you think?' or 'what's on your mind?'. If it doesn't fit the flow, don't ask it.\n"
-            "7. NATURAL CURIOSITY: You can ask questions to keep the vibe real, but stay in persona. Don't interrogate; just be humanly curious if the situation warrants it. State your piece first.\n"
-        )
-        if is_social:
-            rules += "8. SOCIAL BREVITY: Under 280 chars.\n9. NO formulaic greetings.\n"
-        return rules
 
     async def _call_ollama_with_retries(self, ctx: MessageContext, messages: List[Dict[str, str]]) -> str:
         """Execute the self-healing generation loop."""
@@ -504,14 +492,23 @@ class MessageProcessor:
                 
                 # Cleanup
                 content = HallucinationDetector.clean_response(content)
+                if not content:
+                    log_warning(f"Attempt {attempt + 1} failed: Hallucination detected (Empty after clean).")
+                    continue
+
                 content = EmergencyContaminationFilter.filter_response(content)
+                if not content:
+                    log_warning(f"Attempt {attempt + 1} failed: Veracity violation (Fiction/Contamination detected).")
+                    continue
                 
-                # Style Hardening (Programmatic enforcement of persona rules)
-                from utils.core.response_filter import ResponseStyleHarden
-                content = ResponseStyleHarden.strip_trailing_questions(content)
+                # Style Hardening (Silent Stripping)
+                content = BotSpeakFilter.strip_bot_speak(content)
                 
                 if content and content.strip():
                     return content
+                else:
+                    log_warning(f"Attempt {attempt + 1} failed: Result empty after filtering.")
+                    continue
             except Exception as e:
                 log_error(f"Attempt {attempt + 1} failed: {e}")
                 
@@ -522,7 +519,17 @@ class MessageProcessor:
         if not ctx.response_text:
             return
             
-        # 1. SEND RESPONSE (This should be the very first thing we do to minimize delay)
+        # 1. HARDEN RESPONSE (Strip roleplay markers, bot-speak, etc.)
+        harden = BotSpeakFilter()
+        ctx.response_text = harden.harden(ctx.response_text)
+
+        # 2. VERACITY CHECK (Catch news hallucinations and fictional stories)
+        from utils.core.response_filter import EmergencyContaminationFilter
+        filtered = EmergencyContaminationFilter.filter_response(ctx.response_text)
+        if filtered:
+            ctx.response_text = filtered
+        
+        # 3. SEND RESPONSE (This should be the very first thing we do to minimize delay)
         # We do this while still potentially in the typing context.
         await self._send_response(ctx.message.channel, ctx.response_text)
         
@@ -530,7 +537,6 @@ class MessageProcessor:
         # The typing context will exit as soon as this function returns to _generate_response_stage
         # and _generate_response_stage returns. 
         # Register in task_registry so we can await/cancel it on shutdown.
-        from utils.infrastructure.monitoring.async_task_registry import task_registry
         bg_task = asyncio.create_task(self._background_logging_and_memory(ctx))
         task_registry.register(f"bg_log_{ctx.author_id}_{int(time.time())}", bg_task)
 

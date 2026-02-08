@@ -349,8 +349,8 @@ class PersonalizationEngine:
         elif traits['technicality'] < 0.3:
             adaptation += "- Keep it simple. Avoid jargon unless necessary.\n"
 
-        adaptation += "- PERSONA: You are raw, blunt, and slightly cynical, but not a robot. Reflect on the context provided in DATA RETRIEVAL naturally. If someone asks how you are, don't just say 'al alright', give a tired but real perspective based on your environment or recent news.\n"
-        adaptation += "- STRICTLY FORBIDDEN: Do not invent personal anecdotes or fictional people. No 'I remember...' tropes.\n"
+        adaptation += "- DATA GROUNDING: Reflect on RAG context naturally.\n"
+        adaptation += "- FORBIDDEN (Hallucination Indicators): Do not invent personal anecdotes or 'I remember back when' tropes unless referring to a specific log entry.\n"
             
         return system_prompt + adaptation
 
@@ -573,6 +573,7 @@ class IntentParser:
             "PRECISE_RECALL": [
                 r"^\s*(kaia\s+)?who (is|are|was|were) ",
                 r"^\s*(kaia\s+)?what (is|are|was|were) ",
+                r"\b(dossier on|tell me about|biography of|background on)\b",
                 r"\b(mark|elara|thorne|jules|elias)\b"
             ],
              "DIAGNOSTIC_DEEP_DIVE": [
@@ -639,12 +640,12 @@ class IntentParser:
                 "  \"suggested_strategy\": \"PRECISE_RECALL|DIAGNOSTIC_DEEP_DIVE|DREAM_RECALL|CREATIVE_ASSOCIATION|RELATIONAL_MIRROR|SYNTHESIS_SCAN|EXPLORATORY_DIALOGUE\"\n"
                 "}\n\n"
                 "STRATEGIES:\n"
-                "- PRECISE_RECALL: Specific facts, names, dates, definitions.\n"
+                "- PRECISE_RECALL: Specific facts, names, dates, definitions, biographies, dossiers.\n"
                 "- DIAGNOSTIC_DEEP_DIVE: Errors, troubleshooting, bugs, system health.\n"
                 "- DREAM_RECALL: STRICTLY for retrieving past dream logs/files. NOT for making things up.\n"
                 "- CREATIVE_ASSOCIATION: Brainstorming, 'what if', abstract concepts.\n"
                 "- RELATIONAL_MIRROR: User identity, 'who am i', self-reflection.\n"
-                "- SYNTHESIS_SCAN: News, updates, 'what happened recently'.\n"
+                "- SYNTHESIS_SCAN: REAL-WORLD news, updates, 'what happened recently' in the physical world. NO dossiers or historical deep dives.\n"
                 "- EXPLORATORY_DIALOGUE: General conversation, open-ended.\n\n"
                 f"CONTEXT:\n{ctx_str}\n\n"
                 f"USER QUERY: \"{query}\"\n\nJSON:"

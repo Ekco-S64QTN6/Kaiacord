@@ -10,11 +10,13 @@ Polls both platforms for mentions and generates AI responses using Kaia's person
 import os
 import asyncio
 import json
+import re
 import random
 from pathlib import Path
 from typing import Optional, List, Dict, Any
 from datetime import datetime, timedelta
 from utils.infrastructure.logging.kaia_logger import log_info, log_success, log_warning, log_error, log_action, log_debug
+from utils.core.response_filter import BotSpeakFilter
 from contextlib import asynccontextmanager
 
 # Persona cache
@@ -640,7 +642,9 @@ async def get_random_memories(limit=20):
     from pathlib import Path
     
     memories = []
-    base_dir = Path("knowledge_base/user_logs")
+    # Use absolute path resolution relative to project root
+    project_root = Path(__file__).parent.parent.parent
+    base_dir = project_root / "knowledge_base" / "user_logs"
     
     if not base_dir.exists():
         return []
@@ -694,7 +698,9 @@ async def get_random_dream_reflection(limit=5):
     from pathlib import Path
     
     reflections = []
-    base_dir = Path("knowledge_base/kaia_dreams")
+    # Use absolute path resolution relative to project root
+    project_root = Path(__file__).parent.parent.parent
+    base_dir = project_root / "knowledge_base" / "kaia_dreams"
     
     if not base_dir.exists():
         return []
@@ -752,56 +758,25 @@ async def get_recent_events_for_reflection(run_rag_func, rag_instance):
         return []
 
 def clean_quip(quip_text: str, max_chars: int = 270) -> str:
-    """Clean up generated quips to remove prompt leakage and improve quality"""
-    # Remove any lines that mention archives, logs, fragments, etc.
-    forbidden_phrases = [
-        'looking at', 'scanning', 'logged it', 'archives', 
-        'fragment', 'snippet', 'from the logs', 'i was reading',
-        'this reminded me of', 'based on this', 'in my archives'
-    ]
+    """Clean up generated quips with minimal intervention - persona handles the rest.
     
-    lines = quip_text.split('\n')
-    clean_lines = []
+    Centralized hardening in BotSpeakFilter handles the meta-talk and hallucinations.
+    """
+    # Remove roleplay markers
+    clean_text = re.sub(r'\*.*?\*', '', quip_text)
+    clean_text = re.sub(r'\(.*?\)', '', clean_text)
     
-    for line in lines:
-        line_lower = line.lower()
-        # Skip lines that contain forbidden phrases
-        if any(phrase in line_lower for phrase in forbidden_phrases):
-            continue
-        
-        # Remove reaction words at the start
-        if line_lower.startswith(('yeah.', 'huh.', 'right.', 'so.', 'well.', 'okay.', 'yeah,', 'huh,', 'right,', 'so,', 'well,', 'okay,')):
-            # Find the first punctuation or space after the reaction
-            for mark in ['.', ',', ' ']:
-                idx = line_lower.find(mark)
-                if idx != -1:
-                    line = line[idx + 1:].strip()
-                    break
-        
-        # Remove empty lines
-        if line.strip():
-            clean_lines.append(line)
+    # Standardize spaces and remove newlines
+    clean_text = clean_text.replace('\n', ' ')
+    clean_text = re.sub(r'\s+', ' ', clean_text).strip()
     
-    clean_text = ' '.join(clean_lines)
+    # Apply persona's lowercase rule
+    clean_text = clean_text.lower()
     
     # Remove quotes
     clean_text = clean_text.replace('"', '').replace("'", "")
     
-    # Standardize ellipsis
-    clean_text = clean_text.replace("...", "...")
-    
-    # Ensure it starts with lowercase (persona style)
-    if clean_text and clean_text[0].isupper():
-        clean_text = clean_text[0].lower() + clean_text[1:]
-    
-    # Character limit safety
-    if len(clean_text) > max_chars:
-        truncated = clean_text[:max_chars].rsplit('.', 1)[0] + "."
-        if len(truncated) > max_chars or len(truncated) < max_chars // 2:
-             truncated = clean_text[:max_chars-3].rsplit(' ', 1)[0] + "..."
-        clean_text = truncated
-        
-    return clean_text.strip()
+    return clean_text
 
 async def generate_quip(bot, ollama_client, run_rag_func, rag_instance, is_manual=False, target_channel=None, on_message_func=None):
     """Generate social posts by piping through the FULL Kaia engine.
@@ -866,13 +841,14 @@ async def generate_quip(bot, ollama_client, run_rag_func, rag_instance, is_manua
         dreams = await get_random_dream_reflection(limit=5)
         memories = await get_random_memories(limit=10)
         
-        reflection_target = ""
-        context_type = ""
+        reflection_target = None
+        context_type = None
         
-        # Decide whether to reflect on a dream (news archive) or a memory (chat log)
-        # 70% Dream (news/archive - produces grounded takes), 30% Memory (may be more casual)
+        # 2. DECIDE REFLECTION TARGET (70% dream/news, 30% memory/chat)
+        reflection_target = None
+        context_type = None
+        
         if dreams and random.random() < 0.70:
-            # Prefer dreams - they have actual news content like materials science, Bad Bunny, etc
             dream = random.choice(dreams)
             reflection_target = dream["text"]
             context_type = f"recent news about {dream.get('category', 'something')}"
@@ -881,14 +857,12 @@ async def generate_quip(bot, ollama_client, run_rag_func, rag_instance, is_manua
             reflection_target = memory["text"]
             context_type = "something someone said" if memory["type"] == "heard" else "something I said before"
         elif dreams:
-            # Fallback to dreams if no memories
             dream = random.choice(dreams)
             reflection_target = dream["text"]
             context_type = f"recent news about {dream.get('category', 'something')}"
         
-        # QUALITY CHECK: If reflection target is too short/vague, use a concrete fallback
+        # QUALITY CHECK: Use concrete fallbacks if target is too thin
         if not reflection_target or len(reflection_target) < 30:
-            # Use concrete topics instead of vague aesthetic bullshit
             concrete_fallbacks = [
                 ("the way AI labs keep promising AGI next year like it's going five more minutes in the oven", "tech predictions"),
                 ("how every social platform eventually becomes a shopping mall with worse vibes", "platform decay"),
@@ -898,21 +872,13 @@ async def generate_quip(bot, ollama_client, run_rag_func, rag_instance, is_manua
                 ("how every app update removes a feature someone actually used", "software entropy"),
             ]
             reflection_target, context_type = random.choice(concrete_fallbacks)
-        
-        # 2. BUILD A NATURAL PROMPT that triggers persona-driven response
-        # Frame it as INSPIRATION for a standalone thought, NOT something to reply to
-        prompts = [
-            f"kaia, this crossed your mind: \"{reflection_target}\" - use this as inspiration for a standalone social media post. don't reply to it or reference it directly, just let it spark your own complete thought.",
-            f"kaia, something about {context_type} reminded you of this: \"{reflection_target}\" - write a standalone observation inspired by this. the post should make sense on its own without any context.",
-            f"kaia, you were thinking about {context_type} and this came up: \"{reflection_target}\" - now share your own take as a complete, standalone thought for social media.",
-        ]
-        reflection_prompt = random.choice(prompts)
-        
+
+        # 2. DEFINE LENGTH GUIDANCE (Moved up for prompt construction)
         # Add LENGTH VARIANCE - sometimes short, sometimes thread-worthy
-        # 40% short (single skeet), 40% medium (may need 2 posts), 20% long (2-3 post thread)
+        # 40% short (single skeet), 40% medium (may be 2 posts), 20% long (thread)
         length_roll = random.random()
         
-        # STANDALONE REQUIREMENT: Output must be complete thought, not a reply
+        # STANDALONE REQUIREMENT: Output must be complete thought
         standalone_req = "Your output must be a COMPLETE, STANDALONE thought that makes sense on its own. Don't reference 'this' or reply to the spark text. Write something that would make sense to someone who has no idea what prompted it."
         
         if length_roll < 0.40:
@@ -930,51 +896,95 @@ async def generate_quip(bot, ollama_client, run_rag_func, rag_instance, is_manua
             length_mode = "long"
             length_guidance = f" Really dig into this one. Give me your full take - multiple paragraphs if you want. This could be a whole thread. {standalone_req}"
             max_quip_chars = 900  # ~3 posts worth
+
+        # 3. BUILD DIRECT STANDALONE PROMPTS
+        # These strictly forbid "replying" to the context
+        system_prompt = load_persona()
         
-        reflection_prompt += length_guidance
+        # --- RAG INTEGRATION START ---
+        # Search for related context to inform the opinion (e.g. knowing about Deus Ex endings)
+        try:
+            search_query = ""
+            if "news about" in context_type:
+                search_query = context_type.replace("recent news about ", "")
+            else:
+                # Use the first 10 words of the reflection as the search query
+                search_query = " ".join(reflection_target.split()[:10])
+                
+            if rag_instance and search_query:
+                log_action(f"Contextualizing quip with RAG search for: '{search_query}'")
+                # Use a broader search to get general knowledge + logs
+                rag_results = rag_instance.retrieve(search_query, top_k=3, category="general")
+                
+                if rag_results:
+                    rag_block = "\n\n### RELEVANT KNOWLEDGE & MEMORIES\n"
+                    for node in rag_results:
+                        # Handle NodeWithScore object vs direct node
+                        content = node.node.get_content() if hasattr(node, 'node') else node.get_content()
+                        rag_block += f"- {content[:400].replace(chr(10), ' ')}...\n"
+                    
+                    system_prompt += rag_block
+                    log_success(f"Injected {len(rag_results)} RAG snippets into quip prompt.")
+        except Exception as rag_err:
+            log_warning(f"Failed to inject RAG context for quip: {rag_err}")
+        # --- RAG INTEGRATION END ---
+
+        standalone_prompts = [
+            f"Context (for inspiration only, do not reply to this): {reflection_target}\n"
+            f"Task: Write a standalone social media post. DO NOT reference this context directly.\n"
+            f"Length: {length_guidance}\n"
+            f"Important: No questions, no 'this made me think', no 'what prompted this'. Start with your thought, not a reaction.",
+            
+            f"You're writing a social media post. Something about '{context_type}' made you think.\n"
+            f"Inspiration: \"{reflection_target}\"\n"
+            f"Write a complete thought that stands on its own. No lead-ins, no questions, no references to context.\n"
+            f"Just your take. {length_guidance}",
+            
+            f"Social media post. Be blunt. Complete thought.\n"
+            f"Inspiration: {reflection_target[:200]}...\n"
+            f"Rules: No 'this reminded me', no 'someone said', no questions, no meta-talk.\n"
+            f"{length_guidance}"
+        ]
+        
+        final_prompt = random.choice(standalone_prompts)
         log_debug(f"Quip length mode: {length_mode} (max {max_quip_chars} chars)")
         
-        # 3. PIPE THROUGH MAIN ENGINE
-        # This uses the full persona, RAG, personalization, and all the enrichments
-        if on_message_func:
-            quip = await mock_external_mention(
-                on_message_func=on_message_func,
-                content=reflection_prompt,
-                author_name="Kaia",  # Self-reflection
-                author_id=bot.user.id if bot.user else "kaia_self",
-                platform="internal_reflection"
-            )
-        else:
-            # Fallback: Use direct Ollama with full persona (less ideal but functional)
-            log_warning("No on_message_func provided - falling back to direct generation with full persona")
-            system_prompt = load_persona()
-            
-            messages = [
+        # 4. GENERATE A STANDALONE STATEMENT (not a reply)
+        # We bypass the conversation engine to ensure it's a statement, not a reply
+        log_action(f"Generating persona-driven {length_mode} quip...")
+        response = await ollama_client.chat(
+            model=config.chat_model,
+            messages=[
                 {"role": "system", "content": system_prompt},
-                {"role": "user", "content": reflection_prompt}
-            ]
-            
-            response = await ollama_client.chat(
-                model=config.chat_model,
-                messages=messages,
-                options={
-                    'temperature': 0.85,
-                    'top_p': 0.95,
-                    'num_predict': 500,
-                    'presence_penalty': 0.5,
-                    'frequency_penalty': 0.4
-                }
-            )
-            quip = response['message']['content'].strip()
+                {"role": "user", "content": final_prompt}
+            ],
+            options={
+                'temperature': 0.85,
+                'top_p': 0.95,
+                'num_predict': 500,
+                'presence_penalty': 0.6,
+                'frequency_penalty': 0.5
+            }
+        )
+        quip = response['message']['content'].strip()
         
         if not quip:
             log_warning("Main engine returned empty quip.")
             return
             
-        # 4. CLEAN UP the response (use dynamic max based on length mode)
+        # 5. CLEAN UP and HARDEN
         quip = clean_quip(quip, max_chars=max_quip_chars)
         
-        # Remove any leading "kaia:" or similar artifacts from the response
+        # Apply strict hardening filter
+        harden = BotSpeakFilter()
+        quip = harden.strip_bot_speak(quip)
+        
+        # Ensure it's not a hallucination or refusal
+        if not quip or "too much entropy" in quip:
+            log_warning("Quip failed hardening or hallucination check.")
+            return
+            
+        # Remove any leading artifacts
         quip = quip.strip()
         for prefix in ["kaia:", "kaia says:", "response:"]:
             if quip.lower().startswith(prefix):
@@ -1017,11 +1027,21 @@ async def generate_quip(bot, ollama_client, run_rag_func, rag_instance, is_manua
                 needs_expansion, short_remainder = needs_thread_expansion(quip, min_second_chunk=100)
                 
                 if needs_expansion and on_message_func:
-                    log_info(f"Thread second post too short ({len(short_remainder)} chars), expanding...")
+                    log_info(f"Thread final post too short ({len(short_remainder)} chars), expanding...")
                     
-                    # Get the first chunk to understand context
+                    # Prepare the chunks for the thread
                     chunks = _split_into_thread(quip, max_chars=300)
-                    first_part = chunks[0] if chunks else quip[:300]
+                    if not chunks:
+                        await post_quip_to_bluesky(quip)
+                        return
+
+                    # Context for expansion: everything before the last chunk
+                    # If it's a 2-chunk thread, this is just chunks[0]
+                    # If it's a 3+ chunk thread, join the leading chunks for context
+                    context_parts = chunks[:-1]
+                    first_part = " ".join(context_parts)
+                    if len(first_part) > 1000: # Context safety cap
+                        first_part = "..." + first_part[-1000:]
                     
                     # Ask Kaia to expand on the short remainder
                     expansion_prompt = (
@@ -1050,15 +1070,17 @@ async def generate_quip(bot, ollama_client, run_rag_func, rag_instance, is_manua
                         if expanded and expanded[0].isupper():
                             expanded = expanded[0].lower() + expanded[1:]
                         
-                        # Cap at 300 for the second post
+                        # Cap at 300 for the final post
                         if len(expanded) > 300:
                             expanded = expanded[:297] + "..."
                         
-                        log_success(f"Expanded thread continuation: {expanded[:50]}...")
-                        await post_thread_to_bluesky([first_part, expanded])
+                        # Final thread: chunks minus the short remainder, plus the expanded version
+                        final_thread_chunks = context_parts + [expanded]
+                        log_success(f"Expanded thread into {len(final_thread_chunks)} posts. Continuation: {expanded[:50]}...")
+                        await post_thread_to_bluesky(final_thread_chunks)
                     else:
                         # Expansion failed, just post normally
-                        log_warning("Thread expansion failed, posting with short second chunk")
+                        log_warning("Thread expansion failed, posting original chunks")
                         await post_quip_to_bluesky(quip)
                 else:
                     # Normal case - no expansion needed
@@ -1075,12 +1097,16 @@ async def generate_quip(bot, ollama_client, run_rag_func, rag_instance, is_manua
                 log_error(f"X post failed: {e}")
         
         # 6. LOG the quip to Kaia's user log
-        if bot.user:
+        if bot and hasattr(bot, 'user') and bot.user:
             try:
+                # Use real name or fallback
+                user_id = getattr(bot.user, 'id', 0)
+                user_name = getattr(bot.user, 'name', 'kaia')
+                
                 trigger = "[MANUAL_QUIP]" if is_manual else "[IDLE_REFLECTION]"
                 rag_instance.log_user_interaction(
-                    user_id=bot.user.id,
-                    user_name=bot.user.name,
+                    user_id=user_id,
+                    user_name=user_name,
                     message_content=trigger,
                     bot_response=quip
                 )

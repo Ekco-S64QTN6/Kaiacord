@@ -206,7 +206,7 @@ class DashboardManager:
 
     async def sequenced_boot_tasks(self, run_rag, rag, run_news_update, 
                                    prewarm_main_model, load_persona_async, 
-                                   on_message, news_manager, dream_engine):
+                                   on_message, news_manager, dream_engine, ollama_client):
         """Sequenced boot tasks migrated from Kaiacord.py."""
         log_info("📦 Phase 1/3: Rebuilding knowledge index...")
         try:
@@ -238,7 +238,7 @@ class DashboardManager:
         from utils.social.social_tasks import start_social_tasks
         from utils.core.background_tasks import start_background_core_tasks
         
-        start_social_tasks(self.bot, self.bot.ollama_client if hasattr(self.bot, 'ollama_client') else None, run_rag, rag, on_message)
+        start_social_tasks(self.bot, ollama_client, run_rag, rag, on_message)
         start_background_core_tasks(rag, run_rag, news_manager, dream_engine, load_persona_async)
 
         # Pre-warm RAG (mostly CPU/disk/IO) - Await this so it finishes before Ready

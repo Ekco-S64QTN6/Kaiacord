@@ -13,7 +13,14 @@ from pathlib import Path
 from typing import Optional
 from utils.infrastructure.logging.kaia_logger import log_info, log_success, log_warning, log_error
 
-# Lazy import to avoid blocking startup
+# Move imports to top level to prevent hangs during shutdown/cancellation
+try:
+    from twikit import Client
+except ImportError:
+    log_warning("twikit library not found. X integration will be disabled.")
+    Client = None
+
+# Lazy client instance
 _client = None
 _client_lock = asyncio.Lock()
 _cookies_path = Path("memory/x_cookies.json")
@@ -39,9 +46,11 @@ async def get_x_client():
     
     async with _client_lock:
         if _client is None:
-            try:
-                from twikit import Client
+            if Client is None:
+                log_error("Cannot create X client: twikit not installed.")
+                return None
                 
+            try:
                 username = os.getenv("X_USERNAME")
                 password = os.getenv("X_PASSWORD")
                 

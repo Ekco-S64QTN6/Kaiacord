@@ -3,7 +3,7 @@ import sys
 import os
 sys.path.append(os.getcwd())
 
-from utils.core.response_filter import ResponseStyleHarden
+from utils.core.response_filter import BotSpeakFilter
 
 def test_harden():
     test_cases = [
@@ -19,7 +19,7 @@ def test_harden():
     ]
     
     for input_text, expected in test_cases:
-        result = ResponseStyleHarden.strip_trailing_questions(input_text)
+        result = BotSpeakFilter.strip_trailing_questions(input_text)
         print(f"Input: {input_text}")
         print(f"Result: {result}")
         print(f"Expected: {expected}")

@@ -69,111 +69,92 @@ python Kaiacord.py
 # 🧠 Cognitive Architectures & Synthetic Consciousness
 ### Advanced Systems for Human-Emulating AI Agents
 
-## 1. Cognitive Systems Integration (CSI)
-The CSI is the central nervous system of Kaia, orchestrated by the `MessageProcessor`. It manages the flow between pre-conscious filtering, intent classification, and multi-stage reasoning.
+## 1. Cognitive Processing Pipeline
+The processing pipeline is the central nervous system of Kaia, orchestrated by the `MessageProcessor`. It manages the logical transition from pre-conscious filtering to intent classification and multi-stage self-healing.
 
 ```mermaid
 graph TD
-    Input[User Input] --> CSG[CSI Gatekeeper]
-    CSG --> Class[Internal Monologue / Classification]
-    Class --> RAG[Associative Retrieval]
-    RAG --> SelfHeal[Adversarial Response Validator]
-    SelfHeal --> Output[Human-Like Response]
+    User([User Input]) --> Gatekeeper[CSI Gatekeeper]
+    
+    subgraph DecisionLayer ["1. Internal Monologue (IMM)"]
+        Gatekeeper --> Classify{Intent Classification}
+        Classify --"Fast-Path"--> Strategy[Strategy Selection]
+        Classify --"Full-Path (LLM)"--> Strategy
+    end
+    
+    subgraph RetrievalLayer ["2. Context Synthesis (RAG)"]
+        Strategy --> RAG[Associative Retrieval]
+        RAG --> Context[Persona & Knowledge Grounding]
+    end
+    
+    subgraph ValidationLoop ["3. Self-Healing Validator"]
+        Context --> Gen[Response Generation]
+        Gen --> Validator{Adversarial Check}
+        Validator --"Fictional / Robotic"--> Retry[Scale Temp & Retry]
+        Retry --> Gen
+    end
+    
+    Validator --"Validated"--> Output([Final Response])
+    
 ```
 
-## 2. Internal Monologue Manager (IMM)
-Before Kaia speaks, she "thinks." The IMM handles intent classification through a dual-path system:
-- **Fast-Path**: Instantaneous heuristic-based intent detection.
-- **Full-Path**: LLM-driven deep reasoning to determine persona alignment and knowledge requirements.
+## 2. Memory & Reflection Architecture
+Kaia employs a dual-vector memory system. Raw daily logs are processed nightly into **Deep Reflections**—associative memory nodes that are re-injected into her active RAG context to ground both her conversations and social media presence.
 
 ```mermaid
 graph LR
-    Input --> FP[Fast-Path Classification]
-    Input --> FL[Full-Path Logic]
-    FP --> Decision{Intent Found?}
-    FL --> Decision
-    Decision --> Action[Set Persona Tone & Retrieval Strategy]
-```
+    subgraph Source ["Knowledge Ingestion"]
+        Docs[Manual Docs]
+        Logs[Daily Interactions]
+    end
 
-## 3. The Dream System (Memory Consolidation)
-To emulate human sleep, Kaia runs a nightly **Dream Mode** (3-5 AM). It processes raw interaction logs from the day into **Deep Reflections**—associative memory nodes that are periodically re-injected into her active RAG context.
+    subgraph Storage ["Stateful Knowledge"]
+        Source --> Pipeline[Hybrid Ingestion]
+        Pipeline --> KB[(Knowledge Base)]
+        
+        Logs --"Nightly 3-5 AM"--> Dream[Dream Engine]
+        Dream --> Reflections[(Reflection Store)]
+    end
 
-```mermaid
-sequenceDiagram
-    participant Logs as Daily Logs
-    participant Dream as Dream Engine
-    participant Memory as Reflection Store
-    Dream->>Logs: Scan raw interactions
-    Dream->>Dream: Form deep associations
-    Dream->>Memory: Store "Reflections"
-    Memory-->>RAG: Inject into active context
-```
+    subgraph Retrieval ["Dual-Vector Grounding"]
+        KB --> RAG[Similarity Search]
+        Reflections --> RAG
+        RAG --> Context[Grounded Context]
+    end
 
-## 4. Adversarial Response Validator (Self-Healing)
-Kaia employs a 3-pass **Self-Healing Loop**. This emulates human social inhibition, where she validates her own response against her persona and factual grounding before speaking.
-
-```mermaid
-graph TD
-    Gen[Generate Response] --> Valid[Hallucination Check]
-    Valid -->|Contaminated| Retry[Scale Temperature & Retry]
-    Retry --> Gen
-    Valid -->|Clean| Send[Dispatch Message]
-```
-
-## 5. Social RAG (Memory Mirror)
-For social media, Kaia uses **Social RAG** to project a lived experience. It samples random memories and dream reflections, allowing her "skeets" on Bluesky and X to feel like genuine personal recollections.
-
-```mermaid
-graph LR
-    Trigger[Idle Quip Trigger] --> Mirror[Memory Mirror]
-    Mirror -->|Sample| Memories[Real Past Conversations]
-    Mirror -->|Sample| Reflections[Dream Reflections]
-    Memories --> Post[Persona-Grounded Social Post]
-    Reflections --> Post
-```
-
-## 6. Multi-Vector RAG (Long-term Memory)
-The base of Kaia's memory is a multi-vector RAG system with keyword pollution protection, ensuring she retrieves relevant facts without being distracted by semantic noise.
-
-```mermaid
-graph TD
-    Query --> Embed[Similarity Search]
-    Query --> Filter[Keyword Protection]
-    Embed --> Nodes[Context Nodes]
-    Filter --> Nodes
-    Nodes --> Grounding[Factual Response Grounding]
+    Context --> Chat[Active Chat Response]
+    Context --> Social[Social Memory Mirror]
+    
 ```
 
 ---
 
 ## 🏗️ Architecture Overview
+Kaia is built with a modular service architecture optimized for local GPU inference.
 
 ```mermaid
 graph TB
-    Discord[Discord API] --> Kaiacord[Kaiacord.py]
-    Kaiacord --> DM[DashboardManager]
-    Kaiacord --> MP[MessageProcessor]
-    
-    subgraph CoreLogic ["Core Logic"]
-        RAG[kaia_rag.py]
-        Intel[kaia_intelligence.py]
-        Dream[kaia_dream.py]
+    subgraph External ["Event Mesh"]
+        Discord[Discord API]
+        Social[Social APIs]
     end
-    
-    subgraph Infra ["Infrastructure"]
-        Logging[logging/]
-        System["system/ config, state"]
-        Monitoring[monitoring/]
+
+    subgraph Core ["Kaiacord Orchestrator"]
+        Main[Kaiacord.py]
+        Dashboard[btop-Style Dashboard]
     end
+
+    subgraph Layers ["Service Architecture"]
+    %% Shortened name to prevent clipping
+        Main --> Proc[MessageProcessor]
+        Proc <--> CoreUtils[Intelligence & RAG Core]
+        Proc <--> SocialUtils[Social Responders]
+        Main <--> Infra[Monitoring & Lifecycle]
+    end
+
+    Dashboard --"VRAM/GPU"--> Main
+    Dashboard --"Logs"--> Infra
     
-    MP --> CoreLogic
-    Kaiacord --> Infra
-    DM --> Logging
-    DM --> Monitoring
-    
-    Infra --> Logs[(logs/kaiacord.log)]
-    CoreLogic --> Memory[(memory/)]
-    CoreLogic --> KB[(knowledge_base/)]
 ```
 
 ---

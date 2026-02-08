@@ -175,7 +175,7 @@ def main():
     async def dm_sequenced_boot():
         await dm.sequenced_boot_tasks(
             run_rag, rag, run_news_update, prewarm_main_model, load_persona_async, 
-            on_message, news_manager, dream_engine
+            on_message, news_manager, dream_engine, ollama_client
         )
 
     mode = os.environ.get('KAIA_DASHBOARD', 'curses').lower()

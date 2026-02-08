@@ -15,9 +15,9 @@ os.environ["X_USERNAME"] = "mock_user"
 os.environ["X_PASSWORD"] = "mock_pass"
 os.environ["X_EMAIL"] = "mock_email"
 
-from utils.kaia_rag import KaiaRAG
-from utils.kaia_logger import log_info, log_success, log_error
-from utils.kaia_social_responder import generate_quip, load_persona
+from utils.core.kaia_rag import KaiaRAG
+from utils.infrastructure.logging.kaia_logger import log_info, log_success, log_error
+from utils.social.kaia_social_responder import generate_quip, load_persona
 from utils.infrastructure.system.bot_state import bot_state
 from utils.infrastructure.system.yaml_config import config
 import ollama

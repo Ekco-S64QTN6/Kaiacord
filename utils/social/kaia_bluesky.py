@@ -12,7 +12,14 @@ import asyncio
 from typing import Optional
 from utils.infrastructure.logging.kaia_logger import log_info, log_success, log_warning, log_error, log_debug
 
-# Lazy import to avoid blocking startup
+# Move imports to top level to prevent hangs during shutdown/cancellation
+try:
+    from atproto import AsyncClient, AsyncRequest, models
+except ImportError:
+    log_warning("atproto library not found. Bluesky integration will be disabled.")
+    AsyncClient = AsyncRequest = models = None
+
+# Lazy client instance
 _client = None
 _client_lock = asyncio.Lock()
 
@@ -41,17 +48,28 @@ async def get_bluesky_client(force_new: bool = False):
             log_info("Forcing new Bluesky client session...")
             
         if _client is None:
-            try:
-                from atproto import AsyncClient, AsyncRequest
+            if AsyncClient is None:
+                log_error("Cannot create Bluesky client: atproto not installed.")
+                return None
                 
+            try:
                 handle = os.getenv("BLUESKY_HANDLE")
                 password = os.getenv("BLUESKY_APP_PASSWORD")
                 
-                # Increase timeout from default 5s to 20s to handle orbital network lag
-                request = AsyncRequest(timeout=20.0)
+                # Increase timeout from default 5s to 60s to handle significant network lag
+                request = AsyncRequest(timeout=60.0)
                 _client = AsyncClient(request=request)
-                await _client.login(handle, password)
-                log_success(f"Bluesky client logged in as {handle} (Timeout: 20s)")
+                
+                # Simple retry logic for login
+                for attempt in range(3):
+                    try:
+                        await _client.login(handle, password)
+                        log_success(f"Bluesky client logged in as {handle} (Timeout: 60s, Attempt: {attempt+1})")
+                        break
+                    except Exception as e:
+                        if attempt == 2: raise
+                        log_warning(f"Bluesky login attempt {attempt+1} failed: {e}. Retrying...")
+                        await asyncio.sleep(2 * (attempt + 1))
             except Exception as e:
                 log_error(f"Failed to create Bluesky client ({type(e).__name__}): {e}")
                 import traceback
@@ -68,17 +86,21 @@ def _split_into_thread(text: str, max_chars: int = 300) -> list[str]:
     
     Returns a list of strings, each under max_chars.
     """
+    text = text.strip()
     if len(text) <= max_chars:
         return [text]
     
     import re
     # Split on sentence endings while keeping the punctuation
+    # Improved regex to handle various sentence terminators
     sentences = re.split(r'(?<=[.!?])\s+', text)
     
     chunks = []
     current_chunk = ""
     
     for sentence in sentences:
+        if not sentence: continue
+        
         # Check if adding this sentence would exceed the limit
         candidate = (current_chunk + " " + sentence).strip() if current_chunk else sentence
         
@@ -95,11 +117,15 @@ def _split_into_thread(text: str, max_chars: int = 300) -> list[str]:
                 current_chunk = ""
                 for word in words:
                     candidate = (current_chunk + " " + word).strip() if current_chunk else word
-                    if len(candidate) <= max_chars - 3:  # Leave room for "..."
+                    if len(candidate) <= max_chars - 4:  # Leave room for "..."
                         current_chunk = candidate
                     else:
                         if current_chunk:
-                            chunks.append(current_chunk + "...")
+                            # Add ellipsis if we're cutting mid-thought
+                            if not current_chunk.endswith(('.', '!', '?')):
+                                chunks.append(current_chunk + "...")
+                            else:
+                                chunks.append(current_chunk)
                         current_chunk = word
             else:
                 current_chunk = sentence
@@ -122,7 +148,8 @@ async def post_to_bluesky(text: str) -> tuple[bool, Optional[str]]:
     Returns:
         (success, post_uri or error_message)
     """
-    from atproto import models
+    if models is None:
+        return False, "atproto models not available"
     
     client = await get_bluesky_client()
     
@@ -131,6 +158,7 @@ async def post_to_bluesky(text: str) -> tuple[bool, Optional[str]]:
     
     # Split into thread chunks if needed
     chunks = _split_into_thread(text, max_chars=300)
+    log_debug(f"Split Bluesky message into {len(chunks)} chunks")
     
     try:
         # Post the first chunk
@@ -204,7 +232,8 @@ async def post_thread_to_bluesky(chunks: list[str]) -> tuple[bool, Optional[str]
     Returns:
         (success, first_post_uri or error_message)
     """
-    from atproto import models
+    if models is None:
+        return False, "atproto models not available"
     
     client = await get_bluesky_client()
     
