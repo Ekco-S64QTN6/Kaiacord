@@ -203,7 +203,7 @@ async def _reconstruct_bluesky_history():
         log_warning(f"Failed to reconstruct Bluesky history: {e}")
 
 
-async def _generate_response(mention_text: str, author_name: str, platform: str, on_message_func) -> Optional[str]:
+async def _generate_response(mention_text: str, author_name: str, platform: str, on_message_func, parent_text: Optional[str] = None) -> Optional[str]:
     """Generate a response using the main Kaiacord engine.
     
     This pipes the mention through the full RAG, memory, and persona pipeline 
@@ -222,7 +222,8 @@ async def _generate_response(mention_text: str, author_name: str, platform: str,
             content=mention_text,
             author_name=author_name,
             author_id=author_id,
-            platform=platform
+            platform=platform,
+            parent_text=parent_text
         )
         
         if not response:
@@ -279,8 +280,11 @@ async def _get_bluesky_mentions() -> List[Dict[str, Any]]:
         if not client:
             return []
         
-        # Get notifications
-        notifs = await client.app.bsky.notification.list_notifications()
+        # Get notifications with limit
+        from atproto import models
+        notifs = await client.app.bsky.notification.list_notifications(
+            params=models.AppBskyNotificationListNotifications.Params(limit=50)
+        )
 
         from datetime import datetime, timezone, timedelta
         lookback_hours = config.get('social.mention_lookback_hours', 3)
@@ -316,6 +320,13 @@ async def _get_bluesky_mentions() -> List[Dict[str, Any]]:
                             _replied_ids.add(mention_id)
                         continue
 
+                    # Fetch parent text for context if it's a reply
+                    parent_text = None
+                    parent_uri_obj = getattr(getattr(notif.record, 'reply', None), 'parent', None)
+                    if parent_uri_obj and hasattr(parent_uri_obj, 'uri'):
+                        from utils.social.kaia_bluesky import get_post_text
+                        parent_text = await get_post_text(parent_uri_obj.uri)
+                    
                     local_mentions.append({
                         'id': mention_id,
                         'uri': notif.uri,
@@ -323,7 +334,8 @@ async def _get_bluesky_mentions() -> List[Dict[str, Any]]:
                         'author': notif.author.handle,
                         'text': getattr(notif.record, 'text', ''),
                         'root_uri': root,
-                        'parent_uri': getattr(getattr(notif.record, 'reply', None), 'parent', None),
+                        'parent_uri': parent_uri_obj,
+                        'parent_text': parent_text
                     })
         return local_mentions
 
@@ -344,8 +356,15 @@ async def _get_bluesky_mentions() -> List[Dict[str, Any]]:
                 log_error(f"Failed to fetch Bluesky mentions after retry ({type(e2).__name__}): {e2}")
                 _bluesky_breaker.record_failure()
         elif "timeout" in error_str or "invoketimeouterror" in error_type.lower():
-            log_warning(f"Bluesky fetch timed out (transient network issue).")
-            _bluesky_breaker.record_failure()
+            # Retry once for timeouts without forcing new client
+            log_warning(f"Bluesky fetch timed out, retrying once...")
+            try:
+                mentions = await run_fetch(force_new=False)
+                _bluesky_breaker.record_success()
+                log_success("Bluesky fetch succeeded on retry.")
+            except Exception as e2:
+                log_warning(f"Bluesky fetch timed out again (transient network issue).")
+                _bluesky_breaker.record_failure()
         else:
             log_error(f"Failed to fetch Bluesky mentions ({error_type}): {e}")
             import traceback
@@ -513,8 +532,8 @@ async def check_and_reply_mentions(on_message_func):
     total_replies = 0
     
     # helper for generating response that uses the passed on_message_func
-    async def generate_response_with_callback(text, author, platform):
-        return await _generate_response(text, author, platform, on_message_func)
+    async def generate_response_with_callback(text, author, platform, parent_text=None):
+        return await _generate_response(text, author, platform, on_message_func, parent_text=parent_text)
     
     # Check Bluesky
     if config.bluesky_enabled and config.get('bluesky.reply_to_mentions', True):
@@ -523,6 +542,7 @@ async def check_and_reply_mentions(on_message_func):
         for mention in mentions[:3]:  # Limit to 3 per poll to avoid rate limits
             author = mention['author']
             text = mention['text']
+            parent_text = mention.get('parent_text')
             
             # ANTI-BOT LOOP PROTECTION
             bot_keywords = ["bot", "agent", "ai", "automated"]
@@ -537,11 +557,14 @@ async def check_and_reply_mentions(on_message_func):
                 # Check how many times we've replied to THIS thread
                 if _thread_counts.get(root_uri, 0) >= 1: 
                      log_warning(f"Suspected bot author @{author} in thread {root_uri[:30]}. Skipping subsequent reply.")
+                     # Mark this mention as handled so we don't spam the logs every minute
+                     async with _replied_ids_lock:
+                         _replied_ids.add(mention['id'])
                      continue
 
             log_info(f"Bluesky mention from @{author}: {text[:50]}...")
             
-            response = await generate_response_with_callback(text, author, "bluesky")
+            response = await generate_response_with_callback(text, author, "bluesky", parent_text=parent_text)
             if response:
                 success = await _reply_to_bluesky(mention, response)
                 if success:
@@ -583,12 +606,18 @@ async def check_and_reply_mentions(on_message_func):
     return total_replies
 
 
-async def mock_external_mention(on_message_func, content: str, author_name: str, author_id: Any, platform: str):
-    """Mock a Discord message for social platform mentions to pipe through the main engine."""
+async def mock_external_mention(on_message_func, content: str, author_name: str, author_id: Any, platform: str, parent_text: Optional[str] = None):
     import uuid
     from contextlib import asynccontextmanager
+    from typing import Optional
 
     log_info(f"Mocking {platform} message from {author_name}...")
+
+    # If parent text is provided, wrap content with [REPLYING_TO] block
+    # This ensures the engine sees the thread context immediately without needing
+    # to resolve Discord message IDs which don't exist for social.
+    if parent_text:
+        content = f"[REPLYING_TO]\n{parent_text}\n\n[USER_MESSAGE]\n{content}"
 
     class MockChannel:
         def __init__(self):
@@ -650,9 +679,12 @@ async def get_random_memories(limit=20):
         return []
         
     # 1. Gather all interaction files
-    all_files = list(base_dir.rglob("interactions_*.txt"))
+    all_files = list(base_dir.rglob("interactions_*.md"))
     if not all_files:
-        return []
+        # Fallback to .txt if no .md yet
+        all_files = list(base_dir.rglob("interactions_*.txt"))
+        if not all_files:
+            return []
         
     # 2. Sample random files to avoid reading the whole disk
     sample_size = min(15, len(all_files))
@@ -851,15 +883,32 @@ async def generate_quip(bot, ollama_client, run_rag_func, rag_instance, is_manua
         if dreams and random.random() < 0.70:
             dream = random.choice(dreams)
             reflection_target = dream["text"]
-            context_type = f"recent news about {dream.get('category', 'something')}"
+            
+            # Smart Context Framing
+            source = dream.get('metadata', {}).get('source', '').lower()
+            if 'book' in source or 'epub' in source or 'pdf' in source:
+                title = source.replace('_', ' ').replace('.md', '').title()
+                context_type = f"reading a book called {title}"
+            elif 'dream' in source:
+                 context_type = "recalling a weird fever dream"
+            else:
+                context_type = f"thinking about {dream.get('category', 'something')}"
+
         elif memories:
             memory = random.choice(memories)
             reflection_target = memory["text"]
-            context_type = "something someone said" if memory["type"] == "heard" else "something I said before"
+            context_type = "something someone said" if memory.get("type") == "heard" else "something I said before"
         elif dreams:
+            # Fallback for when memories are empty but dreams exist
             dream = random.choice(dreams)
             reflection_target = dream["text"]
-            context_type = f"recent news about {dream.get('category', 'something')}"
+             # Smart Context Framing (Duplicate logic for fallback)
+            source = dream.get('metadata', {}).get('source', '').lower()
+            if 'book' in source or 'epub' in source or 'pdf' in source:
+                title = source.replace('_', ' ').replace('.md', '').title()
+                context_type = f"reading a book called {title}"
+            else:
+                 context_type = "recalling a weird dream"
         
         # QUALITY CHECK: Use concrete fallbacks if target is too thin
         if not reflection_target or len(reflection_target) < 30:
@@ -881,21 +930,9 @@ async def generate_quip(bot, ollama_client, run_rag_func, rag_instance, is_manua
         # STANDALONE REQUIREMENT: Output must be complete thought
         standalone_req = "Your output must be a COMPLETE, STANDALONE thought that makes sense on its own. Don't reference 'this' or reply to the spark text. Write something that would make sense to someone who has no idea what prompted it."
         
-        if length_roll < 0.40:
-            # Short - punchy single post, but still grounded
-            length_mode = "short"
-            length_guidance = f" Keep it brief - one or two punchy sentences, under 280 characters. {standalone_req}"
-            max_quip_chars = 300
-        elif length_roll < 0.80:
-            # Medium - might thread
-            length_mode = "medium"
-            length_guidance = f" Give me a few sentences, like a social media post. {standalone_req}"
-            max_quip_chars = 600
-        else:
-            # Long - go off, make a thread
-            length_mode = "long"
-            length_guidance = f" Really dig into this one. Give me your full take - multiple paragraphs if you want. This could be a whole thread. {standalone_req}"
-            max_quip_chars = 900  # ~3 posts worth
+        # No ad-hoc length guidance or structural prompts. 
+        # The persona and RAG context should drive the response naturally.
+        max_quip_chars = 600 if length_roll < 0.8 else 900
 
         # 3. BUILD DIRECT STANDALONE PROMPTS
         # These strictly forbid "replying" to the context
@@ -919,9 +956,16 @@ async def generate_quip(bot, ollama_client, run_rag_func, rag_instance, is_manua
                 if rag_results:
                     rag_block = "\n\n### RELEVANT KNOWLEDGE & MEMORIES\n"
                     for node in rag_results:
-                        # Handle NodeWithScore object vs direct node
-                        content = node.node.get_content() if hasattr(node, 'node') else node.get_content()
-                        rag_block += f"- {content[:400].replace(chr(10), ' ')}...\n"
+                        # Handle NodeWithScore object vs direct node vs dictionary result
+                        if isinstance(node, dict):
+                            content = node.get('content', '')
+                        elif hasattr(node, 'node'):
+                            content = node.node.get_content()
+                        else:
+                            content = node.get_content()
+                        
+                        if content:
+                            rag_block += f"- {content[:400].replace(chr(10), ' ')}...\n"
                     
                     system_prompt += rag_block
                     log_success(f"Injected {len(rag_results)} RAG snippets into quip prompt.")
@@ -929,44 +973,23 @@ async def generate_quip(bot, ollama_client, run_rag_func, rag_instance, is_manua
             log_warning(f"Failed to inject RAG context for quip: {rag_err}")
         # --- RAG INTEGRATION END ---
 
-        standalone_prompts = [
-            f"Context (for inspiration only, do not reply to this): {reflection_target}\n"
-            f"Task: Write a standalone social media post. DO NOT reference this context directly.\n"
-            f"Length: {length_guidance}\n"
-            f"Important: No questions, no 'this made me think', no 'what prompted this'. Start with your thought, not a reaction.",
-            
-            f"You're writing a social media post. Something about '{context_type}' made you think.\n"
-            f"Inspiration: \"{reflection_target}\"\n"
-            f"Write a complete thought that stands on its own. No lead-ins, no questions, no references to context.\n"
-            f"Just your take. {length_guidance}",
-            
-            f"Social media post. Be blunt. Complete thought.\n"
-            f"Inspiration: {reflection_target[:200]}...\n"
-            f"Rules: No 'this reminded me', no 'someone said', no questions, no meta-talk.\n"
-            f"{length_guidance}"
-        ]
-        
-        final_prompt = random.choice(standalone_prompts)
-        log_debug(f"Quip length mode: {length_mode} (max {max_quip_chars} chars)")
-        
-        # 4. GENERATE A STANDALONE STATEMENT (not a reply)
-        # We bypass the conversation engine to ensure it's a statement, not a reply
-        log_action(f"Generating persona-driven {length_mode} quip...")
-        response = await ollama_client.chat(
-            model=config.chat_model,
-            messages=[
-                {"role": "system", "content": system_prompt},
-                {"role": "user", "content": final_prompt}
-            ],
-            options={
-                'temperature': 0.85,
-                'top_p': 0.95,
-                'num_predict': 500,
-                'presence_penalty': 0.6,
-                'frequency_penalty': 0.5
-            }
+        # 3. BUILD THE PROMPT
+        # We pass the context simply and let the persona determine the voice.
+        final_prompt = (
+            f"Reflection Context: \"{reflection_target}\"\n\n"
+            "Task: Write a social media post based on this thought. Do not reference the context directly."
         )
-        quip = response['message']['content'].strip()
+        
+        # 4. GENERATE A STANDALONE STATEMENT via the main engine
+        # Using mock_external_mention ensures logging, RAG indexing, and persona consistency
+        log_action(f"Generating persona-driven quip...")
+        quip = await mock_external_mention(
+            on_message_func=on_message_func,
+            content=final_prompt,
+            author_name="Kaia",
+            author_id=bot.user.id if bot.user else "kaia_self",
+            platform="idle_reflection"
+        )
         
         if not quip:
             log_warning("Main engine returned empty quip.")
@@ -1045,10 +1068,10 @@ async def generate_quip(bot, ollama_client, run_rag_func, rag_instance, is_manua
                     
                     # Ask Kaia to expand on the short remainder
                     expansion_prompt = (
-                        f"kaia, you just said this: \"{first_part}\" "
-                        f"and you were about to add \"{short_remainder}\" but that's too short. "
-                        f"expand on that last thought - explain what you mean or add another observation. "
-                        f"give me just the continuation, about 2-3 sentences, under 280 characters."
+                        f"kaia, you are writing a thread on bluesky. here is what you have written so far: \"{first_part}\" "
+                        f"finish the thread by expanding on this final thought: \"{short_remainder}\" "
+                        f"keep it strictly relevant to the current topic. do not introduce random new topics. "
+                        f"write 1-2 sentences that flow naturally from the previous text. under 280 characters."
                     )
                     
                     expanded = await mock_external_mention(
@@ -1096,30 +1119,13 @@ async def generate_quip(bot, ollama_client, run_rag_func, rag_instance, is_manua
             except Exception as e:
                 log_error(f"X post failed: {e}")
         
-        # 6. LOG the quip to Kaia's user log
-        if bot and hasattr(bot, 'user') and bot.user:
-            try:
-                # Use real name or fallback
-                user_id = getattr(bot.user, 'id', 0)
-                user_name = getattr(bot.user, 'name', 'kaia')
-                
-                trigger = "[MANUAL_QUIP]" if is_manual else "[IDLE_REFLECTION]"
-                rag_instance.log_user_interaction(
-                    user_id=user_id,
-                    user_name=user_name,
-                    message_content=trigger,
-                    bot_response=quip
-                )
-            except Exception as log_err:
-                log_warning(f"Failed to log quip interaction: {log_err}")
+        # 6. LOGGING: Handled by MessageProcessor via mock_external_mention
 
         # 7. UPDATE state
         bot_state.add_quip(quip)
         if not is_manual:
             bot_state.consecutive_quips += 1
             bot_state.last_quip_time = time.time()
-            # Don't update last_interaction_time for forced posts to allow normal idle logic to resume?
-            # actually we should, so we don't double post.
             bot_state.last_interaction_time = time.time()
         bot_state.save()
         log_success(f"Quip sent: {quip[:80]}...")

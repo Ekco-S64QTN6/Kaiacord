@@ -109,23 +109,30 @@ class ContextOptimizer:
         }
         self.min_rag_tokens = 1024
         self.min_history_tokens = 512
+        self.summarization_tokens = config.summarization_context_tokens
         
-    def optimize_context(self, category, persona, rag_nodes, history):
+    def optimize_context(self, category, persona, rag_nodes, history, strategy=None):
         """
         Optimize context by treating the persona as a non-negotiable anchor.
         PERSONA IS NEVER TRUNCATED.
         """
-        # 1. Persona is non-negotiable - calculate its actual cost first
+        # 1. Determine Effective Token Limit (Dynamic scaling for Summarization)
+        effective_max_tokens = self.max_tokens
+        if strategy == "SUMMARIZATION":
+            effective_max_tokens = self.summarization_tokens # Boost for full transcript processing (Safe for 12GB VRAM)
+            log_info(f"Summarization strategy detected. Boosting context window to {effective_max_tokens} tokens.")
+
+        # 2. Persona is non-negotiable - calculate its actual cost first
         optimized_persona = persona 
         persona_tokens = len(persona.split()) * self.token_multiplier
         
-        # 2. Reserve tokens for system reinforcement (configurable)
+        # 3. Reserve tokens for system reinforcement (configurable)
         system_reserve = self.system_reserve
         
-        # 3. Calculate remaining budget for RAG and History
-        remaining_budget = self.max_tokens - persona_tokens - system_reserve
+        # 4. Calculate remaining budget for RAG and History
+        remaining_budget = effective_max_tokens - persona_tokens - system_reserve
         
-        # 4. Handle emergency budget depletion
+        # 5. Handle emergency budget depletion
         if remaining_budget < (self.min_rag_tokens + self.min_history_tokens):
             # Persona is massive. Give RAG and History absolute minimums.
             # We might exceed budget slightly, but content integrity (Persona) is priority.
@@ -137,8 +144,14 @@ class ContextOptimizer:
             model_ratios = self.ratios.get(self.model_name, self.ratios['default']).copy()
             
             # Rebalance weights for RAG and History only
-            rag_weight = model_ratios['rag']
-            hist_weight = model_ratios['history']
+            if strategy == "SUMMARIZATION":
+                # For summarization, we want almost ALL RAG. History is irrelevant.
+                rag_weight = 0.95
+                hist_weight = 0.05
+            else:
+                rag_weight = model_ratios['rag']
+                hist_weight = model_ratios['history']
+                
             total_weight = rag_weight + hist_weight
             
             rag_budget = int((rag_weight / total_weight) * remaining_budget)
@@ -337,22 +350,8 @@ class PersonalizationEngine:
         })
 
     def adapt_prompt(self, system_prompt, traits):
-        """Inject style instructions into the system prompt."""
-        adaptation = "\n\n[STYLE_ADAPTATION]\n"
-        if traits['conciseness'] > 0.8:
-            adaptation += "- Be concise. 1-2 sentences is plenty.\n"
-        else:
-            adaptation += "- Depth: Aim for 2-5 sentences for small talk, and 4-10 sentences for complex topics. Do not use conversational filler, but provide meaningful substance or reflection.\n"
-            
-        if traits['technicality'] > 0.7:
-            adaptation += "- Maintain high technicality. Detail the 'why' and 'how'.\n"
-        elif traits['technicality'] < 0.3:
-            adaptation += "- Keep it simple. Avoid jargon unless necessary.\n"
-
-        adaptation += "- DATA GROUNDING: Reflect on RAG context naturally.\n"
-        adaptation += "- FORBIDDEN (Hallucination Indicators): Do not invent personal anecdotes or 'I remember back when' tropes unless referring to a specific log entry.\n"
-            
-        return system_prompt + adaptation
+        """Persona is the anchor. No hardcoded ad-hoc adaptations."""
+        return system_prompt
 
     async def learn_from_interaction(self, user_id, query, response):
         """Update user profile based on interaction characteristics."""
@@ -576,9 +575,13 @@ class IntentParser:
                 r"\b(dossier on|tell me about|biography of|background on)\b",
                 r"\b(mark|elara|thorne|jules|elias)\b"
             ],
-             "DIAGNOSTIC_DEEP_DIVE": [
+            "DIAGNOSTIC_DEEP_DIVE": [
                 r"\b(error|bug|fail|crash|exception|traceback|fix|broken|dogshit)\b",
                 r"\b(logs?|status|restart|boot|system|debug)\b"
+            ],
+            "SUMMARIZATION": [
+                r"^\s*(kaia\s+)?(summarize|summary of|digest|tl;?dr)\b",
+                r"\b(give me a summary|brief on|overview of)\b"
             ]
         }
 
@@ -614,7 +617,7 @@ class IntentParser:
         # For Precise/Diagnostic triggers, we MIGHT still want LLM analysis 
         # to get implied needs, but for now let's trust the fast path 
         # for speed if confidence is high.
-        if fast_intent and fast_intent.suggested_strategy in ["SOCIAL_GREETING", "COMMAND_EXECUTION"]:
+        if fast_intent and fast_intent.suggested_strategy in ["SOCIAL_GREETING", "COMMAND_EXECUTION", "SUMMARIZATION"]:
              return fast_intent
 
         # 2. Layer 2: LLM Intent Analysis

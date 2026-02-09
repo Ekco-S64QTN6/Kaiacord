@@ -11,7 +11,9 @@
 </p>
 
 <p align="center">
-  <strong>A Linux-native, self-hosted Stateful Agent for Discord, featuring an integrated cognitive architecture and autonomous cross-platform presence.</strong>
+  <strong>Kaia is a stateful autonomous agent for Discord that maintains continuity through a multi-layered memory architecture bridging short-term context with long-term RAG knowledge.</strong>
+
+
 </p>
 
 ---

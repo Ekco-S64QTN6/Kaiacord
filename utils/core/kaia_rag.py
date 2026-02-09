@@ -108,7 +108,8 @@ class HybridRetriever:
             
         # Sort and return top_k as NodeWithScore objects
         sorted_nodes = sorted(combined_scores.items(), key=lambda x: x[1], reverse=True)
-        return [NodeWithScore(node=node_map[node_id], score=score) for node_id, score in sorted_nodes[:top_k]]
+        # Scale score by 60 to normalized RRF scores (approx 0-1 range) for consistent thresholding with cosine similarity
+        return [NodeWithScore(node=node_map[node_id], score=score * 60.0) for node_id, score in sorted_nodes[:top_k]]
 
 class CircuitBreaker:
     """Circuit breaker for external services"""
@@ -653,12 +654,42 @@ class KaiaRAG:
                             else:
                                 self.indexed_files[abs_path] = os.path.getmtime(file_path)
                         else:
-                            # Standard loading for non-log files
-                            reader = SimpleDirectoryReader(input_files=[file_path])
-                            docs = reader.load_data()
+                            # Robust file loading with encoding fallbacks
+                            docs = None
+                            try:
+                                reader = SimpleDirectoryReader(input_files=[file_path])
+                                docs = reader.load_data()
+                            except UnicodeDecodeError as unicode_err:
+                                # Try with different encodings
+                                log_warning(f"UTF-8 decode failed for {file_path}, trying fallback encodings...")
+                                
+                                fallback_encodings = ['latin-1', 'cp1252', 'iso-8859-1']
+                                for enc in fallback_encodings:
+                                    try:
+                                        # Read with fallback encoding and re-encode to UTF-8
+                                        with open(file_path, 'r', encoding=enc, errors='replace') as f:
+                                            content = f.read()
+                                        
+                                        # Create Document manually from the content
+                                        from llama_index.core import Document as LlamaDocument
+                                        docs = [LlamaDocument(text=content)]
+                                        log_success(f"Recovered file using {enc} encoding")
+                                        break
+                                    except Exception as enc_err:
+                                        log_debug(f"{enc} encoding failed: {enc_err}")
+                                        continue
+                                
+                                if not docs:
+                                    # Last resort: binary read with best-effort decoding
+                                    log_warning(f"All encodings failed, using binary read with error replacement")
+                                    with open(file_path, 'rb') as f:
+                                        binary_content = f.read()
+                                    content = binary_content.decode('utf-8', errors='replace')
+                                    from llama_index.core import Document as LlamaDocument
+                                    docs = [LlamaDocument(text=content)]
                             
                             if not docs:
-                                raise ValueError("No data loaded from file (empty list)")
+                                raise ValueError("Failed to load file with any encoding")
                                 
                             mtime = os.path.getmtime(file_path)
                             parser = self._get_node_parser_for_doc(itype, file_path)
@@ -930,7 +961,7 @@ class KaiaRAG:
                 
                 # Find existing log file for TODAY
                 today_str = datetime.now().strftime("%Y%m%d")
-                interaction_log_path = os.path.join(user_log_dir, f"interactions_{today_str}.txt")
+                interaction_log_path = os.path.join(user_log_dir, f"interactions_{today_str}.md")
                 
                 # Check for existing log files and handle oversized logs
                 MAX_SIZE = 100 * 1024 * 1024  # 100MB in bytes
@@ -940,9 +971,9 @@ class KaiaRAG:
                     if os.path.getsize(interaction_log_path) >= MAX_SIZE:
                         # Find the next available part number
                         part = 2
-                        while os.path.exists(os.path.join(user_log_dir, f"interactions_{today_str}_part{part}.txt")):
+                        while os.path.exists(os.path.join(user_log_dir, f"interactions_{today_str}_part{part}.md")):
                             part += 1
-                        interaction_log_path = os.path.join(user_log_dir, f"interactions_{today_str}_part{part}.txt")
+                        interaction_log_path = os.path.join(user_log_dir, f"interactions_{today_str}_part{part}.md")
                 else:
                     # Check if there's a recent log from another day to potentially reference, 
                     # but we ALWAYS start a new file for a new day to keep RAG indexing clean.
@@ -956,15 +987,17 @@ class KaiaRAG:
                     log_warning(f"Hallucination detected in response for {user_name}. Cleaning before logging.")
                     bot_response = HallucinationDetector.clean_response(bot_response)
 
-                interaction_text = f"""--- {timestamp} ---
-User ({user_name}): {message_content}
-Kaia: {bot_response}
-
-"""
+                # Initialize frontmatter if file is new
+                is_new_file = not os.path.exists(interaction_log_path)
+                
+                interaction_text = f"User: {message_content}\nKaia: {bot_response}\n\n"
+                
                 # Get current size before appending for the offset
-                file_offset = os.path.getsize(interaction_log_path) if os.path.exists(interaction_log_path) else 0
+                file_offset = os.path.getsize(interaction_log_path) if not is_new_file else 0
                 
                 with open(interaction_log_path, "a", encoding="utf-8") as f:
+                    if is_new_file:
+                        f.write("---\nsummary: \"\"\nkeywords: []\ndocument_type: Transcript\n---\n\n")
                     f.write(interaction_text)
                 
                 log_success(f"Logged interaction for {user_name}")
@@ -1086,6 +1119,75 @@ Kaia: {bot_response}
             known_users = self._known_users_cache
             detected_user = next((u for u in known_users if u.lower() in query_lower), None)
             
+            # --- SUMMARIZATION SPECIAL LOGIC ---
+            # If strategy is SUMMARIZATION, we want to find the SPECIFIC file and retrieve ALL chunks.
+            if strategy == "SUMMARIZATION":
+                target_file_path = None
+                best_match_score = 0
+                
+                # 1. Identify the target file from query
+                # Scan indexed files for name match
+                query_cleaned = query_lower.replace("summarize", "").replace("summary of", "").strip()
+                # Remove common stopwords for cleaner token matching
+                stopwords = {"the", "a", "an", "of", "and", "or", "to", "in", "is", "for", "with", "on", "at", "by", "from", "you", "have", "kaia"}
+                query_tokens = set(re.findall(r'\w+', query_cleaned)) - stopwords
+                
+                for path, mtime in self.indexed_files.items():
+                    fname = os.path.basename(path).lower()
+                    fname_no_ext = os.path.splitext(fname)[0]
+                    fname_tokens = set(re.findall(r'\w+', fname_no_ext)) - stopwords
+                    
+                    if not fname_tokens: continue
+                    
+                    # Exact containment of cleaned query in filename (or vice versa) is prime
+                    if query_cleaned and (query_cleaned in fname or fname_no_ext in query_cleaned):
+                        score = 1.0 # Highest possible
+                        if score > best_match_score:
+                            best_match_score = score
+                            target_file_path = path
+                            continue
+                    
+                    # Fallback: Keyword intersection
+                    common_tokens = query_tokens.intersection(fname_tokens)
+                    if len(common_tokens) >= 2: # At least 2 meaningful words match
+                        # Score is % of FILENAME words found in the query
+                        # (We want to find the file mentioned in the query)
+                        fname_coverage = len(common_tokens) / len(fname_tokens)
+                        
+                        if fname_coverage > 0.5: # If >50% of filename words appear in query
+                            score = fname_coverage 
+                            if score > best_match_score:
+                                best_match_score = score
+                                target_file_path = path
+
+                if target_file_path:
+                    log_action(f"Summarization target identified: {target_file_path}")
+                    # Retrieve ALL nodes for this file from the appropriate index
+                    # Find which index contains this file
+                    target_nodes = []
+                    for itype, index in self.indices.items():
+                        all_docs = list(index.docstore.docs.values())
+                        file_nodes = [
+                            n for n in all_docs 
+                            if n.metadata.get('file_path') == target_file_path or 
+                               os.path.abspath(n.metadata.get('file_path', '')) == os.path.abspath(target_file_path)
+                        ]
+                        if file_nodes:
+                            # Found the file! Sort by chunk index if available to maintain order
+                            file_nodes.sort(key=lambda x: x.metadata.get('chunk_index', 0))
+                            target_nodes.extend(file_nodes)
+                            break # Assume file is in only one index
+                    
+                    if target_nodes:
+                        log_success(f"Retrieved {len(target_nodes)} full-document nodes for summarization.")
+                        return [{
+                            "content": node.get_content(),
+                            "metadata": node.metadata,
+                            "label": f"Full Content: {os.path.basename(target_file_path)}",
+                            "score": 1.0 # Force high score
+                        } for node in target_nodes]
+            # -----------------------------------
+
             # 2. QUERY ENRICHMENT & ID MAPPING
             # Extract Discord IDs: <@123456789> or <@!123456789>
             id_mentions = re.findall(r"<@!?(\d+)>", query)

@@ -58,6 +58,9 @@ INSTRUCTIONS:
 4. ANALYTICAL BENT: Be clear-eyed, amused, or curious, but always grounded in physical reality.
 5. NO HEADERS: No "Reflection:" or "Kaia:". Just the raw text.
 6. STAGING: Do NOT hallucinate that you are in the year 2030, 2040, or any future date. You are reflecting in the present (2026).
+7. NO ROLEPLAY: ABSOLUTELY FORBIDDEN. Do not use asterisks (*nods*) or parentheses (types).
+8. NO ATMOSPHERE: Do not describe the room, the sounds, the servers, or any "atmospheric" flavor text. 
+9. SPOKEN TEXT ONLY: Output only what you would actually say.
 
 YOUR IN-DEPTH REFLECTION:"""
 

@@ -46,6 +46,11 @@ def start_social_tasks(bot, ollama_client, run_rag, rag, on_message):
     _rag = rag
     _on_message = on_message
     
+    import time
+    # Prevent bootup "catch-up" spam by resetting the timer to now.
+    bot_state.last_quip_time = time.time()
+    bot_state.save()
+    
     idle_quip_task.start()
     social_mention_task.start()
     log_action("Social background tasks started.")

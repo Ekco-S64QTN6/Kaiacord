@@ -12,6 +12,7 @@ class MessageContext:
     is_mention: bool = False
     category: str = "GENERAL"
     intent: Optional[Intent] = None
+    parent_context: Optional[str] = None
     
     # Retrieval & Intelligence
     cached_response: Optional[str] = None

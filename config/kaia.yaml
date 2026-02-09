@@ -35,4 +35,4 @@ features:
 
 performance:
   max_consecutive_quips: 5
-  idle_quip_timeout_minutes: 90
+  idle_quip_timeout_minutes: 160

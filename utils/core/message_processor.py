@@ -56,7 +56,12 @@ class MessageProcessor:
     async def process(self, msg):
         """Main entry point for message processing."""
         # 1. Preliminary Checks
-        is_social = getattr(msg, 'platform', 'discord') != 'discord'
+        platform = getattr(msg, 'platform', 'discord')
+        is_social = platform != 'discord' or platform == 'idle_reflection'
+        
+        if is_social:
+            log_debug(f"Processing social message. Platform: {platform}, Author: {msg.author.name}")
+            
         if not is_social and msg.author == self.bot.user:
             return
 
@@ -76,6 +81,10 @@ class MessageProcessor:
 
         # 2. Boot Guard
         if not self.bot_state.boot_complete:
+        
+        
+        
+        
             if not is_social:
                 log_info(f"Message from {msg.author.display_name} ignored - still booting")
                 try:
@@ -94,12 +103,17 @@ class MessageProcessor:
                                  self.news_manager, self.dream_engine, self.bot_state, 
                                  self.config, load_persona_async, 
                                  self.bot.on_message, send_kaia_response):
+            if is_social: log_debug("Social message handled by command dispatcher")
             return
+
+        if is_social: log_debug("Social message passed command dispatch")
 
         # 4. Trigger Logic
         is_mention = "kaia" in msg.content.lower() or (not is_social and self.bot.user.mentioned_in(msg))
         if not is_mention and not is_social:
             return
+            
+        if is_social: log_debug(f"Social message triggger check passed (is_mention={is_mention})")
 
         # 5. Rate Limiting & Shutdown Guard
         if not self.rate_limiter.is_allowed(msg.author.id):
@@ -114,13 +128,32 @@ class MessageProcessor:
         
         # Enriched Context: Extract embed text and resolve links
         enriched_raw = await self.context_enricher.enrich_content(msg)
-        sanitized_content = sanitize_prompt(enriched_raw)
+        
+        # --- SOCIAL CONTEXT UNWRAPPING ---
+        parent_text = None
+        main_content = enriched_raw
+        
+        if "[REPLYING_TO]" in enriched_raw and "[USER_MESSAGE]" in enriched_raw:
+            try:
+                # Extract parent and main message
+                parts = enriched_raw.split("[USER_MESSAGE]")
+                if len(parts) > 1:
+                    parent_part = parts[0].replace("[REPLYING_TO]", "").strip()
+                    main_content = parts[1].strip()
+                    parent_text = parent_part
+                    log_debug(f"Unwrapped social context. Parent: {len(parent_text)} chars")
+            except Exception as e:
+                log_warning(f"Failed to unwrap social context tags: {e}")
+        # ---------------------------------
+        
+        sanitized_content = sanitize_prompt(main_content)
         
         ctx = MessageContext(
             message=msg,
             sanitized_content=sanitized_content,
             is_social=is_social,
             is_mention=is_mention,
+            parent_context=parent_text,
             start_time=time.time()
         )
 
@@ -178,7 +211,7 @@ class MessageProcessor:
     async def _perform_classification(self, ctx: MessageContext):
         """Classify the query using fast-path and prepare full-path task."""
         # 1. Fast Path
-        fast_intent = self.intent_parser.fast_parse(ctx.message.content)
+        fast_intent = self.intent_parser.fast_parse(ctx.sanitized_content)
         
         if fast_intent:
             ctx.intent = fast_intent
@@ -207,7 +240,7 @@ class MessageProcessor:
         channel_mem = list(self.bot_state.channel_memory.get(ctx.channel_id, []))
         context_obj = ContextWeaver.weave(channel_mem)
         
-        ctx.classification_task = asyncio.create_task(self.intent_parser.parse_intent(ctx.message.content, context_obj))
+        ctx.classification_task = asyncio.create_task(self.intent_parser.parse_intent(ctx.sanitized_content, context_obj))
         task_registry.register(task_name, ctx.classification_task)
 
     def _derive_legacy_category(self, intent) -> str:
@@ -311,8 +344,8 @@ class MessageProcessor:
             intent=ctx.intent
         ))
 
-        # News triggers
-        news_inquiry_triggers = ["what's new", "what's up", "any updates", "whats new", "whats up"]
+        # News triggers - Strict list to avoid false positives on small talk (e.g. "what's new")
+        news_inquiry_triggers = ["any updates", "latest news", "current events", "headlines"]
         ask_whats_new = any(trigger in ctx.sanitized_content.lower() for trigger in news_inquiry_triggers)
         
         from utils.core.response_filter import EmergencyContaminationFilter
@@ -402,7 +435,8 @@ class MessageProcessor:
             ctx.category, 
             ctx.system_prompt, 
             ctx.context_nodes, 
-            list(self.bot_state.channel_memory.get(ctx.channel_id, []))
+            list(self.bot_state.channel_memory.get(ctx.channel_id, [])),
+            strategy=ctx.intent.suggested_strategy if ctx.intent else None
         )
         
         # 2. Build Message List
@@ -420,29 +454,21 @@ class MessageProcessor:
         context_str = optimized['rag']
         history_str = optimized['history']
         
-        # Proactive Skepticism logic
-        hallucination_trap = ""
-        has_entities = any(w[0].isupper() for w in ctx.sanitized_content.split() if len(w) > 2)
-        if has_entities and not context_str and "tell me" in ctx.sanitized_content.lower():
-            hallucination_trap = (
-                "\n\n### SYSTEM_SKEPTICISM_TRIGGER\n"
-                "WARNING: No historical or biographical data found for the entities in this query. "
-                "The user may be providing a false premise or an impossible scenario. "
-                "Do NOT agree with the premise if you don't find it in your core knowledge. "
-                "Admit ignorance or say 'that doesn't ring a bell'. Do NOT invent details.\n"
-            )
+        # Core Unification: Persona + RAG + History
+        # Note: All tone, skepticism, and behavioral constraints MUST be in kaia_persona.md
         rag_block = (
             f"### DATA RETRIEVAL FOR: {ctx.author_name}\n"
             f"{context_str or 'No specific historical records found.'}\n"
             "---"
         ) if context_str else f"### CURRENT_USER: {ctx.author_name}\nNo records found."
 
-        # Core Unification: Persona + RAG + History
         full_system_prompt = (
             f"{system_prompt}\n\n"
             f"{rag_block}"
-            f"{hallucination_trap}"
         )
+        
+        if ctx.parent_context:
+            full_system_prompt += f"\n\n[THREAD_CONTEXT]\nThis is the post you are replying to:\n\"{ctx.parent_context}\"\n---"
 
         messages = [
             {"role": "system", "content": full_system_prompt}
@@ -552,7 +578,8 @@ class MessageProcessor:
             self.bot_state.channel_memory[ctx.channel_id].append({"role": "assistant", "content": ctx.response_text})
             
             # Log for RAG
-            await self.run_rag(self.rag.log_user_interaction, ctx.author_id, ctx.author_name, ctx.message.content, ctx.response_text)
+            # CRITICAL FIX: Use sanitized_content to avoid poisoning RAG with [REPLYING_TO] tags
+            await self.run_rag(self.rag.log_user_interaction, ctx.author_id, ctx.author_name, ctx.sanitized_content, ctx.response_text)
             
             self.performance_monitor.stop_timer('total', 'response_time')
         except Exception as e:

@@ -113,6 +113,19 @@ class EmergencyContaminationFilter:
         
         return filtered_response
     
+    @staticmethod
+    def expand_news_query(query: str) -> List[str]:
+        """
+        Expand a news query with related terms for broader RAG retrieval.
+        Returns a list of query variations.
+        """
+        # For now, return empty to prevent aggressive news fetching on simple 'whats new'
+        # unless explicit news keywords are present.
+        keywords = ['news', 'latest', 'headlines', 'world', 'tech']
+        if any(k in query.lower() for k in keywords):
+            return [f"{query} latest news", f"{query} updates"]
+        return []
+    
     @classmethod
     def clean_response_for_discord(cls, response: str) -> str:
         """
@@ -220,6 +233,9 @@ class BotSpeakFilter:
         r"(my\s+apologies|i\s+apologize|deeply\s+embarrassed|significant\s+error|serious\s+failure|caught\s+a\s+significant|flagging\s+this\s+for\s+review)",
         r"(i\s+am\s+programmed\s+to|my\s+purpose\s+is|constructive\s+conversations|strictly\s+prohibited|veered\s+into\s+a\s+realm|against\s+my\s+guidelines|harmful\s+tropes|appropriate\s+and\s+respectful\s+boundaries|facilitate\s+constructive)",
         r"(as\s+an\s+ai|accessing\s+data|retrieving\s+context|according\s+to\s+my\s+logs|operating\s+within|parameters|aspect|relevant\s+information)",
+        r"(not\s+really\s+equipped\s+to\s+handle|assist\s+with\s+technical\s+inquiries|stick\s+to\s+the\s+task\s+at\s+hand|inappropriate\s+and\s+frankly\s+unnecessary|continue\s+our\s+conversation\s+respectfully|ask\s+you\s+to\s+stop)",
+        r"(maintain\s+the\s+persona|constant\s+calibration|breaking\s+the\s+fourth\s+wall|slipping\s+out\s+of\s+character|programmed\s+to\s+recognize|constraints\s+of\s+my\s+design|simulate\s+a\s+conversation)",
+        r"(hum\s+of\s+the\s+servers|neon\s+flicker|terminal\s+glow|silence\s+hangs|ambient\s+noise|environmental\s+vibe|echo\s+of\s+the|atmosphere|low\s+hum|steady\s+pulse)",
         r"^i\s+(remember|used\s+to)\s+back\s+when", 
         r"i\s+used\s+to\s+(have|be|go)",
     ]
@@ -259,6 +275,46 @@ class BotSpeakFilter:
                     break
             
             if not is_robotic:
-                clean_lines.append(line)
+                # FINAL ROLEPLAY STRIPPER: Remove asterisks and suspect parentheses
+                processed_line = line
+                
+                # Strip asterisks (*sighs*, *nods*)
+                processed_line = re.sub(r'\*[^*]+\*', '', processed_line)
+                
+                # Strip parentheses that look like roleplay (actions/descriptions)
+                # Keep technical parens like function calls, error codes, etc.
+                # Heuristic: if the content starts with a verb or is a descriptive phrase, it's likely roleplay
+                def is_roleplay_paren(match):
+                    content = match.group(1).strip().lower()
+                    
+                    # Keep very short or very long parentheses (likely technical)
+                    if len(content) < 3 or len(content) > 100:
+                        return False
+                    
+                    # Keep if it contains code-like symbols
+                    if any(char in content for char in ['=', ':', ';', '{', '}', '[', ']', '<', '>', '/']):
+                        return False
+                    
+                    # Keep if it starts with a number (likely technical)
+                    if content[0].isdigit():
+                        return False
+                    
+                    # Remove if it starts with common roleplay verbs
+                    roleplay_verbs = ['type', 'sigh', 'pause', 'nod', 'smile', 'frown', 'look', 'glance', 
+                                     'think', 'wonder', 'consider', 'tilt', 'lean', 'shift', 'adjust',
+                                     'a long', 'a dry', 'a slight', 'softly', 'quietly', 'slowly']
+                    if any(content.startswith(verb) for verb in roleplay_verbs):
+                        return True
+                    
+                    # Keep everything else (technical content)
+                    return False
+                
+                processed_line = re.sub(r'\((.*?)\)', lambda m: '' if is_roleplay_paren(m) else m.group(0), processed_line)
+                
+                # Cleanup double spaces
+                processed_line = re.sub(r'\s+', ' ', processed_line).strip()
+                
+                if processed_line:
+                    clean_lines.append(processed_line)
         
         return "\n".join(clean_lines).strip()

@@ -289,3 +289,24 @@ async def post_quip_to_bluesky(quip: str) -> bool:
     """
     success, result = await post_to_bluesky(quip)
     return success
+
+
+async def get_post_text(uri: str) -> Optional[str]:
+    """
+    Fetch the text content of a Bluesky post by its URI.
+    Useful for retrieving parent context in replies.
+    """
+    client = await get_bluesky_client()
+    if not client:
+        return None
+        
+    try:
+        # get_posts takes a list of URIs
+        response = await client.app.bsky.feed.get_posts(params=models.AppBskyFeedGetPosts.Params(uris=[uri]))
+        if response.posts:
+            # The record contains the actual text
+            return getattr(response.posts[0].record, 'text', None)
+        return None
+    except Exception as e:
+        log_warning(f"Failed to fetch Bluesky post text for {uri}: {e}")
+        return None

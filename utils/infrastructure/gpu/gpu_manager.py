@@ -154,7 +154,7 @@ class OllamaGPUManager:
             base_options.update({
                 'num_ctx': num_ctx, # Dynamic context sizing
                 'num_batch': 512,
-                'num_predict': -1,
+                'num_predict': 512,
                 'temperature': 0.7,
                 'repeat_penalty': 1.1,
                 'top_k': 40,

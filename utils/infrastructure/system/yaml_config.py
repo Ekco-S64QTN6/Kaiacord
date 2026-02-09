@@ -280,6 +280,11 @@ class YAMLConfig:
         return self.get('performance.max_context_tokens', 24000)
     
     @property
+    def summarization_context_tokens(self) -> int:
+        """Boosted context window for summarization tasks"""
+        return self.get('performance.summarization_context_tokens', 48000)
+    
+    @property
     def startup_news_update(self) -> bool:
         return self.get('startup.news_update', False)
     
