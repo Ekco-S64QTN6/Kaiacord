@@ -199,7 +199,7 @@ Kaia can cross-post to Bluesky and X, and reply to mentions:
 # making her "skeets" and posts feel like genuine personal reflections.
 ```
 
-**Setup**: See [`docs/SOCIAL_MEDIA_SETUP.md`](docs/SOCIAL_MEDIA_SETUP.md)
+**Setup**: See [`docs/02-user-guide/social-media.md`](docs/02-user-guide/social-media.md)
 
 ## 📊 Monitoring & Logging
 
@@ -272,22 +272,20 @@ Kaia automatically manages VRAM:
 2. **Context**: 28,000 token context window (~2.3GB) optimized for 12GB cards.
 3. **Monitor**: `watch -n 1 nvidia-smi` to see VRAM usage
 
-**See**: [`docs/VRAM_MANAGEMENT.md`](docs/VRAM_MANAGEMENT.md) for details
+**See**: [`docs/03-architecture/gpu-management.md`](docs/03-architecture/gpu-management.md) for details
 
 ---
 
 ## 🧪 Testing
 
 ```bash
-# Run all tests
-pytest tests/ -v
+# Verification scripts
+python tools/diagnostics/health_check.py
+python scripts/test_md_logging.py
+python scripts/test_skepticism.py
+python scripts/verify_filter_fix.py
 
-# Run specific suites
-pytest tests/unit/ -v           # Fast unit tests
-pytest tests/integration/ -v    # End-to-end tests
-pytest tests/verification/ -v   # System checks
-
-# Health check
+# System health check
 python tools/health_check.py
 ```
 
