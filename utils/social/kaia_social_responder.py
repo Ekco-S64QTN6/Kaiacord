@@ -973,30 +973,44 @@ async def generate_quip(bot, ollama_client, run_rag_func, rag_instance, is_manua
         # 3. BUILD THE PROMPT
         # We pass the context simply and let the persona determine the voice.
         final_prompt = (
-            f"Reflection Context: \"{reflection_target}\"\n\n"
-            "Task: post a short, blunt thought about this.\n"
-            "Rules:\n"
-            "1. use all lowercase. no hashtags. no emojis.\n"
-            "2. be cynical and grounded. do not be philosophical or poetic.\n"
-            "3. do not start with 'it's fascinating' or 'it is interesting'. start with the point.\n"
-            "4. strictly under 280 characters.\n"
-            "5. do not reference the context source directly, just own the thought.\n"
-            "6. do not sound like a brand account or an influencer. sound like a tired sysadmin."
+            f"Context: \"{reflection_target}\"\n\n"
+            "Task: Post a thought about this.\n"
+            "Guidelines:\n"
+            "1. Speak from your persona (Kaia). Use your natural voice.\n"
+            "2. Use the RAG knowledge provided above if relevant.\n"
+            "3. Do not just summarize the context - have an opinion or a philosophical take on it.\n"
+            "4. Keep it under 280 characters.\n"
+            "5. Use lowercase naturally."
         )
         
-        # 4. GENERATE A STANDALONE STATEMENT via the main engine
-        # Using mock_external_mention ensures logging, RAG indexing, and persona consistency
-        log_action(f"Generating persona-driven quip...")
-        quip = await mock_external_mention(
-            on_message_func=on_message_func,
-            content=final_prompt,
-            author_name="Kaia",
-            author_id=bot.user.id if bot.user else "kaia_self",
-            platform="idle_reflection"
-        )
+        # 4. GENERATE PROPERLY via direct LLM call (Bypassing MessageProcessor to inject RAG/System Prompt)
+        log_action(f"Generating persona-driven quip (Direct LLM)...")
         
+        messages = [
+            {"role": "system", "content": system_prompt},
+            {"role": "user", "content": final_prompt}
+        ]
+        
+        quip = None
+        try:
+            from utils.infrastructure.gpu.gpu_manager import OllamaGPUManager
+            gpu_manager = OllamaGPUManager(config.chat_model)
+            # Use slightly lower temperature for consistency, but high enough for creativity
+            options = gpu_manager.get_gpu_options(for_chat=True)
+            options['temperature'] = 0.75
+            
+            response = await ollama_client.chat(
+                model=config.chat_model,
+                messages=messages,
+                options=options
+            )
+            quip = response['message']['content']
+        except Exception as e:
+            log_error(f"Direct generation failed: {e}")
+            return
+
         if not quip:
-            log_warning("Main engine returned empty quip.")
+            log_warning("LLM returned empty quip.")
             return
             
         # 5. CLEAN UP and HARDEN
