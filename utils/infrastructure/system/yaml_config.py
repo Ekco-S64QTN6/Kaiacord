@@ -411,6 +411,21 @@ class YAMLConfig:
         """Join timeout for classification task in seconds"""
         return self.get('timeouts.classification_join_seconds', 5.0)
 
+    @property
+    def shutdown_timeout(self) -> float:
+        """Overall shutdown timeout in seconds"""
+        return self.get('timeouts.shutdown_seconds', 10.0)
+
+    @property
+    def shutdown_task_cancel_timeout(self) -> float:
+        """Timeout for cancelling async tasks during shutdown in seconds"""
+        return self.get('timeouts.shutdown_task_cancel_seconds', 5.0)
+
+    @property
+    def shutdown_model_unload_timeout(self) -> float:
+        """Timeout for unloading models during shutdown in seconds"""
+        return self.get('timeouts.shutdown_model_unload_seconds', 5.0)
+
     # =========================================================================
     # RAG Scoring & Boosts
     # =========================================================================

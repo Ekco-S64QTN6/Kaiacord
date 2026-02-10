@@ -8,7 +8,6 @@ Diagnostic, testing, and maintenance scripts for Kaiacord development and troubl
 
 | Script | Purpose | Usage |
 |:-------|:--------|:------|
-| `kb_cleanse_user_logs.py` | **Automated log sanitization** with LLM-powered metadata generation | Runs automatically every 4 hours via maintenance_tasks.py |
 | `cleanup_kb.py` | Knowledge base cleanup and organization | `python scripts/cleanup_kb.py` |
 | `sync_sanitized_logs.py` | Sync sanitized logs with RAG index | `python scripts/sync_sanitized_logs.py` |
 | `force_reindex.py` | Force complete RAG re-indexing | `python scripts/force_reindex.py` |
@@ -37,9 +36,9 @@ Diagnostic, testing, and maintenance scripts for Kaiacord development and troubl
 
 | Script | Status | Replaced By |
 |:-------|:-------|:------------|
-| `clean_logs_roleplay.py` | **Deprecated** | `kb_cleanse_user_logs.py` |
-| `clean_logs_aggressive.py` | **Deprecated** | `kb_cleanse_user_logs.py` |
-| `purge_broken_logs.py` | **Deprecated** | `kb_cleanse_user_logs.py` |
+| `clean_logs_roleplay.py` | **Deprecated** | - |
+| `clean_logs_aggressive.py` | **Deprecated** | - |
+| `purge_broken_logs.py` | **Deprecated** | - |
 
 ## 🚀 Quick Reference
 
@@ -50,10 +49,6 @@ Diagnostic, testing, and maintenance scripts for Kaiacord development and troubl
 python scripts/force_reindex.py
 ```
 
-**Clean and enrich all logs:**
-```bash
-python scripts/kb_cleanse_user_logs.py
-```
 
 **Test new features:**
 ```bash

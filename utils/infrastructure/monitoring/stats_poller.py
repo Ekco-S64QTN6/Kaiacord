@@ -56,6 +56,15 @@ class RealTimeStatsPoller:
                     pass
             time.sleep(self.update_interval)
                 
+    def _init_nvml(self):
+        """Initialize NVML once."""
+        try:
+            import pynvml
+            pynvml.nvmlInit()
+            self.nvml_initialized = True
+        except Exception:
+            self.nvml_initialized = False
+
     def _update_all_stats(self):
         """Update all statistics (Non-blocking for the lock)"""
         self.polling_in_progress = True
@@ -64,68 +73,67 @@ class RealTimeStatsPoller:
             
             # 1. System Metrics (psutil is usually fast)
             try:
-                new_stats['cpu_percent'] = psutil.cpu_percent(interval=0.1)
+                new_stats['cpu_percent'] = psutil.cpu_percent(interval=None) # Non-blocking
                 new_stats['memory_mb'] = psutil.Process().memory_info().rss / 1024 / 1024
                 new_stats['uptime_minutes'] = (time.time() - self.start_time) / 60
             except:
                 pass
             
-            # 2. GPU utilization (Subprocess with 1s timeout)
-            try:
-                import subprocess
-                result = subprocess.run(
-                    ['nvidia-smi', '--query-gpu=utilization.gpu,memory.used,memory.total', 
-                     '--format=csv,noheader,nounits'],
-                    capture_output=True, text=True, timeout=1.0 # STRENGTHENED TIMEOUT
-                )
-                if result.returncode == 0:
-                    util, mem_used, mem_total = result.stdout.strip().split(', ')
-                    new_stats['gpu_util'] = float(util.strip())
-                    new_stats['gpu_memory'] = f"{int(mem_used.strip())}/{int(mem_total.strip())} MB"
-                else:
+            # 2. GPU utilization (Using pynvml for efficiency)
+            if not hasattr(self, 'nvml_initialized'):
+                self._init_nvml()
+
+            if self.nvml_initialized:
+                try:
+                    import pynvml
+                    handle = pynvml.nvmlDeviceGetHandleByIndex(0)
+                    util = pynvml.nvmlDeviceGetUtilizationRates(handle)
+                    mem = pynvml.nvmlDeviceGetMemoryInfo(handle)
+                    
+                    new_stats['gpu_util'] = float(util.gpu)
+                    new_stats['gpu_memory'] = f"{int(mem.used / 1024 / 1024)}/{int(mem.total / 1024 / 1024)} MB"
+                except Exception:
+                    # Fallback or transient error
                     new_stats['gpu_util'] = 0.0
                     new_stats['gpu_memory'] = "N/A"
-            except:
-                new_stats['gpu_util'] = 0.0
-                new_stats['gpu_memory'] = "N/A"
+            else:
+                 new_stats['gpu_util'] = 0.0
+                 new_stats['gpu_memory'] = "N/A"
             
-            # 3. Ollama Status (DANGEROUS: CAN HANG)
-            # We use subprocess instead of the library to ensure timeout control
+            # 3. Ollama Status (Using library if possible, falling back to lightweight check)
             try:
-                import subprocess
-                # Check for running models
-                # Use --format json for parsing if needed, but simple grep works for "alive"
-                ps_result = subprocess.run(
-                    ['ollama', 'ps'], 
-                    capture_output=True, text=True, timeout=2.0
-                )
-                
-                if ps_result.returncode == 0:
+                import ollama
+                # Fast check without spawning subprocess
+                models = ollama.list()
+                if models:
                     new_stats['ollama_status'] = "🟢 ONLINE"
-                    # Simple heuristic for active model
-                    lines = ps_result.stdout.strip().split('\n')
-                    if len(lines) > 1: # Header + at least one model
-                        model_name = lines[1].split()[0]
-                        
-                        # VRAM-based status correction
-                        mem_used = 0
-                        if 'gpu_memory' in new_stats and '/' in new_stats['gpu_memory']:
+                    
+                    # Heuristic for active model via VRAM usage since ollama.ps() might not be available in all versions
+                    # or might be slow. 
+                    # If pynvml says > 2GB used, likely a model is loaded.
+                    mem_used = 0
+                    if 'gpu_memory' in new_stats and '/' in new_stats['gpu_memory']:
+                         try:
                             mem_used = int(new_stats['gpu_memory'].split('/')[0])
-                        
-                        if mem_used < 2048:
-                            new_stats['active_model'] = "unloaded (idle)"
-                        elif mem_used < 6144:
-                            new_stats['active_model'] = "warming"
-                        else:
-                            new_stats['active_model'] = model_name
-                    else:
+                         except: pass
+
+                    if mem_used < 2048:
                         new_stats['active_model'] = "unloaded (idle)"
+                    elif mem_used < 6144:
+                        new_stats['active_model'] = "warming"
+                    else:
+                        # If we really want the name, we can try ps(), but let's be careful about timeout
+                        # preventing the hang we saw before.
+                        # For now, just say "Active" if VRAM is high to save overhead.
+                         new_stats['active_model'] = "Active (VRAM high)"
                 else:
-                    new_stats['ollama_status'] = "🔴 OFFLINE"
-                    new_stats['active_model'] = "None"
-            except (subprocess.TimeoutExpired, Exception):
-                new_stats['ollama_status'] = "🔴 TIMEOUT/OFFLINE"
-                new_stats['active_model'] = "None"
+                     new_stats['ollama_status'] = "🔴 OFFLINE"
+                     new_stats['active_model'] = "None"
+
+            except Exception:
+                 # Fallback to offline if connection fails
+                 new_stats['ollama_status'] = "🔴 OFFLINE"
+                 new_stats['active_model'] = "None"
                 
             # 4. Apply Updates Under Lock (MINIMAL DURATION)
             with self.lock:

@@ -33,27 +33,6 @@ async def rag_maintenance_task():
     except Exception as e:
         log_error(f"RAG maintenance failed: {e}")
 
-@tasks.loop(hours=4)
-async def log_enrichment_task():
-    """Periodic log sanitization and metadata enrichment"""
-    log_action("Starting periodic log enrichment and metadata generation...")
-    try:
-        # Run the script as a subprocess to avoid blocking and handle imports easily
-        process = await asyncio.create_subprocess_exec(
-            sys.executable, "scripts/kb_cleanse_user_logs.py",
-            stdout=asyncio.subprocess.PIPE,
-            stderr=asyncio.subprocess.PIPE
-        )
-        stdout, stderr = await process.communicate()
-        
-        if process.returncode == 0:
-            log_success("Log enrichment maintenance complete.")
-        else:
-            log_error(f"Log enrichment failed with exit code {process.returncode}")
-            if stderr:
-                log_debug(f"Stderr: {stderr.decode().strip()}")
-    except Exception as e:
-        log_error(f"Log enrichment task error: {e}")
 
 @tasks.loop(minutes=15)
 async def memory_audit_task():
@@ -115,10 +94,10 @@ def start_maintenance_tasks(rag, personalization_engine, performance_monitor, st
     
     rag_maintenance_task.start()
     memory_audit_task.start()
-    log_enrichment_task.start()
+    # log_enrichment_task.start() # DELETED: Caused high GPU usage
+
     log_action("Maintenance background tasks started.")
 
 def stop_maintenance_tasks():
     rag_maintenance_task.stop()
     memory_audit_task.stop()
-    log_enrichment_task.stop()

@@ -24,11 +24,19 @@ async def news_refresh_task():
             stdout=asyncio.subprocess.PIPE,
             stderr=asyncio.subprocess.PIPE
         )
-        stdout, stderr = await process.communicate()
+        try:
+            stdout, stderr = await process.communicate()
+        except asyncio.CancelledError:
+            process.kill()
+            await process.wait()
+            raise
+
         if process.returncode == 0:
             log_success("Periodic news refresh completed.")
         else:
             log_error(f"Periodic news refresh failed: {stderr.decode()}")
+    except asyncio.CancelledError:
+        raise
     except Exception as e:
         log_error(f"News refresh task failed: {e}")
 
@@ -74,12 +82,17 @@ async def run_news_update():
             stderr=asyncio.subprocess.STDOUT
         )
         
-        async for line in ingest_process.stdout:
-            decoded = line.decode().strip()
-            if decoded and not decoded.startswith("[DEBUG]"):
-                print(f"  {decoded}")
-        
-        await ingest_process.wait()
+        try:
+            async for line in ingest_process.stdout:
+                decoded = line.decode().strip()
+                if decoded and not decoded.startswith("[DEBUG]"):
+                    print(f"  {decoded}")
+            
+            await ingest_process.wait()
+        except asyncio.CancelledError:
+            ingest_process.kill()
+            await ingest_process.wait()
+            raise
 
         # 2. Proceed with automated news update script
         log_action("Running daily news update script...")
@@ -95,13 +108,18 @@ async def run_news_update():
             stderr=asyncio.subprocess.STDOUT  # Merge stderr to stdout
         )
         
-        # Stream output line by line for live progress
-        async for line in process.stdout:
-            decoded = line.decode().strip()
-            if decoded and not decoded.startswith("[DEBUG]"):
-                print(f"  {decoded}")  # Show in dashboard
-        
-        await process.wait()
+        try:
+            # Stream output line by line for live progress
+            async for line in process.stdout:
+                decoded = line.decode().strip()
+                if decoded and not decoded.startswith("[DEBUG]"):
+                    print(f"  {decoded}")  # Show in dashboard
+            
+            await process.wait()
+        except asyncio.CancelledError:
+            process.kill()
+            await process.wait()
+            raise
         
         if process.returncode == 0:
             log_success("Daily news update completed.")
@@ -113,6 +131,8 @@ async def run_news_update():
                 _news_manager.refresh()
         else:
             log_error("Daily news update failed. Check output above.")
+    except asyncio.CancelledError:
+        raise
     except Exception as e:
         log_error(f"Failed to run news update: {e}")
 

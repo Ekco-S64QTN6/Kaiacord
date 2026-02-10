@@ -577,6 +577,9 @@ class KaiaRAG:
                 if norm_path not in self.indexed_files or mtime > self.indexed_files[norm_path]:
                     new_file_paths.append((persona_file, norm_path in self.indexed_files, False, 'persona'))
 
+            # Track which indices actually changed
+            updated_itypes = set()
+
             if not new_file_paths:
                 log_debug("No new documents to index.")
             else:
@@ -596,6 +599,7 @@ class KaiaRAG:
                             print(f"Deleting {len(nodes_to_delete)} old nodes from {itype} for {file_path}")
                             for node_id in nodes_to_delete:
                                 target_index.delete_nodes([node_id])
+                            updated_itypes.add(itype)
                     elif is_log:
                         # Don't spam the individual files
                         log_debug(f"Checking for new content in {itype} log: {file_path}")
@@ -648,6 +652,7 @@ class KaiaRAG:
                                 parser = self._get_node_parser_for_doc(itype, file_path)
                                 nodes = parser.get_nodes_from_documents([doc])
                                 target_index.insert_nodes(nodes)
+                                updated_itypes.add(itype)
                                 
                                 self.indexed_files[abs_path] = mtime
                                 log_success(f"Indexed {len(new_content)} new characters from {itype} log.")
@@ -723,6 +728,8 @@ class KaiaRAG:
                                     nodes = parser.get_nodes_from_documents([sub_doc])
                                     target_index.insert_nodes(nodes)
                             
+                            target_index.insert_nodes(nodes)
+                            updated_itypes.add(itype)
                             self.indexed_files[abs_path] = mtime
                             log_success(f"Indexed {file_path} into {itype} index.")
                             if itype != 'logs':
@@ -764,6 +771,7 @@ class KaiaRAG:
                                             parser = self._get_node_parser_for_doc(itype, md_path)
                                             nodes = parser.get_nodes_from_documents([doc])
                                             target_index.insert_nodes(nodes)
+                                        updated_itypes.add(itype)
                                         self.indexed_files[os.path.abspath(md_path)] = mtime
                                         # Also track original PDF as "handled" so we don't retry
                                         self.indexed_files[os.path.abspath(file_path)] = orig_mtime
@@ -797,12 +805,6 @@ class KaiaRAG:
 
                 # Mark for persistence
                 self.persist_needed = True
-                
-                # Consolidate updates by index type
-                updated_itypes = set()
-                if new_file_paths:
-                    for _, _, _, itype in new_file_paths:
-                        updated_itypes.add(itype)
 
                 # Selective BM25 cache invalidation & Consolidated Persistence
                 for itype in updated_itypes:
@@ -930,7 +932,7 @@ class KaiaRAG:
             log_error(f"Error adding memory: {e}")
             return False
 
-    @thread_safe_rag_operation
+    # Removed @thread_safe_rag_operation to ensure file writing always happens
     def log_user_interaction(self, user_id: int, user_name: str, message_content: str, bot_response: str, is_vision_response: bool = False) -> bool:
         """Log user interaction to a single file per user, rotating at 100MB.
         
@@ -938,6 +940,8 @@ class KaiaRAG:
             is_vision_response: If True, marks this as a vision analysis response
                                to be filtered from non-vision RAG retrievals.
         """
+        # Acquire lock unconditionally to ensure we write to disk. 
+        # Persistence is more important than non-blocking here.
         with self._lock:
             # Sanitize user_name for filesystem
             safe_user_name = "".join([c for c in user_name if c.isalnum() or c in (' ', '-', '_')]).strip().replace(' ', '_')
@@ -990,54 +994,33 @@ class KaiaRAG:
                 # Initialize frontmatter if file is new
                 is_new_file = not os.path.exists(interaction_log_path)
                 
+                header_text = ""
+                if is_new_file:
+                    header_text = "---\nsummary: \"\"\nkeywords: []\ndocument_type: Transcript\n---\n\n"
+                
                 interaction_text = f"User: {message_content}\nKaia: {bot_response}\n\n"
                 
                 # Get current size before appending for the offset
-                file_offset = os.path.getsize(interaction_log_path) if not is_new_file else 0
+                # IF new file, offset is length of header (since we write header then interaction)
+                file_offset = os.path.getsize(interaction_log_path) if not is_new_file else len(header_text)
                 
                 with open(interaction_log_path, "a", encoding="utf-8") as f:
                     if is_new_file:
-                        f.write("---\nsummary: \"\"\nkeywords: []\ndocument_type: Transcript\n---\n\n")
+                        f.write(header_text)
                     f.write(interaction_text)
                 
-                log_success(f"Logged interaction for {user_name}")
+                log_success(f"Logged interaction for {user_name} (Disk Only)")
                 
-                # INCREMENTAL INSERT: Add the interaction to the index
-                mtime = os.path.getmtime(interaction_log_path)
+                # OPTIMIZATION: Defer indexing to the periodic refresh cycle.
+                # Doing insert_nodes() here triggers synchronous GPU embedding generation,
+                # which blocks the event loop and competes with the detailed Intent Analysis.
+                # Since short-term context handles "what did I just say", we don't need
+                # milliseconds-fresh RAG for logs.
                 
-                # Determine source type
-                source_type = "memory" if "[REMEMBER_COMMAND]" in message_content else "user_logs"
-                
-                new_doc = Document(
-                    text=interaction_text,
-                    metadata={
-                        "source": source_type,
-                        "itype": "logs",
-                        "user_id": str(user_id),
-                        "user_name": user_name,
-                        "timestamp": timestamp,
-                        "file_path": os.path.abspath(interaction_log_path),
-                        "last_modified_at": mtime,
-                        "file_offset": file_offset,
-                        "content_length": len(interaction_text),
-                        "is_vision_response": is_vision_response
-                    }
-                )
-                
-                # Use specialized node parser for logs
-                parser = self._get_node_parser_for_doc('logs', interaction_log_path)
-                nodes = parser.get_nodes_from_documents([new_doc])
-                self.indices['logs'].insert_nodes(nodes)
-                
-                # Clear BM25 cache for logs
-                if 'logs' in self.bm25_cache:
-                    self.bm25_cache['logs'] = None
-                
-                self.indexed_files[os.path.abspath(interaction_log_path)] = mtime
-                self.persist_needed = True
-                log_success(f"Interaction indexed for user {user_name} into logs index")
+                # self.indices['logs'].insert_nodes(nodes) 
                 
                 return True
+
             except Exception as e:
                 log_error(f"Error logging user interaction: {e}")
                 import traceback

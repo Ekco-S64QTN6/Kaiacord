@@ -31,10 +31,15 @@ class CleanShutdown:
         self.stop_event = None
         self._shutdown_complete = threading.Event()
         self._setup_complete = False
+        self.rag = None
         
     def register_stats_poller(self, poller):
         """Register stats poller for cleanup"""
         self.stats_poller = poller
+
+    def register_rag(self, rag_instance):
+        """Register RAG instance for persistence on shutdown"""
+        self.rag = rag_instance
     
     def register_bot_task(self, task):
         """Register bot task for cleanup"""
@@ -95,11 +100,23 @@ class CleanShutdown:
         Call this from an event loop before exiting.
         """
         log_info("  🔄 Running async shutdown...")
+
+        # 0. Persist RAG Index (Critical Data Safety)
+        if self.rag:
+            try:
+                log_info("  💾 Persisting RAG indices...")
+                await asyncio.to_thread(self.rag.persist, force=True)
+                log_success("  ✅ RAG indices saved")
+            except Exception as e:
+                log_error(f"  ❌ Error persisting RAG: {e}")
         
         # 1. Cancel all registered tasks via registry
         try:
             from utils.infrastructure.monitoring.async_task_registry import task_registry
-            cancelled = await task_registry.cancel_all(timeout=5.0)
+            from utils.infrastructure.system.yaml_config import config
+            
+            timeout = config.shutdown_task_cancel_timeout
+            cancelled = await task_registry.cancel_all(timeout=timeout)
             log_info(f"  ✅ Cancelled {cancelled} async tasks")
         except ImportError:
             log_warning("  ⚠️  Task registry not available")
@@ -115,7 +132,8 @@ class CleanShutdown:
             client = ollama.AsyncClient()
             log_info(f"  🔄 Unloading Ollama model: {config.chat_model}")
             # keep_alive=0 tells Ollama to release the model immediately
-            await asyncio.wait_for(client.generate(model=config.chat_model, keep_alive=0), timeout=5.0)
+            timeout = config.shutdown_model_unload_timeout
+            await asyncio.wait_for(client.generate(model=config.chat_model, keep_alive=0), timeout=timeout)
             log_info("  ✅ Ollama VRAM released")
         except Exception as e:
             log_warning(f"  ⚠️  Failed to unload Ollama model: {e}")
@@ -179,12 +197,16 @@ class CleanShutdown:
         if not self.shutting_down:
             self.shutdown_handler(None, None)
     
-    def wait_for_shutdown(self, timeout: float = 10.0) -> bool:
+    def wait_for_shutdown(self, timeout: float = None) -> bool:
         """
         Wait for shutdown to complete.
         
         Returns True if shutdown completed, False if timed out.
         """
+        if timeout is None:
+             from utils.infrastructure.system.yaml_config import config
+             timeout = config.shutdown_timeout
+             
         return self._shutdown_complete.wait(timeout=timeout)
 
 

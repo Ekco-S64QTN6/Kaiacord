@@ -789,26 +789,23 @@ async def get_recent_events_for_reflection(run_rag_func, rag_instance):
     except Exception:
         return []
 
-def clean_quip(quip_text: str, max_chars: int = 270) -> str:
-    """Clean up generated quips with minimal intervention - persona handles the rest.
+def clean_quip(quip_text, max_chars=280):
+    """Clean up generated quips - trusting persona/model now per user request.
     
     Centralized hardening in BotSpeakFilter handles the meta-talk and hallucinations.
     """
-    # Remove roleplay markers
-    clean_text = re.sub(r'\*.*?\*', '', quip_text)
-    clean_text = re.sub(r'\(.*?\)', '', clean_text)
+    if not quip_text:
+        return ""
+
+    # Pass-through - do not strip asterisks or parens
+    # This was causing grammar errors (stripping "in *2024*")
     
     # Standardize spaces and remove newlines
-    clean_text = clean_text.replace('\n', ' ')
+    clean_text = quip_text.replace('\n', ' ')
     clean_text = re.sub(r'\s+', ' ', clean_text).strip()
     
-    # Apply persona's lowercase rule
-    clean_text = clean_text.lower()
-    
-    # Remove quotes
-    clean_text = clean_text.replace('"', '').replace("'", "")
-    
-    return clean_text
+    return clean_text[:max_chars]
+
 
 async def generate_quip(bot, ollama_client, run_rag_func, rag_instance, is_manual=False, target_channel=None, on_message_func=None):
     """Generate social posts by piping through the FULL Kaia engine.

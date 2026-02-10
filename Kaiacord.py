@@ -88,9 +88,10 @@ def initialize_logic_layer():
     intent_parser = IntentParser(ollama_client, model=config.chat_model, timeout=config.classification_timeout)
     # ... (rest of the initializations) ...
     response_optimizer = ResponseOptimizer()
-    context_optimizer = ContextOptimizer(model_name=config.chat_model, max_tokens=config.max_context_tokens or 24000)
+    context_optimizer = ContextOptimizer(model_name=config.chat_model, max_tokens=config.max_context_tokens)
     
     rag = KaiaRAG()
+    shutdown_manager.register_rag(rag)
     dream_engine = DreamEngine(config, rag)
     relevance_feedback = RelevanceFeedback(rag)
     
@@ -126,7 +127,7 @@ async def prewarm_main_model():
 
 @bot.event
 async def on_ready():
-    from utils.infrastructure.system.file_watcher import start_watcher
+    # start_watcher removed
     from utils.infrastructure.system.maintenance_tasks import start_maintenance_tasks
     
     global rag, personalization_engine, performance_monitor
@@ -141,7 +142,6 @@ async def on_ready():
         log_error("CRITICAL: Bot ready but RAG layer not initialized!")
         return
 
-    start_watcher(rag, asyncio.get_running_loop(), task_registry=task_registry)
     start_maintenance_tasks(rag, personalization_engine, performance_monitor, None, rate_limiter, None)
 
 @bot.event

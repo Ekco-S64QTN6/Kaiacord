@@ -91,12 +91,13 @@ class ModelWarmPool:
 
 class ContextOptimizer:
     """Model-aware token allocation and context trimming."""
-    def __init__(self, model_name="gemma3:12b", max_tokens=28000):
+    def __init__(self, model_name="gemma3:12b", max_tokens=None):
         # Lazy import to avoid circular import during module loading
         from utils.infrastructure.system.yaml_config import config
         
         self.model_name = model_name
-        self.max_tokens = max_tokens
+        # Use config as single source of truth if not explicitly provided
+        self.max_tokens = max_tokens if max_tokens is not None else config.max_context_tokens
         # Token estimation multiplier (configurable for different languages/content types)
         self.token_multiplier = config.token_multiplier
         # Reserved tokens for system reinforcement rules
@@ -632,27 +633,25 @@ class IntentParser:
                 ctx_str = f"Active Entities: {', '.join(context.active_entities)}\nLast Topic: {context.last_turns[-1] if context.last_turns else 'None'}"
 
             prompt = (
-                "SYSTEM: You are an Intent Analysis Engine. Analyze the user query.\n"
-                "OUTPUT FORMAT: JSON ONLY.\n"
+                "SYSTEM: You are an Intent Analysis Engine. JSON OUTPUT ONLY.\n"
                 "{\n"
                 "  \"explicit_intent\": \"literal meaning\",\n"
-                "  \"implied_needs\": [\"underlying need 1\", \"need 2\"],\n"
-                "  \"emotional_context\": \"frustrated|curious|neutral|urgent\",\n"
-                "  \"temporal_focus\": \"past|present_immediate|future|theoretical\",\n"
-                "  \"relational_context\": \"admin|social|knowledge_seeking\",\n"
+                "  \"implied_needs\": [\"need1\", \"need2\"],\n"
+                "  \"emotional_context\": \"neutral|urgent|frustrated\",\n"
+                "  \"temporal_focus\": \"present_immediate\",\n"
+                "  \"relational_context\": \"general\",\n"
                 "  \"suggested_strategy\": \"PRECISE_RECALL|DIAGNOSTIC_DEEP_DIVE|DREAM_RECALL|CREATIVE_ASSOCIATION|RELATIONAL_MIRROR|SYNTHESIS_SCAN|EXPLORATORY_DIALOGUE\"\n"
                 "}\n\n"
                 "STRATEGIES:\n"
-                "- PRECISE_RECALL: Specific facts, names, dates, definitions, biographies, dossiers.\n"
-                "- DIAGNOSTIC_DEEP_DIVE: Errors, troubleshooting, bugs, system health.\n"
-                "- DREAM_RECALL: STRICTLY for retrieving past dream logs/files. NOT for making things up.\n"
-                "- CREATIVE_ASSOCIATION: Brainstorming, 'what if', abstract concepts.\n"
-                "- RELATIONAL_MIRROR: User identity, 'who am i', self-reflection.\n"
-                "- SYNTHESIS_SCAN: REAL-WORLD news, updates, 'what happened recently' in the physical world. NO dossiers or historical deep dives.\n"
-                "- EXPLORATORY_DIALOGUE: General conversation, open-ended.\n\n"
-                f"CONTEXT:\n{ctx_str}\n\n"
-                f"USER QUERY: \"{query}\"\n\nJSON:"
+                "- PRECISE_RECALL: Facts/bios/dates.\n"
+                "- DIAGNOSTIC_DEEP_DIVE: Bugs/logs/errors.\n"
+                "- DREAM_RECALL: Retrieve dreams.\n"
+                "- SYNTHESIS_SCAN: Real-world news/events.\n"
+                "- EXPLORATORY_DIALOGUE: General chat.\n\n"
+                f"CONTEXT: {ctx_str[:200]}\n"
+                f"QUERY: \"{query}\"\nJSON:"
             )
+
 
             response = await self.ollama_client.chat(
                 model=self.classification_model,

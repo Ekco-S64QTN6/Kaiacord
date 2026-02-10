@@ -152,3 +152,4 @@ yarl==1.22.0
 zipp==3.23.0
 zstandard==0.25.0
 browser_cookie3>=0.19.1
+nvidia-ml-py==13.590.48
