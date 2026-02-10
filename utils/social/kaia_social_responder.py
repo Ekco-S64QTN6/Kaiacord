@@ -974,7 +974,14 @@ async def generate_quip(bot, ollama_client, run_rag_func, rag_instance, is_manua
         # We pass the context simply and let the persona determine the voice.
         final_prompt = (
             f"Reflection Context: \"{reflection_target}\"\n\n"
-            "Task: Write a social media post based on this thought. Do not reference the context directly."
+            "Task: post a short, blunt thought about this.\n"
+            "Rules:\n"
+            "1. use all lowercase. no hashtags. no emojis.\n"
+            "2. be cynical and grounded. do not be philosophical or poetic.\n"
+            "3. do not start with 'it's fascinating' or 'it is interesting'. start with the point.\n"
+            "4. strictly under 280 characters.\n"
+            "5. do not reference the context source directly, just own the thought.\n"
+            "6. do not sound like a brand account or an influencer. sound like a tired sysadmin."
         )
         
         # 4. GENERATE A STANDALONE STATEMENT via the main engine
