@@ -265,7 +265,8 @@ cp my_docs.pdf knowledge_base/
 # Kaia automatically detects and indexes new files
 
 # Force re-index
-python tools/maintenance/refresh_rag_index.py
+# Force re-index
+python tools/maintenance/reindex_rag.py
 ```
 
 ### GPU Management (12GB VRAM)
@@ -282,13 +283,14 @@ Kaia automatically manages VRAM:
 
 ```bash
 # Verification scripts
-python tools/diagnostics/health_check.py
+# Verification scripts
+python tools/maintenance/health_check.py
 python scripts/test_md_logging.py
 python scripts/test_skepticism.py
 python scripts/verify_filter_fix.py
 
 # System health check
-python tools/health_check.py
+python tools/maintenance/health_check.py
 ```
 
 ---
@@ -309,11 +311,14 @@ Kaiacord/
 ├── memory/                  # Persistent JSON data (Cache, State)
 ├── logs/                    # ONE LOG FILE: kaiacord.log
 ├── tools/                   # Standalone utilities
-│   ├── maintenance/         # RAG refresh, News cleanup
-│   ├── diagnostics/         # System checks
-│   └── tests/               # Dedicated verification scripts
-├── tests/                   # Pytest suite
-└── docs/                    # Detailed documentation
+│   ├── maintenance/         # RAG refresh, News cleanup, Health check
+│   ├── diagnostics/         # Categorized scan & trigger tools
+│   ├── tests/               # Dedicated Pytest suite & verification scripts
+│   │   ├── unit/            # Component unit tests
+│   │   ├── integration/     # End-to-end flow tests
+│   │   ├── verification/    # Logic & isolation verification
+│   │   └── archive/         # Legacy & reference tests
+├── docs/                    # Detailed documentation
 ```
 
 ---

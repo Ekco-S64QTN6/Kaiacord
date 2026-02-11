@@ -5,7 +5,8 @@ import time
 from pathlib import Path
 
 # Add project root to path
-sys.path.append(str(Path(__file__).parent.parent))
+sys.path.insert(0, os.path.abspath(os.path.join(os.path.dirname(__file__), '../../')))
+
 
 # Inject dummy env vars to bypass config validation
 os.environ["DISCORD_TOKEN"] = "mock_token"

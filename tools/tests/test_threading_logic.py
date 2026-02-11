@@ -1,5 +1,12 @@
 import pytest
+import sys
+import os
+from pathlib import Path
 from unittest.mock import Mock, AsyncMock, patch
+
+# Add project root to path
+sys.path.append(str(Path(__file__).parent.parent.parent))
+
 from utils.social.kaia_bluesky import _split_into_thread, needs_thread_expansion
 
 def test_split_into_thread_basic():
@@ -68,6 +75,7 @@ async def test_generate_quip_expansion_preserves_middle_chunks():
     mock_ollama = AsyncMock()
     mock_rag = Mock()
     mock_rag.log_user_interaction = Mock()
+    mock_rag.get_recent_highlights = AsyncMock(return_value=[])
     
     # Mock config
     mock_config = Mock()
@@ -102,11 +110,22 @@ async def test_generate_quip_expansion_preserves_middle_chunks():
          patch('utils.social.kaia_social_responder.get_random_memories', AsyncMock(return_value=[])), \
          patch('utils.social.kaia_social_responder.mock_external_mention', AsyncMock(return_value="expanded text")), \
          patch('utils.social.kaia_social_responder.clean_quip', lambda q, **kwargs: q), \
-         patch('utils.social.kaia_social_responder.BotSpeakFilter', Mock(return_value=Mock(harden=lambda x: x))), \
-         patch('utils.social.kaia_bluesky.post_thread_to_bluesky', AsyncMock()) as mock_post_thread, \
-         patch('utils.social.kaia_bluesky.post_quip_to_bluesky', AsyncMock()) as mock_post_quip:
+         patch('utils.social.kaia_social_responder.is_interesting_post', return_value=True), \
+         patch('utils.social.kaia_social_responder.is_too_vague', return_value=False), \
+         patch('utils.social.kaia_bluesky.post_thread_to_bluesky', AsyncMock(return_value=(True, "mock_uri"))) as mock_post_thread:
+
+
         
-        await generate_quip(mock_bot, mock_ollama, None, mock_rag, is_manual=True, on_message_func=mock_on_message)
+        class MockCtx:
+            def __init__(self):
+                self.bot = mock_bot
+                self.ollama_client = mock_ollama
+                self.rag = mock_rag
+                self.bot_state = mock_state
+                self.config = mock_config
+                
+        ctx = MockCtx()
+        await generate_quip(ctx, is_manual=True, on_message_func=mock_on_message)
         
         # Verify mock_post_thread was called (meaning expansion happened)
         if not mock_post_thread.called:
@@ -127,3 +146,5 @@ async def test_generate_quip_expansion_preserves_middle_chunks():
         assert "A" * 10 in called_chunks[0]
         assert "B" * 10 in called_chunks[1]
         assert "expanded text" in called_chunks[2]
+
+

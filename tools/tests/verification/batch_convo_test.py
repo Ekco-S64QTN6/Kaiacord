@@ -4,17 +4,21 @@ import os
 from pathlib import Path
 
 # Add project root to path
-sys.path.append(str(Path(__file__).parent.parent.parent.parent))
+# Add project root to path
+sys.path.insert(0, os.path.abspath(os.path.join(os.path.dirname(__file__), '../../../')))
 
 from utils.core.kaia_rag import KaiaRAG
-from utils.core.kaia_intelligence import QueryClassifier
-from utils.core.message_processor import NEWS_AUTO_TRIGGER_ENABLED
+from utils.core.kaia_intelligence import IntentParser
+from utils.infrastructure.system.yaml_config import config
 
 async def run_batch_test():
     print("\n--- Starting Batch Conversational Test (10 Queries) ---\n")
     
     rag = KaiaRAG()
-    classifier = QueryClassifier()
+    import ollama
+    ollama_client = ollama.AsyncClient()
+    parser = IntentParser(ollama_client, model=config.chat_model)
+
     
     # 10 Random questions that should NOT trigger news
     questions = [
@@ -35,11 +39,13 @@ async def run_batch_test():
     for i, query in enumerate(questions, 1):
         print(f"Test {i}: \"{query}\"")
         
-        # Determine category
-        category = await classifier.classify(query)
+        # Determine intent
+        intent = await parser.parse_intent(query)
+        strategy = intent.suggested_strategy
         
         # Determine if it SHOULD be a news query (none of these should be)
-        is_news_query = NEWS_AUTO_TRIGGER_ENABLED and (category == 'news' or any(word in query.lower() for word in ['news', 'latest', 'update']))
+        is_news_query = config.news_auto_trigger and (strategy == 'SYNTHESIS_SCAN' or any(word in query.lower() for word in ['news', 'latest', 'update']))
+
         
         # Retrieve results using our FIXED logic: general queries don't include news
         # In Kaiacord.py, this is: include_news=False
@@ -53,10 +59,11 @@ async def run_batch_test():
         news_found = any("News:" in str(res) or "Latest News:" in str(res) or "news_brief" in str(res).lower() for res in results)
         
         if not news_found and not is_news_query:
-            print(f"  ✅ PASS: No news shoehorned. Category: {category}")
+            print(f"  ✅ PASS: No news shoehorned. Strategy: {strategy}")
             pass_count += 1
         else:
-            print(f"  ❌ FAIL: Suggestion of news or incorrect classification! Category: {category}, News Found: {news_found}")
+            print(f"  ❌ FAIL: Suggestion of news or incorrect classification! Strategy: {strategy}, News Found: {news_found}")
+
             
         # Briefly list what WAS found
         sources = []

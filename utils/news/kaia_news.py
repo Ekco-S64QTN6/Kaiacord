@@ -212,8 +212,13 @@ class NewsManager:
                     
                 current_items = []
             elif current_section:
+                # SKIP metadata quotes that look like general news
+                if stripped.startswith('QUOTE:'):
+                    continue
+                    
                 # Add as an item if it's not a header level 1 or 2
                 if not stripped.startswith('#'):
+
                     # Handle multiple bullet styles or plain text
                     if stripped.startswith('- ') or stripped.startswith('* ') or stripped.startswith('• '):
                         current_items.append(stripped[2:].strip())

@@ -3,16 +3,22 @@
 Test script for memory retrieval
 """
 import sys
+import pytest
 import os
+
 import asyncio
 from unittest.mock import MagicMock
 
 # Add parent directory to path
-sys.path.insert(0, os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
+# Add project root to path
+sys.path.insert(0, os.path.abspath(os.path.join(os.path.dirname(__file__), '../../../')))
 
-from utils.kaia_rag import KaiaRAG, Document
+from utils.core.kaia_rag import KaiaRAG, Document
 
+
+@pytest.mark.asyncio
 async def test_memory_retrieval():
+
     print("🧪 Testing Memory Retrieval...")
     
     rag = KaiaRAG()

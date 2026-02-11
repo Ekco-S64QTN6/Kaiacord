@@ -66,8 +66,11 @@ class BotState:
         """Save bot state to JSON file (thread-safe)"""
         try:
             with self._lock:
-                # Ensure directory exists
-                os.makedirs(os.path.dirname(self.state_file), exist_ok=True)
+                # Ensure directory exists if one is specified
+                dirname = os.path.dirname(self.state_file)
+                if dirname:
+                    os.makedirs(dirname, exist_ok=True)
+
                 
                 state = {
                     'last_active_channel_id': self.last_active_channel_id,

@@ -271,6 +271,9 @@ social:
   
   # How far back to look for mentions when starting/catching up (in hours)
   mention_lookback_hours: 2
+
+  # Maximum number of posts in a generated thread (e.g. Bluesky/X)
+  max_thread_posts: 5
 # ============================================================================
 # Dream Mode Configuration
 # ============================================================================

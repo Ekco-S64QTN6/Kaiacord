@@ -177,7 +177,7 @@ Helper utility for user profile generation.
 
 ## Migration Tools (`tools/migration/`)
 
-Tools for migrating between versions are in `scripts/migrate_config.py`.
+Tools for migrating between versions are in `tools/maintenance/migrate_config.py`.
 
 ---
 

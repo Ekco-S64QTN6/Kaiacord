@@ -175,7 +175,9 @@ def main():
         await dm.run_bot_async(sp, initialize_logic_layer, dm_sequenced_boot, stop_event)
 
     async def dm_sequenced_boot():
-        from utils.core.background_tasks import start_background_core_tasks
+        import utils.core.background_tasks as bg_tasks
+        bg_tasks.ctx = ctx # Initialize context for background tasks early
+        
         from utils.social.social_tasks import start_social_tasks
         
         await dm.sequenced_boot_tasks(
@@ -183,7 +185,7 @@ def main():
         )
         
         # Start loops with shared context
-        start_background_core_tasks(ctx)
+        bg_tasks.start_background_core_tasks(ctx)
         start_social_tasks(ctx, on_message)
 
     mode = os.environ.get('KAIA_DASHBOARD', 'curses').lower()

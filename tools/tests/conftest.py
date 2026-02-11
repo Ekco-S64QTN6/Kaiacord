@@ -9,8 +9,14 @@ import pytest
 import os
 import tempfile
 import shutil
+import sys
 from pathlib import Path
 from unittest.mock import Mock, MagicMock
+
+# Ensure project root is in path
+project_root = str(Path(__file__).parent.parent.parent.absolute())
+if project_root not in sys.path:
+    sys.path.insert(0, project_root)
 
 
 # ============================================================================
@@ -85,7 +91,7 @@ def temp_storage(temp_dir):
 @pytest.fixture
 def mock_config():
     """Mock configuration object"""
-    from utils.infrastructure.system.config_base import Config
+    from utils.infrastructure.system.yaml_config import YAMLConfig as Config
     
     config = Config()
     config.discord_token = "test_token_12345678901234567890"
@@ -112,7 +118,7 @@ def mock_env(monkeypatch):
 @pytest.fixture
 def mock_bot_state(temp_storage):
     """Mock bot state"""
-    from utils.infrastructure.system.bot_state import BotState
+    from utils.infrastructure.system.bot_state import bot_state as BotState
     
     state_file = temp_storage / "bot_state.json"
     state = BotState(str(state_file))
@@ -242,6 +248,13 @@ def mock_rag_retriever():
     return retriever
 
 
+@pytest.fixture
+def rag():
+    """Real KaiaRAG instance for integration tests"""
+    from utils.core.kaia_rag import KaiaRAG
+    return KaiaRAG()
+
+
 # ============================================================================
 # Fixtures - Stats
 # ============================================================================
@@ -264,7 +277,7 @@ def mock_stats_poller():
 @pytest.fixture
 def mock_dashboard():
     """Mock dashboard"""
-    from utils.logging_bridge import LoggingBridge
+    from utils.infrastructure.logging.logging_bridge import LoggingBridge
     
     class MockDashboard(LoggingBridge):
         def __init__(self):

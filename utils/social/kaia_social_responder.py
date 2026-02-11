@@ -28,7 +28,7 @@ BLUESKY_CHAR_LIMIT = 300
 X_CHAR_LIMIT = 280
 MAX_THREAD_REPLIES = 3
 MAX_NOTIFICATIONS_FETCH = 50
-MAX_THREAD_POSTS = 8
+MAX_THREAD_POSTS = 5
 MAX_REPLIED_IDS = 5000
 
 # Persona cache
@@ -887,13 +887,15 @@ def is_too_vague(text):
     return any(phrase in text.lower() for phrase in vague_phrases)
 
 
-def _split_into_thread_posts(text, max_chars=X_CHAR_LIMIT):
+def _split_into_thread_posts(text, max_chars=X_CHAR_LIMIT, max_posts=MAX_THREAD_POSTS):
     """Split generated text into logical thread posts using smart cutting.
     
     Args:
         text: The text to split.
         max_chars: Maximum characters per post (default: X_CHAR_LIMIT=280).
+        max_posts: Maximum number of posts in the thread.
     """
+
     posts = []
     text = text.strip()
     
@@ -949,7 +951,8 @@ def _split_into_thread_posts(text, max_chars=X_CHAR_LIMIT):
     # Filter out empty posts
     posts = [p for p in posts if p]
     
-    return posts[:MAX_THREAD_POSTS]
+    return posts[:max_posts]
+
 
 
 async def generate_social_thread(bot, ollama_client, reflection_target, context_type):
@@ -966,7 +969,8 @@ Guidelines:
 2. DO NOT number your points (no "1/", "2/", "1.").
 3. Just write. I will handle the cutting and formatting.
 4. Speak naturally as Kaia (lowercase, blunt, grounded).
-5. Go deep. Be specific. Connect systems to feelings.
+5. Go deep but stay concise (aim for 4-5 posts maximum). Connect systems to feelings.
+
 """
 
     messages = [
@@ -989,8 +993,10 @@ Guidelines:
         )
         
         full_text = response['message']['content']
-        posts = _split_into_thread_posts(full_text)
+        max_threads = config.get('social.max_thread_posts', MAX_THREAD_POSTS)
+        posts = _split_into_thread_posts(full_text, max_posts=max_threads)
         return posts
+
         
     except Exception as e:
         log_error(f"Thread generation failed: {e}")

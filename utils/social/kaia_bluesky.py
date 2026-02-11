@@ -80,12 +80,13 @@ async def get_bluesky_client(force_new: bool = False):
         return _client
 
 
-def _split_into_thread(text: str, max_chars: int = 300) -> list[str]:
+def _split_into_thread(text: str, max_chars: int = 300, max_posts: int = 5) -> list[str]:
     """
     Split long text into thread-friendly chunks at natural sentence boundaries.
     
-    Returns a list of strings, each under max_chars.
+    Returns a list of strings, each under max_chars, up to max_posts.
     """
+
     text = text.strip()
     if len(text) <= max_chars:
         return [text]
@@ -134,7 +135,8 @@ def _split_into_thread(text: str, max_chars: int = 300) -> list[str]:
     if current_chunk:
         chunks.append(current_chunk)
     
-    return chunks
+    return chunks[:max_posts]
+
 
 
 async def post_to_bluesky(text: str) -> tuple[bool, Optional[str]]:
@@ -149,9 +151,12 @@ async def post_to_bluesky(text: str) -> tuple[bool, Optional[str]]:
         (success, post_uri or error_message)
     """
     # Split into thread chunks if needed, then delegate to thread poster
-    chunks = _split_into_thread(text, max_chars=300)
+    from utils.infrastructure.system.yaml_config import config
+    max_threads = config.get('social.max_thread_posts', 5)
+    chunks = _split_into_thread(text, max_chars=300, max_posts=max_threads)
     log_debug(f"Split Bluesky message into {len(chunks)} chunks")
     return await post_thread_to_bluesky(chunks)
+
 
 
 def needs_thread_expansion(text: str, min_second_chunk: int = 100) -> tuple[bool, str]:

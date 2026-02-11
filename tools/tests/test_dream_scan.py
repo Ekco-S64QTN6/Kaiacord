@@ -16,7 +16,8 @@ async def test_dream_scan():
     
     # Initialize engine
     # We don't need a real RAG for scanning
-    engine = DreamEngine(config)
+    engine = DreamEngine(config, None)
+
     
     # 1. Test with a very high min_days to force fallback
     log_info("Scanning with min_days=9999 (should trigger fallback)...")

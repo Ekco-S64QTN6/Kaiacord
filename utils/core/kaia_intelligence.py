@@ -27,10 +27,10 @@ class Intent:
 
 @dataclass
 class ContextCtx:
-    last_turns: List[str]
-    active_entities: List[str]
-    user_role: str
-    system_state: str
+    last_turns: List[str] = field(default_factory=list)
+    active_entities: List[str] = field(default_factory=list)
+    user_role: str = "user"
+    system_state: str = "active"
 
 # NOTE: config is imported lazily in ContextOptimizer.__init__ to avoid circular import
 
@@ -708,3 +708,6 @@ class IntentParser:
             log_success("IntentParser warmed up.")
         except Exception as e:
             log_error(f"Pre-warm failed: {e}")
+
+# Legacy Alias for Refactor Compatibility
+QueryClassifier = IntentParser

@@ -3,14 +3,18 @@ import os
 from pathlib import Path
 
 # Add project root to sys.path
-sys.path.append(os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
+# Add project root to path
+sys.path.insert(0, os.path.abspath(os.path.join(os.path.dirname(__file__), '../../../')))
 
-from utils.kaia_news import NewsManager
+from utils.news.kaia_news import NewsManager
+
 
 def test_news_manager():
     print("Testing NewsManager...")
     # Use absolute path for base_path to be safe
-    base_path = os.path.join(os.path.dirname(os.path.dirname(os.path.abspath(__file__))), "knowledge_base", "news")
+    base_path = os.path.join(os.path.dirname(os.path.dirname(os.path.dirname(os.path.dirname(os.path.abspath(__file__))))), "knowledge_base", "news")
+
+
     nm = NewsManager(base_path=base_path)
     nm.refresh()
     

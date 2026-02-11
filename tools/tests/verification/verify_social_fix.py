@@ -5,7 +5,8 @@ import time
 from unittest.mock import MagicMock, AsyncMock
 
 # Add project root to path
-sys.path.insert(0, os.path.abspath(os.path.join(os.path.dirname(__file__), '../../')))
+sys.path.insert(0, os.path.abspath(os.path.join(os.path.dirname(__file__), '../../../')))
+
 
 from utils.infrastructure.system.yaml_config import config
 from utils.infrastructure.system.bot_state import bot_state
@@ -25,7 +26,17 @@ async def test_social_frequency():
     bot_state.last_quip_time = time.time()
     bot_state.consecutive_quips = 0
     
-    await generate_quip(bot, ollama_client, None, None, is_manual=False)
+    class MockCtx:
+        def __init__(self, bot, ollama, rag, state, config):
+            self.bot = bot
+            self.ollama_client = ollama
+            self.rag = rag
+            self.bot_state = state
+            self.config = config
+
+    ctx = MockCtx(bot, ollama_client, MagicMock(), bot_state, config)
+    
+    await generate_quip(ctx, is_manual=False)
     # Validation: We can't easily spy on internal logic without more mocking, 
     # but we can check if consecutive_quips incremented (it shouldn't)
     if bot_state.consecutive_quips == 0:
@@ -47,7 +58,9 @@ async def test_social_frequency():
     bot.guilds = [MagicMock(text_channels=[channel])]
     channel.permissions_for.return_value.send_messages = True
     
-    await generate_quip(bot, ollama_client, MagicMock(), MagicMock(), is_manual=False)
+    ctx = MockCtx(bot, ollama_client, MagicMock(), bot_state, config)
+    await generate_quip(ctx, is_manual=False)
+
     
     if bot_state.consecutive_quips == 1:
         print("PASS: Forced post generated.")
