@@ -8,8 +8,8 @@ class HallucinationDetector:
     
     HALLUCINATION_PATTERNS = [
         # Structural leaks
-        r"<external_data_record",
-        r"</external_data_record>",
+        r"<recorded_knowledge",
+        r"</recorded_knowledge>",
         r"\[INTERNAL REFLECTION",
         r"\[CONVERSATION HISTORY",
         r"\[IDENTITY CORE",
@@ -247,17 +247,4 @@ class BotSpeakFilter:
         This method remains for compatibility but does nothing active.
         """
         return text
-
-
-class EmergencyContaminationFilter:
-    """
-    Deprecated: User requested removal of aggressive text filtering.
-    Trusting the Persona/Model to handle safety and refusal style.
-    """
-    
-    @staticmethod
-    def filter_response(text: str) -> str:
-        """Pass-through method."""
-        return text
-
 

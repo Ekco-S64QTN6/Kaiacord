@@ -17,31 +17,28 @@ class MessageProcessor:
     """
     Modular message processor that decomposes the complex on_message logic.
     """
-    def __init__(self, bot, ollama_client, run_rag, rag, config, bot_state, 
-                 performance_monitor, intent_parser, 
-                 response_optimizer, context_optimizer, relevance_feedback,
-                 personalization_engine, stats_tracker, rate_limiter,
-                 shutdown_manager, news_enhancer, rag_enhancer,
-                 news_manager, dream_engine):
-        self.bot = bot
-        self.ollama_client = ollama_client
-        self.run_rag = run_rag
-        self.rag = rag
-        self.config = config
-        self.bot_state = bot_state
-        self.performance_monitor = performance_monitor
-        self.intent_parser = intent_parser
+    def __init__(self, ctx, response_optimizer, context_optimizer, relevance_feedback,
+                 news_enhancer, rag_enhancer):
+        self.ctx = ctx
+        self.bot = ctx.bot
+        self.ollama_client = ctx.ollama_client
+        self.rag = ctx.rag
+        self.config = ctx.config
+        self.bot_state = ctx.bot_state
+        self.performance_monitor = ctx.performance_monitor
+        self.intent_parser = ctx.intent_parser
+        self.stats_tracker = ctx.stats_tracker
+        self.rate_limiter = ctx.rate_limiter
+        self.shutdown_manager = ctx.shutdown_manager
+        self.personalization_engine = ctx.personalization_engine
+        
         self.response_optimizer = response_optimizer
         self.context_optimizer = context_optimizer
         self.relevance_feedback = relevance_feedback
-        self.personalization_engine = personalization_engine
-        self.stats_tracker = stats_tracker
-        self.rate_limiter = rate_limiter
-        self.shutdown_manager = shutdown_manager
         self.news_enhancer = news_enhancer
         self.rag_enhancer = rag_enhancer
-        self.news_manager = news_manager
-        self.dream_engine = dream_engine
+        self.news_manager = ctx.news_manager
+        self.dream_engine = ctx.dream_engine
         
         # Internal components
         from utils.core.context_enricher import ContextEnricher
@@ -52,6 +49,11 @@ class MessageProcessor:
             log_warning("MessageProcessor initialized with news_manager=None")
         if self.dream_engine is None:
             log_warning("MessageProcessor initialized with dream_engine=None")
+            
+    # Helper to maintain compatibility with legacy run_rag pattern
+    async def run_rag(self, fn, *args, **kwargs):
+        from Kaiacord import run_rag as run_rag_func
+        return await run_rag_func(fn, *args, **kwargs)
 
     async def process(self, msg):
         """Main entry point for message processing."""
@@ -89,7 +91,7 @@ class MessageProcessor:
                 log_info(f"Message from {msg.author.display_name} ignored - still booting")
                 try:
                     await msg.channel.send("```\nstill waking up. give me a minute.\n```")
-                except:
+                except Exception:
                     pass
             return
 
@@ -99,10 +101,7 @@ class MessageProcessor:
         from utils.infrastructure.system.messaging import send_kaia_response
         
         # Note: on_message reference here might need care if we fully decompose
-        if await dispatch_command(msg, self.bot, self.ollama_client, self.run_rag, self.rag, 
-                                 self.news_manager, self.dream_engine, self.bot_state, 
-                                 self.config, load_persona_async, 
-                                 self.bot.on_message, send_kaia_response):
+        if await dispatch_command(self.ctx, msg, load_persona_async, send_kaia_response):
             if is_social: log_debug("Social message handled by command dispatcher")
             return
 
@@ -159,6 +158,9 @@ class MessageProcessor:
 
         self.bot_state.reset_quips()
         self.bot_state.update_interaction(msg.channel.id)
+        
+        # Direct metrics: count processed messages (replaces log-scraping)
+        self.stats_tracker.increment_messages()
 
 
         # 7. Specific Command Handling
@@ -172,11 +174,14 @@ class MessageProcessor:
 
         # Proceed to intelligence pipeline in a tracked task
         # 8. Start intelligence pipeline
+        start_time = time.perf_counter()
         gen_task = asyncio.create_task(self._run_intelligence_pipeline(ctx))
         task_registry.register(f"gen_{ctx.author_id}_{int(time.time()*1000)}", gen_task)
         
         try:
             await gen_task
+            duration = time.perf_counter() - start_time
+            log_action(f"TOTAL processing for {msg.author.name}: {duration:.2f}s")
         except asyncio.CancelledError:
             log_warning(f"Generation task for {msg.author.name} was cancelled (likely bot shutdown).")
         except Exception as e:
@@ -186,11 +191,17 @@ class MessageProcessor:
     async def _run_intelligence_pipeline(self, ctx: MessageContext):
         """Stage 2: Intelligence, Retrieval, and Response Generation."""
         # 1. Hallucination Detection
+        h_start = time.perf_counter()
         if await self._check_hallucination(ctx):
             return
+        h_dur = time.perf_counter() - h_start
+        log_debug(f"METRIC: Hallucination check took {h_dur:.3f}s")
 
         # 2. Classification
+        c_start = time.perf_counter()
         await self._perform_classification(ctx)
+        c_dur = time.perf_counter() - c_start
+        log_debug(f"METRIC: Classification took {c_dur:.3f}s")
 
         # 3. Cache Check
         if await self._check_cache(ctx):
@@ -198,7 +209,10 @@ class MessageProcessor:
 
         # 4. Retrieval & Response Generation (Stage 3)
         async with ctx.message.channel.typing():
+            r_start = time.perf_counter()
             await self._retrieve_and_generate(ctx)
+            r_dur = time.perf_counter() - r_start
+            log_debug(f"METRIC: Retrieval/Generation took {r_dur:.3f}s")
 
     async def _check_hallucination(self, ctx: MessageContext) -> bool:
         """Check if query contains hallucinations."""
@@ -287,12 +301,14 @@ class MessageProcessor:
         
         # 3. Wait for Retrieval
         log_action(f"Waiting for parallel tasks: {list(tasks_dict.keys())}")
-        self.performance_monitor.start_timer('retrieval')
+        t_start = time.perf_counter()
         
         # Resolve names to results
         task_names = list(tasks_dict.keys())
         task_objects = list(tasks_dict.values())
         raw_results = await asyncio.gather(*task_objects)
+        t_dur = time.perf_counter() - t_start
+        log_debug(f"METRIC: All parallel retrieval tasks took {t_dur:.3f}s")
         
         # Re-map results back to a dict
         results = dict(zip(task_names, raw_results))
@@ -431,18 +447,23 @@ class MessageProcessor:
     async def _generate_response_stage(self, ctx: MessageContext):
         """Stage 4: Context Optimization and Multi-pass Generation."""
         # 1. Context Optimization
+        o_start = time.perf_counter()
+        history = list(self.bot_state.channel_memory.get(ctx.channel_id, []))
         optimized = self.context_optimizer.optimize_context(
-            ctx.category, 
-            ctx.system_prompt, 
-            ctx.context_nodes, 
-            list(self.bot_state.channel_memory.get(ctx.channel_id, [])),
+            category=ctx.category,
+            persona=ctx.system_prompt,
+            rag_nodes=ctx.context_nodes,
+            history=history,
             strategy=ctx.intent.suggested_strategy if ctx.intent else None
         )
-        
-        # 2. Build Message List
+        o_dur = time.perf_counter() - o_start
+        log_debug(f"METRIC: Context optimization took {o_dur:.3f}s")
+
+        # 2. Build Messages
         messages = self._construct_messages(ctx, optimized)
         
-        # 3. Generation Loop (Self-Healing)
+        # 3. LLM Generation
+        g_start = time.perf_counter()
         ctx.response_text = await self._call_ollama_with_retries(ctx, messages)
         
         # 4. Final Processing & Logging
@@ -577,11 +598,19 @@ class MessageProcessor:
             self.bot_state.channel_memory[ctx.channel_id].append({"role": "user", "content": ctx.sanitized_content})
             self.bot_state.channel_memory[ctx.channel_id].append({"role": "assistant", "content": ctx.response_text})
             
+            # Update personalization and relevance feedback
+            await self.personalization_engine.learn_from_interaction(ctx.author_id, ctx.sanitized_content, ctx.response_text)
+            await self.relevance_feedback.log_interaction(ctx.sanitized_content, ctx.response_text, ctx.author_id)
+            
             # Log for RAG
             # CRITICAL FIX: Use sanitized_content to avoid poisoning RAG with [REPLYING_TO] tags
             await self.run_rag(self.rag.log_user_interaction, ctx.author_id, ctx.author_name, ctx.sanitized_content, ctx.response_text)
             
             self.performance_monitor.stop_timer('total', 'response_time')
+            
+            # Direct metrics: record response time (replaces log-scraping)
+            response_time = time.time() - ctx.start_time
+            self.stats_tracker.record_response_time(response_time)
         except Exception as e:
             log_error(f"Error in background logging: {e}")
 

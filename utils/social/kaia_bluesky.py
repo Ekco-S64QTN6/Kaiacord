@@ -148,54 +148,10 @@ async def post_to_bluesky(text: str) -> tuple[bool, Optional[str]]:
     Returns:
         (success, post_uri or error_message)
     """
-    if models is None:
-        return False, "atproto models not available"
-    
-    client = await get_bluesky_client()
-    
-    if client is None:
-        return False, "Bluesky client not available"
-    
-    # Split into thread chunks if needed
+    # Split into thread chunks if needed, then delegate to thread poster
     chunks = _split_into_thread(text, max_chars=300)
     log_debug(f"Split Bluesky message into {len(chunks)} chunks")
-    
-    try:
-        # Post the first chunk
-        first_post = await client.send_post(chunks[0])
-        log_success(f"Posted to Bluesky: {chunks[0][:50]}...")
-        
-        # If there are more chunks, reply to self to create a thread
-        if len(chunks) > 1:
-            log_info(f"Creating Bluesky thread with {len(chunks)} posts...")
-            
-            # Track the previous post for threading
-            prev_uri = first_post.uri
-            prev_cid = first_post.cid
-            root_uri = first_post.uri
-            root_cid = first_post.cid
-            
-            for i, chunk in enumerate(chunks[1:], 2):
-                # Build reply reference
-                parent_ref = models.ComAtprotoRepoStrongRef.Main(uri=prev_uri, cid=prev_cid)
-                root_ref = models.ComAtprotoRepoStrongRef.Main(uri=root_uri, cid=root_cid)
-                reply_ref = models.AppBskyFeedPost.ReplyRef(root=root_ref, parent=parent_ref)
-                
-                # Post the continuation
-                continuation = await client.send_post(chunk, reply_to=reply_ref)
-                log_debug(f"Thread post {i}/{len(chunks)}: {chunk[:40]}...")
-                
-                # Update for next iteration
-                prev_uri = continuation.uri
-                prev_cid = continuation.cid
-            
-            log_success(f"Bluesky thread complete ({len(chunks)} posts)")
-        
-        return True, first_post.uri
-        
-    except Exception as e:
-        log_error(f"Bluesky post failed: {e}")
-        return False, str(e)
+    return await post_thread_to_bluesky(chunks)
 
 
 def needs_thread_expansion(text: str, min_second_chunk: int = 100) -> tuple[bool, str]:

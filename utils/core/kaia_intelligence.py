@@ -5,6 +5,7 @@ import numpy as np
 import re
 import json
 import hashlib
+import traceback
 import threading
 from datetime import datetime
 from collections import defaultdict
@@ -42,6 +43,7 @@ class ModelWarmPool:
         self.ollama_client = ollama_client
         self.pool = {}
         self.keep_alive_tasks = {}
+        self._cached_options = {}  # model_name -> gpu_options (avoids re-instantiation)
         
     async def pre_warm(self, model_name):
         if model_name in self.pool:
@@ -55,6 +57,8 @@ class ModelWarmPool:
             gpu_manager = OllamaGPUManager(model_name)
             options = gpu_manager.get_gpu_options(for_chat=True)
             options['num_predict'] = 1
+            # Cache options for keep_alive reuse (avoids re-instantiating OllamaGPUManager every 5min)
+            self._cached_options[model_name] = options.copy()
             
             await self.ollama_client.chat(
                 model=model_name,
@@ -78,12 +82,8 @@ class ModelWarmPool:
                 del self.pool[model_name]
                 break
             try:
-                # Use GPU options for keep-alive too
-                from utils.infrastructure.gpu.gpu_manager import OllamaGPUManager
-                gpu_manager = OllamaGPUManager(model_name)
-                options = gpu_manager.get_gpu_options(for_chat=True)
-                options['num_predict'] = 1
-                
+                # Reuse cached GPU options (set during pre_warm) to avoid re-instantiation
+                options = self._cached_options.get(model_name, {'num_predict': 1})
                 await self.ollama_client.chat(model=model_name, messages=[{"role": "user", "content": "ping"}], options=options)
             except Exception:
                 if model_name in self.pool: del self.pool[model_name]
@@ -387,31 +387,30 @@ class PersistentStateManager:
         os.makedirs(state_dir, exist_ok=True)
         self.state_path = os.path.join(self.state_dir, "kaia_state.json")
         
-    def save_state(self, cache, personalization, monitor):
+    def save_state(self, personalization, monitor, cache=None):
         """Atomic save of critical state."""
         try:
             state = {
-                'exact_cache': cache.exact_cache,
-                'full_cache': getattr(cache, 'cache', {}),
                 'user_profiles': personalization.user_profiles,
                 'performance_metrics': {
-                    'cache_hits': monitor.metrics['cache_hits'],
-                    'cache_misses': monitor.metrics['cache_misses'],
-                    'exact_hits': monitor.metrics['exact_hits']
+                    'cache_hits': monitor.metrics.get('cache_hits', 0),
+                    'cache_misses': monitor.metrics.get('cache_misses', 0),
+                    'exact_hits': monitor.metrics.get('exact_hits', 0)
                 },
                 'saved_at': time.time()
             }
             
+            if cache:
+                state['exact_cache'] = getattr(cache, 'exact_cache', {})
+                state['full_cache'] = getattr(cache, 'cache', {})
+            
             # Delta check: only save if content actually changed
             current_state_str = json.dumps(state, sort_keys=True)
-            if hasattr(self, '_last_state_hash'):
-                current_hash = hashlib.md5(current_state_str.encode()).hexdigest()
-                if current_hash == self._last_state_hash:
-                    log_debug("Cold state unchanged, skipping persistence.")
-                    return
-                self._last_state_hash = current_hash
-            else:
-                self._last_state_hash = hashlib.md5(current_state_str.encode()).hexdigest()
+            current_hash = hashlib.sha256(current_state_str.encode()).hexdigest()
+            if hasattr(self, '_last_state_hash') and current_hash == self._last_state_hash:
+                log_debug("Cold state unchanged, skipping persistence.")
+                return
+            self._last_state_hash = current_hash
 
             temp_path = self.state_path + ".tmp"
             with open(temp_path, 'w') as f:
@@ -421,7 +420,7 @@ class PersistentStateManager:
         except Exception as e:
             log_error(f"Failed to save state: {e}")
 
-    def load_state(self, cache, personalization, monitor):
+    def load_state(self, personalization, monitor, cache=None):
         """Load state if not too stale."""
         if not os.path.exists(self.state_path): return False
         
@@ -434,11 +433,6 @@ class PersistentStateManager:
                 log_warning("Persisted state is too old (>24h), skipping.")
                 return False
                 
-            # Correctly handle ImprovedSemanticCache state
-            if hasattr(cache, 'cache') and isinstance(cache.cache, dict):
-                cache.cache.update(state.get('full_cache', {}))
-            
-            cache.exact_cache.update(state.get('exact_cache', {}))
             personalization.user_profiles.update(state.get('user_profiles', {}))
             
             metrics = state.get('performance_metrics', {})
@@ -446,7 +440,13 @@ class PersistentStateManager:
             monitor.metrics['cache_misses'] = metrics.get('cache_misses', 0)
             monitor.metrics['exact_hits'] = metrics.get('exact_hits', 0)
             
-            log_success(f"Loaded cold state: {len(getattr(cache, 'cache', cache.exact_cache))} cache entries, {len(personalization.user_profiles)} profiles.")
+            if cache:
+                if hasattr(cache, 'cache') and isinstance(cache.cache, dict):
+                    cache.cache.update(state.get('full_cache', {}))
+                if hasattr(cache, 'exact_cache') and isinstance(cache.exact_cache, dict):
+                    cache.exact_cache.update(state.get('exact_cache', {}))
+            
+            log_success(f"Loaded cold state: {len(personalization.user_profiles)} profiles.")
             return True
         except Exception as e:
             log_error(f"Failed to load state: {e}")
@@ -484,6 +484,8 @@ class IntelligentCacheInvalidator:
         if count > 0:
             log_info(f"Invalidated {count} cache entries due to change in {file_path}")
             del self.file_query_map[file_path]
+
+
 class ContextWeaver:
     """
     Constructs rich ContextCtx objects from raw bot state.
@@ -571,7 +573,7 @@ class IntentParser:
                 r"^\s*(kaia\s+)?any recent dreams"
             ],
             "PRECISE_RECALL": [
-                r"^\s*(kaia\s+)?who (is|are|was|were) ",
+                r"^\s*(kaia\s+)?who (is|are|was|were|am) ",
                 r"^\s*(kaia\s+)?what (is|are|was|were) ",
                 r"\b(dossier on|tell me about|biography of|background on)\b",
                 r"\b(mark|elara|thorne|jules|elias)\b"
@@ -680,7 +682,6 @@ class IntentParser:
 
         except Exception as e:
             log_error(f"Intent Analysis Failed: {e}")
-            import traceback
             traceback.print_exc()
             # Fallback Intent
             return Intent(

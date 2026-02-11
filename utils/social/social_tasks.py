@@ -1,25 +1,23 @@
 import asyncio
+import time
 from discord.ext import tasks
 from utils.infrastructure.logging.kaia_logger import log_error, log_action
 from utils.infrastructure.system.bot_state import bot_state
 from utils.infrastructure.system.yaml_config import config
 
-# Dependencies will be injected via start_social_tasks
-_bot = None
-_ollama_client = None
-_run_rag = None
-_rag = None
+# Dependencies managed via AppContext
+ctx = None
 _on_message = None
 
 @tasks.loop(minutes=5)
 async def idle_quip_task():
     """Generate a random quip if idle for too long"""
-    if not _bot or not _ollama_client or not _run_rag or not _rag or not _on_message:
+    if not ctx or not _on_message:
         return
         
     try:
         from utils.social.kaia_social_responder import generate_quip
-        await generate_quip(_bot, _ollama_client, _run_rag, _rag, on_message_func=_on_message)
+        await generate_quip(ctx, on_message_func=_on_message)
     except Exception as e:
         log_error(f"Idle quip task failed: {e}")
 
@@ -38,21 +36,23 @@ async def social_mention_task():
     except Exception as e:
         log_error(f"Social mention task failed: {e}")
 
-def start_social_tasks(bot, ollama_client, run_rag, rag, on_message):
-    global _bot, _ollama_client, _run_rag, _rag, _on_message
-    _bot = bot
-    _ollama_client = ollama_client
-    _run_rag = run_rag
-    _rag = rag
+def start_social_tasks(app_ctx, on_message):
+    global ctx, _on_message
+    ctx = app_ctx
     _on_message = on_message
     
-    import time
     # Prevent bootup "catch-up" spam by resetting the timer to now.
     bot_state.last_quip_time = time.time()
     bot_state.save()
     
-    idle_quip_task.start()
-    social_mention_task.start()
+    from utils.infrastructure.monitoring.async_task_registry import task_registry
+    
+    quip_task = idle_quip_task.start()
+    task_registry.register("idle_quip_task", quip_task)
+    
+    mention_task = social_mention_task.start()
+    task_registry.register("social_mention_task", mention_task)
+    
     log_action("Social background tasks started.")
 
 def stop_social_tasks():

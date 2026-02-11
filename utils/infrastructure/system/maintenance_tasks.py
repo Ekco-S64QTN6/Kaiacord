@@ -6,30 +6,23 @@ from discord.ext import tasks
 from utils.infrastructure.logging.kaia_logger import log_info, log_debug, log_warning, log_error, log_action
 from utils.infrastructure.system.bot_state import bot_state
 
-# Dependencies
-_rag = None
-# _semantic_cache = None
-_personalization_engine = None
-_performance_monitor = None
-_state_manager = None
-_rate_limiter = None
-_clear_gpu_memory = None
+# Dependencies managed via AppContext
+ctx = None
 
 # Memory audit tracking variables
 _last_log_rss = 0.0
-_last_log_cache_size = -1
 _first_run = True
 
 @tasks.loop(hours=1)
 async def rag_maintenance_task():
     """Periodic RAG maintenance: persist index and check for updates"""
-    if not _rag:
+    if not ctx or not ctx.rag:
         return
         
     try:
-        if _rag.persist_needed:
+        if ctx.rag.persist_needed:
             log_action("Periodic RAG persistence...")
-            await asyncio.to_thread(_rag.persist)
+            await asyncio.to_thread(ctx.rag.persist)
     except Exception as e:
         log_error(f"RAG maintenance failed: {e}")
 
@@ -38,7 +31,7 @@ async def rag_maintenance_task():
 async def memory_audit_task():
     """Periodic memory audit and cleanup."""
     global _last_log_rss, _first_run
-    if not _rate_limiter or not _state_manager:
+    if not ctx or not ctx.rate_limiter or not ctx.persistent_state_manager:
         return
         
     try:
@@ -48,15 +41,13 @@ async def memory_audit_task():
         current_rss = rss_mb
         
         rss_delta = abs(current_rss - _last_log_rss)
-        cache_changed = current_cache_size != _last_log_cache_size
         
-        if _first_run or rss_delta >= 50.0 or cache_changed:
-            log_info(f"Memory Audit: RSS {rss_mb:.1f} MB | Cache: {current_cache_size} entries")
+        if _first_run or rss_delta >= 50.0:
+            log_info(f"Memory Audit: RSS {rss_mb:.1f} MB")
             _last_log_rss = current_rss
-            _last_log_cache_size = current_cache_size
             _first_run = False
         else:
-            log_debug(f"Memory Audit: RSS {rss_mb:.1f} MB | Cache: {current_cache_size} entries")
+            log_debug(f"Memory Audit: RSS {rss_mb:.1f} MB")
         
         # Memory cleanup thresholds (in MB)
         NORMAL_THRESHOLD_MB = 8192
@@ -69,33 +60,31 @@ async def memory_audit_task():
             if rss_mb > NORMAL_THRESHOLD_MB:
                 from utils.infrastructure.logging.kaia_logger import log_critical
                 log_critical(f"Memory usage critical ({rss_mb:.1f}MB > {NORMAL_THRESHOLD_MB}MB)! Clearing caches and GPU memory.")
-                # Cache clearing removed
-                if _clear_gpu_memory:
-                    _clear_gpu_memory()
+                
+                if ctx.clear_gpu_memory:
+                    ctx.clear_gpu_memory()
             
         # Cleanup rate limiter to prevent unbounded memory growth
-        _rate_limiter.cleanup()
+        ctx.rate_limiter.cleanup()
         
         # Save state
-        _state_manager.save_state(_personalization_engine, _performance_monitor)
+        ctx.persistent_state_manager.save_state(ctx.personalization_engine, ctx.performance_monitor)
             
     except Exception as e:
         log_error(f"Memory audit task failed: {e}")
 
-def start_maintenance_tasks(rag, personalization_engine, performance_monitor, state_manager, rate_limiter, clear_gpu_memory_func=None):
-    global _rag, _personalization_engine, _performance_monitor, _state_manager, _rate_limiter, _clear_gpu_memory
-    _rag = rag
-    # _semantic_cache = semantic_cache
-    _personalization_engine = personalization_engine
-    _performance_monitor = performance_monitor
-    _state_manager = state_manager
-    _rate_limiter = rate_limiter
-    _clear_gpu_memory = clear_gpu_memory_func
+def start_maintenance_tasks(app_ctx):
+    global ctx
+    ctx = app_ctx
     
-    rag_maintenance_task.start()
-    memory_audit_task.start()
-    # log_enrichment_task.start() # DELETED: Caused high GPU usage
-
+    from utils.infrastructure.monitoring.async_task_registry import task_registry
+    
+    rag_task = rag_maintenance_task.start()
+    task_registry.register("rag_maintenance_task", rag_task)
+    
+    mem_task = memory_audit_task.start()
+    task_registry.register("memory_audit_task", mem_task)
+    
     log_action("Maintenance background tasks started.")
 
 def stop_maintenance_tasks():

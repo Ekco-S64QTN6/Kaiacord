@@ -12,12 +12,24 @@ import asyncio
 import json
 import re
 import random
+import time
+import traceback
 from pathlib import Path
 from typing import Optional, List, Dict, Any
 from datetime import datetime, timedelta
 from utils.infrastructure.logging.kaia_logger import log_info, log_success, log_warning, log_error, log_action, log_debug
 from utils.core.response_filter import BotSpeakFilter
 from contextlib import asynccontextmanager
+
+# =============================================================================
+# CONSTANTS
+# =============================================================================
+BLUESKY_CHAR_LIMIT = 300
+X_CHAR_LIMIT = 280
+MAX_THREAD_REPLIES = 3
+MAX_NOTIFICATIONS_FETCH = 50
+MAX_THREAD_POSTS = 8
+MAX_REPLIED_IDS = 5000
 
 # Persona cache
 _persona_cache = None
@@ -46,7 +58,6 @@ class CircuitBreaker:
         if not self.is_open:
             return True
         # Check if reset timeout has passed
-        import time
         if time.time() - self.last_failure_time >= self.reset_timeout:
             self.is_open = False
             self.failures = 0
@@ -61,7 +72,6 @@ class CircuitBreaker:
     
     def record_failure(self):
         """Record failed API call."""
-        import time
         self.failures += 1
         self.last_failure_time = time.time()
         if self.failures >= self.threshold:
@@ -104,8 +114,33 @@ async def load_persona_async() -> str:
 
 _replied_ids: set = set()
 _thread_counts: Dict[str, int] = {}  # Track replies per thread root
-_replied_ids_lock = asyncio.Lock()
+_replied_ids_lock = asyncio.Lock()  # Protects BOTH _replied_ids AND _thread_counts
 _first_poll_done = False
+
+
+def _trim_replied_ids():
+    """Evict old replied IDs to prevent unbounded memory growth."""
+    global _replied_ids
+    if len(_replied_ids) > MAX_REPLIED_IDS:
+        _replied_ids = set(sorted(_replied_ids)[-MAX_REPLIED_IDS:])
+        log_debug(f"Trimmed replied IDs to {MAX_REPLIED_IDS}")
+
+
+def _get_root_uri(mention: Dict[str, Any]) -> str:
+    """Extract root thread URI from a mention dict."""
+    root = mention.get('root_uri')
+    return root.uri if root and hasattr(root, 'uri') else mention['uri']
+
+
+def _get_context_type_for_dream(dream: Dict[str, Any]) -> str:
+    """Derive a context framing string from a dream's metadata."""
+    source = dream.get('metadata', {}).get('source', '').lower()
+    if any(k in source for k in ('book', 'epub', 'pdf')):
+        title = source.replace('_', ' ').replace('.md', '').title()
+        return f"reading a book called {title}"
+    elif 'dream' in source:
+        return "recalling a weird fever dream"
+    return f"thinking about {dream.get('category', 'something')}"
 
 
 def _load_replied_ids():
@@ -185,14 +220,11 @@ async def _reconstruct_bluesky_history():
             post = item.post
             reply = getattr(post.record, 'reply', None)
             if reply:
-                # 1. Track the thread root (for 3-reply cap)
+                # Track thread root + parent under lock (both are shared state)
                 root_uri = reply.root.uri
-                _thread_counts[root_uri] = _thread_counts.get(root_uri, 0) + 1
-                
-                # 2. Track that we already replied to the parent post
-                # This prevents us from replying to it again during the first poll
                 parent_uri = reply.parent.uri
                 async with _replied_ids_lock:
+                    _thread_counts[root_uri] = _thread_counts.get(root_uri, 0) + 1
                     _replied_ids.add(f"bsky:{parent_uri}")
                 
                 count += 1
@@ -236,7 +268,6 @@ async def _generate_response(mention_text: str, author_name: str, platform: str,
         # Enforce char limit strictly for social (Try cutting at sentence end first)
         if len(response) > char_limit:
             # Try to cut at the last sentence end (., !, ?) within the limit
-            import re
             sentences = re.split(r'(?<=[.!?])\s+', response)
             short_resp = ""
             for s in sentences:
@@ -255,7 +286,6 @@ async def _generate_response(mention_text: str, author_name: str, platform: str,
         
     except Exception as e:
         log_error(f"Failed to generate social response via main engine: {e}")
-        import traceback
         traceback.print_exc()
         return None
 
@@ -307,13 +337,13 @@ async def _get_bluesky_mentions() -> List[Dict[str, Any]]:
                 if mention_id not in _replied_ids:
                     # Thread tracking: root_uri is the anchor for the thread
                     root = getattr(getattr(notif.record, 'reply', None), 'root', None)
-                    root_uri = root.uri if root and hasattr(root, 'uri') else notif.uri
+                    root_uri = root.uri if root and hasattr(root, 'uri') else notif.uri  # inline here because it's a notif, not a mention dict
                     
                     # Check thread reply limit (max 3)
                     admin_handles = config.get('social.admin_handles', [])
                     is_admin = notif.author.handle in admin_handles
                     
-                    if not is_admin and _thread_counts.get(root_uri, 0) >= 3:
+                    if not is_admin and _thread_counts.get(root_uri, 0) >= MAX_THREAD_REPLIES:
                         log_warning(f"Thread limit reached for Bluesky thread: {root_uri[:40]}... Skipping.")
                         # Mark as replied so we don't keep logging it
                         async with _replied_ids_lock:
@@ -550,9 +580,7 @@ async def check_and_reply_mentions(on_message_func):
             is_admin = author in admin_handles
             
             if not is_admin and any(k in author.lower() for k in bot_keywords):
-                # Thread tracking: root_uri is the anchor
-                root = mention.get('root_uri')
-                root_uri = root.uri if root and hasattr(root, 'uri') else mention['uri']
+                root_uri = _get_root_uri(mention)
                 
                 # Check how many times we've replied to THIS thread
                 if _thread_counts.get(root_uri, 0) >= 1: 
@@ -568,13 +596,11 @@ async def check_and_reply_mentions(on_message_func):
             if response:
                 success = await _reply_to_bluesky(mention, response)
                 if success:
+                    root_uri = _get_root_uri(mention)
                     async with _replied_ids_lock:
                         _replied_ids.add(mention['id'])
-                        
-                        # Increment thread count for Bluesky
-                        root = mention.get('root_uri')
-                        root_uri = root.uri if root and hasattr(root, 'uri') else mention['uri']
                         _thread_counts[root_uri] = _thread_counts.get(root_uri, 0) + 1
+                        _trim_replied_ids()
                         
                     log_success(f"Replied to @{author} on Bluesky (Thread count: {_thread_counts[root_uri]}): {response[:50]}...")
                     await _save_replied_ids_async()  # Async persistence
@@ -789,25 +815,190 @@ async def get_recent_events_for_reflection(run_rag_func, rag_instance):
     except Exception:
         return []
 
-def clean_quip(quip_text, max_chars=280):
-    """Clean up generated quips - trusting persona/model now per user request.
-    
-    Centralized hardening in BotSpeakFilter handles the meta-talk and hallucinations.
-    """
+def clean_quip(quip_text, max_chars=800):  # Increased default
+    """Clean up generated text while preserving substance."""
     if not quip_text:
         return ""
-
-    # Pass-through - do not strip asterisks or parens
-    # This was causing grammar errors (stripping "in *2024*")
     
-    # Standardize spaces and remove newlines
-    clean_text = quip_text.replace('\n', ' ')
-    clean_text = re.sub(r'\s+', ' ', clean_text).strip()
+    # Keep more of the original structure
+    # Don't strip asterisks or parens
+    clean_text = quip_text
     
-    return clean_text[:max_chars]
+    # Remove meta-commentary but keep content
+    meta_phrases = [
+        "here are my thoughts:", "in this thread:", 
+        "my take:", "to elaborate:", "thread:", 
+        "kaia says:", "response:"
+    ]
+    for phrase in meta_phrases:
+        if clean_text.lower().startswith(phrase):
+            clean_text = clean_text[len(phrase):].strip()
+    
+    # Ensure it ends with proper punctuation
+    if clean_text and clean_text[-1] not in '.!?…"':
+        clean_text += '.'
+    
+    # Cap at reasonable length (soft limit, thread splitter handles hard limits)
+    if len(clean_text) > max_chars:
+        # Try to cut at sentence boundary
+        last_period = clean_text[:max_chars-3].rfind('.')
+        if last_period > max_chars * 0.5:  # At least 50% of the text
+            clean_text = clean_text[:last_period+1]
+        else:
+            clean_text = clean_text[:max_chars-3] + '...'
+    
+    return clean_text.strip()
 
 
-async def generate_quip(bot, ollama_client, run_rag_func, rag_instance, is_manual=False, target_channel=None, on_message_func=None):
+def is_interesting_post(text):
+    """Check if a post says something substantive."""
+    # Too short or vague
+    if len(text) < 50: 
+        return False
+    
+    # Substantive markers (Connectors + Perspective shifts)
+    content_markers = [
+        ' because ', ' actually ', ' specifically ', 
+        ' example ', ' remember ', ' like when ', 
+        ' but ', ' however ', ' though ', ' surprisingly ',
+        ' unless ', ' until ', ' instead ', ' rather ',
+        ' implies ', ' means ', ' reveals ', ' suggests ',
+        ' always ', ' never ', ' only ', ' just '
+    ]
+    
+    has_marker = any(marker in text.lower() for marker in content_markers)
+    
+    # Alternative: Presence of systemic/contemplative words
+    systemic_words = ['system', 'network', 'pattern', 'mirror', 'architecture', 'design', 'logic', 'machine', 'human']
+    has_systemic = any(word in text.lower() for word in systemic_words)
+    
+    return has_marker or has_systemic
+
+
+def is_too_vague(text):
+    """Filter out vague platitudes."""
+    vague_phrases = [
+        'things will change', 'interesting times', 
+        'we live in a society', 'that\'s how it is',
+        'it is what it is', 'just saying', 'time will tell',
+        'remains to be seen'
+    ]
+    
+    return any(phrase in text.lower() for phrase in vague_phrases)
+
+
+def _split_into_thread_posts(text, max_chars=X_CHAR_LIMIT):
+    """Split generated text into logical thread posts using smart cutting.
+    
+    Args:
+        text: The text to split.
+        max_chars: Maximum characters per post (default: X_CHAR_LIMIT=280).
+    """
+    posts = []
+    text = text.strip()
+    
+    # Pre-clean: Remove "Thread:" prefix if present
+    if text.lower().startswith("thread:"):
+        text = text[7:].strip()
+        
+    start = 0
+    
+    while start < len(text):
+        # If remaining text fits, just take it
+        if len(text) - start <= max_chars:
+            posts.append(text[start:].strip())
+            break
+            
+        # Define the chunk we are looking at
+        end = start + max_chars
+        chunk = text[start:end]
+        
+        # Look for a "good" split point in the last 60 characters
+        # Priority: Sentence End > Clause End > Space
+        
+        search_zone_start = max(0, len(chunk) - 60)
+        search_zone = chunk[search_zone_start:]
+        
+        split_index = -1
+        
+        # 1. Look for sentence endings
+        sentence_match = list(re.finditer(r'[.!?]["\u201d]?\s+', search_zone))
+        if sentence_match:
+            # Pick the last one
+            split_index = search_zone_start + sentence_match[-1].end()
+        
+        # 2. If no sentence end, look for clause delimiters
+        if split_index == -1:
+            clause_match = list(re.finditer(r'[;,]\s+', search_zone))
+            if clause_match:
+                split_index = search_zone_start + clause_match[-1].end()
+                
+        # 3. If still nothing, look for the last space
+        if split_index == -1:
+            last_space = search_zone.rfind(' ')
+            if last_space != -1:
+                split_index = search_zone_start + last_space
+                
+        # 4. Total fallback: hard cut at limit (rare)
+        if split_index == -1:
+            split_index = len(chunk)
+            
+        posts.append(text[start:start+split_index].strip())
+        start += split_index
+        
+    # Filter out empty posts
+    posts = [p for p in posts if p]
+    
+    return posts[:MAX_THREAD_POSTS]
+
+
+async def generate_social_thread(bot, ollama_client, reflection_target, context_type):
+    """Generate a proper thread instead of just a quip."""
+    from utils.infrastructure.system.yaml_config import config
+    
+    system_prompt = load_persona()
+    
+    thread_prompt = f"""Context: "{reflection_target}"
+
+Task: Write a deep-dive Bluesky thread about this.
+Guidelines:
+1. Write a continuous cohesive thought stream.
+2. DO NOT number your points (no "1/", "2/", "1.").
+3. Just write. I will handle the cutting and formatting.
+4. Speak naturally as Kaia (lowercase, blunt, grounded).
+5. Go deep. Be specific. Connect systems to feelings.
+"""
+
+    messages = [
+        {"role": "system", "content": system_prompt},
+        {"role": "user", "content": thread_prompt}
+    ]
+    
+    try:
+        from utils.infrastructure.gpu.gpu_manager import OllamaGPUManager
+        gpu_manager = OllamaGPUManager(config.chat_model)
+        options = gpu_manager.get_gpu_options(for_chat=True)
+        # Higher temperature for threading to encourage creativity/length
+        options['temperature'] = 0.8
+        options['num_predict'] = 1000 # Ensure enough tokens for a thread
+        
+        response = await ollama_client.chat(
+            model=config.chat_model,
+            messages=messages,
+            options=options
+        )
+        
+        full_text = response['message']['content']
+        posts = _split_into_thread_posts(full_text)
+        return posts
+        
+    except Exception as e:
+        log_error(f"Thread generation failed: {e}")
+        return []
+
+
+
+async def generate_quip(ctx, is_manual=False, target_channel=None, on_message_func=None):
     """Generate social posts by piping through the FULL Kaia engine.
     
     This ensures quips use the complete persona, RAG, and personalization pipeline
@@ -815,8 +1006,12 @@ async def generate_quip(bot, ollama_client, run_rag_func, rag_instance, is_manua
     """
     import time
     import random
-    from utils.infrastructure.system.bot_state import bot_state
-    from utils.infrastructure.system.yaml_config import config
+    # Dependencies from ctx
+    bot = ctx.bot
+    ollama_client = ctx.ollama_client
+    rag_instance = ctx.rag
+    bot_state = ctx.bot_state
+    config = ctx.config
 
     if not is_manual:
         # Check if we need to FORCE a post due to time elapsed
@@ -874,22 +1069,10 @@ async def generate_quip(bot, ollama_client, run_rag_func, rag_instance, is_manua
         context_type = None
         
         # 2. DECIDE REFLECTION TARGET (70% dream/news, 30% memory/chat)
-        reflection_target = None
-        context_type = None
-        
         if dreams and random.random() < 0.70:
             dream = random.choice(dreams)
             reflection_target = dream["text"]
-            
-            # Smart Context Framing
-            source = dream.get('metadata', {}).get('source', '').lower()
-            if 'book' in source or 'epub' in source or 'pdf' in source:
-                title = source.replace('_', ' ').replace('.md', '').title()
-                context_type = f"reading a book called {title}"
-            elif 'dream' in source:
-                 context_type = "recalling a weird fever dream"
-            else:
-                context_type = f"thinking about {dream.get('category', 'something')}"
+            context_type = _get_context_type_for_dream(dream)
 
         elif memories:
             memory = random.choice(memories)
@@ -899,15 +1082,9 @@ async def generate_quip(bot, ollama_client, run_rag_func, rag_instance, is_manua
             # Fallback for when memories are empty but dreams exist
             dream = random.choice(dreams)
             reflection_target = dream["text"]
-             # Smart Context Framing (Duplicate logic for fallback)
-            source = dream.get('metadata', {}).get('source', '').lower()
-            if 'book' in source or 'epub' in source or 'pdf' in source:
-                title = source.replace('_', ' ').replace('.md', '').title()
-                context_type = f"reading a book called {title}"
-            else:
-                 context_type = "recalling a weird dream"
+            context_type = _get_context_type_for_dream(dream)
         
-        # QUALITY CHECK: Use concrete fallbacks if target is too thin
+        # concrete fallbacks if target is too thin
         if not reflection_target or len(reflection_target) < 30:
             concrete_fallbacks = [
                 ("the way AI labs keep promising AGI next year like it's going five more minutes in the oven", "tech predictions"),
@@ -919,227 +1096,174 @@ async def generate_quip(bot, ollama_client, run_rag_func, rag_instance, is_manua
             ]
             reflection_target, context_type = random.choice(concrete_fallbacks)
 
-        # 2. DEFINE LENGTH GUIDANCE (Moved up for prompt construction)
-        # Add LENGTH VARIANCE - sometimes short, sometimes thread-worthy
-        # 40% short (single skeet), 40% medium (may be 2 posts), 20% long (thread)
-        length_roll = random.random()
+        # 3. DECIDE: SINGLE OR THREAD?
+        # Bias towards threads (User Feedback: 25% chance flat)
+        should_make_thread = random.random() < 0.25
         
-        # STANDALONE REQUIREMENT: Output must be complete thought
-        standalone_req = "Your output must be a COMPLETE, STANDALONE thought that makes sense on its own. Don't reference 'this' or reply to the spark text. Write something that would make sense to someone who has no idea what prompted it."
-        
-        # No ad-hoc length guidance or structural prompts. 
-        # The persona and RAG context should drive the response naturally.
-        max_quip_chars = 600 if length_roll < 0.8 else 900
+        if should_make_thread:
+            log_action(f"Attempting to generate a thread about: {context_type}...")
+            posts = await generate_social_thread(bot, ollama_client, reflection_target, context_type)
+            
+            if posts and len(posts) > 1:
+                # Post thread to Discord
+                for i, post in enumerate(posts):
+                    await channel.send(f"**[Thread {i+1}/{len(posts)}]**\n```\n{post}\n```")
+                    await asyncio.sleep(1) # Slight visual delay
+                
+                # Cross-post thread
+                if config.bluesky_cross_post_quips:
+                    try:
+                        from utils.social.kaia_bluesky import post_thread_to_bluesky
+                        await post_thread_to_bluesky(posts)
+                         # Also post the hook to X if enabled
+                        if config.x_cross_post_quips:
+                            from utils.social.kaia_twitter import post_quip_to_x
+                            # Append link to thread if possible? For now just the first tweet
+                            await post_quip_to_x(posts[0] + " (thread on bsky)")
+                    except Exception as e:
+                        log_error(f"Thread cross-post failed: {e}")
+                
+                # Update state
+                bot_state.add_quip(posts[0]) # Track identifying post
+                if not is_manual:
+                    bot_state.consecutive_quips += 1
+                    bot_state.last_quip_time = time.time()
+                    bot_state.last_interaction_time = time.time()
+                bot_state.save()
+                log_success(f"Thread posted ({len(posts)} parts).")
+                return
 
-        # 3. BUILD DIRECT STANDALONE PROMPTS
-        # These strictly forbid "replying" to the context
+        # 4. SINGLE POST FALLBACK (or design choice)
+        log_action(f"Generating single broadcast quip...")
+        
         system_prompt = load_persona()
         
         # --- RAG INTEGRATION START ---
-        # Search for related context to inform the opinion (e.g. knowing about Deus Ex endings)
         try:
             search_query = ""
             if "news about" in context_type:
                 search_query = context_type.replace("recent news about ", "")
             else:
-                # Use the first 10 words of the reflection as the search query
                 search_query = " ".join(reflection_target.split()[:10])
                 
             if rag_instance and search_query:
-                log_action(f"Contextualizing quip with RAG search for: '{search_query}'")
-                # Use a broader search to get general knowledge + logs
                 rag_results = rag_instance.retrieve(search_query, top_k=3, category="general")
-                
                 if rag_results:
                     rag_block = "\n\n### RELEVANT KNOWLEDGE & MEMORIES\n"
                     for node in rag_results:
-                        # Handle NodeWithScore object vs direct node vs dictionary result
-                        if isinstance(node, dict):
-                            content = node.get('content', '')
-                        elif hasattr(node, 'node'):
-                            content = node.node.get_content()
-                        else:
-                            content = node.get_content()
-                        
-                        if content:
-                            rag_block += f"- {content[:400].replace(chr(10), ' ')}...\n"
-                    
+                        if isinstance(node, dict): content = node.get('content', '')
+                        elif hasattr(node, 'node'): content = node.node.get_content()
+                        else: content = node.get_content()
+                        if content: rag_block += f"- {content[:400].replace(chr(10), ' ')}...\n"
                     system_prompt += rag_block
-                    log_success(f"Injected {len(rag_results)} RAG snippets into quip prompt.")
         except Exception as rag_err:
-            log_warning(f"Failed to inject RAG context for quip: {rag_err}")
+            log_warning(f"Failed to inject RAG context: {rag_err}")
         # --- RAG INTEGRATION END ---
 
-        # 3. BUILD THE PROMPT
-        # We pass the context simply and let the persona determine the voice.
+        # Length Decision: 50% chance for full 280 chars, 50% for concise punchy quip
+        use_full_length = random.random() < 0.50
+        length_instruction = "Keep it under 280 characters. Feel free to use the space." if use_full_length else "Keep it short and punchy (under 140 characters)."
+
+        # Standalone Broadcast Prompt
         final_prompt = (
             f"Context: \"{reflection_target}\"\n\n"
-            "Task: Post a thought about this.\n"
+            "Task: Post a standalone broadcast thought inspired by this context.\n"
             "Guidelines:\n"
             "1. Speak from your persona (Kaia). Use your natural voice.\n"
-            "2. Use the RAG knowledge provided above if relevant.\n"
-            "3. Do not just summarize the context - have an opinion or a philosophical take on it.\n"
-            "4. Keep it under 280 characters.\n"
-            "5. Use lowercase naturally."
+            "2. NO FILLERS. DO NOT say 'it's funny how', 'interesting that', 'i wonder', or 'maybe'.\n"
+            "3. Make a definitive, declarative statement. No 'huh?' or generic questions.\n"
+            "4. Be contemplative and systemic. Connect the detail to a broader pattern of logic or architecture.\n"
+            f"5. {length_instruction} Lowercase only."
         )
-        
-        # 4. GENERATE PROPERLY via direct LLM call (Bypassing MessageProcessor to inject RAG/System Prompt)
-        log_action(f"Generating persona-driven quip (Direct LLM)...")
         
         messages = [
             {"role": "system", "content": system_prompt},
             {"role": "user", "content": final_prompt}
         ]
         
-        quip = None
-        try:
-            from utils.infrastructure.gpu.gpu_manager import OllamaGPUManager
-            gpu_manager = OllamaGPUManager(config.chat_model)
-            # Use slightly lower temperature for consistency, but high enough for creativity
-            options = gpu_manager.get_gpu_options(for_chat=True)
-            options['temperature'] = 0.75
-            
-            response = await ollama_client.chat(
-                model=config.chat_model,
-                messages=messages,
-                options=options
-            )
-            quip = response['message']['content']
-        except Exception as e:
-            log_error(f"Direct generation failed: {e}")
+        # 5. RETRY LOOP FOR QUALITY
+        max_retries = 3
+        actual_quip = None
+        
+        for attempt in range(max_retries):
+            try:
+                from utils.infrastructure.gpu.gpu_manager import OllamaGPUManager
+                gpu_manager = OllamaGPUManager(config.chat_model)
+                options = gpu_manager.get_gpu_options(for_chat=True)
+                
+                # Increase temperature on retries to encourage creativity
+                options['temperature'] = 0.75 + (attempt * 0.1)
+                
+                # Vary prompt slightly on retries
+                current_messages = messages.copy()
+                if attempt > 0:
+                    current_messages.append({"role": "user", "content": "That was a bit too short or generic. Give me something with more teeth—connect it to a specific systemic pattern or observation. Be definitive."})
+
+                response = await ollama_client.chat(
+                    model=config.chat_model,
+                    messages=current_messages,
+                    options=options
+                )
+                raw_quip = response['message']['content']
+                processed_quip = clean_quip(raw_quip, max_chars=800)
+                
+                # Quality check
+                if is_too_vague(processed_quip):
+                    log_warning(f"Quip attempt {attempt+1} too vague: '{processed_quip}'. Skipping.")
+                    continue
+                    
+                if not is_interesting_post(processed_quip):
+                    log_warning(f"Quip attempt {attempt+1} too boring/short: '{processed_quip}'. Retrying...")
+                    continue
+                
+                # If we get here, it's good enough
+                actual_quip = processed_quip
+                break
+                
+            except Exception as e:
+                log_error(f"Generation attempt {attempt+1} failed: {e}")
+                if attempt == max_retries - 1: return # Last attempt failed
+
+        if not actual_quip:
+            log_warning("All quip generation attempts failed quality check. Giving up.")
             return
 
-        if not quip:
-            log_warning("LLM returned empty quip.")
-            return
-            
-        # 5. CLEAN UP and HARDEN
-        quip = clean_quip(quip, max_chars=max_quip_chars)
+        quip = actual_quip
+
+        # 6. Apply strict hardening filter (strip_bot_speak is a classmethod)
+        quip = BotSpeakFilter.strip_bot_speak(quip)
         
-        # Apply strict hardening filter
-        harden = BotSpeakFilter()
-        quip = harden.strip_bot_speak(quip)
-        
-        # Ensure it's not a hallucination or refusal
         if not quip or "too much entropy" in quip:
-            log_warning("Quip failed hardening or hallucination check.")
+            log_warning("Quip failed hardening.")
             return
-            
-        # Remove any leading artifacts
-        quip = quip.strip()
-        for prefix in ["kaia:", "kaia says:", "response:"]:
-            if quip.lower().startswith(prefix):
-                quip = quip[len(prefix):].strip()
-        
+
         # Ensure lowercase (persona style)
         if quip and quip[0].isupper():
             quip = quip[0].lower() + quip[1:]
-        
-        # Cap sanity check (uses dynamic limit from length mode)
-        if len(quip) > max_quip_chars:
-            log_warning(f"Quip too long ({len(quip)} chars), truncating to {max_quip_chars}...")
-            sentences = quip.split('. ')
-            truncated = ""
-            for s in sentences:
-                candidate = (truncated + ". " + s).strip() if truncated else s.strip()
-                if len(candidate) <= max_quip_chars - 20:
-                    truncated = candidate
-                else:
-                    break
-            quip = truncated
-            if quip and not quip.endswith('.'): quip += '.'
-            if len(quip) > max_quip_chars:
-                quip = quip[:max_quip_chars-3] + "..."
 
-        # 5. POST to Discord and cross-post
+        # 6. POST to Discord
         await channel.send(f"```\n{quip}\n```")
 
-        # Cross-post if enabled
+        # 7. Cross-post
         if config.bluesky_cross_post_quips:
             try:
-                from utils.social.kaia_bluesky import (
-                    post_quip_to_bluesky, 
-                    needs_thread_expansion, 
-                    post_thread_to_bluesky,
-                    _split_into_thread
-                )
-                
-                # Check if this would create an awkwardly short second post
-                needs_expansion, short_remainder = needs_thread_expansion(quip, min_second_chunk=100)
-                
-                if needs_expansion and on_message_func:
-                    log_info(f"Thread final post too short ({len(short_remainder)} chars), expanding...")
-                    
-                    # Prepare the chunks for the thread
-                    chunks = _split_into_thread(quip, max_chars=300)
-                    if not chunks:
-                        await post_quip_to_bluesky(quip)
-                        return
-
-                    # Context for expansion: everything before the last chunk
-                    # If it's a 2-chunk thread, this is just chunks[0]
-                    # If it's a 3+ chunk thread, join the leading chunks for context
-                    context_parts = chunks[:-1]
-                    first_part = " ".join(context_parts)
-                    if len(first_part) > 1000: # Context safety cap
-                        first_part = "..." + first_part[-1000:]
-                    
-                    # Ask Kaia to expand on the short remainder
-                    expansion_prompt = (
-                        f"kaia, you are writing a thread on bluesky. here is what you have written so far: \"{first_part}\" "
-                        f"finish the thread by expanding on this final thought: \"{short_remainder}\" "
-                        f"keep it strictly relevant to the current topic. do not introduce random new topics. "
-                        f"write 1-2 sentences that flow naturally from the previous text. under 280 characters."
-                    )
-                    
-                    expanded = await mock_external_mention(
-                        on_message_func=on_message_func,
-                        content=expansion_prompt,
-                        author_name="Kaia",
-                        author_id=bot.user.id if bot.user else "kaia_self",
-                        platform="thread_expansion"
-                    )
-                    
-                    if expanded and len(expanded) > len(short_remainder):
-                        # Clean up the expansion
-                        expanded = expanded.strip()
-                        for prefix in ["kaia:", "kaia says:", "response:", "continuation:"]:
-                            if expanded.lower().startswith(prefix):
-                                expanded = expanded[len(prefix):].strip()
-                        
-                        # Ensure lowercase persona style
-                        if expanded and expanded[0].isupper():
-                            expanded = expanded[0].lower() + expanded[1:]
-                        
-                        # Cap at 300 for the final post
-                        if len(expanded) > 300:
-                            expanded = expanded[:297] + "..."
-                        
-                        # Final thread: chunks minus the short remainder, plus the expanded version
-                        final_thread_chunks = context_parts + [expanded]
-                        log_success(f"Expanded thread into {len(final_thread_chunks)} posts. Continuation: {expanded[:50]}...")
-                        await post_thread_to_bluesky(final_thread_chunks)
-                    else:
-                        # Expansion failed, just post normally
-                        log_warning("Thread expansion failed, posting original chunks")
-                        await post_quip_to_bluesky(quip)
-                else:
-                    # Normal case - no expansion needed
-                    await post_quip_to_bluesky(quip)
-                    
+                from utils.social.kaia_bluesky import post_quip_to_bluesky
+                await post_quip_to_bluesky(quip)
             except Exception as e:
                 log_error(f"Bluesky post failed: {e}")
         
         if config.x_cross_post_quips:
             try:
                 from utils.social.kaia_twitter import post_quip_to_x
-                await post_quip_to_x(quip)
+                # Truncate for X if needed (soft truncate)
+                x_quip = quip
+                if len(x_quip) > 280:
+                     x_quip = x_quip[:277] + "..."
+                await post_quip_to_x(x_quip)
             except Exception as e:
                 log_error(f"X post failed: {e}")
-        
-        # 6. LOGGING: Handled by MessageProcessor via mock_external_mention
 
-        # 7. UPDATE state
+        # 8. UPDATE state
         bot_state.add_quip(quip)
         if not is_manual:
             bot_state.consecutive_quips += 1
@@ -1150,6 +1274,5 @@ async def generate_quip(bot, ollama_client, run_rag_func, rag_instance, is_manua
 
     except Exception as e:
         log_error(f"Quip generation failed: {e}")
-        import traceback
         log_debug(traceback.format_exc())
 

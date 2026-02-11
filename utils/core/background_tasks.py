@@ -1,18 +1,15 @@
 import asyncio
 import sys
 import os
+from dataclasses import dataclass, field
 from datetime import datetime
 from discord.ext import tasks
-from utils.infrastructure.logging.kaia_logger import log_action, log_success, log_error, log_info
+from utils.infrastructure.logging.kaia_logger import log_action, log_success, log_error, log_info, log_warning
 from utils.infrastructure.system.bot_state import bot_state
 from utils.infrastructure.system.yaml_config import config
 
-# Dependencies
-_rag = None
-_run_rag = None
-_news_manager = None
-_dream_engine = None
-_load_persona_async = None
+# Dependencies — now managed via AppContext
+ctx = None
 
 @tasks.loop(hours=12)
 async def news_refresh_task():
@@ -43,36 +40,43 @@ async def news_refresh_task():
 @tasks.loop(hours=1)
 async def dream_engine_task():
     """Nightly dream processing task (runs between 3-5 AM)"""
-    if getattr(bot_state, 'is_generating_image', False):
+    if not ctx or not ctx.bot_state or not ctx.config:
         return
         
-    if not config.get('features.dream_mode_enabled', True):
+    if getattr(ctx.bot_state, 'is_generating_image', False):
         return
         
-    if not _dream_engine or not _load_persona_async or not _rag:
+    if not ctx.config.get('features.dream_mode_enabled', True):
+        return
+        
+    if not ctx.dream_engine or not ctx.rag:
         return
 
     now = datetime.now()
-    start_hour = config.get('dream_mode.schedule_start_hour', 3)
-    end_hour = config.get('dream_mode.schedule_end_hour', 5)
+    start_hour = ctx.config.get('dream_mode.schedule_start_hour', 3)
+    end_hour = ctx.config.get('dream_mode.schedule_end_hour', 5)
     
     if start_hour <= now.hour < end_hour:
-        last_dream = getattr(bot_state, 'last_dream_date', "")
+        last_dream = getattr(ctx.bot_state, 'last_dream_date', "")
         today = now.strftime('%Y-%m-%d')
         
         if last_dream != today:
             log_action("Nightly dream processing starting...")
             try:
-                persona_content = await _load_persona_async()
-                await _dream_engine.nightly_dream_processing(persona_content)
-                await asyncio.to_thread(_rag.refresh_knowledge_base)
-                bot_state.last_dream_date = today
-                bot_state.save()
+                # Late import to avoid circular dependency
+                from utils.social.kaia_social_responder import load_persona_async
+                persona_content = await load_persona_async()
+                await ctx.dream_engine.nightly_dream_processing(persona_content)
+                await asyncio.to_thread(ctx.rag.refresh_knowledge_base)
+                ctx.bot_state.last_dream_date = today
+                ctx.bot_state.save()
             except Exception as e:
                 log_error(f"Nightly dream task failed: {e}")
 
 async def run_news_update():
     """Run the daily news update script and manual ingestion."""
+    if not ctx: return
+    
     try:
         # 1. Run manual ingestion first (handles local daily and weekly files)
         log_action("Checking for manual news briefs to ingest...")
@@ -124,11 +128,13 @@ async def run_news_update():
         if process.returncode == 0:
             log_success("Daily news update completed.")
             # Trigger RAG refresh after news update
-            if _run_rag and _rag:
-                await _run_rag(_rag.refresh_knowledge_base)
+            # Use module-level run_rag link from Kaiacord.py if available, or ctx
+            from Kaiacord import run_rag as run_rag_func
+            if ctx.rag:
+                await run_rag_func(ctx.rag.refresh_knowledge_base)
             # Refresh news_manager cache to pick up new files immediately
-            if _news_manager:
-                _news_manager.refresh()
+            if ctx.news_manager:
+                ctx.news_manager.refresh()
         else:
             log_error("Daily news update failed. Check output above.")
     except asyncio.CancelledError:
@@ -136,16 +142,18 @@ async def run_news_update():
     except Exception as e:
         log_error(f"Failed to run news update: {e}")
 
-def start_background_core_tasks(rag, run_rag, news_manager, dream_engine, load_persona_async):
-    global _rag, _run_rag, _news_manager, _dream_engine, _load_persona_async
-    _rag = rag
-    _run_rag = run_rag
-    _news_manager = news_manager
-    _dream_engine = dream_engine
-    _load_persona_async = load_persona_async
+def start_background_core_tasks(app_ctx):
+    global ctx
+    ctx = app_ctx
     
-    news_refresh_task.start()
-    dream_engine_task.start()
+    from utils.infrastructure.monitoring.async_task_registry import task_registry
+    
+    news_task = news_refresh_task.start()
+    task_registry.register("news_refresh_task", news_task)
+    
+    dream_task = dream_engine_task.start()
+    task_registry.register("dream_engine_task", dream_task)
+    
     log_action("Core background tasks started.")
 
 def stop_background_core_tasks():

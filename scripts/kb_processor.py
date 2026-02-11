@@ -10,54 +10,77 @@ from utils.infrastructure.system.yaml_config import config
 KB_DIR = Path("knowledge_base")
 
 async def generate_metadata(client, content, filename):
-    """Generate YAML frontmatter using LLM"""
+    """Generate YAML frontmatter using LLM with strict formatting"""
     prompt = (
         f"You are a Knowledge Base Enrichment Engine. Analyze the following document snippet from '{filename}'.\n"
-        f"Generate a concise 1-2 sentence summary and 5-8 relevant SEO tags/keywords.\n"
-        f"Identify the document type (Book, Transcript, Article, Manual, etc.).\n"
-        f"OUTPUT FORMAT: YAML FRONTMATTER ONLY (--- ... ---)\n\n"
+        "Output ONLY valid YAML frontmatter between '---' delimiters. Do NOT use code blocks.\n"
+        "REQUIRED KEYS:\n"
+        "1. summary: A 1-2 sentence overview of the document.\n"
+        "2. keywords: A YAML list [word1, word2, ...] of 5-8 relevant tags.\n"
+        "3. document_type: One word (e.g., Book, Transcript, Article, Manual).\n\n"
+        "Example Output:\n"
+        "---\n"
+        "summary: \"Example summary.\"\n"
+        "keywords: [key1, key2]\n"
+        "document_type: Article\n"
+        "---\n\n"
         f"SNIPPET:\n{content[:2000]}\n\n"
-        f"YAML:"
+        "YAML:"
     )
     
     try:
         response = await client.chat(
             model=config.chat_model,
             messages=[{"role": "user", "content": prompt}],
-            options={"temperature": 0.2}
+            options={"temperature": 0.1}
         )
         meta_yaml = response['message']['content'].strip()
         
-        # Robust parsing: Look for frontmatter blocks
-        match = re.search(r"---(.*?)---", meta_yaml, re.DOTALL)
-        if match:
-            return f"---{match.group(1)}---"
+        # Aggressively clean output
+        meta_yaml = meta_yaml.replace("```yaml", "").replace("```", "").strip()
         
-        # Fallback if model omitted delimiters but provided key-value pairs
-        if "summary:" in meta_yaml.lower() or "tags:" in meta_yaml.lower():
-            # Ensure it starts and ends with ---
-            processed = meta_yaml
-            if not processed.startswith("---"): processed = "---\n" + processed
-            if not processed.endswith("---"): processed = processed + "\n---"
-            return processed
-
-        raise ValueError("Model output did not contain valid metadata structure")
+        # Ensure it starts and ends with ---
+        if not meta_yaml.startswith("---"):
+            meta_yaml = "---\n" + meta_yaml
+        if not meta_yaml.endswith("---"):
+            meta_yaml = meta_yaml + "\n---"
+            
+        # Validate keys exist (basic check)
+        lower_meta = meta_yaml.lower()
+        if "summary:" not in lower_meta or "keywords:" not in lower_meta or "document_type:" not in lower_meta:
+             print(f"⚠️ Warning: Model output for {filename} might be missing keys.")
+             
+        return meta_yaml
         
     except Exception as e:
         print(f"Error generating metadata for {filename}: {e}")
-        # Absolute minimal fallback so RAG still has a title
-        clean_title = filename.replace(".md", "").replace("_", " ")
-        return f"---\ntitle: {clean_title}\ntype: Unknown\n---"
+        return f"---\nsummary: \"Generation failed.\"\nkeywords: []\ndocument_type: Unknown\n---"
 
 def convert_to_md(file_path):
-    """Convert PDF or TXT to MD"""
+    """Convert PDF or TXT to MD with improved line joining"""
     md_path = file_path.with_suffix(".md")
     try:
         if file_path.suffix.lower() == ".pdf":
             reader = PdfReader(file_path)
             text = ""
             for page in reader.pages:
-                text += (page.extract_text() or "") + "\n"
+                page_text = page.extract_text() or ""
+                # Improved line joining: if a line is short or doesn't end in punctuation, join it
+                lines = page_text.split("\n")
+                joined_page = ""
+                for i, line in enumerate(lines):
+                    line = line.strip()
+                    if not line:
+                        joined_page += "\n\n"
+                        continue
+                    
+                    joined_page += line
+                    # Heuristic: if line is short and doesn't end in punctuation, it's likely a mid-sentence break
+                    if len(line) < 60 and i < len(lines) - 1 and not re.search(r'[.!?:]$', line):
+                        joined_page += " "
+                    else:
+                        joined_page += "\n"
+                text += joined_page + "\n"
         else: # TXT
             with open(file_path, "r", encoding="utf-8", errors="ignore") as f:
                 text = f.read()

@@ -17,6 +17,7 @@ Core utility modules used by Kaiacord.
 
 | Module | Purpose |
 |--------|---------|
+| `system/app_context.py` | **AppContext**: Central container for system singletons and dependencies |
 | `system/dashboard_manager.py` | **Lifecycle Manager**: Run modes, startup, and cleanup |
 | `logging/unified_logging.py` | Centralized logging with color-coded output |
 | `system/yaml_config.py` | Hierarchical configuration management |

@@ -3,6 +3,7 @@ import sys
 import time
 import threading
 import logging
+import logging.handlers
 from datetime import datetime
 from collections import OrderedDict, deque
 
@@ -19,6 +20,7 @@ class UnifiedLogger:
         self.dashboard_mode = False
         self.log_file = "logs/kaiacord.log"
         self._ensure_log_dir()
+        self._file_handler = self._create_file_handler()
         self.debug_dedup = {}  # (message_hash): timestamp
         
         # Color codes for terminal
@@ -36,6 +38,17 @@ class UnifiedLogger:
     def _ensure_log_dir(self):
         """Ensure the logs directory exists"""
         os.makedirs(os.path.dirname(self.log_file), exist_ok=True)
+
+    def _create_file_handler(self):
+        """Create a rotating file handler (10MB max, 5 backups)"""
+        try:
+            handler = logging.handlers.RotatingFileHandler(
+                self.log_file, maxBytes=10*1024*1024, backupCount=5, encoding='utf-8'
+            )
+            handler.setFormatter(logging.Formatter('%(message)s'))
+            return handler
+        except Exception:
+            return None
 
     def set_dashboard_mode(self, enabled: bool):
         """Enable/disable dashboard mode (suppresses stdout)"""
@@ -137,21 +150,30 @@ class UnifiedLogger:
         # Write to console (once, formatted)
         self._write_to_console(log_entry)
         
-        # Write to file
+        # Write to file (with rotation)
         self._write_to_file(log_entry)
-        
-        # Update stats if needed
-        self._update_stats_from_log(log_entry)
         
         return log_entry
     
     def _write_to_file(self, log_entry):
-        """Write log entry to file"""
-        try:
-            with open(self.log_file, "a", encoding="utf-8") as f:
-                f.write(f"[{log_entry['timestamp']}] {log_entry['type']}: {log_entry['message']}\n")
-        except Exception:
-            pass
+        """Write log entry to rotating file"""
+        if self._file_handler:
+            try:
+                record = logging.LogRecord(
+                    name='kaiacord', level=logging.INFO, pathname='', lineno=0,
+                    msg=f"[{log_entry['timestamp']}] {log_entry['type']}: {log_entry['message']}",
+                    args=None, exc_info=None
+                )
+                self._file_handler.emit(record)
+            except Exception:
+                pass
+        else:
+            # Fallback: direct write if handler creation failed
+            try:
+                with open(self.log_file, "a", encoding="utf-8") as f:
+                    f.write(f"[{log_entry['timestamp']}] {log_entry['type']}: {log_entry['message']}\n")
+            except Exception:
+                pass
     
     def _write_to_console(self, log_entry):
         """Write formatted log to console"""
@@ -190,45 +212,7 @@ class UnifiedLogger:
                 # Interpreter is likely finalizing - stop logging to console
                 pass
 
-    def _update_stats_from_log(self, log_entry):
-        """Extract stats from log messages"""
-        try:
-            from utils.infrastructure.monitoring.stats_tracker import stats_tracker  # Import here to avoid circular dependency
-        except ImportError:
-            return
-            
-        message = log_entry['message'].lower()
-        
-        # Detect user messages
-        if "message from" in message and ":" in message:
-            try:
-                # Extract username
-                parts = message.split("message from")
-                if len(parts) > 1:
-                    user_part = parts[1].split(":")[0].strip()
-                    if user_part and user_part not in ['.', 'system', '']:
-                        stats_tracker.increment_messages()
-                        
-                        # Check if this is a new user
-                        if "new user" in message or "connected" in message:
-                            stats_tracker.increment_users()
-            except:
-                pass
-        
-        # Detect responses
-        elif "got response:" in message or "response sent" in message:
-            # Extract response time if available
-            if "s)" in message:
-                try:
-                    time_str = message.split("(")[1].split("s)")[0]
-                    response_time = float(time_str)
-                    stats_tracker.record_response_time(response_time)
-                except:
-                    pass
-        
-        # Detect queries
-        elif "query classified as:" in message:
-            stats_tracker.increment_queries()
+
     
     def get_recent_logs(self, count=20, filter_type=None):
         """Get recent logs for dashboard display"""

@@ -112,7 +112,7 @@ class HealthCheck:
     def check_config(self):
         """Check configuration"""
         try:
-            from utils.infrastructure.system.config_base import config
+            from utils.infrastructure.system.yaml_config import config
             
             # Check Discord token
             token_ok = bool(config.discord_token and len(config.discord_token) > 50)
@@ -127,7 +127,7 @@ class HealthCheck:
             
         except ImportError as e:
             self.check("Config", False, str(e))
-            self.errors.append("Cannot import bot.managers.config")
+            self.errors.append("Cannot import utils.infrastructure.system.yaml_config")
     
     def check_permissions(self):
         """Check file permissions"""

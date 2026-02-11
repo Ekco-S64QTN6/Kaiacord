@@ -6,46 +6,48 @@ import shutil
 import ollama
 
 # Add parent directory to path
-sys.path.append(os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
+sys.path.append(os.getcwd())
 
-from utils.kaia_intelligence import (
-    SemanticCache, 
+from utils.core.performance_monitor import PerformanceMonitor
+from utils.core.kaia_intelligence import (
     PersonalizationEngine, 
-    PerformanceMonitor, 
     PersistentStateManager, 
     ContextOptimizer,
-    IntelligentCacheInvalidator,
-    QueryClassifier
+    RelevanceFeedback,
+    IntentParser,
+    Intent
 )
-from utils.kaia_logger import log_success, log_info, log_error
+from utils.infrastructure.logging.kaia_logger import log_success, log_info, log_error
 
 async def test_state_persistence():
     log_info("\n--- Testing State Persistence ---")
-    cache = SemanticCache()
     personalization = PersonalizationEngine()
     monitor = PerformanceMonitor()
     state_manager = PersistentStateManager(state_dir="./test_storage/state")
     
     # Set some state
-    await cache.set("test query", "test response", user_id=123)
-    personalization.user_profiles["123"] = {'conciseness': 0.8, 'technicality': 0.2}
-    monitor.record_hit(exact=True)
+    personalization.user_profiles["123"] = {
+        'conciseness': 0.8,
+        'technicality': 0.2,
+        'formality': 0.5,
+        'humor': 0.5
+    }
+    monitor.metrics['cache_hits'] = 10
     
-    # Save
-    state_manager.save_state(cache, personalization, monitor)
+    # Save (relevance_feedback and cache removed from state manager signature)
+    state_manager.save_state(personalization, monitor)
     
     # New instances
-    cache2 = SemanticCache()
     personalization2 = PersonalizationEngine()
     monitor2 = PerformanceMonitor()
     
     # Load
-    success = state_manager.load_state(cache2, personalization2, monitor2)
+    success = state_manager.load_state(personalization2, monitor2)
     
-    if success and "123:test query" in cache2.exact_cache and personalization2.user_profiles["123"]['conciseness'] == 0.8:
+    if success and personalization2.user_profiles.get("123", {}).get('conciseness') == 0.8:
         log_success("State persistence verified.")
     else:
-        log_error("State persistence failed.")
+        log_error(f"State persistence failed. Profiles: {personalization2.user_profiles}")
 
 async def test_token_allocation():
     log_info("\n--- Testing Token Allocation Guarantees ---")
@@ -53,7 +55,7 @@ async def test_token_allocation():
     
     # Simulate large inputs
     persona = "persona " * 2000
-    rag_nodes = ["rag " * 2000]
+    rag_nodes = [{"content": "rag " * 2000, "metadata": {"source_type": "docs"}}]
     history = ["history " * 2000]
     
     optimized = optimizer.optimize_context("knowledge", persona, rag_nodes, history)
@@ -70,85 +72,34 @@ async def test_token_allocation():
     else:
         log_error("Token allocation guarantees failed.")
 
-async def test_cache_invalidation():
-    log_info("\n--- Testing Cache Invalidation ---")
-    cache = SemanticCache()
-    invalidator = IntelligentCacheInvalidator(cache)
-    
-    class MockNode:
-        def __init__(self, file_path):
-            self.metadata = {'file_path': file_path}
-            
-    nodes = [MockNode("knowledge_base/test.txt")]
-    query = "what is in test.txt?"
-    
-    # Track
-    invalidator.track(query, nodes)
-    await cache.set(query, "it contains data", user_id=123)
-    
-    # Verify it's in cache
-    if await cache.get(query, user_id=123):
-        log_info("Query is in cache.")
-    
-    # Invalidate
-    invalidator.invalidate_for_file("knowledge_base/test.txt")
-    
-    # Verify it's gone
-    if not await cache.get(query, user_id=123):
-        log_success("Cache invalidation verified.")
-    else:
-        log_error("Cache invalidation failed.")
-
-async def test_stress_workflow():
-    log_info("\n--- Testing Full Intelligence Workflow (Stress) ---")
+async def test_intent_parsing():
+    log_info("\n--- Testing Intent Parsing ---")
     client = ollama.AsyncClient()
-    monitor = PerformanceMonitor()
-    cache = SemanticCache(threshold=0.80)
-    classifier = QueryClassifier(client)
+    parser = IntentParser(client)
     
-    user_id = 123
-    
-    tests = [
-        ("hi kaia", "casual", "Rule-based check"),
-        ("hi kaia", "casual", "Exact cache check"),
-        ("hey kaia", "casual", "Semantic cache check"),
-        ("who am i", "identity", "Rule-based identity"),
-        ("what is quantum physics?", "knowledge", "Model-based classification"),
-        ("draw a cat", "command", "Rule-based command"),
-    ]
-    
-    for i, (query, expected_cat, note) in enumerate(tests):
-        log_info(f"Test {i+1}: '{query}' ({note})")
-        start = time.time()
-        
-        # 1. Cache Check
-        cached = await cache.get(query, user_id, monitor=monitor)
-        if cached:
-            log_success(f"Cache hit! Time: {(time.time()-start)*1000:.1f}ms")
-        else:
-            # 2. Classification
-            monitor.start_timer('classify')
-            cat = await classifier.classify(query)
-            monitor.stop_timer('classify', 'classification_time')
-            log_info(f"Classified as: {cat}")
-            
-            # 3. Simulate Response & Cache
-            response = f"Simulated response for {query}"
-            await cache.set(query, response, user_id)
-
-    log_info("\n" + monitor.get_report())
-    if monitor.metrics['exact_hits'] >= 1:
-        log_success("Exact cache hit verified.")
+    # Test fast-path
+    log_info("Testing fast-path (Greeting)")
+    intent = parser.fast_parse("hi kaia")
+    if intent and intent.suggested_strategy == "SOCIAL_GREETING":
+        log_success("Fast-path greeting verified.")
     else:
-        log_error("Exact cache hit failed.")
+        log_error(f"Fast-path greeting failed: {intent}")
+
+    # Test complex intent (will use LLM if it doesn't match fast-path)
+    log_info("Testing full parse (Technical query)")
+    intent = await parser.parse_intent("how do I fix a CUDA error in pytorch?")
+    log_info(f"Detected strategy: {intent.suggested_strategy}")
+    if intent.suggested_strategy in ["DIAGNOSTIC_DEEP_DIVE", "EXPLORATORY_DIALOGUE"]:
+        log_success("Intent parsing verified.")
+    else:
+        log_error(f"Intent parsing unexpected strategy: {intent.suggested_strategy}")
 
 async def main():
     print("=== Running Intelligence Layer Tests ===")
     
     await test_state_persistence()
     await test_token_allocation()
-    await test_cache_invalidation()
-    await test_stress_workflow()
+    await test_intent_parsing()
     
     # Cleanup
     if os.path.exists("./test_storage"):

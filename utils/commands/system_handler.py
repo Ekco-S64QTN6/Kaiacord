@@ -1,10 +1,10 @@
 from utils.infrastructure.logging.kaia_logger import log_action
 
-async def handle_cache_command(msg, config):
+async def handle_cache_command(ctx, msg):
     """Reflect that cache is decommissioned."""
     """Handle the !cache command (Admin only)"""
     # Owner exemption - uses configurable owner_ids from config
-    is_owner = config.is_owner(msg.author.name, msg.author.display_name, str(msg.author.id))
+    is_owner = ctx.config.is_owner(msg.author.name, msg.author.display_name, str(msg.author.id))
     
     if not is_owner:
         await msg.channel.send("```\nrestricted.\n```")

@@ -1,50 +1,55 @@
 # gpu_manager.py
 import os
 import asyncio
-import subprocess
 from typing import Optional, Dict, Any
 import time
 
 class GPUMonitor:
-    """Monitor GPU usage for the dashboard"""
+    """Monitor GPU usage for the dashboard (uses pynvml for efficiency)"""
+    
+    _nvml_initialized = False
+    
+    @classmethod
+    def _ensure_nvml(cls):
+        """Initialize NVML once (idempotent)."""
+        if not cls._nvml_initialized:
+            try:
+                import pynvml
+                pynvml.nvmlInit()
+                cls._nvml_initialized = True
+            except Exception:
+                cls._nvml_initialized = False
+        return cls._nvml_initialized
     
     @staticmethod
     def get_gpu_info():
-        """Get current GPU utilization using nvidia-smi"""
+        """Get current GPU utilization using pynvml."""
         try:
-            # For NVIDIA GPUs
-            result = subprocess.run(
-                ['nvidia-smi', '--query-gpu=utilization.gpu,memory.used,memory.total', '--format=csv,noheader,nounits'],
-                capture_output=True,
-                text=True,
-                timeout=2
-            )
-            if result.returncode == 0:
-                lines = result.stdout.strip().split('\n')
-                gpu_info = []
-                for line in lines:
-                    if ',' in line:
-                        util, mem_used, mem_total = line.split(', ')
-                        gpu_info.append({
-                            'utilization': int(util.strip()),
-                            'memory_used': int(mem_used.strip()),
-                            'memory_total': int(mem_total.strip()),
-                            'memory_percent': (int(mem_used.strip()) / int(mem_total.strip())) * 100
-                        })
-                return gpu_info
-        except Exception as e:
-            # GPU not available or nvidia-smi not installed
-            pass
-        return None
+            if not GPUMonitor._ensure_nvml():
+                return None
+            import pynvml
+            device_count = pynvml.nvmlDeviceGetCount()
+            gpu_info = []
+            for i in range(device_count):
+                handle = pynvml.nvmlDeviceGetHandleByIndex(i)
+                util = pynvml.nvmlDeviceGetUtilizationRates(handle)
+                mem = pynvml.nvmlDeviceGetMemoryInfo(handle)
+                mem_used_mb = int(mem.used / 1024 / 1024)
+                mem_total_mb = int(mem.total / 1024 / 1024)
+                gpu_info.append({
+                    'utilization': int(util.gpu),
+                    'memory_used': mem_used_mb,
+                    'memory_total': mem_total_mb,
+                    'memory_percent': (mem_used_mb / mem_total_mb) * 100 if mem_total_mb > 0 else 0
+                })
+            return gpu_info if gpu_info else None
+        except Exception:
+            return None
     
     @staticmethod
     def is_gpu_available():
-        """Check if GPU is available"""
-        try:
-            result = subprocess.run(['nvidia-smi'], capture_output=True, text=True, timeout=2)
-            return result.returncode == 0
-        except:
-            return False
+        """Check if GPU is available via pynvml."""
+        return GPUMonitor._ensure_nvml()
 
 class OllamaGPUManager:
     """Manage Ollama GPU settings and model loading"""
@@ -175,7 +180,14 @@ class LoggingPatcher:
         self.dashboard = dashboard
     
     def patch_print(self):
-        """Patch print function to capture output"""
+        """
+        Patch print function to capture output for the dashboard.
+        
+        WARNING: This mutates `__builtins__.print` globally. All print() calls
+        across the entire process will be routed through the dashboard logger
+        after this is called. This is intentional — gpu_manager and other modules
+        use print() specifically so this patcher can capture their output.
+        """
         original_print = __builtins__.print
         
         def new_print(*args, **kwargs):

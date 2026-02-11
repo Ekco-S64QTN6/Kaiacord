@@ -46,7 +46,7 @@ async def smoke_test_v3():
     rag_context = optimized['rag']
     
     split_pass = (
-        "<external_data_record file_origin=\"Robotics_101.pdf\"" in rag_context and 
+        "<recorded_knowledge source=\"Robotics_101.pdf\"" in rag_context and 
         "[INTERNAL REFLECTION (DREAM)]" in rag_context and
         "I remember reading about the first robots" in rag_context
     )
@@ -75,16 +75,17 @@ async def smoke_test_v3():
             self.cache[query] = response
             
     cache = MockCache()
-    bad_output = "I found this in my records: <external_data_record>..."
+    bad_output = "I found this in my records: <recorded_knowledge source=\"test\">..."
     cache.set("what is in your records", "info", bad_output, "12345")
     
     cache_pass = "what is in your records" not in cache.cache
     print(f"[{'✅' if cache_pass else '❌'}] Cache Hardening test (No hallucination caching)")
 
     # 5. Test Query Classification
-    from utils.core.kaia_intelligence import QueryClassifier
-    qc = QueryClassifier()
-    category = qc.fast_classify("kaia who am i")
+    from utils.core.kaia_intelligence import IntentParser
+    ip = IntentParser()
+    intent = ip.fast_parse("kaia who am i")
+    category = "identity" if intent and intent.suggested_strategy == "PRECISE_RECALL" else "unknown"
     classify_pass = category == 'identity'
     print(f"[{'✅' if classify_pass else '❌'}] Identity classification test: {category}")
     

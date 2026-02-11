@@ -101,7 +101,8 @@ def log_response(prefix, content, response_time=0.0):
         if "[optimized: saved" in content:
             try:
                 tokens_saved = int(content.split("saved")[1].split()[0])
-            except: pass
+            except (ValueError, IndexError):
+                pass
         _monitor.log_response(content, tokens_saved=tokens_saved, response_time=response_time)
 
 

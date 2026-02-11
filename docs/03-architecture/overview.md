@@ -9,8 +9,9 @@ Kaia is a self-hosted Discord AI bot with local inference and RAG-based memory. 
 ```mermaid
 graph TB
     Discord[Discord API] --> Kaiacord[Kaiacord.py]
-    Kaiacord --> DM[DashboardManager]
-    Kaiacord --> MP[MessageProcessor]
+    Kaiacord --> Ctx[AppContext]
+    Ctx --> DM[DashboardManager]
+    Ctx --> MP[MessageProcessor]
     
     subgraph Core Logic
         RAG[kaia_rag.py]
@@ -20,12 +21,12 @@ graph TB
     
     subgraph Infrastructure
         Logging[logging/]
-        System[system/ config, state]
+        System[system/ config, state, context]
         Monitoring[monitoring/]
     end
     
-    MP --> Core Logic
-    Kaiacord --> Infrastructure
+    Ctx --> Core Logic
+    Ctx --> Infrastructure
     DM --> Logging
     DM --> Monitoring
     
@@ -41,7 +42,7 @@ Kaiacord/
 ├── Kaiacord.py              # Minimal Orchestrator (~170 lines)
 ├── utils/                   # Deeply modularized components
 │   ├── core/                # Core AI logic (RAG, Intelligence, Dream, MessageProcessor)
-│   ├── infrastructure/      # System foundations (DashboardManager, Config, State)
+│   ├── infrastructure/      # System foundations (AppContext, DashboardManager, Config)
 │   ├── social/              # Twitter/X, Bluesky & Social Responder
 │   ├── commands/            # Specialized command handlers
 │   └── news/                # News retrieval & management
@@ -58,12 +59,23 @@ Kaiacord/
 
 ### 1. Bot Core (`Kaiacord.py`)
 
-**Responsibility**: High-level orchestration, event rooting, and dependency injection.
+**Responsibility**: High-level orchestration, event routing, and bootstrapping the `AppContext`.
 
 **Key Flow**:
-1. Initializes `DashboardManager`.
-2. Starts `initialize_logic_layer`.
-3. Routes events to `MessageProcessor`.
+1. Initializes `AppContext` with core singletons (config, bot, client).
+2. Initializes `DashboardManager` and `MessageProcessor` by passing the context.
+3. Routes events strictly to the processor, which accesses dependencies via the context.
+
+---
+
+### 1.1 Application Context (`utils/infrastructure/system/app_context.py`)
+
+**Responsibility**: The "Single Source of Truth" for application dependencies.
+
+**Features**:
+- Holds shared instances (RAG, DreamEngine, OllamaClient, BotState).
+- Replaces module-level globals to prevent circular imports.
+- Provides an `asyncio.Event` for boot synchronization.
 
 ---
 

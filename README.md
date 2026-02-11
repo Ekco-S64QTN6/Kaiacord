@@ -143,15 +143,17 @@ graph TB
 
     subgraph Core ["Kaiacord Orchestrator"]
         Main[Kaiacord.py]
+        Ctx[AppContext]
         Dashboard[btop-Style Dashboard]
     end
 
     subgraph Layers ["Service Architecture"]
-    %% Shortened name to prevent clipping
-        Main --> Proc[MessageProcessor]
-        Proc <--> CoreUtils[Intelligence & RAG Core]
-        Proc <--> SocialUtils[Social Responders]
-        Main <--> Infra[Monitoring & Lifecycle]
+    %% AppContext acts as the registry for all services
+        Main --> Ctx
+        Ctx --> Proc[MessageProcessor]
+        Ctx --> CoreUtils[Intelligence & RAG Core]
+        Ctx --> SocialUtils[Social Responders]
+        Ctx <--> Infra[Monitoring & Lifecycle]
     end
 
     Dashboard --"VRAM/GPU"--> Main
@@ -298,7 +300,7 @@ Kaiacord/
 ├── Kaiacord.py              # Minimal Orchestrator
 ├── utils/                   # Deeply modularized logic
 │   ├── core/                # RAG, Intelligence, Dream, MessageProcessor
-│   ├── infrastructure/      # DashboardManager, Logging, System, Monitoring
+│   ├── infrastructure/      # AppContext, DashboardManager, Logging, System
 │   ├── social/              # Twitter/X, Bluesky, Social Responders
 │   ├── commands/            # Extracted command handlers
 │   └── news/                # News retrieval & management

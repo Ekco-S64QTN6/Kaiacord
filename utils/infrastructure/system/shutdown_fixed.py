@@ -176,7 +176,7 @@ class CleanShutdown:
             # Reset terminal
             sys.stdout.write("\033[0m\033[2J\033[H\033[?25h")
             sys.stdout.flush()
-        except:
+        except Exception:
             pass
     
     def setup(self):

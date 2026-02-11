@@ -314,6 +314,14 @@ class YAMLConfig:
         return self.get('bluesky.enabled', False)
     
     @property
+    def bluesky_handle(self) -> str:
+        return os.getenv("BLUESKY_HANDLE", "")
+        
+    @property
+    def bluesky_password(self) -> str:
+        return os.getenv("BLUESKY_APP_PASSWORD", "")
+    
+    @property
     def bluesky_cross_post_quips(self) -> bool:
         return self.get('bluesky.cross_post_quips', False)
     
@@ -512,22 +520,22 @@ class YAMLConfig:
         return [str(o).lower() for o in owners]
     
     def is_owner(self, author_name: str, display_name: str = None, user_id: str = None) -> bool:
-        """Check if a user is an owner/admin"""
+        """Check if a user is an owner/admin.
+        
+        Uses exact matching with trailing-period normalization for Discord
+        username compatibility (e.g., 'ekco.' matches 'ekco').
+        """
         owner_list = self.owner_ids
-        checks = [author_name.lower()]
+        # Normalize: strip trailing periods (Discord adds them to some usernames)
+        normalized_owners = {o.rstrip('.') for o in owner_list}
+        
+        checks = [author_name.lower().rstrip('.')]
         if display_name:
-            checks.append(display_name.lower())
+            checks.append(display_name.lower().rstrip('.'))
         if user_id:
             checks.append(str(user_id).lower())
         
-        for check in checks:
-            if check in owner_list:
-                return True
-            # Handle common username variations (e.g., "ekco" matches "ekco.")
-            for owner in owner_list:
-                if check.startswith(owner) or owner.startswith(check):
-                    return True
-        return False
+        return any(c in normalized_owners for c in checks)
 
     def reload(self):
         """Reload configuration from files"""

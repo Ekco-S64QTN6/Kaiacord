@@ -1,7 +1,7 @@
-async def handle_dreams_command(msg, dream_engine, config, load_persona_async):
+async def handle_dreams_command(ctx, msg, load_persona_async):
     """Handle the !dreams command (Admin only)"""
     # Owner exemption - uses configurable owner_ids from config
-    is_owner = config.is_owner(msg.author.name, msg.author.display_name, str(msg.author.id))
+    is_owner = ctx.config.is_owner(msg.author.name, msg.author.display_name, str(msg.author.id))
     
     if not is_owner:
         await msg.channel.send("```\nyou aren't my architect. restricted.\n```")
@@ -11,7 +11,7 @@ async def handle_dreams_command(msg, dream_engine, config, load_persona_async):
     subcommand = parts[1].lower() if len(parts) > 1 else "list"
     
     if subcommand == "list":
-        stats = dream_engine.get_dreams_from_files()
+        stats = ctx.dream_engine.get_dreams_from_files()
         if stats['total'] == 0:
             await msg.channel.send("```\nno dreams generated yet.\n```")
         else:
@@ -24,11 +24,11 @@ async def handle_dreams_command(msg, dream_engine, config, load_persona_async):
     elif subcommand == "generate":
         await msg.channel.send("```\nHuman brains must dream to reorganize, to get rid, periodically, of knots and snarls. Perhaps so must this robot, and for the same reason.\n```")
         persona_content = await load_persona_async()
-        await dream_engine.nightly_dream_processing(persona_content)
+        await ctx.dream_engine.nightly_dream_processing(persona_content)
         # Silently complete, no robotic "complete" message.
         
     elif subcommand == "stats":
-        stats = dream_engine.get_dreams_from_files()
+        stats = ctx.dream_engine.get_dreams_from_files()
         if stats['total'] == 0:
             await msg.channel.send("```\nno dreams yet. run !dreams generate.\n```")
         else:

@@ -83,10 +83,14 @@ YOUR IN-DEPTH REFLECTION:"""
             return None
 
     def scan_knowledge_base(self, min_days: int = 2) -> Dict[str, List[Path]]:
-        """Scan KB for files older than min_days, grouped by category"""
+        """Scan KB for files older than min_days, grouped by category.
+        Falls back to more recent files if none found with the min_days threshold.
+        """
         target_folders = ["Books", "news", "user_logs", "documents"]
         categorized_files = {k: [] for k in target_folders}
         cutoff_time = time.time() - (min_days * 86400)
+        
+        all_eligible_files = {k: [] for k in target_folders}
         
         for folder in target_folders:
             folder_path = self.kb_dir / folder
@@ -114,10 +118,21 @@ YOUR IN-DEPTH REFLECTION:"""
 
                     path = Path(root) / f
                     try:
-                        if path.stat().st_mtime < cutoff_time:
+                        stat = path.stat()
+                        # Add to eligible list
+                        all_eligible_files[folder].append(path)
+                        
+                        # Add to categorized list if it meets the cutoff
+                        if stat.st_mtime < cutoff_time:
                             categorized_files[folder].append(path)
                     except Exception: continue
         
+        # Check if we have enough files
+        total_found = sum(len(f) for f in categorized_files.values())
+        if total_found == 0:
+            log_info(f"No files older than {min_days} days. Falling back to all eligible files.")
+            return all_eligible_files
+            
         return categorized_files
 
     async def nightly_dream_processing(self, persona_content: str):
@@ -253,7 +268,7 @@ YOUR IN-DEPTH REFLECTION:"""
                 # Get a relative path for the source display
                 try:
                     display_path = str(file_path.relative_to(self.kb_dir))
-                except:
+                except Exception:
                     display_path = file_path.name
                     
                 reflection = await self.generate_dream_reflection(

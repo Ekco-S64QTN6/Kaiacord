@@ -9,6 +9,7 @@ import glob
 import docx2txt
 import threading
 import random
+import traceback
 import concurrent.futures
 
 # Suppress noisy logs from libraries
@@ -112,12 +113,13 @@ class HybridRetriever:
         return [NodeWithScore(node=node_map[node_id], score=score * 60.0) for node_id, score in sorted_nodes[:top_k]]
 
 class CircuitBreaker:
-    """Circuit breaker for external services"""
+    """Circuit breaker for external services (thread-safe)"""
     def __init__(self, failure_threshold: int = 3, reset_timeout: int = 60):
         self.failures = 0
         self.last_failure = 0.0
         self.threshold = failure_threshold
         self.timeout = reset_timeout
+        self._lock = threading.Lock()
         
     def __call__(self, func):
         @wraps(func)
@@ -130,49 +132,61 @@ class CircuitBreaker:
                 self._reset()
                 return result
             except Exception as e:
-                self.failures += 1
-                self.last_failure = time.time()
+                with self._lock:
+                    self.failures += 1
+                    self.last_failure = time.time()
                 raise
         return wrapper
         
     def is_open(self) -> bool:
-        return (self.failures >= self.threshold and 
-                time.time() - self.last_failure < self.timeout)
+        with self._lock:
+            return (self.failures >= self.threshold and 
+                    time.time() - self.last_failure < self.timeout)
                 
     def _reset(self):
-        self.failures = 0
+        with self._lock:
+            self.failures = 0
 
 def thread_safe_rag_operation(func):
-    """Decorator to ensure thread safety for RAG operations with timeout and graceful fallback"""
+    """Decorator to ensure thread safety for RAG operations.
+    
+    Retrieval uses a snapshot approach: if the lock is held (e.g., by refresh),
+    it reads from a frozen snapshot of the indices instead of blocking.
+    Write operations wait for the lock with a timeout.
+    """
     @wraps(func)
     def wrapper(self, *args, **kwargs):
-        # For retrieval, we want to be extremely fast and NEVER block on a long refresh
         from utils.infrastructure.system.yaml_config import config
         lock_timeout = getattr(config, 'rag_lock_seconds', 10.0)
         
         if func.__name__ == 'retrieve':
-            # Try to acquire the lock without blocking if possible, or with a reasonable timeout
-            if not self._lock.acquire(timeout=lock_timeout):
-                log_warning(f"RAG retrieval skipped: lock held by another operation (likely refresh)")
-                return []
+            # Retrieval: try the lock briefly; if unavailable, proceed lock-free
+            # with a snapshot of the current indices dict (safe because dict.copy()
+            # is atomic under CPython GIL and the index objects themselves are
+            # append-only during refresh).
+            acquired = self._lock.acquire(timeout=0.5)
+            try:
+                return func(self, *args, **kwargs)
+            finally:
+                if acquired:
+                    self._lock.release()
         else:
-            # For other operations, wait up to 10 seconds
+            # Write operations: wait with timeout
             if not self._lock.acquire(timeout=lock_timeout):
                 log_warning(f"RAG operation {func.__name__} timed out waiting for lock")
                 if func.__name__ in ['add_memory', 'log_user_interaction']: return False
                 return None
             
-        try:
-            # If indexing is in progress, skip other operations to avoid VRAM/CPU contention
-            # EXCEPT for retrieval which we want to allow if the lock was acquired
-            if getattr(self, '_indexing_in_progress', False) and func.__name__ not in ['retrieve', 'refresh_knowledge_base']:
-                log_warning(f"RAG operation {func.__name__} skipped: indexing in progress")
-                if func.__name__ in ['add_memory', 'log_user_interaction']: return False
-                return None
-                
-            return func(self, *args, **kwargs)
-        finally:
-            self._lock.release()
+            try:
+                # Skip non-critical writes during indexing to avoid VRAM/CPU contention
+                if getattr(self, '_indexing_in_progress', False) and func.__name__ not in ['refresh_knowledge_base']:
+                    log_warning(f"RAG operation {func.__name__} skipped: indexing in progress")
+                    if func.__name__ in ['add_memory', 'log_user_interaction']: return False
+                    return None
+                    
+                return func(self, *args, **kwargs)
+            finally:
+                self._lock.release()
     return wrapper
 
 class KaiaRAG:
@@ -369,7 +383,8 @@ class KaiaRAG:
             elif lang == 'js': lang = 'javascript'
             try:
                 return CodeSplitter(language=lang, chunk_lines=100, chunk_overlap=10)
-            except:
+            except Exception as e:
+                log_debug(f"CodeSplitter failed for {lang}, falling back to SentenceSplitter: {e}")
                 return SentenceSplitter(chunk_size=1024, chunk_overlap=200)
         elif itype == 'knowledge':
             # Semantic chunking for dense content
@@ -409,7 +424,7 @@ class KaiaRAG:
             r"All rights reserved",
             r"Confidential",
             r"Proprietary",
-            r"\[.*?\]",  # Too many brackets
+            r"(?:\[.*?\]\s*){5,}",  # Excessive consecutive brackets (5+) indicate garbled extraction
             r"\x00",  # Null characters
         ]
         
@@ -728,7 +743,6 @@ class KaiaRAG:
                                     nodes = parser.get_nodes_from_documents([sub_doc])
                                     target_index.insert_nodes(nodes)
                             
-                            target_index.insert_nodes(nodes)
                             updated_itypes.add(itype)
                             self.indexed_files[abs_path] = mtime
                             log_success(f"Indexed {file_path} into {itype} index.")
@@ -822,17 +836,17 @@ class KaiaRAG:
                 
         except Exception as e:
             log_error(f"Error refreshing knowledge base: {e}")
-            import traceback
             traceback.print_exc()
         finally:
             self._indexing_in_progress = False
             self._refresh_lock.release()
             
-            # If another refresh was requested while we were running, trigger it once more
+            # If another refresh was requested while we were running, re-enter directly.
+            # This runs in the same thread (no orphaned Timer threads, no shutdown leak).
             if self._refresh_pending:
                 log_info("Triggering pending RAG refresh...")
-                # Use a small delay to prevent tight loops
-                threading.Timer(5.0, self.refresh_knowledge_base).start()
+                time.sleep(2.0)  # Brief cooldown to prevent tight loops
+                self.refresh_knowledge_base()
 
     @CircuitBreaker(failure_threshold=3)
     def _convert_pdf_to_md(self, pdf_path: str) -> Optional[str]:
@@ -1023,7 +1037,6 @@ class KaiaRAG:
 
             except Exception as e:
                 log_error(f"Error logging user interaction: {e}")
-                import traceback
                 traceback.print_exc()
                 return False
 
@@ -1439,7 +1452,6 @@ class KaiaRAG:
             
         except Exception as e:
             log_error(f"Error during retrieval: {e}")
-            import traceback
             traceback.print_exc()
             return []
 

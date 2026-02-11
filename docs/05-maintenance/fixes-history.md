@@ -239,3 +239,50 @@ All filters now implement a **critical safety net**: if cleaning/filtering would
 - `utils/kaia_news.py` - Disabled auto-refresh at init
 - `utils/kaia_image.py` - Strict VRAM check, removed model unloading
 - `utils/btop_dashboard_v2.py` - Logging suppression
+
+---
+
+### 12. Phase 6: Architectural Overhaul & State Management ✅
+**Problem**: Use of module-level globals led to circular imports and complex bootstrapping. State persistence was fragile and incomplete across restarts.
+
+**Solution**:
+- **Application Context**: Implemented `AppContext` as a central registry for all system dependencies (RAG, Intelligence, Social).
+- **Explicit Dependency Injection**: Refactored `MessageProcessor`, `DashboardManager`, and `SocialResponder` to receive dependencies via the context rather than global imports.
+- **Robust State Management**: Updated `PersistentStateManager` to handle optionally decommissioned components and ensured atomic loading/saving of user profiles and performance metrics.
+- **Boot Flow Synchronization**: Introduced a centralized `sequenced_boot_tasks` and `boot_complete` signal in `DashboardManager` to prevent race conditions during startup.
+
+**Files Modified**:
+- `Kaiacord.py` - Standardized orchestrator with `AppContext`
+- `utils/infrastructure/system/app_context.py` - New dependency hub
+- `utils/core/message_processor.py` - Refactored for context-awareness
+- `utils/infrastructure/system/dashboard_manager.py` - Rewritten boot sequence
+- `utils/core/kaia_intelligence.py` - Improved state persistence logic
+
+---
+
+### 13. Phase 8: Advanced Shutdown Stability ✅
+**Problem**: Bot emitted "Task was destroyed but it is pending!" and "RuntimeError: Event loop is closed" during exit. This was due to `discord.ext.tasks` loops persisting after the event loop closed.
+
+**Solution**:
+- **Task Registration**: Integrated all background loops (News, Dreams, Social, Maintenance) with the unified `task_registry`.
+- **Explicit Loop Stopping**: Modified `DashboardManager` to explicitly signal loops to stop and allow a 0.5s yield window before the event loop is destroyed.
+- **Unified Cleanup**: Guaranteed that all background activities are awaited during the `CleanShutdown` async phase.
+
+**Files Modified**:
+- `utils/core/background_tasks.py` - Task registration added
+- `utils/social/social_tasks.py` - Task registration added
+- `utils/infrastructure/system/maintenance_tasks.py` - Task registration added
+- `utils/infrastructure/system/dashboard_manager.py` - Enhanced cleanup flow
+
+---
+
+### 14. Phase 9: Surgical Shutdown ✅
+**Problem**: Residual "Event loop is closed" errors during final step of loop destruction. `discord.ext.tasks` internal loops were still alive when `loop.close()` was called.
+
+**Solution**:
+- **Loop Drainage**: Implemented a "Final Drain" logic in `DashboardManager` using `asyncio.all_tasks()`.
+- **Callback Flushing**: Added a 0.2s sleep and an explicit `asyncio.gather` for all pending tasks in the `finally` block before closure.
+- **Resource Cleanup**: Ensured `loop.shutdown_asyncgens()` is called to close any dangling asynchronous iterators.
+
+**Files Modified**:
+- `utils/infrastructure/system/dashboard_manager.py` - Surgical loop exit logic

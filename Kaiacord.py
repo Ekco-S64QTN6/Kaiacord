@@ -37,6 +37,7 @@ from utils.infrastructure.system.rate_limiter import RateLimiter
 from utils.infrastructure.system.messaging import send_kaia_response
 from utils.infrastructure.system.dashboard_manager import DashboardManager
 from utils.infrastructure.monitoring.stats_tracker import stats_tracker
+from utils.infrastructure.system.app_context import AppContext
 
 # Logic Imports
 from utils.core.kaia_rag import KaiaRAG
@@ -51,63 +52,67 @@ from utils.social.kaia_social_responder import load_persona_async
 from utils.news.kaia_news import NewsRetrievalEnhancer, NewsManager, RAGEnhancer, ResponseEnhancer
 from utils.core.background_tasks import run_news_update
 
-# Global components
-rag = None
-dream_engine = None
-performance_monitor = None
-model_warm_pool = None
-intent_parser = None
-response_optimizer = None
-context_optimizer = None
-relevance_feedback = None
-personalization_engine = None
-message_processor = None
-news_manager = NewsManager()
-news_enhancer = NewsRetrievalEnhancer()
-rag_enhancer = RAGEnhancer()
-ollama_client = ollama.AsyncClient()
-rate_limiter = RateLimiter(config.requests_per_minute)
+# Global application context
+ctx = AppContext()
+ctx.config = config
+ctx.bot_state = bot_state
+ctx.ollama_client = ollama.AsyncClient()
+ctx.stats_tracker = stats_tracker
+ctx.rate_limiter = RateLimiter(config.requests_per_minute)
+ctx.shutdown_manager = shutdown_manager
+ctx.news_manager = NewsManager()
+
+# Populating late-bound functions
+ctx.news_enhancer = NewsRetrievalEnhancer()
+ctx.rag_enhancer = RAGEnhancer()
 
 # Initialize Bot
 intents = discord.Intents.default()
 intents.message_content = True
 bot = commands.Bot(command_prefix="!", intents=intents)
+ctx.bot = bot
 
 def initialize_logic_layer():
     """Initializes RAG and intelligence components."""
-    global rag, dream_engine, performance_monitor, model_warm_pool
-    global intent_parser, response_optimizer, context_optimizer, relevance_feedback
-    global personalization_engine, message_processor
-    
-    if rag is not None:
+    if ctx.rag is not None:
         return
         
-    performance_monitor = PerformanceMonitor()
-    model_warm_pool = ModelWarmPool(ollama_client)
+    ctx.performance_monitor = PerformanceMonitor()
+    ctx.model_warm_pool = ModelWarmPool(ctx.ollama_client)
     
-    intent_parser = IntentParser(ollama_client, model=config.chat_model, timeout=config.classification_timeout)
-    # ... (rest of the initializations) ...
+    ctx.intent_parser = IntentParser(ctx.ollama_client, model=config.chat_model, timeout=config.classification_timeout)
     response_optimizer = ResponseOptimizer()
     context_optimizer = ContextOptimizer(model_name=config.chat_model, max_tokens=config.max_context_tokens)
     
-    rag = KaiaRAG()
-    shutdown_manager.register_rag(rag)
-    dream_engine = DreamEngine(config, rag)
-    relevance_feedback = RelevanceFeedback(rag)
+    ctx.rag = KaiaRAG()
+    shutdown_manager.register_rag(ctx.rag)
+    ctx.dream_engine = DreamEngine(config, ctx.rag)
+    relevance_feedback = RelevanceFeedback(ctx.rag)
     
-    from utils.core.kaia_intelligence import PersonalizationEngine
-    personalization_engine = PersonalizationEngine()
+    from utils.core.kaia_intelligence import PersonalizationEngine, PersistentStateManager
+    ctx.personalization_engine = PersonalizationEngine()
+    ctx.persistent_state_manager = PersistentStateManager()
     
-    message_processor = MessageProcessor(
-        bot=bot, ollama_client=ollama_client, run_rag=run_rag, rag=rag, 
-        config=config, bot_state=bot_state, performance_monitor=performance_monitor, 
-        intent_parser=intent_parser, 
-        response_optimizer=response_optimizer, context_optimizer=context_optimizer, 
-        relevance_feedback=relevance_feedback, personalization_engine=personalization_engine, 
-        stats_tracker=stats_tracker, rate_limiter=rate_limiter, shutdown_manager=shutdown_manager, 
-        news_enhancer=news_enhancer, rag_enhancer=rag_enhancer,
-        news_manager=news_manager, dream_engine=dream_engine
+    # Load state from last run
+    ctx.persistent_state_manager.load_state(ctx.personalization_engine, ctx.performance_monitor)
+    
+    ctx.message_processor = MessageProcessor(
+        ctx=ctx,
+        response_optimizer=response_optimizer,
+        context_optimizer=context_optimizer,
+        relevance_feedback=relevance_feedback,
+        news_enhancer=ctx.news_enhancer,
+        rag_enhancer=ctx.rag_enhancer
     )
+    
+    # Register GPU memory clearing if available
+    try:
+        from utils.infrastructure.gpu.gpu_manager import OllamaGPUManager
+        ctx.clear_gpu_memory = lambda: OllamaGPUManager(config.chat_model).clear_vram()
+    except:
+        pass
+    
+    ctx.set_ready()
 
 # RAG Executor Helper
 rag_executor = concurrent.futures.ThreadPoolExecutor(max_workers=4, thread_name_prefix='rag_worker')
@@ -117,11 +122,14 @@ async def run_rag(fn, *args, **kwargs):
     return await loop.run_in_executor(rag_executor, lambda: fn(*args, **kwargs))
 
 async def prewarm_main_model():
-    from utils.infrastructure.gpu.gpu_manager import OllamaGPUManager
     try:
-        gpu_manager = OllamaGPUManager(config.chat_model)
-        log_action(f"Pre-warming {config.chat_model} with {config.max_context_tokens // 1000}k context...")
-        await gpu_manager.load_only(ollama_client)
+        if ctx.model_warm_pool:
+            await ctx.model_warm_pool.pre_warm(config.chat_model)
+        else:
+            from utils.infrastructure.gpu.gpu_manager import OllamaGPUManager
+            gpu_manager = OllamaGPUManager(config.chat_model)
+            log_action(f"Pre-warming {config.chat_model} with {config.max_context_tokens // 1000}k context...")
+            await gpu_manager.load_only(ctx.ollama_client)
     except Exception as e:
         print(f"⚠️ Pre-warm failed: {e}")
 
@@ -130,26 +138,20 @@ async def on_ready():
     # start_watcher removed
     from utils.infrastructure.system.maintenance_tasks import start_maintenance_tasks
     
-    global rag, personalization_engine, performance_monitor
-    
-    # Wait up to 30s for logic layer to initialize if needed
-    for _ in range(30):
-        if rag is not None:
-            break
-        await asyncio.sleep(1)
-        
-    if rag is None:
-        log_error("CRITICAL: Bot ready but RAG layer not initialized!")
+    # Wait for logic layer to initialize if needed (event-based, no more polling)
+    try:
+        await ctx.wait_until_ready(timeout=30.0)
+    except asyncio.TimeoutError:
+        log_error("CRITICAL: Bot ready but RAG layer initialization timed out (30s)!")
         return
 
-    start_maintenance_tasks(rag, personalization_engine, performance_monitor, None, rate_limiter, None)
+    start_maintenance_tasks(ctx)
 
 @bot.event
 @timed_response(threshold=30.0)
 async def on_message(msg: discord.Message):
-    global message_processor
-    if message_processor:
-        await message_processor.process(msg)
+    if ctx.message_processor:
+        await ctx.message_processor.process(msg)
     else:
         log_warning("Message received but processor not yet initialized. Skipping.")
 
@@ -163,20 +165,26 @@ def main():
     from utils.infrastructure.monitoring.stats_poller import stats_poller
     
     dm = DashboardManager(
-        bot=bot, config=config, bot_state=bot_state, stats_tracker=stats_tracker, 
+        ctx=ctx, bot=bot, config=config, bot_state=bot_state, stats_tracker=stats_tracker, 
         stats_poller=stats_poller, logger=logger, model_warm_pool=None, intent_parser=None
     )
     
     # Pass necessary functions to the manager
     async def run_bot_wrapper(sp, stop_event=None):
-        dm.intent_parser = intent_parser
+        dm.intent_parser = ctx.intent_parser
         await dm.run_bot_async(sp, initialize_logic_layer, dm_sequenced_boot, stop_event)
 
     async def dm_sequenced_boot():
+        from utils.core.background_tasks import start_background_core_tasks
+        from utils.social.social_tasks import start_social_tasks
+        
         await dm.sequenced_boot_tasks(
-            run_rag, rag, run_news_update, prewarm_main_model, load_persona_async, 
-            on_message, news_manager, dream_engine, ollama_client
+            run_rag, ctx.rag, run_news_update, prewarm_main_model
         )
+        
+        # Start loops with shared context
+        start_background_core_tasks(ctx)
+        start_social_tasks(ctx, on_message)
 
     mode = os.environ.get('KAIA_DASHBOARD', 'curses').lower()
     if mode == 'curses':

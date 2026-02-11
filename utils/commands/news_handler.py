@@ -4,7 +4,7 @@ from datetime import datetime
 from pathlib import Path
 from utils.infrastructure.logging.kaia_logger import log_action, log_success, log_error, log_warning
 
-async def handle_news_command(msg, news_manager, send_kaia_response):
+async def handle_news_command(ctx, msg, send_kaia_response):
     """Handle the !news command"""
     try:
         # Parse category from command
@@ -70,7 +70,7 @@ async def handle_news_command(msg, news_manager, send_kaia_response):
         log_action(f"News request from {msg.author} (Category: {category})")
         
         # Get news from manager (returns list of dicts)
-        news_items = news_manager.get_news(category)
+        news_items = ctx.news_manager.get_news(category)
         
         if news_items and len(news_items) > 0:
             # Format news items nicely
@@ -99,7 +99,7 @@ async def handle_news_command(msg, news_manager, send_kaia_response):
         log_error(f"Error retrieving news: {e}")
         await msg.channel.send("```\nError retrieving news. Check logs for details.\n```")
 
-async def handle_proper_news_query(message, query, news_manager, send_kaia_response, run_rag, rag, category=None):
+async def handle_proper_news_query(ctx, message, query, send_kaia_response, category=None):
     """PROPER news handler that reads from actual files"""
     try:
         async with message.channel.typing():
@@ -128,7 +128,7 @@ async def handle_proper_news_query(message, query, news_manager, send_kaia_respo
                     category = 'general'
             
             # Get ACTUAL news from NewsManager
-            news_items = news_manager.get_news(category, limit=7)
+            news_items = ctx.news_manager.get_news(category, limit=7)
             
             if not news_items:
                 # Still no news - inform user
@@ -145,8 +145,9 @@ async def handle_proper_news_query(message, query, news_manager, send_kaia_respo
             await send_kaia_response(message.channel, response)
             
             # Log interaction
-            if run_rag and rag:
-                await run_rag(rag.log_user_interaction, message.author.id, message.author.display_name, query, response)
+            if ctx.rag:
+                from Kaiacord import run_rag
+                await run_rag(ctx.rag.log_user_interaction, message.author.id, message.author.display_name, query, response)
             
     except Exception as e:
         log_error(f"Proper news error: {e}")

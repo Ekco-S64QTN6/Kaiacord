@@ -19,8 +19,9 @@ from utils.infrastructure.monitoring.async_task_registry import task_registry
 class DashboardManager:
     """Manages the lifecycle of the bot's terminal dashboard and run modes."""
     
-    def __init__(self, bot, config, bot_state, stats_tracker, stats_poller, 
+    def __init__(self, ctx, bot, config, bot_state, stats_tracker, stats_poller, 
                  logger, model_warm_pool, intent_parser):
+        self.ctx = ctx
         self.bot = bot
         self.config = config
         self.bot_state = bot_state
@@ -89,42 +90,37 @@ class DashboardManager:
         return self.stats_poller
 
     async def perform_async_cleanup(self, rag, ollama_client):
-        """Shutdown logic for both modes."""
+        """Shutdown logic for both modes.
+        
+        Dashboard-specific cleanup runs here (stopping modular tasks, thread pool).
+        Core cleanup (RAG persist, model unload, GPU release) is delegated to
+        shutdown_manager.async_shutdown() to avoid duplicate work.
+        """
         log_info("🔄 Shutting down...")
         
-        # 1. Stop all modular background tasks
+        # 1. Stop all modular background tasks (dashboard-specific)
         from utils.social.social_tasks import stop_social_tasks
         from utils.infrastructure.system.maintenance_tasks import stop_maintenance_tasks
         from utils.core.background_tasks import stop_background_core_tasks
         
         log_action("Stopping background tasks...")
         try:
+            # 1a. Explicitly stop the tasks
             stop_social_tasks()
             stop_maintenance_tasks()
             stop_background_core_tasks()
             
-            # Explicitly cancel and await all remaining tasks to prevent "Event loop is closed" errors
-            pending_tasks = [t for t in asyncio.all_tasks() if t is not asyncio.current_task()]
-            if pending_tasks:
-                log_action(f"Awaiting {len(pending_tasks)} tasks to cancel...")
-                for task in pending_tasks:
-                    task.cancel()
-                await asyncio.gather(*pending_tasks, return_exceptions=True)
-            
-            await asyncio.sleep(0.1)
+            # 1b. Short wait for loops to yield before cancelling their tasks in registry
+            await asyncio.sleep(0.5) 
+            log_info("  ✅ Background loops signaled to stop")
         except Exception as e:
             log_error(f"Error stopping tasks: {e}")
         
-        # 2. Cancel registered background tasks in registry
-        await task_registry.cancel_all(timeout=3.0)
-        log_success("Background tasks cancelled.")
-
-        # 2.5 Shut down RAG thread pool
+        # 2. Shut down RAG thread pool (dashboard-specific)
         try:
             from Kaiacord import rag_executor
             if rag_executor:
                 log_action("Shutting down RAG thread pool...")
-                # cancel_futures=True requires Python 3.9+
                 try:
                     rag_executor.shutdown(wait=False, cancel_futures=True)
                 except TypeError:
@@ -133,43 +129,16 @@ class DashboardManager:
         except Exception as e:
             log_warning(f"Error shutting down RAG executor: {e}")
         
+        # 3. Stop stats poller
         if self.stats_poller:
             self.stats_poller.stop()
         
-        shutdown_manager.cleanup()
+        # 4. Delegate core cleanup to shutdown_manager (single source of truth)
+        # This handles: RAG persistence, task registry cancellation,
+        # Ollama model unloading, GPU memory release, process cleanup.
+        shutdown_manager.register_rag(rag)
+        await shutdown_manager.async_shutdown()
         
-        if rag:
-            log_action("Persisting RAG index...")
-            try:
-                # Shield the persistence task but keep a short timeout to prevent hang
-                # Use a dummy run_rag if not provided
-                loop = asyncio.get_running_loop()
-                await asyncio.wait_for(asyncio.to_thread(rag.persist, force=True), timeout=5.0)
-                log_success("Index persisted.")
-            except asyncio.TimeoutError:
-                log_warning("RAG persistence timed out. Continuing shutdown.")
-            except Exception as e:
-                log_error(f"Error during RAG persistence: {e}")
-        
-        # Close Ollama clients
-        log_action("Closing Ollama clients...")
-        try:
-            log_action("Unloading main model...")
-            # Add timeout to prevent hang if Ollama service is toast
-            try:
-                await asyncio.wait_for(
-                    ollama_client.generate(model=self.config.chat_model, keep_alive=0),
-                    timeout=5.0
-                )
-            except asyncio.TimeoutError:
-                log_warning("Ollama unload timed out. Moving on.")
-            
-            if hasattr(ollama_client, '_client'):
-                await ollama_client._client.aclose()
-            log_success("Ollama clients closed and models unloaded.")
-        except Exception as e:
-            log_warning(f"Failed to close Ollama clients: {e}")
-            
         log_success("Shutdown complete.")
 
     async def run_bot_async(self, stats_poller, initialize_logic_layer, 
@@ -199,14 +168,11 @@ class DashboardManager:
         except Exception as e:
             print(f"\n❌ Error: {e}")
         finally:
-            # RAG and Ollama Client need to be passed for cleanup
-            # These are usually globals in Kaiacord.py
-            from Kaiacord import rag, ollama_client
-            await self.perform_async_cleanup(rag, ollama_client)
+            # RAG and Ollama Client for cleanup
+            await self.perform_async_cleanup(self.ctx.rag, self.ctx.ollama_client)
 
     async def sequenced_boot_tasks(self, run_rag, rag, run_news_update, 
-                                   prewarm_main_model, load_persona_async, 
-                                   on_message, news_manager, dream_engine, ollama_client):
+                                   prewarm_main_model):
         """Sequenced boot tasks migrated from Kaiacord.py."""
         log_info("📦 Phase 1/3: Rebuilding knowledge index...")
         try:
@@ -234,13 +200,6 @@ class DashboardManager:
         except Exception as e:
             log_error(f"Model prewarm failed: {e}")
         
-        # Start background tasks loops (allow them to run initial sync while we pre-warm)
-        from utils.social.social_tasks import start_social_tasks
-        from utils.core.background_tasks import start_background_core_tasks
-        
-        start_social_tasks(self.bot, ollama_client, run_rag, rag, on_message)
-        start_background_core_tasks(rag, run_rag, news_manager, dream_engine, load_persona_async)
-
         # Pre-warm RAG (mostly CPU/disk/IO) - Await this so it finishes before Ready
         log_action("Pre-warming RAG cache...")
         await run_rag(rag.pre_warm)
@@ -275,8 +234,36 @@ class DashboardManager:
                 initialize_logic_layer()
                 loop.run_until_complete(run_bot_async(sp, self.stop_event))
             finally:
+                # FINAL DRAIN: Ensure all tasks (especially discord.ext.tasks)
+                # have finished their internal cleanup callbacks before closing loop.
+                try:
+                    # Give tasks a final moment to react to the cancellation
+                    # that should have happened in perform_async_cleanup
+                    pending = asyncio.all_tasks(loop)
+                    
+                    if pending:
+                        # Process any immediate callbacks
+                        loop.run_until_complete(asyncio.sleep(0.2))
+                        
+                        # Gather again in case sleep triggered more tasks
+                        pending = asyncio.all_tasks(loop)
+                        for task in pending:
+                            if not task.done():
+                                task.cancel()
+                        
+                        # Wait for tasks to finish their finally blocks
+                        loop.run_until_complete(asyncio.gather(*pending, return_exceptions=True))
+                    
+                    # Handle async generators
+                    loop.run_until_complete(loop.shutdown_asyncgens())
+                except Exception as e:
+                    # Curses might be dead, but we log to stderr if possible
+                    print(f"[SHUTDOWN] Loop drainage error: {e}", file=sys.stderr)
+                
                 self.cleanup_complete_event.set()
-                loop.close()
+                # Final safeguard: ensure loop is still running before closing
+                if not loop.is_closed():
+                    loop.close()
         
         try:
             self.dashboard = BtopDashboardV2(

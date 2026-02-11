@@ -9,13 +9,13 @@ Kaia uses an enhanced caching system to provide near-instant responses while pre
 - **Adaptive Expiry**: News-related queries expire in 24 hours, while general queries last for 7 days.
 - **Bypass**: Identity-related queries (e.g., "who are you") automatically bypass the cache.
 
-## 2. Query Classification (Consolidated)
-Before processing a query, Kaia's consolidated `QueryClassifier` categorizes the intent using a hybrid approach:
-- **Rule-Based (Fast)**: Uses regex patterns for instant classification of common intents (Greetings, Identity, News, Commands).
-- **Model-Based (Accurate)**: Falls back to the main LLM (`gemma3:12b`) for complex queries, with a **5.0s timeout protection** to prevent hanging.
-- **Categories**: GREETING, IDENTITY, NEWS, POLITICS, TECH, SECURITY, COMMAND, GENERAL, KNOWLEDGE, PERSONAL, CASUAL.
+## 2. Intent Analysis (`IntentParser`)
+Before processing a query, Kaia's `IntentParser` (Advanced Intent Understanding Engine) analyzes the intent:
+- **Rule-Based (Fast)**: Uses regex patterns for instant parsing of common intents (Greetings, Identity, News, Commands).
+- **Model-Based (Accurate)**: Falls back to the LLM for deep cognitive analysis of emotional context, implied needs, and relational cues.
+- **Output**: Generates a structured `Intent` object with specific strategies (e.g., `DIAGNOSTIC_DEEP_DIVE`, `DREAM_RECALL`).
 
-This classification allows the bot to optimize retrieval (e.g., using `strict_identity` for identity queries) and choose the best system prompt or news category.
+This analysis allows the bot to optimize retrieval and choose the best persona-aligned response strategy.
 
 ## 3. Context Optimization
 The `ContextOptimizer` dynamically manages the limited context window of the LLM:

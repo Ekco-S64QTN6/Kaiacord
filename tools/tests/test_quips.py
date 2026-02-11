@@ -74,10 +74,21 @@ async def run_smoke_test():
             print(f"[DEBUG] Highlights retrieved: {res}")
         return res
 
+    class MockCtx:
+        def __init__(self):
+            self.bot = bot
+            self.ollama_client = ollama_client
+            self.rag = rag
+            self.bot_state = bot_state
+            self.config = config
+    
+    ctx = MockCtx()
+
     for i in range(1, 11):
         log_info(f"Generating quip #{i}...")
         print(f"[DEBUG] Recent quips in history: {bot_state.get_recent_quips()}")
-        await generate_quip(bot, ollama_client, run_rag_helper, rag, is_manual=True)
+        # The new signature is generate_quip(ctx, is_manual=False, target_channel=None, on_message_func=None)
+        await generate_quip(ctx, is_manual=True)
         # Small delay to prevent Ollama overload
         await asyncio.sleep(1)
 
