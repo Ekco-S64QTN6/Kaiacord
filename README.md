@@ -64,7 +64,7 @@ python Kaiacord.py
 | **💭 Dream Mode** | Associative memory recall (nightly 3-5 AM); processes archived knowledge into persona-deep reflections for more natural, organic RAG callbacks | ✅ |
 | **🔄 Self-Healing** | 3-pass generation loop with automatic parameter scaling to recover from LLM failures or hallucinations | ✅ |
 | **🌐 Social Media** | Cross-post to Bluesky & X, Auto-reply to mentions, Memory Mirror | ✅ |
-| **🏟️ Forums** | VBulletin 3.x Client, Deep Thread Scraping, Unified Identity Linking (Discord <-> Forum), automated Intro drafting | ✅ |
+| **🏟️ Forums** | VBulletin 3.x Client, Deep Thread Scraping, Unified Identity Linking (Discord <-> Forum)| ✅ |
 | **📰 News** | Daily Briefs, Manual Retrieval, Ingestion of manual/weekly briefs | ✅ |
 ---
 
@@ -189,35 +189,35 @@ Kaia: 📰 **Technology News**
 ### 🏟️ Forum Archaeology
 Kaia can deep-scrape VBulletin forums to build high-density knowledge bases:
 ```
-# Unified Identity Linking:
-# !forum link <forum_id>
-# Associates your Discord identity with your forum profile for cross-platform personality dossiers.
+ Unified Identity Linking:
+ !forum link <forum_id>
+ Associates your Discord identity with your forum profile for cross-platform 
+ personality dossiers.
 
-# Technical Knowledge Expansion:
-# Kaia deep-scrapes subforums (like Technical Discussion) and synthesizes
-# community-vetted solutions into searchable Cheat Sheets.
+ Technical Knowledge Expansion:
+ Kaia deep-scrapes subforums (like Technical Discussion) and synthesizes
+ community-vetted solutions into searchable Cheat Sheets.
 
-# Safe Interaction:
-# Quoting support with [QUOTE] BBCode and thread-specific allowlists
-# ensure Kaia only interacts where she belongs.
+ Safe Interaction:
+ Quoting support with [QUOTE] BBCode and thread-specific allowlists
+ ensure Kaia only interacts where she belongs.
 ```
-
-**Automation**: `scripts/generate_intro_post.py`
-**Refrence**: [`docs/02-user-guide/forum-integration.md`](docs/02-user-guide/forum-integration.md)
+**References**:  
+- [`docs/02-user-guide/forum-integration.md`](docs/02-user-guide/forum-integration.md)
 
 ### 🌐 Social Media
 Kaia can cross-post to Bluesky and X, and reply to mentions:
 ```
-# Idle quips auto-post to:
-# - @kaiakuroshi.bsky.social (Bluesky)
-# - @Nokifusignal (X)
+ Idle quips auto-post to:
+ - @kaiakuroshi.bsky.social (Bluesky)
+ - @Nokifusignal (X)
 
-# When someone mentions Kaia on Bluesky or X,
-# she replies using her AI persona (checked every 5 min)
+ When someone mentions Kaia on Bluesky or X,
+ she replies using her AI persona (checked every 5 min)
 
-# Memory Mirror:
-# Idle quips are now grounded in Kaia's actual past conversations,
-# making her "skeets" and posts feel like genuine personal reflections.
+ Memory Mirror:
+ Idle quips are now grounded in Kaia's actual past conversations,
+ making her "skeets" and posts feel like genuine personal reflections.
 ```
 
 **Setup**: See [`docs/02-user-guide/social-media.md`](docs/02-user-guide/social-media.md)
@@ -373,5 +373,5 @@ This project is licensed under the [MIT License](LICENSE).
 ---
 
 <p align="center">
-  <sub>Built with ❤️ for local AI enthusiasts | GPU-optimized for RTX 3060 12GB</sub>
+  <sub>Built with ❤️ by Gemini & Claude for local AI enthusiasts | GPU-optimized for RTX 3060 12GB</sub>
 </p>

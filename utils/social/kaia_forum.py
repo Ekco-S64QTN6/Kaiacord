@@ -451,6 +451,25 @@ class ForumClient:
                 if ts_match:
                     timestamp = ts_match.group(1)
 
+            # --- YouTube ID Filter ---
+            # Filter content: remove lines that are just 11-char alphanumeric strings (YouTube IDs)
+            content_lines = content.split('\n')
+            filtered_lines = []
+            yt_pattern = re.compile(r'^[a-zA-Z0-9_-]{11}$')
+            
+            for line in content_lines:
+                clean_line = line.strip()
+                # Skip if it's exactly a YouTube-like ID
+                if yt_pattern.match(clean_line):
+                    continue
+                filtered_lines.append(line)
+            
+            content = '\n'.join(filtered_lines).strip()
+            
+            if not content:
+                continue # Skip empty posts after filtering
+            # -------------------------
+
             posts.append(PostInfo(
                 post_id=post_id,
                 author=author,
