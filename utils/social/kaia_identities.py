@@ -20,9 +20,9 @@ class IdentityRegistry:
 
     def __init__(self):
         self.data: Dict[str, Any] = {
-            "discord_to_forum": {},  # discord_id -> forum_id
+            "discord_to_forum": {},  # discord_id -> List[int]
             "forum_to_discord": {},  # forum_id -> discord_id
-            "mappings": {}           # discord_id -> {platform: id, ...}
+            "mappings": {}           # discord_id -> {platform: [ids], ...}
         }
         self._load()
 
@@ -43,20 +43,42 @@ class IdentityRegistry:
             log_error(f"Failed to save identity registry: {e}")
 
     def link_discord_to_forum(self, discord_id: str, forum_id: int):
-        """Link a Discord ID to a Forum ID."""
+        """Link a Discord ID to a Forum ID (supports multiple)."""
         fid_str = str(forum_id)
-        self.data["discord_to_forum"][discord_id] = forum_id
+        
+        # discord_to_forum (list)
+        if discord_id not in self.data["discord_to_forum"]:
+            self.data["discord_to_forum"][discord_id] = []
+        elif isinstance(self.data["discord_to_forum"][discord_id], int):
+            # Migration for old singular integer
+            self.data["discord_to_forum"][discord_id] = [self.data["discord_to_forum"][discord_id]]
+            
+        if forum_id not in self.data["discord_to_forum"][discord_id]:
+            self.data["discord_to_forum"][discord_id].append(forum_id)
+            
         self.data["forum_to_discord"][fid_str] = discord_id
         
         if discord_id not in self.data["mappings"]:
             self.data["mappings"][discord_id] = {}
-        self.data["mappings"][discord_id]["forum"] = forum_id
+        
+        if "forum" not in self.data["mappings"][discord_id]:
+            self.data["mappings"][discord_id]["forum"] = []
+        elif isinstance(self.data["mappings"][discord_id]["forum"], int):
+            # Migration
+            self.data["mappings"][discord_id]["forum"] = [self.data["mappings"][discord_id]["forum"]]
+            
+        if forum_id not in self.data["mappings"][discord_id]["forum"]:
+            self.data["mappings"][discord_id]["forum"].append(forum_id)
         
         self._save()
         log_success(f"Linked Discord {discord_id} to Forum UID {forum_id}")
 
-    def get_forum_id(self, discord_id: str) -> Optional[int]:
-        return self.data["discord_to_forum"].get(discord_id)
+    def get_forum_ids(self, discord_id: str) -> List[int]:
+        """Get all forum IDs for a discord ID."""
+        val = self.data["discord_to_forum"].get(discord_id, [])
+        if isinstance(val, int):
+            return [val]
+        return val
 
     def get_discord_id(self, forum_id: int) -> Optional[str]:
         return self.data["forum_to_discord"].get(str(forum_id))

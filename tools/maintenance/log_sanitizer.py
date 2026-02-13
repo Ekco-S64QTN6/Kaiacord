@@ -49,6 +49,15 @@ CONFUSION_PATTERNS = [
     
     # Specific to the incident - Herbert themes applied to Deus Ex
     (r"(?i)deus\s*ex.*revolution.*power\s*structures.*herbert", "Herbert themes on Deus Ex"),
+
+    # Cheese Hallucination (Cheese in China)
+    (r"(?i)\bcheese\b", "Cheese situation hallucination"),
+
+    # Hydroponics Hallucination
+    (r"(?i)hydroponics\s*lab", "Hydroponics lab hallucination"),
+    (r"(?i)automated\s*irrigation", "Automated irrigation hallucination"),
+    (r"(?i)fungal\s*infestation", "Fungal infestation hallucination"),
+    (r"(r?i)nutrient\s*balance", "Nutrient balance hallucination"),
 ]
 
 # Blocklist: Entries containing these exact phrases should be quarantined

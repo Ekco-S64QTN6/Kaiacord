@@ -1,3 +1,4 @@
+from __future__ import annotations
 """
 Kaia VBulletin Forum Client
 ============================
@@ -261,10 +262,6 @@ class ForumClient:
                 if not tid_match:
                     continue
                 thread_id = int(tid_match.group(1))
-                if thread_id in seen_ids:
-                    continue
-                seen_ids.add(thread_id)
-
                 title = link.get_text(strip=True)
                 if not title or len(title) < 2:
                     continue
@@ -272,6 +269,10 @@ class ForumClient:
                 # Skip pagination links (just numbers)
                 if title.isdigit() or title in ('Last Page', 'Last »', '>'):
                     continue
+
+                if thread_id in seen_ids:
+                    continue
+                seen_ids.add(thread_id)
 
                 # Try to find the containing row for metadata
                 row = link.find_parent('tr')
@@ -630,7 +631,8 @@ class ForumClient:
         Check if a thread needs to be re-scraped based on reply count.
         VBulletin 'reply_count' is 1 less than total posts (including OP).
         """
-        files = list(self.KNOWLEDGE_DIR.glob(f"thread_{thread_id}_*.md"))
+        # Search recursively to find threads in subdirectories (like technical/)
+        files = list(self.KNOWLEDGE_DIR.rglob(f"thread_{thread_id}_*.md"))
         if not files:
             return True
         
@@ -714,29 +716,34 @@ class ForumClient:
         log_info(f"Saved thread scrape to {filepath}")
         return True
 
-    def update_forum_user_profiles(self, posts: List[PostInfo],
+    def update_forum_user_profiles(self, posts: List[PostInfo] | List[Dict[str, Any]],
                                    profile_metadata: Optional[Dict[str, Any]] = None,
                                    target_user_key: Optional[str] = None):
         """Create/update user profile files for forum users."""
         # Group posts by author
-        user_posts: Dict[str, List[PostInfo]] = {}
+        user_posts: Dict[str, List[Dict[str, Any]]] = {}
         for p in posts:
-            if p.author and p.user_id:
-                key = f"forum_{p.author}_{p.user_id}"
+            # Handle both PostInfo objects and dictionaries
+            post = p if isinstance(p, dict) else p.to_dict()
+            author = post.get('author')
+            uid = post.get('user_id')
+            
+            if author and uid:
+                key = f"forum_{author}_{uid}"
                 # If target_user_key is specified, only collect for that user
                 if target_user_key and key != target_user_key:
                     continue
                 if key not in user_posts:
                     user_posts[key] = []
-                user_posts[key].append(p)
+                user_posts[key].append(post)
 
         for user_key, user_post_list in user_posts.items():
             user_dir = self.USER_LOGS_DIR / user_key
             user_dir.mkdir(parents=True, exist_ok=True)
             profile_path = user_dir / "user_profile.md"
 
-            author = user_post_list[0].author
-            user_id = user_post_list[0].user_id
+            author = user_post_list[0].get('author')
+            user_id = user_post_list[0].get('user_id')
 
             # Append interactions log
             today_str = datetime.now().strftime("%Y%m%d")
@@ -753,11 +760,13 @@ class ForumClient:
             new_entries = []
             for post in user_post_list:
                 # Deduplication: Check for Post ID in current file
-                marker = f"[Post ID: {post.post_id}]"
+                pid = post.get('post_id')
+                marker = f"[Post ID: {pid}]"
                 if marker in existing_content:
                     continue
                 
-                new_entries.append(f"{marker} [by {author}]\n{post.content[:2000]}\n\n")
+                content = post.get('content', '')
+                new_entries.append(f"{marker} [by {author}]\n{content[:2000]}\n\n")
 
             if new_entries:
                 with open(interaction_path, 'a', encoding='utf-8', errors='replace') as f:
@@ -1299,6 +1308,13 @@ class ForumClient:
                     mtime = datetime.fromtimestamp(history_path.stat().st_mtime)
                     if (datetime.now() - mtime).total_seconds() < 14400: # 4 hours
                         log_debug(f"Skipping {username} history — scraped within 4h")
+                        continue
+
+                # NEW: Cooldown for profile scrape too (even if history doesn't exist)
+                if profile_path.exists():
+                    pmtime = datetime.fromtimestamp(profile_path.stat().st_mtime)
+                    if (datetime.now() - pmtime).total_seconds() < 3600: # 1 hour
+                        log_debug(f"Skipping {username} profile — scraped within 1h")
                         continue
 
                 # Scrape profile - this is cheap and gives us total_posts

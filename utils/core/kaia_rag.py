@@ -41,6 +41,7 @@ from utils.infrastructure.logging.kaia_logger import log_success, log_info, log_
 from utils.infrastructure.system.bot_state import bot_state
 from utils.infrastructure.system.yaml_config import config
 from utils.core.kaia_intelligence import Intent
+from utils.social.kaia_identities import registry
 
 class CircuitOpenError(Exception):
     """Raised when the circuit breaker is open"""
@@ -975,7 +976,6 @@ class KaiaRAG:
         with self._lock:
             # 1. CANONICAL IDENTITY RESOLUTION
             # Check if this ID is linked to another (e.g. Forum <-> Discord)
-            from utils.social.kaia_identities import registry
             
             u_id_str = str(user_id)
             canonical_id = u_id_str
@@ -1329,13 +1329,13 @@ class KaiaRAG:
             # --- IDENTITY EXPANSION ---
             relevant_ids = {u_id_str} if u_id_str else set()
             if u_id_str:
-                from utils.social.kaia_identities import registry
                 # Case 1: Discord -> Forum
-                fid = registry.get_forum_id(u_id_str)
-                if fid:
+                fids = registry.get_forum_ids(u_id_str)
+                for fid in fids:
                     relevant_ids.add(str(fid))
                     # Add common folder naming convention matches
-                    relevant_ids.add(f"forum_{user_name}_{fid}")
+                    # We don't have the forum name here easily, but we can infer or skip
+                    # relevant_ids.add(f"forum_{user_name}_{fid}") 
                     
                 # Case 2: Forum -> Discord
                 if u_id_str.startswith("forum_"):
@@ -1377,9 +1377,25 @@ class KaiaRAG:
                 if source_type == 'user_profile' and not (is_social_identity or strict_identity):
                     continue
                 
-                # Filter: User Isolation & Hallucination Guard (DECOMMISSIONED)
-                # These were identified as causing memory loss and roleplay issues.
-                # Kaia is now grounded by Persona Anchoring and Context Optimization instead.
+                # Filter: User Isolation for Logs
+                if source_type == 'user_logs':
+                    if node_user_id and node_user_id not in relevant_ids:
+                        continue
+                    # Also check path just in case user_id is missing from metadata
+                    if "user_logs" in file_path:
+                        path_parts = file_path.split("/")
+                        if "user_logs" in path_parts:
+                            idx = path_parts.index("user_logs")
+                            if len(path_parts) > idx + 1:
+                                folder_name = path_parts[idx+1]
+                                # Check if folder belongs to relevant users
+                                # relevant_ids contains "Ekco_177011971818782721" etc.
+                                is_my_log = any(rid in folder_name for rid in relevant_ids)
+                                if not is_my_log:
+                                    continue
+
+                # Filter: User Isolation & Hallucination Guard (DECOMMISSIONED for profiles/general)
+                # But kept strict for logs above.
 
                 # Filter: Strict Dream Isolation (User Request)
                 if is_dream_query:
@@ -1402,7 +1418,7 @@ class KaiaRAG:
                     'persona': 0.15,
                     'user_profile': 0.20,
                     'dream': 0.10,
-                    'memory': 0.25
+                    'user_logs': 0.25
                 })
                 type_boost = type_boosts.get(source_type, 0.0)
 
@@ -1423,7 +1439,7 @@ class KaiaRAG:
                             
                     # DIAGNOSTIC_DEEP_DIVE: Boost error logs
                     elif strategy == "DIAGNOSTIC_DEEP_DIVE":
-                        if source_type == 'logs':
+                        if source_type == 'user_logs':
                             # Heavy boost for logs containing error keywords
                             if any(w in content.lower() for w in ['error', 'exception', 'traceback', 'fail', 'bug']):
                                 final_score += 0.4
@@ -1449,7 +1465,7 @@ class KaiaRAG:
                     elif strategy == "RELATIONAL_MIRROR":
                         if source_type == 'user_profile':
                             final_score += 0.4
-                        elif source_type == 'logs' and node_user_id in relevant_ids:
+                        elif source_type == 'user_logs' and node_user_id in relevant_ids:
                             final_score += 0.25
 
                 else:

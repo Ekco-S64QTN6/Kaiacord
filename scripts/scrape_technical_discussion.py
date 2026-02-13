@@ -43,8 +43,11 @@ async def scrape_tech_discussion():
 
     # Deep scrape each thread
     for i, thread in enumerate(all_threads):
-        print(f"[{i+1}/{len(all_threads)}] Scrapping thread: {thread.title}")
-        
+        # Optimization: Skip network request if reply count hasn't changed
+        if not client.is_thread_update_needed(thread.thread_id, thread.reply_count):
+            print(f"  Skipping thread {thread.thread_id} — no new posts detected.")
+            continue
+
         # Capture the whole thread
         thread_data = await client.scrape_thread(thread.thread_id, full_scrape=True)
         

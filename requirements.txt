@@ -38,6 +38,7 @@ filelock==3.20.3
 filetype==1.2.0
 frozenlist==1.8.0
 fsspec==2026.1.0
+google-generativeai==0.8.6
 greenlet==3.3.0
 griffe==1.15.0
 h11==0.16.0

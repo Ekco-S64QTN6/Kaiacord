@@ -24,8 +24,8 @@ class KaiaNewsUpdater:
     def __init__(self, gemini_api_key: str):
         """Initialize with Gemini API key"""
         genai.configure(api_key=gemini_api_key)
-        # Using 1.5-flash for better free-tier quota stability and grounding support
-        self.model_name = 'gemini-1.5-flash' 
+        # Using flash-latest for better compatibility with legacy SDK aliases
+        self.model_name = 'gemini-flash-latest' 
         self.knowledge_dir = Path("./knowledge_base/news/daily")
         self.knowledge_dir.mkdir(parents=True, exist_ok=True)
         self.today = datetime.datetime.now().strftime("%Y-%m-%d")

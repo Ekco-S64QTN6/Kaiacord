@@ -94,31 +94,25 @@ async def _handle_scrape(ctx, msg):
             return
 
         async with msg.channel.typing():
-            # Scrape listing
-            threads = await client.scrape_forum_listing()
-            if not threads:
-                await msg.channel.send("```\nno threads found or scrape failed.\n```")
-                return
-
-            listing_path = client.save_forum_listing(threads)
-
-            # Scrape recent posts from top active (non-sticky) threads
+            # Parse optional arguments and positional limit
+            parts = msg.content.strip().split()
+            command_args = parts[2:] if len(parts) > 2 else []
+            
             from utils.infrastructure.system.yaml_config import config
             max_posts = config.get('forum.max_posts_per_thread_scrape', 50)
-
-            # Parse optional arguments
-            from utils.infrastructure.system.yaml_config import config
             max_users = config.get('forum.max_active_users_scrape', 15)
+            
+            target_threads = 20  # Default to one full page (~20 threads)
             start_page = 1
             max_pages_to_process = 1
             full_scrape = False
-            
-            # Check for args in ctx or derived from message
-            command_args = ctx.get('args', []) if hasattr(ctx, 'get') else []
-            if not command_args:
-                # Fallback: parse from msg.content if ctx doesn't have args
-                parts = msg.content.strip().split(None, 2)
-                command_args = parts[2:] if len(parts) > 2 else []
+
+            # Check for positional target_threads (e.g., !forum scrape 50)
+            if command_args and command_args[0].isdigit():
+                target_threads = int(command_args[0])
+                command_args = command_args[1:]
+                # Auto-calculate pages needed (VBulletin usually shows 20-25 threads per page)
+                max_pages_to_process = (target_threads // 20) + (1 if target_threads % 20 > 0 else 0)
 
             for arg in command_args:
                 if arg.startswith('limit='):
@@ -143,17 +137,22 @@ async def _handle_scrape(ctx, msg):
             all_posts = []
             pages_processed = 0
             current_page = start_page
+            threads = [] # Initialize threads list
             
-            while pages_processed < max_pages_to_process:
-                if pages_processed > 0:
-                    await msg.channel.send(f"```\nscraping Off Topic page {current_page}...\n```")
-                    threads = await client.scrape_forum_listing(page=current_page)
-                    if not threads:
-                        break
-                    client.save_forum_listing(threads)
+            while pages_processed < max_pages_to_process and scraped_threads < target_threads:
+                await msg.channel.send(f"```\nscraping Off Topic page {current_page}...\n```")
+                page_threads = await client.scrape_forum_listing(page=current_page)
+                if not page_threads:
+                    break
+                
+                client.save_forum_listing(page_threads)
+                threads.extend(page_threads)
 
                 any_thread_updated = False
-                for t in threads[:20]:  # Top 20 active threads
+                for t in page_threads:
+                    if scraped_threads >= target_threads:
+                        break
+                        
                     if t.is_sticky:
                         continue
                         
@@ -172,13 +171,14 @@ async def _handle_scrape(ctx, msg):
                 pages_processed += 1
                 
                 # If we processed all threads on this page and none needed updates,
-                # and we are in a multi-page request mode, we might want to go deeper.
-                # Or if the user explicitly asked for more than 1 page.
-                if not any_thread_updated and max_pages_to_process == 1:
-                    # User didn't specify max_pages, but current page is full of "already seen" content
-                    # Let's automatically try ONE more page to find new stuff
-                    max_pages_to_process = 2
-                    log_info(f"Page {current_page} had no new content. Auto-extending to next page.")
+                # and we haven't reached our target yet, we keep going deeper if max_pages allows.
+                # If user didn't specify max_pages (it was auto-calculated or defaulted), 
+                # we can be a bit more flexible to find new content.
+                if not any_thread_updated and pages_processed == max_pages_to_process and scraped_threads < target_threads:
+                    # If we haven't found ANY new threads on the requested pages, 
+                    # auto-extend by ONE page to see if there's anything fresh just beyond the horizon
+                    max_pages_to_process += 1
+                    log_info(f"No new content found up to page {current_page}. Extending search to page {current_page + 1}.")
                 
                 current_page += 1
 

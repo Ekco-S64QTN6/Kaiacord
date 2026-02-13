@@ -39,7 +39,7 @@ class KnowledgeBoundary:
         # 2. Scan Knowledge Subdirectories (Books, News, etc.)
         from pathlib import Path
         import re
-        for subdir in ["Books", "news", "deep_dive_reports", "blogs"]:
+        for subdir in ["Books", "news", "deep_dive_reports", "blogs", "forum_posts", "forum_posts/technical"]:
             folder = Path(self.kb_path) / subdir
             if folder.exists():
                 # Extract potential entities from filenames (titles)
@@ -49,7 +49,23 @@ class KnowledgeBoundary:
                         clean_name = f.stem.replace("_", " ").replace("-", " ")
                         # Remove dates and version strings
                         clean_name = re.sub(r'\d{8}', '', clean_name)
-                        self.known_entities.add(clean_name.strip().lower())
+                        # Remove thread prefixes
+                        clean_name = clean_name.replace("thread", "").strip()
+                        self.known_entities.add(clean_name.lower())
+
+        # 3. Scan Identity Registry for linked forum/discord users
+        registry_path = os.path.join(self.kb_path, "identity_registry.json")
+        if os.path.exists(registry_path):
+            try:
+                with open(registry_path, 'r') as f:
+                    reg_data = json.load(f)
+                    # Extract forum names if they exist in mappings (not direct yet, but registry.json has some)
+                    # For now, let's at least ensure common forum IDs/patterns are known
+                    for discord_id in reg_data.get("mappings", {}):
+                        self.known_entities.add(discord_id.lower())
+                        # If we have forum UIDs, adding them directly isn't helpful as text
+                        # but we can add common patterns like "Shovelquest" if we find them in directory names
+            except Exception: pass
 
         log_success(f"Loaded {len(self.known_entities)} known entities into boundary.")
     
@@ -93,12 +109,13 @@ class KnowledgeBoundary:
             'planning', 'scrape', 'topic', 'wikipedia', 'quora', 'articles', 'instruction',
             'suggestion', 'verification', 'semantic', 'blindness', 'ratio', 'caveat',
             'predictable', 'rigidity', 'improving', 'exceeding', 'contrastive',
-            # Log/Technical/Identity noise
+            # Log/Technical/Identity/Forum noise
             'User', 'Detected', 'Initializing', 'Populated', 'Success', 'Action', 'Found', 'Modified',
             'Processed', 'Processing', 'Indexed', 'Valid', 'Documents', 'Files',
             'Loading', 'Loaded', 'Checking', 'Starting', 'Started', 'Finished',
             'Completed', 'Failure', 'Error', 'Warning', 'Info', 'Debug', 'Running',
-            'KaiaRAG', 'KaiaNews', 'KaiaForum', 'KaiaSocial', 'KaiaIntelligence'
+            'KaiaRAG', 'KaiaNews', 'KaiaForum', 'KaiaSocial', 'KaiaIntelligence',
+            'Prompt', 'Per', 'Posts', 'Thread', 'Member', 'Quote', 'Originally', 'Post', 'Last', 'Page', 'Boundary'
         }
         
         # Case-insensitive set for filtering
@@ -109,7 +126,8 @@ class KnowledgeBoundary:
             'Gemini', 'Google', 'DeepMind', 'Antigravity', 'OpenAI', 'GPT-4o', 'GPT-4', 'o1', 'Claude', 
             'Anthropic', 'Haiku', 'Sonnet', 'Opus', 'Llama', 'Meta', 'Mistral',
             'Flux', 'Midjourney', 'DALL-E', 'Stable', 'Diffusion', 'Github', 'Copilot',
-            'Cursor', 'Vscode', 'Python', 'Javascript', 'React', 'Node', 'Docker'
+            'Cursor', 'Vscode', 'Python', 'Javascript', 'React', 'Node', 'Docker',
+            'P99', 'Norrath', 'EverQuest', 'Daybreak', 'Discord', 'VBulletin'
         }
         common_words_lower.update(w.lower() for w in modern_tech)
 
@@ -126,9 +144,14 @@ class KnowledgeBoundary:
                 continue
             if len(m) <= 2:
                 continue
-            # Basic check for pluralization of common words (e.g. "Files")
-            if m_lower.endswith('s') and m_lower[:-1] in common_words_lower:
-                continue
+            # Basic check for pluralization of common words (e.g. "Files", "Boundaries")
+            if m_lower.endswith('s'):
+                if m_lower[:-1] in common_words_lower: # Simple 's'
+                    continue
+                if m_lower.endswith('ies') and m_lower[:-3] + 'y' in common_words_lower: # 'ies' to 'y'
+                    continue
+                if m_lower.endswith('es') and m_lower[:-2] in common_words_lower: # 'es'
+                    continue
             filtered_matches.append(m)
             
         return filtered_matches
