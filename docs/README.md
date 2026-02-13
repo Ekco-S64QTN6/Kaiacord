@@ -12,6 +12,7 @@ Welcome to the Kaiacord documentation! Organized by topic for easy navigation.
 - [Dashboard](02-user-guide/dashboard.md)
 - [News System](02-user-guide/news-system.md)
 - [Social Media (Bluesky & X)](02-user-guide/social-media.md)
+- [Forum Integration](02-user-guide/forum-integration.md)
 - [Persona Guidelines](02-user-guide/persona.md)
 - [User Profiling](02-user-guide/user-profiling.md)
 - [Command Reference](02-user-guide/commands.md)

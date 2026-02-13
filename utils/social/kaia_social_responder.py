@@ -26,7 +26,7 @@ from contextlib import asynccontextmanager
 # =============================================================================
 BLUESKY_CHAR_LIMIT = 300
 X_CHAR_LIMIT = 280
-MAX_THREAD_REPLIES = 3
+MAX_THREAD_REPLIES = 5
 MAX_NOTIFICATIONS_FETCH = 50
 MAX_THREAD_POSTS = 5
 MAX_REPLIED_IDS = 5000
@@ -113,7 +113,7 @@ async def load_persona_async() -> str:
     return await loop.run_in_executor(None, load_persona)
 
 _replied_ids: set = set()
-_thread_counts: Dict[str, int] = {}  # Track replies per thread root
+_thread_counts: Dict[str, Dict[str, int]] = {}  # Track replies per user per thread {root_uri: {user_handle: count}}
 _replied_ids_lock = asyncio.Lock()  # Protects BOTH _replied_ids AND _thread_counts
 _first_poll_done = False
 
@@ -159,6 +159,20 @@ def _load_replied_ids():
         _thread_counts = {}
     except Exception as e:
         log_warning(f"Failed to load replied IDs: {e}")
+    
+    # MIGRATION: Ensure _thread_counts is Dict[str, Dict[str, int]]
+    # If the root values are integers, the file was from an older version.
+    if _thread_counts and not all(isinstance(v, dict) for v in _thread_counts.values()):
+        log_info("Migrating social thread_counts to per-user format...")
+        new_counts = {}
+        for k, v in _thread_counts.items():
+            if isinstance(v, dict):
+                new_counts[k] = v
+            else:
+                # We don't know who the old count was for, but we'll assign it to 'unknown' 
+                # to maintain the thread-level cap for old conversations.
+                new_counts[k] = {"__legacy_total__": v}
+        _thread_counts = new_counts
 
 
 def _save_replied_ids():
@@ -199,7 +213,7 @@ async def _save_replied_ids_async():
 
 
 async def _reconstruct_bluesky_history():
-    """Fetch recent bot posts from Bluesky and rebuild thread counts."""
+    """Fetch recent bot posts from Bluesky and rebuild thread counts efficiently."""
     global _thread_counts
     try:
         from utils.social.kaia_bluesky import get_bluesky_client, is_bluesky_configured
@@ -215,18 +229,43 @@ async def _reconstruct_bluesky_history():
         handle = os.getenv("BLUESKY_HANDLE")
         response = await client.app.bsky.feed.get_author_feed(params=models.AppBskyFeedGetAuthorFeed.Params(actor=handle, limit=50))
         
-        count = 0
+        # Phase 1: Collect parent URIs
+        reply_map = {} # {bot_post_uri: (root_uri, parent_uri)}
         for item in response.feed:
             post = item.post
             reply = getattr(post.record, 'reply', None)
             if reply:
-                # Track thread root + parent under lock (both are shared state)
-                root_uri = reply.root.uri
-                parent_uri = reply.parent.uri
-                async with _replied_ids_lock:
-                    _thread_counts[root_uri] = _thread_counts.get(root_uri, 0) + 1
-                    _replied_ids.add(f"bsky:{parent_uri}")
+                reply_map[post.uri] = (reply.root.uri, reply.parent.uri)
+        
+        if not reply_map:
+            return
+
+        # Phase 2: Batch fetch parent posts to get authors
+        parent_uris = list(set(p for r, p in reply_map.values()))
+        author_map = {} # {post_uri: author_handle}
+        
+        # Batch by 25 (get_posts limit is usually 25-50)
+        for i in range(0, len(parent_uris), 25):
+            batch = parent_uris[i : i + 25]
+            try:
+                posts_response = await client.app.bsky.feed.get_posts(params=models.AppBskyFeedGetPosts.Params(uris=batch))
+                for p in posts_response.posts:
+                    author_map[p.uri] = p.author.handle
+            except Exception as e:
+                log_warning(f"Failed to fetch batch of parent posts: {e}")
+
+        # Phase 3: Update state
+        count = 0
+        async with _replied_ids_lock:
+            for bot_post_uri, (root_uri, parent_uri) in reply_map.items():
+                replied_to_author = author_map.get(parent_uri)
+                if replied_to_author:
+                    if root_uri not in _thread_counts:
+                        _thread_counts[root_uri] = {}
+                    _thread_counts[root_uri][replied_to_author] = _thread_counts[root_uri].get(replied_to_author, 0) + 1
                 
+                # Always mark the parent as replied if we found our own reply to it
+                _replied_ids.add(f"bsky:{parent_uri}")
                 count += 1
         
         if count > 0:
@@ -313,7 +352,7 @@ async def _get_bluesky_mentions() -> List[Dict[str, Any]]:
         # Get notifications with limit
         from atproto import models
         notifs = await client.app.bsky.notification.list_notifications(
-            params=models.AppBskyNotificationListNotifications.Params(limit=50)
+            params=models.AppBskyNotificationListNotifications.Params(limit=100)
         )
 
         from datetime import datetime, timezone, timedelta
@@ -334,39 +373,45 @@ async def _get_bluesky_mentions() -> List[Dict[str, Any]]:
                 except Exception as e:
                     log_warning(f"Failed to parse Bluesky notification timestamp: {e}")
                 
-                if mention_id not in _replied_ids:
-                    # Thread tracking: root_uri is the anchor for the thread
-                    root = getattr(getattr(notif.record, 'reply', None), 'root', None)
-                    root_uri = root.uri if root and hasattr(root, 'uri') else notif.uri  # inline here because it's a notif, not a mention dict
-                    
-                    # Check thread reply limit (max 3)
-                    admin_handles = config.get('social.admin_handles', [])
-                    is_admin = notif.author.handle in admin_handles
-                    
-                    if not is_admin and _thread_counts.get(root_uri, 0) >= MAX_THREAD_REPLIES:
-                        log_warning(f"Thread limit reached for Bluesky thread: {root_uri[:40]}... Skipping.")
-                        # Mark as replied so we don't keep logging it
-                        async with _replied_ids_lock:
-                            _replied_ids.add(mention_id)
-                        continue
+                if mention_id in _replied_ids:
+                    log_debug(f"Skipping already-replied mention: {mention_id}")
+                    continue
 
-                    # Fetch parent text for context if it's a reply
-                    parent_text = None
-                    parent_uri_obj = getattr(getattr(notif.record, 'reply', None), 'parent', None)
-                    if parent_uri_obj and hasattr(parent_uri_obj, 'uri'):
-                        from utils.social.kaia_bluesky import get_post_text
-                        parent_text = await get_post_text(parent_uri_obj.uri)
-                    
-                    local_mentions.append({
-                        'id': mention_id,
-                        'uri': notif.uri,
-                        'cid': notif.cid,
-                        'author': notif.author.handle,
-                        'text': getattr(notif.record, 'text', ''),
-                        'root_uri': root,
-                        'parent_uri': parent_uri_obj,
-                        'parent_text': parent_text
-                    })
+                # Thread tracking: root_uri is the anchor for the thread
+                root = getattr(getattr(notif.record, 'reply', None), 'root', None)
+                root_uri = root.uri if root and hasattr(root, 'uri') else notif.uri
+                
+                user_handle = notif.author.handle
+                thread_data = _thread_counts.get(root_uri, {})
+                user_reply_count = thread_data.get(user_handle, 0)
+                
+                # Admin check (must be defined here, not just in check_and_reply_mentions)
+                admin_handles = config.get('social.admin_handles', [])
+                is_admin = user_handle in admin_handles
+                
+                log_debug(f"Checking mention {mention_id} from @{user_handle} in thread {root_uri[:30]}. Current count: {user_reply_count}")
+                
+                if not is_admin and user_reply_count >= MAX_THREAD_REPLIES:
+                    log_warning(f"Thread limit reached for @{user_handle} in Bluesky thread: {root_uri[:40]}... Polling will skip until manual reset or limit increase.")
+                    continue
+
+                # Fetch parent text for context if it's a reply
+                parent_text = None
+                parent_uri_obj = getattr(getattr(notif.record, 'reply', None), 'parent', None)
+                if parent_uri_obj and hasattr(parent_uri_obj, 'uri'):
+                    from utils.social.kaia_bluesky import get_post_text
+                    parent_text = await get_post_text(parent_uri_obj.uri)
+                
+                local_mentions.append({
+                    'id': mention_id,
+                    'uri': notif.uri,
+                    'cid': notif.cid,
+                    'author': notif.author.handle,
+                    'text': getattr(notif.record, 'text', ''),
+                    'root_uri': root,
+                    'parent_uri': parent_uri_obj,
+                    'parent_text': parent_text
+                })
         return local_mentions
 
     try:
@@ -568,27 +613,29 @@ async def check_and_reply_mentions(on_message_func):
     # Check Bluesky
     if config.bluesky_enabled and config.get('bluesky.reply_to_mentions', True):
         mentions = await _get_bluesky_mentions()
+        if mentions:
+            log_info(f"Bluesky poll: Found {len(mentions)} unhandled mentions. Processing up to 10.")
         
-        for mention in mentions[:3]:  # Limit to 3 per poll to avoid rate limits
+        for mention in mentions[:10]:  # Limit to 10 per poll to clear backlog faster
             author = mention['author']
             text = mention['text']
             parent_text = mention.get('parent_text')
             
-            # ANTI-BOT LOOP PROTECTION
-            bot_keywords = ["bot", "agent", "ai", "automated"]
+            # ANTI-BOT LOOP PROTECTION (Standardized to 5 replies per user)
             admin_handles = config.get('social.admin_handles', [])
             is_admin = author in admin_handles
             
-            if not is_admin and any(k in author.lower() for k in bot_keywords):
-                root_uri = _get_root_uri(mention)
-                
-                # Check how many times we've replied to THIS thread
-                if _thread_counts.get(root_uri, 0) >= 1: 
-                     log_warning(f"Suspected bot author @{author} in thread {root_uri[:30]}. Skipping subsequent reply.")
-                     # Mark this mention as handled so we don't spam the logs every minute
-                     async with _replied_ids_lock:
-                         _replied_ids.add(mention['id'])
-                     continue
+            # Standardized thread limit check (applies to everyone)
+            root_uri = _get_root_uri(mention)
+            thread_data = _thread_counts.get(root_uri, {})
+            user_reply_count = thread_data.get(author, 0)
+            
+            # Use MAX_THREAD_REPLIES (5) for everyone
+            if not is_admin and user_reply_count >= MAX_THREAD_REPLIES:
+                log_warning(f"Thread limit ({MAX_THREAD_REPLIES}) reached for @{author} in thread {root_uri[:30]}. Skipping.")
+                async with _replied_ids_lock:
+                    _replied_ids.add(mention['id'])
+                continue
 
             log_info(f"Bluesky mention from @{author}: {text[:50]}...")
             
@@ -599,10 +646,12 @@ async def check_and_reply_mentions(on_message_func):
                     root_uri = _get_root_uri(mention)
                     async with _replied_ids_lock:
                         _replied_ids.add(mention['id'])
-                        _thread_counts[root_uri] = _thread_counts.get(root_uri, 0) + 1
+                        if root_uri not in _thread_counts:
+                            _thread_counts[root_uri] = {}
+                        _thread_counts[root_uri][author] = _thread_counts[root_uri].get(author, 0) + 1
                         _trim_replied_ids()
                         
-                    log_success(f"Replied to @{author} on Bluesky (Thread count: {_thread_counts[root_uri]}): {response[:50]}...")
+                    log_success(f"Replied to @{author} on Bluesky (User thread count: {_thread_counts[root_uri][author]}): {response[:50]}...")
                     await _save_replied_ids_async()  # Async persistence
                     total_replies += 1
     
@@ -718,7 +767,7 @@ async def get_random_memories(limit=20):
     
     for log_file in sampled_files:
         try:
-            with open(log_file, 'r', encoding='utf-8') as f:
+            with open(log_file, 'r', encoding='utf-8', errors='replace') as f:
                 lines = f.readlines()
                 # Pick a random chunk of lines from the file
                 if len(lines) > 20:
@@ -1156,10 +1205,9 @@ async def generate_quip(ctx, is_manual=False, target_channel=None, on_message_fu
                 rag_results = rag_instance.retrieve(search_query, top_k=3, category="general")
                 if rag_results:
                     rag_block = "\n\n### RELEVANT KNOWLEDGE & MEMORIES\n"
+                    from utils.core.rag_utils import get_node_text
                     for node in rag_results:
-                        if isinstance(node, dict): content = node.get('content', '')
-                        elif hasattr(node, 'node'): content = node.node.get_content()
-                        else: content = node.get_content()
+                        content = get_node_text(node)
                         if content: rag_block += f"- {content[:400].replace(chr(10), ' ')}...\n"
                     system_prompt += rag_block
         except Exception as rag_err:

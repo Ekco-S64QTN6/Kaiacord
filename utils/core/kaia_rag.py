@@ -54,8 +54,9 @@ from utils.core.response_filter import HallucinationDetector
 class SimpleBM25Retriever:
     """Simple BM25 retriever for hybrid search."""
     def __init__(self, nodes):
+        from utils.core.rag_utils import get_node_text
         self.nodes = nodes
-        self.tokenized_docs = [self._tokenize(node.get_content()) for node in nodes]
+        self.tokenized_docs = [self._tokenize(get_node_text(node)) for node in nodes]
         self.bm25 = BM25Okapi(self.tokenized_docs) if self.tokenized_docs else None
         
     def _tokenize(self, text):
@@ -234,6 +235,7 @@ class KaiaRAG:
         self._refresh_lock = threading.Lock() # Exclusive lock for the refresh process
         self._indexing_in_progress = False
         self._refresh_pending = False # Single-flight "dirty" flag
+        self._bot_user_id = None # Set by Discord bot on startup
         
         # Load or create indices
         self._initialize_indices()
@@ -295,7 +297,7 @@ class KaiaRAG:
             snippet = ""
             try:
                 if f_info["filename"].endswith(('.txt', '.md')):
-                    with open(f_info["path"], 'r', encoding='utf-8') as f:
+                    with open(f_info["path"], 'r', encoding='utf-8', errors='replace') as f:
                         # For logs, skip potentially repetitive headers if simple
                         content = f.read(500)
                         # Extract a clean snippet from the end of the log if it's an interaction log
@@ -640,7 +642,7 @@ class KaiaRAG:
                                 continue
                                 
                             log_action(f"Indexing new {itype} content from offset {last_offset}...")
-                            with open(file_path, 'r', encoding='utf-8') as f:
+                            with open(file_path, 'r', encoding='utf-8', errors='replace') as f:
                                 f.seek(last_offset)
                                 new_content = f.read()
                                 
@@ -949,11 +951,19 @@ class KaiaRAG:
     # Removed @thread_safe_rag_operation to ensure file writing always happens
     def log_user_interaction(self, user_id: int, user_name: str, message_content: str, bot_response: str, is_vision_response: bool = False) -> bool:
         """Log user interaction to a single file per user, rotating at 100MB.
-        
-        Args:
-            is_vision_response: If True, marks this as a vision analysis response
-                               to be filtered from non-vision RAG retrievals.
         """
+        # GUARD: Bot identity not yet initialized (on_ready hasn't fired)
+        if self._bot_user_id is None:
+            log_debug(f"Skipping log_user_interaction: bot_user_id not yet initialized")
+            return True
+
+        # ECHO CHAMBER PROTECTION: Prevent self-logging of bots and reflections.
+        # This stops the 'Kaia' user logs folder from poisoning the identity core.
+        bot_ids = [self._bot_user_id, "KAIA_SYSTEM", "KAIA_DREAM"]
+        if str(user_id) in [str(bid) for bid in bot_ids if bid] or user_name == "Kaia":
+            log_debug(f"Skipping log_user_interaction for bot identity: {user_name} ({user_id})")
+            return True
+
         # Acquire lock unconditionally to ensure we write to disk. 
         # Persistence is more important than non-blocking here.
         with self._lock:
@@ -1018,7 +1028,7 @@ class KaiaRAG:
                 # IF new file, offset is length of header (since we write header then interaction)
                 file_offset = os.path.getsize(interaction_log_path) if not is_new_file else len(header_text)
                 
-                with open(interaction_log_path, "a", encoding="utf-8") as f:
+                with open(interaction_log_path, "a", encoding="utf-8", errors="replace") as f:
                     if is_new_file:
                         f.write(header_text)
                     f.write(interaction_text)
@@ -1175,10 +1185,11 @@ class KaiaRAG:
                             break # Assume file is in only one index
                     
                     if target_nodes:
+                        from utils.core.rag_utils import get_node_text, get_node_metadata
                         log_success(f"Retrieved {len(target_nodes)} full-document nodes for summarization.")
                         return [{
-                            "content": node.get_content(),
-                            "metadata": node.metadata,
+                            "content": get_node_text(node),
+                            "metadata": get_node_metadata(node),
                             "label": f"Full Content: {os.path.basename(target_file_path)}",
                             "score": 1.0 # Force high score
                         } for node in target_nodes]
@@ -1282,11 +1293,13 @@ class KaiaRAG:
             seen_texts = set()
             u_id_str = str(user_id) if user_id else None
             
+            from utils.core.rag_utils import get_node_text, get_node_metadata
             for node_result in all_node_results:
                 node = node_result.node if hasattr(node_result, 'node') else node_result
                 base_raw_score = node_result.score if hasattr(node_result, 'score') else 0.5
                 base_score = base_raw_score
-                content = node.get_content()
+                content = get_node_text(node)
+                metadata = get_node_metadata(node)
                 
                 # Deduplication
                 content_hash = hash(content[:200])
@@ -1294,10 +1307,10 @@ class KaiaRAG:
                 seen_texts.add(content_hash)
                 
                 # Metadata extraction
-                source_type = node.metadata.get('source_type', 'general')
-                file_path = node.metadata.get('file_path', '')
-                node_user_id = str(node.metadata.get('user_id', ''))
-                node_user_name = node.metadata.get('user_name', 'Unknown')
+                source_type = metadata.get('source_type', 'general')
+                file_path = metadata.get('file_path', '')
+                node_user_id = str(metadata.get('user_id', ''))
+                node_user_name = metadata.get('user_name', 'Unknown')
 
                 # Filter: News (if not requested)
                 if not include_news and (source_type == 'news' or "news" in file_path.lower()):
@@ -1307,32 +1320,9 @@ class KaiaRAG:
                 if source_type == 'user_profile' and not (is_social_identity or strict_identity):
                     continue
                 
-                # Filter: User Isolation (Cross-user logs & shared dreams)
-                if source_type in ['logs', 'user_logs', 'dream'] or "user_logs" in file_path:
-                    # For dreams, we only isolate if they are derived from interaction logs
-                    is_personal_dream = source_type == 'dream' and ("interactions" in file_path or "user_logs" in file_path)
-                    if is_personal_dream or source_type in ['logs', 'user_logs']:
-                        if node_user_id and node_user_id != u_id_str and not (detected_user and detected_user.lower() in node_user_name.lower()):
-                            # Only allow cross-user logs/dreams if they are semantically high value and not casual
-                            if is_casual or base_score < 0.85: continue
-
-                # Filter: Name Verification (Hallucination Guard)
-                # If a specific name is detected in the query (via detected_user or mapping), 
-                # ensure the retrieved node actually contains that name or a fragment of it.
-                # This prevents low-affinity 'noise' from one person bleeding into another.
-                if detected_user or mapped_names:
-                    names_to_check = mapped_names + ([detected_user] if detected_user else [])
-                    # Check first 500 chars for efficiency/relevance
-                    content_preview = content[:500].lower()
-                    has_name_match = any(name.lower() in content_preview for name in names_to_check)
-                    
-                    # Also allow if the node metadata explicitly matches the user_name
-                    meta_name_match = any(name.lower() in node_user_name.lower() for name in names_to_check)
-                    
-                    if not (has_name_match or meta_name_match):
-                        # Only skip if it's a high-precision attempt or if score is mediocre
-                        if is_social_identity or base_score < 0.8:
-                            continue
+                # Filter: User Isolation & Hallucination Guard (DECOMMISSIONED)
+                # These were identified as causing memory loss and roleplay issues.
+                # Kaia is now grounded by Persona Anchoring and Context Optimization instead.
 
                 # Filter: Strict Dream Isolation (User Request)
                 if is_dream_query:
@@ -1433,7 +1423,7 @@ class KaiaRAG:
                 
                 scored_nodes.append({
                     "content": content,
-                    "metadata": node.metadata,
+                    "metadata": metadata, # Already extracted via get_node_metadata(node)
                     "label": label,
                     "score": final_score
                 })
@@ -1491,7 +1481,9 @@ class KaiaRAG:
                         
                     if ts > cutoff:
                         # Exclude vision responses as they are very long and specific
-                        if not node.metadata.get('is_vision_response'):
+                        from utils.core.rag_utils import get_node_metadata, get_node_text
+                        meta = get_node_metadata(node)
+                        if not meta.get('is_vision_response'):
                             recent_nodes.append(node)
             
             if not recent_nodes:
@@ -1500,7 +1492,7 @@ class KaiaRAG:
             # Score nodes by "interest" (heuristic)
             scored_highlights = []
             for node in recent_nodes:
-                content = node.get_content().strip()
+                content = get_node_text(node).strip()
                 if len(content) < 10: continue
                 
                 # Base score + jitter for variety
@@ -1566,7 +1558,8 @@ class KaiaRAG:
                         ts = ts_val
                 
                 if ts > cutoff:
-                    if not node.metadata.get('is_vision_response'):
+                    m = get_node_metadata(node)
+                    if not m.get('is_vision_response'):
                         recent_nodes.append(node)
             
             if not recent_nodes:
@@ -1576,11 +1569,13 @@ class KaiaRAG:
             scored_events = []
             query_words = query.lower().split()
             
+            from utils.core.rag_utils import get_node_text
             for node in recent_nodes:
-                content = node.get_content().lower()
+                c_text = get_node_text(node)
+                content = c_text.lower()
                 matches = sum(1 for word in query_words if word in content)
                 if matches > 0:
-                    scored_events.append((matches, node.get_content().strip()))
+                    scored_events.append((matches, c_text.strip()))
             
             scored_events.sort(key=lambda x: x[0], reverse=True)
             return [text for score, text in scored_events[:limit]]

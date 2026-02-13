@@ -8,6 +8,7 @@ from typing import Optional, Any, List, Dict
 from utils.infrastructure.logging.kaia_logger import log_info, log_debug, log_warning, log_error, log_action, log_success
 from utils.core.message_context import MessageContext
 from utils.core.response_filter import HallucinationDetector, BotSpeakFilter
+from utils.core.knowledge_boundary import KnowledgeBoundary
 from utils.core.background_tasks import run_news_update # If needed, or just import logic
 from utils.infrastructure.monitoring.async_task_registry import task_registry
 
@@ -43,6 +44,7 @@ class MessageProcessor:
         # Internal components
         from utils.core.context_enricher import ContextEnricher
         self.context_enricher = ContextEnricher(self.bot)
+        self.knowledge_boundary = KnowledgeBoundary(self.config.knowledge_base_dir)
         
         # Explicit verification
         if self.news_manager is None:
@@ -321,7 +323,21 @@ class MessageProcessor:
         # 5. Final Classification Sync
         await self._finalize_classification(ctx)
 
-        # 6. Generate Response (Stage 4)
+        # 6. Knowledge Boundary Check (Entity Verification)
+        # Check if the query contains entities unknown to Kaia
+        from utils.core.rag_utils import get_node_text
+        context_text = "\n".join([get_node_text(n) for n in ctx.context_nodes]) if ctx.context_nodes else ""
+        boundary_check = self.knowledge_boundary.check_known_entities(ctx.sanitized_content, context_text)
+        ctx.knowledge_boundary_check = boundary_check
+        
+        if not boundary_check["all_known"]:
+            log_msg = f"Knowledge Boundary: Detected unknown entities: {boundary_check['unknown_in_context']}"
+            if ctx.category in ["news", "dream"]:
+                log_info(log_msg)
+            else:
+                log_warning(log_msg)
+
+        # 7. Generate Response (Stage 4)
         await self._generate_response_stage(ctx)
 
     async def _setup_retrieval_tasks(self, ctx: MessageContext):
@@ -565,25 +581,14 @@ class MessageProcessor:
         """Final cleanups, sending response, and logging."""
         if not ctx.response_text:
             return
-            
-        # 1. HARDEN RESPONSE (Strip roleplay markers, bot-speak, etc.)
-        harden = BotSpeakFilter()
-        ctx.response_text = harden.harden(ctx.response_text)
-
-        # 2. VERACITY CHECK (Catch news hallucinations and fictional stories)
-        from utils.core.response_filter import EmergencyContaminationFilter
-        filtered = EmergencyContaminationFilter.filter_response(ctx.response_text)
-        if filtered:
-            ctx.response_text = filtered
         
-        # 3. SEND RESPONSE (This should be the very first thing we do to minimize delay)
-        # We do this while still potentially in the typing context.
+        # NOTE: BotSpeakFilter and EmergencyContaminationFilter are already applied
+        # in _call_ollama_with_retries (the generation loop). No need to re-apply here.
+        
+        # 1. SEND RESPONSE
         await self._send_response(ctx.message.channel, ctx.response_text)
         
-        # 2. LOGGING & STATE (Move slow tasks here)
-        # The typing context will exit as soon as this function returns to _generate_response_stage
-        # and _generate_response_stage returns. 
-        # Register in task_registry so we can await/cancel it on shutdown.
+        # 2. LOGGING & STATE (background to avoid holding up the UI)
         bg_task = asyncio.create_task(self._background_logging_and_memory(ctx))
         task_registry.register(f"bg_log_{ctx.author_id}_{int(time.time())}", bg_task)
 
@@ -600,7 +605,7 @@ class MessageProcessor:
             
             # Update personalization and relevance feedback
             await self.personalization_engine.learn_from_interaction(ctx.author_id, ctx.sanitized_content, ctx.response_text)
-            await self.relevance_feedback.log_interaction(ctx.sanitized_content, ctx.response_text, ctx.author_id)
+            await self.relevance_feedback.log_interaction(ctx.sanitized_content, ctx.response_text, ctx.author_id, ctx.author_name)
             
             # Log for RAG
             # CRITICAL FIX: Use sanitized_content to avoid poisoning RAG with [REPLYING_TO] tags

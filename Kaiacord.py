@@ -49,7 +49,7 @@ from utils.core.kaia_intelligence import (
 from utils.infrastructure.system.performance_optimizer import ResponseOptimizer, timed_response
 from utils.core.message_processor import MessageProcessor
 from utils.social.kaia_social_responder import load_persona_async
-from utils.news.kaia_news import NewsRetrievalEnhancer, NewsManager, RAGEnhancer, ResponseEnhancer
+from utils.news.kaia_news import NewsRetrievalEnhancer, NewsManager, RAGEnhancer
 from utils.core.background_tasks import run_news_update
 
 # Global application context
@@ -145,6 +145,9 @@ async def on_ready():
         log_error("CRITICAL: Bot ready but RAG layer initialization timed out (30s)!")
         return
 
+    if ctx.rag:
+        ctx.rag._bot_user_id = bot.user.id
+        
     start_maintenance_tasks(ctx)
 
 @bot.event

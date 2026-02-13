@@ -27,14 +27,14 @@ results = [
     test_import("utils.infrastructure.system.dashboard_manager", ["DashboardManager"]),
     test_import("utils.core.kaia_rag", ["KaiaRAG"]),
     test_import("utils.core.kaia_dream", ["DreamEngine"]),
-    test_import("utils.core.semantic_cache", ["ImprovedSemanticCache"]),
+
     test_import("utils.core.performance_monitor", ["PerformanceMonitor"]),
     test_import("utils.core.kaia_intelligence", ["ModelWarmPool", "ContextOptimizer", "RelevanceFeedback", "QueryClassifier"]),
     test_import("utils.infrastructure.system.performance_optimizer", ["ResponseOptimizer", "timed_response"]),
     test_import("utils.core.response_filter", ["HallucinationDetector", "EmergencyContaminationFilter"]),
     test_import("utils.core.message_processor", ["MessageProcessor"]),
     test_import("utils.social.kaia_social_responder", ["load_persona_async"]),
-    test_import("utils.news.kaia_news", ["NewsRetrievalEnhancer", "NewsManager", "RAGEnhancer", "ResponseEnhancer"]),
+    test_import("utils.news.kaia_news", ["NewsRetrievalEnhancer", "NewsManager", "RAGEnhancer"]),
     test_import("utils.core.background_tasks", ["run_news_update"]),
     test_import("utils.commands.registry", ["dispatch_command"])
 ]

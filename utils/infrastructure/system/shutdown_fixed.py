@@ -150,22 +150,10 @@ class CleanShutdown:
         except Exception as e:
             log_error(f"  ❌ Error GPU cleanup: {e}")
         
-        # 4. Aggressive Process Termination
-        try:
-            import psutil
-            import os
-            current_pid = os.getpid()
-            for proc in psutil.process_iter(['pid', 'name', 'cmdline']):
-                try:
-                    # Look for orphaned ollama processes or sub-processes the bot might have spawned
-                    cmdline = proc.info.get('cmdline') or []
-                    if proc.info['pid'] != current_pid and any('ollama' in str(arg).lower() for arg in cmdline):
-                        log_warning(f"  ⚠️  Killing orphaned ollama process: {proc.info['pid']}")
-                        proc.kill()
-                except (psutil.NoSuchProcess, psutil.AccessDenied):
-                    pass
-        except Exception as e:
-            log_error(f"  ❌ Error during process cleanup: {e}")
+        # 4. Aggressive Process Termination (DECOMMISSIONED)
+        # We no longer kill Ollama processes to avoid disrupting the underlying service.
+        # Only the current bot process should exit naturally.
+        pass
 
         self._shutdown_complete.set()
         log_info("  ✅ Async shutdown complete")

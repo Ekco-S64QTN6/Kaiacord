@@ -2,12 +2,13 @@ import re
 import os
 import json
 from typing import List, Dict, Set, Optional
+from utils.infrastructure.logging.kaia_logger import log_info, log_success, log_action
 
 class KnowledgeBoundary:
     """Prevents Kaia from making up information she doesn't know"""
     
-    def __init__(self, knowledge_base_path="./knowledge_base", data_path="./memory"):
-        self.kb_path = knowledge_base_path
+    def __init__(self, knowledge_base_dir="./knowledge_base", data_path="./memory"):
+        self.kb_path = knowledge_base_dir
         self.data_path = data_path
         self.known_entities = set()
         self.load_known_entities()
@@ -26,18 +27,31 @@ class KnowledgeBoundary:
             except Exception as e:
                 print(f"Error loading entity database: {e}")
 
-        # Also load directly from user profiles for freshness
-        users_dir = os.path.join(self.kb_path, "user_profiles")
-        if os.path.exists(users_dir):
-            for file in os.listdir(users_dir):
-                if file.endswith('.json'):
-                    try:
-                        with open(os.path.join(users_dir, file), 'r') as f:
-                            data = json.load(f)
-                            if 'name' in data:
-                                self.known_entities.add(data['name'].lower())
-                    except:
-                        pass
+        # 1. Scan User Logs (High Priority)
+        user_logs_dir = os.path.join(self.kb_path, "user_logs")
+        if os.path.exists(user_logs_dir):
+            for d_name in os.listdir(user_logs_dir):
+                d = os.path.join(user_logs_dir, d_name)
+                if os.path.isdir(d) and "_" in d_name:
+                    name = d_name.rsplit("_", 1)[0].replace("_", " ")
+                    self.known_entities.add(name.lower())
+
+        # 2. Scan Knowledge Subdirectories (Books, News, etc.)
+        from pathlib import Path
+        import re
+        for subdir in ["Books", "news", "deep_dive_reports", "blogs"]:
+            folder = Path(self.kb_path) / subdir
+            if folder.exists():
+                # Extract potential entities from filenames (titles)
+                for f in folder.rglob("*"):
+                    if f.is_file() and not f.name.startswith("."):
+                        # Clean up filename for entity check
+                        clean_name = f.stem.replace("_", " ").replace("-", " ")
+                        # Remove dates and version strings
+                        clean_name = re.sub(r'\d{8}', '', clean_name)
+                        self.known_entities.add(clean_name.strip().lower())
+
+        log_success(f"Loaded {len(self.known_entities)} known entities into boundary.")
     
     def extract_entities(self, text: str) -> List[str]:
         """Extract potential person names from text"""
@@ -55,10 +69,61 @@ class KnowledgeBoundary:
             'Technology', 'Politics', 'Security', 'Business', 'Science', 'General',
             'Explain', 'Describe', 'List', 'Show', 'Help', 'Create', 'Write',
             'Make', 'Draw', 'Analyze', 'Check', 'Run', 'Start', 'Stop', 'Open',
-            'Close', 'Get', 'Set', 'Put', 'Call', 'Ask', 'Say', 'See', 'Look'
+            'Close', 'Get', 'Set', 'Put', 'Call', 'Ask', 'Say', 'See', 'Look',
+            'Understood', 'Yes', 'No', 'True', 'False', 'Good', 'Bad', 'Great',
+            'Wait', 'Hold', 'Keep', 'Stop', 'Go', 'Come', 'Back', 'Right', 'Left',
+            'Also', 'Then', 'Now', 'Still', 'Again', 'Just', 'Very', 'Well',
+            'Thanks', 'Thank', 'Please', 'Sorry', 'Excuse', 'Maybe', 'Probably',
+            'Actually', 'Basically', 'Basically', 'Finally', 'Lastly', 'First',
+            'Second', 'Third', 'Here', 'There', 'Every', 'Some', 'Any', 'All',
+            'Both', 'Neither', 'Either', 'Each', 'Many', 'Much', 'Few', 'Little',
+            'Understood', 'Indeed', 'Correct', 'Got', 'Sure', 'Fine', 'Okay'
         }
-        return [m for m in matches if m not in common_words and len(m) > 2]
+        
+        # Case-insensitive set for filtering
+        common_words_lower = {w.lower() for w in common_words}
+        
+        return [m for m in matches if m.lower() not in common_words_lower and len(m) > 2]
     
+    def _is_fuzzy_match(self, entity: str, context: str) -> bool:
+        """Check for fuzzy matches (typos) in context."""
+        if len(entity) < 4: return False
+        entity_l = entity.lower()
+        context_l = context.lower()
+        
+        # 1. Check if the entity is a substring or vice versa (common for truncated names)
+        if entity_l in context_l or context_l in entity_l:
+            return True
+            
+        # 2. Check for single-character typos (Levenshtein distance 1)
+        # We split context into words to avoid expensive full-string distance calc
+        words = re.findall(r'\b[a-z]{4,}\b', context_l)
+        for word in words:
+            # Quick length filter
+            if abs(len(word) - len(entity_l)) > 1:
+                continue
+            
+            # Simple Levenshtein distance 1 check
+            if self._levenshtein_distance(entity_l, word) <= 1:
+                return True
+        return False
+
+    def _levenshtein_distance(self, s1: str, s2: str) -> int:
+        if len(s1) < len(s2):
+            return self._levenshtein_distance(s2, s1)
+        if not s2:
+            return len(s1)
+        previous_row = range(len(s2) + 1)
+        for i, c1 in enumerate(s1):
+            current_row = [i + 1]
+            for j, c2 in enumerate(s2):
+                insertions = previous_row[j + 1] + 1
+                deletions = current_row[j] + 1
+                substitutions = previous_row[j] + (c1 != c2)
+                current_row.append(min(insertions, deletions, substitutions))
+            previous_row = current_row
+        return previous_row[-1]
+
     def check_known_entities(self, query: str, context: str) -> Dict:
         """Check if entities in query are known"""
         query_entities = self.extract_entities(query)
@@ -73,7 +138,8 @@ class KnowledgeBoundary:
             is_known = (
                 entity_lower in self.known_entities or
                 entity_lower in context.lower() or
-                f"{entity_lower}s" in context.lower()
+                f"{entity_lower}s" in context.lower() or
+                self._is_fuzzy_match(entity, context)
             )
             
             if is_known:

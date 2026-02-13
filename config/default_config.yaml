@@ -295,3 +295,27 @@ dream_mode:
     recent: 0.25
     dreams: 0.50
     reflection: 0.25
+
+# ============================================================================
+# VBulletin Forum Integration (Project 1999)
+# ============================================================================
+forum:
+  # Main switch to enable/disable forum features
+  enabled: true 
+  
+  # Whether to allow the bot to automatically respond to threads (not implemented yet)
+  auto_reply: false
+  
+  # Forum details
+  base_url: "https://www.project1999.com/forums"
+  forum_id: 19  # Off Topic
+  
+  # Scraping settings
+  scrape_interval_minutes: 30
+  scrape_last_n_pages: 1
+  max_posts_per_thread_scrape: 20
+  
+  # Rate limiting for posting
+  min_hours_between_posts: 4
+  max_posts_per_day: 6
+

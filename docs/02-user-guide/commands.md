@@ -12,6 +12,7 @@ These commands are prefixed with `!` and are typically used for manual control o
 | `!news [category]` | Fetch news by category (technology, security, hacking, etc.). | `!news today` for a daily summary. |
 | `!dreams [cmd]` | Manage associative memory (Dream Mode). | Admin only. |
 | `!cache [cmd]` | System cache management. | Admin only. |
+| `!forum [cmd]` | VBulletin forum management. | Admin only (mostly). |
 
 ---
 
@@ -30,6 +31,15 @@ Manages her autonomous "Dream Mode" processing.
 Manages the semantic and exact response caches.
 - `!cache stats`: Shows the current size of semantic and exact caches.
 - `!cache clear`: Wipes all cached responses. Use this if she gets stuck in a "stale" conversation loop or if you've updated her persona and want immediate variety.
+
+---
+
+## 🏟️ Forum Commands (`!forum`)
+Manages her VBulletin 3.x integration and identity linking.
+- `!forum link <forum_uid>`: **User command**. Links your current Discord account to your Forum UID for cross-platform profiling.
+- `!forum scrape [pages]`: **Admin command**. Manages manual scraping of the configured subforum.
+- `!forum status`: Displays connectivity status, current session token, and recent scrape counts.
+- `!forum allow <thread_id>`: Adds a thread to the interaction allowlist.
 
 ---
 

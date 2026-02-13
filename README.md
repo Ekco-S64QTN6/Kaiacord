@@ -64,8 +64,8 @@ python Kaiacord.py
 | **💭 Dream Mode** | Associative memory recall (nightly 3-5 AM); processes archived knowledge into persona-deep reflections for more natural, organic RAG callbacks | ✅ |
 | **🔄 Self-Healing** | 3-pass generation loop with automatic parameter scaling to recover from LLM failures or hallucinations | ✅ |
 | **🌐 Social Media** | Cross-post to Bluesky & X, Auto-reply to mentions, Memory Mirror | ✅ |
+| **🏟️ Forums** | VBulletin 3.x Client, Deep Thread Scraping, Unified Identity Linking (Discord <-> Forum), automated Intro drafting | ✅ |
 | **📰 News** | Daily Briefs, Manual Retrieval, Ingestion of manual/weekly briefs | ✅ |
-
 ---
 
 # 🧠 Cognitive Architectures & Synthetic Consciousness
@@ -185,6 +185,25 @@ Kaia: 📰 **Technology News**
 - 14-day retention → Auto-archives to `knowledge_base/news/archive/`
 - Weekly summaries from archived news
 - Supports manual ingestion of briefings via `tools/maintenance/ingest_manual_news.py`
+
+### 🏟️ Forum Archaeology
+Kaia can deep-scrape VBulletin forums to build high-density knowledge bases:
+```
+# Unified Identity Linking:
+# !forum link <forum_id>
+# Associates your Discord identity with your forum profile for cross-platform personality dossiers.
+
+# Technical Knowledge Expansion:
+# Kaia deep-scrapes subforums (like Technical Discussion) and synthesizes
+# community-vetted solutions into searchable Cheat Sheets.
+
+# Safe Interaction:
+# Quoting support with [QUOTE] BBCode and thread-specific allowlists
+# ensure Kaia only interacts where she belongs.
+```
+
+**Automation**: `scripts/generate_intro_post.py`
+**Refrence**: [`docs/02-user-guide/forum-integration.md`](docs/02-user-guide/forum-integration.md)
 
 ### 🌐 Social Media
 Kaia can cross-post to Bluesky and X, and reply to mentions:

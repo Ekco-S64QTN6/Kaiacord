@@ -14,7 +14,13 @@ The `relationship_tracker.py` module quantifies the social bond between Kaia and
 - **Evolution Visualization**: Generates `relationship_evolution.png` charts showing how the relationship has changed over time.
 - **Actionable Insights**: Provides Kaia with specific advice on how to interact with a user (e.g., "User prefers blunt technical talk", "User is sensitive about X").
 
-## 3. Integration with RAG
+## 3. Unified Identity Linking
+Kaia can bridge a user's presence across multiple platforms to create a more accurate and comprehensive personality profile.
+- **Discord <-> Forum**: By linking a Discord ID to a VBulletin UID, Kaia merges interaction data from both sources.
+- **Linked Dossiers**: The frontmatter of the user's `user_profile.md` explicitly references their linked identities, allowing Kaia to recognize them as the same entity across the ecosystem.
+- **Command**: `!forum link <uid>` (See [Commands Guide](commands.md)).
+
+## 4. Integration with RAG
 These profiles are stored in the user's log directory and indexed by the RAG system.
 - **Identity Retrieval**: When a user asks "who am i?", Kaia retrieves their `user_profile.md` to provide a nuanced, personalized summary.
 - **Contextual Awareness**: Even in general conversation, Kaia can use profile data to tailor her responses to the user's known preferences.

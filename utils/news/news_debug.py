@@ -35,9 +35,10 @@ def diagnose_news_pipeline():
     # Check Kaia's news config
     print("\n📋 Checking Kaia config...")
     try:
-        from utils.news.kaia_news import get_news_categories
-        categories = get_news_categories()
-        print(f"✅ News categories: {categories}")
+        from utils.news.kaia_news import NewsManager
+        nm = NewsManager()
+        categories = nm.categories
+        print(f"✅ News categories: {list(categories.keys())}")
     except Exception as e:
         print(f"❌ Error getting news categories: {e}")
 

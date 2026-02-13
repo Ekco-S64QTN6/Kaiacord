@@ -53,8 +53,16 @@ def start_social_tasks(app_ctx, on_message):
     mention_task = social_mention_task.start()
     task_registry.register("social_mention_task", mention_task)
     
+    # Start forum background tasks
+    from utils.social.forum_tasks import start_forum_tasks
+    start_forum_tasks()
+    
     log_action("Social background tasks started.")
 
 def stop_social_tasks():
     idle_quip_task.stop()
     social_mention_task.stop()
+    
+    from utils.social.forum_tasks import stop_forum_tasks
+    stop_forum_tasks()
+

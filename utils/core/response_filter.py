@@ -126,103 +126,6 @@ class EmergencyContaminationFilter:
             return [f"{query} latest news", f"{query} updates"]
         return []
     
-    @classmethod
-    def clean_response_for_discord(cls, response: str) -> str:
-        """
-        Remove any user profile data, metadata, or analysis text from responses.
-        This prevents Kaia from accidentally including internal profiling data in her chat responses.
-        """
-        if not response:
-            return response
-            
-        # Split response into lines
-        lines = response.split('\n')
-        cleaned_lines = []
-        
-        # Skip any lines that look like user profiles or system metadata
-        skip_patterns = [
-            'user profile:',
-            '## user profile:',
-            'updated personalization for',
-            '[optimized: saved',
-            'interaction indexed',
-            'logs indexed:',
-            'rag context:',
-            'metadata:',
-            'nodes retrieved:',
-            'quick reference',
-            'how to interact with them',
-            'shared history & context',
-            'their interests & expertise',
-            'conversation style notes',
-            'relationship status with kaia',
-            'potential triggers & sensitivities',
-            'growth opportunities'
-        ]
-        
-        in_profile_block = False
-        
-        for line in lines:
-            stripped = line.strip()
-            if not stripped:
-                if not in_profile_block:
-                    cleaned_lines.append(line)
-                continue
-                
-            line_lower = stripped.lower()
-            
-            # Check if line starts a profile block or is a metadata line
-            is_metadata = any(line_lower.startswith(pattern) for pattern in skip_patterns)
-            is_header = stripped.startswith('#') or stripped.endswith(':')
-            
-            if is_metadata:
-                if is_header:
-                    in_profile_block = True
-                continue
-                
-            if in_profile_block:
-                # Dialogue usually starts with lowercase or common dialogue words
-                is_dialogue = stripped[0].islower() or any(line_lower.startswith(w) for w in ["yeah", "no", "well", "i ", "you ", "it's ", "that's "])
-                is_bullet = stripped.startswith('- ') or stripped.startswith('* ') or (len(stripped) > 1 and stripped[0].isdigit() and stripped[1] == '.')
-                
-                if is_dialogue and not is_bullet:
-                    in_profile_block = False
-                else:
-                    # Still in profile block, skip this line
-                    continue
-            
-            if line_lower in [p.strip(':') for p in skip_patterns]:
-                continue
-            
-            # Final check for specific contamination
-            if 'Alan Turing' in line and ('mathematician' in line or 'computer scientist' in line):
-                continue
-            if 'This response was generated' in line or 'The following analysis' in line:
-                continue
-                
-            cleaned_lines.append(line)
-        
-        # Rejoin lines
-        cleaned_response = '\n'.join(cleaned_lines)
-        
-        # Additional cleanup: Remove any trailing metadata that might have slipped through
-        end_markers = ['.', '?', '!', '...', '...']
-        for marker in end_markers:
-            if marker in cleaned_response:
-                last_marker_pos = cleaned_response.rfind(marker)
-                if last_marker_pos > len(cleaned_response) * 0.5:
-                    next_char = cleaned_response[last_marker_pos + len(marker):].strip()
-                    if next_char and not next_char[0].islower():
-                        following_text = cleaned_response[last_marker_pos + len(marker):]
-                        if any(x in following_text for x in ['User', 'Profile:', 'optimized:', 'Updated']):
-                            cleaned_response = cleaned_response[:last_marker_pos + len(marker)]
-        
-        result = cleaned_response.strip()
-        
-        if not result:
-            return response
-        
-        return result
     
 class BotSpeakFilter:
     """
@@ -230,21 +133,35 @@ class BotSpeakFilter:
     Most behavioral constraints should be handled by the Persona prompt.
     """
     
-    # Only strip things that are 100% internal system artifacts that should NEVER be seen.
-    # We trust the Persona to handle "As an AI" and other tonal issues.
-    FORBIDDEN_PATTERNS = []
+    # Strip roleplay actions only — targeted patterns to avoid legitimate content
+    FORBIDDEN_PATTERNS = [
+        # Parenthetical roleplay actions: (looks around), (sighs nervously)
+        # Must start with a lowercase verb — avoids stripping (2024 model), (optional), etc.
+        r'\([a-z]+(?:s|es|ing|ed)?\s[a-z\s]+\)',
+        # Asterisk roleplay actions: *scratches head*, *leans back*
+        # Must start with a lowercase verb — avoids stripping Markdown **bold** 
+        r'(?<!\*)\*(?!\*)([a-z]+(?:s|es|ing|ed)?\s[a-z\s]+)\*(?!\*)',
+    ]
 
     @classmethod
     def harden(cls, text: str) -> str:
-        """Apply all hardening filters to the text."""
-        # Pass-through for now, unless we find specific critical leaks
-        return text
+        """Apply all hardening filters to the text to strip roleplay and bot-speak."""
+        if not text:
+            return text
+            
+        cleaned = text
+        for pattern in cls.FORBIDDEN_PATTERNS:
+            cleaned = re.sub(pattern, '', cleaned)
+            
+        # Clean up any resulting double spaces or empty lines
+        cleaned = re.sub(r' +', ' ', cleaned)
+        cleaned = re.sub(r' ([\.,\?\!])', r'\1', cleaned)
+        cleaned = re.sub(r'\n\s*\n+', '\n\n', cleaned)
+        
+        return cleaned.strip()
 
     @classmethod
     def strip_bot_speak(cls, text: str) -> str:
-        """
-        Deprecated: We now trust the model/persona. 
-        This method remains for compatibility but does nothing active.
-        """
-        return text
+        """Alias for harden for backward compatibility."""
+        return cls.harden(text)
 

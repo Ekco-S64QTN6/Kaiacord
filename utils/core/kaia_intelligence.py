@@ -35,7 +35,7 @@ class ContextCtx:
 # NOTE: config is imported lazily in ContextOptimizer.__init__ to avoid circular import
 
 # PerformanceMonitor and SemanticCache have been moved to dedicated utility modules.
-# See utils/core/semantic_cache.py for the current implementation.
+# Semantic cache was removed (never worked reliably). Caching is decommissioned.
 
 class ModelWarmPool:
     """Keep models warm between uses to prevent cold starts."""
@@ -173,10 +173,10 @@ class ContextOptimizer:
         reference_nodes = []
         news_nodes = []
         
+        from utils.core.rag_utils import get_node_text, get_node_metadata
         for n in rag_nodes:
-            # Handle both dictionary and object formats for robustness
-            metadata = n.get('metadata', {}) if isinstance(n, dict) else getattr(n, 'metadata', {})
-            content_raw = n.get('content', str(n)) if isinstance(n, dict) else (n.text if hasattr(n, 'text') else str(n))
+            content_raw = get_node_text(n)
+            metadata = get_node_metadata(n)
             
             source_type = metadata.get('source_type', '')
             user_name = metadata.get('user_name', '').upper()
@@ -304,7 +304,7 @@ class RelevanceFeedback:
         self.rag = rag
         self.feedback_log = []
         
-    async def log_interaction(self, query, response, user_id):
+    async def log_interaction(self, query, response, user_id, user_name="Unknown"):
         # ECHO CHAMBER PROTECTION: Don't log generic "what's new" or status queries
         # as synthetic RAG documents, as they create a feedback loop.
         query_lower = query.lower()
@@ -312,7 +312,7 @@ class RelevanceFeedback:
         if any(trigger in query_lower for trigger in blacklist):
             return
             
-        self.feedback_log.append({'query': query, 'response': response, 'user_id': user_id, 'timestamp': time.time()})
+        self.feedback_log.append({'query': query, 'response': response, 'user_id': user_id, 'user_name': user_name, 'timestamp': time.time()})
         if len(self.feedback_log) >= 50: await self.process_feedback()
             
     async def process_feedback(self):
@@ -325,7 +325,7 @@ class RelevanceFeedback:
         for item in recent_pairs:
             doc = Document(
                 text=f"User Query: {item['query']}\nKaia Response: {item['response']}",
-                metadata={'source': 'feedback', 'type': 'successful_qa', 'user_id': str(item['user_id']), 'timestamp': item['timestamp']}
+                metadata={'source': 'feedback', 'type': 'successful_qa', 'user_id': str(item['user_id']), 'user_name': item.get('user_name', 'Unknown'), 'timestamp': item['timestamp']}
             )
             synthetic_docs.append(doc)
             
