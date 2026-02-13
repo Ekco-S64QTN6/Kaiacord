@@ -363,7 +363,12 @@ class ForumClient:
             
             # Scrape pages
             current_page = last_page
-            max_pages = 20 if full_scrape else 6
+            
+            from utils.infrastructure.system.yaml_config import config
+            regular_max = config.get('forum.max_pages_per_thread_scrape', 6)
+            full_max = config.get('forum.full_scrape_max_pages', 50)
+            
+            max_pages = full_max if full_scrape else regular_max
             while current_page > 0 and pages_scraped < max_pages:
                 if not full_scrape and len(all_posts) >= last_n_posts:
                     break
@@ -385,7 +390,10 @@ class ForumClient:
             if not full_scrape and len(all_posts) > last_n_posts:
                 all_posts = all_posts[-last_n_posts:]
 
-            log_info(f"Scraped {len(all_posts)} posts from thread '{thread_title}' ({pages_scraped} pages sampled)")
+            if full_scrape:
+                log_info(f"Full scrape: captured {len(all_posts)} posts from thread '{thread_title}'")
+            else:
+                log_debug(f"Scraped {len(all_posts)} posts from thread '{thread_title}'")
 
             return {
                 'thread_id': thread_id,
@@ -617,8 +625,36 @@ class ForumClient:
         log_info(f"Saved forum listing to {filepath}")
         return str(filepath)
 
-    def save_thread_scrape(self, thread_data: Dict[str, Any]) -> str:
-        """Save a thread scrape to knowledge_base."""
+    def is_thread_update_needed(self, thread_id: int, current_reply_count: int) -> bool:
+        """
+        Check if a thread needs to be re-scraped based on reply count.
+        VBulletin 'reply_count' is 1 less than total posts (including OP).
+        """
+        files = list(self.KNOWLEDGE_DIR.glob(f"thread_{thread_id}_*.md"))
+        if not files:
+            return True
+        
+        filepath = files[0]
+        try:
+            content = filepath.read_text(encoding='utf-8')
+            # Look for post_count in YAML frontmatter
+            match = re.search(r'post_count: (\d+)', content)
+            if match:
+                stored_count = int(match.group(1))
+                # If stored count is same or greater, we don't need update
+                # (stored_count includes OP, current_reply_count + 1 includes OP)
+                if stored_count >= (current_reply_count + 1):
+                    return False
+        except Exception as e:
+            log_warning(f"Error checking thread update status for {thread_id}: {e}")
+            
+        return True
+
+    def save_thread_scrape(self, thread_data: Dict[str, Any]) -> bool:
+        """
+        Save a thread scrape to knowledge_base.
+        Returns True if the file was updated (new content), False otherwise.
+        """
         self.KNOWLEDGE_DIR.mkdir(parents=True, exist_ok=True)
 
         thread_id = thread_data['thread_id']
@@ -629,6 +665,7 @@ class ForumClient:
         safe_title = re.sub(r'[^\w\s-]', '', title.lower())
         safe_title = re.sub(r'[\s_]+', '-', safe_title).strip('-')[:60]
         filename = f"thread_{thread_id}_{safe_title}.md"
+        filepath = self.KNOWLEDGE_DIR / filename
 
         now = datetime.now()
         lines = [
@@ -657,19 +694,38 @@ class ForumClient:
             lines.append("---")
             lines.append("")
 
-        filepath = self.KNOWLEDGE_DIR / filename
-        filepath.write_text('\n'.join(lines), encoding='utf-8')
+        new_content = '\n'.join(lines)
+
+        # Implementation of Deduplication: Compare with existing file
+        if filepath.exists():
+            try:
+                old_content = filepath.read_text(encoding='utf-8')
+                # Function to strip the dynamic 'scraped_at' line for accurate comparison
+                def strip_volatiles(text):
+                    return re.sub(r'scraped_at: ".*?"\n', '', text)
+
+                if strip_volatiles(old_content) == strip_volatiles(new_content):
+                    log_debug(f"Thread {thread_id} content unchanged. Skipping write.")
+                    return False
+            except Exception as e:
+                log_warning(f"Failed to read existing thread file for comparison: {e}")
+
+        filepath.write_text(new_content, encoding='utf-8')
         log_info(f"Saved thread scrape to {filepath}")
-        return str(filepath)
+        return True
 
     def update_forum_user_profiles(self, posts: List[PostInfo],
-                                   profile_metadata: Optional[Dict[str, Any]] = None):
+                                   profile_metadata: Optional[Dict[str, Any]] = None,
+                                   target_user_key: Optional[str] = None):
         """Create/update user profile files for forum users."""
         # Group posts by author
         user_posts: Dict[str, List[PostInfo]] = {}
         for p in posts:
             if p.author and p.user_id:
                 key = f"forum_{p.author}_{p.user_id}"
+                # If target_user_key is specified, only collect for that user
+                if target_user_key and key != target_user_key:
+                    continue
                 if key not in user_posts:
                     user_posts[key] = []
                 user_posts[key].append(p)
@@ -687,24 +743,45 @@ class ForumClient:
             interaction_path = user_dir / f"interactions_{today_str}.md"
 
             is_new = not interaction_path.exists()
-            with open(interaction_path, 'a', encoding='utf-8', errors='replace') as f:
-                if is_new:
-                    f.write("---\n")
-                    f.write('summary: ""\n')
-                    f.write("keywords: []\n")
-                    f.write('document_type: Transcript\n')
-                    f.write(f'platform: vbulletin\n')
-                    f.write("---\n\n")
+            existing_content = ""
+            if not is_new:
+                try:
+                    existing_content = interaction_path.read_text(encoding='utf-8', errors='replace')
+                except Exception:
+                    pass
 
-                for post in user_post_list:
-                    f.write(f"[Forum Post by {author}]\n")
-                    f.write(f"{post.content[:2000]}\n\n")
+            new_entries = []
+            for post in user_post_list:
+                # Deduplication: Check for Post ID in current file
+                marker = f"[Post ID: {post.post_id}]"
+                if marker in existing_content:
+                    continue
+                
+                new_entries.append(f"{marker} [by {author}]\n{post.content[:2000]}\n\n")
+
+            if new_entries:
+                with open(interaction_path, 'a', encoding='utf-8', errors='replace') as f:
+                    if is_new:
+                        f.write("---\n")
+                        f.write('summary: ""\n')
+                        f.write("keywords: []\n")
+                        f.write('document_type: Transcript\n')
+                        f.write(f'platform: vbulletin\n')
+                        f.write("---\n\n")
+
+                    f.write(''.join(new_entries))
 
             # Create or update profile
-            profile = profile_metadata or {}
-            rank = profile.get('rank', 'forum user')
-            total_posts = profile.get('total_posts', '?')
-            join_date = profile.get('join_date', '?')
+            # Only apply profile_metadata if it belongs to this author/user_id
+            target_profile = {}
+            if profile_metadata and profile_metadata.get('username') == author:
+                target_profile = profile_metadata
+            elif profile_metadata and profile_metadata.get('user_id') == user_id:
+                target_profile = profile_metadata
+                
+            rank = target_profile.get('rank', 'forum user')
+            total_posts = target_profile.get('total_posts', '?')
+            join_date = target_profile.get('join_date', '?')
 
             # Build narrative profile in Kaia's voice
             narrative = (
@@ -731,14 +808,20 @@ class ForumClient:
                 content = profile_path.read_text(encoding='utf-8', errors='replace')
                 # Try to replace the first line of narrative if it matches a pattern
                 if "# INTERNAL MEMORY:" in content:
-                    lines = content.split('\n')
+                    parts = content.split("# INTERNAL MEMORY:", 1)
+                    header = parts[0]
+                    body = parts[1]
+                    
+                    lines = body.split('\n')
                     for i, line in enumerate(lines):
-                        if line.strip() and not line.startswith('#') and not line.startswith('---'):
+                        if line.strip() and not line.strip().startswith('#'):
                             # Overwrite the first narrative line with fresh metadata
                             lines[i] = narrative
                             # Keep the rest of the personality notes
                             break
-                    profile_path.write_text('\n'.join(lines), encoding='utf-8', errors='replace')
+                    
+                    new_content = header + "# INTERNAL MEMORY:" + '\n'.join(lines)
+                    profile_path.write_text(new_content, encoding='utf-8', errors='replace')
 
     # ── Deep user scraping ──────────────────────────────────────────────
 
@@ -1183,8 +1266,11 @@ class ForumClient:
 
     async def scrape_active_users(self, threads: List[ThreadInfo],
                                    thread_posts: List[PostInfo],
-                                   max_users: int = 15) -> int:
+                                   max_users: Optional[int] = None) -> int:
         """Deep-scrape profiles and post histories of all unique users found in threads."""
+        from utils.infrastructure.system.yaml_config import config
+        if max_users is None:
+            max_users = config.get('forum.max_active_users_scrape', 15)
         # Collect unique user IDs from thread metadata and scraped posts
         users: Dict[int, str] = {}  # user_id -> username
 
@@ -1208,15 +1294,29 @@ class ForumClient:
                 history_path = user_dir / "post_history.md"
                 profile_path = user_dir / "user_profile.md"
                 
-                # Reduction: 10 minutes (600s) cooldown instead of 1h
+                # Reduction: 4h cooldown for intensive history scrape
                 if history_path.exists():
                     mtime = datetime.fromtimestamp(history_path.stat().st_mtime)
-                    if (datetime.now() - mtime).total_seconds() < 600:
-                        log_debug(f"Skipping {username} — scraped within 10m")
+                    if (datetime.now() - mtime).total_seconds() < 14400: # 4 hours
+                        log_debug(f"Skipping {username} history — scraped within 4h")
                         continue
 
-                # Scrape profile
+                # Scrape profile - this is cheap and gives us total_posts
                 profile = await self.scrape_user_profile(uid)
+                if not profile:
+                    continue
+
+                # Deduplication: Check if total_posts changed
+                total_posts = profile.get('total_posts', 0)
+                if history_path.exists():
+                    try:
+                        h_content = history_path.read_text(encoding='utf-8')
+                        h_match = re.search(r'total_posts: (\d+)', h_content)
+                        if h_match and int(h_match.group(1)) >= total_posts:
+                            log_debug(f"Skipping {username} history — total_posts ({total_posts}) unchanged")
+                            continue
+                    except Exception:
+                        pass
 
                 # Scrape full post history (20 pages = ~400-500 snippets)
                 posts = await self.scrape_user_post_history(uid, username, max_pages=20)
@@ -1228,11 +1328,12 @@ class ForumClient:
                 all_results = posts + threads_started
 
                 if profile or all_results:
-                    # Update profile with metadata
-                    self.update_forum_user_profiles(thread_posts, profile)
-                    
-                    # Save consolidated history
+                    # Update consolidated history
                     self.save_user_post_history(username, uid, profile, all_results)
+                    
+                    # Update profile with metadata (Only for the CURRENT user)
+                    user_key = f"forum_{username}_{uid}"
+                    self.update_forum_user_profiles(all_results, profile, target_user_key=user_key)
                     
                     # INTEGRATION: Check if we need to deep-crawl and profile
                     # We trigger this if the profile is missing or older than 24h

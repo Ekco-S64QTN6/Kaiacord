@@ -135,12 +135,16 @@ class BotSpeakFilter:
     
     # Strip roleplay actions only — targeted patterns to avoid legitimate content
     FORBIDDEN_PATTERNS = [
-        # Parenthetical roleplay actions: (looks around), (sighs nervously)
-        # Must start with a lowercase verb — avoids stripping (2024 model), (optional), etc.
-        r'\([a-z]+(?:s|es|ing|ed)?\s[a-z\s]+\)',
-        # Asterisk roleplay actions: *scratches head*, *leans back*
-        # Must start with a lowercase verb — avoids stripping Markdown **bold** 
-        r'(?<!\*)\*(?!\*)([a-z]+(?:s|es|ing|ed)?\s[a-z\s]+)\*(?!\*)',
+        # Parenthetical roleplay actions: (looks around), (sighs heavily...), (Sighs, then nods.)
+        # Catches anything starting with a capital letter or lowercase verb-like word,
+        # but excludes common technical notes and dates if we're careful.
+        # Actually, for Kaia, almost any standalone parens are roleplay.
+        r'\((?![0-9]{4})[^\)]+?[\.\?\!…]*?\)',
+        # Asterisk roleplay actions: *scratches head*, *leans back*, *Nods*
+        r'(?<!\*)\*(?!\*)([^\*]+?)\*(?!\*)',
+        # Empty/Whitespace-only markers (often left after cleaning nested patterns)
+        r'\(\s*\)',
+        r'(?<!\*)\*\s*\*(?!\*)',
     ]
 
     @classmethod
@@ -150,15 +154,25 @@ class BotSpeakFilter:
             return text
             
         cleaned = text
-        for pattern in cls.FORBIDDEN_PATTERNS:
-            cleaned = re.sub(pattern, '', cleaned)
-            
-        # Clean up any resulting double spaces or empty lines
-        cleaned = re.sub(r' +', ' ', cleaned)
-        cleaned = re.sub(r' ([\.,\?\!])', r'\1', cleaned)
-        cleaned = re.sub(r'\n\s*\n+', '\n\n', cleaned)
+        last_cleaned = None
         
-        return cleaned.strip()
+        # Repetitive cleaning until no more patterns match (handles nested/adjacent)
+        while cleaned != last_cleaned:
+            last_cleaned = cleaned
+            for pattern in cls.FORBIDDEN_PATTERNS:
+                cleaned = re.sub(pattern, '', cleaned, flags=re.IGNORECASE)
+                
+            # Clean up any resulting double spaces or empty lines
+            cleaned = re.sub(r' +', ' ', cleaned)
+            cleaned = re.sub(r' ([\.,\?\!])', r'\1', cleaned)
+            
+            # Specific fix for gaps after "Kaia:" or "User:"
+            cleaned = re.sub(r'(Kaia:|User:)\s*\n+', r'\1 ', cleaned)
+            
+            cleaned = re.sub(r'\n\s*\n+', '\n\n', cleaned)
+            cleaned = cleaned.strip()
+        
+        return cleaned
 
     @classmethod
     def strip_bot_speak(cls, text: str) -> str:

@@ -231,10 +231,22 @@ class ContextOptimizer:
             else:
                 # Learned Knowledge - Isolated Records (Books, Injected Dream Sources, etc)
                 file_name = os.path.basename(path_raw or 'Library')
+                source_label = file_name
+                
+                # IMPROVEMENT: If it's a forum thread, make the source more readable
+                if "thread_" in file_name.lower() and "_" in file_name:
+                    parts = file_name.split("_")
+                    if len(parts) >= 3:
+                        thread_id = parts[1]
+                        # Extract slug and convert to Title Case
+                        slug = parts[2].replace(".md", "").replace("-", " ")
+                        title = slug.title()
+                        source_label = f"Thread: '{title}' (ID: {thread_id})"
+                
                 # Structural isolation wrapping with semantic tagging
-                # Tagging as 'RECORDED_KNOWLEDGE' to imply it's something she read/stored
-                wrapped_content = f"<recorded_knowledge source=\"{file_name}\">\n{content_raw}\n</recorded_knowledge>"
+                wrapped_content = f"<recorded_knowledge source=\"{source_label}\">\n{content_raw}\n</recorded_knowledge>"
                 reference_nodes.append(wrapped_content)
+                
 
         # Construct final RAG text with structural grouping
         rag_segments = []
@@ -356,8 +368,24 @@ class PersonalizationEngine:
 
     async def learn_from_interaction(self, user_id, query, response):
         """Update user profile based on interaction characteristics."""
-        user_id = str(user_id)
-        traits = await self.get_user_traits(user_id)
+        u_id_str = str(user_id)
+        canonical_id = u_id_str
+        
+        # Identity Unification
+        try:
+            from utils.social.kaia_identities import registry
+            if u_id_str.startswith("forum_"):
+                fid_parts = u_id_str.rsplit("_", 1)
+                if len(fid_parts) > 1 and fid_parts[1].isdigit():
+                    did = registry.get_discord_id(int(fid_parts[1]))
+                    if did: canonical_id = did
+            elif u_id_str.isdigit() and len(u_id_str) < 15:
+                did = registry.get_discord_id(int(u_id_str))
+                if did: canonical_id = did
+        except Exception:
+            pass # Fallback to original ID if registry fails
+
+        traits = await self.get_user_traits(canonical_id)
         
         # Simple heuristics for learning
         word_count = len(response.split())
@@ -585,6 +613,10 @@ class IntentParser:
             "SUMMARIZATION": [
                 r"^\s*(kaia\s+)?(summarize|summary of|digest|tl;?dr)\b",
                 r"\b(give me a summary|brief on|overview of)\b"
+            ],
+            "SYNTHESIS_SCAN": [
+                r"\b(news|headlines|current events|happening today|latest on)\b",
+                r"^\s*(kaia\s+)?what's (new|happening)\b"
             ]
         }
 
@@ -614,25 +646,36 @@ class IntentParser:
     async def parse_intent(self, query: str, context: Optional[ContextCtx] = None) -> Intent:
         """Main Entry Point: Analyze query into Intent Object"""
         
-        # 1. Fast Path
+        # 1. Layer 1: Fast Path
         fast_intent = self.fast_parse(query)
-        # If it's a Greeting or Command, return immediately.
-        # For Precise/Diagnostic triggers, we MIGHT still want LLM analysis 
-        # to get implied needs, but for now let's trust the fast path 
-        # for speed if confidence is high.
+        # If it's a Greeting, Command, or Summarization, return immediately.
         if fast_intent and fast_intent.suggested_strategy in ["SOCIAL_GREETING", "COMMAND_EXECUTION", "SUMMARIZATION"]:
              return fast_intent
 
-        # 2. Layer 2: LLM Intent Analysis
-        return await self._analyze_with_llm(query, context)
+        # 2. Layer 2: LLM Intent Analysis (with fast-path hint if available)
+        hint = fast_intent.suggested_strategy if fast_intent else None
+        llm_intent = await self._analyze_with_llm(query, context, fast_path_hint=hint)
+        
+        # 3. Layer 3: Strategy Merging (Cognitive Stabilization)
+        # If the LLM confidence is low or it returned EXPLORATORY_DIALOGUE, 
+        # while a specific fast-path hint exists, we trust the technical/specific hint.
+        if hint and hint != "EXPLORATORY_DIALOGUE":
+            if llm_intent.confidence < 0.7 or llm_intent.suggested_strategy == "EXPLORATORY_DIALOGUE":
+                log_debug(f"Strategy Merge: Overriding LLM '{llm_intent.suggested_strategy}' with fast-path '{hint}'")
+                llm_intent.suggested_strategy = hint
+                # Don't overwrite confidence, as the merger itself might be a slightly fuzzy decision
+                
+        return llm_intent
 
-    async def _analyze_with_llm(self, query: str, context: Optional[ContextCtx]) -> Intent:
+    async def _analyze_with_llm(self, query: str, context: Optional[ContextCtx], fast_path_hint: Optional[str] = None) -> Intent:
         """Layer 2: Deep Analysis via LLM"""
         try:
             # Context string construction
             ctx_str = ""
             if context:
                 ctx_str = f"Active Entities: {', '.join(context.active_entities)}\nLast Topic: {context.last_turns[-1] if context.last_turns else 'None'}"
+
+            hint_str = f"\nFAST_PATH_HINT: {fast_path_hint} (Use this as a strong indicator if it matches the content)\n" if fast_path_hint else ""
 
             prompt = (
                 "SYSTEM: You are an Intent Analysis Engine. JSON OUTPUT ONLY.\n"
@@ -642,14 +685,18 @@ class IntentParser:
                 "  \"emotional_context\": \"neutral|urgent|frustrated\",\n"
                 "  \"temporal_focus\": \"present_immediate\",\n"
                 "  \"relational_context\": \"general\",\n"
+                "  \"confidence\": 0.0 to 1.0,\n"
                 "  \"suggested_strategy\": \"PRECISE_RECALL|DIAGNOSTIC_DEEP_DIVE|DREAM_RECALL|CREATIVE_ASSOCIATION|RELATIONAL_MIRROR|SYNTHESIS_SCAN|EXPLORATORY_DIALOGUE\"\n"
                 "}\n\n"
                 "STRATEGIES:\n"
-                "- PRECISE_RECALL: Facts/bios/dates.\n"
-                "- DIAGNOSTIC_DEEP_DIVE: Bugs/logs/errors.\n"
-                "- DREAM_RECALL: Retrieve dreams.\n"
-                "- SYNTHESIS_SCAN: Real-world news/events.\n"
-                "- EXPLORATORY_DIALOGUE: General chat.\n\n"
+                "- PRECISE_RECALL: Specific facts, biographies, dates, or identities.\n"
+                "- DIAGNOSTIC_DEEP_DIVE: Technical issues, logs, system status, or bugs.\n"
+                "- DREAM_RECALL: Inquiries about previous internal dream states.\n"
+                "- SYNTHESIS_SCAN: Real-world news, events, or external data.\n"
+                "- EXPLORATORY_DIALOGUE: General multifaceted conversation or philosophical chat.\n"
+                "- RELATIONAL_MIRROR: Social bonding, reflection on user-bot relationship.\n"
+                "- CREATIVE_ASSOCIATION: High-variance brainstorming or creative writing.\n"
+                f"{hint_str}"
                 f"CONTEXT: {ctx_str[:200]}\n"
                 f"QUERY: \"{query}\"\nJSON:"
             )
@@ -665,10 +712,8 @@ class IntentParser:
             # Clean markdown code blocks if present
             raw_json = raw_json.replace("```json", "").replace("```", "").strip()
             
+            # Extract data
             data = json.loads(raw_json)
-            
-            # Fallback for confidence (not usually in LLM output unless asked)
-            confidence = 0.85
             
             return Intent(
                 explicit_intent=data.get('explicit_intent', query),
@@ -677,7 +722,7 @@ class IntentParser:
                 temporal_focus=data.get('temporal_focus', 'present_immediate'),
                 relational_context=data.get('relational_context', 'general'),
                 suggested_strategy=data.get('suggested_strategy', 'EXPLORATORY_DIALOGUE'),
-                confidence=confidence
+                confidence=float(data.get('confidence', 0.85))
             )
 
         except Exception as e:

@@ -156,10 +156,13 @@ class OllamaGPUManager:
             base_options['num_gpu'] = -1
         
         if for_chat:
+            from utils.infrastructure.system.yaml_config import config
+            max_tokens = getattr(config, 'max_response_tokens', 2048)
+            
             base_options.update({
                 'num_ctx': num_ctx, # Dynamic context sizing
                 'num_batch': 512,
-                'num_predict': 512,
+                'num_predict': max_tokens,
                 'temperature': 0.7,
                 'repeat_penalty': 1.1,
                 'top_k': 40,

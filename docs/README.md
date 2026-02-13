@@ -37,6 +37,9 @@ Welcome to the Kaiacord documentation! Organized by topic for easy navigation.
 ### 🛠️ [06 - Troubleshooting](06-troubleshooting/)
 - [Common Issues](06-troubleshooting/common-issues.md)
 
+### 📊 Reports
+- [Gemini Status Report (RAG & Identity Audit)](reports/Gemini_Report.md)
+
 ---
 
 ## Quick Links

@@ -36,13 +36,20 @@ async def forum_scrape_task():
         # Scrape recent posts from top active non-sticky threads
         max_posts = config.get('forum.max_posts_per_thread_scrape', 20)
         all_posts = []
+        any_updated = False
 
         for t in threads[:5]:
             if t.is_sticky:
                 continue
+            
+            # Optimization: Skip network request if reply count hasn't changed
+            if not client.is_thread_update_needed(t.thread_id, t.reply_count):
+                continue
+
             thread_data = await client.scrape_thread(t.thread_id, last_n_posts=max_posts)
             if thread_data.get('posts'):
-                client.save_thread_scrape(thread_data)
+                if client.save_thread_scrape(thread_data):
+                    any_updated = True
                 all_posts.extend(thread_data['posts'])
 
         # Update forum user profiles
@@ -69,10 +76,12 @@ async def forum_scrape_task():
                 # For now, we just log that we would check them
                 pass
 
-        # Trigger RAG reindex
-        Path("./knowledge_base/.trigger_reindex").touch()
-
-        log_action(f"Forum scrape: {len(threads)} threads, {len(all_posts)} posts ingested")
+        # Trigger RAG reindex ONLY if content changed
+        if any_updated:
+            Path("./knowledge_base/.trigger_reindex").touch()
+            log_action(f"Forum scrape: {len(threads)} threads, {len(all_posts)} posts ingested (Updates found)")
+        else:
+            log_info(f"Forum scrape: {len(threads)} threads checked. No new content.")
 
     except Exception as e:
         log_error(f"Forum scrape task failed: {e}")

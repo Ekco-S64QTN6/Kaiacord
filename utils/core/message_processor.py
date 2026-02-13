@@ -326,8 +326,20 @@ class MessageProcessor:
         # 6. Knowledge Boundary Check (Entity Verification)
         # Check if the query contains entities unknown to Kaia
         from utils.core.rag_utils import get_node_text
-        context_text = "\n".join([get_node_text(n) for n in ctx.context_nodes]) if ctx.context_nodes else ""
-        boundary_check = self.knowledge_boundary.check_known_entities(ctx.sanitized_content, context_text)
+        rag_text = "\n".join([get_node_text(n) for n in ctx.context_nodes]) if ctx.context_nodes else ""
+        
+        # Include recent history in boundary context to avoid flagging active participants
+        history = list(self.bot_state.channel_memory.get(ctx.channel_id, []))
+        history_text = "\n".join([m['content'] for m in history[-5:]])
+        context_text = f"{rag_text}\n\n{history_text}"
+        
+        # Whitelist the current author and bot
+        whitelist = {ctx.author_name, self.bot.user.name, "Kaia"}
+        # Resolve display name variants
+        if hasattr(ctx.message.author, 'display_name'):
+            whitelist.add(ctx.message.author.display_name)
+            
+        boundary_check = self.knowledge_boundary.check_known_entities(ctx.sanitized_content, context_text, whitelist=whitelist)
         ctx.knowledge_boundary_check = boundary_check
         
         if not boundary_check["all_known"]:

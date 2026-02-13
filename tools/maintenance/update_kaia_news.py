@@ -12,9 +12,10 @@ from typing import Optional, List, Dict, Any
 import ollama
 from dotenv import load_dotenv
 
-# New Google GenAI SDK
-from google import genai
-from google.genai import types
+# IMPORTANT: DO NOT SWITCH THIS TO 'google.genai' (the new SDK).
+# The user explicitly prefers the legacy 'google.generativeai' package.
+# Attempting to "migrate" this will break the user's preferred workflow.
+import google.generativeai as genai
 
 # Load environment variables from .env file
 load_dotenv()
@@ -22,8 +23,9 @@ load_dotenv()
 class KaiaNewsUpdater:
     def __init__(self, gemini_api_key: str):
         """Initialize with Gemini API key"""
-        self.client = genai.Client(api_key=gemini_api_key)
-        self.model_name = 'gemini-2.5-flash'  # Using a stable model with grounding support
+        genai.configure(api_key=gemini_api_key)
+        # Using 1.5-flash for better free-tier quota stability and grounding support
+        self.model_name = 'gemini-1.5-flash' 
         self.knowledge_dir = Path("./knowledge_base/news/daily")
         self.knowledge_dir.mkdir(parents=True, exist_ok=True)
         self.today = datetime.datetime.now().strftime("%Y-%m-%d")
@@ -110,35 +112,36 @@ RULES:
 6. Do NOT include a 'SOURCES' or 'REFERENCES' section at the end of the brief.
 """
         
-        # Generate using Gemini WITH Google Search grounding (new SDK syntax)
+        # In legacy google-generativeai, grounding is enabled via tools
         try:
-            response = self.client.models.generate_content(
-                model=self.model_name,
-                contents=prompt,
-                config=types.GenerateContentConfig(
-                    tools=[
-                        types.Tool(google_search=types.GoogleSearch())
-                    ]
-                ),
+            model = genai.GenerativeModel(
+                model_name=self.model_name,
+                tools=[{'google_search_retrieval': {}}]
             )
-            brief = response.text.strip()
             
-            # Log grounding metadata if available
-            try:
-                metadata = response.candidates[0].grounding_metadata
-                if metadata and metadata.web_search_queries:
-                    print(f"[DEBUG] Grounding used search queries: {metadata.web_search_queries}")
-            except:
-                pass
+            response = model.generate_content(prompt)
+            
+            # Robust text extraction
+            brief = (response.text or "").strip()
+            
+            if not brief:
+                # Check for candidates and finish reason
+                if response.candidates:
+                    finish_reason = response.candidates[0].finish_reason
+                    raise ValueError(f"Empty response text (Finish Reason: {finish_reason})")
+                else:
+                    raise ValueError("Empty response feedback (no candidates)")
                 
         except Exception as e:
             print(f"⚠️ Grounding failed ({e}), falling back to standard generation")
             # Fallback to standard generation if grounding fails
-            response = self.client.models.generate_content(
-                model=self.model_name,
-                contents=prompt
-            )
-            brief = response.text.strip()
+            fallback_model = genai.GenerativeModel(model_name=self.model_name)
+            response = fallback_model.generate_content(prompt)
+            brief = (response.text or "").strip()
+            
+            if not brief:
+                print("❌ CRITICAL: Both grounding and fallback failed to generate news.")
+                return ""
         
         return brief
     

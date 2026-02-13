@@ -38,12 +38,12 @@ performance:
   rag_thresholds:
     persona: 0.50
     user_identity: 0.50
-    knowledge: 0.75
+    knowledge: 0.45
     casual_penalty: 0.10
 
   # RAG Scoring Weights (Magic Numbers Extracted)
   rag_scoring:
-    base_score_multiplier: 60.0
+    base_score_multiplier: 80.0
     path_boost: 0.5
     type_boosts:
       persona: 0.15
@@ -61,8 +61,8 @@ performance:
   max_log_size_mb: 1000
 
   # Context budget (Total tokens for system prompt + history)
-  # RTX 3060 (12GB) Recommended Max: 30,000 (Very Stable).
-  max_context_tokens: 30000
+  # RTX 3060 (12GB) Recommended: 24,000 (More stable for concurrent RAG).
+  max_context_tokens: 24000
 
   # Summarization burst context (Temporarily expands for large file processing)
   # Safe for 12GB VRAM: 48,000
@@ -96,6 +96,9 @@ generation:
   
   # Fallback num_predict on context reduction
   fallback_num_predict: 512
+
+  # Maximum number of tokens to generate in a response
+  max_response_tokens: 2048
 
 # ============================================================================
 # Timeouts Configuration
@@ -313,9 +316,11 @@ forum:
   # Scraping settings
   scrape_interval_minutes: 30
   scrape_last_n_pages: 1
-  max_posts_per_thread_scrape: 20
+  max_posts_per_thread_scrape: 200
+  max_pages_per_thread_scrape: 25
+  full_scrape_max_pages: 50
+  max_active_users_scrape: 15
   
   # Rate limiting for posting
   min_hours_between_posts: 4
   max_posts_per_day: 6
-

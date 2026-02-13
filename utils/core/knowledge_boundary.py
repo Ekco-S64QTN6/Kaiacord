@@ -57,34 +57,101 @@ class KnowledgeBoundary:
         """Extract potential person names from text"""
         # Simple pattern for names (capitalized words, 2+ chars)
         # Exclude common sentence starters if at beginning
-        pattern = r'\b([A-Z][a-z]+)\b'
+        # Entity pattern: Capitalized word, potentially CamelCase or with numbers
+        # Replaces [A-Z][a-z]+ with a more robust pattern
+        pattern = r'\b([A-Z][A-Za-z0-9]*[a-z0-9][A-Za-z0-9]*)\b'
         matches = re.findall(pattern, text)
         
         # Filter out common words and system terms
         common_words = {
-            'Kaia', 'AI', 'GPT', 'OpenAI', 'Google', 'Microsoft', 'Apple', 
+            'Kaia', 'AI', 'GPT', 'OpenAI', 'Google', 'Gemini', 'Anthropic', 'Claude',
+            'Llama', 'Ollama', 'Mistral', 'Nvidia', 'Intel', 'Microsoft', 'Apple', 
             'The', 'And', 'But', 'Who', 'What', 'Where', 'When', 'Why', 'How',
             'Tell', 'Me', 'About', 'Is', 'Are', 'Was', 'Were', 'Do', 'Does',
             'Can', 'Could', 'Should', 'Would', 'News', 'Latest', 'Update',
-            'Technology', 'Politics', 'Security', 'Business', 'Science', 'General',
-            'Explain', 'Describe', 'List', 'Show', 'Help', 'Create', 'Write',
-            'Make', 'Draw', 'Analyze', 'Check', 'Run', 'Start', 'Stop', 'Open',
-            'Close', 'Get', 'Set', 'Put', 'Call', 'Ask', 'Say', 'See', 'Look',
-            'Understood', 'Yes', 'No', 'True', 'False', 'Good', 'Bad', 'Great',
-            'Wait', 'Hold', 'Keep', 'Stop', 'Go', 'Come', 'Back', 'Right', 'Left',
-            'Also', 'Then', 'Now', 'Still', 'Again', 'Just', 'Very', 'Well',
-            'Thanks', 'Thank', 'Please', 'Sorry', 'Excuse', 'Maybe', 'Probably',
-            'Actually', 'Basically', 'Basically', 'Finally', 'Lastly', 'First',
-            'Second', 'Third', 'Here', 'There', 'Every', 'Some', 'Any', 'All',
-            'Both', 'Neither', 'Either', 'Each', 'Many', 'Much', 'Few', 'Little',
-            'Understood', 'Indeed', 'Correct', 'Got', 'Sure', 'Fine', 'Okay'
+            'technology', 'politics', 'security', 'business', 'science', 'general',
+            'explain', 'describe', 'list', 'show', 'help', 'create', 'write',
+            'make', 'draw', 'analyze', 'check', 'run', 'start', 'stop', 'open',
+            'close', 'get', 'set', 'put', 'call', 'ask', 'say', 'see', 'look',
+            'understood', 'indeed', 'correct', 'got', 'sure', 'fine', 'okay',
+            'yes', 'no', 'true', 'false', 'good', 'bad', 'great', 'wait', 'hold', 
+            'keep', 'stop', 'go', 'come', 'back', 'right', 'left', 'also', 'then', 
+            'now', 'still', 'again', 'just', 'very', 'well', 'thanks', 'thank', 
+            'please', 'sorry', 'excuse', 'maybe', 'probably', 'actually', 
+            'basically', 'finally', 'lastly', 'first', 'second', 'third', 'here', 
+            'there', 'every', 'some', 'any', 'all', 'both', 'neither', 'either', 
+            'each', 'many', 'much', 'few', 'little', 'indeed',
+            'research', 'project', 'technical', 'cheat', 'sheet', 'forum',
+            'transcript', 'memory', 'internal', 'summary', 'notes', 'log',
+            'reference', 'dossier', 'profile', 'analysis', 'report',
+            'documentation', 'knowledge', 'base', 'system', 'library', 
+            'review', 'audit', 'status', 'update', 'active', 'complete',
+            'overview', 'purpose', 'objective', 'goal', 'conclusion', 'recommendation',
+            'requirement', 'problem', 'fix', 'solution', 'maintenance', 'stabilization',
+            'narrative', 'context', 'item', 'author', 'recipient', 'executive', 'lead',
+            'integrity', 'identity', 'fragment', 'anchor',
+            'planning', 'scrape', 'topic', 'wikipedia', 'quora', 'articles', 'instruction',
+            'suggestion', 'verification', 'semantic', 'blindness', 'ratio', 'caveat',
+            'predictable', 'rigidity', 'improving', 'exceeding', 'contrastive',
+            # Log/Technical/Identity noise
+            'User', 'Detected', 'Initializing', 'Populated', 'Success', 'Action', 'Found', 'Modified',
+            'Processed', 'Processing', 'Indexed', 'Valid', 'Documents', 'Files',
+            'Loading', 'Loaded', 'Checking', 'Starting', 'Started', 'Finished',
+            'Completed', 'Failure', 'Error', 'Warning', 'Info', 'Debug', 'Running',
+            'KaiaRAG', 'KaiaNews', 'KaiaForum', 'KaiaSocial', 'KaiaIntelligence'
         }
         
         # Case-insensitive set for filtering
         common_words_lower = {w.lower() for w in common_words}
         
-        return [m for m in matches if m.lower() not in common_words_lower and len(m) > 2]
+        # Modern AI/Tech Filter Expansion (Gemini, Claude, GPT, etc.)
+        modern_tech = {
+            'Gemini', 'Google', 'DeepMind', 'Antigravity', 'OpenAI', 'GPT-4o', 'GPT-4', 'o1', 'Claude', 
+            'Anthropic', 'Haiku', 'Sonnet', 'Opus', 'Llama', 'Meta', 'Mistral',
+            'Flux', 'Midjourney', 'DALL-E', 'Stable', 'Diffusion', 'Github', 'Copilot',
+            'Cursor', 'Vscode', 'Python', 'Javascript', 'React', 'Node', 'Docker'
+        }
+        common_words_lower.update(w.lower() for w in modern_tech)
+
+        # Core Lore keywords that are part of the bot's primary domain
+        lore_keywords = {
+            'Neuromancer', 'Hagakure', 'Sprawl', 'Wintermute', 'Tessier', 'Ashpool', 'Molly', 'Millions'
+        }
+        common_words_lower.update(w.lower() for w in lore_keywords)
+        
+        filtered_matches = []
+        for m in matches:
+            m_lower = m.lower()
+            if m_lower in common_words_lower:
+                continue
+            if len(m) <= 2:
+                continue
+            # Basic check for pluralization of common words (e.g. "Files")
+            if m_lower.endswith('s') and m_lower[:-1] in common_words_lower:
+                continue
+            filtered_matches.append(m)
+            
+        return filtered_matches
     
+    def _is_lazy_match(self, entity_lower: str) -> bool:
+        """Check filesystem for user logs if memory check fails (Dynamic Refresh)."""
+        user_logs_dir = os.path.join(self.kb_path, "user_logs")
+        if not os.path.exists(user_logs_dir):
+            return False
+            
+        # Quick scan of matching starting folders
+        # We don't want to re-scan EVERYTHING, just look for folders starting with entity
+        try:
+            for d_name in os.listdir(user_logs_dir):
+                if d_name.lower().startswith(entity_lower + "_"):
+                    # Found it! Add to memory cache to avoid repeat disk access
+                    name = d_name.rsplit("_", 1)[0].replace("_", " ")
+                    self.known_entities.add(name.lower())
+                    return True
+        except Exception:
+            pass
+        return False
+
     def _is_fuzzy_match(self, entity: str, context: str) -> bool:
         """Check for fuzzy matches (typos) in context."""
         if len(entity) < 4: return False
@@ -124,22 +191,27 @@ class KnowledgeBoundary:
             previous_row = current_row
         return previous_row[-1]
 
-    def check_known_entities(self, query: str, context: str) -> Dict:
+    def check_known_entities(self, query: str, context: str, whitelist: Optional[Set[str]] = None) -> Dict:
         """Check if entities in query are known"""
         query_entities = self.extract_entities(query)
+        whitelist_lower = {w.lower() for w in whitelist} if whitelist else set()
         
         # Check if entities appear in context
         known_in_context = []
         unknown_in_context = []
         
+        context_lower = context.lower()
+        
         for entity in query_entities:
             entity_lower = entity.lower()
-            # Check if known globally or in current context
+            # Check if known globally, in whitelist, or in current context
             is_known = (
                 entity_lower in self.known_entities or
-                entity_lower in context.lower() or
-                f"{entity_lower}s" in context.lower() or
-                self._is_fuzzy_match(entity, context)
+                entity_lower in whitelist_lower or
+                entity_lower in context_lower or
+                f"{entity_lower}s" in context_lower or
+                self._is_fuzzy_match(entity, context_lower) or
+                self._is_lazy_match(entity_lower)  # Final disk-based fallback
             )
             
             if is_known:

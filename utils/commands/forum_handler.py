@@ -106,25 +106,81 @@ async def _handle_scrape(ctx, msg):
             from utils.infrastructure.system.yaml_config import config
             max_posts = config.get('forum.max_posts_per_thread_scrape', 50)
 
-            # Parse optional limit=N
-            max_users = 15
-            for arg in ctx.get('args', []):
+            # Parse optional arguments
+            from utils.infrastructure.system.yaml_config import config
+            max_users = config.get('forum.max_active_users_scrape', 15)
+            start_page = 1
+            max_pages_to_process = 1
+            full_scrape = False
+            
+            # Check for args in ctx or derived from message
+            command_args = ctx.get('args', []) if hasattr(ctx, 'get') else []
+            if not command_args:
+                # Fallback: parse from msg.content if ctx doesn't have args
+                parts = msg.content.strip().split(None, 2)
+                command_args = parts[2:] if len(parts) > 2 else []
+
+            for arg in command_args:
                 if arg.startswith('limit='):
                     try:
                         max_users = int(arg.split('=')[1])
                     except ValueError:
                         pass
+                elif arg.startswith('page='):
+                    try:
+                        start_page = int(arg.split('=')[1])
+                    except ValueError:
+                        pass
+                elif arg.startswith('max_pages='):
+                    try:
+                        max_pages_to_process = int(arg.split('=')[1])
+                    except ValueError:
+                        pass
+                elif arg == 'full=true':
+                    full_scrape = True
 
             scraped_threads = 0
             all_posts = []
-            for t in threads[:20]:  # Top 20 active threads
-                if t.is_sticky:
-                    continue
-                thread_data = await client.scrape_thread(t.thread_id, last_n_posts=max_posts)
-                if thread_data.get('posts'):
-                    client.save_thread_scrape(thread_data)
-                    all_posts.extend(thread_data['posts'])
-                    scraped_threads += 1
+            pages_processed = 0
+            current_page = start_page
+            
+            while pages_processed < max_pages_to_process:
+                if pages_processed > 0:
+                    await msg.channel.send(f"```\nscraping Off Topic page {current_page}...\n```")
+                    threads = await client.scrape_forum_listing(page=current_page)
+                    if not threads:
+                        break
+                    client.save_forum_listing(threads)
+
+                any_thread_updated = False
+                for t in threads[:20]:  # Top 20 active threads
+                    if t.is_sticky:
+                        continue
+                        
+                    # SKIP if already up to date
+                    if not client.is_thread_update_needed(t.thread_id, t.reply_count):
+                        log_info(f"Thread {t.thread_id} ('{t.title}') is up to date. Skipping.")
+                        continue
+                        
+                    thread_data = await client.scrape_thread(t.thread_id, last_n_posts=max_posts, full_scrape=full_scrape)
+                    if thread_data.get('posts'):
+                        client.save_thread_scrape(thread_data)
+                        all_posts.extend(thread_data['posts'])
+                        scraped_threads += 1
+                        any_thread_updated = True
+
+                pages_processed += 1
+                
+                # If we processed all threads on this page and none needed updates,
+                # and we are in a multi-page request mode, we might want to go deeper.
+                # Or if the user explicitly asked for more than 1 page.
+                if not any_thread_updated and max_pages_to_process == 1:
+                    # User didn't specify max_pages, but current page is full of "already seen" content
+                    # Let's automatically try ONE more page to find new stuff
+                    max_pages_to_process = 2
+                    log_info(f"Page {current_page} had no new content. Auto-extending to next page.")
+                
+                current_page += 1
 
             # Update forum user profiles from thread posts
             if all_posts:
@@ -158,13 +214,16 @@ async def _handle_read(ctx, msg, thread_id: int):
     from utils.social.kaia_forum import get_forum_client
 
     try:
+        # Parse full=true from msg.content
+        full_scrape = 'full=true' in msg.content.lower()
+
         client = await get_forum_client()
         if not client:
             await msg.channel.send("```\nforum not configured or login failed.\n```")
             return
 
         async with msg.channel.typing():
-            thread_data = await client.scrape_thread(thread_id, last_n_posts=10)
+            thread_data = await client.scrape_thread(thread_id, last_n_posts=10, full_scrape=full_scrape)
 
         if not thread_data.get('posts'):
             await msg.channel.send(f"```\nno posts found in thread {thread_id}.\n```")

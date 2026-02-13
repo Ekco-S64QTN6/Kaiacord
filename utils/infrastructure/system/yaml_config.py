@@ -438,6 +438,10 @@ class YAMLConfig:
     # RAG Scoring & Boosts
     # =========================================================================
     @property
+    def rag_base_score_multiplier(self) -> float:
+        return self.get('performance.rag_scoring.base_score_multiplier', 60.0)
+
+    @property
     def rag_path_boost(self) -> float:
         return self.get('rag_scoring.path_boost', 0.5)
 
@@ -497,6 +501,11 @@ class YAMLConfig:
     def generation_fallback_num_predict(self) -> int:
         """Fallback num_predict on context reduction"""
         return self.get('generation.fallback_num_predict', 512)
+
+    @property
+    def max_response_tokens(self) -> int:
+        """Maximum number of tokens to generate in a response"""
+        return self.get('generation.max_response_tokens', 2048)
 
     
     @property

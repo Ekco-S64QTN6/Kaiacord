@@ -286,3 +286,26 @@ All filters now implement a **critical safety net**: if cleaning/filtering would
 
 **Files Modified**:
 - `utils/infrastructure/system/dashboard_manager.py` - Surgical loop exit logic
+---
+
+### 15. Phase 10: RAG Stabilization & Identity Unification (2026-02-13) ✅
+**Problem**: 
+- **Semantic Blindness**: RAG returned irrelevant results due to compressed scoring and rigid thresholds.
+- **Identity Fragmentation**: Discord and Forum accounts were separate, splitting history and personalization.
+- **Log Corruption**: Hallucinated "Juanita" data contaminated RAG memory.
+- **Gemini Quota**: `RESOURCE_EXHAUSTED` errors in news generation.
+
+**Solution**:
+- **Scoring Overhaul**: Lowered knowledge threshold to 0.45, increased RRF multiplier to 80.0, and removed precision traps for short queries.
+- **Hybrid Tokenization**: Modified tokenization to preserve hyphens, fixing "Tessier-Ashpool" matching failures.
+- **Identity Registry**: Unified all platforms to a canonical Discord ID; RAG now expands retrieval across all linked IDs.
+- **Autonomous Memory**: Enabled logging for "Kaia-Autonomous" quips, bridging the internal monologue gap.
+- **Gemini Pinning**: Reverted news updater to legacy `google-generativeai` and pinned `gemini-1.5-flash` for quota stability.
+- **Knowledge Boundary**: Whitelisted system terms (`KaiaRAG`, `Gemini`, etc.) and added CamelCase entity support.
+
+**Files Modified**:
+- `utils/core/kaia_rag.py` - Retrieval logic, identity expansion, tokenization
+- `utils/core/identity_registry.py` - Core identity linking
+- `utils/core/knowledge_boundary.py` - Whitelist and entity extraction
+- `tools/maintenance/update_kaia_news.py` - SDK and model stabilization
+- `docs/reports/Gemini_Report.md` - Comprehensive audit findings

@@ -60,7 +60,7 @@ class SimpleBM25Retriever:
         self.bm25 = BM25Okapi(self.tokenized_docs) if self.tokenized_docs else None
         
     def _tokenize(self, text):
-        return re.sub(r'[^\w\s]', '', text.lower()).split()
+        return re.sub(r'[^\w\s]', ' ', text.lower()).split()
     
     def retrieve(self, query, top_k=10):
         if not self.bm25: return []
@@ -76,9 +76,10 @@ class SimpleBM25Retriever:
 
 class HybridRetriever:
     """Combines Vector and BM25 retrieval using RRF."""
-    def __init__(self, vector_index, bm25_retriever):
+    def __init__(self, vector_index, bm25_retriever, multiplier=60.0):
         self.vector_index = vector_index
         self.bm25 = bm25_retriever
+        self.multiplier = multiplier
         
     def retrieve(self, query, top_k=5, alpha=0.5, query_bundle=None):
         # 1. Vector Retrieval
@@ -110,8 +111,8 @@ class HybridRetriever:
             
         # Sort and return top_k as NodeWithScore objects
         sorted_nodes = sorted(combined_scores.items(), key=lambda x: x[1], reverse=True)
-        # Scale score by 60 to normalized RRF scores (approx 0-1 range) for consistent thresholding with cosine similarity
-        return [NodeWithScore(node=node_map[node_id], score=score * 60.0) for node_id, score in sorted_nodes[:top_k]]
+        # Scale score to normalized RRF scores (approx 0-1 range) for consistent thresholding with cosine similarity
+        return [NodeWithScore(node=node_map[node_id], score=score * self.multiplier) for node_id, score in sorted_nodes[:top_k]]
 
 class CircuitBreaker:
     """Circuit breaker for external services (thread-safe)"""
@@ -200,7 +201,9 @@ class KaiaRAG:
         # Force GPU for embeddings too
         self.embed_model = OllamaEmbedding(
             model_name="nomic-embed-text",
-            base_url="http://localhost:11434"
+            base_url="http://localhost:11434",
+            query_prefix="search_query: ",
+            text_prefix="search_document: "
         )
         
         # Set global settings
@@ -959,25 +962,54 @@ class KaiaRAG:
 
         # ECHO CHAMBER PROTECTION: Prevent self-logging of bots and reflections.
         # This stops the 'Kaia' user logs folder from poisoning the identity core.
+        # EXCEPTION: If user_name is "Kaia-Autonomous", it means an autonomous quip we WANT logged.
         bot_ids = [self._bot_user_id, "KAIA_SYSTEM", "KAIA_DREAM"]
-        if str(user_id) in [str(bid) for bid in bot_ids if bid] or user_name == "Kaia":
+        is_autonomous = user_name == "Kaia-Autonomous"
+        
+        if not is_autonomous and (str(user_id) in [str(bid) for bid in bot_ids if bid] or user_name == "Kaia"):
             log_debug(f"Skipping log_user_interaction for bot identity: {user_name} ({user_id})")
             return True
 
         # Acquire lock unconditionally to ensure we write to disk. 
         # Persistence is more important than non-blocking here.
         with self._lock:
+            # 1. CANONICAL IDENTITY RESOLUTION
+            # Check if this ID is linked to another (e.g. Forum <-> Discord)
+            from utils.social.kaia_identities import registry
+            
+            u_id_str = str(user_id)
+            canonical_id = u_id_str
+            
+            # If it's a forum ID (forum_user_12345 or just digits), try to get linked Discord ID
+            fid = None
+            if u_id_str.startswith("forum_"):
+                fid_parts = u_id_str.rsplit("_", 1)
+                if len(fid_parts) > 1 and fid_parts[1].isdigit():
+                    fid = int(fid_parts[1])
+            elif u_id_str.isdigit() and len(u_id_str) < 15: # Forum IDs are typically shorter
+                fid = int(u_id_str)
+                
+            if fid:
+                linked_discord = registry.get_discord_id(fid)
+                if linked_discord:
+                    canonical_id = linked_discord
+                    log_debug(f"Resolved forum ID {u_id_str} to canonical Discord ID {canonical_id}")
+            
+            # 2. SELECTION OF LOG DIRECTORY
             # Sanitize user_name for filesystem
             safe_user_name = "".join([c for c in user_name if c.isalnum() or c in (' ', '-', '_')]).strip().replace(' ', '_')
             
-            # CLEANUP: For social media users, use the ID directly to avoid redundancy
-            # SPECIAL CASE: Link user's Bluesky account to their primary Discord log folder
-            if str(user_id) == "social_bluesky_michaelschellhorn.link":
+            if canonical_id != u_id_str:
+                # Use the canonical (Discord) ID to unify logs
+                user_dir_name = canonical_id
+            elif u_id_str == "social_bluesky_michaelschellhorn.link":
+                # Keep legacy hack for this specific user if not in registry yet
                 user_dir_name = "Ekco_177011971818782721"
-            elif str(user_id).startswith("social_"):
-                user_dir_name = str(user_id)
+            elif u_id_str.startswith("social_"):
+                user_dir_name = u_id_str
             else:
-                user_dir_name = f"{safe_user_name}_{user_id}"
+                user_dir_name = f"{safe_user_name}_{u_id_str}"
+                
             user_log_dir = os.path.join(self.knowledge_base_dir, "user_logs", user_dir_name)
             
             try:
@@ -1280,7 +1312,8 @@ class KaiaRAG:
                             self.bm25_cache[itype] = bm25_retriever
                     
                     if bm25_retriever:
-                        hybrid = HybridRetriever(self.indices[itype], bm25_retriever)
+                        mult = config.rag_base_score_multiplier
+                        hybrid = HybridRetriever(self.indices[itype], bm25_retriever, multiplier=mult)
                         all_node_results.extend(hybrid.retrieve(enriched_query, top_k=retrieve_count))
                     else:
                         retriever = self.indices[itype].as_retriever(similarity_top_k=retrieve_count)
@@ -1292,6 +1325,30 @@ class KaiaRAG:
             scored_nodes = [] 
             seen_texts = set()
             u_id_str = str(user_id) if user_id else None
+            
+            # --- IDENTITY EXPANSION ---
+            relevant_ids = {u_id_str} if u_id_str else set()
+            if u_id_str:
+                from utils.social.kaia_identities import registry
+                # Case 1: Discord -> Forum
+                fid = registry.get_forum_id(u_id_str)
+                if fid:
+                    relevant_ids.add(str(fid))
+                    # Add common folder naming convention matches
+                    relevant_ids.add(f"forum_{user_name}_{fid}")
+                    
+                # Case 2: Forum -> Discord
+                if u_id_str.startswith("forum_"):
+                    fid_parts = u_id_str.rsplit("_", 1)
+                    if len(fid_parts) > 1 and fid_parts[1].isdigit():
+                        did = registry.get_discord_id(int(fid_parts[1]))
+                        if did:
+                            relevant_ids.add(did)
+                elif u_id_str.isdigit() and len(u_id_str) < 15:
+                    did = registry.get_discord_id(int(u_id_str))
+                    if did:
+                        relevant_ids.add(did)
+            # --------------------------
             
             from utils.core.rag_utils import get_node_text, get_node_metadata
             for node_result in all_node_results:
@@ -1392,7 +1449,7 @@ class KaiaRAG:
                     elif strategy == "RELATIONAL_MIRROR":
                         if source_type == 'user_profile':
                             final_score += 0.4
-                        elif source_type == 'logs' and node_user_id == u_id_str:
+                        elif source_type == 'logs' and node_user_id in relevant_ids:
                             final_score += 0.25
 
                 else:
@@ -1405,12 +1462,10 @@ class KaiaRAG:
                 # DYNAMIC THRESHOLDING (User Request: Simple & Rigid)
                 if strategy == "DREAM_RECALL":
                     min_threshold = 0.40 # Low threshold to ensure fragment recall
-                elif strategy in ["PRECISE_RECALL", "DIAGNOSTIC_DEEP_DIVE"]:
-                    min_threshold = 0.7 # Low filter to get results
                 elif strategy == "SOCIAL_GREETING" or is_casual:
-                    min_threshold = 0.9 # High filter for noise
+                    min_threshold = config.rag_threshold_knowledge + config.rag_threshold_casual_penalty
                 else:
-                    min_threshold = config.rag_threshold_knowledge # Default (~0.75-0.8)
+                    min_threshold = config.rag_threshold_knowledge
 
                 if final_score < min_threshold:
                     continue

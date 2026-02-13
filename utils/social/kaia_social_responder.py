@@ -1178,6 +1178,20 @@ async def generate_quip(ctx, is_manual=False, target_channel=None, on_message_fu
                     except Exception as e:
                         log_error(f"Thread cross-post failed: {e}")
                 
+                # Update channel memory & RAG for each post in the thread
+                if channel.id not in bot_state.channel_memory:
+                    from collections import deque
+                    bot_state.channel_memory[channel.id] = deque(maxlen=config.max_memory_messages)
+                
+                for post in posts:
+                    bot_state.channel_memory[channel.id].append({"role": "assistant", "content": post})
+                    if rag_instance:
+                        await asyncio.to_thread(rag_instance.log_user_interaction, 
+                                                user_id=f"channel_{channel.id}", 
+                                                user_name="Kaia-Autonomous", 
+                                                message_content="[AUTO_THREAD_PART]", 
+                                                bot_response=post)
+                
                 # Update state
                 bot_state.add_quip(posts[0]) # Track identifying post
                 if not is_manual:
@@ -1297,6 +1311,20 @@ async def generate_quip(ctx, is_manual=False, target_channel=None, on_message_fu
 
         # 6. POST to Discord
         await channel.send(f"```\n{quip}\n```")
+
+        # Update channel memory
+        if channel.id not in bot_state.channel_memory:
+            from collections import deque
+            bot_state.channel_memory[channel.id] = deque(maxlen=config.max_memory_messages)
+        bot_state.channel_memory[channel.id].append({"role": "assistant", "content": quip})
+        
+        # Log to RAG
+        if rag_instance:
+            await asyncio.to_thread(rag_instance.log_user_interaction, 
+                                    user_id=f"channel_{channel.id}", 
+                                    user_name="Kaia-Autonomous", 
+                                    message_content="[AUTO_QUIP]", 
+                                    bot_response=quip)
 
         # 7. Cross-post
         if config.bluesky_cross_post_quips:
