@@ -13,26 +13,26 @@ graph TB
     Ctx --> DM[DashboardManager]
     Ctx --> MP[MessageProcessor]
     
-    subgraph Core Logic
+    subgraph CL ["Core Logic"]
         RAG[kaia_rag.py]
         Intel[kaia_intelligence.py]
         Dream[kaia_dream.py]
     end
     
-    subgraph Infrastructure
-        Logging[logging/]
-        System[system/ config, state, context]
-        Monitoring[monitoring/]
+    subgraph INF ["Infrastructure"]
+        Logging["logging/"]
+        System["system/ config, state, context"]
+        Monitoring["monitoring/"]
     end
     
-    Ctx --> Core Logic
-    Ctx --> Infrastructure
+    Ctx --> CL
+    Ctx --> INF
     DM --> Logging
     DM --> Monitoring
     
-    Infrastructure --> Logs[(logs/kaiacord.log)]
-    Core Logic --> Memory[(memory/)]
-    Core Logic --> KB[(knowledge_base/)]
+    INF --> Logs[(logs/kaiacord.log)]
+    CL --> Memory[(memory/)]
+    CL --> KB[(knowledge_base/)]
 ```
 
 ## Directory Structure

@@ -167,6 +167,9 @@ def main():
     from utils.infrastructure.monitoring.stats_tracker import stats_tracker
     from utils.infrastructure.monitoring.stats_poller import stats_poller
     
+    # Ensure shutdown manager is registered for global access if needed
+    ctx.shutdown_manager = shutdown_manager
+
     dm = DashboardManager(
         ctx=ctx, bot=bot, config=config, bot_state=bot_state, stats_tracker=stats_tracker, 
         stats_poller=stats_poller, logger=logger, model_warm_pool=None, intent_parser=None

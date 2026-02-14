@@ -61,6 +61,7 @@ python Kaiacord.py
 | **📊 Interface** | Curses Dashboard (btop-style), Discord Bot, Consolidated Logging | ✅ |
 | **🧠 Memory** | RAG with File Indexing, User Profiles, Semantic Cache, Natural Mention | ✅ |
 | **🎯 Intelligence** | Query Classification, Personalization, Temporal Calibration | ✅ |
+| **🛡️ Veracity** | Hallucination Guard with tracer support, Knowledge Boundary whitelisting, Hazy Memory Detection | ✅ |
 | **💭 Dream Mode** | Associative memory recall (nightly 3-5 AM); processes archived knowledge into persona-deep reflections for more natural, organic RAG callbacks | ✅ |
 | **🔄 Self-Healing** | 3-pass generation loop with automatic parameter scaling to recover from LLM failures or hallucinations | ✅ |
 | **🌐 Social Media** | Cross-post to Bluesky & X, Auto-reply to mentions, Memory Mirror | ✅ |

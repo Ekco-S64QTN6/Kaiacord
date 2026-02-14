@@ -65,6 +65,15 @@ async def get_forum_client(force_new: bool = False) -> Optional["ForumClient"]:
         return _client
 
 
+async def close_forum_client():
+    """Close the global forum client if it exists."""
+    global _client
+    async with _client_lock:
+        if _client:
+            await _client.close()
+            _client = None
+
+
 # ─── Data structures ────────────────────────────────────────────────────────
 
 class ThreadInfo:
@@ -1397,3 +1406,54 @@ class ForumClient:
             'last_post': max(recent_posts).isoformat() if recent_posts else 'never',
         }
 
+    async def get_global_stats(self) -> Dict[str, Any]:
+        """Calculate global totals for all scraped forum content."""
+        stats = {
+            'total_threads': 0,
+            'total_posts': 0,
+            'total_users': 0,
+            'total_profiles': 0,
+            'disk_usage_mb': 0.0,
+            'last_listing_count': 0
+        }
+
+        try:
+            # 1. Thread and Post Stats
+            thread_files = list(self.KNOWLEDGE_DIR.glob("thread_*.md"))
+            stats['total_threads'] = len(thread_files)
+            
+            for f in thread_files:
+                try:
+                    stats['disk_usage_mb'] += f.stat().st_size / (1024 * 1024)
+                    # Simple regex to get post_count from frontmatter
+                    content = f.read_text(encoding='utf-8', errors='replace')
+                    match = re.search(r'post_count: (\d+)', content)
+                    if match:
+                        stats['total_posts'] += int(match.group(1))
+                except Exception: continue
+
+            # 2. User and Profile Stats
+            user_dirs = [d for d in self.USER_LOGS_DIR.iterdir() if d.is_dir() and d.name.startswith("forum_")]
+            stats['total_users'] = len(user_dirs)
+            
+            for d in user_dirs:
+                try:
+                    # Calculate directory size
+                    for f in d.rglob("*"):
+                        if f.is_file():
+                            stats['disk_usage_mb'] += f.stat().st_size / (1024 * 1024)
+                    
+                    if (d / "user_profile.md").exists():
+                        stats['total_profiles'] += 1
+                except Exception: continue
+
+            # 3. Last Listing Stats
+            listing_file = self.KNOWLEDGE_DIR / "off_topic_listing.md"
+            if listing_file.exists():
+                content = listing_file.read_text(encoding='utf-8', errors='replace')
+                stats['last_listing_count'] = len(re.findall(r'^## ', content, re.MULTILINE))
+
+        except Exception as e:
+            log_error(f"Error calculating global forum stats: {e}")
+
+        return stats

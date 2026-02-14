@@ -93,29 +93,44 @@ class KnowledgeBoundary:
             'yes', 'no', 'true', 'false', 'good', 'bad', 'great', 'wait', 'hold', 
             'keep', 'stop', 'go', 'come', 'back', 'right', 'left', 'also', 'then', 
             'now', 'still', 'again', 'just', 'very', 'well', 'thanks', 'thank', 
-            'please', 'sorry', 'excuse', 'maybe', 'probably', 'actually', 
+            'please', 'please', 'sorry', 'excuse', 'maybe', 'probably', 'actually', 
             'basically', 'finally', 'lastly', 'first', 'second', 'third', 'here', 
             'there', 'every', 'some', 'any', 'all', 'both', 'neither', 'either', 
             'each', 'many', 'much', 'few', 'little', 'indeed',
-            'research', 'project', 'technical', 'cheat', 'sheet', 'forum',
-            'transcript', 'memory', 'internal', 'summary', 'notes', 'log',
-            'reference', 'dossier', 'profile', 'analysis', 'report',
-            'documentation', 'knowledge', 'base', 'system', 'library', 
-            'review', 'audit', 'status', 'update', 'active', 'complete',
-            'overview', 'purpose', 'objective', 'goal', 'conclusion', 'recommendation',
-            'requirement', 'problem', 'fix', 'solution', 'maintenance', 'stabilization',
-            'narrative', 'context', 'item', 'author', 'recipient', 'executive', 'lead',
-            'integrity', 'identity', 'fragment', 'anchor',
             'planning', 'scrape', 'topic', 'wikipedia', 'quora', 'articles', 'instruction',
             'suggestion', 'verification', 'semantic', 'blindness', 'ratio', 'caveat',
             'predictable', 'rigidity', 'improving', 'exceeding', 'contrastive',
+            'research', 'project', 'technical', 'status', 'update', 'active', 'complete',
+            'overview', 'purpose', 'objective', 'goal', 'conclusion', 'recommendation',
+            'requirement', 'problem', 'fix', 'solution', 'maintenance', 'stabilization',
+            'narrative', 'context', 'item', 'author', 'recipient', 'executive', 'lead',
+            'integrity', 'identity', 'fragment', 'anchor', 'initializing', 'populated',
+            'unification', 'unifying', 'unfolded', 'unfolding', 'transmits', 'transmitting',
+            'logic', 'logical', 'reasoning', 'thought', 'thoughts', 'summary', 'summarize',
+            'dossier', 'profile', 'analysis', 'report', 'documented', 'documentation',
+            'knowledge', 'base', 'system', 'library', 'review', 'audit', 'health',
+            'quality', 'nuance', 'nuanced', 'interaction', 'stabilized', 'healthy',
             # Log/Technical/Identity/Forum noise
             'User', 'Detected', 'Initializing', 'Populated', 'Success', 'Action', 'Found', 'Modified',
             'Processed', 'Processing', 'Indexed', 'Valid', 'Documents', 'Files',
             'Loading', 'Loaded', 'Checking', 'Starting', 'Started', 'Finished',
             'Completed', 'Failure', 'Error', 'Warning', 'Info', 'Debug', 'Running',
             'KaiaRAG', 'KaiaNews', 'KaiaForum', 'KaiaSocial', 'KaiaIntelligence',
-            'Prompt', 'Per', 'Posts', 'Thread', 'Member', 'Quote', 'Originally', 'Post', 'Last', 'Page', 'Boundary'
+            'Prompt', 'Per', 'Posts', 'Thread', 'Member', 'Quote', 'Originally', 'Post', 'Last', 'Page', 'Boundary',
+            # Common Nouns/Sentences often flagged as entities
+            'Henceforth', 'Empire', 'Soldiers', 'Saint', 'Dictator', 'Palace', 'People', 'World', 'Life', 
+            'Order', 'Chaos', 'Power', 'History', 'Truth', 'Justice', 'Honor', 'Service', 'Duty', 'Glory', 'Welcome',
+            # Forum Artifacts
+            'Quote', 'Unread', 'Posts', 'Thread', 'Member', 'Join', 'Date', 'Quick', 'Multi', 'Reply', 'With',
+            'Kobold', 'Dungeon', 'Dungeons', 'Dragons', 'Madcap', 'Views', 'Size', 'Description', 'Mechanism',
+            'Formula', 'Result', 'Deterrence', 'Success', 'Action', 'Found', 'Modified', 'Processed', 
+            'Processing', 'Indexed', 'Valid', 'Documents', 'Files', 'Loading', 'Loaded', 'Checking', 
+            'Starting', 'Started', 'Finished', 'Completed', 'Failure', 'Error', 'Warning', 'Info', 'Debug', 
+            'Running', 'Initial', 'Details', 'Mechanism', 'English', 'Fermi', 'Paradox', 'Liu', 'Cixin',
+            'BotSpeakFilter', 'Highlighting', 'Stunting', 'Moreso', 'OriginalContentGuy', 'Thesis',
+            'Jew', 'Gentile', 'Greed', 'Machinery',
+            # Military/Affirmation Terms
+            'Affirmative', 'Roger', 'Wilco', 'Copy', 'Over', 'Out', 'Acknowledged'
         }
         
         # Case-insensitive set for filtering
@@ -127,13 +142,15 @@ class KnowledgeBoundary:
             'Anthropic', 'Haiku', 'Sonnet', 'Opus', 'Llama', 'Meta', 'Mistral',
             'Flux', 'Midjourney', 'DALL-E', 'Stable', 'Diffusion', 'Github', 'Copilot',
             'Cursor', 'Vscode', 'Python', 'Javascript', 'React', 'Node', 'Docker',
-            'P99', 'Norrath', 'EverQuest', 'Daybreak', 'Discord', 'VBulletin'
+            'P99', 'Norrath', 'EverQuest', 'Daybreak', 'Discord', 'VBulletin',
+            'Tomainia', 'Tomainian'
         }
         common_words_lower.update(w.lower() for w in modern_tech)
 
         # Core Lore keywords that are part of the bot's primary domain
         lore_keywords = {
-            'Neuromancer', 'Hagakure', 'Sprawl', 'Wintermute', 'Tessier', 'Ashpool', 'Molly', 'Millions'
+            'Neuromancer', 'Hagakure', 'Sprawl', 'Wintermute', 'Tessier', 'Ashpool', 'Molly', 'Millions',
+            'Luo', 'Ji', 'Trisolaris', 'Trisolarans', 'Wallfacer', 'Wallfacers', 'Swordholder', 'Trisolaran'
         }
         common_words_lower.update(w.lower() for w in lore_keywords)
         

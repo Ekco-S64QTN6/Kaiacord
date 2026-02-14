@@ -15,7 +15,7 @@ import sys
 import asyncio
 import signal
 import threading
-from typing import Optional
+from typing import Optional, Any
 from utils.infrastructure.logging.kaia_logger import log_info, log_success, log_error, log_warning
 
 
@@ -93,7 +93,7 @@ class CleanShutdown:
         # NOTE: We do NOT call sys.exit() here!
         # The main loop should detect shutting_down flag and exit cleanly.
     
-    async def async_shutdown(self):
+    async def async_shutdown(self, app_ctx: Optional[Any] = None):
         """
         Async cleanup that properly cancels and awaits all tasks.
         
@@ -127,18 +127,33 @@ class CleanShutdown:
         try:
             from utils.infrastructure.gpu.gpu_manager import OllamaGPUManager
             from utils.infrastructure.system.yaml_config import config
-            import ollama
             
-            client = ollama.AsyncClient()
+            # Use provided client or create temporary one
+            client = app_ctx.ollama_client if app_ctx else None
+            
             log_info(f"  🔄 Unloading Ollama model: {config.chat_model}")
-            # keep_alive=0 tells Ollama to release the model immediately
-            timeout = config.shutdown_model_unload_timeout
-            await asyncio.wait_for(client.generate(model=config.chat_model, keep_alive=0), timeout=timeout)
+            await OllamaGPUManager.unload_model(client, config.chat_model)
             log_info("  ✅ Ollama VRAM released")
         except Exception as e:
             log_warning(f"  ⚠️  Failed to unload Ollama model: {e}")
 
-        # 3. Force GPU cleanup (Internal Torch/CUDA buffers)
+        # 3. Close Forum Client
+        try:
+            from utils.social.kaia_forum import close_forum_client
+            await close_forum_client()
+            log_info("  ✅ Forum client closed")
+        except Exception as e:
+            log_warning(f"  ⚠️  Failed to close forum client: {e}")
+
+        # 4. Close AppContext (and its Ollama client)
+        if app_ctx:
+            try:
+                await app_ctx.close()
+                log_info("  ✅ AppContext resources closed")
+            except Exception as e:
+                log_error(f"  ❌ Error closing AppContext: {e}")
+
+        # 5. Force GPU cleanup (Internal Torch/CUDA buffers)
         try:
             from utils.infrastructure.gpu.clear_gpu_memory import force_clear_gpu
             if force_clear_gpu():
@@ -150,11 +165,6 @@ class CleanShutdown:
         except Exception as e:
             log_error(f"  ❌ Error GPU cleanup: {e}")
         
-        # 4. Aggressive Process Termination (DECOMMISSIONED)
-        # We no longer kill Ollama processes to avoid disrupting the underlying service.
-        # Only the current bot process should exit naturally.
-        pass
-
         self._shutdown_complete.set()
         log_info("  ✅ Async shutdown complete")
     

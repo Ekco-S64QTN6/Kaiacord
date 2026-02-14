@@ -511,6 +511,10 @@ class MessageProcessor:
             "---"
         ) if context_str else f"### CURRENT_USER: {ctx.author_name}\nNo records found."
 
+        # Grounding Enforcement: If RAG is empty for sensitive categories, add a strict reminder
+        if not context_str and ctx.category in ["identity", "social_identity", "self", "whoami", "entity"]:
+            rag_block += "\n\nCRITICAL: No specific records found for this person or topic. Do not invent details, threads, or interactions. If you don't know, stay grounded and admit the records are hazy or missing."
+
         full_system_prompt = (
             f"{system_prompt}\n\n"
             f"{rag_block}"

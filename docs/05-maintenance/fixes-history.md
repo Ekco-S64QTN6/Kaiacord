@@ -309,3 +309,32 @@ All filters now implement a **critical safety net**: if cleaning/filtering would
 - `utils/core/knowledge_boundary.py` - Whitelist and entity extraction
 - `tools/maintenance/update_kaia_news.py` - SDK and model stabilization
 - `docs/reports/Gemini_Report.md` - Comprehensive audit findings
+
+---
+
+### 16. Phase 11: Audits & Grounding Stabilization (2026-02-14) ✅
+**Problem**: 
+- **Knowledge Boundary False Positives**: Terms like "Affirmative" and "Roger" were being flagged as unknown entities.
+- **RAG Hallucinations**: Kaia misidentified the contents of specific scientific articles (e.g., "Death Squared") due to retrieval noise.
+
+**Solution**:
+- **Military Whitelist**: Added common military and affirmation terms to `KnowledgeBoundary` to prevent false entity warnings.
+- **Hallucination Tracers**: Added specific tracer patterns to `HallucinationDetector` for known mis-retrieval scenarios.
+- **Improved Veracity Detection**: Added detection patterns for "hazy memory" admissions, allowing the bot to gracefully handle retrieval gaps.
+
+**Files Modified**:
+- `utils/core/knowledge_boundary.py` - Whitelist expansion
+- `utils/core/response_filter.py` - Hallucination detector improvements
+
+---
+
+### 17. Phase 12: Documentation Integrity ✅
+**Problem**: Mermaid architecture diagrams were failing to render due to syntax errors (unquoted labels with spaces).
+
+**Solution**:
+- **Mermaid Fix**: Refactored diagrams in `docs/03-architecture/overview.md` to use explicit IDs and quoted labels for subgraphs and nodes.
+- **Broken Link Cleanup**: Removed broken links to non-existent documentation files in `docs/README.md`.
+
+**Files Modified**:
+- `docs/03-architecture/overview.md` - Mermaid diagram fix
+- `docs/README.md` - Link cleanup

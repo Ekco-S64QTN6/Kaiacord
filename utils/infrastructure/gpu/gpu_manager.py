@@ -61,13 +61,24 @@ class OllamaGPUManager:
     @staticmethod
     async def unload_model(ollama_client, model_name: str):
         """Unload a model from Ollama to free VRAM"""
+        dedicated_client = None
         try:
             print(f"🔄 Unloading model: {model_name}")
-            await ollama_client.generate(model=model_name, keep_alive=0)
+            if ollama_client is None:
+                import ollama
+                dedicated_client = ollama.AsyncClient()
+                client_to_use = dedicated_client
+            else:
+                client_to_use = ollama_client
+                
+            await client_to_use.generate(model=model_name, keep_alive=0)
             return True
         except Exception as e:
             print(f"⚠️  Failed to unload model {model_name}: {e}")
             return False
+        finally:
+            if dedicated_client:
+                await dedicated_client.close()
 
     async def ensure_gpu_loading(self, ollama_client):
         """Ensure model loads on GPU with proper parameters"""

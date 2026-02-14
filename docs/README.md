@@ -32,7 +32,6 @@ Welcome to the Kaiacord documentation! Organized by topic for easy navigation.
 - [Procedures](05-maintenance/procedures.md)
 - [Fixes History](05-maintenance/fixes-history.md)
 - [OOM Fixes](05-maintenance/oom-fixes.md)
-- [Hallucination Fixes](05-maintenance/hallucination-fixes.md)
 
 ### 🛠️ [06 - Troubleshooting](06-troubleshooting/)
 - [Common Issues](06-troubleshooting/common-issues.md)

@@ -15,6 +15,8 @@ async def handle_forum_command(ctx, msg, send_kaia_response):
 
     if subcommand == "status":
         await _handle_status(ctx, msg)
+    elif subcommand == "stats":
+        await _handle_stats(ctx, msg)
     elif subcommand == "scrape":
         await _handle_scrape(ctx, msg)
     elif subcommand == "read":
@@ -41,6 +43,7 @@ async def handle_forum_command(ctx, msg, send_kaia_response):
         await msg.channel.send(
             "```\n"
             "!forum status    — connection status and rate limits\n"
+            "!forum stats     — global scraper totals (threads, posts, users)\n"
             "!forum scrape    — scrape Off Topic front page + user histories\n"
             "!forum read <id> — read last posts from a thread\n"
             "!forum post <id> <message> — post a reply\n"
@@ -79,6 +82,35 @@ async def _handle_status(ctx, msg):
     except Exception as e:
         log_error(f"Forum status error: {e}")
         await msg.channel.send(f"```\nerror getting forum status: {e}\n```")
+
+
+async def _handle_stats(ctx, msg):
+    """Show global forum scraper statistics."""
+    from utils.social.kaia_forum import get_forum_client
+
+    async with msg.channel.typing():
+        try:
+            client = await get_forum_client()
+            if not client:
+                await msg.channel.send("```\nforum not configured.\n```")
+                return
+
+            stats = await client.get_global_stats()
+            
+            await msg.channel.send(
+                f"```\n"
+                f"Forum Global Stats\n"
+                f"  threads listed: {stats['last_listing_count']} (latest snapshot)\n"
+                f"  threads scraped: {stats['total_threads']}\n"
+                f"  posts collected: {stats['total_posts']}\n"
+                f"  users indexed: {stats['total_users']}\n"
+                f"  profiles generated: {stats['total_profiles']}\n"
+                f"  disk usage: {stats['disk_usage_mb']:.2f} MB\n"
+                f"```"
+            )
+        except Exception as e:
+            log_error(f"Forum stats error: {e}")
+            await msg.channel.send(f"```\nerror getting forum stats: {e}\n```")
 
 
 async def _handle_scrape(ctx, msg):
@@ -140,7 +172,7 @@ async def _handle_scrape(ctx, msg):
             threads = [] # Initialize threads list
             
             while pages_processed < max_pages_to_process and scraped_threads < target_threads:
-                await msg.channel.send(f"```\nscraping Off Topic page {current_page}...\n```")
+                # Removed intermediate message to reduce spam: await msg.channel.send(f"```\nscraping Off Topic page {current_page}...\n```")
                 page_threads = await client.scrape_forum_listing(page=current_page)
                 if not page_threads:
                     break

@@ -137,7 +137,7 @@ class DashboardManager:
         # This handles: RAG persistence, task registry cancellation,
         # Ollama model unloading, GPU memory release, process cleanup.
         shutdown_manager.register_rag(rag)
-        await shutdown_manager.async_shutdown()
+        await shutdown_manager.async_shutdown(self.ctx)
         
         log_success("Shutdown complete.")
 

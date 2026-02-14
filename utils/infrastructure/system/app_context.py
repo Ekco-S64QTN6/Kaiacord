@@ -48,3 +48,11 @@ class AppContext:
     async def wait_until_ready(self, timeout: float = 30.0):
         """Wait for the logic layer to be ready."""
         await asyncio.wait_for(self.logic_layer_ready.wait(), timeout=timeout)
+
+    async def close(self):
+        """Clean up resources."""
+        if self.ollama_client:
+            try:
+                await self.ollama_client.close()
+            except Exception:
+                pass
