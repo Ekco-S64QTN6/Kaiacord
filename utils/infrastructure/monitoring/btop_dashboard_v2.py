@@ -69,7 +69,6 @@ class DashboardState:
     avg_response_time: float = 0.0
     ollama_status: str = "🔴 OFFLINE"
     active_model: str = "None"
-    rag_documents: int = 0
     rag_size: str = "0 MB"
     queue_size: int = 0
     
@@ -427,7 +426,6 @@ class BtopDashboardV2:
             avg_response_time=tracker_stats.get('avg_response_time', 0.0) or poller_stats.get('avg_response_time', 0.0),
             ollama_status=poller_stats.get('ollama_status', '🔴 OFFLINE'),
             active_model=poller_stats.get('active_model', 'None'),
-            rag_documents=poller_stats.get('rag_documents', 0),
             rag_size=poller_stats.get('rag_size', '0 MB'),
             queue_size=tracker_stats.get('queue_size', 0),
             log_entries=tuple(log_entries),
@@ -860,10 +858,11 @@ class BtopDashboardV2:
                 self._draw_frame(state)
                 stdscr.refresh()
             except Exception as e:
-                # Log error but don't crash
-                pass
+                # Log error to file via logging module
+                import logging
+                logging.getLogger("kaiacord").error(f"Dashboard draw error: {e}")
                 
-            # Sleep (handled by curses timeout)
+            # Sleep (mandatory to prevent 100% CPU usage)
             time.sleep(self.frame_interval)
             
     def run(self):
@@ -926,6 +925,23 @@ class BtopDashboardV2:
                     'message': message,
                     'symbol': symbol
                 })
+
+    def log_system_event(self, event_type: str, message: str):
+        """Compatibility method for kaia_logger"""
+        self.add_log(f"⚡ {event_type}: {message}", log_type=event_type)
+        
+        # Also add as alert if it's high priority
+        if event_type in ["ERROR", "CRITICAL", "WARNING"]:
+            self.add_alert(message, level=event_type)
+        elif event_type == "READY":
+             self.add_alert(message, level="INFO")
+
+    def log_response(self, content: str, tokens_saved: int = 0, response_time: float = 0.0):
+        """Compatibility method for kaia_logger"""
+        msg = f"🤖 Response: {content[:100]}..."
+        if response_time > 0:
+            msg += f" ({response_time:.2f}s)"
+        self.add_log(msg, log_type="INFO")
 
 
 # ==================== STANDALONE RUNNER ====================

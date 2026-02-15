@@ -83,19 +83,26 @@ class MessageProcessor:
             if whitelisted and channel_name not in whitelisted:
                 return
 
-        # 2. Boot Guard
+        # 2. Boot Guard & Readiness Wait
         if not self.bot_state.boot_complete:
-        
-        
-        
-        
-            if not is_social:
+            if is_social:
+                # For social media, we WAIT (up to 60s) for boot to complete 
+                # instead of just ignoring, to handle race conditions gracefully.
+                log_info(f"Social message from {msg.author.name} - waiting for boot...")
+                for _ in range(60):
+                    await asyncio.sleep(1.0)
+                    if self.bot_state.boot_complete:
+                        break
+                
+                if not self.bot_state.boot_complete:
+                    log_warning(f"Social message from {msg.author.name} ignored: Bot still not ready after 60s.")
+                    return
+            else:
                 log_info(f"Message from {msg.author.display_name} ignored - still booting")
                 try:
                     await msg.channel.send("```\nstill waking up. give me a minute.\n```")
-                except Exception:
-                    pass
-            return
+                except Exception: pass
+                return
 
         # 3. Command Dispatching (Phase 3 Registry)
         from utils.commands.registry import dispatch_command
@@ -132,19 +139,36 @@ class MessageProcessor:
         
         # --- SOCIAL CONTEXT UNWRAPPING ---
         parent_text = None
+        root_text = None
         main_content = enriched_raw
         
-        if "[REPLYING_TO]" in enriched_raw and "[USER_MESSAGE]" in enriched_raw:
+        # Check for root post context
+        if "[ORIGINAL_POST]" in enriched_raw:
             try:
-                # Extract parent and main message
-                parts = enriched_raw.split("[USER_MESSAGE]")
+                parts = enriched_raw.split("[ORIGINAL_POST]")
                 if len(parts) > 1:
-                    parent_part = parts[0].replace("[REPLYING_TO]", "").strip()
-                    main_content = parts[1].strip()
-                    parent_text = parent_part
-                    log_debug(f"Unwrapped social context. Parent: {len(parent_text)} chars")
+                    # The next part could contain [REPLYING_TO]
+                    root_part = parts[1].split("[REPLYING_TO]")[0].strip()
+                    root_text = root_part
+                    log_debug(f"Unwrapped original post context: {len(root_text)} chars")
             except Exception as e:
-                log_warning(f"Failed to unwrap social context tags: {e}")
+                log_warning(f"Failed to unwrap [ORIGINAL_POST] context: {e}")
+
+        # Check for parent post context (the immediate reply target)
+        if "[REPLYING_TO]" in enriched_raw:
+            try:
+                parts = enriched_raw.split("[REPLYING_TO]")
+                if len(parts) > 1:
+                    # The next part contains [USER_MESSAGE]
+                    parent_part = parts[1].split("[USER_MESSAGE]")[0].strip()
+                    parent_text = parent_part
+                    log_debug(f"Unwrapped parent post context: {len(parent_text)} chars")
+            except Exception as e:
+                log_warning(f"Failed to unwrap [REPLYING_TO] context: {e}")
+
+        # Final extraction of the main message
+        if "[USER_MESSAGE]" in enriched_raw:
+            main_content = enriched_raw.split("[USER_MESSAGE]")[-1].strip()
         # ---------------------------------
         
         sanitized_content = sanitize_prompt(main_content)
@@ -155,6 +179,7 @@ class MessageProcessor:
             is_social=is_social,
             is_mention=is_mention,
             parent_context=parent_text,
+            root_context=root_text,
             start_time=time.time()
         )
 
@@ -308,7 +333,18 @@ class MessageProcessor:
         # Resolve names to results
         task_names = list(tasks_dict.keys())
         task_objects = list(tasks_dict.values())
-        raw_results = await asyncio.gather(*task_objects)
+        try:
+            raw_results = await asyncio.wait_for(asyncio.gather(*task_objects), timeout=60.0)
+        except asyncio.TimeoutError:
+            log_warning("Top-level RAG retrieval timed out (60s). Proceeding with partial results.")
+            # For each task, check if it's done, otherwise return empty list
+            raw_results = []
+            for t in task_objects:
+                if t.done() and not t.cancelled():
+                    raw_results.append(t.result())
+                else:
+                    raw_results.append([])
+        
         t_dur = time.perf_counter() - t_start
         log_debug(f"METRIC: All parallel retrieval tasks took {t_dur:.3f}s")
         
@@ -520,8 +556,12 @@ class MessageProcessor:
             f"{rag_block}"
         )
         
+        if ctx.root_context and ctx.root_context != ctx.parent_context:
+            full_system_prompt += f"\n\n[ROOT_POST]\nThis is the original post that started the thread:\n\"{ctx.root_context}\"\n---"
+
         if ctx.parent_context:
-            full_system_prompt += f"\n\n[THREAD_CONTEXT]\nThis is the post you are replying to:\n\"{ctx.parent_context}\"\n---"
+            context_label = "THREAD_CONTEXT" if not ctx.root_context or ctx.root_context == ctx.parent_context else "PARENT_CONTEXT"
+            full_system_prompt += f"\n\n[{context_label}]\nThis is the post you are replying to:\n\"{ctx.parent_context}\"\n---"
 
         messages = [
             {"role": "system", "content": full_system_prompt}
@@ -546,7 +586,7 @@ class MessageProcessor:
         from utils.core.response_filter import EmergencyContaminationFilter
         
         gpu_manager = OllamaGPUManager(self.config.chat_model)
-        options = gpu_manager.get_gpu_options(for_chat=True, num_ctx=self.config.max_context_tokens or 28000)
+        options = gpu_manager.get_gpu_options(for_chat=True, num_ctx=self.config.max_context_tokens)
         
         max_attempts = self.config.generation_max_retry_attempts
         base_temp = self.config.generation_base_temperature
@@ -573,7 +613,6 @@ class MessageProcessor:
                         messages=messages,
                         options=current_options
                     ),
-                    vram_gb=6.0, # Chat model with context
                     task_id=f"chat_{ctx.author_id}_{int(time.time())}"
                 )
                 
@@ -608,11 +647,8 @@ class MessageProcessor:
         if not ctx.response_text:
             return
         
-        # NOTE: BotSpeakFilter and EmergencyContaminationFilter are already applied
-        # in _call_ollama_with_retries (the generation loop). No need to re-apply here.
-        
         # 1. SEND RESPONSE
-        await self._send_response(ctx.message.channel, ctx.response_text)
+        await self._send_response(channel=ctx.message.channel, text=ctx.response_text)
         
         # 2. LOGGING & STATE (background to avoid holding up the UI)
         bg_task = asyncio.create_task(self._background_logging_and_memory(ctx))

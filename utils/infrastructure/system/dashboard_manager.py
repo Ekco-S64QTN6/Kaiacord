@@ -3,13 +3,14 @@ import sys
 import asyncio
 import psutil
 import threading
+import time
 import concurrent.futures
 import traceback
 from datetime import datetime
 from typing import Optional, Any, List
 
 from utils.infrastructure.logging.kaia_logger import (
-    log_info, log_success, log_warning, log_error, log_action, log_separator, log_debug
+    log_info, log_success, log_warning, log_error, log_action, log_separator, log_debug, log_ready
 )
 from utils.infrastructure.system.shutdown_fixed import shutdown_manager
 from utils.infrastructure.monitoring.stats_helpers import set_stats_poller
@@ -173,41 +174,59 @@ class DashboardManager:
 
     async def sequenced_boot_tasks(self, run_rag, rag, run_news_update, 
                                    prewarm_main_model):
-        """Sequenced boot tasks migrated from Kaiacord.py."""
-        log_info("📦 Phase 1/3: Rebuilding knowledge index...")
+        """
+        Sequenced boot tasks with decoupled background tasks for faster heartbeat.
+        The bot becomes 'Ready' as soon as core indices are validated.
+        """
+        log_info("📦 Phase 1/1: Validating knowledge base...")
         try:
+            # Phase 1: Core validation MUST happen before we can process anything
             await run_rag(rag.refresh_knowledge_base)
-            log_success("📦 Knowledge index ready.")
+            log_success("📦 Knowledge base validated.")
         except Exception as e:
-            log_error(f"RAG refresh failed: {e}")
+            log_error(f"RAG validation failed: {e}")
         
-        if self.config.startup_news_update:
-            log_info("📰 Phase 2/3: Updating news...")
-            try:
-                await run_news_update()
-                log_success("📰 News update complete.")
-            except Exception as e:
-                log_error(f"News update failed: {e}")
-        
-        log_info("🧠 Phase 3/3: Loading chat model into VRAM...")
-        try:
-            await prewarm_main_model()
-            log_success("🧠 Chat model hot.")
-            
-            # Now pre-warm classifier sequentially to avoid VRAM contention
-            log_info("🧠 Warming classifier...")
-            await self.intent_parser.pre_warm()
-        except Exception as e:
-            log_error(f"Model prewarm failed: {e}")
-        
-        # Pre-warm RAG (mostly CPU/disk/IO) - Await this so it finishes before Ready
-        log_action("Pre-warming RAG cache...")
-        await run_rag(rag.pre_warm)
-        
-        # Final Readiness Milestone
+        # Now that core is validated, Kaia can heartbeat. 
+        # Declaring boot complete BEFORE heavy background loading.
         self.bot_state.boot_complete = True
-        from utils.infrastructure.logging.kaia_logger import log_ready
-        log_ready("Kaia is online and ready.")
+        self.bot_state.boot_complete_time = time.time()
+        log_ready("Kaia is online and heartbeating.")
+
+        # --- BACKGROUND LOADING (Serialized to prevent RAM peaks) ---
+        async def run_heavy_tasks():
+            log_info("🚀 Starting heavy background boot tasks...")
+            
+            # 1. News Update
+            if self.config.startup_news_update:
+                log_info("📰 Background: Starting news update...")
+                try:
+                    await run_news_update()
+                    log_success("📰 Background: News updated.")
+                except Exception as e:
+                    log_error(f"News update failed: {e}")
+                await asyncio.sleep(2) # Breath
+                
+            # 2. Main Model Pre-warming
+            try:
+                log_info("🧠 Background: Warming classifier...")
+                if self.intent_parser:
+                    await self.intent_parser.pre_warm()
+                log_success("🧠 Background: Classifier ready.")
+            except Exception as e:
+                log_error(f"Model prewarm failed: {e}")
+            await asyncio.sleep(2) # Breath
+            
+            # 3. RAG Cache (BM25) Pre-warming
+            log_info("📦 Background: RAG cache warming starting...")
+            try:
+                await run_rag(rag.pre_warm)
+                log_success("📦 Background: RAG cache hot.")
+            except Exception as e:
+                log_error(f"RAG cache warm failed: {e}")
+                
+        # Run everything in ONE background task to ensure serialization
+        background_task = asyncio.create_task(run_heavy_tasks())
+        task_registry.register("heavy_boot_tasks", background_task)
     def run_curses_mode(self, initialize_logic_layer, run_bot_async):
         """Run in curses dashboard mode."""
         if not self.config.discord_token:
@@ -267,7 +286,7 @@ class DashboardManager:
         
         try:
             self.dashboard = BtopDashboardV2(
-                stats_poller=None,
+                stats_poller=self.stats_poller,
                 logger=self.logger,
                 stats_tracker=self.stats_tracker,
                 stop_event=self.stop_event,

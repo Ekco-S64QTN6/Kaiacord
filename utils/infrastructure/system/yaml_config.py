@@ -263,6 +263,18 @@ class YAMLConfig:
         return self.get('performance.rag_top_k', 25)
     
     @property
+    def rag_node_chunk_size(self) -> int:
+        return self.get('performance.rag_node_chunk_size', 1024)
+        
+    @property
+    def rag_node_chunk_overlap(self) -> int:
+        return self.get('performance.rag_node_chunk_overlap', 200)
+
+    @property
+    def min_rag_tokens(self) -> int:
+        return self.get('performance.min_rag_tokens', 1024)
+    
+    @property
     def dream_user_quota(self) -> float:
         """Percentage of dreams dedicated to user logs (0.0 - 1.0)"""
         return self.get('features.dream_mode.user_quota', 0.4)
@@ -274,6 +286,10 @@ class YAMLConfig:
     @property
     def requests_per_minute(self) -> int:
         return self.get('performance.requests_per_minute', 30)
+
+    @property
+    def embedding_request_seconds(self) -> float:
+        return self.get('performance.embedding_request_seconds', 60.0)
     
     @property
     def max_context_tokens(self) -> int:

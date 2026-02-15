@@ -274,7 +274,7 @@ async def _reconstruct_bluesky_history():
         log_warning(f"Failed to reconstruct Bluesky history: {e}")
 
 
-async def _generate_response(mention_text: str, author_name: str, platform: str, on_message_func, parent_text: Optional[str] = None) -> Optional[str]:
+async def _generate_response(mention_text: str, author_name: str, platform: str, on_message_func, parent_text: Optional[str] = None, root_text: Optional[str] = None) -> Optional[str]:
     """Generate a response using the main Kaiacord engine.
     
     This pipes the mention through the full RAG, memory, and persona pipeline 
@@ -294,7 +294,8 @@ async def _generate_response(mention_text: str, author_name: str, platform: str,
             author_name=author_name,
             author_id=author_id,
             platform=platform,
-            parent_text=parent_text
+            parent_text=parent_text,
+            root_text=root_text
         )
         
         if not response:
@@ -395,12 +396,23 @@ async def _get_bluesky_mentions() -> List[Dict[str, Any]]:
                     log_warning(f"Thread limit reached for @{user_handle} in Bluesky thread: {root_uri[:40]}... Polling will skip until manual reset or limit increase.")
                     continue
 
-                # Fetch parent text for context if it's a reply
+                # Fetch parent/root text for context if it's a reply
                 parent_text = None
-                parent_uri_obj = getattr(getattr(notif.record, 'reply', None), 'parent', None)
+                root_text = None
+                
+                reply_ref = getattr(notif.record, 'reply', None)
+                parent_uri_obj = getattr(reply_ref, 'parent', None) if reply_ref else None
+                root_uri_obj = getattr(reply_ref, 'root', None) if reply_ref else None
+                
                 if parent_uri_obj and hasattr(parent_uri_obj, 'uri'):
                     from utils.social.kaia_bluesky import get_post_text
                     parent_text = await get_post_text(parent_uri_obj.uri)
+                    
+                    # If root is different from parent, fetch root too
+                    if root_uri_obj and hasattr(root_uri_obj, 'uri') and root_uri_obj.uri != parent_uri_obj.uri:
+                        root_text = await get_post_text(root_uri_obj.uri)
+                    else:
+                        root_text = parent_text
                 
                 local_mentions.append({
                     'id': mention_id,
@@ -410,7 +422,8 @@ async def _get_bluesky_mentions() -> List[Dict[str, Any]]:
                     'text': getattr(notif.record, 'text', ''),
                     'root_uri': root,
                     'parent_uri': parent_uri_obj,
-                    'parent_text': parent_text
+                    'parent_text': parent_text,
+                    'root_text': root_text
                 })
         return local_mentions
 
@@ -607,8 +620,8 @@ async def check_and_reply_mentions(on_message_func):
     total_replies = 0
     
     # helper for generating response that uses the passed on_message_func
-    async def generate_response_with_callback(text, author, platform, parent_text=None):
-        return await _generate_response(text, author, platform, on_message_func, parent_text=parent_text)
+    async def generate_response_with_callback(text, author, platform, parent_text=None, root_text=None):
+        return await _generate_response(text, author, platform, on_message_func, parent_text=parent_text, root_text=root_text)
     
     # Check Bluesky
     if config.bluesky_enabled and config.get('bluesky.reply_to_mentions', True):
@@ -620,6 +633,7 @@ async def check_and_reply_mentions(on_message_func):
             author = mention['author']
             text = mention['text']
             parent_text = mention.get('parent_text')
+            root_text = mention.get('root_text')
             
             # ANTI-BOT LOOP PROTECTION (Standardized to 5 replies per user)
             admin_handles = config.get('social.admin_handles', [])
@@ -639,7 +653,7 @@ async def check_and_reply_mentions(on_message_func):
 
             log_info(f"Bluesky mention from @{author}: {text[:50]}...")
             
-            response = await generate_response_with_callback(text, author, "bluesky", parent_text=parent_text)
+            response = await generate_response_with_callback(text, author, "bluesky", parent_text=parent_text, root_text=root_text)
             if response:
                 success = await _reply_to_bluesky(mention, response)
                 if success:
@@ -681,18 +695,24 @@ async def check_and_reply_mentions(on_message_func):
     return total_replies
 
 
-async def mock_external_mention(on_message_func, content: str, author_name: str, author_id: Any, platform: str, parent_text: Optional[str] = None):
+async def mock_external_mention(on_message_func, content: str, author_name: str, author_id: Any, platform: str, parent_text: Optional[str] = None, root_text: Optional[str] = None):
     import uuid
     from contextlib import asynccontextmanager
     from typing import Optional
 
     log_info(f"Mocking {platform} message from {author_name}...")
 
-    # If parent text is provided, wrap content with [REPLYING_TO] block
-    # This ensures the engine sees the thread context immediately without needing
-    # to resolve Discord message IDs which don't exist for social.
+    # If root/parent text is provided, wrap content with context tags
+    # This ensures the engine sees the thread context immediately
+    context_prefix = ""
+    if root_text and root_text != parent_text:
+        context_prefix += f"[ORIGINAL_POST]\n{root_text}\n\n"
+    
     if parent_text:
-        content = f"[REPLYING_TO]\n{parent_text}\n\n[USER_MESSAGE]\n{content}"
+        context_prefix += f"[REPLYING_TO]\n{parent_text}\n\n"
+        
+    if context_prefix:
+        content = f"{context_prefix}[USER_MESSAGE]\n{content}"
 
     class MockChannel:
         def __init__(self):

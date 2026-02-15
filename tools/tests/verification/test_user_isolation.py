@@ -7,7 +7,7 @@ import os
 # Add project root to path
 sys.path.insert(0, os.path.abspath(os.path.join(os.path.dirname(__file__), '../../../')))
 
-from utils.core.semantic_cache import ImprovedSemanticCache
+# from utils.core.semantic_cache import ImprovedSemanticCache (DECOMMISSIONED)
 from utils.infrastructure.logging.kaia_logger import log_info, log_success, log_error
 
 

@@ -52,19 +52,18 @@ class ModelWarmPool:
             
         log_action(f"Pre-warming model: {model_name}...")
         try:
-            # Import gpu_manager dynamically to avoid circular imports
-            from utils.infrastructure.gpu.gpu_manager import OllamaGPUManager
-            gpu_manager = OllamaGPUManager(model_name)
-            options = gpu_manager.get_gpu_options(for_chat=True)
-            options['num_predict'] = 1
-            # Cache options for keep_alive reuse (avoids re-instantiating OllamaGPUManager every 5min)
+            # Load with FULL context size - allows first message to be instant
+            from utils.infrastructure.system.yaml_config import config
+            max_ctx = config.max_context_tokens
+            options = {
+                "num_gpu": -1,
+                "num_ctx": max_ctx,
+                "num_predict": 1
+            }
+            # Cache these options for keep_alive reuse
             self._cached_options[model_name] = options.copy()
-            
-            await self.ollama_client.chat(
-                model=model_name,
-                messages=[{"role": "user", "content": "ready?"}],
-                options=options
-            )
+            # Execute tiny generation to force load into VRAM with full cache
+            await self.ollama_client.generate(model=model_name, prompt=".", options=options, keep_alive=3600)
             self.pool[model_name] = {'last_used': time.time(), 'status': 'ready'}
             if model_name not in self.keep_alive_tasks:
                 self.keep_alive_tasks[model_name] = asyncio.create_task(self.keep_alive(model_name))
@@ -108,7 +107,7 @@ class ContextOptimizer:
             'llama3.2': {'persona': 0.15, 'rag': 0.45, 'history': 0.35, 'system': 0.05},
             'default': {'persona': 0.10, 'rag': 0.50, 'history': 0.30, 'system': 0.10}
         }
-        self.min_rag_tokens = 1024
+        self.min_rag_tokens = config.min_rag_tokens if hasattr(config, 'min_rag_tokens') else 1024
         self.min_history_tokens = 512
         self.summarization_tokens = config.summarization_context_tokens
         
@@ -572,15 +571,22 @@ class IntentParser:
         # Use main model for intelligence
         self.classification_model = model
         
-        # Optimized options for analysis
+        # Optimized options for analysis - Context MUST match chat to avoid KV cache flushes
         from utils.infrastructure.system.yaml_config import config
-        self.classification_options = {
-            "num_gpu": -1,
-            "num_ctx": getattr(config, 'max_context_tokens', 28000),
-            "temperature": 0.1,  # Low temp for structured analysis
+        from utils.infrastructure.gpu.gpu_manager import OllamaGPUManager
+        
+        max_ctx = config.max_context_tokens
+        gpu_mgr = OllamaGPUManager(self.classification_model)
+        
+        # Get base options
+        self.classification_options = gpu_mgr.get_gpu_options(for_chat=True, num_ctx=max_ctx)
+        
+        # Overrides for precise classification
+        self.classification_options.update({
+            "temperature": 0.1,
             "top_p": 0.9,
-            "num_predict": 256   # Allow enough tokens for JSON/Structured output
-        }
+            "num_predict": 256
+        })
         
         # LAYER 1: Fast Pattern Triggers (Regex)
         self.fast_triggers = {
@@ -656,14 +662,12 @@ class IntentParser:
         # 2. Layer 2: LLM Intent Analysis (with fast-path hint if available)
         hint = fast_intent.suggested_strategy if fast_intent else None
         
-        # Use run_with_gpu_guard for intent analysis
         from utils.infrastructure.gpu.gpu_memory_manager import gpu_memory_manager, GPUTaskPriority
         
         llm_intent = await gpu_memory_manager.run_with_gpu_guard(
             model_name=self.classification_model,
             priority=GPUTaskPriority.CRITICAL,
             coro=self._analyze_with_llm(query, context, fast_path_hint=hint),
-            vram_gb=4.0, # Intent analysis is relatively lightweight
             task_id=f"intent_{int(time.time())}"
         )
         
@@ -713,10 +717,21 @@ class IntentParser:
             )
 
 
-            response = await self.ollama_client.chat(
-                model=self.classification_model,
-                messages=[{"role": "user", "content": prompt}],
-                options=self.classification_options
+            from utils.infrastructure.gpu.gpu_memory_manager import gpu_memory_manager, GPUTaskPriority
+            
+            async def run_chat():
+                return await self.ollama_client.chat(
+                    model=self.classification_model,
+                    messages=[{"role": "user", "content": prompt}],
+                    options=self.classification_options
+                )
+
+            # Use run_with_gpu_guard for intent analysis to ensure it finishes quickly
+            response = await gpu_memory_manager.run_with_gpu_guard(
+                model_name=self.classification_model,
+                priority=GPUTaskPriority.CRITICAL,
+                coro=run_chat(),
+                task_id=f"intent_{int(time.time())}"
             )
             
             raw_json = response['message']['content'].strip()
@@ -751,17 +766,20 @@ class IntentParser:
             )
 
     async def pre_warm(self):
-        """Pre-warm the model"""
-        log_action("Pre-warming IntentParser...")
+        """Pre-warm the model with a direct call (No semaphore needed for tiny load)"""
+        log_action("Pre-warming IntentParser model...")
         try:
+            # We use generate directly to avoid the semaphore guard in parse_intent
             from utils.infrastructure.system.yaml_config import config
-            original_timeout = self.timeout
-            self.timeout = config.prewarm_timeout
+            max_ctx = config.max_context_tokens
             
-            await self.parse_intent("System check")
-            
-            self.timeout = original_timeout
-            log_success("IntentParser warmed up.")
+            await self.ollama_client.generate(
+                model=self.classification_model,
+                prompt=".",
+                options={"num_ctx": max_ctx, "num_predict": 1},
+                keep_alive=3600
+            )
+            log_success("IntentParser model warmed.")
         except Exception as e:
             log_error(f"Pre-warm failed: {e}")
 

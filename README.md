@@ -258,7 +258,7 @@ models:
 
 performance:
   max_memory_messages: 30
-  max_context_tokens: 28000     # Hardware-optimized context (RTX 3060 12GB default)
+  max_context_tokens: 24000     # Hardware-optimized context (RTX 3060 12GB default)
   requests_per_minute: 30
 ```
 

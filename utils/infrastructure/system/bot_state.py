@@ -30,7 +30,8 @@ class BotState:
         self.last_quip_time: float = 0.0  # Time of last generated quip (manual or idle)
         self.quip_history: Deque[str] = deque(maxlen=10)
         self.is_generating_image: bool = False
-        self.boot_complete: bool = False  # Set True after sequenced_boot_tasks() completes
+        self._boot_complete: bool = False
+        self.boot_complete_time: float = 0.0
         self.recent_ingestions: list = []  # List of filenames recently ingested
         self.last_dream_date: str = ""    # YYYY-MM-DD of last nightly dream
         self.mentioned_files: Deque[str] = deque(maxlen=20) # Path of files mentioned
@@ -49,6 +50,10 @@ class BotState:
                         self.last_quip_time = state.get('last_quip_time', 0.0)
                         self.recent_ingestions = state.get('recent_ingestions', [])
                         self.last_dream_date = state.get('last_dream_date', "")
+                        
+                        # boot_complete is TRANSIENT - do not load from disk
+                        self.boot_complete = False
+                        self.boot_complete_time = 0.0
                         
                         # Load quip history
                         history = state.get('quip_history', [])
@@ -80,6 +85,7 @@ class BotState:
                     'quip_history': list(self.quip_history),
                     'recent_ingestions': self.recent_ingestions,
                     'last_dream_date': self.last_dream_date,
+                    # boot_complete is TRANSIENT - do not save to disk
                     'mentioned_files': list(self.mentioned_files),
                     'saved_at': time.time()
                 }
@@ -142,6 +148,16 @@ class BotState:
         if file_path not in self.mentioned_files:
             self.mentioned_files.append(file_path)
             self.save()
+    @property
+    def boot_complete(self) -> bool:
+        return self._boot_complete
+
+    @boot_complete.setter
+    def boot_complete(self, value: bool):
+        self._boot_complete = value
+        if value:
+            self.boot_complete_time = time.time()
+            log_info("Bot startup marked complete.")
 
 
 # Global bot_state instance for backward compatibility

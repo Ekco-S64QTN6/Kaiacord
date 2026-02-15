@@ -40,6 +40,10 @@ performance:
     user_identity: 0.50
     knowledge: 0.45
     casual_penalty: 0.10
+    
+  # RAG Node Configuration
+  rag_node_chunk_size: 1024
+  rag_node_chunk_overlap: 200
 
   # RAG Scoring Weights (Magic Numbers Extracted)
   rag_scoring:

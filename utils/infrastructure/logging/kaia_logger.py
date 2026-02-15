@@ -57,7 +57,10 @@ def log_success(message):
     # Consolidated logger handles formatting and printing
     global_logger.log(message, "SUCCESS")
     if _monitor:
-        _monitor.log_system_event("SUCCESS", message)
+        if hasattr(_monitor, 'log_system_event'):
+            _monitor.log_system_event("SUCCESS", message)
+        elif hasattr(_monitor, 'add_log'):
+            _monitor.add_log(f"✅ SUCCESS: {message}", log_type="SUCCESS")
     # Also send to logging bridge registry
     get_logging_registry().log(LogLevel.SUCCESS, message)
 
@@ -66,7 +69,10 @@ def log_ready(message):
     """Log readiness messages in pink."""
     global_logger.log(message, "READY")
     if _monitor:
-        _monitor.log_system_event("READY", message)
+        if hasattr(_monitor, 'log_system_event'):
+            _monitor.log_system_event("READY", message)
+        elif hasattr(_monitor, 'add_log'):
+            _monitor.add_log(f"READY: {message}", log_type="READY")
     get_logging_registry().log(LogLevel.SUCCESS, message)
 
 
@@ -83,7 +89,10 @@ def log_action(message):
     """Log core action messages."""
     global_logger.log(message, "ACTION")
     if _monitor:
-        _monitor.log_system_event("ACTION", message)
+        if hasattr(_monitor, 'log_system_event'):
+            _monitor.log_system_event("ACTION", message)
+        elif hasattr(_monitor, 'add_log'):
+            _monitor.add_log(f"⚡ ACTION: {message}", log_type="ACTION")
     get_logging_registry().log(LogLevel.ACTION, message)
 
 
@@ -103,7 +112,11 @@ def log_response(prefix, content, response_time=0.0):
                 tokens_saved = int(content.split("saved")[1].split()[0])
             except (ValueError, IndexError):
                 pass
-        _monitor.log_response(content, tokens_saved=tokens_saved, response_time=response_time)
+        
+        if hasattr(_monitor, 'log_response'):
+            _monitor.log_response(content, tokens_saved=tokens_saved, response_time=response_time)
+        elif hasattr(_monitor, 'add_log'):
+            _monitor.add_log(f"🤖 Response: {content[:100]}...", log_type="INFO")
 
 
 def log_file(path):
@@ -115,7 +128,10 @@ def log_critical(message):
     """Log critical messages."""
     global_logger.log(message, "CRITICAL")
     if _monitor:
-        _monitor.log_system_event("CRITICAL", message)
+        if hasattr(_monitor, 'log_system_event'):
+            _monitor.log_system_event("CRITICAL", message)
+        elif hasattr(_monitor, 'add_alert'):
+            _monitor.add_alert(message, level="CRITICAL")
     get_logging_registry().log(LogLevel.CRITICAL, message)
 
 
@@ -123,7 +139,10 @@ def log_warning(message):
     """Log warning messages."""
     global_logger.log(message, "WARNING")
     if _monitor:
-        _monitor.log_system_event("WARNING", message)
+        if hasattr(_monitor, 'log_system_event'):
+            _monitor.log_system_event("WARNING", message)
+        elif hasattr(_monitor, 'add_alert'):
+            _monitor.add_alert(message, level="WARNING")
     get_logging_registry().log(LogLevel.WARNING, message)
 
 
@@ -131,7 +150,10 @@ def log_error(message):
     """Log error messages."""
     global_logger.log(message, "ERROR")
     if _monitor:
-        _monitor.log_system_event("ERROR", message)
+        if hasattr(_monitor, 'log_system_event'):
+            _monitor.log_system_event("ERROR", message)
+        elif hasattr(_monitor, 'add_alert'):
+            _monitor.add_alert(message, level="ERROR")
     get_logging_registry().log(LogLevel.ERROR, message)
 
 

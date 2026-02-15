@@ -13,7 +13,7 @@ mock_config = sys.modules['utils.infrastructure.system.yaml_config'].config
 mock_config.token_multiplier = 1.3
 mock_config.system_reserve_tokens = 256
 
-from utils.news.kaia_news import ResponseEnhancer
+# from utils.news.kaia_news import ResponseEnhancer (DELETED)
 from utils.core.kaia_intelligence import PersonalizationEngine
 from utils.core.message_processor import MessageProcessor
 

@@ -26,6 +26,14 @@ async def social_mention_task():
     """Check and reply to social media mentions on Bluesky and X."""
     if not bot_state.boot_complete:
         return
+        
+    # User Request: 3-minute grace period after boot before hitting social APIs
+    grace_period = 180 # 3 minutes
+    time_since_boot = time.time() - getattr(bot_state, 'boot_complete_time', 0)
+    if time_since_boot < grace_period:
+        remaining = int(grace_period - time_since_boot)
+        log_action(f"Social tasks: In startup grace period. {remaining}s remaining.")
+        return
     
     if not _on_message:
         return

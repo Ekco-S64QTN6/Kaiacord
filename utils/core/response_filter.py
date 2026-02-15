@@ -97,35 +97,36 @@ class EmergencyContaminationFilter:
     ]
 
     VERACITY_FALLBACK = "wait, scratch that. something about my memory's a bit hazy on the specifics of that. i'd have to double-check the records to be sure."
+    RETRY_THRESHOLD = 0.5  # If more than 50% lines contaminated, retry
     
+    _compiled_pattern = None
+
     @classmethod
     def filter_response(cls, response: str) -> Optional[str]:
         """Remove ANY contamination from response. If too much is removed, return None to trigger retry."""
         if not response:
             return None
             
+        if cls._compiled_pattern is None:
+            combined = "|".join(cls.CONTAMINATION_PATTERNS)
+            cls._compiled_pattern = re.compile(combined, re.IGNORECASE)
+
         lines = response.split('\n')
         filtered_lines = []
         contamination_found = False
         
         for line in lines:
-            line_lower = line.lower()
-            
             # Skip lines with contamination
-            skip_line = False
-            for pattern in cls.CONTAMINATION_PATTERNS:
-                if re.search(pattern, line_lower, re.IGNORECASE):
-                    skip_line = True
-                    contamination_found = True
-                    log_warning(f"[VERACITY GUARD] Removed contaminated line: {line[:80]}...")
-                    break
+            if cls._compiled_pattern.search(line):
+                contamination_found = True
+                log_warning(f"[VERACITY GUARD] Removed contaminated line: {line[:80]}...")
+                continue
             
-            if not skip_line:
-                filtered_lines.append(line)
+            filtered_lines.append(line)
         
-        if contamination_found and len(filtered_lines) <= (len(lines) / 2):
-            # If the "fiction" was half or more, signal a full retry
-            log_warning("[VERACITY GUARD] Majority of response contaminated. Triggering full retry.")
+        if contamination_found and len(filtered_lines) <= (len(lines) * (1 - cls.RETRY_THRESHOLD)):
+            # If the "fiction" exceeded the threshold, signal a full retry
+            log_warning(f"[VERACITY GUARD] Too much contamination (threshold {cls.RETRY_THRESHOLD}). Triggering full retry.")
             return None
             
         filtered_response = '\n'.join(filtered_lines).strip()
@@ -173,9 +174,17 @@ class BotSpeakFilter:
         content = match.group(1).strip()
         clean_content = content.lower().rstrip('.?!… ')
         
-        # Heuristic: If it's multiple words or a known action verb, strip it entirely.
-        if ' ' in clean_content or clean_content in cls.ACTION_VERBS:
+        # Heuristic: If it's a known action verb, strip it.
+        if clean_content in cls.ACTION_VERBS:
             return ''
+            
+        # If it's a multi-word phrase that looks like roleplay (e.g. *scratches head*)
+        # We check if it's all lowercase and doesn't contain numbers.
+        if ' ' in clean_content:
+            is_roleplay = all(word.islower() for word in clean_content.split() if word.isalpha())
+            has_no_numbers = not any(char.isdigit() for char in clean_content)
+            if is_roleplay and has_no_numbers:
+                return ''
         
         # Otherwise, assume it's emphasis and keep the word but remove the markers.
         return content

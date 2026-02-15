@@ -56,11 +56,14 @@ from utils.core.background_tasks import run_news_update
 ctx = AppContext()
 ctx.config = config
 ctx.bot_state = bot_state
-ctx.ollama_client = ollama.AsyncClient()
+ctx.ollama_client = ollama.AsyncClient(timeout=config.llm_request_seconds)
 ctx.stats_tracker = stats_tracker
 ctx.rate_limiter = RateLimiter(config.requests_per_minute)
 ctx.shutdown_manager = shutdown_manager
 ctx.news_manager = NewsManager()
+
+# Concurrency limit for embedding-heavy RAG operations
+embedding_semaphore = asyncio.Semaphore(2)
 
 # Populating late-bound functions
 ctx.news_enhancer = NewsRetrievalEnhancer()
@@ -119,20 +122,19 @@ rag_executor = concurrent.futures.ThreadPoolExecutor(max_workers=4, thread_name_
 
 async def run_rag(fn, *args, **kwargs):
     import inspect
-    if inspect.iscoroutinefunction(fn):
-        return await fn(*args, **kwargs)
-    loop = asyncio.get_running_loop()
-    return await loop.run_in_executor(rag_executor, lambda: fn(*args, **kwargs))
+    async with embedding_semaphore:
+        if inspect.iscoroutinefunction(fn):
+            return await fn(*args, **kwargs)
+        loop = asyncio.get_running_loop()
+        return await loop.run_in_executor(rag_executor, lambda: fn(*args, **kwargs))
 
 async def prewarm_main_model():
     try:
         if ctx.model_warm_pool:
             await ctx.model_warm_pool.pre_warm(config.chat_model)
         else:
-            from utils.infrastructure.gpu.gpu_manager import OllamaGPUManager
-            gpu_manager = OllamaGPUManager(config.chat_model)
             log_action(f"Pre-warming {config.chat_model} with {config.max_context_tokens // 1000}k context...")
-            await gpu_manager.load_only(ctx.ollama_client)
+            await ctx.ollama_client.generate(model=config.chat_model, prompt=".", options={"num_ctx": config.max_context_tokens})
     except Exception as e:
         print(f"⚠️ Pre-warm failed: {e}")
 

@@ -2,10 +2,38 @@ import asyncio
 import time
 import os
 from typing import Optional, Dict, Any
+from contextvars import ContextVar
+from utils.infrastructure.logging.kaia_logger import log_debug, log_action
 
 # Global GPU Concurrency Guard
-# Limits concurrent Ollama/GPU calls to prevent VRAM thrashing and system lockups.
+# [ARCHITECTURAL NOTE]: We deliberately use a simple asyncio.Semaphore(1) instead
+# of complex VRAM reservation/tracking systems.
+# Rationale:
+# 1. Simplicity = Stability. Complex model swapping logic caused deadlocks.
+# 2. Modern Hardware: On 12GB+ GPUs, our 8GB models + context fit comfortably.
+# 3. Concurrency Control: The semaphore alone is sufficient to prevent parallel
+#    heavy inference tasks from thrashing the KV cache or overrunning VRAM.
+# DO NOT re-implement "reservation" logic unless adding multi-model vision swapping.
 gpu_semaphore = asyncio.Semaphore(1)
+
+# Track if the current task is already inside a GPU-guarded block
+_gpu_context_active = ContextVar('gpu_context_active', default=False)
+
+async def run_with_gpu_guard(model_name: str, coro, task_id: str = None):
+    """
+    Ultra-simple GPU concurrency gating.
+    Uses a semaphore to prevent parallel heavy model calls.
+    """
+    if _gpu_context_active.get():
+        return await coro
+
+    token = _gpu_context_active.set(True)
+    try:
+        async with gpu_semaphore:
+            await ModelContextMonitor.set_model(model_name)
+            return await coro
+    finally:
+        _gpu_context_active.reset(token)
 
 class ModelContextMonitor:
     """Tracks the currently loaded model in Ollama to prevent rapid swapping."""
@@ -90,10 +118,13 @@ class OllamaGPUManager:
         """Unload a model from Ollama to free VRAM"""
         dedicated_client = None
         try:
-            print(f"🔄 Unloading model: {model_name}")
+            from utils.infrastructure.system.yaml_config import config
+            timeout = getattr(config, 'llm_request_seconds', 60.0)
+            print(f"🔄 Unloading model: {model_name} (timeout: {timeout}s)")
+            
             if ollama_client is None:
                 import ollama
-                dedicated_client = ollama.AsyncClient()
+                dedicated_client = ollama.AsyncClient(timeout=timeout)
                 client_to_use = dedicated_client
             else:
                 client_to_use = ollama_client
@@ -114,12 +145,13 @@ class OllamaGPUManager:
             return False
         
         try:
+            from utils.infrastructure.system.yaml_config import config
             # Force GPU load with specific settings
             gpu_options = {
                 'num_gpu': -1,  # Offload all layers (clamped by model depth)
                 'num_thread': 4,
                 'main_gpu': 0,
-                'num_ctx': 4096,
+                'num_ctx': config.max_context_tokens,
                 'num_batch': 512,
             }
             
@@ -154,13 +186,13 @@ class OllamaGPUManager:
             return False
         try:
             from utils.infrastructure.system.yaml_config import config
-            ctx_size = getattr(config, 'max_context_tokens', 28000)
+            ctx_size = config.max_context_tokens
             timeout = getattr(config, 'model_load_timeout', 180.0)
             
             print(f"🔄 Triggering GPU load for {self.model_name} (num_ctx: {ctx_size})...")
             print(f"⏳ Waiting up to {timeout}s for Ollama to allocate VRAM...")
             
-            # Use same options as chat to avoid reload
+            # Use fixed config
             options = self.get_gpu_options(for_chat=True, num_ctx=ctx_size)
             
             # Start timer
@@ -179,11 +211,17 @@ class OllamaGPUManager:
             print(f"⚠️  This model with {ctx_size} context may be too large for your VRAM.")
             return False
         except Exception as e:
+            if "out of memory" in str(e).lower() or "allocation failed" in str(e).lower():
+                 print(f"❌ CRITICAL: Model load failed due to OOM!")
+                 print(f"⚠️  Reducing context size might help.")
             print(f"❌ GPU load failed: {e}")
             return False
     
-    def get_gpu_options(self, for_chat: bool = True, num_ctx: int = 28000) -> Dict[str, Any]:
+    def get_gpu_options(self, for_chat: bool = True, num_ctx: Optional[int] = None) -> Dict[str, Any]:
         """Get optimal GPU options based on context"""
+        from utils.infrastructure.system.yaml_config import config
+        if num_ctx is None:
+            num_ctx = config.max_context_tokens
         base_options = {
             'num_gpu': -1,  # -1 = all layers to GPU
             'num_thread': 4,
@@ -198,7 +236,7 @@ class OllamaGPUManager:
             max_tokens = getattr(config, 'max_response_tokens', 2048)
             
             base_options.update({
-                'num_ctx': num_ctx, # Dynamic context sizing
+                'num_ctx': num_ctx, # Unified context size from config
                 'num_batch': 512,
                 'num_predict': max_tokens,
                 'temperature': 0.7,
@@ -207,9 +245,10 @@ class OllamaGPUManager:
                 'top_p': 0.9,
             })
         else:
-            # For vision/other tasks
+            # For vision/other tasks - pull from config default
+            from utils.infrastructure.system.yaml_config import config
             base_options.update({
-                'num_ctx': 4096,
+                'num_ctx': config.max_context_tokens,
                 'num_batch': 256,
             })
         

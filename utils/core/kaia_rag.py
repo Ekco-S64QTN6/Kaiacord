@@ -1,5 +1,6 @@
 import os
 import re
+import asyncio
 import time
 import shutil
 import logging
@@ -60,6 +61,13 @@ class SimpleBM25Retriever:
         self.tokenized_docs = [self._tokenize(get_node_text(node)) for node in nodes]
         self.bm25 = BM25Okapi(self.tokenized_docs) if self.tokenized_docs else None
         
+        # MEMORY OPTIMIZATION: Clear tokenized_docs after BM25 initialization
+        # The BM25Okapi object internally stores the stats it needs (doc_freqs, etc.)
+        # so we don't need the raw token lists in RAM unless we plan to add more docs later.
+        self.tokenized_docs = None
+        import gc
+        gc.collect()
+    
     def _tokenize(self, text):
         return re.sub(r'[^\w\s]', ' ', text.lower()).split()
     
@@ -82,13 +90,13 @@ class HybridRetriever:
         self.bm25 = bm25_retriever
         self.multiplier = multiplier
         
-    def retrieve(self, query, top_k=5, alpha=0.5, query_bundle=None):
+    async def retrieve(self, query, top_k=5, alpha=0.5, query_bundle=None):
         # 1. Vector Retrieval
         vector_retriever = self.vector_index.as_retriever(similarity_top_k=top_k*2)
         
         # Use provided query_bundle if available
         bundle = query_bundle if query_bundle is not None else query
-        vector_nodes = vector_retriever.retrieve(bundle)
+        vector_nodes = await vector_retriever.aretrieve(bundle)
         
         # 2. BM25 Retrieval
         bm25_results = self.bm25.retrieve(query, top_k=top_k*2)
@@ -151,46 +159,52 @@ class CircuitBreaker:
             self.failures = 0
 
 def thread_safe_rag_operation(func):
-    """Decorator to ensure thread safety for RAG operations.
-    
-    Retrieval uses a snapshot approach: if the lock is held (e.g., by refresh),
-    it reads from a frozen snapshot of the indices instead of blocking.
-    Write operations wait for the lock with a timeout.
-    """
+    """Decorator to ensure thread safety for RAG operations."""
+    import inspect
+    is_async = inspect.iscoroutinefunction(func)
+
     @wraps(func)
-    def wrapper(self, *args, **kwargs):
+    async def async_wrapper(self, *args, **kwargs):
         from utils.infrastructure.system.yaml_config import config
         lock_timeout = getattr(config, 'rag_lock_seconds', 10.0)
         
         if func.__name__ == 'retrieve':
-            # Retrieval: try the lock briefly; if unavailable, proceed lock-free
-            # with a snapshot of the current indices dict (safe because dict.copy()
-            # is atomic under CPython GIL and the index objects themselves are
-            # append-only during refresh).
+            acquired = self._lock.acquire(timeout=0.5)
+            try:
+                return await func(self, *args, **kwargs)
+            finally:
+                if acquired: self._lock.release()
+        else:
+            if not self._lock.acquire(timeout=lock_timeout):
+                log_warning(f"RAG operation {func.__name__} timed out")
+                return False if func.__name__ in ['add_memory', 'log_user_interaction'] else None
+            try:
+                if getattr(self, '_indexing_in_progress', False) and func.__name__ not in ['refresh_knowledge_base']:
+                    return False if func.__name__ in ['add_memory', 'log_user_interaction'] else None
+                return await func(self, *args, **kwargs)
+            finally:
+                self._lock.release()
+
+    @wraps(func)
+    def sync_wrapper(self, *args, **kwargs):
+        from utils.infrastructure.system.yaml_config import config
+        lock_timeout = getattr(config, 'rag_lock_seconds', 10.0)
+        
+        if func.__name__ == 'retrieve':
             acquired = self._lock.acquire(timeout=0.5)
             try:
                 return func(self, *args, **kwargs)
             finally:
-                if acquired:
-                    self._lock.release()
+                if acquired: self._lock.release()
         else:
-            # Write operations: wait with timeout
             if not self._lock.acquire(timeout=lock_timeout):
-                log_warning(f"RAG operation {func.__name__} timed out waiting for lock")
-                if func.__name__ in ['add_memory', 'log_user_interaction']: return False
-                return None
-            
+                return False if func.__name__ in ['add_memory', 'log_user_interaction'] else None
             try:
-                # Skip non-critical writes during indexing to avoid VRAM/CPU contention
-                if getattr(self, '_indexing_in_progress', False) and func.__name__ not in ['refresh_knowledge_base']:
-                    log_warning(f"RAG operation {func.__name__} skipped: indexing in progress")
-                    if func.__name__ in ['add_memory', 'log_user_interaction']: return False
-                    return None
-                    
                 return func(self, *args, **kwargs)
             finally:
                 self._lock.release()
-    return wrapper
+
+    return async_wrapper if is_async else sync_wrapper
 
 class KaiaRAG:
     def __init__(self, knowledge_base_dir="./knowledge_base", persist_dir="./storage"):
@@ -204,12 +218,16 @@ class KaiaRAG:
             model_name="nomic-embed-text",
             base_url="http://localhost:11434",
             query_prefix="search_query: ",
-            text_prefix="search_document: "
+            text_prefix="search_document: ",
+            request_timeout=config.embedding_request_seconds
         )
         
         # Set global settings
         Settings.embed_model = self.embed_model
-        Settings.node_parser = SentenceSplitter(chunk_size=1024, chunk_overlap=200)
+        Settings.node_parser = SentenceSplitter(
+            chunk_size=config.rag_node_chunk_size, 
+            chunk_overlap=config.rag_node_chunk_overlap
+        )
         
         # Use GPU Manager for LLM settings
         from utils.infrastructure.gpu.gpu_manager import OllamaGPUManager
@@ -393,12 +411,9 @@ class KaiaRAG:
                 log_debug(f"CodeSplitter failed for {lang}, falling back to SentenceSplitter: {e}")
                 return SentenceSplitter(chunk_size=1024, chunk_overlap=200)
         elif itype == 'knowledge':
-            # Semantic chunking for dense content
-            return SemanticSplitterNodeParser(
-                buffer_size=1,
-                breakpoint_percentile_threshold=95,
-                embed_model=self.embed_model
-            )
+            # SentenceSplitter for better reliability and lower RAM usage.
+            # SemanticSplitter was causing 30GB+ RAM spikes on large documents.
+            return SentenceSplitter(chunk_size=1024, chunk_overlap=200)
         else:
             return SentenceSplitter(chunk_size=1024, chunk_overlap=200)
 
@@ -1316,10 +1331,10 @@ class KaiaRAG:
                     if bm25_retriever:
                         mult = config.rag_base_score_multiplier
                         hybrid = HybridRetriever(self.indices[itype], bm25_retriever, multiplier=mult)
-                        return hybrid.retrieve(enriched_query, top_k=retrieve_count)
+                        return await hybrid.retrieve(enriched_query, top_k=retrieve_count)
                     else:
                         retriever = self.indices[itype].as_retriever(similarity_top_k=retrieve_count)
-                        return retriever.retrieve(enriched_query)
+                        return await retriever.aretrieve(enriched_query)
                 except Exception as e:
                     log_error(f"Retrieval failed for {itype}: {e}")
                     return []
@@ -1330,12 +1345,13 @@ class KaiaRAG:
                 results = await asyncio.gather(*tasks)
                 return [node for sublist in results for node in sublist]
 
-            # Wrap retrieval (uses embedding model) with GPU guard
+            from utils.infrastructure.gpu.gpu_memory_manager import gpu_memory_manager, GPUTaskPriority
+            
+            # Wrap retrieval (uses embedding model) with GPU guard - tiny context for retrieval
             all_node_results = await gpu_memory_manager.run_with_gpu_guard(
                 model_name="nomic-embed-text",
                 priority=GPUTaskPriority.EMBEDDING,
                 coro=run_all_retrievals(),
-                vram_gb=0.5,
                 task_id=f"rag_retrieve_{int(time.time())}"
             )
             
@@ -1719,14 +1735,24 @@ class KaiaRAG:
     def pre_warm(self):
         """
         Should be called in a background thread on startup.
+        Optimized to avoid 30GB RAM spikes by serializing and checking resources.
         """
         try:
+            import psutil
+            import gc
+            
             log_action("Pre-warming RAG BM25 indices...")
             # Use local copy of indices keys to avoid concurrent mod
             index_list = list(self.indices.items())
             
             for itype, index in index_list:
-                # 1. Quick check with lock
+                # 1. Resource Guard: Check available system RAM
+                avail_mem_gb = psutil.virtual_memory().available / (1024**3)
+                if avail_mem_gb < 2.0:
+                    log_warning(f"Extreme low RAM ({avail_mem_gb:.1f}GB). Skipping pre-warm for index '{itype}' to prevent crash.")
+                    continue
+
+                # 2. Quick check with lock
                 with self._lock:
                     if itype in self.bm25_cache and self.bm25_cache[itype] is not None:
                         continue
@@ -1737,18 +1763,21 @@ class KaiaRAG:
                     log_debug(f"Tokenizing {len(nodes)} nodes for '{itype}' index (background)...")
                     start = time.time()
                     
-                    # 2. HEAVY WORK: Tokenize and build BM25 WITHOUT holding the lock
+                    # 3. HEAVY WORK: Tokenize and build BM25 WITHOUT holding the lock
                     # This allows other threads (like retrieval) to proceed
                     retriever = SimpleBM25Retriever(nodes)
                     
-                    # 3. Final update with lock
+                    # 4. Final update with lock
                     with self._lock:
                         self.bm25_cache[itype] = retriever
                         
+                    # 5. AGGRESSIVE CLEANUP: Force garbage collection after each index
+                    gc.collect() 
+                    
                     log_success(f"Index '{itype}' pre-warmed in {time.time() - start:.2f}s")
                     
-                    # Brief breath between indices to keep CPU usage sane
-                    time.sleep(0.5)
+                    # Brief breath between indices to keep CPU and RAM pressure sane
+                    time.sleep(1.0)
             
             log_success("All RAG indices pre-warmed.")
         except Exception as e:
