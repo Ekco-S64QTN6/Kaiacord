@@ -98,8 +98,8 @@ class HybridRetriever:
         bundle = query_bundle if query_bundle is not None else query
         vector_nodes = await vector_retriever.aretrieve(bundle)
         
-        # 2. BM25 Retrieval
-        bm25_results = self.bm25.retrieve(query, top_k=top_k*2)
+        # 2. BM25 Retrieval (Offload to thread)
+        bm25_results = await asyncio.to_thread(self.bm25.retrieve, query, top_k=top_k*2)
         
         # 3. Reciprocal Rank Fusion (RRF)
         combined_scores = {} # node_id -> score
@@ -243,7 +243,7 @@ class KaiaRAG:
             additional_kwargs=gpu_options
         )
         
-        self.index = None # Legacy index reference
+        # Lazy load indices for faster startup
         self.indices = {} # Hierarchical indices
         self.bm25_cache = {} # Cache for BM25 retrievers {itype: (timestamp, retriever)}
         self.persist_needed = False
@@ -258,9 +258,19 @@ class KaiaRAG:
         self._indexing_in_progress = False
         self._refresh_pending = False # Single-flight "dirty" flag
         self._bot_user_id = None # Set by Discord bot on startup
-        
-        # Load or create indices
-        self._initialize_indices()
+        self._initialized = False
+
+    async def initialize_async(self):
+        """Asynchronously initialize hierarchical indices."""
+        if self._initialized: return
+        log_action("Initializing RAG indices in background...")
+        await asyncio.to_thread(self._initialize_indices)
+        self._initialized = True
+        log_success("RAG indices initialized.")
+
+    async def get_recent_files_async(self, limit: int = 5) -> List[Dict[str, str]]:
+        """Async wrapper for get_recent_files."""
+        return await asyncio.to_thread(self.get_recent_files, limit)
 
     def get_recent_files(self, limit: int = 5) -> List[Dict[str, str]]:
         """Get the most recently modified files in the knowledge base, including logs and news with context"""
@@ -345,6 +355,10 @@ class KaiaRAG:
             })
             
         return recent_with_snippets
+
+    async def get_stats_async(self) -> Dict[str, Any]:
+        """Async wrapper for get_stats."""
+        return await asyncio.to_thread(self.get_stats)
 
     def get_stats(self) -> Dict[str, Any]:
         """Get RAG statistics for dashboard"""
@@ -933,6 +947,10 @@ class KaiaRAG:
             return None
 
     @thread_safe_rag_operation
+    async def add_memory_async(self, user_id: int, user_name: str, text: str) -> bool:
+        """Async wrapper for add_memory."""
+        return await asyncio.to_thread(self.add_memory, user_id, user_name, text)
+
     def add_memory(self, user_id: int, user_name: str, text: str) -> bool:
         """Log a 'remembered' fact into a separate file AND the interaction log."""
         try:
@@ -966,6 +984,10 @@ class KaiaRAG:
         except Exception as e:
             log_error(f"Error adding memory: {e}")
             return False
+
+    async def log_user_interaction_async(self, user_id: int, user_name: str, message_content: str, bot_response: str, is_vision_response: bool = False) -> bool:
+        """Async wrapper for log_user_interaction."""
+        return await asyncio.to_thread(self.log_user_interaction, user_id, user_name, message_content, bot_response, is_vision_response)
 
     # Removed @thread_safe_rag_operation to ensure file writing always happens
     def log_user_interaction(self, user_id: int, user_name: str, message_content: str, bot_response: str, is_vision_response: bool = False) -> bool:
@@ -1158,15 +1180,20 @@ class KaiaRAG:
             # Legacy fallback: Filter short queries that weren't caught by Intent
             is_followup_query = (not intent and len(query_lower.split()) <= 6 and not is_kaia_query and not is_social_identity and not is_dream_query)
             
-            # Detect known user names for enrichment (Optimized)
+            # Detect known user names for enrichment (Optimized & Threaded)
             if time.time() - self._last_user_scan > self._user_scan_interval:
-                self._known_users_cache = []
                 user_logs_path = os.path.join(self.knowledge_base_dir, "user_logs")
-                if os.path.exists(user_logs_path):
-                    for d in os.scandir(user_logs_path):
-                        if d.is_dir() and "_" in d.name:
-                            u_name = d.name.rsplit("_", 1)[0].replace("_", " ")
-                            self._known_users_cache.append(u_name)
+                
+                def _scan_user_logs():
+                    cache = []
+                    if os.path.exists(user_logs_path):
+                        for d in os.scandir(user_logs_path):
+                            if d.is_dir() and "_" in d.name:
+                                u_name = d.name.rsplit("_", 1)[0].replace("_", " ")
+                                cache.append(u_name)
+                    return cache
+                
+                self._known_users_cache = await asyncio.to_thread(_scan_user_logs)
                 self._last_user_scan = time.time()
             
             known_users = self._known_users_cache
@@ -1333,6 +1360,7 @@ class KaiaRAG:
                         hybrid = HybridRetriever(self.indices[itype], bm25_retriever, multiplier=mult)
                         return await hybrid.retrieve(enriched_query, top_k=retrieve_count)
                     else:
+                        # Fallback to vector-only if BM25 is unavailable
                         retriever = self.indices[itype].as_retriever(similarity_top_k=retrieve_count)
                         return await retriever.aretrieve(enriched_query)
                 except Exception as e:
@@ -1691,6 +1719,10 @@ class KaiaRAG:
 
 
     @thread_safe_rag_operation
+    async def persist_async(self, force: bool = False):
+        """Async wrapper for persist."""
+        await asyncio.to_thread(self.persist, force)
+
     def persist(self, force: bool = False):
         """Persist all hierarchical indices to storage if needed."""
         # REQUIREMENT: Never wait on locks during shutdown

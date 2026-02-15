@@ -594,9 +594,9 @@ async def check_and_reply_mentions(on_message_func):
     
     # log_debug("Social media poll started...")
     
-    # Load replied IDs if not loaded
+    # Load replied IDs if not loaded (Offload to thread)
     if not _replied_ids:
-        _load_replied_ids()
+        await asyncio.to_thread(_load_replied_ids)
     
     from utils.infrastructure.system.yaml_config import config
     
@@ -1236,7 +1236,7 @@ async def generate_quip(ctx, is_manual=False, target_channel=None, on_message_fu
                 search_query = " ".join(reflection_target.split()[:10])
                 
             if rag_instance and search_query:
-                rag_results = rag_instance.retrieve(search_query, top_k=3, category="general")
+                rag_results = await rag_instance.retrieve(search_query, top_k=3, category="general")
                 if rag_results:
                     rag_block = "\n\n### RELEVANT KNOWLEDGE & MEMORIES\n"
                     from utils.core.rag_utils import get_node_text

@@ -25,7 +25,11 @@ async def handle_quip_command(ctx, msg):
         if hasattr(ctx.bot_state, 'save'): ctx.bot_state.save()
         
         from utils.social.kaia_social_responder import generate_quip
-        await generate_quip(ctx, is_manual=True, target_channel=msg.channel, on_message_func=ctx.bot.on_message)
+        success = await generate_quip(ctx, is_manual=True, target_channel=msg.channel, on_message_func=ctx.bot.on_message)
+        if not success:
+             log_error("Manual quip generation returned False.")
     except Exception as e:
         log_error(f"Manual quip failed: {e}")
+        import traceback
+        log_debug(traceback.format_exc())
         await msg.channel.send("```\nquip failed. check logs.\n```")

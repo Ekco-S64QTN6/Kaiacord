@@ -2,13 +2,14 @@ import os
 import sys
 import time
 import threading
+import queue
 import logging
 import logging.handlers
 from datetime import datetime
 from collections import OrderedDict, deque
 
 class UnifiedLogger:
-    """Single source of truth for all logging"""
+    """Single source of truth for all logging (Thread-safe, Non-blocking)"""
     def __init__(self):
         self.lock = threading.RLock()
         self.console_buffer = []
@@ -20,8 +21,12 @@ class UnifiedLogger:
         self.dashboard_mode = False
         self.log_file = "logs/kaiacord.log"
         self._ensure_log_dir()
-        self._file_handler = self._create_file_handler()
-        self.debug_dedup = {}  # (message_hash): timestamp
+        
+        # Non-blocking Queue Setup (Bounded to 1000 to prevent memory pressure)
+        self.log_queue = queue.Queue(maxsize=1000)
+        self._dashboard_queue = None  # Will be set if multiprocessing dashboard is used
+        self._stop_event = threading.Event()
+        self._worker_thread = threading.Thread(target=self._log_worker, daemon=True, name="UnifiedLoggerWorker")
         
         # Color codes for terminal
         self.colors = {
@@ -34,6 +39,13 @@ class UnifiedLogger:
             'RESET': '\033[0m',
             'BOLD': '\033[1m'
         }
+        
+        # Initialize file handler but don't use it directly in the main thread
+        self._file_handler = self._create_file_handler()
+        self.debug_dedup = {}  # (message_hash): timestamp
+        
+        # Start background worker
+        self._worker_thread.start()
         
     def _ensure_log_dir(self):
         """Ensure the logs directory exists"""
@@ -50,9 +62,11 @@ class UnifiedLogger:
         except Exception:
             return None
 
-    def set_dashboard_mode(self, enabled: bool):
+    def set_dashboard_mode(self, enabled: bool, queue=None):
         """Enable/disable dashboard mode (suppresses stdout)"""
         self.dashboard_mode = enabled
+        if queue:
+            self._dashboard_queue = queue
 
     def _should_log(self, message, log_type):
         """Check if this message should be logged (deduplication)"""
@@ -142,18 +156,52 @@ class UnifiedLogger:
             'raw_time': time.time()
         }
         
-        # Add to buffers
+        # Add to buffers (memory operations are fast)
         with self.lock:
             self.dashboard_buffer.append(log_entry)
             self.console_buffer.append(log_entry)
         
-        # Write to console (once, formatted)
-        self._write_to_console(log_entry)
-        
-        # Write to file (with rotation)
-        self._write_to_file(log_entry)
-        
+        # ENQUEUE for background worker (Thread-safe, Non-blocking)
+        try:
+            self.log_queue.put_nowait(log_entry)
+        except queue.Full:
+            # Drop logs if queue is full to prioritize event loop health
+            pass
+            
         return log_entry
+
+    def _log_worker(self):
+        """Background worker that handles actual I/O"""
+        while not self._stop_event.is_set():
+            try:
+                # Block for up to 1s to allow clean shutdown
+                log_entry = self.log_queue.get(timeout=1.0)
+                
+                # 1. Write to console (formatted)
+                self._write_to_console(log_entry)
+                
+                # 2. Write to file (with rotation)
+                self._write_to_file(log_entry)
+                
+                # 3. Push to multiprocessing dashboard queue if available
+                if self._dashboard_queue:
+                    try:
+                        self._dashboard_queue.put_nowait(log_entry)
+                    except:
+                        pass
+                
+                self.log_queue.task_done()
+            except queue.Empty:
+                continue
+            except Exception:
+                # Prevent worker from dying
+                pass
+
+    def stop(self):
+        """Clean shutdown of the logging worker"""
+        self._stop_event.set()
+        if self._worker_thread.is_alive():
+            self._worker_thread.join(timeout=2.0)
     
     def _write_to_file(self, log_entry):
         """Write log entry to rotating file"""
@@ -201,15 +249,13 @@ class UnifiedLogger:
         # Skip if this is the same as last console message (rapid duplicates)
         if formatted != self.last_console_message:
             try:
-                # Use sys.__stdout__ to bypass any monkey-patching
-                # Check if it exists for safe interpreter finalization
+                # Use sys.__stdout__ directly in the worker thread
                 if sys and hasattr(sys, '__stdout__') and sys.__stdout__ is not None:
                     sys.__stdout__.write(formatted + "\r\n")
                     sys.__stdout__.flush()
                 self.last_console_message = formatted
                 self.last_message_time = time.time()
-            except (AttributeError, TypeError, ImportError):
-                # Interpreter is likely finalizing - stop logging to console
+            except Exception:
                 pass
 
 

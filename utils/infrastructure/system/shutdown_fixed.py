@@ -165,6 +165,20 @@ class CleanShutdown:
         except Exception as e:
             log_error(f"  ❌ Error GPU cleanup: {e}")
         
+        # 6. Stop Watchdog
+        try:
+            from utils.infrastructure.monitoring.watchdog import watchdog
+            watchdog.stop()
+            log_info("  ✅ LoopWatchdog stopped")
+        except Exception: pass
+
+        # 7. Stop Unified Logger (Background worker)
+        try:
+            from utils.infrastructure.logging.unified_logging import logger as unified_logger
+            unified_logger.stop()
+            # No log here because the logger is now stopped
+        except Exception: pass
+
         self._shutdown_complete.set()
         log_info("  ✅ Async shutdown complete")
     

@@ -1,11 +1,13 @@
 import os
 import sys
 import asyncio
+import inspect
 import psutil
 import threading
 import time
 import concurrent.futures
 import traceback
+import multiprocessing
 from datetime import datetime
 from typing import Optional, Any, List
 
@@ -43,15 +45,22 @@ class DashboardManager:
         current_pid = os.getpid()
         log_action(f"Startup cleanup (PID: {current_pid})...")
         
-        for proc in psutil.process_iter(['pid', 'name', 'cmdline', 'exe']):
+        for proc in psutil.process_iter(['pid', 'ppid', 'name', 'cmdline', 'exe']):
             try:
+                ppid = proc.info.get('ppid')
+                pid = proc.info.get('pid')
+                
+                # SAFETY: Never kill our own children (like multiprocessing.Manager)
+                if ppid == current_pid:
+                    continue
+                
                 cmdline = proc.info['cmdline']
                 exe = proc.info['exe']
                 is_python = exe and 'python' in exe.lower()
                 is_kaiacord = cmdline and any('Kaiacord.py' in arg for arg in cmdline)
                 
-                if is_python and is_kaiacord and proc.info['pid'] != current_pid:
-                    log_action(f"  - Terminating orphaned instance: PID {proc.info['pid']}")
+                if is_python and is_kaiacord and pid != current_pid:
+                    log_action(f"  - Terminating orphaned instance: PID {pid}")
                     proc.terminate()
                     try:
                         proc.wait(timeout=5)
@@ -234,76 +243,161 @@ class DashboardManager:
             sys.exit(1)
         
         log_info("Starting curses dashboard mode...")
-        shutdown_manager.setup()
         
-        # REQUIREMENT: Set dashboard mode EARLY to prevent logs from leaking
-        # before the curses screen can take over.
-        self.logger.set_dashboard_mode(True)
+        # 1. Perform ALL startup tasks (cleanup, stats poller) FIRST
+        # This occurs before we spawn any multiprocessing Managers
+        sp = self.perform_startup_tasks()
         
-        def run_bot_in_thread():
-            sp = self.perform_startup_tasks()
-            
-            if self.dashboard and sp:
-                self.dashboard.stats_poller = sp
-                
+        # Signal dashboard mode to suppress console and enable queue
+        # Pass the queue if we are in curses mode
+        # self.logger.set_dashboard_mode(True) # This will be called in run_curses_mode
+        
+        def run_dashboard_process(shared_stats, log_queue, stop_event, cleanup_complete_event, error_queue):
+            """Entry point for the isolated dashboard process."""
+            # IMPORTANT: Re-initialize logger in the sub-process to avoid inheritance issues,
+            # but it will only be used for internal dashboard messages.
+            try:
+                # We don't need the full logic layer in the UI process
+                dashboard = BtopDashboardV2(
+                    shared_stats=shared_stats,
+                    log_queue=log_queue,
+                    stop_event=stop_event,
+                    cleanup_complete_event=cleanup_complete_event
+                )
+                dashboard.run()
+            except Exception as e:
+                # Capture and send error to parent
+                err_info = (str(e), traceback.format_exc())
+                try:
+                    error_queue.put(err_info)
+                except:
+                    print(f"Isolated Dashboard Fatal Error (Failed to queue): {e}")
+                    traceback.print_exc()
+                raise
+
+        async def stats_sync_task(shared_stats):
+            """Sync bot stats to shared memory."""
+            while not self.stop_event.is_set():
+                try:
+                    s = self.stats_tracker.get_stats()
+                    p = self.stats_poller.get_stats()
+                    shared_stats.update({
+                        'messages': s.get('messages', 0),
+                        'avg_response_time': s.get('avg_response_time', 0.0),
+                        'queue_size': s.get('queue_size', 0),
+                        'ollama_status': p.get('ollama_status', '🔴 OFFLINE'),
+                        'active_model': p.get('active_model', 'None'),
+                        'rag_size': p.get('rag_size', '0 MB'),
+                    })
+                except: pass
+                await asyncio.sleep(1.0)
+
+        def run_bot_in_thread(shared_stats, stats_poller, m_cleanup_complete_event):
+            sp = stats_poller
             loop = asyncio.new_event_loop()
             asyncio.set_event_loop(loop)
             try:
+                # Start stats sync
+                sync_task = loop.create_task(stats_sync_task(shared_stats))
+                task_registry.register("ui_stats_sync", sync_task)
+                
                 # Initialize logic inside the loop
-                initialize_logic_layer()
+                if inspect.iscoroutinefunction(initialize_logic_layer):
+                    loop.run_until_complete(initialize_logic_layer())
+                else:
+                    initialize_logic_layer()
                 loop.run_until_complete(run_bot_async(sp, self.stop_event))
             finally:
-                # FINAL DRAIN: Ensure all tasks (especially discord.ext.tasks)
-                # have finished their internal cleanup callbacks before closing loop.
+                # FINAL DRAIN
                 try:
-                    # Give tasks a final moment to react to the cancellation
-                    # that should have happened in perform_async_cleanup
                     pending = asyncio.all_tasks(loop)
-                    
                     if pending:
-                        # Process any immediate callbacks
                         loop.run_until_complete(asyncio.sleep(0.2))
-                        
-                        # Gather again in case sleep triggered more tasks
                         pending = asyncio.all_tasks(loop)
                         for task in pending:
-                            if not task.done():
-                                task.cancel()
-                        
-                        # Wait for tasks to finish their finally blocks
+                            if not task.done(): task.cancel()
                         loop.run_until_complete(asyncio.gather(*pending, return_exceptions=True))
-                    
-                    # Handle async generators
                     loop.run_until_complete(loop.shutdown_asyncgens())
                 except Exception as e:
-                    # Curses might be dead, but we log to stderr if possible
                     print(f"[SHUTDOWN] Loop drainage error: {e}", file=sys.stderr)
                 
                 self.cleanup_complete_event.set()
-                # Final safeguard: ensure loop is still running before closing
-                if not loop.is_closed():
-                    loop.close()
+                try:
+                    m_cleanup_complete_event.set()
+                except: pass
+                if not loop.is_closed(): loop.close()
+
+        # 2. Initialize Multiprocessing IPC AFTER cleanup is done
+        # We use plain multiprocessing.Event for better robustness than Manager.Event()
+        manager = multiprocessing.Manager()
+        shared_stats = manager.dict()
+        log_queue = multiprocessing.Queue(maxsize=1000)
+        ui_error_queue = multiprocessing.Queue()
+        m_stop_event = multiprocessing.Event()
+        m_cleanup_complete_event = multiprocessing.Event()
         
+        # Cross-signal the logger
+        self.logger.set_dashboard_mode(True, queue=log_queue)
+
         try:
-            self.dashboard = BtopDashboardV2(
-                stats_poller=self.stats_poller,
-                logger=self.logger,
-                stats_tracker=self.stats_tracker,
-                stop_event=self.stop_event,
-                cleanup_complete_event=self.cleanup_complete_event
+            # Start UI in separate process (Isolates psutil and curses from bot GIL)
+            self.dashboard_process = multiprocessing.Process(
+                target=run_dashboard_process,
+                args=(shared_stats, log_queue, m_stop_event, m_cleanup_complete_event, ui_error_queue),
+                name="KaiaDashboard",
+                daemon=True
             )
+            self.dashboard_process.start()
             
-            self.bot_thread = threading.Thread(target=run_bot_in_thread, daemon=True, name="DiscordBot")
+            # Start Bot in separate thread of MAIN process
+            self.bot_thread = threading.Thread(
+                target=run_bot_in_thread, 
+                args=(shared_stats, sp, m_cleanup_complete_event),
+                daemon=True, 
+                name="DiscordBot"
+            )
             self.bot_thread.start()
             
-            self.dashboard.run()
+            # Monitor from main thread
+            while self.bot_thread.is_alive():
+                try:
+                    if m_stop_event.is_set():
+                        break
+                except (BrokenPipeError, EOFError, ConnectionError):
+                    log_warning("Dashboard IPC connection broken; dashboard may have exited.")
+                    break
+                
+                # Check for UI errors
+                if not ui_error_queue.empty():
+                    err_msg, err_tb = ui_error_queue.get_nowait()
+                    log_error(f"DASHBOARD CRASHED: {err_msg}\n{err_tb}")
+                    break
+                    
+                if not self.dashboard_process.is_alive():
+                    log_warning("Dashboard process died unexpectedly.")
+                    break
+                time.sleep(1.0)
+            
+            # Cleanup
+            try:
+                m_stop_event.set()
+            except: pass
+            self.stop_event.set()
         except KeyboardInterrupt:
             print("\n⚠️  Keyboard interrupt received")
         except Exception as e:
             print(f"\n❌ Dashboard error: {e}")
             traceback.print_exc()
         finally:
-            if self.dashboard:
+            # Terminate dashboard process if still running
+            if hasattr(self, 'dashboard_process') and self.dashboard_process:
+                if self.dashboard_process.is_alive():
+                    self.dashboard_process.terminate()
+                    self.dashboard_process.join(timeout=2.0)
+                    if self.dashboard_process.is_alive():
+                        self.dashboard_process.kill()
+            
+            if hasattr(self, 'dashboard') and self.dashboard:
                 try: self.dashboard.stop()
                 except: pass
             
@@ -313,7 +407,7 @@ class DashboardManager:
             sys.__stdout__.write("\n[SUCCESS] Kaia has entered hibernation.\n")
             sys.__stdout__.flush()
 
-    async def run_simple_mode(self, run_bot_async):
+    async def run_simple_mode(self, initialize_logic_layer, run_bot_async):
         """Run in simple ANSI mode."""
         if not self.config.discord_token:
             log_critical("DISCORD_TOKEN not found!")
@@ -322,6 +416,8 @@ class DashboardManager:
         print("🚀 Using simple logger")
         sp = self.perform_startup_tasks()
         # Ensure logic layer is initialized
-        from Kaiacord import initialize_logic_layer
-        initialize_logic_layer()
+        if inspect.iscoroutinefunction(initialize_logic_layer):
+            await initialize_logic_layer()
+        else:
+            initialize_logic_layer()
         await run_bot_async(sp)

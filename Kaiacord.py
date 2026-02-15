@@ -75,8 +75,8 @@ intents.message_content = True
 bot = commands.Bot(command_prefix="!", intents=intents)
 ctx.bot = bot
 
-def initialize_logic_layer():
-    """Initializes RAG and intelligence components."""
+async def initialize_logic_layer_async():
+    """Asynchronously initializes RAG and intelligence components."""
     if ctx.rag is not None:
         return
         
@@ -96,8 +96,11 @@ def initialize_logic_layer():
     ctx.personalization_engine = PersonalizationEngine()
     ctx.persistent_state_manager = PersistentStateManager()
     
-    # Load state from last run
-    ctx.persistent_state_manager.load_state(ctx.personalization_engine, ctx.performance_monitor)
+    # Load state from last run (Offload to thread)
+    await ctx.persistent_state_manager.load_state_async(ctx.personalization_engine, ctx.performance_monitor)
+    
+    # Initialize RAG indices (Offload to thread internally)
+    await ctx.rag.initialize_async()
     
     ctx.message_processor = MessageProcessor(
         ctx=ctx,
@@ -108,10 +111,10 @@ def initialize_logic_layer():
         rag_enhancer=ctx.rag_enhancer
     )
     
-    # Register GPU memory clearing if available
+    # Register GPU memory clearing (Offloaded to thread)
     try:
-        from utils.infrastructure.gpu.gpu_manager import OllamaGPUManager
-        ctx.clear_gpu_memory = lambda: OllamaGPUManager(config.chat_model).clear_vram()
+        from utils.infrastructure.gpu.clear_gpu_memory import clear_gpu_memory
+        ctx.clear_gpu_memory = lambda: asyncio.to_thread(clear_gpu_memory, silent=True)
     except:
         pass
     
@@ -154,6 +157,13 @@ async def on_ready():
         ctx.rag._bot_user_id = bot.user.id
         
     start_maintenance_tasks(ctx)
+    
+    # Start loop watchdog to detect stalls
+    try:
+        from utils.infrastructure.monitoring.watchdog import watchdog
+        watchdog.start(asyncio.get_running_loop())
+    except Exception as e:
+        log_error(f"Failed to start LoopWatchdog: {e}")
 
 @bot.event
 @timed_response(threshold=30.0)
@@ -183,7 +193,7 @@ def main():
     # Pass necessary functions to the manager
     async def run_bot_wrapper(sp, stop_event=None):
         dm.intent_parser = ctx.intent_parser
-        await dm.run_bot_async(sp, initialize_logic_layer, dm_sequenced_boot, stop_event)
+        await dm.run_bot_async(sp, initialize_logic_layer_async, dm_sequenced_boot, stop_event)
 
     async def dm_sequenced_boot():
         import utils.core.background_tasks as bg_tasks
@@ -201,9 +211,9 @@ def main():
 
     mode = os.environ.get('KAIA_DASHBOARD', 'curses').lower()
     if mode == 'curses':
-        dm.run_curses_mode(initialize_logic_layer, run_bot_wrapper)
+        dm.run_curses_mode(initialize_logic_layer_async, run_bot_wrapper)
     else:
-        asyncio.run(dm.run_simple_mode(run_bot_wrapper))
+        asyncio.run(dm.run_simple_mode(initialize_logic_layer_async, run_bot_wrapper))
 
 if __name__ == "__main__":
     main()

@@ -206,25 +206,20 @@ class BtopDashboardV2:
                  stats_tracker=None,
                  stop_event=None,
                  cleanup_complete_event=None,
+                 shared_stats=None,
+                 log_queue=None,
                  frame_interval: float = 0.1,  # ~10 FPS
                  update_interval: float = 1.0):  # Stats update interval
         """
         Initialize dashboard.
-        
-        Args:
-            stats_poller: RealTimeStatsPoller instance for system metrics
-            logger: UnifiedLogger instance for log buffer
-            stats_tracker: StatsTracker instance for bot stats
-            stop_event: Optional threading.Event to signal bot to stop
-            cleanup_complete_event: Optional threading.Event signaled when bot cleanup is done
-            frame_interval: Time between frame draws (seconds)
-            update_interval: Time between full data updates (seconds)
         """
         self.stats_poller = stats_poller
         self.logger = logger
         self.stats_tracker = stats_tracker
         self.stop_event = stop_event
         self.cleanup_complete_event = cleanup_complete_event
+        self.shared_stats = shared_stats
+        self.log_queue = log_queue
         self.frame_interval = frame_interval
         self.update_interval = update_interval
         
@@ -326,20 +321,42 @@ class BtopDashboardV2:
         except:
             pass
             
+    def _get_system_metrics(self):
+        """Fetch system metrics with a hard timeout to prevent dashboard hangs."""
+        import psutil
+        try:
+            return {
+                'cpu_percent': psutil.cpu_percent(interval=0),
+                'memory': psutil.virtual_memory(),
+                'disk': psutil.disk_usage('/'),
+                'net': psutil.net_io_counters()
+            }
+        except:
+            return None
+
     def _take_snapshot(self) -> DashboardState:
         """
         Create an immutable snapshot of current state.
         This is the ONLY place where we read from shared data sources.
         """
         import psutil
+        import concurrent.futures
         
-        # Get system metrics
-        try:
-            cpu_percent = psutil.cpu_percent(interval=0)
-            memory = psutil.virtual_memory()
-            disk = psutil.disk_usage('/')
-            net = psutil.net_io_counters()
-        except:
+        # Get system metrics with timeout (isolated in dashboard process)
+        metrics = None
+        with concurrent.futures.ThreadPoolExecutor(max_workers=1) as executor:
+            future = executor.submit(self._get_system_metrics)
+            try:
+                metrics = future.result(timeout=1.0)
+            except concurrent.futures.TimeoutError:
+                pass
+        
+        if metrics:
+            cpu_percent = metrics['cpu_percent']
+            memory = metrics['memory']
+            disk = metrics['disk']
+            net = metrics['net']
+        else:
             cpu_percent = 0.0
             memory = type('obj', (object,), {'percent': 0, 'used': 0, 'total': 1})()
             disk = type('obj', (object,), {'percent': 0})()
@@ -365,6 +382,23 @@ class BtopDashboardV2:
         log_entries = []
         alerts = []
         
+        if self.log_queue:
+            # Drain queue into internal buffer
+            try:
+                while not self.log_queue.empty():
+                    log = self.log_queue.get_nowait()
+                    self._internal_logs.append(log)
+                    if log.get('type') in ['ERROR', 'WARNING', 'CRITICAL']:
+                        symbol = '⛔' if log.get('type') == 'ERROR' else ('⚠️' if log.get('type') == 'WARNING' else '🔴')
+                        self._internal_alerts.append({
+                            'timestamp': log.get('timestamp', ''),
+                            'level': log.get('type', 'WARNING'),
+                            'message': log.get('message', ''),
+                            'symbol': symbol
+                        })
+            except:
+                pass
+
         if self.logger:
             try:
                 raw_logs = self.logger.get_recent_logs(50)
@@ -422,12 +456,12 @@ class BtopDashboardV2:
             net_recv_kb=net.bytes_recv // 1024,
             uptime_minutes=poller_stats.get('uptime_minutes', 0.0) or tracker_stats.get('uptime_minutes', 0.0),
             active_users=tracker_stats.get('active_users_display', "0 (idle)") or str(poller_stats.get('users', 0)),
-            total_messages=tracker_stats.get('messages', 0) or poller_stats.get('messages', 0),
-            avg_response_time=tracker_stats.get('avg_response_time', 0.0) or poller_stats.get('avg_response_time', 0.0),
-            ollama_status=poller_stats.get('ollama_status', '🔴 OFFLINE'),
-            active_model=poller_stats.get('active_model', 'None'),
-            rag_size=poller_stats.get('rag_size', '0 MB'),
-            queue_size=tracker_stats.get('queue_size', 0),
+            total_messages=tracker_stats.get('messages', 0) or poller_stats.get('messages', 0) or (self.shared_stats.get('messages', 0) if self.shared_stats else 0),
+            avg_response_time=tracker_stats.get('avg_response_time', 0.0) or poller_stats.get('avg_response_time', 0.0) or (self.shared_stats.get('avg_response_time', 0.0) if self.shared_stats else 0.0),
+            ollama_status=poller_stats.get('ollama_status', '🔴 OFFLINE') if not self.shared_stats else self.shared_stats.get('ollama_status', '🔴 OFFLINE'),
+            active_model=poller_stats.get('active_model', 'None') if not self.shared_stats else self.shared_stats.get('active_model', 'None'),
+            rag_size=poller_stats.get('rag_size', '0 MB') if not self.shared_stats else self.shared_stats.get('rag_size', '0 MB'),
+            queue_size=tracker_stats.get('queue_size', 0) or (self.shared_stats.get('queue_size', 0) if self.shared_stats else 0),
             log_entries=tuple(log_entries),
             alerts=tuple(alerts[-10:]),  # Limit alerts
             snapshot_time=time.time()
@@ -844,7 +878,7 @@ class BtopDashboardV2:
         """Main UI loop - runs in main thread only"""
         self._init_curses(stdscr)
         self.running = True
-        while (self.running and not shutdown_manager.shutting_down) or (self.cleanup_complete_event and not self.cleanup_complete_event.is_set()):
+        while (self.running and not shutdown_manager.shutting_down and not (self.stop_event and self.stop_event.is_set())) or (self.cleanup_complete_event and not self.cleanup_complete_event.is_set()):
             # Handle input ONLY if still running and NOT shutting down
             if self.running and not shutdown_manager.shutting_down:
                 if not self._handle_input():

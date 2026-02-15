@@ -671,7 +671,7 @@ class MessageProcessor:
             
             # Log for RAG
             # CRITICAL FIX: Use sanitized_content to avoid poisoning RAG with [REPLYING_TO] tags
-            await self.run_rag(self.rag.log_user_interaction, ctx.author_id, ctx.author_name, ctx.sanitized_content, ctx.response_text)
+            await self.rag.log_user_interaction_async(ctx.author_id, ctx.author_name, ctx.sanitized_content, ctx.response_text)
             
             self.performance_monitor.stop_timer('total', 'response_time')
             

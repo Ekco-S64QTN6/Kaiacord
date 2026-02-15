@@ -22,7 +22,7 @@ async def rag_maintenance_task():
     try:
         if ctx.rag.persist_needed:
             log_action("Periodic RAG persistence...")
-            await asyncio.to_thread(ctx.rag.persist)
+            await ctx.rag.persist_async()
     except Exception as e:
         log_error(f"RAG maintenance failed: {e}")
 
@@ -62,13 +62,13 @@ async def memory_audit_task():
                 log_critical(f"Memory usage critical ({rss_mb:.1f}MB > {NORMAL_THRESHOLD_MB}MB)! Clearing caches and GPU memory.")
                 
                 if ctx.clear_gpu_memory:
-                    ctx.clear_gpu_memory()
+                    await ctx.clear_gpu_memory()
             
         # Cleanup rate limiter to prevent unbounded memory growth
         ctx.rate_limiter.cleanup()
         
-        # Save state
-        ctx.persistent_state_manager.save_state(ctx.personalization_engine, ctx.performance_monitor)
+        # Save state (Offload to thread to prevent blocking the loop)
+        await ctx.persistent_state_manager.save_state_async(ctx.personalization_engine, ctx.performance_monitor)
             
     except Exception as e:
         log_error(f"Memory audit task failed: {e}")

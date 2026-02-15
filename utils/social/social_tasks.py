@@ -27,8 +27,8 @@ async def social_mention_task():
     if not bot_state.boot_complete:
         return
         
-    # User Request: 3-minute grace period after boot before hitting social APIs
-    grace_period = 180 # 3 minutes
+    # User Request: Reduce grace period to allow faster catch-up
+    grace_period = 60 # 1 minute (was 3 minutes)
     time_since_boot = time.time() - getattr(bot_state, 'boot_complete_time', 0)
     if time_since_boot < grace_period:
         remaining = int(grace_period - time_since_boot)

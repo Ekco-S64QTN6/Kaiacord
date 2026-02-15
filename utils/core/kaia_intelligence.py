@@ -69,7 +69,10 @@ class ModelWarmPool:
                 self.keep_alive_tasks[model_name] = asyncio.create_task(self.keep_alive(model_name))
             return True
         except Exception as e:
+            import traceback
+            error_details = traceback.format_exc()
             log_error(f"Failed to pre-warm model {model_name}: {e}")
+            log_debug(f"Pre-warm failure details:\n{error_details}")
             return False
     
     async def keep_alive(self, model_name):
@@ -414,11 +417,15 @@ class PersistentStateManager:
         os.makedirs(state_dir, exist_ok=True)
         self.state_path = os.path.join(self.state_dir, "kaia_state.json")
         
+    async def save_state_async(self, personalization, monitor, cache=None):
+        """Async wrapper for save_state."""
+        await asyncio.to_thread(self.save_state, personalization, monitor, cache)
+
     def save_state(self, personalization, monitor, cache=None):
-        """Atomic save of critical state."""
+        """Atomic save of critical state (Thread-safe synchronous version)."""
         try:
             state = {
-                'user_profiles': personalization.user_profiles,
+                'user_profiles': personalization.user_profiles.copy(),
                 'performance_metrics': {
                     'cache_hits': monitor.metrics.get('cache_hits', 0),
                     'cache_misses': monitor.metrics.get('cache_misses', 0),
@@ -428,14 +435,13 @@ class PersistentStateManager:
             }
             
             if cache:
-                state['exact_cache'] = getattr(cache, 'exact_cache', {})
-                state['full_cache'] = getattr(cache, 'cache', {})
+                state['exact_cache'] = getattr(cache, 'exact_cache', {}).copy()
+                state['full_cache'] = getattr(cache, 'cache', {}).copy()
             
             # Delta check: only save if content actually changed
             current_state_str = json.dumps(state, sort_keys=True)
             current_hash = hashlib.sha256(current_state_str.encode()).hexdigest()
             if hasattr(self, '_last_state_hash') and current_hash == self._last_state_hash:
-                log_debug("Cold state unchanged, skipping persistence.")
                 return
             self._last_state_hash = current_hash
 
@@ -447,8 +453,12 @@ class PersistentStateManager:
         except Exception as e:
             log_error(f"Failed to save state: {e}")
 
+    async def load_state_async(self, personalization, monitor, cache=None):
+        """Async wrapper for load_state."""
+        return await asyncio.to_thread(self.load_state, personalization, monitor, cache)
+
     def load_state(self, personalization, monitor, cache=None):
-        """Load state if not too stale."""
+        """Load state if not too stale (Thread-safe synchronous version)."""
         if not os.path.exists(self.state_path): return False
         
         try:
