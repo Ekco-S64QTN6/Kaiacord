@@ -118,6 +118,9 @@ def initialize_logic_layer():
 rag_executor = concurrent.futures.ThreadPoolExecutor(max_workers=4, thread_name_prefix='rag_worker')
 
 async def run_rag(fn, *args, **kwargs):
+    import inspect
+    if inspect.iscoroutinefunction(fn):
+        return await fn(*args, **kwargs)
     loop = asyncio.get_running_loop()
     return await loop.run_in_executor(rag_executor, lambda: fn(*args, **kwargs))
 

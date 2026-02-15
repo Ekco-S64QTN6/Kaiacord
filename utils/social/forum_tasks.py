@@ -95,6 +95,10 @@ def start_forum_tasks():
         log_info("Forum integration disabled in config — skipping background tasks")
         return
 
+    if not config.get('forum.auto_scrape', False):
+        log_info("Auto forum scraping is disabled in config — skipping periodic task")
+        return
+
     task = forum_scrape_task.start()
     task_registry.register("forum_scrape_task", task)
     log_action("Forum background scrape task started.")

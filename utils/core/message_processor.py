@@ -283,7 +283,7 @@ class MessageProcessor:
         if hasattr(ctx, 'classification_task') and ctx.classification_task:
             try:
                 # Use config value for timeout
-                join_timeout = getattr(self.config, 'classification_join_seconds', 5.0)
+                join_timeout = getattr(self.config, 'classification_join_seconds', 15.0)
                 
                 new_intent = await asyncio.wait_for(ctx.classification_task, timeout=join_timeout)
                 if new_intent:
@@ -560,11 +560,21 @@ class MessageProcessor:
             
             try:
                 log_action(f"Calling ollama.chat (Attempt {attempt + 1}/{max_attempts})...")
-                response = await SelfHealingSystem.call_with_fallback(
-                    self.ollama_client.chat,
-                    model=self.config.chat_model,
-                    messages=messages,
-                    options=current_options
+                
+                # Use run_with_gpu_guard for the main chat generation
+                from utils.infrastructure.gpu.gpu_memory_manager import gpu_memory_manager, GPUTaskPriority
+                
+                response = await gpu_memory_manager.run_with_gpu_guard(
+                    model_name=self.config.chat_model,
+                    priority=GPUTaskPriority.CHAT,
+                    coro=SelfHealingSystem.call_with_fallback(
+                        self.ollama_client.chat,
+                        model=self.config.chat_model,
+                        messages=messages,
+                        options=current_options
+                    ),
+                    vram_gb=6.0, # Chat model with context
+                    task_id=f"chat_{ctx.author_id}_{int(time.time())}"
                 )
                 
                 content = response['message']['content']

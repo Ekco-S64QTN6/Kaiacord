@@ -306,6 +306,9 @@ forum:
   # Main switch to enable/disable forum features
   enabled: true 
   
+  # Whether to automatically scrape the forum for new content (DISABLED by default)
+  auto_scrape: false
+  
   # Whether to allow the bot to automatically respond to threads (not implemented yet)
   auto_reply: false
   

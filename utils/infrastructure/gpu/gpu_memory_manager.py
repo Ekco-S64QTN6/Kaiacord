@@ -12,19 +12,24 @@ and gpu_manager.py into a single, unified manager.
 import asyncio
 import gc
 import logging
+import time
+import uuid
 from typing import Optional, Dict, List
 from enum import Enum
 from dataclasses import dataclass
 from utils.infrastructure.logging.kaia_logger import log_info, log_warning, log_error, log_success, log_debug
+from utils.infrastructure.gpu.gpu_manager import gpu_semaphore, ModelContextMonitor
 
 logger = logging.getLogger(__name__)
 
-
+@dataclass
 class GPUTaskPriority(Enum):
     """Priority levels for GPU tasks"""
-    CHAT = 1          # Highest priority - chat model stays loaded
-    VISION = 2        # Medium priority - can preempt image gen
-    IMAGE_GEN = 3     # Lowest priority - yields to chat and vision
+    CRITICAL = 0      # Intent analysis/Classification (Must be fast)
+    CHAT = 1          # High priority - chat model
+    VISION = 2        # Medium priority
+    IMAGE_GEN = 3     # Low priority
+    EMBEDDING = 4     # Retrieval/Social (Frequent, low VRAM but triggers swap)
 
 
 @dataclass
@@ -241,6 +246,51 @@ class GPUMemoryManager:
             return 'high'
         else:
             return 'critical'
+
+    async def run_with_gpu_guard(
+        self, 
+        model_name: str, 
+        priority: GPUTaskPriority, 
+        coro, 
+        vram_gb: float = 4.0,
+        task_id: str = None
+    ):
+        """
+        Gated execution for GPU tasks.
+        Uses both the concurrency semaphore and VRAM reservation.
+        """
+        if task_id is None:
+            import uuid
+            task_id = f"gpu_task_{uuid.uuid4().hex[:8]}"
+
+        # 1. Acquire Concurrency Semaphore (Queue up)
+        t_wait_start = time.time()
+        log_debug(f"Task {task_id} ({model_name}) waiting for GPU semaphore...")
+        
+        async with gpu_semaphore:
+            wait_duration = time.time() - t_wait_start
+            if wait_duration > 1.0:
+                log_info(f"Task {task_id} waited {wait_duration:.2f}s for GPU access.")
+
+            # 2. Monitor Model Swapping
+            swapped = await ModelContextMonitor.set_model(model_name)
+            if swapped and model_name != "nomic-embed-text":
+                log_info(f"Model swap detected: Loading {model_name}. Clearing VRAM cache...")
+                # Integrated cleanup for handover
+                from utils.infrastructure.gpu.clear_gpu_memory import clear_gpu_memory
+                clear_gpu_memory(silent=True)
+
+            # 3. Request VRAM Reservation
+            # Note: We still allow execution if VRAM reservation fails (fall back to CPU)
+            reserved = await self.request_vram(task_id, vram_gb, priority, model_name)
+            
+            try:
+                # 4. Execute Protected Coroutine
+                return await coro
+            finally:
+                # 5. Release VRAM
+                if reserved:
+                    await self.release_vram(task_id)
 
 
 # Global instance

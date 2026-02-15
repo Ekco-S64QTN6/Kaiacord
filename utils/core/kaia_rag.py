@@ -1083,7 +1083,7 @@ class KaiaRAG:
                 return False
 
     @thread_safe_rag_operation
-    def retrieve(self, query: str, user_id: Any = None, user_name: str = None, top_k: int = 5, 
+    async def retrieve(self, query: str, user_id: Any = None, user_name: str = None, top_k: int = 5, 
                 strict_identity: bool = False, include_news: bool = False,
                 category: str = "general", intent: Optional[Intent] = None) -> List[Dict[str, Any]]:
         """
@@ -1301,8 +1301,10 @@ class KaiaRAG:
             
             # 4. HIERARCHICAL RETRIEVAL
             all_node_results = []
-            for itype in target_itypes:
-                if itype not in self.indices: continue
+            
+            from utils.infrastructure.gpu.gpu_memory_manager import gpu_memory_manager, GPUTaskPriority
+            
+            async def perform_hybrid_retrieval(itype):
                 try:
                     bm25_retriever = self.bm25_cache.get(itype)
                     if bm25_retriever is None:
@@ -1314,12 +1316,28 @@ class KaiaRAG:
                     if bm25_retriever:
                         mult = config.rag_base_score_multiplier
                         hybrid = HybridRetriever(self.indices[itype], bm25_retriever, multiplier=mult)
-                        all_node_results.extend(hybrid.retrieve(enriched_query, top_k=retrieve_count))
+                        return hybrid.retrieve(enriched_query, top_k=retrieve_count)
                     else:
                         retriever = self.indices[itype].as_retriever(similarity_top_k=retrieve_count)
-                        all_node_results.extend(retriever.retrieve(enriched_query))
+                        return retriever.retrieve(enriched_query)
                 except Exception as e:
                     log_error(f"Retrieval failed for {itype}: {e}")
+                    return []
+
+            # Guarded parallel retrieval
+            async def run_all_retrievals():
+                tasks = [perform_hybrid_retrieval(itype) for itype in target_itypes if itype in self.indices]
+                results = await asyncio.gather(*tasks)
+                return [node for sublist in results for node in sublist]
+
+            # Wrap retrieval (uses embedding model) with GPU guard
+            all_node_results = await gpu_memory_manager.run_with_gpu_guard(
+                model_name="nomic-embed-text",
+                priority=GPUTaskPriority.EMBEDDING,
+                coro=run_all_retrievals(),
+                vram_gb=0.5,
+                task_id=f"rag_retrieve_{int(time.time())}"
+            )
             
             # 5. DYNAMIC SCORING & FILTERING
             scored_nodes = [] 
@@ -1664,10 +1682,34 @@ class KaiaRAG:
             return
             
         log_action("Persisting all RAG indices...")
+        if not os.path.exists(self.persist_dir):
+            os.makedirs(self.persist_dir)
+            
         for itype, index in self.indices.items():
             try:
                 itype_dir = os.path.join(self.persist_dir, itype)
-                index.storage_context.persist(persist_dir=itype_dir)
+                temp_dir = f"{itype_dir}_tmp"
+                
+                # 1. Clean up stale temp dir if it exists
+                if os.path.exists(temp_dir):
+                    shutil.rmtree(temp_dir)
+                
+                # 2. Persist to temporary location
+                index.storage_context.persist(persist_dir=temp_dir)
+                
+                # 3. Atomic swap (near-atomic on most filesystems)
+                old_dir = f"{itype_dir}_old"
+                if os.path.exists(old_dir):
+                    shutil.rmtree(old_dir)
+                
+                if os.path.exists(itype_dir):
+                    os.rename(itype_dir, old_dir)
+                
+                os.rename(temp_dir, itype_dir)
+                
+                if os.path.exists(old_dir):
+                    shutil.rmtree(old_dir)
+                    
             except Exception as e:
                 log_error(f"Failed to persist {itype} index: {e}")
         

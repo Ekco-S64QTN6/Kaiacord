@@ -1,8 +1,35 @@
-# gpu_manager.py
-import os
 import asyncio
-from typing import Optional, Dict, Any
 import time
+import os
+from typing import Optional, Dict, Any
+
+# Global GPU Concurrency Guard
+# Limits concurrent Ollama/GPU calls to prevent VRAM thrashing and system lockups.
+gpu_semaphore = asyncio.Semaphore(1)
+
+class ModelContextMonitor:
+    """Tracks the currently loaded model in Ollama to prevent rapid swapping."""
+    _current_model: Optional[str] = None
+    _last_swap_time: float = 0
+    _lock = asyncio.Lock()
+
+    @classmethod
+    async def set_model(cls, model_name: str):
+        # nomic-embed-text is lightweight and can co-exist with chat models.
+        # We don't want to trigger a 'swap' event for it, as that leads to VRAM clearing.
+        if model_name == "nomic-embed-text":
+            return False
+            
+        async with cls._lock:
+            if cls._current_model != model_name:
+                cls._current_model = model_name
+                cls._last_swap_time = time.time()
+                return True # Model changed
+            return False # Model stayed the same
+
+    @classmethod
+    def get_current_model(cls) -> Optional[str]:
+        return cls._current_model
 
 class GPUMonitor:
     """Monitor GPU usage for the dashboard (uses pynvml for efficiency)"""

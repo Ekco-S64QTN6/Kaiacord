@@ -615,8 +615,9 @@ class IntentParser:
                 r"\b(give me a summary|brief on|overview of)\b"
             ],
             "SYNTHESIS_SCAN": [
-                r"\b(news|headlines|current events|happening today|latest on)\b",
-                r"^\s*(kaia\s+)?what's (new|happening)\b"
+                r"\b(headlines|current events|happening today|latest on)\b",
+                r"^\s*(kaia\s+)?(what's the|any) news\b",
+                r"^\s*(kaia\s+)?what's happening in the (world|news)\b"
             ]
         }
 
@@ -654,7 +655,17 @@ class IntentParser:
 
         # 2. Layer 2: LLM Intent Analysis (with fast-path hint if available)
         hint = fast_intent.suggested_strategy if fast_intent else None
-        llm_intent = await self._analyze_with_llm(query, context, fast_path_hint=hint)
+        
+        # Use run_with_gpu_guard for intent analysis
+        from utils.infrastructure.gpu.gpu_memory_manager import gpu_memory_manager, GPUTaskPriority
+        
+        llm_intent = await gpu_memory_manager.run_with_gpu_guard(
+            model_name=self.classification_model,
+            priority=GPUTaskPriority.CRITICAL,
+            coro=self._analyze_with_llm(query, context, fast_path_hint=hint),
+            vram_gb=4.0, # Intent analysis is relatively lightweight
+            task_id=f"intent_{int(time.time())}"
+        )
         
         # 3. Layer 3: Strategy Merging (Cognitive Stabilization)
         # If the LLM confidence is low or it returned EXPLORATORY_DIALOGUE, 
@@ -692,8 +703,8 @@ class IntentParser:
                 "- PRECISE_RECALL: Specific facts, biographies, dates, or identities.\n"
                 "- DIAGNOSTIC_DEEP_DIVE: Technical issues, logs, system status, or bugs.\n"
                 "- DREAM_RECALL: Inquiries about previous internal dream states.\n"
-                "- SYNTHESIS_SCAN: Real-world news, events, or external data.\n"
-                "- EXPLORATORY_DIALOGUE: General multifaceted conversation or philosophical chat.\n"
+                "- SYNTHESIS_SCAN: Real-world news, current events, or external global data. (NOT for internal forum news, game updates, or personal news).\n"
+                "- EXPLORATORY_DIALOGUE: General multifaceted conversation, philosophical chat, or informal discussion.\n"
                 "- RELATIONAL_MIRROR: Social bonding, reflection on user-bot relationship.\n"
                 "- CREATIVE_ASSOCIATION: High-variance brainstorming or creative writing.\n"
                 f"{hint_str}"
