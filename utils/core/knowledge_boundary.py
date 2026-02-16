@@ -120,6 +120,8 @@ class KnowledgeBoundary:
             # Common Nouns/Sentences often flagged as entities
             'Henceforth', 'Empire', 'Soldiers', 'Saint', 'Dictator', 'Palace', 'People', 'World', 'Life', 
             'Order', 'Chaos', 'Power', 'History', 'Truth', 'Justice', 'Honor', 'Service', 'Duty', 'Glory', 'Welcome',
+            # Recent False Positives (Common Knowledge)
+            'Visual', 'Disability', 'Blackrock', 'Investment', 'Finance', 'Economics',
             # Forum Artifacts
             'Quote', 'Unread', 'Posts', 'Thread', 'Member', 'Join', 'Date', 'Quick', 'Multi', 'Reply', 'With',
             'Kobold', 'Dungeon', 'Dungeons', 'Dragons', 'Madcap', 'Views', 'Size', 'Description', 'Mechanism',

@@ -162,6 +162,21 @@ class BotSpeakFilter:
     RE_ASTERISKS = re.compile(r'(?<!\*)\*(?!\*)([^\*]+?)\*(?!\*)', re.IGNORECASE)
     RE_PREFIXES = re.compile(r'^(Kaia|User|Assistant|System):\s*', re.IGNORECASE | re.MULTILINE)
     
+    # Anti-engagement bait patterns (robotic assistant questions)
+    BAIT_PATTERNS = [
+        r"(?i)what('s|\s+is)\s+on\s+your\s+mind\??",
+        r"(?i)what\s+are\s+you\s+(working\s+on|up\s+to)\??",
+        r"(?i)any\s+thoughts\??",
+        r"(?i)do\s+you\s+have\s+any\s+questions\??",
+        r"(?i)let\s+me\s+know\s+if\s+you\s+need\??",
+        r"(?i)how\s+can\s+i\s+(help|assist)\??",
+        r"(?i)why\?", # Standalone "Why?" often feels bait-y
+        r"(?i)what(’|')s\s+driving\s+your\s+interest\??",
+        r"(?i)you\s+following\s+anything\s+specific\??",
+        r"(?i)what\s+do\s+you\s+(think|need)\??",
+        r"(?i)anything\s+else\??",
+    ]
+    
     ACTION_VERBS = {
         'nods', 'sighs', 'grins', 'smiles', 'laughs', 'pauses', 'frowns', 'shrugs', 
         'blinks', 'tilts', 'leans', 'taps', 'looks', 'waves', 'winks', 'checks', 
@@ -223,7 +238,67 @@ class BotSpeakFilter:
             cleaned = re.sub(r'\n\s*\n+', '\n\n', cleaned)
             cleaned = cleaned.strip()
         
+        # 3. Final Pass: Strip robotic engagement bait
+        cleaned = cls.strip_trailing_questions(cleaned)
+        
         return cleaned
+
+    @classmethod
+    def strip_trailing_questions(cls, text: str) -> str:
+        """Strip robotic engagement bait questions from the end of the response."""
+        if not text:
+            return text
+            
+        lines = text.split('\n')
+        clean_lines = []
+        
+        for line in lines:
+            current_line = line
+            stripped = line.strip()
+            if not stripped:
+                clean_lines.append(line)
+                continue
+            
+            # Keep stripping while the line ends with a bait pattern
+            while True:
+                found_bait = False
+                for pattern in cls.BAIT_PATTERNS:
+                    # Match pattern specifically at the end of the line (allowing for punctuation/whitespace)
+                    # We use $ but allow for characters that aren't letters
+                    # Actually, regex search then checking if remainder is empty is more robust for patterns like "why?"
+                    match = re.search(pattern, current_line)
+                    if match:
+                        span = match.span()
+                        remaining = current_line[span[1]:].strip(' .?!…')
+                        if not remaining:
+                            # It's at the end! Truncate and loop again to see if there's more
+                            truncated = current_line[:span[0]].rstrip(' ')
+                            if truncated:
+                                log_warning(f"[BAIT_GUARD] Truncated robotic question from line: '{current_line}'")
+                                current_line = truncated
+                                found_bait = True
+                                break # Break inner loop to re-check all patterns on new current_line
+                            else:
+                                # The entire remaining line was bait!
+                                current_line = ""
+                                found_bait = True
+                                break
+                
+                if not found_bait or not current_line:
+                    break
+            
+            if current_line:
+                clean_lines.append(current_line)
+            else:
+                # If the whole line was bait, we drop it unless it's the only line
+                if len(lines) > 1:
+                    log_warning(f"[BAIT_GUARD] Dropped full-bait line: '{line}'")
+                    continue
+                else:
+                    # If it's the only line, keep it as a fallback rather than sending empty
+                    clean_lines.append(line)
+                    
+        return "\n".join(clean_lines).strip()
 
     @classmethod
     def strip_bot_speak(cls, text: str) -> str:
