@@ -131,13 +131,7 @@ class UnifiedLogger:
         if self._is_debug_duplicate(message, log_type):
             return
             
-        # Default level suppression (unless in debug mode, which we don't have a simple flag for yet)
-        if log_type == "DEBUG":
-            # For now, only log DEBUG to file, not to buffers or console unless explicitly allowed
-            # This prevents LlamaIndex and others from spamming the UI
-            self._write_to_file({'timestamp': datetime.now().strftime("%H:%M:%S"), 'type': log_type, 'message': f"[HIDDEN] {message}"})
-            return
-        
+        # Prepare timestamp
         try:
             # Check if datetime is still available
             if 'datetime' not in globals() and 'datetime' not in sys.modules:
@@ -157,9 +151,11 @@ class UnifiedLogger:
         }
         
         # Add to buffers (memory operations are fast)
-        with self.lock:
-            self.dashboard_buffer.append(log_entry)
-            self.console_buffer.append(log_entry)
+        # Skip DEBUG for memory buffers to prevent UI clutter/pressure
+        if log_type != "DEBUG":
+            with self.lock:
+                self.dashboard_buffer.append(log_entry)
+                self.console_buffer.append(log_entry)
         
         # ENQUEUE for background worker (Thread-safe, Non-blocking)
         try:
@@ -178,13 +174,14 @@ class UnifiedLogger:
                 log_entry = self.log_queue.get(timeout=1.0)
                 
                 # 1. Write to console (formatted)
-                self._write_to_console(log_entry)
+                if log_entry['type'] != 'DEBUG':
+                    self._write_to_console(log_entry)
                 
                 # 2. Write to file (with rotation)
                 self._write_to_file(log_entry)
                 
                 # 3. Push to multiprocessing dashboard queue if available
-                if self._dashboard_queue:
+                if log_entry['type'] != 'DEBUG' and self._dashboard_queue:
                     try:
                         self._dashboard_queue.put_nowait(log_entry)
                     except:

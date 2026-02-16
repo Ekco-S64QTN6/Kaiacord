@@ -304,13 +304,13 @@ def _classify_folder(url: str, title: str, file_type: str, word_count: int) -> s
     # Blog domains
     if any(bd in domain for bd in BLOG_DOMAINS):
         return "blogs"
-    if '/blog/' in url_lower or '/posts/' in url_lower:
+    if '/blog/' in url_lower or '/blogs/' in url_lower or '/posts/' in url_lower:
         return "blogs"
     
     # News domains
     if any(nd in domain for nd in NEWS_DOMAINS):
         return "news/daily"
-    if '/news/' in url_lower:
+    if '/news/' in url_lower and not ('/blogs/' in url_lower or '/blog/' in url_lower):
         return "news/daily"
     
     # Books: PDFs that are long or have "book" in title

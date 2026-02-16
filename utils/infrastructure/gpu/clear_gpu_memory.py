@@ -98,6 +98,26 @@ def force_clear_gpu() -> bool:
         return False
 
 
+def kill_orphaned_runners():
+    """Aggressively kill any lingering ollama runner processes to reclaim VRAM."""
+    import psutil
+    import os
+    
+    current_pid = os.getpid()
+    for proc in psutil.process_iter(['pid', 'name', 'cmdline']):
+        try:
+            # Check for ollama runner processes
+            cmdline = proc.info.get('cmdline') or []
+            if 'ollama' in proc.info['name'].lower() and 'runner' in ' '.join(cmdline).lower():
+                print(f"🔪 Killing orphaned Ollama runner (PID: {proc.info['pid']})")
+                proc.kill()
+        except (psutil.NoSuchProcess, psutil.AccessDenied):
+            pass
+    
+    print("✨ Orphaned runners cleared.")
+
+
 if __name__ == "__main__":
+    kill_orphaned_runners()
     clear_gpu_memory()
 

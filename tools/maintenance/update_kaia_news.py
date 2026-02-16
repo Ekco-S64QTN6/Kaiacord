@@ -1,9 +1,7 @@
 #!/usr/bin/env python3
-"""
-Daily News Updater for Kaia
-Uses Gemini API with Google Search grounding to generate accurate daily briefs
-"""
-
+import warnings
+# Silence "nag" about switching to google-genai
+warnings.filterwarnings("ignore", category=FutureWarning)
 import os
 import json
 import datetime
@@ -11,10 +9,6 @@ from pathlib import Path
 from typing import Optional, List, Dict, Any
 import ollama
 from dotenv import load_dotenv
-
-# IMPORTANT: DO NOT SWITCH THIS TO 'google.genai' (the new SDK).
-# The user explicitly prefers the legacy 'google.generativeai' package.
-# Attempting to "migrate" this will break the user's preferred workflow.
 import google.generativeai as genai
 
 # Load environment variables from .env file

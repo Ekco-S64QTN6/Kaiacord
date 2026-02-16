@@ -21,6 +21,21 @@ from utils.infrastructure.logging.kaia_logger import log_info, log_success, log_
 from utils.core.response_filter import BotSpeakFilter
 from contextlib import asynccontextmanager
 from utils.infrastructure.system.shutdown_fixed import shutdown_manager
+from utils.infrastructure.system.yaml_config import config
+
+# HEAVY IMPORTS: Moved to top-level to prevent event loop stalls during lazy initialization.
+# These libraries (especially atproto) have significant import overhead (~5s).
+try:
+    from utils.social.kaia_bluesky import get_bluesky_client, is_bluesky_configured
+    from atproto import models
+except ImportError:
+    log_warning("Social libraries (atproto) not found. Some social features may be limited.")
+    get_bluesky_client = is_bluesky_configured = models = None
+
+def warm_social_libraries():
+    """No-op function to trigger top-level imports of heavy social libraries."""
+    log_info("Warming social libraries (atproto)...")
+    return bool(models)
 
 # =============================================================================
 # CONSTANTS
@@ -218,7 +233,6 @@ async def _reconstruct_bluesky_history():
     """Fetch recent bot posts from Bluesky and rebuild thread counts efficiently."""
     global _thread_counts
     try:
-        from utils.social.kaia_bluesky import get_bluesky_client, is_bluesky_configured
         if not is_bluesky_configured() or shutdown_manager.shutting_down: return
         
         client = await get_bluesky_client()
@@ -226,8 +240,6 @@ async def _reconstruct_bluesky_history():
         
         # Reset counts for fresh reconstruction
         _thread_counts = {}
-        
-        from atproto import models
         handle = os.getenv("BLUESKY_HANDLE")
         response = await client.app.bsky.feed.get_author_feed(params=models.AppBskyFeedGetAuthorFeed.Params(actor=handle, limit=50))
         
@@ -622,8 +634,6 @@ async def check_and_reply_mentions(on_message_func):
     # Load replied IDs if not loaded (Offload to thread)
     if not _replied_ids:
         await asyncio.to_thread(_load_replied_ids)
-    
-    from utils.infrastructure.system.yaml_config import config
     
     # SAFETY: High-integrity session safety.
     # 1. Reconstruct thread counts from real platform state (prevents loops even if storage wiped)

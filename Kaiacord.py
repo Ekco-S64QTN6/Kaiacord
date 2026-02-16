@@ -223,6 +223,10 @@ def main():
         # Sequenced boot with respect to skip-rag-warm
         log_info("Starting sequenced boot...")
         
+        # 0. Warm Social Libraries (Heavy imports)
+        from utils.social.kaia_social_responder import warm_social_libraries
+        warm_social_libraries()
+        
         # 1. Primary RAG Refresh (Mandatory for identity)
         await run_rag(ctx.rag.refresh_knowledge_base)
         await asyncio.sleep(2.0) # Settle I/O after refresh
@@ -232,17 +236,31 @@ def main():
             await run_news_update()
             await asyncio.sleep(2.0) # Settle I/O after news pull
             
-        # 3. Model Pre-warming (Serialized for I/O safety)
-        try:
-            if ctx.intent_parser:
-                await ctx.intent_parser.pre_warm()
-                await asyncio.sleep(1.0)
-            await prewarm_main_model()
-        except: pass
+        # 3. Model Pre-warming (Strict Serial Workflow)
+        async def perform_serialized_warmup():
+            try:
+                # Part A: Intent Parser (CPU Only)
+                if ctx.intent_parser:
+                    log_action(f"Step A: Warming Intent Classifier ({ctx.intent_parser.classification_model})...")
+                    await ctx.intent_parser.pre_warm()
+                
+                # Part B: Settle Period
+                await asyncio.sleep(2.0)
+                
+                # Part C: Main Model (GPU)
+                log_action(f"Step B: Warming Main Model ({config.chat_model})...")
+                await prewarm_main_model()
+                
+                log_success("🧠 Sequenced Boot: Models warmed and isolated.")
+            except Exception as e:
+                log_error(f"Sequenced model warmup failed: {e}")
 
-        # Signal boot complete for message processor IMMEDIATELY after models are warm
+        # Still run in background to keep bot responsive, but the internal steps are serial
+        asyncio.create_task(perform_serialized_warmup())
+        
+        # Signal boot complete for message processor IMMEDIATELY
         bot_state.boot_complete = True
-        log_success("Kaia models are warm and ready.")
+        log_success("Kaia models loading in background (Bot is responsive).")
 
         # 4. Heavy RAG Warm (Optional/Bypassable)
         if args.eager_rag_warm:
@@ -265,6 +283,8 @@ def main():
         mode = env_mode
 
     if mode == 'curses':
+        from utils.infrastructure.gpu.clear_gpu_memory import kill_orphaned_runners
+        kill_orphaned_runners()
         dm.run_curses_mode(initialize_logic_layer_async, run_bot_wrapper)
     else:
         asyncio.run(dm.run_simple_mode(initialize_logic_layer_async, run_bot_wrapper))

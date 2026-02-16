@@ -89,10 +89,19 @@ class BotState:
                     'mentioned_files': list(self.mentioned_files),
                     'saved_at': time.time()
                 }
-                with open(self.state_file, 'w') as f:
-                    json.dump(state, f)
+                
+                # Offload the actual I/O to a background thread to prevent loop stalls
+                threading.Thread(target=self._persist_to_disk, args=(state,), daemon=True).start()
         except Exception as e:
-            log_warning(f"Failed to save bot state: {e}\n{traceback.format_exc()}")
+            log_warning(f"Failed to initiate bot state save: {e}")
+
+    def _persist_to_disk(self, state: dict):
+        """Actual disk I/O performed in background thread"""
+        try:
+            with open(self.state_file, 'w') as f:
+                json.dump(state, f, indent=2)
+        except Exception as e:
+            log_warning(f"Background save failed for bot state: {e}")
 
     def reset_quips(self):
         """Reset consecutive quips counter"""

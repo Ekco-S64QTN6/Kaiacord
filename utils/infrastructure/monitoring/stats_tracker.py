@@ -52,13 +52,18 @@ class StatsTracker:
                     'last_saved': datetime.now().isoformat()
                 }
             
+            # Offload to background thread to prevent loop stalls
+            threading.Thread(target=self._persist_to_disk, args=(stats_file, save_data), daemon=True).start()
+        except Exception as e:
+            print(f"❌ Error initiating stats save: {e}")
+
+    def _persist_to_disk(self, stats_file, save_data):
+        """Actual disk I/O in background thread"""
+        try:
             with open(stats_file, 'w') as f:
                 json.dump(save_data, f, indent=2)
         except Exception as e:
-            # Print error so it gets picked up by UnifiedLogger
-            print(f"❌ Error saving stats: {e}")
-            import traceback
-            traceback.print_exc()
+            print(f"❌ Background stats save failed: {e}")
     
     def increment_users(self, user_id=None):
         """Increment user count"""

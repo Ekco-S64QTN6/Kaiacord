@@ -213,14 +213,16 @@ class KaiaRAG:
         self.indexed_files = {}  # Track indexed files {path: mtime} to detect updates
         
         # Configure Ollama Embedding
-        # Force GPU for embeddings too
+        # Force CPU for embeddings to save VRAM for the main 12b model
         self.embed_model = OllamaEmbedding(
             model_name="nomic-embed-text",
             base_url="http://localhost:11434",
             query_prefix="search_query: ",
             text_prefix="search_document: ",
             request_timeout=config.embedding_request_seconds,
-            additional_kwargs={"num_gpu": 0}  # Force embeddings to CPU
+            # Force CPU for embeddings to save VRAM for the main 12b model
+            # Ollama requires these to be in an 'options' dict
+            additional_kwargs={"options": {"num_gpu": 0}} 
         )
         
         # Set global settings
@@ -1377,15 +1379,10 @@ class KaiaRAG:
                 results = await asyncio.gather(*tasks)
                 return [node for sublist in results for node in sublist]
 
-            from utils.infrastructure.gpu.gpu_memory_manager import gpu_memory_manager, GPUTaskPriority
-            
-            # Wrap retrieval (uses embedding model) with GPU guard - tiny context for retrieval
-            all_node_results = await gpu_memory_manager.run_with_gpu_guard(
-                model_name="nomic-embed-text",
-                priority=GPUTaskPriority.EMBEDDING,
-                coro=run_all_retrievals(),
-                task_id=f"rag_retrieve_{int(time.time())}"
-            )
+            # Embeddings are forced to CPU in __init__, so we bypass the GPU guard
+            # This allows retrieval to run in parallel with generation without contention.
+            log_debug(f"Executing CPU-based RAG retrieval: nomic-embed-text")
+            all_node_results = await run_all_retrievals()
             
             # 5. DYNAMIC SCORING & FILTERING
             scored_nodes = [] 
