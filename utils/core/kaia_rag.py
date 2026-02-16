@@ -590,7 +590,34 @@ class KaiaRAG:
             if not os.path.exists(corrupt_dir):
                 os.makedirs(corrupt_dir)
 
-            # 1. Manually walk the directory to find NEW files
+            # Track which indices actually changed
+            updated_itypes = set()
+
+            # 1. Detect and prune DELETED files
+            # This ensures that if the user deletes files from knowledge_base, 
+            # the index is updated to match.
+            deleted_files = [p for p in list(self.indexed_files.keys()) if not os.path.exists(p)]
+            if deleted_files:
+                log_action(f"Detected {len(deleted_files)} deleted files. Pruning index...")
+                for file_path in deleted_files:
+                    abs_path = os.path.abspath(file_path)
+                    for itype, index in self.indices.items():
+                        nodes_to_delete = [
+                            node_id for node_id, node in index.docstore.docs.items()
+                            if node.metadata.get('file_path') == file_path or os.path.abspath(node.metadata.get('file_path', '')) == abs_path
+                        ]
+                        if nodes_to_delete:
+                            log_info(f"Pruning {len(nodes_to_delete)} stale nodes for {os.path.basename(file_path)} from {itype}")
+                            for node_id in nodes_to_delete:
+                                index.delete_nodes([node_id])
+                            updated_itypes.add(itype)
+                    
+                    if file_path in self.indexed_files:
+                        del self.indexed_files[file_path]
+                    elif abs_path in self.indexed_files:
+                        del self.indexed_files[abs_path]
+
+            # 2. Manually walk the directory to find NEW files
             new_file_paths = []
             supported_exts = [".pdf", ".txt", ".md", ".docx"]
             
@@ -622,16 +649,13 @@ class KaiaRAG:
                             is_log = itype == 'logs'
                             new_file_paths.append((full_path, is_modified, is_log, itype))
 
-            # 2. Also index the persona file from knowledge_base
+            # 3. Also index the persona file from knowledge_base
             persona_file = "knowledge_base/kaia_persona.md"
             if os.path.exists(persona_file):
                 norm_path = os.path.abspath(persona_file)
                 mtime = os.path.getmtime(norm_path)
                 if norm_path not in self.indexed_files or mtime > self.indexed_files[norm_path]:
                     new_file_paths.append((persona_file, norm_path in self.indexed_files, False, 'persona'))
-
-            # Track which indices actually changed
-            updated_itypes = set()
 
             if not new_file_paths:
                 log_debug("No new documents to index.")
