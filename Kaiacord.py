@@ -1,5 +1,6 @@
 import os
 import sys
+import argparse
 import asyncio
 import uuid
 import re
@@ -182,6 +183,24 @@ def main():
     from utils.infrastructure.monitoring.stats_tracker import stats_tracker
     from utils.infrastructure.monitoring.stats_poller import stats_poller
     
+    # Parse Arguments
+    parser = argparse.ArgumentParser(description="Kaiacord - The AI Discord Bot")
+    parser.add_argument('--no-gui', action='store_true', help="Run without curses dashboard")
+    parser.add_argument('--eager-rag-warm', action='store_true', help="Eagerly pre-warm BM25 indices at boot (default: lazy, built on first query)")
+    parser.add_argument('--status', action='store_true', help="Check system status and exit")
+    args = parser.parse_args()
+
+    if args.status:
+        # Simple status check
+        print("\n--- Kaia System Status ---")
+        import ollama
+        try:
+            ollama.list()
+            print("Ollama: ✅ ONLINE")
+        except:
+            print("Ollama: 🔴 OFFLINE")
+        return
+
     # Ensure shutdown manager is registered for global access if needed
     ctx.shutdown_manager = shutdown_manager
 
@@ -201,15 +220,50 @@ def main():
         
         from utils.social.social_tasks import start_social_tasks
         
-        await dm.sequenced_boot_tasks(
-            run_rag, ctx.rag, run_news_update, prewarm_main_model
-        )
+        # Sequenced boot with respect to skip-rag-warm
+        log_info("Starting sequenced boot...")
+        
+        # 1. Primary RAG Refresh (Mandatory for identity)
+        await run_rag(ctx.rag.refresh_knowledge_base)
+        await asyncio.sleep(2.0) # Settle I/O after refresh
+        
+        # 2. News Update
+        if config.startup_news_update:
+            await run_news_update()
+            await asyncio.sleep(2.0) # Settle I/O after news pull
+            
+        # 3. Model Pre-warming (Serialized for I/O safety)
+        try:
+            if ctx.intent_parser:
+                await ctx.intent_parser.pre_warm()
+                await asyncio.sleep(1.0)
+            await prewarm_main_model()
+        except: pass
+
+        # Signal boot complete for message processor IMMEDIATELY after models are warm
+        bot_state.boot_complete = True
+        log_success("Kaia models are warm and ready.")
+
+        # 4. Heavy RAG Warm (Optional/Bypassable)
+        if args.eager_rag_warm:
+            log_info("Eager RAG pre-warm requested. Building BM25 indices...")
+            await run_rag(ctx.rag.pre_warm)
+        else:
+            log_info("BM25 indices will be built lazily on first query (use --eager-rag-warm to pre-warm).")
         
         # Start loops with shared context
         bg_tasks.start_background_core_tasks(ctx)
         start_social_tasks(ctx, on_message)
+        
+        log_success("Kaia is fully online and heartbeating.")
 
-    mode = os.environ.get('KAIA_DASHBOARD', 'curses').lower()
+    # Determine Display Mode
+    env_mode = os.environ.get('KAIA_DASHBOARD', 'curses').lower()
+    if args.no_gui:
+        mode = 'simple'
+    else:
+        mode = env_mode
+
     if mode == 'curses':
         dm.run_curses_mode(initialize_logic_layer_async, run_bot_wrapper)
     else:

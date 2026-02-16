@@ -7,6 +7,7 @@ from discord.ext import tasks
 from utils.infrastructure.logging.kaia_logger import log_action, log_success, log_error, log_info, log_warning
 from utils.infrastructure.system.bot_state import bot_state
 from utils.infrastructure.system.yaml_config import config
+from utils.infrastructure.system.shutdown_fixed import shutdown_manager
 
 # Dependencies — now managed via AppContext
 ctx = None
@@ -14,6 +15,9 @@ ctx = None
 @tasks.loop(hours=12)
 async def news_refresh_task():
     """Periodic news refresh to keep the database current."""
+    if shutdown_manager.shutting_down:
+        return
+        
     try:
         log_action("Running periodic news refresh...")
         process = await asyncio.create_subprocess_exec(
@@ -40,6 +44,10 @@ async def news_refresh_task():
 @tasks.loop(hours=1)
 async def dream_engine_task():
     """Nightly dream processing task (runs between 3-5 AM)"""
+    # ADDED: Shutdown guard to prevent hangs
+    from utils.infrastructure.system.shutdown_fixed import shutdown_manager
+    if shutdown_manager.shutting_down: return
+
     if not ctx or not ctx.bot_state or not ctx.config:
         return
         
@@ -63,11 +71,14 @@ async def dream_engine_task():
         if last_dream != today:
             log_action("Nightly dream processing starting...")
             try:
-                # Late import to avoid circular dependency
                 from utils.social.kaia_social_responder import load_persona_async
                 persona_content = await load_persona_async()
                 await ctx.dream_engine.nightly_dream_processing(persona_content)
-                await asyncio.to_thread(ctx.rag.refresh_knowledge_base)
+                
+                # CRITICAL FIX: Use the gated semaphore wrapper from Kaiacord.py
+                from Kaiacord import run_rag as run_rag_func
+                await run_rag_func(ctx.rag.refresh_knowledge_base)
+                
                 ctx.bot_state.last_dream_date = today
                 ctx.bot_state.save()
             except Exception as e:

@@ -18,6 +18,9 @@ models:
   # Embedding model for RAG
   embedding: "nomic-embed-text"
 
+  # Whether to run intent classification on GPU (default: false, runs on CPU)
+  classification_on_gpu: false
+
 # ============================================================================
 # Performance Configuration
 # ============================================================================
@@ -134,8 +137,15 @@ timeouts:
   # RAG internal lock timeout (seconds)
   rag_lock_seconds: 10.0
 
+  # Embedding request timeout (seconds) - per-request timeout for OllamaEmbedding calls
+  embedding_request_seconds: 60.0
+
   # LLM request timeout (seconds)
   llm_request_seconds: 360.0
+
+  # Overall shutdown timeout (seconds) - how long to wait for async_shutdown to complete
+  # Must be long enough for RAG persistence (~30s) plus model unloading
+  shutdown_seconds: 60.0
 
 # ============================================================================
 # Paths Configuration

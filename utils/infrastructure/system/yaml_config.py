@@ -438,7 +438,7 @@ class YAMLConfig:
     @property
     def shutdown_timeout(self) -> float:
         """Overall shutdown timeout in seconds"""
-        return self.get('timeouts.shutdown_seconds', 10.0)
+        return self.get('timeouts.shutdown_seconds', 60.0)
 
     @property
     def shutdown_task_cancel_timeout(self) -> float:

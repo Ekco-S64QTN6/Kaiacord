@@ -19,6 +19,82 @@ from utils.infrastructure.monitoring.stats_helpers import set_stats_poller
 from utils.infrastructure.monitoring.btop_dashboard_v2 import BtopDashboardV2
 from utils.infrastructure.monitoring.async_task_registry import task_registry
 
+# --- MULTIPROCESSING TARGETS (Must be at module level for pickling) ---
+
+def _run_dashboard_process(shared_stats, log_queue, stop_event, cleanup_complete_event, error_queue):
+    """Entry point for the isolated dashboard process."""
+    try:
+        dashboard = BtopDashboardV2(
+            shared_stats=shared_stats,
+            log_queue=log_queue,
+            stop_event=stop_event,
+            cleanup_complete_event=cleanup_complete_event
+        )
+        dashboard.run()
+    except Exception as e:
+        err_info = (str(e), traceback.format_exc())
+        try:
+            error_queue.put(err_info)
+        except:
+            print(f"Isolated Dashboard Fatal Error (Failed to queue): {e}")
+            traceback.print_exc()
+        raise
+
+async def _stats_sync_task(shared_stats, stats_tracker, stats_poller, stop_event):
+    """Sync bot stats to shared memory."""
+    while not stop_event.is_set():
+        try:
+            s = stats_tracker.get_stats()
+            p = stats_poller.get_stats()
+            # We use update for bulk modification
+            shared_stats.update({
+                'messages': s.get('messages', 0),
+                'avg_response_time': s.get('avg_response_time', 0.0),
+                'queue_size': s.get('queue_size', 0),
+                'ollama_status': p.get('ollama_status', '🔴 OFFLINE'),
+                'active_model': p.get('active_model', 'None'),
+                'rag_size': p.get('rag_size', '0 MB'),
+            })
+        except: pass
+        await asyncio.sleep(1.0)
+
+def _run_bot_in_thread(shared_stats, stats_tracker, stats_poller, stop_event, 
+                       m_cleanup_complete_event, initialize_logic_layer, run_bot_async):
+    """Isolated bot thread runner."""
+    loop = asyncio.new_event_loop()
+    asyncio.set_event_loop(loop)
+    try:
+        # Start stats sync task
+        sync_task = loop.create_task(_stats_sync_task(shared_stats, stats_tracker, stats_poller, stop_event))
+        task_registry.register("ui_stats_sync", sync_task)
+        
+        # Initialize logic layer (e.g., config, state)
+        if inspect.iscoroutinefunction(initialize_logic_layer):
+            loop.run_until_complete(initialize_logic_layer())
+        else:
+            initialize_logic_layer()
+            
+        # Run main bot loop
+        loop.run_until_complete(run_bot_async(stats_poller, stop_event))
+    finally:
+        # Graceful loop drainage
+        try:
+            pending = asyncio.all_tasks(loop)
+            if pending:
+                loop.run_until_complete(asyncio.sleep(0.1))
+                pending = asyncio.all_tasks(loop)
+                for task in pending:
+                    if not task.done(): task.cancel()
+                loop.run_until_complete(asyncio.gather(*pending, return_exceptions=True))
+            loop.run_until_complete(loop.shutdown_asyncgens())
+        except: pass
+        
+        # Signal cleanup complete
+        try:
+            m_cleanup_complete_event.set()
+        except: pass
+        if not loop.is_closed(): loop.close()
+
 class DashboardManager:
     """Manages the lifecycle of the bot's terminal dashboard and run modes."""
     
@@ -245,90 +321,9 @@ class DashboardManager:
         log_info("Starting curses dashboard mode...")
         
         # 1. Perform ALL startup tasks (cleanup, stats poller) FIRST
-        # This occurs before we spawn any multiprocessing Managers
         sp = self.perform_startup_tasks()
         
-        # Signal dashboard mode to suppress console and enable queue
-        # Pass the queue if we are in curses mode
-        # self.logger.set_dashboard_mode(True) # This will be called in run_curses_mode
-        
-        def run_dashboard_process(shared_stats, log_queue, stop_event, cleanup_complete_event, error_queue):
-            """Entry point for the isolated dashboard process."""
-            # IMPORTANT: Re-initialize logger in the sub-process to avoid inheritance issues,
-            # but it will only be used for internal dashboard messages.
-            try:
-                # We don't need the full logic layer in the UI process
-                dashboard = BtopDashboardV2(
-                    shared_stats=shared_stats,
-                    log_queue=log_queue,
-                    stop_event=stop_event,
-                    cleanup_complete_event=cleanup_complete_event
-                )
-                dashboard.run()
-            except Exception as e:
-                # Capture and send error to parent
-                err_info = (str(e), traceback.format_exc())
-                try:
-                    error_queue.put(err_info)
-                except:
-                    print(f"Isolated Dashboard Fatal Error (Failed to queue): {e}")
-                    traceback.print_exc()
-                raise
-
-        async def stats_sync_task(shared_stats):
-            """Sync bot stats to shared memory."""
-            while not self.stop_event.is_set():
-                try:
-                    s = self.stats_tracker.get_stats()
-                    p = self.stats_poller.get_stats()
-                    shared_stats.update({
-                        'messages': s.get('messages', 0),
-                        'avg_response_time': s.get('avg_response_time', 0.0),
-                        'queue_size': s.get('queue_size', 0),
-                        'ollama_status': p.get('ollama_status', '🔴 OFFLINE'),
-                        'active_model': p.get('active_model', 'None'),
-                        'rag_size': p.get('rag_size', '0 MB'),
-                    })
-                except: pass
-                await asyncio.sleep(1.0)
-
-        def run_bot_in_thread(shared_stats, stats_poller, m_cleanup_complete_event):
-            sp = stats_poller
-            loop = asyncio.new_event_loop()
-            asyncio.set_event_loop(loop)
-            try:
-                # Start stats sync
-                sync_task = loop.create_task(stats_sync_task(shared_stats))
-                task_registry.register("ui_stats_sync", sync_task)
-                
-                # Initialize logic inside the loop
-                if inspect.iscoroutinefunction(initialize_logic_layer):
-                    loop.run_until_complete(initialize_logic_layer())
-                else:
-                    initialize_logic_layer()
-                loop.run_until_complete(run_bot_async(sp, self.stop_event))
-            finally:
-                # FINAL DRAIN
-                try:
-                    pending = asyncio.all_tasks(loop)
-                    if pending:
-                        loop.run_until_complete(asyncio.sleep(0.2))
-                        pending = asyncio.all_tasks(loop)
-                        for task in pending:
-                            if not task.done(): task.cancel()
-                        loop.run_until_complete(asyncio.gather(*pending, return_exceptions=True))
-                    loop.run_until_complete(loop.shutdown_asyncgens())
-                except Exception as e:
-                    print(f"[SHUTDOWN] Loop drainage error: {e}", file=sys.stderr)
-                
-                self.cleanup_complete_event.set()
-                try:
-                    m_cleanup_complete_event.set()
-                except: pass
-                if not loop.is_closed(): loop.close()
-
-        # 2. Initialize Multiprocessing IPC AFTER cleanup is done
-        # We use plain multiprocessing.Event for better robustness than Manager.Event()
+        # 2. Initialize Multiprocessing IPC (Must happen BEFORE spawning process)
         manager = multiprocessing.Manager()
         shared_stats = manager.dict()
         log_queue = multiprocessing.Queue(maxsize=1000)
@@ -336,29 +331,30 @@ class DashboardManager:
         m_stop_event = multiprocessing.Event()
         m_cleanup_complete_event = multiprocessing.Event()
         
-        # Cross-signal the logger
+        # Signal dashboard mode to suppress console and enable queue
         self.logger.set_dashboard_mode(True, queue=log_queue)
 
         try:
-            # Start UI in separate process (Isolates psutil and curses from bot GIL)
+            # 3. Start UI in separate process (Isolates psutil and curses from bot GIL)
             self.dashboard_process = multiprocessing.Process(
-                target=run_dashboard_process,
+                target=_run_dashboard_process,
                 args=(shared_stats, log_queue, m_stop_event, m_cleanup_complete_event, ui_error_queue),
                 name="KaiaDashboard",
                 daemon=True
             )
             self.dashboard_process.start()
             
-            # Start Bot in separate thread of MAIN process
+            # 4. Start Bot in separate thread of MAIN process
             self.bot_thread = threading.Thread(
-                target=run_bot_in_thread, 
-                args=(shared_stats, sp, m_cleanup_complete_event),
+                target=_run_bot_in_thread, 
+                args=(shared_stats, self.stats_tracker, self.stats_poller, self.stop_event, 
+                      m_cleanup_complete_event, initialize_logic_layer, run_bot_async),
                 daemon=True, 
                 name="DiscordBot"
             )
             self.bot_thread.start()
             
-            # Monitor from main thread
+            # 5. Monitor from main thread
             while self.bot_thread.is_alive():
                 try:
                     if m_stop_event.is_set():
@@ -378,15 +374,15 @@ class DashboardManager:
                     break
                 time.sleep(1.0)
             
-            # Cleanup
-            try:
-                m_stop_event.set()
+            # Signaling stop to child process
+            try: m_stop_event.set()
             except: pass
             self.stop_event.set()
+
         except KeyboardInterrupt:
             print("\n⚠️  Keyboard interrupt received")
         except Exception as e:
-            print(f"\n❌ Dashboard error: {e}")
+            print(f"\n❌ Dashboard manager error: {e}")
             traceback.print_exc()
         finally:
             # Terminate dashboard process if still running
@@ -396,10 +392,6 @@ class DashboardManager:
                     self.dashboard_process.join(timeout=2.0)
                     if self.dashboard_process.is_alive():
                         self.dashboard_process.kill()
-            
-            if hasattr(self, 'dashboard') and self.dashboard:
-                try: self.dashboard.stop()
-                except: pass
             
             self.logger.set_dashboard_mode(False)
             sys.__stdout__.write('\033[0m\033[?25h\033[?1049l\033[H\033[2J')

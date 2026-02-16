@@ -57,7 +57,7 @@ python Kaiacord.py
 | Category | Features | Status |
 |:---------|:---------|:-------|
 | **🤖 Core AI** | Local Inference (Ollama), Multi-Model Support (`gemma3:12b`), Identity Anchor (Non-truncating persona core protection) | ✅ |
-| **⚡ Performance** | Smart VRAM Management (Auto-unloading models for 12GB GPUs), Optimized 28k Context Scaling, Rate Limiting | ✅ |
+| **⚡ Performance** | Smart VRAM Management (Auto-unloading models for 12GB GPUs), Optimized 24k Context Scaling, Rate Limiting | ✅ |
 | **📊 Interface** | Curses Dashboard (btop-style), Discord Bot, Consolidated Logging | ✅ |
 | **🧠 Memory** | RAG with File Indexing, User Profiles, Semantic Cache, Natural Mention | ✅ |
 | **🎯 Intelligence** | Query Classification, Personalization, Temporal Calibration | ✅ |
@@ -292,7 +292,7 @@ python tools/maintenance/reindex_rag.py
 ### GPU Management (12GB VRAM)
 Kaia automatically manages VRAM:
 1. **Chat**: gemma3:12b loaded (8GB)
-2. **Context**: 28,000 token context window (~2.3GB) optimized for 12GB cards.
+2. **Context**: 24,000 token context window (~1.8GB) optimized for 12GB cards.
 3. **Monitor**: `watch -n 1 nvidia-smi` to see VRAM usage
 
 **See**: [`docs/03-architecture/gpu-management.md`](docs/03-architecture/gpu-management.md) for details

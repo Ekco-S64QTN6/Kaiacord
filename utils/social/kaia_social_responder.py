@@ -20,6 +20,7 @@ from datetime import datetime, timedelta
 from utils.infrastructure.logging.kaia_logger import log_info, log_success, log_warning, log_error, log_action, log_debug
 from utils.core.response_filter import BotSpeakFilter
 from contextlib import asynccontextmanager
+from utils.infrastructure.system.shutdown_fixed import shutdown_manager
 
 # =============================================================================
 # CONSTANTS
@@ -204,8 +205,9 @@ def _save_replied_ids():
 
 
 async def _save_replied_ids_async():
-    """Async-safe wrapper for saving replied IDs.
-    Uses asyncio.to_thread to avoid blocking the event loop."""
+    """Async-safe wrapper for saving replied IDs."""
+    if shutdown_manager.shutting_down:
+        return  # PREVENT RUNTIME ERROR: Event loop/executor is dead
     try:
         await asyncio.to_thread(_save_replied_ids)
     except Exception as e:
@@ -217,7 +219,7 @@ async def _reconstruct_bluesky_history():
     global _thread_counts
     try:
         from utils.social.kaia_bluesky import get_bluesky_client, is_bluesky_configured
-        if not is_bluesky_configured(): return
+        if not is_bluesky_configured() or shutdown_manager.shutting_down: return
         
         client = await get_bluesky_client()
         if not client: return
@@ -246,6 +248,9 @@ async def _reconstruct_bluesky_history():
         
         # Batch by 25 (get_posts limit is usually 25-50)
         for i in range(0, len(parent_uris), 25):
+            if shutdown_manager.shutting_down:
+                break
+                
             batch = parent_uris[i : i + 25]
             try:
                 posts_response = await client.app.bsky.feed.get_posts(params=models.AppBskyFeedGetPosts.Params(uris=batch))
@@ -332,6 +337,9 @@ async def _generate_response(mention_text: str, author_name: str, platform: str,
 
 async def _get_bluesky_mentions() -> List[Dict[str, Any]]:
     """Fetch unread mentions from Bluesky."""
+    if shutdown_manager.shutting_down:
+        return []
+        
     mentions = []
     
     # Circuit breaker check
@@ -343,11 +351,14 @@ async def _get_bluesky_mentions() -> List[Dict[str, Any]]:
         from utils.social.kaia_bluesky import get_bluesky_client, is_bluesky_configured
         from utils.infrastructure.system.yaml_config import config
         
+        if shutdown_manager.shutting_down:
+            return []
+            
         if not is_bluesky_configured():
             return []
             
         client = await get_bluesky_client(force_new=force_new)
-        if not client:
+        if not client or shutdown_manager.shutting_down:
             return []
         
         # Get notifications with limit
@@ -362,6 +373,9 @@ async def _get_bluesky_mentions() -> List[Dict[str, Any]]:
         
         local_mentions = []
         for notif in notifs.notifications:
+            if shutdown_manager.shutting_down:
+                break
+                
             # Filter for mentions/replies
             if notif.reason in ['mention', 'reply']:
                 mention_id = f"bsky:{notif.uri}"
@@ -464,6 +478,9 @@ async def _get_bluesky_mentions() -> List[Dict[str, Any]]:
 
 async def _get_x_mentions() -> List[Dict[str, Any]]:
     """Fetch unread mentions from X."""
+    if shutdown_manager.shutting_down:
+        return []
+        
     mentions = []
     
     # Circuit breaker check
@@ -559,6 +576,11 @@ async def _reply_to_bluesky(mention: Dict[str, Any], response_text: str) -> bool
         await client.send_post(response_text, reply_to=reply_ref)
         return True
         
+    except RuntimeError as e:
+        if "shutdown" in str(e).lower():
+            return False
+        log_error(f"Social responder runtime error: {e}")
+        return False
     except Exception as e:
         log_error(f"Failed to reply on Bluesky: {e}")
         return False
@@ -590,6 +612,9 @@ async def check_and_reply_mentions(on_message_func):
     
     Call this from a periodic task loop.
     """
+    if shutdown_manager.shutting_down:
+        return 0
+        
     global _replied_ids, _first_poll_done
     
     # log_debug("Social media poll started...")
@@ -630,6 +655,9 @@ async def check_and_reply_mentions(on_message_func):
             log_info(f"Bluesky poll: Found {len(mentions)} unhandled mentions. Processing up to 10.")
         
         for mention in mentions[:10]:  # Limit to 10 per poll to clear backlog faster
+            if shutdown_manager.shutting_down:
+                break
+                
             author = mention['author']
             text = mention['text']
             parent_text = mention.get('parent_text')
@@ -674,6 +702,9 @@ async def check_and_reply_mentions(on_message_func):
         mentions = await _get_x_mentions()
         
         for mention in mentions[:3]:  # Limit to 3 per poll
+            if shutdown_manager.shutting_down:
+                break
+                
             author = mention['author']
             text = mention['text']
             
@@ -1172,8 +1203,8 @@ async def generate_quip(ctx, is_manual=False, target_channel=None, on_message_fu
             reflection_target, context_type = random.choice(concrete_fallbacks)
 
         # 3. DECIDE: SINGLE OR THREAD?
-        # Bias towards threads (User Feedback: 25% chance flat)
-        should_make_thread = random.random() < 0.25
+        # Bias towards threads (User Feedback: 40% chance flat)
+        should_make_thread = random.random() < 0.40
         
         if should_make_thread:
             log_action(f"Attempting to generate a thread about: {context_type}...")
@@ -1248,8 +1279,8 @@ async def generate_quip(ctx, is_manual=False, target_channel=None, on_message_fu
             log_warning(f"Failed to inject RAG context: {rag_err}")
         # --- RAG INTEGRATION END ---
 
-        # Length Decision: 50% chance for full 280 chars, 50% for concise punchy quip
-        use_full_length = random.random() < 0.50
+        # Length Decision: 75% chance for full 280 chars, 25% for concise punchy quip
+        use_full_length = random.random() < 0.75
         length_instruction = "Keep it under 280 characters. Feel free to use the space." if use_full_length else "Keep it short and punchy (under 140 characters)."
 
         # Standalone Broadcast Prompt
@@ -1340,6 +1371,8 @@ async def generate_quip(ctx, is_manual=False, target_channel=None, on_message_fu
         
         # Log to RAG
         if rag_instance:
+            if shutdown_manager.shutting_down:
+                return # Prevent thread pool error
             await asyncio.to_thread(rag_instance.log_user_interaction, 
                                     user_id=f"channel_{channel.id}", 
                                     user_name="Kaia-Autonomous", 
@@ -1373,8 +1406,10 @@ async def generate_quip(ctx, is_manual=False, target_channel=None, on_message_fu
             bot_state.last_interaction_time = time.time()
         bot_state.save()
         log_success(f"Quip sent: {quip[:80]}...")
+        return True
 
     except Exception as e:
         log_error(f"Quip generation failed: {e}")
         log_debug(traceback.format_exc())
+        return False
 

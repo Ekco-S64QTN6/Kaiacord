@@ -101,16 +101,9 @@ class CleanShutdown:
         """
         log_info("  🔄 Running async shutdown...")
 
-        # 0. Persist RAG Index (Critical Data Safety)
-        if self.rag:
-            try:
-                log_info("  💾 Persisting RAG indices...")
-                await asyncio.to_thread(self.rag.persist, force=True)
-                log_success("  ✅ RAG indices saved")
-            except Exception as e:
-                log_error(f"  ❌ Error persisting RAG: {e}")
-        
-        # 1. Cancel all registered tasks via registry
+        # 1. Cancel all registered tasks via registry (STOP EVERYTHING FIRST)
+        # Doing this before RAG persistence prevents background tasks from
+        # competing for I/O or failing during the long save process.
         try:
             from utils.infrastructure.monitoring.async_task_registry import task_registry
             from utils.infrastructure.system.yaml_config import config
@@ -122,8 +115,17 @@ class CleanShutdown:
             log_warning("  ⚠️  Task registry not available")
         except Exception as e:
             log_error(f"  ❌ Error cancelling tasks: {e}")
+
+        # 2. Persist RAG Index (Critical Data Safety)
+        if self.rag:
+            try:
+                log_info("  💾 Persisting RAG indices...")
+                await asyncio.to_thread(self.rag.persist, force=True)
+                log_success("  ✅ RAG indices saved")
+            except Exception as e:
+                log_error(f"  ❌ Error persisting RAG: {e}")
         
-        # 2. Force Ollama Model Unload (Crucial for VRAM release)
+        # 3. Force Ollama Model Unload (Crucial for VRAM release)
         try:
             from utils.infrastructure.gpu.gpu_manager import OllamaGPUManager
             from utils.infrastructure.system.yaml_config import config
@@ -137,9 +139,10 @@ class CleanShutdown:
         except Exception as e:
             log_warning(f"  ⚠️  Failed to unload Ollama model: {e}")
 
-        # 3. Close Forum Client
+        # 4a. Close Forum Client
         try:
             from utils.social.kaia_forum import close_forum_client
+            # Check if we are already in an event loop shutdown
             await close_forum_client()
             log_info("  ✅ Forum client closed")
         except Exception as e:

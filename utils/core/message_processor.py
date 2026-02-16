@@ -224,9 +224,10 @@ class MessageProcessor:
         h_dur = time.perf_counter() - h_start
         log_debug(f"METRIC: Hallucination check took {h_dur:.3f}s")
 
-        # 2. Classification
+        # 2. Classification (Synchronous serial wait to prevent Ollama load spikes)
         c_start = time.perf_counter()
-        await self._perform_classification(ctx)
+        self._perform_classification(ctx)
+        await self._finalize_classification(ctx)
         c_dur = time.perf_counter() - c_start
         log_debug(f"METRIC: Classification took {c_dur:.3f}s")
 
@@ -245,6 +246,7 @@ class MessageProcessor:
         """Check if query contains hallucinations."""
         if HallucinationDetector.contains_hallucination(ctx.sanitized_content):
             log_warning(f"Hallucination detected in query from {ctx.author_name}. Blocking.")
+            log_debug(f"[HALLUCINATION_DEBUG] Content: '{ctx.sanitized_content}'")
             await ctx.message.channel.send("```\nnot following. try that again.\n```")
             return True
         return False
@@ -323,6 +325,20 @@ class MessageProcessor:
     async def _retrieve_and_generate(self, ctx: MessageContext):
         """Stage 3: Retrieval, Context Optimization, and Ollama Generation."""
 
+        # 1. REDUNDANCY BYPASS: Skip RAG for simple greetings and commands
+        # This saves ~4-6 seconds of latency for simple interactions.
+        if ctx.intent and ctx.intent.confidence >= 0.9 and ctx.intent.suggested_strategy in ["SOCIAL_GREETING", "COMMAND_EXECUTION"]:
+            from utils.social.kaia_social_responder import load_persona_async
+            log_info(f"Adaptive Skip: Bypassing RAG for high-confidence {ctx.intent.suggested_strategy}")
+            
+            # Populate minimum context needed for generation
+            ctx.system_prompt = await load_persona_async()
+            ctx.context_nodes = []
+            
+            # Proceed straight to generation
+            await self._generate_response_stage(ctx)
+            return
+
         # 2. Setup Retrieval Tasks (Named dictionary to prevent IndexError)
         tasks_dict, ask_whats_new, is_news_query, clean_query = await self._setup_retrieval_tasks(ctx)
         
@@ -333,10 +349,11 @@ class MessageProcessor:
         # Resolve names to results
         task_names = list(tasks_dict.keys())
         task_objects = list(tasks_dict.values())
+        rag_gather_timeout = self.config.rag_retrieval_timeout * 2  # 2x single-retrieval timeout for parallel gather
         try:
-            raw_results = await asyncio.wait_for(asyncio.gather(*task_objects), timeout=60.0)
+            raw_results = await asyncio.wait_for(asyncio.gather(*task_objects), timeout=rag_gather_timeout)
         except asyncio.TimeoutError:
-            log_warning("Top-level RAG retrieval timed out (60s). Proceeding with partial results.")
+            log_warning(f"Top-level RAG retrieval timed out ({rag_gather_timeout}s). Proceeding with partial results.")
             # For each task, check if it's done, otherwise return empty list
             raw_results = []
             for t in task_objects:
@@ -355,9 +372,6 @@ class MessageProcessor:
         
         # 4. Process Results & Diversify
         await self._process_retrieval_results(ctx, results, ask_whats_new, is_news_query, clean_query)
-
-        # 5. Final Classification Sync
-        await self._finalize_classification(ctx)
 
         # 6. Knowledge Boundary Check (Entity Verification)
         # Check if the query contains entities unknown to Kaia
@@ -411,7 +425,7 @@ class MessageProcessor:
         tasks['persona'] = asyncio.create_task(load_persona_async())
         tasks['traits'] = asyncio.create_task(self.personalization_engine.get_user_traits(ctx.author_id))
 
-        # Always perform RAG (Skip logic removed for stability)
+        # Perform RAG retrieval (Adaptive skip handled upstream in _retrieve_and_generate)
         tasks['rag'] = asyncio.create_task(self.run_rag(
             self.rag.retrieve, 
             clean_query, 
@@ -551,8 +565,12 @@ class MessageProcessor:
         if not context_str and ctx.category in ["identity", "social_identity", "self", "whoami", "entity"]:
             rag_block += "\n\nCRITICAL: No specific records found for this person or topic. Do not invent details, threads, or interactions. If you don't know, stay grounded and admit the records are hazy or missing."
 
+        current_time_str = datetime.now().strftime("%A, %B %d, %Y | %I:%M %p")
+        
         full_system_prompt = (
             f"{system_prompt}\n\n"
+            f"[CURRENT_TIME] {current_time_str}\n\n"
+            "BEHAVIORAL OVERRIDE: Do not feel compelled to end every response with a question. Be concise and blunt.\n\n"
             f"{rag_block}"
         )
         

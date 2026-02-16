@@ -1,4 +1,4 @@
-from utils.infrastructure.logging.kaia_logger import log_action, log_error, log_info
+from utils.infrastructure.logging.kaia_logger import log_action, log_error, log_info, log_success, log_debug
 from pathlib import Path
 
 
@@ -39,6 +39,12 @@ async def handle_forum_command(ctx, msg, send_kaia_response):
         await _handle_link(ctx, msg, user_id)
     elif subcommand == "post":
         await _handle_post(ctx, msg, parts)
+    elif subcommand == "reply":
+        thread_id = int(parts[2]) if len(parts) > 2 and parts[2].isdigit() else None
+        if not thread_id:
+            await msg.channel.send("```\nusage: !forum reply <thread_id>\n```")
+            return
+        await _handle_reply(ctx, msg, thread_id)
     else:
         await msg.channel.send(
             "```\n"
@@ -47,6 +53,7 @@ async def handle_forum_command(ctx, msg, send_kaia_response):
             "!forum scrape    — scrape Off Topic front page + user histories\n"
             "!forum read <id> — read last posts from a thread\n"
             "!forum post <id> <message> — post a reply\n"
+            "!forum reply <id> — AI-generated reply to a thread\n"
             "!forum user <id> — deep-scrape a user's full post history\n"
             "!forum link <id> — link YOUR discord account to a forum id\n"
             "```"
@@ -283,10 +290,107 @@ async def _handle_read(ctx, msg, thread_id: int):
 
         # Also save the full scrape
         client.save_thread_scrape(thread_data)
+        Path("./knowledge_base/.trigger_reindex").touch()
 
     except Exception as e:
         log_error(f"Forum read error: {e}")
         await msg.channel.send(f"```\nerror reading thread: {e}\n```")
+
+
+async def _handle_reply(ctx, msg, thread_id: int):
+    """Generate an AI reply and post it to a thread."""
+    from utils.social.kaia_forum import get_forum_client
+    from utils.social.kaia_social_responder import load_persona
+    from ollama import AsyncClient
+    import time
+
+    client = await get_forum_client()
+    if not client:
+        await msg.channel.send("```\nforum client not available.\n```")
+        return
+
+    async with msg.channel.typing():
+        try:
+            # 1. Scrape latest context (last 10 posts)
+            thread_data = await client.scrape_thread(thread_id, last_n_posts=10)
+            if not thread_data.get('posts'):
+                await msg.channel.send(f"```\ncouldn't find content for thread {thread_id}.\n```")
+                return
+
+            # Save so RAG sees it
+            client.save_thread_scrape(thread_data)
+            Path("./knowledge_base/.trigger_reindex").touch()
+
+            # 2. Format thread for the LLM
+            title = thread_data.get('title', 'Unknown Thread')
+            posts = thread_data['posts']
+            thread_summary = [f"Thread Title: {title}\n"]
+            for p in posts:
+                post = p if isinstance(p, dict) else p.to_dict()
+                author = post.get('author', 'Unknown')
+                content = post.get('content', '')
+                thread_summary.append(f"#{post.get('post_number')} {author}: {content}")
+            
+            context_text = "\n---\n".join(thread_summary)
+
+            # 3. Construct AI Prompt
+            system_prompt = load_persona()
+            prompt = (
+                f"You are monitoring the Project 1999 Off Topic forums. A user just asked you to reply to a thread.\n\n"
+                f"THREAD CONTEXT:\n{context_text}\n\n"
+                f"TASK:\nWrite a short, blunt, and grounded reply in your persona (lowercase, cynical, Norrath-referencing). "
+                f"Connect their drama to systemic patterns or MMO mechanics if possible. Max 3-4 sentences.\n\n"
+                f"REPLY:"
+            )
+
+            # 4. Generate with LLM
+            from utils.infrastructure.system.yaml_config import config
+            ollama_url = config.get('ollama.host', 'http://localhost:11434')
+            ollama_client = AsyncClient(host=ollama_url)
+
+            from utils.infrastructure.gpu.gpu_manager import OllamaGPUManager
+            gpu_manager = OllamaGPUManager(config.chat_model)
+            options = gpu_manager.get_gpu_options(for_chat=True)
+            options['temperature'] = 0.8 # Slightly higher for creative forum posts
+
+            response = await ollama_client.chat(
+                model=config.chat_model,
+                messages=[
+                    {"role": "system", "content": system_prompt},
+                    {"role": "user", "content": prompt}
+                ],
+                options=options
+            )
+
+            ai_reply = response['message']['content'].strip()
+            
+            # Apply bot speak filtering (strip roleplay markers)
+            from utils.core.response_filter import BotSpeakFilter
+            ai_reply = BotSpeakFilter.harden(ai_reply)
+
+            if not ai_reply:
+                await msg.channel.send("```\nfailed to generate a coherent reply.\n```")
+                return
+
+            # 5. POST to forum
+            success = await client.post_reply(thread_id, ai_reply)
+
+            if success:
+                await msg.channel.send(
+                    f"```\n"
+                    f"posted to '{title}':\n\n"
+                    f"{ai_reply}\n"
+                    f"```"
+                )
+                log_success(f"AI autonomously replied to thread {thread_id}")
+            else:
+                await msg.channel.send(f"```\nfailed to post reply. check logs or rate limits.\n```")
+
+        except Exception as e:
+            log_error(f"AI forum reply failed: {e}")
+            import traceback
+            log_debug(traceback.format_exc())
+            await msg.channel.send(f"```\nerror generating reply: {e}\n```")
 
 
 async def _handle_user(ctx, msg, user_id: int):

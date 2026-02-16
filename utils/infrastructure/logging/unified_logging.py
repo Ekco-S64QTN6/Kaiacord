@@ -288,8 +288,12 @@ class UnifiedStdout:
                 logger.log(text.strip(), "INFO")
     
     def flush(self):
-        if sys and hasattr(sys, '__stdout__') and sys.__stdout__ is not None:
-            sys.__stdout__.flush()
+        try:
+            if sys and hasattr(sys, '__stdout__') and sys.__stdout__ is not None:
+                sys.__stdout__.flush()
+        except (AttributeError, RuntimeError, ValueError):
+            # Happens during interpreter shutdown when locks are released
+            pass
 
 class UnifiedStderr:
     def write(self, text):
@@ -298,8 +302,12 @@ class UnifiedStderr:
             logger.log(text.strip(), "ERROR")
     
     def flush(self):
-        if sys and hasattr(sys, '__stderr__') and sys.__stderr__ is not None:
-            sys.__stderr__.flush()
+        try:
+            if sys and hasattr(sys, '__stderr__') and sys.__stderr__ is not None:
+                sys.__stderr__.flush()
+        except (AttributeError, RuntimeError, ValueError):
+            # Happens during interpreter shutdown
+            pass
 
 # Replace ALL existing logging
 def replace_all_logging():

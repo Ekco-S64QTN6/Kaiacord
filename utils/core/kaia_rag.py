@@ -219,7 +219,8 @@ class KaiaRAG:
             base_url="http://localhost:11434",
             query_prefix="search_query: ",
             text_prefix="search_document: ",
-            request_timeout=config.embedding_request_seconds
+            request_timeout=config.embedding_request_seconds,
+            additional_kwargs={"num_gpu": 0}  # Force embeddings to CPU
         )
         
         # Set global settings
@@ -636,6 +637,9 @@ class KaiaRAG:
                 log_action(f"Found {len(new_file_paths)} new or modified documents. Processing...")
                 
                 for file_path, is_modified, is_log, itype in new_file_paths:
+                    # I/O MITIGATION: Tiny sleep between files to allow OS/IDE to breathe
+                    time.sleep(0.05)
+                
                     target_index = self.indices[itype]
                     if is_modified and not is_log:
                         log_action(f"Detected update in {itype} file. Re-indexing...")

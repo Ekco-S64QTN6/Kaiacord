@@ -7,6 +7,7 @@ from pathlib import Path
 from discord.ext import tasks
 from utils.infrastructure.logging.kaia_logger import log_error, log_action, log_info
 from utils.infrastructure.system.yaml_config import config
+from utils.infrastructure.system.shutdown_fixed import shutdown_manager
 
 
 @tasks.loop(minutes=config.get('forum.scrape_interval_minutes', 30))
@@ -39,6 +40,9 @@ async def forum_scrape_task():
         any_updated = False
 
         for t in threads[:5]:
+            if shutdown_manager.shutting_down:
+                break
+                
             if t.is_sticky:
                 continue
             

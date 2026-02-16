@@ -388,7 +388,7 @@ class ForumClient:
                     if resp.status == 200:
                         page_html = await resp.text()
                         page_soup = BeautifulSoup(page_html, 'html.parser')
-                        page_posts = self._parse_posts(page_soup)
+                        page_posts = await self._parse_posts(page_soup)
                         # Prepend posts from earlier pages
                         all_posts = page_posts + all_posts
                         pages_scraped += 1
@@ -416,7 +416,7 @@ class ForumClient:
             log_error(f"Error scraping thread {thread_id}: {e}")
             return {'thread_id': thread_id, 'title': '', 'posts': []}
 
-    def _parse_posts(self, soup: BeautifulSoup) -> List[PostInfo]:
+    async def _parse_posts(self, soup: BeautifulSoup) -> List[PostInfo]:
         """Parse individual posts from a thread page."""
         posts = []
 
@@ -469,23 +469,28 @@ class ForumClient:
                 if ts_match:
                     timestamp = ts_match.group(1)
 
-            # --- YouTube ID Filter ---
-            # Filter content: remove lines that are just 11-char alphanumeric strings (YouTube IDs)
+            # --- YouTube ID Resolver ---
+            # Instead of filtering out IDs, we try to resolve their titles to give Kaia context.
             content_lines = content.split('\n')
-            filtered_lines = []
+            final_lines = []
             yt_pattern = re.compile(r'^[a-zA-Z0-9_-]{11}$')
             
             for line in content_lines:
                 clean_line = line.strip()
-                # Skip if it's exactly a YouTube-like ID
                 if yt_pattern.match(clean_line):
-                    continue
-                filtered_lines.append(line)
+                    # It's an ID. Try to resolve it.
+                    log_debug(f"Attempting to resolve YouTube title for {clean_line}...")
+                    video_title = await self._resolve_youtube_title(clean_line)
+                    if video_title:
+                        final_lines.append(f"[Video Content: {video_title}]")
+                    else:
+                        # Fallback: keep the ID but label it
+                        final_lines.append(f"[YouTube ID: {clean_line}]")
+                else:
+                    final_lines.append(line)
             
-            content = '\n'.join(filtered_lines).strip()
-            
-            if not content:
-                continue # Skip empty posts after filtering
+            content = '\n'.join(final_lines).strip()
+            # -------------------------
             # -------------------------
 
             posts.append(PostInfo(
@@ -542,12 +547,18 @@ class ForumClient:
                     html = await resp.text()
                 self._security_token = self._extract_security_token(html)
 
+            # --- Encoding Safety ---
+            # VBulletin 3.x usually uses Latin-1/ISO-8859-1.
+            # Smart quotes and other UTF-8 special chars cause artifacts (â€™).
+            safe_message = message.replace('’', "'").replace('‘', "'").replace('“', '"').replace('”', '"')
+            safe_message = safe_message.replace('…', '...')
+
             # POST the reply
             post_data = {
                 'securitytoken': self._security_token,
                 'do': 'postreply',
                 't': str(thread_id),
-                'message': message,
+                'message': safe_message,
                 'parseurl': '1',
                 'title': '',
             }
@@ -556,23 +567,30 @@ class ForumClient:
             async with session.post(reply_url, data=post_data, allow_redirects=True) as resp:
                 if resp.status == 200:
                     response_html = await resp.text()
-                    # Check for success indicators
-                    if 'Thank you for posting' in response_html or f't={thread_id}' in str(resp.url):
+                    # Check for specific success indicator: The post-reply redirect or the specific thank-you message
+                    # VBulletin 3 often shows a "Post Thanks" or just redirects back to the thread.
+                    if 'Thank you for posting' in response_html or f'showthread.php?t={thread_id}' in str(resp.url):
                         self._post_log.append(datetime.now())
                         log_action(f"Forum post successful in thread {thread_id}")
                         return True
-                    elif 'error' in response_html.lower():
-                        # Try to extract error message
-                        error_soup = BeautifulSoup(response_html, 'html.parser')
-                        errors = error_soup.find_all(class_=re.compile(r'error|notice'))
-                        error_text = ' '.join(e.get_text(strip=True) for e in errors) if errors else 'Unknown error'
+                    
+                    # More surgical error check: VBulletin errors are usually inside a <div> with a specific class
+                    error_soup = BeautifulSoup(response_html, 'html.parser')
+                    panel = error_soup.find(class_='standard_error') or error_soup.find(id='vbulletin_html') 
+                    
+                    if panel and ('The following errors occurred' in panel.get_text() or 'Unauthorized' in panel.get_text()):
+                        error_text = panel.get_text(strip=True)
                         log_error(f"Forum post error: {error_text[:200]}")
                         return False
-                    else:
-                        # If redirected back to thread, probably succeeded
-                        log_action(f"Forum post likely successful in thread {thread_id} (redirect)")
+                    
+                    # Fallback: If we're on the showthread page, it worked.
+                    if 'showthread.php' in str(resp.url):
                         self._post_log.append(datetime.now())
                         return True
+
+                    log_warning(f"Ambiguous forum post result for thread {thread_id} - assuming success but check logs.")
+                    self._post_log.append(datetime.now())
+                    return True
                 else:
                     log_error(f"Forum post returned {resp.status}")
                     return False
@@ -1457,3 +1475,18 @@ class ForumClient:
             log_error(f"Error calculating global forum stats: {e}")
 
         return stats
+    async def _resolve_youtube_title(self, video_id: str) -> Optional[str]:
+        """Fetch the title of a YouTube video using the oEmbed API."""
+        session = await self._get_session()
+        # YouTube oEmbed is public and doesn't require an API key
+        url = f"https://www.youtube.com/oembed?url=https://www.youtube.com/watch?v={video_id}&format=json"
+        
+        try:
+            async with session.get(url, timeout=aiohttp.ClientTimeout(total=5)) as resp:
+                if resp.status == 200:
+                    data = await resp.json()
+                    return data.get('title')
+        except Exception as e:
+            log_debug(f"Failed to resolve YouTube title for {video_id}: {e}")
+        
+        return None

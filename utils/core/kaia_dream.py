@@ -67,16 +67,31 @@ YOUR IN-DEPTH REFLECTION:"""
         try:
             full_prompt = persona_content + "\n" + dream_instruction
             
-            response = await asyncio.to_thread(
+            # CRITICAL FIX: Wrap the sync ollama call in an async function...
+            async def _run_dream_chat():
+                return await asyncio.to_thread(
                     ollama.chat,
                     model=self.chat_model,
                     messages=[{"role": "user", "content": full_prompt}],
                     options={
                         "temperature": 0.8, 
-                        "num_predict": 1000, # Increased for length
+                        "num_predict": 1000,
+                        "num_ctx": getattr(self.config, 'max_context_tokens', 24000),
                         "stop": ["User:", "Kaia:"]
                     }
                 )
+
+            # ...and pass it through the GPU guard to prevent VRAM collisions
+            from utils.infrastructure.gpu.gpu_memory_manager import gpu_memory_manager, GPUTaskPriority
+            import time
+            
+            response = await gpu_memory_manager.run_with_gpu_guard(
+                model_name=self.chat_model,
+                priority=GPUTaskPriority.CHAT, 
+                coro=_run_dream_chat(),
+                task_id=f"dream_{int(time.time())}"
+            )
+            
             return response['message']['content'].strip()
         except Exception as e:
             log_error(f"In-depth dream reflection generation failed: {e}")

@@ -574,37 +574,56 @@ class IntentParser:
 
     def __init__(self, ollama_client=None, model="gemma3:12b", logger=None, host="http://localhost:11434", timeout=15.0):
         self.ollama_client = ollama_client
-        self.model = model
+        self.host_model = model
         self.logger = logger or log_info
         self.timeout = timeout
         
-        # Use main model for intelligence
-        self.classification_model = model
-        
-        # Optimized options for analysis - Context MUST match chat to avoid KV cache flushes
+        # Optimized options for analysis
         from utils.infrastructure.system.yaml_config import config
         from utils.infrastructure.gpu.gpu_manager import OllamaGPUManager
         
-        max_ctx = config.max_context_tokens
-        gpu_mgr = OllamaGPUManager(self.classification_model)
+        # LAYER 0: Classification Model Selection (Default to gemma2:2b on CPU)
+        # Using a smaller model on CPU prevents GPU semaphore contention.
+        self.classification_model = config.get('models.classification_model', 'gemma2:2b')
+        self.use_gpu_for_classification = config.get('models.classification_on_gpu', False)
+        
+        # [MEMORY OPTIMIZATION]: Intent analysis only needs the current query and 
+        # minimal context. Requesting 24k tokens (default) triggers massive VRAM/RAM 
+        # allocation that can cause OOM/cudaMalloc failures even on CPU.
+        # We cap this to 2048 for all classification tasks.
+        classification_ctx = 2048
         
         # Get base options
-        self.classification_options = gpu_mgr.get_gpu_options(for_chat=True, num_ctx=max_ctx)
+        if self.use_gpu_for_classification:
+            gpu_mgr = OllamaGPUManager(self.classification_model)
+            self.classification_options = gpu_mgr.get_gpu_options(for_chat=True, num_ctx=classification_ctx)
+        else:
+            # CPU-only options
+            self.classification_options = {
+                "num_gpu": 0,
+                "num_thread": 8, # Utilize Ryzen 5 9600X cores
+                "num_ctx": classification_ctx,
+                "num_predict": 256,
+                "temperature": 0.1,
+                "top_p": 0.9
+            }
         
-        # Overrides for precise classification
-        self.classification_options.update({
-            "temperature": 0.1,
-            "top_p": 0.9,
-            "num_predict": 256
-        })
+        # Overrides for precise classification if using GPU
+        if self.use_gpu_for_classification:
+            self.classification_options.update({
+                "temperature": 0.1,
+                "top_p": 0.9,
+                "num_predict": 256
+            })
         
         # LAYER 1: Fast Pattern Triggers (Regex)
         self.fast_triggers = {
             "SOCIAL_GREETING": [
-                r"^\s*(kaia|hey kaia|hi kaia|hello kaia)\??\s*$",
-                r"^\s*(hi|hello|hey|greetings|sup|yo|hi there|hello there)\s*$",
-                r"^\s*(hi|hello|hey|greetings|sup|yo)\s+kaia",
-                r"^\s*kaia\?$"
+                # Added (<@!?\d+>\s*)? to catch Discord pings, and [!?.,]* to catch stray grammar
+                r"^\s*(<@!?\d+>\s*)?(kaia|hey kaia|hi kaia|hello kaia)[!?.,]*\s*$",
+                r"^\s*(<@!?\d+>\s*)?(hi|hello|hey|greetings|sup|yo|hi there|hello there)[!?.,]*\s*$",
+                r"^\s*(<@!?\d+>\s*)?(hi|hello|hey|greetings|sup|yo)\s+kaia[!?.,]*\s*$",
+                r"^\s*(<@!?\d+>\s*)?kaia[!?.,]*$"
             ],
             "COMMAND_EXECUTION": [
                 r"^\s*(kaia\s+)?(status|stats|ping|uptime|clear|reset|quip)\b",
@@ -624,20 +643,28 @@ class IntentParser:
             ],
             "DIAGNOSTIC_DEEP_DIVE": [
                 r"\b(error|bug|fail|crash|exception|traceback|fix|broken|dogshit)\b",
-                r"\b(logs?|status|restart|boot|system|debug)\b"
+                r"\b(logs?|status|restart|boot|system|debug)\b",
+                r"\b(why is it slow|latency|lag|responsive|hang|lockup)\b"
             ],
             "SUMMARIZATION": [
                 r"^\s*(kaia\s+)?(summarize|summary of|digest|tl;?dr)\b",
-                r"\b(give me a summary|brief on|overview of)\b"
+                r"\b(give me a summary|brief on|overview of)\b",
+                r"\b(recap (the|this)? (thread|conversation|chat))\b"
             ],
             "SYNTHESIS_SCAN": [
                 r"\b(headlines|current events|happening today|latest on)\b",
                 r"^\s*(kaia\s+)?(what's the|any) news\b",
-                r"^\s*(kaia\s+)?what's happening in the (world|news)\b"
+                r"^\s*(kaia\s+)?what's happening in the (world|news)\b",
+                r"\b(anything new (with|about))\b",
+                r"\b(latest updates?)\b"
+            ],
+            "TECH_INQUIRY": [
+                r"\b(how do i|how to|explain|what is)\s+(python|nvidia|cuda|gpu|linux|terminal|code|script)\b",
+                r"\b(command for|check usage|process list)\b"
             ]
         }
 
-        log_success(f"IntentParser initialized (Model: {model})")
+        log_success(f"IntentParser initialized (Model: {self.classification_model})")
     
     def fast_parse(self, query: str) -> Optional[Intent]:
         """Layer 1: Fast Pattern Detection"""
@@ -672,14 +699,20 @@ class IntentParser:
         # 2. Layer 2: LLM Intent Analysis (with fast-path hint if available)
         hint = fast_intent.suggested_strategy if fast_intent else None
         
-        from utils.infrastructure.gpu.gpu_memory_manager import gpu_memory_manager, GPUTaskPriority
-        
-        llm_intent = await gpu_memory_manager.run_with_gpu_guard(
-            model_name=self.classification_model,
-            priority=GPUTaskPriority.CRITICAL,
-            coro=self._analyze_with_llm(query, context, fast_path_hint=hint),
-            task_id=f"intent_{int(time.time())}"
-        )
+        # EXECUTION: If classification is on CPU, we BYPASS the GPU semaphore.
+        # This allows classification to run while another task is generating.
+        if not self.use_gpu_for_classification:
+            log_debug(f"Executing CPU-based intent classification: {self.classification_model}")
+            llm_intent = await self._analyze_with_llm(query, context, fast_path_hint=hint)
+        else:
+            from utils.infrastructure.gpu.gpu_memory_manager import gpu_memory_manager, GPUTaskPriority
+            
+            llm_intent = await gpu_memory_manager.run_with_gpu_guard(
+                model_name=self.classification_model,
+                priority=GPUTaskPriority.CRITICAL,
+                coro=self._analyze_with_llm(query, context, fast_path_hint=hint),
+                task_id=f"intent_{int(time.time())}"
+            )
         
         # 3. Layer 3: Strategy Merging (Cognitive Stabilization)
         # If the LLM confidence is low or it returned EXPLORATORY_DIALOGUE, 
@@ -727,21 +760,12 @@ class IntentParser:
             )
 
 
-            from utils.infrastructure.gpu.gpu_memory_manager import gpu_memory_manager, GPUTaskPriority
-            
-            async def run_chat():
-                return await self.ollama_client.chat(
-                    model=self.classification_model,
-                    messages=[{"role": "user", "content": prompt}],
-                    options=self.classification_options
-                )
-
-            # Use run_with_gpu_guard for intent analysis to ensure it finishes quickly
-            response = await gpu_memory_manager.run_with_gpu_guard(
-                model_name=self.classification_model,
-                priority=GPUTaskPriority.CRITICAL,
-                coro=run_chat(),
-                task_id=f"intent_{int(time.time())}"
+            # EXECUTION: The GPU guard/routing is now handled entirely in the parent parse_intent()
+            # method. This child method is a "dumb" executor to avoid re-entrant deadlock.
+            response = await self.ollama_client.chat(
+                model=self.classification_model,
+                messages=[{"role": "user", "content": prompt}],
+                options=self.classification_options
             )
             
             raw_json = response['message']['content'].strip()
@@ -762,16 +786,24 @@ class IntentParser:
             )
 
         except Exception as e:
-            log_error(f"Intent Analysis Failed: {e}")
-            traceback.print_exc()
+            err_msg = str(e).lower()
+            if "out of memory" in err_msg or "cudamalloc" in err_msg or "terminat" in err_msg:
+                log_error(f"Intent Analysis CRITICAL OOM: {e}. Falling back to fast-path/default.")
+            else:
+                log_error(f"Intent Analysis Failed: {e}")
+                traceback.print_exc()
+            
             # Fallback Intent
+            # If we have a hint from the fast-path regex, use it. Otherwise, default.
+            strategy = fast_path_hint if fast_path_hint else "EXPLORATORY_DIALOGUE"
+            
             return Intent(
                 explicit_intent=query,
-                implied_needs=["general chat"],
+                implied_needs=["emergency fallback"],
                 emotional_context="neutral",
                 temporal_focus="present_immediate",
                 relational_context="general",
-                suggested_strategy="EXPLORATORY_DIALOGUE",
+                suggested_strategy=strategy,
                 confidence=0.5
             )
 
@@ -783,10 +815,11 @@ class IntentParser:
             from utils.infrastructure.system.yaml_config import config
             max_ctx = config.max_context_tokens
             
+            # Use the pre-configured classification options (which include num_gpu: 0 by default)
             await self.ollama_client.generate(
                 model=self.classification_model,
                 prompt=".",
-                options={"num_ctx": max_ctx, "num_predict": 1},
+                options=self.classification_options,
                 keep_alive=3600
             )
             log_success("IntentParser model warmed.")
