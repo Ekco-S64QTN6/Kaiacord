@@ -64,18 +64,27 @@ class ModelWarmPool:
             self._cached_options[model_name] = options.copy()
             
             # Execute tiny generation to force load into VRAM with full cache
-            # User requirement: Max 300s (5 mins) load time. Critical failure if longer.
-            await asyncio.wait_for(
-                self.ollama_client.generate(model=model_name, prompt=".", options=options, keep_alive=3600),
-                timeout=300.0
-            )
-            self.pool[model_name] = {'last_used': time.time(), 'status': 'ready'}
-            if model_name not in self.keep_alive_tasks:
-                self.keep_alive_tasks[model_name] = asyncio.create_task(self.keep_alive(model_name))
-            return True
-        except asyncio.TimeoutError:
-            log_error(f"CRITICAL FAILURE: Model {model_name} failed to pre-warm within 5-minute limit.")
-            return False
+            # Max 300s (5 mins) per attempt. If CPU is busy (e.g. embedding indexing),
+            # retry once after a cooldown to let embeddings finish.
+            max_attempts = 2
+            for attempt in range(1, max_attempts + 1):
+                try:
+                    await asyncio.wait_for(
+                        self.ollama_client.generate(model=model_name, prompt=".", options=options, keep_alive=3600),
+                        timeout=300.0
+                    )
+                    self.pool[model_name] = {'last_used': time.time(), 'status': 'ready'}
+                    if model_name not in self.keep_alive_tasks:
+                        self.keep_alive_tasks[model_name] = asyncio.create_task(self.keep_alive(model_name))
+                    return True
+                except asyncio.TimeoutError:
+                    if attempt < max_attempts:
+                        log_warning(f"Model {model_name} pre-warm timed out (attempt {attempt}/{max_attempts}). "
+                                    f"CPU may be busy with embeddings. Retrying in 120s...")
+                        await asyncio.sleep(120)
+                    else:
+                        log_error(f"CRITICAL FAILURE: Model {model_name} failed to pre-warm after {max_attempts} attempts (total ~12 min).")
+                        return False
         except Exception as e:
             import traceback
             error_details = traceback.format_exc()

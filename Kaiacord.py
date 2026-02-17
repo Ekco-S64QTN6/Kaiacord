@@ -156,7 +156,18 @@ async def on_ready():
 
     if ctx.rag:
         ctx.rag._bot_user_id = bot.user.id
-        
+
+    # Register all guild member names as known entities for Knowledge Boundary
+    if ctx.message_processor and hasattr(ctx.message_processor, 'knowledge_boundary'):
+        all_names = set()
+        for guild in bot.guilds:
+            for member in guild.members:
+                all_names.add(member.name)
+                if member.display_name != member.name:
+                    all_names.add(member.display_name)
+        ctx.message_processor.knowledge_boundary.register_usernames(all_names)
+        log_info(f"Registered {len(all_names)} guild member names in Knowledge Boundary.")
+
     start_maintenance_tasks(ctx)
     
     # Start loop watchdog to detect stalls
@@ -236,31 +247,27 @@ def main():
             await run_news_update()
             await asyncio.sleep(2.0) # Settle I/O after news pull
             
-        # 3. Model Pre-warming (Strict Serial Workflow)
-        async def perform_serialized_warmup():
-            try:
-                # Part A: Intent Parser (CPU Only)
-                if ctx.intent_parser:
-                    log_action(f"Step A: Warming Intent Classifier ({ctx.intent_parser.classification_model})...")
-                    await ctx.intent_parser.pre_warm()
-                
-                # Part B: Settle Period
-                await asyncio.sleep(2.0)
-                
-                # Part C: Main Model (GPU)
-                log_action(f"Step B: Warming Main Model ({config.chat_model})...")
-                await prewarm_main_model()
-                
-                log_success("🧠 Sequenced Boot: Models warmed and isolated.")
-            except Exception as e:
-                log_error(f"Sequenced model warmup failed: {e}")
+        # 3. Model Pre-warming (Strict Serial — must complete before accepting messages)
+        try:
+            # Part A: Intent Parser (CPU Only)
+            if ctx.intent_parser:
+                log_action(f"Step A: Warming Intent Classifier ({ctx.intent_parser.classification_model})...")
+                await ctx.intent_parser.pre_warm()
+            
+            # Part B: Settle Period
+            await asyncio.sleep(2.0)
+            
+            # Part C: Main Model (GPU)
+            log_action(f"Step B: Warming Main Model ({config.chat_model})...")
+            await prewarm_main_model()
+            
+            log_success("🧠 Sequenced Boot: Models warmed and ready.")
+        except Exception as e:
+            log_error(f"Sequenced model warmup failed: {e}")
 
-        # Still run in background to keep bot responsive, but the internal steps are serial
-        asyncio.create_task(perform_serialized_warmup())
-        
-        # Signal boot complete for message processor IMMEDIATELY
+        # Signal boot complete AFTER models are ready
         bot_state.boot_complete = True
-        log_success("Kaia models loading in background (Bot is responsive).")
+        log_success("Kaia is ready to respond.")
 
         # 4. Heavy RAG Warm (Optional/Bypassable)
         if args.eager_rag_warm:

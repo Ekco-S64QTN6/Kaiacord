@@ -21,8 +21,12 @@ tools/
 ├── maintenance/     # Regular maintenance scripts
 ├── diagnostics/     # Debugging and diagnostics
 ├── recovery/        # Emergency recovery tools ⚠️
-├── migration/       # Migration utilities
+├── social/          # X/Bluesky auth & cookie tools
 ├── development/     # Development tools
+├── tests/           # Test suite
+│   ├── unit/        # Component unit tests
+│   ├── integration/ # End-to-end flow tests
+│   └── verification/# Logic verification & smoke tests
 └── legacy/          # Historical tools (preserved)
 ```
 
@@ -184,6 +188,31 @@ Tools for migrating between versions are in `tools/maintenance/migrate_config.py
 ## Legacy Tools (`tools/legacy/`)
 
 Historical tools preserved for reference. Not actively maintained.
+
+---
+
+## Tests (`tools/tests/`)
+
+All tests are consolidated under `tools/tests/` with the following layout:
+
+```bash
+# Run all tests
+python -m pytest tools/tests/ -q
+
+# Run by category
+python -m pytest tools/tests/unit/ -q
+python -m pytest tools/tests/integration/ -q
+
+# Health check
+python tools/maintenance/health_check.py
+```
+
+| Directory | Contents |
+|:----------|:---------|
+| `unit/` | Component tests (RAG, intelligence, filters, social, config) |
+| `integration/` | Full flow tests (chat, core pipeline, RAG integration) |
+| `verification/` | Logic verification, smoke tests, benchmarks |
+| `archive/` | Historical tests (preserved for reference) |
 
 ---
 

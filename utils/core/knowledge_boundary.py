@@ -84,6 +84,12 @@ class KnowledgeBoundary:
             except Exception: pass
 
         log_success(f"Loaded {len(self.known_entities)} known entities into boundary.")
+
+    def register_usernames(self, names):
+        """Register Discord guild member names as known entities at runtime."""
+        for name in names:
+            if name:
+                self.known_entities.add(name.lower())
     
     def extract_entities(self, text: str) -> List[str]:
         """Extract potential unique entities (names, unique objects) from text."""
@@ -106,6 +112,10 @@ class KnowledgeBoundary:
                 continue
             
             if len(m) <= 2: # Very short acronyms or words
+                continue
+            
+            # Skip single words that look like mashed-together usernames (e.g. Orginalcontentguy)
+            if ' ' not in m and len(m) > 15:
                 continue
 
             # Multi-word phrases are high signal

@@ -394,10 +394,11 @@ class MessageProcessor:
         
         if not boundary_check["all_known"]:
             log_msg = f"Knowledge Boundary: Detected unknown entities: {boundary_check['unknown_in_context']}"
-            if ctx.category in ["news", "dream"]:
-                log_info(log_msg)
-            else:
+            # Only escalate to warning for multi-word entities (likely real proper nouns)
+            if any(len(e.split()) > 1 for e in boundary_check['unknown_in_context']):
                 log_warning(log_msg)
+            else:
+                log_debug(log_msg)
 
         # 7. Generate Response (Stage 4)
         await self._generate_response_stage(ctx)

@@ -1,24 +1,22 @@
-<h1 align="center">Kaiacord 🤖</h1>
+<h1 align="center">Kaiacord</h1>
 
 <p align="center">
   <img src="https://img.shields.io/badge/Python-3.9%2B-blue?style=for-the-badge&logo=python" />
   <img src="https://img.shields.io/badge/Discord-API-7289DA?style=for-the-badge&logo=discord" />
-  <img src="https://img.shields.io/badge/Ollama-Local-FF6B35?style=for-the-badge" />
-  <img src="https://img.shields.io/badge/RAG-Enabled-10B981?style=for-the-badge" />
-  <img src="https://img.shields.io/badge/GPU-12GB%20VRAM-F59E0B?style=for-the-badge&logo=nvidia" />
+  <img src="https://img.shields.io/badge/Ollama-Local_LLM-FF6B35?style=for-the-badge" />
+  <img src="https://img.shields.io/badge/RAG-LlamaIndex-10B981?style=for-the-badge" />
+  <img src="https://img.shields.io/badge/GPU-12GB_VRAM-F59E0B?style=for-the-badge&logo=nvidia" />
   <img src="https://img.shields.io/badge/Bluesky-Connected-0085FF?style=for-the-badge" />
   <img src="https://img.shields.io/badge/X-Connected-000000?style=for-the-badge&logo=x" />
 </p>
 
 <p align="center">
-  <strong>Kaia is a stateful autonomous agent for Discord that maintains continuity through a multi-layered memory architecture bridging short-term context with long-term RAG knowledge.</strong>
-
-
+  <strong>Kaia is a locally-hosted Discord bot with persistent memory, social media cross-posting, and a personality. She runs entirely on Ollama, uses RAG for knowledge retrieval, and doesn't need cloud APIs to function.</strong>
 </p>
 
 ---
 
-## 🚀 Quick Start (5 Minutes)
+## Quick Start
 
 ### Prerequisites
 - **Python** 3.9+
@@ -35,221 +33,178 @@ python -m venv venv
 source venv/bin/activate
 pip install -r requirements.txt
 
-# 2. Pull AI models (this will take a while)
-ollama pull gemma3:12b           # Chat model (8GB)
-ollama pull gemma2:2b            # Classification model (CPU)
-ollama pull nomic-embed-text     # Embedding model
+# 2. Pull AI models
+ollama pull gemma3:12b           # Chat model (~8GB VRAM)
+ollama pull gemma2:2b            # Intent classifier (CPU)
+ollama pull nomic-embed-text     # Embedding model (CPU)
 
 # 3. Configure
 cp .env.example .env  # Create from example, or:
 echo "DISCORD_TOKEN=your_token_here" > .env
 echo "GEMINI_API_KEY=your_key_here" >> .env  # Optional: for news generation
 
-# 4. Launch!
+# 4. Launch
 python Kaiacord.py
 ```
 
-**First message**: `@kaia status` in Discord to verify it's working!
+**First message**: `@kaia status` in Discord to verify she's running.
 
 ---
 
-## ✨ Features
+## Features
 
-| Category | Features | Status |
-|:---------|:---------|:-------|
-| **🤖 Core AI** | Local Inference (Ollama), Multi-Model Support (`gemma3:12b`), Identity Anchor (Non-truncating persona core protection) | ✅ |
-| **⚡ Performance** | GPU Semaphore Guard (12GB VRAM), Config-Driven 20K Context Scaling, CPU-Offloaded Classification & Embeddings | ✅ |
-| **📊 Interface** | Curses Dashboard (btop-style), Discord Bot, Consolidated Logging | ✅ |
-| **🧠 Memory** | RAG with File Indexing, User Profiles, Semantic Cache, Natural Mention | ✅ |
-| **🎯 Intelligence** | Query Classification, Personalization, Temporal Calibration | ✅ |
-| **🛡️ Veracity** | Hallucination Guard with tracer support, Knowledge Boundary whitelisting, Hazy Memory Detection | ✅ |
-| **💭 Dream Mode** | Associative memory recall (nightly 3-5 AM); processes archived knowledge into persona-deep reflections for more natural, organic RAG callbacks | ✅ |
-| **🔄 Self-Healing** | 3-pass generation loop with automatic parameter scaling to recover from LLM failures or hallucinations | ✅ |
-| **🛡️ Resilience** | Circuit breakers for social APIs, 401 auto-retry with cookie extraction, ordered shutdown, 5-min pre-warm timeout | ✅ |
-| **🌐 Social Media** | Cross-post to Bluesky & X, Auto-reply to mentions, Memory Mirror | ✅ |
-| **🏟️ Forums** | VBulletin 3.x Client, Deep Thread Scraping, Unified Identity Linking (Discord <-> Forum)| ✅ |
-| **📰 News** | Daily Briefs, Manual Retrieval, Ingestion of manual/weekly briefs | ✅ |
+| Category | What it does |
+|:---------|:-------------|
+| **Chat** | Local inference via Ollama (`gemma3:12b`), persona-anchored responses, configurable 20K context window |
+| **Memory** | RAG-backed knowledge base, per-user profiles, semantic cache, interaction logging |
+| **Intelligence** | Intent classification, user personalization, temporal awareness |
+| **Hallucination Guard** | Adversarial self-check with tracer phrases, knowledge boundary enforcement, hazy memory detection |
+| **Dream Mode** | Nightly (3–5 AM) associative recall — processes daily logs into reflections that feed back into RAG |
+| **Self-Healing** | 3-pass generation loop with automatic parameter scaling when the LLM produces bad output |
+| **Resilience** | Circuit breakers for external APIs, 401 auto-retry for X auth, ordered shutdown |
+| **Social Media** | Cross-posts to Bluesky & X, replies to mentions, memory-grounded idle quips |
+| **Forums** | VBulletin 3.x scraping, deep thread indexing, Discord ↔ Forum identity linking |
+| **News** | Daily auto-generated briefs (via Gemini API), 14-day retention with archive |
+| **Dashboard** | Curses-based TUI with real-time VRAM/GPU stats, live log stream |
+
 ---
 
-# 🧠 Cognitive Architectures & Synthetic Consciousness
-### Advanced Systems for Human-Emulating AI Agents
+## How It Works
 
-## 1. Cognitive Processing Pipeline
-The processing pipeline is the central nervous system of Kaia, orchestrated by the `MessageProcessor`. It manages the logical transition from pre-conscious filtering to intent classification and multi-stage self-healing.
+### Processing Pipeline
+
+When a message comes in, Kaia runs it through a three-stage pipeline: classify intent, retrieve context from RAG, then generate and validate the response.
 
 ```mermaid
 graph TD
-    User([User Input]) --> Gatekeeper[CSI Gatekeeper]
-    
-    subgraph DecisionLayer ["1. Internal Monologue (IMM)"]
-        Gatekeeper --> Classify{Intent Classification}
-        Classify --"Fast-Path"--> Strategy[Strategy Selection]
-        Classify --"Full-Path (LLM)"--> Strategy
+    User([Message]) --> Gatekeeper[Gatekeeper Filter]
+
+    subgraph Classify ["1. Intent Classification"]
+        Gatekeeper --> Intent{Classify}
+        Intent --"Fast-Path"--> Strategy[Strategy Selection]
+        Intent --"Full LLM"--> Strategy
     end
-    
-    subgraph RetrievalLayer ["2. Context Synthesis (RAG)"]
-        Strategy --> RAG[Associative Retrieval]
-        RAG --> Context[Persona & Knowledge Grounding]
+
+    subgraph Retrieve ["2. Context Retrieval"]
+        Strategy --> RAG[RAG Search]
+        RAG --> Context[Persona + Knowledge Grounding]
     end
-    
-    subgraph ValidationLoop ["3. Self-Healing Validator"]
-        Context --> Gen[Response Generation]
-        Gen --> Validator{Adversarial Check}
-        Validator --"Fictional / Robotic"--> Retry[Scale Temp & Retry]
+
+    subgraph Validate ["3. Generation & Validation"]
+        Context --> Gen[Generate Response]
+        Gen --> Check{Hallucination Check}
+        Check --"Failed"--> Retry[Scale Params & Retry]
         Retry --> Gen
     end
-    
-    Validator --"Validated"--> Output([Final Response])
-    
+
+    Check --"Passed"--> Output([Response])
 ```
 
-## 2. Memory & Reflection Architecture
-Kaia employs a dual-vector memory system. Raw daily logs are processed nightly into **Deep Reflections**—associative memory nodes that are re-injected into her active RAG context to ground both her conversations and social media presence.
+### Memory & Reflection
+
+Kaia logs daily interactions and processes them overnight into associative reflections. These reflections are re-injected into her RAG index, grounding both her conversations and social media posts in actual past experience.
 
 ```mermaid
 graph LR
-    subgraph Source ["Knowledge Ingestion"]
-        Docs[Manual Docs]
-        Logs[Daily Interactions]
+    subgraph Ingestion ["Knowledge Ingestion"]
+        Docs[Documents & Books]
+        Logs[Daily Interaction Logs]
     end
 
-    subgraph Storage ["Stateful Knowledge"]
-        Source --> Pipeline[Hybrid Ingestion]
+    subgraph Storage ["Persistent Storage"]
+        Ingestion --> Pipeline[Chunk & Embed]
         Pipeline --> KB[(Knowledge Base)]
-        
+
         Logs --"Nightly 3-5 AM"--> Dream[Dream Engine]
-        Dream --> Reflections[(Reflection Store)]
+        Dream --> Reflections[(Reflections)]
     end
 
-    subgraph Retrieval ["Dual-Vector Grounding"]
+    subgraph Retrieval ["Retrieval"]
         KB --> RAG[Similarity Search]
         Reflections --> RAG
         RAG --> Context[Grounded Context]
     end
 
-    Context --> Chat[Active Chat Response]
-    Context --> Social[Social Memory Mirror]
-    
+    Context --> Chat[Chat Response]
+    Context --> Social[Social Posts]
 ```
 
 ---
 
-## 🏗️ Architecture Overview
-Kaia is built with a modular service architecture optimized for local GPU inference.
+## Architecture
 
 ```mermaid
 graph TB
-    subgraph External ["Event Mesh"]
+    subgraph External ["External Services"]
         Discord[Discord API]
-        Social[Social APIs]
+        Social[Bluesky / X]
     end
 
-    subgraph Core ["Kaiacord Orchestrator"]
+    subgraph Core ["Kaiacord"]
         Main[Kaiacord.py]
         Ctx[AppContext]
-        Dashboard[btop-Style Dashboard]
+        Dashboard[Curses Dashboard]
     end
 
-    subgraph Layers ["Service Architecture"]
-    %% AppContext acts as the registry for all services
+    subgraph Layers ["Service Layer"]
         Main --> Ctx
         Ctx --> Proc[MessageProcessor]
-        Ctx --> CoreUtils[Intelligence & RAG Core]
+        Ctx --> CoreUtils[Intelligence & RAG]
         Ctx --> SocialUtils[Social Responders]
         Ctx <--> Infra[Monitoring & Lifecycle]
     end
 
     Dashboard --"VRAM/GPU"--> Main
     Dashboard --"Logs"--> Infra
-    
 ```
 
 ---
 
-## 📋 Usage Examples
+## Usage
 
-### 💬 Basic Chat
+### Chat
 ```
 User: @kaia what's Python?
 Kaia: programming language. general purpose. readable syntax. popular for automation and data work.
 ```
 
-### 📰 News Retrieval
+### News
 ```
 User: !news technology
-Kaia: 📰 **Technology News**
+Kaia: 📰 Technology News
 [Briefings from daily/weekly ingestion]
 ```
 
 **Categories**: `technology`, `security`, `hacking`, `politics`, `business`, `science`, `culture`, `general`
 
-**Features**:
 - Auto-generates daily on boot (requires `GEMINI_API_KEY`)
-- 14-day retention → Auto-archives to `knowledge_base/news/archive/`
-- Weekly summaries from archived news
-- Supports manual ingestion of briefings via `tools/maintenance/ingest_manual_news.py`
+- 14-day retention → auto-archives to `knowledge_base/news/archive/`
+- Supports manual ingestion via `tools/maintenance/ingest_manual_news.py`
 
-### 🏟️ Forum Archaeology
-Kaia can deep-scrape VBulletin forums to build high-density knowledge bases:
+### Forum Integration
 ```
- Unified Identity Linking:
- !forum link <forum_id>
- Associates your Discord identity with your forum profile for cross-platform 
- personality dossiers.
-
- Technical Knowledge Expansion:
- Kaia deep-scrapes subforums (like Technical Discussion) and synthesizes
- community-vetted solutions into searchable Cheat Sheets.
-
- Safe Interaction:
- Quoting support with [QUOTE] BBCode and thread-specific allowlists
- ensure Kaia only interacts where she belongs.
+!forum link <forum_id>     # Link Discord identity to forum profile
 ```
-**References**:  
-- [`docs/02-user-guide/forum-integration.md`](docs/02-user-guide/forum-integration.md)
+Kaia deep-scrapes VBulletin subforums and synthesizes community knowledge into searchable cheat sheets.
 
-### 🌐 Social Media
-Kaia can cross-post to Bluesky and X, and reply to mentions:
-```
- Idle quips auto-post to:
- - @kaiakuroshi.bsky.social (Bluesky)
- - @Nokifusignal (X)
+See: [`docs/02-user-guide/forum-integration.md`](docs/02-user-guide/forum-integration.md)
 
- When someone mentions Kaia on Bluesky or X,
- she replies using her AI persona (checked every 5 min)
+### Social Media
+Kaia cross-posts idle quips to Bluesky and X, and replies to mentions every 5 minutes. Posts are grounded in her actual conversation history via the Memory Mirror system.
 
- Memory Mirror:
- Idle quips are now grounded in Kaia's actual past conversations,
- making her "skeets" and posts feel like genuine personal reflections.
-```
-
-**Setup**: See [`docs/02-user-guide/social-media.md`](docs/02-user-guide/social-media.md)
-
-## 📊 Monitoring & Logging
-
-### Consolidated Log
-All output (bot logs, system errors, library tracebacks) is consolidated into:
-`logs/kaiacord.log`
-
-### Curses Dashboard
-```bash
-python Kaiacord.py  # Launches dashboard
-```
-- **Real-time VRAM/GPU monitoring**
-- **Active Model tracking**
-- **Live log stream with automatic color-to-plain conversion for file persistence**
+See: [`docs/02-user-guide/social-media.md`](docs/02-user-guide/social-media.md)
 
 ---
 
-## ⚙️ Configuration
+## Configuration
 
-### Quick Config (`.env`)
+### `.env`
 ```env
 DISCORD_TOKEN=your_discord_bot_token
 GEMINI_API_KEY=your_api_key  # Optional: for news generation
 ```
 
-### Advanced Config (`config/kaia.yaml`)
+### `config/kaia.yaml`
 ```yaml
 # Override defaults hierarchically
 discord:
@@ -260,17 +215,41 @@ models:
 
 performance:
   max_memory_messages: 30
-  max_context_tokens: 20000     # Hardware-optimized context (RTX 3060 12GB default)
+  max_context_tokens: 20000     # Tuned for RTX 3060 12GB
   requests_per_minute: 30
 ```
 
+---
+
+## GPU Management
+
+Kaia manages a single 12GB VRAM budget:
+
+| Model | Role | Runs on | VRAM |
+|:------|:-----|:--------|:-----|
+| `gemma3:12b` | Chat | GPU | ~8 GB |
+| `gemma2:2b` | Intent classifier | CPU (`num_gpu: 0`) | 0 |
+| `nomic-embed-text` | Embeddings | CPU (`num_gpu: 0`) | 0 |
+
+Context window is set to 20K tokens (~1.5 GB KV cache), configurable in `config/kaia.yaml`.
+
+See: [`docs/03-architecture/gpu-management.md`](docs/03-architecture/gpu-management.md)
 
 ---
 
-## 🎛️ Advanced Features
+## Monitoring
 
-### Custom Persona
-Edit `knowledge_base/kaia_persona.md` to customize personality:
+All output goes to `logs/kaiacord.log`. The curses dashboard shows real-time VRAM usage, active models, and a live log stream.
+
+```bash
+python Kaiacord.py  # Launches with dashboard
+```
+
+---
+
+## Custom Persona
+
+Edit `knowledge_base/kaia_persona.md`:
 ```markdown
 # Kaia's Persona
 
@@ -280,100 +259,87 @@ You are Kaia, a blunt, grounded AI with technical expertise.
 - Focus on facts over fluff
 ```
 
-### Knowledge Base Management
+## Knowledge Base
+
 ```bash
-# Add documents (auto-indexed)
+# Add documents (auto-indexed on next boot or file change)
 cp my_docs.pdf knowledge_base/
-# Kaia automatically detects and indexes new files
 
 # Force re-index
-# Force re-index
-python tools/maintenance/reindex_rag.py
+python tools/rebuild_rag.py
 ```
-
-### GPU Management (12GB VRAM)
-Kaia automatically manages VRAM via a semaphore-based GPU guard:
-1. **Chat**: gemma3:12b loaded permanently (8GB)
-2. **Classification**: gemma2:2b runs on CPU (`num_gpu: 0`) — zero GPU impact
-3. **Embeddings**: nomic-embed-text runs on CPU (`num_gpu: 0`) — zero GPU impact
-4. **Context**: 20,000 token context window (~1.5GB KV cache) optimized for 12GB cards
-5. **Monitor**: `watch -n 1 nvidia-smi` to see VRAM usage
-
-**See**: [`docs/03-architecture/gpu-management.md`](docs/03-architecture/gpu-management.md) for details
 
 ---
 
-## 🧪 Testing
+## Testing
 
 ```bash
-# System health check
+# Health check
 python tools/maintenance/health_check.py
 
-# Verification scripts
-python scripts/test_md_logging.py
-python scripts/test_skepticism.py
+# Run test suite
+python -m pytest tools/tests/ -q
+
+# Run specific category
+python -m pytest tools/tests/unit/ -q
+python -m pytest tools/tests/integration/ -q
 ```
 
 ---
 
-## 📁 Project Structure
+## Project Structure
 
 ```
 Kaiacord/
-├── Kaiacord.py              # Minimal Orchestrator
-├── utils/                   # Deeply modularized logic
-│   ├── core/                # RAG, Intelligence, Dream, MessageProcessor
-│   ├── infrastructure/      # AppContext, DashboardManager, Logging, System
-│   ├── social/              # Twitter/X, Bluesky, Social Responders
-│   ├── commands/            # Extracted command handlers
+├── Kaiacord.py              # Entry point & orchestrator
+├── config/                  # YAML config, persona, entity databases
+├── knowledge_base/          # RAG document storage (books, news, user logs)
+├── memory/                  # Persistent state (cache, profiles, RAG index)
+├── logs/                    # Consolidated log: kaiacord.log
+├── utils/
+│   ├── core/                # RAG, Intelligence, Dream Engine, MessageProcessor
+│   ├── infrastructure/      # AppContext, Dashboard, Logging, Config
+│   ├── social/              # X, Bluesky, Social Responders
+│   ├── commands/            # Discord command handlers
 │   └── news/                # News retrieval & management
-├── config/                  # Configuration & Personas
-├── knowledge_base/          # RAG text storage (News, User Logs)
-├── memory/                  # Persistent data (Cache, State, RAG storage)
-├── logs/                    # ONE LOG FILE: kaiacord.log
-├── tools/                   # Standalone utilities
-│   ├── maintenance/         # RAG refresh, News cleanup, Health check
-│   ├── diagnostics/         # Categorized scan & trigger tools
-│   ├── tests/               # Dedicated Pytest suite & verification scripts
-│   │   ├── unit/            # Component unit tests
-│   │   ├── integration/     # End-to-end flow tests
-│   │   ├── verification/    # Logic & isolation verification
-│   │   └── archive/         # Legacy & reference tests
-├── docs/                    # Detailed documentation
+├── tools/
+│   ├── maintenance/         # RAG refresh, news update, health check
+│   ├── diagnostics/         # Index scanning, model inspection
+│   ├── recovery/            # Hallucination cleanup, nuclear reset
+│   ├── social/              # X auth, cookie extraction
+│   └── tests/
+│       ├── unit/            # Component tests
+│       ├── integration/     # End-to-end flow tests
+│       └── verification/    # Logic verification & smoke tests
+├── scripts/                 # Maintenance & diagnostic scripts
+└── docs/                    # Full documentation
 ```
 
 ---
 
-## 📚 Documentation
+## Documentation
 
-All docs are organized in [docs/](docs/README.md).
+All docs: [`docs/README.md`](docs/README.md)
 
-### 🎯 Essentials
-- **[Quick Start](docs/01-getting-started/quick-start.md)** - Get running in 5 minutes
-- **[Command Reference](docs/02-user-guide/commands.md)** - Full list of commands and triggers
-
-### 🏗️ Technical
-- **[System Overview](docs/03-architecture/overview.md)** - System design & data flows
-- **[GPU Management](docs/03-architecture/gpu-management.md)** - VRAM for RTX 3060 (12GB)
-- **[Social Media](docs/02-user-guide/social-media.md)** - Bluesky & X integration
-- **[Testing Guide](docs/04-development/testing.md)** - Testing infrastructure
-
-### 🔧 Maintenance
-- **[tools/README.md](tools/README.md)** - Maintenance tools reference
-- **[Procedures](docs/05-maintenance/procedures.md)** - Backup & update procedures
-- **[Troubleshooting](docs/06-troubleshooting/common-issues.md)** - Common issues
+| Topic | Link |
+|:------|:-----|
+| Quick Start | [`docs/01-getting-started/quick-start.md`](docs/01-getting-started/quick-start.md) |
+| Commands | [`docs/02-user-guide/commands.md`](docs/02-user-guide/commands.md) |
+| Architecture | [`docs/03-architecture/overview.md`](docs/03-architecture/overview.md) |
+| GPU Management | [`docs/03-architecture/gpu-management.md`](docs/03-architecture/gpu-management.md) |
+| Social Media | [`docs/02-user-guide/social-media.md`](docs/02-user-guide/social-media.md) |
+| Testing | [`docs/04-development/testing.md`](docs/04-development/testing.md) |
+| Troubleshooting | [`docs/06-troubleshooting/common-issues.md`](docs/06-troubleshooting/common-issues.md) |
+| Tools Reference | [`tools/README.md`](tools/README.md) |
 
 ---
 
-
----
-
-## 📄 License
+## License
 
 This project is licensed under the [MIT License](LICENSE).
 
 ---
 
 <p align="center">
-  <sub>Built with ❤️ by Gemini & Claude for local AI enthusiasts | GPU-optimized for RTX 3060 12GB</sub>
+  <sub>Built by Ekco — local AI, no cloud required | Optimized for RTX 3060 12GB</sub>
 </p>

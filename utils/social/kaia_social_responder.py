@@ -1088,8 +1088,10 @@ def clean_quip(quip_text, max_chars=800):  # Increased default
         if clean_text.lower().startswith(phrase):
             clean_text = clean_text[len(phrase):].strip()
     
-    # Strip hallucinated bracket placeholders (e.g. [LINK_TO_ARCHIVE], [IMAGE], [URL])
-    clean_text = re.sub(r'\[\s*[A-Z_]+(?:\s+[A-Z_]+)*\s*\]', '', clean_text).strip()
+    # Strip hallucinated bracket placeholders (e.g. [LINK_TO_ARCHIVE], [IMAGE_HERE])
+    # Requires underscore OR 4+ uppercase chars to avoid stripping legitimate [NOTE], [EDIT], etc.
+    clean_text = re.sub(r'\[\s*[A-Z][A-Z_]*_[A-Z_]*\s*\]', '', clean_text)  # Must contain underscore
+    clean_text = re.sub(r'\[\s*[A-Z]{4,}\s*\]', '', clean_text).strip()  # Or 4+ uppercase chars
     
     # Ensure it ends with proper punctuation
     if clean_text and clean_text[-1] not in '.!?…"':

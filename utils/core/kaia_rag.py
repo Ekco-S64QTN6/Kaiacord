@@ -1,35 +1,5 @@
 import os
 import re
-
-
-def sanitize_log_content(text: str) -> str:
-    """Strip internal system tags and dev metadata from text before logging.
-    
-    Prevents RAG pollution from internal tags like [AUTO_QUIP], [REMEMBER_COMMAND],
-    dev metadata like [RAG Component]/[MODIFY], and hallucinated placeholders.
-    """
-    if not text:
-        return text
-    
-    clean = text
-    
-    # Replace internal action tags with human-readable descriptions
-    clean = clean.replace('[AUTO_QUIP]', '(autonomous broadcast)')
-    clean = clean.replace('[AUTO_THREAD_PART]', '(thread continuation)')
-    
-    # Strip [REMEMBER_COMMAND]: prefix but keep the actual content
-    clean = re.sub(r'\[REMEMBER_COMMAND\]:\s*', '', clean)
-    
-    # Strip dev metadata tokens
-    clean = re.sub(r'\[(?:RAG Component|MODIFY|NEW|DELETE|INSERT)\]', '', clean)
-    
-    # Strip hallucinated bracket placeholders (e.g. [LINK_TO_ARCHIVE], [IMAGE_HERE])
-    clean = re.sub(r'\[\s*[A-Z_]+(?:\s+[A-Z_]+)*\s*\]', '', clean)
-    
-    # Clean up resulting double spaces
-    clean = re.sub(r'  +', ' ', clean)
-    
-    return clean.strip()
 import asyncio
 import time
 import shutil
@@ -77,6 +47,38 @@ from utils.social.kaia_identities import registry
 class CircuitOpenError(Exception):
     """Raised when the circuit breaker is open"""
     pass
+
+
+def sanitize_log_content(text: str) -> str:
+    """Strip internal system tags and dev metadata from text before logging.
+    
+    Prevents RAG pollution from internal tags like [AUTO_QUIP], [REMEMBER_COMMAND],
+    dev metadata like [RAG Component]/[MODIFY], and hallucinated placeholders.
+    """
+    if not text:
+        return text
+    
+    clean = text
+    
+    # Replace internal action tags with human-readable descriptions
+    clean = clean.replace('[AUTO_QUIP]', '(autonomous broadcast)')
+    clean = clean.replace('[AUTO_THREAD_PART]', '(thread continuation)')
+    
+    # Strip [REMEMBER_COMMAND]: prefix but keep the actual content
+    clean = re.sub(r'\[REMEMBER_COMMAND\]:\s*', '', clean)
+    
+    # Strip dev metadata tokens
+    clean = re.sub(r'\[(?:RAG Component|MODIFY|NEW|DELETE|INSERT)\]', '', clean)
+    
+    # Strip hallucinated bracket placeholders (e.g. [LINK_TO_ARCHIVE], [IMAGE_HERE])
+    # Requires underscore OR 4+ uppercase chars to avoid stripping legitimate [NOTE], [EDIT], [TIP]
+    clean = re.sub(r'\[\s*[A-Z][A-Z_]*_[A-Z_]*\s*\]', '', clean)  # Must contain underscore
+    clean = re.sub(r'\[\s*[A-Z]{4,}\s*\]', '', clean)  # Or 4+ consecutive uppercase chars
+    
+    # Clean up resulting double spaces
+    clean = re.sub(r'  +', ' ', clean)
+    
+    return clean.strip()
 
 # HallucinationDetector has been moved to utils/core/response_filter.py
 from utils.core.response_filter import HallucinationDetector

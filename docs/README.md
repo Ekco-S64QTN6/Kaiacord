@@ -58,7 +58,3 @@ Welcome to the Kaiacord documentation! Organized by topic for easy navigation.
 Historical docs and superseded references: [archive/](archive/)
 
 ---
-
-<p align="center">
-  <sub>Built with ❤️ for local AI | GPU-optimized for RTX 3060</sub>
-</p>
