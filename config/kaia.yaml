@@ -9,7 +9,7 @@
 #
 
 startup:
-  news_update: true
+  news_update: false
 
 discord:
   whitelisted_channels: "kaia-opolis"
@@ -29,10 +29,12 @@ social:
 x_twitter:
   enabled: false
   cross_post_quips: false
-
+  reply_to_mentions: false
 features:
   dream_mode_enabled: true
 
 performance:
   max_consecutive_quips: 5
   idle_quip_timeout_minutes: 160
+  classification_timeout: 120.0
+  max_context_tokens: 20000

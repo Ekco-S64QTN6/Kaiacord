@@ -7,7 +7,7 @@ import logging
 
 logging.getLogger().setLevel(logging.ERROR)
 
-def profile_index(itype, persist_dir="./storage"):
+def profile_index(itype, persist_dir="./memory/rag_storage"):
     path = os.path.join(persist_dir, itype)
     if not os.path.exists(path):
         print(f"Skipping {itype} (dir missing)")

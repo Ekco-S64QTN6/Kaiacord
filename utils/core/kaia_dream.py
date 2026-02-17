@@ -76,7 +76,7 @@ YOUR IN-DEPTH REFLECTION:"""
                     options={
                         "temperature": 0.8, 
                         "num_predict": 1000,
-                        "num_ctx": getattr(self.config, 'max_context_tokens', 24000),
+                        "num_ctx": getattr(self.config, 'max_context_tokens', 20000),
                         "stop": ["User:", "Kaia:"]
                     }
                 )

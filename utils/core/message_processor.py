@@ -680,7 +680,9 @@ class MessageProcessor:
                  from collections import deque
                  self.bot_state.channel_memory[ctx.channel_id] = deque(maxlen=self.config.max_memory_messages)
             
-            self.bot_state.channel_memory[ctx.channel_id].append({"role": "user", "content": ctx.sanitized_content})
+            # Add author prefix to user message for history disambiguation
+            user_msg_with_author = f"{ctx.author_name}: {ctx.sanitized_content}"
+            self.bot_state.channel_memory[ctx.channel_id].append({"role": "user", "content": user_msg_with_author})
             self.bot_state.channel_memory[ctx.channel_id].append({"role": "assistant", "content": ctx.response_text})
             
             # Update personalization and relevance feedback

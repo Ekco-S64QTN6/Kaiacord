@@ -15,8 +15,8 @@ models:
   # Main chat model
   chat: "gemma3:12b"
   
-  # Embedding model for RAG
-  embedding: "nomic-embed-text"
+  # Embedding model for RAG (Forced to CPU via model alias)
+  embedding: "nomic-embed-text-cpu"
 
   # Whether to run intent classification on GPU (default: false, runs on CPU)
   classification_on_gpu: false
@@ -35,7 +35,7 @@ performance:
   idle_quip_timeout_minutes: 55
   
   # Number of top RAG results to retrieve
-  rag_top_k: 25
+  rag_top_k: 15
   
   # RAG Relevance Thresholds
   rag_thresholds:
@@ -67,9 +67,14 @@ performance:
   # Maximum RAG log size (MB) before rotation
   max_log_size_mb: 1000
 
-  # Context budget (Total tokens for system prompt + history)
-  # RTX 3060 (12GB) Recommended: 24,000 (More stable for concurrent RAG).
-  max_context_tokens: 8192
+  # Total tokens for chat model (RTX 3060 12GB Recommended: 24,000)
+  max_context_tokens: 20000
+
+  # Context window for CPU-based classification (IntentParser)
+  classification_context_tokens: 2048
+  
+  # Context window for CPU-based embeddings (OllamaEmbedding)
+  embedding_context_tokens: 2048
 
   # Summarization burst context (Temporarily expands for large file processing)
   # Safe for 12GB VRAM: 48,000
@@ -141,11 +146,11 @@ timeouts:
   embedding_request_seconds: 60.0
 
   # LLM request timeout (seconds)
-  llm_request_seconds: 360.0
+  llm_request_seconds: 600.0
 
   # Overall shutdown timeout (seconds) - how long to wait for async_shutdown to complete
   # Must be long enough for RAG persistence (~30s) plus model unloading
-  shutdown_seconds: 60.0
+  shutdown_seconds: 120.0
 
 # ============================================================================
 # Paths Configuration
@@ -155,7 +160,7 @@ paths:
   knowledge_base: "./knowledge_base"
   
   # Persistence directory for indices and cache
-  persist: "./storage"
+  persist: "./memory/rag_storage"
   
   # Bot state file
   bot_state: "./memory/bot_state.json"
@@ -239,7 +244,7 @@ dashboard:
 # ============================================================================
 features:
   # Enable news system
-  news_enabled: true
+  news_enabled: false
   
   # Enable auto news injection (DISABLED)
   news_auto_trigger: false

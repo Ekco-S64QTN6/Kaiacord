@@ -1,5 +1,35 @@
 import os
 import re
+
+
+def sanitize_log_content(text: str) -> str:
+    """Strip internal system tags and dev metadata from text before logging.
+    
+    Prevents RAG pollution from internal tags like [AUTO_QUIP], [REMEMBER_COMMAND],
+    dev metadata like [RAG Component]/[MODIFY], and hallucinated placeholders.
+    """
+    if not text:
+        return text
+    
+    clean = text
+    
+    # Replace internal action tags with human-readable descriptions
+    clean = clean.replace('[AUTO_QUIP]', '(autonomous broadcast)')
+    clean = clean.replace('[AUTO_THREAD_PART]', '(thread continuation)')
+    
+    # Strip [REMEMBER_COMMAND]: prefix but keep the actual content
+    clean = re.sub(r'\[REMEMBER_COMMAND\]:\s*', '', clean)
+    
+    # Strip dev metadata tokens
+    clean = re.sub(r'\[(?:RAG Component|MODIFY|NEW|DELETE|INSERT)\]', '', clean)
+    
+    # Strip hallucinated bracket placeholders (e.g. [LINK_TO_ARCHIVE], [IMAGE_HERE])
+    clean = re.sub(r'\[\s*[A-Z_]+(?:\s+[A-Z_]+)*\s*\]', '', clean)
+    
+    # Clean up resulting double spaces
+    clean = re.sub(r'  +', ' ', clean)
+    
+    return clean.strip()
 import asyncio
 import time
 import shutil
@@ -207,7 +237,7 @@ def thread_safe_rag_operation(func):
     return async_wrapper if is_async else sync_wrapper
 
 class KaiaRAG:
-    def __init__(self, knowledge_base_dir="./knowledge_base", persist_dir="./storage"):
+    def __init__(self, knowledge_base_dir="./knowledge_base", persist_dir="./memory/rag_storage"):
         self.knowledge_base_dir = knowledge_base_dir
         self.persist_dir = persist_dir
         self.indexed_files = {}  # Track indexed files {path: mtime} to detect updates
@@ -215,14 +245,17 @@ class KaiaRAG:
         # Configure Ollama Embedding
         # Force CPU for embeddings to save VRAM for the main 12b model
         self.embed_model = OllamaEmbedding(
-            model_name="nomic-embed-text",
+            model_name=config.embedding_model if hasattr(config, 'embedding_model') else "nomic-embed-text-cpu",
             base_url="http://localhost:11434",
-            query_prefix="search_query: ",
-            text_prefix="search_document: ",
-            request_timeout=config.embedding_request_seconds,
+            query_instruction="search_query: ",
+            text_instruction="search_document: ",
             # Force CPU for embeddings to save VRAM for the main 12b model
-            # Ollama requires these to be in an 'options' dict
-            additional_kwargs={"options": {"num_gpu": 0}} 
+            ollama_additional_kwargs={
+                "num_gpu": 0,
+                "num_thread": 4,
+                "num_ctx": config.embedding_context_tokens
+            },
+            client_kwargs={"timeout": config.embedding_request_seconds}
         )
         
         # Set global settings
@@ -1003,7 +1036,7 @@ class KaiaRAG:
                 timestamp = datetime.now().strftime("%Y%m%d_%H%M%S")
                 log_file = os.path.join(user_log_dir, f"injected_{timestamp}.txt")
                 
-                log_text = f"User ({user_name}): [REMEMBER_COMMAND]: {text}\nKaia: Logged it. I'll remember that.\n"
+                log_text = f"User ({user_name}): Remember this: {text}\nKaia: Logged it. I'll remember that.\n"
                 
                 with open(log_file, "w", encoding="utf-8") as f:
                     f.write(log_text)
@@ -1120,6 +1153,10 @@ class KaiaRAG:
                 header_text = ""
                 if is_new_file:
                     header_text = "---\nsummary: \"\"\nkeywords: []\ndocument_type: Transcript\n---\n\n"
+                
+                # Sanitize internal tags before logging to prevent RAG pollution
+                message_content = sanitize_log_content(message_content)
+                bot_response = sanitize_log_content(bot_response)
                 
                 interaction_text = f"User: {message_content}\nKaia: {bot_response}\n\n"
                 
@@ -1460,9 +1497,13 @@ class KaiaRAG:
                 if not include_news and (source_type == 'news' or "news" in file_path.lower()):
                     continue
                 
-                # Filter: Identity Isolation
-                if source_type == 'user_profile' and not (is_social_identity or strict_identity):
-                    continue
+                # Filter: Identity Isolation (Profiles)
+                if source_type == 'user_profile':
+                    if not (is_social_identity or strict_identity):
+                        continue
+                    # CRITICAL: Strict user owner check for profiles
+                    if node_user_id and node_user_id not in relevant_ids:
+                        continue
                 
                 # Filter: User Isolation for Logs
                 if source_type == 'user_logs':

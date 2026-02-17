@@ -338,3 +338,59 @@ All filters now implement a **critical safety net**: if cleaning/filtering would
 **Files Modified**:
 - `docs/03-architecture/overview.md` - Mermaid diagram fix
 - `docs/README.md` - Link cleanup
+
+---
+
+### 18. Phase 13: X Stability & Storage Consolidation (2026-02-15) ✅
+**Problem**: 
+- **X Authentication**: `twikit` lazy import was blocked by premature `Client is None` guard.
+- **Storage Fragmentation**: RAG storage was split across multiple directories.
+- **Event Loop**: Remaining "Event loop is closed" errors during shutdown in long-running sessions.
+- **Boot Hangs**: Model pre-warm could hang indefinitely if Ollama was unresponsive.
+- **Knowledge Boundary**: Entity extraction was too aggressive, triggering false positives on common words.
+
+**Solution**:
+- **X Client**: Fixed lazy import ordering; `twikit.Client` class is now imported before checking if the global client is `None`.
+- **Storage Consolidation**: Unified RAG storage under `memory/rag_storage/` path.
+- **Ordered Shutdown**: Implemented strict shutdown sequence: cancel tasks → unload model → persist RAG → close clients → kill runners.
+- **Pre-Warm Timeout**: Wrapped `ModelWarmPool.pre_warm()` in a 300s `asyncio.wait_for`; logs CRITICAL FAILURE on timeout.
+- **Knowledge Boundary Redesign**: Externalized common entity filter to `config/common_entities.json`; added CamelCase entity support and fuzzy matching with performance guard.
+- **Circuit Breakers**: Added `CircuitBreaker` pattern for all social media API calls (3 failures → 5-min open state).
+
+**Files Modified**:
+- `utils/social/kaia_twitter.py` - Lazy import fix, cookie extraction, 401 auto-retry
+- `utils/core/kaia_rag.py` - Storage path consolidation
+- `utils/core/knowledge_boundary.py` - Redesigned entity extraction
+- `utils/infrastructure/system/dashboard_manager.py` - Ordered shutdown, pre-warm timeout
+- `utils/social/kaia_social_responder.py` - Circuit breakers, thread tracking
+
+---
+
+### 19. Phase 14: Claude Code Review & Bug Fixes (2026-02-17) ✅
+**Problem**: Independent code review discovered 8 bugs — some critical, some silent — across configuration, social, and RAG layers.
+
+**Bugs Fixed**:
+
+1. **X Client Dead Initialization** (`kaia_twitter.py`): Guard `if Client is None` always triggered before the lazy `from twikit import Client` import, preventing the X client from ever initializing. All X features were silently broken.
+
+2. **OllamaEmbedding Wrong Parameter Names** (`kaia_rag.py`): Constructor used wrong kwargs (`additional_kwargs` instead of `ollama_additional_kwargs`, `query_prefix` instead of `query_instruction`, `request_timeout` instead of `client_kwargs`). This meant `num_gpu: 0` was silently ignored — embeddings ran on GPU, competing with the chat model for VRAM.
+
+3. **KeyError Crash in X History Reconstruction** (`kaia_social_responder.py`): `_thread_counts[root_id]` used direct dict access, but `_thread_counts` is a regular dict. New thread roots caused a `KeyError` crash. Fixed with `.setdefault(root_id, {})`.
+
+4. **5 Config Path Mapping Bugs** (`yaml_config.py`): Properties `rag_boost_persona`, `rag_boost_profiles`, `rag_boost_dreams`, `rag_score_threshold`, and `embedding_request_seconds` all read from wrong YAML paths (e.g., `rag_scoring.path_boost` instead of `performance.rag_scoring.path_boost`). User config values were silently ignored.
+
+5. **Silent Config Override** (`kaia.yaml`): `performance.classification_timeout` was set but the code reads `timeouts.classification_seconds`.
+
+6. **Documentation Drift**: Context window cited as 24K/28K across README and docs; actual configured value is 20K.
+
+7. **Property Default vs YAML Default Mismatches**: Python defaults for `rag_top_k`, `summarization_context_tokens` differed from `default_config.yaml` defaults.
+
+8. **Minor Regex Issue** (`knowledge_boundary.py`): Lookbehind assertion missing `re.MULTILINE` flag.
+
+**Files Modified**:
+- `utils/infrastructure/system/yaml_config.py` - 5 config path fixes
+- `utils/social/kaia_twitter.py` - Dead guard removal
+- `utils/social/kaia_social_responder.py` - KeyError fix
+- `utils/core/kaia_rag.py` - OllamaEmbedding constructor fix
+- `utils/core/knowledge_boundary.py` - Minor regex fix
+- All documentation files - Context window and feature corrections

@@ -2,23 +2,24 @@
 
 Quick solutions to common Kaiacord problems.
 
-## 🔴 Vision Timeout (5+ Minutes)
+## 🔴 Model Loading Timeout
 
-**Symptom**: Vision analysis hangs for 5+ minutes, used to complete in <3 min
+**Symptom**: Startup hangs or takes 5+ minutes during model warm-up
 
-**Cause**: Model load timeout or VRAM overflow
+**Cause**: Model load timeout or Ollama unresponsive
 
 **Solution**:
 ```bash
-# Check if chat model unloaded
-grep "Unloading chat model" logs/kaiacord.log
+# Check if Ollama is running
+systemctl status ollama
 
-# If NOT found, VRAM overflow - chat model didn't unload
-# This is fixed in v2.0 - update to latest
+# Check model loading in logs
+grep "pre_warm" logs/kaiacord.log
+grep "CRITICAL" logs/kaiacord.log
 
-# If found but still times out, increase timeout:
-# Edit utils/infrastructure/system/gpu_memory_manager.py:
-timeout=90.0  # Increase from 60s to 90s for slow HDDs
+# If pre-warm timeout (5 min limit), restart Ollama:
+sudo systemctl restart ollama
+python Kaiacord.py
 ```
 
 **Prevention**: Use SSD for faster model loading
@@ -137,7 +138,7 @@ ollama list
 
 # If empty, pull models:
 ollama pull gemma3:12b
-ollama pull llama3.2-vision:11b
+ollama pull gemma2:2b
 ollama pull nomic-embed-text
 
 # If Ollama not running:
@@ -266,6 +267,29 @@ python tools/recovery/nuclear_reset.py
 
 ---
 
+## 🔴 Social Media Auth Errors
+
+**Symptom**: X/Twitter login fails, Cloudflare blocks, or posts silently fail
+
+**Cause**: Session expired, Cloudflare challenge, or circuit breaker tripped
+
+**Solution**:
+```bash
+# Check circuit breaker state in logs
+grep "circuit" logs/kaiacord.log
+
+# Clear X cookies and force re-login
+rm memory/x_cookies.json
+python Kaiacord.py
+
+# If Cloudflare blocks direct login:
+# 1. Log into X in Chrome or Firefox manually
+# 2. Kaia will auto-extract browser cookies on next attempt
+# 3. Ensure browser_cookie3 is installed: pip install browser_cookie3
+```
+
+---
+
 ## Getting Help
 
 1. **Check logs**: `tail -f logs/kaiacord.log`
@@ -276,5 +300,5 @@ python tools/recovery/nuclear_reset.py
 ---
 
 <p align="center">
-  <sub>Still stuck? Check <a href="../03-architecture/overview.md">Architecture</a> or <a href="vram-issues.md">VRAM Guide</a></sub>
+  <sub>Still stuck? Check <a href="../03-architecture/overview.md">Architecture</a> or <a href="../03-architecture/gpu-management.md">GPU Management Guide</a></sub>
 </p>

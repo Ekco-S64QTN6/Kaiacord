@@ -136,7 +136,7 @@ def reset_all_profiles():
 def clean_rag_index():
     """Remove all RAG indices and force rebuild"""
     storage_dirs = [
-        Path("./storage"),
+        Path("./memory/rag_storage"),
         Path("./vector_store"),
         Path("./index_store")
     ]
@@ -147,7 +147,7 @@ def clean_rag_index():
             print(f"✓ Removed: {storage_dir}")
     
     # Create fresh storage
-    Path("./storage").mkdir(exist_ok=True)
+    Path("./memory/rag_storage").mkdir(exist_ok=True)
 
 def main():
     print("☢️  NUCLEAR RESET - COMPLETE SYSTEM CLEAN")

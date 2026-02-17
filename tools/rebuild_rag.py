@@ -16,7 +16,7 @@ def rebuild_rag(clear_storage=False):
     """
     Rebuild the RAG index standalone.
     """
-    persist_dir = "./storage"
+    persist_dir = "./memory/rag_storage"
     
     if clear_storage:
         log_warning(f"CLEARING storage directory: {persist_dir}")

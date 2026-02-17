@@ -31,13 +31,13 @@ Welcome to the Kaiacord documentation! Organized by topic for easy navigation.
 ### 🔧 [05 - Maintenance](05-maintenance/)
 - [Procedures](05-maintenance/procedures.md)
 - [Fixes History](05-maintenance/fixes-history.md)
-- [OOM Fixes](05-maintenance/oom-fixes.md)
 
 ### 🛠️ [06 - Troubleshooting](06-troubleshooting/)
 - [Common Issues](06-troubleshooting/common-issues.md)
 
 ### 📊 Reports
-- [Gemini Status Report (RAG & Identity Audit)](reports/Gemini_Report.md)
+- [Gemini Status Report (RAG & Identity Audit)](reports/GEMINI_Report.md)
+- [Claude Code Review (Bug Fixes & Production Readiness)](reports/Claude_Report.md)
 
 ---
 

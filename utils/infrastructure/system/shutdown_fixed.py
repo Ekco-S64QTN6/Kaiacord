@@ -102,8 +102,6 @@ class CleanShutdown:
         log_info("  🔄 Running async shutdown...")
 
         # 1. Cancel all registered tasks via registry (STOP EVERYTHING FIRST)
-        # Doing this before RAG persistence prevents background tasks from
-        # competing for I/O or failing during the long save process.
         try:
             from utils.infrastructure.monitoring.async_task_registry import task_registry
             from utils.infrastructure.system.yaml_config import config
@@ -116,16 +114,7 @@ class CleanShutdown:
         except Exception as e:
             log_error(f"  ❌ Error cancelling tasks: {e}")
 
-        # 2. Persist RAG Index (Critical Data Safety)
-        if self.rag:
-            try:
-                log_info("  💾 Persisting RAG indices...")
-                await asyncio.to_thread(self.rag.persist, force=True)
-                log_success("  ✅ RAG indices saved")
-            except Exception as e:
-                log_error(f"  ❌ Error persisting RAG: {e}")
-        
-        # 3. Force Ollama Model Unload (Crucial for VRAM release)
+        # 2. Force Ollama Model Unload (Crucial for VRAM release - DO THIS BEFORE RAG I/O)
         try:
             from utils.infrastructure.gpu.gpu_manager import OllamaGPUManager
             from utils.infrastructure.system.yaml_config import config
@@ -138,6 +127,15 @@ class CleanShutdown:
             log_info("  ✅ Ollama VRAM released")
         except Exception as e:
             log_warning(f"  ⚠️  Failed to unload Ollama model: {e}")
+
+        # 3. Persist RAG Index (Critical Data Safety)
+        if self.rag:
+            try:
+                log_info("  💾 Persisting RAG indices...")
+                await asyncio.to_thread(self.rag.persist, force=True)
+                log_success("  ✅ RAG indices saved")
+            except Exception as e:
+                log_error(f"  ❌ Error persisting RAG: {e}")
 
         # 4a. Close Forum Client
         try:
@@ -179,7 +177,14 @@ class CleanShutdown:
         try:
             from utils.infrastructure.logging.unified_logging import logger as unified_logger
             unified_logger.stop()
-            # No log here because the logger is now stopped
+        except Exception: pass
+
+        # 8. EMERGENCY: Kill orphaned Ollama runners (VRAM retrieval)
+        try:
+            from utils.infrastructure.gpu.clear_gpu_memory import kill_orphaned_runners
+            # This is a synchronous process check, but we run it at the very end 
+            # to reclaim GPU if the API unload failed or hung.
+            await asyncio.to_thread(kill_orphaned_runners)
         except Exception: pass
 
         self._shutdown_complete.set()

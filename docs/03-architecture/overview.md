@@ -2,7 +2,7 @@
 
 ## Overview
 
-Kaia is a self-hosted Discord AI bot with local inference and RAG-based memory. This document describes the technical architecture after the Phase 8 modular refactor.
+Kaia is a self-hosted Discord AI bot with local inference and RAG-based memory. This document describes the technical architecture after the latest refactors (Phases 1-14).
 
 ## System Architecture
 
@@ -48,9 +48,9 @@ Kaiacord/
 │   └── news/                # News retrieval & management
 ├── config/                  # Configuration & Bot Persona
 ├── knowledge_base/          # RAG text storage (News, Interaction Logs)
-├── memory/                  # Persistent data (bot_state.json, semantic_cache.json)
+├── memory/                  # Persistent data (bot_state.json, semantic_cache.json, rag_storage/)
 ├── tools/                   # Utility & Maintenance Scripts
-├── tests/                   # Pytest suite
+│   └── tests/               # Pytest suite
 ├── docs/                    # Detailed technical documentation
 └── logs/                    # Consolidated logging (kaiacord.log)
 ```
@@ -84,9 +84,10 @@ Kaiacord/
 **Responsibility**: Manages run modes (Curses/Simple), startup tasks, and clean shutdown.
 
 **Features**:
-- ✅ Phased boot sequence (RAG -> News -> Model Warmup).
+- ✅ Phased boot sequence (RAG -> News -> Model Warmup with 5-min timeout).
+- ✅ GPU semaphore guard for single-access GPU operations.
 - ✅ Curses-based real-time dashboard.
-- ✅ Graceful asynchronous cleanup.
+- ✅ Ordered shutdown (cancel tasks → unload model → persist RAG → close clients → kill runners).
 
 ---
 
@@ -152,12 +153,19 @@ sequenceDiagram
 1. **CHAT** (P1): Main LLM (e.g., gemma3:12b) remains resident in VRAM for fast response.
 2. **MAINTENANCE**: Periodic RAG re-indexing and nightly Dream cycles.
 
-Kaia is optimized for 12GB VRAM GPUs (like the RTX 3060), ensuring high-quality inference with enough headroom for the 28k context window.
+Kaia is optimized for 12GB VRAM GPUs (like the RTX 3060). Classification and embeddings run on CPU (`num_gpu: 0`), leaving the full GPU budget for the chat model and its 20K-token KV cache.
 
 ---
 
 ## Circuit Breakers & Self-Healing
 
+### Social API Circuit Breakers
+All social media API calls (Bluesky, X/Twitter) are wrapped in `CircuitBreaker` instances:
+- Opens after 3 consecutive failures.
+- Auto-resets after 5-minute timeout.
+- Prevents cascade failures from taking down the main bot loop.
+
+### Self-Healing Generation Loop
 Kaia implements a 3-pass self-healing generation loop:
 1. **Attempt 1**: Standard parameters.
 2. **Attempt 2**: Temperature scaling on failure/hallucination.
@@ -167,5 +175,5 @@ Kaia implements a 3-pass self-healing generation loop:
 
 ## References
 
-- [GEMINI_Report.md](../../GEMINI_Report.md)
-- [task.md](../../.gemini/antigravity/brain/979b42e5-c563-4647-9547-8b696c335ae6/task.md)
+- [GEMINI Report](../reports/GEMINI_Report.md)
+- [Claude Report](../reports/Claude_Report.md)

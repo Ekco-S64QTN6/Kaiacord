@@ -84,20 +84,14 @@ pip install -r requirements_yaml.txt  # YAML config support
 **This will download ~20GB of models. Ensure you have space and bandwidth.**
 
 ```bash
-# Chat model (8GB)
+# Chat model (8GB VRAM)
 ollama pull gemma3:12b
 
-# Vision model (7.5GB)
-ollama pull llama3.2-vision:11b
+# Classification model (runs on CPU)
+ollama pull gemma2:2b
 
-# Embedding model (small)
+# Embedding model (runs on CPU)
 ollama pull nomic-embed-text
-```
-
-**For image generation**, you'll also need:
-```bash
-# The image gen model is auto-downloaded by diffusers
-# Requires ~6-8GB VRAM during use
 ```
 
 ---
@@ -115,10 +109,8 @@ EOF
 
 ### Option B: Advanced Setup (YAML)
 ```bash
-# Copy default config
-cp config/default_config.yaml config/kaia.yaml
-
-# Edit configuration
+# Edit user overrides (do NOT copy the entire default_config.yaml)
+# Only add the settings you want to change
 nano config/kaia.yaml
 ```
 
@@ -137,7 +129,7 @@ Expected output:
 ```
 ✅ Ollama server: ONLINE
 ✅ gemma3:12b: Found
-✅ llama3.2-vision:11b: Found
+✅ gemma2:2b: Found
 ✅ nomic-embed-text: Found
 ✅ GPU: NVIDIA RTX 3060 (12GB)
 ✅ Knowledge base: Accessible

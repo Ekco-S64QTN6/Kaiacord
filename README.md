@@ -37,6 +37,7 @@ pip install -r requirements.txt
 
 # 2. Pull AI models (this will take a while)
 ollama pull gemma3:12b           # Chat model (8GB)
+ollama pull gemma2:2b            # Classification model (CPU)
 ollama pull nomic-embed-text     # Embedding model
 
 # 3. Configure
@@ -57,13 +58,14 @@ python Kaiacord.py
 | Category | Features | Status |
 |:---------|:---------|:-------|
 | **🤖 Core AI** | Local Inference (Ollama), Multi-Model Support (`gemma3:12b`), Identity Anchor (Non-truncating persona core protection) | ✅ |
-| **⚡ Performance** | Smart VRAM Management (Auto-unloading models for 12GB GPUs), Optimized 24k Context Scaling, Rate Limiting | ✅ |
+| **⚡ Performance** | GPU Semaphore Guard (12GB VRAM), Config-Driven 20K Context Scaling, CPU-Offloaded Classification & Embeddings | ✅ |
 | **📊 Interface** | Curses Dashboard (btop-style), Discord Bot, Consolidated Logging | ✅ |
 | **🧠 Memory** | RAG with File Indexing, User Profiles, Semantic Cache, Natural Mention | ✅ |
 | **🎯 Intelligence** | Query Classification, Personalization, Temporal Calibration | ✅ |
 | **🛡️ Veracity** | Hallucination Guard with tracer support, Knowledge Boundary whitelisting, Hazy Memory Detection | ✅ |
 | **💭 Dream Mode** | Associative memory recall (nightly 3-5 AM); processes archived knowledge into persona-deep reflections for more natural, organic RAG callbacks | ✅ |
 | **🔄 Self-Healing** | 3-pass generation loop with automatic parameter scaling to recover from LLM failures or hallucinations | ✅ |
+| **🛡️ Resilience** | Circuit breakers for social APIs, 401 auto-retry with cookie extraction, ordered shutdown, 5-min pre-warm timeout | ✅ |
 | **🌐 Social Media** | Cross-post to Bluesky & X, Auto-reply to mentions, Memory Mirror | ✅ |
 | **🏟️ Forums** | VBulletin 3.x Client, Deep Thread Scraping, Unified Identity Linking (Discord <-> Forum)| ✅ |
 | **📰 News** | Daily Briefs, Manual Retrieval, Ingestion of manual/weekly briefs | ✅ |
@@ -258,7 +260,7 @@ models:
 
 performance:
   max_memory_messages: 30
-  max_context_tokens: 24000     # Hardware-optimized context (RTX 3060 12GB default)
+  max_context_tokens: 20000     # Hardware-optimized context (RTX 3060 12GB default)
   requests_per_minute: 30
 ```
 
@@ -290,10 +292,12 @@ python tools/maintenance/reindex_rag.py
 ```
 
 ### GPU Management (12GB VRAM)
-Kaia automatically manages VRAM:
-1. **Chat**: gemma3:12b loaded (8GB)
-2. **Context**: 24,000 token context window (~1.8GB) optimized for 12GB cards.
-3. **Monitor**: `watch -n 1 nvidia-smi` to see VRAM usage
+Kaia automatically manages VRAM via a semaphore-based GPU guard:
+1. **Chat**: gemma3:12b loaded permanently (8GB)
+2. **Classification**: gemma2:2b runs on CPU (`num_gpu: 0`) — zero GPU impact
+3. **Embeddings**: nomic-embed-text runs on CPU (`num_gpu: 0`) — zero GPU impact
+4. **Context**: 20,000 token context window (~1.5GB KV cache) optimized for 12GB cards
+5. **Monitor**: `watch -n 1 nvidia-smi` to see VRAM usage
 
 **See**: [`docs/03-architecture/gpu-management.md`](docs/03-architecture/gpu-management.md) for details
 
@@ -302,15 +306,12 @@ Kaia automatically manages VRAM:
 ## 🧪 Testing
 
 ```bash
-# Verification scripts
-# Verification scripts
-python tools/maintenance/health_check.py
-python scripts/test_md_logging.py
-python scripts/test_skepticism.py
-python scripts/verify_filter_fix.py
-
 # System health check
 python tools/maintenance/health_check.py
+
+# Verification scripts
+python scripts/test_md_logging.py
+python scripts/test_skepticism.py
 ```
 
 ---
@@ -328,7 +329,7 @@ Kaiacord/
 │   └── news/                # News retrieval & management
 ├── config/                  # Configuration & Personas
 ├── knowledge_base/          # RAG text storage (News, User Logs)
-├── memory/                  # Persistent JSON data (Cache, State)
+├── memory/                  # Persistent data (Cache, State, RAG storage)
 ├── logs/                    # ONE LOG FILE: kaiacord.log
 ├── tools/                   # Standalone utilities
 │   ├── maintenance/         # RAG refresh, News cleanup, Health check

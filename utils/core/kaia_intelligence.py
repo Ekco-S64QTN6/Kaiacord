@@ -52,9 +52,9 @@ class ModelWarmPool:
             
         log_action(f"Pre-warming model: {model_name}...")
         try:
-            # Load with FULL context size - allows first message to be instant
             from utils.infrastructure.system.yaml_config import config
             max_ctx = config.max_context_tokens
+            # Load with full context size from config
             options = {
                 "num_gpu": -1,
                 "num_ctx": max_ctx,
@@ -62,17 +62,25 @@ class ModelWarmPool:
             }
             # Cache these options for keep_alive reuse
             self._cached_options[model_name] = options.copy()
+            
             # Execute tiny generation to force load into VRAM with full cache
-            await self.ollama_client.generate(model=model_name, prompt=".", options=options, keep_alive=3600)
+            # User requirement: Max 300s (5 mins) load time. Critical failure if longer.
+            await asyncio.wait_for(
+                self.ollama_client.generate(model=model_name, prompt=".", options=options, keep_alive=3600),
+                timeout=300.0
+            )
             self.pool[model_name] = {'last_used': time.time(), 'status': 'ready'}
             if model_name not in self.keep_alive_tasks:
                 self.keep_alive_tasks[model_name] = asyncio.create_task(self.keep_alive(model_name))
             return True
+        except asyncio.TimeoutError:
+            log_error(f"CRITICAL FAILURE: Model {model_name} failed to pre-warm within 5-minute limit.")
+            return False
         except Exception as e:
             import traceback
             error_details = traceback.format_exc()
             log_error(f"Failed to pre-warm model {model_name}: {e}")
-            log_debug(f"Pre-warm failure details:\n{error_details}")
+            log_debug(f"Pre-warm details (Full Traceback):\n{error_details}")
             return False
     
     async def keep_alive(self, model_name):
@@ -572,11 +580,20 @@ class IntentParser:
     """
     
 
-    def __init__(self, ollama_client=None, model="gemma3:12b", logger=None, host="http://localhost:11434", timeout=15.0):
+    def __init__(self, ollama_client=None, model="gemma3:12b", logger=None, host="http://localhost:11434", timeout=120.0):
         self.ollama_client = ollama_client
+        self.host = host
         self.host_model = model
         self.logger = logger or log_info
         self.timeout = timeout
+        
+        # Lazy client initialization if needed
+        if self.ollama_client is None:
+            try:
+                import ollama
+                self.ollama_client = ollama.AsyncClient(host=self.host, timeout=self.timeout)
+            except ImportError:
+                log_error("Ollama library not found. IntentParser will fail.")
         
         # Optimized options for analysis
         from utils.infrastructure.system.yaml_config import config
@@ -588,10 +605,9 @@ class IntentParser:
         self.use_gpu_for_classification = config.get('models.classification_on_gpu', False)
         
         # [MEMORY OPTIMIZATION]: Intent analysis only needs the current query and 
-        # minimal context. Requesting 24k tokens (default) triggers massive VRAM/RAM 
-        # allocation that can cause OOM/cudaMalloc failures even on CPU.
-        # We cap this to 2048 for all classification tasks.
-        classification_ctx = 2048
+        # minimal context. 
+        # We cap this to the value in config (default 2048).
+        classification_ctx = config.classification_context_tokens
         
         # Get base options
         if self.use_gpu_for_classification:
@@ -824,7 +840,9 @@ class IntentParser:
             )
             log_success("IntentParser model warmed.")
         except Exception as e:
+            import traceback
             log_error(f"Pre-warm failed: {e}")
+            log_debug(f"IntentParser Pre-warm Traceback:\n{traceback.format_exc()}")
 
 # Legacy Alias for Refactor Compatibility
 QueryClassifier = IntentParser

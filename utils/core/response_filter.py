@@ -274,7 +274,10 @@ class BotSpeakFilter:
                             # It's at the end! Truncate and loop again to see if there's more
                             truncated = current_line[:span[0]].rstrip(' ')
                             if truncated:
-                                log_warning(f"[BAIT_GUARD] Truncated robotic question from line: '{current_line}'")
+                                removed = current_line[span[0]:].strip()
+                                # Only log if it's not a known persona phrase the user likes
+                                if not any(p in removed.lower() for p in ["coffee's brewing", "pixel's chirping"]):
+                                    log_warning(f"[BAIT_GUARD] Truncated robotic question: '{removed}' from line: '{current_line[:100]}...'")
                                 current_line = truncated
                                 found_bait = True
                                 break # Break inner loop to re-check all patterns on new current_line
@@ -304,4 +307,31 @@ class BotSpeakFilter:
     def strip_bot_speak(cls, text: str) -> str:
         """Alias for harden for backward compatibility."""
         return cls.harden(text)
+
+    @classmethod
+    def harden_title(cls, text: str) -> str:
+        """Light hardening for short text like thread titles.
+        
+        Skips the aggressive paren/asterisk roleplay stripping that can
+        destroy legitimate words in short text. Only applies prefix removal
+        and basic cleanup.
+        """
+        if not text:
+            return text
+        
+        cleaned = text
+        
+        # Strip role prefixes
+        cleaned = cls.RE_PREFIXES.sub('', cleaned)
+        
+        # Strip only obvious roleplay markers: standalone action verbs in asterisks
+        # but preserve parenthetical content (often contains essential words)
+        for verb in cls.ACTION_VERBS:
+            cleaned = re.sub(rf'\*{verb}\*', '', cleaned, flags=re.IGNORECASE)
+        
+        # Clean up whitespace
+        cleaned = re.sub(r'  +', ' ', cleaned)
+        cleaned = cleaned.strip()
+        
+        return cleaned
 

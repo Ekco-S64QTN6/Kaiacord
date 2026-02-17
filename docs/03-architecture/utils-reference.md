@@ -6,12 +6,13 @@ Core utility modules used by Kaiacord.
 
 | Module | Purpose |
 |--------|---------|
-| `kaia_rag.py` | Retrieval-Augmented Generation system and vector indexing |
-| `kaia_intelligence.py` | Intelligence Layer: Context optimization, personalization, and Query Classifier |
+| `kaia_rag.py` | Retrieval-Augmented Generation with hierarchical retrieval and reciprocal rank fusion |
+| `kaia_intelligence.py` | Intelligence Layer: IntentParser (CPU classification), ContextOptimizer, ModelWarmPool |
 | `kaia_dream.py` | Dream Engine for nightly associative memory processing |
-| `message_processor.py` | Modular on_message pipeline stage management |
+| `message_processor.py` | Modular on_message pipeline with timeout guards and self-healing |
+| `knowledge_boundary.py` | Entity extraction, fuzzy matching, and hallucination prevention boundary |
 | `semantic_cache.py` | Enhanced semantic cache with pollution protection |
-| `response_filter.py` | Hallucination detection and response cleaning |
+| `response_filter.py` | Hallucination detection, boilerplate filtering, and response cleaning |
 
 ## Infrastructure (`utils/infrastructure/`)
 
@@ -20,10 +21,18 @@ Core utility modules used by Kaiacord.
 | `system/app_context.py` | **AppContext**: Central container for system singletons and dependencies |
 | `system/dashboard_manager.py` | **Lifecycle Manager**: Run modes, startup, and cleanup |
 | `logging/unified_logging.py` | Centralized logging with color-coded output |
-| `system/yaml_config.py` | Hierarchical configuration management |
+| `system/yaml_config.py` | Hierarchical configuration management (env → kaia.yaml → default_config.yaml) |
 | `system/bot_state.py` | Persistent state and interaction tracking |
 | `system/rate_limiter.py` | Per-user interaction rate limiting |
+| `system/shutdown_fixed.py` | Ordered shutdown orchestration (model unload → RAG persist → cleanup) |
 | `monitoring/stats_tracker.py` | Statistics collection and dashboard data |
+
+## GPU & System (`utils/infrastructure/gpu/`)
+
+| Module | Purpose |
+|--------|---------|
+| `gpu_manager.py` | Semaphore-based GPU concurrency guard (replaces legacy model-swapping manager) |
+| `gpu_memory_manager.py` | GPU guard wrapper with ContextVar re-entrancy detection |
 
 ## Specialized Handlers
 
@@ -31,11 +40,4 @@ Core utility modules used by Kaiacord.
 |--------|---------|
 | `utils/commands/` | Extracted logic for `!news`, `!dreams`, `!vram`, etc. |
 | `utils/news/` | News retrieval, parsing, and ingestion logic |
-| `utils/social/` | Bluesky, X/Twitter, and Social Responder logic |
-
-## GPU & System
-
-| Module | Purpose |
-|--------|---------|
-| `gpu/gpu_manager.py` | Smart GPU management for Ollama models |
-| `system/shutdown_fixed.py` | Graceful shutdown orchestration |
+| `utils/social/` | Bluesky, X/Twitter, Social Responder with circuit breakers |

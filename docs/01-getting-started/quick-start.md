@@ -27,7 +27,7 @@ pip install -r requirements.txt
 
 # Pull AI models (this takes time!)
 ollama pull gemma3:12b
-ollama pull llama3.2-vision:11b
+ollama pull gemma2:2b
 ollama pull nomic-embed-text
 
 # Configure
@@ -106,12 +106,12 @@ sudo pacman -S nvidia nvidia-utils  # Arch
 - **[Configuration Guide](configuration.md)** - Customization
 
 ### Try Advanced Features
-- **Image Generation**: `kaia draw cyberpunk city`
-- **Vision Analysis**: Upload image + `@kaia what do you see?`
 - **News**: `!news technology`
+- **Dreams**: `!dreams` to see recent reflections
+- **Social**: Set up [Bluesky & X](../02-user-guide/social-media.md) cross-posting
 
 ### Customize
-- **Persona**: Edit `config/kaia_persona.md`
+- **Persona**: Edit `knowledge_base/kaia_persona.md`
 - **Knowledge Base**: Add files to `knowledge_base/`
 - **Settings**: Edit `config/kaia.yaml`
 
@@ -123,9 +123,8 @@ sudo pacman -S nvidia nvidia-utils  # Arch
 |:--------|:-------|
 | `@kaia status` | Check bot health |
 | `@kaia [question]` | Ask anything |
-| `kaia draw [prompt]` | Generate image |
 | `!news [category]` | Get news briefs |
-| Upload image → `@kaia what?` | Vision analysis |
+| `!dreams` | View recent dream reflections |
 
 ---
 

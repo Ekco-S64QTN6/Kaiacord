@@ -1,4 +1,5 @@
 import os
+import signal
 import sys
 import asyncio
 import inspect
@@ -324,7 +325,13 @@ class DashboardManager:
         sp = self.perform_startup_tasks()
         
         # 2. Initialize Multiprocessing IPC (Must happen BEFORE spawning process)
+        # CRITICAL: Temporarily ignore SIGINT so the Manager subprocess inherits
+        # SIG_IGN disposition. This prevents Ctrl+C from killing the Manager's
+        # background process and breaking IPC during shutdown.
+        original_sigint = signal.getsignal(signal.SIGINT)
+        signal.signal(signal.SIGINT, signal.SIG_IGN)
         manager = multiprocessing.Manager()
+        signal.signal(signal.SIGINT, original_sigint)  # Restore for main process
         shared_stats = manager.dict()
         log_queue = multiprocessing.Queue(maxsize=1000)
         ui_error_queue = multiprocessing.Queue()
@@ -393,9 +400,25 @@ class DashboardManager:
                     if self.dashboard_process.is_alive():
                         self.dashboard_process.kill()
             
+            # Shutdown the multiprocessing Manager cleanly
+            try:
+                manager.shutdown()
+            except Exception:
+                pass
+            
+            # ALWAYS kill orphaned Ollama runners (synchronous, no IPC needed)
+            try:
+                from utils.infrastructure.gpu.clear_gpu_memory import kill_orphaned_runners
+                kill_orphaned_runners()
+            except Exception:
+                pass
+            
             self.logger.set_dashboard_mode(False)
-            sys.__stdout__.write('\033[0m\033[?25h\033[?1049l\033[H\033[2J')
-            sys.__stdout__.flush()
+            try:
+                sys.__stdout__.write('\033[0m\033[?25h\033[?1049l\033[H\033[2J')
+                sys.__stdout__.flush()
+            except Exception:
+                pass
             sys.__stdout__.write("\n[SUCCESS] Kaia has entered hibernation.\n")
             sys.__stdout__.flush()
 

@@ -175,10 +175,15 @@ def validate_config(config: Dict[str, Any]) -> tuple[bool, list[str]]:
             warnings.append("Bluesky enabled but BLUESKY_APP_PASSWORD not set - Bluesky features disabled")
     
     if get_nested(config, 'x_twitter.enabled', False):
-        required_x_vars = ['X_API_KEY', 'X_API_SECRET', 'X_ACCESS_TOKEN', 'X_ACCESS_SECRET']
-        missing = [v for v in required_x_vars if not os.getenv(v)]
-        if missing:
-            warnings.append(f"X/Twitter enabled but missing: {', '.join(missing)} - X features disabled")
+        # Support both official API keys and unofficial twikit credentials
+        official_vars = ['X_API_KEY', 'X_API_SECRET', 'X_ACCESS_TOKEN', 'X_ACCESS_SECRET']
+        unofficial_vars = ['X_USERNAME', 'X_PASSWORD']
+        
+        has_official = all(os.getenv(v) for v in official_vars)
+        has_unofficial = all(os.getenv(v) for v in unofficial_vars)
+        
+        if not has_official and not has_unofficial:
+            warnings.append("X/Twitter enabled but missing both API keys AND X_USERNAME/PASSWORD - X features disabled")
     
     # Log warnings but don't fail
     for w in warnings:
@@ -289,11 +294,19 @@ class YAMLConfig:
 
     @property
     def embedding_request_seconds(self) -> float:
-        return self.get('performance.embedding_request_seconds', 60.0)
+        return self.get('timeouts.embedding_request_seconds', 60.0)
     
     @property
     def max_context_tokens(self) -> int:
-        return self.get('performance.max_context_tokens', 24000)
+        return self.get('performance.max_context_tokens', 20000)
+    
+    @property
+    def classification_context_tokens(self) -> int:
+        return self.get('performance.classification_context_tokens', 2048)
+    
+    @property
+    def embedding_context_tokens(self) -> int:
+        return self.get('performance.embedding_context_tokens', 2048)
     
     @property
     def summarization_context_tokens(self) -> int:
@@ -459,11 +472,11 @@ class YAMLConfig:
 
     @property
     def rag_path_boost(self) -> float:
-        return self.get('rag_scoring.path_boost', 0.5)
+        return self.get('performance.rag_scoring.path_boost', 0.5)
 
     @property
     def rag_type_boosts(self) -> dict:
-        return self.get('rag_scoring.type_boosts', {
+        return self.get('performance.rag_scoring.type_boosts', {
             'persona': 0.15,
             'user_profile': 0.20,
             'dream': 0.10,
@@ -472,15 +485,15 @@ class YAMLConfig:
 
     @property
     def rag_boost_daily_news(self) -> int:
-        return self.get('rag_boosts.daily_news', 172800)
+        return self.get('performance.rag_boosts.daily_news', 172800)
 
     @property
     def rag_boost_dreams(self) -> int:
-        return self.get('rag_boosts.dreams', 64800)
+        return self.get('performance.rag_boosts.dreams', 64800)
 
     @property
     def rag_user_scan_interval(self) -> int:
-        return self.get('rag_boosts.user_scan_interval', 300)
+        return self.get('performance.rag_boosts.user_scan_interval', 300)
     
     # =========================================================================
     # Token Estimation Configuration
