@@ -595,11 +595,204 @@ class KaiaRAG:
             self.indexed_files = valid_files
             log_success(f"Populated {len(self.indexed_files)} valid indexed files.")
 
+    def _prune_deleted_files(self) -> Set[str]:
+        """Detect and remove files from indices that no longer exist on disk."""
+        updated_itypes = set()
+        deleted_files = [p for p in list(self.indexed_files.keys()) if not os.path.exists(p)]
+        if not deleted_files:
+            return updated_itypes
+            
+        log_action(f"Detected {len(deleted_files)} deleted files. Pruning index...")
+        for file_path in deleted_files:
+            abs_path = os.path.abspath(file_path)
+            for itype, index in self.indices.items():
+                nodes_to_delete = [
+                    node_id for node_id, node in index.docstore.docs.items()
+                    if node.metadata.get('file_path') == file_path or os.path.abspath(node.metadata.get('file_path', '')) == abs_path
+                ]
+                if nodes_to_delete:
+                    log_info(f"Pruning {len(nodes_to_delete)} stale nodes for {os.path.basename(file_path)} from {itype}")
+                    for node_id in nodes_to_delete:
+                        index.delete_nodes([node_id])
+                    updated_itypes.add(itype)
+            
+            self.indexed_files.pop(file_path, None)
+            self.indexed_files.pop(abs_path, None)
+        return updated_itypes
+
+    def _find_changed_files(self) -> List[Tuple[str, bool, bool, str]]:
+        """Scan directory to find new or modified files."""
+        new_file_paths = []
+        supported_exts = [".pdf", ".txt", ".md", ".docx"]
+        
+        for root, _, files in os.walk(self.knowledge_base_dir):
+            if "corrupt_files" in root: continue
+            for file in files:
+                ext = os.path.splitext(file)[1].lower()
+                if ext in supported_exts:
+                    full_path = os.path.join(root, file)
+                    norm_path = os.path.abspath(full_path)
+                    mtime = os.path.getmtime(norm_path)
+                    
+                    itype = 'knowledge'
+                    if "user_logs" in full_path:
+                        itype = 'user_profiles' if "user_profile.md" in file else 'logs'
+                    elif "kaia_dreams" in full_path:
+                        itype = 'dreams'
+                    
+                    is_new = norm_path not in self.indexed_files
+                    is_modified = not is_new and mtime > self.indexed_files[norm_path]
+                    
+                    if (is_new or is_modified) and "user_memories.txt" not in file:
+                        new_file_paths.append((full_path, is_modified, itype == 'logs', itype))
+
+        # Check persona file
+        persona_file = "knowledge_base/kaia_persona.md"
+        if os.path.exists(persona_file):
+            norm_path = os.path.abspath(persona_file)
+            mtime = os.path.getmtime(norm_path)
+            if norm_path not in self.indexed_files or mtime > self.indexed_files[norm_path]:
+                new_file_paths.append((persona_file, norm_path in self.indexed_files, False, 'persona'))
+        
+        return new_file_paths
+
+    def _index_single_file(self, file_path: str, is_modified: bool, is_log: bool, itype: str, corrupt_dir: str) -> bool:
+        """Process a single file: load, parse, and insert into the target index."""
+        target_index = self.indices[itype]
+        abs_path = os.path.abspath(file_path)
+        
+        if is_modified and not is_log:
+            log_action(f"Detected update in {itype} file. Re-indexing: {file_path}")
+            nodes_to_delete = [
+                node_id for node_id, node in target_index.docstore.docs.items()
+                if node.metadata.get('file_path') == file_path or os.path.abspath(node.metadata.get('file_path', '')) == abs_path
+            ]
+            for node_id in nodes_to_delete: target_index.delete_nodes([node_id])
+
+        try:
+            if is_log:
+                return self._index_log_tail(file_path, abs_path, itype)
+            else:
+                return self._index_regular_file(file_path, abs_path, itype)
+        except Exception as e:
+            log_error(f"Failed to load file {file_path}: {e}")
+            return self._handle_corrupt_file(file_path, itype, corrupt_dir)
+
+    def _index_log_tail(self, file_path: str, abs_path: str, itype: str) -> bool:
+        """Perform tail-indexing for log files."""
+        target_index = self.indices[itype]
+        last_offset = 0
+        for node in target_index.docstore.docs.values():
+            if os.path.abspath(node.metadata.get('file_path', '')) == abs_path:
+                last_offset = max(last_offset, node.metadata.get('file_offset', 0) + node.metadata.get('content_length', 0))
+        
+        if os.path.getsize(file_path) <= last_offset:
+            self.indexed_files[abs_path] = os.path.getmtime(file_path)
+            return False
+            
+        with open(file_path, 'r', encoding='utf-8', errors='replace') as f:
+            f.seek(last_offset)
+            new_content = f.read()
+            
+        if not new_content.strip():
+            self.indexed_files[abs_path] = os.path.getmtime(file_path)
+            return False
+
+        mtime = os.path.getmtime(file_path)
+        doc = Document(text=new_content, metadata={
+            "file_path": abs_path, "last_modified_at": mtime,
+            "file_offset": last_offset, "content_length": len(new_content), "source": "user_logs"
+        })
+        self._apply_priority_metadata(doc, itype, file_path)
+        nodes = self._get_node_parser_for_doc(itype, file_path).get_nodes_from_documents([doc])
+        target_index.insert_nodes(nodes)
+        self.indexed_files[abs_path] = mtime
+        return True
+
+    def _index_regular_file(self, file_path: str, abs_path: str, itype: str) -> bool:
+        """Load and index a standard document file."""
+        from llama_index.core import SimpleDirectoryReader, Document as LlamaDocument
+        docs = None
+        try:
+            docs = SimpleDirectoryReader(input_files=[file_path]).load_data()
+        except Exception:
+            for enc in ['latin-1', 'cp1252', 'iso-8859-1']:
+                try:
+                    with open(file_path, 'r', encoding=enc, errors='replace') as f:
+                        docs = [LlamaDocument(text=f.read())]
+                    break
+                except Exception: continue
+        
+        if not docs:
+            with open(file_path, 'rb') as f:
+                docs = [LlamaDocument(text=f.read().decode('utf-8', errors='replace'))]
+        
+        mtime = os.path.getmtime(file_path)
+        parser = self._get_node_parser_for_doc(itype, file_path)
+        for doc in docs:
+            doc.metadata.update({'last_modified_at': mtime, 'file_path': abs_path, 'itype': itype})
+            self._apply_priority_metadata(doc, itype, file_path)
+            if itype == 'persona': doc.metadata['user_id'] = "KAIA_SYSTEM"
+            
+            if "user_logs" in file_path:
+                try:
+                    parts = file_path.split(os.sep)
+                    u_name, u_id = parts[parts.index("user_logs") + 1].rsplit("_", 1)
+                    doc.metadata.update({'user_id': u_id, 'user_name': u_name})
+                except Exception: pass
+            
+            for sub_doc in self._pre_chunk_document(doc):
+                self._apply_priority_metadata(sub_doc, itype, file_path)
+                self.indices[itype].insert_nodes(parser.get_nodes_from_documents([sub_doc]))
+        
+        self.indexed_files[abs_path] = mtime
+        if itype != 'logs':
+            snippet = docs[0].text[:300].replace("\n", " ") + "..." if docs else ""
+            from utils.infrastructure.system.bot_state import bot_state
+            bot_state.add_ingestion(os.path.basename(file_path), snippet=snippet)
+        return True
+
+    def _handle_corrupt_file(self, file_path: str, itype: str, corrupt_dir: str) -> bool:
+        """Attempt recovery or move file to corrupt directory."""
+        if file_path.lower().endswith((".pdf", ".docx")):
+            md_path = self._convert_pdf_to_md(file_path) if file_path.lower().endswith(".pdf") else self._convert_docx_to_md(file_path)
+            if md_path:
+                try:
+                    from llama_index.core import SimpleDirectoryReader
+                    md_docs = SimpleDirectoryReader(input_files=[md_path]).load_data()
+                    if md_docs:
+                        mtime = os.path.getmtime(md_path)
+                        parser = self._get_node_parser_for_doc(itype, md_path)
+                        for doc in md_docs:
+                            doc.metadata.update({'last_modified_at': mtime, 'itype': itype})
+                            self.indices[itype].insert_nodes(parser.get_nodes_from_documents([doc]))
+                        self.indexed_files[os.path.abspath(md_path)] = mtime
+                        self.indexed_files[os.path.abspath(file_path)] = os.path.getmtime(file_path)
+                        return True
+                except Exception: pass
+        
+        # Move to corrupt
+        dest = os.path.join(corrupt_dir, os.path.basename(file_path))
+        if os.path.exists(dest): dest = f"{dest}_{int(time.time())}"
+        import shutil
+        shutil.move(file_path, dest)
+        log_critical(f"MOVED CORRUPT FILE TO: {dest}")
+        return False
+
+    def _persist_updated_indices(self, updated_itypes: Set[str]):
+        """Save indices to disk and invalidate BM25 cache."""
+        self.persist_needed = True
+        for itype in updated_itypes:
+            if itype in self.bm25_cache:
+                log_info(f"Invalidating BM25 cache for '{itype}'")
+                self.bm25_cache[itype] = None
+            try:
+                self.indices[itype].storage_context.persist(persist_dir=os.path.join(self.persist_dir, itype))
+                log_success(f"Index '{itype}' persisted.")
+            except Exception as e: log_error(f"Failed to persist {itype}: {e}")
+
     def refresh_knowledge_base(self):
-        """Scan knowledge base for new/modified files and update indices.
-        Uses single-flight logic: only one refresh at a time, subsequent calls mark it dirty.
-        """
-        # Single-flight check
+        """Scan knowledge base for new/modified files and update indices."""
         if not self._refresh_lock.acquire(blocking=False):
             log_info("RAG refresh already in progress, marking as pending.")
             self._refresh_pending = True
@@ -609,330 +802,28 @@ class KaiaRAG:
             self._indexing_in_progress = True
             self._refresh_pending = False
             
-            # Selective BM25 cache clearing moved inside the update loop
-            # and finalized at the end of the refresh to avoid redundant rebuilds.
-            # with self._lock:
-            #     self.bm25_cache.clear()
-            
             if not os.path.exists(self.knowledge_base_dir):
                 os.makedirs(self.knowledge_base_dir)
                 return
 
-            log_action(f"Refreshing knowledge base...")
-            
-            # Create corrupt_files directory if it doesn't exist
+            log_action("Refreshing knowledge base...")
             corrupt_dir = os.path.join(self.knowledge_base_dir, "corrupt_files")
-            if not os.path.exists(corrupt_dir):
-                os.makedirs(corrupt_dir)
+            if not os.path.exists(corrupt_dir): os.makedirs(corrupt_dir)
 
-            # Track which indices actually changed
-            updated_itypes = set()
-
-            # 1. Detect and prune DELETED files
-            # This ensures that if the user deletes files from knowledge_base, 
-            # the index is updated to match.
-            deleted_files = [p for p in list(self.indexed_files.keys()) if not os.path.exists(p)]
-            if deleted_files:
-                log_action(f"Detected {len(deleted_files)} deleted files. Pruning index...")
-                for file_path in deleted_files:
-                    abs_path = os.path.abspath(file_path)
-                    for itype, index in self.indices.items():
-                        nodes_to_delete = [
-                            node_id for node_id, node in index.docstore.docs.items()
-                            if node.metadata.get('file_path') == file_path or os.path.abspath(node.metadata.get('file_path', '')) == abs_path
-                        ]
-                        if nodes_to_delete:
-                            log_info(f"Pruning {len(nodes_to_delete)} stale nodes for {os.path.basename(file_path)} from {itype}")
-                            for node_id in nodes_to_delete:
-                                index.delete_nodes([node_id])
-                            updated_itypes.add(itype)
-                    
-                    if file_path in self.indexed_files:
-                        del self.indexed_files[file_path]
-                    elif abs_path in self.indexed_files:
-                        del self.indexed_files[abs_path]
-
-            # 2. Manually walk the directory to find NEW files
-            new_file_paths = []
-            supported_exts = [".pdf", ".txt", ".md", ".docx"]
-            
-            for root, dirs, files in os.walk(self.knowledge_base_dir):
-                if "corrupt_files" in root:
-                    continue
-                    
-                for file in files:
-                    ext = os.path.splitext(file)[1].lower()
-                    if ext in supported_exts:
-                        full_path = os.path.join(root, file)
-                        norm_path = os.path.abspath(full_path)
-                        mtime = os.path.getmtime(norm_path)
-                        
-                        # Determine target index
-                        itype = 'knowledge'
-                        if "user_logs" in full_path:
-                            if "user_profile.md" in file:
-                                itype = 'user_profiles'
-                            else:
-                                itype = 'logs'
-                        elif "kaia_dreams" in full_path:
-                            itype = 'dreams'
-                        
-                        is_new = norm_path not in self.indexed_files
-                        is_modified = not is_new and mtime > self.indexed_files[norm_path]
-                        
-                        if (is_new or is_modified) and "user_memories.txt" not in file:
-                            is_log = itype == 'logs'
-                            new_file_paths.append((full_path, is_modified, is_log, itype))
-
-            # 3. Also index the persona file from knowledge_base
-            persona_file = "knowledge_base/kaia_persona.md"
-            if os.path.exists(persona_file):
-                norm_path = os.path.abspath(persona_file)
-                mtime = os.path.getmtime(norm_path)
-                if norm_path not in self.indexed_files or mtime > self.indexed_files[norm_path]:
-                    new_file_paths.append((persona_file, norm_path in self.indexed_files, False, 'persona'))
+            updated_itypes = self._prune_deleted_files()
+            new_file_paths = self._find_changed_files()
 
             if not new_file_paths:
                 log_debug("No new documents to index.")
             else:
                 log_action(f"Found {len(new_file_paths)} new or modified documents. Processing...")
-                
                 for file_path, is_modified, is_log, itype in new_file_paths:
-                    # I/O MITIGATION: Tiny sleep between files to allow OS/IDE to breathe
                     time.sleep(0.05)
-                
-                    target_index = self.indices[itype]
-                    if is_modified and not is_log:
-                        log_action(f"Detected update in {itype} file. Re-indexing...")
-                        log_info(file_path)
-                        abs_path = os.path.abspath(file_path)
-                        nodes_to_delete = [
-                            node_id for node_id, node in target_index.docstore.docs.items()
-                            if node.metadata.get('file_path') == file_path or os.path.abspath(node.metadata.get('file_path', '')) == abs_path
-                        ]
-                        if nodes_to_delete:
-                            print(f"Deleting {len(nodes_to_delete)} old nodes from {itype} for {file_path}")
-                            for node_id in nodes_to_delete:
-                                target_index.delete_nodes([node_id])
-                            updated_itypes.add(itype)
-                    elif is_log:
-                        # Don't spam the individual files
-                        log_debug(f"Checking for new content in {itype} log: {file_path}")
-                    else:
-                        log_debug(f"Processing new {itype} file: {file_path}")
-                        
-                    try:
-                        abs_path = os.path.abspath(file_path)
-                        # Load file content
-                        if is_log:
-                            # TAIL-INDEXING for logs: only index what's new
-                            last_offset = 0
-                            for node in target_index.docstore.docs.values():
-                                if os.path.abspath(node.metadata.get('file_path', '')) == abs_path:
-                                    offset = node.metadata.get('file_offset', 0)
-                                    length = node.metadata.get('content_length', 0)
-                                    last_offset = max(last_offset, offset + length)
-                            
-                            file_size = os.path.getsize(file_path)
-                            if file_size <= last_offset:
-                                log_debug(f"No new content for index '{itype}' at offset {last_offset}")
-                                self.indexed_files[abs_path] = os.path.getmtime(file_path)
-                                continue
-                                
-                            log_action(f"Indexing new {itype} content from offset {last_offset}...")
-                            with open(file_path, 'r', encoding='utf-8', errors='replace') as f:
-                                f.seek(last_offset)
-                                new_content = f.read()
-                                
-                            if new_content.strip():
-                                # === SMART FICTION FILTER ===
-                                # Only filter specific fictional story patterns, NOT user names
-                                # Perspective decoupling handles first-person artifacts at context time.
-                                # ============================
+                    if self._index_single_file(file_path, is_modified, is_log, itype, corrupt_dir):
+                        updated_itypes.add(itype)
 
-                                mtime = os.path.getmtime(file_path)
-                                # Create a document from the new content
-                                doc = Document(
-                                    text=new_content,
-                                    metadata={
-                                        "file_path": abs_path,
-                                        "last_modified_at": mtime,
-                                        "file_offset": last_offset,
-                                        "content_length": len(new_content),
-                                        "source": "user_logs"
-                                    }
-                                )
-                                self._apply_priority_metadata(doc, itype, file_path)
-                                # Use specialized node parser
-                                parser = self._get_node_parser_for_doc(itype, file_path)
-                                nodes = parser.get_nodes_from_documents([doc])
-                                target_index.insert_nodes(nodes)
-                                updated_itypes.add(itype)
-                                
-                                self.indexed_files[abs_path] = mtime
-                                log_success(f"Indexed {len(new_content)} new characters from {itype} log.")
-                            else:
-                                self.indexed_files[abs_path] = os.path.getmtime(file_path)
-                        else:
-                            # Robust file loading with encoding fallbacks
-                            docs = None
-                            try:
-                                reader = SimpleDirectoryReader(input_files=[file_path])
-                                docs = reader.load_data()
-                            except UnicodeDecodeError as unicode_err:
-                                # Try with different encodings
-                                log_warning(f"UTF-8 decode failed for {file_path}, trying fallback encodings...")
-                                
-                                fallback_encodings = ['latin-1', 'cp1252', 'iso-8859-1']
-                                for enc in fallback_encodings:
-                                    try:
-                                        # Read with fallback encoding and re-encode to UTF-8
-                                        with open(file_path, 'r', encoding=enc, errors='replace') as f:
-                                            content = f.read()
-                                        
-                                        # Create Document manually from the content
-                                        from llama_index.core import Document as LlamaDocument
-                                        docs = [LlamaDocument(text=content)]
-                                        log_success(f"Recovered file using {enc} encoding")
-                                        break
-                                    except Exception as enc_err:
-                                        log_debug(f"{enc} encoding failed: {enc_err}")
-                                        continue
-                                
-                                if not docs:
-                                    # Last resort: binary read with best-effort decoding
-                                    log_warning(f"All encodings failed, using binary read with error replacement")
-                                    with open(file_path, 'rb') as f:
-                                        binary_content = f.read()
-                                    content = binary_content.decode('utf-8', errors='replace')
-                                    from llama_index.core import Document as LlamaDocument
-                                    docs = [LlamaDocument(text=content)]
-                            
-                            if not docs:
-                                raise ValueError("Failed to load file with any encoding")
-                                
-                            mtime = os.path.getmtime(file_path)
-                            parser = self._get_node_parser_for_doc(itype, file_path)
-                            for doc in docs:
-                                doc.metadata['last_modified_at'] = mtime
-                                doc.metadata['file_path'] = os.path.abspath(file_path)
-                                doc.metadata['itype'] = itype
-                                
-                                self._apply_priority_metadata(doc, itype, file_path)
-                                
-                                if itype == 'persona':
-                                    doc.metadata['user_id'] = "KAIA_SYSTEM"
-                                
-                                # Extract user metadata if in user_logs
-                                if "user_logs" in file_path:
-                                    parts = file_path.split(os.sep)
-                                    try:
-                                        ul_idx = parts.index("user_logs")
-                                        user_folder = parts[ul_idx + 1]
-                                        if "_" in user_folder:
-                                            u_name, u_id = user_folder.rsplit("_", 1)
-                                            doc.metadata['user_id'] = u_id
-                                            doc.metadata['user_name'] = u_name
-                                    except Exception: pass
-                                
-                                # Pre-chunk large documents to avoid embedding overflows
-                                sub_docs = self._pre_chunk_document(doc)
-                                for sub_doc in sub_docs:
-                                    # Ensure sub-docs inherit priority metadata
-                                    self._apply_priority_metadata(sub_doc, itype, file_path)
-                                    nodes = parser.get_nodes_from_documents([sub_doc])
-                                    target_index.insert_nodes(nodes)
-                            
-                            updated_itypes.add(itype)
-                            self.indexed_files[abs_path] = mtime
-                            log_success(f"Indexed {file_path} into {itype} index.")
-                            if itype != 'logs':
-                                snippet = ""
-                                try:
-                                    # Extract direct snippet from first doc
-                                    snippet = docs[0].text[:300].replace("\n", " ") + "..."
-                                except Exception: pass
-                                bot_state.add_ingestion(os.path.basename(file_path), snippet=snippet)
-                            
-                    except Exception as e:
-                        log_error(f"Failed to load file: {e}")
-                        log_info(file_path)
-                        
-                        conversion_succeeded = False
-                        
-                        # Attempt conversion if it's a PDF or DOCX
-                        if file_path.lower().endswith((".pdf", ".docx")):
-                            ext = ".pdf" if file_path.lower().endswith(".pdf") else ".docx"
-                            log_action(f"Attempting to recover file by converting to Markdown...")
-                            log_info(file_path)
-                            
-                            if ext == ".pdf":
-                                md_path = self._convert_pdf_to_md(file_path)
-                            else:
-                                md_path = self._convert_docx_to_md(file_path)
-                                
-                            if md_path:
-                                try:
-                                    # Load the newly created MD file
-                                    md_reader = SimpleDirectoryReader(input_files=[md_path])
-                                    md_docs = md_reader.load_data()
-                                    if md_docs:
-                                        mtime = os.path.getmtime(md_path)
-                                        orig_mtime = os.path.getmtime(file_path)
-                                        for doc in md_docs:
-                                            doc.metadata['last_modified_at'] = mtime
-                                            doc.metadata['itype'] = itype
-                                            parser = self._get_node_parser_for_doc(itype, md_path)
-                                            nodes = parser.get_nodes_from_documents([doc])
-                                            target_index.insert_nodes(nodes)
-                                        updated_itypes.add(itype)
-                                        self.indexed_files[os.path.abspath(md_path)] = mtime
-                                        # Also track original PDF as "handled" so we don't retry
-                                        self.indexed_files[os.path.abspath(file_path)] = orig_mtime
-                                        log_success(f"Successfully indexed converted Markdown")
-                                        log_info(md_path)
-                                        conversion_succeeded = True
-                                        if itype != 'logs':
-                                            snippet = ""
-                                            try:
-                                                with open(md_path, 'r', encoding='utf-8') as f:
-                                                    snippet = f.read(300).replace("\n", " ") + "..."
-                                            except Exception: pass
-                                            bot_state.add_ingestion(os.path.basename(file_path), snippet=snippet)
-                                    else:
-                                        log_warning(f"Converted MD was empty.")
-                                except Exception as md_err:
-                                    log_error(f"Failed to index converted MD: {md_err}")
-
-                        # Only move to corrupt_files if conversion failed or wasn't attempted
-                        if not conversion_succeeded:
-                            try:
-                                dest_path = os.path.join(corrupt_dir, os.path.basename(file_path))
-                                # Handle name collisions in corrupt_dir
-                                if os.path.exists(dest_path):
-                                    dest_path = f"{dest_path}_{int(time.time())}"
-                                
-                                shutil.move(file_path, dest_path)
-                                log_critical(f"MOVED CORRUPT FILE TO: {dest_path}")
-                            except Exception as move_err:
-                                log_warning(f"Failed to move corrupt file: {move_err}")
-
-                # Mark for persistence
-                self.persist_needed = True
-
-                # Selective BM25 cache invalidation & Consolidated Persistence
-                for itype in updated_itypes:
-                    if itype in self.bm25_cache:
-                        log_info(f"Invalidating BM25 cache for '{itype}' index due to updates.")
-                        self.bm25_cache[itype] = None
-                    
-                    # IMMEDIATE PERSISTENCE: Save the index state once per type
-                    try:
-                        itype_dir = os.path.join(self.persist_dir, itype)
-                        self.indices[itype].storage_context.persist(persist_dir=itype_dir)
-                        log_success(f"Index '{itype}' persisted to storage.")
-                    except Exception as p_err:
-                        log_error(f"Failed to persist {itype} index: {p_err}")
+            if updated_itypes:
+                self._persist_updated_indices(updated_itypes)
                 
         except Exception as e:
             log_error(f"Error refreshing knowledge base: {e}")
@@ -940,12 +831,9 @@ class KaiaRAG:
         finally:
             self._indexing_in_progress = False
             self._refresh_lock.release()
-            
-            # If another refresh was requested while we were running, re-enter directly.
-            # This runs in the same thread (no orphaned Timer threads, no shutdown leak).
             if self._refresh_pending:
                 log_info("Triggering pending RAG refresh...")
-                time.sleep(2.0)  # Brief cooldown to prevent tight loops
+                time.sleep(2.0)
                 self.refresh_knowledge_base()
 
     @CircuitBreaker(failure_threshold=3)
@@ -1188,456 +1076,284 @@ class KaiaRAG:
                 traceback.print_exc()
                 return False
 
+    def _route_retrieval_strategy(self, category: str, query_lower: str, intent: Optional[Intent]) -> Dict[str, Any]:
+        """Determine the retrieval strategy and flags based on intent and category."""
+        strategy = intent.suggested_strategy if intent else None
+        
+        is_kaia_query = (category == "identity")
+        is_social_identity = (category == "social_identity")
+        is_dream_query = (category == "dream")
+        is_entity_query = (category == "entity")
+        is_news_query = (category == "news")
+        is_casual = (category == "casual" or category == "greeting" or len(query_lower.split()) <= 4)
+
+        if strategy == "PRECISE_RECALL":
+            if any(x in query_lower for x in ["who", "what", "kaia", "yourself"]):
+                is_kaia_query = True
+            else:
+                is_entity_query = True
+        elif strategy == "RELATIONAL_MIRROR":
+            is_social_identity = True
+        elif strategy == "DREAM_RECALL" or (strategy == "ASSOCIATIVE_WANDERING" and "dream" in query_lower):
+            is_dream_query = True
+        elif strategy == "SYNTHESIS_SCAN":
+            is_news_query = True
+        elif strategy in ["SOCIAL_GREETING", "COMMAND_EXECUTION"]:
+            is_casual = True
+
+        return {
+            "strategy": strategy,
+            "is_kaia_query": is_kaia_query,
+            "is_social_identity": is_social_identity,
+            "is_dream_query": is_dream_query,
+            "is_entity_query": is_entity_query,
+            "is_news_query": is_news_query,
+            "is_casual": is_casual,
+            "is_followup_query": (not intent and len(query_lower.split()) <= 6 and not is_kaia_query and not is_social_identity and not is_dream_query)
+        }
+
+    def _get_summarization_nodes(self, query_lower: str) -> List[Dict[str, Any]]:
+        """Identify a target file for summarization and retrieve its full content."""
+        target_file_path = None
+        best_match_score = 0
+        
+        query_cleaned = query_lower.replace("summarize", "").replace("summary of", "").strip()
+        stopwords = {"the", "a", "an", "of", "and", "or", "to", "in", "is", "for", "with", "on", "at", "by", "from", "you", "have", "kaia"}
+        query_tokens = set(re.findall(r'\w+', query_cleaned)) - stopwords
+        
+        for path in self.indexed_files:
+            fname = os.path.basename(path).lower()
+            fname_no_ext = os.path.splitext(fname)[0]
+            fname_tokens = set(re.findall(r'\w+', fname_no_ext)) - stopwords
+            
+            if not fname_tokens: continue
+            
+            if query_cleaned and (query_cleaned in fname or fname_no_ext in query_cleaned):
+                score = 1.0
+                if score > best_match_score:
+                    best_match_score = score
+                    target_file_path = path
+                    continue
+            
+            common_tokens = query_tokens.intersection(fname_tokens)
+            if len(common_tokens) >= 2:
+                fname_coverage = len(common_tokens) / len(fname_tokens)
+                if fname_coverage > 0.5:
+                    score = fname_coverage 
+                    if score > best_match_score:
+                        best_match_score = score
+                        target_file_path = path
+
+        if not target_file_path:
+            return []
+
+        log_action(f"Summarization target identified: {target_file_path}")
+        from utils.core.rag_utils import get_node_text, get_node_metadata
+        for itype, index in self.indices.items():
+            all_docs = list(index.storage_context.docstore.docs.values())
+            file_nodes = [
+                n for n in all_docs 
+                if n.metadata.get('file_path') == target_file_path or 
+                   os.path.abspath(n.metadata.get('file_path', '')) == os.path.abspath(target_file_path)
+            ]
+            if file_nodes:
+                file_nodes.sort(key=lambda x: x.metadata.get('chunk_index', 0))
+                return [{
+                    "content": get_node_text(node),
+                    "metadata": get_node_metadata(node),
+                    "label": f"Full Content: {os.path.basename(target_file_path)}",
+                    "score": 1.0
+                } for node in file_nodes]
+        return []
+
+
+    def _target_indices(self, routing: Dict[str, Any], base_top_k: int) -> Tuple[List[str], int]:
+        """Determine which indices to search and the target retrieval count."""
+        strategy = routing["strategy"]
+        is_kaia_query = routing["is_kaia_query"]
+        is_social_identity = routing["is_social_identity"]
+        is_dream_query = routing["is_dream_query"]
+        is_entity_query = routing["is_entity_query"]
+        is_news_query = routing["is_news_query"]
+        is_casual = routing["is_casual"]
+        
+        target_itypes = ['knowledge', 'logs'] # Default
+        retrieve_count = base_top_k
+
+        if is_kaia_query or strategy == "PRECISE_RECALL" or is_entity_query:
+            target_itypes = ['knowledge', 'logs', 'user_profiles']
+        elif strategy == "DIAGNOSTIC_DEEP_DIVE":
+            target_itypes = ['logs']
+            retrieve_count = 15
+        elif strategy == "DREAM_RECALL" or is_dream_query:
+            target_itypes = ['dreams']
+            retrieve_count = 10
+        elif strategy == "CREATIVE_ASSOCIATION":
+            target_itypes = ['knowledge']
+        elif strategy == "SOCIAL_GREETING" or is_casual:
+            target_itypes = ['user_profiles', 'logs']
+            retrieve_count = 10
+        elif strategy == "RELATIONAL_MIRROR" or is_social_identity:
+            target_itypes = ['user_profiles', 'logs']
+
+        if is_casual and strategy != "SOCIAL_GREETING":
+            retrieve_count = max(5, int(base_top_k * 0.6))
+
+        return target_itypes, retrieve_count
+
+    async def _execute_hybrid_retrieval(self, itype: str, query: str, retrieve_count: int) -> List[Any]:
+        """Perform hybrid (Vector + BM25) retrieval for a specific index type."""
+        try:
+            bm25_retriever = self.bm25_cache.get(itype)
+            if bm25_retriever is None:
+                index_nodes = list(self.indices[itype].storage_context.docstore.docs.values())
+                if index_nodes:
+                    # Offload the potentially heavy BM25 initialization (tokenization of all nodes)
+                    bm25_retriever = await asyncio.to_thread(SimpleBM25Retriever, index_nodes)
+                    self.bm25_cache[itype] = bm25_retriever
+            
+            if bm25_retriever:
+                from utils.infrastructure.system.yaml_config import config
+                hybrid = HybridRetriever(self.indices[itype], bm25_retriever, multiplier=config.rag_base_score_multiplier)
+                return await hybrid.retrieve(query, top_k=retrieve_count)
+            else:
+                retriever = self.indices[itype].as_retriever(similarity_top_k=retrieve_count)
+                return await retriever.aretrieve(query)
+        except Exception as e:
+            log_error(f"Retrieval failed for {itype}: {e}")
+            return []
+
+    def _resolve_identity_mappings(self, user_id: Any) -> Set[str]:
+        """Resolve all linked identities (Discord/Forum) for a given user ID."""
+        try:
+            from utils.social.identity_registry import registry
+        except ImportError:
+            return {str(user_id)} if user_id else set()
+            
+        u_id_str = str(user_id) if user_id else None
+        relevant_ids = {u_id_str} if u_id_str else set()
+        
+        if u_id_str:
+            for fid in registry.get_forum_ids(u_id_str):
+                relevant_ids.add(str(fid))
+                
+            if u_id_str.startswith("forum_"):
+                parts = u_id_str.rsplit("_", 1)
+                if len(parts) > 1 and parts[1].isdigit():
+                    did = registry.get_discord_id(int(parts[1]))
+                    if did: relevant_ids.add(did)
+            elif u_id_str.isdigit() and len(u_id_str) < 15:
+                did = registry.get_discord_id(int(u_id_str))
+                if did: relevant_ids.add(did)
+        return relevant_ids
+
+    def _score_and_filter_nodes(self, all_node_results: List[Any], query_lower: str, 
+                               relevant_ids: Set[str], routing: Dict[str, Any], 
+                               top_k: int, include_news: bool, strict_identity: bool) -> List[Dict[str, Any]]:
+        """Rank, boost, and filter retrieved nodes based on context and strategy."""
+        from utils.core.rag_utils import get_node_text, get_node_metadata
+        from utils.infrastructure.system.yaml_config import config
+        
+        scored_nodes = []
+        seen_texts = set()
+        strategy = routing["strategy"]
+        is_casual = routing["is_casual"]
+        is_dream_query = routing["is_dream_query"]
+        is_social_identity = routing["is_social_identity"]
+
+        for node_result in all_node_results:
+            node = node_result.node if hasattr(node_result, 'node') else node_result
+            base_score = node_result.score if hasattr(node_result, 'score') else 0.5
+            
+            content = get_node_text(node)
+            if not content: continue
+            content_hash = hash(content[:200])
+            if content_hash in seen_texts: continue
+            seen_texts.add(content_hash)
+            
+            metadata = get_node_metadata(node)
+            source_type = metadata.get('source_type', 'general')
+            file_path = metadata.get('file_path', '')
+            node_user_id = str(metadata.get('user_id', ''))
+            
+            # FILTERS
+            if not include_news and (source_type == 'news' or "news" in file_path.lower()): continue
+            if source_type == 'user_profile' and (not (is_social_identity or strict_identity) or (node_user_id and node_user_id not in relevant_ids)): continue
+            if source_type == 'user_logs' and node_user_id and node_user_id not in relevant_ids: continue
+            if is_dream_query and not (source_type == 'dream' or "kaia_dreams" in file_path or "dream" in content.lower()): continue
+
+            # SCORING
+            path_boost = 0.5 if file_path and len(os.path.basename(file_path)) > 8 and os.path.basename(file_path).lower() in query_lower else 0
+            type_boosts = getattr(config, 'rag_type_boosts', {'persona': 0.15, 'user_profile': 0.20, 'dream': 0.10, 'user_logs': 0.25})
+            type_boost = type_boosts.get(source_type, 0.0)
+            
+            final_score = base_score + path_boost + type_boost
+            
+            if strategy == "PRECISE_RECALL":
+                if source_type in ['knowledge', 'user_profile']: final_score += 0.15
+                if source_type == 'dream': final_score -= 0.1
+            elif strategy == "DIAGNOSTIC_DEEP_DIVE" and source_type == 'user_logs':
+                final_score += 0.4 if any(w in content.lower() for w in ['error', 'exception', 'traceback', 'fail']) else 0.1
+            elif strategy == "DREAM_RECALL":
+                final_score += 0.5 if source_type == 'dream' else -0.1
+            elif strategy == "RELATIONAL_MIRROR":
+                if source_type == 'user_profile': final_score += 0.4
+                elif source_type == 'user_logs' and node_user_id in relevant_ids: final_score += 0.25
+
+            # THRESHOLDING
+            min_threshold = 0.40 if strategy == "DREAM_RECALL" else (config.rag_threshold_knowledge + (config.rag_threshold_casual_penalty if is_casual else 0))
+            if final_score < min_threshold: continue
+
+            # LABELING
+            label = f"Knowledge [{os.path.basename(file_path)}]"
+            if source_type == "persona": label = "Kaia Persona Fragment"
+            elif source_type == "user_profile": label = f"Profile: {metadata.get('user_name', 'Unknown')}"
+            elif source_type == "user_logs": label = f"Log: {metadata.get('user_name', 'Unknown')}"
+            
+            scored_nodes.append({"content": content, "metadata": metadata, "label": label, "score": final_score})
+
+        scored_nodes.sort(key=lambda x: x["score"], reverse=True)
+        return scored_nodes[:top_k]
+
     @thread_safe_rag_operation
     async def retrieve(self, query: str, user_id: Any = None, user_name: str = None, top_k: int = 5, 
                 strict_identity: bool = False, include_news: bool = False,
                 category: str = "general", intent: Optional[Intent] = None) -> List[Dict[str, Any]]:
-        """
-        Hierarchical retrieval with reciprocal rank fusion, intent-aware routing, 
-        and dynamic relevance scoring.
-        """
-        if not self.indices:
-            return []
-            
-        if not query or not query.strip():
-            return []
+        if not self.indices or not query or not query.strip(): return []
             
         try:
             query_lower = query.lower()
-            base_top_k = top_k
+            routing = self._route_retrieval_strategy(category, query_lower, intent)
+            if routing["strategy"] == "SUMMARIZATION":
+                results = self._get_summarization_nodes(query_lower)
+                if results: return results
             
-            # 1. INTENT-AWARE ROUTING & CONFIGURATION
-            # Initialize flags with legacy category
-            is_kaia_query = (category == "identity")
-            is_social_identity = (category == "social_identity")
-            is_dream_query = (category == "dream")
-            is_entity_query = (category == "entity")
-            is_news_query = (category == "news")
-            is_casual = (category == "casual" or category == "greeting" or len(query_lower.split()) <= 4)
-            
-            # Override with Intent if available
-            strategy = None
-            if intent:
-                strategy = intent.suggested_strategy
-                # Map strategies to retrieval contexts
-                if strategy == "PRECISE_RECALL":
-                    if any(x in query_lower for x in ["who", "what", "kaia", "yourself"]):
-                        is_kaia_query = True
-                    else:
-                        is_entity_query = True
-                elif strategy == "RELATIONAL_MIRROR":
-                    is_social_identity = True
-                elif strategy == "ASSOCIATIVE_WANDERING":
-                    # Legacy fallback
-                    if "dream" in query_lower:
-                        is_dream_query = True
-                elif strategy == "DREAM_RECALL":
-                    is_dream_query = True
-                elif strategy == "SYNTHESIS_SCAN":
-                    is_news_query = True
-                elif strategy == "DIAGNOSTIC_DEEP_DIVE":
-                    # Deep dive into error logs and system knowledge
-                    pass 
-                elif strategy in ["SOCIAL_GREETING", "COMMAND_EXECUTION"]:
-                    is_casual = True
-                
-                # Trust the intent explicitly - NO length penalties
-                if is_casual:
-                    # Specific casual queries might still need context, but less recall
-                    pass
-            
-            # Legacy fallback: Filter short queries that weren't caught by Intent
-            is_followup_query = (not intent and len(query_lower.split()) <= 6 and not is_kaia_query and not is_social_identity and not is_dream_query)
-            
-            # Detect known user names for enrichment (Optimized & Threaded)
+            # Update user cache
             if time.time() - self._last_user_scan > self._user_scan_interval:
-                user_logs_path = os.path.join(self.knowledge_base_dir, "user_logs")
-                
-                def _scan_user_logs():
-                    cache = []
-                    if os.path.exists(user_logs_path):
-                        for d in os.scandir(user_logs_path):
-                            if d.is_dir() and "_" in d.name:
-                                u_name = d.name.rsplit("_", 1)[0].replace("_", " ")
-                                cache.append(u_name)
-                    return cache
-                
-                self._known_users_cache = await asyncio.to_thread(_scan_user_logs)
+                def _scan():
+                    path = os.path.join(self.knowledge_base_dir, "user_logs")
+                    return [d.name.rsplit("_", 1)[0].replace("_", " ") for d in os.scandir(path) if d.is_dir() and "_" in d.name] if os.path.exists(path) else []
+                self._known_users_cache = await asyncio.to_thread(_scan)
                 self._last_user_scan = time.time()
-            
-            known_users = self._known_users_cache
-            detected_user = next((u for u in known_users if u.lower() in query_lower), None)
-            
-            # --- SUMMARIZATION SPECIAL LOGIC ---
-            # If strategy is SUMMARIZATION, we want to find the SPECIFIC file and retrieve ALL chunks.
-            if strategy == "SUMMARIZATION":
-                target_file_path = None
-                best_match_score = 0
-                
-                # 1. Identify the target file from query
-                # Scan indexed files for name match
-                query_cleaned = query_lower.replace("summarize", "").replace("summary of", "").strip()
-                # Remove common stopwords for cleaner token matching
-                stopwords = {"the", "a", "an", "of", "and", "or", "to", "in", "is", "for", "with", "on", "at", "by", "from", "you", "have", "kaia"}
-                query_tokens = set(re.findall(r'\w+', query_cleaned)) - stopwords
-                
-                for path, mtime in self.indexed_files.items():
-                    fname = os.path.basename(path).lower()
-                    fname_no_ext = os.path.splitext(fname)[0]
-                    fname_tokens = set(re.findall(r'\w+', fname_no_ext)) - stopwords
-                    
-                    if not fname_tokens: continue
-                    
-                    # Exact containment of cleaned query in filename (or vice versa) is prime
-                    if query_cleaned and (query_cleaned in fname or fname_no_ext in query_cleaned):
-                        score = 1.0 # Highest possible
-                        if score > best_match_score:
-                            best_match_score = score
-                            target_file_path = path
-                            continue
-                    
-                    # Fallback: Keyword intersection
-                    common_tokens = query_tokens.intersection(fname_tokens)
-                    if len(common_tokens) >= 2: # At least 2 meaningful words match
-                        # Score is % of FILENAME words found in the query
-                        # (We want to find the file mentioned in the query)
-                        fname_coverage = len(common_tokens) / len(fname_tokens)
-                        
-                        if fname_coverage > 0.5: # If >50% of filename words appear in query
-                            score = fname_coverage 
-                            if score > best_match_score:
-                                best_match_score = score
-                                target_file_path = path
 
-                if target_file_path:
-                    log_action(f"Summarization target identified: {target_file_path}")
-                    # Retrieve ALL nodes for this file from the appropriate index
-                    # Find which index contains this file
-                    target_nodes = []
-                    for itype, index in self.indices.items():
-                        all_docs = list(index.docstore.docs.values())
-                        file_nodes = [
-                            n for n in all_docs 
-                            if n.metadata.get('file_path') == target_file_path or 
-                               os.path.abspath(n.metadata.get('file_path', '')) == os.path.abspath(target_file_path)
-                        ]
-                        if file_nodes:
-                            # Found the file! Sort by chunk index if available to maintain order
-                            file_nodes.sort(key=lambda x: x.metadata.get('chunk_index', 0))
-                            target_nodes.extend(file_nodes)
-                            break # Assume file is in only one index
-                    
-                    if target_nodes:
-                        from utils.core.rag_utils import get_node_text, get_node_metadata
-                        log_success(f"Retrieved {len(target_nodes)} full-document nodes for summarization.")
-                        return [{
-                            "content": get_node_text(node),
-                            "metadata": get_node_metadata(node),
-                            "label": f"Full Content: {os.path.basename(target_file_path)}",
-                            "score": 1.0 # Force high score
-                        } for node in target_nodes]
-            # -----------------------------------
-
-            # 2. QUERY ENRICHMENT & ID MAPPING
-            # Extract Discord IDs: <@123456789> or <@!123456789>
-            id_mentions = re.findall(r"<@!?(\d+)>", query)
-            mapped_names = []
-            
-            if id_mentions:
-                user_logs_path = os.path.join(self.knowledge_base_dir, "user_logs")
-                if os.path.exists(user_logs_path):
-                    # Cache directory scan for mapping
-                    for d in os.scandir(user_logs_path):
-                        if d.is_dir() and "_" in d.name:
-                            name_part, id_part = d.name.rsplit("_", 1)
-                            if id_part in id_mentions:
-                                mapped_names.append(name_part.replace("_", " "))
-            
             enriched_query = query
-            if mapped_names:
-                enriched_query += " " + " ".join(mapped_names)
-                
-            if user_name and (is_casual or is_social_identity):
-                enriched_query = f"{enriched_query} user:{user_name} {user_name}"
+            detected_user = next((u for u in self._known_users_cache if u.lower() in query_lower), None)
+            if detected_user: enriched_query += f" user:{detected_user} {detected_user}"
+            if user_name and (routing["is_casual"] or routing["is_social_identity"]):
+                enriched_query += f" user:{user_name} {user_name}"
+
+            # Map identities
+            relevant_ids = self._resolve_identity_mappings(user_id)
+
+            # Retrieval
+            target_itypes, retrieve_count = self._target_indices(routing, top_k)
+            tasks = [self._execute_hybrid_retrieval(itype, enriched_query, retrieve_count) for itype in target_itypes if itype in self.indices]
+            all_results = await asyncio.gather(*tasks)
+            all_node_results = [node for sublist in all_results for node in sublist]
             
-            if detected_user:
-                enriched_query += f" user:{detected_user} {detected_user}"
-            
-            # 3. ROUTING: Determine target indices
-            # 3. ROUTING: Strict Index Targeting (User Request)
-            target_itypes = []
-            
-            # IDENTITY / PRECISE RECALL -> Knowledge + Logs + Profiles
-            # "Who is Thorne?" -> Entity search across all memory types
-            if is_kaia_query or strategy == "PRECISE_RECALL" or is_entity_query:
-                target_itypes = ['knowledge', 'logs', 'user_profiles']
-                
-            # TECH / DIAGNOSTIC -> Logs ONLY
-            # "Error logs", "Status", "Restart" -> Operational data
-            elif strategy == "DIAGNOSTIC_DEEP_DIVE":
-                target_itypes = ['logs']
-                retrieve_count = 15
-                
-            # DREAMS -> Dreams Index ONLY
-            # "What did you dream?" -> Specific dream file storage
-            elif strategy == "DREAM_RECALL" or is_dream_query:
-                target_itypes = ['dreams']
-                retrieve_count = 10
-
-            # CREATIVE / GENERAL -> Knowledge ONLY
-            # "Explain transformers", "Tell me about AI" -> Documents
-            elif strategy == "CREATIVE_ASSOCIATION":
-                target_itypes = ['knowledge']
-
-            # CASUAL / SOCIAL -> Profiles + Logs (Richness)
-            # "Hi Kaia" -> Chat history + Who they are
-            elif strategy == "SOCIAL_GREETING" or is_casual:
-                target_itypes = ['user_profiles', 'logs']
-                retrieve_count = 10
-
-            # RELATIONAL / SOCIAL IDENTITY -> Profiles + Logs
-            # "Who am I?", "Our history"
-            elif strategy == "RELATIONAL_MIRROR" or is_social_identity:
-                target_itypes = ['user_profiles', 'logs']
-
-            # FALLBACK -> Knowledge (Documents) + Logs
-            else:
-                target_itypes = ['knowledge', 'logs']
-            
-            # Use config for retrieval count, with a slight reduction for casual queries
-            if not intent and is_casual:
-                 retrieve_count = max(5, int(base_top_k * 0.6))
-            elif not 'retrieve_count' in locals():
-                 retrieve_count = base_top_k
-            
-            # 4. HIERARCHICAL RETRIEVAL
-            all_node_results = []
-            
-            from utils.infrastructure.gpu.gpu_memory_manager import gpu_memory_manager, GPUTaskPriority
-            
-            async def perform_hybrid_retrieval(itype):
-                try:
-                    bm25_retriever = self.bm25_cache.get(itype)
-                    if bm25_retriever is None:
-                        index_nodes = list(self.indices[itype].storage_context.docstore.docs.values())
-                        if index_nodes:
-                            bm25_retriever = SimpleBM25Retriever(index_nodes)
-                            self.bm25_cache[itype] = bm25_retriever
-                    
-                    if bm25_retriever:
-                        mult = config.rag_base_score_multiplier
-                        hybrid = HybridRetriever(self.indices[itype], bm25_retriever, multiplier=mult)
-                        return await hybrid.retrieve(enriched_query, top_k=retrieve_count)
-                    else:
-                        # Fallback to vector-only if BM25 is unavailable
-                        retriever = self.indices[itype].as_retriever(similarity_top_k=retrieve_count)
-                        return await retriever.aretrieve(enriched_query)
-                except Exception as e:
-                    log_error(f"Retrieval failed for {itype}: {e}")
-                    return []
-
-            # Guarded parallel retrieval
-            async def run_all_retrievals():
-                tasks = [perform_hybrid_retrieval(itype) for itype in target_itypes if itype in self.indices]
-                results = await asyncio.gather(*tasks)
-                return [node for sublist in results for node in sublist]
-
-            # Embeddings are forced to CPU in __init__, so we bypass the GPU guard
-            # This allows retrieval to run in parallel with generation without contention.
-            log_debug(f"Executing CPU-based RAG retrieval: nomic-embed-text")
-            all_node_results = await run_all_retrievals()
-            
-            # 5. DYNAMIC SCORING & FILTERING
-            scored_nodes = [] 
-            seen_texts = set()
-            u_id_str = str(user_id) if user_id else None
-            
-            # --- IDENTITY EXPANSION ---
-            relevant_ids = {u_id_str} if u_id_str else set()
-            if u_id_str:
-                # Case 1: Discord -> Forum
-                fids = registry.get_forum_ids(u_id_str)
-                for fid in fids:
-                    relevant_ids.add(str(fid))
-                    # Add common folder naming convention matches
-                    # We don't have the forum name here easily, but we can infer or skip
-                    # relevant_ids.add(f"forum_{user_name}_{fid}") 
-                    
-                # Case 2: Forum -> Discord
-                if u_id_str.startswith("forum_"):
-                    fid_parts = u_id_str.rsplit("_", 1)
-                    if len(fid_parts) > 1 and fid_parts[1].isdigit():
-                        did = registry.get_discord_id(int(fid_parts[1]))
-                        if did:
-                            relevant_ids.add(did)
-                elif u_id_str.isdigit() and len(u_id_str) < 15:
-                    did = registry.get_discord_id(int(u_id_str))
-                    if did:
-                        relevant_ids.add(did)
-            # --------------------------
-            
-            from utils.core.rag_utils import get_node_text, get_node_metadata
-            for node_result in all_node_results:
-                node = node_result.node if hasattr(node_result, 'node') else node_result
-                base_raw_score = node_result.score if hasattr(node_result, 'score') else 0.5
-                base_score = base_raw_score
-                content = get_node_text(node)
-                metadata = get_node_metadata(node)
-                
-                # Deduplication
-                content_hash = hash(content[:200])
-                if content_hash in seen_texts: continue
-                seen_texts.add(content_hash)
-                
-                # Metadata extraction
-                source_type = metadata.get('source_type', 'general')
-                file_path = metadata.get('file_path', '')
-                node_user_id = str(metadata.get('user_id', ''))
-                node_user_name = metadata.get('user_name', 'Unknown')
-
-                # Filter: News (if not requested)
-                if not include_news and (source_type == 'news' or "news" in file_path.lower()):
-                    continue
-                
-                # Filter: Identity Isolation (Profiles)
-                if source_type == 'user_profile':
-                    if not (is_social_identity or strict_identity):
-                        continue
-                    # CRITICAL: Strict user owner check for profiles
-                    if node_user_id and node_user_id not in relevant_ids:
-                        continue
-                
-                # Filter: User Isolation for Logs
-                if source_type == 'user_logs':
-                    if node_user_id and node_user_id not in relevant_ids:
-                        continue
-                    # Also check path just in case user_id is missing from metadata
-                    if "user_logs" in file_path:
-                        path_parts = file_path.split("/")
-                        if "user_logs" in path_parts:
-                            idx = path_parts.index("user_logs")
-                            if len(path_parts) > idx + 1:
-                                folder_name = path_parts[idx+1]
-                                # Check if folder belongs to relevant users
-                                # relevant_ids contains "Ekco_177011971818782721" etc.
-                                is_my_log = any(rid in folder_name for rid in relevant_ids)
-                                if not is_my_log:
-                                    continue
-
-                # Filter: User Isolation & Hallucination Guard (DECOMMISSIONED for profiles/general)
-                # But kept strict for logs above.
-
-                # Filter: Strict Dream Isolation (User Request)
-                if is_dream_query:
-                    is_dream_source = source_type == 'dream' or "kaia_dreams" in file_path or "dreams" in file_path
-                    # Allow content if it explicitly mentions "dream" or comes from a dream source
-                    if not is_dream_source and "dream" not in content.lower():
-                        continue
-
-                # DYNAMIC SCORING
-                # Path boost (explicit mentions)
-                path_boost = 0.0
-                if file_path:
-                    fname = os.path.basename(file_path).lower()
-                    if len(fname) > 8 and fname in query_lower:
-                        path_boost = config.rag_path_boost if hasattr(config, 'rag_path_boost') else 0.5
-                
-                # Type boosts
-                # Use config values or fallback to defaults if not present (migration safety)
-                type_boosts = getattr(config, 'rag_type_boosts', {
-                    'persona': 0.15,
-                    'user_profile': 0.20,
-                    'dream': 0.10,
-                    'user_logs': 0.25
-                })
-                type_boost = type_boosts.get(source_type, 0.0)
-
-                # Final score composition
-                final_score = base_score + path_boost + type_boost
-                
-                # Contextual Boosts & Strategy Adjustments
-                if intent:
-                    strategy = intent.suggested_strategy
-                    
-                    # PRECISE_RECALL: Boost exact matches and knowledge
-                    if strategy == "PRECISE_RECALL":
-                        if source_type in ['knowledge', 'user_profile']:
-                            final_score += 0.15
-                        # Penalize fuzzy/associative content slightly
-                        if source_type == 'dream':
-                            final_score -= 0.1
-                            
-                    # DIAGNOSTIC_DEEP_DIVE: Boost error logs
-                    elif strategy == "DIAGNOSTIC_DEEP_DIVE":
-                        if source_type == 'user_logs':
-                            # Heavy boost for logs containing error keywords
-                            if any(w in content.lower() for w in ['error', 'exception', 'traceback', 'fail', 'bug']):
-                                final_score += 0.4
-                            else:
-                                final_score += 0.1
-                        # Lower threshold for diagnostic queries to catch obscure errors
-                        
-                    elif strategy == "DREAM_RECALL":
-                        # STRICTLY boost dream files
-                        if source_type == 'dream' or "kaia_dreams" in file_path:
-                            final_score += 0.5  # Massive boost for genuine dream logs
-                        else:
-                            final_score -= 0.1  # Penalize non-dream content slightly
-                            
-                    elif strategy == "CREATIVE_ASSOCIATION":
-                         # Loose associations, lower threshold
-                         # Encourage diversity but don't prioritize dreams unless relevant
-                         if source_type == 'dream':
-                             final_score -= 0.05 # Slight penalty to avoid dream spam
-                         pass
-                            
-                    # RELATIONAL_MIRROR: Boost user interaction history
-                    elif strategy == "RELATIONAL_MIRROR":
-                        if source_type == 'user_profile':
-                            final_score += 0.4
-                        elif source_type == 'user_logs' and node_user_id in relevant_ids:
-                            final_score += 0.25
-
-                else:
-                    # Legacy Contextual Boosts (Fallback)
-                    if is_dream_query and source_type == 'dream':
-                        final_score += 0.3
-                    if is_social_identity and source_type == 'user_profile':
-                        final_score += 0.3
-                
-                # DYNAMIC THRESHOLDING (User Request: Simple & Rigid)
-                if strategy == "DREAM_RECALL":
-                    min_threshold = 0.40 # Low threshold to ensure fragment recall
-                elif strategy == "SOCIAL_GREETING" or is_casual:
-                    min_threshold = config.rag_threshold_knowledge + config.rag_threshold_casual_penalty
-                else:
-                    min_threshold = config.rag_threshold_knowledge
-
-                if final_score < min_threshold:
-                    continue
-
-                # Generate label
-                label = f"Knowledge [{os.path.basename(file_path)}]"
-                if source_type == "persona": label = "Kaia Persona Fragment"
-                elif "profile" in file_path: label = f"Profile: {node_user_name}"
-                elif "user_logs" in file_path: label = f"Log: {node_user_name}"
-                
-                scored_nodes.append({
-                    "content": content,
-                    "metadata": metadata, # Already extracted via get_node_metadata(node)
-                    "label": label,
-                    "score": final_score
-                })
-            
-            # 6. DE-DOGSHITTED SORT & LIMIT
-            scored_nodes.sort(key=lambda x: x["score"], reverse=True)
-            results = scored_nodes[:top_k]
-            
-            if results:
-                log_success(f"RAG retrieved {len(results)} nodes for query (category: {category})")
-            else:
-                log_debug(f"RAG: No relevant nodes found for query (category: {category})")
-                
+            # Scoring & Filtering
+            results = self._score_and_filter_nodes(all_node_results, query_lower, relevant_ids, routing, top_k, include_news, strict_identity)
+            if results: log_success(f"RAG retrieved {len(results)} nodes")
             return results
 
             

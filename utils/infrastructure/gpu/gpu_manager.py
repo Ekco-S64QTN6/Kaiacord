@@ -138,6 +138,56 @@ class OllamaGPUManager:
             if dedicated_client:
                 await dedicated_client.close()
 
+    @staticmethod
+    async def unload_all_models(ollama_client=None):
+        """Unload ALL running models from Ollama to reclaim all VRAM."""
+        try:
+            dedicated_client = None
+            if ollama_client is None:
+                import ollama
+                dedicated_client = ollama.AsyncClient(timeout=30.0)
+                client_to_use = dedicated_client
+            else:
+                client_to_use = ollama_client
+            
+            # 1. Try to list running models using ps()
+            running_models = []
+            try:
+                # Get running models
+                resp = await client_to_use.ps()
+                # resp is usually a dict with 'models' key or a list depending on version
+                if isinstance(resp, dict) and 'models' in resp:
+                    running_models = [m['name'] for m in resp['models']]
+                elif isinstance(resp, list):
+                    running_models = [m.name if hasattr(m, 'name') else m.get('name') for m in resp]
+            except Exception as e:
+                print(f"⚠️  Could not list running models via ps(): {e}")
+                # Fallback: we might not know what's running, 
+                # but we can try to unload known ones
+                from utils.infrastructure.system.yaml_config import config
+                running_models = [config.chat_model, "gemma2:2b", "nomic-embed-text"]
+
+            if not running_models:
+                print("✅ No models running in Ollama.")
+                return True
+
+            print(f"🔄 Unloading {len(running_models)} models from VRAM: {', '.join(running_models)}")
+            for model in running_models:
+                try:
+                    # Setting keep_alive=0 unloads the model
+                    await client_to_use.generate(model=model, keep_alive=0)
+                    print(f"  ✅ Unloaded {model}")
+                except Exception as e:
+                    print(f"  ❌ Failed to unload {model}: {e}")
+            
+            return True
+        except Exception as e:
+            print(f"⚠️  Global VRAM release failed: {e}")
+            return False
+        finally:
+            if 'dedicated_client' in locals() and dedicated_client:
+                await dedicated_client.close()
+
     async def ensure_gpu_loading(self, ollama_client):
         """Ensure model loads on GPU with proper parameters"""
         if not self.gpu_available:

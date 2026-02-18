@@ -19,6 +19,9 @@ from utils.core.kaia_intelligence import (
 )
 from utils.infrastructure.logging.kaia_logger import log_success, log_info, log_error
 
+import pytest
+
+@pytest.mark.asyncio
 async def test_state_persistence():
     log_info("\n--- Testing State Persistence ---")
     personalization = PersonalizationEngine()
@@ -49,6 +52,7 @@ async def test_state_persistence():
     else:
         log_error(f"State persistence failed. Profiles: {personalization2.user_profiles}")
 
+@pytest.mark.asyncio
 async def test_token_allocation():
     log_info("\n--- Testing Token Allocation Guarantees ---")
     optimizer = ContextOptimizer(max_tokens=2000) # Small budget to force rebalancing
@@ -72,6 +76,7 @@ async def test_token_allocation():
     else:
         log_error("Token allocation guarantees failed.")
 
+@pytest.mark.asyncio
 async def test_intent_parsing():
     log_info("\n--- Testing Intent Parsing ---")
     client = ollama.AsyncClient()

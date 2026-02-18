@@ -70,7 +70,7 @@ async def handle_news_command(ctx, msg, send_kaia_response):
         log_action(f"News request from {msg.author} (Category: {category})")
         
         # Get news from manager (returns list of dicts)
-        news_items = ctx.news_manager.get_news(category)
+        news_items = await ctx.news_manager.get_news_async(category)
         
         if news_items and len(news_items) > 0:
             # Format news items nicely

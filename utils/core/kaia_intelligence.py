@@ -75,7 +75,12 @@ class ModelWarmPool:
                     )
                     self.pool[model_name] = {'last_used': time.time(), 'status': 'ready'}
                     if model_name not in self.keep_alive_tasks:
-                        self.keep_alive_tasks[model_name] = asyncio.create_task(self.keep_alive(model_name))
+                        task = asyncio.create_task(self.keep_alive(model_name))
+                        self.keep_alive_tasks[model_name] = task
+                        try:
+                            from utils.infrastructure.monitoring.async_task_registry import task_registry
+                            task_registry.register(f"keep_alive_{model_name}", task)
+                        except Exception: pass
                     return True
                 except asyncio.TimeoutError:
                     if attempt < max_attempts:
@@ -506,38 +511,7 @@ class PersistentStateManager:
             log_error(f"Failed to load state: {e}")
             return False
 
-class IntelligentCacheInvalidator:
-    """Invalidate cache entries when source files change."""
-    def __init__(self, cache):
-        self.cache = cache
-        self.file_query_map = defaultdict(set) # file_path -> {queries}
-        
-    def track(self, query, nodes):
-        """Track which files contributed to a query."""
-        files = set()
-        for node in nodes:
-            # Handle both llama_index nodes and raw strings
-            metadata = getattr(node, 'metadata', {})
-            file_path = metadata.get('file_path') or metadata.get('file_name')
-            if file_path:
-                files.add(file_path)
-        
-        for file_path in files:
-            self.file_query_map[file_path].add(query)
-            
-    def invalidate_for_file(self, file_path):
-        """Invalidate all queries associated with a file."""
-        queries = self.file_query_map.get(file_path, set())
-        count = 0
-        for query in list(queries):
-            exact_removed = self.cache.invalidate_exact(query)
-            semantic_removed = self.cache.invalidate_semantic_by_query(query)
-            if exact_removed or semantic_removed:
-                count += 1
-        
-        if count > 0:
-            log_info(f"Invalidated {count} cache entries due to change in {file_path}")
-            del self.file_query_map[file_path]
+
 
 
 class ContextWeaver:

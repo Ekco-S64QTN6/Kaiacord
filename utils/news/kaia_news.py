@@ -229,10 +229,23 @@ class NewsManager:
                 return cat
         return 'general'
 
+    async def get_news_async(self, category: str = None, limit: int = 5) -> List[Dict]:
+        """Asynchronously retrieve news items, refreshing if stale."""
+        # Check if refresh is needed
+        if not self.last_refresh or (datetime.now() - self.last_refresh).total_seconds() > 300:
+            log_info(f"News cache stale, refreshing in background thread...")
+            await asyncio.to_thread(self.refresh)
+            
+        return self.get_news(category, limit)
+
     def get_news(self, category: str = None, limit: int = 5) -> List[Dict]:
-        """Retrieve news items, falling back to generated news if empty"""
-        # Refresh if stale (5 mins)
-        if not self.last_refresh or (datetime.now() - self.last_refresh).seconds > 300:
+        """Retrieve news items from cache. 
+        
+        Note: This is now a 'light' wrapper around the cache. 
+        The automatic refresh logic remains for legacy synchronous callers, 
+        but async callers should use get_news_async.
+        """
+        if not self.last_refresh or (datetime.now() - self.last_refresh).total_seconds() > 300:
             self.refresh()
             
         category_lower = (category or 'general').lower()

@@ -117,16 +117,15 @@ class CleanShutdown:
         # 2. Force Ollama Model Unload (Crucial for VRAM release - DO THIS BEFORE RAG I/O)
         try:
             from utils.infrastructure.gpu.gpu_manager import OllamaGPUManager
-            from utils.infrastructure.system.yaml_config import config
             
             # Use provided client or create temporary one
             client = app_ctx.ollama_client if app_ctx else None
             
-            log_info(f"  🔄 Unloading Ollama model: {config.chat_model}")
-            await OllamaGPUManager.unload_model(client, config.chat_model)
+            log_info("  🔄 Releasing all Ollama VRAM models...")
+            await OllamaGPUManager.unload_all_models(client)
             log_info("  ✅ Ollama VRAM released")
         except Exception as e:
-            log_warning(f"  ⚠️  Failed to unload Ollama model: {e}")
+            log_warning(f"  ⚠️  Failed to release Ollama VRAM: {e}")
 
         # 3. Persist RAG Index (Critical Data Safety)
         if self.rag:

@@ -394,8 +394,11 @@ async def _generate_response(mention_text: str, author_name: str, platform: str,
         # LOG SUCCESSFUL RETRIEVAL
         log_info(f"Main engine response: {response[:100]}...")
         
+        if response:
+            response = BotSpeakFilter.strip_bot_speak(response)
+            
         # Enforce char limit strictly for social (Try cutting at sentence end first)
-        if len(response) > char_limit:
+        if response and len(response) > char_limit:
             # Try to cut at the last sentence end (., !, ?) within the limit
             sentences = re.split(r'(?<=[.!?])\s+', response)
             short_resp = ""
@@ -945,115 +948,138 @@ async def mock_external_mention(on_message_func, content: str, author_name: str,
 
 
 async def get_random_memories(limit=20):
-    """Get random interaction snippets from any user log in the knowledge base."""
-    import os
-    import random
-    from pathlib import Path
+    """Get random interaction snippets from any user log in the knowledge base.
     
-    memories = []
-    # Use absolute path resolution relative to project root
-    project_root = Path(__file__).parent.parent.parent
-    base_dir = project_root / "knowledge_base" / "user_logs"
-    
-    if not base_dir.exists():
-        return []
+    Offloaded to a thread to prevent blocking the event loop during directory scans.
+    """
+    def _fetch_memories():
+        import os
+        import random
+        from pathlib import Path
         
-    # 1. Gather all interaction files
-    all_files = list(base_dir.rglob("interactions_*.md"))
-    if not all_files:
-        # Fallback to .txt if no .md yet
-        all_files = list(base_dir.rglob("interactions_*.txt"))
-        if not all_files:
+        memories = []
+        project_root = Path(__file__).parent.parent.parent
+        base_dir = project_root / "knowledge_base" / "user_logs"
+        
+        if not base_dir.exists():
             return []
-        
-    # 2. Sample random files to avoid reading the whole disk
-    sample_size = min(15, len(all_files))
-    sampled_files = random.sample(all_files, sample_size)
-    
-    for log_file in sampled_files:
-        try:
-            with open(log_file, 'r', encoding='utf-8', errors='replace') as f:
-                lines = f.readlines()
-                # Pick a random chunk of lines from the file
-                if len(lines) > 20:
-                    start = random.randint(0, len(lines) - 20)
-                    chunk = lines[start:start+20]
-                else:
-                    chunk = lines
-                    
-                for line in chunk:
-                    # Capture both Kaia and User messages
-                    if "Kaia:" in line or "User:" in line:
-                        is_kaia = "Kaia:" in line
-                        prefix = "Kaia:" if is_kaia else "User:"
-                        parts = line.split(prefix, 1)
-                        if len(parts) >= 2:
-                            msg = parts[1].strip()
-                            if 20 < len(msg) < 400:
-                                # Skip technical/boring noise
-                                if any(skip in msg.lower() for skip in ["[vision]", "[idle", "hello", "error:"]):
-                                    continue
-                                memories.append({
-                                    "text": msg,
-                                    "type": "said" if is_kaia else "heard"
-                                })
-        except Exception:
-            continue
             
-    random.shuffle(memories)
-    return memories[:limit]
+        # 1. Gather subdirectories instead of full rglob immediately
+        # This prevents scanning the entire tree if there are thousands of files.
+        try:
+            subdirs = [d for d in base_dir.iterdir() if d.is_dir()]
+            if not subdirs:
+                # Fallback to root if no subdirs
+                all_files = list(base_dir.glob("interactions_*.md")) + list(base_dir.glob("interactions_*.txt"))
+            else:
+                # Pick 5 random subdirs to scan
+                chosen_dirs = random.sample(subdirs, min(5, len(subdirs)))
+                all_files = []
+                for d in chosen_dirs:
+                    all_files.extend(list(d.glob("interactions_*.md")))
+                    all_files.extend(list(d.glob("interactions_*.txt")))
+            
+            if not all_files:
+                return []
+                
+            # 2. Sample random files
+            sample_size = min(15, len(all_files))
+            sampled_files = random.sample(all_files, sample_size)
+            
+            for log_file in sampled_files:
+                try:
+                    with open(log_file, 'r', encoding='utf-8', errors='replace') as f:
+                        lines = f.readlines()
+                        if len(lines) > 20:
+                            start = random.randint(0, len(lines) - 20)
+                            chunk = lines[start:start+20]
+                        else:
+                            chunk = lines
+                            
+                        for line in chunk:
+                            if "Kaia:" in line or "User:" in line:
+                                is_kaia = "Kaia:" in line
+                                prefix = "Kaia:" if is_kaia else "User:"
+                                parts = line.split(prefix, 1)
+                                if len(parts) >= 2:
+                                    msg = parts[1].strip()
+                                    if 20 < len(msg) < 400:
+                                        if any(skip in msg.lower() for skip in ["[vision]", "[idle", "hello", "error:"]):
+                                            continue
+                                        memories.append({
+                                            "text": msg,
+                                            "type": "said" if is_kaia else "heard"
+                                        })
+                except Exception:
+                    continue
+        except Exception as e:
+            from utils.infrastructure.logging.kaia_logger import log_error
+            log_error(f"Error in background memory scan: {e}")
+            return []
+            
+        random.shuffle(memories)
+        return memories[:limit]
+
+    return await asyncio.to_thread(_fetch_memories)
 
 async def get_random_dream_reflection(limit=5):
-    """Pick a random dream file and extract Kaia's Reflection."""
-    import os
-    import random
-    from pathlib import Path
+    """Pick a random dream file and extract Kaia's Reflection.
     
-    reflections = []
-    # Use absolute path resolution relative to project root
-    project_root = Path(__file__).parent.parent.parent
-    base_dir = project_root / "knowledge_base" / "kaia_dreams"
-    
-    if not base_dir.exists():
-        return []
+    Offloaded to a thread to prevent blocking the event loop.
+    """
+    def _fetch_dreams():
+        import os
+        import random
+        from pathlib import Path
         
-    # Gather all dream files recursively
-    all_files = list(base_dir.rglob("dream_*.md"))
-    if not all_files:
-        return []
+        reflections = []
+        project_root = Path(__file__).parent.parent.parent
+        base_dir = project_root / "knowledge_base" / "kaia_dreams"
         
-    sampled_files = random.sample(all_files, min(limit * 2, len(all_files)))
-    
-    for dream_file in sampled_files:
-        try:
-            with open(dream_file, 'r', encoding='utf-8') as f:
-                content = f.read()
-                
-                # Extract Source
-                source = "unknown archive"
-                if "Source: " in content:
-                    source = content.split("Source: ")[1].split("\n")[0].strip()
-                
-                # Extract original fragment
-                fragment = ""
-                if "## Original Fragment" in content and "## Kaia's Reflection" in content:
-                    fragment = content.split("## Original Fragment")[1].split("## Kaia's Reflection")[0].strip()
-                    # Clean up markdown blockquotes if present
-                    if fragment.startswith(">"):
-                        fragment = fragment.replace(">", "").strip()
-                
-                if fragment:
-                    reflections.append({
-                        "text": fragment,
-                        "source": source,
-                        "category": dream_file.parent.name,
-                        "type": "dream_fragment"
-                    })
-        except Exception:
-            continue
+        if not base_dir.exists():
+            return []
             
-    random.shuffle(reflections)
-    return reflections[:limit]
+        try:
+            # Gather all dream files recursively (Dreams are fewer, so rglob is okay but still threaded)
+            all_files = list(base_dir.rglob("dream_*.md"))
+            if not all_files:
+                return []
+                
+            sampled_files = random.sample(all_files, min(limit * 2, len(all_files)))
+            
+            for dream_file in sampled_files:
+                try:
+                    with open(dream_file, 'r', encoding='utf-8') as f:
+                        content = f.read()
+                        
+                        # Extract Source
+                        source = "unknown archive"
+                        if "Source: " in content:
+                            source = content.split("Source: ")[1].split("\n")[0].strip()
+                        
+                        # Extract original fragment
+                        fragment = ""
+                        if "## Original Fragment" in content and "## Kaia's Reflection" in content:
+                            fragment = content.split("## Original Fragment")[1].split("## Kaia's Reflection")[0].strip()
+                            if fragment.startswith(">"):
+                                fragment = fragment.replace(">", "").strip()
+                        
+                        if fragment:
+                            reflections.append({
+                                "text": fragment,
+                                "source": source,
+                                "category": dream_file.parent.name,
+                                "type": "dream_fragment"
+                            })
+                except Exception:
+                    continue
+        except Exception:
+            return []
+            
+        random.shuffle(reflections)
+        return reflections[:limit]
+
+    return await asyncio.to_thread(_fetch_dreams)
 
 async def get_recent_events_for_reflection(run_rag_func, rag_instance):
     """Get recent events for reflection-based posts."""
@@ -1232,7 +1258,7 @@ async def generate_social_thread(bot, ollama_client, reflection_target, context_
     """Generate a proper thread instead of just a quip."""
     from utils.infrastructure.system.yaml_config import config
     
-    system_prompt = load_persona()
+    system_prompt = await load_persona_async()
     
     thread_prompt = f"""Context: "{reflection_target}"
 
@@ -1267,8 +1293,11 @@ Guidelines:
         
         full_text = response['message']['content']
         max_threads = config.get('social.max_thread_posts', MAX_THREAD_POSTS)
-        posts = _split_into_thread_posts(full_text, max_posts=max_threads)
-        return posts
+        raw_posts = _split_into_thread_posts(full_text, max_posts=max_threads)
+        
+        # Apply hardening to each post in the thread
+        posts = [BotSpeakFilter.strip_bot_speak(p) for p in raw_posts if p]
+        return [p for p in posts if p]
 
         
     except Exception as e:
@@ -1338,6 +1367,12 @@ async def generate_quip(ctx, is_manual=False, target_channel=None, on_message_fu
         return
 
     try:
+        from utils.infrastructure.gpu.gpu_manager import ModelContextMonitor
+        current_model = ModelContextMonitor.get_current_model()
+        if current_model != config.chat_model:
+            log_action(f"ACTION: Model {config.chat_model} is cold. Waking up for quip (this may take a moment)...")
+            await channel.send("```\njust a second, waking up my brain...\n```")
+
         log_action(f"Generating quip via main engine in #{channel.name}...")
         
         # 1. MINE DREAMS AND MEMORIES for reflection context
@@ -1424,12 +1459,12 @@ async def generate_quip(ctx, is_manual=False, target_channel=None, on_message_fu
                     bot_state.last_interaction_time = time.time()
                 bot_state.save()
                 log_success(f"Thread posted ({len(posts)} parts).")
-                return
+                return True
 
         # 4. SINGLE POST FALLBACK (or design choice)
         log_action(f"Generating single broadcast quip...")
         
-        system_prompt = load_persona()
+        system_prompt = await load_persona_async()
         
         # --- RAG INTEGRATION START ---
         try:
@@ -1542,15 +1577,19 @@ async def generate_quip(ctx, is_manual=False, target_channel=None, on_message_fu
             bot_state.channel_memory[channel.id] = deque(maxlen=config.max_memory_messages)
         bot_state.channel_memory[channel.id].append({"role": "assistant", "content": quip})
         
-        # Log to RAG
-        if rag_instance:
-            if shutdown_manager.shutting_down:
-                return # Prevent thread pool error
-            await asyncio.to_thread(rag_instance.log_user_interaction, 
-                                    user_id=f"channel_{channel.id}", 
-                                    user_name="Kaia-Autonomous", 
-                                    message_content="[AUTO_QUIP]", 
-                                    bot_response=quip)
+        # Log to RAG (Non-critical error handling)
+        try:
+            if rag_instance:
+                if shutdown_manager.shutting_down:
+                    log_warning("Shutdown in progress, skipping RAG logging for quip.")
+                else:
+                    await asyncio.to_thread(rag_instance.log_user_interaction, 
+                                            user_id=f"channel_{channel.id}", 
+                                            user_name="Kaia-Autonomous", 
+                                            message_content="[AUTO_QUIP]", 
+                                            bot_response=quip)
+        except Exception as rag_err:
+            log_error(f"Failed to log quip to RAG: {rag_err}")
 
         # 7. Cross-post
         if config.bluesky_cross_post_quips:

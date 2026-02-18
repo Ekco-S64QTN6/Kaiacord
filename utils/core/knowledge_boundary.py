@@ -61,9 +61,13 @@ class KnowledgeBoundary:
             except Exception as e:
                 log_error(f"Error scanning user logs: {e}")
 
-        # 2. Scan Knowledge Subdirectories (Books, News, etc.)
+        # 2. Scan Knowledge Subdirectories (Books, News, Technical, etc.)
         from pathlib import Path
-        for subdir in ["Books", "news", "deep_dive_reports", "blogs", "forum_posts", "forum_posts/technical"]:
+        subdirs = [
+            "Books", "news", "deep_dive_reports", "blogs", "forum_posts", 
+            "forum_posts/technical", "technical", "infrastructure", "security_research"
+        ]
+        for subdir in subdirs:
             folder = Path(self.kb_path) / subdir
             if folder.exists():
                 for f in folder.rglob("*"):
@@ -122,6 +126,13 @@ class KnowledgeBoundary:
             if ' ' in original_m:
                 if m_lower in self.common_words_lower:
                     continue
+                
+                # NEW: Check if all components are individually common or known
+                # This prevents "Hi Kaia" from being flagged if "Hi" and "Kaia" are individually known.
+                words = [w.lower() for w in m.split()]
+                if all(w in self.common_words_lower or w in self.known_entities for w in words):
+                    continue
+                    
                 filtered_matches.append(m)
                 continue
 
@@ -147,15 +158,14 @@ class KnowledgeBoundary:
             filtered_matches.append(m)
             
         return list(set(filtered_matches))
-    
+
     def check_known_entities(self, query: str, context: str, whitelist: Optional[Set[str]] = None) -> Dict:
-        """Check if entities in query are known"""
+        """Verify if entities in query are known to the system/context."""
         query_entities = self.extract_entities(query)
         whitelist_lower = {w.lower() for w in whitelist} if whitelist else set()
         
         known_in_context = []
         unknown_in_context = []
-        
         context_lower = context.lower()
         
         for entity in query_entities:
@@ -184,8 +194,22 @@ class KnowledgeBoundary:
             "query_entities": query_entities,
             "known_in_context": known_in_context,
             "unknown_in_context": unknown_in_context,
-            "all_known": len(unknown_in_context) == 0
+            "all_known": len(unknown_in_context) == 0,
+            "suggestions": self._get_entity_suggestions(unknown_in_context)
         }
+
+    def _get_entity_suggestions(self, unknown_entities: List[str]) -> Dict[str, List[str]]:
+        """Find potential known entities that contain the unknown term as a substring."""
+        suggestions = {}
+        for entity in unknown_entities:
+            entity_l = entity.lower()
+            # Find all known entities that contain this unknown term
+            matches = [e for e in self.known_entities if entity_l in e and entity_l != e]
+            if matches:
+                # Sort by shortest match first (most specific to least specific)
+                matches.sort(key=len)
+                suggestions[entity] = matches[:3] # Top 3 suggestions
+        return suggestions
 
     def _is_lazy_match(self, entity_lower: str) -> bool:
         """Deprecated: Lazy matching is now handled by pre-loading in load_known_entities."""

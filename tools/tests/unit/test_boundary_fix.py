@@ -16,7 +16,11 @@ def test_military_terms_whitelist():
         "Wilco on the task.",
         "Copy that.",
         "Over and out.",
-        "Acknowledged."
+        "Acknowledged.",
+        "Hi Kaia",
+        "Kek",
+        "Total Recall",
+        "Cyber Truck"
     ]
     
     all_passed = True

@@ -428,11 +428,27 @@ class DashboardManager:
             log_critical("DISCORD_TOKEN not found!")
             sys.exit(1)
             
-        print("🚀 Using simple logger")
-        sp = self.perform_startup_tasks()
-        # Ensure logic layer is initialized
-        if inspect.iscoroutinefunction(initialize_logic_layer):
-            await initialize_logic_layer()
-        else:
-            initialize_logic_layer()
-        await run_bot_async(sp)
+        try:
+            print("🚀 Using simple logger")
+            sp = self.perform_startup_tasks()
+            # Ensure logic layer is initialized
+            if inspect.iscoroutinefunction(initialize_logic_layer):
+                await initialize_logic_layer()
+            else:
+                initialize_logic_layer()
+            await run_bot_async(sp)
+        except KeyboardInterrupt:
+            print("\n⚠️  Keyboard interrupt received")
+        except Exception as e:
+            print(f"\n❌ Error in simple mode: {e}")
+        finally:
+            # ALWAYS kill orphaned Ollama runners (synchronous, no IPC needed)
+            try:
+                from utils.infrastructure.gpu.clear_gpu_memory import kill_orphaned_runners
+                kill_orphaned_runners()
+            except Exception:
+                pass
+                
+            self.logger.set_dashboard_mode(False)
+            sys.__stdout__.write("\n[SUCCESS] Kaia has entered hibernation.\n")
+            sys.__stdout__.flush()

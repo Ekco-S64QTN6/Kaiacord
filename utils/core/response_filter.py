@@ -165,7 +165,7 @@ class BotSpeakFilter:
     # Anti-engagement bait patterns (robotic assistant questions)
     BAIT_PATTERNS = [
         r"(?i)what('s|\s+is)\s+on\s+your\s+mind\??",
-        r"(?i)what\s+are\s+you\s+(working\s+on|up\s+to)\??",
+        r"(?i)what\s+(are|is|were)\s+you\s+(working\s+on|up\s+to|doing)[^.!?]*\??",
         r"(?i)any\s+thoughts\??",
         r"(?i)do\s+you\s+have\s+any\s+questions\??",
         r"(?i)let\s+me\s+know\s+if\s+you\s+need\??",
@@ -175,6 +175,16 @@ class BotSpeakFilter:
         r"(?i)you\s+following\s+anything\s+specific\??",
         r"(?i)what\s+do\s+you\s+(think|need)\??",
         r"(?i)anything\s+else\??",
+    ]
+    
+    # AI standard prose that breaks immersion
+    SYSTEM_PROSE_PATTERNS = [
+        r"(?i)As\s+an\s+AI\s+language\s+model",
+        r"(?i)As\s+an\s+AI",
+        r"(?i)I\s+am\s+programmed\s+to",
+        r"(?i)my\s+knowledge\s+cutoff",
+        r"(?i)I\s+don't\s+have\s+personal\s+opinions",
+        r"(?i)How\s+can\s+I\s+help\s+you\s+today\?",
     ]
     
     ACTION_VERBS = {
@@ -238,7 +248,11 @@ class BotSpeakFilter:
             cleaned = re.sub(r'\n\s*\n+', '\n\n', cleaned)
             cleaned = cleaned.strip()
         
-        # 3. Final Pass: Strip robotic engagement bait
+        # 3. Strip system prose
+        for pattern in cls.SYSTEM_PROSE_PATTERNS:
+            cleaned = re.sub(pattern, '', cleaned)
+
+        # 4. Final Pass: Strip robotic engagement bait
         cleaned = cls.strip_trailing_questions(cleaned)
         
         return cleaned

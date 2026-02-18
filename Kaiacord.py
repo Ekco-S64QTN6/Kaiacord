@@ -1,8 +1,7 @@
 import os
 import sys
-import argparse
 import asyncio
-import uuid
+import argparse
 import re
 import traceback
 import random
@@ -116,8 +115,10 @@ async def initialize_logic_layer_async():
     try:
         from utils.infrastructure.gpu.clear_gpu_memory import clear_gpu_memory
         ctx.clear_gpu_memory = lambda: asyncio.to_thread(clear_gpu_memory, silent=True)
-    except:
-        pass
+    except ImportError:
+        log_debug("GPU memory clearing utility not available.")
+    except Exception as e:
+        log_error(f"Failed to register GPU memory clearing: {e}")
     
     ctx.set_ready()
 

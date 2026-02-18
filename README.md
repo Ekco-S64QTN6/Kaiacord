@@ -341,5 +341,5 @@ This project is licensed under the [MIT License](LICENSE).
 ---
 
 <p align="center">
-  <sub>Built by Ekco — local AI, no cloud required | Optimized for RTX 3060 12GB</sub>
+  <sub>Built by Ekco, Claude, Gemini, and Deepseek — local AI, no cloud required | Optimized for RTX 3060 12GB</sub>
 </p>

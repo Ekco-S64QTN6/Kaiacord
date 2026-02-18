@@ -575,13 +575,18 @@ class MessageProcessor:
             f"{rag_block}"
         )
         
+        if ctx.knowledge_boundary_check and ctx.knowledge_boundary_check.get("suggestions"):
+            suggestions = ctx.knowledge_boundary_check["suggestions"]
+            hint_lines = []
+            for unknown, matches in suggestions.items():
+                hint_lines.append(f"- {unknown}: Might refer to {', '.join(matches)}")
+            
+            if hint_lines:
+                hints_str = "\n".join(hint_lines)
+                full_system_prompt += f"\n\n[LORE_HINTS]\nThe following terms were detected and may require disambiguation based on your known records:\n{hints_str}\n---"
+
         if ctx.root_context and ctx.root_context != ctx.parent_context:
-            full_system_prompt += f"\n\n[ROOT_POST]\nThis is the original post that started the thread:\n\"{ctx.root_context}\"\n---"
-
-        if ctx.parent_context:
-            context_label = "THREAD_CONTEXT" if not ctx.root_context or ctx.root_context == ctx.parent_context else "PARENT_CONTEXT"
-            full_system_prompt += f"\n\n[{context_label}]\nThis is the post you are replying to:\n\"{ctx.parent_context}\"\n---"
-
+            full_system_prompt += f"\n\n[CONTEXT_ORIGIN]\nThis conversation originated from: {ctx.root_context}"
         messages = [
             {"role": "system", "content": full_system_prompt}
         ]
