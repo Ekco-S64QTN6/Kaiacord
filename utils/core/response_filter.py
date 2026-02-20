@@ -45,15 +45,11 @@ class HallucinationDetector:
         r"\b(memory's\s+a\s+bit\s+hazy|double-check\s+the\s+records|was\s+recalling\s+the\s+wrong\s+study)\b"
     ]
     
-    _compiled_pattern = None
+    _compiled_pattern = re.compile("|".join(HALLUCINATION_PATTERNS), re.IGNORECASE)
 
     @classmethod
     def contains_hallucination(cls, text: str) -> bool:
         """Check if text contains known hallucination patterns"""
-        if cls._compiled_pattern is None:
-            combined = "|".join(cls.HALLUCINATION_PATTERNS)
-            cls._compiled_pattern = re.compile(combined, re.IGNORECASE)
-        
         return bool(cls._compiled_pattern.search(text))
     
     @classmethod
@@ -99,30 +95,28 @@ class EmergencyContaminationFilter:
     VERACITY_FALLBACK = "wait, scratch that. something about my memory's a bit hazy on the specifics of that. i'd have to double-check the records to be sure."
     RETRY_THRESHOLD = 0.5  # If more than 50% lines contaminated, retry
     
-    _compiled_pattern = None
+    _compiled_pattern = re.compile("|".join(CONTAMINATION_PATTERNS), re.IGNORECASE)
 
     @classmethod
     def filter_response(cls, response: str) -> Optional[str]:
         """Remove ANY contamination from response. If too much is removed, return None to trigger retry."""
         if not response:
             return None
-            
-        if cls._compiled_pattern is None:
-            combined = "|".join(cls.CONTAMINATION_PATTERNS)
-            cls._compiled_pattern = re.compile(combined, re.IGNORECASE)
 
         lines = response.split('\n')
         filtered_lines = []
-        contamination_found = False
-        
+        contaminated_count = 0
         for line in lines:
             # Skip lines with contamination
             if cls._compiled_pattern.search(line):
                 contamination_found = True
-                log_warning(f"[VERACITY GUARD] Removed contaminated line: {line[:80]}...")
+                contaminated_count += 1
                 continue
             
             filtered_lines.append(line)
+        
+        if contamination_found:
+            log_warning(f"[VERACITY GUARD] Removed {contaminated_count} contaminated lines.")
         
         if contamination_found and len(filtered_lines) <= (len(lines) * (1 - cls.RETRY_THRESHOLD)):
             # If the "fiction" exceeded the threshold, signal a full retry
@@ -164,33 +158,39 @@ class BotSpeakFilter:
     
     # Anti-engagement bait patterns (robotic assistant questions)
     BAIT_PATTERNS = [
-        r"(?i)what('s|\s+is)\s+on\s+your\s+mind\??",
-        r"(?i)what\s+(are|is|were)\s+you\s+(working\s+on|up\s+to|doing)[^.!?]*\??",
-        r"(?i)any\s+thoughts\??",
-        r"(?i)do\s+you\s+have\s+any\s+questions\??",
-        r"(?i)let\s+me\s+know\s+if\s+you\s+need\??",
-        r"(?i)how\s+can\s+i\s+(help|assist)\??",
-        r"(?i)why\?", # Standalone "Why?" often feels bait-y
-        r"(?i)what(’|')s\s+driving\s+your\s+interest\??",
-        r"(?i)you\s+following\s+anything\s+specific\??",
-        r"(?i)what\s+do\s+you\s+(think|need)\??",
-        r"(?i)anything\s+else\??",
+        r"what('s|\s+is)\s+on\s+your\s+mind\??",
+        r"what\s+(are|is|were)\s+you\s+(working\s+on|up\s+to|doing)[^.!?]*\??",
+        r"any\s+thoughts\??",
+        r"do\s+you\s+have\s+any\s+questions\??",
+        r"let\s+me\s+know\s+if\s+you\s+need\??",
+        r"how\s+can\s+i\s+(help|assist)\??",
+        r"why\?", # Standalone "Why?" often feels bait-y
+        r"what(’|')s\s+driving\s+your\s+interest\??",
+        r"you\s+following\s+anything\s+specific\??",
+        r"what\s+do\s+you\s+(think|need)\??",
+        r"anything\s+else\??",
     ]
     
-    # AI standard prose that breaks immersion
     SYSTEM_PROSE_PATTERNS = [
-        r"(?i)As\s+an\s+AI\s+language\s+model",
-        r"(?i)As\s+an\s+AI",
-        r"(?i)I\s+am\s+programmed\s+to",
-        r"(?i)my\s+knowledge\s+cutoff",
-        r"(?i)I\s+don't\s+have\s+personal\s+opinions",
-        r"(?i)How\s+can\s+I\s+help\s+you\s+today\?",
+        r"As\s+an\s+AI\s+language\s+model",
+        r"As\s+an\s+AI",
+        r"I\s+am\s+programmed\s+to",
+        r"my\s+knowledge\s+cutoff",
+        r"I\s+don't\s+have\s+personal\s+opinions",
+        r"How\s+can\s+I\s+help\s+you\s+today\?",
+        r"\b(sentient\s+)?digital\s+entity\b",
+        r"\b(simulation|construct|recalibrate|parsing\s+routines?)\b",
     ]
+    
+    # Precompiled combined patterns for efficiency
+    RE_BAIT = re.compile("|".join(BAIT_PATTERNS), re.IGNORECASE)
+    RE_SYSTEM_PROSE = re.compile("|".join(SYSTEM_PROSE_PATTERNS), re.IGNORECASE)
     
     ACTION_VERBS = {
         'nods', 'sighs', 'grins', 'smiles', 'laughs', 'pauses', 'frowns', 'shrugs', 
         'blinks', 'tilts', 'leans', 'taps', 'looks', 'waves', 'winks', 'checks', 
-        'points', 'whispers', 'mumbles', 'groans', 'hisses', 'pouts', 'scoffs'
+        'points', 'whispers', 'mumbles', 'groans', 'hisses', 'pouts', 'scoffs',
+        'types', 'adjusts', 'swallows', 'stares', 'recalibrates', 'processes'
     }
 
     @classmethod
@@ -248,9 +248,8 @@ class BotSpeakFilter:
             cleaned = re.sub(r'\n\s*\n+', '\n\n', cleaned)
             cleaned = cleaned.strip()
         
-        # 3. Strip system prose
-        for pattern in cls.SYSTEM_PROSE_PATTERNS:
-            cleaned = re.sub(pattern, '', cleaned)
+        # 3. Strip system prose (Single Pass)
+        cleaned = cls.RE_SYSTEM_PROSE.sub('', cleaned)
 
         # 4. Final Pass: Strip robotic engagement bait
         cleaned = cls.strip_trailing_questions(cleaned)
@@ -276,30 +275,25 @@ class BotSpeakFilter:
             # Keep stripping while the line ends with a bait pattern
             while True:
                 found_bait = False
-                for pattern in cls.BAIT_PATTERNS:
-                    # Match pattern specifically at the end of the line (allowing for punctuation/whitespace)
-                    # We use $ but allow for characters that aren't letters
-                    # Actually, regex search then checking if remainder is empty is more robust for patterns like "why?"
-                    match = re.search(pattern, current_line)
-                    if match:
-                        span = match.span()
-                        remaining = current_line[span[1]:].strip(' .?!…')
-                        if not remaining:
-                            # It's at the end! Truncate and loop again to see if there's more
-                            truncated = current_line[:span[0]].rstrip(' ')
-                            if truncated:
-                                removed = current_line[span[0]:].strip()
-                                # Only log if it's not a known persona phrase the user likes
-                                if not any(p in removed.lower() for p in ["coffee's brewing", "pixel's chirping"]):
-                                    log_warning(f"[BAIT_GUARD] Truncated robotic question: '{removed}' from line: '{current_line[:100]}...'")
-                                current_line = truncated
-                                found_bait = True
-                                break # Break inner loop to re-check all patterns on new current_line
-                            else:
-                                # The entire remaining line was bait!
-                                current_line = ""
-                                found_bait = True
-                                break
+                # Match pattern specifically at the end of the line
+                match = cls.RE_BAIT.search(current_line)
+                if match:
+                    span = match.span()
+                    remaining = current_line[span[1]:].strip(' .?!…')
+                    if not remaining:
+                        # It's at the end!
+                        removed = current_line[span[0]:].strip()
+                        current_line = current_line[:span[0]].rstrip(' ')
+                        
+                        if current_line:
+                            if not any(p in removed.lower() for p in ["coffee's brewing", "pixel's chirping"]):
+                                log_warning(f"[BAIT_GUARD] Truncated robotic question: '{removed}'")
+                            found_bait = True
+                            continue # Check for more bait on the same line
+                        else:
+                            # The entire line was bait!
+                            current_line = ""
+                            found_bait = True
                 
                 if not found_bait or not current_line:
                     break
@@ -312,8 +306,10 @@ class BotSpeakFilter:
                     log_warning(f"[BAIT_GUARD] Dropped full-bait line: '{line}'")
                     continue
                 else:
-                    # If it's the only line, keep it as a fallback rather than sending empty
-                    clean_lines.append(line)
+                    # If it's the only line, we now allow it to be dropped
+                    # This allows the self-healing loop to trigger a retry
+                    log_warning(f"[BAIT_GUARD] Dropped single-line bait: '{line}'")
+                    continue
                     
         return "\n".join(clean_lines).strip()
 

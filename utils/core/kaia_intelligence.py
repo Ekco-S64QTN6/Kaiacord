@@ -8,7 +8,7 @@ import hashlib
 import traceback
 import threading
 from datetime import datetime
-from collections import defaultdict
+from collections import defaultdict, OrderedDict
 from ollama import Client
 from llama_index.embeddings.ollama import OllamaEmbedding
 from utils.infrastructure.logging.kaia_logger import log_info, log_action, log_success, log_error, log_warning, log_debug
@@ -42,45 +42,57 @@ class ModelWarmPool:
     def __init__(self, ollama_client):
         self.ollama_client = ollama_client
         self.pool = {}
-        self.keep_alive_tasks = {}
+        self._scheduler_task = None
         self._cached_options = {}  # model_name -> gpu_options (avoids re-instantiation)
         
     async def pre_warm(self, model_name):
+        if not model_name: return
         if model_name in self.pool:
             self.pool[model_name]['last_used'] = time.time()
-            return True
+            return
+
+        log_action(f"Adding {model_name} to keep-alive pool...")
+        self.pool[model_name] = {'last_used': time.time()}
+        
+        # Initial warm
+        try:
+            options = self._cached_options.get(model_name, {'num_predict': 1})
+            await self.ollama_client.generate(model=model_name, prompt=".", options=options)
+        except Exception: pass
+
+        if not self._scheduler_task or self._scheduler_task.done():
+            self._scheduler_task = asyncio.create_task(self._scheduler_loop())
+            try:
+                from utils.infrastructure.monitoring.async_task_registry import task_registry
+                task_registry.register("model_warm_scheduler", self._scheduler_task)
+            except Exception: pass
             
-        log_action(f"Pre-warming model: {model_name}...")
+        # Execute tiny generation to force load into VRAM with full cache
+        # Max 300s (5 mins) per attempt. If CPU is busy (e.g. embedding indexing),
+        # retry once after a cooldown to let embeddings finish.
+        max_attempts = 2
         try:
             from utils.infrastructure.system.yaml_config import config
             max_ctx = config.max_context_tokens
             # Load with full context size from config
             options = {
-                "num_gpu": -1,
+                "num_gpu": 99,
                 "num_ctx": max_ctx,
                 "num_predict": 1
             }
             # Cache these options for keep_alive reuse
             self._cached_options[model_name] = options.copy()
             
-            # Execute tiny generation to force load into VRAM with full cache
-            # Max 300s (5 mins) per attempt. If CPU is busy (e.g. embedding indexing),
-            # retry once after a cooldown to let embeddings finish.
-            max_attempts = 2
             for attempt in range(1, max_attempts + 1):
                 try:
+                    # Execute tiny generation to force load into VRAM with full cache
+                    # Max 600s (10 mins) per attempt. If CPU is busy (e.g. embedding indexing),
+                    # retry once after a cooldown to let embeddings finish.
                     await asyncio.wait_for(
                         self.ollama_client.generate(model=model_name, prompt=".", options=options, keep_alive=3600),
-                        timeout=300.0
+                        timeout=600.0  # Increased from 300s to handle high-load boot cycles
                     )
                     self.pool[model_name] = {'last_used': time.time(), 'status': 'ready'}
-                    if model_name not in self.keep_alive_tasks:
-                        task = asyncio.create_task(self.keep_alive(model_name))
-                        self.keep_alive_tasks[model_name] = task
-                        try:
-                            from utils.infrastructure.monitoring.async_task_registry import task_registry
-                            task_registry.register(f"keep_alive_{model_name}", task)
-                        except Exception: pass
                     return True
                 except asyncio.TimeoutError:
                     if attempt < max_attempts:
@@ -97,30 +109,49 @@ class ModelWarmPool:
             log_debug(f"Pre-warm details (Full Traceback):\n{error_details}")
             return False
     
-    async def keep_alive(self, model_name):
-        while True:
-            await asyncio.sleep(300)
-            if model_name not in self.pool: break
-            if time.time() - self.pool[model_name]['last_used'] > 1800:
-                log_info(f"Model {model_name} idle for 30m, stopping keep-alive.")
-                del self.pool[model_name]
-                break
-            try:
-                # Reuse cached GPU options (set during pre_warm) to avoid re-instantiation
-                options = self._cached_options.get(model_name, {'num_predict': 1})
-                await self.ollama_client.chat(model=model_name, messages=[{"role": "user", "content": "ping"}], options=options)
-            except Exception:
-                if model_name in self.pool: del self.pool[model_name]
-                break
+    async def _scheduler_loop(self):
+        """Centralized scheduler to keep all pooled models warm."""
+        log_debug("Model warm pool scheduler started.")
+        while self.pool:
+            await asyncio.sleep(600) # Increased to 10m
+            now = time.time()
+            models_to_remove = []
+            
+            # Use list of keys to allow modification during iteration
+            for model_name, info in list(self.pool.items()):
+                idle_sec = now - info['last_used']
+                # LRU Eviction: 30m idle
+                if idle_sec > 1800:
+                    log_info(f"Model {model_name} idle for 30m, stopping keep-alive.")
+                    models_to_remove.append(model_name)
+                    continue
+                
+                # Only tickle if idle for at least 5m
+                if idle_sec < 300:
+                    continue
+
+                try:
+                    options = self._cached_options.get(model_name, {'num_predict': 1})
+                    # Lighter: generate(prompt=".") instead of chat()
+                    await self.ollama_client.generate(model=model_name, prompt=".", options=options, keep_alive=3600)
+                    log_debug(f"Tickled model: {model_name}")
+                except Exception as e:
+                    log_warning(f"Failed to tickle {model_name}: {e}")
+                    models_to_remove.append(model_name)
+            
+            for m in models_to_remove:
+                if m in self.pool: del self.pool[m]
+                
+        log_debug("Model warm pool scheduler stopped (pool empty).")
 
 class ContextOptimizer:
     """Model-aware token allocation and context trimming."""
-    def __init__(self, model_name="gemma3:12b", max_tokens=None):
+    def __init__(self, model_name=None, max_tokens=None):
         # Lazy import to avoid circular import during module loading
         from utils.infrastructure.system.yaml_config import config
         
-        self.model_name = model_name
         # Use config as single source of truth if not explicitly provided
+        self.model_name = model_name or config.chat_model
         self.max_tokens = max_tokens if max_tokens is not None else config.max_context_tokens
         # Token estimation multiplier (configurable for different languages/content types)
         self.token_multiplier = config.token_multiplier
@@ -135,6 +166,14 @@ class ContextOptimizer:
         self.min_rag_tokens = config.min_rag_tokens if hasattr(config, 'min_rag_tokens') else 1024
         self.min_history_tokens = 512
         self.summarization_tokens = config.summarization_context_tokens
+        self.model_name = model_name
+        self.max_tokens = max_tokens or 32768
+        self.token_multiplier = 1.3
+        self._token_cache = OrderedDict() # LRU
+        self._max_cache_size = 500
+        # Precompiled prompt segments
+        self._rag_header = "\n[RELEVANT_KNOWLEDGE_ARCHIVE]\n"
+        self._history_header = "\n[CONVERSATION_HISTORY]\n"
         
     def optimize_context(self, category, persona, rag_nodes, history, strategy=None):
         """
@@ -273,66 +312,137 @@ class ContextOptimizer:
                 
 
         # Construct final RAG text with structural grouping
-        rag_segments = []
-        if history_nodes:
-            rag_segments.append("### YOUR SAVED CONVERSATIONS & PERSONAL NOTES\n" + "\n---\n".join(history_nodes))
-        if news_nodes:
-            rag_segments.append("### RECENT REPORTS & ARTICLES YOU HAVE READ\n" + "\n---\n".join(news_nodes))
-        if reference_nodes:
-            rag_segments.append("### DOCUMENTS, BOOKS & SAVED FILES YOU HAVE READ\n" + "\n---\n".join(reference_nodes))
+        # 1. Start with Persona (Anchor)
+        current_tokens = self._estimate_tokens(persona)
+        
+        # 2. Append RAG Nodes (Incremental assembly)
+        rag_str = ""
+        if rag_nodes:
+            # Pre-filter and score nodes (assumed done by retrieve, but we prioritize)
+            from utils.core.rag_utils import get_node_text
             
-        rag_text = "\n\n".join(rag_segments)
-        optimized_rag = self.trim_to_tokens(rag_text, token_budget['rag'])
-        
-        history_text = ""
-        if isinstance(history, list):
-            for msg in history:
-                if isinstance(msg, dict):
-                    history_text += f"{msg.get('role', 'user')}: {msg.get('content', '')}\n"
+            # Allocation: RAG gets up to 40% of remaining budget
+            remaining = self.max_tokens - current_tokens - 1000 # Leave buffer
+            rag_budget = int(remaining * 0.45)
+            
+            rag_parts = []
+            rag_current = 0
+            
+            for node in rag_nodes:
+                text = get_node_text(node)
+                if not text: continue
+                t_count = self._estimate_tokens(text)
+                
+                if rag_current + t_count <= rag_budget:
+                    rag_parts.append(text)
+                    rag_current += t_count
                 else:
-                    history_text += str(msg) + "\n"
-        else:
-            history_text = str(history)
-        optimized_history = self.trim_to_tokens(history_text, token_budget['history'])
-        
+                    # Partial trim of the last viable node
+                    if rag_budget - rag_current > 200:
+                        rag_parts.append(self.trim_to_tokens(text, rag_budget - rag_current))
+                    break
+            
+            if rag_parts:
+                rag_str = self._rag_header + "\n---\n".join(rag_parts)
+                current_tokens += rag_current
+
+        # 3. Append History (Incremental)
+        hist_str = ""
+        if history:
+            history_budget = self.max_tokens - current_tokens - 500
+            hist_parts = []
+            hist_current = 0
+            
+            # Add latest first, but keep chronological order in final output
+            for turn in reversed(history):
+                # Ensure the turn is a string for joining later
+                if isinstance(turn, dict):
+                    turn_str = turn.get('content', str(turn))
+                else:
+                    turn_str = str(turn)
+                    
+                t_count = self._estimate_tokens(turn_str)
+                if hist_current + t_count <= history_budget:
+                    hist_parts.insert(0, turn_str)
+                    hist_current += t_count
+                else:
+                    break
+            
+            if hist_parts:
+                hist_str = self._history_header + "\n".join(hist_parts)
+                
         return {
-            'persona': optimized_persona,
-            'rag': optimized_rag,
-            'history': optimized_history,
-            'tokens_saved': self.max_tokens - (len(optimized_persona.split()) + len(optimized_rag.split()) + len(optimized_history.split())) * self.token_multiplier
+            'persona': persona,
+            'rag': rag_str,
+            'history': hist_str
         }
-    
+        
+    def _estimate_tokens(self, text) -> int:
+        """Estimate tokens with LRU caching.
+        Handles both strings and legacy dict objects gracefully.
+        """
+        if isinstance(text, dict):
+            text = text.get('content', '')
+            
+        text = str(text)
+        if not text: return 0
+        h = hash(text)
+        if h in self._token_cache:
+            # Move to end (LRU)
+            self._token_cache.move_to_end(h)
+            return self._token_cache[h]
+            
+        # Approx 4 chars per token or split variant
+        count = int(len(text.split()) * self.token_multiplier)
+        
+        self._token_cache[h] = count
+        if len(self._token_cache) > self._max_cache_size:
+            self._token_cache.popitem(last=False) # Evict oldest
+        return count
+
     def trim_to_tokens(self, text, max_tokens):
         if not text: return ""
-        words = text.split()
-        if len(words) * self.token_multiplier <= max_tokens: return text
+        text_tokens = self._estimate_tokens(text)
+        if text_tokens <= max_tokens: return text
             
         lines = text.split('\n')
-        important_lines = [l for l in lines if any(marker in l.lower() for marker in ['###', 'important:', 'core:', 'rule:'])]
-        important_tokens = sum(len(l.split()) * self.token_multiplier for l in important_lines)
+        # Precompute line tokens once
+        line_data = [] # (line, tokens, is_important)
+        important_tokens = 0
+        important_set = set()
+        
+        for l in lines:
+            l_lower = l.lower()
+            is_imp = '###' in l_lower or 'important:' in l_lower or 'core:' in l_lower or 'rule:' in l_lower
+            t_count = self._estimate_tokens(l)
+            line_data.append((l, t_count, is_imp))
+            if is_imp:
+                important_tokens += t_count
+                important_set.add(l)
+
         remaining_tokens = max_tokens - important_tokens
         
         if remaining_tokens <= 0: 
-            return '\n'.join(important_lines[:5]) if important_lines else ' '.join(words[:int(max_tokens/self.token_multiplier)])
+            # Fallback to just the most critical lines or character truncation
+            critical = [d[0] for d in line_data if d[2]]
+            return '\n'.join(critical[:5]) if critical else text[:int(max_tokens * 3)]
             
         regular_lines = []
-        for line in reversed(lines):
-            if line not in important_lines:
-                line_tokens = len(line.split()) * self.token_multiplier
-                if line_tokens <= remaining_tokens:
+        for line, t_count, is_imp in reversed(line_data):
+            if not is_imp:
+                if t_count <= remaining_tokens:
                     regular_lines.insert(0, line)
-                    remaining_tokens -= line_tokens
+                    remaining_tokens -= t_count
                 else: 
-                    # If we still have room but the line is too big, take a chunk of it
-                    if remaining_tokens > 100:
-                        chunk = ' '.join(line.split()[:int(remaining_tokens/self.token_multiplier)])
+                    # Last chunk if room
+                    if remaining_tokens > 150:
+                        words = line.split()
+                        chunk = ' '.join(words[:int(remaining_tokens/self.token_multiplier)])
                         regular_lines.insert(0, chunk)
                     break
         
-        result = '\n'.join(important_lines + regular_lines)
-        if not result and words:
-            return ' '.join(words[:int(max_tokens/self.token_multiplier)])
-        return result
+        important_lines = [d[0] for d in line_data if d[2]]
+        return '\n'.join(important_lines + regular_lines)
 
 class RelevanceFeedback:
     """Learn from user interactions to improve retrieval."""
@@ -367,16 +477,22 @@ class RelevanceFeedback:
             
         if synthetic_docs:
             try:
-                for doc in synthetic_docs:
-                    await asyncio.to_thread(self.rag.indices['logs'].insert, doc)
-                log_success(f"Added {len(synthetic_docs)} feedback nodes to RAG.")
+                # BATCH INSERTION: Single thread-hop for all documents
+                def _batch_insert():
+                    for doc in synthetic_docs:
+                        self.rag.indices['logs'].insert(doc)
+                
+                await asyncio.to_thread(_batch_insert)
+                log_success(f"Added {len(synthetic_docs)} feedback nodes to RAG (Batch).")
             except Exception as e:
                 log_error(f"Error adding feedback to RAG: {e}")
 
 class PersonalizationEngine:
     """Learn user preferences and adapt responses."""
-    def __init__(self):
+    def __init__(self, max_profiles=500):
         self.user_profiles = {} # user_id -> {traits}
+        self.dirty_profiles = set() # user_id
+        self.max_profiles = max_profiles
         
     async def get_user_traits(self, user_id):
         return self.user_profiles.get(str(user_id), {
@@ -421,22 +537,39 @@ class PersonalizationEngine:
         # EMA update
         # 0.5 is the "balanced" sweet spot. < 0.3 is yapping. > 0.7 is terse.
         target_conciseness = 0.6 if query_len < 4 else 0.4
-        traits['conciseness'] = 0.9 * traits['conciseness'] + 0.1 * target_conciseness
+        traits_changed = False
+        if abs(traits['conciseness'] - (0.9 * traits['conciseness'] + 0.1 * target_conciseness)) > 0.01:
+            traits['conciseness'] = 0.9 * traits['conciseness'] + 0.1 * target_conciseness
+            traits_changed = True
         
         # Technicality: detect technical keywords in query
         tech_keywords = ['how', 'why', 'code', 'implement', 'system', 'architecture', 'error', 'bug', 'terminal', 'logs']
         has_tech = any(kw in query.lower() for kw in tech_keywords)
         target_tech = 0.8 if has_tech else 0.4
-        traits['technicality'] = 0.9 * traits['technicality'] + 0.1 * target_tech
+        if abs(traits['technicality'] - (0.9 * traits['technicality'] + 0.1 * target_tech)) > 0.01:
+            traits['technicality'] = 0.9 * traits['technicality'] + 0.1 * target_tech
+            traits_changed = True
         
-        self.user_profiles[user_id] = traits
-        log_info(f"Updated personalization for {user_id}: C={traits['conciseness']:.2f}, T={traits['technicality']:.2f}")
+        # Pruning: If pool grows too large, clear 10% (simplest eviction)
+        if len(self.user_profiles) > self.max_profiles:
+            # Drop older entries (not true LRU but keeps it bounded)
+            keys = list(self.user_profiles.keys())
+            # Evict at least 1, or 10%
+            evict_count = max(1, int(self.max_profiles * 0.1))
+            for k in keys[:evict_count]:
+                del self.user_profiles[k]
+           
+        if traits_changed:
+            self.user_profiles[user_id] = traits
+            self.dirty_profiles.add(user_id)
+            log_debug(f"Updated profile for {user_id}: C={traits['conciseness']:.2f}, T={traits['technicality']:.2f}")
 
 class PersistentStateManager:
     """Save and load system state to survive restarts."""
     def __init__(self, state_dir="./memory/state"):
         self.state_dir = state_dir
-        os.makedirs(state_dir, exist_ok=True)
+        self.profiles_dir = os.path.join(self.state_dir, "profiles")
+        os.makedirs(self.profiles_dir, exist_ok=True)
         self.state_path = os.path.join(self.state_dir, "kaia_state.json")
         
     async def save_state_async(self, personalization, monitor, cache=None):
@@ -446,8 +579,8 @@ class PersistentStateManager:
     def save_state(self, personalization, monitor, cache=None):
         """Atomic save of critical state (Thread-safe synchronous version)."""
         try:
+            # 1. Save general metrics
             state = {
-                'user_profiles': personalization.user_profiles.copy(),
                 'performance_metrics': {
                     'cache_hits': monitor.metrics.get('cache_hits', 0),
                     'cache_misses': monitor.metrics.get('cache_misses', 0),
@@ -456,22 +589,36 @@ class PersistentStateManager:
                 'saved_at': time.time()
             }
             
-            if cache:
-                state['exact_cache'] = getattr(cache, 'exact_cache', {}).copy()
-                state['full_cache'] = getattr(cache, 'cache', {}).copy()
-            
-            # Delta check: only save if content actually changed
+            # Atomic write for general state
             current_state_str = json.dumps(state, sort_keys=True)
-            current_hash = hashlib.sha256(current_state_str.encode()).hexdigest()
-            if hasattr(self, '_last_state_hash') and current_hash == self._last_state_hash:
-                return
-            self._last_state_hash = current_hash
-
             temp_path = self.state_path + ".tmp"
             with open(temp_path, 'w') as f:
                 f.write(current_state_str)
             os.replace(temp_path, self.state_path)
-            log_success("Cold state persisted successfully.")
+
+            # 2. Save User Profiles individually for scalability
+            saved_count = 0
+            # Determine which profiles to save
+            targets = list(personalization.user_profiles.keys())
+            # If we have dirty tracking, use it
+            if hasattr(personalization, 'dirty_profiles') and personalization.dirty_profiles:
+                targets = list(personalization.dirty_profiles)
+
+            for user_id in targets:
+                profile = personalization.user_profiles[user_id]
+                # Sanitize ID for filename
+                safe_id = "".join([c for c in str(user_id) if c.isalnum() or c in ('-', '_')])
+                profile_path = os.path.join(self.profiles_dir, f"{safe_id}.json")
+                
+                with open(profile_path, 'w') as f:
+                    json.dump(profile, f)
+                saved_count += 1
+                
+            # Clear dirty tracking after successful save
+            if hasattr(personalization, 'dirty_profiles'):
+                personalization.dirty_profiles.clear()
+
+            log_success(f"Cold state persisted. Saved {saved_count} profiles.")
         except Exception as e:
             log_error(f"Failed to save state: {e}")
 
@@ -481,35 +628,44 @@ class PersistentStateManager:
 
     def load_state(self, personalization, monitor, cache=None):
         """Load state if not too stale (Thread-safe synchronous version)."""
-        if not os.path.exists(self.state_path): return False
-        
-        try:
-            with open(self.state_path, 'r') as f:
-                state = json.load(f)
-            
-            # 24h stale check
-            if time.time() - state.get('saved_at', 0) > 86400:
-                log_warning("Persisted state is too old (>24h), skipping.")
-                return False
+        # 1. Load general metrics
+        if os.path.exists(self.state_path):
+            try:
+                with open(self.state_path, 'r') as f:
+                    state = json.load(f)
                 
-            personalization.user_profiles.update(state.get('user_profiles', {}))
+                # 48h stale check for metrics (more lenient than before)
+                if time.time() - state.get('saved_at', 0) < 172800:
+                    metrics = state.get('performance_metrics', {})
+                    monitor.metrics['cache_hits'] = metrics.get('cache_hits', 0)
+                    monitor.metrics['cache_misses'] = metrics.get('cache_misses', 0)
+                    monitor.metrics['exact_hits'] = metrics.get('exact_hits', 0)
+                    log_debug("Loaded performance metrics from state.")
+            except Exception as e:
+                log_warning(f"Failed to load metrics state: {e}")
+
+        # 2. Load User Profiles from individual files
+        try:
+            profile_files = os.listdir(self.profiles_dir)
+            loaded_count = 0
+            for filename in profile_files:
+                if filename.endswith(".json"):
+                    user_id = filename[:-5] # Strip .json
+                    path = os.path.join(self.profiles_dir, filename)
+                    try:
+                        with open(path, 'r') as f:
+                            profile = json.load(f)
+                        personalization.user_profiles[user_id] = profile
+                        loaded_count += 1
+                    except Exception: continue
             
-            metrics = state.get('performance_metrics', {})
-            monitor.metrics['cache_hits'] = metrics.get('cache_hits', 0)
-            monitor.metrics['cache_misses'] = metrics.get('cache_misses', 0)
-            monitor.metrics['exact_hits'] = metrics.get('exact_hits', 0)
-            
-            if cache:
-                if hasattr(cache, 'cache') and isinstance(cache.cache, dict):
-                    cache.cache.update(state.get('full_cache', {}))
-                if hasattr(cache, 'exact_cache') and isinstance(cache.exact_cache, dict):
-                    cache.exact_cache.update(state.get('exact_cache', {}))
-            
-            log_success(f"Loaded cold state: {len(personalization.user_profiles)} profiles.")
-            return True
+            if loaded_count > 0:
+                log_success(f"Loaded {loaded_count} user profiles from persistent storage.")
+                return True
         except Exception as e:
-            log_error(f"Failed to load state: {e}")
-            return False
+            log_error(f"Failed to load user profiles: {e}")
+            
+        return False
 
 
 
@@ -563,10 +719,11 @@ class IntentParser:
     """
     
 
-    def __init__(self, ollama_client=None, model="gemma3:12b", logger=None, host="http://localhost:11434", timeout=120.0):
+    def __init__(self, ollama_client=None, model=None, logger=None, host="http://localhost:11434", timeout=120.0):
+        from utils.infrastructure.system.yaml_config import config
         self.ollama_client = ollama_client
         self.host = host
-        self.host_model = model
+        self.host_model = model or config.chat_model
         self.logger = logger or log_info
         self.timeout = timeout
         
@@ -615,10 +772,10 @@ class IntentParser:
                 "num_predict": 256
             })
         
-        # LAYER 1: Fast Pattern Triggers (Regex)
-        self.fast_triggers = {
+        # LAYER 1: Fast Pattern Triggers (Precompiled for performance)
+        self.fast_triggers = {}
+        raw_triggers = {
             "SOCIAL_GREETING": [
-                # Added (<@!?\d+>\s*)? to catch Discord pings, and [!?.,]* to catch stray grammar
                 r"^\s*(<@!?\d+>\s*)?(kaia|hey kaia|hi kaia|hello kaia)[!?.,]*\s*$",
                 r"^\s*(<@!?\d+>\s*)?(hi|hello|hey|greetings|sup|yo|hi there|hello there)[!?.,]*\s*$",
                 r"^\s*(<@!?\d+>\s*)?(hi|hello|hey|greetings|sup|yo)\s+kaia[!?.,]*\s*$",
@@ -662,6 +819,9 @@ class IntentParser:
                 r"\b(command for|check usage|process list)\b"
             ]
         }
+        
+        for strategy, patterns in raw_triggers.items():
+            self.fast_triggers[strategy] = [re.compile(p, re.IGNORECASE) for p in patterns]
 
         log_success(f"IntentParser initialized (Model: {self.classification_model})")
     
@@ -670,9 +830,9 @@ class IntentParser:
         query_lower = query.lower().strip()
         
         for strategy, patterns in self.fast_triggers.items():
-            for pattern in patterns:
-                if re.search(pattern, query_lower, re.IGNORECASE):
-                    log_debug(f"Fast-path trigger: {strategy} (Matched: {pattern})")
+            for compiled_re in patterns:
+                if compiled_re.search(query_lower):
+                    log_debug(f"Fast-path trigger: {strategy}")
                     
                     # Construct a basic Intent object from the trigger
                     return Intent(
@@ -704,7 +864,7 @@ class IntentParser:
             log_debug(f"Executing CPU-based intent classification: {self.classification_model}")
             llm_intent = await self._analyze_with_llm(query, context, fast_path_hint=hint)
         else:
-            from utils.infrastructure.gpu.gpu_memory_manager import gpu_memory_manager, GPUTaskPriority
+            from utils.infrastructure.gpu.gpu_manager import gpu_memory_manager, GPUTaskPriority
             
             llm_intent = await gpu_memory_manager.run_with_gpu_guard(
                 model_name=self.classification_model,
@@ -768,11 +928,9 @@ class IntentParser:
             )
             
             raw_json = response['message']['content'].strip()
-            # Clean markdown code blocks if present
-            raw_json = raw_json.replace("```json", "").replace("```", "").strip()
             
-            # Extract data
-            data = json.loads(raw_json)
+            clean_json = await self._repair_json(raw_json)
+            data = json.loads(clean_json)
             
             return Intent(
                 explicit_intent=data.get('explicit_intent', query),
@@ -790,6 +948,7 @@ class IntentParser:
                 log_error(f"Intent Analysis CRITICAL OOM: {e}. Falling back to fast-path/default.")
             else:
                 log_error(f"Intent Analysis Failed: {e}")
+                import traceback
                 traceback.print_exc()
             
             # Fallback Intent
@@ -805,6 +964,23 @@ class IntentParser:
                 suggested_strategy=strategy,
                 confidence=0.5
             )
+
+    async def _repair_json(self, text: str) -> str:
+        """Attempt to repair broken JSON from LLM output using precompiled regex."""
+        # Remove markdown code blocks if present
+        text = re.sub(r'```json\s*', '', text)
+        text = re.sub(r'```', '', text).strip()
+        
+        if hasattr(self, '_json_repairs'):
+            for p, r in self._json_repairs:
+                text = p.sub(r, text)
+        
+        # Find first { and last } to ensure valid JSON structure
+        start = text.find('{')
+        end = text.rfind('}')
+        if start != -1 and end != -1:
+            return text[start:end+1]
+        return text
 
     async def pre_warm(self):
         """Pre-warm the model with a direct call (No semaphore needed for tiny load)"""

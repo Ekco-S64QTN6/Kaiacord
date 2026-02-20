@@ -19,13 +19,13 @@ sys.modules['kaia_image'] = type('module', (), {'generate_image': lambda x: x, '
 sys.modules['kaia_vision'] = type('module', (), {'kaia_sees_image': lambda x, y: x, 'cleanup_session': lambda: None, 'ollama_client': object})
 sys.modules['watchdog.observers'] = type('module', (), {'Observer': object})
 sys.modules['watchdog.events'] = type('module', (), {'FileSystemEventHandler': object})
-sys.modules['utils.kaia_intelligence'] = type('module', (), {
+sys.modules['utils.core.kaia_intelligence'] = type('module', (), {
     'SemanticCache': object, 'ModelWarmPool': object, 'QueryClassifier': object, 
     'ContextOptimizer': object, 'RelevanceFeedback': object, 'PerformanceMonitor': object, 
     'PersonalizationEngine': object, 'PersistentStateManager': object, 'IntelligentCacheInvalidator': object
 })
-sys.modules['utils.clear_gpu_memory'] = type('module', (), {'clear_gpu_memory': lambda: None})
-sys.modules['utils.kaia_logger'] = type('module', (), {
+sys.modules['utils.infrastructure.gpu.clear_gpu_memory'] = type('module', (), {'clear_gpu_memory': lambda: None})
+sys.modules['utils.infrastructure.logging.kaia_logger'] = type('module', (), {
     'log_info': print, 'log_success': print, 'log_warning': print, 'log_error': print, 
     'log_action': print, 'log_critical': print, 'log_separator': print, 'log_message_received': print,
     'log_model_action': print, 'log_context_retrieval': print, 'log_response': print, 'log_file': print

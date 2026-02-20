@@ -5,7 +5,7 @@ from datetime import datetime
 # Add project root to path
 sys.path.append(os.path.abspath(os.path.join(os.path.dirname(__file__), '..')))
 
-from utils.unified_logging import logger, log_ollama_interaction
+from utils.infrastructure.logging.unified_logging import logger, log_ollama_interaction
 
 def test_logging():
     print("Testing unified logging...")

@@ -46,7 +46,7 @@ async def test_memory_retrieval():
     print("🔍 Retrieving memory...")
     # We need to wait a bit for indexing? add_memory is synchronous in terms of inserting to index
     
-    results = rag.retrieve("What is Worship?", user_id=user_id, user_name=user_name)
+    results = await rag.retrieve("What is Worship?", user_id=user_id, user_name=user_name)
     
     found = False
     for res in results:

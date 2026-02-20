@@ -1,9 +1,12 @@
-import asyncio
-import time
 import os
+import time
+import uuid
+import asyncio
+import threading
 from typing import Optional, Dict, Any
+from enum import Enum
 from contextvars import ContextVar
-from utils.infrastructure.logging.kaia_logger import log_debug, log_action
+from utils.infrastructure.logging.kaia_logger import log_debug, log_action, log_info, log_error, log_warning
 
 # Global GPU Concurrency Guard
 # [ARCHITECTURAL NOTE]: We deliberately use a simple asyncio.Semaphore(1) instead
@@ -17,23 +20,36 @@ from utils.infrastructure.logging.kaia_logger import log_debug, log_action
 gpu_semaphore = asyncio.Semaphore(1)
 
 # Track if the current task is already inside a GPU-guarded block
-_gpu_context_active = ContextVar('gpu_context_active', default=False)
+gpu_context_active = ContextVar('gpu_context_active', default=False)
 
-async def run_with_gpu_guard(model_name: str, coro, task_id: str = None):
+class GPUTaskPriority(Enum):
+    """Priority levels for GPU tasks (Simplified for stability)"""
+    CRITICAL = 0
+    CHAT = 1
+    EMBEDDING = 2
+
+async def run_with_gpu_guard(model_name: str, coro, task_id: str = None, priority: GPUTaskPriority = GPUTaskPriority.CHAT):
     """
-    Ultra-simple GPU concurrency gating.
-    Uses a semaphore to prevent parallel heavy model calls.
+    Consolidated GPU concurrency gating.
+    Uses a semaphore to prevent parallel heavy model calls and supports re-entrancy.
     """
-    if _gpu_context_active.get():
+    if task_id is None:
+        task_id = f"gpu_{uuid.uuid4().hex[:6]}"
+
+    if gpu_context_active.get():
         return await coro
 
-    token = _gpu_context_active.set(True)
+    token = gpu_context_active.set(True)
     try:
         async with gpu_semaphore:
             await ModelContextMonitor.set_model(model_name)
-            return await coro
+            t_start = time.perf_counter()
+            log_debug(f"[{task_id}] Executing protected GPU coro: {model_name} (Priority: {priority.name})")
+            result = await coro
+            log_debug(f"[{task_id}] Finished in {time.perf_counter() - t_start:.2f}s")
+            return result
     finally:
-        _gpu_context_active.reset(token)
+        gpu_context_active.reset(token)
 
 class ModelContextMonitor:
     """Tracks the currently loaded model in Ollama to prevent rapid swapping."""
@@ -50,8 +66,9 @@ class ModelContextMonitor:
             
         async with cls._lock:
             if cls._current_model != model_name:
+                log_debug(f"Model context swap: {cls._current_model} -> {model_name}")
                 cls._current_model = model_name
-                cls._last_swap_time = time.time()
+                cls._last_swap_time = time.perf_counter()
                 return True # Model changed
             return False # Model stayed the same
 
@@ -63,17 +80,20 @@ class GPUMonitor:
     """Monitor GPU usage for the dashboard (uses pynvml for efficiency)"""
     
     _nvml_initialized = False
+    _nvml_lock = threading.Lock()
     
     @classmethod
     def _ensure_nvml(cls):
-        """Initialize NVML once (idempotent)."""
+        """Initialize NVML once (Thread-safe)."""
         if not cls._nvml_initialized:
-            try:
-                import pynvml
-                pynvml.nvmlInit()
-                cls._nvml_initialized = True
-            except Exception:
-                cls._nvml_initialized = False
+            with cls._nvml_lock:
+                if not cls._nvml_initialized:
+                    try:
+                        import pynvml
+                        pynvml.nvmlInit()
+                        cls._nvml_initialized = True
+                    except Exception:
+                        cls._nvml_initialized = False
         return cls._nvml_initialized
     
     @staticmethod
@@ -109,7 +129,10 @@ class GPUMonitor:
 class OllamaGPUManager:
     """Manage Ollama GPU settings and model loading"""
     
-    def __init__(self, model_name: str = "gemma3:12b"):
+    def __init__(self, model_name: str = None):
+        if model_name is None:
+            from utils.infrastructure.system.yaml_config import config
+            model_name = config.chat_model
         self.model_name = model_name
         self.gpu_available = GPUMonitor.is_gpu_available()
         
@@ -136,7 +159,9 @@ class OllamaGPUManager:
             return False
         finally:
             if dedicated_client:
-                await dedicated_client.close()
+                # Some versions of AsyncClient might not have .close()
+                if hasattr(dedicated_client, 'close') and callable(dedicated_client.close):
+                    await dedicated_client.close()
 
     @staticmethod
     async def unload_all_models(ollama_client=None):
@@ -153,32 +178,54 @@ class OllamaGPUManager:
             # 1. Try to list running models using ps()
             running_models = []
             try:
-                # Get running models
                 resp = await client_to_use.ps()
-                # resp is usually a dict with 'models' key or a list depending on version
-                if isinstance(resp, dict) and 'models' in resp:
+                if hasattr(resp, 'models'):
+                    # Modern Ollama client ProcessResponse object
+                    running_models = [m.model for m in resp.models]
+                elif isinstance(resp, dict) and 'models' in resp:
                     running_models = [m['name'] for m in resp['models']]
                 elif isinstance(resp, list):
                     running_models = [m.name if hasattr(m, 'name') else m.get('name') for m in resp]
             except Exception as e:
                 print(f"⚠️  Could not list running models via ps(): {e}")
-                # Fallback: we might not know what's running, 
-                # but we can try to unload known ones
+                # Fallback list
                 from utils.infrastructure.system.yaml_config import config
-                running_models = [config.chat_model, "gemma2:2b", "nomic-embed-text"]
+                running_models = [
+                    config.chat_model, 
+                    config.get('models.classification_model', 'gemma2:2b'),
+                    config.get('models.embedding', 'nomic-embed-text-cpu'),
+                    "gemma2:2b", 
+                    "nomic-embed-text",
+                    "nomic-embed-text-cpu"
+                ]
+
+            # Filter duplicates and empty values
+            running_models = list(set([m for m in running_models if m]))
 
             if not running_models:
                 print("✅ No models running in Ollama.")
                 return True
 
             print(f"🔄 Unloading {len(running_models)} models from VRAM: {', '.join(running_models)}")
-            for model in running_models:
-                try:
-                    # Setting keep_alive=0 unloads the model
-                    await client_to_use.generate(model=model, keep_alive=0)
-                    print(f"  ✅ Unloaded {model}")
-                except Exception as e:
-                    print(f"  ❌ Failed to unload {model}: {e}")
+            import aiohttp
+            async with aiohttp.ClientSession() as session:
+                for model in running_models:
+                    try:
+                        # Direct HTTP POST guarantees the keep_alive=0 request is dispatched 
+                        # instantly, bypassing any blocking Python client queues.
+                        async with session.post(
+                            "http://127.0.0.1:11434/api/generate",
+                            json={"model": model, "keep_alive": 0},
+                            timeout=aiohttp.ClientTimeout(total=5.0)
+                        ) as resp:
+                            if resp.status == 200:
+                                print(f"  ✅ Unloaded {model}")
+                            else:
+                                print(f"  ⚠️  Unload API returned {resp.status} for {model}")
+                    except asyncio.TimeoutError:
+                        print(f"  ⚠️  Unload timed out for {model} (Ollama dropped early?)")
+                    except Exception as e:
+                        print(f"  ❌ Failed to unload {model}: {e}")
             
             return True
         except Exception as e:
@@ -186,7 +233,8 @@ class OllamaGPUManager:
             return False
         finally:
             if 'dedicated_client' in locals() and dedicated_client:
-                await dedicated_client.close()
+                if hasattr(dedicated_client, 'close') and callable(dedicated_client.close):
+                    await dedicated_client.close()
 
     async def ensure_gpu_loading(self, ollama_client):
         """Ensure model loads on GPU with proper parameters"""
@@ -197,24 +245,16 @@ class OllamaGPUManager:
         try:
             from utils.infrastructure.system.yaml_config import config
             # Force GPU load with specific settings
-            gpu_options = {
-                'num_gpu': -1,  # Offload all layers (clamped by model depth)
-                'num_thread': 4,
-                'main_gpu': 0,
-                'num_ctx': config.max_context_tokens,
-                'num_batch': 512,
-            }
+            options = self.get_gpu_options(for_chat=True)
             
             # Check if client is closed
             if hasattr(ollama_client, '_client') and ollama_client._client.is_closed:
                 return False
 
-            print("🔄 Testing GPU model load...")
-            test_response = await ollama_client.chat(
-                model=self.model_name,
-                messages=[{"role": "user", "content": "test"}],
-                options=gpu_options,
-                stream=False
+            print("🔄 Testing GPU model load (Lightweight)...")
+            await asyncio.wait_for(
+                ollama_client.generate(model=self.model_name, prompt="", keep_alive=-1, options=options),
+                timeout=120.0
             )
             
             # Verify GPU usage
@@ -223,8 +263,8 @@ class OllamaGPUManager:
                 print(f"✅ GPU active: {gpu_info[0]['utilization']}% utilization")
                 return True
             else:
-                print("⚠️  GPU may not be utilized fully")
-                return True  # Still return True as call succeeded
+                print("✅ GPU load confirmed via generate.")
+                return True 
                 
         except Exception as e:
             print(f"❌ GPU load test failed: {e}")
@@ -273,13 +313,12 @@ class OllamaGPUManager:
         if num_ctx is None:
             num_ctx = config.max_context_tokens
         base_options = {
-            'num_gpu': -1,  # -1 = all layers to GPU
+            'num_gpu': 99,
             'num_thread': 4,
         }
         
         if self.gpu_available:
             base_options['main_gpu'] = 0
-            base_options['num_gpu'] = -1
         
         if for_chat:
             from utils.infrastructure.system.yaml_config import config
@@ -304,25 +343,45 @@ class OllamaGPUManager:
         
         return base_options
 
-class LoggingPatcher:
-    """Simple logging patcher for gpu_manager compatibility"""
-    def __init__(self, dashboard):
-        self.dashboard = dashboard
+class GPUMemoryManager:
+    """
+    Simplified GPU memory status and utility class.
+    Consolidated from legacy redundant file.
+    """
+    def __init__(self):
+        self._torch = None
+        self._cuda_available = None
+
+    def _lazy_import_torch(self):
+        if self._torch is None:
+            try:
+                import torch
+                self._torch = torch
+                self._cuda_available = torch.cuda.is_available()
+            except ImportError:
+                self._torch = False
+                self._cuda_available = False
+        return self._torch
     
-    def patch_print(self):
-        """
-        Patch print function to capture output for the dashboard.
-        
-        WARNING: This mutates `__builtins__.print` globally. All print() calls
-        across the entire process will be routed through the dashboard logger
-        after this is called. This is intentional — gpu_manager and other modules
-        use print() specifically so this patcher can capture their output.
-        """
-        original_print = __builtins__.print
-        
-        def new_print(*args, **kwargs):
-            message = ' '.join(str(arg) for arg in args)
-            self.dashboard.log_raw_output(message)
-            original_print(*args, **kwargs)
-        
-        __builtins__.print = new_print
+    def is_cuda_available(self) -> bool:
+        self._lazy_import_torch()
+        return self._cuda_available
+    
+    def get_vram_status(self) -> dict:
+        torch = self._lazy_import_torch()
+        if not torch or not self.is_cuda_available():
+            return {'total': 0.0, 'allocated': 0.0, 'free': 0.0}
+        try:
+            total = torch.cuda.get_device_properties(0).total_memory / 1024**3
+            allocated = torch.cuda.memory_allocated() / 1024**3
+            free = total - allocated
+            return {'total': total, 'allocated': allocated, 'free': free}
+        except Exception:
+            return {'total': 0.0, 'allocated': 0.0, 'free': 0.0}
+
+    async def run_with_gpu_guard(self, model_name: str, priority: GPUTaskPriority = GPUTaskPriority.CHAT, coro = None, vram_gb: float = 0.0, task_id: str = None):
+        """Pass-through to the global guard function for backward compatibility."""
+        return await run_with_gpu_guard(model_name, coro, task_id=task_id, priority=priority)
+
+# Global instances for compatibility
+gpu_memory_manager = GPUMemoryManager()

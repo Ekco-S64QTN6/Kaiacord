@@ -37,4 +37,4 @@ performance:
   max_consecutive_quips: 5
   idle_quip_timeout_minutes: 160
   classification_timeout: 120.0
-  max_context_tokens: 20000
+  max_context_tokens: 8192

@@ -1,7 +1,7 @@
 import re
 import os
 import json
-from typing import List, Dict, Set, Optional
+from typing import List, Dict, Set, Optional, Union
 from utils.infrastructure.logging.kaia_logger import log_info, log_success, log_action, log_debug, log_warning, log_error
 
 class KnowledgeBoundary:
@@ -15,6 +15,12 @@ class KnowledgeBoundary:
         self.common_words_lower = set()
         self.acronyms = set()
         self.fuzzy_max_context_words = 500  # Default fallback
+        
+        # Precompiled regex patterns for performance
+        self._title_pattern = re.compile(r'\b([A-Z][a-z]+(?:\s+[A-Z][a-z]+)*)\b')
+        self._acronym_pattern = re.compile(r'\b([A-Z]{2,})\b')
+        self._article_prefix = re.compile(r'^(The|A|An)\s+', re.I)
+        self._date_pattern = re.compile(r'\d{8}')
         
         self.load_common_entities()
         self.load_known_entities()
@@ -73,7 +79,7 @@ class KnowledgeBoundary:
                 for f in folder.rglob("*"):
                     if f.is_file() and not f.name.startswith("."):
                         clean_name = f.stem.replace("_", " ").replace("-", " ")
-                        clean_name = re.sub(r'\d{8}', '', clean_name)
+                        clean_name = self._date_pattern.sub('', clean_name)
                         clean_name = clean_name.replace("thread", "").strip()
                         self.known_entities.add(clean_name.lower())
 
@@ -95,21 +101,21 @@ class KnowledgeBoundary:
             if name:
                 self.known_entities.add(name.lower())
     
-    def extract_entities(self, text: str) -> List[str]:
-        """Extract potential unique entities (names, unique objects) from text."""
+    def extract_entities(self, text: str) -> list:
+        """Extract unknown entities from the text."""
         # 1. Broadly find all capitalized sequences (Title Case words)
         # Matches single words or multi-word phrases: "John" or "John Doe"
-        title_matches = re.findall(r'\b([A-Z][a-z]+(?:\s+[A-Z][a-z]+)*)\b', text)
+        title_matches = self._title_pattern.findall(text)
         
         # 2. Add Acronym support (NASA, GPU)
-        acronym_matches = re.findall(r'\b([A-Z]{2,})\b', text)
+        acronym_matches = self._acronym_pattern.findall(text)
         
         all_matches = title_matches + acronym_matches
         
         filtered_matches = []
         for m in all_matches:
             original_m = m
-            m = re.sub(r'^(The|A|An)\s+', '', m)
+            m = self._article_prefix.sub('', m)
             m_lower = m.lower()
             
             if m_lower in self.common_words_lower:
@@ -137,8 +143,9 @@ class KnowledgeBoundary:
                 continue
 
             # Sentence Start Nuance
-            pattern = re.escape(m) + r'\b'
-            is_non_start = re.search(r'(?<!^)(?<![.!?]\s)' + pattern, text)
+            escaped_m = re.escape(m)
+            pattern = re.compile(r'(?<!^)(?<![.!?]\s)' + escaped_m + r'\b')
+            is_non_start = pattern.search(text)
             
             if not is_non_start:
                 if m_lower in self.known_entities:
@@ -159,23 +166,33 @@ class KnowledgeBoundary:
             
         return list(set(filtered_matches))
 
-    def check_known_entities(self, query: str, context: str, whitelist: Optional[Set[str]] = None) -> Dict:
+    def check_known_entities(self, query: str, context: Union[str, List[str]], whitelist: Optional[Set[str]] = None) -> Dict:
         """Verify if entities in query are known to the system/context."""
         query_entities = self.extract_entities(query)
         whitelist_lower = {w.lower() for w in whitelist} if whitelist else set()
         
         known_in_context = []
         unknown_in_context = []
-        context_lower = context.lower()
+        
+        # Optimized tokenization without massive join
+        context_tokens = set()
+        if isinstance(context, list):
+            for part in context:
+                context_tokens.update(part.lower().split())
+            # For fuzzy match, we still need a string but we only build it if needed/small
+            full_context_lower = " ".join(context).lower() if context else ""
+        else:
+            full_context_lower = context.lower()
+            context_tokens = set(full_context_lower.split())
         
         for entity in query_entities:
             entity_lower = entity.lower()
             is_known = (
                 entity_lower in self.known_entities or
                 entity_lower in whitelist_lower or
-                entity_lower in context_lower or
-                f"{entity_lower}s" in context_lower or
-                self._is_fuzzy_match(entity, context_lower)
+                entity_lower in context_tokens or
+                f"{entity_lower}s" in context_tokens or
+                self._is_fuzzy_match(entity, full_context_lower)
             )
             
             if is_known:
@@ -225,10 +242,12 @@ class KnowledgeBoundary:
             return True
             
         # PERFORMANCE GUARD: Skip if context is too large
-        words = context_l.split()
-        if len(words) > self.fuzzy_max_context_words:
-            log_debug(f"Fuzzy match skipped: Context too large (> {self.fuzzy_max_context_words} words).")
+        # Efficient words check using count
+        if context_l.count(" ") > self.fuzzy_max_context_words:
+            log_debug(f"Fuzzy match skipped: Context too large ({context_l.count(' ')} words).")
             return False
+            
+        words = context_l.split()
             
         target_words = [w.strip('.,!?:;"') for w in words if len(w) >= 4]
         for word in target_words:

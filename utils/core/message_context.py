@@ -1,6 +1,7 @@
 from dataclasses import dataclass, field
 from typing import List, Dict, Optional, Any
 import discord
+import time
 from utils.core.kaia_intelligence import Intent
 
 @dataclass
@@ -11,9 +12,10 @@ class MessageContext:
     is_social: bool = False
     is_mention: bool = False
     category: str = "GENERAL"
-    intent: Optional[Intent] = None
-    parent_context: Optional[str] = None
     root_context: Optional[str] = None
+    parent_context: Optional[str] = None
+    intent: Optional[Intent] = None
+    history: List[Dict[str, str]] = field(default_factory=list)
     
     # Retrieval & Intelligence
     cached_response: Optional[str] = None
@@ -21,8 +23,8 @@ class MessageContext:
     status_context: str = ""
     
     # Timing & Performance
-    start_time: float = field(default_factory=float)
-    timings: Dict[str, float] = field(default_factory=dict)
+    start_time: float = field(default_factory=time.time)
+    # Timings dict is unused in core flow, kept for telemetry if needed but removed logic from processor
     
     # Result
     response_text: Optional[str] = None

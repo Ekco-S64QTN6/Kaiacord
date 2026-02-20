@@ -167,93 +167,120 @@ class UnifiedLogger:
         return log_entry
 
     def _log_worker(self):
-        """Background worker that handles actual I/O"""
-        while not self._stop_event.is_set():
+        """Background worker that handles actual I/O with batching."""
+        batch = []
+        batch_size = 50
+        last_flush = time.time()
+        
+        while not self._stop_event.is_set() or not self.log_queue.empty():
             try:
-                # Block for up to 1s to allow clean shutdown
-                log_entry = self.log_queue.get(timeout=1.0)
-                
-                # 1. Write to console (formatted)
-                if log_entry['type'] != 'DEBUG':
-                    self._write_to_console(log_entry)
-                
-                # 2. Write to file (with rotation)
-                self._write_to_file(log_entry)
-                
-                # 3. Push to multiprocessing dashboard queue if available
-                if log_entry['type'] != 'DEBUG' and self._dashboard_queue:
-                    try:
-                        self._dashboard_queue.put_nowait(log_entry)
-                    except:
-                        pass
-                
-                self.log_queue.task_done()
-            except queue.Empty:
-                continue
+                # Block for a short time to accumulate batch
+                try:
+                    log_entry = self.log_queue.get(timeout=0.2)
+                    batch.append(log_entry)
+                except queue.Empty:
+                    pass
+
+                now = time.time()
+                # Flush conditions: batch full OR timeout (1s) OR stop requested
+                if len(batch) >= batch_size or (batch and now - last_flush > 1.0) or self._stop_event.is_set():
+                    self._flush_batch(batch)
+                    batch = []
+                    last_flush = now
+                    
             except Exception:
                 # Prevent worker from dying
                 pass
 
-    def stop(self):
-        """Clean shutdown of the logging worker"""
-        self._stop_event.set()
-        if self._worker_thread.is_alive():
-            self._worker_thread.join(timeout=2.0)
-    
-    def _write_to_file(self, log_entry):
-        """Write log entry to rotating file"""
-        if self._file_handler:
-            try:
+    def _flush_batch(self, batch):
+        """Write a batch of logs to all destinations."""
+        if not batch: return
+        
+        for log_entry in batch:
+            # 1. Write to console (formatted)
+            if log_entry['type'] != 'DEBUG':
+                self._write_to_console(log_entry)
+            
+            # 2. Write to multiprocessing dashboard queue if available
+            if log_entry['type'] != 'DEBUG' and self._dashboard_queue:
+                try:
+                    self._dashboard_queue.put_nowait(log_entry)
+                except:
+                    pass
+
+        # 3. Write to file in one go (batch I/O)
+        self._write_batch_to_file(batch)
+        
+        # Mark all done
+        for _ in range(len(batch)):
+            self.log_queue.task_done()
+
+    def _write_batch_to_file(self, batch):
+        """Write multiple log entries to the rotating file in a single pass."""
+        if not self._file_handler:
+            return
+            
+        try:
+            # Accumulate lines for performance
+            lines = []
+            for entry in batch:
+                lines.append(f"[{entry['timestamp']}] {entry['type']}: {entry['message']}\n")
+            
+            # Use the underlying stream if possible for batch write, or multiple emits
+            # RotatingFileHandler doesn't support batch emits natively, so we emit individually
+            # but they share the same OS-level buffer usually.
+            # For true batching we could write to f.write() directly but risk breaking rotation.
+            # We'll stay safe and use the handler emit but it's now grouped in the worker loop logic.
+            for entry in batch:
                 record = logging.LogRecord(
                     name='kaiacord', level=logging.INFO, pathname='', lineno=0,
-                    msg=f"[{log_entry['timestamp']}] {log_entry['type']}: {log_entry['message']}",
+                    msg=f"[{entry['timestamp']}] {entry['type']}: {entry['message']}",
                     args=None, exc_info=None
                 )
                 self._file_handler.emit(record)
-            except Exception:
-                pass
-        else:
-            # Fallback: direct write if handler creation failed
-            try:
-                with open(self.log_file, "a", encoding="utf-8") as f:
-                    f.write(f"[{log_entry['timestamp']}] {log_entry['type']}: {log_entry['message']}\n")
-            except Exception:
-                pass
-    
+        except Exception:
+            pass
+
     def _write_to_console(self, log_entry):
-        """Write formatted log to console"""
+        """Write formatted log to console with ANSI optimization and rate limiting."""
         if self.dashboard_mode:
             return
 
         color = self.colors.get(log_entry['type'], self.colors['INFO'])
         reset = self.colors['RESET']
         
+        # Precompute formatted string
         if log_entry['type'] == 'READY':
-            # Highlight the ENTIRE line for readiness
             formatted = f"\r{color}[{log_entry['timestamp']}] {log_entry['type']}: {log_entry['message']}{reset}"
         else:
-            # Format: [TIME] TYPE: Message (only prefix colored)
             formatted = f"\r{color}[{log_entry['timestamp']}] {log_entry['type']}:{reset} {log_entry['message']}"
         
         # Strip colors if NOT a TTY
         is_tty = hasattr(sys.__stdout__, 'isatty') and sys.__stdout__.isatty()
         if not is_tty:
-            # Simple regex to strip ANSI codes
-            import re
-            ansi_escape = re.compile(r'\x1B(?:[@-Z\\-_]|\[[0-?]*[ -/]*[@-~])')
-            formatted = ansi_escape.sub('', formatted)
+            # We cache the regex for performance
+            if not hasattr(self, '_ansi_escape'):
+                import re
+                self._ansi_escape = re.compile(r'\x1B(?:[@-Z\\-_]|\[[0-?]*[ -/]*[@-~])')
+            formatted = self._ansi_escape.sub('', formatted)
 
-        # Skip if this is the same as last console message (rapid duplicates)
-        if formatted != self.last_console_message:
-            try:
-                # Use sys.__stdout__ directly in the worker thread
-                if sys and hasattr(sys, '__stdout__') and sys.__stdout__ is not None:
-                    sys.__stdout__.write(formatted + "\r\n")
+        # Skip if duplicate
+        if formatted == self.last_console_message:
+            return
+
+        try:
+            if sys and hasattr(sys, '__stdout__') and sys.__stdout__ is not None:
+                sys.__stdout__.write(formatted + "\r\n")
+                
+                # Rate-limit flushes (max 20Hz) to reduce CPU context switching
+                now = time.time()
+                if now - self.last_message_time > 0.05:
                     sys.__stdout__.flush()
-                self.last_console_message = formatted
-                self.last_message_time = time.time()
-            except Exception:
-                pass
+                    self.last_message_time = now
+                    
+            self.last_console_message = formatted
+        except Exception:
+            pass
 
 
     
@@ -272,6 +299,13 @@ class UnifiedLogger:
         with self.lock:
             self.dashboard_buffer.clear()
             self.console_buffer.clear()
+
+    def stop(self):
+        """Stop background worker and flush remaining logs."""
+        if hasattr(self, '_stop_event'):
+            self._stop_event.set()
+        if hasattr(self, '_worker_thread') and self._worker_thread.is_alive():
+            self._worker_thread.join(timeout=2.0)
 
 # Global logger instance
 logger = UnifiedLogger()

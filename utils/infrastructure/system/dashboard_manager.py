@@ -205,14 +205,10 @@ class DashboardManager:
         
         # 2. Shut down RAG thread pool (dashboard-specific)
         try:
-            from Kaiacord import rag_executor
-            if rag_executor:
-                log_action("Shutting down RAG thread pool...")
-                try:
-                    rag_executor.shutdown(wait=False, cancel_futures=True)
-                except TypeError:
-                    rag_executor.shutdown(wait=False)
-                log_success("RAG thread pool shutdown initiated.")
+            from utils.core.rag_executor import shutdown_rag_executor
+            log_action("Shutting down RAG thread pool...")
+            shutdown_rag_executor()
+            log_success("RAG thread pool shutdown complete.")
         except Exception as e:
             log_warning(f"Error shutting down RAG executor: {e}")
         
@@ -249,14 +245,19 @@ class DashboardManager:
                 
                 await self.bot.start(self.config.discord_token)
         except KeyboardInterrupt:
-            print("\n⚠️  Keyboard interrupt received")
+            print("\n⚠️  Keyboard interrupt received in bot loop")
         except asyncio.CancelledError:
             print("\n⚠️  Bot task cancelled")
         except Exception as e:
             print(f"\n❌ Error: {e}")
         finally:
-            # RAG and Ollama Client for cleanup
-            await self.perform_async_cleanup(self.ctx.rag, self.ctx.ollama_client)
+            # Force the cleanup to finish before yielding back to asyncio.run
+            try:
+                # We wrap this in asyncio.shield to prevent it from being cancelled by
+                # the outer KeyboardInterrupt propagating through asyncio.run
+                await asyncio.shield(self.perform_async_cleanup(self.ctx.rag, self.ctx.ollama_client))
+            except Exception as e:
+                print(f"⚠️ Cleanup interrupted: {e}")
 
     async def sequenced_boot_tasks(self, run_rag, rag, run_news_update, 
                                    prewarm_main_model):
@@ -437,10 +438,10 @@ class DashboardManager:
             else:
                 initialize_logic_layer()
             await run_bot_async(sp)
-        except KeyboardInterrupt:
-            print("\n⚠️  Keyboard interrupt received")
         except Exception as e:
-            print(f"\n❌ Error in simple mode: {e}")
+            # Check if it's just the expected cascade from the inner loop cancellation
+            if not isinstance(e, asyncio.CancelledError):
+                print(f"\n❌ Error in simple mode: {e}")
         finally:
             # ALWAYS kill orphaned Ollama runners (synchronous, no IPC needed)
             try:

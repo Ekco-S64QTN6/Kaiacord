@@ -145,18 +145,34 @@ class CleanShutdown:
         except Exception as e:
             log_warning(f"  ⚠️  Failed to close forum client: {e}")
 
+        # 4b. Shut down RAG thread pool
+        try:
+            from utils.core.rag_executor import shutdown_rag_executor
+            shutdown_rag_executor()
+            log_info("  ✅ RAG thread pool closed")
+        except Exception as e:
+            log_warning(f"  ⚠️  Failed to close RAG thread pool: {e}")
+
         # 4. Close AppContext (and its Ollama client)
         if app_ctx:
             try:
-                await app_ctx.close()
-                log_info("  ✅ AppContext resources closed")
+                # Use a protected close call
+                if hasattr(app_ctx, 'close') and callable(app_ctx.close):
+                    await asyncio.wait_for(app_ctx.close(), timeout=5.0)
+                    log_info("  ✅ AppContext resources closed")
+                else:
+                    # Fallback to direct client close if close() missing
+                    if hasattr(app_ctx, 'ollama_client') and hasattr(app_ctx.ollama_client, 'close'):
+                         await asyncio.wait_for(app_ctx.ollama_client.close(), timeout=2.0)
+                         log_info("  ✅ Ollama client closed directly")
             except Exception as e:
                 log_error(f"  ❌ Error closing AppContext: {e}")
 
         # 5. Force GPU cleanup (Internal Torch/CUDA buffers)
         try:
             from utils.infrastructure.gpu.clear_gpu_memory import force_clear_gpu
-            if force_clear_gpu():
+            # Run in thread to avoid blocking the event loop
+            if await asyncio.to_thread(force_clear_gpu):
                 log_info("  ✅ GPU memory released")
             else:
                 log_warning("  ⚠️  GPU cleanup incomplete")

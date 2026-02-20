@@ -22,6 +22,7 @@
 - **Python** 3.9+
 - **GPU** with 8GB+ VRAM (12GB recommended for RTX 3060)
 - **Discord Bot Token** ([Get one here](https://discord.com/developers/applications))
+- **⚠️ REQUIRED:** Enable all 3 **Privileged Gateway Intents** (Presence, Server Members, Message Content) in the Discord Developer Portal.
 - **Ollama** installed ([Download](https://ollama.ai))
 
 ### Installation
@@ -273,16 +274,17 @@ python tools/rebuild_rag.py
 
 ## Testing
 
+Kaia uses a modernized, 100% stable `pytest` suite. The `pytest.ini` automatically handles all asynchronous standalone module testing.
+
 ```bash
-# Health check
+# Health check (Run this first to verify environment)
 python tools/maintenance/health_check.py
 
-# Run test suite
-python -m pytest tools/tests/ -q
+# Run unit tests (Core logic, DB, intent parsers)
+PYTHONPATH=. pytest tools/tests/unit/ -q
 
-# Run specific category
-python -m pytest tools/tests/unit/ -q
-python -m pytest tools/tests/integration/ -q
+# Run verification tests (Integration sanity checks)
+PYTHONPATH=. pytest tools/tests/verification/ -q
 ```
 
 ---

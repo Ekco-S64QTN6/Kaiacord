@@ -24,11 +24,21 @@ IS_TTY = sys.stdout.isatty()
 
 # Global monitor reference for dashboard integration
 _monitor = None
+_monitor_methods = {}
 
 def set_monitor(monitor):
-    """Set the monitor instance for dashboard integration."""
-    global _monitor
+    """Set the monitor instance and cache its methods for high-performance lookups."""
+    global _monitor, _monitor_methods
     _monitor = monitor
+    if monitor:
+        _monitor_methods = {
+            'log_system_event': getattr(monitor, 'log_system_event', None),
+            'add_log': getattr(monitor, 'add_log', None),
+            'log_response': getattr(monitor, 'log_response', None),
+            'add_alert': getattr(monitor, 'add_alert', None)
+        }
+    else:
+        _monitor_methods = {}
 
 
 def _get_timestamp():
@@ -54,25 +64,32 @@ def _colorize(text, color_code):
 
 def log_success(message):
     """Log success messages."""
-    # Consolidated logger handles formatting and printing
     global_logger.log(message, "SUCCESS")
-    if _monitor:
-        if hasattr(_monitor, 'log_system_event'):
-            _monitor.log_system_event("SUCCESS", message)
-        elif hasattr(_monitor, 'add_log'):
-            _monitor.add_log(f"✅ SUCCESS: {message}", log_type="SUCCESS")
-    # Also send to logging bridge registry
+    
+    # Use cached method lookups
+    log_event = _monitor_methods.get('log_system_event')
+    if log_event:
+        log_event("SUCCESS", message)
+    else:
+        add_log = _monitor_methods.get('add_log')
+        if add_log:
+            add_log(f"✅ SUCCESS: {message}", log_type="SUCCESS")
+            
     get_logging_registry().log(LogLevel.SUCCESS, message)
 
 
 def log_ready(message):
     """Log readiness messages in pink."""
     global_logger.log(message, "READY")
-    if _monitor:
-        if hasattr(_monitor, 'log_system_event'):
-            _monitor.log_system_event("READY", message)
-        elif hasattr(_monitor, 'add_log'):
-            _monitor.add_log(f"READY: {message}", log_type="READY")
+    
+    log_event = _monitor_methods.get('log_system_event')
+    if log_event:
+        log_event("READY", message)
+    else:
+        add_log = _monitor_methods.get('add_log')
+        if add_log:
+            add_log(f"READY: {message}", log_type="READY")
+            
     get_logging_registry().log(LogLevel.SUCCESS, message)
 
 
@@ -88,11 +105,15 @@ def log_user(user_name, user_id, context=""):
 def log_action(message):
     """Log core action messages."""
     global_logger.log(message, "ACTION")
-    if _monitor:
-        if hasattr(_monitor, 'log_system_event'):
-            _monitor.log_system_event("ACTION", message)
-        elif hasattr(_monitor, 'add_log'):
-            _monitor.add_log(f"⚡ ACTION: {message}", log_type="ACTION")
+    
+    log_event = _monitor_methods.get('log_system_event')
+    if log_event:
+        log_event("ACTION", message)
+    else:
+        add_log = _monitor_methods.get('add_log')
+        if add_log:
+            add_log(f"⚡ ACTION: {message}", log_type="ACTION")
+            
     get_logging_registry().log(LogLevel.ACTION, message)
 
 
@@ -104,7 +125,9 @@ def log_response(prefix, content, response_time=0.0):
         
     global_logger.log(message, "INFO")
     
-    if _monitor:
+    # Use cached method
+    log_resp = _monitor_methods.get('log_response')
+    if log_resp:
         # Extract tokens saved if present in content
         tokens_saved = 0
         if "[optimized: saved" in content:
@@ -112,11 +135,11 @@ def log_response(prefix, content, response_time=0.0):
                 tokens_saved = int(content.split("saved")[1].split()[0])
             except (ValueError, IndexError):
                 pass
-        
-        if hasattr(_monitor, 'log_response'):
-            _monitor.log_response(content, tokens_saved=tokens_saved, response_time=response_time)
-        elif hasattr(_monitor, 'add_log'):
-            _monitor.add_log(f"🤖 Response: {content[:100]}...", log_type="INFO")
+        log_resp(content, tokens_saved=tokens_saved, response_time=response_time)
+    else:
+        add_log = _monitor_methods.get('add_log')
+        if add_log:
+            add_log(f"🤖 Response: {content[:100]}...", log_type="INFO")
 
 
 def log_file(path):
@@ -127,33 +150,45 @@ def log_file(path):
 def log_critical(message):
     """Log critical messages."""
     global_logger.log(message, "CRITICAL")
-    if _monitor:
-        if hasattr(_monitor, 'log_system_event'):
-            _monitor.log_system_event("CRITICAL", message)
-        elif hasattr(_monitor, 'add_alert'):
-            _monitor.add_alert(message, level="CRITICAL")
+    
+    log_event = _monitor_methods.get('log_system_event')
+    if log_event:
+        log_event("CRITICAL", message)
+    else:
+        add_alert = _monitor_methods.get('add_alert')
+        if add_alert:
+            add_alert(message, level="CRITICAL")
+            
     get_logging_registry().log(LogLevel.CRITICAL, message)
 
 
 def log_warning(message):
     """Log warning messages."""
     global_logger.log(message, "WARNING")
-    if _monitor:
-        if hasattr(_monitor, 'log_system_event'):
-            _monitor.log_system_event("WARNING", message)
-        elif hasattr(_monitor, 'add_alert'):
-            _monitor.add_alert(message, level="WARNING")
+    
+    log_event = _monitor_methods.get('log_system_event')
+    if log_event:
+        log_event("WARNING", message)
+    else:
+        add_alert = _monitor_methods.get('add_alert')
+        if add_alert:
+            add_alert(message, level="WARNING")
+            
     get_logging_registry().log(LogLevel.WARNING, message)
 
 
 def log_error(message):
     """Log error messages."""
     global_logger.log(message, "ERROR")
-    if _monitor:
-        if hasattr(_monitor, 'log_system_event'):
-            _monitor.log_system_event("ERROR", message)
-        elif hasattr(_monitor, 'add_alert'):
-            _monitor.add_alert(message, level="ERROR")
+    
+    log_event = _monitor_methods.get('log_system_event')
+    if log_event:
+        log_event("ERROR", message)
+    else:
+        add_alert = _monitor_methods.get('add_alert')
+        if add_alert:
+            add_alert(message, level="ERROR")
+            
     get_logging_registry().log(LogLevel.ERROR, message)
 
 

@@ -72,6 +72,7 @@ ctx.rag_enhancer = RAGEnhancer()
 # Initialize Bot
 intents = discord.Intents.default()
 intents.message_content = True
+intents.members = True # Required for full guild member registration in KB
 bot = commands.Bot(command_prefix="!", intents=intents)
 ctx.bot = bot
 
@@ -122,16 +123,7 @@ async def initialize_logic_layer_async():
     
     ctx.set_ready()
 
-# RAG Executor Helper
-rag_executor = concurrent.futures.ThreadPoolExecutor(max_workers=4, thread_name_prefix='rag_worker')
-
-async def run_rag(fn, *args, **kwargs):
-    import inspect
-    async with embedding_semaphore:
-        if inspect.iscoroutinefunction(fn):
-            return await fn(*args, **kwargs)
-        loop = asyncio.get_running_loop()
-        return await loop.run_in_executor(rag_executor, lambda: fn(*args, **kwargs))
+from utils.core.rag_executor import run_rag
 
 async def prewarm_main_model():
     try:
@@ -139,7 +131,7 @@ async def prewarm_main_model():
             await ctx.model_warm_pool.pre_warm(config.chat_model)
         else:
             log_action(f"Pre-warming {config.chat_model} with {config.max_context_tokens // 1000}k context...")
-            await ctx.ollama_client.generate(model=config.chat_model, prompt=".", options={"num_ctx": config.max_context_tokens})
+            await ctx.ollama_client.generate(model=config.chat_model, prompt=".", options={"num_ctx": config.max_context_tokens, "num_gpu": 99})
     except Exception as e:
         print(f"⚠️ Pre-warm failed: {e}")
 
@@ -232,35 +224,38 @@ def main():
         
         from utils.social.social_tasks import start_social_tasks
         
-        # Sequenced boot with respect to skip-rag-warm
-        log_info("Starting sequenced boot...")
+        # Sequenced boot: Parallelize non-dependent tasks
+        log_info("Starting parallelized boot sequence...")
         
-        # 0. Warm Social Libraries (Heavy imports)
+        # 1. Warm Social Libraries + RAG Refresh + News Update (Non-blocking parallel)
         from utils.social.kaia_social_responder import warm_social_libraries
-        warm_social_libraries()
         
-        # 1. Primary RAG Refresh (Mandatory for identity)
-        await run_rag(ctx.rag.refresh_knowledge_base)
-        await asyncio.sleep(2.0) # Settle I/O after refresh
+        boot_tasks = [
+            asyncio.to_thread(warm_social_libraries),
+            run_rag(ctx.rag.refresh_knowledge_base)
+        ]
         
-        # 2. News Update
         if config.startup_news_update:
-            await run_news_update()
-            await asyncio.sleep(2.0) # Settle I/O after news pull
+            boot_tasks.append(run_news_update())
             
-        # 3. Model Pre-warming (Strict Serial — must complete before accepting messages)
+        log_action(f"Launching {len(boot_tasks)} boot tasks in parallel...")
+        await asyncio.gather(*boot_tasks)
+        
+        # 2. Model Pre-warming
         try:
-            # Part A: Intent Parser (CPU Only)
-            if ctx.intent_parser:
-                log_action(f"Step A: Warming Intent Classifier ({ctx.intent_parser.classification_model})...")
-                await ctx.intent_parser.pre_warm()
+            # Main Model and Intent Parser pre-warm MUST be sequential.
+            # We must load the massive GPU model (`gemma3:12b`) FIRST.
+            # If we load the CPU model first, Ollama's memory planner aggregates their sizes,
+            # sees 11.8GB + 1.3GB Desktop VRAM > 12GB Quota, and panics the Chat Model into System RAM.
+            log_action(f"Warming Main Model ({config.chat_model})...")
+            await prewarm_main_model()
             
-            # Part B: Settle Period
+            # Give Ollama scheduler 2s to cleanly lock the GPU context
             await asyncio.sleep(2.0)
             
-            # Part C: Main Model (GPU)
-            log_action(f"Step B: Warming Main Model ({config.chat_model})...")
-            await prewarm_main_model()
+            if ctx.intent_parser:
+                log_action(f"Warming Intent Classifier ({ctx.intent_parser.classification_model})...")
+                await ctx.intent_parser.pre_warm()
             
             log_success("🧠 Sequenced Boot: Models warmed and ready.")
         except Exception as e:

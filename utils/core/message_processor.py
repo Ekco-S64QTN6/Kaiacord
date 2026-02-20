@@ -2,17 +2,19 @@ import asyncio
 import time
 import re
 import hashlib
+import uuid
 from datetime import datetime
-from typing import Optional, Any, List, Dict
+from typing import Optional, Any, List, Dict, Set
 
 from utils.infrastructure.logging.kaia_logger import log_info, log_debug, log_warning, log_error, log_action, log_success
 from utils.core.message_context import MessageContext
 from utils.core.response_filter import HallucinationDetector, BotSpeakFilter
 from utils.core.knowledge_boundary import KnowledgeBoundary
-from utils.core.background_tasks import run_news_update # If needed, or just import logic
 from utils.infrastructure.monitoring.async_task_registry import task_registry
+from utils.core.kaia_intelligence import ContextWeaver
+from utils.core.knowledge_boundary import KnowledgeBoundary
 
-# Constants (Could be moved to config later)
+# Constants
 
 class MessageProcessor:
     """
@@ -39,12 +41,15 @@ class MessageProcessor:
         self.news_enhancer = news_enhancer
         self.rag_enhancer = rag_enhancer
         self.news_manager = ctx.news_manager
-        self.dream_engine = ctx.dream_engine
-        
+        self.dream_engine = ctx.dream_engine or getattr(ctx, 'dream_engine', None)
+    
         # Internal components
         from utils.core.context_enricher import ContextEnricher
         self.context_enricher = ContextEnricher(self.bot)
         self.knowledge_boundary = KnowledgeBoundary(self.config.knowledge_base_dir)
+        
+        # Backpressure lock for background logging tasks
+        self._bg_semaphore = asyncio.Semaphore(10)
         
         # Explicit verification
         if self.news_manager is None:
@@ -212,7 +217,8 @@ class MessageProcessor:
         except asyncio.CancelledError:
             log_warning(f"Generation task for {msg.author.name} was cancelled (likely bot shutdown).")
         except Exception as e:
-            log_error(f"Error in intelligence pipeline: {e}")
+            import traceback
+            log_error(f"Error in intelligence pipeline: {e}\n{traceback.format_exc()}")
             await self._send_response(msg.channel, "Something went wrong in my head. Try again?")
 
     async def _run_intelligence_pipeline(self, ctx: MessageContext):
@@ -349,17 +355,20 @@ class MessageProcessor:
         # Resolve names to results
         task_names = list(tasks_dict.keys())
         task_objects = list(tasks_dict.values())
-        rag_gather_timeout = self.config.rag_retrieval_timeout * 2  # 2x single-retrieval timeout for parallel gather
+        rag_gather_timeout = self.config.rag_retrieval_timeout * 2  
         try:
             raw_results = await asyncio.wait_for(asyncio.gather(*task_objects), timeout=rag_gather_timeout)
         except asyncio.TimeoutError:
-            log_warning(f"Top-level RAG retrieval timed out ({rag_gather_timeout}s). Proceeding with partial results.")
-            # For each task, check if it's done, otherwise return empty list
+            log_warning(f"Top-level RAG retrieval timed out ({rag_gather_timeout}s). Cancelling pending tasks.")
             raw_results = []
             for t in task_objects:
                 if t.done() and not t.cancelled():
-                    raw_results.append(t.result())
+                    try:
+                        raw_results.append(t.result())
+                    except Exception:
+                        raw_results.append([])
                 else:
+                    t.cancel()
                     raw_results.append([])
         
         t_dur = time.perf_counter() - t_start
@@ -374,22 +383,30 @@ class MessageProcessor:
         await self._process_retrieval_results(ctx, results, ask_whats_new, is_news_query, clean_query)
 
         # 6. Knowledge Boundary Check (Entity Verification)
-        # Check if the query contains entities unknown to Kaia
+        # Cache history in context early to avoid redundant list conversions
+        ctx.history = list(self.bot_state.channel_memory.get(ctx.channel_id, []))
+        
         from utils.core.rag_utils import get_node_text
-        rag_text = "\n".join([get_node_text(n) for n in ctx.context_nodes]) if ctx.context_nodes else ""
+        # Avoid massive join for boundary check - KnowledgeBoundary should handle list of strings
+        rag_snippets = [get_node_text(n) for n in ctx.context_nodes] if ctx.context_nodes else []
         
-        # Include recent history in boundary context to avoid flagging active participants
-        history = list(self.bot_state.channel_memory.get(ctx.channel_id, []))
-        history_text = "\n".join([m['content'] for m in history[-5:]])
-        context_text = f"{rag_text}\n\n{history_text}"
+        # Extract snippets safely whether history contains strings or dicts
+        history_snippets = []
+        for m in ctx.history[-5:]:
+            if isinstance(m, dict) and 'content' in m:
+                history_snippets.append(m['content'])
+            elif isinstance(m, str):
+                history_snippets.append(m)
+                
+        context_list = rag_snippets + history_snippets
         
-        # Whitelist the current author and bot
+        # Whitelist current author and bot
         whitelist = {ctx.author_name, self.bot.user.name, "Kaia"}
         # Resolve display name variants
         if hasattr(ctx.message.author, 'display_name'):
             whitelist.add(ctx.message.author.display_name)
             
-        boundary_check = self.knowledge_boundary.check_known_entities(ctx.sanitized_content, context_text, whitelist=whitelist)
+        boundary_check = self.knowledge_boundary.check_known_entities(ctx.sanitized_content, context_list, whitelist=whitelist)
         ctx.knowledge_boundary_check = boundary_check
         
         if not boundary_check["all_known"]:
@@ -585,19 +602,44 @@ class MessageProcessor:
                 hints_str = "\n".join(hint_lines)
                 full_system_prompt += f"\n\n[LORE_HINTS]\nThe following terms were detected and may require disambiguation based on your known records:\n{hints_str}\n---"
 
+        if ctx.parent_context:
+            label = "[REPLYING_TO_CONTEXT]"
+            if ctx.root_context == ctx.parent_context:
+                label = "[THREAD_ROOT_AND_PARENT]"
+            full_system_prompt += f"\n\n{label}\n{ctx.parent_context}"
+            
         if ctx.root_context and ctx.root_context != ctx.parent_context:
-            full_system_prompt += f"\n\n[CONTEXT_ORIGIN]\nThis conversation originated from: {ctx.root_context}"
+            full_system_prompt += f"\n\n[THREAD_START]\nThis conversation originated from:\n{ctx.root_context}"
         messages = [
             {"role": "system", "content": full_system_prompt}
         ]
         
-        # Add channel memory
-        history = list(self.bot_state.channel_memory.get(ctx.channel_id, []))
-        for m in history:
-            if messages[-1]["role"] == m["role"] and m["role"] != "system":
-                messages[-1]["content"] += f"\n\n{m['content']}"
+        if optimized.get('history'):
+            messages.append({"role": "system", "content": optimized['history']})
+        
+        # Latest History (Already cached in ctx.history if retrieval ran)
+        history = ctx.history if ctx.history else list(self.bot_state.channel_memory.get(ctx.channel_id, []))
+        
+        # Filter for most recent 12 turns (optimized from deque copy)
+        for m in history[-12:]:
+            if isinstance(m, dict) and 'role' in m and 'content' in m:
+                if messages and messages[-1]["role"] == m["role"] and m["role"] != "system":
+                    messages[-1]["content"] += f"\n\n{m['content']}"
+                else:
+                    messages.append(m.copy())
             else:
-                messages.append(m.copy())
+                # Handle raw string literal format safely
+                text_content = str(m)
+                
+                # Try to infer role roughly for correct concatenation
+                inferred_role = "user"
+                if "kaia:" in text_content.lower() or "assistant:" in text_content.lower():
+                    inferred_role = "assistant"
+                    
+                if messages and messages[-1]["role"] == inferred_role:
+                    messages[-1]["content"] += f"\n\n{text_content}"
+                else:
+                    messages.append({"role": inferred_role, "content": text_content})
         
         messages.append({"role": "user", "content": ctx.sanitized_content})
         
@@ -626,7 +668,7 @@ class MessageProcessor:
                 log_action(f"Calling ollama.chat (Attempt {attempt + 1}/{max_attempts})...")
                 
                 # Use run_with_gpu_guard for the main chat generation
-                from utils.infrastructure.gpu.gpu_memory_manager import gpu_memory_manager, GPUTaskPriority
+                from utils.infrastructure.gpu.gpu_manager import gpu_memory_manager, GPUTaskPriority
                 
                 response = await gpu_memory_manager.run_with_gpu_guard(
                     model_name=self.config.chat_model,
@@ -637,7 +679,7 @@ class MessageProcessor:
                         messages=messages,
                         options=current_options
                     ),
-                    task_id=f"chat_{ctx.author_id}_{int(time.time())}"
+                    task_id=f"chat_{uuid.uuid4().hex[:8]}"
                 )
                 
                 content = response['message']['content']
@@ -675,8 +717,14 @@ class MessageProcessor:
         await self._send_response(channel=ctx.message.channel, text=ctx.response_text)
         
         # 2. LOGGING & STATE (background to avoid holding up the UI)
-        bg_task = asyncio.create_task(self._background_logging_and_memory(ctx))
-        task_registry.register(f"bg_log_{ctx.author_id}_{int(time.time())}", bg_task)
+        # 4. Background Tasks with Backpressure
+        # Register the task and let it run freely within the semaphore limit
+        if not self._bg_semaphore.locked():
+            await self._bg_semaphore.acquire()
+            bg_task = asyncio.create_task(self._background_logging_and_memory(ctx))
+            task_registry.register(f"bg_log_{uuid.uuid4().hex[:6]}", bg_task)
+        else:
+            log_warning("Background task semaphore saturated. Skipping extra logging.")
 
     async def _background_logging_and_memory(self, ctx: MessageContext):
         """Perform slow updates in the background to avoid holding up the UI."""
@@ -701,14 +749,16 @@ class MessageProcessor:
             
             self.performance_monitor.stop_timer('total', 'response_time')
             
-            # Direct metrics: record response time (replaces log-scraping)
+            # Direct metrics
             response_time = time.time() - ctx.start_time
             self.stats_tracker.record_response_time(response_time)
+            
         except Exception as e:
             log_error(f"Error in background logging: {e}")
+        finally:
+            self._bg_semaphore.release()
 
     async def _send_response(self, channel, text: str):
         """Helper to send response via messaging utility."""
         from utils.infrastructure.system.messaging import send_kaia_response
         await send_kaia_response(channel, text)
-

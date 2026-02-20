@@ -110,7 +110,7 @@ generation:
   fallback_num_predict: 512
 
   # Maximum number of tokens to generate in a response
-  max_response_tokens: 2048
+  max_response_tokens: 768
 
 # ============================================================================
 # Timeouts Configuration

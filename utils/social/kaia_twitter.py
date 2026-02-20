@@ -154,10 +154,17 @@ async def post_to_x(text: str) -> tuple[bool, Optional[str]]:
         log_error(f"X post failed ({error_type}): {error_msg}")
         
         # If auth error (401), clear cookies so they can be re-extracted on next use
-        if "401" in error_msg or "unauthorized" in error_msg.lower():
+        # More robust check using status_code if available, falling back to string match
+        is_auth_error = False
+        if hasattr(e, 'status_code') and e.status_code == 401:
+            is_auth_error = True
+        elif "401" in error_msg or "unauthorized" in error_msg.lower():
+            is_auth_error = True
+            
+        if is_auth_error:
             if _cookies_path.exists():
                 _cookies_path.unlink()
-                log_warning("Cleared dead X cookies (received 401)")
+                log_warning(f"Cleared dead X cookies (received auth error: {error_msg})")
         
         return False, f"{error_type}: {error_msg}"
 

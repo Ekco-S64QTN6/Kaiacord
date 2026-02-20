@@ -96,6 +96,14 @@ sudo pacman -S nvidia nvidia-utils  # Arch
 2. Create application → Bot → Copy token
 3. Update `.env` with **full token**
 
+### Issue: "Shard ID None is requesting privileged intents"
+Kaia needs access to message content and server members to function correctly.
+1. Go to [Discord Developer Portal](https://discord.com/developers/applications)
+2. Select your application → Go to the **Bot** tab
+3. Scroll down to **Privileged Gateway Intents**
+4. Toggle ON **Presence Intent**, **Server Members Intent**, and **Message Content Intent**
+5. Save changes and restart the bot
+
 ---
 
 ## Next Steps

@@ -9,164 +9,112 @@ from utils.infrastructure.system.bot_state import bot_state
 from utils.infrastructure.system.yaml_config import config
 from utils.infrastructure.system.shutdown_fixed import shutdown_manager
 
-# Dependencies — now managed via AppContext
-ctx = None
-
-@tasks.loop(hours=12)
-async def news_refresh_task():
-    """Periodic news refresh to keep the database current."""
-    if shutdown_manager.shutting_down:
-        return
+class CoreTaskManager:
+    """Manager for core background loops with dependency injection and error handling."""
+    def __init__(self, ctx):
+        self.ctx = ctx
+        self.news_refresh_task = self._make_news_refresh_task()
+        self.dream_engine_task = self._make_dream_engine_task()
         
-    try:
-        log_action("Running periodic news refresh...")
-        process = await asyncio.create_subprocess_exec(
-            sys.executable, "tools/maintenance/refresh_news.py",
-            stdout=asyncio.subprocess.PIPE,
-            stderr=asyncio.subprocess.PIPE
-        )
-        try:
-            stdout, stderr = await process.communicate()
-        except asyncio.CancelledError:
-            process.kill()
-            await process.wait()
-            raise
-
-        if process.returncode == 0:
-            log_success("Periodic news refresh completed.")
-        else:
-            log_error(f"Periodic news refresh failed: {stderr.decode()}")
-    except asyncio.CancelledError:
-        raise
-    except Exception as e:
-        log_error(f"News refresh task failed: {e}")
-
-@tasks.loop(hours=1)
-async def dream_engine_task():
-    """Nightly dream processing task (runs between 3-5 AM)"""
-    # ADDED: Shutdown guard to prevent hangs
-    from utils.infrastructure.system.shutdown_fixed import shutdown_manager
-    if shutdown_manager.shutting_down: return
-
-    if not ctx or not ctx.bot_state or not ctx.config:
-        return
-        
-    if getattr(ctx.bot_state, 'is_generating_image', False):
-        return
-        
-    if not ctx.config.get('features.dream_mode_enabled', True):
-        return
-        
-    if not ctx.dream_engine or not ctx.rag:
-        return
-
-    now = datetime.now()
-    start_hour = ctx.config.get('dream_mode.schedule_start_hour', 3)
-    end_hour = ctx.config.get('dream_mode.schedule_end_hour', 5)
-    
-    if start_hour <= now.hour < end_hour:
-        last_dream = getattr(ctx.bot_state, 'last_dream_date', "")
-        today = now.strftime('%Y-%m-%d')
-        
-        if last_dream != today:
-            log_action("Nightly dream processing starting...")
+    def _make_news_refresh_task(self):
+        @tasks.loop(hours=12)
+        async def news_refresh_task():
+            if shutdown_manager.shutting_down: return
             try:
-                from utils.social.kaia_social_responder import load_persona_async
-                persona_content = await load_persona_async()
-                await ctx.dream_engine.nightly_dream_processing(persona_content)
-                
-                # CRITICAL FIX: Use the gated semaphore wrapper from Kaiacord.py
-                from Kaiacord import run_rag as run_rag_func
-                await run_rag_func(ctx.rag.refresh_knowledge_base)
-                
-                ctx.bot_state.last_dream_date = today
-                ctx.bot_state.save()
+                log_action("Running periodic news refresh...")
+                from tools.maintenance.refresh_news import refresh_news
+                await refresh_news()
+                log_success("Periodic news refresh completed.")
             except Exception as e:
-                log_error(f"Nightly dream task failed: {e}")
+                log_error(f"News refresh task failed: {e}")
 
-async def run_news_update():
-    """Run the daily news update script and manual ingestion."""
-    if not ctx: return
-    
-    try:
-        # 1. Run manual ingestion first (handles local daily and weekly files)
-        log_action("Checking for manual news briefs to ingest...")
-        ingest_process = await asyncio.create_subprocess_exec(
-            sys.executable, "tools/maintenance/ingest_manual_news.py",
-            stdout=asyncio.subprocess.PIPE,
-            stderr=asyncio.subprocess.STDOUT
-        )
-        
-        try:
-            async for line in ingest_process.stdout:
-                decoded = line.decode().strip()
-                if decoded and not decoded.startswith("[DEBUG]"):
-                    print(f"  {decoded}")
+        @news_refresh_task.error
+        async def news_refresh_error(error):
+            log_error(f"CRITICAL: News refresh task died: {error}")
             
-            await ingest_process.wait()
-        except asyncio.CancelledError:
-            ingest_process.kill()
-            await ingest_process.wait()
-            raise
+        return news_refresh_task
 
-        # 2. Proceed with automated news update script
-        log_action("Running daily news update script...")
-        # Check for Gemini API key
-        if not os.getenv("GEMINI_API_KEY"):
-            log_warning("GEMINI_API_KEY not set, skipping automated news update.")
-            return
-
-        # Run with live output streaming
-        process = await asyncio.create_subprocess_exec(
-            sys.executable, "tools/maintenance/update_kaia_news.py",
-            stdout=asyncio.subprocess.PIPE,
-            stderr=asyncio.subprocess.STDOUT  # Merge stderr to stdout
-        )
-        
-        try:
-            # Stream output line by line for live progress
-            async for line in process.stdout:
-                decoded = line.decode().strip()
-                if decoded and not decoded.startswith("[DEBUG]"):
-                    print(f"  {decoded}")  # Show in dashboard
+    def _make_dream_engine_task(self):
+        @tasks.loop(hours=1)
+        async def dream_engine_task():
+            if shutdown_manager.shutting_down: return
+            if not self.ctx or not self.ctx.bot_state or not self.ctx.config: return
             
-            await process.wait()
-        except asyncio.CancelledError:
-            process.kill()
-            await process.wait()
-            raise
-        
-        if process.returncode == 0:
-            log_success("Daily news update completed.")
-            # Trigger RAG refresh after news update
-            # Use module-level run_rag link from Kaiacord.py if available, or ctx
-            from Kaiacord import run_rag as run_rag_func
-            if ctx.rag:
-                await run_rag_func(ctx.rag.refresh_knowledge_base)
-            # Refresh news_manager cache to pick up new files immediately
-            if ctx.news_manager:
-                ctx.news_manager.refresh()
-        else:
-            log_error("Daily news update failed. Check output above.")
-    except asyncio.CancelledError:
-        raise
-    except Exception as e:
-        log_error(f"Failed to run news update: {e}")
+            if getattr(self.ctx.bot_state, 'is_generating_image', False): return
+            if not self.ctx.config.get('features.dream_mode_enabled', True): return
+            if not self.ctx.dream_engine or not self.ctx.rag: return
+
+            now = datetime.now()
+            start_hour = self.ctx.config.get('dream_mode.schedule_start_hour', 3)
+            end_hour = self.ctx.config.get('dream_mode.schedule_end_hour', 5)
+            
+            if start_hour <= now.hour < end_hour:
+                last_dream = getattr(self.ctx.bot_state, 'last_dream_date', "")
+                today = now.strftime('%Y-%m-%d')
+                
+                if last_dream != today:
+                    log_action("Nightly dream processing starting...")
+                    try:
+                        from utils.social.kaia_social_responder import load_persona_async
+                        persona_content = await load_persona_async()
+                        await self.ctx.dream_engine.nightly_dream_processing(persona_content)
+                        
+                        from utils.core.rag_executor import run_rag as run_rag_func
+                        await run_rag_func(self.ctx.rag.refresh_knowledge_base)
+                        
+                        self.ctx.bot_state.last_dream_date = today
+                        self.ctx.bot_state.save()
+                    except Exception as e:
+                        log_error(f"Nightly dream task failed: {e}")
+
+        @dream_engine_task.error
+        async def dream_engine_error(error):
+            log_error(f"CRITICAL: Dream engine task died: {error}")
+            
+        return dream_engine_task
+
+    async def run_news_update(self):
+        """Run integrated news refresh."""
+        if not self.ctx: return
+        try:
+            log_action("Starting integrated news refresh...")
+            from tools.maintenance.refresh_news import refresh_news
+            await refresh_news()
+            
+            from utils.core.rag_executor import run_rag as run_rag_func
+            if self.ctx.rag:
+                await run_rag_func(self.ctx.rag.refresh_knowledge_base)
+                
+            if self.ctx.news_manager:
+                self.ctx.news_manager.refresh()
+            log_success("Integrated news update completed.")
+        except Exception as e:
+            log_error(f"Failed to run news update: {e}")
+
+    def start(self):
+        from utils.infrastructure.monitoring.async_task_registry import task_registry
+        self.news_refresh_task.start()
+        task_registry.register("news_refresh_task", self.news_refresh_task)
+        self.dream_engine_task.start()
+        task_registry.register("dream_engine_task", self.dream_engine_task)
+        log_action("Core background tasks started via CoreTaskManager.")
+
+    def stop(self):
+        self.news_refresh_task.stop()
+        self.dream_engine_task.stop()
+
+# Helper for backward compatibility
+_task_manager = None
 
 def start_background_core_tasks(app_ctx):
-    global ctx
-    ctx = app_ctx
-    
-    from utils.infrastructure.monitoring.async_task_registry import task_registry
-    
-    news_task = news_refresh_task.start()
-    task_registry.register("news_refresh_task", news_task)
-    
-    dream_task = dream_engine_task.start()
-    task_registry.register("dream_engine_task", dream_task)
-    
-    log_action("Core background tasks started.")
+    global _task_manager
+    _task_manager = CoreTaskManager(app_ctx)
+    _task_manager.start()
 
 def stop_background_core_tasks():
-    news_refresh_task.stop()
-    dream_engine_task.stop()
+    if _task_manager:
+        _task_manager.stop()
+
+async def run_news_update():
+    if _task_manager:
+        await _task_manager.run_news_update()

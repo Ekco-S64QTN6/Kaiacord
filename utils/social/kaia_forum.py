@@ -358,7 +358,10 @@ class ForumClient:
 
             # Get thread title
             title_tag = soup.find('title')
-            thread_title = title_tag.get_text(strip=True).replace(' - Project 1999', '') if title_tag else f"Thread {thread_id}"
+            raw_title = title_tag.get_text(strip=True).replace(' - Project 1999', '') if title_tag else f"Thread {thread_id}"
+            
+            from utils.core.response_filter import BotSpeakFilter
+            thread_title = BotSpeakFilter.harden_title(raw_title)
 
             # Find last page number
             last_page = 1
@@ -1021,7 +1024,7 @@ class ForumClient:
             from utils.infrastructure.gpu.gpu_manager import OllamaGPUManager
             from utils.infrastructure.system.yaml_config import config
 
-            model_name = config.get('intelligence.main_model', 'gemma3:12b')
+            model_name = config.chat_model
             gpu_manager = OllamaGPUManager(model_name)
             options = gpu_manager.get_gpu_options(for_chat=True)
             

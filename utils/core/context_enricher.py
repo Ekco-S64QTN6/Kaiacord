@@ -13,10 +13,13 @@ class ContextEnricher:
     def __init__(self, bot):
         self.bot = bot
         # Regex for Discord message links
-        # https://discord.com/channels/GUILD_ID/CHANNEL_ID/MESSAGE_ID
         self.msg_link_pattern = re.compile(
             r'https?://(?:ptb\.|canary\.)?discord(?:app)?\.com/channels/(\d+)/(\d+)/(\d+)'
         )
+        # Fetch Cache: {id: (timestamp, object)}
+        self._channel_cache = {}
+        self._message_cache = {}
+        self._cache_ttl = 300 # 5 minutes
 
     async def enrich_content(self, msg: discord.Message) -> str:
         """
@@ -84,30 +87,66 @@ class ContextEnricher:
         return "\n\n".join(texts)
 
     async def resolve_message_links(self, msg: discord.Message) -> str:
-        """Find Discord message links and fetch their content."""
+        """Find Discord message links and fetch their content concurrently."""
         matches = self.msg_link_pattern.findall(msg.content)
         if not matches:
             return ""
             
-        resolved_texts = []
         # Limit to 3 links to prevent abuse/latency
+        tasks = []
         for guild_id, channel_id, message_id in matches[:3]:
-            try:
-                guild_id, channel_id, message_id = int(guild_id), int(channel_id), int(message_id)
-                
-                # Try to get from cache first
-                channel = self.bot.get_channel(channel_id)
-                if not channel:
-                    # Fallback to fetch
-                    channel = await self.bot.fetch_channel(channel_id)
-                
-                if channel:
-                    linked_msg = await channel.fetch_message(message_id)
-                    if linked_msg:
-                        author = linked_msg.author.display_name
-                        text = linked_msg.content
-                        resolved_texts.append(f"Message from {author} in #{channel.name}:\n{text}")
-            except Exception as e:
-                log_debug(f"Failed to resolve message link {message_id}: {e}")
+            tasks.append(self._resolve_single_link(int(channel_id), int(message_id)))
+            
+        results = await asyncio.gather(*tasks, return_exceptions=True)
+        
+        resolved_texts = []
+        for res in results:
+            if isinstance(res, str) and res:
+                resolved_texts.append(res)
+            elif isinstance(res, Exception):
+                log_debug(f"Link resolution failed: {res}")
                 
         return "\n\n".join(resolved_texts)
+
+    async def _resolve_single_link(self, channel_id: int, message_id: int) -> str:
+        """Resolve a single message link with caching."""
+        now = asyncio.get_event_loop().time()
+        
+        # 1. Get/Fetch Channel
+        channel = self.bot.get_channel(channel_id)
+        if not channel:
+            # Check cache
+            if channel_id in self._channel_cache:
+                timestamp, cached_channel = self._channel_cache[channel_id]
+                if now - timestamp < self._cache_ttl:
+                    channel = cached_channel
+            
+            if not channel:
+                try:
+                    channel = await self.bot.fetch_channel(channel_id)
+                    self._channel_cache[channel_id] = (now, channel)
+                except Exception as e:
+                    log_debug(f"Failed to fetch channel {channel_id}: {e}")
+                    return ""
+
+        if not channel:
+            return ""
+
+        # 2. Get/Fetch Message
+        # Check cache first
+        if message_id in self._message_cache:
+            timestamp, cached_msg = self._message_cache[message_id]
+            if now - timestamp < self._cache_ttl:
+                author = cached_msg.author.display_name
+                return f"Message from {author} in #{channel.name}:\n{cached_msg.content}"
+
+        try:
+            linked_msg = await channel.fetch_message(message_id)
+            if linked_msg:
+                self._message_cache[message_id] = (now, linked_msg)
+                author = linked_msg.author.display_name
+                return f"Message from {author} in #{channel.name}:\n{linked_msg.content}"
+        except Exception as e:
+            log_debug(f"Failed to fetch message {message_id}: {e}")
+            
+        return ""

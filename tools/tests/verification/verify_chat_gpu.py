@@ -6,8 +6,8 @@ import subprocess
 # Add project root to path
 sys.path.append(os.getcwd())
 
-from utils.gpu_manager import OllamaGPUManager, GPUMonitor
-from utils.kaia_logger import log_info, log_success, log_error
+from utils.infrastructure.gpu.gpu_manager import OllamaGPUManager, GPUMonitor
+from utils.infrastructure.logging.kaia_logger import log_info, log_success, log_error
 import ollama
 
 async def verify_chat_gpu():

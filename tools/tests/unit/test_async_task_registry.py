@@ -20,7 +20,7 @@ async def test_task_registration():
     """Test basic task registration"""
     print("Testing task registration...")
     
-    from utils.async_task_registry import AsyncTaskRegistry
+    from utils.infrastructure.monitoring.async_task_registry import AsyncTaskRegistry
     
     registry = AsyncTaskRegistry()
     
@@ -49,7 +49,7 @@ async def test_mass_cancellation():
     """Test cancelling all tasks"""
     print("\nTesting mass cancellation...")
     
-    from utils.async_task_registry import AsyncTaskRegistry
+    from utils.infrastructure.monitoring.async_task_registry import AsyncTaskRegistry
     
     registry = AsyncTaskRegistry()
     
@@ -80,7 +80,7 @@ async def test_auto_cleanup_completed_tasks():
     """Test that completed tasks are auto-cleaned"""
     print("\nTesting auto-cleanup of completed tasks...")
     
-    from utils.async_task_registry import AsyncTaskRegistry
+    from utils.infrastructure.monitoring.async_task_registry import AsyncTaskRegistry
     
     registry = AsyncTaskRegistry()
     
@@ -112,7 +112,7 @@ async def test_force_clear():
     """Test force clear for emergency shutdown"""
     print("\nTesting force clear...")
     
-    from utils.async_task_registry import AsyncTaskRegistry
+    from utils.infrastructure.monitoring.async_task_registry import AsyncTaskRegistry
     
     registry = AsyncTaskRegistry()
     
@@ -146,7 +146,7 @@ async def test_shutdown_prevents_new_registration():
     """Test that shutdown prevents new task registration"""
     print("\nTesting shutdown prevents new registration...")
     
-    from utils.async_task_registry import AsyncTaskRegistry
+    from utils.infrastructure.monitoring.async_task_registry import AsyncTaskRegistry
     
     registry = AsyncTaskRegistry()
     
@@ -171,7 +171,7 @@ async def test_registry_reset():
     """Test registry reset functionality"""
     print("\nTesting registry reset...")
     
-    from utils.async_task_registry import AsyncTaskRegistry
+    from utils.infrastructure.monitoring.async_task_registry import AsyncTaskRegistry
     
     registry = AsyncTaskRegistry()
     

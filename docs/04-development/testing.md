@@ -1,108 +1,92 @@
-# Testing Guide for Kaia Improvements
+# Testing Guide for Kaia
 
-## Quick Test Commands
+As of Phase 12 (Test Suite Modernization), Kaia's entire test suite has been updated to use `pytest` and automatically handles asynchronous code via `pytest-asyncio`.
 
-### 1. Image Generation (Both formats should work now)
-```
-kaia, draw a cat sitting on a keyboard
-kaia draw a sunset over mountains
-kaia  draw a hacker in a dark room (multiple spaces)
-```
+## Running the Test Suite
 
-### 2. Quip System Monitoring
-Watch the console output for:
-- `Generating idle quip #1 (Idle: Xm)...` 
-- Max should be `#3` before stopping
-- Should reset to `#1` after user interaction
+The test suite is broken into component-level unit tests and end-to-end integration/verification tests. 
 
-### 3. Check Kaia's Own Logs
+Since the project uses absolute imports starting from the root directory (e.g., `from utils.core.message_processor`), you **must** run `pytest` with the `PYTHONPATH` set to the project root.
+
+### The Quick Command
+
+To run the entire suite (unit + verification):
 ```bash
-# After a few quips, check if Kaia logged her own quips
-ls -la /home/ekco/github/Kaiacord/knowledge_base/user_logs/
-# Look for a directory with Kaia's user ID
-# Inside should be logs with [IDLE_QUIP: topic] entries
+PYTHONPATH=. pytest tools/tests/
 ```
 
-## Expected Behavior Changes
+### Specific Categories
 
-### Before → After Comparison
-
-| Aspect | Before | After |
-|--------|--------|-------|
-| **Image command** | Only "kaia, draw" | "kaia, draw" OR "kaia draw" |
-| **Quip frequency** | 8 in 4 hours | ~1-2 per hour max |
-| **Consecutive quips** | No limit | Max 3 |
-| **Quip length** | 1 sentence | 2-4 sentences |
-| **Quip variety** | Very repetitive | 8 topic categories |
-| **Quip logging** | Not logged | Logged to Kaia's user log |
-| **CUDA OOM** | Frequent failures | Should be resolved |
-
-## Monitoring Commands
-
-### GPU Memory Usage
+1. **Unit Tests** (Fast, isolated component tests):
 ```bash
-# Watch GPU memory in real-time
-watch -n 1 nvidia-smi
-
-# Expected: ~10GB max usage during image generation
+PYTHONPATH=. pytest tools/tests/unit/ -q
 ```
 
-### Check Logs
+2. **Verification Tests** (Slower, integration-level sanity checks):
 ```bash
-# Monitor Kaia's output
-tail -f /path/to/kaia/logs  # or wherever you're logging
-
-# Look for:
-# - "Step 1/2: Loading encoders..."
-# - "Step 2/2: Loading transformer..."
-# - "Generating idle quip #X (Idle: Ym)..."
-# - "Max consecutive quips (3) reached..."
+PYTHONPATH=. pytest tools/tests/verification/ -q
 ```
 
-### Check Quip Logs
+3. **Running a Specific Test**:
 ```bash
-# Find Kaia's user ID directory
-find /home/ekco/github/Kaiacord/knowledge_base/user_logs/ -name "Kaia_*"
-
-# Check the log file inside
-cat /home/ekco/github/Kaiacord/knowledge_base/user_logs/Kaia_*/interactions.log
+PYTHONPATH=. pytest tools/tests/unit/test_yaml_config.py -v
 ```
 
-## Troubleshooting
+---
 
-### If CUDA OOM still occurs:
-1. Check `nvidia-smi` before generation - is something else using VRAM?
-2. Try lowering `torch.cuda.set_per_process_memory_fraction(0.86)` to `0.80` in `kaia_image.py`
-3. Verify Ollama models are being unloaded (check logs)
+## Test Infrastructure
 
-### If image command doesn't work:
-1. Verify the regex pattern is matching: check console for "Generating image for prompt: X"
-2. Try with comma first: "kaia, draw test"
-3. Check for typos or special characters
+### `pytest.ini`
+The root directory contains a `pytest.ini` file that automatically configures the test runner to handle `async def` testing natively via `asyncio_mode = auto`. You no longer need to strictly decorate every test with `@pytest.mark.asyncio`.
 
-### If quips are still too frequent:
-1. Lower the probabilities in `idle_quip_task`:
-   - Change `0.15` to `0.10` (30-60 min)
-   - Change `0.25` to `0.15` (60-120 min)
-   - Change `0.40` to `0.25` (120+ min)
+### Directory Structure
 
-### If quips are still repetitive:
-1. Increase `temperature` to `1.0` or `1.1`
-2. Increase `repeat_penalty` to `1.3`
-3. Add more topics to the `topics` list
+```text
+tools/tests/
+├── unit/                 # Isolated component logic (No network, heavy mocking)
+│   ├── test_imports.py      # Validates the modular `utils/` structure loads cleanly
+│   ├── test_yaml_config.py  # Tests configuration merging and parsing
+│   ├── test_intelligence.py # Persona anchoring, context shaping
+│   └── test_repetition.py   # Hallucination guard and repetitive loop detection
+└── verification/         # Integration checks (DB states, end-to-end flows)
+    └── verify_kb_logic.py   # Verifies Regex boundary false-negatives
+```
 
-## Timeline for Testing
+---
 
-**Hour 0-1**:
-- Test image generation with both command formats
-- Verify CUDA memory usage stays under 10GB
+## Writing New Tests
 
-**Hour 1-3**:
-- Monitor quip frequency (should see 1-2 quips max)
-- Check quip variety (different topics, 2-4 sentences)
-- Verify consecutive quips stop at 3
+When contributing to Kaia, follow these guidelines for new tests:
 
-**Hour 3+**:
-- Interact with Kaia to reset quip counter
-- Verify quip counter resets
-- Check Kaia's user logs for quip entries
+1. **Respect the Architecture**: Imports must source from the correct domains (`utils.core`, `utils.infrastructure`, `utils.social`, `utils.news`). Do not import from the old flat `utils/` structure.
+2. **Mocking External Services**: Use `unittest.mock` (`patch`, `MagicMock`, `AsyncMock`) to isolate tests from Discord, X, Bluesky, and Ollama. Tests should not require a running Ollama model to pass.
+3. **Async Support**: Simply define your tests as `async def test_my_feature():` and `pytest` will handle the event loop automatically.
+
+### Example
+
+```python
+import pytest
+from unittest.mock import AsyncMock, patch
+
+from utils.infrastructure.system.yaml_config import YAMLConfig
+
+async def test_my_new_feature():
+    # Setup
+    config = YAMLConfig("config/kaia.yaml")
+    
+    # Execution
+    result = await do_something_async(config)
+    
+    # Validation
+    assert result is True
+```
+
+---
+
+## Pre-Flight Health Check
+
+Before submitting a Pull Request or starting the bot for the first time, you should run the comprehensive health check script. This script verifies your `.env` tokens, local installation of Ollama, connectivity to models, and file permissions.
+
+```bash
+python tools/maintenance/health_check.py
+```

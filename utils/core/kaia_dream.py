@@ -1,11 +1,8 @@
-import os
-import random
-import time
-import asyncio
-from datetime import datetime, timedelta
 from pathlib import Path
-from typing import List, Dict, Any, Optional
+from typing import List, Dict, Any, Optional, Set
 from collections import defaultdict
+import json
+import uuid
 import ollama
 try:
     import pypdf
@@ -31,6 +28,10 @@ class DreamEngine:
         
         # Ensure directories exist
         self.dreams_kb_dir.mkdir(parents=True, exist_ok=True)
+        
+        # Performance/History state
+        self.history_file = Path(getattr(config_instance, 'paths', {}).get('memory', './memory')) / 'dream_history.json'
+        self._history = self._load_history()
         
 
 
@@ -76,26 +77,222 @@ YOUR IN-DEPTH REFLECTION:"""
                     options={
                         "temperature": 0.8, 
                         "num_predict": 1000,
-                        "num_ctx": getattr(self.config, 'max_context_tokens', 20000),
+                        "num_ctx": 8192,
                         "stop": ["User:", "Kaia:"]
                     }
                 )
 
             # ...and pass it through the GPU guard to prevent VRAM collisions
-            from utils.infrastructure.gpu.gpu_memory_manager import gpu_memory_manager, GPUTaskPriority
+            from utils.infrastructure.gpu.gpu_manager import gpu_memory_manager, GPUTaskPriority
             import time
             
             response = await gpu_memory_manager.run_with_gpu_guard(
                 model_name=self.chat_model,
                 priority=GPUTaskPriority.CHAT, 
                 coro=_run_dream_chat(),
-                task_id=f"dream_{int(time.time())}"
+                task_id=f"dream_{uuid.uuid4().hex[:8]}"
             )
             
             return response['message']['content'].strip()
         except Exception as e:
             log_error(f"In-depth dream reflection generation failed: {e}")
             return None
+
+    async def scan_knowledge_base_fast(self, min_days: int = 2) -> Dict[str, List[Path]]:
+        """Scan KB using RAG manifest (O(k)) instead of recursive walk."""
+        target_folders = ["Books", "news", "user_logs", "documents"]
+        categorized_files = {k: [] for k in target_folders}
+        cutoff_time = time.time() - (min_days * 86400)
+        
+        if not self.rag or not hasattr(self.rag, 'indexed_files'):
+            log_warning("RAG manifest not available, falling back to disk walk.")
+            return await asyncio.to_thread(self.scan_knowledge_base, min_days)
+            
+        manifest = self.rag.indexed_files
+        all_eligible_files = {k: [] for k in target_folders}
+        
+        for path_str, meta in manifest.items():
+            path = Path(path_str)
+            parts = path.parts
+            
+            # Identify category from path parts
+            category = None
+            for target in target_folders:
+                if target in parts:
+                    category = target
+                    break
+            
+            if not category:
+                continue
+                
+            fname = path.name
+            # Existing filters
+            if fname.startswith('.') or not fname.endswith(('.txt', '.md', '.pdf', '.docx')): continue
+            if fname.lower() == "user_profile.md": continue
+            if "injected" in fname.lower(): continue
+            
+            # History Filter: Skip if dreamed in the last 14 days
+            if path_str in self._history:
+                last_dreamed = datetime.fromisoformat(self._history[path_str])
+                if datetime.now() - last_dreamed < timedelta(days=14):
+                    continue
+                    
+            all_eligible_files[category].append(path)
+            if meta.get("mtime", 0) < cutoff_time:
+                categorized_files[category].append(path)
+                
+        total_found = sum(len(f) for f in categorized_files.values())
+        if total_found == 0:
+            return all_eligible_files
+        return categorized_files
+
+    def _load_history(self) -> Dict[str, str]:
+        if self.history_file.exists():
+            try:
+                with open(self.history_file, 'r') as f:
+                    return json.load(f)
+            except: pass
+        return {}
+
+    def _save_history(self):
+        try:
+            self.history_file.parent.mkdir(parents=True, exist_ok=True)
+            with open(self.history_file, 'w') as f:
+                json.dump(self._history, f)
+        except Exception as e:
+            log_error(f"Failed to save dream history: {e}")
+
+    async def nightly_dream_processing(self, persona_content: str):
+        """Perform the nightly dream generation cycle"""
+        log_info("Starting nightly dream processing...")
+        
+        dream_cfg = getattr(self.config, 'dream_mode', {})
+        min_days = dream_cfg.get('dream_age_min_days', 2)
+        dreams_per_scan = dream_cfg.get('dreams_per_scan', 10)
+        
+        # 1. Scan for older files using fast manifest lookup
+        categorized_files = await self.scan_knowledge_base_fast(min_days=min_days)
+        total_files = sum(len(f) for f in categorized_files.values())
+        
+        if total_files == 0:
+            log_warning("No suitable files found for dreaming.")
+            return
+
+        # 2. Select samples with Fair User Representation
+        sample_files = []
+        
+        # A. User Quota (Target ~40% of dreams from interactions)
+        user_logs = categorized_files.get('user_logs', [])
+        user_quota = dream_cfg.get('user_quota', 0.4)
+        target_user_dreams = int(dreams_per_scan * user_quota)
+        if target_user_dreams < 1 and user_quota > 0: target_user_dreams = 1
+        
+        if user_logs:
+            # Group by User ID (parent folder) to ensure fair representation
+            user_map = defaultdict(list)
+            for f in user_logs:
+                user_map[f.parent.name].append(f)
+            
+            users = list(user_map.keys())
+            
+            for _ in range(target_user_dreams):
+                # Pick a random user, then a random file from them
+                # (This gives equal weight to 'Ekco' (few files) and 'gnownm' (many files))
+                selected_user = random.choice(users)
+                selected_file = random.choice(user_map[selected_user])
+                sample_files.append(selected_file)
+                
+        # B. General Content Quota (Populate rest from books, news, docs)
+        other_files = []
+        for cat in ['Books', 'news', 'documents']:
+            other_files.extend(categorized_files.get(cat, []))
+            
+        remaining_slots = dreams_per_scan - len(sample_files)
+        
+        if remaining_slots > 0 and other_files:
+            # Randomly sample from the rest
+            count = min(len(other_files), remaining_slots)
+            sample_files.extend(random.sample(other_files, count))
+            
+        # If we still have slots (e.g., no other files), fill with more user logs if possible
+        remaining_slots = dreams_per_scan - len(sample_files)
+        if remaining_slots > 0 and user_logs:
+             # Sample without replacement
+             count = min(len(user_logs), remaining_slots)
+             sample_files.extend(random.sample(user_logs, count))
+
+        # Shuffle again to mix types in processing order
+        random.shuffle(sample_files)
+        
+        # 3. Phase 1: Concurrent Snippet Extraction (CPU/IO Bound)
+        log_action(f"Extracting snippets for {len(sample_files)} candidate dreams...")
+        extraction_tasks = [self._extract_snippet_async(f) for f in sample_files]
+        snippets_raw = await asyncio.gather(*extraction_tasks)
+        
+        # Filter out failures
+        work_items = []
+        for i, snippet in enumerate(snippets_raw):
+            if snippet:
+                work_items.append((sample_files[i], snippet))
+                
+        new_dreams_count = 0
+        
+        # 4. Phase 2: Guarded GPU Generation (Sequential/Guarded)
+        for file_path, snippet in work_items:
+            try:
+                # Get a relative path for the source display
+                try:
+                    display_path = str(file_path.relative_to(self.kb_dir))
+                except Exception:
+                    display_path = file_path.name
+                    
+                reflection = await self.generate_dream_reflection(
+                    display_path, 
+                    snippet, 
+                    persona_content
+                )
+                
+                if reflection:
+                    # 5. Save as a Markdown file in the KB
+                    # Determine subfolder based on source
+                    subfolder = "other"
+                    if "injected" in file_path.name.lower():
+                        subfolder = "injected"
+                    elif "interactions" in file_path.name.lower() or "user_logs" in str(file_path):
+                        subfolder = "interactions"
+                    elif "books" in str(file_path).lower() or self._classify_source(file_path) == "book":
+                        subfolder = "books"
+                    
+                    target_dir = self.dreams_kb_dir / subfolder
+                    target_dir.mkdir(parents=True, exist_ok=True)
+                    
+                    # Sanitize filename
+                    safe_name = "".join([c if c.isalnum() else "_" for c in file_path.stem])[:30]
+                    date_str = datetime.now().strftime('%Y%m%d_%H%M%S')
+                    dream_filename = f"dream_{date_str}_{safe_name}.md"
+                    dream_file_path = target_dir / dream_filename
+                    
+                    with open(dream_file_path, 'w', encoding='utf-8') as df:
+                        df.write(f"# Dream Reflection: {display_path}\n")
+                        df.write(f"Source: {display_path}\n")
+                        df.write(f"Generated: {datetime.now().isoformat()}\n\n")
+                        df.write(f"## Original Fragment\n> {snippet[:2000]}...\n\n")
+                        df.write(f"## Kaia's Reflection\n{reflection}\n")
+
+                    async with asyncio.Lock(): # Thread-safe write for history
+                        self._history[str(file_path)] = datetime.now().isoformat()
+                        # Prune history older than 6 months
+                        if len(self._history) > 2000:
+                            cutoff = (datetime.now() - timedelta(days=180)).isoformat()
+                            self._history = {k: v for k, v in self._history.items() if v > cutoff}
+                    
+                    self._save_history()
+                    new_dreams_count += 1
+                    log_success(f"Generated in-depth dream: {dream_filename}")
+            except Exception as e:
+                log_error(f"Failed to process dream for {file_path.name}: {e}")
+
+        log_info(f"Nightly dreaming complete. Added {new_dreams_count} new thoughts.")
 
     def scan_knowledge_base(self, min_days: int = 2) -> Dict[str, List[Path]]:
         """Scan KB for files older than min_days, grouped by category.
@@ -150,181 +347,64 @@ YOUR IN-DEPTH REFLECTION:"""
             
         return categorized_files
 
-    async def nightly_dream_processing(self, persona_content: str):
-        """Perform the nightly dream generation cycle"""
-        log_info("Starting nightly dream processing...")
-        
-        dream_cfg = getattr(self.config, 'dream_mode', {})
-        min_days = dream_cfg.get('dream_age_min_days', 2)
-        dreams_per_scan = dream_cfg.get('dreams_per_scan', 10)
-        
-        # 1. Scan for older files
-        categorized_files = self.scan_knowledge_base(min_days=min_days)
-        total_files = sum(len(f) for f in categorized_files.values())
-        
-        if total_files == 0:
-            log_warning("No suitable files found for dreaming.")
-            return
+    async def _extract_snippet_async(self, file_path: Path) -> Optional[str]:
+        """Async wrapper for snippet extraction to avoid blocking event loop."""
+        return await asyncio.to_thread(self._extract_snippet, file_path)
 
-        # 2. Select samples with Fair User Representation
-        sample_files = []
-        
-        # A. User Quota (Target ~40% of dreams from interactions)
-        user_logs = categorized_files.get('user_logs', [])
-        user_quota = dream_cfg.get('user_quota', 0.4)
-        target_user_dreams = int(dreams_per_scan * user_quota)
-        if target_user_dreams < 1 and user_quota > 0: target_user_dreams = 1
-        
-        if user_logs:
-            # Group by User ID (parent folder) to ensure fair representation
-            user_map = defaultdict(list)
-            for f in user_logs:
-                user_map[f.parent.name].append(f)
+    def _extract_snippet(self, file_path: Path) -> Optional[str]:
+        """Sync snippet extraction logic."""
+        try:
+            file_size = file_path.stat().st_size
+            ext = file_path.suffix.lower()
+            snippet = ""
             
-            users = list(user_map.keys())
-            
-            for _ in range(target_user_dreams):
-                # Pick a random user, then a random file from them
-                # (This gives equal weight to 'Ekco' (few files) and 'gnownm' (many files))
-                selected_user = random.choice(users)
-                selected_file = random.choice(user_map[selected_user])
-                sample_files.append(selected_file)
-                
-        # B. General Content Quota (Populate rest from books, news, docs)
-        other_files = []
-        for cat in ['Books', 'news', 'documents']:
-            other_files.extend(categorized_files.get(cat, []))
-            
-        remaining_slots = dreams_per_scan - len(sample_files)
-        
-        if remaining_slots > 0 and other_files:
-            # Randomly sample from the rest
-            count = min(len(other_files), remaining_slots)
-            sample_files.extend(random.sample(other_files, count))
-            
-        # If we still have slots (e.g., no other files), fill with more user logs if possible
-        remaining_slots = dreams_per_scan - len(sample_files)
-        if remaining_slots > 0 and user_logs:
-             # Just random fill from the flat list for the surplus
-             sample_files.extend(random.choices(user_logs, k=remaining_slots))
-
-        # Shuffle again to mix types in processing order
-        random.shuffle(sample_files)
-        
-        new_dreams_count = 0
-        
-        for file_path in sample_files:
-            try:
-                # 3. Extract snippet (Smart retrieval for Books/Logs)
-                snippet = ""
-                file_size = file_path.stat().st_size
-                ext = file_path.suffix.lower()
-                
-                if ext == '.pdf' and pypdf:
-                    try:
-                        reader = pypdf.PdfReader(str(file_path))
-                        num_pages = len(reader.pages)
-                        if num_pages > 0:
-                            # Pick a random page, skipping potential cover/index
-                            page_num = random.randint(min(5, num_pages-1), max(0, num_pages - 5))
-                            content = reader.pages[page_num].extract_text()
-                            snippet = content[:2500] if content else ""
-                    except Exception as e:
-                        log_warning(f"Failed to parse PDF {file_path.name}: {e}")
-                
-                elif ext == '.docx' and docx2txt:
-                    try:
-                        content = docx2txt.process(str(file_path))
-                        # Random offset in docx text
-                        if len(content) > 3000:
-                            start = random.randint(500, len(content) - 3000)
-                            snippet = content[start:start+2500]
-                        else:
-                            snippet = content[:2500]
-                    except Exception as e:
-                        log_warning(f"Failed to parse DOCX {file_path.name}: {e}")
-                
-                else:
-                    # Text/Markdown handling
-                    with open(file_path, 'r', encoding='utf-8', errors='ignore') as f:
-                        if file_size > 10000: # Large file protection
-                            # Pick a random offset, avoiding the exact beginning (metadata)
-                            # and exact end (likely bibliography or blank)
-                            start_bound = int(file_size * 0.10) # Skip first 10%
-                            end_bound = int(file_size * 0.85)  # Stop before last 15%
-                            offset = random.randint(start_bound, end_bound)
-                            f.seek(offset)
-                            # Read and then find next newline to avoid mid-sentence start
-                            f.readline() 
-                        
-                        content = f.read(5000) # Read enough to get deep narrative context
-                        
-                        # Clean up the snippet
-                        clean_content = content.replace("\n", " ").strip()
-                        if len(clean_content) > 4000:
-                            snippet = clean_content[:4000]
-                        else:
-                            snippet = clean_content
-                        
-                        # Fallback check for metadata pollution at the start
-                        if snippet.startswith("---") or "identifier:" in snippet:
-                            # Try to skip the frontmatter if we hit it
-                            if "---" in snippet[3:]:
-                                snippet = snippet.split("---", 2)[-1].strip()[:4000]
-                
-                # Check for gibberish (mostly non-printable characters)
-                if snippet:
-                    printable_ratio = sum(c.isprintable() for c in snippet[:200]) / min(200, len(snippet))
-                    if printable_ratio < 0.7:
-                        log_warning(f"Skipping potential gibberish snippet from {file_path.name}")
-                        continue
-
-                # 4. Generate reflection
-                # Get a relative path for the source display
+            if ext == '.pdf' and pypdf:
                 try:
-                    display_path = str(file_path.relative_to(self.kb_dir))
-                except Exception:
-                    display_path = file_path.name
+                    reader = pypdf.PdfReader(str(file_path))
+                    num_pages = len(reader.pages)
+                    if num_pages > 0:
+                        page_num = random.randint(min(5, num_pages-1), max(0, num_pages - 5))
+                        content = reader.pages[page_num].extract_text()
+                        snippet = content[:2500] if content else ""
+                except Exception as e:
+                    log_warning(f"Failed to parse PDF {file_path.name}: {e}")
+            
+            elif ext == '.docx' and docx2txt:
+                try:
+                    content = docx2txt.process(str(file_path))
+                    if len(content) > 3000:
+                        start = random.randint(500, len(content) - 3000)
+                        snippet = content[start:start+2500]
+                    else:
+                        snippet = content[:2500]
+                except Exception as e:
+                    log_warning(f"Failed to parse DOCX {file_path.name}: {e}")
+            
+            else:
+                with open(file_path, 'r', encoding='utf-8', errors='replace') as f:
+                    if file_size > 10000:
+                        start_bound = int(file_size * 0.10)
+                        end_bound = int(file_size * 0.85)
+                        offset = random.randint(start_bound, end_bound)
+                        f.seek(offset)
+                        f.readline() 
                     
-                reflection = await self.generate_dream_reflection(
-                    display_path, 
-                    snippet, 
-                    persona_content
-                )
-                
-                if reflection:
-                    # 5. Save as a Markdown file in the KB
-                    # Determine subfolder based on source
-                    subfolder = "other"
-                    if "injected" in file_path.name.lower():
-                        subfolder = "injected"
-                    elif "interactions" in file_path.name.lower() or "user_logs" in str(file_path):
-                        subfolder = "interactions"
-                    elif "books" in str(file_path).lower() or self._classify_source(file_path) == "book":
-                        subfolder = "books"
+                    content = f.read(5000)
+                    clean_content = content.replace("\n", " ").strip()
+                    snippet = clean_content[:4000]
                     
-                    target_dir = self.dreams_kb_dir / subfolder
-                    target_dir.mkdir(parents=True, exist_ok=True)
-                    
-                    # Sanitize filename
-                    safe_name = "".join([c if c.isalnum() else "_" for c in file_path.stem])[:30]
-                    date_str = datetime.now().strftime('%Y%m%d_%H%M%S')
-                    dream_filename = f"dream_{date_str}_{safe_name}.md"
-                    dream_file_path = target_dir / dream_filename
-                    
-                    with open(dream_file_path, 'w', encoding='utf-8') as df:
-                        df.write(f"# Dream Reflection: {display_path}\n")
-                        df.write(f"Source: {display_path}\n")
-                        df.write(f"Generated: {datetime.now().isoformat()}\n\n")
-                        df.write(f"## Original Fragment\n> {snippet[:2000]}...\n\n")
-                        df.write(f"## Kaia's Reflection\n{reflection}\n")
-
-                    new_dreams_count += 1
-                    log_success(f"Generated in-depth dream: {dream_filename}")
-            except Exception as e:
-                log_error(f"Failed to process dream for {file_path.name}: {e}")
-
-        log_info(f"Nightly dreaming complete. Added {new_dreams_count} new thoughts.")
+                    # Skip frontmatter
+                    if snippet.startswith("---") and "---" in snippet[3:]:
+                        snippet = snippet.split("---", 2)[-1].strip()[:4000]
+            
+            if snippet:
+                printable_ratio = sum(c.isprintable() for c in snippet[:200]) / min(200, len(snippet))
+                if printable_ratio < 0.7:
+                    return None
+                return snippet
+        except Exception as e:
+            log_error(f"Extraction failed for {file_path}: {e}")
+        return None
 
     def _classify_source(self, path: Path) -> str:
         parts = path.parts

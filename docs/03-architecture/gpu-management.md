@@ -50,13 +50,20 @@ Kaia monitors response times and memory pressure through the `PerformanceMonitor
 | **RAG Retrieval** | < 2.0s | Verify vector index integrity or disk I/O speed. |
 | **Memory Pressure** | < 11.5GB | If VRAM exceeded, the system will trigger a graceful model reload. |
 
+## Graceful Shutdown & VRAM Teardown
+
+If the application is stopped (either via `Ctrl+C` or the dashboard `[Q]uit` key), it triggers a specialized multi-tier teardown to ensure Ollama completely releases the 12GB VRAM lock:
+1. **Asynchronous Teardown**: `dashboard_manager.py` utilizes `asyncio.shield` to forcibly finalize HTTP unloading requests during OS interrupt signals, before the event loop drops.
+2. **Synchronous Fallback**: For hard-kills, `kill_orphaned_runners()` in `clear_gpu_memory.py` is called. It bypasses `asyncio` entirely, issuing blocking `urllib` POST requests with `keep_alive: 0` to immediately flush the Master Ollama daemon, followed by actively terminating `ollama runner` processes if they refuse to close.
+
 ## Troubleshooting VRAM Issues
 
-### CUDA Out of Memory (OOM)
-If you encounter OOM errors (typically after long uptime or OS updates):
-1. **Restart Kaia**: `python Kaiacord.py`
-2. **Clear GPU Cache**: Run `python tools/diagnostics/clear_gpu_memory.py`
-3. **Check Background Processes**: Ensure no other AI tools (like ComfyUI or SD) are hogging VRAM.
+### CUDA Out of Memory (OOM) (`cudaMalloc failed`)
+If you encounter OOM errors (e.g., during model pre-warming or generation):
+1. **Video Games / Background Apps**: `gemma3:12b` combined with a 16K/20K token context window consumes ~10.5GB to 11.5GB of VRAM. If you attempt to launch memory-heavy applications (like modern video games or ComfyUI), Windows/Linux will exhaust the remaining 1GB of VRAM and Ollama will crash. 
+   - *Fix*: If you are gaming, open `config/kaia.yaml` and reduce `max_context_tokens` to `8192` or `4096` to lower the KV cache size footprint and free up space.
+2. **Restart Kaia**: `python Kaiacord.py`
+3. **Clear GPU Cache**: Run `python utils/infrastructure/gpu/clear_gpu_memory.py` manually.
 
 ## Summary
 ✅ **Chat model always resident** for low latency.

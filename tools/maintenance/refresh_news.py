@@ -15,6 +15,8 @@ from datetime import datetime, timedelta
 sys.path.append(os.path.dirname(os.path.dirname(os.path.dirname(os.path.abspath(__file__)))))
 
 from utils.news.kaia_news import NewsManager
+from tools.maintenance.ingest_manual_news import ingest_manual_news
+from tools.maintenance.update_kaia_news import KaiaNewsUpdater
 
 async def refresh_news(force_update=False):
     """Refresh all news categories and trigger update if needed"""
@@ -22,8 +24,8 @@ async def refresh_news(force_update=False):
     
     # 1. First, always try to ingest manual files
     try:
-        # print("📁 Checking for manual news briefs to ingest...")
-        subprocess.run([sys.executable, "tools/maintenance/ingest_manual_news.py"], check=True)
+        # Direct function call instead of subprocess
+        ingest_manual_news()
     except Exception as e:
         print(f"⚠️ Manual ingestion failed: {e}")
     
@@ -35,23 +37,21 @@ async def refresh_news(force_update=False):
     
     # If no news or force_update, run the update script
     if total_items == 0 or force_update:
-        print("⚠️ No news found or update forced. Triggering update_kaia_news.py...")
+        print("⚠️ No news found or update forced. Triggering KaiaNewsUpdater...")
         try:
-            # Run update_kaia_news.py
-            process = subprocess.run(
-                [sys.executable, "tools/maintenance/update_kaia_news.py"],
-                capture_output=True,
-                text=True,
-                check=True
-            )
-            print("✅ Update script completed successfully.")
-            # Re-initialize manager to pick up new files
-            manager = NewsManager()
-            total_items = sum(len(v) for v in manager.news_cache.values())
-        except subprocess.CalledProcessError as e:
-            print(f"❌ Update script failed: {e.stderr}")
+            # Direct class instantiation and run
+            api_key = os.getenv("GEMINI_API_KEY")
+            if not api_key:
+                print("❌ GEMINI_API_KEY not set")
+            else:
+                updater = KaiaNewsUpdater(api_key)
+                updater.run(skip_backfill=True)
+                print("✅ Update completed successfully.")
+                # Re-initialize manager to pick up new files
+                manager = NewsManager()
+                total_items = sum(len(v) for v in manager.news_cache.values())
         except Exception as e:
-            print(f"❌ Error running update script: {e}")
+            print(f"❌ Error running update: {e}")
 
     print(f"📰 Loaded {total_items} news items across categories")
     

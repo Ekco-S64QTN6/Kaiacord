@@ -1,5 +1,7 @@
 import sys
 import os
+from datetime import datetime
+
 sys.path.append(os.getcwd())
 from utils.core.kaia_rag import KaiaRAG
 from utils.infrastructure.logging.kaia_logger import log_info

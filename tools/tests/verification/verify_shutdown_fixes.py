@@ -17,7 +17,7 @@ sys.modules['watchdog.events'] = MagicMock()
 
 async def test_shutdown_checks():
     print("Testing shutdown checks...")
-    from utils.shutdown_fixed import shutdown_manager
+    from utils.infrastructure.system.shutdown_fixed import shutdown_manager
     from Kaiacord import prewarm_main_model
     
     # Set shutting_down to True

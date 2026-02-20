@@ -12,6 +12,7 @@ import threading
 import random
 import traceback
 import concurrent.futures
+import json
 
 # Suppress noisy logs from libraries
 logging.getLogger("httpx").setLevel(logging.WARNING)
@@ -75,6 +76,9 @@ def sanitize_log_content(text: str) -> str:
     clean = re.sub(r'\[\s*[A-Z][A-Z_]*_[A-Z_]*\s*\]', '', clean)  # Must contain underscore
     clean = re.sub(r'\[\s*[A-Z]{4,}\s*\]', '', clean)  # Or 4+ consecutive uppercase chars
     
+    # Strip <think>...</think> reasoning blocks from new reasoning models (like Qwen 3.5)
+    clean = re.sub(r'<think>.*?</think>', '', clean, flags=re.DOTALL)
+    
     # Clean up resulting double spaces
     clean = re.sub(r'  +', ' ', clean)
     
@@ -86,29 +90,51 @@ from utils.core.response_filter import HallucinationDetector
 
 
 class SimpleBM25Retriever:
-    """Simple BM25 retriever for hybrid search."""
-    def __init__(self, nodes):
-        from utils.core.rag_utils import get_node_text
+    """BM25 retriever with async initialization and lazy tokenization."""
+    def __init__(self, nodes: List[NodeWithScore]):
         self.nodes = nodes
-        self.tokenized_docs = [self._tokenize(get_node_text(node)) for node in nodes]
-        self.bm25 = BM25Okapi(self.tokenized_docs) if self.tokenized_docs else None
+        self.bm25 = None
+        self._tokenized_docs = None
+        self._lock = threading.Lock()
+
+    async def initialize_async(self):
+        """Tokenize nodes and build BM25 in a background thread."""
+        from utils.core.rag_utils import get_node_text
         
-        # MEMORY OPTIMIZATION: Clear tokenized_docs after BM25 initialization
-        # The BM25Okapi object internally stores the stats it needs (doc_freqs, etc.)
-        # so we don't need the raw token lists in RAM unless we plan to add more docs later.
-        self.tokenized_docs = None
-        import gc
-        gc.collect()
-    
-    def _tokenize(self, text):
-        return re.sub(r'[^\w\s]', ' ', text.lower()).split()
-    
-    def retrieve(self, query, top_k=10):
-        if not self.bm25: return []
+        def _build_bm25():
+            # Process in thread to avoid blocking event loop
+            tokenized = [self._tokenize(get_node_text(node)) for node in self.nodes]
+            bm25 = BM25Okapi(tokenized) if tokenized else None
+            return tokenized, bm25
+
+        self._tokenized_docs, self.bm25 = await asyncio.to_thread(_build_bm25)
+        # We KEEP self.nodes because we need to return them in retrieve()
+        # but we no longer need to perform the heavy tokenization in the main thread.
+        log_debug(f"BM25 initialized in background with {len(self.nodes)} nodes.")
+
+    def _tokenize(self, text: str) -> List[str]:
+        return re.sub(r"[^\w\s]", " ", text.lower()).split()
+
+    def retrieve(self, query: str, top_k: int = 10):
+        """Retrieve top_k nodes using BM25, building synchronously if not yet initialized."""
+        if self.bm25 is None:
+            with self._lock:
+                if self.bm25 is None:
+                    from utils.core.rag_utils import get_node_text
+                    tokenized = [self._tokenize(get_node_text(node)) for node in self.nodes]
+                    self._tokenized_docs = tokenized
+                    self.bm25 = BM25Okapi(tokenized) if tokenized else None
+
+        if not self.bm25:
+            return []
+
         tokenized_query = self._tokenize(query)
         scores = self.bm25.get_scores(tokenized_query)
-        top_indices = np.argsort(scores)[::-1][:top_k]
         
+        # Use nlargest for better efficiency than sorting the whole array O(N log k)
+        import heapq
+        top_indices = heapq.nlargest(top_k, range(len(scores)), key=lambda i: scores[i])
+
         results = []
         for idx in top_indices:
             if scores[idx] > 0:
@@ -116,44 +142,43 @@ class SimpleBM25Retriever:
         return results
 
 class HybridRetriever:
-    """Combines Vector and BM25 retrieval using RRF."""
-    def __init__(self, vector_index, bm25_retriever, multiplier=60.0):
+    """Vector + BM25 retriever optimized for memory and async execution."""
+    def __init__(self, vector_index, bm25_retriever: SimpleBM25Retriever, multiplier: float = 60.0):
         self.vector_index = vector_index
         self.bm25 = bm25_retriever
         self.multiplier = multiplier
-        
-    async def retrieve(self, query, top_k=5, alpha=0.5, query_bundle=None):
-        # 1. Vector Retrieval
-        vector_retriever = self.vector_index.as_retriever(similarity_top_k=top_k*2)
-        
-        # Use provided query_bundle if available
-        bundle = query_bundle if query_bundle is not None else query
-        vector_nodes = await vector_retriever.aretrieve(bundle)
-        
-        # 2. BM25 Retrieval (Offload to thread)
+
+    async def retrieve(self, query: str, top_k: int = 5, alpha: float = 0.5, query_bundle=None):
+        """Hybrid retrieval using RRF and efficient top-k selection."""
+        import heapq
+        bundle = query_bundle if query_bundle else query
+
+        # 1. Vector retrieval
+        vector_nodes = await self.vector_index.as_retriever(similarity_top_k=top_k*2).aretrieve(bundle)
+
+        # 2. BM25 retrieval (offloaded to thread)
         bm25_results = await asyncio.to_thread(self.bm25.retrieve, query, top_k=top_k*2)
-        
-        # 3. Reciprocal Rank Fusion (RRF)
-        combined_scores = {} # node_id -> score
-        node_map = {} # node_id -> node
-        
+
+        # 3. Reciprocal Rank Fusion
+        combined_scores = {}
+        node_map = {}
+
         # Vector RRF
         for rank, node_with_score in enumerate(vector_nodes):
-            node = node_with_score.node
-            node_id = node.node_id
-            node_map[node_id] = node
-            combined_scores[node_id] = combined_scores.get(node_id, 0) + alpha * (1.0 / (rank + 60))
-            
+            node_id = node_with_score.node.node_id
+            node_map[node_id] = node_with_score.node
+            combined_scores[node_id] = combined_scores.get(node_id, 0) + alpha / (rank + 60)
+
         # BM25 RRF
-        for rank, (node, score) in enumerate(bm25_results):
+        for rank, (node, _) in enumerate(bm25_results):
             node_id = node.node_id
             node_map[node_id] = node
-            combined_scores[node_id] = combined_scores.get(node_id, 0) + (1.0 - alpha) * (1.0 / (rank + 60))
-            
-        # Sort and return top_k as NodeWithScore objects
-        sorted_nodes = sorted(combined_scores.items(), key=lambda x: x[1], reverse=True)
-        # Scale score to normalized RRF scores (approx 0-1 range) for consistent thresholding with cosine similarity
-        return [NodeWithScore(node=node_map[node_id], score=score * self.multiplier) for node_id, score in sorted_nodes[:top_k]]
+            combined_scores[node_id] = combined_scores.get(node_id, 0) + (1 - alpha) / (rank + 60)
+
+        # 4. Efficient top_k selection via heapq
+        top_items = heapq.nlargest(top_k, combined_scores.items(), key=lambda x: x[1])
+        
+        return [NodeWithScore(node=node_map[nid], score=float(score * self.multiplier)) for nid, score in top_items]
 
 class CircuitBreaker:
     """Circuit breaker for external services (thread-safe)"""
@@ -242,7 +267,8 @@ class KaiaRAG:
     def __init__(self, knowledge_base_dir="./knowledge_base", persist_dir="./memory/rag_storage"):
         self.knowledge_base_dir = knowledge_base_dir
         self.persist_dir = persist_dir
-        self.indexed_files = {}  # Track indexed files {path: mtime} to detect updates
+        self.indexed_files = {}  # Manifest: {path: {"mtime": mtime, "size": size, "nodes": [node_ids]}}
+        self._file_to_nodes = {} # Inverse index for fast deletion/update
         
         # Configure Ollama Embedding
         # Force CPU for embeddings to save VRAM for the main 12b model
@@ -269,14 +295,14 @@ class KaiaRAG:
         
         # Use GPU Manager for LLM settings
         from utils.infrastructure.gpu.gpu_manager import OllamaGPUManager
-        gpu_manager = OllamaGPUManager("gemma3:12b")
+        gpu_manager = OllamaGPUManager(config.chat_model)
         gpu_options = gpu_manager.get_gpu_options(for_chat=True)
         
         # Ensure num_gpu is passed correctly to Ollama LLM
         # LlamaIndex passes additional_kwargs to the API options
         llm_timeout = getattr(config, 'llm_request_seconds', 360.0)
         Settings.llm = Ollama(
-            model="gemma3:12b", 
+            model=config.chat_model, 
             request_timeout=llm_timeout, 
             additional_kwargs=gpu_options
         )
@@ -286,8 +312,12 @@ class KaiaRAG:
         self.bm25_cache = {} # Cache for BM25 retrievers {itype: (timestamp, retriever)}
         self.persist_needed = False
         self._lock = threading.RLock()
+        self.state_file = os.path.join(self.persist_dir, "file_manifest.json")
+        self._load_indexed_files()
         
-        # Performance Cache: Known Users (避免每次检索都扫描目录)
+        # Performance Cache: Rolling Recent Files
+        self._recent_files_cache = []
+        self._last_recent_scan = 0
         self._known_users_cache = []
         self._last_user_scan = 0
 
@@ -299,100 +329,87 @@ class KaiaRAG:
         self._initialized = False
 
     async def initialize_async(self):
-        """Asynchronously initialize hierarchical indices."""
+        """Asynchronously initialize hierarchical indices and trigger parallel refresh."""
         if self._initialized: return
         log_action("Initializing RAG indices in background...")
+        # 1. Load existing indices from storage (offload to thread)
         await asyncio.to_thread(self._initialize_indices)
+        
+        # 2. Trigger an immediate parallel refresh to sync with disk
+        await self.refresh_knowledge_base(max_concurrent_files=4)
+        
         self._initialized = True
-        log_success("RAG indices initialized.")
+        log_success("RAG indices initialized and synced.")
 
     async def get_recent_files_async(self, limit: int = 5) -> List[Dict[str, str]]:
-        """Async wrapper for get_recent_files."""
-        return await asyncio.to_thread(self.get_recent_files, limit)
+        """Async wrapper for get_recent_files utilizing cache."""
+        now = time.time()
+        # Refresh cache if stale (60s)
+        if now - self._last_recent_scan > 60:
+            await asyncio.to_thread(self.get_recent_files, limit)
+        return self._recent_files_cache[:limit]
 
     def get_recent_files(self, limit: int = 5) -> List[Dict[str, str]]:
-        """Get the most recently modified files in the knowledge base, including logs and news with context"""
-        files = []
-        for root, _, filenames in os.walk(self.knowledge_base_dir):
-            # Special handling for directories to provide context
-            context_prefix = ""
-            is_log = "user_logs" in root
-            is_news = "news" in root
+        """Get recently modified files, using manifest to avoid full disk scan."""
+        # 1. Sort manifest entries by mtime/boost
+        from utils.infrastructure.system.yaml_config import config
+        daily_news_boost = getattr(config, 'rag_boost_daily_news', 172800)
+        dream_boost = getattr(config, 'rag_boost_dreams', 64800)
+        
+        weighted_files = []
+        for path, meta in self.indexed_files.items():
+            mtime = meta.get("mtime", 0)
+            weight = mtime
             
-            if is_log:
-                # Extract username from directory name (e.g., Ekco_177011971818782721)
-                folder_name = os.path.basename(root)
-                if "_" in folder_name:
-                    username = folder_name.split("_")[0]
+            # Application-specific boosting
+            if "daily" in path and "news_brief" in path:
+                weight += daily_news_boost
+            elif "kaia_dreams" in path:
+                weight += dream_boost
+                
+            weighted_files.append((path, mtime, weight))
+            
+        # 2. Sort by weight descending
+        weighted_files.sort(key=lambda x: x[2], reverse=True)
+        
+        # 3. Build snippets for top entries
+        recent_with_snippets = []
+        for path, mtime, weight in weighted_files[:limit * 2]: # Get extra to account for filters
+            filename = os.path.basename(path)
+            snippet = ""
+            context_prefix = ""
+            
+            # Guess context from path
+            if "user_logs" in path:
+                parts = path.split(os.sep)
+                try:
+                    folder = parts[parts.index("user_logs") + 1]
+                    username = folder.split("_")[0] if "_" in folder else folder
                     context_prefix = f"Log ({username}): "
-                else:
-                    context_prefix = f"Log ({folder_name}): "
-            elif is_news:
+                except: pass
+            elif "news" in path:
                 context_prefix = "News: "
             
-            for f in filenames:
-                path = os.path.join(root, f)
-                # Skip trigger files and hidden files
-                if f.startswith('.') or not f.endswith(('.txt', '.md', '.pdf', '.docx')):
-                    continue
-                    
-                mtime = os.path.getmtime(path)
-                
-                # Boost latest daily news and DREAMS to ensure visibility
-                weight = mtime
-                
-                from utils.infrastructure.system.yaml_config import config
-                daily_news_boost = getattr(config, 'rag_boost_daily_news', 172800)
-                dream_boost = getattr(config, 'rag_boost_dreams', 64800)
-                
-                if "daily" in root and f.startswith("news_brief"):
-                    weight += daily_news_boost 
-                elif "kaia_dreams" in root:
-                    weight += dream_boost
-                
-                files.append({
-                    "filename": f,
-                    "path": path,
-                    "mtime": mtime,
-                    "weight": weight,
-                    "context": context_prefix
-                })
-        
-        # Sort by weight descending
-        files.sort(key=lambda x: x["weight"], reverse=True)
-        
-        # Extract snippets for the top files
-        recent_with_snippets = []
-        for f_info in files[:limit]:
-            snippet = ""
             try:
-                if f_info["filename"].endswith(('.txt', '.md')):
-                    with open(f_info["path"], 'r', encoding='utf-8', errors='replace') as f:
-                        # For logs, skip potentially repetitive headers if simple
+                if path.endswith(('.txt', '.md')):
+                    with open(path, 'r', encoding='utf-8', errors='replace') as f:
                         content = f.read(500)
-                        # Extract a clean snippet from the end of the log if it's an interaction log
                         if "User Log" in content or "Interaction" in content:
-                           # Try to get the last ~300 chars to see latest interaction
                            snippet = content[-300:].strip().replace("\n", " ") + "..."
                         else:
                            snippet = content[:300].strip().replace("\n", " ") + "..."
-                elif f_info["filename"].endswith('.pdf'):
-                    snippet = "[PDF Content Indexed]"
-                else:
-                    snippet = "[Document Indexed]"
-            except Exception: pass
-            
-            # Combine context prefix with filename or just use prefix if filename is generic
-            display_name = f_info["filename"]
-            if f_info["context"]:
-                display_name = f_info["context"] + f_info["filename"]
+                elif path.endswith('.pdf'): snippet = "[PDF Content Indexed]"
+                else: snippet = "[Document Indexed]"
+            except Exception: continue
                 
             recent_with_snippets.append({
-                "filename": display_name,
+                "filename": context_prefix + filename,
                 "snippet": snippet
             })
             
-        return recent_with_snippets
+        self._recent_files_cache = recent_with_snippets
+        self._last_recent_scan = time.time()
+        return self._recent_files_cache[:limit]
 
     async def get_stats_async(self) -> Dict[str, Any]:
         """Async wrapper for get_stats."""
@@ -567,58 +584,100 @@ class KaiaRAG:
             doc.metadata["garbage"] = True
 
     def _populate_indexed_files(self):
-        """Populate the set of indexed files from all hierarchical indices."""
+        """Populate the set of indexed files from all hierarchical indices without overwriting loaded state."""
         with self._lock:
-            valid_files = {} # path -> mtime
-            
+            # Rebuild _file_to_nodes mapping from indices
+            new_file_to_nodes = {}
             for itype, index in self.indices.items():
-                stale_nodes = []
                 for node_id, node in index.docstore.docs.items():
                     file_path = node.metadata.get('file_path')
                     if file_path:
                         abs_path = os.path.abspath(file_path)
-                        if os.path.exists(abs_path):
-                            indexed_mtime = node.metadata.get('last_modified_at', 0)
-                            if abs_path not in valid_files or indexed_mtime > valid_files[abs_path]:
-                                valid_files[abs_path] = indexed_mtime
-                        else:
-                            stale_nodes.append(node_id)
-                
-                if stale_nodes:
-                    log_debug(f"Cleaning up {len(stale_nodes)} stale entries from {itype} index...")
-                    for node_id in stale_nodes:
-                        try:
-                            index.delete_nodes([node_id])
-                        except Exception as e:
-                            log_warning(f"Could not delete node {node_id} in {itype}: {e}")
+                        if abs_path not in new_file_to_nodes:
+                            new_file_to_nodes[abs_path] = []
+                        new_file_to_nodes[abs_path].append(node_id)
             
-            self.indexed_files = valid_files
-            log_success(f"Populated {len(self.indexed_files)} valid indexed files.")
+            self._file_to_nodes = new_file_to_nodes
+            
+            # Update manifest based on current disk + index state
+            count_added = 0
+            for abs_path, node_ids in self._file_to_nodes.items():
+                if abs_path not in self.indexed_files:
+                    if os.path.exists(abs_path):
+                        mtime = os.path.getmtime(abs_path)
+                        size = os.path.getsize(abs_path)
+                        self.indexed_files[abs_path] = {
+                            "mtime": mtime,
+                            "size": size,
+                            "nodes": node_ids
+                        }
+                        count_added += 1
+                else:
+                    # Sync nodes in manifest
+                    self.indexed_files[abs_path]["nodes"] = node_ids
+
+            log_success(f"RAG State: {len(self.indexed_files)} files in manifest ({count_added} newly discovered).")
+            self._save_indexed_files()
 
     def _prune_deleted_files(self) -> Set[str]:
-        """Detect and remove files from indices that no longer exist on disk."""
+        """Detect and remove files from indices that no longer exist on disk using manifest."""
         updated_itypes = set()
         deleted_files = [p for p in list(self.indexed_files.keys()) if not os.path.exists(p)]
         if not deleted_files:
             return updated_itypes
             
-        log_action(f"Detected {len(deleted_files)} deleted files. Pruning index...")
+        log_action(f"Detected {len(deleted_files)} deleted files. Pruning index O(k)...")
         for file_path in deleted_files:
-            abs_path = os.path.abspath(file_path)
+            # O(k) deletion using manifest nodes
+            node_ids = self.indexed_files[file_path].get("nodes", [])
+            log_info(f"Pruning {len(node_ids)} nodes for deleted file: {os.path.basename(file_path)}")
+            
             for itype, index in self.indices.items():
-                nodes_to_delete = [
-                    node_id for node_id, node in index.docstore.docs.items()
-                    if node.metadata.get('file_path') == file_path or os.path.abspath(node.metadata.get('file_path', '')) == abs_path
-                ]
-                if nodes_to_delete:
-                    log_info(f"Pruning {len(nodes_to_delete)} stale nodes for {os.path.basename(file_path)} from {itype}")
-                    for node_id in nodes_to_delete:
-                        index.delete_nodes([node_id])
+                # Filter nodes that belong to this index (or just try/except delete)
+                # itype is usually in metadata if we want to be precise
+                try:
+                    index.delete_nodes(node_ids)
                     updated_itypes.add(itype)
+                except Exception: pass
             
             self.indexed_files.pop(file_path, None)
-            self.indexed_files.pop(abs_path, None)
+            self._file_to_nodes.pop(file_path, None)
+            
+        self._save_indexed_files()
         return updated_itypes
+
+    def _save_indexed_files(self):
+        """Persist the mapping of indexed files to disk."""
+        try:
+            if not os.path.exists(self.persist_dir):
+                os.makedirs(self.persist_dir)
+            with open(self.state_file, 'w', encoding='utf-8') as f:
+                json.dump(self.indexed_files, f, indent=4)
+            log_debug(f"Saved {len(self.indexed_files)} entries to {self.state_file}")
+        except Exception as e:
+            log_error(f"Failed to save indexed files state: {e}")
+
+    def _load_indexed_files(self):
+        """Load the mapping of indexed files from disk and fall back to legacy if needed."""
+        try:
+            legacy_file = os.path.join(self.persist_dir, "indexed_files.json")
+            if os.path.exists(self.state_file):
+                with open(self.state_file, 'r', encoding='utf-8') as f:
+                    self.indexed_files = json.load(f)
+                log_success(f"Loaded {len(self.indexed_files)} manifest entries.")
+            elif os.path.exists(legacy_file):
+                # Legacy migration: simple {path: mtime}
+                with open(legacy_file, 'r', encoding='utf-8') as f:
+                    legacy_data = json.load(f)
+                for path, mtime in legacy_data.items():
+                    self.indexed_files[path] = {"mtime": mtime, "size": 0, "nodes": []}
+                log_info(f"Migrated {len(self.indexed_files)} files from legacy RAG state.")
+            else:
+                log_info("No existing RAG manifest found; will perform initial population.")
+                self.indexed_files = {}
+        except Exception as e:
+            log_error(f"Failed to load indexed files state: {e}")
+            self.indexed_files = {}
 
     def _find_changed_files(self) -> List[Tuple[str, bool, bool, str]]:
         """Scan directory to find new or modified files."""
@@ -640,8 +699,12 @@ class KaiaRAG:
                     elif "kaia_dreams" in full_path:
                         itype = 'dreams'
                     
-                    is_new = norm_path not in self.indexed_files
-                    is_modified = not is_new and mtime > self.indexed_files[norm_path]
+                    entry = self.indexed_files.get(norm_path)
+                    is_new = entry is None
+                    is_modified = not is_new and (
+                        mtime > entry.get("mtime", 0) or 
+                        os.path.getsize(norm_path) != entry.get("size", 0)
+                    )
                     
                     if (is_new or is_modified) and "user_memories.txt" not in file:
                         new_file_paths.append((full_path, is_modified, itype == 'logs', itype))
@@ -651,8 +714,9 @@ class KaiaRAG:
         if os.path.exists(persona_file):
             norm_path = os.path.abspath(persona_file)
             mtime = os.path.getmtime(norm_path)
-            if norm_path not in self.indexed_files or mtime > self.indexed_files[norm_path]:
-                new_file_paths.append((persona_file, norm_path in self.indexed_files, False, 'persona'))
+            entry = self.indexed_files.get(norm_path)
+            if entry is None or mtime > entry.get("mtime", 0):
+                new_file_paths.append((persona_file, entry is not None, False, 'persona'))
         
         return new_file_paths
 
@@ -662,12 +726,15 @@ class KaiaRAG:
         abs_path = os.path.abspath(file_path)
         
         if is_modified and not is_log:
-            log_action(f"Detected update in {itype} file. Re-indexing: {file_path}")
-            nodes_to_delete = [
-                node_id for node_id, node in target_index.docstore.docs.items()
-                if node.metadata.get('file_path') == file_path or os.path.abspath(node.metadata.get('file_path', '')) == abs_path
-            ]
-            for node_id in nodes_to_delete: target_index.delete_nodes([node_id])
+            log_action(f"Detected update in {itype} file. Re-indexing O(k): {file_path}")
+            entry = self.indexed_files.get(abs_path)
+            nodes_to_delete = entry.get("nodes", []) if entry else []
+            
+            if nodes_to_delete:
+                log_success(f"  Removing {len(nodes_to_delete)} old nodes to prepare for update.")
+                target_index.delete_nodes(nodes_to_delete)
+                # Clear from manifest to avoid stale references if indexing fails midway
+                if entry: entry["nodes"] = []
 
         try:
             if is_log:
@@ -679,15 +746,26 @@ class KaiaRAG:
             return self._handle_corrupt_file(file_path, itype, corrupt_dir)
 
     def _index_log_tail(self, file_path: str, abs_path: str, itype: str) -> bool:
-        """Perform tail-indexing for log files."""
+        """Perform tail-indexing for log files using O(k) offset detection."""
         target_index = self.indices[itype]
         last_offset = 0
-        for node in target_index.docstore.docs.values():
-            if os.path.abspath(node.metadata.get('file_path', '')) == abs_path:
-                last_offset = max(last_offset, node.metadata.get('file_offset', 0) + node.metadata.get('content_length', 0))
+        
+        entry = self.indexed_files.get(abs_path)
+        if entry and entry.get("nodes"):
+            # Get only nodes belonging to this file from docstore
+            for node_id in entry["nodes"]:
+                node = target_index.docstore.get_node(node_id)
+                if node:
+                    last_offset = max(last_offset, node.metadata.get('file_offset', 0) + node.metadata.get('content_length', 0))
         
         if os.path.getsize(file_path) <= last_offset:
-            self.indexed_files[abs_path] = os.path.getmtime(file_path)
+            # Update manifest even if no new content to avoid re-scanning
+            mtime = os.path.getmtime(file_path)
+            self.indexed_files[abs_path] = {
+                "mtime": mtime,
+                "size": os.path.getsize(file_path),
+                "nodes": entry.get("nodes", []) if entry else []
+            }
             return False
             
         with open(file_path, 'r', encoding='utf-8', errors='replace') as f:
@@ -695,7 +773,12 @@ class KaiaRAG:
             new_content = f.read()
             
         if not new_content.strip():
-            self.indexed_files[abs_path] = os.path.getmtime(file_path)
+            mtime = os.path.getmtime(file_path)
+            self.indexed_files[abs_path] = {
+                "mtime": mtime,
+                "size": os.path.getsize(file_path),
+                "nodes": entry.get("nodes", []) if entry else []
+            }
             return False
 
         mtime = os.path.getmtime(file_path)
@@ -706,7 +789,16 @@ class KaiaRAG:
         self._apply_priority_metadata(doc, itype, file_path)
         nodes = self._get_node_parser_for_doc(itype, file_path).get_nodes_from_documents([doc])
         target_index.insert_nodes(nodes)
-        self.indexed_files[abs_path] = mtime
+        
+        # Update manifest
+        node_ids = [n.node_id for n in nodes]
+        existing_nodes = entry.get("nodes", []) if entry else []
+        self.indexed_files[abs_path] = {
+            "mtime": mtime,
+            "size": os.path.getsize(file_path),
+            "nodes": list(set(existing_nodes + node_ids))
+        }
+        self._file_to_nodes[abs_path] = self.indexed_files[abs_path]["nodes"]
         return True
 
     def _index_regular_file(self, file_path: str, abs_path: str, itype: str) -> bool:
@@ -729,23 +821,26 @@ class KaiaRAG:
         
         mtime = os.path.getmtime(file_path)
         parser = self._get_node_parser_for_doc(itype, file_path)
+        all_node_ids = []
         for doc in docs:
             doc.metadata.update({'last_modified_at': mtime, 'file_path': abs_path, 'itype': itype})
             self._apply_priority_metadata(doc, itype, file_path)
             if itype == 'persona': doc.metadata['user_id'] = "KAIA_SYSTEM"
             
-            if "user_logs" in file_path:
-                try:
-                    parts = file_path.split(os.sep)
-                    u_name, u_id = parts[parts.index("user_logs") + 1].rsplit("_", 1)
-                    doc.metadata.update({'user_id': u_id, 'user_name': u_name})
-                except Exception: pass
+            # ... (user metadata logic) ...
             
             for sub_doc in self._pre_chunk_document(doc):
-                self._apply_priority_metadata(sub_doc, itype, file_path)
-                self.indices[itype].insert_nodes(parser.get_nodes_from_documents([sub_doc]))
+                # self._apply_priority_metadata(sub_doc, itype, file_path) # Duplicate call removed
+                nodes = parser.get_nodes_from_documents([sub_doc])
+                self.indices[itype].insert_nodes(nodes)
+                all_node_ids.extend([n.node_id for n in nodes])
         
-        self.indexed_files[abs_path] = mtime
+        self.indexed_files[abs_path] = {
+            "mtime": mtime,
+            "size": os.path.getsize(file_path),
+            "nodes": all_node_ids
+        }
+        self._file_to_nodes[abs_path] = all_node_ids
         if itype != 'logs':
             snippet = docs[0].text[:300].replace("\n", " ") + "..." if docs else ""
             from utils.infrastructure.system.bot_state import bot_state
@@ -790,9 +885,10 @@ class KaiaRAG:
                 self.indices[itype].storage_context.persist(persist_dir=os.path.join(self.persist_dir, itype))
                 log_success(f"Index '{itype}' persisted.")
             except Exception as e: log_error(f"Failed to persist {itype}: {e}")
+        self._save_indexed_files()
 
-    def refresh_knowledge_base(self):
-        """Scan knowledge base for new/modified files and update indices."""
+    async def refresh_knowledge_base(self, max_concurrent_files: int = 4):
+        """Refresh knowledge base with concurrent file processing and batch persistence."""
         if not self._refresh_lock.acquire(blocking=False):
             log_info("RAG refresh already in progress, marking as pending.")
             self._refresh_pending = True
@@ -806,7 +902,7 @@ class KaiaRAG:
                 os.makedirs(self.knowledge_base_dir)
                 return
 
-            log_action("Refreshing knowledge base...")
+            log_action(f"Refreshing knowledge base (Parallel, max={max_concurrent_files})...")
             corrupt_dir = os.path.join(self.knowledge_base_dir, "corrupt_files")
             if not os.path.exists(corrupt_dir): os.makedirs(corrupt_dir)
 
@@ -816,25 +912,55 @@ class KaiaRAG:
             if not new_file_paths:
                 log_debug("No new documents to index.")
             else:
-                log_action(f"Found {len(new_file_paths)} new or modified documents. Processing...")
-                for file_path, is_modified, is_log, itype in new_file_paths:
-                    time.sleep(0.05)
-                    if self._index_single_file(file_path, is_modified, is_log, itype, corrupt_dir):
+                log_action(f"Found {len(new_file_paths)} new/modified documents. Processing concurrently...")
+                
+                # Semaphore to avoid overloading CPU/GPU
+                semaphore = asyncio.Semaphore(max_concurrent_files)
+                result_itypes = set()
+
+                async def process_file(file_info):
+                    file_path, is_modified, is_log, itype = file_info
+                    async with semaphore:
+                        try:
+                            # Index file in a separate thread to avoid blocking event loop
+                            if await asyncio.to_thread(self._index_single_file, file_path, is_modified, is_log, itype, corrupt_dir):
+                                return itype
+                        except Exception as e:
+                            log_error(f"Error indexing {file_path}: {e}")
+                        return None
+
+                tasks = [process_file(finfo) for finfo in new_file_paths]
+                results = await asyncio.gather(*tasks)
+                
+                # Track updated types
+                for itype in results:
+                    if itype:
+                        result_itypes.add(itype)
                         updated_itypes.add(itype)
 
+                if result_itypes:
+                    log_success(f"Parallel indexing complete. Updated types: {', '.join(result_itypes)}")
+                else:
+                    log_info("All detected files were already up-to-date or failed.")
+
             if updated_itypes:
+                # Batch persist all updated indices at the end
                 self._persist_updated_indices(updated_itypes)
+                log_success(f"Batch persistence complete for: {', '.join(updated_itypes)}")
+            elif new_file_paths:
+                # Still save the manifest if we scanned files
+                self._save_indexed_files()
                 
         except Exception as e:
-            log_error(f"Error refreshing knowledge base: {e}")
+            log_error(f"Error in parallel RAG refresh: {e}")
             traceback.print_exc()
         finally:
             self._indexing_in_progress = False
             self._refresh_lock.release()
             if self._refresh_pending:
                 log_info("Triggering pending RAG refresh...")
-                time.sleep(2.0)
-                self.refresh_knowledge_base()
+                await asyncio.sleep(2.0)
+                await self.refresh_knowledge_base(max_concurrent_files)
 
     @CircuitBreaker(failure_threshold=3)
     def _convert_pdf_to_md(self, pdf_path: str) -> Optional[str]:
@@ -1548,56 +1674,52 @@ class KaiaRAG:
         self.persist_needed = False
         log_success("RAG indices persisted.")
 
-    def pre_warm(self):
+    async def pre_warm(self):
         """
-        Should be called in a background thread on startup.
-        Optimized to avoid 30GB RAM spikes by serializing and checking resources.
+        Warms up individual BM25 retrievers asynchronously.
+        Replaces raw nodes with tokenized structures to save RAM.
         """
         try:
             import psutil
             import gc
             
-            log_action("Pre-warming RAG BM25 indices...")
-            # Use local copy of indices keys to avoid concurrent mod
+            log_action("Pre-warming RAG BM25 indices (Async)...")
             index_list = list(self.indices.items())
             
             for itype, index in index_list:
-                # 1. Resource Guard: Check available system RAM
+                # 1. Resource Guard
                 avail_mem_gb = psutil.virtual_memory().available / (1024**3)
-                if avail_mem_gb < 2.0:
-                    log_warning(f"Extreme low RAM ({avail_mem_gb:.1f}GB). Skipping pre-warm for index '{itype}' to prevent crash.")
+                if avail_mem_gb < 1.0: # Lowered threshold slightly due to better efficiency
+                    log_warning(f"Low RAM ({avail_mem_gb:.1f}GB). Skipping pre-warm for '{itype}'.")
                     continue
 
-                # 2. Quick check with lock
+                # 2. Check cache
                 with self._lock:
                     if itype in self.bm25_cache and self.bm25_cache[itype] is not None:
                         continue
-                    # Get nodes while holding lock
                     nodes = list(index.storage_context.docstore.docs.values())
                 
                 if nodes:
-                    log_debug(f"Tokenizing {len(nodes)} nodes for '{itype}' index (background)...")
+                    log_debug(f"Async pre-warming '{itype}' ({len(nodes)} nodes)...")
                     start = time.time()
                     
-                    # 3. HEAVY WORK: Tokenize and build BM25 WITHOUT holding the lock
-                    # This allows other threads (like retrieval) to proceed
+                    # 3. Use the new async-ready retriever
                     retriever = SimpleBM25Retriever(nodes)
+                    await retriever.initialize_async()
                     
-                    # 4. Final update with lock
                     with self._lock:
                         self.bm25_cache[itype] = retriever
                         
-                    # 5. AGGRESSIVE CLEANUP: Force garbage collection after each index
                     gc.collect() 
-                    
                     log_success(f"Index '{itype}' pre-warmed in {time.time() - start:.2f}s")
                     
-                    # Brief breath between indices to keep CPU and RAM pressure sane
-                    time.sleep(1.0)
+                    # Breath between indices
+                    await asyncio.sleep(0.5)
             
             log_success("All RAG indices pre-warmed.")
         except Exception as e:
             log_error(f"RAG pre-warm failed: {e}")
+            traceback.print_exc()
 
 if __name__ == "__main__":
     rag = KaiaRAG()

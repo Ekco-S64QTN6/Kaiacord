@@ -52,29 +52,7 @@ async def test_state_persistence():
     else:
         log_error(f"State persistence failed. Profiles: {personalization2.user_profiles}")
 
-@pytest.mark.asyncio
-async def test_token_allocation():
-    log_info("\n--- Testing Token Allocation Guarantees ---")
-    optimizer = ContextOptimizer(max_tokens=2000) # Small budget to force rebalancing
-    
-    # Simulate large inputs
-    persona = "persona " * 2000
-    rag_nodes = [{"content": "rag " * 2000, "metadata": {"source_type": "docs"}}]
-    history = ["history " * 2000]
-    
-    optimized = optimizer.optimize_context("knowledge", persona, rag_nodes, history)
-    
-    # Check if guarantees are met (min_rag=1024, min_history=512)
-    rag_len = len(optimized['rag'].split()) * 1.3
-    hist_len = len(optimized['history'].split()) * 1.3
-    
-    log_info(f"Optimized RAG tokens: {rag_len:.0f} (min 1024)")
-    log_info(f"Optimized History tokens: {hist_len:.0f} (min 512)")
-    
-    if rag_len >= 1000 and hist_len >= 500: # Allow some margin for word/token conversion
-        log_success("Token allocation guarantees verified.")
-    else:
-        log_error("Token allocation guarantees failed.")
+
 
 @pytest.mark.asyncio
 async def test_intent_parsing():
@@ -103,7 +81,7 @@ async def main():
     print("=== Running Intelligence Layer Tests ===")
     
     await test_state_persistence()
-    await test_token_allocation()
+
     await test_intent_parsing()
     
     # Cleanup

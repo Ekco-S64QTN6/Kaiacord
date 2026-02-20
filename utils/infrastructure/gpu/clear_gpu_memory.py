@@ -26,8 +26,8 @@ def clear_gpu_memory(silent: bool = False):
     if not silent:
         print("Clearing GPU memory...")
     
-    # Empty cache multiple times
-    for i in range(5):
+    # Empty cache multiple times (2 passes is usually sufficient)
+    for _ in range(2):
         gc.collect()
         torch.cuda.empty_cache()
     
@@ -64,8 +64,8 @@ def force_clear_gpu() -> bool:
         return True
     
     try:
-        # Phase 1: Standard cleanup
-        for _ in range(3):
+        # Phase 1: Standard cleanup (Reduced loops for efficiency)
+        for _ in range(2):
             gc.collect()
             torch.cuda.empty_cache()
         
@@ -81,10 +81,9 @@ def force_clear_gpu() -> bool:
         except:
             pass
         
-        # Phase 4: Final aggressive cleanup
-        for _ in range(5):
-            gc.collect()
-            torch.cuda.empty_cache()
+        # Phase 4: Final cleanup
+        gc.collect()
+        torch.cuda.empty_cache()
         
         torch.cuda.synchronize()
         
@@ -99,22 +98,58 @@ def force_clear_gpu() -> bool:
 
 
 def kill_orphaned_runners():
-    """Aggressively kill any lingering ollama runner processes to reclaim VRAM."""
+    """Aggressively unload VRAM via sync HTTP, then kill any lingering ollama runners."""
     import psutil
     import os
-    
+    import json
+    import urllib.request
+    import urllib.error
+
+    # 1. Graceful Synchronous Unload (Bypasses active async event loops)
+    print("🔄 Ensuring all models are flushed from VRAM via HTTP...")
+    try:
+        req = urllib.request.Request("http://127.0.0.1:11434/api/tags", method="GET")
+        with urllib.request.urlopen(req, timeout=3.0) as response:
+             data = json.loads(response.read().decode())
+             models = [m["name"] for m in data.get("models", [])]
+             
+        for model in models:
+             payload = json.dumps({"model": model, "keep_alive": 0}).encode("utf-8")
+             preq = urllib.request.Request(
+                 "http://127.0.0.1:11434/api/generate",
+                 data=payload,
+                 headers={"Content-Type": "application/json"},
+                 method="POST"
+             )
+             try:
+                 with urllib.request.urlopen(preq, timeout=2.0) as p_resp:
+                     pass # Unloaded cleanly
+             except Exception:
+                 pass
+        print("  ✅ Sent kill signals to Ollama daemon.")
+    except Exception as e:
+        print(f"  ⚠️ Could not ping Ollama daemon for flush: {e}")
+
+    # 2. Hard Kill lingering rogue runners
     current_pid = os.getpid()
     for proc in psutil.process_iter(['pid', 'name', 'cmdline']):
         try:
-            # Check for ollama runner processes
             cmdline = proc.info.get('cmdline') or []
-            if 'ollama' in proc.info['name'].lower() and 'runner' in ' '.join(cmdline).lower():
-                print(f"🔪 Killing orphaned Ollama runner (PID: {proc.info['pid']})")
-                proc.kill()
+            cmd_str = ' '.join(cmdline).lower()
+            proc_name = proc.info['name'].lower()
+            
+            if 'ollama' in proc_name or 'ollama' in cmd_str:
+                if 'runner' in cmd_str:
+                    if proc.info['pid'] != current_pid:
+                        try:
+                            proc.terminate()
+                            proc.wait(timeout=2)
+                        except (psutil.TimeoutExpired, Exception):
+                            proc.kill()
         except (psutil.NoSuchProcess, psutil.AccessDenied):
             pass
     
-    print("✨ Orphaned runners cleared.")
+    print("✨ Ollama cleanup finalized.")
 
 
 if __name__ == "__main__":
