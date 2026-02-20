@@ -2,7 +2,7 @@ import asyncio
 import re
 from datetime import datetime
 from pathlib import Path
-from utils.infrastructure.logging.kaia_logger import log_action, log_success, log_error, log_warning
+from utils.infrastructure.logging.kaia_logger import log_action, log_success, log_error, log_warning, log_info
 
 async def handle_news_command(ctx, msg, send_kaia_response):
     """Handle the !news command"""
