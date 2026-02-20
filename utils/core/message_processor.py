@@ -606,10 +606,12 @@ class MessageProcessor:
             label = "[REPLYING_TO_CONTEXT]"
             if ctx.root_context == ctx.parent_context:
                 label = "[THREAD_ROOT_AND_PARENT]"
-            full_system_prompt += f"\n\n{label}\n{ctx.parent_context}"
+            clipped_parent = ctx.parent_context[:1000] + ("..." if len(ctx.parent_context) > 1000 else "")
+            full_system_prompt += f"\n\n{label}\n{clipped_parent}"
             
         if ctx.root_context and ctx.root_context != ctx.parent_context:
-            full_system_prompt += f"\n\n[THREAD_START]\nThis conversation originated from:\n{ctx.root_context}"
+            clipped_root = ctx.root_context[:1000] + ("..." if len(ctx.root_context) > 1000 else "")
+            full_system_prompt += f"\n\n[THREAD_START]\nThis conversation originated from:\n{clipped_root}"
         messages = [
             {"role": "system", "content": full_system_prompt}
         ]
@@ -673,11 +675,14 @@ class MessageProcessor:
                 response = await gpu_memory_manager.run_with_gpu_guard(
                     model_name=self.config.chat_model,
                     priority=GPUTaskPriority.CHAT,
-                    coro=SelfHealingSystem.call_with_fallback(
-                        self.ollama_client.chat,
-                        model=self.config.chat_model,
-                        messages=messages,
-                        options=current_options
+                    coro=asyncio.wait_for(
+                        SelfHealingSystem.call_with_fallback(
+                            self.ollama_client.chat,
+                            model=self.config.chat_model,
+                            messages=messages,
+                            options=current_options
+                        ),
+                        timeout=self.config.classification_timeout
                     ),
                     task_id=f"chat_{uuid.uuid4().hex[:8]}"
                 )
