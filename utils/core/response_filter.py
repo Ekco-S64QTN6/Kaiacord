@@ -106,6 +106,7 @@ class EmergencyContaminationFilter:
         lines = response.split('\n')
         filtered_lines = []
         contaminated_count = 0
+        contamination_found = False
         for line in lines:
             # Skip lines with contamination
             if cls._compiled_pattern.search(line):
