@@ -25,8 +25,12 @@ class RealTimeStatsPoller:
             'last_update': time.time(),
             'ollama_status': "🔴 OFFLINE",
             'active_model': "None",
+            'ollama_models': [],
             'rag_documents': 0,
-            'rag_size': "0 MB"
+            'rag_size': "0 MB",
+            'kb_size_mb': 0.0,
+            'indexed_files': 0,
+            'dreams_count': 0
         }
         
         self.response_times = deque(maxlen=100)
@@ -104,41 +108,98 @@ class RealTimeStatsPoller:
              new_stats['gpu_util'] = 0.0
              new_stats['gpu_memory'] = "N/A"
         
-        # 3. Ollama Status (Using library if possible, falling back to lightweight check)
+        # 3. Ollama Status
         try:
-            import ollama
-            # Fast check without spawning subprocess
-            models = ollama.list()
-            if models:
-                new_stats['ollama_status'] = "🟢 ONLINE"
-                
-                # Heuristic for active model via VRAM usage since ollama.ps() might not be available in all versions
-                # or might be slow. 
-                # If pynvml says > 2GB used, likely a model is loaded.
-                mem_used = 0
-                if 'gpu_memory' in new_stats and '/' in new_stats['gpu_memory']:
-                    try:
-                        mem_used = int(new_stats['gpu_memory'].split('/')[0])
-                    except (ValueError, IndexError):
-                        pass
+            import urllib.request
+            import urllib.error
+            import json
+            req = urllib.request.Request("http://127.0.0.1:11434/api/tags")
+            try:
+                with urllib.request.urlopen(req, timeout=1.0) as response:
+                    data = json.loads(response.read().decode('utf-8'))
+                    models = data.get('models', [])
+                    new_stats['ollama_status'] = "🟢 ONLINE"
+                    
+                    # Extract up to 3 models to display
+                    model_list = []
+                    for m in models[:3]:
+                        name = m.get('name', 'unknown').split(':')[0]
+                        size_gb = m.get('size', 0) / (1024**3)
+                        model_list.append(f"{name} ({size_gb:.1f}G)")
+                    
+                    new_stats['ollama_models'] = model_list
 
-                if mem_used < 2048:
-                    new_stats['active_model'] = "unloaded (idle)"
-                elif mem_used < 6144:
-                    new_stats['active_model'] = "warming"
+                    # VRAM heuristic for active model
+                    mem_used = 0
+                    if 'gpu_memory' in new_stats and '/' in new_stats['gpu_memory']:
+                        try:
+                            mem_used = int(new_stats['gpu_memory'].split('/')[0])
+                        except (ValueError, IndexError):
+                            pass
+
+                    if mem_used < 2048:
+                        new_stats['active_model'] = "unloaded (idle)"
+                    elif mem_used < 6144:
+                        new_stats['active_model'] = "warming"
+                    else:
+                         new_stats['active_model'] = "Active (VRAM high)"
+            except urllib.error.HTTPError as e:
+                new_stats['ollama_status'] = f"🟡 ERR {e.code}"
+                if e.code == 500:
+                     new_stats['active_model'] = "Loading System RAM"
+                     new_stats['ollama_models'] = ["N/A"]
                 else:
-                    # If we really want the name, we can try ps(), but let's be careful about timeout
-                    # preventing the hang we saw before.
-                    # For now, just say "Active" if VRAM is high to save overhead.
-                     new_stats['active_model'] = "Active (VRAM high)"
-            else:
+                     new_stats['active_model'] = "Error"
+                     new_stats['ollama_models'] = []
+            except Exception:
                  new_stats['ollama_status'] = "🔴 OFFLINE"
                  new_stats['active_model'] = "None"
-
+                 new_stats['ollama_models'] = []
         except Exception:
-             # Fallback to offline if connection fails
              new_stats['ollama_status'] = "🔴 OFFLINE"
              new_stats['active_model'] = "None"
+             new_stats['ollama_models'] = []
+
+        # 4. Custom Kaia File Stats
+        current_time = time.time()
+        if current_time - getattr(self, 'last_file_stats_update', 0) > 30:
+            try:
+                # KB Size (knowledge_base + memory/rag_storage)
+                kb_path = "knowledge_base"
+                rag_path = "memory/rag_storage"
+                total_size = 0
+                for path in [kb_path, rag_path]:
+                    if os.path.exists(path):
+                        for dirpath, _, filenames in os.walk(path):
+                            for f in filenames:
+                                fp = os.path.join(dirpath, f)
+                                if not os.path.islink(fp):
+                                    total_size += os.path.getsize(fp)
+                new_stats['kb_size_mb'] = total_size / (1024 * 1024)
+                
+                # Dreams Count
+                dreams_path = "memory/dream_cache.json"
+                if os.path.exists(dreams_path):
+                    with open(dreams_path, 'r', encoding='utf-8') as f:
+                        dreams_data = json.load(f)
+                        new_stats['dreams_count'] = len(dreams_data)
+                
+                # Indexed Files
+                indexed_path = "memory/rag_storage/indexed_files.json"
+                if os.path.exists(indexed_path):
+                    with open(indexed_path, 'r', encoding='utf-8') as f:
+                        indexed_data = json.load(f)
+                        new_stats['indexed_files'] = len(indexed_data)
+                
+                self.last_file_stats_update = current_time
+            except Exception as e:
+                try:
+                    from utils.infrastructure.logging.kaia_logger import log_debug
+                    log_debug(f"File stats error: {e}")
+                except Exception:
+                    pass
+            
+
             
         # 4. Apply Updates Under Lock (MINIMAL DURATION)
         with self.lock:

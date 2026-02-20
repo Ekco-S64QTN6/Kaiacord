@@ -24,13 +24,13 @@ async def refresh_news(force_update=False):
     
     # 1. First, always try to ingest manual files
     try:
-        # Direct function call instead of subprocess
-        ingest_manual_news()
+        # Avoid blocking the event loop with synchronous file operations
+        await asyncio.to_thread(ingest_manual_news)
     except Exception as e:
         print(f"⚠️ Manual ingestion failed: {e}")
     
     manager = NewsManager()
-    manager.refresh()
+    await asyncio.to_thread(manager.refresh)
     
     # Check if we have recent news
     total_items = sum(len(v) for v in manager.news_cache.values())

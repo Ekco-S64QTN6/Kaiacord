@@ -293,18 +293,21 @@ class KaiaRAG:
             chunk_overlap=config.rag_node_chunk_overlap
         )
         
-        # Use GPU Manager for LLM settings
-        from utils.infrastructure.gpu.gpu_manager import OllamaGPUManager
-        gpu_manager = OllamaGPUManager(config.chat_model)
-        gpu_options = gpu_manager.get_gpu_options(for_chat=True)
-        
-        # Ensure num_gpu is passed correctly to Ollama LLM
-        # LlamaIndex passes additional_kwargs to the API options
+        # RAG uses the chat model for query synthesis. We deliberately DO NOT 
+        # set `num_gpu: 0` here. If we did, LlamaIndex would pass that option 
+        # to Ollama during runtime queries, forcing the main model to be evicted 
+        # from VRAM back to system RAM to satisfy the request.
+        # 
+        # Construction is I/O-free and safe because LlamaIndex's Ollama() wrapper
+        # doesn't call out to the engine until the first query is actually sent
+        # (which happens well after the Phase 1 GPU lock is established).
+        #
+        # WARNING: Do NOT use OllamaGPUManager here — it probes Ollama and can trigger
+        # VRAM allocation before the Phase 1 GPU lock has been established.
         llm_timeout = getattr(config, 'llm_request_seconds', 360.0)
         Settings.llm = Ollama(
-            model=config.chat_model, 
-            request_timeout=llm_timeout, 
-            additional_kwargs=gpu_options
+            model=config.chat_model,
+            request_timeout=llm_timeout
         )
         
         # Lazy load indices for faster startup
@@ -313,7 +316,10 @@ class KaiaRAG:
         self.persist_needed = False
         self._lock = threading.RLock()
         self.state_file = os.path.join(self.persist_dir, "file_manifest.json")
-        self._load_indexed_files()
+        # NOTE: _load_indexed_files() is intentionally NOT called here.
+        # It performs disk I/O and must not run during Phase 0 (synchronous boot).
+        # It is called inside initialize_async() which runs in Phase 3 via asyncio.to_thread().
+        self.indexed_files = {}
         
         # Performance Cache: Rolling Recent Files
         self._recent_files_cache = []
@@ -329,17 +335,19 @@ class KaiaRAG:
         self._initialized = False
 
     async def initialize_async(self):
-        """Asynchronously initialize hierarchical indices and trigger parallel refresh."""
+        """Asynchronously initialize hierarchical indices."""
         if self._initialized: return
         log_action("Initializing RAG indices in background...")
-        # 1. Load existing indices from storage (offload to thread)
+
+        # Step 1: Load manifest from disk (I/O — runs in thread, safe in Phase 3)
+        await asyncio.to_thread(self._load_indexed_files)
+
+        # Step 2: Load or create vector indices (CPU-bound, may trigger embeddings)
+        # Embeddings are forced to CPU via num_gpu: 0 in OllamaEmbedding above.
         await asyncio.to_thread(self._initialize_indices)
         
-        # 2. Trigger an immediate parallel refresh to sync with disk
-        await self.refresh_knowledge_base(max_concurrent_files=4)
-        
         self._initialized = True
-        log_success("RAG indices initialized and synced.")
+        log_success("RAG indices initialized.")
 
     async def get_recent_files_async(self, limit: int = 5) -> List[Dict[str, str]]:
         """Async wrapper for get_recent_files utilizing cache."""
@@ -887,8 +895,15 @@ class KaiaRAG:
             except Exception as e: log_error(f"Failed to persist {itype}: {e}")
         self._save_indexed_files()
 
-    async def refresh_knowledge_base(self, max_concurrent_files: int = 4):
-        """Refresh knowledge base with concurrent file processing and batch persistence."""
+    async def refresh_knowledge_base(self, max_concurrent_files: int = 2):
+        """Refresh knowledge base with concurrent file processing and batch persistence.
+        
+        max_concurrent_files is intentionally conservative (default=2).
+        Each file may trigger embedding calls to nomic-embed-text (CPU-only, num_gpu=0).
+        Running too many concurrently can create an embedding call storm that causes
+        Ollama to mis-schedule memory and spill the chat model from VRAM.
+        Increase only if you have confirmed stable VRAM and fast SSD throughput.
+        """
         if not self._refresh_lock.acquire(blocking=False):
             log_info("RAG refresh already in progress, marking as pending.")
             self._refresh_pending = True
@@ -959,8 +974,12 @@ class KaiaRAG:
             self._refresh_lock.release()
             if self._refresh_pending:
                 log_info("Triggering pending RAG refresh...")
-                await asyncio.sleep(2.0)
-                await self.refresh_knowledge_base(max_concurrent_files)
+                
+                async def trigger_refresh():
+                    await asyncio.sleep(2.0)
+                    await self.refresh_knowledge_base(max_concurrent_files)
+                    
+                asyncio.create_task(trigger_refresh())
 
     @CircuitBreaker(failure_threshold=3)
     def _convert_pdf_to_md(self, pdf_path: str) -> Optional[str]:

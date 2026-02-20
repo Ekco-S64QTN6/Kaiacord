@@ -18,7 +18,10 @@ class KaiaNewsUpdater:
     def __init__(self, gemini_api_key: str):
         """Initialize with Gemini API key"""
         genai.configure(api_key=gemini_api_key)
-        # Using flash-latest for better compatibility with legacy SDK aliases
+        # USE 'gemini-flash-latest' FOR FREE ACCOUNTS.
+        # This is the correct alias for Gemini 1.5 Flash in the legacy SDK.
+        # DO NOT change to 'gemini-1.5-pro' to avoid breaking the free tier quota limit.
+        # DO NOT change to 'gemini-1.5-flash' as it causes a 404 error in v1beta.
         self.model_name = 'gemini-flash-latest' 
         self.knowledge_dir = Path("./knowledge_base/news/daily")
         self.knowledge_dir.mkdir(parents=True, exist_ok=True)
@@ -110,7 +113,7 @@ RULES:
         try:
             model = genai.GenerativeModel(
                 model_name=self.model_name,
-                tools=[{'google_search_retrieval': {}}]
+                tools='google_search_retrieval'
             )
             
             response = model.generate_content(prompt)
@@ -127,15 +130,9 @@ RULES:
                     raise ValueError("Empty response feedback (no candidates)")
                 
         except Exception as e:
-            print(f"⚠️ Grounding failed ({e}), falling back to standard generation")
-            # Fallback to standard generation if grounding fails
-            fallback_model = genai.GenerativeModel(model_name=self.model_name)
-            response = fallback_model.generate_content(prompt)
-            brief = (response.text or "").strip()
-            
-            if not brief:
-                print("❌ CRITICAL: Both grounding and fallback failed to generate news.")
-                return ""
+            error_msg = f"Grounding failed ({e}). Refusing to fall back to ungrounded standard generation to prevent hallucinated news."
+            print(f"❌ CRITICAL: {error_msg}")
+            raise Exception(error_msg)
         
         return brief
     

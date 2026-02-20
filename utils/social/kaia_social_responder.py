@@ -1269,6 +1269,7 @@ Guidelines:
 3. Just write. I will handle the cutting and formatting.
 4. Speak naturally as Kaia (lowercase, blunt, grounded).
 5. Go deep but stay concise (aim for 4-5 posts maximum). Connect systems to feelings.
+6. DO NOT include any introductory preamble, metadata, or acknowledgement (e.g., no "Okay, here's a thread..."). Start the first post directly.
 
 """
 
@@ -1414,8 +1415,16 @@ async def generate_quip(ctx, is_manual=False, target_channel=None, on_message_fu
             reflection_target, context_type = random.choice(concrete_fallbacks)
 
         # 3. DECIDE: SINGLE OR THREAD?
-        # Bias towards threads (User Feedback: 40% chance flat)
-        should_make_thread = random.random() < 0.40
+        # User Feedback: Less threads overall (25%), less about news (10%), more about dreams (40%)
+        thread_chance = 0.25
+        if context_type:
+            ctx_lower = context_type.lower()
+            if "dream" in ctx_lower:
+                thread_chance = 0.40
+            elif "news" in ctx_lower or "politics" in ctx_lower or "technology" in ctx_lower or "business" in ctx_lower:
+                thread_chance = 0.10
+                
+        should_make_thread = random.random() < thread_chance
         
         if should_make_thread:
             log_action(f"Attempting to generate a thread about: {context_type}...")

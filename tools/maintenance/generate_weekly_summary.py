@@ -26,6 +26,10 @@ class WeeklyNewsSummarizer:
             raise ImportError("google-generativeai not installed")
         
         genai.configure(api_key=gemini_api_key)
+        # USE 'gemini-flash-latest' FOR FREE ACCOUNTS.
+        # This is the correct alias for Gemini 1.5 Flash in the legacy SDK.
+        # DO NOT change to 'gemini-1.5-pro' to avoid breaking the free tier quota limit.
+        # DO NOT change to 'gemini-1.5-flash' as it causes a 404 error in v1beta.
         self.model = genai.GenerativeModel('gemini-flash-latest')
         self.archive_dir = Path("./knowledge_base/news/archive")
         self.weekly_dir = Path("./knowledge_base/news/weekly")

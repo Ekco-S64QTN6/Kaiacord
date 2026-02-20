@@ -1,16 +1,13 @@
+import asyncio
 import json
 from datetime import datetime, timedelta
-from typing import List, Dict, Any, Set
+from typing import List, Dict, Any
 from collections import defaultdict
 import re
-import random
 import hashlib
-import os
 import yaml
 from pathlib import Path
-
-
-
+from utils.infrastructure.logging.kaia_logger import log_info
 
 class NewsManager:
     """Unified news manager for scanning, parsing, and retrieving news (Consolidated)"""
@@ -233,7 +230,7 @@ class NewsManager:
         """Asynchronously retrieve news items, refreshing if stale."""
         # Check if refresh is needed
         if not self.last_refresh or (datetime.now() - self.last_refresh).total_seconds() > 300:
-            log_info(f"News cache stale, refreshing in background thread...")
+            log_info("News cache stale, refreshing in background thread...")
             await asyncio.to_thread(self.refresh)
             
         return self.get_news(category, limit)

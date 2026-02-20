@@ -94,9 +94,12 @@ class CoreTaskManager:
     def start(self):
         from utils.infrastructure.monitoring.async_task_registry import task_registry
         self.news_refresh_task.start()
-        task_registry.register("news_refresh_task", self.news_refresh_task)
+        # tasks.loop objects are not asyncio.Task, use get_task()
+        if self.news_refresh_task.get_task():
+            task_registry.register("news_refresh_task", self.news_refresh_task.get_task())
         self.dream_engine_task.start()
-        task_registry.register("dream_engine_task", self.dream_engine_task)
+        if self.dream_engine_task.get_task():
+            task_registry.register("dream_engine_task", self.dream_engine_task.get_task())
         log_action("Core background tasks started via CoreTaskManager.")
 
     def stop(self):

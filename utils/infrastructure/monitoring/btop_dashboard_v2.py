@@ -69,7 +69,11 @@ class DashboardState:
     avg_response_time: float = 0.0
     ollama_status: str = "🔴 OFFLINE"
     active_model: str = "None"
+    ollama_models: Tuple[str, ...] = field(default_factory=tuple)
     rag_size: str = "0 MB"
+    kb_size_mb: float = 0.0
+    indexed_files: int = 0
+    dreams_count: int = 0
     queue_size: int = 0
     
     # Logs and alerts (tuples for immutability)
@@ -110,8 +114,8 @@ class LayoutManager:
         if height < 20 or width < 60:
             return False
         
-        # Header (1 line)
-        header_height = 1
+        # Title is now integrated into the panels
+        header_height = 0
         
         # Footer (2 lines: menu + status)
         footer_height = 2
@@ -192,7 +196,7 @@ class BtopDashboardV2:
     
     # Unicode box drawing characters
     BOX = {
-        'tl': '┌', 'tr': '┐', 'bl': '└', 'br': '┘',
+        'tl': '╭', 'tr': '╮', 'bl': '╰', 'br': '╯',
         'h': '─', 'v': '│', 'ml': '├', 'mr': '┤',
         'tm': '┬', 'bm': '┴', 'mm': '┼'
     }
@@ -460,7 +464,11 @@ class BtopDashboardV2:
             avg_response_time=tracker_stats.get('avg_response_time', 0.0) or poller_stats.get('avg_response_time', 0.0) or (self.shared_stats.get('avg_response_time', 0.0) if self.shared_stats else 0.0),
             ollama_status=poller_stats.get('ollama_status', '🔴 OFFLINE') if not self.shared_stats else self.shared_stats.get('ollama_status', '🔴 OFFLINE'),
             active_model=poller_stats.get('active_model', 'None') if not self.shared_stats else self.shared_stats.get('active_model', 'None'),
+            ollama_models=tuple(poller_stats.get('ollama_models', []) if not self.shared_stats else self.shared_stats.get('ollama_models', [])),
             rag_size=poller_stats.get('rag_size', '0 MB') if not self.shared_stats else self.shared_stats.get('rag_size', '0 MB'),
+            kb_size_mb=poller_stats.get('kb_size_mb', 0.0) if not self.shared_stats else self.shared_stats.get('kb_size_mb', 0.0),
+            indexed_files=poller_stats.get('indexed_files', 0) if not self.shared_stats else self.shared_stats.get('indexed_files', 0),
+            dreams_count=poller_stats.get('dreams_count', 0) if not self.shared_stats else self.shared_stats.get('dreams_count', 0),
             queue_size=tracker_stats.get('queue_size', 0) or (self.shared_stats.get('queue_size', 0) if self.shared_stats else 0),
             log_entries=tuple(log_entries),
             alerts=tuple(alerts[-10:]),  # Limit alerts
@@ -490,9 +498,15 @@ class BtopDashboardV2:
             # Top border with title
             if pane.title:
                 title_str = f" {pane.title} "
-                left_len = max(0, (w - len(title_str) - 2) // 2)
-                right_len = max(0, w - len(title_str) - left_len - 2)
-                top_line = self.BOX['h'] * left_len + title_str + self.BOX['h'] * right_len
+                available = max(0, w - 2)
+                if len(title_str) + 2 <= available:
+                    left_len = (available - len(title_str) - 2) // 2
+                    right_len = available - len(title_str) - 2 - left_len
+                    top_line = (self.BOX['h'] * left_len) + '╮' + title_str + '╭' + (self.BOX['h'] * right_len)
+                else:
+                    left_len = max(0, (available - len(title_str)) // 2)
+                    right_len = max(0, available - len(title_str) - left_len)
+                    top_line = self.BOX['h'] * left_len + title_str + self.BOX['h'] * right_len
             else:
                 top_line = self.BOX['h'] * (w - 2)
                 
@@ -517,22 +531,23 @@ class BtopDashboardV2:
             pass
             
     def _draw_progress_bar(self, value: float, width: int) -> str:
-        """Create a btop-style progress bar"""
+        """Create a highly precise btop-style smooth progress bar"""
         value = max(0, min(100, value))
-        filled = int((value / 100) * width)
+        blocks = [' ', '▏', '▎', '▍', '▌', '▋', '▊', '▉', '█']
+        
+        fill_amount = (value / 100.0) * width
+        filled_chars = int(fill_amount)
+        remainder = fill_amount - filled_chars
         
         bar = ""
         for i in range(width):
-            if i < filled:
-                # Gradient effect
-                if i < filled * 0.5:
-                    bar += self.BAR_CHARS[0]  # █
-                elif i < filled * 0.8:
-                    bar += self.BAR_CHARS[1]  # ▓
-                else:
-                    bar += self.BAR_CHARS[2]  # ▒
+            if i < filled_chars:
+                bar += '█'
+            elif i == filled_chars:
+                idx = int(remainder * 8)
+                bar += blocks[idx]
             else:
-                bar += self.BAR_CHARS[4]  # space
+                bar += ' '
                 
         return bar
         
@@ -574,38 +589,32 @@ class BtopDashboardV2:
         inner_x = pane.x + 2
         inner_width = pane.width - 4
         bar_width = min(20, inner_width - 15)
+        label_w = 4
         
-        # CPU
-        cpu_bar = self._draw_progress_bar(state.cpu_percent, bar_width)
-        cpu_color = self._get_color_for_value(state.cpu_percent)
-        self._safe_addstr(inner_y, inner_x, "CPU: ", curses.color_pair(1))
-        self._safe_addstr(inner_y, inner_x + 5, f"{cpu_bar} {state.cpu_percent:5.1f}%", curses.color_pair(cpu_color))
+        def draw_stat_row(y_offset, label, value_pct, val_str=None):
+            bar = self._draw_progress_bar(value_pct, bar_width)
+            color = self._get_color_for_value(value_pct)
+            
+            self._safe_addstr(inner_y + y_offset, inner_x, label.ljust(label_w), curses.color_pair(1) | curses.A_BOLD)
+            self._safe_addstr(inner_y + y_offset, inner_x + label_w, "[", curses.color_pair(6))
+            self._safe_addstr(inner_y + y_offset, inner_x + label_w + 1, bar, curses.color_pair(color))
+            self._safe_addstr(inner_y + y_offset, inner_x + label_w + 1 + bar_width, "]", curses.color_pair(6))
+            
+            display_str = val_str if val_str else f"{value_pct:5.1f}%"
+            self._safe_addstr(inner_y + y_offset, inner_x + label_w + 3 + bar_width, display_str, curses.color_pair(color) | curses.A_BOLD)
+
+        draw_stat_row(0, "CPU", state.cpu_percent)
+        draw_stat_row(1, "RAM", state.memory_percent)
+        draw_stat_row(2, "GPU", state.gpu_util)
+        draw_stat_row(3, "DSK", state.disk_percent)
         
-        # RAM
-        ram_bar = self._draw_progress_bar(state.memory_percent, bar_width)
-        ram_color = self._get_color_for_value(state.memory_percent)
-        self._safe_addstr(inner_y + 1, inner_x, "RAM: ", curses.color_pair(1))
-        self._safe_addstr(inner_y + 1, inner_x + 5, f"{ram_bar} {state.memory_percent:5.1f}%", curses.color_pair(ram_color))
+        # Non-bar metrics: Network, VRAM, etc.
+        self._safe_addstr(inner_y + 4, inner_x, "NET ".ljust(label_w), curses.color_pair(1) | curses.A_BOLD)
+        net_str = f"▼ {state.net_recv_kb:6d}K   ▲ {state.net_sent_kb:6d}K"
+        self._safe_addstr(inner_y + 4, inner_x + label_w + 1, net_str, curses.color_pair(3))
         
-        # GPU
-        gpu_bar = self._draw_progress_bar(state.gpu_util, bar_width)
-        gpu_color = self._get_color_for_value(state.gpu_util)
-        self._safe_addstr(inner_y + 2, inner_x, "GPU: ", curses.color_pair(1))
-        self._safe_addstr(inner_y + 2, inner_x + 5, f"{gpu_bar} {state.gpu_util:5.1f}%", curses.color_pair(gpu_color))
-        
-        # Disk
-        disk_bar = self._draw_progress_bar(state.disk_percent, bar_width)
-        disk_color = self._get_color_for_value(state.disk_percent)
-        self._safe_addstr(inner_y + 3, inner_x, "DSK: ", curses.color_pair(1))
-        self._safe_addstr(inner_y + 3, inner_x + 5, f"{disk_bar} {state.disk_percent:5.1f}%", curses.color_pair(disk_color))
-        
-        # Network
-        self._safe_addstr(inner_y + 4, inner_x, "NET: ", curses.color_pair(1))
-        self._safe_addstr(inner_y + 4, inner_x + 5, f"↑{state.net_sent_kb:6d}K ↓{state.net_recv_kb:6d}K", curses.color_pair(6))
-        
-        # GPU Memory
-        self._safe_addstr(inner_y + 5, inner_x, "VRAM:", curses.color_pair(1))
-        self._safe_addstr(inner_y + 5, inner_x + 5, f" {state.gpu_memory}", curses.color_pair(6))
+        self._safe_addstr(inner_y + 5, inner_x, "VRM ".ljust(label_w), curses.color_pair(1) | curses.A_BOLD)
+        self._safe_addstr(inner_y + 5, inner_x + label_w + 1, f"{state.gpu_memory}", curses.color_pair(2) | curses.A_BOLD)
         
     def _draw_status_pane(self, state: DashboardState):
         """Draw bot status pane"""
@@ -618,26 +627,42 @@ class BtopDashboardV2:
         inner_y = pane.y + 1
         inner_x = pane.x + 2
         
-        # Ollama status
-        status_color = 3 if "ONLINE" in state.ollama_status else 5
-        self._safe_addstr(inner_y, inner_x, f"Status: {state.ollama_status}", curses.color_pair(status_color))
+        def draw_status_row(y_offset, label, value, val_color_pair):
+            self._safe_addstr(inner_y + y_offset, inner_x, label.ljust(8), curses.color_pair(1) | curses.A_BOLD)
+            self._safe_addstr(inner_y + y_offset, inner_x + 8, str(value), curses.color_pair(val_color_pair) | curses.A_BOLD)
+
+        # Base Stats
+        draw_status_row(0, "Status:", state.ollama_status, 3 if "ONLINE" in state.ollama_status else 5)
         
-        # Model
-        self._safe_addstr(inner_y + 1, inner_x, f"Model:  {state.active_model}", curses.color_pair(2))
-        
-        # Uptime
         hours = int(state.uptime_minutes // 60)
         mins = int(state.uptime_minutes % 60)
-        uptime_str = f"{hours}h {mins}m" if hours > 0 else f"{mins}m"
-        self._safe_addstr(inner_y + 2, inner_x, f"Uptime: {uptime_str}", curses.color_pair(6))
+        uptime_str = f"{hours}h {mins}m"
+        draw_status_row(1, "Uptime:", uptime_str, 6)
         
-        # Users and Messages
-        self._safe_addstr(inner_y + 3, inner_x, f"Users:  {state.active_users} active", curses.color_pair(3))
-        self._safe_addstr(inner_y + 4, inner_x, f"Msgs:   {state.total_messages:,}", curses.color_pair(3))
+        draw_status_row(2, "Users:", f"{state.active_users} active", 3)
+        draw_status_row(3, "Msgs:", f"{state.total_messages:,}", 3)
         
-        # Response time
-        resp_color = self._get_color_for_value(state.avg_response_time * 33, (50, 80))  # Scale for 0-3s range
-        self._safe_addstr(inner_y + 5, inner_x, f"RTime:  {state.avg_response_time:.2f}s", curses.color_pair(resp_color))
+        resp_color = self._get_color_for_value(state.avg_response_time * 33, (50, 80))
+        draw_status_row(4, "RTime:", f"{state.avg_response_time:.2f}s", resp_color)
+        
+        # Kaia Specific Stats & Models
+        self._safe_addstr(inner_y + 0, inner_x + 35, "KB Size:".ljust(9), curses.color_pair(1) | curses.A_BOLD)
+        self._safe_addstr(inner_y + 0, inner_x + 44, f"{state.kb_size_mb:.1f} MB", curses.color_pair(6) | curses.A_BOLD)
+        
+        self._safe_addstr(inner_y + 1, inner_x + 35, "Indexed:".ljust(9), curses.color_pair(1) | curses.A_BOLD)
+        self._safe_addstr(inner_y + 1, inner_x + 44, f"{state.indexed_files:,} files", curses.color_pair(2) | curses.A_BOLD)
+        
+        self._safe_addstr(inner_y + 2, inner_x + 35, "Dreams:".ljust(9), curses.color_pair(1) | curses.A_BOLD)
+        self._safe_addstr(inner_y + 2, inner_x + 44, f"{state.dreams_count:,} memories", curses.color_pair(2) | curses.A_BOLD)
+        
+        self._safe_addstr(inner_y + 3, inner_x + 35, "Active:".ljust(9), curses.color_pair(1) | curses.A_BOLD)
+        self._safe_addstr(inner_y + 3, inner_x + 44, f"{state.active_model}", curses.color_pair(3) | curses.A_BOLD)
+
+        self._safe_addstr(inner_y + 4, inner_x + 35, "Models:".ljust(9), curses.color_pair(1) | curses.A_BOLD)
+        models_str = ", ".join(state.ollama_models) if state.ollama_models else "None"
+        if len(models_str) > pane.width - 46:
+            models_str = models_str[:pane.width - 49] + "..."
+        self._safe_addstr(inner_y + 4, inner_x + 44, models_str, curses.color_pair(6) | curses.A_BOLD)
         
     def _draw_alerts_pane(self, state: DashboardState):
         """Draw alerts pane"""
@@ -726,30 +751,11 @@ class BtopDashboardV2:
             
             self._safe_addstr(menu_y, pane.x + 1, menu_text, curses.color_pair(1) | curses.A_BOLD)
             
-            # Status bar
-            status_y = pane.y + 1
-            timestamp = datetime.now().strftime("%H:%M:%S")
-            status_text = f"CPU:{state.cpu_percent:5.1f}% RAM:{state.memory_percent:5.1f}% GPU:{state.gpu_util:5.1f}% │ {timestamp}"
-            
-            # Right-align status
-            status_x = max(pane.x + 1, pane.x + pane.width - len(status_text) - 2)
-            self._safe_addstr(status_y, status_x, status_text, curses.color_pair(6))
+            # Footer status text removed to stop stdout overlap and redundancy
             
         except curses.error:
             pass
-            
-    def _draw_header(self):
-        """Draw dashboard header"""
-        if not self.stdscr:
-            return
-            
-        try:
-            max_y, max_x = self.stdscr.getmaxyx()
-            title = " KAIACORD DASHBOARD "
-            x = (max_x - len(title)) // 2
-            self._safe_addstr(0, x, title, curses.color_pair(2) | curses.A_BOLD)
-        except curses.error:
-            pass
+
             
     def _draw_frame(self, state: DashboardState):
         """Draw complete frame from snapshot"""
@@ -769,7 +775,6 @@ class BtopDashboardV2:
                     return
             
             # Draw all panes
-            self._draw_header()
             self._draw_stats_pane(state)
             self._draw_status_pane(state)
             self._draw_alerts_pane(state)
