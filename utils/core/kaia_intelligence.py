@@ -921,10 +921,13 @@ class IntentParser:
 
             # EXECUTION: The GPU guard/routing is now handled entirely in the parent parse_intent()
             # method. This child method is a "dumb" executor to avoid re-entrant deadlock.
-            response = await self.ollama_client.chat(
-                model=self.classification_model,
-                messages=[{"role": "user", "content": prompt}],
-                options=self.classification_options
+            response = await asyncio.wait_for(
+                self.ollama_client.chat(
+                    model=self.classification_model,
+                    messages=[{"role": "user", "content": prompt}],
+                    options=self.classification_options
+                ),
+                timeout=self.config.classification_timeout
             )
             
             raw_json = response['message']['content'].strip()

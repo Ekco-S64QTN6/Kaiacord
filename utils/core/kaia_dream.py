@@ -89,7 +89,7 @@ YOUR IN-DEPTH REFLECTION:"""
             response = await gpu_memory_manager.run_with_gpu_guard(
                 model_name=self.chat_model,
                 priority=GPUTaskPriority.CHAT, 
-                coro=_run_dream_chat(),
+                coro=asyncio.wait_for(_run_dream_chat(), timeout=600.0),
                 task_id=f"dream_{uuid.uuid4().hex[:8]}"
             )
             

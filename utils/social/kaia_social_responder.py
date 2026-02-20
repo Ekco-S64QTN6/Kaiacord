@@ -1285,10 +1285,13 @@ Guidelines:
         options['temperature'] = 0.8
         options['num_predict'] = 1000 # Ensure enough tokens for a thread
         
-        response = await ollama_client.chat(
-            model=config.chat_model,
-            messages=messages,
-            options=options
+        response = await asyncio.wait_for(
+            ollama_client.chat(
+                model=config.chat_model,
+                messages=messages,
+                options=options
+            ),
+            timeout=600.0  # 10 minute absolute max for full thread generation
         )
         
         full_text = response['message']['content']
@@ -1526,10 +1529,13 @@ async def generate_quip(ctx, is_manual=False, target_channel=None, on_message_fu
                 if attempt > 0:
                     current_messages.append({"role": "user", "content": "That was a bit too short or generic. Give me something with more teeth—connect it to a specific systemic pattern or observation. Be definitive."})
 
-                response = await ollama_client.chat(
-                    model=config.chat_model,
-                    messages=current_messages,
-                    options=options
+                response = await asyncio.wait_for(
+                    ollama_client.chat(
+                        model=config.chat_model,
+                        messages=current_messages,
+                        options=options
+                    ),
+                    timeout=120.0
                 )
                 raw_quip = response['message']['content']
                 processed_quip = clean_quip(raw_quip, max_chars=800)

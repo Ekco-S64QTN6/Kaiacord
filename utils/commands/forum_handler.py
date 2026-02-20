@@ -332,6 +332,8 @@ async def _handle_reply(ctx, msg, thread_id: int):
                 thread_summary.append(f"#{post.get('post_number')} {author}: {content}")
             
             context_text = "\n---\n".join(thread_summary)
+            if len(context_text) > 6000:
+                context_text = "...\n" + context_text[-6000:]
 
             # 3. Construct AI Prompt
             system_prompt = load_persona()
@@ -353,13 +355,16 @@ async def _handle_reply(ctx, msg, thread_id: int):
             options = gpu_manager.get_gpu_options(for_chat=True)
             options['temperature'] = 0.8 # Slightly higher for creative forum posts
 
-            response = await ollama_client.chat(
-                model=config.chat_model,
-                messages=[
-                    {"role": "system", "content": system_prompt},
-                    {"role": "user", "content": prompt}
-                ],
-                options=options
+            response = await asyncio.wait_for(
+                ollama_client.chat(
+                    model=config.chat_model,
+                    messages=[
+                        {"role": "system", "content": system_prompt},
+                        {"role": "user", "content": prompt}
+                    ],
+                    options=options
+                ),
+                timeout=120.0
             )
 
             ai_reply = response['message']['content'].strip()
