@@ -13,6 +13,7 @@ import random
 import traceback
 import concurrent.futures
 import json
+import heapq
 
 # Suppress noisy logs from libraries
 logging.getLogger("httpx").setLevel(logging.WARNING)
@@ -125,14 +126,13 @@ class SimpleBM25Retriever:
                     self._tokenized_docs = tokenized
                     self.bm25 = BM25Okapi(tokenized) if tokenized else None
 
-        if not self.bm25:
+        if not self.bm25 or self.nodes is None:
             return []
 
         tokenized_query = self._tokenize(query)
         scores = self.bm25.get_scores(tokenized_query)
         
         # Use nlargest for better efficiency than sorting the whole array O(N log k)
-        import heapq
         top_indices = heapq.nlargest(top_k, range(len(scores)), key=lambda i: scores[i])
 
         results = []
@@ -150,7 +150,6 @@ class HybridRetriever:
 
     async def retrieve(self, query: str, top_k: int = 5, alpha: float = 0.5, query_bundle=None):
         """Hybrid retrieval using RRF and efficient top-k selection."""
-        import heapq
         bundle = query_bundle if query_bundle else query
 
         # 1. Vector retrieval
@@ -273,10 +272,10 @@ class KaiaRAG:
         # Configure Ollama Embedding
         # Force CPU for embeddings to save VRAM for the main 12b model
         self.embed_model = OllamaEmbedding(
-            model_name=config.embedding_model if hasattr(config, 'embedding_model') else "nomic-embed-text-cpu",
+            model_name=config.embedding_model,
             base_url="http://localhost:11434",
-            query_instruction="search_query: ",
-            text_instruction="search_document: ",
+            query_instruction=config.rag_query_instruction,
+            text_instruction=config.rag_text_instruction,
             # Force CPU for embeddings to save VRAM for the main 12b model
             ollama_additional_kwargs={
                 "num_gpu": 0,

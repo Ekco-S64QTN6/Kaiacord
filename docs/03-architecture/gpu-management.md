@@ -23,9 +23,9 @@ Kaia is optimized for continuous presence on a single 12GB GPU. Unlike previous 
 - **Embedding Model** (`nomic-embed-text`): Runs on CPU via `ollama_additional_kwargs: {"num_gpu": 0}`. Zero VRAM usage.
 
 ### 2. Context Window Optimization
-- **Default Window**: 20,000 tokens (config-driven via `config.max_context_tokens`).
-- **VRAM Impact**: Approximately 1.5GB of KV cache on top of the model weights.
-- **Budget**: 8GB (gemma3:12b) + 1.5GB (KV cache) + 0.5GB (system overhead) = ~10GB total.
+- **Default Window**: 8192 tokens (config-driven via `config.max_context_tokens`).
+- **VRAM Impact**: Approximately 0.6GB of KV cache on top of the model weights.
+- **Budget**: 8GB (gemma3:12b) + 0.6GB (KV cache) + 0.5GB (system overhead) = ~9.1GB total.
 - **Headroom**: ~2GB remains for OS, display buffers, and transient allocations.
 
 ### 3. GPU Semaphore Guard
@@ -60,14 +60,14 @@ If the application is stopped (either via `Ctrl+C` or the dashboard `[Q]uit` key
 
 ### CUDA Out of Memory (OOM) (`cudaMalloc failed`)
 If you encounter OOM errors (e.g., during model pre-warming or generation):
-1. **Video Games / Background Apps**: `gemma3:12b` combined with a 16K/20K token context window consumes ~10.5GB to 11.5GB of VRAM. If you attempt to launch memory-heavy applications (like modern video games or ComfyUI), Windows/Linux will exhaust the remaining 1GB of VRAM and Ollama will crash. 
-   - *Fix*: If you are gaming, open `config/kaia.yaml` and reduce `max_context_tokens` to `8192` or `4096` to lower the KV cache size footprint and free up space.
+1. **Video Games / Background Apps**: `gemma3:12b` combined with a 8K token context window consumes ~9.1GB to 10GB of VRAM. This provides high stability even if other apps are running.
+   - *Fix*: If you still hit VRAM issues, open `config/kaia.yaml` and reduce `max_context_tokens` to `4096` to lower the KV cache size footprint and free up space.
 2. **Restart Kaia**: `python Kaiacord.py`
 3. **Clear GPU Cache**: Run `python utils/infrastructure/gpu/clear_gpu_memory.py` manually.
 
 ## Summary
 ✅ **Chat model always resident** for low latency.
 ✅ **Classification & embeddings on CPU** — zero GPU contention.
-✅ **20K Context window** config-driven, optimized for 12GB hardware.
+✅ **8K Context window** config-driven, optimized for 12GB hardware stability.
 ✅ **Semaphore guard** prevents concurrent GPU access.
 ✅ **5-minute pre-warm timeout** ensures boot reliability.

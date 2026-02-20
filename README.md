@@ -37,7 +37,7 @@ pip install -r requirements.txt
 # 2. Pull AI models
 ollama pull gemma3:12b           # Chat model (~8GB VRAM)
 ollama pull gemma2:2b            # Intent classifier (CPU)
-ollama pull nomic-embed-text     # Embedding model (CPU)
+ollama pull nomic-embed-text-cpu # Embedding model (CPU)
 
 # 3. Configure
 cp .env.example .env  # Create from example, or:
@@ -56,7 +56,7 @@ python Kaiacord.py
 
 | Category | What it does |
 |:---------|:-------------|
-| **Chat** | Local inference via Ollama (`gemma3:12b`), persona-anchored responses, configurable 20K context window |
+| **Chat** | Local inference via Ollama (`gemma3:12b`), persona-anchored responses, configurable 8K context window |
 | **Memory** | RAG-backed knowledge base, per-user profiles, semantic cache, interaction logging |
 | **Intelligence** | Intent classification, user personalization, temporal awareness |
 | **Hallucination Guard** | Adversarial self-check with tracer phrases, knowledge boundary enforcement, hazy memory detection |
@@ -216,7 +216,7 @@ models:
 
 performance:
   max_memory_messages: 30
-  max_context_tokens: 20000     # Tuned for RTX 3060 12GB
+  max_context_tokens: 8192      # Unified 8k window for RTX 3060 12GB
   requests_per_minute: 30
 ```
 
@@ -230,9 +230,9 @@ Kaia manages a single 12GB VRAM budget:
 |:------|:-----|:--------|:-----|
 | `gemma3:12b` | Chat | GPU | ~8 GB |
 | `gemma2:2b` | Intent classifier | CPU (`num_gpu: 0`) | 0 |
-| `nomic-embed-text` | Embeddings | CPU (`num_gpu: 0`) | 0 |
+| `nomic-embed-text-cpu` | Embeddings | CPU (`num_gpu: 0`) | 0 |
 
-Context window is set to 20K tokens (~1.5 GB KV cache), configurable in `config/kaia.yaml`.
+Context window is set to 8K tokens (~1 GB KV cache), configurable in `config/kaia.yaml`.
 
 See: [`docs/03-architecture/gpu-management.md`](docs/03-architecture/gpu-management.md)
 

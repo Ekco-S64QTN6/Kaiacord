@@ -51,18 +51,13 @@ async def memory_audit_task():
         
         # Memory cleanup thresholds (in MB)
         NORMAL_THRESHOLD_MB = 8192
-        IMAGE_GEN_THRESHOLD_MB = 10240
         
-        if bot_state.is_generating_image:
-            if rss_mb > IMAGE_GEN_THRESHOLD_MB:
-                log_warning(f"Memory usage high ({rss_mb:.1f}MB > {IMAGE_GEN_THRESHOLD_MB}MB), but skipping cleanup due to active image generation.")
-        else:
-            if rss_mb > NORMAL_THRESHOLD_MB:
-                from utils.infrastructure.logging.kaia_logger import log_critical
-                log_critical(f"Memory usage critical ({rss_mb:.1f}MB > {NORMAL_THRESHOLD_MB}MB)! Clearing caches and GPU memory.")
-                
-                if ctx.clear_gpu_memory:
-                    await ctx.clear_gpu_memory()
+        if rss_mb > NORMAL_THRESHOLD_MB:
+            from utils.infrastructure.logging.kaia_logger import log_critical
+            log_critical(f"Memory usage critical ({rss_mb:.1f}MB > {NORMAL_THRESHOLD_MB}MB)! Clearing caches and GPU memory.")
+            
+            if ctx.clear_gpu_memory:
+                await ctx.clear_gpu_memory()
             
         # Cleanup rate limiter to prevent unbounded memory growth
         ctx.rate_limiter.cleanup()

@@ -21,18 +21,18 @@ class DreamEngine:
         self.config = config_instance
         self.rag = rag_instance
         # Use config for paths, fall back to defaults
-        # Accessing nested config keys via .get() or attribute access if implemented
-        self.kb_dir = Path(getattr(config_instance, 'paths', {}).get('knowledge_base', './knowledge_base'))
+        self.kb_dir = config_instance.knowledge_base_dir
         self.dreams_kb_dir = self.kb_dir / 'kaia_dreams'
         
-        self.chat_model = getattr(config_instance, 'models', {}).get('chat', 'gemma3:12b')
+        self.chat_model = config_instance.chat_model
         
         # Ensure directories exist
         self.dreams_kb_dir.mkdir(parents=True, exist_ok=True)
         
         # Performance/History state
-        self.history_file = Path(getattr(config_instance, 'paths', {}).get('memory', './memory')) / 'dream_history.json'
+        self.history_file = config_instance.memory_dir / 'dream_history.json'
         self._history = self._load_history()
+        self._history_lock = asyncio.Lock()
         
 
 
@@ -46,7 +46,7 @@ You are performing "Dream Mode" processing—a deep, associative cycle where you
 Based on the provided persona, generate an in-depth, multi-paragraph reflection on this fragment.
 
 CURRENT DATE: {current_date}
-IMPORTANT: You are living in February 2026. This data is part of your local archive. 
+IMPORTANT: This data is part of your local archive. 
 
 CONTENT SNIPPET:
 "{snippet}"
@@ -280,14 +280,14 @@ YOUR IN-DEPTH REFLECTION:"""
                         df.write(f"## Original Fragment\n> {snippet[:2000]}...\n\n")
                         df.write(f"## Kaia's Reflection\n{reflection}\n")
 
-                    async with asyncio.Lock(): # Thread-safe write for history
+                    async with self._history_lock: # Thread-safe write for history
                         self._history[str(file_path)] = datetime.now().isoformat()
                         # Prune history older than 6 months
                         if len(self._history) > 2000:
                             cutoff = (datetime.now() - timedelta(days=180)).isoformat()
                             self._history = {k: v for k, v in self._history.items() if v > cutoff}
                     
-                    self._save_history()
+                    await asyncio.to_thread(self._save_history)
                     new_dreams_count += 1
                     log_success(f"Generated in-depth dream: {dream_filename}")
             except Exception as e:

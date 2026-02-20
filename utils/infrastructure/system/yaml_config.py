@@ -278,6 +278,14 @@ class YAMLConfig:
     @property
     def min_rag_tokens(self) -> int:
         return self.get('performance.min_rag_tokens', 1024)
+
+    @property
+    def rag_query_instruction(self) -> str:
+        return self.get('rag.query_instruction', 'search_query: ')
+
+    @property
+    def rag_text_instruction(self) -> str:
+        return self.get('rag.text_instruction', 'search_document: ')
     
     @property
     def dream_user_quota(self) -> float:
@@ -298,7 +306,7 @@ class YAMLConfig:
     
     @property
     def max_context_tokens(self) -> int:
-        return self.get('performance.max_context_tokens', 20000)
+        return self.get('performance.max_context_tokens', 8192)
     
     @property
     def classification_context_tokens(self) -> int:
@@ -394,7 +402,7 @@ class YAMLConfig:
     
     @property
     def rag_threshold_knowledge(self) -> float:
-        return self.get('performance.rag_thresholds.knowledge', 0.75)
+        return self.get('performance.rag_thresholds.knowledge', 0.45)
     
     @property
     def rag_threshold_casual_penalty(self) -> float:

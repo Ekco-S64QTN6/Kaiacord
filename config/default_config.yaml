@@ -60,15 +60,15 @@ performance:
   
   # Requests per minute per user (rate limiting)
   requests_per_minute: 30
-  
+
   # Enable semantic cache
   enable_semantic_cache: true
   
   # Maximum RAG log size (MB) before rotation
   max_log_size_mb: 1000
 
-  # Total tokens for chat model (RTX 3060 12GB Recommended: 24,000)
-  max_context_tokens: 20000
+  # Total tokens for chat model (Lowered to 8192 for stability)
+  max_context_tokens: 8192
 
   # Context window for CPU-based classification (IntentParser)
   classification_context_tokens: 2048
@@ -92,6 +92,11 @@ performance:
     daily_news: 172800  # 48 hours
     dreams: 64800       # 18 hours
     user_scan_interval: 300 # 5 minutes
+
+rag:
+  # Instruction prefixes for embedding models (Nomic: search_query/search_document)
+  query_instruction: "search_query: "
+  text_instruction: "search_document: "
 
 # ============================================================================
 # Generation Configuration (Self-Healing Loop)

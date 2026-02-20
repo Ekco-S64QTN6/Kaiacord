@@ -887,6 +887,7 @@ async def mock_external_mention(on_message_func, content: str, author_name: str,
     import uuid
     from contextlib import asynccontextmanager
     from typing import Optional
+    from utils.infrastructure.system.messaging import MockMessage, MockUser, MockChannel
 
     log_info(f"Mocking {platform} message from {author_name}...")
 
@@ -902,43 +903,15 @@ async def mock_external_mention(on_message_func, content: str, author_name: str,
     if context_prefix:
         content = f"{context_prefix}[USER_MESSAGE]\n{content}"
 
-    class MockChannel:
-        def __init__(self):
-            # Stable int hash for channel ID ensures memory persistence across runs
-            self.id = abs(hash(f"{platform}_{author_id}")) % 10**12
-            self.name = f"{platform}_mentions"
-            self.sent_messages = []
-        async def send(self, content=None, **kwargs):
-            if content: self.sent_messages.append(content)
-            return type('obj', (object,), {'id': 123})() 
-        
-        @asynccontextmanager
-        async def typing(self):
-            yield
-
-    class MockAuthor:
-        def __init__(self):
-            self.id = author_id
-            self.name = author_name
-            self.display_name = author_name
-            self.bot = False
-
-    class MockMessage:
-        def __init__(self):
-            self.content = content
-            self.author = MockAuthor()
-            self.channel = MockChannel()
-            self.attachments = []
-            self.embeds = []
-            self.platform = platform
-            self.id = uuid.uuid4().int >> 64
-            self.guild = None
-            self.reference = None
-            self.mentions = []
-        async def reply(self, content=None, **kwargs):
-            return await self.channel.send(content, **kwargs)
-
-    msg = MockMessage()
+    # Use unified Mock infrastructure
+    mock_author = MockUser(id=author_id, name=author_name, display_name=author_name)
+    # Stable int hash for channel ID ensures memory persistence across runs
+    channel_id = abs(hash(f"{platform}_{author_id}")) % 10**12
+    mock_channel = MockChannel(id=channel_id, name=f"{platform}_mentions")
+    
+    msg = MockMessage(content=content, author=mock_author, channel=mock_channel, platform=platform)
+    
+    # Process the message
     await on_message_func(msg)
     
     if msg.channel.sent_messages:

@@ -259,61 +259,6 @@ class DashboardManager:
             except Exception as e:
                 print(f"⚠️ Cleanup interrupted: {e}")
 
-    async def sequenced_boot_tasks(self, run_rag, rag, run_news_update, 
-                                   prewarm_main_model):
-        """
-        Sequenced boot tasks with decoupled background tasks for faster heartbeat.
-        The bot becomes 'Ready' as soon as core indices are validated.
-        """
-        log_info("📦 Phase 1/1: Validating knowledge base...")
-        try:
-            # Phase 1: Core validation MUST happen before we can process anything
-            await run_rag(rag.refresh_knowledge_base)
-            log_success("📦 Knowledge base validated.")
-        except Exception as e:
-            log_error(f"RAG validation failed: {e}")
-        
-        # Now that core is validated, Kaia can heartbeat. 
-        # Declaring boot complete BEFORE heavy background loading.
-        self.bot_state.boot_complete = True
-        self.bot_state.boot_complete_time = time.time()
-        log_ready("Kaia is online and heartbeating.")
-
-        # --- BACKGROUND LOADING (Serialized to prevent RAM peaks) ---
-        async def run_heavy_tasks():
-            log_info("🚀 Starting heavy background boot tasks...")
-            
-            # 1. News Update
-            if self.config.startup_news_update:
-                log_info("📰 Background: Starting news update...")
-                try:
-                    await run_news_update()
-                    log_success("📰 Background: News updated.")
-                except Exception as e:
-                    log_error(f"News update failed: {e}")
-                await asyncio.sleep(2) # Breath
-                
-            # 2. Main Model Pre-warming
-            try:
-                log_info("🧠 Background: Warming classifier...")
-                if self.intent_parser:
-                    await self.intent_parser.pre_warm()
-                log_success("🧠 Background: Classifier ready.")
-            except Exception as e:
-                log_error(f"Model prewarm failed: {e}")
-            await asyncio.sleep(2) # Breath
-            
-            # 3. RAG Cache (BM25) Pre-warming
-            log_info("📦 Background: RAG cache warming starting...")
-            try:
-                await run_rag(rag.pre_warm)
-                log_success("📦 Background: RAG cache hot.")
-            except Exception as e:
-                log_error(f"RAG cache warm failed: {e}")
-                
-        # Run everything in ONE background task to ensure serialization
-        background_task = asyncio.create_task(run_heavy_tasks())
-        task_registry.register("heavy_boot_tasks", background_task)
     def run_curses_mode(self, initialize_logic_layer, run_bot_async):
         """Run in curses dashboard mode."""
         if not self.config.discord_token:

@@ -146,13 +146,6 @@ def _build_logic_layer_sync():
 _build_logic_layer_sync()
 
 
-async def initialize_logic_layer_async():
-    """
-    No-op shim kept for DashboardManager compatibility.
-    All construction now happens synchronously above.
-    ctx.set_ready() is called in Phase 2 after GPU warm.
-    """
-    pass
 
 
 from utils.core.rag_executor import run_rag
@@ -351,8 +344,39 @@ async def on_message(msg: discord.Message):
 async def process_external_mention(
     content: str, author_name: str, author_id: Any, platform: str
 ):
-    from utils.social.kaia_social_responder import mock_external_mention
-    return await mock_external_mention(on_message, content, author_name, author_id, platform)
+    """
+    Process mentions from external platforms (Bluesky, X, etc.)
+    Constructs a MockMessage that replicates the discord.Message interface 
+    enough to satisfy the intelligence pipeline.
+    """
+    from utils.infrastructure.system.messaging import MockMessage, MockUser, MockChannel
+    
+    # Create a compatible mock author
+    mock_author = MockUser(
+        id=author_id if isinstance(author_id, int) else (int(author_id) if str(author_id).isdigit() else 0),
+        name=author_name,
+        display_name=author_name
+    )
+    
+    # Create a compatible mock channel/context
+    mock_channel = MockChannel(id=hash(platform) % 10**10)
+    
+    # Construct the mock message
+    mock_msg = MockMessage(
+        content=content,
+        author=mock_author,
+        channel=mock_channel,
+        platform=platform
+    )
+    
+    if ctx.message_processor:
+        # Directly process via the modular processor
+        # This bypasses the Discord-specific on_ready decorators and 
+        # avoids the 'mock_external_mention' proxy which was fragile.
+        return await ctx.message_processor.process(mock_msg)
+    else:
+        log_warning(f"External mention from {platform} received but processor not ready.")
+        return None
 
 
 # ─────────────────────────────────────────────
@@ -398,9 +422,9 @@ def main():
 
     async def run_bot_wrapper(sp, stop_event=None):
         dm.intent_parser = ctx.intent_parser
-        await dm.run_bot_async(sp, initialize_logic_layer_async, _dashboard_boot_hook, stop_event)
+        await dm.run_bot_async(sp, None, dm_sequenced_boot, stop_event)
 
-    async def _dashboard_boot_hook():
+    async def dm_sequenced_boot():
         """
         Minimal hook for DashboardManager.  Phase 3 heavy work is driven by
         on_ready(), so there is almost nothing to do here — just wire context

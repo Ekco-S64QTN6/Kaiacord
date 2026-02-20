@@ -722,46 +722,42 @@ class MessageProcessor:
         await self._send_response(channel=ctx.message.channel, text=ctx.response_text)
         
         # 2. LOGGING & STATE (background to avoid holding up the UI)
-        # 4. Background Tasks with Backpressure
-        # Register the task and let it run freely within the semaphore limit
-        if not self._bg_semaphore.locked():
-            await self._bg_semaphore.acquire()
-            bg_task = asyncio.create_task(self._background_logging_and_memory(ctx))
-            task_registry.register(f"bg_log_{uuid.uuid4().hex[:6]}", bg_task)
-        else:
-            log_warning("Background task semaphore saturated. Skipping extra logging.")
+        # 3. Background Tasks with Backpressure
+        # Create the task and let it manage its own semaphore lifecycle
+        bg_task = asyncio.create_task(self._background_logging_and_memory(ctx))
+        task_registry.register(f"bg_log_{uuid.uuid4().hex[:6]}", bg_task)
 
     async def _background_logging_and_memory(self, ctx: MessageContext):
         """Perform slow updates in the background to avoid holding up the UI."""
-        try:
-            # Update memory
-            if ctx.channel_id not in self.bot_state.channel_memory:
-                 from collections import deque
-                 self.bot_state.channel_memory[ctx.channel_id] = deque(maxlen=self.config.max_memory_messages)
-            
-            # Add author prefix to user message for history disambiguation
-            user_msg_with_author = f"{ctx.author_name}: {ctx.sanitized_content}"
-            self.bot_state.channel_memory[ctx.channel_id].append({"role": "user", "content": user_msg_with_author})
-            self.bot_state.channel_memory[ctx.channel_id].append({"role": "assistant", "content": ctx.response_text})
-            
-            # Update personalization and relevance feedback
-            await self.personalization_engine.learn_from_interaction(ctx.author_id, ctx.sanitized_content, ctx.response_text)
-            await self.relevance_feedback.log_interaction(ctx.sanitized_content, ctx.response_text, ctx.author_id, ctx.author_name)
-            
-            # Log for RAG
-            # CRITICAL FIX: Use sanitized_content to avoid poisoning RAG with [REPLYING_TO] tags
-            await self.rag.log_user_interaction_async(ctx.author_id, ctx.author_name, ctx.sanitized_content, ctx.response_text)
-            
-            self.performance_monitor.stop_timer('total', 'response_time')
-            
-            # Direct metrics
-            response_time = time.time() - ctx.start_time
-            self.stats_tracker.record_response_time(response_time)
-            
-        except Exception as e:
-            log_error(f"Error in background logging: {e}")
-        finally:
-            self._bg_semaphore.release()
+        # Use semaphore to limit concurrent background tasks
+        async with self._bg_semaphore:
+            try:
+                # Update memory
+                if ctx.channel_id not in self.bot_state.channel_memory:
+                     from collections import deque
+                     self.bot_state.channel_memory[ctx.channel_id] = deque(maxlen=self.config.max_memory_messages)
+                
+                # Add author prefix to user message for history disambiguation
+                user_msg_with_author = f"{ctx.author_name}: {ctx.sanitized_content}"
+                self.bot_state.channel_memory[ctx.channel_id].append({"role": "user", "content": user_msg_with_author})
+                self.bot_state.channel_memory[ctx.channel_id].append({"role": "assistant", "content": ctx.response_text})
+                
+                # Update personalization and relevance feedback
+                await self.personalization_engine.learn_from_interaction(ctx.author_id, ctx.sanitized_content, ctx.response_text)
+                await self.relevance_feedback.log_interaction(ctx.sanitized_content, ctx.response_text, ctx.author_id, ctx.author_name)
+                
+                # Log for RAG
+                # CRITICAL FIX: Use sanitized_content to avoid poisoning RAG with [REPLYING_TO] tags
+                await self.rag.log_user_interaction_async(ctx.author_id, ctx.author_name, ctx.sanitized_content, ctx.response_text)
+                
+                self.performance_monitor.stop_timer('total', 'response_time')
+                
+                # Direct metrics
+                response_time = time.time() - ctx.start_time
+                self.stats_tracker.record_response_time(response_time)
+                
+            except Exception as e:
+                log_error(f"Error in background logging: {e}")
 
     async def _send_response(self, channel, text: str):
         """Helper to send response via messaging utility."""

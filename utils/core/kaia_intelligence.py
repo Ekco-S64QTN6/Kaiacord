@@ -166,9 +166,6 @@ class ContextOptimizer:
         self.min_rag_tokens = config.min_rag_tokens if hasattr(config, 'min_rag_tokens') else 1024
         self.min_history_tokens = 512
         self.summarization_tokens = config.summarization_context_tokens
-        self.model_name = model_name
-        self.max_tokens = max_tokens or 32768
-        self.token_multiplier = 1.3
         self._token_cache = OrderedDict() # LRU
         self._max_cache_size = 500
         # Precompiled prompt segments
