@@ -76,7 +76,6 @@ class RealTimeStatsPoller:
         try:
             new_stats['cpu_percent'] = psutil.cpu_percent(interval=None) # Non-blocking
             new_stats['memory_mb'] = psutil.Process().memory_info().rss / 1024 / 1024
-            new_stats['uptime_minutes'] = (time.time() - self.start_time) / 60
         except Exception as e:
             try:
                 from utils.infrastructure.logging.kaia_logger import log_debug
@@ -144,6 +143,7 @@ class RealTimeStatsPoller:
         # 4. Apply Updates Under Lock (MINIMAL DURATION)
         with self.lock:
             # Merge new stats into main dict
+            new_stats['uptime_minutes'] = (time.time() - self.start_time) / 60
             self.stats.update(new_stats)
             
             # Calculate average response time

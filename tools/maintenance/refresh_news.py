@@ -45,7 +45,7 @@ async def refresh_news(force_update=False):
                 print("❌ GEMINI_API_KEY not set")
             else:
                 updater = KaiaNewsUpdater(api_key)
-                updater.run(skip_backfill=True)
+                await asyncio.to_thread(updater.run, skip_backfill=True)
                 print("✅ Update completed successfully.")
                 # Re-initialize manager to pick up new files
                 manager = NewsManager()

@@ -236,9 +236,10 @@ def main():
         ]
         
         if config.startup_news_update:
-            boot_tasks.append(run_news_update())
+            log_action("Launching background news update (non-blocking)...")
+            asyncio.create_task(run_news_update())
             
-        log_action(f"Launching {len(boot_tasks)} boot tasks in parallel...")
+        log_action(f"Launching {len(boot_tasks)} primary boot tasks in parallel...")
         await asyncio.gather(*boot_tasks)
         
         # 2. Model Pre-warming
