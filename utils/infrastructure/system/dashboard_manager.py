@@ -32,6 +32,9 @@ def _run_dashboard_process(shared_stats, log_queue, stop_event, cleanup_complete
             cleanup_complete_event=cleanup_complete_event
         )
         dashboard.run()
+        try:
+            cleanup_complete_event.set()
+        except: pass
     except Exception as e:
         err_info = (str(e), traceback.format_exc())
         try:
@@ -52,9 +55,17 @@ async def _stats_sync_task(shared_stats, stats_tracker, stats_poller, stop_event
                 'messages': s.get('messages', 0),
                 'avg_response_time': s.get('avg_response_time', 0.0),
                 'queue_size': s.get('queue_size', 0),
+                'uptime_minutes': p.get('uptime_minutes', 0.0) or s.get('uptime_minutes', 0.0),
+                'active_users_display': s.get('active_users_display', "0 (idle)"),
                 'ollama_status': p.get('ollama_status', '🔴 OFFLINE'),
                 'active_model': p.get('active_model', 'None'),
+                'ollama_models': p.get('ollama_models', []),
                 'rag_size': p.get('rag_size', '0 MB'),
+                'kb_size_mb': p.get('kb_size_mb', 0.0),
+                'indexed_files': p.get('indexed_files', 0),
+                'dreams_count': p.get('dreams_count', 0),
+                'gpu_util': p.get('gpu_util', 0.0),
+                'gpu_memory': p.get('gpu_memory', 'N/A'),
             })
         except: pass
         await asyncio.sleep(1.0)
@@ -203,15 +214,6 @@ class DashboardManager:
         except Exception as e:
             log_error(f"Error stopping tasks: {e}")
         
-        # 2. Shut down RAG thread pool (dashboard-specific)
-        try:
-            from utils.core.rag_executor import shutdown_rag_executor
-            log_action("Shutting down RAG thread pool...")
-            shutdown_rag_executor()
-            log_success("RAG thread pool shutdown complete.")
-        except Exception as e:
-            log_warning(f"Error shutting down RAG executor: {e}")
-        
         # 3. Stop stats poller
         if self.stats_poller:
             self.stats_poller.stop()
@@ -309,28 +311,47 @@ class DashboardManager:
             
             # 5. Monitor from main thread
             while self.bot_thread.is_alive():
-                try:
-                    if m_stop_event.is_set():
-                        break
-                except (BrokenPipeError, EOFError, ConnectionError):
-                    log_warning("Dashboard IPC connection broken; dashboard may have exited.")
+                # Check for UI stop requested
+                if m_stop_event.is_set():
+                    self.stop_event.set()
                     break
                 
-                # Check for UI errors
-                if not ui_error_queue.empty():
-                    err_msg, err_tb = ui_error_queue.get_nowait()
-                    log_error(f"DASHBOARD CRASHED: {err_msg}\n{err_tb}")
+                # Check for global shutdown signal (Ctrl+C)
+                if shutdown_manager.shutting_down:
+                    # Give bot thread time to finish async_shutdown
+                    self.stop_event.set()
                     break
                     
-                if not self.dashboard_process.is_alive():
-                    log_warning("Dashboard process died unexpectedly.")
+                try:
+                    # Check for UI errors
+                    if not ui_error_queue.empty():
+                        err_msg, err_tb = ui_error_queue.get_nowait()
+                        log_error(f"DASHBOARD CRASHED: {err_msg}\n{err_tb}")
+                        break
+                        
+                    if not self.dashboard_process.is_alive():
+                        log_warning("Dashboard process died unexpectedly.")
+                        break
+                except (BrokenPipeError, EOFError, ConnectionError):
                     break
-                time.sleep(1.0)
+                    
+                time.sleep(0.5)
             
             # Signaling stop to child process
-            try: m_stop_event.set()
-            except: pass
+            if not m_stop_event.is_set():
+                try: m_stop_event.set()
+                except: pass
             self.stop_event.set()
+            
+            # Wait for bot thread cleanup to signal completion (async_shutdown finishes)
+            # This allows dashboard to stay alive long enough to show the final logs
+            if not m_cleanup_complete_event.is_set():
+                log_action("Waiting for bot cleanup to finalize...")
+                m_cleanup_complete_event.wait(timeout=15.0) # Reduced from 25.0
+            
+            # Ensure bot thread is joined
+            if self.bot_thread.is_alive():
+                self.bot_thread.join(timeout=3.0) # Reduced from 5.0
 
         except KeyboardInterrupt:
             print("\n⚠️  Keyboard interrupt received")
@@ -338,6 +359,10 @@ class DashboardManager:
             print(f"\n❌ Dashboard manager error: {e}")
             traceback.print_exc()
         finally:
+            # 1. STOP LOGGING TO QUEUE IMMEDIATELY
+            # This prevents deadlocks if we try to log errors while the dashboard process is dying.
+            self.logger.set_dashboard_mode(False)
+            
             # Terminate dashboard process if still running
             if hasattr(self, 'dashboard_process') and self.dashboard_process:
                 if self.dashboard_process.is_alive():
@@ -361,12 +386,23 @@ class DashboardManager:
             
             self.logger.set_dashboard_mode(False)
             try:
+                # \033[0m    - Reset all attributes
+                # \033[?25h  - Show cursor
+                # \033[?1049l - Exit alternate screen buffer
+                # \033[H      - Move cursor to home (top-left)
+                # \033[2J     - Clear entire screen
                 sys.__stdout__.write('\033[0m\033[?25h\033[?1049l\033[H\033[2J')
                 sys.__stdout__.flush()
             except Exception:
                 pass
             sys.__stdout__.write("\n[SUCCESS] Kaia has entered hibernation.\n")
             sys.__stdout__.flush()
+            
+            # EMERGENCY FALLBACK: If we're still alive 1 second after saying we're done, force it.
+            # This handles cases where lingering threads or multiprocessing Manager won't die.
+            time.sleep(1.0)
+            if threading.active_count() > 1:
+                shutdown_manager.force_exit(0)
 
     async def run_simple_mode(self, initialize_logic_layer, run_bot_async):
         """Run in simple ANSI mode."""
@@ -398,3 +434,8 @@ class DashboardManager:
             self.logger.set_dashboard_mode(False)
             sys.__stdout__.write("\n[SUCCESS] Kaia has entered hibernation.\n")
             sys.__stdout__.flush()
+            
+            # EMERGENCY FALLBACK: If we're still alive 1 second after saying we're done, force it.
+            time.sleep(1.0)
+            if threading.active_count() > 1:
+                shutdown_manager.force_exit(0)

@@ -113,36 +113,77 @@ class RealTimeStatsPoller:
             import urllib.request
             import urllib.error
             import json
-            req = urllib.request.Request("http://127.0.0.1:11434/api/tags")
+            from utils.infrastructure.system.yaml_config import config
+            
+            # Prefer api/ps to see what's actually running
+            req_ps = urllib.request.Request("http://127.0.0.1:11434/api/ps")
             try:
-                with urllib.request.urlopen(req, timeout=1.0) as response:
+                with urllib.request.urlopen(req_ps, timeout=1.0) as response:
                     data = json.loads(response.read().decode('utf-8'))
-                    models = data.get('models', [])
+                    running_models = data.get('models', [])
                     new_stats['ollama_status'] = "🟢 ONLINE"
                     
-                    # Extract up to 3 models to display
+                    # Target models for filtering
+                    target_models = [
+                        config.chat_model,
+                        config.embedding_model,
+                        config.get('models.classification_model', 'gemma2:2b')
+                    ]
+                    
                     model_list = []
-                    for m in models[:3]:
-                        name = m.get('name', 'unknown').split(':')[0]
-                        size_gb = m.get('size', 0) / (1024**3)
-                        model_list.append(f"{name} ({size_gb:.1f}G)")
+                    seen_names = set()
+                    
+                    # 1. Add running target models first
+                    for m in running_models:
+                        full_name = m.get('name', '')
+                        base_name = full_name.split(':')[0]
+                        if any(target in full_name or full_name in target for target in target_models):
+                            size_gb = m.get('size', 0) / (1024**3)
+                            # Indicate if it's in VRAM
+                            vram = m.get('size_vram', 0)
+                            vram_tag = " (VRAM)" if vram > 0 else " (RAM)"
+                            model_list.append(f"{base_name} {size_gb:.1f}G{vram_tag}")
+                            seen_names.add(base_name)
+                    
+                    # 2. If nothing is running, fall back to api/tags to show what's available
+                    if not model_list:
+                        req_tags = urllib.request.Request("http://127.0.0.1:11434/api/tags")
+                        with urllib.request.urlopen(req_tags, timeout=1.0) as tag_resp:
+                            tag_data = json.loads(tag_resp.read().decode('utf-8'))
+                            all_models = tag_data.get('models', [])
+                            for m in all_models:
+                                name = m.get('name', '').split(':')[0]
+                                if name in [t.split(':')[0] for t in target_models]:
+                                    size_gb = m.get('size', 0) / (1024**3)
+                                    model_list.append(f"{name} {size_gb:.1f}G (off)")
                     
                     new_stats['ollama_models'] = model_list
 
-                    # VRAM heuristic for active model
-                    mem_used = 0
-                    if 'gpu_memory' in new_stats and '/' in new_stats['gpu_memory']:
-                        try:
-                            mem_used = int(new_stats['gpu_memory'].split('/')[0])
-                        except (ValueError, IndexError):
-                            pass
-
-                    if mem_used < 2048:
-                        new_stats['active_model'] = "unloaded (idle)"
-                    elif mem_used < 6144:
-                        new_stats['active_model'] = "warming"
+                    # Determine active model status
+                    # PRIORITY 1: Check api/ps for the actual configured chat model
+                    active_chat_name = None
+                    for m in running_models:
+                        if config.chat_model in m.get('name', ''):
+                            active_chat_name = config.chat_model
+                            break
+                    
+                    if active_chat_name:
+                        new_stats['active_model'] = active_chat_name
                     else:
-                         new_stats['active_model'] = "Active (VRAM high)"
+                        # PRIORITY 2: Fall back to VRAM heuristic if api/ps is inconclusive
+                        mem_used = 0
+                        if 'gpu_memory' in new_stats and '/' in new_stats['gpu_memory']:
+                            try:
+                                mem_used = int(new_stats['gpu_memory'].split('/')[0])
+                            except (ValueError, IndexError):
+                                pass
+
+                        if mem_used < 2048:
+                            new_stats['active_model'] = "unloaded (idle)"
+                        elif mem_used < 6144:
+                            new_stats['active_model'] = "warming"
+                        else:
+                            new_stats['active_model'] = "Active (VRAM high)"
             except urllib.error.HTTPError as e:
                 new_stats['ollama_status'] = f"🟡 ERR {e.code}"
                 if e.code == 500:
@@ -160,7 +201,7 @@ class RealTimeStatsPoller:
              new_stats['active_model'] = "None"
              new_stats['ollama_models'] = []
 
-        # 4. Custom Kaia File Stats
+        # 4. Custom Kaia File Stats (Throttled to every 30s)
         current_time = time.time()
         if current_time - getattr(self, 'last_file_stats_update', 0) > 30:
             try:
@@ -177,12 +218,15 @@ class RealTimeStatsPoller:
                                     total_size += os.path.getsize(fp)
                 new_stats['kb_size_mb'] = total_size / (1024 * 1024)
                 
-                # Dreams Count
-                dreams_path = "memory/dream_cache.json"
-                if os.path.exists(dreams_path):
-                    with open(dreams_path, 'r', encoding='utf-8') as f:
-                        dreams_data = json.load(f)
-                        new_stats['dreams_count'] = len(dreams_data)
+                # Dreams Count: Count actual .md files in kaia_dreams subdirectories
+                dreams_kb_path = "knowledge_base/kaia_dreams"
+                total_dreams = 0
+                if os.path.exists(dreams_kb_path):
+                    for subdir in ['books', 'interactions', 'injected', 'other']:
+                        sub_path = os.path.join(dreams_kb_path, subdir)
+                        if os.path.exists(sub_path):
+                            total_dreams += len([f for f in os.listdir(sub_path) if f.startswith('dream_') and f.endswith('.md')])
+                new_stats['dreams_count'] = total_dreams
                 
                 # Indexed Files
                 indexed_path = "memory/rag_storage/indexed_files.json"
@@ -199,12 +243,12 @@ class RealTimeStatsPoller:
                 except Exception:
                     pass
             
-
+        # Always update uptime (calculated from poller start time)
+        new_stats['uptime_minutes'] = (time.time() - self.start_time) / 60
             
         # 4. Apply Updates Under Lock (MINIMAL DURATION)
         with self.lock:
             # Merge new stats into main dict
-            new_stats['uptime_minutes'] = (time.time() - self.start_time) / 60
             self.stats.update(new_stats)
             
             # Calculate average response time

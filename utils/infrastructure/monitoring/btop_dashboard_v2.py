@@ -94,6 +94,7 @@ class Pane:
     height: int
     width: int
     title: str = ""
+    footer: str = ""
     color_pair: int = 1
 
 
@@ -117,14 +118,14 @@ class LayoutManager:
         # Title is now integrated into the panels
         header_height = 0
         
-        # Footer (2 lines: menu + status)
-        footer_height = 2
+        # Footer (1 line: just a tiny gap at the bottom)
+        footer_height = 1
         
         # Available height for content
         content_height = height - header_height - footer_height
         
-        # Top section (stats + status): 40% of content, min 8 lines
-        top_height = max(8, int(content_height * 0.35))
+        # Top section (stats + status): 45% of content, min 10 lines
+        top_height = max(10, int(content_height * 0.45))
         
         # Alerts section: 15% of content, min 4 lines
         alerts_height = max(4, int(content_height * 0.15))
@@ -132,8 +133,8 @@ class LayoutManager:
         # Logs section: remaining space
         logs_height = content_height - top_height - alerts_height
         
-        # Width splits
-        left_width = int(width * 0.5)
+        # Width splits (Stats needs less width, Status needs more)
+        left_width = int(width * 0.4)
         right_width = width - left_width
         
         # Define panes
@@ -164,11 +165,14 @@ class LayoutManager:
         
         y += alerts_height
         
+        # Menu text with cyberpunk separators
+        menu_footer = "[Q]uit ╭─╮ [C]lear ╭─╮ [R]efresh ╭─╮ [S]ave ╭─╮ [H]elp"
+        
         # Logs (full width)
         self.panes['logs'] = Pane(
             y=y, x=0,
             height=logs_height, width=width,
-            title="LIVE LOGS", color_pair=1
+            title="LIVE LOGS", footer=menu_footer, color_pair=1
         )
         
         # Footer
@@ -316,11 +320,12 @@ class BtopDashboardV2:
             
         # ANSI escape sequences for full reset
         try:
-            sys.stdout.write('\033[0m')      # Reset attributes
-            sys.stdout.write('\033[?25h')    # Show cursor
-            sys.stdout.write('\033[?1049l')  # Exit alternate screen
-            sys.stdout.write('\033[H')       # Home cursor
-            sys.stdout.write('\033[2J')      # Clear screen
+            # \033[0m    - Reset all attributes
+            # \033[?25h  - Show cursor
+            # \033[?1049l - Exit alternate screen buffer
+            # \033[H      - Move cursor to home (top-left)
+            # \033[2J     - Clear entire screen
+            sys.stdout.write('\033[0m\033[?25h\033[?1049l\033[H\033[2J')
             sys.stdout.flush()
         except:
             pass
@@ -453,13 +458,13 @@ class BtopDashboardV2:
             memory_percent=memory.percent,
             memory_used_mb=memory.used / 1024 / 1024,
             memory_total_mb=memory.total / 1024 / 1024,
-            gpu_util=poller_stats.get('gpu_util', 0.0),
-            gpu_memory=poller_stats.get('gpu_memory', 'N/A'),
+            gpu_util=poller_stats.get('gpu_util', 0.0) or (self.shared_stats.get('gpu_util', 0.0) if self.shared_stats else 0.0),
+            gpu_memory=poller_stats.get('gpu_memory', 'N/A') or (self.shared_stats.get('gpu_memory', 'N/A') if self.shared_stats else 'N/A'),
             disk_percent=disk.percent,
             net_sent_kb=net.bytes_sent // 1024,
             net_recv_kb=net.bytes_recv // 1024,
-            uptime_minutes=poller_stats.get('uptime_minutes', 0.0) or tracker_stats.get('uptime_minutes', 0.0),
-            active_users=tracker_stats.get('active_users_display', "0 (idle)") or str(poller_stats.get('users', 0)),
+            uptime_minutes=poller_stats.get('uptime_minutes', 0.0) or tracker_stats.get('uptime_minutes', 0.0) or (self.shared_stats.get('uptime_minutes', 0.0) if self.shared_stats else 0.0),
+            active_users=tracker_stats.get('active_users_display', "") or str(poller_stats.get('users', "")) or (self.shared_stats.get('active_users_display', "0 (idle)") if self.shared_stats else "0 (idle)"),
             total_messages=tracker_stats.get('messages', 0) or poller_stats.get('messages', 0) or (self.shared_stats.get('messages', 0) if self.shared_stats else 0),
             avg_response_time=tracker_stats.get('avg_response_time', 0.0) or poller_stats.get('avg_response_time', 0.0) or (self.shared_stats.get('avg_response_time', 0.0) if self.shared_stats else 0.0),
             ollama_status=poller_stats.get('ollama_status', '🔴 OFFLINE') if not self.shared_stats else self.shared_stats.get('ollama_status', '🔴 OFFLINE'),
@@ -524,7 +529,20 @@ class BtopDashboardV2:
             
             # Bottom border
             if y + h - 1 < max_y:
-                bottom = self.BOX['bl'] + self.BOX['h'] * (w - 2) + self.BOX['br']
+                if pane.footer:
+                    footer_str = f" {pane.footer} "
+                    available = max(0, w - 2)
+                    if len(footer_str) + 2 <= available:
+                        left_len = (available - len(footer_str) - 2) // 2
+                        right_len = available - len(footer_str) - 2 - left_len
+                        bottom_line = (self.BOX['h'] * left_len) + '╮' + footer_str + '╭' + (self.BOX['h'] * right_len)
+                    else:
+                        left_len = max(0, (available - len(footer_str)) // 2)
+                        right_len = max(0, available - len(footer_str) - left_len)
+                        bottom_line = self.BOX['h'] * left_len + footer_str + self.BOX['h'] * right_len
+                    bottom = self.BOX['bl'] + bottom_line[:w-2] + self.BOX['br']
+                else:
+                    bottom = self.BOX['bl'] + self.BOX['h'] * (w - 2) + self.BOX['br']
                 self.stdscr.addstr(y + h - 1, x, bottom[:w], color)
                 
         except curses.error:
@@ -615,6 +633,18 @@ class BtopDashboardV2:
         
         self._safe_addstr(inner_y + 5, inner_x, "VRM ".ljust(label_w), curses.color_pair(1) | curses.A_BOLD)
         self._safe_addstr(inner_y + 5, inner_x + label_w + 1, f"{state.gpu_memory}", curses.color_pair(2) | curses.A_BOLD)
+
+        # Vertical Models List
+        if state.ollama_models:
+            self._safe_addstr(inner_y + 7, inner_x, "MODELS", curses.color_pair(1) | curses.A_BOLD | curses.A_UNDERLINE)
+            for i, model in enumerate(state.ollama_models):
+                if inner_y + 8 + i >= pane.y + pane.height - 1:
+                    break
+                # Truncate model name if too long
+                display_model = f"• {model}"
+                if len(display_model) > pane.width - 4:
+                    display_model = display_model[:pane.width - 7] + "..."
+                self._safe_addstr(inner_y + 8 + i, inner_x, display_model, curses.color_pair(6))
         
     def _draw_status_pane(self, state: DashboardState):
         """Draw bot status pane"""
@@ -657,12 +687,6 @@ class BtopDashboardV2:
         
         self._safe_addstr(inner_y + 3, inner_x + 35, "Active:".ljust(9), curses.color_pair(1) | curses.A_BOLD)
         self._safe_addstr(inner_y + 3, inner_x + 44, f"{state.active_model}", curses.color_pair(3) | curses.A_BOLD)
-
-        self._safe_addstr(inner_y + 4, inner_x + 35, "Models:".ljust(9), curses.color_pair(1) | curses.A_BOLD)
-        models_str = ", ".join(state.ollama_models) if state.ollama_models else "None"
-        if len(models_str) > pane.width - 46:
-            models_str = models_str[:pane.width - 49] + "..."
-        self._safe_addstr(inner_y + 4, inner_x + 44, models_str, curses.color_pair(6) | curses.A_BOLD)
         
     def _draw_alerts_pane(self, state: DashboardState):
         """Draw alerts pane"""
@@ -738,23 +762,8 @@ class BtopDashboardV2:
             self._safe_addstr(inner_y + i, inner_x, log_text, attr)
             
     def _draw_footer(self, state: DashboardState):
-        """Draw footer with menu and status"""
-        pane = self.layout.panes.get('footer')
-        if not pane:
-            return
-            
-        try:
-            # Menu bar
-            menu_y = pane.y
-            menu_items = ["[Q]uit", "[C]lear", "[R]efresh", "[S]ave", "[H]elp"]
-            menu_text = "  ".join(menu_items)
-            
-            self._safe_addstr(menu_y, pane.x + 1, menu_text, curses.color_pair(1) | curses.A_BOLD)
-            
-            # Footer status text removed to stop stdout overlap and redundancy
-            
-        except curses.error:
-            pass
+        """Footer is now empty as menu is in logs pane border"""
+        pass
 
             
     def _draw_frame(self, state: DashboardState):
@@ -883,13 +892,18 @@ class BtopDashboardV2:
         """Main UI loop - runs in main thread only"""
         self._init_curses(stdscr)
         self.running = True
-        while (self.running and not shutdown_manager.shutting_down and not (self.stop_event and self.stop_event.is_set())) or (self.cleanup_complete_event and not self.cleanup_complete_event.is_set()):
-            # Handle input ONLY if still running and NOT shutting down
-            if self.running and not shutdown_manager.shutting_down:
-                if not self._handle_input():
-                    self.running = False
-                    if self.stop_event:
-                        self.stop_event.set()
+        
+        while self.running and not shutdown_manager.shutting_down:
+            # Check external stop event
+            if self.stop_event and self.stop_event.is_set():
+                break
+                
+            # Handle input
+            if not self._handle_input():
+                self.running = False
+                if self.stop_event:
+                    self.stop_event.set()
+                break
                 
             # Take snapshot and draw
             try:

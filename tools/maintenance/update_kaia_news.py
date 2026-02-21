@@ -36,6 +36,15 @@ class KaiaNewsUpdater:
 CRITICAL: You MUST use Google Search to find actual news. Do NOT invent or hallucinate any stories.
 Only include news items that you can verify from your search results.
 
+TARGET SOURCES FOR TECHNOLOGY & SECURITY:
+- Ars Technica (arstechnica.com)
+- BleepingComputer (bleepingcomputer.com)
+- The Verge (theverge.com)
+- Wired (wired.com)
+- Hacker News (news.ycombinator.com)
+- Slashdot (slashdot.org)
+- TechCrunch (techcrunch.com)
+
 Compile the news into this structure:
 
 # NEWS_BRIEF: {date_to_use}
@@ -164,11 +173,11 @@ RULES:
         {full_brief[:3500]}
         
         CATEGORIES:
-        - ## Infrastructure: Outages, ISP, cloud issues
-        - ## Security: CVEs, breaches, ransomware
-        - ## Intelligence/AI: LLM releases, regulations
-        - ## Geopolitics: World events, national policy
-        - ## Science/Culture: Space, research, tech trends
+        - ## Technology: AI, LLM releases, hardware, cloud, infrastructure
+        - ## Security: CVEs, zero-days, breaches, ransomware
+        - ## Hacker Culture: Leaks, hacktivism, community news
+        - ## Geopolitics: International relations, world events, policy
+        - ## Science & Health: Space, research, breakthroughs
         
         CRITICAL RULES:
         1. MAXIMUM 10-12 bullets TOTAL for the entire document.

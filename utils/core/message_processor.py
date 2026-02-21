@@ -584,23 +584,12 @@ class MessageProcessor:
             rag_block += "\n\nCRITICAL: No specific records found for this person or topic. Do not invent details, threads, or interactions. If you don't know, stay grounded and admit the records are hazy or missing."
 
         current_time_str = datetime.now().strftime("%A, %B %d, %Y | %I:%M %p")
-        
+
         full_system_prompt = (
             f"{system_prompt}\n\n"
             f"[CURRENT_TIME] {current_time_str}\n\n"
-            "BEHAVIORAL OVERRIDE: Do not feel compelled to end every response with a question. Be concise and blunt.\n\n"
             f"{rag_block}"
         )
-        
-        if ctx.knowledge_boundary_check and ctx.knowledge_boundary_check.get("suggestions"):
-            suggestions = ctx.knowledge_boundary_check["suggestions"]
-            hint_lines = []
-            for unknown, matches in suggestions.items():
-                hint_lines.append(f"- {unknown}: Might refer to {', '.join(matches)}")
-            
-            if hint_lines:
-                hints_str = "\n".join(hint_lines)
-                full_system_prompt += f"\n\n[LORE_HINTS]\nThe following terms were detected and may require disambiguation based on your known records:\n{hints_str}\n---"
 
         if ctx.parent_context:
             label = "[REPLYING_TO_CONTEXT]"

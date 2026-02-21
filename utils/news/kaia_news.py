@@ -1,5 +1,6 @@
 import asyncio
 import json
+import threading
 from datetime import datetime, timedelta
 from typing import List, Dict, Any
 from collections import defaultdict
@@ -16,6 +17,7 @@ class NewsManager:
         self.base_path = Path(base_path)
         self.news_cache = defaultdict(list)
         self.last_refresh = None
+        self._lock = threading.Lock()
         self.categories = {
             "technology": ["ai", "tech", "software", "hardware", "internet", "cyber", "digital", "chip", "tsmc", "nvidia", "cloud", "outage", "infrastructure", "isp"],
             "politics": ["election", "government", "policy", "senate", "congress", "president", "diplomatic", "legislation", "treaty", "ndaa"],
@@ -36,27 +38,28 @@ class NewsManager:
 
     def refresh(self):
         """Scan and parse all news files"""
-        self.news_cache.clear()
-        
-        # Scan all supported files in the news directory recursively
-        for ext in ["*.md", "*.json", "*.yaml", "*.yml"]:
-            for file_path in self.base_path.rglob(ext):
-                try:
-                    if ext == "*.md":
-                        self._parse_md_file(file_path)
-                    elif ext == "*.json":
-                        with open(file_path, 'r') as f:
-                            data = json.load(f)
-                            self._cache_structured_data(data, str(file_path))
-                    else: # yaml/yml
-                        with open(file_path, 'r') as f:
-                            data = yaml.safe_load(f)
-                            self._cache_structured_data(data, str(file_path))
-                except Exception as e:
-                    # Use print here as logger might not be initialized or passed
-                    print(f"⚠️ Error parsing {file_path}: {e}")
-        
-        self.last_refresh = datetime.now()
+        with self._lock:
+            self.news_cache.clear()
+            
+            # Scan all supported files in the news directory recursively
+            for ext in ["*.md", "*.json", "*.yaml", "*.yml"]:
+                for file_path in self.base_path.rglob(ext):
+                    try:
+                        if ext == "*.md":
+                            self._parse_md_file(file_path)
+                        elif ext == "*.json":
+                            with open(file_path, 'r') as f:
+                                data = json.load(f)
+                                self._cache_structured_data(data, str(file_path))
+                        else: # yaml/yml
+                            with open(file_path, 'r') as f:
+                                data = yaml.safe_load(f)
+                                self._cache_structured_data(data, str(file_path))
+                    except Exception as e:
+                        # Use print here as logger might not be initialized or passed
+                        print(f"⚠️ Error parsing {file_path}: {e}")
+            
+            self.last_refresh = datetime.now()
 
     def _parse_md_file(self, file_path: Path):
         """Parse markdown news file"""
@@ -95,18 +98,27 @@ class NewsManager:
                     
                 current_items = []
             elif current_section:
-                # SKIP metadata quotes that look like general news
-                if stripped.startswith('QUOTE:'):
+                # SKIP metadata and boilerplate
+                skip_keywords = ['QUOTE:', 'Generated:', 'RULES:', 'TARGET SOURCES:', '---', '**Generated**:']
+                if any(stripped.startswith(kw) for kw in skip_keywords):
+                    continue
+                
+                # Also skip specific boilerplate phrases
+                if "Search for and compile" in stripped or "You are a news aggregator" in stripped:
                     continue
                     
                 # Add as an item if it's not a header level 1 or 2
                 if not stripped.startswith('#'):
 
                     # Handle multiple bullet styles or plain text
+                    item_text = ""
                     if stripped.startswith('- ') or stripped.startswith('* ') or stripped.startswith('• '):
-                        current_items.append(stripped[2:].strip())
+                        item_text = stripped[2:].strip()
                     else:
-                        current_items.append(stripped)
+                        item_text = stripped.strip()
+                    
+                    if item_text and len(item_text) > 10: # Minimum length to avoid junk
+                        current_items.append(item_text)
         
         # Add the final section
         if current_section and current_items:
@@ -250,37 +262,46 @@ class NewsManager:
         # Find best matching category
         matched_cat = None
         
+        # SPECIAL REDIRECTS
+        if category_lower == "hacking":
+            category_lower = "hacker"
+        
         # Check if it matches a known category first
         for cat in self.categories.keys():
-            if cat in category_lower or category_lower in cat:
+            if cat == category_lower or cat in category_lower or category_lower in cat:
                 matched_cat = cat
                 break
         
+        # If specifically requested a category that doesn't exist, return empty
+        if category and not matched_cat:
+            return []
+            
         if not matched_cat:
             matched_cat = 'general'
         
-        items = self.news_cache.get(matched_cat, [])
-        
-        # NO FALLBACK to general if a specific category was requested
-        if not items:
-            return []
+        with self._lock:
+            items = self.news_cache.get(matched_cat, [])
+            
+            # If we found a category but it's empty, return empty
+            if not items:
+                return []
 
-        # PRIORITIZE RECENCY: 
-        # 1. Get today's date
-        today_str = datetime.now().strftime("%Y-%m-%d")
-        
-        # 2. Separate today's news from older news
-        today_items = [i for i in items if i.get('date') == today_str]
-        older_items = [i for i in items if i.get('date') != today_str]
-        
-        # 3. Sort older items by date descending
-        older_items.sort(key=lambda x: x.get('date', ''), reverse=True)
-        
-        # 4. Build final list: today's news first, then fill with older news
-        all_prioritized = today_items + older_items
-        
-        # 5. Return latest items up to limit
-        return all_prioritized[:limit]
+            # PRIORITIZE RECENCY: 
+            # 1. Get today's date
+            today_str = datetime.now().strftime("%Y-%m-%d")
+            
+            # 2. Separate today's news from older news
+            today_items = [i for i in items if i.get('date') == today_str]
+            older_items = [i for i in items if i.get('date') != today_str]
+            
+            # 3. Sort older items by date descending
+            older_items.sort(key=lambda x: x.get('date', ''), reverse=True)
+            
+            # 4. Build final list: today's news first, then fill with older news
+            all_prioritized = today_items + older_items
+            
+            # 5. Return latest items up to limit
+            return all_prioritized[:limit]
 
 class NewsRetrievalEnhancer:
     """Advanced news retrieval system for Kaia"""

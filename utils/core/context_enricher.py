@@ -27,22 +27,65 @@ class ContextEnricher:
         """
         content = msg.content
         
-        # 1. Resolve Replies (Highest priority context)
+        # 1. Resolve Mentions (Resolve <@ID> to Names)
+        content = await self.resolve_mentions(content, msg)
+
+        # 2. Resolve Replies (Highest priority context)
         reply_context = await self.resolve_replies(msg)
         if reply_context:
             content = f"[REPLYING_TO]\n{reply_context}\n\n[USER_MESSAGE]\n{content}"
 
-        # 2. Extract Appendages (Embeds)
+        # 3. Extract Appendages (Embeds)
         embed_text = self.extract_embed_text(msg)
         if embed_text:
             content += f"\n\n[ATTACHED_EMBED_CONTEXT]\n{embed_text}"
             
-        # 3. Resolve Links
+        # 4. Resolve Links
         linked_context = await self.resolve_message_links(msg)
         if linked_context:
             content += f"\n\n[LINKED_MESSAGE_CONTEXT]\n{linked_context}"
             
         return content
+
+    async def resolve_mentions(self, content: str, msg: discord.Message) -> str:
+        """Resolve <@ID> and <@!ID> mentions to display names."""
+        mention_pattern = re.compile(r'<@!?(\d+)>')
+        matches = mention_pattern.findall(content)
+        
+        if not matches:
+            return content
+            
+        resolved_content = content
+        for user_id_str in set(matches):
+            user_id = int(user_id_str)
+            display_name = None
+            
+            # 1. Check message mentions (fastest)
+            if msg.mentions:
+                for m in msg.mentions:
+                    if m.id == user_id:
+                        display_name = m.display_name
+                        break
+            
+            # 2. Check guild cache
+            if not display_name and msg.guild:
+                member = msg.guild.get_member(user_id)
+                if member:
+                    display_name = member.display_name
+            
+            # 3. Fetch from API (slowest, fallback)
+            if not display_name:
+                try:
+                    user = await self.bot.fetch_user(user_id)
+                    display_name = user.display_name if user else f"user_{user_id}"
+                except Exception:
+                    display_name = f"user_{user_id}"
+            
+            if display_name:
+                resolved_content = resolved_content.replace(f"<@{user_id_str}>", f"@{display_name}")
+                resolved_content = resolved_content.replace(f"<@!{user_id_str}>", f"@{display_name}")
+                
+        return resolved_content
 
     async def resolve_replies(self, msg: discord.Message) -> str:
         """Fetch the content of the message being replied to."""

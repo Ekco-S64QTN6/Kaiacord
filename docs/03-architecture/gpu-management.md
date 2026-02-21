@@ -11,7 +11,7 @@
 |:------|:--------|:--------|:------------|
 | **gemma3:12b** | Chat / Generation | GPU | ~8.0 GB |
 | **gemma2:2b** | Intent Classification | CPU (`num_gpu: 0`) | 0 GB |
-| **nomic-embed-text** | RAG Embeddings | CPU (`num_gpu: 0`) | 0 GB |
+| **nomic-embed-text-cpu** | RAG Embeddings | CPU (`num_gpu: 0`) | 0 GB |
 
 ## VRAM Allocation Strategy
 
@@ -20,7 +20,7 @@ Kaia is optimized for continuous presence on a single 12GB GPU. Unlike previous 
 ### 1. Residency Policy
 - **Chat Model** (`gemma3:12b`): Stays loaded in VRAM permanently. Never unloaded.
 - **Classification Model** (`gemma2:2b`): Runs entirely on CPU via `ThreadPoolExecutor`. Zero VRAM usage.
-- **Embedding Model** (`nomic-embed-text`): Runs on CPU via `ollama_additional_kwargs: {"num_gpu": 0}`. Zero VRAM usage.
+- **Embedding Model** (`nomic-embed-text-cpu`): Runs on CPU via `ollama_additional_kwargs: {"num_gpu": 0}`. Zero VRAM usage.
 
 ### 2. Context Window Optimization
 - **Default Window**: 8192 tokens (config-driven via `config.max_context_tokens`).

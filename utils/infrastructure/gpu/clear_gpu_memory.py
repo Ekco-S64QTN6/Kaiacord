@@ -97,7 +97,7 @@ def force_clear_gpu() -> bool:
         return False
 
 
-def kill_orphaned_runners():
+def kill_orphaned_runners(preserve_model: str = None, preserve_ctx: int = None):
     """Aggressively unload VRAM via sync HTTP, then kill any lingering ollama runners."""
     import psutil
     import os
@@ -108,13 +108,24 @@ def kill_orphaned_runners():
     # 1. Graceful Synchronous Unload (Bypasses active async event loops)
     print("🔄 Ensuring all models are flushed from VRAM via HTTP...")
     try:
-        req = urllib.request.Request("http://127.0.0.1:11434/api/tags", method="GET")
+        # Check what's ACTUALLY running instead of all installed tags
+        req = urllib.request.Request("http://127.0.0.1:11434/api/ps", method="GET")
         with urllib.request.urlopen(req, timeout=3.0) as response:
              data = json.loads(response.read().decode())
-             models = [m["name"] for m in data.get("models", [])]
+             running_models = data.get("models", [])
              
-        for model in models:
-             payload = json.dumps({"model": model, "keep_alive": 0}).encode("utf-8")
+        for model_info in running_models:
+             name = model_info.get("name", "")
+             ctx_len = model_info.get("context_length", 0)
+             
+             # Optimization: If the model we want is already running with correct context, skip unloading it
+             if preserve_model and (preserve_model in name or name in preserve_model):
+                 if preserve_ctx is None or ctx_len == preserve_ctx:
+                     print(f"  ✅ Preserving {name} (already resident with {ctx_len} ctx)")
+                     continue
+             
+             print(f"  🔄 Unloading {name}...")
+             payload = json.dumps({"model": name, "keep_alive": 0}).encode("utf-8")
              preq = urllib.request.Request(
                  "http://127.0.0.1:11434/api/generate",
                  data=payload,

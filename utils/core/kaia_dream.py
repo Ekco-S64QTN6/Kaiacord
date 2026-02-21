@@ -4,7 +4,9 @@ from collections import defaultdict
 import json
 import time
 import uuid
+import asyncio
 import ollama
+from datetime import datetime, timedelta
 try:
     import pypdf
 except ImportError:
@@ -21,7 +23,7 @@ class DreamEngine:
         self.config = config_instance
         self.rag = rag_instance
         # Use config for paths, fall back to defaults
-        self.kb_dir = config_instance.knowledge_base_dir
+        self.kb_dir = Path(config_instance.knowledge_base_dir)
         self.dreams_kb_dir = self.kb_dir / 'kaia_dreams'
         
         self.chat_model = config_instance.chat_model
@@ -30,7 +32,7 @@ class DreamEngine:
         self.dreams_kb_dir.mkdir(parents=True, exist_ok=True)
         
         # Performance/History state
-        self.history_file = config_instance.memory_dir / 'dream_history.json'
+        self.history_file = Path(config_instance.persist_dir) / 'dream_history.json'
         self._history = self._load_history()
         self._history_lock = asyncio.Lock()
         
@@ -59,7 +61,7 @@ INSTRUCTIONS:
 3. DEPTH: Do not summarize. Connect this fragment to broader themes (infrastructure, human error, the passage of time, the nature of memory).
 4. ANALYTICAL BENT: Be clear-eyed, amused, or curious, but always grounded in physical reality.
 5. NO HEADERS: No "Reflection:" or "Kaia:". Just the raw text.
-6. STAGING: Do NOT hallucinate that you are in the year 2030, 2040, or any future date. You are reflecting in the present (2026).
+6. STAGING: Do NOT hallucinate that you are in the year 2030, 2040, or any future date. You are reflecting in the present ({current_date}).
 7. NO ROLEPLAY: ABSOLUTELY FORBIDDEN. Do not use asterisks (*nods*) or parentheses (types).
 8. NO ATMOSPHERE: Do not describe the room, the sounds, the servers, or any "atmospheric" flavor text. 
 9. SPOKEN TEXT ONLY: Output only what you would actually say.

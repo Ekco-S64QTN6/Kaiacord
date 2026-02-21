@@ -3,7 +3,7 @@ import psutil
 import sys
 import os
 from discord.ext import tasks
-from utils.infrastructure.logging.kaia_logger import log_info, log_debug, log_warning, log_error, log_action
+from utils.infrastructure.logging.kaia_logger import log_info, log_debug, log_warning, log_error, log_action, log_success
 from utils.infrastructure.system.bot_state import bot_state
 
 # Dependencies managed via AppContext
@@ -15,14 +15,37 @@ _first_run = True
 
 @tasks.loop(hours=1)
 async def rag_maintenance_task():
-    """Periodic RAG maintenance: persist index and check for updates"""
+    """Periodic RAG maintenance: self-heal by scanning for updates and persisting"""
     if not ctx or not ctx.rag:
         return
         
     try:
+        from utils.core.rag_executor import run_rag
+        
+        # 0. Ensure initialization is complete
+        if not getattr(ctx.rag, '_initialized', False):
+            log_info("RAG initialization not complete. Skipping periodic self-heal.")
+            return
+            
+        # Check if a manual trigger exists or if we're just doing the hourly sweep
+        trigger_path = os.path.join(ctx.rag.knowledge_base_dir, ".trigger_reindex")
+        force_sweep = os.path.exists(trigger_path)
+        
+        if force_sweep:
+            log_info("🔗 Detected .trigger_reindex. Performing maintenance sweep...")
+            try: os.remove(trigger_path)
+            except: pass
+        else:
+            log_action("Periodic RAG self-heal starting...")
+        
+        # 1. Scan for new/changed/deleted files (Self-Heal)
+        await run_rag(ctx.rag.refresh_knowledge_base)
+        
+        # 2. Persist if needed
         if ctx.rag.persist_needed:
-            log_action("Periodic RAG persistence...")
             await ctx.rag.persist_async()
+            
+        log_success("RAG maintenance complete.")
     except Exception as e:
         log_error(f"RAG maintenance failed: {e}")
 

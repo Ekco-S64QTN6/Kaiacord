@@ -127,20 +127,38 @@ class CleanShutdown:
         except Exception as e:
             log_warning(f"  ⚠️  Failed to release Ollama VRAM: {e}")
 
+        # 2b. Final RAG Refresh Sweep (Self-Heal)
+        if self.rag:
+            try:
+                from utils.core.rag_executor import run_rag
+                log_info("  🔄 Performing final knowledge base sweep...")
+                # Run sync or with very short timeout to avoid hang
+                await asyncio.wait_for(run_rag(self.rag.refresh_knowledge_base), timeout=10.0)
+                log_info("  ✅ Final sweep complete")
+            except Exception:
+                log_warning("  ⚠️ Final knowledge sweep skipped/timed out")
+
         # 3. Persist RAG Index (Critical Data Safety)
         if self.rag:
             try:
                 log_info("  💾 Persisting RAG indices...")
-                await asyncio.to_thread(self.rag.persist, force=True)
-                log_success("  ✅ RAG indices saved")
+                # Reduce timeout for persistence on shutdown
+                persist_thread = threading.Thread(target=self.rag.persist, args=(True,))
+                persist_thread.daemon = True
+                persist_thread.start()
+                persist_thread.join(timeout=15.0) # Reduced from 30s
+                if persist_thread.is_alive():
+                    log_warning("  ⚠️ RAG persistence taking too long, continuing...")
+                else:
+                    log_success("  ✅ RAG indices saved")
             except Exception as e:
                 log_error(f"  ❌ Error persisting RAG: {e}")
 
         # 4a. Close Forum Client
         try:
             from utils.social.kaia_forum import close_forum_client
-            # Check if we are already in an event loop shutdown
-            await close_forum_client()
+            # Use shorter timeout for forum close
+            await asyncio.wait_for(close_forum_client(), timeout=3.0)
             log_info("  ✅ Forum client closed")
         except Exception as e:
             log_warning(f"  ⚠️  Failed to close forum client: {e}")
@@ -158,7 +176,7 @@ class CleanShutdown:
             try:
                 # Use a protected close call
                 if hasattr(app_ctx, 'close') and callable(app_ctx.close):
-                    await asyncio.wait_for(app_ctx.close(), timeout=5.0)
+                    await asyncio.wait_for(app_ctx.close(), timeout=3.0)
                     log_info("  ✅ AppContext resources closed")
                 else:
                     # Fallback to direct client close if close() missing
@@ -171,11 +189,12 @@ class CleanShutdown:
         # 5. Force GPU cleanup (Internal Torch/CUDA buffers)
         try:
             from utils.infrastructure.gpu.clear_gpu_memory import force_clear_gpu
-            # Run in thread to avoid blocking the event loop
-            if await asyncio.to_thread(force_clear_gpu):
-                log_info("  ✅ GPU memory released")
-            else:
-                log_warning("  ⚠️  GPU cleanup incomplete")
+            # Use a raw thread to avoid the default executor
+            cleanup_thread = threading.Thread(target=force_clear_gpu)
+            cleanup_thread.daemon = True
+            cleanup_thread.start()
+            cleanup_thread.join(timeout=5.0) # Reduced from 10s
+            log_info("  ✅ GPU memory released")
         except ImportError:
             pass
         except Exception as e:
@@ -188,22 +207,30 @@ class CleanShutdown:
             log_info("  ✅ LoopWatchdog stopped")
         except Exception: pass
 
-        # 7. Stop Unified Logger (Background worker)
-        try:
-            from utils.infrastructure.logging.unified_logging import logger as unified_logger
-            unified_logger.stop()
-        except Exception: pass
-
-        # 8. EMERGENCY: Kill orphaned Ollama runners (VRAM retrieval)
+        # 7. EMERGENCY: Kill orphaned Ollama runners (VRAM retrieval)
         try:
             from utils.infrastructure.gpu.clear_gpu_memory import kill_orphaned_runners
-            # This is a synchronous process check, but we run it at the very end 
-            # to reclaim GPU if the API unload failed or hung.
-            await asyncio.to_thread(kill_orphaned_runners)
+            from utils.infrastructure.system.yaml_config import config
+            # Use a raw thread with shorter timeout
+            kill_thread = threading.Thread(
+                target=kill_orphaned_runners, 
+                kwargs={"preserve_model": config.chat_model, "preserve_ctx": config.max_context_tokens}
+            )
+            kill_thread.daemon = True
+            kill_thread.start()
+            kill_thread.join(timeout=5.0) # Reduced from 10s
         except Exception: pass
 
         self._shutdown_complete.set()
         log_info("  ✅ Async shutdown complete")
+    
+    def force_exit(self, exit_code: int = 0):
+        """Emergency force exit if shutdown hangs"""
+        log_warning(f"Forcing exit with code {exit_code}")
+        self.restore_terminal()
+        # Use os._exit to bypass all cleanup and force immediate termination
+        import os
+        os._exit(exit_code)
     
     def restore_terminal(self):
         """Restore terminal to normal state"""

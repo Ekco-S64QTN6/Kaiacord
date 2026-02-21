@@ -225,13 +225,15 @@ def thread_safe_rag_operation(func):
         lock_timeout = getattr(config, 'rag_lock_seconds', 10.0)
         
         if func.__name__ == 'retrieve':
-            acquired = self._lock.acquire(timeout=0.5)
+            # Offload the blocking acquire to a thread to avoid freezing the event loop
+            acquired = await asyncio.to_thread(self._lock.acquire, timeout=0.5)
             try:
                 return await func(self, *args, **kwargs)
             finally:
                 if acquired: self._lock.release()
         else:
-            if not self._lock.acquire(timeout=lock_timeout):
+            # For writes/updates, offload the blocking wait
+            if not await asyncio.to_thread(self._lock.acquire, timeout=lock_timeout):
                 log_warning(f"RAG operation {func.__name__} timed out")
                 return False if func.__name__ in ['add_memory', 'log_user_interaction'] else None
             try:
@@ -313,7 +315,7 @@ class KaiaRAG:
         self.indices = {} # Hierarchical indices
         self.bm25_cache = {} # Cache for BM25 retrievers {itype: (timestamp, retriever)}
         self.persist_needed = False
-        self._lock = threading.RLock()
+        self._lock = threading.Lock()
         self.state_file = os.path.join(self.persist_dir, "file_manifest.json")
         # NOTE: _load_indexed_files() is intentionally NOT called here.
         # It performs disk I/O and must not run during Phase 0 (synchronous boot).
@@ -668,20 +670,34 @@ class KaiaRAG:
         """Load the mapping of indexed files from disk and fall back to legacy if needed."""
         try:
             legacy_file = os.path.join(self.persist_dir, "indexed_files.json")
+            
+            # 1. Try to load primary manifest
+            manifest_data = {}
             if os.path.exists(self.state_file):
                 with open(self.state_file, 'r', encoding='utf-8') as f:
-                    self.indexed_files = json.load(f)
-                log_success(f"Loaded {len(self.indexed_files)} manifest entries.")
-            elif os.path.exists(legacy_file):
-                # Legacy migration: simple {path: mtime}
+                    manifest_data = json.load(f)
+            
+            # 2. If primary is empty/missing, try legacy
+            if not manifest_data and os.path.exists(legacy_file):
                 with open(legacy_file, 'r', encoding='utf-8') as f:
                     legacy_data = json.load(f)
-                for path, mtime in legacy_data.items():
-                    self.indexed_files[path] = {"mtime": mtime, "size": 0, "nodes": []}
-                log_info(f"Migrated {len(self.indexed_files)} files from legacy RAG state.")
+                
+                # Check if it's the NEW format (dict of dicts) or OLD format (dict of mtimes)
+                first_val = next(iter(legacy_data.values())) if legacy_data else None
+                if isinstance(first_val, dict):
+                    manifest_data = legacy_data
+                    log_info(f"Loaded {len(manifest_data)} entries from indexed_files.json")
+                else:
+                    for path, mtime in legacy_data.items():
+                        manifest_data[path] = {"mtime": mtime, "size": 0, "nodes": []}
+                    log_info(f"Migrated {len(manifest_data)} files from old legacy format.")
+            
+            self.indexed_files = manifest_data
+            if self.indexed_files:
+                log_success(f"Loaded {len(self.indexed_files)} manifest entries.")
             else:
                 log_info("No existing RAG manifest found; will perform initial population.")
-                self.indexed_files = {}
+                
         except Exception as e:
             log_error(f"Failed to load indexed files state: {e}")
             self.indexed_files = {}
@@ -856,6 +872,11 @@ class KaiaRAG:
 
     def _handle_corrupt_file(self, file_path: str, itype: str, corrupt_dir: str) -> bool:
         """Attempt recovery or move file to corrupt directory."""
+        # CRITICAL SAFEGUARD: Never move the core persona file
+        if "kaia_persona.md" in os.path.basename(file_path):
+            log_critical(f"CRITICAL: kaia_persona.md failed to load but will NOT be moved to corrupt_files. Please check formatting manually.")
+            return False
+
         if file_path.lower().endswith((".pdf", ".docx")):
             md_path = self._convert_pdf_to_md(file_path) if file_path.lower().endswith(".pdf") else self._convert_docx_to_md(file_path)
             if md_path:
@@ -917,6 +938,12 @@ class KaiaRAG:
                 return
 
             log_action(f"Refreshing knowledge base (Parallel, max={max_concurrent_files})...")
+            
+            # 0. Safety Guard: Ensure indices are initialized
+            if not self.indices:
+                log_info("Indices not initialized. Running initialization...")
+                self._initialize_indices()
+                
             corrupt_dir = os.path.join(self.knowledge_base_dir, "corrupt_files")
             if not os.path.exists(corrupt_dir): os.makedirs(corrupt_dir)
 

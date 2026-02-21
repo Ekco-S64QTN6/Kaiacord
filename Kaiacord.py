@@ -18,7 +18,6 @@ load_dotenv()
 
 # Initialize Unified Logging
 from utils.infrastructure.logging.unified_logging import replace_all_logging, logger
-replace_all_logging()
 
 from utils.infrastructure.logging.kaia_logger import (
     log_info, log_success, log_error, log_action
@@ -141,9 +140,8 @@ def _build_logic_layer_sync():
         log_error(f"Failed to register GPU memory clearing: {e}")
 
 
-# Build the object graph NOW — synchronous, zero I/O, completes in <100ms.
 # on_ready() will never need to wait for this.
-_build_logic_layer_sync()
+# _build_logic_layer_sync() is now called in main() before bot start.
 
 
 
@@ -384,6 +382,9 @@ async def process_external_mention(
 # ─────────────────────────────────────────────
 
 def main():
+    # 1. Initialize Logging FIRST
+    replace_all_logging()
+    
     from utils.infrastructure.monitoring.stats_tracker import stats_tracker
     from utils.infrastructure.monitoring.stats_poller import stats_poller
 
@@ -451,10 +452,10 @@ def main():
 
     if mode == "curses":
         from utils.infrastructure.gpu.clear_gpu_memory import kill_orphaned_runners
-        kill_orphaned_runners()
-        dm.run_curses_mode(initialize_logic_layer_async, run_bot_wrapper)
+        kill_orphaned_runners(preserve_model=config.chat_model, preserve_ctx=config.max_context_tokens)
+        dm.run_curses_mode(_build_logic_layer_sync, run_bot_wrapper)
     else:
-        asyncio.run(dm.run_simple_mode(initialize_logic_layer_async, run_bot_wrapper))
+        asyncio.run(dm.run_simple_mode(_build_logic_layer_sync, run_bot_wrapper))
 
 
 if __name__ == "__main__":

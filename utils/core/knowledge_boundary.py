@@ -102,65 +102,38 @@ class KnowledgeBoundary:
                 self.known_entities.add(name.lower())
     
     def extract_entities(self, text: str) -> list:
-        """Extract unknown entities from the text."""
-        # 1. Broadly find all capitalized sequences (Title Case words)
-        # Matches single words or multi-word phrases: "John" or "John Doe"
-        title_matches = self._title_pattern.findall(text)
+        """
+        Extract potential 'Unknown' entities.
         
-        # 2. Add Acronym support (NASA, GPU)
-        acronym_matches = self._acronym_pattern.findall(text)
+        CRITICAL FIX: We no longer scan for generic Title Case words (e.g. 'Spock', 'Aquarium').
+        The LLM knows general knowledge. We only care about hallucinated SYSTEM entities
+        like fake usernames, file paths, or IDs.
+        """
+        # 1. Target Synthetic Identifiers (e.g., "User_123", "Project9", "doc-v2")
+        # Matches words with mix of letters and numbers/underscores/dashes
+        synthetic_pattern = re.compile(r'\b[A-Za-z]+[0-9_.-]+[A-Za-z0-9_.-]*\b')
         
-        all_matches = title_matches + acronym_matches
+        # 2. Target Explicit Mentions or Handles (e.g., "@User")
+        handle_pattern = re.compile(r'@\w+')
+        
+        synthetic_matches = synthetic_pattern.findall(text)
+        handle_matches = handle_pattern.findall(text)
+        
+        all_matches = synthetic_matches + handle_matches
         
         filtered_matches = []
         for m in all_matches:
-            original_m = m
-            m = self._article_prefix.sub('', m)
             m_lower = m.lower()
             
+            # Basic filters
             if m_lower in self.common_words_lower:
                 continue
-            
-            if len(m) <= 2: # Very short acronyms or words
+            if len(m) <= 2: 
                 continue
             
-            # Skip single words that look like mashed-together usernames (e.g. Orginalcontentguy)
-            if ' ' not in m and len(m) > 15:
+            # Check if specifically known
+            if m_lower in self.known_entities:
                 continue
-
-            # Multi-word phrases are high signal
-            if ' ' in original_m:
-                if m_lower in self.common_words_lower:
-                    continue
-                
-                # NEW: Check if all components are individually common or known
-                # This prevents "Hi Kaia" from being flagged if "Hi" and "Kaia" are individually known.
-                words = [w.lower() for w in m.split()]
-                if all(w in self.common_words_lower or w in self.known_entities for w in words):
-                    continue
-                    
-                filtered_matches.append(m)
-                continue
-
-            # Sentence Start Nuance
-            escaped_m = re.escape(m)
-            pattern = re.compile(r'(?<!^)(?<![.!?]\s)' + escaped_m + r'\b')
-            is_non_start = pattern.search(text)
-            
-            if not is_non_start:
-                if m_lower in self.known_entities:
-                    filtered_matches.append(m)
-                continue
-
-            # Pluralization check
-            if m_lower.endswith('s'):
-                singular = None
-                if m_lower.endswith('ies'): singular = m_lower[:-3] + 'y'
-                elif m_lower.endswith('es'): singular = m_lower[:-2]
-                else: singular = m_lower[:-1]
-                
-                if singular in self.common_words_lower:
-                    continue
 
             filtered_matches.append(m)
             

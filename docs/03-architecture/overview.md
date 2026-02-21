@@ -2,7 +2,7 @@
 
 ## Overview
 
-Kaia is a self-hosted Discord AI bot with local inference and RAG-based memory. This document describes the technical architecture after the latest refactors (Phases 1-14).
+Kaia is a self-hosted Discord AI bot with local inference and RAG-based memory. This document describes the technical architecture after the latest refactors (Phases 1-15).
 
 ## System Architecture
 
@@ -153,7 +153,7 @@ sequenceDiagram
 1. **CHAT** (P1): Main LLM (e.g., gemma3:12b) remains resident in VRAM for fast response.
 2. **MAINTENANCE**: Periodic RAG re-indexing and nightly Dream cycles.
 
-Kaia is optimized for 12GB VRAM GPUs (like the RTX 3060). Classification and embeddings run on CPU (`num_gpu: 0`), leaving the full GPU budget for the chat model and its 20K-token KV cache.
+Kaia is optimized for 12GB VRAM GPUs (like the RTX 3060). Classification and embeddings run on CPU (`num_gpu: 0`), leaving the full GPU budget for the chat model and its 8K-token KV cache.
 
 ---
 

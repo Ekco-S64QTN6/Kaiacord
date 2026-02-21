@@ -74,7 +74,6 @@ source venv/bin/activate
 
 # Install dependencies
 pip install -r requirements.txt
-pip install -r requirements_yaml.txt  # YAML config support
 ```
 
 ---
@@ -91,7 +90,7 @@ ollama pull gemma3:12b
 ollama pull gemma2:2b
 
 # Embedding model (runs on CPU)
-ollama pull nomic-embed-text
+ollama pull nomic-embed-text-cpu
 ```
 
 ---
@@ -130,7 +129,7 @@ Expected output:
 ✅ Ollama server: ONLINE
 ✅ gemma3:12b: Found
 ✅ gemma2:2b: Found
-✅ nomic-embed-text: Found
+✅ nomic-embed-text-cpu: Found
 ✅ GPU: NVIDIA RTX 3060 (12GB)
 ✅ Knowledge base: Accessible
 ✅ Configuration: Valid

@@ -36,13 +36,13 @@ The new dashboard provides a real-time, high-performance terminal interface for 
 
 ## 🛠️ Technical Implementation
 
-### Curses Dashboard (Primary): `utils/btop_dashboard_v2.py`
+### Curses Dashboard (Primary): `utils/infrastructure/monitoring/btop_dashboard_v2.py`
 The production curses dashboard uses snapshot-based rendering and a pane-based layout. It runs in curses' alternate screen buffer.
 
-### ANSI Dashboard (Legacy): `utils/btop_dashboard_legacy.py`
+### ANSI Dashboard (Legacy): `utils/infrastructure/monitoring/btop_dashboard_legacy.py`
 The legacy ANSI fallback is preserved for terminals that don't support curses.
 
-### `utils/stats_poller.py` & `utils/stats_tracker.py`
+### `utils/infrastructure/monitoring/stats_poller.py` & `utils/infrastructure/monitoring/stats_tracker.py`
 Authoritative sources for GPU metrics and user activity:
 - **Model Status**: Derived from VRAM thresholds (<2GB = idle, 2-6GB = warming, >6GB = loaded).
 - **Active Users**: Counted via a 15-minute sliding window.

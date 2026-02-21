@@ -11,8 +11,12 @@ async def handle_news_command(ctx, msg, send_kaia_response):
         parts = msg.content.strip().split(maxsplit=1)
         category = parts[1].lower().strip() if len(parts) > 1 else "general"
         
+        # CATEGORY REDIRECTS
+        if category == "hacking":
+            category = "hacker"
+        
         # SPECIAL CASE: !news today - returns today's news summary
-        if category == "today":
+        if category == "today" or category == "daily":
             log_action(f"Today's news summary request from {msg.author}")
             
             # Get today's date and look for most recent news summary
@@ -24,13 +28,18 @@ async def handle_news_command(ctx, msg, send_kaia_response):
             
             if todays_summary.exists():
                 summary_content = todays_summary.read_text()
-                # Remove empty lines and redundant headers for compact formatting
-                lines = [line for line in summary_content.split('\n') if line.strip()]
-                # Strip legacy "# QUICK REFERENCE" header if present
-                if lines and lines[0].startswith("# QUICK REFERENCE"):
-                    lines = lines[1:]
+                # Filter items: remove metadata and headers
+                lines = summary_content.split('\n')
+                filtered_items = []
+                for line in lines:
+                    stripped = line.strip()
+                    if not stripped or stripped.startswith("#"): continue
+                    if "scraped from 68k.news" in stripped.lower(): continue
+                    if stripped.startswith("QUOTE:"): continue
+                    filtered_items.append(stripped)
                 
-                compact_summary = '\n'.join(lines)
+                # Limit to ~6 items and join with double spacing
+                compact_summary = '\n\n'.join(filtered_items[:6])
                 formatted = f"📰 **Today's News Summary ({today.strftime('%B %d, %Y')})**\n\n{compact_summary}"
                 # Add category options footer
                 formatted += "\n\n---\n**Other categories:** `!news general` `!news technology` `!news security` `!news hacker` `!news politics` `!news business` `!news science` `!news culture`"
@@ -50,13 +59,18 @@ async def handle_news_command(ctx, msg, send_kaia_response):
                         date_display = date_str
                     
                     summary_content = most_recent.read_text()
-                    # Remove empty lines and redundant headers for compact formatting
-                    lines = [line for line in summary_content.split('\n') if line.strip()]
-                    # Strip legacy "# QUICK REFERENCE" header if present
-                    if lines and lines[0].startswith("# QUICK REFERENCE"):
-                        lines = lines[1:]
-                        
-                    compact_summary = '\n'.join(lines)
+                    # Filter items: remove metadata and headers
+                    lines = summary_content.split('\n')
+                    filtered_items = []
+                    for line in lines:
+                        stripped = line.strip()
+                        if not stripped or stripped.startswith("#"): continue
+                        if "scraped from 68k.news" in stripped.lower(): continue
+                        if stripped.startswith("QUOTE:"): continue
+                        filtered_items.append(stripped)
+                    
+                    # Limit to ~6 items and join with double spacing
+                    compact_summary = '\n\n'.join(filtered_items[:6])
                     formatted = f"📰 **Latest News Summary ({date_display})**\n\n{compact_summary}"
                     # Add category options footer
                     formatted += "\n\n---\n**Other categories:** `!news general` `!news technology` `!news security` `!news hacker` `!news politics` `!news business` `!news science` `!news culture`"
@@ -76,12 +90,17 @@ async def handle_news_command(ctx, msg, send_kaia_response):
             # Format news items nicely
             formatted_news = f"📰 **{category.title()} News**\n\n"
             
-            for i, item in enumerate(news_items[:10], 1):  # Limit to 10 items
-                if isinstance(item, dict):
-                    text = item.get('text', str(item))
-                    formatted_news += f"{i}. {text}\n\n"
-                else:
-                    formatted_news += f"{i}. {item}\n\n"
+            # Filter and limit items
+            display_items = []
+            for item in news_items:
+                text = item.get('text', str(item)) if isinstance(item, dict) else str(item)
+                text = text.strip()
+                if text and len(text) > 10:
+                    display_items.append(text)
+            
+            # Limit to 6 items and join with double spacing
+            for i, text in enumerate(display_items[:6], 1):
+                formatted_news += f"{i}. {text}\n\n"
             
             # Add category options footer
             available_categories = ["today", "technology", "security", "hacking", "politics", "business", "science", "culture", "general"]

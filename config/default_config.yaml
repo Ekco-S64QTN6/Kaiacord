@@ -310,7 +310,7 @@ dream_mode:
   schedule_end_hour: 5    # 5 AM
   
   # Cache limits
-  max_dreams_cached: 50
+  max_dreams_cached: 500
   dreams_per_scan: 10
   user_quota: 0.4 # Percentage of dreams dedicated to user logs
   

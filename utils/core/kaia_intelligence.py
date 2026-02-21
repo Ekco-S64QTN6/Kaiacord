@@ -312,21 +312,27 @@ class ContextOptimizer:
         # 1. Start with Persona (Anchor)
         current_tokens = self._estimate_tokens(persona)
         
-        # 2. Append RAG Nodes (Incremental assembly)
+        # 2. Append Categorized RAG Nodes (Incremental assembly)
         rag_str = ""
-        if rag_nodes:
-            # Pre-filter and score nodes (assumed done by retrieve, but we prioritize)
-            from utils.core.rag_utils import get_node_text
+        
+        # Priority order for structural grouping
+        all_rag_parts = []
+        if news_nodes:
+            all_rag_parts.extend(news_nodes)
+        if reference_nodes:
+            all_rag_parts.extend(reference_nodes)
+        if history_nodes:
+            all_rag_parts.extend(history_nodes)
             
-            # Allocation: RAG gets up to 40% of remaining budget
+        if all_rag_parts:
+            # Allocation: RAG gets up to 45% of remaining budget
             remaining = self.max_tokens - current_tokens - 1000 # Leave buffer
             rag_budget = int(remaining * 0.45)
             
             rag_parts = []
             rag_current = 0
             
-            for node in rag_nodes:
-                text = get_node_text(node)
+            for text in all_rag_parts:
                 if not text: continue
                 t_count = self._estimate_tokens(text)
                 
