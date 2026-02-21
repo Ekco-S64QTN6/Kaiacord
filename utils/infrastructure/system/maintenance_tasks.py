@@ -97,11 +97,13 @@ def start_maintenance_tasks(app_ctx):
     
     from utils.infrastructure.monitoring.async_task_registry import task_registry
     
-    rag_task = rag_maintenance_task.start()
-    task_registry.register("rag_maintenance_task", rag_task)
+    rag_maintenance_task.start()
+    if rag_maintenance_task.get_task():
+        task_registry.register("rag_maintenance_task", rag_maintenance_task.get_task())
     
-    mem_task = memory_audit_task.start()
-    task_registry.register("memory_audit_task", mem_task)
+    memory_audit_task.start()
+    if memory_audit_task.get_task():
+        task_registry.register("memory_audit_task", memory_audit_task.get_task())
     
     log_action("Maintenance background tasks started.")
 

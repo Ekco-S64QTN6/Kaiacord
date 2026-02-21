@@ -12,7 +12,6 @@ from utils.core.response_filter import HallucinationDetector, BotSpeakFilter
 from utils.core.knowledge_boundary import KnowledgeBoundary
 from utils.infrastructure.monitoring.async_task_registry import task_registry
 from utils.core.kaia_intelligence import ContextWeaver
-from utils.core.knowledge_boundary import KnowledgeBoundary
 
 # Constants
 
@@ -250,6 +249,14 @@ class MessageProcessor:
 
     async def _check_hallucination(self, ctx: MessageContext) -> bool:
         """Check if query contains hallucinations."""
+        # 1. Respect Feature Flag
+        if not self.config.get('features.hallucination_detection', True):
+            return False
+            
+        # 2. Skip for Owners/Admins (They are allowed to discuss architecture)
+        if self.config.is_owner(ctx.message.author.name, ctx.author_name, ctx.author_id):
+            return False
+
         if HallucinationDetector.contains_hallucination(ctx.sanitized_content):
             log_warning(f"Hallucination detected in query from {ctx.author_name}. Blocking.")
             log_debug(f"[HALLUCINATION_DEBUG] Content: '{ctx.sanitized_content}'")
@@ -671,25 +678,44 @@ class MessageProcessor:
                             messages=messages,
                             options=current_options
                         ),
-                        timeout=self.config.classification_timeout
+                        timeout=self.config.llm_request_seconds
                     ),
                     task_id=f"chat_{uuid.uuid4().hex[:8]}"
                 )
                 
                 content = response['message']['content']
                 
+                # Robust stripping of LLM-added outer codeblocks to avoid double-wrapping in Discord
+                content = content.strip()
+                while content.startswith("```") and content.endswith("```"):
+                    content = content[3:-3].strip()
+                    # Strip potential language identifier from the first line (e.g., 'markdown' or 'json')
+                    if "\n" in content:
+                        first_line = content.split('\n')[0].strip()
+                        if first_line and not any(c.isspace() for c in first_line) and len(first_line) < 20:
+                            content = '\n'.join(content.split('\n')[1:]).strip()
+                    else:
+                        # Handle cases like ```message``` without newlines
+                        pass
+                
                 # Cleanup
-                content = HallucinationDetector.clean_response(content)
+                should_detect = self.config.get('features.hallucination_detection', True)
+                if should_detect and not self.config.is_owner(ctx.message.author.name, ctx.author_name, ctx.author_id):
+                    content = HallucinationDetector.clean_response(content)
+                    
                 if not content:
                     log_warning(f"Attempt {attempt + 1} failed: Hallucination detected (Empty after clean).")
                     continue
 
-                content = EmergencyContaminationFilter.filter_response(content)
+                if not self.config.is_owner(ctx.message.author.name, ctx.author_name, ctx.author_id):
+                    content = EmergencyContaminationFilter.filter_response(content)
+                    
                 if not content:
                     log_warning(f"Attempt {attempt + 1} failed: Veracity violation (Fiction/Contamination detected).")
                     continue
                 
                 # Style Hardening (Silent Stripping)
+                # Re-enabled for everyone as bait-y questions break the illusion
                 content = BotSpeakFilter.strip_bot_speak(content)
                 
                 if content and content.strip():
@@ -751,4 +777,16 @@ class MessageProcessor:
     async def _send_response(self, channel, text: str):
         """Helper to send response via messaging utility."""
         from utils.infrastructure.system.messaging import send_kaia_response
-        await send_kaia_response(channel, text)
+        
+        # FINAL SAFETY: Strip any extra backticks that might cause double-wrapping
+        # if they slipped through the generation loop pre-processing.
+        clean_text = text.strip()
+        while clean_text.startswith("```") and clean_text.endswith("```"):
+            clean_text = clean_text[3:-3].strip()
+            # Handle language tags
+            if "\n" in clean_text:
+                first_line = clean_text.split('\n')[0].strip()
+                if first_line and not any(c.isspace() for c in first_line) and len(first_line) < 20:
+                    clean_text = '\n'.join(clean_text.split('\n')[1:]).strip()
+        
+        await send_kaia_response(channel, clean_text)

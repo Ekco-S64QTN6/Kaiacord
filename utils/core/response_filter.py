@@ -170,6 +170,12 @@ class BotSpeakFilter:
         r"you\s+following\s+anything\s+specific\??",
         r"what\s+do\s+you\s+(think|need)\??",
         r"anything\s+else\??",
+        r"what\s+(about|echoes?|threads?)\s+(do\s+)?(you|your)\b[^.!?]*\??",
+        r"what'?s\s+the\s+(core|biggest|main|primary|hardest|toughest)\s+\w+[^.!?]*\??",
+        r"what'?s\s+(your|the)\s+\w+\s+(task|hurdle|challenge|goal|obstacle|plan)[^.!?]*\??",
+        r"how\s+(are\s+you\s+|do\s+you\s+)(approaching|handling|dealing|feeling)[^.!?]*\??",
+        r"(facing|dealing\s+with)\s+(right\s+now|currently)[^.!?]*\??",
+        r"achieving\s+that\s+\w+[^.!?]*\??",
     ]
     
     SYSTEM_PROSE_PATTERNS = [
@@ -186,6 +192,10 @@ class BotSpeakFilter:
     # Precompiled combined patterns for efficiency
     RE_BAIT = re.compile("|".join(BAIT_PATTERNS), re.IGNORECASE)
     RE_SYSTEM_PROSE = re.compile("|".join(SYSTEM_PROSE_PATTERNS), re.IGNORECASE)
+    RE_TRAILING_USER_QUESTION = re.compile(
+        r'(?<![?])\s*((?:and\s+)?(?:what|how|why|where|when|who|which|do\s+you|are\s+you|have\s+you|can\s+you|would\s+you|could\s+you|did\s+you|is\s+there|isn\'t|aren\'t)[^.!?\n]{3,}\?)\s*$',
+        re.IGNORECASE
+    )
     
     ACTION_VERBS = {
         'nods', 'sighs', 'grins', 'smiles', 'laughs', 'pauses', 'frowns', 'shrugs', 
@@ -312,7 +322,24 @@ class BotSpeakFilter:
                     log_warning(f"[BAIT_GUARD] Dropped single-line bait: '{line}'")
                     continue
                     
-        return "\n".join(clean_lines).strip()
+        result = "\n".join(clean_lines).strip()
+
+        # --- Pass 2: structural check — strip any user-directed question at the very end ---
+        # Catches novel phrasing like "What echoes do you carry?" that regex can't anticipate.
+        # Splits on sentence boundaries, checks if the final sentence is a question to the user.
+        if result:
+            # Split into sentences (naive but sufficient — we only care about the last one)
+            sentences = re.split(r'(?<=[.!?])\s+', result)
+            if len(sentences) > 1:
+                last = sentences[-1].strip()
+                # Is it a question directed at the user?
+                if (last.endswith('?') and 
+                    re.search(r'\b(you|your|yours)\b', last, re.IGNORECASE) and
+                    not re.search(r'\b(that|it|this|the|a|an)\b\s+\?', last, re.IGNORECASE)):  # avoid stripping rhetorical "is that right?"
+                    log_warning(f"[BAIT_GUARD] Stripped user-directed trailing question: '{last}'")
+                    result = ' '.join(sentences[:-1]).strip()
+
+        return result
 
     @classmethod
     def strip_bot_speak(cls, text: str) -> str:

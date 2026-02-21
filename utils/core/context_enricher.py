@@ -153,7 +153,7 @@ class ContextEnricher:
 
     async def _resolve_single_link(self, channel_id: int, message_id: int) -> str:
         """Resolve a single message link with caching."""
-        now = asyncio.get_event_loop().time()
+        now = asyncio.get_running_loop().time()
         
         # 1. Get/Fetch Channel
         channel = self.bot.get_channel(channel_id)

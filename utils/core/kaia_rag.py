@@ -1203,10 +1203,13 @@ class KaiaRAG:
                 # Append interaction to the single file
                 timestamp = datetime.now().strftime("%Y%m%d_%H%M%S")
                 
-                # CLEAN HALLUCINATIONS FROM RESPONSE BEFORE LOGGING
+                # CLEAN HALLUCINATIONS FROM RESPONSE BEFORE LOGGING (Skip for Owners)
                 if HallucinationDetector.contains_hallucination(bot_response):
-                    log_warning(f"Hallucination detected in response for {user_name}. Cleaning before logging.")
-                    bot_response = HallucinationDetector.clean_response(bot_response)
+                    if not config.is_owner(user_name, user_id=str(user_id)):
+                        log_warning(f"Hallucination detected in response for {user_name}. Cleaning before logging.")
+                        bot_response = HallucinationDetector.clean_response(bot_response)
+                    else:
+                        log_debug(f"Hallucination pattern detected in owner response ({user_name}), but skipping clean.")
 
                 # Initialize frontmatter if file is new
                 is_new_file = not os.path.exists(interaction_log_path)

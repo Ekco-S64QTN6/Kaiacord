@@ -398,9 +398,9 @@ class DashboardManager:
             sys.__stdout__.write("\n[SUCCESS] Kaia has entered hibernation.\n")
             sys.__stdout__.flush()
             
-            # EMERGENCY FALLBACK: If we're still alive 1 second after saying we're done, force it.
+            # EMERGENCY FALLBACK: If we're still alive 3 seconds after saying we're done, force it.
             # This handles cases where lingering threads or multiprocessing Manager won't die.
-            time.sleep(1.0)
+            time.sleep(3.0)
             if threading.active_count() > 1:
                 shutdown_manager.force_exit(0)
 
@@ -435,7 +435,7 @@ class DashboardManager:
             sys.__stdout__.write("\n[SUCCESS] Kaia has entered hibernation.\n")
             sys.__stdout__.flush()
             
-            # EMERGENCY FALLBACK: If we're still alive 1 second after saying we're done, force it.
-            time.sleep(1.0)
+            # EMERGENCY FALLBACK: If we're still alive 3 seconds after saying we're done, force it.
+            time.sleep(3.0)
             if threading.active_count() > 1:
                 shutdown_manager.force_exit(0)

@@ -3,6 +3,8 @@ from typing import List, Dict, Any, Optional, Set
 from collections import defaultdict
 import json
 import time
+import os
+import random
 import uuid
 import asyncio
 import ollama
@@ -16,7 +18,7 @@ try:
 except ImportError:
     docx2txt = None
 
-from utils.infrastructure.logging.kaia_logger import log_info, log_error, log_warning, log_success
+from utils.infrastructure.logging.kaia_logger import log_info, log_error, log_warning, log_success, log_action
 
 class DreamEngine:
     def __init__(self, config_instance, rag_instance=None):
@@ -80,14 +82,13 @@ YOUR IN-DEPTH REFLECTION:"""
                     options={
                         "temperature": 0.8, 
                         "num_predict": 1000,
-                        "num_ctx": 8192,
+                        "num_ctx": self.config.max_context_tokens,
                         "stop": ["User:", "Kaia:"]
                     }
                 )
 
             # ...and pass it through the GPU guard to prevent VRAM collisions
             from utils.infrastructure.gpu.gpu_manager import gpu_memory_manager, GPUTaskPriority
-            import time
             
             response = await gpu_memory_manager.run_with_gpu_guard(
                 model_name=self.chat_model,

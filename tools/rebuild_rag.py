@@ -4,6 +4,7 @@ import sys
 import argparse
 import time
 import traceback
+import asyncio
 
 # Add parent directory to path to allow importing from utils
 sys.path.append(os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
@@ -12,7 +13,7 @@ from utils.infrastructure.logging.kaia_logger import log_info, log_success, log_
 from utils.core.kaia_rag import KaiaRAG
 from utils.infrastructure.system.yaml_config import config
 
-def rebuild_rag(clear_storage=False):
+async def rebuild_rag(clear_storage=False):
     """
     Rebuild the RAG index standalone.
     """
@@ -36,17 +37,15 @@ def rebuild_rag(clear_storage=False):
     log_info("Initializing KaiaRAG...")
     try:
         rag = KaiaRAG()
+        # Initialize manifest/indices in thread to match production Phase 3
+        await asyncio.to_thread(rag._load_indexed_files)
+        await asyncio.to_thread(rag._initialize_indices)
         
         log_action("Starting full knowledge base refresh...")
         start_time = time.time()
         
-        # We use a synchronous refresh here
-        rag.refresh_knowledge_base()
-        
-        # Ensure everything is persisted
-        log_action("Consolidating persistence...")
-        # refresh_knowledge_base already calls storage_context.persist() for each index
-        # but we can force it here if needed.
+        # Correctly await the async refresh
+        await rag.refresh_knowledge_base()
         
         duration = time.time() - start_time
         log_success(f"RAG rebuild complete in {duration:.2f} seconds.")
@@ -71,4 +70,4 @@ if __name__ == "__main__":
         log_error("Ollama is offline or unreachable at localhost:11434. Please start Ollama first.")
         sys.exit(1)
         
-    rebuild_rag(clear_storage=args.clear)
+    asyncio.run(rebuild_rag(clear_storage=args.clear))
