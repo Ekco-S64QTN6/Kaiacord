@@ -15,8 +15,15 @@ import sys
 import asyncio
 import signal
 import threading
+import warnings
 from typing import Optional, Any
 from utils.infrastructure.logging.kaia_logger import log_info, log_success, log_error, log_warning
+
+# Suppress harmless multiprocessing semaphore cleanup warnings at shutdown.
+# LlamaIndex's tokenizer subprocesses create POSIX semaphores that outlive the
+# resource_tracker, producing ~16 "leaked semaphore" warnings on every exit.
+warnings.filterwarnings("ignore", message="resource_tracker:.*semaphore", category=UserWarning)
+
 
 
 class CleanShutdown:

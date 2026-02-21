@@ -1,5 +1,8 @@
 import os
 import sys
+import warnings
+# Suppress harmless POSIX semaphore cleanup warnings from LlamaIndex tokenizer subprocesses
+warnings.filterwarnings("ignore", message=".*semaphore.*", module="multiprocessing.resource_tracker")
 import asyncio
 import argparse
 import re

@@ -13,9 +13,13 @@ ctx = None
 _last_log_rss = 0.0
 _first_run = True
 
-@tasks.loop(hours=1)
+# Counter for full hourly scans (every 12th tick of a 5-minute loop = 60 min)
+_rag_tick_count = 0
+
+@tasks.loop(minutes=5)
 async def rag_maintenance_task():
-    """Periodic RAG maintenance: self-heal by scanning for updates and persisting"""
+    """Periodic RAG maintenance: check for .trigger_reindex every 5 min, full scan hourly."""
+    global _rag_tick_count
     if not ctx or not ctx.rag:
         return
         
@@ -24,19 +28,25 @@ async def rag_maintenance_task():
         
         # 0. Ensure initialization is complete
         if not getattr(ctx.rag, '_initialized', False):
-            log_info("RAG initialization not complete. Skipping periodic self-heal.")
+            log_debug("RAG initialization not complete. Skipping periodic self-heal.")
             return
+
+        _rag_tick_count += 1
             
-        # Check if a manual trigger exists or if we're just doing the hourly sweep
+        # Check if a manual trigger exists
         trigger_path = os.path.join(ctx.rag.knowledge_base_dir, ".trigger_reindex")
         force_sweep = os.path.exists(trigger_path)
+        is_hourly = (_rag_tick_count % 12 == 0)  # Full scan every ~60 minutes
         
         if force_sweep:
             log_info("🔗 Detected .trigger_reindex. Performing maintenance sweep...")
             try: os.remove(trigger_path)
             except: pass
+        elif is_hourly:
+            log_action("Periodic RAG self-heal starting (hourly)...")
         else:
-            log_action("Periodic RAG self-heal starting...")
+            # No trigger and not the hourly tick — skip
+            return
         
         # 1. Scan for new/changed/deleted files (Self-Heal)
         await run_rag(ctx.rag.refresh_knowledge_base)
