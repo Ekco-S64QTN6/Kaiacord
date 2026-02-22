@@ -326,16 +326,20 @@ class BotSpeakFilter:
                     
         result = "\n".join(clean_lines).strip()
 
-        # --- Pass 2: structural check — strip any user-directed question at the very end ---
+        # --- Pass 2: structural check — strip SHORT GENERIC user-directed question at the very end ---
         # Catches novel phrasing like "What echoes do you carry?" that regex can't anticipate.
-        # Splits on sentence boundaries, checks if the final sentence is a question to the user.
+        # IMPORTANT: Only strip SHORT, GENERIC questions (≤7 words). Longer questions with
+        # specific verbs/nouns ("What made you decide to visit it?") are natural follow-ups
+        # that should be preserved.
         if result:
             # Split into sentences (naive but sufficient — we only care about the last one)
             sentences = re.split(r'(?<=[.!?])\s+', result)
             if len(sentences) > 1:
                 last = sentences[-1].strip()
-                # Is it a question directed at the user?
+                word_count = len(last.split())
+                # Is it a SHORT, GENERIC question directed at the user?
                 if (last.endswith('?') and 
+                    word_count <= 7 and  # Long questions are topic-specific, not bait
                     re.search(r'\b(you|your|yours)\b', last, re.IGNORECASE) and
                     not re.search(r'\b(that|it|this|the|a|an)\b\s+\?', last, re.IGNORECASE)):  # avoid stripping rhetorical "is that right?"
                     log_warning(f"[BAIT_GUARD] Stripped user-directed trailing question: '{last}'")
