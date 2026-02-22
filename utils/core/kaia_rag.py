@@ -282,7 +282,7 @@ class KaiaRAG:
         self.indices = {} # Hierarchical indices
         self.bm25_cache = {} # Cache for BM25 retrievers {itype: (timestamp, retriever)}
         self.persist_needed = False
-        self._lock = threading.RLock()
+        self._lock = threading.Lock()
         self.state_file = os.path.join(self.persist_dir, "file_manifest.json")
         # NOTE: _load_indexed_files() is intentionally NOT called here.
         # It performs disk I/O and must not run during Phase 0 (synchronous boot).
@@ -296,7 +296,7 @@ class KaiaRAG:
         self._last_user_scan = 0
 
         self._user_scan_interval = getattr(config, 'rag_user_scan_interval', 300)
-        self._refresh_lock = threading.RLock() # Exclusive lock for the refresh process
+        self._refresh_lock = threading.Lock() # Exclusive lock for the refresh process
         self._indexing_in_progress = False
         self._refresh_pending = False # Single-flight "dirty" flag
         self._bot_user_id = None # Set by Discord bot on startup
@@ -561,39 +561,39 @@ class KaiaRAG:
 
     def _populate_indexed_files(self):
         """Populate the set of indexed files from all hierarchical indices without overwriting loaded state."""
-        with self._lock:
-            # Rebuild _file_to_nodes mapping from indices
-            new_file_to_nodes = {}
-            for itype, index in self.indices.items():
-                for node_id, node in index.docstore.docs.items():
-                    file_path = node.metadata.get('file_path')
-                    if file_path:
-                        abs_path = os.path.abspath(file_path)
-                        if abs_path not in new_file_to_nodes:
-                            new_file_to_nodes[abs_path] = []
-                        new_file_to_nodes[abs_path].append(node_id)
-            
-            self._file_to_nodes = new_file_to_nodes
-            
-            # Update manifest based on current disk + index state
-            count_added = 0
-            for abs_path, node_ids in self._file_to_nodes.items():
-                if abs_path not in self.indexed_files:
-                    if os.path.exists(abs_path):
-                        mtime = os.path.getmtime(abs_path)
-                        size = os.path.getsize(abs_path)
-                        self.indexed_files[abs_path] = {
-                            "mtime": mtime,
-                            "size": size,
-                            "nodes": node_ids
-                        }
-                        count_added += 1
-                else:
-                    # Sync nodes in manifest
-                    self.indexed_files[abs_path]["nodes"] = node_ids
+        # Caller (_initialize_indices) already holds self._lock
+        # Rebuild _file_to_nodes mapping from indices
+        new_file_to_nodes = {}
+        for itype, index in self.indices.items():
+            for node_id, node in index.docstore.docs.items():
+                file_path = node.metadata.get('file_path')
+                if file_path:
+                    abs_path = os.path.abspath(file_path)
+                    if abs_path not in new_file_to_nodes:
+                        new_file_to_nodes[abs_path] = []
+                    new_file_to_nodes[abs_path].append(node_id)
+        
+        self._file_to_nodes = new_file_to_nodes
+        
+        # Update manifest based on current disk + index state
+        count_added = 0
+        for abs_path, node_ids in self._file_to_nodes.items():
+            if abs_path not in self.indexed_files:
+                if os.path.exists(abs_path):
+                    mtime = os.path.getmtime(abs_path)
+                    size = os.path.getsize(abs_path)
+                    self.indexed_files[abs_path] = {
+                        "mtime": mtime,
+                        "size": size,
+                        "nodes": node_ids
+                    }
+                    count_added += 1
+            else:
+                # Sync nodes in manifest
+                self.indexed_files[abs_path]["nodes"] = node_ids
 
-            log_success(f"RAG State: {len(self.indexed_files)} files in manifest ({count_added} newly discovered).")
-            self._save_indexed_files()
+        log_success(f"RAG State: {len(self.indexed_files)} files in manifest ({count_added} newly discovered).")
+        self._save_indexed_files()
 
     def _prune_deleted_files(self) -> Set[str]:
         """Detect and remove files from indices that no longer exist on disk using manifest."""
