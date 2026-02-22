@@ -282,7 +282,7 @@ class KaiaRAG:
         self.indices = {} # Hierarchical indices
         self.bm25_cache = {} # Cache for BM25 retrievers {itype: (timestamp, retriever)}
         self.persist_needed = False
-        self._lock = threading.Lock()
+        self._lock = threading.RLock()
         self.state_file = os.path.join(self.persist_dir, "file_manifest.json")
         # NOTE: _load_indexed_files() is intentionally NOT called here.
         # It performs disk I/O and must not run during Phase 0 (synchronous boot).
@@ -296,7 +296,7 @@ class KaiaRAG:
         self._last_user_scan = 0
 
         self._user_scan_interval = getattr(config, 'rag_user_scan_interval', 300)
-        self._refresh_lock = threading.Lock() # Exclusive lock for the refresh process
+        self._refresh_lock = threading.RLock() # Exclusive lock for the refresh process
         self._indexing_in_progress = False
         self._refresh_pending = False # Single-flight "dirty" flag
         self._bot_user_id = None # Set by Discord bot on startup

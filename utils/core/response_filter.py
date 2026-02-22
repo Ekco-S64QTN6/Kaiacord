@@ -264,6 +264,15 @@ class BotSpeakFilter:
         # 3. Strip system prose (Single Pass)
         cleaned = cls.RE_SYSTEM_PROSE.sub('', cleaned)
 
+        # 3.5. Grammar Cleanup Pass (Fixes syntax broken by stripping)
+        cleaned = re.sub(r'(?i)\b(?:a|an|the|my|your|our)\s+(?=[,\.\?!])', '', cleaned)
+        cleaned = re.sub(r'\s+([,\.\?!])', r'\1', cleaned)             # Remove space before punctuation
+        cleaned = re.sub(r',\s*,', ',', cleaned)                       # Collapse double commas
+        cleaned = re.sub(r'(?i)\b(?:i am|i\'m),\s*', 'i am ', cleaned) # Specific fix for 'i am ,'
+        cleaned = re.sub(r'^[,\.\?!]\s*', '', cleaned)                 # Strip starting punctuation
+        cleaned = re.sub(r' +', ' ', cleaned)                          # Collapse spaces again
+        cleaned = cleaned.strip()
+
         # 4. Final Pass: Strip robotic engagement bait
         cleaned = cls.strip_trailing_questions(cleaned)
         
