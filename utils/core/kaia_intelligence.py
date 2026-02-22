@@ -171,8 +171,7 @@ class ContextOptimizer:
         # Precompiled prompt segments
         self._rag_header = (
             "\n[RELEVANT_KNOWLEDGE_ARCHIVE]\n"
-            "Only reference specific users, events, or interactions that appear below. "
-            "Do not invent details beyond what is documented here.\n"
+            "Context from your memories, knowledge, and past interactions:\n"
         )
         self._history_header = "\n[CONVERSATION_HISTORY]\n"
         

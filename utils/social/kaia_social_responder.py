@@ -1111,7 +1111,7 @@ def clean_quip(quip_text, max_chars=800):  # Increased default
 def is_interesting_post(text):
     """Check if a post says something substantive."""
     # Too short or vague
-    if len(text) < 50: 
+    if len(text) < 120: 
         return False
     
     # Substantive markers (Connectors + Perspective shifts)
@@ -1413,7 +1413,11 @@ async def generate_quip(ctx, is_manual=False, target_channel=None, on_message_fu
                 if config.bluesky_cross_post_quips:
                     try:
                         from utils.social.kaia_bluesky import post_thread_to_bluesky
-                        await post_thread_to_bluesky(posts)
+                        bsky_ok, _ = await post_thread_to_bluesky(posts)
+                        if bsky_ok and target_channel:
+                            await target_channel.send("```\nskeet thread sent ✓\n```")
+                        elif not bsky_ok and target_channel:
+                            await target_channel.send("```\nskeet thread failed ✗\n```")
                          # Also post the hook to X if enabled
                         if config.x_cross_post_quips:
                             from utils.social.kaia_twitter import post_quip_to_x
@@ -1421,6 +1425,8 @@ async def generate_quip(ctx, is_manual=False, target_channel=None, on_message_fu
                             await post_quip_to_x(posts[0] + " (thread on bsky)")
                     except Exception as e:
                         log_error(f"Thread cross-post failed: {e}")
+                        if target_channel:
+                            await target_channel.send(f"```\nskeet thread failed: {e}\n```")
                 
                 # Update channel memory & RAG for each post in the thread
                 if channel.id not in bot_state.channel_memory:
@@ -1472,9 +1478,8 @@ async def generate_quip(ctx, is_manual=False, target_channel=None, on_message_fu
             log_warning(f"Failed to inject RAG context: {rag_err}")
         # --- RAG INTEGRATION END ---
 
-        # Length Decision: 75% chance for full 280 chars, 25% for concise punchy quip
-        use_full_length = random.random() < 0.75
-        length_instruction = "Keep it under 280 characters. Feel free to use the space." if use_full_length else "Keep it short and punchy (under 140 characters)."
+        # Length Decision: Always aim for substantive length
+        length_instruction = "Aim for 200-280 characters. Use the space to say something substantive."
 
         # Standalone Broadcast Prompt
         final_prompt = (
@@ -1580,12 +1585,29 @@ async def generate_quip(ctx, is_manual=False, target_channel=None, on_message_fu
             log_error(f"Failed to log quip to RAG: {rag_err}")
 
         # 7. Cross-post
+        log_action(f"[BSKY_DEBUG] Cross-post check: bluesky_cross_post_quips={config.bluesky_cross_post_quips}, is_manual={is_manual}, target_channel={target_channel}")
         if config.bluesky_cross_post_quips:
             try:
-                from utils.social.kaia_bluesky import post_quip_to_bluesky
-                await post_quip_to_bluesky(quip)
+                from utils.social.kaia_bluesky import post_quip_to_bluesky, is_bluesky_configured
+                log_action(f"[BSKY_DEBUG] is_bluesky_configured={is_bluesky_configured()}, quip_len={len(quip)}")
+                if target_channel:
+                    await target_channel.send(f"```\n[debug] posting to bsky... (configured={is_bluesky_configured()})\n```")
+                bsky_ok = await post_quip_to_bluesky(quip)
+                log_action(f"[BSKY_DEBUG] post_quip_to_bluesky returned: {bsky_ok}")
+                if bsky_ok and target_channel:
+                    await target_channel.send("```\nskeet sent ✓\n```")
+                elif not bsky_ok and target_channel:
+                    await target_channel.send("```\nskeet failed ✗\n```")
             except Exception as e:
                 log_error(f"Bluesky post failed: {e}")
+                import traceback
+                log_error(f"[BSKY_DEBUG] Full traceback:\n{traceback.format_exc()}")
+                if target_channel:
+                    await target_channel.send(f"```\nskeet failed: {e}\n```")
+        else:
+            log_action("[BSKY_DEBUG] bluesky_cross_post_quips is FALSE, skipping cross-post")
+            if target_channel:
+                await target_channel.send("```\n[debug] bsky cross-post is disabled in config\n```")
         
         if config.x_cross_post_quips:
             try:

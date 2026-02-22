@@ -293,6 +293,9 @@ class BotSpeakFilter:
                 if match:
                     span = match.span()
                     remaining = current_line[span[1]:].strip(' .?!…')
+                    # IMPORTANT: Only strip if there's nothing meaningful after the match.
+                    # If there's a comma + name (e.g. "What's on your mind, Starkind?")
+                    # that's a personal question, NOT bait.
                     if not remaining:
                         # It's at the end!
                         removed = current_line[span[0]:].strip()
@@ -326,24 +329,9 @@ class BotSpeakFilter:
                     
         result = "\n".join(clean_lines).strip()
 
-        # --- Pass 2: structural check — strip SHORT GENERIC user-directed question at the very end ---
-        # Catches novel phrasing like "What echoes do you carry?" that regex can't anticipate.
-        # IMPORTANT: Only strip SHORT, GENERIC questions (≤7 words). Longer questions with
-        # specific verbs/nouns ("What made you decide to visit it?") are natural follow-ups
-        # that should be preserved.
-        if result:
-            # Split into sentences (naive but sufficient — we only care about the last one)
-            sentences = re.split(r'(?<=[.!?])\s+', result)
-            if len(sentences) > 1:
-                last = sentences[-1].strip()
-                word_count = len(last.split())
-                # Is it a SHORT, GENERIC question directed at the user?
-                if (last.endswith('?') and 
-                    word_count <= 7 and  # Long questions are topic-specific, not bait
-                    re.search(r'\b(you|your|yours)\b', last, re.IGNORECASE) and
-                    not re.search(r'\b(that|it|this|the|a|an)\b\s+\?', last, re.IGNORECASE)):  # avoid stripping rhetorical "is that right?"
-                    log_warning(f"[BAIT_GUARD] Stripped user-directed trailing question: '{last}'")
-                    result = ' '.join(sentences[:-1]).strip()
+        # NOTE: Pass 2 (structural check for short user-directed questions) was REMOVED.
+        # It caused false positives by stripping legitimate personalized questions like
+        # "What's on your mind, Starkind?" — the regex patterns in Pass 1 are sufficient.
 
         return result
 

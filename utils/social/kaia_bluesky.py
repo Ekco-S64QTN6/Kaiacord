@@ -196,46 +196,51 @@ async def post_thread_to_bluesky(chunks: list[str]) -> tuple[bool, Optional[str]
     if models is None:
         return False, "atproto models not available"
     
-    client = await get_bluesky_client()
-    
-    if client is None:
-        return False, "Bluesky client not available"
-    
     if not chunks:
         return False, "No content to post"
     
-    try:
-        # Post the first chunk
-        first_post = await client.send_post(chunks[0])
-        log_success(f"Posted to Bluesky: {chunks[0][:50]}...")
+    # Retry once with a fresh session if the first attempt fails (handles expired tokens)
+    for attempt in range(2):
+        client = await get_bluesky_client(force_new=(attempt > 0))
         
-        # If there are more chunks, reply to self to create a thread
-        if len(chunks) > 1:
-            log_info(f"Creating Bluesky thread with {len(chunks)} posts...")
+        if client is None:
+            return False, "Bluesky client not available"
+        
+        try:
+            # Post the first chunk
+            first_post = await client.send_post(chunks[0])
+            log_success(f"Posted to Bluesky: {chunks[0][:50]}...")
             
-            prev_uri = first_post.uri
-            prev_cid = first_post.cid
-            root_uri = first_post.uri
-            root_cid = first_post.cid
-            
-            for i, chunk in enumerate(chunks[1:], 2):
-                parent_ref = models.ComAtprotoRepoStrongRef.Main(uri=prev_uri, cid=prev_cid)
-                root_ref = models.ComAtprotoRepoStrongRef.Main(uri=root_uri, cid=root_cid)
-                reply_ref = models.AppBskyFeedPost.ReplyRef(root=root_ref, parent=parent_ref)
+            # If there are more chunks, reply to self to create a thread
+            if len(chunks) > 1:
+                log_info(f"Creating Bluesky thread with {len(chunks)} posts...")
                 
-                continuation = await client.send_post(chunk, reply_to=reply_ref)
-                log_debug(f"Thread post {i}/{len(chunks)}: {chunk[:40]}...")
+                prev_uri = first_post.uri
+                prev_cid = first_post.cid
+                root_uri = first_post.uri
+                root_cid = first_post.cid
                 
-                prev_uri = continuation.uri
-                prev_cid = continuation.cid
+                for i, chunk in enumerate(chunks[1:], 2):
+                    parent_ref = models.ComAtprotoRepoStrongRef.Main(uri=prev_uri, cid=prev_cid)
+                    root_ref = models.ComAtprotoRepoStrongRef.Main(uri=root_uri, cid=root_cid)
+                    reply_ref = models.AppBskyFeedPost.ReplyRef(root=root_ref, parent=parent_ref)
+                    
+                    continuation = await client.send_post(chunk, reply_to=reply_ref)
+                    log_debug(f"Thread post {i}/{len(chunks)}: {chunk[:40]}...")
+                    
+                    prev_uri = continuation.uri
+                    prev_cid = continuation.cid
+                
+                log_success(f"Bluesky thread complete ({len(chunks)} posts)")
             
-            log_success(f"Bluesky thread complete ({len(chunks)} posts)")
-        
-        return True, first_post.uri
-        
-    except Exception as e:
-        log_error(f"Bluesky post failed: {e}")
-        return False, str(e)
+            return True, first_post.uri
+            
+        except Exception as e:
+            if attempt == 0:
+                log_warning(f"Bluesky post failed (attempt 1), retrying with fresh session: {e}")
+                continue  # Retry with force_new=True
+            log_error(f"Bluesky post failed after retry: {e}")
+            return False, str(e)
 
 
 async def post_quip_to_bluesky(quip: str) -> bool:
