@@ -169,7 +169,11 @@ class ContextOptimizer:
         self._token_cache = OrderedDict() # LRU
         self._max_cache_size = 500
         # Precompiled prompt segments
-        self._rag_header = "\n[RELEVANT_KNOWLEDGE_ARCHIVE]\n"
+        self._rag_header = (
+            "\n[RELEVANT_KNOWLEDGE_ARCHIVE]\n"
+            "Only reference specific users, events, or interactions that appear below. "
+            "Do not invent details beyond what is documented here.\n"
+        )
         self._history_header = "\n[CONVERSATION_HISTORY]\n"
         
     def optimize_context(self, category, persona, rag_nodes, history, strategy=None):
@@ -284,10 +288,16 @@ class ContextOptimizer:
                 type_label = "CONVERSATION HISTORY"
                 if "kaia_dreams" in path: type_label = "INTERNAL REFLECTION (DREAM)"
                 elif is_persona: type_label = "IDENTITY CORE"
-                elif user_name: type_label += f": {user_name}"
+                else:
+                    # Add user name and date provenance
+                    provenance = []
+                    if user_name: provenance.append(user_name)
+                    date_str = self._extract_date_from_path(path)
+                    if date_str: provenance.append(date_str)
+                    if provenance: type_label += f": {' | '.join(provenance)}"
                 history_nodes.append(f"[{type_label}]\n{content_raw}")
             elif source_type == 'news' or "news" in path:
-                news_nodes.append(f"[EXTERNAL NEWS]\n{content_raw}")
+                news_nodes.append(f"{content_raw}")
             else:
                 # Learned Knowledge - Isolated Records (Books, Injected Dream Sources, etc)
                 file_name = os.path.basename(path_raw or 'Library')
@@ -315,39 +325,52 @@ class ContextOptimizer:
         # 2. Append Categorized RAG Nodes (Incremental assembly)
         rag_str = ""
         
-        # Priority order for structural grouping
-        all_rag_parts = []
-        if news_nodes:
-            all_rag_parts.extend(news_nodes)
-        if reference_nodes:
-            all_rag_parts.extend(reference_nodes)
-        if history_nodes:
-            all_rag_parts.extend(history_nodes)
-            
-        if all_rag_parts:
-            # Allocation: RAG gets up to 45% of remaining budget
-            remaining = self.max_tokens - current_tokens - 1000 # Leave buffer
-            rag_budget = int(remaining * 0.45)
-            
-            rag_parts = []
-            rag_current = 0
-            
-            for text in all_rag_parts:
+        # Allocation: RAG gets up to 45% of remaining budget
+        remaining = self.max_tokens - current_tokens - 1000 # Leave buffer
+        rag_budget = int(remaining * 0.45)
+        rag_current = 0
+        
+        def _fit_nodes(nodes, budget_remaining):
+            """Fit as many nodes as possible within the token budget."""
+            fitted = []
+            used = 0
+            for text in nodes:
                 if not text: continue
                 t_count = self._estimate_tokens(text)
-                
-                if rag_current + t_count <= rag_budget:
-                    rag_parts.append(text)
-                    rag_current += t_count
+                if used + t_count <= budget_remaining:
+                    fitted.append(text)
+                    used += t_count
                 else:
-                    # Partial trim of the last viable node
-                    if rag_budget - rag_current > 200:
-                        rag_parts.append(self.trim_to_tokens(text, rag_budget - rag_current))
+                    if budget_remaining - used > 200:
+                        fitted.append(self.trim_to_tokens(text, budget_remaining - used))
+                        used = budget_remaining
                     break
-            
-            if rag_parts:
-                rag_str = self._rag_header + "\n---\n".join(rag_parts)
-                current_tokens += rag_current
+            return fitted, used
+        
+        # Assemble with structural group headers for source attribution
+        sections = []
+        
+        if news_nodes:
+            fitted, used = _fit_nodes(news_nodes, rag_budget - rag_current)
+            if fitted:
+                sections.append("[EXTERNAL NEWS]\n" + "\n---\n".join(fitted))
+                rag_current += used
+        
+        if reference_nodes:
+            fitted, used = _fit_nodes(reference_nodes, rag_budget - rag_current)
+            if fitted:
+                sections.append("[REFERENCE KNOWLEDGE]\n" + "\n---\n".join(fitted))
+                rag_current += used
+        
+        if history_nodes:
+            fitted, used = _fit_nodes(history_nodes, rag_budget - rag_current)
+            if fitted:
+                sections.append("[OBSERVED INTERACTIONS]\n" + "\n---\n".join(fitted))
+                rag_current += used
+        
+        if sections:
+            rag_str = self._rag_header + "\n\n".join(sections)
+            current_tokens += rag_current
 
         # 3. Append History (Incremental)
         hist_str = ""
@@ -446,6 +469,19 @@ class ContextOptimizer:
         
         important_lines = [d[0] for d in line_data if d[2]]
         return '\n'.join(important_lines + regular_lines)
+
+    @staticmethod
+    def _extract_date_from_path(path: str) -> str:
+        """Extract a readable date from file paths like 'interactions_20260221.md'."""
+        match = re.search(r'(\d{4})(\d{2})(\d{2})', path)
+        if match:
+            try:
+                from datetime import datetime as _dt
+                d = _dt(int(match.group(1)), int(match.group(2)), int(match.group(3)))
+                return d.strftime("%b %d")
+            except ValueError:
+                pass
+        return ""
 
 class RelevanceFeedback:
     """Learn from user interactions to improve retrieval."""

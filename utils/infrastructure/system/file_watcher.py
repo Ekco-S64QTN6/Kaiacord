@@ -26,10 +26,12 @@ class KnowledgeBaseWatcher(FileSystemEventHandler):
 
     async def start_processing(self):
         """Dedicated task to process the file change queue."""
+        from utils.infrastructure.system.shutdown_fixed import shutdown_manager
+        from utils.core.rag_executor import run_rag
         log_success("Watchdog queue processor started.")
         try:
             while True:
-                if self.loop.is_closed():
+                if self.loop.is_closed() or shutdown_manager.shutting_down:
                     break
                     
                 try:
@@ -38,6 +40,9 @@ class KnowledgeBaseWatcher(FileSystemEventHandler):
                     break
                 except asyncio.CancelledError:
                     raise
+
+                if shutdown_manager.shutting_down:
+                    break
                     
                 try:
                     # Debounce: wait a bit for more changes
@@ -49,11 +54,14 @@ class KnowledgeBaseWatcher(FileSystemEventHandler):
                             self.queue.task_done()
                         except (asyncio.QueueEmpty, RuntimeError): break
                     
+                    if shutdown_manager.shutting_down:
+                        break
+
                     log_action(f"Processing queued change: {path}")
                     # Invalidate cache for this file
                     if self.cache_invalidator:
                         self.cache_invalidator.invalidate_for_file(path)
-                    await asyncio.to_thread(self.rag.refresh_knowledge_base)
+                    await run_rag(self.rag.refresh_knowledge_base)
                     log_debug("Incremental RAG refresh complete.")
                 except Exception as e:
                     log_error(f"Watchdog processing failed: {e}")

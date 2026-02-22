@@ -15,6 +15,29 @@ from utils.core.kaia_intelligence import ContextWeaver
 
 # Constants
 
+# ── Observational Query Detection ──────────────────────────────────────
+# Catches queries asking what Kaia has "seen", "observed", or "noticed"
+# about other users in chat. These require grounded RAG data — if RAG is
+# empty, the LLM must NOT fabricate fictional user interactions.
+_OBSERVATIONAL_PATTERNS = [
+    re.compile(p, re.IGNORECASE) for p in [
+        r"what have you (seen|observed|noticed|heard|watched|witnessed)",
+        r"what('ve| have) (you |)(seen|observed|noticed|heard) .*(chat|users?|people|channel|server|today|tonight|lately|recently)",
+        r"(any|what) (interesting )?(conversations?|interactions?|discussions?) .*(today|tonight|lately|recently|chat|channel)",
+        r"what (are|were|have) (users?|people|everyone|they|others?) .*(saying|talking|discussing|asking|doing|up to|been talking|been discussing|been asking)",
+        r"(who|has anyone) (has|have)? ?(been )?(talking|chatting|active|posting|around)",
+        r"(tell me|report) .*(chat activity|user activity|what.* users)",
+        r"what.* (users?|people|members?) .*(knowledge|know about|understanding of|grasp)",
+    ]
+]
+
+def _is_observational_query(text: str) -> bool:
+    """Detect queries that ask about observed user behaviour in chat."""
+    for pat in _OBSERVATIONAL_PATTERNS:
+        if pat.search(text):
+            return True
+    return False
+
 class MessageProcessor:
     """
     Modular message processor that decomposes the complex on_message logic.
@@ -587,8 +610,20 @@ class MessageProcessor:
         ) if context_str else f"### CURRENT_USER: {ctx.author_name}\nNo records found."
 
         # Grounding Enforcement: If RAG is empty for sensitive categories, add a strict reminder
-        if not context_str and ctx.category in ["identity", "social_identity", "self", "whoami", "entity"]:
-            rag_block += "\n\nCRITICAL: No specific records found for this person or topic. Do not invent details, threads, or interactions. If you don't know, stay grounded and admit the records are hazy or missing."
+        grounding_categories = {"identity", "social_identity", "self", "whoami", "entity"}
+        is_observational = _is_observational_query(ctx.sanitized_content)
+        needs_grounding = ctx.category in grounding_categories or is_observational
+
+        if not context_str and needs_grounding:
+            if is_observational:
+                rag_block += (
+                    "\n\nCRITICAL: You have NO chat logs or records of user interactions to draw from right now. "
+                    "Do NOT invent users, conversations, observations, or anecdotes about what people said or did. "
+                    "If asked what you've observed or noticed in chat, say you haven't been tracking that closely, "
+                    "your memory's blank on it, or you don't have anything specific. Stay honest."
+                )
+            else:
+                rag_block += "\n\nCRITICAL: No specific records found for this person or topic. Do not invent details, threads, or interactions. If you don't know, stay grounded and admit the records are hazy or missing."
 
         current_time_str = datetime.now().strftime("%A, %B %d, %Y | %I:%M %p")
 

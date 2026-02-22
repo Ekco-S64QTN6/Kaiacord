@@ -90,6 +90,8 @@ class EmergencyContaminationFilter:
         r"In\s+a\s+shocking\s+turn\s+of\s+events",
         r"Breaking\s+news:?",
         r"\b(the state of streaming services|chain of suspicion)\b", # Tracer contamination
+        # Fabricated user observations — invented anecdotes about chat participants
+        r"there\s+was\s+one\s+user.{0,20}(who|that)\s+(asked|mentioned|said|brought|posted|shared|noticed)",
     ]
 
     VERACITY_FALLBACK = "wait, scratch that. something about my memory's a bit hazy on the specifics of that. i'd have to double-check the records to be sure."

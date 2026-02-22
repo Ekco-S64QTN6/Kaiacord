@@ -134,16 +134,12 @@ class CleanShutdown:
         except Exception as e:
             log_warning(f"  ⚠️  Failed to release Ollama VRAM: {e}")
 
-        # 2b. Final RAG Refresh Sweep (Self-Heal)
-        if self.rag:
-            try:
-                from utils.core.rag_executor import run_rag
-                log_info("  🔄 Performing final knowledge base sweep...")
-                # Run sync or with very short timeout to avoid hang
-                await asyncio.wait_for(run_rag(self.rag.refresh_knowledge_base), timeout=10.0)
-                log_info("  ✅ Final sweep complete")
-            except Exception:
-                log_warning("  ⚠️ Final knowledge sweep skipped/timed out")
+        # 2b. RAG Refresh Sweep — REMOVED
+        # Previously attempted a final refresh_knowledge_base here, but it ran
+        # AFTER GPU models were unloaded (step 2) and tasks cancelled (step 1),
+        # causing embedding failures and blocking shutdown. The hourly maintenance
+        # task handles periodic indexing; persisting existing indices (step 3)
+        # is sufficient for data safety at shutdown.
 
         # 3. Persist RAG Index (Critical Data Safety)
         if self.rag:

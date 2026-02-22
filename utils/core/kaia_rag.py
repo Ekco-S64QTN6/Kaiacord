@@ -924,6 +924,15 @@ class KaiaRAG:
         Ollama to mis-schedule memory and spill the chat model from VRAM.
         Increase only if you have confirmed stable VRAM and fast SSD throughput.
         """
+        # Shutdown guard: don't start new indexing during shutdown
+        try:
+            from utils.infrastructure.system.shutdown_fixed import shutdown_manager
+            if shutdown_manager.shutting_down:
+                log_info("RAG refresh skipped: shutdown in progress.")
+                return
+        except ImportError:
+            pass
+
         if not self._refresh_lock.acquire(blocking=False):
             log_info("RAG refresh already in progress, marking as pending.")
             self._refresh_pending = True
@@ -960,6 +969,12 @@ class KaiaRAG:
                 result_itypes = set()
 
                 async def process_file(file_info):
+                    # Abort if shutdown started mid-refresh
+                    try:
+                        if shutdown_manager.shutting_down:
+                            return None
+                    except Exception:
+                        pass
                     file_path, is_modified, is_log, itype = file_info
                     async with semaphore:
                         try:

@@ -1,0 +1,24 @@
+# 1. Environment & Secrets (Safety First)
+.env
+*.pem
+secrets/
+
+# 2. Heavy Infrastructure (Prevents the 1.4GB RAM spike)
+node_modules/
+vendor/
+.venv/
+__pycache__/
+
+# 3. Agent-Specific Noise (Stop Kaia from reading its own output)
+logs/
+*.log
+tmp/
+artifacts/
+.agent/scratchpad/
+
+# 4. Build Artifacts (Keep context clean)
+dist/
+build/
+out/
+*.exe
+*.pkg.tar.zst
