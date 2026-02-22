@@ -35,7 +35,7 @@ performance:
   idle_quip_timeout_minutes: 55
   
   # Number of top RAG results to retrieve
-  rag_top_k: 15
+  rag_top_k: 8
   
   # RAG Relevance Thresholds
   rag_thresholds:

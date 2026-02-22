@@ -105,8 +105,30 @@ class RealTimeStatsPoller:
                 new_stats['gpu_util'] = 0.0
                 new_stats['gpu_memory'] = "N/A"
         else:
-             new_stats['gpu_util'] = 0.0
-             new_stats['gpu_memory'] = "N/A"
+            # pynvml unavailable — fall back to nvidia-smi subprocess
+            try:
+                import subprocess
+                result = subprocess.run(
+                    ['nvidia-smi', '--query-gpu=utilization.gpu,memory.used,memory.total',
+                     '--format=csv,noheader,nounits'],
+                    capture_output=True, text=True, timeout=2.0
+                )
+                if result.returncode == 0:
+                    parts = result.stdout.strip().split(',')
+                    if len(parts) >= 3:
+                        new_stats['gpu_util'] = float(parts[0].strip())
+                        mem_used = int(parts[1].strip())
+                        mem_total = int(parts[2].strip())
+                        new_stats['gpu_memory'] = f"{mem_used}/{mem_total} MB"
+                    else:
+                        new_stats['gpu_util'] = 0.0
+                        new_stats['gpu_memory'] = "N/A"
+                else:
+                    new_stats['gpu_util'] = 0.0
+                    new_stats['gpu_memory'] = "N/A"
+            except Exception:
+                new_stats['gpu_util'] = 0.0
+                new_stats['gpu_memory'] = "N/A"
         
         # 3. Ollama Status
         try:

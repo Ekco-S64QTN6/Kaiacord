@@ -466,7 +466,7 @@ class BtopDashboardV2:
             uptime_minutes=poller_stats.get('uptime_minutes', 0.0) or tracker_stats.get('uptime_minutes', 0.0) or (self.shared_stats.get('uptime_minutes', 0.0) if self.shared_stats else 0.0),
             active_users=tracker_stats.get('active_users_display', "") or str(poller_stats.get('users', "")) or (self.shared_stats.get('active_users_display', "0 (idle)") if self.shared_stats else "0 (idle)"),
             total_messages=tracker_stats.get('messages', 0) or poller_stats.get('messages', 0) or (self.shared_stats.get('messages', 0) if self.shared_stats else 0),
-            avg_response_time=tracker_stats.get('avg_response_time', 0.0) or poller_stats.get('avg_response_time', 0.0) or (self.shared_stats.get('avg_response_time', 0.0) if self.shared_stats else 0.0),
+            avg_response_time=tracker_stats.get('avg_response_time') or poller_stats.get('avg_response_time') or (self.shared_stats.get('avg_response_time', 0.0) if self.shared_stats else 0.0) or 0.0,
             ollama_status=poller_stats.get('ollama_status', '🔴 OFFLINE') if not self.shared_stats else self.shared_stats.get('ollama_status', '🔴 OFFLINE'),
             active_model=poller_stats.get('active_model', 'None') if not self.shared_stats else self.shared_stats.get('active_model', 'None'),
             ollama_models=tuple(poller_stats.get('ollama_models', []) if not self.shared_stats else self.shared_stats.get('ollama_models', [])),
@@ -631,7 +631,7 @@ class BtopDashboardV2:
         net_str = f"▼ {state.net_recv_kb:6d}K   ▲ {state.net_sent_kb:6d}K"
         self._safe_addstr(inner_y + 4, inner_x + label_w + 1, net_str, curses.color_pair(3))
         
-        self._safe_addstr(inner_y + 5, inner_x, "VRM ".ljust(label_w), curses.color_pair(1) | curses.A_BOLD)
+        self._safe_addstr(inner_y + 5, inner_x, "VRAM".ljust(label_w), curses.color_pair(1) | curses.A_BOLD)
         self._safe_addstr(inner_y + 5, inner_x + label_w + 1, f"{state.gpu_memory}", curses.color_pair(2) | curses.A_BOLD)
 
         # Vertical Models List

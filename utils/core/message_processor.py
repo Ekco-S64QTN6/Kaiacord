@@ -805,6 +805,12 @@ class MessageProcessor:
                 # Direct metrics
                 response_time = time.time() - ctx.start_time
                 self.stats_tracker.record_response_time(response_time)
+                # Also feed stats_poller so the dashboard VRM/RTime display works
+                try:
+                    from utils.infrastructure.monitoring.stats_helpers import safe_record_response_time
+                    safe_record_response_time(response_time)
+                except Exception:
+                    pass
                 
             except Exception as e:
                 log_error(f"Error in background logging: {e}")
