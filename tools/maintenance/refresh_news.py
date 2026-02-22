@@ -52,6 +52,7 @@ async def refresh_news(force_update=False):
                 total_items = sum(len(v) for v in manager.news_cache.values())
         except Exception as e:
             print(f"❌ Error running update: {e}")
+            raise  # Bubble up to background_tasks.py
 
     print(f"📰 Loaded {total_items} news items across categories")
     

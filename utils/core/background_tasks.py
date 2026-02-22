@@ -27,6 +27,16 @@ class CoreTaskManager:
                 log_success("Periodic news refresh completed.")
             except Exception as e:
                 log_error(f"News refresh task failed: {e}")
+                
+                error_str = str(e)
+                if "429" in error_str or "RESOURCE_EXHAUSTED" in error_str:
+                    log_error("CRITICAL: Gemini quota exhausted during news refresh. Kaia cannot ingest news today.")
+                    if self.ctx and getattr(self.ctx, 'bot', None):
+                        channel = None
+                        if getattr(self.ctx, 'bot_state', None) and self.ctx.bot_state.last_active_channel_id:
+                            channel = self.ctx.bot.get_channel(self.ctx.bot_state.last_active_channel_id)
+                        if channel:
+                            asyncio.create_task(channel.send("⚠️ **CRITICAL NEWS FAILURE**: Gemini API quota exhausted (`429`). The daily news brief will not be generated."))
 
         @news_refresh_task.error
         async def news_refresh_error(error):

@@ -120,6 +120,9 @@ def validate_config(config: Dict[str, Any]) -> tuple[bool, list[str]]:
     # Required fields
     if not get_nested(config, 'discord.token'):
         errors.append("Discord token not set (DISCORD_TOKEN environment variable)")
+        
+    if not os.getenv("GEMINI_API_KEY") and not get_nested(config, 'api.gemini_key'):
+        errors.append("GEMINI_API_KEY environment variable not set (required for news generation)")
     
     # Model names
     models = get_nested(config, 'models', {})
@@ -260,6 +263,10 @@ class YAMLConfig:
         return self.get('performance.max_memory_messages', 35)
     
     @property
+    def url_max_content_length(self) -> int:
+        return self.get('performance.url_max_content_length', 2500)
+    
+    @property
     def max_consecutive_quips(self) -> int:
         return self.get('performance.max_consecutive_quips', 2)
     
@@ -385,6 +392,11 @@ class YAMLConfig:
         return self.get('features.news_auto_trigger', False)
 
     @property
+    def url_fetching_enabled(self) -> bool:
+        """Whether to automatically fetch and scrape URLs posted in chat"""
+        return self.get('features.url_fetching_enabled', True)
+
+    @property
     def social_max_interval_hours(self) -> float:
         """Maximum hours between social posts before forcing a quip"""
         return self.get('social.max_interval_hours', 2.0)
@@ -447,6 +459,11 @@ class YAMLConfig:
         return self.get('timeouts.rag_lock_seconds', 10.0)
 
     @property
+    def chat_generation_timeout(self) -> float:
+        """Chat generation timeout in seconds"""
+        return self.get('timeouts.chat_generation_seconds', 300.0)
+
+    @property
     def llm_request_seconds(self) -> float:
         """LLM request timeout in seconds"""
         return self.get('timeouts.llm_request_seconds', 360.0)
@@ -460,6 +477,11 @@ class YAMLConfig:
     def shutdown_timeout(self) -> float:
         """Overall shutdown timeout in seconds"""
         return self.get('timeouts.shutdown_seconds', 60.0)
+
+    @property
+    def url_fetch_timeout(self) -> float:
+        """URL fetch timeout in seconds"""
+        return self.get('timeouts.url_fetch_seconds', 5.0)
 
     @property
     def shutdown_task_cancel_timeout(self) -> float:

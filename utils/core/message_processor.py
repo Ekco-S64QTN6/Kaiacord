@@ -88,7 +88,7 @@ class MessageProcessor:
         """Main entry point for message processing."""
         # 1. Preliminary Checks
         platform = getattr(msg, 'platform', 'discord')
-        is_social = platform != 'discord' or platform == 'idle_reflection'
+        is_social = platform != 'discord'
         
         if is_social:
             log_debug(f"Processing social message. Platform: {platform}, Author: {msg.author.name}")
@@ -700,7 +700,6 @@ class MessageProcessor:
             try:
                 log_action(f"Calling ollama.chat (Attempt {attempt + 1}/{max_attempts})...")
                 
-                # Use run_with_gpu_guard for the main chat generation
                 from utils.infrastructure.gpu.gpu_manager import gpu_memory_manager, GPUTaskPriority
                 
                 response = await gpu_memory_manager.run_with_gpu_guard(
@@ -713,7 +712,7 @@ class MessageProcessor:
                             messages=messages,
                             options=current_options
                         ),
-                        timeout=self.config.llm_request_seconds
+                        timeout=self.config.chat_generation_timeout
                     ),
                     task_id=f"chat_{uuid.uuid4().hex[:8]}"
                 )

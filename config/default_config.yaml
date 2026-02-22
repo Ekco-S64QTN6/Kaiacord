@@ -87,6 +87,9 @@ performance:
   # Reserved tokens for system reinforcement rules and safety prompts
   system_reserve_tokens: 1250
 
+  # Maximum character limit to scrape from a single URL to prevent context explosion
+  url_max_content_length: 2500
+
   # RAG Time-Based Boosts (Seconds)
   rag_boosts:
     daily_news: 172800  # 48 hours
@@ -147,6 +150,9 @@ timeouts:
   # RAG internal lock timeout (seconds)
   rag_lock_seconds: 10.0
 
+  # Chat generation timeout (seconds)
+  chat_generation_seconds: 300.0
+
   # Embedding request timeout (seconds) - per-request timeout for OllamaEmbedding calls
   embedding_request_seconds: 60.0
 
@@ -156,6 +162,9 @@ timeouts:
   # Overall shutdown timeout (seconds) - how long to wait for async_shutdown to complete
   # Must be long enough for RAG persistence (~30s) plus model unloading
   shutdown_seconds: 120.0
+
+  # URL fetch timeout (seconds) - max time to wait for a webpage to download
+  url_fetch_seconds: 5.0
 
 # ============================================================================
 # Paths Configuration
@@ -262,6 +271,9 @@ features:
   
   # Enable Dream Mode (nightly associative memory recall)
   dream_mode_enabled: true
+
+  # Fetch contents of URLs linked in chat for context
+  url_fetching_enabled: true
 
 # ============================================================================
 # Bluesky Configuration

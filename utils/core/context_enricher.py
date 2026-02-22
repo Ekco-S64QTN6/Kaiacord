@@ -1,13 +1,16 @@
 import re
 import asyncio
 import discord
+import aiohttp
+from bs4 import BeautifulSoup
 from typing import List, Optional
 from utils.infrastructure.logging.kaia_logger import log_info, log_debug, log_warning
+from utils.infrastructure.system.yaml_config import config
 
 class ContextEnricher:
     """
-    Enriches user message context by extracting data from embeds 
-    and resolving message links.
+    Enriches user message context by extracting data from embeds,
+    resolving message links, and scraping URLs for relevant text.
     """
     
     def __init__(self, bot):
@@ -16,9 +19,16 @@ class ContextEnricher:
         self.msg_link_pattern = re.compile(
             r'https?://(?:ptb\.|canary\.)?discord(?:app)?\.com/channels/(\d+)/(\d+)/(\d+)'
         )
+        # Regex for standard web links (ignoring discord message links)
+        self.external_link_pattern = re.compile(
+            r'(?<!<)https?://(?!discord(?:app)?\.com/channels/)[^\s>]+'
+        )
+        
         # Fetch Cache: {id: (timestamp, object)}
         self._channel_cache = {}
         self._message_cache = {}
+        # URL Cache: {url: (timestamp, scraped_text)}
+        self._url_cache = {}
         self._cache_ttl = 300 # 5 minutes
 
     async def enrich_content(self, msg: discord.Message) -> str:
@@ -44,6 +54,12 @@ class ContextEnricher:
         linked_context = await self.resolve_message_links(msg)
         if linked_context:
             content += f"\n\n[LINKED_MESSAGE_CONTEXT]\n{linked_context}"
+            
+        # 5. Scrape External URLs
+        if config.url_fetching_enabled:
+            url_context = await self.resolve_external_urls(msg)
+            if url_context:
+                content += f"\n\n[LINKED_WEB_CONTENT]\n{url_context}"
             
         return content
 
@@ -191,5 +207,99 @@ class ContextEnricher:
                 return f"Message from {author} in #{channel.name}:\n{linked_msg.content}"
         except Exception as e:
             log_debug(f"Failed to fetch message {message_id}: {e}")
+            
+        return ""
+
+    async def resolve_external_urls(self, msg: discord.Message) -> str:
+        """Find external web links and scrape their content concurrently."""
+        matches = self.external_link_pattern.findall(msg.content)
+        if not matches:
+            return ""
+            
+        # Remove duplicates and limit to 2 links to prevent abuse/stall
+        unique_urls = list(dict.fromkeys(matches))[:2]
+        
+        tasks = []
+        for url in unique_urls:
+            tasks.append(self._scrape_single_url(url))
+            
+        results = await asyncio.gather(*tasks, return_exceptions=True)
+        
+        resolved_texts = []
+        for res in results:
+            if isinstance(res, str) and res:
+                resolved_texts.append(res)
+            elif isinstance(res, Exception):
+                log_debug(f"URL scraping failed: {res}")
+                
+        return "\n\n".join(resolved_texts)
+
+    async def _scrape_single_url(self, url: str) -> str:
+        """Scrape text from a single URL with caching and limits."""
+        now = asyncio.get_running_loop().time()
+        
+        # 1. Check Cache
+        if url in self._url_cache:
+            timestamp, cached_text = self._url_cache[url]
+            if now - timestamp < self._cache_ttl:
+                log_debug(f"URL Cache Hit: {url}")
+                return cached_text
+                
+        # 2. Fetch using aiohttp with strict timeout
+        timeout = aiohttp.ClientTimeout(total=config.url_fetch_timeout)
+        headers = {
+            'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/121.0.0.0 Safari/537.36'
+        }
+        
+        try:
+            async with aiohttp.ClientSession(timeout=timeout, headers=headers) as session:
+                async with session.get(url, allow_redirects=True) as response:
+                    if response.status != 200:
+                        log_debug(f"URL {url} returned status {response.status}")
+                        return ""
+                        
+                    content_type = response.headers.get('Content-Type', '').lower()
+                    if 'text/html' not in content_type and 'text/plain' not in content_type:
+                        log_debug(f"URL {url} skipped due to content type: {content_type}")
+                        return ""
+                        
+                    html = await response.text()
+                    
+                    # 3. Parse with BeautifulSoup
+                    # Run in an executor since massive HTML trees can block the event loop
+                    def parse_html(html_content):
+                        soup = BeautifulSoup(html_content, 'html.parser')
+                        
+                        # Remove scripts, styles, forms, headers, footers
+                        for element in soup(["script", "style", "nav", "footer", "header", "aside", "form", "noscript"]):
+                            element.decompose()
+                            
+                        # Get text, strip whitespace
+                        text = soup.get_text(separator='\n', strip=True)
+                        
+                        # Collapse multiple newlines/spaces
+                        text = re.sub(r'\n+', '\n', text)
+                        text = re.sub(r' +', ' ', text)
+                        return text
+                        
+                    parsed_text = await asyncio.to_thread(parse_html, html)
+                    
+                    if not parsed_text:
+                        return ""
+                        
+                    # 4. Truncate to save VRAM tokens
+                    max_len = config.url_max_content_length
+                    if len(parsed_text) > max_len:
+                        parsed_text = parsed_text[:max_len] + "... [TRUNCATED]"
+                        
+                    final_result = f"Source: {url}\n{parsed_text}"
+                    self._url_cache[url] = (now, final_result)
+                    
+                    return final_result
+                    
+        except asyncio.TimeoutError:
+            log_warning(f"URL fetch timed out: {url}")
+        except Exception as e:
+            log_debug(f"URL fetch error {url}: {e}")
             
         return ""

@@ -4,8 +4,8 @@ The Daily News Updater is an automated system that keeps Kaia informed about cur
 ## 1. How it Works
 The system uses the Gemini API with **Google Search grounding** to generate accurate daily briefs based on real, current news stories.
 
-- **Generation**: `tools/maintenance/update_kaia_news.py` calls the Gemini API (`gemini-2.0-flash`) with Google Search grounding enabled.
-- **Grounding**: Uses `types.Tool(google_search=types.GoogleSearch())` to pull real news from Google Search, preventing hallucinated stories.
+- **Generation**: `tools/maintenance/update_kaia_news.py` calls the Gemini API (`gemini-flash-latest`) with Google Search grounding enabled.
+- **Grounding**: Uses `tools='google_search_retrieval'` to pull real news from Google Search, preventing hallucinated stories.
 - **Ingestion**: The brief is saved to `knowledge_base/news/daily/news_brief_YYYYMMDD.md`.
 - **Summarization**: A condensed version is created as `knowledge_base/news/daily/news_summary_YYYYMMDD.md` using the local `gemma3:12b` model.
 - **Reindexing**: The script triggers a RAG reindex, making the new information available to Kaia immediately.

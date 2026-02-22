@@ -1585,29 +1585,12 @@ async def generate_quip(ctx, is_manual=False, target_channel=None, on_message_fu
             log_error(f"Failed to log quip to RAG: {rag_err}")
 
         # 7. Cross-post
-        log_action(f"[BSKY_DEBUG] Cross-post check: bluesky_cross_post_quips={config.bluesky_cross_post_quips}, is_manual={is_manual}, target_channel={target_channel}")
         if config.bluesky_cross_post_quips:
             try:
-                from utils.social.kaia_bluesky import post_quip_to_bluesky, is_bluesky_configured
-                log_action(f"[BSKY_DEBUG] is_bluesky_configured={is_bluesky_configured()}, quip_len={len(quip)}")
-                if target_channel:
-                    await target_channel.send(f"```\n[debug] posting to bsky... (configured={is_bluesky_configured()})\n```")
-                bsky_ok = await post_quip_to_bluesky(quip)
-                log_action(f"[BSKY_DEBUG] post_quip_to_bluesky returned: {bsky_ok}")
-                if bsky_ok and target_channel:
-                    await target_channel.send("```\nskeet sent ✓\n```")
-                elif not bsky_ok and target_channel:
-                    await target_channel.send("```\nskeet failed ✗\n```")
+                from utils.social.kaia_bluesky import post_quip_to_bluesky
+                await post_quip_to_bluesky(quip)
             except Exception as e:
                 log_error(f"Bluesky post failed: {e}")
-                import traceback
-                log_error(f"[BSKY_DEBUG] Full traceback:\n{traceback.format_exc()}")
-                if target_channel:
-                    await target_channel.send(f"```\nskeet failed: {e}\n```")
-        else:
-            log_action("[BSKY_DEBUG] bluesky_cross_post_quips is FALSE, skipping cross-post")
-            if target_channel:
-                await target_channel.send("```\n[debug] bsky cross-post is disabled in config\n```")
         
         if config.x_cross_post_quips:
             try:

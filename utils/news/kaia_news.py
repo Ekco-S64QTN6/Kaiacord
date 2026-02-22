@@ -255,7 +255,8 @@ class NewsManager:
         but async callers should use get_news_async.
         """
         if not self.last_refresh or (datetime.now() - self.last_refresh).total_seconds() > 300:
-            self.refresh()
+            with self._lock:
+                self.refresh()
             
         category_lower = (category or 'general').lower()
         

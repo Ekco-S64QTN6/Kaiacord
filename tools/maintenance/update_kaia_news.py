@@ -20,8 +20,6 @@ class KaiaNewsUpdater:
         genai.configure(api_key=gemini_api_key)
         # USE 'gemini-flash-latest' FOR FREE ACCOUNTS.
         # This is the correct alias for Gemini 1.5 Flash in the legacy SDK.
-        # DO NOT change to 'gemini-1.5-pro' to avoid breaking the free tier quota limit.
-        # DO NOT change to 'gemini-1.5-flash' as it causes a 404 error in v1beta.
         self.model_name = 'gemini-flash-latest' 
         self.knowledge_dir = Path("./knowledge_base/news/daily")
         self.knowledge_dir.mkdir(parents=True, exist_ok=True)
@@ -346,6 +344,9 @@ RULES:
                 print("⚠️ Gemini API quota exhausted. Skipping update.")
             else:
                 print("\n❌ Unknown error. Skipping update.")
+            
+            # Re-raise to ensure failures are propagated to the background task manager
+            raise e
     
     def trigger_reindex(self):
         """Optionally trigger RAG reindexing"""
