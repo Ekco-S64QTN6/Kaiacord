@@ -992,7 +992,7 @@ class KaiaRAG:
     def _convert_pdf_to_md(self, pdf_path: str) -> Optional[str]:
         """Convert a PDF file to a Markdown file by extracting text."""
         if not hasattr(self, '_pdf_breaker'):
-            from utils.social.kaia_social_responder import CircuitBreaker
+            from utils.infrastructure.circuit_breaker import CircuitBreaker
             self._pdf_breaker = CircuitBreaker("pdf_convert", failure_threshold=3, reset_timeout=60)
         if not self._pdf_breaker.can_proceed():
             log_warning(f"Circuit breaker open for PDF conversion")
@@ -1035,7 +1035,7 @@ class KaiaRAG:
     def _convert_docx_to_md(self, docx_path: str) -> Optional[str]:
         """Convert a DOCX file to a Markdown file by extracting text."""
         if not hasattr(self, '_docx_breaker'):
-            from utils.social.kaia_social_responder import CircuitBreaker
+            from utils.infrastructure.circuit_breaker import CircuitBreaker
             self._docx_breaker = CircuitBreaker("docx_convert", failure_threshold=3, reset_timeout=60)
         if not self._docx_breaker.can_proceed():
             log_warning(f"Circuit breaker open for DOCX conversion")

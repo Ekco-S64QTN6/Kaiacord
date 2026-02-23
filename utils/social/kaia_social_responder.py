@@ -60,45 +60,9 @@ _persona_last_load = 0
 # Replied mentions tracker (persisted to disk)
 _replied_ids_path = Path("memory/social_replied_ids.json")
 
-# =============================================================================
-# CIRCUIT BREAKER: API Resilience Pattern
-# Added: Feb 2026 for social media API stability
-# Opens after repeated failures to prevent cascade effects
-# =============================================================================
-class CircuitBreaker:
-    """Simple circuit breaker for API calls with exponential backoff."""
-    def __init__(self, name: str, failure_threshold: int = 3, reset_timeout: int = 300):
-        self.name = name
-        self.failures = 0
-        self.threshold = failure_threshold
-        self.reset_timeout = reset_timeout  # 5 minutes default
-        self.last_failure_time = 0
-        self.is_open = False
-    
-    def can_proceed(self) -> bool:
-        """Check if calls should be allowed through."""
-        if not self.is_open:
-            return True
-        # Check if reset timeout has passed
-        if time.time() - self.last_failure_time >= self.reset_timeout:
-            self.is_open = False
-            self.failures = 0
-            log_info(f"Circuit breaker '{self.name}' reset after timeout")
-            return True
-        return False
-    
-    def record_success(self):
-        """Record successful API call."""
-        self.failures = 0
-        self.is_open = False
-    
-    def record_failure(self):
-        """Record failed API call."""
-        self.failures += 1
-        self.last_failure_time = time.time()
-        if self.failures >= self.threshold:
-            self.is_open = True
-            log_warning(f"Circuit breaker '{self.name}' OPEN after {self.failures} failures")
+# CircuitBreaker lives in the shared infrastructure layer to avoid
+# the dependency inversion of core modules importing from social.
+from utils.infrastructure.circuit_breaker import CircuitBreaker
 
 # Module-level circuit breaker instances
 _bluesky_breaker = CircuitBreaker("bluesky")
