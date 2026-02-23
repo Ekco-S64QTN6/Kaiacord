@@ -137,11 +137,11 @@ async def _download_and_convert(url: str, username: str, user_id: str) -> dict:
 
     # Convert based on type
     if file_type == 'html':
-        title, markdown_body = _convert_html(raw_bytes, url)
+        title, markdown_body = await asyncio.to_thread(_convert_html, raw_bytes, url)
     elif file_type == 'pdf':
-        title, markdown_body = _convert_pdf(raw_bytes, url)
+        title, markdown_body = await asyncio.to_thread(_convert_pdf, raw_bytes, url)
     elif file_type == 'text':
-        title, markdown_body = _convert_text(raw_bytes, url)
+        title, markdown_body = await asyncio.to_thread(_convert_text, raw_bytes, url)
     else:
         raise DownloadError(f"unhandled type: {file_type}")
     

@@ -165,7 +165,7 @@ class ForumClient:
                 html = await resp.text()
 
             # Extract securitytoken from the page
-            soup = BeautifulSoup(html, 'html.parser')
+            soup = await asyncio.to_thread(BeautifulSoup, html, 'html.parser')
             token_input = soup.find('input', {'name': 'securitytoken'})
             security_token = token_input['value'] if token_input else 'guest'
 
@@ -221,10 +221,9 @@ class ForumClient:
         if match:
             return match.group(1)
         # Fallback: look for hidden input
-        soup = BeautifulSoup(html, 'html.parser')
-        token_input = soup.find('input', {'name': 'securitytoken'})
-        if token_input:
-            return token_input.get('value', 'guest')
+        match = re.search(r'name="securitytoken"\s+value="([^"]+)"', html)
+        if match:
+            return match.group(1)
         return 'guest'
 
     async def _ensure_logged_in(self) -> bool:
@@ -256,7 +255,7 @@ class ForumClient:
             # Update security token from response
             self._security_token = self._extract_security_token(html)
 
-            soup = BeautifulSoup(html, 'html.parser')
+            soup = await asyncio.to_thread(BeautifulSoup, html, 'html.parser')
             threads = []
 
             # VBulletin thread rows: <tr> elements containing thread links
@@ -354,7 +353,7 @@ class ForumClient:
                 html = await resp.text()
 
             self._security_token = self._extract_security_token(html)
-            soup = BeautifulSoup(html, 'html.parser')
+            soup = await asyncio.to_thread(BeautifulSoup, html, 'html.parser')
 
             # Get thread title
             title_tag = soup.find('title')
@@ -390,7 +389,7 @@ class ForumClient:
                 async with session.get(page_url) as resp:
                     if resp.status == 200:
                         page_html = await resp.text()
-                        page_soup = BeautifulSoup(page_html, 'html.parser')
+                        page_soup = await asyncio.to_thread(BeautifulSoup, page_html, 'html.parser')
                         page_posts = await self._parse_posts(page_soup)
                         # Prepend posts from earlier pages
                         all_posts = page_posts + all_posts
@@ -578,7 +577,7 @@ class ForumClient:
                         return True
                     
                     # More surgical error check: VBulletin errors are usually inside a <div> with a specific class
-                    error_soup = BeautifulSoup(response_html, 'html.parser')
+                    error_soup = await asyncio.to_thread(BeautifulSoup, response_html, 'html.parser')
                     panel = error_soup.find(class_='standard_error') or error_soup.find(id='vbulletin_html') 
                     
                     if panel and ('The following errors occurred' in panel.get_text() or 'Unauthorized' in panel.get_text()):
@@ -879,7 +878,7 @@ class ForumClient:
                     return {}
                 html = await resp.text()
 
-            soup = BeautifulSoup(html, 'html.parser')
+            soup = await asyncio.to_thread(BeautifulSoup, html, 'html.parser')
 
             # Username from title
             title = soup.find('title')
@@ -1128,13 +1127,13 @@ class ForumClient:
             sid_match = re.search(r'searchid=(\d+)', html)
             if not sid_match:
                 # Might be only one page or no results
-                results = self._parse_search_results(html)
+                results = await self._parse_search_results(html)
                 return results
 
             search_id = sid_match.group(1)
 
             # Parse first page
-            results = self._parse_search_results(html)
+            results = await self._parse_search_results(html)
             all_results.extend(results)
 
             # Determine total pages - more robust regex
@@ -1154,7 +1153,7 @@ class ForumClient:
                         break
                     page_html = await resp.text()
 
-                page_results = self._parse_search_results(page_html)
+                page_results = await self._parse_search_results(page_html)
                 if not page_results:
                     break
                 all_results.extend(page_results)
@@ -1168,9 +1167,9 @@ class ForumClient:
             return []
 
 
-    def _parse_search_results(self, html: str) -> List[Dict[str, str]]:
+    async def _parse_search_results(self, html: str) -> List[Dict[str, str]]:
         """Parse VBulletin search results page for post or thread summaries."""
-        soup = BeautifulSoup(html, 'html.parser')
+        soup = await asyncio.to_thread(BeautifulSoup, html, 'html.parser')
         results = []
 
         # 1. Look for post links (normal "find all posts" search)

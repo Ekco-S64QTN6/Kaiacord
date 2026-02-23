@@ -991,7 +991,10 @@ class KaiaRAG:
 
     def _convert_pdf_to_md(self, pdf_path: str) -> Optional[str]:
         """Convert a PDF file to a Markdown file by extracting text."""
-        if hasattr(self, '_pdf_breaker') and not getattr(self, '_pdf_breaker').can_proceed():
+        if not hasattr(self, '_pdf_breaker'):
+            from utils.social.kaia_social_responder import CircuitBreaker
+            self._pdf_breaker = CircuitBreaker("pdf_convert", failure_threshold=3, reset_timeout=60)
+        if not self._pdf_breaker.can_proceed():
             log_warning(f"Circuit breaker open for PDF conversion")
             return None
         
@@ -1018,24 +1021,23 @@ class KaiaRAG:
                     f.write(text)
                 log_success(f"Successfully converted to Markdown")
                 log_info(md_path)
+                self._pdf_breaker.record_success()
                 return md_path
             else:
                 log_warning(f"No text extracted from PDF")
+                self._pdf_breaker.record_success()
                 return None
-            if hasattr(self, '_pdf_breaker'):
-                getattr(self, '_pdf_breaker').record_success()
-            return None
         except Exception as e:
-            if not hasattr(self, '_pdf_breaker'):
-                from utils.social.kaia_social_responder import CircuitBreaker
-                self._pdf_breaker = CircuitBreaker("pdf_convert", failure_threshold=3, reset_timeout=60)
             self._pdf_breaker.record_failure()
             log_error(f"Error converting PDF to MD: {e}")
             return None
 
     def _convert_docx_to_md(self, docx_path: str) -> Optional[str]:
         """Convert a DOCX file to a Markdown file by extracting text."""
-        if hasattr(self, '_docx_breaker') and not getattr(self, '_docx_breaker').can_proceed():
+        if not hasattr(self, '_docx_breaker'):
+            from utils.social.kaia_social_responder import CircuitBreaker
+            self._docx_breaker = CircuitBreaker("docx_convert", failure_threshold=3, reset_timeout=60)
+        if not self._docx_breaker.can_proceed():
             log_warning(f"Circuit breaker open for DOCX conversion")
             return None
             
@@ -1057,18 +1059,13 @@ class KaiaRAG:
                     f.write(md_content)
                 log_success(f"Successfully converted to Markdown")
                 log_info(md_path)
-                if hasattr(self, '_docx_breaker'):
-                    getattr(self, '_docx_breaker').record_success()
+                self._docx_breaker.record_success()
                 return md_path
             else:
                 log_warning(f"No text extracted from DOCX")
-                if hasattr(self, '_docx_breaker'):
-                    getattr(self, '_docx_breaker').record_success()
+                self._docx_breaker.record_success()
                 return None
         except Exception as e:
-            if not hasattr(self, '_docx_breaker'):
-                from utils.social.kaia_social_responder import CircuitBreaker
-                self._docx_breaker = CircuitBreaker("docx_convert", failure_threshold=3, reset_timeout=60)
             self._docx_breaker.record_failure()
             log_error(f"Error converting DOCX to MD: {e}")
             return None
