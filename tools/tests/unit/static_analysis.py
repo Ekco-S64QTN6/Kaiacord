@@ -23,7 +23,10 @@ files_to_check = [
     "utils/core/kaia_intelligence.py",
     "utils/core/kaia_rag.py",
     "utils/core/message_processor.py",
-    "utils/infrastructure/system/dashboard_manager.py"
+    "utils/infrastructure/system/dashboard_manager.py",
+    "utils/social/kaia_social_responder.py",
+    "utils/infrastructure/circuit_breaker.py",
+    "utils/infrastructure/gpu/gpu_manager.py"
 ]
 
 success = True
