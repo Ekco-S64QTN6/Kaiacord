@@ -157,7 +157,17 @@ class BotSpeakFilter:
     # Strip roleplay actions only — targeted patterns to avoid legitimate content
     RE_PARENS = re.compile(r'\((?![0-9]{4})([^\)]+?)\)', re.IGNORECASE)
     RE_ASTERISKS = re.compile(r'(?<!\*)\*(?!\*)([^\*]+?)\*(?!\*)', re.IGNORECASE)
-    RE_PREFIXES = re.compile(r'^(Kaia|User|Assistant|System):\s*', re.IGNORECASE | re.MULTILINE)
+    RE_PREFIXES = re.compile(
+        r'^('
+        r'Kaia|User|Assistant|System'                          # English role labels
+        r'|Action|Narrator|Scene|Stage Direction'              # English screenplay labels
+        r'|Acci[oó]n|Narrador|Escena|Descripci[oó]n'          # Spanish labels (Acción, etc.)
+        r'|Handlung|Erz[äa]hler|Szene'                        # German
+        r'|Action|Narrateur|Sc[eè]ne'                         # French (Action/Narrateur)
+        r'|Azione|Narratore|Scena'                            # Italian
+        r'):\s*',
+        re.IGNORECASE | re.MULTILINE
+    )
     
     # Anti-engagement bait patterns (robotic assistant questions)
     BAIT_PATTERNS = [

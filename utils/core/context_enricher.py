@@ -118,7 +118,10 @@ class ContextEnricher:
             
             if target_msg:
                 author = target_msg.author.display_name
-                return f"{author}: {target_msg.content}"
+                # Resolve any <@ID> mentions in the replied-to message's content
+                # so Kaia sees "@Ekco" not "<@177011971818782721>"
+                resolved_content = await self.resolve_mentions(target_msg.content, target_msg)
+                return f"{author}: {resolved_content}"
         except Exception as e:
             log_debug(f"Failed to resolve reply: {e}")
             

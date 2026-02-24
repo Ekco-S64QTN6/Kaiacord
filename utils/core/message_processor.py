@@ -732,6 +732,12 @@ class MessageProcessor:
                         # Handle cases like ```message``` without newlines
                         pass
                 
+                # CRITICAL FIX: The LLM sometimes injects ` ``` ` inside its own generated response.
+                # Since ALL kaia responses are wrapped in a Discord code block in messaging.py,
+                # any internal triple backticks will prematurely end the code block and break formatting.
+                # Strip all triple (and double, just in case) backticks. Single backticks for code are fine.
+                content = content.replace("```", "").replace("``", "")
+                
                 # Cleanup
                 should_detect = self.config.get('features.hallucination_detection', True)
                 if should_detect and not self.config.is_owner(ctx.message.author.name, ctx.author_name, ctx.author_id):

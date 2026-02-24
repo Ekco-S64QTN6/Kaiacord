@@ -35,24 +35,34 @@ async def refresh_news(force_update=False):
     # Check if we have recent news
     total_items = sum(len(v) for v in manager.news_cache.values())
     
-    # If no news or force_update, run the update script
     if total_items == 0 or force_update:
         print("⚠️ No news found or update forced. Triggering KaiaNewsUpdater...")
         try:
             # Direct class instantiation and run
             api_key = os.getenv("GEMINI_API_KEY")
             if not api_key:
-                print("❌ GEMINI_API_KEY not set")
+                print("❌ GEMINI_API_KEY not set, falling back to 68k scraper...")
+                raise ValueError("No Gemini API key")
             else:
                 updater = KaiaNewsUpdater(api_key)
                 await asyncio.to_thread(updater.run, skip_backfill=True)
-                print("✅ Update completed successfully.")
-                # Re-initialize manager to pick up new files
-                manager = NewsManager()
-                total_items = sum(len(v) for v in manager.news_cache.values())
+                print("✅ Gemini news update completed successfully.")
+                
         except Exception as e:
-            print(f"❌ Error running update: {e}")
-            raise  # Bubble up to background_tasks.py
+            print(f"❌ Error running Gemini update: {e}")
+            print(f"⚠️ Falling back to legacy 68k.news scraper...")
+            try:
+                from tools.maintenance.scrape_68k_news import LegacyNewsScraper
+                scraper = LegacyNewsScraper()
+                await asyncio.to_thread(scraper.run)
+                print("✅ Legacy 68k.news fallback completed successfully.")
+            except Exception as scraper_e:
+                print(f"❌ CRITICAL: Fallback scraper also failed: {scraper_e}")
+                raise  # Only bubble up if BOTH methods fail completely
+
+        # Re-initialize manager to pick up new files (whether from Gemini or fallback)
+        manager = NewsManager()
+        total_items = sum(len(v) for v in manager.news_cache.values())
 
     print(f"📰 Loaded {total_items} news items across categories")
     
