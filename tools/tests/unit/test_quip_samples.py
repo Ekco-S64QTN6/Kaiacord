@@ -2,7 +2,12 @@ import asyncio
 import os
 import random
 from pathlib import Path
+import pytest
+import os
 import ollama
+
+if os.environ.get("KAIACORD_TEST_MODE") == "1":
+    pytest.skip("Skipping Ollama test in CI", allow_module_level=True)
 
 # Mocking the required environment
 from utils.infrastructure.system.yaml_config import config

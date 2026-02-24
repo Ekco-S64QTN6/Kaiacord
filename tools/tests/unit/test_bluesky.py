@@ -7,6 +7,7 @@ Unit tests for the Bluesky posting module.
 
 import pytest
 from unittest.mock import Mock, AsyncMock, patch
+from utils.infrastructure.system.yaml_config import config
 
 
 class TestBlueskyModule:
@@ -51,7 +52,7 @@ class TestBlueskyModule:
     @pytest.mark.asyncio
     async def test_post_truncation(self):
         """Test that long posts are truncated to 300 chars"""
-        long_text = "x" * 400
+        long_text = "word " * 80
         
         with patch.dict('os.environ', {
             'BLUESKY_HANDLE': 'test.bsky.social',

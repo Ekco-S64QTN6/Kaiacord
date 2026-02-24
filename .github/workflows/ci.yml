@@ -23,8 +23,9 @@ jobs:
       - name: Install dependencies
         run: |
           python -m pip install --upgrade pip
-          # Install lite dependencies needed for unit tests (no GPU/Ollama required)
-          pip install pytest pytest-asyncio aiohttp beautifulsoup4 pypdf docx2txt
+          # Install full requirements so module imports pass during pytest collection
+          pip install -r requirements.txt
+          pip install pytest pytest-asyncio colorama
 
       - name: Static syntax analysis
         run: |

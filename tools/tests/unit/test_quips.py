@@ -21,7 +21,12 @@ from utils.infrastructure.logging.kaia_logger import log_info, log_success, log_
 from utils.social.kaia_social_responder import generate_quip, load_persona
 from utils.infrastructure.system.bot_state import bot_state
 from utils.infrastructure.system.yaml_config import config
+import pytest
+import os
 import ollama
+
+if os.environ.get("KAIACORD_TEST_MODE") == "1":
+    pytest.skip("Skipping Ollama test in CI", allow_module_level=True)
 
 async def run_smoke_test():
     log_info("Starting Quip Smoke Test...")

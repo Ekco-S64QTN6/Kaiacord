@@ -1,0 +1,85 @@
+============================= test session starts ==============================
+platform linux -- Python 3.14.3, pytest-9.0.2, pluggy-1.6.0 -- /home/ekco/github/Kaiacord/test_venv/bin/python
+cachedir: .pytest_cache
+rootdir: /home/ekco/github/Kaiacord
+configfile: pytest.ini
+plugins: anyio-4.12.1, asyncio-1.3.0
+asyncio: mode=Mode.AUTO, debug=False, asyncio_default_fixture_loop_scope=None, asyncio_default_test_loop_scope=function
+collecting ... collected 39 items / 3 skipped
+
+tools/tests/unit/test_async_task_registry.py::test_task_registration PASSED [  2%]
+tools/tests/unit/test_async_task_registry.py::test_mass_cancellation [15:47:34] ACTION: Cancelling 5 async tasks: task_0, task_1, task_2, task_3, task_4
+PASSED [  5%]
+tools/tests/unit/test_async_task_registry.py::test_auto_cleanup_completed_tasks PASSED [  7%]
+tools/tests/unit/test_async_task_registry.py::test_force_clear PASSED    [ 10%]
+tools/tests/unit/test_async_task_registry.py::test_shutdown_prevents_new_registration PASSED [ 12%]
+tools/tests/unit/test_async_task_registry.py::test_registry_reset PASSED [ 15%]
+tools/tests/unit/test_bluesky.py::TestBlueskyModule::test_is_bluesky_configured_without_env PASSED [ 17%]
+tools/tests/unit/test_bluesky.py::TestBlueskyModule::test_is_bluesky_configured_with_env PASSED [ 20%]
+tools/tests/unit/test_bluesky.py::TestBlueskyModule::test_post_to_bluesky_without_client PASSED [ 23%]
+tools/tests/unit/test_bluesky.py::TestBlueskyModule::test_post_truncation FAILED [ 25%]
+tools/tests/unit/test_bot_regex.py::test_bot_detection PASSED            [ 28%]
+tools/tests/unit/test_cache_fix.py::test_cache PASSED                    [ 30%]
+tools/tests/unit/test_concurrency_lock.py::test_ollama_semaphore_serialization PASSED [ 33%]
+tools/tests/unit/test_dream_selection.py::test_fair_selection [15:47:34] WARNING: Force-cancelled 3 tasks
+[15:47:34] INFO: No async tasks to cancel
+[15:47:34] SUCCESS: Posted to Bluesky: xxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxx...
+PASSED     [ 35%]
+tools/tests/unit/test_embed_device.py::test_embedding_device PASSED      [ 38%]
+tools/tests/unit/test_filter_fix.py::test_filter PASSED                  [ 41%]
+tools/tests/unit/test_impossible_logic.py::test_skepticism_logic PASSED  [ 43%]
+tools/tests/unit/test_impossible_logic_suite.py::test_trap_suite PASSED  [ 46%]
+tools/tests/unit/test_intent_fix.py::test_fast_parse_biographical PASSED [ 48%]
+tools/tests/unit/test_intent_fix.py::test_news_llm_description PASSED    [ 51%]
+tools/tests/unit/test_lookback.py::test_lookback_filter PASSED           [ 53%]
+tools/tests/unit/test_memory.py::test_memory_retrieval PASSED            [ 56%]
+tools/tests/unit/test_news_manager.py::test_news_manager PASSED          [ 58%]
+tools/tests/unit/test_news_parsing.py::test_parsing PASSED               [ 61%]
+tools/tests/unit/test_observational_grounding.py::TestObservationalQueryDetection::test_positive_cases PASSED [ 64%]
+tools/tests/unit/test_observational_grounding.py::TestObservationalQueryDetection::test_negative_cases PASSED [ 66%]
+tools/tests/unit/test_observational_grounding.py::TestContaminationFilterObservational::test_fabricated_single_user PASSED [ 69%]
+tools/tests/unit/test_observational_grounding.py::TestContaminationFilterObservational::test_benign_not_caught PASSED [ 71%]
+tools/tests/unit/test_phase7_filters.py::test_filters PASSED             [ 74%]
+tools/tests/unit/test_quip_rag_fix.py::test_rag_processing PASSED        [ 76%]
+tools/tests/unit/test_rate_limiter.py::test_rate_limiter PASSED          [ 79%]
+tools/tests/unit/test_roleplay_filter.py::test_harden PASSED             [ 82%]
+tools/tests/unit/test_social_context_standalone.py::test_logic PASSED    [ 84%]
+tools/tests/unit/test_social_fix.py::test_generate_quip_unbound_local_error_fix PASSED [ 87%]
+tools/tests/unit/test_threading_logic.py::test_split_into_thread_basic PASSED [ 89%]
+tools/tests/unit/test_threading_logic.py::test_split_into_thread_long PASSED [ 92%]
+tools/tests/unit/test_threading_logic.py::test_split_into_thread_multi_punctuation PASSED [ 94%]
+tools/tests/unit/test_threading_logic.py::test_split_into_thread_no_sentence_boundary PASSED [ 97%]
+tools/tests/unit/test_threading_logic.py::test_needs_thread_expansion PASSED [100%]
+
+=================================== FAILURES ===================================
+____________________ TestBlueskyModule.test_post_truncation ____________________
+tools/tests/unit/test_bluesky.py:73: in test_post_truncation
+    assert len(posted_text) <= 300
+E   AssertionError: assert 400 <= 300
+E    +  where 400 = len('xxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxx')
+=============================== warnings summary ===============================
+tools/tests/unit/test_intent_fix.py::test_news_llm_description
+  /home/ekco/github/Kaiacord/utils/core/kaia_intelligence.py:968: RuntimeWarning: coroutine 'AsyncMockMixin._execute_mock_call' was never awaited
+    timeout=self.config.classification_timeout
+  Enable tracemalloc to get traceback where the object was allocated.
+  See https://docs.pytest.org/en/stable/how-to/capture-warnings.html#resource-warnings for more info.
+
+-- Docs: https://docs.pytest.org/en/stable/how-to/capture-warnings.html
+=========================== short test summary info ============================
+FAILED tools/tests/unit/test_bluesky.py::TestBlueskyModule::test_post_truncation
+============== 1 failed, 38 passed, 3 skipped, 1 warning in 3.64s ==============
+[15:47:35] WARNING: [BAIT_GUARD] Dropped single-line bait: 'What are you working on now?'
+[15:47:35] WARNING: [BAIT_GUARD] Dropped single-line bait: 'What are you doing today?'
+[15:47:35] WARNING: [BAIT_GUARD] Truncated robotic question: 'what are you working on?'
+[15:47:35] WARNING: [BAIT_GUARD] Dropped single-line bait: 'what are you doing?'
+[15:47:35] WARNING: [VERACITY GUARD] Removed 1 contaminated lines.
+[15:47:35] WARNING: [VERACITY GUARD] Too much contamination (threshold 0.5). Triggering full retry.
+[15:47:35] SUCCESS: IntentParser initialized (Model: <MagicMock name='mock.config.get()' id='140331440680848'>)
+[15:47:35] ERROR: Intent Analysis Failed: 'IntentParser' object has no attribute 'config'
+[15:47:35] SUCCESS: Separate memory file created: injected_20260224_154735.txt
+[15:47:35] ACTION: ACTION: Model test-model is cold. Waking up for quip (this may take a moment)...
+[15:47:35] ACTION: Generating quip via main engine in #general...
+[15:47:35] ACTION: Attempting to generate a thread about: digital labor...
+[15:47:35] ACTION: Generating single broadcast quip...
+[15:47:35] WARNING: Failed to inject RAG context: 'MagicMock' object can't be awaited
+[15:47:35] ERROR: Quip generation failed: an integer is required

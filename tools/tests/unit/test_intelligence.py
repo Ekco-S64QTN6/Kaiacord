@@ -3,7 +3,12 @@ import os
 import asyncio
 import time
 import shutil
+import pytest
+import os
 import ollama
+
+if os.environ.get("KAIACORD_TEST_MODE") == "1":
+    pytest.skip("Skipping Ollama test in CI", allow_module_level=True)
 
 # Add parent directory to path
 sys.path.append(os.getcwd())
