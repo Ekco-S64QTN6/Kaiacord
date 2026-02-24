@@ -633,16 +633,6 @@ class MessageProcessor:
             f"{rag_block}"
         )
 
-        if ctx.parent_context:
-            label = "[REPLYING_TO_CONTEXT]"
-            if ctx.root_context == ctx.parent_context:
-                label = "[THREAD_ROOT_AND_PARENT]"
-            clipped_parent = ctx.parent_context[:1000] + ("..." if len(ctx.parent_context) > 1000 else "")
-            full_system_prompt += f"\n\n{label}\n{clipped_parent}"
-            
-        if ctx.root_context and ctx.root_context != ctx.parent_context:
-            clipped_root = ctx.root_context[:1000] + ("..." if len(ctx.root_context) > 1000 else "")
-            full_system_prompt += f"\n\n[THREAD_START]\nThis conversation originated from:\n{clipped_root}"
         messages = [
             {"role": "system", "content": full_system_prompt}
         ]
@@ -674,6 +664,21 @@ class MessageProcessor:
                 else:
                     messages.append({"role": inferred_role, "content": text_content})
         
+        # Re-assert conversation target to prevent cross-talk bleed
+        if ctx.parent_context:
+            label = "[REPLYING_TO_CONTEXT]"
+            if ctx.root_context == ctx.parent_context:
+                label = "[THREAD_ROOT_AND_PARENT]"
+            clipped_parent = ctx.parent_context[:1000] + ("..." if len(ctx.parent_context) > 1000 else "")
+            
+            context_reminder = f"{label}\nIgnore recent channel chatter if unrelated. The user is replying DIRECTLY to this specific message:\n{clipped_parent}"
+            
+            if ctx.root_context and ctx.root_context != ctx.parent_context:
+                clipped_root = ctx.root_context[:1000] + ("..." if len(ctx.root_context) > 1000 else "")
+                context_reminder += f"\n\n[THREAD_START]\nThis discussion originally started from:\n{clipped_root}"
+                
+            messages.append({"role": "system", "content": context_reminder})
+
         messages.append({"role": "user", "content": ctx.sanitized_content})
         
         return messages

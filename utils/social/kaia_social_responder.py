@@ -459,6 +459,13 @@ async def _get_bluesky_mentions() -> List[Dict[str, Any]]:
                 
                 if not is_admin and user_reply_count >= MAX_THREAD_REPLIES:
                     log_warning(f"Thread limit reached for @{user_handle} in Bluesky thread: {root_uri[:40]}... Polling will skip until manual reset or limit increase.")
+                    
+                    # FIX: Add to _replied_ids so we don't spam the logs every poll cycle
+                    async with _replied_ids_lock:
+                        _replied_ids.add(mention_id)
+                        _trim_replied_ids()
+                    await _save_replied_ids_async()
+                    
                     continue
 
                 # Fetch parent/root text for context if it's a reply
