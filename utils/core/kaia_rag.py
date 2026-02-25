@@ -261,6 +261,19 @@ class KaiaRAG:
             chunk_overlap=config.rag_node_chunk_overlap
         )
         
+        # Pre-load NLTK data to prevent LazyCorpusLoader thread-safety issues
+        # when running get_nodes_from_documents in parallel later.
+        try:
+            import nltk
+            from nltk.corpus import stopwords
+            # Ensure it is downloaded and loaded into memory on the main thread
+            nltk.download('stopwords', quiet=True)
+            nltk.download('punkt', quiet=True)
+            nltk.download('punkt_tab', quiet=True)
+            stopwords.ensure_loaded()
+        except Exception as e:
+            log_warning(f"Failed to pre-load NLTK data: {e}")
+        
         # RAG uses the chat model for query synthesis. We deliberately DO NOT 
         # set `num_gpu: 0` here. If we did, LlamaIndex would pass that option 
         # to Ollama during runtime queries, forcing the main model to be evicted 
@@ -301,6 +314,10 @@ class KaiaRAG:
         self._refresh_pending = False # Single-flight "dirty" flag
         self._bot_user_id = None # Set by Discord bot on startup
         self._initialized = False
+
+        # Audit flag system: caches from the most recent retrieve() call
+        self._last_retrieval_node_ids = []   # Node IDs from the last retrieval
+        self._last_retrieval_results = []    # Full scored results from the last retrieval
 
     async def initialize_async(self):
         """Asynchronously initialize hierarchical indices."""
@@ -523,6 +540,8 @@ class KaiaRAG:
             doc.metadata["source_type"] = "news"
         elif itype == 'dreams' or "kaia_dreams" in file_path:
             doc.metadata["source_type"] = "dream"
+        elif "snapshots" in file_path:
+            doc.metadata["source_type"] = "snapshot"
         else:
             doc.metadata["source_type"] = "general_knowledge"
             
@@ -1462,7 +1481,15 @@ class KaiaRAG:
             type_boost = type_boosts.get(source_type, 0.0)
             
             final_score = base_score + path_boost + type_boost
-            
+
+            # AUDIT FLAG PENALTY: reduce score for nodes flagged with Data Rot constructs
+            audit_flags = metadata.get('audit_flags', [])
+            if audit_flags:
+                flag_penalty = getattr(config, 'rag_audit_flag_penalty', 0.15)
+                # Cap at 3 flags worth of penalty to avoid complete suppression
+                total_penalty = min(len(audit_flags) * flag_penalty, flag_penalty * 3)
+                final_score -= total_penalty
+
             if strategy == "PRECISE_RECALL":
                 if source_type in ['knowledge', 'user_profile']: final_score += 0.15
                 if source_type == 'dream': final_score -= 0.1
@@ -1528,6 +1555,16 @@ class KaiaRAG:
             # Scoring & Filtering
             results = self._score_and_filter_nodes(all_node_results, query_lower, relevant_ids, routing, top_k, include_news, strict_identity)
             if results: log_success(f"RAG retrieved {len(results)} nodes")
+
+            # Cache results for !flag and !explain commands
+            self._last_retrieval_results = results
+            self._last_retrieval_node_ids = []
+            for node_result in all_node_results[:top_k * 2]:
+                node = node_result.node if hasattr(node_result, 'node') else node_result
+                node_id = getattr(node, 'node_id', None) or getattr(node, 'id_', None)
+                if node_id:
+                    self._last_retrieval_node_ids.append(node_id)
+
             return results
 
             
@@ -1675,6 +1712,56 @@ class KaiaRAG:
             log_error(f"Failed to search recent events: {e}")
             return []
 
+
+    def flag_nodes(self, node_ids: list, construct_name: str) -> int:
+        """Flag nodes with a Data Rot construct label. Returns count of nodes flagged."""
+        flagged = 0
+        with self._lock:
+            for itype, index in self.indices.items():
+                docstore = index.storage_context.docstore
+                for node_id in node_ids:
+                    try:
+                        node = docstore.get_node(node_id)
+                        if node:
+                            if 'audit_flags' not in node.metadata:
+                                node.metadata['audit_flags'] = []
+                            # Avoid duplicate flags of the same construct
+                            if construct_name not in node.metadata['audit_flags']:
+                                node.metadata['audit_flags'].append(construct_name)
+                                flagged += 1
+                    except Exception:
+                        continue
+            if flagged:
+                self.persist_needed = True
+        # Persist outside the lock
+        if flagged:
+            self.persist(force=True)
+        return flagged
+
+    def get_audit_summary(self) -> dict:
+        """Scan all nodes for audit_flags metadata and return summary statistics."""
+        from collections import Counter
+        total_flagged = 0
+        construct_counts = Counter()
+        source_counts = Counter()
+
+        with self._lock:
+            for itype, index in self.indices.items():
+                docstore = index.storage_context.docstore
+                for node in docstore.docs.values():
+                    flags = node.metadata.get('audit_flags', [])
+                    if flags:
+                        total_flagged += 1
+                        for flag in flags:
+                            construct_counts[flag] += 1
+                        file_path = node.metadata.get('file_path', 'unknown')
+                        source_counts[file_path] += 1
+
+        return {
+            "total_flagged": total_flagged,
+            "by_construct": dict(construct_counts),
+            "top_sources": source_counts.most_common(10),
+        }
 
     @thread_safe_rag_operation
     async def persist_async(self, force: bool = False):

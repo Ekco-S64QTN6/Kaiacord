@@ -1270,6 +1270,11 @@ async def generate_quip(ctx, is_manual=False, target_channel=None, on_message_fu
     config = ctx.config
 
     if not is_manual:
+        # Guard: skip if a user chat is actively generating
+        if getattr(bot_state, 'is_generating', False):
+            log_info("Quip deferred: user chat generation in progress.")
+            return
+
         # Check if we need to FORCE a post due to time elapsed
         last_quip = bot_state.last_quip_time
         # Handle 0.0 case where it was never set (backward compatibility)

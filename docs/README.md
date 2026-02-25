@@ -38,6 +38,7 @@ Welcome to the Kaiacord documentation! Organized by topic for easy navigation.
 ### 📊 Reports
 - [Gemini Status Report (RAG & Identity Audit)](reports/GEMINI_Report.md)
 - [Claude Code Review (Bug Fixes & Production Readiness)](reports/Claude_Report.md)
+- [Tier 1 Feature Report (Audit, Snapshots, Think, Provenance)](reports/tier1_feature_report.md)
 
 ---
 

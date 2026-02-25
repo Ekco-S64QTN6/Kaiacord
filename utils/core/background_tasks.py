@@ -59,6 +59,11 @@ class CoreTaskManager:
             end_hour = self.ctx.config.get('dream_mode.schedule_end_hour', 5)
             
             if start_hour <= now.hour < end_hour:
+                # Guard: skip if a user chat is actively generating
+                if getattr(self.ctx.bot_state, 'is_generating', False):
+                    log_info("Dream cycle deferred: user chat generation in progress.")
+                    return
+
                 last_dream = getattr(self.ctx.bot_state, 'last_dream_date', "")
                 today = now.strftime('%Y-%m-%d')
                 

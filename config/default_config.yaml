@@ -275,6 +275,26 @@ features:
   # Fetch contents of URLs linked in chat for context
   url_fetching_enabled: true
 
+  # Enable audit flag system for Data Rot construct tracking
+  audit_flags_enabled: true
+
+  # Enable conversation snapshot capture (!snapshot)
+  snapshots_enabled: true
+
+# ============================================================================
+# Audit & Quality Configuration
+# ============================================================================
+audit:
+  # Score penalty per audit flag on a RAG node
+  flag_penalty: 0.15
+
+# ============================================================================
+# Snapshot Configuration
+# ============================================================================
+snapshots:
+  # Number of messages to capture in a snapshot
+  message_count: 50
+
 # ============================================================================
 # Bluesky Configuration
 # ============================================================================

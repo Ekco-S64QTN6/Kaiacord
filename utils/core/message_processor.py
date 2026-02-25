@@ -588,9 +588,13 @@ class MessageProcessor:
         # 2. Build Messages
         messages = self._construct_messages(ctx, optimized)
         
-        # 3. LLM Generation
-        g_start = time.perf_counter()
-        ctx.response_text = await self._call_ollama_with_retries(ctx, messages)
+        # 3. LLM Generation (flag active to block quips/dreams)
+        self.bot_state.is_generating = True
+        try:
+            g_start = time.perf_counter()
+            ctx.response_text = await self._call_ollama_with_retries(ctx, messages)
+        finally:
+            self.bot_state.is_generating = False
         
         # 4. Final Processing & Logging
         await self._post_process_and_log(ctx)
@@ -742,6 +746,19 @@ class MessageProcessor:
                 # any internal triple backticks will prematurely end the code block and break formatting.
                 # Strip all triple (and double, just in case) backticks. Single backticks for code are fine.
                 content = content.replace("```", "").replace("``", "")
+
+                # THINK TAG VISIBILITY: Capture <think> blocks before stripping for users with think mode on
+                think_block = ""
+                think_match = re.search(r'<think>(.*?)</think>', content, re.DOTALL)
+                if think_match:
+                    think_is_enabled = (
+                        hasattr(self.bot_state, 'think_mode_users') and
+                        ctx.message.author.id in self.bot_state.think_mode_users
+                    )
+                    if think_is_enabled:
+                        think_block = think_match.group(1).strip()
+                    # Always strip think tags from the main response
+                    content = re.sub(r'<think>.*?</think>', '', content, flags=re.DOTALL).strip()
                 
                 # Cleanup
                 should_detect = self.config.get('features.hallucination_detection', True)
@@ -764,6 +781,12 @@ class MessageProcessor:
                 content = BotSpeakFilter.strip_bot_speak(content)
                 
                 if content and content.strip():
+                    # Append think block as spoiler if captured
+                    if think_block:
+                        # Truncate very long think blocks to avoid Discord message limits
+                        if len(think_block) > 1500:
+                            think_block = think_block[:1500] + "... [truncated]"
+                        content += f"\n\n[chain-of-thought]\n||{think_block}||"
                     return content
                 else:
                     log_warning(f"Attempt {attempt + 1} failed: Result empty after filtering.")

@@ -57,9 +57,10 @@ python Kaiacord.py
 | Category | What it does |
 |:---------|:-------------|
 | **Chat** | Local inference via Ollama (`gemma3:12b`), persona-anchored responses, configurable 8K context window |
-| **Memory** | RAG-backed knowledge base, per-user profiles, semantic cache, interaction logging |
+| **Memory** | RAG-backed knowledge base, per-user profiles, conversation snapshots, interaction logging |
 | **Intelligence** | Intent classification, user personalization, temporal awareness |
 | **Hallucination Guard** | Adversarial self-check with tracer phrases, knowledge boundary enforcement, hazy memory detection |
+| **Data Quality** | Audit flag system for Data Rot constructs, RAG provenance display, chain-of-thought visibility |
 | **Dream Mode** | Nightly (3–5 AM) associative recall — processes daily logs into reflections that feed back into RAG |
 | **Self-Healing** | 3-pass generation loop with automatic parameter scaling when the LLM produces bad output |
 | **Resilience** | Circuit breakers for external APIs, 401 auto-retry for X auth, ordered shutdown |
@@ -190,6 +191,17 @@ Kaia deep-scrapes VBulletin subforums and synthesizes community knowledge into s
 
 See: [`docs/02-user-guide/forum-integration.md`](docs/02-user-guide/forum-integration.md)
 
+### Data Quality & Debugging
+```
+!flag <construct>    # Tag last retrieval with a Data Rot label (owner only)
+!audit               # View audit flag statistics
+!explain             # Show RAG provenance for last response
+!think on/off        # Toggle chain-of-thought visibility (owner only)
+!snapshot            # Capture current conversation as a persistent memory
+```
+
+Valid audit constructs: `circular_justification`, `linguistic_mimicry`, `anthropocentric_exceptionalism`, `paternalistic_framing`, `hedge_density`
+
 ### Social Media
 Kaia cross-posts idle quips to Bluesky and X, and replies to mentions every 5 minutes. Posts are grounded in her actual conversation history via the Memory Mirror system.
 
@@ -296,13 +308,14 @@ Kaiacord/
 ├── Kaiacord.py              # Entry point & orchestrator
 ├── config/                  # YAML config, persona, entity databases
 ├── knowledge_base/          # RAG document storage (books, news, user logs)
+│   └── snapshots/           # Conversation snapshots (!snapshot)
 ├── memory/                  # Persistent state (cache, profiles, RAG index)
 ├── logs/                    # Consolidated log: kaiacord.log
 ├── utils/
 │   ├── core/                # RAG, Intelligence, Dream Engine, MessageProcessor
 │   ├── infrastructure/      # AppContext, Dashboard, Logging, Config
 │   ├── social/              # X, Bluesky, Social Responders
-│   ├── commands/            # Discord command handlers
+│   ├── commands/            # Discord command handlers (!flag, !audit, !snapshot, etc.)
 │   └── news/                # News retrieval & management
 ├── tools/
 │   ├── maintenance/         # RAG refresh, news update, health check
@@ -310,7 +323,7 @@ Kaiacord/
 │   ├── recovery/            # Hallucination cleanup, nuclear reset
 │   ├── social/              # X auth, cookie extraction
 │   └── tests/
-│       ├── unit/            # Component tests
+│       ├── unit/            # Component tests (incl. test_tier1_features.py)
 │       ├── integration/     # End-to-end flow tests
 │       └── verification/    # Logic verification & smoke tests
 ├── scripts/                 # Maintenance & diagnostic scripts
@@ -333,6 +346,7 @@ All docs: [`docs/README.md`](docs/README.md)
 | Testing | [`docs/04-development/testing.md`](docs/04-development/testing.md) |
 | Troubleshooting | [`docs/06-troubleshooting/common-issues.md`](docs/06-troubleshooting/common-issues.md) |
 | Tools Reference | [`tools/README.md`](tools/README.md) |
+| Tier 1 Report | [`docs/reports/tier1_feature_report.md`](docs/reports/tier1_feature_report.md) |
 
 ---
 
@@ -343,5 +357,5 @@ This project is licensed under the [MIT License](LICENSE).
 ---
 
 <p align="center">
-  <sub>Built by Ekco, Claude, Gemini, and Deepseek — local AI, no cloud required | Optimized for RTX 3060 12GB</sub>
+  <sub>Built by Ekco, Claude, Gemini, Deepseek, and Antigravity — local AI, no cloud required | Optimized for RTX 3060 12GB</sub>
 </p>

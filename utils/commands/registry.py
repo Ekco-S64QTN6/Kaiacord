@@ -4,6 +4,10 @@ from utils.commands.dream_handler import handle_dreams_command
 from utils.commands.system_handler import handle_cache_command
 from utils.commands.download_handler import handle_download_command
 from utils.commands.forum_handler import handle_forum_command
+from utils.commands.audit_handler import handle_flag_command, handle_audit_command
+from utils.commands.snapshot_handler import handle_snapshot_command
+from utils.commands.think_handler import handle_think_command
+from utils.commands.explain_handler import handle_explain_command
 
 async def dispatch_command(ctx, msg, load_persona_async, send_kaia_response):
     """Route commands to the appropriate handler"""
@@ -31,6 +35,26 @@ async def dispatch_command(ctx, msg, load_persona_async, send_kaia_response):
 
     if content.startswith("!forum"):
         await handle_forum_command(ctx, msg, send_kaia_response)
+        return True
+
+    if content.startswith("!flag"):
+        await handle_flag_command(ctx, msg, send_kaia_response)
+        return True
+
+    if content.startswith("!audit"):
+        await handle_audit_command(ctx, msg, send_kaia_response)
+        return True
+
+    if content.startswith("!snapshot"):
+        await handle_snapshot_command(ctx, msg, send_kaia_response)
+        return True
+
+    if content.startswith("!think"):
+        await handle_think_command(ctx, msg, send_kaia_response)
+        return True
+
+    if content.startswith("!explain"):
+        await handle_explain_command(ctx, msg, send_kaia_response)
         return True
         
     return False

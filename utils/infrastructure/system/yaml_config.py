@@ -524,6 +524,11 @@ class YAMLConfig:
     @property
     def rag_user_scan_interval(self) -> int:
         return self.get('performance.rag_boosts.user_scan_interval', 300)
+
+    @property
+    def rag_audit_flag_penalty(self) -> float:
+        """Score penalty per audit flag on a RAG node"""
+        return self.get('audit.flag_penalty', 0.15)
     
     # =========================================================================
     # Token Estimation Configuration
