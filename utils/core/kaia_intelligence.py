@@ -89,7 +89,7 @@ class ModelWarmPool:
                     # Max 600s (10 mins) per attempt. If CPU is busy (e.g. embedding indexing),
                     # retry once after a cooldown to let embeddings finish.
                     await asyncio.wait_for(
-                        self.ollama_client.generate(model=model_name, prompt=".", options=options, keep_alive=3600),
+                        self.ollama_client.generate(model=model_name, prompt=".", options=options, keep_alive=-1),
                         timeout=600.0  # Increased from 300s to handle high-load boot cycles
                     )
                     self.pool[model_name] = {'last_used': time.time(), 'status': 'ready'}

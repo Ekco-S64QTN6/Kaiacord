@@ -190,8 +190,9 @@ async def on_ready():
                 prompt=".",
                 options={
                     "num_ctx": config.max_context_tokens,
-                    "num_gpu": -1,   # force full GPU; all layers on device
+                    "num_gpu": 99,   # Phase 14 bypass: force all layers to GPU, bypass estimator
                 },
+                keep_alive=-1,       # keep it resident
             )
             log_success(f"[Phase 1] {config.chat_model} loaded to GPU.")
         except Exception as e:
