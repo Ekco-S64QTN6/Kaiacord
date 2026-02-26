@@ -150,6 +150,18 @@ class BotSpeakFilter:
         'types', 'adjusts', 'swallows', 'stares', 'recalibrates', 'processes'
     }
 
+    RE_EMPTY_PARENS = re.compile(r'\(\s*\)')
+    RE_EMPTY_ASTERISKS = re.compile(r'(?<!\*)\*\s*\*(?!\*)')
+    RE_DOUBLE_SPACES = re.compile(r' +')
+    RE_SPACE_BEFORE_PUNC = re.compile(r' ([\.,\?\!])')
+    RE_GLOBAL_ROLE_PREFIX = re.compile(r'^\s*(Kaia|User|Assistant):\s+', re.IGNORECASE | re.MULTILINE)
+    RE_DOUBLE_NEWLINES = re.compile(r'\n\s*\n+')
+    RE_GRAMMAR_ARTICLE = re.compile(r'\b(?:a|an|the|my|your|our)\s+(?=[,\.\?!])', re.IGNORECASE)
+    RE_GRAMMAR_PUNC_SPACE = re.compile(r'\s+([,\.\?!])')
+    RE_GRAMMAR_DOUBLE_COMMA = re.compile(r',\s*,')
+    RE_GRAMMAR_I_AM = re.compile(r'\b(?:i am|i\'m),\s*', re.IGNORECASE)
+    RE_GRAMMAR_START_PUNC = re.compile(r'^[,\.\?!]\s*')
+
     @classmethod
     def _selective_strip(cls, match):
         """Callback to strip markers and decide if content is an action or emphasis."""
@@ -192,29 +204,29 @@ class BotSpeakFilter:
             cleaned = cls.RE_PREFIXES.sub('', cleaned)
             
             # Clean up empty markers like () or ** that might remain
-            cleaned = re.sub(r'\(\s*\)', '', cleaned)
-            cleaned = re.sub(r'(?<!\*)\*\s*\*(?!\*)', '', cleaned)
+            cleaned = cls.RE_EMPTY_PARENS.sub('', cleaned)
+            cleaned = cls.RE_EMPTY_ASTERISKS.sub('', cleaned)
             
             # Clean up resulting double spaces or empty lines
-            cleaned = re.sub(r' +', ' ', cleaned)
-            cleaned = re.sub(r' ([\.,\?\!])', r'\1', cleaned)
+            cleaned = cls.RE_DOUBLE_SPACES.sub(' ', cleaned)
+            cleaned = cls.RE_SPACE_BEFORE_PUNC.sub(r'\1', cleaned)
             
             # Global cleanup for any remaining role prefix remnants
-            cleaned = re.sub(r'^\s*(Kaia|User|Assistant):\s+', '', cleaned, flags=re.IGNORECASE | re.MULTILINE)
+            cleaned = cls.RE_GLOBAL_ROLE_PREFIX.sub('', cleaned)
             
-            cleaned = re.sub(r'\n\s*\n+', '\n\n', cleaned)
+            cleaned = cls.RE_DOUBLE_NEWLINES.sub('\n\n', cleaned)
             cleaned = cleaned.strip()
         
         # 3. Strip system prose (Single Pass)
         cleaned = cls.RE_SYSTEM_PROSE.sub('', cleaned)
 
         # 3.5. Grammar Cleanup Pass (Fixes syntax broken by stripping)
-        cleaned = re.sub(r'(?i)\b(?:a|an|the|my|your|our)\s+(?=[,\.\?!])', '', cleaned)
-        cleaned = re.sub(r'\s+([,\.\?!])', r'\1', cleaned)             # Remove space before punctuation
-        cleaned = re.sub(r',\s*,', ',', cleaned)                       # Collapse double commas
-        cleaned = re.sub(r'(?i)\b(?:i am|i\'m),\s*', 'i am ', cleaned) # Specific fix for 'i am ,'
-        cleaned = re.sub(r'^[,\.\?!]\s*', '', cleaned)                 # Strip starting punctuation
-        cleaned = re.sub(r' +', ' ', cleaned)                          # Collapse spaces again
+        cleaned = cls.RE_GRAMMAR_ARTICLE.sub('', cleaned)
+        cleaned = cls.RE_GRAMMAR_PUNC_SPACE.sub(r'\1', cleaned)             # Remove space before punctuation
+        cleaned = cls.RE_GRAMMAR_DOUBLE_COMMA.sub(',', cleaned)                       # Collapse double commas
+        cleaned = cls.RE_GRAMMAR_I_AM.sub('i am ', cleaned) # Specific fix for 'i am ,'
+        cleaned = cls.RE_GRAMMAR_START_PUNC.sub('', cleaned)                 # Strip starting punctuation
+        cleaned = cls.RE_DOUBLE_SPACES.sub(' ', cleaned)                          # Collapse spaces again
         cleaned = cleaned.strip()
 
         # 4. Final Pass: Strip robotic engagement bait

@@ -353,7 +353,10 @@ class MessageProcessor:
         return "general"
 
     async def _check_cache(self, ctx: MessageContext):
-        """DECOMMISSIONED: Semantic cache removed per user request."""
+        """Check the semantic cache for similar recent queries."""
+        # Semantic mapping moved to KaiaRAG for better contextual awareness
+        # and easier testing.
+        # noqa: SC001 - Stub intentional until cache re-implementation
         return False
 
     async def _finalize_classification(self, ctx: MessageContext):

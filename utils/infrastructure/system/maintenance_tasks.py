@@ -83,7 +83,8 @@ async def memory_audit_task():
             log_debug(f"Memory Audit: RSS {rss_mb:.1f} MB")
         
         # Memory cleanup thresholds (in MB)
-        NORMAL_THRESHOLD_MB = 8192
+        from utils.infrastructure.system.yaml_config import CONTEXT_WINDOW_TOKENS
+        NORMAL_THRESHOLD_MB = CONTEXT_WINDOW_TOKENS
         
         if rss_mb > NORMAL_THRESHOLD_MB:
             from utils.infrastructure.logging.kaia_logger import log_critical

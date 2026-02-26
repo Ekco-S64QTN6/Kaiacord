@@ -7,7 +7,7 @@ from pathlib import Path
 sys.path.append(os.path.abspath(os.path.join(os.path.dirname(__file__), '..')))
 
 try:
-    from utils.kaia_rag import HallucinationDetector
+    from utils.core.hallucination_detector import HallucinationDetector
 except ImportError:
     # Fallback if import fails
     class HallucinationDetector:

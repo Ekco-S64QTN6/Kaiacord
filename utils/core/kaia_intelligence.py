@@ -20,6 +20,14 @@ import re
 RE_OPTIMIZED_LOG = re.compile(r'\[optimized: saved (\d+) tokens\]')
 RE_CLEAN_MD = re.compile(r'```[\s\S]*?```|`[^`]*`|[*_~]')
 
+RE_ORIGINAL_FRAG_HEADER = re.compile(r"## Original Fragment\s*", flags=re.IGNORECASE)
+RE_SOURCE_HEADER_MATCH = re.compile(r"Source:\s*(.+)", flags=re.IGNORECASE)
+RE_SOURCE_HEADER_STRIP = re.compile(r"Source:\s*.+", flags=re.IGNORECASE)
+RE_KAIA_REFLECTION_HEADER = re.compile(r"## Kaia's Reflection\s*", flags=re.IGNORECASE)
+RE_DATE_FROM_PATH = re.compile(r'(\d{4})(\d{2})(\d{2})')
+RE_MD_JSON_BLOCK_START = re.compile(r'```json\s*')
+RE_MD_BLOCK_BACKTICKS = re.compile(r'```')
+
 @dataclass
 class Intent:
     explicit_intent: str
@@ -267,21 +275,21 @@ class ContextOptimizer:
                 kaia_reflection = content_raw[refl_start:].strip()
                 
                 # Clean up "## Original Fragment" header for external record
-                original_fragment = re.sub(r"## Original Fragment\s*", "", original_fragment, flags=re.IGNORECASE)
+                original_fragment = RE_ORIGINAL_FRAG_HEADER.sub("", original_fragment)
                 
                 # Try to extract the source from the header if possible
                 file_origin = os.path.basename(path_raw or 'Dream Source')
-                source_match = re.search(r"Source:\s*(.+)", original_fragment, re.IGNORECASE)
+                source_match = RE_SOURCE_HEADER_MATCH.search(original_fragment)
                 if source_match:
                     file_origin = os.path.basename(source_match.group(1).strip())
-                    original_fragment = re.sub(r"Source:\s*.+", "", original_fragment, flags=re.IGNORECASE).strip()
+                    original_fragment = RE_SOURCE_HEADER_STRIP.sub("", original_fragment).strip()
                 
                 # Add Original Fragment as RECORDED KNOWLEDGE
                 wrapped_orig = f"<recorded_knowledge source=\"{file_origin}\">\n{original_fragment}\n</recorded_knowledge>"
                 reference_nodes.append(wrapped_orig)
                 
                 # Add Kaia's Reflection as LIVED EXPERIENCE
-                kaia_reflection = re.sub(r"## Kaia's Reflection\s*", "", kaia_reflection, flags=re.IGNORECASE).strip()
+                kaia_reflection = RE_KAIA_REFLECTION_HEADER.sub("", kaia_reflection).strip()
                 history_nodes.append(f"[INTERNAL REFLECTION (DREAM)]\n{kaia_reflection}")
                 continue
 
@@ -481,7 +489,7 @@ class ContextOptimizer:
     @staticmethod
     def _extract_date_from_path(path: str) -> str:
         """Extract a readable date from file paths like 'interactions_20260221.md'."""
-        match = re.search(r'(\d{4})(\d{2})(\d{2})', path)
+        match = RE_DATE_FROM_PATH.search(path)
         if match:
             try:
                 from datetime import datetime as _dt
@@ -1019,8 +1027,8 @@ class IntentParser:
     async def _repair_json(self, text: str) -> str:
         """Attempt to repair broken JSON from LLM output using precompiled regex."""
         # Remove markdown code blocks if present
-        text = re.sub(r'```json\s*', '', text)
-        text = re.sub(r'```', '', text).strip()
+        text = RE_MD_JSON_BLOCK_START.sub('', text)
+        text = RE_MD_BLOCK_BACKTICKS.sub('', text).strip()
         
         if hasattr(self, '_json_repairs'):
             for p, r in self._json_repairs:

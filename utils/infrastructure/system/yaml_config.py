@@ -15,6 +15,11 @@ import os
 import yaml
 from dotenv import load_dotenv
 from pathlib import Path
+
+# Core Constants
+CONTEXT_WINDOW_TOKENS = 8192
+
+# Legacy default paths
 from typing import Any, Dict, Optional
 from dataclasses import dataclass, field, fields
 
@@ -170,12 +175,12 @@ def validate_config(config: Dict[str, Any]) -> tuple[bool, list[str]]:
     # Added: Feb 2026 for early detection of missing credentials
     # NOTE: These are warnings, not errors - social features will be disabled
     # ==========================================================================
-    warnings = []
+    warnings_list = []
     if get_nested(config, 'bluesky.enabled', False):
         if not os.getenv('BLUESKY_HANDLE'):
-            warnings.append("Bluesky enabled but BLUESKY_HANDLE not set - Bluesky features disabled")
+            warnings_list.append("Bluesky enabled but BLUESKY_HANDLE not set - Bluesky features disabled")
         if not os.getenv('BLUESKY_APP_PASSWORD'):
-            warnings.append("Bluesky enabled but BLUESKY_APP_PASSWORD not set - Bluesky features disabled")
+            warnings_list.append("Bluesky enabled but BLUESKY_APP_PASSWORD not set - Bluesky features disabled")
     
     if get_nested(config, 'x_twitter.enabled', False):
         # Support both official API keys and unofficial twikit credentials
@@ -186,11 +191,13 @@ def validate_config(config: Dict[str, Any]) -> tuple[bool, list[str]]:
         has_unofficial = all(os.getenv(v) for v in unofficial_vars)
         
         if not has_official and not has_unofficial:
-            warnings.append("X/Twitter enabled but missing both API keys AND X_USERNAME/PASSWORD - X features disabled")
+            warnings_list.append("X/Twitter enabled but missing both API keys AND X_USERNAME/PASSWORD - X features disabled")
     
     # Log warnings but don't fail
-    for w in warnings:
-        print(f"[CONFIG WARNING] {w}")
+    if warnings_list:
+        from utils.infrastructure.logging.kaia_logger import log_warning
+        for w in warnings_list:
+            log_warning(w)
     
     return len(errors) == 0, errors
 
@@ -215,7 +222,10 @@ class YAMLConfig:
     def get_path(self, path: str, default=None):
         """Standardized helper for dot-notation configuration access."""
         return self.get(path, default)
-    
+    def get(self, path: str, default=None):
+        """Get configuration value using dot notation."""
+        return get_nested(self._data, path, default)
+
     def _get(self, path: str, default=None):
         """Internal helper for property access. Alias for get_path()."""
         return self.get_path(path, default)
@@ -317,7 +327,7 @@ class YAMLConfig:
     
     @property
     def max_context_tokens(self) -> int:
-        return self.get_path('performance.max_context_tokens', 8192)
+        return self.get_path('performance.max_context_tokens', CONTEXT_WINDOW_TOKENS)
     
     @property
     def classification_context_tokens(self) -> int:

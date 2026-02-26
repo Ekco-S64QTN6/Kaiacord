@@ -22,6 +22,7 @@ files_to_check = [
     "Kaiacord.py",
     "utils/core/kaia_intelligence.py",
     "utils/core/kaia_rag.py",
+    "utils/core/hallucination_detector.py",
     "utils/core/message_processor.py",
     "utils/infrastructure/system/dashboard_manager.py",
     "utils/social/kaia_social_responder.py",

@@ -1,9 +1,10 @@
+from utils.infrastructure.logging.kaia_logger import log_info, log_error
 import asyncio
 import ollama
 import sys
 
 async def nuclear_unload():
-    print("🚀 Starting Nuclear Unload of all models...")
+    log_info("🚀 Starting Nuclear Unload of all models...")
     client = ollama.AsyncClient(timeout=60)
     
     # List of models possibly loaded
@@ -11,13 +12,13 @@ async def nuclear_unload():
     
     for model in models:
         try:
-            print(f"🧹 Requesting immediate unload of {model}...")
+            log_info(f"🧹 Requesting immediate unload of {model}...")
             await client.generate(model=model, keep_alive=0)
-            print(f"✅ Unload request sent for {model}")
+            log_info(f"✅ Unload request sent for {model}")
         except Exception as e:
-            print(f"⚠️ Failed to unload {model}: {e}")
+            log_info(f"⚠️ Failed to unload {model}: {e}")
     
-    print("✨ Unload sequence complete.")
+    log_info("✨ Unload sequence complete.")
 
 if __name__ == "__main__":
     asyncio.run(nuclear_unload())

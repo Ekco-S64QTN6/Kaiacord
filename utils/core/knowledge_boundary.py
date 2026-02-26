@@ -16,10 +16,9 @@ class KnowledgeBoundary:
         self.acronyms = set()
         self.fuzzy_max_context_words = 500  # Default fallback
         
-        # Precompiled regex patterns for performance
         self._title_pattern = re.compile(r'\b([A-Z][a-z]+(?:\s+[A-Z][a-z]+)*)\b')
         self._acronym_pattern = re.compile(r'\b([A-Z]{2,})\b')
-        self._article_prefix = re.compile(r'^(The|A|An)\s+', re.I)
+        self._article_prefix = re.compile(r'^(The|A|An)\s+', re.I | re.MULTILINE)
         self._date_pattern = re.compile(r'\d{8}')
         
         self.load_common_entities()

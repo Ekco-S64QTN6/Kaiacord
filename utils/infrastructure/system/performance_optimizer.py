@@ -12,7 +12,8 @@ def timed_response(threshold=30.0):
             elapsed = time.time() - start
             
             if elapsed > threshold:
-                print(f"⚠️ Slow response: {func.__name__} took {elapsed:.2f}s")
+                from utils.infrastructure.logging.kaia_logger import log_warning
+                log_warning(f"Slow response: {func.__name__} took {elapsed:.2f}s")
             
             return result
         return wrapper

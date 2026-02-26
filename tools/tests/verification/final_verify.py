@@ -37,15 +37,14 @@ async def final_verification():
         "Molly Millions"
     ]
     
-    for query in queries:
-        print(f"\nSearching for: '{query}'")
-        results = rag.retrieve(query, category='knowledge', top_k=3)
-        print(f"✅ Found {len(results)} nodes.")
-        for i, res in enumerate(results):
-            source = res['metadata'].get('file_path', 'Unknown')
-            print(f"  [{i}] Score: {res['score']:.4f} | Source: {os.path.basename(source)}")
-            if "Neuromancer" in source:
-                print(f"  ✅ SUCCESS: Found Neuromancer match!")
+    print("\nSearching for: 'Who are Tessier and Ashpool?'")
+    results = await rag.retrieve("Who are Tessier and Ashpool?", category="knowledge")
+    print(f"✅ Found {len(results)} nodes.")
+    for i, res in enumerate(results):
+        source = res['metadata'].get('file_path', 'Unknown')
+        print(f"  [{i}] Score: {res['score']:.4f} | Source: {os.path.basename(source)}")
+        if "Neuromancer" in source:
+            print(f"  ✅ SUCCESS: Found Neuromancer match!")
 
     # 3. Verify Log Integrity
     print("\n--- 3. Log Integrity Check ---")

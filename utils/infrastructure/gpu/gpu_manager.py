@@ -143,7 +143,7 @@ class OllamaGPUManager:
         try:
             from utils.infrastructure.system.yaml_config import config
             timeout = getattr(config, 'llm_request_seconds', 60.0)
-            print(f"🔄 Unloading model: {model_name} (timeout: {timeout}s)")
+            log_info(f"🔄 Unloading model: {model_name} (timeout: {timeout}s)")
             
             if ollama_client is None:
                 import ollama
@@ -155,7 +155,7 @@ class OllamaGPUManager:
             await client_to_use.generate(model=model_name, keep_alive=0)
             return True
         except Exception as e:
-            print(f"⚠️  Failed to unload model {model_name}: {e}")
+            log_info(f"⚠️  Failed to unload model {model_name}: {e}")
             return False
         finally:
             if dedicated_client:
@@ -187,7 +187,7 @@ class OllamaGPUManager:
                 elif isinstance(resp, list):
                     running_models = [m.name if hasattr(m, 'name') else m.get('name') for m in resp]
             except Exception as e:
-                print(f"⚠️  Could not list running models via ps(): {e}")
+                log_info(f"⚠️  Could not list running models via ps(): {e}")
                 # Fallback list
                 from utils.infrastructure.system.yaml_config import config
                 running_models = [
@@ -203,10 +203,10 @@ class OllamaGPUManager:
             running_models = list(set([m for m in running_models if m]))
 
             if not running_models:
-                print("✅ No models running in Ollama.")
+                log_info("✅ No models running in Ollama.")
                 return True
 
-            print(f"🔄 Unloading {len(running_models)} models from VRAM: {', '.join(running_models)}")
+            log_info(f"🔄 Unloading {len(running_models)} models from VRAM: {', '.join(running_models)}")
             import aiohttp
             async with aiohttp.ClientSession() as session:
                 for model in running_models:
@@ -219,17 +219,17 @@ class OllamaGPUManager:
                             timeout=aiohttp.ClientTimeout(total=5.0)
                         ) as resp:
                             if resp.status == 200:
-                                print(f"  ✅ Unloaded {model}")
+                                log_info(f"  ✅ Unloaded {model}")
                             else:
-                                print(f"  ⚠️  Unload API returned {resp.status} for {model}")
+                                log_info(f"  ⚠️  Unload API returned {resp.status} for {model}")
                     except asyncio.TimeoutError:
-                        print(f"  ⚠️  Unload timed out for {model} (Ollama dropped early?)")
+                        log_info(f"  ⚠️  Unload timed out for {model} (Ollama dropped early?)")
                     except Exception as e:
-                        print(f"  ❌ Failed to unload {model}: {e}")
+                        log_info(f"  ❌ Failed to unload {model}: {e}")
             
             return True
         except Exception as e:
-            print(f"⚠️  Global VRAM release failed: {e}")
+            log_info(f"⚠️  Global VRAM release failed: {e}")
             return False
         finally:
             if 'dedicated_client' in locals() and dedicated_client:
@@ -239,7 +239,7 @@ class OllamaGPUManager:
     async def ensure_gpu_loading(self, ollama_client, keep_alive: int = -1):
         """Ensure model loads on GPU with proper parameters"""
         if not self.gpu_available:
-            print("⚠️  GPU not detected. Running on CPU.")
+            log_info("⚠️  GPU not detected. Running on CPU.")
             return False
         
         try:
@@ -251,7 +251,7 @@ class OllamaGPUManager:
             if hasattr(ollama_client, '_client') and ollama_client._client.is_closed:
                 return False
 
-            print(f"🔄 Testing GPU model load (Lightweight, keep_alive={keep_alive})...")
+            log_info(f"🔄 Testing GPU model load (Lightweight, keep_alive={keep_alive})...")
             await asyncio.wait_for(
                 ollama_client.generate(model=self.model_name, prompt="", keep_alive=keep_alive, options=options),
                 timeout=120.0
@@ -260,14 +260,14 @@ class OllamaGPUManager:
             # Verify GPU usage
             gpu_info = GPUMonitor.get_gpu_info()
             if gpu_info and gpu_info[0]['utilization'] > 0:
-                print(f"✅ GPU active: {gpu_info[0]['utilization']}% utilization")
+                log_info(f"✅ GPU active: {gpu_info[0]['utilization']}% utilization")
                 return True
             else:
-                print("✅ GPU load confirmed via generate.")
+                log_info("✅ GPU load confirmed via generate.")
                 return True 
                 
         except Exception as e:
-            print(f"❌ GPU load test failed: {e}")
+            log_info(f"❌ GPU load test failed: {e}")
             return False
 
     async def load_only(self, ollama_client):
@@ -279,8 +279,8 @@ class OllamaGPUManager:
             ctx_size = config.max_context_tokens
             timeout = getattr(config, 'model_load_timeout', 180.0)
             
-            print(f"🔄 Triggering GPU load for {self.model_name} (num_ctx: {ctx_size})...")
-            print(f"⏳ Waiting up to {timeout}s for Ollama to allocate VRAM...")
+            log_info(f"🔄 Triggering GPU load for {self.model_name} (num_ctx: {ctx_size})...")
+            log_info(f"⏳ Waiting up to {timeout}s for Ollama to allocate VRAM...")
             
             # Use fixed config
             options = self.get_gpu_options(for_chat=True, num_ctx=ctx_size)
@@ -294,17 +294,17 @@ class OllamaGPUManager:
             )
             
             elapsed = time.time() - start_time
-            print(f"✅ {self.model_name} pre-warmed and locked in VRAM ({elapsed:.1f}s)")
+            log_info(f"✅ {self.model_name} pre-warmed and locked in VRAM ({elapsed:.1f}s)")
             return True
         except asyncio.TimeoutError:
-            print(f"❌ GPU load TIMED OUT after {timeout}s for {self.model_name}")
-            print(f"⚠️  This model with {ctx_size} context may be too large for your VRAM.")
+            log_info(f"❌ GPU load TIMED OUT after {timeout}s for {self.model_name}")
+            log_info(f"⚠️  This model with {ctx_size} context may be too large for your VRAM.")
             return False
         except Exception as e:
             if "out of memory" in str(e).lower() or "allocation failed" in str(e).lower():
-                 print(f"❌ CRITICAL: Model load failed due to OOM!")
-                 print(f"⚠️  Reducing context size might help.")
-            print(f"❌ GPU load failed: {e}")
+                 log_info(f"❌ CRITICAL: Model load failed due to OOM!")
+                 log_info(f"⚠️  Reducing context size might help.")
+            log_info(f"❌ GPU load failed: {e}")
             return False
     
     def get_gpu_options(self, for_chat: bool = True, num_ctx: Optional[int] = None) -> Dict[str, Any]:

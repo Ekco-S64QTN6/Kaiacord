@@ -216,7 +216,7 @@ models:
 
 performance:
   max_memory_messages: 30
-  max_context_tokens: 8192      # Unified 8k window for RTX 3060 12GB
+  max_context_tokens: 8192      # Unified CONTEXT_WINDOW_TOKENS for RTX 3060 12GB
   requests_per_minute: 30
 ```
 

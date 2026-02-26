@@ -1,3 +1,4 @@
+from utils.infrastructure.logging.kaia_logger import log_info, log_error
 #!/usr/bin/env python3
 """
 Utility script to aggressively clear GPU memory when Kaiacord has OOM issues.
@@ -15,16 +16,16 @@ def clear_gpu_memory(silent: bool = False):
         import torch
     except ImportError:
         if not silent:
-            print("PyTorch not installed")
+            log_info("PyTorch not installed")
         return
     
     if not torch.cuda.is_available():
         if not silent:
-            print("CUDA not available")
+            log_info("CUDA not available")
         return
     
     if not silent:
-        print("Clearing GPU memory...")
+        log_info("Clearing GPU memory...")
     
     # Empty cache multiple times (2 passes is usually sufficient)
     for _ in range(2):
@@ -42,7 +43,7 @@ def clear_gpu_memory(silent: bool = False):
     torch.cuda.empty_cache()
     
     if not silent:
-        print("GPU memory cleared")
+        log_info("GPU memory cleared")
 
 
 def force_clear_gpu() -> bool:
@@ -93,7 +94,7 @@ def force_clear_gpu() -> bool:
         return allocated < 0.5  # Success if less than 0.5 GiB still allocated
         
     except Exception as e:
-        print(f"GPU force clear error: {e}")
+        log_info(f"GPU force clear error: {e}")
         return False
 
 
@@ -106,7 +107,7 @@ def kill_orphaned_runners(preserve_model: str = None, preserve_ctx: int = None, 
     import urllib.error
 
     # 1. Graceful Synchronous Unload (Bypasses active async event loops)
-    print(f"🔄 Ensuring all models are flushed from VRAM via HTTP (force_all={force_all})...")
+    log_info(f"🔄 Ensuring all models are flushed from VRAM via HTTP (force_all={force_all})...")
     try:
         # Check what's ACTUALLY running instead of all installed tags
         req = urllib.request.Request("http://127.0.0.1:11434/api/ps", method="GET")
@@ -123,12 +124,12 @@ def kill_orphaned_runners(preserve_model: str = None, preserve_ctx: int = None, 
                  if preserve_ctx is None or ctx_len == preserve_ctx:
                      # CRITICAL: Verify it's actually in VRAM, not sitting in CPU
                      if model_info.get("size_vram", 0) > 0:
-                         print(f"  ✅ Preserving {name} (already resident in VRAM with {ctx_len} ctx)")
+                         log_info(f"  ✅ Preserving {name} (already resident in VRAM with {ctx_len} ctx)")
                          continue
                      else:
-                         print(f"  ⚠️  Model {name} found but resident in CPU. Triggering unload...")
+                         log_info(f"  ⚠️  Model {name} found but resident in CPU. Triggering unload...")
              
-             print(f"  🔄 Unloading {name}...")
+             log_info(f"  🔄 Unloading {name}...")
              payload = json.dumps({"model": name, "keep_alive": 0}).encode("utf-8")
              preq = urllib.request.Request(
                  "http://127.0.0.1:11434/api/generate",
@@ -141,9 +142,9 @@ def kill_orphaned_runners(preserve_model: str = None, preserve_ctx: int = None, 
                      pass # Unloaded cleanly
              except Exception:
                  pass
-        print("  ✅ Sent kill signals to Ollama daemon.")
+        log_info("  ✅ Sent kill signals to Ollama daemon.")
     except Exception as e:
-        print(f"  ⚠️ Could not ping Ollama daemon for flush: {e}")
+        log_info(f"  ⚠️ Could not ping Ollama daemon for flush: {e}")
 
     # 2. Hard Kill lingering rogue runners
     current_pid = os.getpid()
@@ -164,7 +165,7 @@ def kill_orphaned_runners(preserve_model: str = None, preserve_ctx: int = None, 
         except (psutil.NoSuchProcess, psutil.AccessDenied):
             pass
     
-    print("✨ Ollama cleanup finalized.")
+    log_info("✨ Ollama cleanup finalized.")
 
 
 if __name__ == "__main__":

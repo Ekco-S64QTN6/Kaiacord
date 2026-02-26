@@ -7,7 +7,7 @@ from pathlib import Path
 # Add project root to path
 sys.path.append(str(Path(__file__).parent.parent.parent.parent))
 
-from utils.core.kaia_rag import HallucinationDetector
+from utils.core.hallucination_detector import HallucinationDetector
 # from Kaiacord import EmergencyContaminationFilter
 
 def test_hallucination_detection():

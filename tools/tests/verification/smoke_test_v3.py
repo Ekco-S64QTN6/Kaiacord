@@ -56,7 +56,7 @@ async def smoke_test_v3():
         print(f"DEBUG RAG CONTEXT:\n{rag_context}")
 
     # 3. Test Hallucination Detector (First-Person RESTORED)
-    from utils.core.kaia_rag import HallucinationDetector
+    from utils.core.hallucination_detector import HallucinationDetector
     voice_test = "I'm feeling much better now that the code is clean."
     detected = HallucinationDetector.contains_hallucination(voice_test)
     
@@ -64,7 +64,7 @@ async def smoke_test_v3():
     print(f"[{'✅' if voice_pass else '❌'}] Voice Restoration test (I'm feeling...): {'Allowed' if voice_pass else 'Blocked'}")
     
     # 4. Test Cache Hardening (Prevent caching hallucinations)
-    from utils.core.kaia_rag import HallucinationDetector
+    from utils.core.hallucination_detector import HallucinationDetector
     
     # We test the logic of ImprovedSemanticCache.set here without importing the whole Kaiacord.py
     class MockCache:

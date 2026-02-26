@@ -1,58 +1,53 @@
-import os
-import sys
-import warnings
-# Suppress harmless POSIX semaphore cleanup warnings from LlamaIndex tokenizer subprocesses
-warnings.filterwarnings("ignore", message=".*semaphore.*", module="multiprocessing.resource_tracker")
-import asyncio
+# Standard Library
 import argparse
-import re
-import traceback
-import random
-import time
-import logging
-import psutil
-import threading
+import asyncio
 import concurrent.futures
+import logging
+import os
+import random
+import re
+import sys
+import threading
+import time
+import traceback
+import warnings
 from datetime import datetime
 from pathlib import Path
-from typing import List, Dict, Optional, Any
-from dotenv import load_dotenv
-load_dotenv()
+from typing import Any, Dict, List, Optional
 
-# Initialize Unified Logging
-from utils.infrastructure.logging.unified_logging import replace_all_logging, logger
+# Suppress harmless POSIX semaphore cleanup warnings from LlamaIndex tokenizer subprocesses
+warnings.filterwarnings("ignore", message=".*semaphore.*", module="multiprocessing.resource_tracker")
 
-from utils.infrastructure.logging.kaia_logger import (
-    log_info, log_success, log_error, log_action, log_debug
-)
-
-# Core Infrastructure Imports
-import ollama
+# Third-Party Libraries
 import discord
 from discord.ext import commands
+from dotenv import load_dotenv
+import ollama
+import psutil
 
-from utils.infrastructure.system.shutdown_fixed import shutdown_manager
+load_dotenv()
+
+# Internal Modules
+from utils.core.background_tasks import run_news_update
+from utils.core.kaia_dream import DreamEngine
+from utils.core.kaia_intelligence import ContextOptimizer, IntentParser, ModelWarmPool, RelevanceFeedback
+from utils.core.kaia_rag import KaiaRAG
+from utils.core.message_processor import MessageProcessor
+from utils.core.performance_monitor import PerformanceMonitor
+from utils.infrastructure.logging.kaia_logger import log_action, log_debug, log_error, log_info, log_success
+from utils.infrastructure.logging.unified_logging import logger, replace_all_logging
 from utils.infrastructure.monitoring.async_task_registry import task_registry
-from utils.infrastructure.system.yaml_config import config
-from utils.infrastructure.system.bot_state import bot_state
-from utils.infrastructure.system.rate_limiter import RateLimiter
-from utils.infrastructure.system.messaging import send_kaia_response
-from utils.infrastructure.system.dashboard_manager import DashboardManager
 from utils.infrastructure.monitoring.stats_tracker import stats_tracker
 from utils.infrastructure.system.app_context import AppContext
-
-# Logic Imports
-from utils.core.kaia_rag import KaiaRAG
-from utils.core.kaia_dream import DreamEngine
-from utils.core.performance_monitor import PerformanceMonitor
-from utils.core.kaia_intelligence import (
-    ModelWarmPool, ContextOptimizer, RelevanceFeedback, IntentParser
-)
+from utils.infrastructure.system.bot_state import bot_state
+from utils.infrastructure.system.dashboard_manager import DashboardManager
+from utils.infrastructure.system.messaging import send_kaia_response
 from utils.infrastructure.system.performance_optimizer import ResponseOptimizer, timed_response
-from utils.core.message_processor import MessageProcessor
+from utils.infrastructure.system.rate_limiter import RateLimiter
+from utils.infrastructure.system.shutdown_fixed import shutdown_manager
+from utils.infrastructure.system.yaml_config import config
+from utils.news.kaia_news import NewsManager, NewsRetrievalEnhancer, RAGEnhancer
 from utils.social.kaia_social_responder import load_persona_async
-from utils.news.kaia_news import NewsRetrievalEnhancer, NewsManager, RAGEnhancer
-from utils.core.background_tasks import run_news_update
 
 # ─────────────────────────────────────────────
 # PHASE 0 — Minimal synchronous setup only.

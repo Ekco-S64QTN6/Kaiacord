@@ -14,6 +14,7 @@ import traceback
 import concurrent.futures
 import json
 import heapq
+import copy
 
 # Suppress noisy logs from libraries
 logging.getLogger("httpx").setLevel(logging.WARNING)
@@ -430,6 +431,75 @@ class KaiaRAG:
             "index_size": size_str,
             "last_refresh": datetime.now()
         }
+
+    def _get_bm25_cache_path(self, itype: str) -> str:
+        """Get the file path for the pickled BM25 retriever of a specific index type."""
+        return os.path.join(self.persist_dir, itype, "bm25_cache.pkl")
+
+    def _save_bm25_cache(self, itype: str):
+        """Persists the SimpleBM25Retriever to disk using pickle."""
+        import pickle
+        with self._data_lock:
+            retriever = self.bm25_cache.get(itype)
+            if not retriever or getattr(retriever, 'bm25', None) is None:
+                return # Nothing to save
+        
+        cache_path = self._get_bm25_cache_path(itype)
+        itype_dir = os.path.dirname(cache_path)
+        
+        try:
+            if not os.path.exists(itype_dir):
+                os.makedirs(itype_dir)
+            temp_path = f"{cache_path}.tmp"
+            
+            # We don't want to pickle the lock object inside SimpleBM25Retriever
+            # So we create a shallow copy and remove the lock before pickling
+            retriever_copy = copy.copy(retriever)
+            if hasattr(retriever_copy, '_lock'):
+                delattr(retriever_copy, '_lock')
+                
+            with open(temp_path, 'wb') as f:
+                pickle.dump(retriever_copy, f, protocol=pickle.HIGHEST_PROTOCOL)
+                
+            os.replace(temp_path, cache_path)
+            log_debug(f"Saved BM25 cache for '{itype}' to disk.")
+        except Exception as e:
+            log_error(f"Failed to save BM25 cache for '{itype}': {e}")
+
+    def _load_bm25_cache(self, itype: str):
+        """Loads the SimpleBM25Retriever from disk. Returns None if invalid or missing."""
+        import pickle
+        cache_path = self._get_bm25_cache_path(itype)
+        
+        if not os.path.exists(cache_path):
+            return None
+            
+        # Verify if the cache is still valid based on mtime of the index directory
+        # (If the index was updated, the vector store files will have newer mtimes)
+        try:
+            cache_mtime = os.path.getmtime(cache_path)
+            
+            # Check if any indexed file for this itype has changed since the cache was created
+            with self._data_lock:
+                for path, meta in self.indexed_files.items():
+                    # We can't perfectly filter by itype easily here, so we invalidate 
+                    # if ANY file in the manifest is newer than the cache cache
+                    file_mtime = meta.get("mtime", 0)
+                    if file_mtime > cache_mtime:
+                         log_debug(f"BM25 cache for '{itype}' is stale (file updated).")
+                         return None
+            
+            # Index manifest is older than cache, we can load it
+            with open(cache_path, 'rb') as f:
+                retriever = pickle.load(f)
+                
+                # Restore the lock that was removed during pickling
+                retriever._lock = threading.Lock()
+                log_debug(f"Loaded BM25 cache for '{itype}' from disk.")
+                return retriever
+        except Exception as e:
+            log_error(f"Failed to load BM25 cache for '{itype}', falling back to rebuild: {e}")
+            return None
 
     def _initialize_indices(self):
         """Initialize hierarchical indices from storage or create new ones."""
@@ -1007,7 +1077,7 @@ class KaiaRAG:
         """Convert a PDF file to a Markdown file by extracting text."""
         if not hasattr(self, '_pdf_breaker'):
             from utils.infrastructure.circuit_breaker import CircuitBreaker
-            self._pdf_breaker = CircuitBreaker("pdf_convert", failure_threshold=3, reset_timeout=60)
+            self._pdf_breaker = CircuitBreaker("pdf_conversion", failure_threshold=3, recovery_timeout=60)
         if not self._pdf_breaker.can_proceed():
             log_warning(f"Circuit breaker open for PDF conversion")
             return None
@@ -1895,35 +1965,7 @@ class KaiaRAG:
             log_error(f"RAG pre-warm failed: {e}")
             traceback.print_exc()
 
-    def _save_bm25_cache(self, itype: str):
-        """Persist BM25 retriever to disk using pickle."""
-        import pickle
-        retriever = self.bm25_cache.get(itype)
-        if not retriever: return
-        
-        try:
-            cache_path = os.path.join(self.persist_dir, itype, "bm25_retriever.pkl")
-            os.makedirs(os.path.dirname(cache_path), exist_ok=True)
-            with open(cache_path, 'wb') as f:
-                pickle.dump(retriever, f)
-            log_debug(f"Saved BM25 cache for '{itype}' to {cache_path}")
-        except Exception as e:
-            log_warning(f"Failed to save BM25 cache for {itype}: {e}")
 
-    def _load_bm25_cache(self, itype: str) -> Optional[SimpleBM25Retriever]:
-        """Load BM25 retriever from disk."""
-        import pickle
-        cache_path = os.path.join(self.persist_dir, itype, "bm25_retriever.pkl")
-        if not os.path.exists(cache_path): return None
-        
-        try:
-            with open(cache_path, 'rb') as f:
-                retriever = pickle.load(f)
-            log_info(f"Loaded BM25 cache for '{itype}' from disk.")
-            return retriever
-        except Exception as e:
-            log_warning(f"Failed to load BM25 cache for {itype}: {e}")
-            return None
 
 if __name__ == "__main__":
     rag = KaiaRAG()
