@@ -1,60 +1,91 @@
-"""
-Circuit Breaker
-================
-
-Shared circuit breaker for any external service calls (API endpoints, file
-converters, etc.).  Lives in utils/infrastructure so that both core and social
-modules can import it without creating a dependency inversion.
-"""
-
 import time
-from utils.infrastructure.logging.kaia_logger import log_info, log_warning
+import asyncio
+import threading
+from enum import Enum
+from typing import Callable, Any, Optional
+from utils.infrastructure.logging.kaia_logger import log_info, log_warning, log_error
 
+class CircuitState(Enum):
+    CLOSED = "CLOSED"      # Normal operation
+    OPEN = "OPEN"          # Failed, blocking requests
+    HALF_OPEN = "HALF_OPEN" # Testing if service recovered
 
 class CircuitBreaker:
-    """Simple circuit breaker with exponential-style failure tracking.
-
-    Usage::
-
-        breaker = CircuitBreaker("my_service", failure_threshold=3, reset_timeout=300)
-
-        if breaker.can_proceed():
-            try:
-                result = call_external_service()
-                breaker.record_success()
-            except Exception:
-                breaker.record_failure()
     """
-
-    def __init__(self, name: str, failure_threshold: int = 3, reset_timeout: int = 300):
+    Standardized Circuit Breaker with support for both sync and async operations.
+    Prevents cascading failures by blocking calls to a failing service.
+    """
+    def __init__(self, 
+                 name: str, 
+                 failure_threshold: int = 5, 
+                 recovery_timeout: float = 60.0):
         self.name = name
+        self.failure_threshold = failure_threshold
+        self.recovery_timeout = recovery_timeout
+        
+        self.state = CircuitState.CLOSED
         self.failures = 0
-        self.threshold = failure_threshold
-        self.reset_timeout = reset_timeout  # seconds before auto-reset
-        self.last_failure_time = 0.0
-        self.is_open = False
+        self.last_failure_time: Optional[float] = None
+        self._lock = threading.Lock()  # Use thread lock for both sync and async compatibility
 
     def can_proceed(self) -> bool:
-        """Return True if calls should be allowed through."""
-        if not self.is_open:
-            return True
-        # Auto-reset after timeout window
-        if time.time() - self.last_failure_time >= self.reset_timeout:
-            self.is_open = False
-            self.failures = 0
-            log_info(f"Circuit breaker '{self.name}' reset after timeout")
-            return True
-        return False
+        """Sync check if calls should be allowed through."""
+        with self._lock:
+            if self.state == CircuitState.CLOSED:
+                return True
+            
+            if self.state == CircuitState.OPEN:
+                if time.time() - self.last_failure_time > self.recovery_timeout:
+                    log_warning(f"[CIRCUIT BREAKER] {self.name} entering HALF_OPEN state.")
+                    self.state = CircuitState.HALF_OPEN
+                    return True
+                return False
+            
+            if self.state == CircuitState.HALF_OPEN:
+                # In half-open, we allow one trial call. 
+                # For simplicity, we just return True and let the next record_ success/failure handle it.
+                return True
+                
+            return False
 
     def record_success(self) -> None:
         """Record a successful call — resets failure counter."""
-        self.failures = 0
-        self.is_open = False
+        with self._lock:
+            if self.state == CircuitState.HALF_OPEN:
+                log_info(f"[CIRCUIT BREAKER] {self.name} RECOVERED. Closing circuit.")
+            elif self.state == CircuitState.OPEN:
+                log_info(f"[CIRCUIT BREAKER] {self.name} manually recovered. Closing circuit.")
+            
+            self.state = CircuitState.CLOSED
+            self.failures = 0
+            self.last_failure_time = None
 
     def record_failure(self) -> None:
         """Record a failed call — opens the breaker after threshold."""
-        self.failures += 1
-        self.last_failure_time = time.time()
-        if self.failures >= self.threshold:
-            self.is_open = True
-            log_warning(f"Circuit breaker '{self.name}' OPEN after {self.failures} failures")
+        with self._lock:
+            self.failures += 1
+            self.last_failure_time = time.time()
+            
+            if self.failures >= self.failure_threshold:
+                if self.state != CircuitState.OPEN:
+                    log_error(f"[CIRCUIT BREAKER] {self.name} TRIPPED! Opening circuit for {self.recovery_timeout}s.")
+                    self.state = CircuitState.OPEN
+
+    async def call(self, func: Callable, *args, **kwargs) -> Any:
+        """Async wrapper for unified usage."""
+        if not self.can_proceed():
+            raise RuntimeWarning(f"Circuit breaker {self.name} is OPEN.")
+
+        try:
+            # Check if it's a coroutine function
+            if asyncio.iscoroutinefunction(func):
+                result = await func(*args, **kwargs)
+            else:
+                result = func(*args, **kwargs)
+            
+            self.record_success()
+            return result
+            
+        except Exception as e:
+            self.record_failure()
+            raise e

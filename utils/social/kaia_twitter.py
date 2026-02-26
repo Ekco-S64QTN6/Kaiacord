@@ -211,7 +211,8 @@ def _extract_browser_cookies() -> dict:
                         try:
                             all_cookies.extend(list(browser_cookie3.firefox(cookie_file=str(profile), domain_name=domain)))
                         except Exception: pass
-            except: pass
+            except Exception:
+                pass
         
         if all_cookies:
             # Twikit 2.x expects a flat dictionary of {name: value}

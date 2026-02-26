@@ -237,7 +237,7 @@ RULES:
                         archive_path = archive_dir / file.name
                         file.rename(archive_path)
                         archived += 1
-            except:
+            except Exception:
                 continue
         
         if archived > 0:

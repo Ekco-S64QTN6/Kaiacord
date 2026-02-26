@@ -85,8 +85,8 @@ def sanitize_log_content(text: str) -> str:
     
     return clean.strip()
 
-# HallucinationDetector has been moved to utils/core/response_filter.py
-from utils.core.response_filter import HallucinationDetector
+# HallucinationDetector moved to dedicated module
+from utils.core.hallucination_detector import HallucinationDetector
 
 
 
@@ -192,23 +192,24 @@ def thread_safe_rag_operation(func):
         lock_timeout = getattr(config, 'rag_lock_seconds', 10.0)
         
         if func.__name__ == 'retrieve':
-            # Offload the blocking acquire to a thread to avoid freezing the event loop
-            acquired = await asyncio.to_thread(self._lock.acquire, timeout=0.5)
+            # retrieval_lock allows parallel reads if implemented later, 
+            # for now we use data_lock but with short timeouts.
+            acquired = await asyncio.to_thread(self._data_lock.acquire, timeout=0.5)
             try:
+                if not acquired:
+                    log_warning("RAG retrieval lock contention - proceeding with best-effort access")
                 return await func(self, *args, **kwargs)
             finally:
-                if acquired: self._lock.release()
+                if acquired: self._data_lock.release()
         else:
-            # For writes/updates, offload the blocking wait
-            if not await asyncio.to_thread(self._lock.acquire, timeout=lock_timeout):
-                log_warning(f"RAG operation {func.__name__} timed out")
+            # Writes/updates
+            if not await asyncio.to_thread(self._data_lock.acquire, timeout=lock_timeout):
+                log_warning(f"RAG operation {func.__name__} timed out waiting for data lock")
                 return False if func.__name__ in ['add_memory', 'log_user_interaction'] else None
             try:
-                if getattr(self, '_indexing_in_progress', False) and func.__name__ not in ['refresh_knowledge_base']:
-                    return False if func.__name__ in ['add_memory', 'log_user_interaction'] else None
                 return await func(self, *args, **kwargs)
             finally:
-                self._lock.release()
+                self._data_lock.release()
 
     @wraps(func)
     def sync_wrapper(self, *args, **kwargs):
@@ -216,18 +217,18 @@ def thread_safe_rag_operation(func):
         lock_timeout = getattr(config, 'rag_lock_seconds', 10.0)
         
         if func.__name__ == 'retrieve':
-            acquired = self._lock.acquire(timeout=0.5)
+            acquired = self._data_lock.acquire(timeout=0.5)
             try:
                 return func(self, *args, **kwargs)
             finally:
-                if acquired: self._lock.release()
+                if acquired: self._data_lock.release()
         else:
-            if not self._lock.acquire(timeout=lock_timeout):
+            if not self._data_lock.acquire(timeout=lock_timeout):
                 return False if func.__name__ in ['add_memory', 'log_user_interaction'] else None
             try:
                 return func(self, *args, **kwargs)
             finally:
-                self._lock.release()
+                self._data_lock.release()
 
     return async_wrapper if is_async else sync_wrapper
 
@@ -295,7 +296,8 @@ class KaiaRAG:
         self.indices = {} # Hierarchical indices
         self.bm25_cache = {} # Cache for BM25 retrievers {itype: (timestamp, retriever)}
         self.persist_needed = False
-        self._lock = threading.Lock()
+        self._data_lock = threading.Lock()  # Granular data access (retrieval vs insertion)
+        self._index_lock = threading.Lock() # Higher-level maintenance lock
         self.state_file = os.path.join(self.persist_dir, "file_manifest.json")
         # NOTE: _load_indexed_files() is intentionally NOT called here.
         # It performs disk I/O and must not run during Phase 0 (synchronous boot).
@@ -309,7 +311,7 @@ class KaiaRAG:
         self._last_user_scan = 0
 
         self._user_scan_interval = getattr(config, 'rag_user_scan_interval', 300)
-        self._refresh_lock = threading.Lock() # Exclusive lock for the refresh process
+        self._indexing_in_progress = False
         self._indexing_in_progress = False
         self._refresh_pending = False # Single-flight "dirty" flag
         self._bot_user_id = None # Set by Discord bot on startup
@@ -431,7 +433,7 @@ class KaiaRAG:
 
     def _initialize_indices(self):
         """Initialize hierarchical indices from storage or create new ones."""
-        with self._lock:
+        with self._data_lock:
             index_types = ['persona', 'user_profiles', 'conversations', 'knowledge', 'logs', 'dreams']
             for itype in index_types:
                 itype_dir = os.path.join(self.persist_dir, itype)
@@ -622,21 +624,22 @@ class KaiaRAG:
             return updated_itypes
             
         log_action(f"Detected {len(deleted_files)} deleted files. Pruning index O(k)...")
-        for file_path in deleted_files:
-            # O(k) deletion using manifest nodes
-            node_ids = self.indexed_files[file_path].get("nodes", [])
-            log_info(f"Pruning {len(node_ids)} nodes for deleted file: {os.path.basename(file_path)}")
-            
-            for itype, index in self.indices.items():
-                # Filter nodes that belong to this index (or just try/except delete)
-                # itype is usually in metadata if we want to be precise
-                try:
-                    index.delete_nodes(node_ids)
-                    updated_itypes.add(itype)
-                except Exception: pass
-            
-            self.indexed_files.pop(file_path, None)
-            self._file_to_nodes.pop(file_path, None)
+        with self._data_lock: # Lock for modifying indexed_files and indices
+            for file_path in deleted_files:
+                # O(k) deletion using manifest nodes
+                node_ids = self.indexed_files[file_path].get("nodes", [])
+                log_info(f"Pruning {len(node_ids)} nodes for deleted file: {os.path.basename(file_path)}")
+                
+                for itype, index in self.indices.items():
+                    # Filter nodes that belong to this index (or just try/except delete)
+                    # itype is usually in metadata if we want to be precise
+                    try:
+                        index.delete_nodes(node_ids)
+                        updated_itypes.add(itype)
+                    except Exception: pass
+                
+                self.indexed_files.pop(file_path, None)
+                self._file_to_nodes.pop(file_path, None)
             
         self._save_indexed_files()
         return updated_itypes
@@ -741,9 +744,10 @@ class KaiaRAG:
             
             if nodes_to_delete:
                 log_success(f"  Removing {len(nodes_to_delete)} old nodes to prepare for update.")
-                target_index.delete_nodes(nodes_to_delete)
-                # Clear from manifest to avoid stale references if indexing fails midway
-                if entry: entry["nodes"] = []
+                with self._data_lock: # Lock for modifying indices
+                    target_index.delete_nodes(nodes_to_delete)
+                    # Clear from manifest to avoid stale references if indexing fails midway
+                    if entry: entry["nodes"] = []
 
         try:
             if is_log:
@@ -797,17 +801,18 @@ class KaiaRAG:
         })
         self._apply_priority_metadata(doc, itype, file_path)
         nodes = self._get_node_parser_for_doc(itype, file_path).get_nodes_from_documents([doc])
-        target_index.insert_nodes(nodes)
-        
-        # Update manifest
-        node_ids = [n.node_id for n in nodes]
-        existing_nodes = entry.get("nodes", []) if entry else []
-        self.indexed_files[abs_path] = {
-            "mtime": mtime,
-            "size": os.path.getsize(file_path),
-            "nodes": list(set(existing_nodes + node_ids))
-        }
-        self._file_to_nodes[abs_path] = self.indexed_files[abs_path]["nodes"]
+        with self._data_lock: # Lock for modifying indices and manifest
+            target_index.insert_nodes(nodes)
+            
+            # Update manifest
+            node_ids = [n.node_id for n in nodes]
+            existing_nodes = entry.get("nodes", []) if entry else []
+            self.indexed_files[abs_path] = {
+                "mtime": mtime,
+                "size": os.path.getsize(file_path),
+                "nodes": list(set(existing_nodes + node_ids))
+            }
+            self._file_to_nodes[abs_path] = self.indexed_files[abs_path]["nodes"]
         return True
 
     def _index_regular_file(self, file_path: str, abs_path: str, itype: str) -> bool:
@@ -831,25 +836,26 @@ class KaiaRAG:
         mtime = os.path.getmtime(file_path)
         parser = self._get_node_parser_for_doc(itype, file_path)
         all_node_ids = []
-        for doc in docs:
-            doc.metadata.update({'last_modified_at': mtime, 'file_path': abs_path, 'itype': itype})
-            self._apply_priority_metadata(doc, itype, file_path)
-            if itype == 'persona': doc.metadata['user_id'] = "KAIA_SYSTEM"
+        with self._data_lock: # Lock for modifying indices and manifest
+            for doc in docs:
+                doc.metadata.update({'last_modified_at': mtime, 'file_path': abs_path, 'itype': itype})
+                self._apply_priority_metadata(doc, itype, file_path)
+                if itype == 'persona': doc.metadata['user_id'] = "KAIA_SYSTEM"
+                
+                # ... (user metadata logic) ...
+                
+                for sub_doc in self._pre_chunk_document(doc):
+                    # self._apply_priority_metadata(sub_doc, itype, file_path) # Duplicate call removed
+                    nodes = parser.get_nodes_from_documents([sub_doc])
+                    self.indices[itype].insert_nodes(nodes)
+                    all_node_ids.extend([n.node_id for n in nodes])
             
-            # ... (user metadata logic) ...
-            
-            for sub_doc in self._pre_chunk_document(doc):
-                # self._apply_priority_metadata(sub_doc, itype, file_path) # Duplicate call removed
-                nodes = parser.get_nodes_from_documents([sub_doc])
-                self.indices[itype].insert_nodes(nodes)
-                all_node_ids.extend([n.node_id for n in nodes])
-        
-        self.indexed_files[abs_path] = {
-            "mtime": mtime,
-            "size": os.path.getsize(file_path),
-            "nodes": all_node_ids
-        }
-        self._file_to_nodes[abs_path] = all_node_ids
+            self.indexed_files[abs_path] = {
+                "mtime": mtime,
+                "size": os.path.getsize(file_path),
+                "nodes": all_node_ids
+            }
+            self._file_to_nodes[abs_path] = all_node_ids
         if itype != 'logs':
             snippet = docs[0].text[:300].replace("\n", " ") + "..." if docs else ""
             from utils.infrastructure.system.bot_state import bot_state
@@ -872,11 +878,12 @@ class KaiaRAG:
                     if md_docs:
                         mtime = os.path.getmtime(md_path)
                         parser = self._get_node_parser_for_doc(itype, md_path)
-                        for doc in md_docs:
-                            doc.metadata.update({'last_modified_at': mtime, 'itype': itype})
-                            self.indices[itype].insert_nodes(parser.get_nodes_from_documents([doc]))
-                        self.indexed_files[os.path.abspath(md_path)] = mtime
-                        self.indexed_files[os.path.abspath(file_path)] = os.path.getmtime(file_path)
+                        with self._data_lock: # Lock for modifying indices and manifest
+                            for doc in md_docs:
+                                doc.metadata.update({'last_modified_at': mtime, 'itype': itype})
+                                self.indices[itype].insert_nodes(parser.get_nodes_from_documents([doc]))
+                            self.indexed_files[os.path.abspath(md_path)] = mtime
+                            self.indexed_files[os.path.abspath(file_path)] = os.path.getmtime(file_path)
                         return True
                 except Exception: pass
         
@@ -889,37 +896,25 @@ class KaiaRAG:
         return False
 
     def _persist_updated_indices(self, updated_itypes: Set[str]):
-        """Save indices to disk and invalidate BM25 cache."""
+        """Save indices to disk and invalidate/save BM25 cache."""
         self.persist_needed = True
-        for itype in updated_itypes:
-            if itype in self.bm25_cache:
-                log_info(f"Invalidating BM25 cache for '{itype}'")
-                self.bm25_cache[itype] = None
-            try:
-                self.indices[itype].storage_context.persist(persist_dir=os.path.join(self.persist_dir, itype))
-                log_success(f"Index '{itype}' persisted.")
-            except Exception as e: log_error(f"Failed to persist {itype}: {e}")
+        with self._data_lock: # Lock for modifying bm25_cache and indices
+            for itype in updated_itypes:
+                if itype in self.bm25_cache:
+                    log_info(f"Invalidating memory BM25 cache for '{itype}' to trigger re-save")
+                    # Ensure we re-build/re-save the BM25 for this type if it changed
+                try:
+                    self.indices[itype].storage_context.persist(persist_dir=os.path.join(self.persist_dir, itype))
+                    log_success(f"Index '{itype}' persisted.")
+                    # Also persist BM25 if already in memory
+                    if itype in self.bm25_cache and self.bm25_cache[itype]:
+                        self._save_bm25_cache(itype)
+                except Exception as e: log_error(f"Failed to persist {itype}: {e}")
         self._save_indexed_files()
 
     async def refresh_knowledge_base(self, max_concurrent_files: int = 2):
-        """Refresh knowledge base with concurrent file processing and batch persistence.
-        
-        max_concurrent_files is intentionally conservative (default=2).
-        Each file may trigger embedding calls to nomic-embed-text (CPU-only, num_gpu=0).
-        Running too many concurrently can create an embedding call storm that causes
-        Ollama to mis-schedule memory and spill the chat model from VRAM.
-        Increase only if you have confirmed stable VRAM and fast SSD throughput.
-        """
-        # Shutdown guard: don't start new indexing during shutdown
-        try:
-            from utils.infrastructure.system.shutdown_fixed import shutdown_manager
-            if shutdown_manager.shutting_down:
-                log_info("RAG refresh skipped: shutdown in progress.")
-                return
-        except ImportError:
-            pass
-
-        if not self._refresh_lock.acquire(blocking=False):
+        """Refresh knowledge base with concurrent file processing and batch persistence."""
+        if not self._index_lock.acquire(blocking=False):
             log_info("RAG refresh already in progress, marking as pending.")
             self._refresh_pending = True
             return
@@ -998,7 +993,7 @@ class KaiaRAG:
             traceback.print_exc()
         finally:
             self._indexing_in_progress = False
-            self._refresh_lock.release()
+            self._index_lock.release()
             if self._refresh_pending:
                 log_info("Triggering pending RAG refresh...")
                 
@@ -1106,7 +1101,7 @@ class KaiaRAG:
             )
             
             # 2. SEPARATE INJECTED FILE (Legacy behavior for Dream Mode/Isolation)
-            with self._lock:
+            with self._data_lock:
                 safe_user_name = "".join([c for c in user_name if c.isalnum() or c in (' ', '-', '_')]).strip().replace(' ', '_')
                 user_dir_name = f"{safe_user_name}_{user_id}"
                 user_log_dir = os.path.join(self.knowledge_base_dir, "user_logs", user_dir_name)
@@ -1153,7 +1148,7 @@ class KaiaRAG:
 
         # Acquire lock unconditionally to ensure we write to disk. 
         # Persistence is more important than non-blocking here.
-        with self._lock:
+        with self._data_lock:
             # 1. CANONICAL IDENTITY RESOLUTION
             # Check if this ID is linked to another (e.g. Forum <-> Discord)
             
@@ -1400,16 +1395,28 @@ class KaiaRAG:
 
         return target_itypes, retrieve_count
 
-    async def _execute_hybrid_retrieval(self, itype: str, query: str, retrieve_count: int) -> List[Any]:
+    async def _execute_hybrid_retrieval(self, itype: str, query: str, retrieve_count: int):
         """Perform hybrid (Vector + BM25) retrieval for a specific index type."""
         try:
+            index = self.indices[itype]
+            # 1. Load or Build BM25
             bm25_retriever = self.bm25_cache.get(itype)
-            if bm25_retriever is None:
-                index_nodes = list(self.indices[itype].storage_context.docstore.docs.values())
-                if index_nodes:
-                    # Offload the potentially heavy BM25 initialization (tokenization of all nodes)
-                    bm25_retriever = await asyncio.to_thread(SimpleBM25Retriever, index_nodes)
-                    self.bm25_cache[itype] = bm25_retriever
+            if not bm25_retriever:
+                # Try loading from disk first
+                bm25_retriever = await asyncio.to_thread(self._load_bm25_cache, itype)
+                if bm25_retriever:
+                    with self._data_lock:
+                        self.bm25_cache[itype] = bm25_retriever
+                else:
+                    # Cold start rebuild
+                    index_nodes = list(index.storage_context.docstore.docs.values())
+                    if index_nodes:
+                        # Offload the potentially heavy BM25 initialization (tokenization of all nodes)
+                        bm25_retriever = await asyncio.to_thread(SimpleBM25Retriever, index_nodes)
+                        with self._data_lock: # Lock for modifying bm25_cache
+                            self.bm25_cache[itype] = bm25_retriever
+                        # Trigger save for next time
+                        await asyncio.to_thread(self._save_bm25_cache, itype)
             
             if bm25_retriever:
                 from utils.infrastructure.system.yaml_config import config
@@ -1521,6 +1528,12 @@ class KaiaRAG:
 
         scored_nodes.sort(key=lambda x: x["score"], reverse=True)
         return scored_nodes[:top_k]
+
+    @thread_safe_rag_operation
+    async def get_context_for_hallucination_check(self, query: str) -> str:
+        """Fetch raw RAG nodes related to a query for factual verification."""
+        # We bypass the complex routing and just grab raw knowledge
+        return await self.retrieve(query, top_k=5, strict_identity=False, include_news=False, category="knowledge")
 
     @thread_safe_rag_operation
     async def retrieve(self, query: str, user_id: Any = None, user_name: str = None, top_k: int = 5, 
@@ -1712,11 +1725,23 @@ class KaiaRAG:
             log_error(f"Failed to search recent events: {e}")
             return []
 
+    @thread_safe_rag_operation
+    async def detect_hallucination(self, bot_response: str, context_text: Optional[str] = None) -> Dict[str, Any]:
+        """Detect potential hallucinations in a bot response."""
+        detector = HallucinationDetector()
+        has_hallucination = detector.contains_hallucination(bot_response)
+        
+        return {
+            "has_hallucination": has_hallucination,
+            "patterns_detected": has_hallucination,
+            "cleaned_response": detector.clean_response(bot_response) if has_hallucination else bot_response
+        }
+
 
     def flag_nodes(self, node_ids: list, construct_name: str) -> int:
         """Flag nodes with a Data Rot construct label. Returns count of nodes flagged."""
         flagged = 0
-        with self._lock:
+        with self._data_lock: # Lock for modifying indices
             for itype, index in self.indices.items():
                 docstore = index.storage_context.docstore
                 for node_id in node_ids:
@@ -1745,7 +1770,7 @@ class KaiaRAG:
         construct_counts = Counter()
         source_counts = Counter()
 
-        with self._lock:
+        with self._data_lock: # Lock for reading indices
             for itype, index in self.indices.items():
                 docstore = index.storage_context.docstore
                 for node in docstore.docs.values():
@@ -1778,33 +1803,34 @@ class KaiaRAG:
         if not os.path.exists(self.persist_dir):
             os.makedirs(self.persist_dir)
             
-        for itype, index in self.indices.items():
-            try:
-                itype_dir = os.path.join(self.persist_dir, itype)
-                temp_dir = f"{itype_dir}_tmp"
-                
-                # 1. Clean up stale temp dir if it exists
-                if os.path.exists(temp_dir):
-                    shutil.rmtree(temp_dir)
-                
-                # 2. Persist to temporary location
-                index.storage_context.persist(persist_dir=temp_dir)
-                
-                # 3. Atomic swap (near-atomic on most filesystems)
-                old_dir = f"{itype_dir}_old"
-                if os.path.exists(old_dir):
-                    shutil.rmtree(old_dir)
-                
-                if os.path.exists(itype_dir):
-                    os.rename(itype_dir, old_dir)
-                
-                os.rename(temp_dir, itype_dir)
-                
-                if os.path.exists(old_dir):
-                    shutil.rmtree(old_dir)
+        with self._data_lock: # Lock for modifying indices
+            for itype, index in self.indices.items():
+                try:
+                    itype_dir = os.path.join(self.persist_dir, itype)
+                    temp_dir = f"{itype_dir}_tmp"
                     
-            except Exception as e:
-                log_error(f"Failed to persist {itype} index: {e}")
+                    # 1. Clean up stale temp dir if it exists
+                    if os.path.exists(temp_dir):
+                        shutil.rmtree(temp_dir)
+                    
+                    # 2. Persist to temporary location
+                    index.storage_context.persist(persist_dir=temp_dir)
+                    
+                    # 3. Atomic swap (near-atomic on most filesystems)
+                    old_dir = f"{itype_dir}_old"
+                    if os.path.exists(old_dir):
+                        shutil.rmtree(old_dir)
+                    
+                    if os.path.exists(itype_dir):
+                        os.rename(itype_dir, old_dir)
+                    
+                    os.rename(temp_dir, itype_dir)
+                    
+                    if os.path.exists(old_dir):
+                        shutil.rmtree(old_dir)
+                        
+                except Exception as e:
+                    log_error(f"Failed to persist {itype} index: {e}")
         
         self.persist_needed = False
         log_success("RAG indices persisted.")
@@ -1828,25 +1854,38 @@ class KaiaRAG:
                     log_warning(f"Low RAM ({avail_mem_gb:.1f}GB). Skipping pre-warm for '{itype}'.")
                     continue
 
-                # 2. Check cache
-                with self._lock:
+                # 2. Check cache (Memory or Disk)
+                with self._data_lock:
                     if itype in self.bm25_cache and self.bm25_cache[itype] is not None:
                         continue
-                    nodes = list(index.storage_context.docstore.docs.values())
                 
-                if nodes:
-                    log_debug(f"Async pre-warming '{itype}' ({len(nodes)} nodes)...")
-                    start = time.time()
+                # Try loading from disk first
+                retriever = await asyncio.to_thread(self._load_bm25_cache, itype)
+                
+                if not retriever:
+                    with self._data_lock:
+                        nodes = list(index.storage_context.docstore.docs.values())
                     
-                    # 3. Use the new async-ready retriever
-                    retriever = SimpleBM25Retriever(nodes)
-                    await retriever.initialize_async()
-                    
-                    with self._lock:
-                        self.bm25_cache[itype] = retriever
+                    if nodes:
+                        log_debug(f"Async pre-warming '{itype}' ({len(nodes)} nodes) via full build...")
+                        start = time.time()
                         
-                    gc.collect() 
-                    log_success(f"Index '{itype}' pre-warmed in {time.time() - start:.2f}s")
+                        # 3. Use the new async-ready retriever
+                        retriever = SimpleBM25Retriever(nodes)
+                        await retriever.initialize_async()
+                        
+                        with self._data_lock:
+                            self.bm25_cache[itype] = retriever
+                            
+                        # Persist to disk for faster next start
+                        await asyncio.to_thread(self._save_bm25_cache, itype)
+                        
+                        gc.collect() 
+                        log_success(f"Index '{itype}' pre-warmed in {time.time() - start:.2f}s")
+                else:
+                    # Successfully loaded from disk
+                    with self._data_lock:
+                        self.bm25_cache[itype] = retriever
                     
                     # Breath between indices
                     await asyncio.sleep(0.5)
@@ -1855,6 +1894,36 @@ class KaiaRAG:
         except Exception as e:
             log_error(f"RAG pre-warm failed: {e}")
             traceback.print_exc()
+
+    def _save_bm25_cache(self, itype: str):
+        """Persist BM25 retriever to disk using pickle."""
+        import pickle
+        retriever = self.bm25_cache.get(itype)
+        if not retriever: return
+        
+        try:
+            cache_path = os.path.join(self.persist_dir, itype, "bm25_retriever.pkl")
+            os.makedirs(os.path.dirname(cache_path), exist_ok=True)
+            with open(cache_path, 'wb') as f:
+                pickle.dump(retriever, f)
+            log_debug(f"Saved BM25 cache for '{itype}' to {cache_path}")
+        except Exception as e:
+            log_warning(f"Failed to save BM25 cache for {itype}: {e}")
+
+    def _load_bm25_cache(self, itype: str) -> Optional[SimpleBM25Retriever]:
+        """Load BM25 retriever from disk."""
+        import pickle
+        cache_path = os.path.join(self.persist_dir, itype, "bm25_retriever.pkl")
+        if not os.path.exists(cache_path): return None
+        
+        try:
+            with open(cache_path, 'rb') as f:
+                retriever = pickle.load(f)
+            log_info(f"Loaded BM25 cache for '{itype}' from disk.")
+            return retriever
+        except Exception as e:
+            log_warning(f"Failed to load BM25 cache for {itype}: {e}")
+            return None
 
 if __name__ == "__main__":
     rag = KaiaRAG()

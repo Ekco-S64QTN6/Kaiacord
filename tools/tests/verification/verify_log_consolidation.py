@@ -14,7 +14,7 @@ def test_log_consolidation():
     if os.path.exists(log_file):
         try:
             os.remove(log_file)
-        except:
+        except Exception:
             pass
         
     # We use __stdout__ here because replace_all_logging will hijack sys.stdout

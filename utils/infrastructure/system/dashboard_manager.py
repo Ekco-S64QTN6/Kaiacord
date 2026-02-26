@@ -34,7 +34,8 @@ def _run_dashboard_process(shared_stats, log_queue, stop_event, cleanup_complete
         dashboard.run()
         try:
             cleanup_complete_event.set()
-        except: pass
+        except Exception:
+            pass
     except Exception as e:
         err_info = (str(e), traceback.format_exc())
         try:
@@ -101,9 +102,6 @@ def _run_bot_in_thread(shared_stats, stats_tracker, stats_poller, stop_event,
             loop.run_until_complete(loop.shutdown_asyncgens())
         except Exception: pass
         
-        # Signal cleanup complete
-        except Exception:
-            pass
         if not loop.is_closed(): loop.close()
 
 class DashboardManager:

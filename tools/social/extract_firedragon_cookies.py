@@ -26,7 +26,7 @@ def extract_x_cookies():
                         "secure": cookie.secure,
                         "httpOnly": cookie.has_nonstandard_attr('httponly') if hasattr(cookie, 'has_nonstandard_attr') else False
                     })
-            except:
+            except Exception:
                 continue
         
         if twikit_cookies:

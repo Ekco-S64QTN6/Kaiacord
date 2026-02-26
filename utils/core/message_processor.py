@@ -31,6 +31,11 @@ _OBSERVATIONAL_PATTERNS = [
     ]
 ]
 
+# Pre-compiled regex for hot-path sanitization
+_JSON_RESPONSE_PATTERN = re.compile(r'^\s*\{.*"response"\s*:', re.DOTALL)
+_THINK_BLOCK_PATTERN = re.compile(r'<think>(.*?)</think>', re.DOTALL)
+_JSON_WRAPPER_PATTERN = re.compile(r'^\s*\{[\s\S]*"response"\s*:\s*"([\s\S]*)"\s*\}\s*$', re.MULTILINE)
+
 def _is_observational_query(text: str) -> bool:
     """Detect queries that ask about observed user behaviour in chat."""
     for pat in _OBSERVATIONAL_PATTERNS:
@@ -687,8 +692,7 @@ class MessageProcessor:
                     messages.append({"role": inferred_role, "content": text_content})
         
         # BUG 1 FIX: Sanitization pass to strip any message whose content matches the JSON response pattern
-        json_pattern = re.compile(r'^\s*\{.*"response"\s*:', re.DOTALL)
-        messages = [msg for msg in messages if not (msg['role'] == 'assistant' and json_pattern.search(msg['content']))]
+        messages = [msg for msg in messages if not (msg['role'] == 'assistant' and _JSON_RESPONSE_PATTERN.search(msg['content']))]
         
         # Re-assert conversation target to prevent cross-talk bleed
         if ctx.parent_context:
@@ -771,7 +775,7 @@ class MessageProcessor:
 
                 # THINK TAG VISIBILITY: Capture <think> blocks before stripping for users with think mode on
                 think_block = ""
-                think_match = re.search(r'<think>(.*?)</think>', content, re.DOTALL)
+                think_match = _THINK_BLOCK_PATTERN.search(content)
                 if think_match:
                     think_is_enabled = (
                         hasattr(self.bot_state, 'think_mode_users') and
@@ -780,7 +784,7 @@ class MessageProcessor:
                     if think_is_enabled:
                         think_block = think_match.group(1).strip()
                     # Always strip think tags from the main response
-                    content = re.sub(r'<think>.*?</think>', '', content, flags=re.DOTALL).strip()
+                    content = _THINK_BLOCK_PATTERN.sub('', content).strip()
                 
                 # Cleanup
                 should_detect = self.config.get('features.hallucination_detection', True)
@@ -844,8 +848,7 @@ class MessageProcessor:
                 
                 # BUG 1 FIX: Before writing to interaction log or memory, strip JSON wrapper if found
                 bot_response = ctx.response_text
-                json_wrapper_pattern = r'^\s*\{[\s\S]*"response"\s*:\s*"([\s\S]*)"\s*\}\s*$'
-                match = re.search(json_wrapper_pattern, bot_response)
+                match = _JSON_WRAPPER_PATTERN.search(bot_response)
                 if match:
                     bot_response = match.group(1).replace('\\"', '"').replace('\\n', '\n')
 

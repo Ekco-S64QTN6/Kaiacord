@@ -39,7 +39,7 @@ def scan_for_phantom_names():
                         if name in content:
                             found_files.append((file_path, name))
                             break
-            except:
+            except Exception:
                 continue
     
     # Move problematic files to quarantine

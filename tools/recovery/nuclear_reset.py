@@ -187,8 +187,8 @@ def main():
     print("   ✓ All indices removed")
     
     # 5. Clean cache
-    print("\n5. Cleaning semantic cache...")
-    cache_files = ["semantic_cache.json", "cache.db", "rag_cache.pkl"]
+    print("\n5. Cleaning secondary caches...")
+    cache_files = ["cache.db", "rag_cache.pkl"]
     for cache_file in cache_files:
         if os.path.exists(cache_file):
             os.remove(cache_file)

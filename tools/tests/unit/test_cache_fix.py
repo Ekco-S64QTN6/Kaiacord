@@ -25,7 +25,7 @@ class ImprovedSemanticCache:
         try:
             with open("cache_exceptions.json", "r") as f:
                 self.exceptions = json.load(f)
-        except:
+        except Exception:
             # Default exceptions
             self.exceptions = {
                 "never_cache": [

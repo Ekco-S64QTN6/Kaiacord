@@ -61,8 +61,6 @@ performance:
   # Requests per minute per user (rate limiting)
   requests_per_minute: 30
 
-  # Enable semantic cache
-  enable_semantic_cache: true
   
   # Maximum RAG log size (MB) before rotation
   max_log_size_mb: 1000
@@ -179,8 +177,6 @@ paths:
   # Bot state file
   bot_state: "./memory/bot_state.json"
   
-  # Semantic cache file
-  semantic_cache: "./memory/semantic_cache.json"
   
   # Dream thought cache file
   dream_cache: "./memory/dream_cache.json"

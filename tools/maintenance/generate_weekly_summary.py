@@ -57,7 +57,7 @@ class WeeklyNewsSummarizer:
                 if week_key not in weeks:
                     weeks[week_key] = []
                 weeks[week_key].append(brief)
-            except:
+            except Exception:
                 continue
         
         # Return weeks with 7+ files

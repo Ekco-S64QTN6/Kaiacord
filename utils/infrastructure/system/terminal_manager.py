@@ -72,7 +72,7 @@ class TerminalManager:
                 fcntl.ioctl(self.fd, termios.TIOCGWINSZ,
                 struct.pack('HHHH', 0, 0, 0, 0)))
             return w, h
-        except:
+        except Exception:
             # Fallback to environment variables
             try:
                 w = int(os.environ.get('COLUMNS', 80))

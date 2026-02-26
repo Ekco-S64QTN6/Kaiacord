@@ -315,7 +315,7 @@ class BtopDashboardV2:
             curses.nocbreak()
             curses.echo()
             curses.endwin()
-        except:
+        except Exception:
             pass
             
         # ANSI escape sequences for full reset
@@ -327,7 +327,7 @@ class BtopDashboardV2:
             # \033[2J     - Clear entire screen
             sys.stdout.write('\033[0m\033[?25h\033[?1049l\033[H\033[2J')
             sys.stdout.flush()
-        except:
+        except Exception:
             pass
             
     def _get_system_metrics(self):
@@ -376,7 +376,7 @@ class BtopDashboardV2:
         if self.stats_poller:
             try:
                 poller_stats = self.stats_poller.get_stats()
-            except:
+            except Exception:
                 pass
                 
         # Get stats from tracker if available
@@ -384,7 +384,7 @@ class BtopDashboardV2:
         if self.stats_tracker:
             try:
                 tracker_stats = self.stats_tracker.get_stats()
-            except:
+            except Exception:
                 pass
         
         # Get logs from logger if available
@@ -405,7 +405,7 @@ class BtopDashboardV2:
                             'message': log.get('message', ''),
                             'symbol': symbol
                         })
-            except:
+            except Exception:
                 pass
 
         if self.logger:
@@ -432,7 +432,7 @@ class BtopDashboardV2:
                             message=log.get('message', ''),
                             symbol=symbol
                         ))
-            except:
+            except Exception:
                 pass
         else:
             # Use internal buffers
@@ -819,7 +819,7 @@ class BtopDashboardV2:
                 
             return True
             
-        except:
+        except Exception:
             return True
             
     def _clear_logs(self):
@@ -827,7 +827,7 @@ class BtopDashboardV2:
         if self.logger:
             try:
                 self.logger.clear_logs()
-            except:
+            except Exception:
                 pass
         with self._lock:
             self._internal_logs.clear()
@@ -950,7 +950,7 @@ class BtopDashboardV2:
         if self.logger:
             try:
                 self.logger.log(message, log_type)
-            except:
+            except Exception:
                 pass
         else:
             with self._lock:
@@ -968,7 +968,7 @@ class BtopDashboardV2:
         if self.logger:
             try:
                 self.logger.log(message, level)
-            except:
+            except Exception:
                 pass
         else:
             with self._lock:
@@ -1013,19 +1013,19 @@ def run_standalone():
         from utils.infrastructure.monitoring.stats_poller import stats_poller as sp
         stats_poller = sp
         stats_poller.start()
-    except:
+    except Exception:
         pass
         
     try:
         from utils.infrastructure.logging.unified_logging import logger as ul
         logger = ul
-    except:
+    except Exception:
         pass
         
     try:
         from utils.infrastructure.monitoring.stats_tracker import stats_tracker as st
         stats_tracker = st
-    except:
+    except Exception:
         pass
     
     dashboard = BtopDashboardV2(
@@ -1040,7 +1040,7 @@ def run_standalone():
         if stats_poller:
             try:
                 stats_poller.stop()
-            except:
+            except Exception:
                 pass
         print("\nDashboard exited cleanly.")
 

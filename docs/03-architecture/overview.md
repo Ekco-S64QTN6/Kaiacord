@@ -48,7 +48,7 @@ Kaiacord/
 │   └── news/                # News retrieval & management
 ├── config/                  # Configuration & Bot Persona
 ├── knowledge_base/          # RAG text storage (News, Interaction Logs)
-├── memory/                  # Persistent data (bot_state.json, semantic_cache.json, rag_storage/)
+├── memory/                  # Persistent data (bot_state.json, rag_storage/)
 ├── tools/                   # Utility & Maintenance Scripts
 │   └── tests/               # Pytest suite
 ├── docs/                    # Detailed technical documentation
@@ -97,7 +97,7 @@ Kaiacord/
 
 **Pipeline Stages**:
 1. **Entry Checks**: Rate limiting, blacklist/whitelist, boot guard.
-2. **Intelligence**: Classification, Hallucination detection, Semantic Cache check.
+2. **Intelligence**: Classification, Hallucination detection.
 3. **Retrieval**: Parallel RAG retrieval, News enhancement, Persona adaptation.
 4. **Generation**: Self-healing prompt construction and multi-pass AI call.
 

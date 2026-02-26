@@ -22,6 +22,7 @@ from utils.core.response_filter import BotSpeakFilter
 from contextlib import asynccontextmanager
 from utils.infrastructure.system.shutdown_fixed import shutdown_manager
 from utils.infrastructure.system.yaml_config import config
+from utils.social.social_tracker import social_tracker
 
 # HEAVY IMPORTS: Moved to top-level to prevent event loop stalls during lazy initialization.
 # These libraries (especially atproto) have significant import overhead (~5s).
@@ -57,8 +58,6 @@ MAX_REPLIED_IDS = 5000
 _persona_cache = None
 _persona_last_load = 0
 
-# Replied mentions tracker (persisted to disk)
-_replied_ids_path = Path("memory/social_replied_ids.json")
 
 # CircuitBreaker lives in the shared infrastructure layer to avoid
 # the dependency inversion of core modules importing from social.
@@ -98,19 +97,10 @@ async def load_persona_async() -> str:
     loop = asyncio.get_running_loop()
     return await loop.run_in_executor(None, load_persona)
 
-_replied_ids: set = set()
 _silenced_replied_ids: set = set()  # Track which IDs have already been logged as skipped this session
-_thread_counts: Dict[str, Dict[str, int]] = {}  # Track replies per user per thread {root_uri: {user_handle: count}}
-_replied_ids_lock = asyncio.Lock()  # Protects BOTH _replied_ids AND _thread_counts
 _first_poll_done = False
 
 
-def _trim_replied_ids():
-    """Evict old replied IDs to prevent unbounded memory growth."""
-    global _replied_ids
-    if len(_replied_ids) > MAX_REPLIED_IDS:
-        _replied_ids = set(sorted(_replied_ids)[-MAX_REPLIED_IDS:])
-        log_debug(f"Trimmed replied IDs to {MAX_REPLIED_IDS}")
 
 
 def _get_root_uri(mention: Dict[str, Any]) -> str:
@@ -131,75 +121,24 @@ def _get_context_type_for_dream(dream: Dict[str, Any]) -> str:
 
 
 def _load_replied_ids():
-    """Load set of already-replied mention IDs from disk."""
-    global _replied_ids, _thread_counts, _silenced_replied_ids
-    try:
-        if _replied_ids_path.exists():
-            with open(_replied_ids_path, 'r') as f:
-                data = json.load(f)
-                _replied_ids = set(data.get('bluesky', []) + data.get('x', []))
-                _thread_counts = data.get('thread_counts', {})
-                log_debug(f"Loaded {len(_replied_ids)} replied IDs from disk")
-    except json.JSONDecodeError as e:
-        log_warning(f"Corrupted replied IDs file, resetting: {e}")
-        _replied_ids = set()
-        _silenced_replied_ids = set()
-        _thread_counts = {}
-    except Exception as e:
-        log_warning(f"Failed to load replied IDs: {e}")
-    
-    # MIGRATION: Ensure _thread_counts is Dict[str, Dict[str, int]]
-    # If the root values are integers, the file was from an older version.
-    if _thread_counts and not all(isinstance(v, dict) for v in _thread_counts.values()):
-        log_info("Migrating social thread_counts to per-user format...")
-        new_counts = {}
-        for k, v in _thread_counts.items():
-            if isinstance(v, dict):
-                new_counts[k] = v
-            else:
-                # We don't know who the old count was for, but we'll assign it to 'unknown' 
-                # to maintain the thread-level cap for old conversations.
-                new_counts[k] = {"__legacy_total__": v}
-        _thread_counts = new_counts
-
+    """Legacy wrapper (No-op as tracker loads on init)."""
     # Pre-silence all loaded IDs so they don't spam logs on first poll
-    _silenced_replied_ids.update(_replied_ids)
+    _silenced_replied_ids.update(social_tracker.get_all_replied_ids())
 
 
 def _save_replied_ids():
-    """Save replied IDs to disk with atomic write to prevent corruption."""
-    try:
-        _replied_ids_path.parent.mkdir(exist_ok=True)
-        # Split by platform prefix
-        bluesky_ids = [i for i in _replied_ids if i.startswith('bsky:')]
-        x_ids = [i for i in _replied_ids if i.startswith('x:')]
-        
-        data = {
-            'bluesky': bluesky_ids, 
-            'x': x_ids,
-            'thread_counts': _thread_counts
-        }
-        
-        # Atomic write: write to temp file then rename
-        # This prevents corruption if the process crashes mid-write
-        temp_path = _replied_ids_path.with_suffix('.tmp')
-        with open(temp_path, 'w') as f:
-            json.dump(data, f, indent=2)
-        
-        # Atomic rename (on POSIX systems)
-        temp_path.replace(_replied_ids_path)
-        log_debug(f"Saved {len(_replied_ids)} replied IDs to disk")
-        
-    except Exception as e:
-        log_warning(f"Failed to save replied IDs: {e}")
-
+    """Trigger a state snapshot in the social_tracker."""
+    # social_tracker.save_snapshot is async, but this is a sync wrapper
+    # We use create_task if called from async, or run_until_complete if from sync (not ideal)
+    # However, responder calls this via _save_replied_ids_async usually.
+    pass
 
 async def _save_replied_ids_async():
-    """Async-safe wrapper for saving replied IDs."""
+    """Trigger a state snapshot in the social_tracker (Async)."""
     if shutdown_manager.shutting_down:
         return
     try:
-        await asyncio.to_thread(_save_replied_ids)
+        await social_tracker.save_snapshot()
     except (RuntimeError, asyncio.CancelledError):
         # Silent failure on shutdown/cancellation is expected
         pass
@@ -209,7 +148,7 @@ async def _save_replied_ids_async():
 
 async def _reconstruct_bluesky_history():
     """Fetch recent bot posts from Bluesky and rebuild thread counts efficiently."""
-    global _thread_counts, _silenced_replied_ids, _replied_ids
+    global _silenced_replied_ids
     try:
         if not is_bluesky_configured() or shutdown_manager.shutting_down: return
         
@@ -217,7 +156,6 @@ async def _reconstruct_bluesky_history():
         if not client: return
         
         # Reset counts for fresh reconstruction
-        _thread_counts = {}
         handle = os.getenv("BLUESKY_HANDLE")
         response = await client.app.bsky.feed.get_author_feed(params=models.AppBskyFeedGetAuthorFeed.Params(actor=handle, limit=50))
         
@@ -254,18 +192,15 @@ async def _reconstruct_bluesky_history():
 
         # Phase 3: Update state
         count = 0
-        async with _replied_ids_lock:
-            for bot_post_uri, (root_uri, parent_uri) in reply_map.items():
-                replied_to_author = author_map.get(parent_uri)
-                if replied_to_author:
-                    if root_uri not in _thread_counts:
-                        _thread_counts[root_uri] = {}
-                    _thread_counts[root_uri][replied_to_author] = _thread_counts[root_uri].get(replied_to_author, 0) + 1
-                
-                # Always mark the parent as replied if we found our own reply to it
-                _replied_ids.add(f"bsky:{parent_uri}")
-                _silenced_replied_ids.add(f"bsky:{parent_uri}")
-                count += 1
+        for bot_post_uri, (root_uri, parent_uri) in reply_map.items():
+            # Track replies per user in this thread
+            replied_to_author = author_map.get(parent_uri)
+            if replied_to_author:
+                await social_tracker.mark_replied(f"bsky:{parent_uri}", "bluesky", root_uri, replied_to_author)
+            
+            # Always mark the parent as replied if we found our own reply to it
+            _silenced_replied_ids.add(f"bsky:{parent_uri}")
+            count += 1
         
         if count > 0:
             log_info(f"Reconstructed thread counts and replied IDs for {count} Bluesky replies.")
@@ -273,7 +208,7 @@ async def _reconstruct_bluesky_history():
         log_warning(f"Failed to reconstruct Bluesky history: {e}")
 async def _reconstruct_x_history():
     """Fetch recent bot posts from X and rebuild thread counts with retry."""
-    global _thread_counts, _replied_ids, _silenced_replied_ids
+    global _silenced_replied_ids
     
     async def run_reconstruct(force_new=False):
         if not config.x_enabled or shutdown_manager.shutting_down: return 0
@@ -294,27 +229,23 @@ async def _reconstruct_x_history():
             return 0
 
         current_count = 0
-        async with _replied_ids_lock:
-            for tweet in response:
-                if shutdown_manager.shutting_down: break
-                
-                in_reply_to = getattr(tweet, 'in_reply_to', None)
-                if in_reply_to:
-                    mention_id = f"x:{in_reply_to}"
-                    _replied_ids.add(mention_id)
-                    _silenced_replied_ids.add(mention_id)
-                    root_id = in_reply_to
-                    try:
-                        root_id = tweet._legacy.get('conversation_id_str', in_reply_to)
-                    except Exception: pass
-                    
-                    _thread_counts.setdefault(root_id, {})
-                    _thread_counts[root_id]["__reconstructed__"] = _thread_counts[root_id].get("__reconstructed__", 0) + 1
-                    current_count += 1
-                
-                # Yield every few tweets to prevent hogging the loop
-                if current_count % 10 == 0:
-                    await asyncio.sleep(0)
+        for tweet in response:
+            if shutdown_manager.shutting_down: break
+            
+            in_reply_to = getattr(tweet, 'in_reply_to', None)
+            if in_reply_to:
+                mention_id = f"x:{in_reply_to}"
+                _silenced_replied_ids.add(mention_id)
+                root_id = in_reply_to
+                try:
+                    root_id = tweet._legacy.get('conversation_id_str', in_reply_to)
+                except Exception: pass
+                await social_tracker.mark_replied(mention_id, "x", root_id, "__reconstructed__")
+            
+            # Yield every few tweets to prevent hogging the loop
+            current_count += 1
+            if current_count % 10 == 0:
+                await asyncio.sleep(0)
         return current_count
 
     try:
@@ -407,7 +338,7 @@ async def _get_bluesky_mentions() -> List[Dict[str, Any]]:
         return []
     
     async def run_fetch(force_new=False):
-        global _replied_ids, _silenced_replied_ids
+        global _silenced_replied_ids
         from utils.social.kaia_bluesky import get_bluesky_client, is_bluesky_configured
         from utils.infrastructure.system.yaml_config import config
         
@@ -448,7 +379,7 @@ async def _get_bluesky_mentions() -> List[Dict[str, Any]]:
                 except Exception as e:
                     log_warning(f"Failed to parse Bluesky notification timestamp: {e}")
                 
-                if mention_id in _replied_ids:
+                if social_tracker.is_replied(mention_id):
                     if mention_id not in _silenced_replied_ids:
                         log_debug(f"Skipping already-replied mention: {mention_id}")
                         _silenced_replied_ids.add(mention_id)
@@ -459,23 +390,20 @@ async def _get_bluesky_mentions() -> List[Dict[str, Any]]:
                 root_uri = root.uri if root and hasattr(root, 'uri') else notif.uri
                 
                 user_handle = notif.author.handle
-                thread_data = _thread_counts.get(root_uri, {})
-                user_reply_count = thread_data.get(user_handle, 0)
+                thread_count = social_tracker.get_thread_count(root_uri, user_handle)
                 
                 # Admin check (must be defined here, not just in check_and_reply_mentions)
                 admin_handles = config.get('social.admin_handles', [])
                 is_admin = user_handle in admin_handles
                 
-                log_debug(f"Checking mention {mention_id} from @{user_handle} in thread {root_uri[:30]}. Current count: {user_reply_count}")
+                log_debug(f"Checking mention {mention_id} from @{user_handle} in thread {root_uri[:30]}. Current count: {thread_count}")
                 
-                if not is_admin and user_reply_count >= MAX_THREAD_REPLIES:
+                if not is_admin and thread_count >= MAX_THREAD_REPLIES:
                     log_warning(f"Thread limit reached for @{user_handle} in Bluesky thread: {root_uri[:40]}... Polling will skip until manual reset or limit increase.")
                     
-                    # FIX: Add to _replied_ids so we don't spam the logs every poll cycle
-                    async with _replied_ids_lock:
-                        _replied_ids.add(mention_id)
-                        _silenced_replied_ids.add(mention_id)
-                        _trim_replied_ids()
+                    # FIX: Add to tracker so we don't spam the logs every poll cycle
+                    await social_tracker.mark_replied(mention_id, "bluesky", root_uri, user_handle)
+                    _silenced_replied_ids.add(mention_id)
                     await _save_replied_ids_async()
                     
                     continue
@@ -597,7 +525,7 @@ async def _get_x_mentions() -> List[Dict[str, Any]]:
             root_id = tweet._legacy.get('conversation_id_str', tweet.id)
             parent_id = tweet.in_reply_to
             
-            if mention_id in _replied_ids:
+            if social_tracker.is_replied(mention_id):
                 if mention_id not in _silenced_replied_ids:
                     log_debug(f"Skipping already-replied mention: {mention_id}")
                     _silenced_replied_ids.add(mention_id)
@@ -720,13 +648,13 @@ async def check_and_reply_mentions(on_message_func):
     if shutdown_manager.shutting_down:
         return 0
         
-    global _replied_ids, _first_poll_done, _silenced_replied_ids
+    global _first_poll_done, _silenced_replied_ids
     
     # log_debug("Social media poll started...")
     
     # Load replied IDs if not loaded (Offload to thread)
-    if not _replied_ids:
-        await asyncio.to_thread(_load_replied_ids)
+    # social_tracker loads automatically on init, but we keep this for consistency if needed
+    pass
     
     # SAFETY: High-integrity session safety.
     # 1. Reconstruct thread counts from real platform state (prevents loops even if storage wiped)
@@ -777,15 +705,12 @@ async def check_and_reply_mentions(on_message_func):
             
             # Standardized thread limit check (applies to everyone)
             root_uri = _get_root_uri(mention)
-            thread_data = _thread_counts.get(root_uri, {})
-            user_reply_count = thread_data.get(author, 0)
+            user_reply_count = social_tracker.get_thread_count(root_uri, author)
             
             # Use MAX_THREAD_REPLIES (5) for everyone
             if not is_admin and user_reply_count >= MAX_THREAD_REPLIES:
                 log_warning(f"Thread limit ({MAX_THREAD_REPLIES}) reached for @{author} in thread {root_uri[:30]}. Skipping.")
-                async with _replied_ids_lock:
-                    _replied_ids.add(mention['id'])
-                    _silenced_replied_ids.add(mention['id'])
+                _silenced_replied_ids.add(mention['id'])
                 continue
 
             log_info(f"Bluesky mention from @{author}: {text[:50]}...")
@@ -795,15 +720,10 @@ async def check_and_reply_mentions(on_message_func):
                 success = await _reply_to_bluesky(mention, response)
                 if success:
                     root_uri = _get_root_uri(mention)
-                    async with _replied_ids_lock:
-                        _replied_ids.add(mention['id'])
-                        _silenced_replied_ids.add(mention['id'])
-                        if root_uri not in _thread_counts:
-                            _thread_counts[root_uri] = {}
-                        _thread_counts[root_uri][author] = _thread_counts[root_uri].get(author, 0) + 1
-                        _trim_replied_ids()
+                    await social_tracker.mark_replied(mention['id'], "bluesky", root_uri, author)
+                    _silenced_replied_ids.add(mention['id'])
                         
-                    log_success(f"Replied to @{author} on Bluesky (User thread count: {_thread_counts[root_uri][author]}): {response[:50]}...")
+                    log_success(f"Replied to @{author} on Bluesky (User thread count: {social_tracker.get_thread_count(root_uri, author)}): {response[:50]}...")
                     await _save_replied_ids_async()  # Async persistence
                     total_replies += 1
     
@@ -820,19 +740,17 @@ async def check_and_reply_mentions(on_message_func):
             author = mention['author']
             text = mention['text']
             root_id = mention['root_id']
+            mention_id = mention['id'] # Ensure mention_id is available here
             
             # ANTI-BOT LOOP PROTECTION (Standardized to 5 replies per user)
             admin_handles = config.get('social.admin_handles', [])
             is_admin = author in admin_handles
             
-            thread_data = _thread_counts.get(root_id, {})
-            user_reply_count = thread_data.get(author, 0)
+            user_reply_count = social_tracker.get_thread_count(root_id, author)
             
             if not is_admin and user_reply_count >= MAX_THREAD_REPLIES:
                 log_warning(f"Thread limit ({MAX_THREAD_REPLIES}) reached for @{author} in X thread {root_id}. Skipping.")
-                async with _replied_ids_lock:
-                    _replied_ids.add(mention['id'])
-                    _silenced_replied_ids.add(mention['id'])
+                _silenced_replied_ids.add(mention['id'])
                 continue
 
             log_info(f"X mention from @{author}: {text[:50]}...")
@@ -857,15 +775,10 @@ async def check_and_reply_mentions(on_message_func):
             if response:
                 success = await _reply_to_x(mention, response)
                 if success:
-                    async with _replied_ids_lock:
-                        _replied_ids.add(mention['id'])
-                        _silenced_replied_ids.add(mention['id'])
-                        if root_id not in _thread_counts:
-                            _thread_counts[root_id] = {}
-                        _thread_counts[root_id][author] = _thread_counts[root_id].get(author, 0) + 1
-                        _trim_replied_ids()
+                    await social_tracker.mark_replied(mention_id, "x", root_id, author)
+                    _silenced_replied_ids.add(mention_id)
                         
-                    log_success(f"Replied to @{author} on X (User thread count: {_thread_counts[root_id][author]}): {response[:50]}...")
+                    log_success(f"Replied to @{author} on X (User thread count: {social_tracker.get_thread_count(root_id, author)}): {response[:50]}...")
                     await _save_replied_ids_async()  # Async persistence
                     total_replies += 1
     

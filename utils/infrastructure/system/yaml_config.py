@@ -212,22 +212,22 @@ class YAMLConfig:
             error_msg = "Configuration validation failed:\n" + "\n".join(f"  - {e}" for e in errors)
             raise ValueError(error_msg)
     
-    def get(self, path: str, default=None):
-        """Get configuration value using dot notation"""
-        return get_nested(self._data, path, default)
+    def get_path(self, path: str, default=None):
+        """Standardized helper for dot-notation configuration access."""
+        return self.get(path, default)
     
     def _get(self, path: str, default=None):
-        """Internal helper for property access. Alias for get()."""
-        return self.get(path, default)
+        """Internal helper for property access. Alias for get_path()."""
+        return self.get_path(path, default)
     
     # Properties for common values
     @property
     def discord_token(self) -> str:
-        return self.get('discord.token', os.getenv('DISCORD_TOKEN', ''))
+        return self.get_path('discord.token', os.getenv('DISCORD_TOKEN', ''))
     
     @property
     def blacklisted_channels(self) -> list:
-        channels = self.get('discord.blacklisted_channels', 'general,announcements,rules')
+        channels = self.get_path('discord.blacklisted_channels', 'general,announcements,rules')
         if isinstance(channels, str):
             return [c.strip().lower() for c in channels.split(',')]
         return [c.lower() for c in channels]
@@ -235,7 +235,7 @@ class YAMLConfig:
     @property
     def whitelisted_channels(self) -> list:
         """List of channel names that are whitelisted"""
-        channels = self.get('discord.whitelisted_channels', [])
+        channels = self.get_path('discord.whitelisted_channels', [])
         if channels is None:
             return []
         if isinstance(channels, str):
@@ -244,122 +244,107 @@ class YAMLConfig:
     
     @property
     def chat_model(self) -> str:
-        return self.get('models.chat', 'gemma3:12b')
+        return self.get_path('models.chat', 'gemma3:12b')
     
     @property
     def embedding_model(self) -> str:
-        return self.get('models.embedding', 'nomic-embed-text')
+        return self.get_path('models.embedding', 'nomic-embed-text')
     
     @property
     def knowledge_base_dir(self) -> str:
-        return self.get('paths.knowledge_base', './knowledge_base')
+        return self.get_path('paths.knowledge_base', './knowledge_base')
     
     @property
     def persist_dir(self) -> str:
-        return self.get('paths.persist', './memory')
+        return self.get_path('paths.persist', './memory')
     
     @property
     def max_log_size_mb(self) -> int:
-        return self.get('performance.max_log_size_mb', 1000)
+        return self.get_path('performance.max_log_size_mb', 1000)
     
     @property
     def max_memory_messages(self) -> int:
-        return self.get('performance.max_memory_messages', 35)
+        return self.get_path('performance.max_memory_messages', 35)
     
     @property
     def url_max_content_length(self) -> int:
-        return self.get('performance.url_max_content_length', 2500)
+        return self.get_path('performance.url_max_content_length', 2500)
     
     @property
     def max_consecutive_quips(self) -> int:
-        return self.get('performance.max_consecutive_quips', 2)
+        return self.get_path('performance.max_consecutive_quips', 2)
     
     @property
     def rag_top_k(self) -> int:
-        return self.get('performance.rag_top_k', 25)
+        return self.get_path('performance.rag_top_k', 25)
     
     @property
     def rag_node_chunk_size(self) -> int:
-        return self.get('performance.rag_node_chunk_size', 1024)
+        return self.get_path('performance.rag_node_chunk_size', 1024)
         
     @property
     def rag_node_chunk_overlap(self) -> int:
-        return self.get('performance.rag_node_chunk_overlap', 200)
+        return self.get_path('performance.rag_node_chunk_overlap', 200)
 
     @property
     def min_rag_tokens(self) -> int:
-        return self.get('performance.min_rag_tokens', 1024)
+        return self.get_path('performance.min_rag_tokens', 1024)
 
     @property
     def rag_query_instruction(self) -> str:
-        return self.get('rag.query_instruction', 'search_query: ')
+        return self.get_path('rag.query_instruction', 'search_query: ')
 
     @property
     def rag_text_instruction(self) -> str:
-        return self.get('rag.text_instruction', 'search_document: ')
+        return self.get_path('rag.text_instruction', 'search_document: ')
     
     @property
     def dream_user_quota(self) -> float:
         """Percentage of dreams dedicated to user logs (0.0 - 1.0)"""
-        return self.get('features.dream_mode.user_quota', 0.4)
+        return self.get_path('features.dream_mode.user_quota', 0.4)
     
     @property
     def idle_quip_timeout_minutes(self) -> int:
-        return self.get('performance.idle_quip_timeout_minutes', 55)
+        return self.get_path('performance.idle_quip_timeout_minutes', 55)
     
     @property
     def requests_per_minute(self) -> int:
-        return self.get('performance.requests_per_minute', 30)
+        return self.get_path('performance.requests_per_minute', 30)
 
     @property
     def embedding_request_seconds(self) -> float:
-        return self.get('timeouts.embedding_request_seconds', 60.0)
+        return self.get_path('timeouts.embedding_request_seconds', 60.0)
     
     @property
     def max_context_tokens(self) -> int:
-        return self.get('performance.max_context_tokens', 8192)
+        return self.get_path('performance.max_context_tokens', 8192)
     
     @property
     def classification_context_tokens(self) -> int:
-        return self.get('performance.classification_context_tokens', 2048)
+        return self.get_path('performance.classification_context_tokens', 2048)
     
     @property
     def embedding_context_tokens(self) -> int:
-        return self.get('performance.embedding_context_tokens', 2048)
+        return self.get_path('performance.embedding_context_tokens', 2048)
     
     @property
     def summarization_context_tokens(self) -> int:
         """Boosted context window for summarization tasks"""
-        return self.get('performance.summarization_context_tokens', 48000)
+        return self.get_path('performance.summarization_context_tokens', 48000)
     
     @property
     def startup_news_update(self) -> bool:
-        return self.get('startup.news_update', False)
+        return self.get_path('startup.news_update', False)
     
     @property
     def startup_news_timeout(self) -> int:
-        return self.get('startup.news_timeout', 10)
+        return self.get_path('startup.news_timeout', 10)
     
-    def should_use_cache(self, query_text: str, query_classification: str) -> bool:
-        """Determine if semantic cache should be used for this query"""
-        if not self.get('performance.enable_semantic_cache', True):
-            return False
-        
-        # NEVER use cache for identity questions
-        if query_classification in ["IDENTITY", "SELF", "WHOAMI"]:
-            return False
-        
-        # Never use cache for "who are you" or "who am i"
-        identity_keywords = ["who are you", "who am i", "what are you", "define yourself"]
-        if any(keyword in query_text.lower() for keyword in identity_keywords):
-            return False
-        
-        return True
 
     # Bluesky configuration
     @property
     def bluesky_enabled(self) -> bool:
-        return self.get('bluesky.enabled', False)
+        return self.get_path('bluesky.enabled', False)
     
     @property
     def bluesky_handle(self) -> str:
@@ -371,58 +356,58 @@ class YAMLConfig:
     
     @property
     def bluesky_cross_post_quips(self) -> bool:
-        return self.get('bluesky.cross_post_quips', False)
+        return self.get_path('bluesky.cross_post_quips', False)
     
     # X (Twitter) configuration
     @property
     def x_enabled(self) -> bool:
-        return self.get('x_twitter.enabled', False)
+        return self.get_path('x_twitter.enabled', False)
     
     @property
     def x_cross_post_quips(self) -> bool:
-        return self.get('x_twitter.cross_post_quips', False)
+        return self.get_path('x_twitter.cross_post_quips', False)
     
     @property
     def bluesky_reply_to_mentions(self) -> bool:
-        return self.get('bluesky.reply_to_mentions', True)
+        return self.get_path('bluesky.reply_to_mentions', True)
     
     @property
     def x_reply_to_mentions(self) -> bool:
-        return self.get('x_twitter.reply_to_mentions', True)
+        return self.get_path('x_twitter.reply_to_mentions', True)
     
     @property
     def news_auto_trigger(self) -> bool:
         """Whether to automatically trigger news retrieval for relevant queries"""
-        return self.get('features.news_auto_trigger', False)
+        return self.get_path('features.news_auto_trigger', False)
 
     @property
     def url_fetching_enabled(self) -> bool:
         """Whether to automatically fetch and scrape URLs posted in chat"""
-        return self.get('features.url_fetching_enabled', True)
+        return self.get_path('features.url_fetching_enabled', True)
 
     @property
     def social_max_interval_hours(self) -> float:
         """Maximum hours between social posts before forcing a quip"""
-        return self.get('social.max_interval_hours', 2.0)
+        return self.get_path('social.max_interval_hours', 2.0)
     
     # =========================================================================
     # RAG Threshold Configuration
     # =========================================================================
     @property
     def rag_threshold_persona(self) -> float:
-        return self.get('performance.rag_thresholds.persona', 0.50)
+        return self.get_path('performance.rag_thresholds.persona', 0.50)
     
     @property
     def rag_threshold_user_identity(self) -> float:
-        return self.get('performance.rag_thresholds.user_identity', 0.50)
+        return self.get_path('performance.rag_thresholds.user_identity', 0.50)
     
     @property
     def rag_threshold_knowledge(self) -> float:
-        return self.get('performance.rag_thresholds.knowledge', 0.45)
+        return self.get_path('performance.rag_thresholds.knowledge', 0.45)
     
     @property
     def rag_threshold_casual_penalty(self) -> float:
-        return self.get('performance.rag_thresholds.casual_penalty', 0.10)
+        return self.get_path('performance.rag_thresholds.casual_penalty', 0.10)
     
     # =========================================================================
     # Timeout Configuration (extracted from magic numbers)
@@ -430,87 +415,87 @@ class YAMLConfig:
     @property
     def classification_timeout(self) -> float:
         """Query classification timeout in seconds"""
-        return self.get('timeouts.classification_seconds', 25.0)
+        return self.get_path('timeouts.classification_seconds', 25.0)
     
     @property
     def orchestration_classification_timeout(self) -> float:
         """Orchestration wait timeout for classification in seconds"""
-        return self.get('timeouts.orchestration_classification_seconds', 30.0)
+        return self.get_path('timeouts.orchestration_classification_seconds', 30.0)
     
     @property
     def prewarm_timeout(self) -> float:
         """Model pre-warm timeout in seconds"""
-        return self.get('timeouts.prewarm_seconds', 30.0)
+        return self.get_path('timeouts.prewarm_seconds', 30.0)
     
     @property
     def rag_retrieval_timeout(self) -> float:
         """RAG retrieval timeout in seconds"""
-        return self.get('timeouts.rag_retrieval_seconds', 30.0)
+        return self.get_path('timeouts.rag_retrieval_seconds', 30.0)
     
     @property
     def typing_indication_timeout(self) -> float:
         """Typing indication duration in seconds"""
-        return self.get('timeouts.typing_indication_seconds', 2.0)
+        return self.get_path('timeouts.typing_indication_seconds', 2.0)
     
     @property
     def model_load_timeout(self) -> float:
         """Model load timeout in seconds"""
-        return self.get('timeouts.model_load_seconds', 180.0)
+        return self.get_path('timeouts.model_load_seconds', 180.0)
 
     @property
     def rag_lock_seconds(self) -> float:
         """RAG internal lock timeout in seconds"""
-        return self.get('timeouts.rag_lock_seconds', 10.0)
+        return self.get_path('timeouts.rag_lock_seconds', 10.0)
 
     @property
     def chat_generation_timeout(self) -> float:
         """Chat generation timeout in seconds"""
-        return self.get('timeouts.chat_generation_seconds', 300.0)
+        return self.get_path('timeouts.chat_generation_seconds', 300.0)
 
     @property
     def llm_request_seconds(self) -> float:
         """LLM request timeout in seconds"""
-        return self.get('timeouts.llm_request_seconds', 360.0)
+        return self.get_path('timeouts.llm_request_seconds', 360.0)
 
     @property
     def classification_join_seconds(self) -> float:
         """Join timeout for classification task in seconds"""
-        return self.get('timeouts.classification_join_seconds', 5.0)
+        return self.get_path('timeouts.classification_join_seconds', 5.0)
 
     @property
     def shutdown_timeout(self) -> float:
         """Overall shutdown timeout in seconds"""
-        return self.get('timeouts.shutdown_seconds', 60.0)
+        return self.get_path('timeouts.shutdown_seconds', 60.0)
 
     @property
     def url_fetch_timeout(self) -> float:
         """URL fetch timeout in seconds"""
-        return self.get('timeouts.url_fetch_seconds', 5.0)
+        return self.get_path('timeouts.url_fetch_seconds', 5.0)
 
     @property
     def shutdown_task_cancel_timeout(self) -> float:
         """Timeout for cancelling async tasks during shutdown in seconds"""
-        return self.get('timeouts.shutdown_task_cancel_seconds', 5.0)
+        return self.get_path('timeouts.shutdown_task_cancel_seconds', 5.0)
 
     @property
     def shutdown_model_unload_timeout(self) -> float:
         """Timeout for unloading models during shutdown in seconds"""
-        return self.get('timeouts.shutdown_model_unload_seconds', 5.0)
+        return self.get_path('timeouts.shutdown_model_unload_seconds', 5.0)
 
     # =========================================================================
     # RAG Scoring & Boosts
     # =========================================================================
     @property
     def rag_base_score_multiplier(self) -> float:
-        return self.get('performance.rag_scoring.base_score_multiplier', 60.0)
+        return self.get_path('performance.rag_scoring.base_score_multiplier', 60.0)
 
     @property
     def rag_path_boost(self) -> float:
-        return self.get('performance.rag_scoring.path_boost', 0.5)
+        return self.get_path('performance.rag_scoring.path_boost', 0.5)
 
     @property
     def rag_type_boosts(self) -> dict:
-        return self.get('performance.rag_scoring.type_boosts', {
+        return self.get_path('performance.rag_scoring.type_boosts', {
             'persona': 0.15,
             'user_profile': 0.20,
             'dream': 0.10,
@@ -519,20 +504,20 @@ class YAMLConfig:
 
     @property
     def rag_boost_daily_news(self) -> int:
-        return self.get('performance.rag_boosts.daily_news', 172800)
+        return self.get_path('performance.rag_boosts.daily_news', 172800)
 
     @property
     def rag_boost_dreams(self) -> int:
-        return self.get('performance.rag_boosts.dreams', 64800)
+        return self.get_path('performance.rag_boosts.dreams', 64800)
 
     @property
     def rag_user_scan_interval(self) -> int:
-        return self.get('performance.rag_boosts.user_scan_interval', 300)
+        return self.get_path('performance.rag_boosts.user_scan_interval', 300)
 
     @property
     def rag_audit_flag_penalty(self) -> float:
         """Score penalty per audit flag on a RAG node"""
-        return self.get('audit.flag_penalty', 0.15)
+        return self.get_path('audit.flag_penalty', 0.15)
     
     # =========================================================================
     # Token Estimation Configuration
@@ -540,12 +525,12 @@ class YAMLConfig:
     @property
     def token_multiplier(self) -> float:
         """Multiplier for word-to-token estimation (1.3 default for English)"""
-        return self.get('performance.token_multiplier', 1.3)
+        return self.get_path('performance.token_multiplier', 1.3)
     
     @property
     def system_reserve_tokens(self) -> int:
         """Reserved tokens for system reinforcement rules and safety prompts"""
-        return self.get('performance.system_reserve_tokens', 1250)
+        return self.get_path('performance.system_reserve_tokens', 1250)
     
     # =========================================================================
     # Generation Configuration (Self-Healing Loop)
@@ -553,33 +538,33 @@ class YAMLConfig:
     @property
     def generation_max_retry_attempts(self) -> int:
         """Maximum retry attempts for failed LLM calls"""
-        return self.get('generation.max_retry_attempts', 3)
+        return self.get_path('generation.max_retry_attempts', 3)
     
     @property
     def generation_base_temperature(self) -> float:
         """Base temperature for generation"""
-        return self.get('generation.base_temperature', 0.8)
+        return self.get_path('generation.base_temperature', 0.8)
     
     @property
     def generation_temperature_scaling(self) -> float:
         """Temperature increment per retry attempt"""
-        return self.get('generation.temperature_scaling', 0.15)
+        return self.get_path('generation.temperature_scaling', 0.15)
     
     @property
     def generation_fallback_num_predict(self) -> int:
         """Fallback num_predict on context reduction"""
-        return self.get('generation.fallback_num_predict', 512)
+        return self.get_path('generation.fallback_num_predict', 512)
 
     @property
     def max_response_tokens(self) -> int:
         """Maximum number of tokens to generate in a response"""
-        return self.get('generation.max_response_tokens', 2048)
+        return self.get_path('generation.max_response_tokens', 2048)
 
     
     @property
     def ignored_users(self) -> list:
         """List of users to ignore (names or IDs)"""
-        users = self.get('discord.ignored_users', [])
+        users = self.get_path('discord.ignored_users', [])
         if users is None:
             return []
         if isinstance(users, str):
@@ -589,7 +574,7 @@ class YAMLConfig:
     @property
     def owner_ids(self) -> list:
         """List of owner/admin users who bypass cooldowns (names or IDs)"""
-        owners = self.get('discord.owner_ids', 'ekco')
+        owners = self.get_path('discord.owner_ids', 'ekco')
         if owners is None:
             return ['ekco']
         if isinstance(owners, str):
