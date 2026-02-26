@@ -14,9 +14,6 @@ class MockIntents:
 
 sys.modules['discord'] = type('module', (), {'Client': object, 'Intents': MockIntents, 'abc': type('module', (), {'Messageable': object})})
 sys.modules['discord.ext'] = type('module', (), {'commands': type('module', (), {'Bot': lambda **kwargs: None}), 'tasks': type('module', (), {'loop': lambda **kwargs: lambda x: x})})
-sys.modules['kaia_rag'] = type('module', (), {'KaiaRAG': object, 'HallucinationDetector': object})
-sys.modules['kaia_image'] = type('module', (), {'generate_image': lambda x: x, 'unload_image_model': lambda: None, 'generation_lock': type('module', (), {'locked': lambda: False})})
-sys.modules['kaia_vision'] = type('module', (), {'kaia_sees_image': lambda x, y: x, 'cleanup_session': lambda: None, 'ollama_client': object})
 sys.modules['watchdog.observers'] = type('module', (), {'Observer': object})
 sys.modules['watchdog.events'] = type('module', (), {'FileSystemEventHandler': object})
 sys.modules['utils.core.kaia_intelligence'] = type('module', (), {

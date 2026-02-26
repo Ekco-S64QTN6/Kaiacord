@@ -57,7 +57,7 @@ class NewsManager:
                                 self._cache_structured_data(data, str(file_path))
                     except Exception as e:
                         # Use print here as logger might not be initialized or passed
-                        print(f"⚠️ Error parsing {file_path}: {e}")
+                        log_warning(f"Error parsing {file_path}: {e}")
             
             self.last_refresh = datetime.now()
 
@@ -331,7 +331,7 @@ class NewsRetrievalEnhancer:
             with open(self.memory_path, 'w') as f:
                 json.dump(serializable_cache, f)
         except Exception as e:
-            print(f"⚠️ Error saving mentioned news: {e}")
+            log_warning(f"Error saving mentioned news: {e}")
 
     def load_mentioned_news(self):
         """Load mentioned news cache from disk"""
@@ -342,7 +342,7 @@ class NewsRetrievalEnhancer:
                     # Convert lists back to sets
                     self.mentioned_news_cache = defaultdict(set, {user_id: set(news_ids) for user_id, news_ids in data.items()})
         except Exception as e:
-            print(f"⚠️ Error loading mentioned news: {e}")
+            log_warning(f"Error loading mentioned news: {e}")
     
     def enhance_news_query(self, original_query: str, user_id: str = None) -> str:
         """Enhance news queries for better retrieval"""

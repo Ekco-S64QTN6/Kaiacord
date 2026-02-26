@@ -86,7 +86,7 @@ class HealthCheck:
                 
                 # Check for required models
                 output = result.stdout
-                required_models = ["gemma", "llama3.2-vision", "nomic-embed-text"]
+                required_models = ["gemma3", "gemma2", "nomic-embed-text"]
                 found_models = []
                 
                 for model in required_models:
@@ -98,7 +98,7 @@ class HealthCheck:
                 else:
                     missing = set(required_models) - set(found_models)
                     self.check("Ollama Models", False, f"Missing: {', '.join(missing)}")
-                    self.warn("Models", "Run: ollama pull gemma3:12b && ollama pull llama3.2-vision:11b && ollama pull nomic-embed-text")
+                    self.warn("Models", "Run: ollama pull gemma3:12b && ollama pull gemma2:2b && ollama pull nomic-embed-text")
             else:
                 self.check("Ollama", False, "Not responding")
                 
@@ -131,7 +131,7 @@ class HealthCheck:
     
     def check_permissions(self):
         """Check file permissions"""
-        dirs_to_check = ["storage", "knowledge_base", "logs"]
+        dirs_to_check = ["knowledge_base", "logs", "memory"]
         
         for dir_name in dirs_to_check:
             dir_path = Path(dir_name)
@@ -150,8 +150,8 @@ class HealthCheck:
         """Check Python dependencies"""
         required = [
             "discord",
-            "torch",
-            "chromadb",
+            "ollama",
+            "llama_index",
             "requests",
             "psutil",
         ]

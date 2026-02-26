@@ -14,6 +14,11 @@ from llama_index.embeddings.ollama import OllamaEmbedding
 from utils.infrastructure.logging.kaia_logger import log_info, log_action, log_success, log_error, log_warning, log_debug
 from dataclasses import dataclass, field
 from typing import List, Optional, Dict
+import re
+
+# Pre-compiled hot-path regex patterns
+RE_OPTIMIZED_LOG = re.compile(r'\[optimized: saved (\d+) tokens\]')
+RE_CLEAN_MD = re.compile(r'```[\s\S]*?```|`[^`]*`|[*_~]')
 
 @dataclass
 class Intent:
@@ -56,7 +61,9 @@ class ModelWarmPool:
         
         # Initial warm
         try:
-            options = self._cached_options.get(model_name, {'num_predict': 1})
+            from utils.infrastructure.gpu.gpu_manager import OllamaGPUManager
+            gpu_mgr = OllamaGPUManager(model_name)
+            options = gpu_mgr.get_gpu_options(for_chat=True)
             await self.ollama_client.generate(model=model_name, prompt=".", options=options)
         except Exception: pass
 
@@ -90,15 +97,15 @@ class ModelWarmPool:
                     # retry once after a cooldown to let embeddings finish.
                     await asyncio.wait_for(
                         self.ollama_client.generate(model=model_name, prompt=".", options=options, keep_alive=-1),
-                        timeout=600.0  # Increased from 300s to handle high-load boot cycles
+                        timeout=120.0  # Reduced from 600s
                     )
                     self.pool[model_name] = {'last_used': time.time(), 'status': 'ready'}
                     return True
                 except asyncio.TimeoutError:
                     if attempt < max_attempts:
                         log_warning(f"Model {model_name} pre-warm timed out (attempt {attempt}/{max_attempts}). "
-                                    f"CPU may be busy with embeddings. Retrying in 120s...")
-                        await asyncio.sleep(120)
+                                    f"CPU may be busy with embeddings. Retrying in 10s...")
+                        await asyncio.sleep(10)
                     else:
                         log_error(f"CRITICAL FAILURE: Model {model_name} failed to pre-warm after {max_attempts} attempts (total ~12 min).")
                         return False
@@ -131,7 +138,9 @@ class ModelWarmPool:
                     continue
 
                 try:
-                    options = self._cached_options.get(model_name, {'num_predict': 1})
+                    from utils.infrastructure.gpu.gpu_manager import OllamaGPUManager
+                    gpu_mgr = OllamaGPUManager(model_name)
+                    options = gpu_mgr.get_gpu_options(for_chat=True)
                     # Lighter: generate(prompt=".") instead of chat()
                     await self.ollama_client.generate(model=model_name, prompt=".", options=options, keep_alive=3600)
                     log_debug(f"Tickled model: {model_name}")
@@ -959,13 +968,14 @@ class IntentParser:
 
             # EXECUTION: The GPU guard/routing is now handled entirely in the parent parse_intent()
             # method. This child method is a "dumb" executor to avoid re-entrant deadlock.
+            from utils.infrastructure.system.yaml_config import config
             response = await asyncio.wait_for(
                 self.ollama_client.chat(
                     model=self.classification_model,
                     messages=[{"role": "user", "content": prompt}],
                     options=self.classification_options
                 ),
-                timeout=self.config.classification_timeout
+                timeout=config.classification_timeout
             )
             
             raw_json = response['message']['content'].strip()
@@ -1024,24 +1034,49 @@ class IntentParser:
         return text
 
     async def pre_warm(self):
-        """Pre-warm the model with a direct call (No semaphore needed for tiny load)"""
-        log_action("Pre-warming IntentParser model...")
+        """Pre-warm the model with a direct call. Pulls the model if missing."""
+        log_action(f"Pre-warming IntentParser model: {self.classification_model}...")
         try:
-            # We use generate directly to avoid the semaphore guard in parse_intent
-            from utils.infrastructure.system.yaml_config import config
-            max_ctx = config.max_context_tokens
+            # 1. Check if model exists
+            model_exists = False
+            try:
+                await self.ollama_client.show(model=self.classification_model)
+                model_exists = True
+            except Exception as e:
+                if "404" in str(e) or "not found" in str(e).lower():
+                    log_warning(f"Model {self.classification_model} not found in Ollama. Attempting to pull...")
+                else:
+                    raise e
+
+            # 2. Pull if missing
+            if not model_exists:
+                log_action(f"📥 Pulling {self.classification_model} — this may take a few minutes...")
+                # We use the direct client to avoid any wrapper overhead during pull
+                async for progress in await self.ollama_client.pull(model=self.classification_model, stream=True):
+                    if hasattr(progress, 'status'):
+                        # Log significant milestones only to avoid spam
+                        status = progress.status
+                        if "downloading" not in status.lower() or "100%" in status:
+                             log_info(f"  [Pull] {status}")
+                log_success(f"✅ Successfully pulled {self.classification_model}")
+
+            # 3. Warming (Force CPU and immediate unload)
+            log_action(f"🔥 Warming {self.classification_model} on CPU...")
+            # We explicitly pass num_gpu: 0 to ensure it doesn't touch VRAM
+            # and keep_alive: 0 to ensure it unloads immediately after the tiny generation.
+            options = self.classification_options.copy()
+            options["num_gpu"] = 0
             
-            # Use the pre-configured classification options (which include num_gpu: 0 by default)
             await self.ollama_client.generate(
                 model=self.classification_model,
                 prompt=".",
-                options=self.classification_options,
-                keep_alive=3600
+                options=options,
+                keep_alive=0
             )
-            log_success("IntentParser model warmed.")
+            log_success(f"IntentParser model {self.classification_model} warmed (CPU).")
         except Exception as e:
             import traceback
-            log_error(f"Pre-warm failed: {e}")
+            log_error(f"IntentParser pre-warm failed: {e}")
             log_debug(f"IntentParser Pre-warm Traceback:\n{traceback.format_exc()}")
 
 # Legacy Alias for Refactor Compatibility

@@ -34,10 +34,12 @@ The system uses a global `asyncio.Semaphore(1)` to prevent concurrent GPU access
 - A `ContextVar` tracks re-entrancy to prevent deadlocks from nested GPU calls.
 - The guard is managed through `GPUMemoryManager.run_with_gpu_guard()`.
 
-### 4. Pre-Warm Timeout
-- On startup, `ModelWarmPool.pre_warm()` is wrapped in a 300s `asyncio.wait_for`.
-- If the model takes >5 minutes to load, it's treated as a CRITICAL FAILURE with full traceback logging.
-- This prevents indefinite startup hangs.
+### 4. Boot Sequence (Phase 1/2/3)
+On startup, `on_ready()` runs a sequenced boot:
+- **Phase 1**: `gemma3:12b` loaded exclusively via direct `ollama.generate()` under `_gpu_startup_lock`. Timeout: `model_load_seconds` (default 240s). A 5s recovery delay after Ollama cleanup ensures the daemon is ready.
+- **Phase 1.5**: `ModelWarmPool` and `IntentParser` (gemma2:2b, CPU-only) initialized AFTER GPU is claimed.
+- **Phase 2**: Bot marked ready to serve messages.
+- **Phase 3**: RAG init, classifier warm, knowledge refresh — all background, non-blocking.
 
 ## Adaptive Performance Monitoring
 
@@ -70,4 +72,4 @@ If you encounter OOM errors (e.g., during model pre-warming or generation):
 ✅ **Classification & embeddings on CPU** — zero GPU contention.
 ✅ **8K Context window** config-driven, optimized for 12GB hardware stability.
 ✅ **Semaphore guard** prevents concurrent GPU access.
-✅ **5-minute pre-warm timeout** ensures boot reliability.
+✅ Sequenced Phase 1/2/3 boot prevents VRAM contention at startup.

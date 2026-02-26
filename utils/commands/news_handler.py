@@ -55,7 +55,8 @@ async def handle_news_command(ctx, msg, send_kaia_response):
                     try:
                         file_date = datetime.strptime(date_str, "%Y%m%d")
                         date_display = file_date.strftime("%B %d, %Y")
-                    except:
+                    except Exception as e:
+                        log_warning(f"Unexpected error: {type(e).__name__}: {e}")
                         date_display = date_str
                     
                     summary_content = most_recent.read_text()

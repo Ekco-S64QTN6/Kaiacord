@@ -205,7 +205,7 @@ class UnifiedLogger:
             if log_entry['type'] != 'DEBUG' and self._dashboard_queue:
                 try:
                     self._dashboard_queue.put_nowait(log_entry)
-                except:
+                except Exception:
                     pass
 
         # 3. Write to file in one go (batch I/O)

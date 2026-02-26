@@ -236,7 +236,7 @@ class OllamaGPUManager:
                 if hasattr(dedicated_client, 'close') and callable(dedicated_client.close):
                     await dedicated_client.close()
 
-    async def ensure_gpu_loading(self, ollama_client):
+    async def ensure_gpu_loading(self, ollama_client, keep_alive: int = -1):
         """Ensure model loads on GPU with proper parameters"""
         if not self.gpu_available:
             print("⚠️  GPU not detected. Running on CPU.")
@@ -251,9 +251,9 @@ class OllamaGPUManager:
             if hasattr(ollama_client, '_client') and ollama_client._client.is_closed:
                 return False
 
-            print("🔄 Testing GPU model load (Lightweight)...")
+            print(f"🔄 Testing GPU model load (Lightweight, keep_alive={keep_alive})...")
             await asyncio.wait_for(
-                ollama_client.generate(model=self.model_name, prompt="", keep_alive=-1, options=options),
+                ollama_client.generate(model=self.model_name, prompt="", keep_alive=keep_alive, options=options),
                 timeout=120.0
             )
             
@@ -312,6 +312,7 @@ class OllamaGPUManager:
         from utils.infrastructure.system.yaml_config import config
         if num_ctx is None:
             num_ctx = config.max_context_tokens
+        # num_gpu: 99 tells Ollama to offload all layers to GPU (optimal for 12GB cards)
         base_options = {
             'num_gpu': 99,
             'num_thread': 4,
@@ -326,19 +327,13 @@ class OllamaGPUManager:
             
             base_options.update({
                 'num_ctx': num_ctx, # Unified context size from config
-                'num_batch': 512,
                 'num_predict': max_tokens,
-                'temperature': 0.7,
-                'repeat_penalty': 1.1,
-                'top_k': 40,
-                'top_p': 0.9,
             })
         else:
             # For vision/other tasks - pull from config default
             from utils.infrastructure.system.yaml_config import config
             base_options.update({
                 'num_ctx': config.max_context_tokens,
-                'num_batch': 256,
             })
         
         return base_options

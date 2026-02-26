@@ -19,8 +19,8 @@ async def verify_chat_gpu():
     
     try:
         # This calls ensure_gpu_loading which uses the options we modified
-        log_info("Testing GPU model load...")
-        success = await manager.ensure_gpu_loading(client)
+        log_info("Testing GPU model load (Immediate Unload requested)...")
+        success = await manager.ensure_gpu_loading(client, keep_alive=0)
         
         if success:
             log_success(f"Confirmed: {model_name} is loading on GPU with num_gpu: -1")

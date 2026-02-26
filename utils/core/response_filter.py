@@ -3,79 +3,7 @@ from typing import List, Optional
 from datetime import datetime
 from utils.infrastructure.logging.kaia_logger import log_warning
 
-class HallucinationDetector:
-    """Detect and prevent hallucination feedback loops"""
-    
-    HALLUCINATION_PATTERNS = [
-        # Structural leaks
-        r"<recorded_knowledge",
-        r"</recorded_knowledge>",
-        r"\[INTERNAL REFLECTION",
-        r"\[CONVERSATION HISTORY",
-        r"\[IDENTITY CORE",
-        r"\b(rag (nodes?|context|results?)|retrieval (system|archives?|nodes?))\b",
-        r"\btunable (parameters?|filters?)\b",
-        r"\baid\s*\d+\b",
-        r"\bcontext (window|limits?|optimized?)\b",
-        
-        # High-confidence news/biographical fiction patterns
-        r"joint\s+research\s+paper\s+on\s+['\"]?Quantum\s+Consciousness['\"]?",
-        r"co-authored\s+by\s+Steve\s+Jobs",
-        r"In\s+a\s+shocking\s+turn\s+of\s+events",
-        r"Breaking\s+news:?\s+.*?returns\s+to",
-        r"^Reports\s+are\s+coming\s+in\s+that",
-        r"i\s+remember\s+back\s+in\s+\d{4}\s+when\s+i\s+was",
-        
-        # Session-specific high-confidence hallucinations (Tracer Terms)
-        r"\bThe State of Streaming Services\b",
-        r"\bChain of Suspicion\b",
-        r"Tenno\s+Heika",
-        r"Di\s+Shang",
-        r"Cosmic\s+Sociology\s+spell",
-        r"\bDeath\s+Squared\b",
-        r"\bmouse\s+population\s+caloric\s+restriction\b",
-        
-        # Fabricated Claims about Grounding
-        r"\b(there's|i have) a(n actual)? thread (titled|about|named) ['\"]?(.+?)['\"]?\b",
-        r"\b(i remember|my notes mention) a (conversation|outage) (from|last) (.+?)\b",
-
-        # Admitted Fabrications
-        r"\b(my memory is faulty|was a fabrication|mimicking a conversational style|placeholder for a topic)\b",
-        r"\b(sorry for the confusion|extrapolating from my general observations|no actual thread with that title)\b",
-        r"\b(memory's\s+a\s+bit\s+hazy|double-check\s+the\s+records|was\s+recalling\s+the\s+wrong\s+study)\b"
-    ]
-    
-    _compiled_pattern = re.compile("|".join(HALLUCINATION_PATTERNS), re.IGNORECASE)
-
-    @classmethod
-    def contains_hallucination(cls, text: str) -> bool:
-        """Check if text contains known hallucination patterns"""
-        return bool(cls._compiled_pattern.search(text))
-    
-    @classmethod
-    def clean_response(cls, response: str) -> str:
-        """Remove hallucinated content from response"""
-        if not cls.contains_hallucination(response):
-            return response
-        
-        # Split into lines and filter out hallucinated ones
-        lines = response.split('\n')
-        clean_lines = []
-        
-        for line in lines:
-            if not cls.contains_hallucination(line):
-                clean_lines.append(line)
-            else:
-                # Replace hallucinated line with something neutral
-                clean_lines.append("...")  # Or empty line
-        
-        # If we removed too much, signal failure by returning None
-        clean_response = '\n'.join(clean_lines).strip()
-        
-        if not clean_response:
-            return None
-        
-        return clean_response
+from utils.core.hallucination_detector import HallucinationDetector
 
 class EmergencyContaminationFilter:
     """Emergency filter to prevent specifically fake-sounding news prose or hallucinations."""
@@ -92,6 +20,12 @@ class EmergencyContaminationFilter:
         r"\b(the state of streaming services|chain of suspicion)\b", # Tracer contamination
         # Fabricated user observations — invented anecdotes about chat participants
         r"there\s+was\s+one\s+user.{0,20}(who|that)\s+(asked|mentioned|said|brought|posted|shared|noticed)",
+        # Prose roleplay narration (first-person actions)
+        r"^I\s+(?:pause|sigh|nod|frown|blink|smile|laugh|shrug|lean|stare|murmur|say|let\s+out|take|rub)\s+.*?[.!?]",
+        r"^(?:A|The)\s+(?:faint|brief|slow|slight|dry|short)\s+(?:flicker|shake|smile|frown|sigh|nod|exhale|laugh|sip|chuckle|puff|murmur)\b.*?[.!?]",
+        r"^The\s+corners\s+of\s+my\s+mouth\b.*?[.!?]",
+        r"^I\s+blink\b.*?[.!?]",
+        r"^I\s+stare\b.*?[.!?]",
     ]
 
     VERACITY_FALLBACK = "wait, scratch that. something about my memory's a bit hazy on the specifics of that. i'd have to double-check the records to be sure."
@@ -158,7 +92,7 @@ class BotSpeakFilter:
     RE_PARENS = re.compile(r'\((?![0-9]{4})([^\)]+?)\)', re.IGNORECASE)
     RE_ASTERISKS = re.compile(r'(?<!\*)\*(?!\*)([^\*]+?)\*(?!\*)', re.IGNORECASE)
     RE_PREFIXES = re.compile(
-        r'^('
+        r'^\s*(?:'
         r'Kaia|User|Assistant|System'                          # English role labels
         r'|Action|Narrator|Scene|Stage Direction'              # English screenplay labels
         r'|Acci[oó]n|Narrador|Escena|Descripci[oó]n'          # Spanish labels (Acción, etc.)

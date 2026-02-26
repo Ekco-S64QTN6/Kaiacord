@@ -36,7 +36,9 @@ class StatsTracker:
                     saved_stats = json.load(f)
                     self.stats['users'] = saved_stats.get('total_users', 0)
                     self.stats['messages'] = saved_stats.get('total_messages', 0)
-        except:
+        except Exception as e:
+            from utils.infrastructure.logging.kaia_logger import log_error
+            log_error(f"Unexpected error in {__name__}: {type(e).__name__}: {e}")
             pass
     
     def save_stats(self):
@@ -55,7 +57,8 @@ class StatsTracker:
             # Offload to background thread to prevent loop stalls
             threading.Thread(target=self._persist_to_disk, args=(stats_file, save_data), daemon=True).start()
         except Exception as e:
-            print(f"❌ Error initiating stats save: {e}")
+            from utils.infrastructure.logging.kaia_logger import log_error
+            log_error(f"Error initiating stats save: {e}")
 
     def _persist_to_disk(self, stats_file, save_data):
         """Actual disk I/O in background thread"""
@@ -63,7 +66,8 @@ class StatsTracker:
             with open(stats_file, 'w') as f:
                 json.dump(save_data, f, indent=2)
         except Exception as e:
-            print(f"❌ Background stats save failed: {e}")
+            from utils.infrastructure.logging.kaia_logger import log_error
+            log_error(f"Background stats save failed: {e}")
     
     def increment_users(self, user_id=None):
         """Increment user count"""

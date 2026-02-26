@@ -89,7 +89,7 @@ class DashboardLayout:
             size = shutil.get_terminal_size()
             self.width = size.columns
             self.height = size.lines
-        except:
+        except Exception:
             pass
     
     def calculate_boxes(self):

@@ -23,7 +23,7 @@ load_dotenv()
 from utils.infrastructure.logging.unified_logging import replace_all_logging, logger
 
 from utils.infrastructure.logging.kaia_logger import (
-    log_info, log_success, log_error, log_action
+    log_info, log_success, log_error, log_action, log_debug
 )
 
 # Core Infrastructure Imports
@@ -103,14 +103,10 @@ def _build_logic_layer_sync():
     from utils.core.kaia_intelligence import PersonalizationEngine, PersistentStateManager
 
     ctx.performance_monitor = PerformanceMonitor()
-    ctx.model_warm_pool = ModelWarmPool(ctx.ollama_client)
-
-    # IntentParser object only — NOT warmed here.  Phase 3 loads it on CPU.
-    ctx.intent_parser = IntentParser(
-        ctx.ollama_client,
-        model=config.get('models.classification_model', 'gemma2:2b'), # gemma2:2b — CPU-only
-        timeout=config.classification_timeout,
-    )
+    # ModelWarmPool and IntentParser moved to on_ready (Phase 1.5) 
+    # to avoid early VRAM consumption during boot.
+    ctx.model_warm_pool = None
+    ctx.intent_parser = None
 
     response_optimizer = ResponseOptimizer()
     context_optimizer = ContextOptimizer(
@@ -149,7 +145,7 @@ def _build_logic_layer_sync():
 
 
 
-from utils.core.rag_executor import run_rag
+from utils.core.rag_executor import run_rag, run_rag_retrieval
 
 
 # ─────────────────────────────────────────────
@@ -180,24 +176,58 @@ async def on_ready():
     # ── PHASE 1: Exclusive GPU warm for chat model ──────────────────────────
     # Runs alone — no other Ollama calls permitted concurrently.
     async with _gpu_startup_lock:
-        try:
-            log_action(
-                f"[Phase 1] Claiming GPU for {config.chat_model} "
-                f"({config.max_context_tokens // 1000}k ctx) …"
+        _phase1_success = False
+        for _p1_attempt in range(21):  # Increased to 20 retries for ~100s window
+            try:
+                if _p1_attempt > 0:
+                    log_action(
+                        f"[Phase 1] Retry {_p1_attempt}/20 — waiting 5s for Ollama to ready model …"
+                    )
+                    await asyncio.sleep(5)
+                log_action(
+                    f"[Phase 1] Claiming GPU for {config.chat_model} "
+                    f"({config.max_context_tokens // 1000}k ctx) …"
+                )
+                log_debug(f"[Phase 1] Loading with num_ctx={config.max_context_tokens}")
+                await asyncio.wait_for(
+                    ctx.ollama_client.generate(
+                        model=config.chat_model,
+                        prompt=".",
+                        # NEVER CHANGE THIS TO 99 AGAIN - CAUSES OLLAMA HANGS ON CONSUMER GPUs
+                        options={
+                            "num_gpu": 99,   # Full GPU residency for gemma3:12b
+                            "num_ctx": config.max_context_tokens,
+                            "num_predict": 1
+                        },
+                        keep_alive=-1,       # keep it resident
+                    ),
+                    timeout=config.model_load_timeout
+                )
+                log_success(f"[Phase 1] {config.chat_model} loaded to GPU.")
+                _phase1_success = True
+                break
+            except Exception as e:
+                err_str = str(e).lower()
+                # 500 error with "loading" in body is normal during cold starts
+                if "500" in err_str and "loading" in err_str:
+                    log_action(
+                        f"[Phase 1] Ollama is still loading the model. Will retry. ({_p1_attempt}/20)"
+                    )
+                elif "busy" in err_str or "loading another model" in err_str:
+                    log_action(
+                        f"[Phase 1] Ollama busy (loading model). Will retry. ({e})"
+                    )
+                else:
+                    # Unknown error — log and stop retrying
+                    import traceback
+                    log_error(f"[Phase 1] Chat model GPU warm failed: {e!r}")
+                    log_error(f"[Phase 1] Traceback: {traceback.format_exc()}")
+                    break
+        if not _phase1_success:
+            log_error(
+                f"[Phase 1] Could not claim GPU after 20 attempts. "
+                "First real response will trigger a cold load."
             )
-            await ctx.ollama_client.generate(
-                model=config.chat_model,
-                prompt=".",
-                options={
-                    "num_ctx": config.max_context_tokens,
-                    "num_gpu": 99,   # Phase 14 bypass: force all layers to GPU, bypass estimator
-                },
-                keep_alive=-1,       # keep it resident
-            )
-            log_success(f"[Phase 1] {config.chat_model} loaded to GPU.")
-        except Exception as e:
-            log_error(f"[Phase 1] Chat model GPU warm failed: {e}")
-            # Non-fatal — bot continues, first real response will trigger lazy load
 
     # Poll Ollama's process list to confirm the chat model is actually resident
     # in VRAM before proceeding.  Avoids the guesswork of asyncio.sleep().
@@ -208,7 +238,9 @@ async def on_ready():
             for m in (_ps.get("models") or []):
                 name = m.get("name", "")
                 size_vram = m.get("size_vram", 0)
-                if config.chat_model in name and size_vram > 0:
+                # Looser match to handle :latest suffix and ensure it's in GPU
+                base_model = config.chat_model.split(":")[0]
+                if (base_model in name or name in base_model) and size_vram > 0:
                     _vram_confirmed = True
                     break
             if _vram_confirmed:
@@ -223,6 +255,19 @@ async def on_ready():
         # Ollama ps() unavailable or model name mismatch — fall back to fixed delay
         log_info("[Phase 1] Could not confirm VRAM lock via ollama.ps(); waiting 3s as fallback.")
         await asyncio.sleep(3.0)
+
+    # ── PHASE 1.5: Late-initialize CPU models ───────────────────────────────
+    # We build these AFTER the chat model has claimed the GPU to prevent
+    # VRAM contention during the initial load window.
+    log_action("[Phase 1.5] Initializing secondary models...")
+    ctx.model_warm_pool = ModelWarmPool(ctx.ollama_client)
+    ctx.intent_parser = IntentParser(
+        ctx.ollama_client,
+        model=config.get('models.classification_model', 'gemma2:2b'),
+        timeout=config.classification_timeout,
+    )
+    if ctx.message_processor:
+        ctx.message_processor.intent_parser = ctx.intent_parser
 
     # ── PHASE 2: Bot is now ready to serve messages ─────────────────────────
     ctx.set_ready()
@@ -455,8 +500,17 @@ def main():
     mode = "simple" if args.no_gui else env_mode
 
     if mode == "curses":
-        from utils.infrastructure.gpu.clear_gpu_memory import kill_orphaned_runners
-        kill_orphaned_runners(preserve_model=config.chat_model, preserve_ctx=config.max_context_tokens)
+        if config.get('startup.gpu_cleanup', True):
+            from utils.infrastructure.gpu.clear_gpu_memory import kill_orphaned_runners, clear_gpu_memory
+            # Optimize: Preserve current chat model to avoid 2-minute reload lag on restart
+            kill_orphaned_runners(
+                preserve_model=config.chat_model,
+                preserve_ctx=config.max_context_tokens,
+                force_all=True
+            )
+            clear_gpu_memory(silent=True)
+            import time
+            time.sleep(5)  # Give Ollama 5s to recover after being killed
         dm.run_curses_mode(_build_logic_layer_sync, run_bot_wrapper)
     else:
         asyncio.run(dm.run_simple_mode(_build_logic_layer_sync, run_bot_wrapper))

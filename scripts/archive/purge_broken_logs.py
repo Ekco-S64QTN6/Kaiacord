@@ -1,3 +1,5 @@
+# ARCHIVED: Hardcoded to specific Feb 9 files. Use 
+# tools/maintenance/force_reindex.py for general use.
 import os
 import sys
 from utils.core.kaia_rag import KaiaRAG

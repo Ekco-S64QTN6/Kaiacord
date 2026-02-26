@@ -1,4 +1,12 @@
-# Kaia Architecture Documentation
+> [!WARNING]
+> **ARCHIVED — DO NOT USE AS REFERENCE.**
+> This document describes a planned `bot/` directory structure that was never built.
+> The actual architecture uses `utils/` sub-packages. See `docs/03-architecture/overview.md`.
+> Archived: February 26, 2026.
+
+---
+
+# Kaiacord — High-Level Architecture (Feb 3, 2026)
 
 ## Overview
 

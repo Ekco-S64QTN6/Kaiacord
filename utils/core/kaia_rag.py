@@ -379,7 +379,7 @@ class KaiaRAG:
                     folder = parts[parts.index("user_logs") + 1]
                     username = folder.split("_")[0] if "_" in folder else folder
                     context_prefix = f"Log ({username}): "
-                except: pass
+                except Exception: pass
             elif "news" in path:
                 context_prefix = "News: "
             
@@ -937,13 +937,13 @@ class KaiaRAG:
             # 0. Safety Guard: Ensure indices are initialized
             if not self.indices:
                 log_info("Indices not initialized. Running initialization...")
-                self._initialize_indices()
+                await asyncio.to_thread(self._initialize_indices)
                 
             corrupt_dir = os.path.join(self.knowledge_base_dir, "corrupt_files")
             if not os.path.exists(corrupt_dir): os.makedirs(corrupt_dir)
 
-            updated_itypes = self._prune_deleted_files()
-            new_file_paths = self._find_changed_files()
+            updated_itypes = await asyncio.to_thread(self._prune_deleted_files)
+            new_file_paths = await asyncio.to_thread(self._find_changed_files)
 
             if not new_file_paths:
                 log_debug("No new documents to index.")
@@ -987,11 +987,11 @@ class KaiaRAG:
 
             if updated_itypes:
                 # Batch persist all updated indices at the end
-                self._persist_updated_indices(updated_itypes)
+                await asyncio.to_thread(self._persist_updated_indices, updated_itypes)
                 log_success(f"Batch persistence complete for: {', '.join(updated_itypes)}")
             elif new_file_paths:
                 # Still save the manifest if we scanned files
-                self._save_indexed_files()
+                await asyncio.to_thread(self._save_indexed_files)
                 
         except Exception as e:
             log_error(f"Error in parallel RAG refresh: {e}")
@@ -1128,12 +1128,12 @@ class KaiaRAG:
             log_error(f"Error adding memory: {e}")
             return False
 
-    async def log_user_interaction_async(self, user_id: int, user_name: str, message_content: str, bot_response: str, is_vision_response: bool = False) -> bool:
+    async def log_user_interaction_async(self, user_id: int, user_name: str, message_content: str, bot_response: str) -> bool:
         """Async wrapper for log_user_interaction."""
-        return await asyncio.to_thread(self.log_user_interaction, user_id, user_name, message_content, bot_response, is_vision_response)
+        return await asyncio.to_thread(self.log_user_interaction, user_id, user_name, message_content, bot_response)
 
     # Removed @thread_safe_rag_operation to ensure file writing always happens
-    def log_user_interaction(self, user_id: int, user_name: str, message_content: str, bot_response: str, is_vision_response: bool = False) -> bool:
+    def log_user_interaction(self, user_id: int, user_name: str, message_content: str, bot_response: str) -> bool:
         """Log user interaction to a single file per user, rotating at 100MB.
         """
         # GUARD: Bot identity not yet initialized (on_ready hasn't fired)
@@ -1229,6 +1229,12 @@ class KaiaRAG:
                         bot_response = HallucinationDetector.clean_response(bot_response)
                     else:
                         log_debug(f"Hallucination pattern detected in owner response ({user_name}), but skipping clean.")
+
+                # BUG 1 FIX: Strip JSON wrapper from response before logging
+                json_wrapper_pattern = r'^\s*\{[\s\S]*"response"\s*:\s*"([\s\S]*)"\s*\}\s*$'
+                match = re.search(json_wrapper_pattern, bot_response)
+                if match:
+                    bot_response = match.group(1).replace('\\"', '"').replace('\\n', '\n')
 
                 # Initialize frontmatter if file is new
                 is_new_file = not os.path.exists(interaction_log_path)
@@ -1608,11 +1614,7 @@ class KaiaRAG:
                         ts = ts_val
                         
                     if ts > cutoff:
-                        # Exclude vision responses as they are very long and specific
-                        from utils.core.rag_utils import get_node_metadata, get_node_text
-                        meta = get_node_metadata(node)
-                        if not meta.get('is_vision_response'):
-                            recent_nodes.append(node)
+                        recent_nodes.append(node)
             
             if not recent_nodes:
                 return []
@@ -1686,9 +1688,7 @@ class KaiaRAG:
                         ts = ts_val
                 
                 if ts > cutoff:
-                    m = get_node_metadata(node)
-                    if not m.get('is_vision_response'):
-                        recent_nodes.append(node)
+                    recent_nodes.append(node)
             
             if not recent_nodes:
                 return []

@@ -1,3 +1,10 @@
+# LEGACY — DO NOT RUN.
+# This script targets the pre-refactor flat file structure (pre Phase 9).
+# File paths like utils/kaia_rag.py no longer exist.
+# Archived: February 26, 2026.
+# For current hallucination cleanup, use tools/recovery/find_contamination.py
+raise SystemExit("This script is archived and must not be run. See tools/recovery/ for current tools.")
+
 #!/usr/bin/env python3
 """
 PROPER FIX: Remove boilerplate without affecting real users

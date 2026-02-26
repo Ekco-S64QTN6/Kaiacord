@@ -41,7 +41,7 @@ async def rag_maintenance_task():
         if force_sweep:
             log_info("🔗 Detected .trigger_reindex. Performing maintenance sweep...")
             try: os.remove(trigger_path)
-            except: pass
+            except Exception: pass
         elif is_hourly:
             log_action("Periodic RAG self-heal starting (hourly)...")
         else:

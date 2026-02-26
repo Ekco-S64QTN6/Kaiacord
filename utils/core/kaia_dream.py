@@ -155,7 +155,7 @@ YOUR IN-DEPTH REFLECTION:"""
             try:
                 with open(self.history_file, 'r') as f:
                     return json.load(f)
-            except: pass
+            except Exception: pass
         return {}
 
     def _save_history(self):

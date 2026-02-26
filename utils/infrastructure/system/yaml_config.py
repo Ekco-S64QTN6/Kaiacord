@@ -216,6 +216,10 @@ class YAMLConfig:
         """Get configuration value using dot notation"""
         return get_nested(self._data, path, default)
     
+    def _get(self, path: str, default=None):
+        """Internal helper for property access. Alias for get()."""
+        return self.get(path, default)
+    
     # Properties for common values
     @property
     def discord_token(self) -> str:

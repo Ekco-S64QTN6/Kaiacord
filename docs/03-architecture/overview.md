@@ -84,7 +84,7 @@ Kaiacord/
 **Responsibility**: Manages run modes (Curses/Simple), startup tasks, and clean shutdown.
 
 **Features**:
-- ✅ Phased boot sequence (RAG -> News -> Model Warmup with 5-min timeout).
+- ✅ Phased boot sequence (Phase 1: Chat model GPU load -> Phase 2: Bot ready -> Phase 3: Background RAG/News).
 - ✅ GPU semaphore guard for single-access GPU operations.
 - ✅ Curses-based real-time dashboard.
 - ✅ Ordered shutdown (cancel tasks → unload model → persist RAG → close clients → kill runners).

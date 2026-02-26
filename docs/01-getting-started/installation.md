@@ -210,9 +210,9 @@ ollama pull gemma3:12b
 
 ## Next Steps
 
-1. **[Quick Start Guide](quick-start.md)** - Get started in 5 minutes
-2. **[Configuration Guide](configuration.md)** - Advanced configuration
-3. **[Basic Usage](../02-user-guide/basic-usage.md)** - Using Kaia
+1. **[Quick Start Guide](quick-start.md)**
+2. **Configuration** ([../config/kaia.yaml](../../config/kaia.yaml))
+3. **Command Reference** ([../02-user-guide/commands.md](../02-user-guide/commands.md))
 
 ---
 

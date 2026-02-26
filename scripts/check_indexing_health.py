@@ -13,7 +13,7 @@ def check_health():
     
     knowledge_base_dir = config.knowledge_base_dir
     persist_dir = config.persist_dir
-    manifest_path = os.path.join(persist_dir, "indexed_files.json")
+    manifest_path = os.path.join(persist_dir, "file_manifest.json")
     
     if not os.path.exists(manifest_path):
         print(f"❌ Manifest not found at {manifest_path}")

@@ -9,10 +9,9 @@ from pathlib import Path
 from typing import Optional, List, Dict, Any
 import ollama
 from dotenv import load_dotenv
+from pathlib import Path
 import google.generativeai as genai
-
-# Load environment variables from .env file
-load_dotenv()
+load_dotenv(dotenv_path=Path(__file__).parent.parent / '.env')
 
 class KaiaNewsUpdater:
     def __init__(self, gemini_api_key: str):

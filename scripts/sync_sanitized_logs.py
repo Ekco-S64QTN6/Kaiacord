@@ -60,13 +60,17 @@ def main():
         nodes = parser.get_nodes_from_documents([doc])
         target_index.insert_nodes(nodes)
         
-        # Update indexed_files map to prevent refresh_knowledge_base from thinking it's different
-        rag.indexed_files[abs_path] = os.path.getmtime(abs_path)
+        rag.indexed_files[abs_path] = {
+            "mtime": os.path.getmtime(abs_path),
+            "size": os.path.getsize(abs_path),
+            "nodes": []
+        }
         
         log_success(f"Successfully re-indexed {len(nodes)} new nodes.")
 
     # 3. Persist
-    rag.persist(force=True)
+    rag._persist_updated_indices({'logs'})
+    rag._save_indexed_files()
     log_success("RAG index synchronization complete.")
 
 if __name__ == "__main__":

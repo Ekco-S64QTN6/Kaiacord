@@ -196,11 +196,11 @@ def _extract_browser_cookies() -> dict:
             try:
                 # Try Chrome
                 all_cookies.extend(list(browser_cookie3.chrome(domain_name=domain)))
-            except: pass
+            except Exception: pass
             try:
                 # Try Firefox
                 all_cookies.extend(list(browser_cookie3.firefox(domain_name=domain)))
-            except: pass
+            except Exception: pass
 
         # Specific path for Firedragon (Flatpak)
         firedragon_path = Path.home() / ".var/app/org.garudalinux.firedragon/.firedragon"
@@ -210,7 +210,7 @@ def _extract_browser_cookies() -> dict:
                     for domain in domains:
                         try:
                             all_cookies.extend(list(browser_cookie3.firefox(cookie_file=str(profile), domain_name=domain)))
-                        except: pass
+                        except Exception: pass
             except: pass
         
         if all_cookies:

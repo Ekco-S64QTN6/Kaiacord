@@ -78,7 +78,7 @@ class TerminalManager:
                 w = int(os.environ.get('COLUMNS', 80))
                 h = int(os.environ.get('LINES', 24))
                 return w, h
-            except:
+            except Exception:
                 return 80, 24
     
     def set_terminal_raw(self):

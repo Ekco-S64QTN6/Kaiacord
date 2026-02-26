@@ -340,7 +340,7 @@ class BtopDashboardV2:
                 'disk': psutil.disk_usage('/'),
                 'net': psutil.net_io_counters()
             }
-        except:
+        except Exception:
             return None
 
     def _take_snapshot(self) -> DashboardState:

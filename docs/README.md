@@ -35,10 +35,11 @@ Welcome to the Kaiacord documentation! Organized by topic for easy navigation.
 ### 🛠️ [06 - Troubleshooting](06-troubleshooting/)
 - [Common Issues](06-troubleshooting/common-issues.md)
 
-### 📊 Reports
-- [Gemini Status Report (RAG & Identity Audit)](reports/GEMINI_Report.md)
-- [Claude Code Review (Bug Fixes & Production Readiness)](reports/Claude_Report.md)
-- [Tier 1 Feature Report (Audit, Snapshots, Think, Provenance)](reports/tier1_feature_report.md)
+### 📊 [Reports & Planning](reports/README.md)
+- [Reports Index](reports/README.md)
+- [Gemini Engineering Log](reports/current/GEMINI_Report.md)
+- [Claude Code Review](reports/current/Claude_Report.md)
+- [Deferred Planning](reports/planning/)
 
 ---
 

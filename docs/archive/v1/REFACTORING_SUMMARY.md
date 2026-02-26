@@ -1,4 +1,13 @@
-# Refactoring Summary - Kaia 2.6 Cleanup
+> [!WARNING]
+> **ARCHIVED — PROJECT CONTEXT ONLY.**
+> This document summarizes a refactor phase from early Feb 2026.
+> Many file paths mentioned (`utils/kaia_rag.py`, etc.) were moved to sub-directories in Phase 9.
+> Archived: February 26, 2026.
+
+---
+
+# Kaiacord — Comprehensive Refactoring Summary (Phases 1-8)
+2.6 Cleanup
 
 ## Overview
 The codebase has been reorganized to improve maintainability and separate concerns. The main directory has been cleaned up by moving core modules to `utils/`, configuration to `config/`, and scripts to `test_scripts/`.

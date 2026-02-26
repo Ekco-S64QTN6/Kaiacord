@@ -32,8 +32,12 @@ This directory contains scripts for maintaining, debugging, and fixing the Kaiac
 **Purpose**: Scans knowledge base for issues or corrupted files.  
 **Usage**: `python tools/diagnostics/scan_knowledge_base.py`
 
+### `force_reindex.py`
+**Purpose**: Force a re-indexing of the knowledge base.  
+**Usage**: `python tools/maintenance/force_reindex.py [optional_file_path]`
+
 ### `refresh_news.py`
-**Purpose**: Quick refresh of news content.  
+**Purpose**: Quick refresh of news content (runs in background during Phase 3 boot).  
 **Usage**: `python tools/maintenance/refresh_news.py`
 
 ### `health_check.py`

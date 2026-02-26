@@ -39,7 +39,7 @@ def _run_dashboard_process(shared_stats, log_queue, stop_event, cleanup_complete
         err_info = (str(e), traceback.format_exc())
         try:
             error_queue.put(err_info)
-        except:
+        except Exception:
             print(f"Isolated Dashboard Fatal Error (Failed to queue): {e}")
             traceback.print_exc()
         raise
@@ -67,7 +67,7 @@ async def _stats_sync_task(shared_stats, stats_tracker, stats_poller, stop_event
                 'gpu_util': p.get('gpu_util', 0.0),
                 'gpu_memory': p.get('gpu_memory', 'N/A'),
             })
-        except: pass
+        except Exception: pass
         await asyncio.sleep(1.0)
 
 def _run_bot_in_thread(shared_stats, stats_tracker, stats_poller, stop_event, 
@@ -99,12 +99,11 @@ def _run_bot_in_thread(shared_stats, stats_tracker, stats_poller, stop_event,
                     if not task.done(): task.cancel()
                 loop.run_until_complete(asyncio.gather(*pending, return_exceptions=True))
             loop.run_until_complete(loop.shutdown_asyncgens())
-        except: pass
+        except Exception: pass
         
         # Signal cleanup complete
-        try:
-            m_cleanup_complete_event.set()
-        except: pass
+        except Exception:
+            pass
         if not loop.is_closed(): loop.close()
 
 class DashboardManager:
@@ -340,7 +339,8 @@ class DashboardManager:
             # Signaling stop to child process
             if not m_stop_event.is_set():
                 try: m_stop_event.set()
-                except: pass
+                except Exception:
+                    pass
             self.stop_event.set()
             
             # Wait for bot thread cleanup to signal completion (async_shutdown finishes)

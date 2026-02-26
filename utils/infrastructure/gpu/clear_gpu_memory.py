@@ -78,7 +78,7 @@ def force_clear_gpu() -> bool:
         # Phase 3: IPC cleanup for multi-process scenarios
         try:
             torch.cuda.ipc_collect()
-        except:
+        except Exception:
             pass
         
         # Phase 4: Final cleanup
@@ -97,7 +97,7 @@ def force_clear_gpu() -> bool:
         return False
 
 
-def kill_orphaned_runners(preserve_model: str = None, preserve_ctx: int = None):
+def kill_orphaned_runners(preserve_model: str = None, preserve_ctx: int = None, force_all: bool = False):
     """Aggressively unload VRAM via sync HTTP, then kill any lingering ollama runners."""
     import psutil
     import os
@@ -106,7 +106,7 @@ def kill_orphaned_runners(preserve_model: str = None, preserve_ctx: int = None):
     import urllib.error
 
     # 1. Graceful Synchronous Unload (Bypasses active async event loops)
-    print("🔄 Ensuring all models are flushed from VRAM via HTTP...")
+    print(f"🔄 Ensuring all models are flushed from VRAM via HTTP (force_all={force_all})...")
     try:
         # Check what's ACTUALLY running instead of all installed tags
         req = urllib.request.Request("http://127.0.0.1:11434/api/ps", method="GET")
@@ -119,10 +119,14 @@ def kill_orphaned_runners(preserve_model: str = None, preserve_ctx: int = None):
              ctx_len = model_info.get("context_length", 0)
              
              # Optimization: If the model we want is already running with correct context, skip unloading it
-             if preserve_model and (preserve_model in name or name in preserve_model):
+             if not force_all and preserve_model and (preserve_model in name or name in preserve_model):
                  if preserve_ctx is None or ctx_len == preserve_ctx:
-                     print(f"  ✅ Preserving {name} (already resident with {ctx_len} ctx)")
-                     continue
+                     # CRITICAL: Verify it's actually in VRAM, not sitting in CPU
+                     if model_info.get("size_vram", 0) > 0:
+                         print(f"  ✅ Preserving {name} (already resident in VRAM with {ctx_len} ctx)")
+                         continue
+                     else:
+                         print(f"  ⚠️  Model {name} found but resident in CPU. Triggering unload...")
              
              print(f"  🔄 Unloading {name}...")
              payload = json.dumps({"model": name, "keep_alive": 0}).encode("utf-8")

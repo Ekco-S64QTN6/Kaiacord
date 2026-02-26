@@ -2,52 +2,47 @@
 
 Quick solutions to common Kaiacord problems.
 
-## 🔴 Model Loading Timeout
+## 🔴 Bot Hangs at "[Phase 1] Claiming GPU"
 
-**Symptom**: Startup hangs or takes 5+ minutes during model warm-up
+**Symptom**: Boot stuck at Phase 1 for 3+ minutes then fails.
 
-**Cause**: Model load timeout or Ollama unresponsive
+**Cause**: `model_load_seconds` timeout too short, or Ollama needs recovery time after being killed at startup.
 
 **Solution**:
 ```bash
-# Check if Ollama is running
-systemctl status ollama
-
-# Check model loading in logs
-grep "pre_warm" logs/kaiacord.log
-grep "CRITICAL" logs/kaiacord.log
-
-# If pre-warm timeout (5 min limit), restart Ollama:
-sudo systemctl restart ollama
-python Kaiacord.py
+# In config/kaia.yaml add:
+timeouts:
+  model_load_seconds: 240.0
 ```
 
-**Prevention**: Use SSD for faster model loading
+If still failing, Ollama may need a manual restart:
+```bash
+sudo systemctl restart ollama
+# Wait 5 seconds, then start bot
+python Kaiacord.py
+```
 
 ---
 
 ## 🔴 CUDA Out of Memory
 
-**Symptom**: `RuntimeError: CUDA out of memory`
+**Symptom**: VRAM exhausted, model fails to load at boot.
 
-**Cause**: Chat model didn't unload before vision/image task
+**Cause**: Another application (e.g. games, video editors) consuming VRAM alongside `gemma3:12b` + 8k KV cache (~9-10GB total).
 
 **Solution**:
 ```bash
-# Check VRAM usage
+# Check what's using VRAM
 nvidia-smi
 
-# Should see 8GB → 0GB → 7.5GB pattern during vision
-# If stuck at 8GB, chat model isn't unloading
+# Free VRAM manually
+curl http://localhost:11434/api/generate \
+  -d '{"model":"gemma3:12b","keep_alive":0}'
 
-# Fix: Update to v2.1 (modular architecture)
-# Verify: grep "Unload" logs/kaiacord.log
-```
-
-**Manual workaround**:
-```bash
-# Restart bot to clear VRAM
-# Ctrl+C, then: python Kaiacord.py
+# Reduce context window if needed
+# In config/kaia.yaml:
+# performance:
+#   max_context_tokens: 4096
 ```
 
 ---

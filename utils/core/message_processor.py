@@ -81,8 +81,8 @@ class MessageProcessor:
             
     # Helper to maintain compatibility with legacy run_rag pattern
     async def run_rag(self, fn, *args, **kwargs):
-        from Kaiacord import run_rag as run_rag_func
-        return await run_rag_func(fn, *args, **kwargs)
+        from Kaiacord import run_rag_retrieval
+        return await run_rag_retrieval(fn, *args, **kwargs)
 
     async def process(self, msg):
         """Main entry point for message processing."""
@@ -289,6 +289,16 @@ class MessageProcessor:
 
     async def _perform_classification(self, ctx: MessageContext):
         """Classify the query using fast-path and prepare full-path task."""
+        # Ensure we have the latest parser from context if it was late-initialized
+        if self.intent_parser is None and hasattr(self.ctx, 'intent_parser'):
+             self.intent_parser = self.ctx.intent_parser
+
+        if self.intent_parser is None:
+            log_warning("IntentParser not yet initialized. Skipping classification.")
+            ctx.intent = None
+            ctx.category = "general"
+            return
+
         # 1. Fast Path
         fast_intent = self.intent_parser.fast_parse(ctx.sanitized_content)
         
@@ -339,7 +349,7 @@ class MessageProcessor:
 
     async def _check_cache(self, ctx: MessageContext):
         """DECOMMISSIONED: Semantic cache removed per user request."""
-        return None
+        return False
 
     async def _finalize_classification(self, ctx: MessageContext):
         """Await the parallel intent task and update context."""
@@ -650,6 +660,10 @@ class MessageProcessor:
         # Filter for most recent 12 turns (optimized from deque copy)
         for m in history[-12:]:
             if isinstance(m, dict) and 'role' in m and 'content' in m:
+                # BUG 2 FIX: Ensure channel_memory NEVER stores or sends system messages in history
+                if m.get('role') == 'system':
+                    continue
+                    
                 if messages and messages[-1]["role"] == m["role"] and m["role"] != "system":
                     messages[-1]["content"] += f"\n\n{m['content']}"
                 else:
@@ -658,6 +672,10 @@ class MessageProcessor:
                 # Handle raw string literal format safely
                 text_content = str(m)
                 
+                # BUG 2 FIX: Strip any history entries that start with "SYSTEM:" or contain "[REPLYING_TO_CONTEXT]"
+                if text_content.startswith("SYSTEM:") or "[REPLYING_TO_CONTEXT]" in text_content:
+                    continue
+
                 # Try to infer role roughly for correct concatenation
                 inferred_role = "user"
                 if "kaia:" in text_content.lower() or "assistant:" in text_content.lower():
@@ -667,6 +685,10 @@ class MessageProcessor:
                     messages[-1]["content"] += f"\n\n{text_content}"
                 else:
                     messages.append({"role": inferred_role, "content": text_content})
+        
+        # BUG 1 FIX: Sanitization pass to strip any message whose content matches the JSON response pattern
+        json_pattern = re.compile(r'^\s*\{.*"response"\s*:', re.DOTALL)
+        messages = [msg for msg in messages if not (msg['role'] == 'assistant' and json_pattern.search(msg['content']))]
         
         # Re-assert conversation target to prevent cross-talk bleed
         if ctx.parent_context:
@@ -820,18 +842,25 @@ class MessageProcessor:
                      from collections import deque
                      self.bot_state.channel_memory[ctx.channel_id] = deque(maxlen=self.config.max_memory_messages)
                 
+                # BUG 1 FIX: Before writing to interaction log or memory, strip JSON wrapper if found
+                bot_response = ctx.response_text
+                json_wrapper_pattern = r'^\s*\{[\s\S]*"response"\s*:\s*"([\s\S]*)"\s*\}\s*$'
+                match = re.search(json_wrapper_pattern, bot_response)
+                if match:
+                    bot_response = match.group(1).replace('\\"', '"').replace('\\n', '\n')
+
                 # Add author prefix to user message for history disambiguation
                 user_msg_with_author = f"{ctx.author_name}: {ctx.sanitized_content}"
                 self.bot_state.channel_memory[ctx.channel_id].append({"role": "user", "content": user_msg_with_author})
-                self.bot_state.channel_memory[ctx.channel_id].append({"role": "assistant", "content": ctx.response_text})
+                self.bot_state.channel_memory[ctx.channel_id].append({"role": "assistant", "content": bot_response})
                 
                 # Update personalization and relevance feedback
-                await self.personalization_engine.learn_from_interaction(ctx.author_id, ctx.sanitized_content, ctx.response_text)
-                await self.relevance_feedback.log_interaction(ctx.sanitized_content, ctx.response_text, ctx.author_id, ctx.author_name)
+                await self.personalization_engine.learn_from_interaction(ctx.author_id, ctx.sanitized_content, bot_response)
+                await self.relevance_feedback.log_interaction(ctx.sanitized_content, bot_response, ctx.author_id, ctx.author_name)
                 
                 # Log for RAG
                 # CRITICAL FIX: Use sanitized_content to avoid poisoning RAG with [REPLYING_TO] tags
-                await self.rag.log_user_interaction_async(ctx.author_id, ctx.author_name, ctx.sanitized_content, ctx.response_text)
+                await self.rag.log_user_interaction_async(ctx.author_id, ctx.author_name, ctx.sanitized_content, bot_response)
                 
                 self.performance_monitor.stop_timer('total', 'response_time')
                 
