@@ -58,5 +58,3 @@ async def dispatch_command(ctx, msg, load_persona_async, send_kaia_response):
         return True
         
     return False
-
-
