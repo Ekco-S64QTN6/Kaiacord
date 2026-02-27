@@ -1,6 +1,7 @@
 import os
 import sys
-from kaia_rag import KaiaRAG, HallucinationDetector
+from utils.core.kaia_rag import KaiaRAG
+from utils.core.hallucination_detector import HallucinationDetector
 
 def test_hallucination_detector():
     print("Testing HallucinationDetector...")

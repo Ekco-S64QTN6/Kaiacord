@@ -3,9 +3,9 @@ import os
 import asyncio
 
 # Add project root to sys.path
-sys.path.append(os.path.abspath(os.path.join(os.path.dirname(__file__), '..')))
+sys.path.append(os.path.abspath(os.path.join(os.path.dirname(__file__), '../../..')))
 
-from kaia_rag import KaiaRAG
+from utils.core.kaia_rag import KaiaRAG
 
 async def verify_news_retrieval():
     rag = KaiaRAG()
