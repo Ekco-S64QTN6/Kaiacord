@@ -885,6 +885,20 @@ class IntentParser:
         """Layer 1: Fast Pattern Detection"""
         query_lower = query.lower().strip()
         
+        # Fast-path for explicit "look at file/report/research" intent
+        if any(phrase in query_lower for phrase in ["take a look at", "looked at", "check the", "read the", "seen the", "go over"]):
+            if any(ext in query_lower for ext in [".md", ".txt", ".pdf", "file", "doc", "research", "report"]):
+                log_debug("Fast-path trigger: PRECISE_RECALL (file review request)")
+                return Intent(
+                    explicit_intent="file review request",
+                    implied_needs=["knowledge retrieval"],
+                    emotional_context="neutral",
+                    temporal_focus="present",
+                    relational_context="general",
+                    suggested_strategy="PRECISE_RECALL",
+                    confidence=0.85
+                )
+
         for strategy, patterns in self.fast_triggers.items():
             for compiled_re in patterns:
                 if compiled_re.search(query_lower):

@@ -41,6 +41,7 @@ async def handle_explain_command(ctx, msg, send_kaia_response):
         file_path = metadata.get("file_path", "")
         source_type = metadata.get("source_type", "unknown")
         audit_flags = metadata.get("audit_flags", [])
+        retrieval_method = metadata.get("retrieval_method", "unknown")
 
         # File info
         basename = os.path.basename(file_path) if file_path else "unknown"
@@ -64,7 +65,7 @@ async def handle_explain_command(ctx, msg, send_kaia_response):
         preview = content[:100].replace("\n", " ") + ("..." if len(content) > 100 else "")
 
         lines.append(
-            f"\n#{i} [{label}]  score={score:.3f}\n"
+            f"\n#{i} [{label}]  score={score:.3f} [{retrieval_method.upper()}]\n"
             f"   Source: {basename} ({source_type})\n"
             f"   Modified: {mod_date}"
             f"{flags_str}\n"

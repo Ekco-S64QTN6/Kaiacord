@@ -178,7 +178,20 @@ class HybridRetriever:
         # 4. Efficient top_k selection via heapq
         top_items = heapq.nlargest(top_k, combined_scores.items(), key=lambda x: x[1])
         
-        return [NodeWithScore(node=node_map[nid], score=float(score * self.multiplier)) for nid, score in top_items]
+        results = []
+        for nid, score in top_items:
+            # Determine if this was primarily a BM25 or Vector match based on presence
+            # If the node was in the BM25 retrieval but not vector, it's BM25.
+            # RRF guarantees it's in at least one.
+            in_bm25 = any(n.node_id == nid for n, _ in bm25_results)
+            in_vector = any(n.node.node_id == nid for n in vector_nodes)
+            method = "hybrid" if (in_bm25 and in_vector) else ("bm25" if in_bm25 else "vector")
+            
+            node_with_score = NodeWithScore(node=node_map[nid], score=float(score * self.multiplier))
+            node_with_score.retrieval_method = method
+            results.append(node_with_score)
+            
+        return results
 
 
 
@@ -1514,7 +1527,10 @@ class KaiaRAG:
                 return await hybrid.retrieve(query, top_k=retrieve_count)
             else:
                 retriever = self.indices[itype].as_retriever(similarity_top_k=retrieve_count)
-                return await retriever.aretrieve(query)
+                vector_results = await retriever.aretrieve(query)
+                for res in vector_results:
+                    res.retrieval_method = "vector"
+                return vector_results
         except Exception as e:
             log_error(f"Retrieval failed for {itype}: {e}")
             return []
@@ -1560,6 +1576,7 @@ class KaiaRAG:
         for node_result in all_node_results:
             node = node_result.node if hasattr(node_result, 'node') else node_result
             base_score = node_result.score if hasattr(node_result, 'score') else 0.5
+            retrieval_method = getattr(node_result, 'retrieval_method', 'unknown')
             
             content = get_node_text(node)
             if not content: continue
@@ -1590,7 +1607,11 @@ class KaiaRAG:
             if is_dream_query and not (source_type == 'dream' or "kaia_dreams" in file_path or "dream" in content.lower()): continue
 
             # SCORING
-            path_boost = 0.5 if file_path and len(os.path.basename(file_path)) > 8 and os.path.basename(file_path).lower() in query_lower else 0
+            basename_lower = os.path.basename(file_path).lower() if file_path else ""
+            query_words = set(query_lower.split())
+            filename_words = set(basename_lower.replace("_", " ").replace("-", " ").split())
+            word_overlap = query_words & filename_words - {"for", "the", "a", "an", "to", "of"}
+            path_boost = 0.6 if len(word_overlap) >= 2 else (0.3 if len(word_overlap) == 1 and source_type == 'knowledge' else 0)
             type_boosts = getattr(config, 'rag_type_boosts', {'persona': 0.15, 'user_profile': 0.20, 'dream': 0.10, 'user_logs': 0.25})
             type_boost = type_boosts.get(source_type, 0.0)
             
@@ -1602,6 +1623,17 @@ class KaiaRAG:
                     final_score += 0.30  # Strong boost for current user's own logs
                 else:
                     final_score += 0.10  # Weaker boost — still preferred over fiction
+
+            # Fix 2: Add recency decay for user_logs
+            if source_type == 'user_logs':
+                try:
+                    if file_path and os.path.exists(file_path):
+                        file_mtime = os.path.getmtime(file_path)
+                        days_old = (time.time() - file_mtime) / 86400
+                        recency_boost = max(0.0, 0.20 * (1 - days_old / 30))  # fades to 0 over 30 days
+                        final_score += recency_boost
+                except Exception:
+                    pass
 
             # AUDIT FLAG PENALTY: reduce score for nodes flagged with Data Rot constructs
             audit_flags = metadata.get('audit_flags', [])
@@ -1623,7 +1655,16 @@ class KaiaRAG:
                 elif source_type == 'user_logs' and node_user_id in relevant_ids: final_score += 0.25
 
             # THRESHOLDING
-            min_threshold = 0.40 if strategy == "DREAM_RECALL" else (config.rag_threshold_knowledge + (config.rag_threshold_casual_penalty if is_casual else 0))
+            # Priority 3: Per-strategy threshold differentiation
+            if strategy == "DREAM_RECALL":
+                min_threshold = 0.40
+            elif strategy == "PRECISE_RECALL":
+                min_threshold = config.rag_threshold_knowledge - 0.10  # Accept more candidates for specific requests
+            elif strategy == "SOCIAL_GREETING":
+                min_threshold = config.rag_threshold_knowledge + 0.10  # Be very strict
+            else:
+                min_threshold = config.rag_threshold_knowledge + (config.rag_threshold_casual_penalty if is_casual else 0)
+            
             if final_score < min_threshold: continue
 
             # LABELING
@@ -1631,6 +1672,9 @@ class KaiaRAG:
             if source_type == "persona": label = "Kaia Persona Fragment"
             elif source_type == "user_profile": label = f"Profile: {metadata.get('user_name', 'Unknown')}"
             elif source_type == "user_logs": label = f"Log: {metadata.get('user_name', 'Unknown')}"
+            
+            # Store retrieval method in metadata to make it accessible to !explain
+            metadata["retrieval_method"] = retrieval_method
             
             scored_nodes.append({"content": content, "metadata": metadata, "label": label, "score": final_score})
 

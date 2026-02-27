@@ -40,3 +40,10 @@ performance:
   max_consecutive_quips: 5
   idle_quip_timeout_minutes: 160
   max_context_tokens: 8192
+
+rag_type_boosts:
+  persona: 0.15
+  user_profile: 0.20
+  dream: 0.10
+  user_logs: 0.10
+  knowledge: 0.20
