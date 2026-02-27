@@ -181,14 +181,16 @@ class HybridRetriever:
         results = []
         for nid, score in top_items:
             # Determine if this was primarily a BM25 or Vector match based on presence
-            # If the node was in the BM25 retrieval but not vector, it's BM25.
-            # RRF guarantees it's in at least one.
             in_bm25 = any(n.node_id == nid for n, _ in bm25_results)
             in_vector = any(n.node.node_id == nid for n in vector_nodes)
             method = "hybrid" if (in_bm25 and in_vector) else ("bm25" if in_bm25 else "vector")
             
-            node_with_score = NodeWithScore(node=node_map[nid], score=float(score * self.multiplier))
-            node_with_score.retrieval_method = method
+            node = node_map[nid]
+            if not isinstance(node.metadata, dict):
+                node.metadata = {}
+            node.metadata["_retrieval_method"] = method
+            
+            node_with_score = NodeWithScore(node=node, score=float(score * self.multiplier))
             results.append(node_with_score)
             
         return results
@@ -1529,7 +1531,10 @@ class KaiaRAG:
                 retriever = self.indices[itype].as_retriever(similarity_top_k=retrieve_count)
                 vector_results = await retriever.aretrieve(query)
                 for res in vector_results:
-                    res.retrieval_method = "vector"
+                    if hasattr(res, 'node'):
+                        if not isinstance(res.node.metadata, dict):
+                            res.node.metadata = {}
+                        res.node.metadata["_retrieval_method"] = "vector"
                 return vector_results
         except Exception as e:
             log_error(f"Retrieval failed for {itype}: {e}")
@@ -1576,15 +1581,12 @@ class KaiaRAG:
         for node_result in all_node_results:
             node = node_result.node if hasattr(node_result, 'node') else node_result
             base_score = node_result.score if hasattr(node_result, 'score') else 0.5
-            retrieval_method = getattr(node_result, 'retrieval_method', 'unknown')
+            
+            metadata = get_node_metadata(node)
+            retrieval_method = metadata.get('_retrieval_method', 'unknown')
             
             content = get_node_text(node)
             if not content: continue
-            content_hash = hash(content[:200])
-            if content_hash in seen_texts: continue
-            seen_texts.add(content_hash)
-            
-            metadata = get_node_metadata(node)
             source_type = metadata.get('source_type', 'general')
             file_path = metadata.get('file_path', '')
             node_user_id = str(metadata.get('user_id', ''))

@@ -560,8 +560,6 @@ class MessageProcessor:
         
         # Adaptation
         ctx.system_prompt = self.personalization_engine.adapt_prompt(ctx.system_prompt, ctx.user_traits)
-        now = datetime.now()
-        ctx.system_prompt += f"\n\nToday is {now.strftime('%A, %B %d, %Y %I:%M %p')}."
 
         # Diversification
         if is_news_query:
