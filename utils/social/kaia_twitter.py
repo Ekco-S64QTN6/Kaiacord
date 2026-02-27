@@ -101,8 +101,12 @@ async def get_x_client(force_new: bool = False):
                             log_info("Found browser cookies. Injecting session...")
                             import json
                             _cookies_path.parent.mkdir(exist_ok=True)
-                            with open(_cookies_path, 'w') as f:
-                                json.dump(cookie_dict, f, indent=2)
+                            
+                            def _save_injected_cookies():
+                                with open(_cookies_path, 'w') as f:
+                                    json.dump(cookie_dict, f, indent=2)
+                            
+                            await asyncio.to_thread(_save_injected_cookies)
                             
                             # Try loading the newly written cookies
                             try:

@@ -538,12 +538,23 @@ class MessageProcessor:
 
     async def _process_retrieval_results(self, ctx: MessageContext, results: dict, ask_whats_new, is_news_query, clean_query):
         """Handle RAG results, persona adaptation, and news diversification."""
-        ctx.system_prompt = results.get('persona', "")
+        # 1. PERSONA LOADING (Trace life-cycle)
+        raw_persona = results.get('persona', "")
+        
+        # FIX: Ensure we don't end up with a list from a cancelled task/timeout
+        if isinstance(raw_persona, list):
+            log_warning("Persona result was a list (likely from gather timeout). Resetting to empty string.")
+            raw_persona = ""
+            
+        ctx.system_prompt = str(raw_persona)
+        log_debug(f"PERSONA LOADED: {len(ctx.system_prompt)} chars | preview: {ctx.system_prompt[:100]}")
+
         ctx.raw_nodes = results.get('rag', [])
         
         # Merge news results if they were run separately
         if 'rag_news' in results and results['rag_news']:
-            ctx.raw_nodes.extend(results['rag_news'])
+            if isinstance(ctx.raw_nodes, list) and isinstance(results['rag_news'], list):
+                ctx.raw_nodes.extend(results['rag_news'])
             
         ctx.user_traits = results.get('traits', {})
         
@@ -617,21 +628,20 @@ class MessageProcessor:
         # 4. Final Processing & Logging
         await self._post_process_and_log(ctx)
 
-    def _construct_messages(self, ctx: MessageContext, optimized: Dict[str, str]) -> List[Dict[str, str]]:
+    def _construct_messages(self, ctx: MessageContext, optimized: Dict[str, Any]) -> List[Dict[str, str]]:
         """Build the system, RAG, history, and user messages."""
         system_prompt = optimized['persona']
         context_str = optimized['rag']
-        history_str = optimized['history']
+        optimized_history = optimized.get('history', [])
         
         # Core Unification: Persona + RAG + History
-        # Note: All tone, skepticism, and behavioral constraints MUST be in kaia_persona.md
         rag_block = (
             f"### DATA RETRIEVAL FOR: {ctx.author_name}\n"
             f"{context_str or 'No specific historical records found.'}\n"
             "---"
         ) if context_str else f"### CURRENT_USER: {ctx.author_name}\nNo records found."
 
-        # Grounding Enforcement: If RAG is empty for sensitive categories, add a strict reminder
+        # Grounding Enforcement
         grounding_categories = {"identity", "social_identity", "self", "whoami", "entity"}
         is_observational = _is_observational_query(ctx.sanitized_content)
         needs_grounding = ctx.category in grounding_categories or is_observational
@@ -640,12 +650,10 @@ class MessageProcessor:
             if is_observational:
                 rag_block += (
                     "\n\nCRITICAL: You have NO chat logs or records of user interactions to draw from right now. "
-                    "Do NOT invent users, conversations, observations, or anecdotes about what people said or did. "
-                    "If asked what you've observed or noticed in chat, say you haven't been tracking that closely, "
-                    "your memory's blank on it, or you don't have anything specific. Stay honest."
+                    "Do NOT invent users, conversations, observations, or anecdotes."
                 )
             else:
-                rag_block += "\n\nCRITICAL: No specific records found for this person or topic. Do not invent details, threads, or interactions. If you don't know, stay grounded and admit the records are hazy or missing."
+                rag_block += "\n\nCRITICAL: No specific records found. Do not invent details."
 
         current_time_str = datetime.now().strftime("%A, %B %d, %Y | %I:%M %p")
 
@@ -655,65 +663,37 @@ class MessageProcessor:
             f"{rag_block}"
         )
 
+        # [DEBUG] Trace final prompt assembly
+        f_snippet = (full_system_prompt[:200] + "...") if len(full_system_prompt) > 200 else full_system_prompt
+        log_debug(f"DEBUG: Assembled system prompt (total len={len(full_system_prompt)}): {f_snippet}")
+
         messages = [
             {"role": "system", "content": full_system_prompt}
         ]
         
-        if optimized.get('history'):
-            messages.append({"role": "system", "content": optimized['history']})
-        
-        # Latest History (Already cached in ctx.history if retrieval ran)
-        history = ctx.history if ctx.history else list(self.bot_state.channel_memory.get(ctx.channel_id, []))
-        
-        # Filter for most recent 12 turns (optimized from deque copy)
-        for m in history[-12:]:
-            if isinstance(m, dict) and 'role' in m and 'content' in m:
-                # BUG 2 FIX: Ensure channel_memory NEVER stores or sends system messages in history
-                if m.get('role') == 'system':
+        # USE ONLY OPTIMIZED HISTORY (Fixes Double-History Bug)
+        for turn in optimized_history:
+            if isinstance(turn, dict) and 'role' in turn and 'content' in turn:
+                if turn.get('role') == 'system':
                     continue
-                    
-                if messages and messages[-1]["role"] == m["role"] and m["role"] != "system":
-                    messages[-1]["content"] += f"\n\n{m['content']}"
-                else:
-                    messages.append(m.copy())
-            else:
-                # Handle raw string literal format safely
-                text_content = str(m)
-                
-                # BUG 2 FIX: Strip any history entries that start with "SYSTEM:" or contain "[REPLYING_TO_CONTEXT]"
-                if text_content.startswith("SYSTEM:") or "[REPLYING_TO_CONTEXT]" in text_content:
+                # JSON pollution stripping
+                if turn['role'] == 'assistant' and _JSON_RESPONSE_PATTERN.search(turn['content']):
                     continue
+                messages.append(turn.copy())
 
-                # Try to infer role roughly for correct concatenation
-                inferred_role = "user"
-                if "kaia:" in text_content.lower() or "assistant:" in text_content.lower():
-                    inferred_role = "assistant"
-                    
-                if messages and messages[-1]["role"] == inferred_role:
-                    messages[-1]["content"] += f"\n\n{text_content}"
-                else:
-                    messages.append({"role": inferred_role, "content": text_content})
-        
-        # BUG 1 FIX: Sanitization pass to strip any message whose content matches the JSON response pattern
-        messages = [msg for msg in messages if not (msg['role'] == 'assistant' and _JSON_RESPONSE_PATTERN.search(msg['content']))]
-        
-        # Re-assert conversation target to prevent cross-talk bleed
+        # Re-assert conversation target
         if ctx.parent_context:
             label = "[REPLYING_TO_CONTEXT]"
             if ctx.root_context == ctx.parent_context:
                 label = "[THREAD_ROOT_AND_PARENT]"
             clipped_parent = ctx.parent_context[:1000] + ("..." if len(ctx.parent_context) > 1000 else "")
             
-            context_reminder = f"{label}\nIgnore recent channel chatter if unrelated. The user is replying DIRECTLY to this specific message:\n{clipped_parent}"
-            
-            if ctx.root_context and ctx.root_context != ctx.parent_context:
-                clipped_root = ctx.root_context[:1000] + ("..." if len(ctx.root_context) > 1000 else "")
-                context_reminder += f"\n\n[THREAD_START]\nThis discussion originally started from:\n{clipped_root}"
-                
+            context_reminder = f"{label}\nIgnore recent channel chatter if unrelated. The user is replying DIRECTLY to this message:\n{clipped_parent}"
             messages.append({"role": "system", "content": context_reminder})
 
         messages.append({"role": "user", "content": ctx.sanitized_content})
         
+        log_debug(f"DEBUG: Final messages list contains {len(messages)} items (System + {len(optimized_history)} history turns + User).")
         return messages
 
     async def _call_ollama_with_retries(self, ctx: MessageContext, messages: List[Dict[str, str]]) -> str:

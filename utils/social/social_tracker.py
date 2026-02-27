@@ -111,32 +111,38 @@ class SocialTracker:
                     self._thread_counts[root_uri] = {}
                 self._thread_counts[root_uri][user_handle] = self._thread_counts[root_uri].get(user_handle, 0) + 1
             
-            # Persist: Append to log (fast)
-            try:
-                with open(self.log_path, 'a') as f:
-                    f.write(f"{mention_id}\n")
-            except Exception as e:
-                log_error(f"[SocialTracker] Failed to append to log: {e}")
+            # Persist: Append to log (fast but still potentially blocking)
+            def _append_to_log():
+                try:
+                    with open(self.log_path, 'a') as f:
+                        f.write(f"{mention_id}\n")
+                except Exception as e:
+                    log_error(f"[SocialTracker] Failed to append to log: {e}")
+
+            await asyncio.to_thread(_append_to_log)
 
     async def save_snapshot(self):
         """Save full state snapshot and truncate log."""
         async with self._lock:
-            try:
-                state = {
-                    'replied_ids': list(self._replied_deque),
-                    'thread_counts': self._thread_counts,
-                    'last_updated': time.time()
-                }
-                with open(self.state_path, 'w') as f:
-                    json.dump(state, f, indent=2)
-                
-                # Truncate log as it's now synced to state
-                if self.log_path.exists():
-                    self.log_path.unlink()
-                
-                log_info(f"[SocialTracker] Saved state snapshot to {self.state_path}")
-            except Exception as e:
-                log_error(f"[SocialTracker] Failed to save state snapshot: {e}")
+            def _write_snapshot():
+                try:
+                    state = {
+                        'replied_ids': list(self._replied_deque),
+                        'thread_counts': self._thread_counts,
+                        'last_updated': time.time()
+                    }
+                    with open(self.state_path, 'w') as f:
+                        json.dump(state, f, indent=2)
+                    
+                    # Truncate log as it's now synced to state
+                    if self.log_path.exists():
+                        self.log_path.unlink()
+                    
+                    log_info(f"[SocialTracker] Saved state snapshot to {self.state_path}")
+                except Exception as e:
+                    log_error(f"[SocialTracker] Failed to save state snapshot: {e}")
+
+            await asyncio.to_thread(_write_snapshot)
 
 # Singleton instance
 social_tracker = SocialTracker()

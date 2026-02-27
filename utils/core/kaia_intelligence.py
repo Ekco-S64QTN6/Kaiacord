@@ -203,6 +203,10 @@ class ContextOptimizer:
             effective_max_tokens = self.summarization_tokens # Boost for full transcript processing (Safe for 12GB VRAM)
             log_info(f"Summarization strategy detected. Boosting context window to {effective_max_tokens} tokens.")
 
+        # [DEBUG] Track persona presence and size
+        persona_snippet = (persona[:150] + "...") if len(persona) > 150 else persona
+        log_debug(f"DEBUG: optimize_context received persona (len={len(persona)}): {persona_snippet}")
+
         # 2. Persona is non-negotiable - calculate its actual cost first
         optimized_persona = persona 
         persona_tokens = len(persona.split()) * self.token_multiplier
@@ -388,35 +392,32 @@ class ContextOptimizer:
             rag_str = self._rag_header + "\n\n".join(sections)
             current_tokens += rag_current
 
-        # 3. Append History (Incremental)
-        hist_str = ""
+        # 3. Append History (Pruned list to preserve role metadata)
+        optimized_history = []
         if history:
-            history_budget = self.max_tokens - current_tokens - 500
-            hist_parts = []
+            history_budget = self.max_tokens - current_tokens - self.system_reserve
             hist_current = 0
             
             # Add latest first, but keep chronological order in final output
             for turn in reversed(history):
-                # Ensure the turn is a string for joining later
-                if isinstance(turn, dict):
-                    turn_str = turn.get('content', str(turn))
-                else:
-                    turn_str = str(turn)
+                # Turn is a dict {'role': ..., 'content': ...}
+                if not isinstance(turn, dict):
+                    continue
                     
-                t_count = self._estimate_tokens(turn_str)
+                t_count = self._estimate_tokens(turn.get('content', ''))
                 if hist_current + t_count <= history_budget:
-                    hist_parts.insert(0, turn_str)
+                    optimized_history.insert(0, turn.copy())
                     hist_current += t_count
                 else:
                     break
             
-            if hist_parts:
-                hist_str = self._history_header + "\n".join(hist_parts)
+            if optimized_history:
+                log_debug(f"History optimized to {len(optimized_history)} turns within {history_budget} token budget.")
                 
         return {
             'persona': persona,
             'rag': rag_str,
-            'history': hist_str
+            'history': optimized_history # Now returning a list
         }
         
     def _estimate_tokens(self, text) -> int:

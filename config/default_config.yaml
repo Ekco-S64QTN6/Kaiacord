@@ -57,6 +57,7 @@ performance:
       user_profile: 0.20
       dream: 0.10
       memory: 0.25
+      general_knowledge: -0.20
   
   # Requests per minute per user (rate limiting)
   requests_per_minute: 30
@@ -80,7 +81,7 @@ performance:
 
   # Token estimation multiplier (words * multiplier = approx tokens)
   # 1.3 is a reasonable estimate for English text; adjust for other languages
-  token_multiplier: 1.3
+  token_multiplier: 1.6
 
   # Reserved tokens for system reinforcement rules and safety prompts
   system_reserve_tokens: 1250

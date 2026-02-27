@@ -1575,7 +1575,18 @@ class KaiaRAG:
             # FILTERS
             if not include_news and (source_type == 'news' or "news" in file_path.lower()): continue
             if source_type == 'user_profile' and (not (is_social_identity or strict_identity) or (node_user_id and node_user_id not in relevant_ids)): continue
-            if source_type == 'user_logs' and node_user_id and node_user_id not in relevant_ids: continue
+            
+            # Fix 1: Differentiate "user-scoped" vs "topic-scoped" log retrieval
+            if source_type == 'user_logs' and node_user_id:
+                # For identity/personal queries: strict — only current user's logs
+                if strict_identity or routing.get("is_social_identity"):
+                    if node_user_id not in relevant_ids: continue
+                # For general/casual queries: allow all users' logs (boosted below)
+                
+            # Fix 3: Add a casual query hard cap on general_knowledge
+            if is_casual and source_type == 'general_knowledge' and not routing.get('is_entity_query'):
+                continue  # Books have no business in casual chitchat
+
             if is_dream_query and not (source_type == 'dream' or "kaia_dreams" in file_path or "dream" in content.lower()): continue
 
             # SCORING
@@ -1584,6 +1595,13 @@ class KaiaRAG:
             type_boost = type_boosts.get(source_type, 0.0)
             
             final_score = base_score + path_boost + type_boost
+
+            # Fix 1 (Scoring): Same-user boost for logs
+            if source_type == 'user_logs':
+                if node_user_id in relevant_ids:
+                    final_score += 0.30  # Strong boost for current user's own logs
+                else:
+                    final_score += 0.10  # Weaker boost — still preferred over fiction
 
             # AUDIT FLAG PENALTY: reduce score for nodes flagged with Data Rot constructs
             audit_flags = metadata.get('audit_flags', [])
@@ -1660,6 +1678,8 @@ class KaiaRAG:
             tasks = [self._execute_hybrid_retrieval(itype, enriched_query, retrieve_count) for itype in target_itypes if itype in self.indices]
             all_results = await asyncio.gather(*tasks)
             all_node_results = [node for sublist in all_results for node in sublist]
+            # Cache raw results BEFORE filtering for !explain
+            self._last_raw_results = all_node_results
             
             # Scoring & Filtering
             results = self._score_and_filter_nodes(all_node_results, query_lower, relevant_ids, routing, top_k, include_news, strict_identity)

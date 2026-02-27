@@ -85,6 +85,9 @@ def load_persona() -> str:
     persona_file = project_root / 'knowledge_base' / 'kaia_persona.md'
     
     try:
+        if not persona_file.exists():
+            log_error(f"Persona file NOT FOUND at: {persona_file}")
+            
         mtime = persona_file.stat().st_mtime
         if _persona_cache and mtime <= _persona_last_load:
             return _persona_cache
@@ -93,9 +96,12 @@ def load_persona() -> str:
             content = f.read().strip()
             _persona_cache = content
             _persona_last_load = mtime
+            log_debug(f"Persona loaded successfully from {persona_file} ({len(content)} chars)")
             return _persona_cache
-    except Exception:
+    except Exception as e:
+        log_error(f"load_persona() FAILED to read file: {persona_file} — Error: {e}")
         if _persona_cache:
+            log_info("Returning persona from memory cache as fallback.")
             return _persona_cache
         return "You are Kaia, a blunt and grounded resident of this server."
 
@@ -170,11 +176,15 @@ async def _reconstruct_bluesky_history():
         
         # Phase 1: Collect parent URIs
         reply_map = {} # {bot_post_uri: (root_uri, parent_uri)}
-        for item in response.feed:
+        for i, item in enumerate(response.feed):
             post = item.post
             reply = getattr(post.record, 'reply', None)
             if reply:
                 reply_map[post.uri] = (reply.root.uri, reply.parent.uri)
+            
+            # Yield occasionally
+            if i % 10 == 0:
+                await asyncio.sleep(0)
         
         if not reply_map:
             return
@@ -201,7 +211,7 @@ async def _reconstruct_bluesky_history():
 
         # Phase 3: Update state
         count = 0
-        for bot_post_uri, (root_uri, parent_uri) in reply_map.items():
+        for i, (bot_post_uri, (root_uri, parent_uri)) in enumerate(reply_map.items()):
             # Track replies per user in this thread
             replied_to_author = author_map.get(parent_uri)
             if replied_to_author:
@@ -210,6 +220,10 @@ async def _reconstruct_bluesky_history():
             # Always mark the parent as replied if we found our own reply to it
             _silenced_replied_ids.add(f"bsky:{parent_uri}")
             count += 1
+            
+            # Yield occasionally
+            if i % 10 == 0:
+                await asyncio.sleep(0)
         
         if count > 0:
             log_info(f"Reconstructed thread counts and replied IDs for {count} Bluesky replies.")
@@ -672,14 +686,23 @@ async def check_and_reply_mentions(on_message_func):
         log_debug("Social media poll started...")
         log_info("Initializing social safety scan (Session Start)...")
         
-        # FIX: CONCURRENT RECONSTRUCTION
+        # FIX: CONCURRENT RECONSTRUCTION (Strictly honoring enabled flags)
         # Reconstruct thread counts and replied IDs from bot's own recent activity
         # We run these in parallel to prevent stacking serial blocking/IO time.
-        await asyncio.gather(
-            _reconstruct_bluesky_history(),
-            _reconstruct_x_history(),
-            return_exceptions=True
-        )
+        tasks = []
+        
+        if config.bluesky_enabled:
+            tasks.append(_reconstruct_bluesky_history())
+        else:
+            log_debug("Bluesky disabled - skipping history reconstruction.")
+            
+        if config.x_enabled:
+            tasks.append(_reconstruct_x_history())
+        else:
+            log_debug("X/Twitter disabled - skipping history reconstruction.")
+            
+        if tasks:
+            await asyncio.gather(*tasks, return_exceptions=True)
         
         await _save_replied_ids_async()
         _first_poll_done = True
