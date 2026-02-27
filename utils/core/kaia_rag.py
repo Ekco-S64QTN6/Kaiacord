@@ -1612,7 +1612,7 @@ class KaiaRAG:
             basename_lower = os.path.basename(file_path).lower() if file_path else ""
             query_words = set(query_lower.split())
             filename_words = set(basename_lower.replace("_", " ").replace("-", " ").split())
-            word_overlap = query_words & filename_words - {"for", "the", "a", "an", "to", "of"}
+            word_overlap = query_words & filename_words - {"for", "the", "a", "an", "to", "of", "kaia"}
             path_boost = 0.6 if len(word_overlap) >= 2 else (0.3 if len(word_overlap) == 1 and source_type == 'knowledge' else 0)
             type_boosts = getattr(config, 'rag_type_boosts', {'persona': 0.15, 'user_profile': 0.20, 'dream': 0.10, 'user_logs': 0.25})
             type_boost = type_boosts.get(source_type, 0.0)
