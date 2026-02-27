@@ -1636,6 +1636,16 @@ class KaiaRAG:
                         final_score += recency_boost
                 except Exception:
                     pass
+                
+                # Fix 3: Echo-Dampening (Prevent conversation loops from outranking original files)
+                query_words_significant = [w for w in query_lower.split() 
+                                           if w not in {"hey", "kaia", "the", "a", "for", "you", "have", "to", "look", "at", "what", "is"}]
+                if len(query_words_significant) > 0:
+                    words_found = sum(1 for w in query_words_significant if w in content.lower())
+                    echo_ratio = words_found / len(query_words_significant)
+                    if echo_ratio > 0.7:  # Log is mostly just repeating the query back verbatim
+                        final_score *= 0.6  # 40% dampening
+
 
             # AUDIT FLAG PENALTY: reduce score for nodes flagged with Data Rot constructs
             audit_flags = metadata.get('audit_flags', [])
