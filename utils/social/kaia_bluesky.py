@@ -12,12 +12,19 @@ import asyncio
 from typing import Optional
 from utils.infrastructure.logging.kaia_logger import log_info, log_success, log_warning, log_error, log_debug
 
-# Move imports to top level to prevent hangs during shutdown/cancellation
-try:
-    from atproto import AsyncClient, AsyncRequest, models
-except ImportError:
-    log_warning("atproto library not found. Bluesky integration will be disabled.")
-    AsyncClient = AsyncRequest = models = None
+# Lazy import to prevent hangs during initialization
+AsyncClient = AsyncRequest = models = None
+
+def _ensure_atproto():
+    """Lazy import atproto to avoid blocking startup."""
+    global AsyncClient, AsyncRequest, models
+    if AsyncClient is None:
+        try:
+            from atproto import AsyncClient as _AC, AsyncRequest as _AR, models as _m
+            AsyncClient, AsyncRequest, models = _AC, _AR, _m
+        except ImportError:
+            log_warning("atproto library not found. Bluesky integration will be disabled.")
+    return AsyncClient is not None
 
 # Lazy client instance
 _client = None
@@ -41,6 +48,8 @@ async def get_bluesky_client(force_new: bool = False):
     
     if not is_bluesky_configured():
         return None
+        
+    _ensure_atproto()
     
     async with _client_lock:
         if force_new:
@@ -193,6 +202,7 @@ async def post_thread_to_bluesky(chunks: list[str]) -> tuple[bool, Optional[str]
     Returns:
         (success, first_post_uri or error_message)
     """
+    _ensure_atproto()
     if models is None:
         return False, "atproto models not available"
     

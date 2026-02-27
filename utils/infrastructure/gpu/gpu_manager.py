@@ -374,7 +374,7 @@ class GPUMemoryManager:
         except Exception:
             return {'total': 0.0, 'allocated': 0.0, 'free': 0.0}
 
-    async def run_with_gpu_guard(self, model_name: str, priority: GPUTaskPriority = GPUTaskPriority.CHAT, coro = None, vram_gb: float = 0.0, task_id: str = None):
+    async def run_with_gpu_guard(self, model_name: str, coro, task_id: str = None, priority: GPUTaskPriority = GPUTaskPriority.CHAT, vram_gb: float = 0.0):
         """Pass-through to the global guard function for backward compatibility."""
         return await run_with_gpu_guard(model_name, coro, task_id=task_id, priority=priority)
 

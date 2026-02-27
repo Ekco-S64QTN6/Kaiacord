@@ -47,7 +47,6 @@ from utils.infrastructure.system.rate_limiter import RateLimiter
 from utils.infrastructure.system.shutdown_fixed import shutdown_manager
 from utils.infrastructure.system.yaml_config import config
 from utils.news.kaia_news import NewsManager, NewsRetrievalEnhancer, RAGEnhancer
-from utils.social.kaia_social_responder import load_persona_async
 
 # ─────────────────────────────────────────────
 # PHASE 0 — Minimal synchronous setup only.
@@ -201,6 +200,10 @@ async def on_ready():
                 log_success(f"[Phase 1] {config.chat_model} loaded to GPU.")
                 _phase1_success = True
                 break
+            except asyncio.TimeoutError:
+                # A timeout here means something is genuinely wrong, not a loading delay
+                log_error(f"[Phase 1] GPU warm timed out — Ollama may not be responding. Aborting retries.")
+                break
             except Exception as e:
                 err_str = str(e).lower()
                 # 500 error with "loading" in body is normal during cold starts
@@ -210,13 +213,13 @@ async def on_ready():
                     )
                 elif "busy" in err_str or "loading another model" in err_str:
                     log_action(
-                        f"[Phase 1] Ollama busy (loading model). Will retry. ({e})"
+                        f"[Phase 1] Ollama busy (loading model). Will retry. ({_p1_attempt}/20)"
                     )
                 else:
                     # Unknown error — log and stop retrying
                     import traceback
-                    log_error(f"[Phase 1] Chat model GPU warm failed: {e!r}")
-                    log_error(f"[Phase 1] Traceback: {traceback.format_exc()}")
+                    log_error(f"[Phase 1] Unexpected error: {e!r}")
+                    log_error(traceback.format_exc())
                     break
         if not _phase1_success:
             log_error(
@@ -227,12 +230,13 @@ async def on_ready():
     # Poll Ollama's process list to confirm the chat model is actually resident
     # in VRAM before proceeding.  Avoids the guesswork of asyncio.sleep().
     _vram_confirmed = False
-    for _attempt in range(10):
+    for _attempt in range(5):  # Reduce from 10 to 5
         try:
             _ps = await asyncio.to_thread(ollama.ps)
-            for m in (_ps.get("models") or []):
-                name = m.get("name", "")
-                size_vram = m.get("size_vram", 0)
+            _models = _ps.get("models") or [] if isinstance(_ps, dict) else getattr(_ps, 'models', [])
+            for m in _models:
+                name = getattr(m, 'name', m.get('name', '') if isinstance(m, dict) else '')
+                size_vram = getattr(m, 'size_vram', m.get('size_vram', 0) if isinstance(m, dict) else 0)
                 # Looser match to handle :latest suffix and ensure it's in GPU
                 base_model = config.chat_model.split(":")[0]
                 if (base_model in name or name in base_model) and size_vram > 0:
@@ -240,16 +244,16 @@ async def on_ready():
                     break
             if _vram_confirmed:
                 break
-        except Exception:
-            pass
+        except Exception as e:
+            log_debug(f"[Phase 1] ps() poll attempt {_attempt}: {e}")
         await asyncio.sleep(0.5)
 
     if _vram_confirmed:
         log_success(f"[Phase 1] VRAM lock confirmed for {config.chat_model}.")
     else:
         # Ollama ps() unavailable or model name mismatch — fall back to fixed delay
-        log_info("[Phase 1] Could not confirm VRAM lock via ollama.ps(); waiting 3s as fallback.")
-        await asyncio.sleep(3.0)
+        log_info("[Phase 1] Could not confirm VRAM lock via ollama.ps(); waiting 1s as fallback.")
+        await asyncio.sleep(1.0)
 
     # ── PHASE 1.5: Late-initialize CPU models ───────────────────────────────
     # We build these AFTER the chat model has claimed the GPU to prevent
@@ -296,11 +300,10 @@ async def _phase3_background_init():
     import utils.core.background_tasks as bg_tasks
     bg_tasks.ctx = ctx
 
-    # 3a. VRAM stabilization window — let gemma3 fully settle into GPU before
-    #     anything touches disk, RAM, or Ollama.
-    await asyncio.sleep(5)
+    # 3a. Brief yield to let the event loop breathe after Discord connects.
+    await asyncio.sleep(2)
 
-    # 3b-i. Load persistent state first — pure disk/JSON, no Ollama involvement.
+    # 3b-i. Load persistent state
     log_action("[Phase 3] Loading persistent state …")
     try:
         await ctx.persistent_state_manager.load_state_async(
@@ -310,13 +313,7 @@ async def _phase3_background_init():
     except Exception as e:
         log_error(f"[Phase 3] Persistent state load error: {e}")
 
-    # Small breath between disk operations to avoid read contention.
-    await asyncio.sleep(2)
-
-    # 3b-ii. Initialize RAG indices — may trigger embedding calls (CPU-only,
-    #        num_gpu=0 enforced in KaiaRAG.__init__).  Awaited directly; no
-    #        thread wrapper needed because initialize_async() handles its own
-    #        threading internally via asyncio.to_thread().
+    # 3b-ii. Initialize RAG indices — may trigger embedding calls (CPU-only).
     log_action("[Phase 3] Initializing RAG indices …")
     try:
         await ctx.rag.initialize_async()
@@ -325,12 +322,6 @@ async def _phase3_background_init():
         log_error(f"[Phase 3] RAG init error: {e}")
 
     # 3c. Warm intent classifier on CPU only.
-    #     10s delay after RAG init gives Ollama time to finish any embedding
-    #     model scheduling before loading a second model (gemma2:2b).
-    #     Single warm call via pre_warm() — which MUST pass num_gpu: 0 internally.
-    #     If IntentParser.pre_warm() does not enforce this, add:
-    #       options={"num_gpu": 0}  to its internal generate() call.
-    await asyncio.sleep(10)
     try:
         log_action(f"[Phase 3] Warming intent classifier ({config.get('models.classification_model', 'gemma2:2b')}) on CPU …")
         if ctx.intent_parser:
@@ -340,8 +331,6 @@ async def _phase3_background_init():
         log_error(f"[Phase 3] Intent classifier warm failed: {e}")
 
     # 3d. RAG knowledge base refresh — scans for new/changed files and embeds them.
-    #     Delayed until after intent warm to avoid three models loading simultaneously.
-    await asyncio.sleep(5)
     try:
         log_action("[Phase 3] Running background RAG knowledge base refresh …")
         await run_rag(ctx.rag.refresh_knowledge_base)
@@ -501,11 +490,11 @@ def main():
             kill_orphaned_runners(
                 preserve_model=config.chat_model,
                 preserve_ctx=config.max_context_tokens,
-                force_all=True
+                force_all=False
             )
             clear_gpu_memory(silent=True)
             import time
-            time.sleep(5)  # Give Ollama 5s to recover after being killed
+            time.sleep(1)  # Minimal safety margin (reduced from 5s)
         dm.run_curses_mode(_build_logic_layer_sync, run_bot_wrapper)
     else:
         asyncio.run(dm.run_simple_mode(_build_logic_layer_sync, run_bot_wrapper))

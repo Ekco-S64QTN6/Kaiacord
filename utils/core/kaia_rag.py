@@ -183,7 +183,7 @@ class HybridRetriever:
 
 
 def thread_safe_rag_operation(func):
-    """Decorator to ensure thread safety for RAG operations."""
+    """Decorator to ensure thread safety for RAG operations without stalling the event loop."""
     import inspect
     is_async = inspect.iscoroutinefunction(func)
 
@@ -192,44 +192,37 @@ def thread_safe_rag_operation(func):
         from utils.infrastructure.system.yaml_config import config
         lock_timeout = getattr(config, 'rag_lock_seconds', 10.0)
         
-        if func.__name__ == 'retrieve':
-            # retrieval_lock allows parallel reads if implemented later, 
-            # for now we use data_lock but with short timeouts.
-            acquired = await asyncio.to_thread(self._data_lock.acquire, timeout=0.5)
-            try:
-                if not acquired:
-                    log_warning("RAG retrieval lock contention - proceeding with best-effort access")
-                return await func(self, *args, **kwargs)
-            finally:
-                if acquired: self._data_lock.release()
-        else:
-            # Writes/updates
-            if not await asyncio.to_thread(self._data_lock.acquire, timeout=lock_timeout):
-                log_warning(f"RAG operation {func.__name__} timed out waiting for data lock")
-                return False if func.__name__ in ['add_memory', 'log_user_interaction'] else None
-            try:
-                return await func(self, *args, **kwargs)
-            finally:
-                self._data_lock.release()
+        # [CONCURRENCY OPTIMIZATION]: Retrieval is safe for parallel execution.
+        # We only lock for WRITES (adding memories, indexing, etc) to ensure the manifest
+        # and indices aren't modified while being inserted.
+        if func.__name__ in ['retrieve', 'get_context_for_hallucination_check', 'detect_hallucination']:
+            return await func(self, *args, **kwargs)
+            
+        # Use a non-blocking lock acquisition in a thread to keep the event loop responsive
+        acquired = await asyncio.to_thread(self._data_lock.acquire, timeout=lock_timeout)
+        if not acquired:
+            log_warning(f"RAG operation {func.__name__} timed out waiting for data lock")
+            return False if func.__name__ in ['add_memory', 'log_user_interaction'] else None
+        
+        try:
+            return await func(self, *args, **kwargs)
+        finally:
+            self._data_lock.release()
 
     @wraps(func)
     def sync_wrapper(self, *args, **kwargs):
         from utils.infrastructure.system.yaml_config import config
         lock_timeout = getattr(config, 'rag_lock_seconds', 10.0)
         
-        if func.__name__ == 'retrieve':
-            acquired = self._data_lock.acquire(timeout=0.5)
-            try:
-                return func(self, *args, **kwargs)
-            finally:
-                if acquired: self._data_lock.release()
-        else:
-            if not self._data_lock.acquire(timeout=lock_timeout):
-                return False if func.__name__ in ['add_memory', 'log_user_interaction'] else None
-            try:
-                return func(self, *args, **kwargs)
-            finally:
-                self._data_lock.release()
+        if func.__name__ in ['retrieve', 'get_context_for_hallucination_check', 'detect_hallucination']:
+            return func(self, *args, **kwargs)
+            
+        if not self._data_lock.acquire(timeout=lock_timeout):
+            return False if func.__name__ in ['add_memory', 'log_user_interaction'] else None
+        try:
+            return func(self, *args, **kwargs)
+        finally:
+            self._data_lock.release()
 
     return async_wrapper if is_async else sync_wrapper
 
@@ -263,18 +256,7 @@ class KaiaRAG:
             chunk_overlap=config.rag_node_chunk_overlap
         )
         
-        # Pre-load NLTK data to prevent LazyCorpusLoader thread-safety issues
-        # when running get_nodes_from_documents in parallel later.
-        try:
-            import nltk
-            from nltk.corpus import stopwords
-            # Ensure it is downloaded and loaded into memory on the main thread
-            nltk.download('stopwords', quiet=True)
-            nltk.download('punkt', quiet=True)
-            nltk.download('punkt_tab', quiet=True)
-            stopwords.ensure_loaded()
-        except Exception as e:
-            log_warning(f"Failed to pre-load NLTK data: {e}")
+        # Construction is I/O-free. NLTK pre-loading moved to initialize_async().
         
         # RAG uses the chat model for query synthesis. We deliberately DO NOT 
         # set `num_gpu: 0` here. If we did, LlamaIndex would pass that option 
@@ -297,7 +279,7 @@ class KaiaRAG:
         self.indices = {} # Hierarchical indices
         self.bm25_cache = {} # Cache for BM25 retrievers {itype: (timestamp, retriever)}
         self.persist_needed = False
-        self._data_lock = threading.Lock()  # Granular data access (retrieval vs insertion)
+        self._data_lock = threading.RLock()  # Granular data access (retrieval vs insertion)
         self._index_lock = threading.Lock() # Higher-level maintenance lock
         self.state_file = os.path.join(self.persist_dir, "file_manifest.json")
         # NOTE: _load_indexed_files() is intentionally NOT called here.
@@ -313,7 +295,6 @@ class KaiaRAG:
 
         self._user_scan_interval = getattr(config, 'rag_user_scan_interval', 300)
         self._indexing_in_progress = False
-        self._indexing_in_progress = False
         self._refresh_pending = False # Single-flight "dirty" flag
         self._bot_user_id = None # Set by Discord bot on startup
         self._initialized = False
@@ -327,6 +308,9 @@ class KaiaRAG:
         if self._initialized: return
         log_action("Initializing RAG indices in background...")
 
+        # Step 0: Pre-load NLTK data (Safe in Phase 3 background)
+        await asyncio.to_thread(self._preload_nltk)
+
         # Step 1: Load manifest from disk (I/O — runs in thread, safe in Phase 3)
         await asyncio.to_thread(self._load_indexed_files)
 
@@ -336,6 +320,25 @@ class KaiaRAG:
         
         self._initialized = True
         log_success("RAG indices initialized.")
+
+    def _preload_nltk(self):
+        """Worker thread: Pre-load NLTK data without redundant network calls."""
+        try:
+            import nltk
+            from nltk.corpus import stopwords
+            # Only download if not already present — avoids network checks at startup
+            for resource, path in [
+                ('stopwords', 'corpora/stopwords'),
+                ('punkt', 'tokenizers/punkt'),
+                ('punkt_tab', 'tokenizers/punkt_tab'),
+            ]:
+                try:
+                    nltk.data.find(path)
+                except LookupError:
+                    nltk.download(resource, quiet=True)
+            stopwords.ensure_loaded()
+        except Exception as e:
+            log_warning(f"NLTK pre-load failed: {e}")
 
     async def get_recent_files_async(self, limit: int = 5) -> List[Dict[str, str]]:
         """Async wrapper for get_recent_files utilizing cache."""
@@ -694,22 +697,32 @@ class KaiaRAG:
             return updated_itypes
             
         log_action(f"Detected {len(deleted_files)} deleted files. Pruning index O(k)...")
-        with self._data_lock: # Lock for modifying indexed_files and indices
+        # Optimization: batch pruning and manifest updates
+        to_prune = {} # itype -> list of node_ids
+        
+        with self._data_lock: # Lock for reading manifest
             for file_path in deleted_files:
-                # O(k) deletion using manifest nodes
                 node_ids = self.indexed_files[file_path].get("nodes", [])
-                log_info(f"Pruning {len(node_ids)} nodes for deleted file: {os.path.basename(file_path)}")
-                
+                if not node_ids:
+                    self.indexed_files.pop(file_path, None)
+                    continue
+                    
                 for itype, index in self.indices.items():
-                    # Filter nodes that belong to this index (or just try/except delete)
-                    # itype is usually in metadata if we want to be precise
-                    try:
-                        index.delete_nodes(node_ids)
-                        updated_itypes.add(itype)
-                    except Exception: pass
+                    if itype not in to_prune: to_prune[itype] = []
+                    to_prune[itype].extend(node_ids)
                 
                 self.indexed_files.pop(file_path, None)
                 self._file_to_nodes.pop(file_path, None)
+            
+        # Actual deletion from indices (gated by itype-level index docs locking if possible, but here we stay simple)
+        if to_prune:
+            with self._data_lock: # Re-acquire for modification
+                for itype, node_ids in to_prune.items():
+                    if not node_ids: continue
+                    try:
+                        self.indices[itype].delete_nodes(node_ids)
+                        updated_itypes.add(itype)
+                    except Exception: pass
             
         self._save_indexed_files()
         return updated_itypes
@@ -856,22 +869,24 @@ class KaiaRAG:
             new_content = f.read()
             
         if not new_content.strip():
-            mtime = os.path.getmtime(file_path)
-            self.indexed_files[abs_path] = {
-                "mtime": mtime,
-                "size": os.path.getsize(file_path),
-                "nodes": entry.get("nodes", []) if entry else []
-            }
             return False
-
+            
+        # Parse nodes and apply metadata outside the lock
         mtime = os.path.getmtime(file_path)
-        doc = Document(text=new_content, metadata={
-            "file_path": abs_path, "last_modified_at": mtime,
-            "file_offset": last_offset, "content_length": len(new_content), "source": "user_logs"
+        from llama_index.core import Document as LlamaDocument
+        doc = LlamaDocument(text=new_content, metadata={
+            'file_path': abs_path,
+            'file_offset': last_offset,
+            'content_length': len(new_content),
+            'last_modified_at': mtime,
+            'itype': itype
         })
         self._apply_priority_metadata(doc, itype, file_path)
-        nodes = self._get_node_parser_for_doc(itype, file_path).get_nodes_from_documents([doc])
-        with self._data_lock: # Lock for modifying indices and manifest
+        
+        parser = self._get_node_parser_for_doc(itype, file_path)
+        nodes = parser.get_nodes_from_documents([doc])
+        
+        with self._data_lock: # Lock only for the final insertion and manifest update
             target_index.insert_nodes(nodes)
             
             # Update manifest
@@ -906,26 +921,31 @@ class KaiaRAG:
         mtime = os.path.getmtime(file_path)
         parser = self._get_node_parser_for_doc(itype, file_path)
         all_node_ids = []
-        with self._data_lock: # Lock for modifying indices and manifest
-            for doc in docs:
-                doc.metadata.update({'last_modified_at': mtime, 'file_path': abs_path, 'itype': itype})
-                self._apply_priority_metadata(doc, itype, file_path)
-                if itype == 'persona': doc.metadata['user_id'] = "KAIA_SYSTEM"
-                
-                # ... (user metadata logic) ...
-                
-                for sub_doc in self._pre_chunk_document(doc):
-                    # self._apply_priority_metadata(sub_doc, itype, file_path) # Duplicate call removed
-                    nodes = parser.get_nodes_from_documents([sub_doc])
-                    self.indices[itype].insert_nodes(nodes)
-                    all_node_ids.extend([n.node_id for n in nodes])
+        
+        processed_nodes_batch = []
+        for doc in docs:
+            doc.metadata.update({'last_modified_at': mtime, 'file_path': abs_path, 'itype': itype})
+            self._apply_priority_metadata(doc, itype, file_path)
+            if itype == 'persona': doc.metadata['user_id'] = "KAIA_SYSTEM"
+            
+            # ... (user metadata logic) ...
+            
+            for sub_doc in self._pre_chunk_document(doc):
+                # self._apply_priority_metadata(sub_doc, itype, file_path) # Duplicate call removed
+                nodes = parser.get_nodes_from_documents([sub_doc])
+                processed_nodes_batch.append(nodes)
+        
+        with self._data_lock: # Lock only for the final insertion and manifest update
+            for nodes in processed_nodes_batch:
+                self.indices[itype].insert_nodes(nodes)
+                all_node_ids.extend([n.node_id for n in nodes])
             
             self.indexed_files[abs_path] = {
                 "mtime": mtime,
                 "size": os.path.getsize(file_path),
                 "nodes": all_node_ids
             }
-            self._file_to_nodes[abs_path] = all_node_ids
+            self._file_to_nodes[abs_path] = self.indexed_files[abs_path]["nodes"]
         if itype != 'logs':
             snippet = docs[0].text[:300].replace("\n", " ") + "..." if docs else ""
             from utils.infrastructure.system.bot_state import bot_state
@@ -1120,7 +1140,7 @@ class KaiaRAG:
         """Convert a DOCX file to a Markdown file by extracting text."""
         if not hasattr(self, '_docx_breaker'):
             from utils.infrastructure.circuit_breaker import CircuitBreaker
-            self._docx_breaker = CircuitBreaker("docx_convert", failure_threshold=3, reset_timeout=60)
+            self._docx_breaker = CircuitBreaker("docx_convert", failure_threshold=3, recovery_timeout=60)
         if not self._docx_breaker.can_proceed():
             log_warning(f"Circuit breaker open for DOCX conversion")
             return None
@@ -1475,16 +1495,16 @@ class KaiaRAG:
                 # Try loading from disk first
                 bm25_retriever = await asyncio.to_thread(self._load_bm25_cache, itype)
                 if bm25_retriever:
-                    with self._data_lock:
-                        self.bm25_cache[itype] = bm25_retriever
+                    # Update cache (Protected by RLock if called from sync, but parallel-safe for async reads)
+                    self.bm25_cache[itype] = bm25_retriever
                 else:
                     # Cold start rebuild
                     index_nodes = list(index.storage_context.docstore.docs.values())
                     if index_nodes:
                         # Offload the potentially heavy BM25 initialization (tokenization of all nodes)
                         bm25_retriever = await asyncio.to_thread(SimpleBM25Retriever, index_nodes)
-                        with self._data_lock: # Lock for modifying bm25_cache
-                            self.bm25_cache[itype] = bm25_retriever
+                        # Re-entrant lock check or just direct set if we assume read-only is parallel safe
+                        self.bm25_cache[itype] = bm25_retriever
                         # Trigger save for next time
                         await asyncio.to_thread(self._save_bm25_cache, itype)
             

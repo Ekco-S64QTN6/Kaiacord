@@ -255,8 +255,20 @@ class NewsManager:
         but async callers should use get_news_async.
         """
         if not self.last_refresh or (datetime.now() - self.last_refresh).total_seconds() > 300:
-            with self._lock:
-                self.refresh()
+            # If we're in an event loop, we should avoid blocking refresh.
+            # But for legacy sync, we have to.
+            try:
+                loop = asyncio.get_running_loop()
+                if loop.is_running():
+                    # If we're in the loop and it's stale, we just return what we have
+                    # and let get_news_async handle the refresh if it was called.
+                    pass
+                else:
+                    with self._lock:
+                        self.refresh()
+            except RuntimeError:
+                with self._lock:
+                    self.refresh()
             
         category_lower = (category or 'general').lower()
         

@@ -24,18 +24,26 @@ from utils.infrastructure.system.shutdown_fixed import shutdown_manager
 from utils.infrastructure.system.yaml_config import config
 from utils.social.social_tracker import social_tracker
 
-# HEAVY IMPORTS: Moved to top-level to prevent event loop stalls during lazy initialization.
-# These libraries (especially atproto) have significant import overhead (~5s).
-try:
-    from utils.social.kaia_bluesky import get_bluesky_client, is_bluesky_configured
-    from atproto import models
-except ImportError:
-    log_warning("Social libraries (atproto) not found. Some social features may be limited.")
-    get_bluesky_client = is_bluesky_configured = models = None
+# Lazy load these to prevent event loop stalls during module initialization
+get_bluesky_client = None
+is_bluesky_configured = None
+models = None
+
+def _ensure_social_imports():
+    """Lazy import social libraries to avoid blocking startup."""
+    global get_bluesky_client, is_bluesky_configured, models
+    if get_bluesky_client is None:
+        try:
+            from utils.social.kaia_bluesky import get_bluesky_client as _gbc, is_bluesky_configured as _ibc
+            from atproto import models as _m
+            get_bluesky_client, is_bluesky_configured, models = _gbc, _ibc, _m
+        except ImportError:
+            log_warning("Social libraries (atproto) not found. Some social features may be limited.")
 
 def warm_social_libraries():
-    """No-op function to trigger top-level imports of heavy social libraries."""
+    """Trigger lazy imports of heavy social libraries."""
     log_info("Warming social libraries (atproto, twikit)...")
+    _ensure_social_imports()
     try:
         import utils.social.kaia_twitter as kt
         # Trigger lazy imports in kaia_twitter
@@ -150,7 +158,8 @@ async def _reconstruct_bluesky_history():
     """Fetch recent bot posts from Bluesky and rebuild thread counts efficiently."""
     global _silenced_replied_ids
     try:
-        if not is_bluesky_configured() or shutdown_manager.shutting_down: return
+        _ensure_social_imports()
+        if not is_bluesky_configured or not is_bluesky_configured() or shutdown_manager.shutting_down: return
         
         client = await get_bluesky_client()
         if not client: return
