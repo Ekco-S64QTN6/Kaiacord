@@ -698,8 +698,21 @@ class KaiaRAG:
         self._file_to_nodes = new_file_to_nodes
         
         # Update manifest based on current disk + index state
+        # Build a quick reverse-map: node_id -> itype, so we can inject itype into each entry.
+        node_id_to_itype: dict = {}
+        for itype, index in self.indices.items():
+            for node_id in index.docstore.docs:
+                node_id_to_itype[node_id] = itype
+
         count_added = 0
         for abs_path, node_ids in self._file_to_nodes.items():
+            # Resolve itype from any of this file's known node IDs
+            resolved_itype = ""
+            for nid in node_ids:
+                resolved_itype = node_id_to_itype.get(nid, "")
+                if resolved_itype:
+                    break
+
             if abs_path not in self.indexed_files:
                 if os.path.exists(abs_path):
                     mtime = os.path.getmtime(abs_path)
@@ -707,12 +720,15 @@ class KaiaRAG:
                     self.indexed_files[abs_path] = {
                         "mtime": mtime,
                         "size": size,
-                        "nodes": node_ids
+                        "nodes": node_ids,
+                        "itype": resolved_itype  # Fix #4: inject itype so BM25 cache invalidation works on boot
                     }
                     count_added += 1
             else:
-                # Sync nodes in manifest
+                # Sync nodes in manifest, and backfill itype if it was missing from a legacy entry
                 self.indexed_files[abs_path]["nodes"] = node_ids
+                if not self.indexed_files[abs_path].get("itype") and resolved_itype:
+                    self.indexed_files[abs_path]["itype"] = resolved_itype
 
         log_success(f"RAG State: {len(self.indexed_files)} files in manifest ({count_added} newly discovered).")
         self._save_indexed_files()
@@ -1001,6 +1017,9 @@ class KaiaRAG:
                             for doc in md_docs:
                                 doc.metadata.update({'last_modified_at': mtime, 'itype': itype})
                                 self.indices[itype].insert_nodes(parser.get_nodes_from_documents([doc]))
+                            # NOTE: nodes for the converted file live under the .md path entry;
+                            # the original .pdf/.docx entry intentionally has nodes=[] — it acts
+                            # as a "file seen" sentinel so _prune_deleted_files won't try to prune it.
                             self.indexed_files[os.path.abspath(md_path)] = {"mtime": mtime, "size": os.path.getsize(md_path), "nodes": [], "itype": itype}
                             self.indexed_files[os.path.abspath(file_path)] = {"mtime": os.path.getmtime(file_path), "size": 0, "nodes": [], "itype": itype}
                         return True
@@ -1586,21 +1605,38 @@ class KaiaRAG:
         from utils.infrastructure.system.yaml_config import config
         
         scored_nodes = []
-        seen_texts = set()
+        seen_content_hashes: set = set()  # Fix #1: deduplicate cross-index duplicate chunks
         strategy = routing["strategy"]
         is_casual = routing["is_casual"]
         is_dream_query = routing["is_dream_query"]
         is_social_identity = routing["is_social_identity"]
 
+        # Fix #5: Compute pool-size ratio ONCE before the per-node loop (O(1) not O(N))
+        _pool_deflation_factor = 1.0
+        if 'logs' in self.indices and 'knowledge' in self.indices:
+            _logs_size = len(self.indices['logs'].storage_context.docstore.docs)
+            _knowledge_size = len(self.indices['knowledge'].storage_context.docstore.docs)
+            if _logs_size > 0 and _knowledge_size > 0:
+                _ratio = _logs_size / max(_knowledge_size, 1)
+                if _ratio < 0.3:  # Logs pool is less than 30% the size of knowledge
+                    _pool_deflation_factor = 0.7 + 0.3 * _ratio / 0.3
+
         for node_result in all_node_results:
             node = node_result.node if hasattr(node_result, 'node') else node_result
             base_score = node_result.score if hasattr(node_result, 'score') else 0.5
             
+            content = get_node_text(node)
+            if not content: continue
+
+            # Fix #1: Deduplicate chunks that appear in multiple index pools
+            content_hash = hash(content[:200])
+            if content_hash in seen_content_hashes:
+                continue
+            seen_content_hashes.add(content_hash)
+
             metadata = get_node_metadata(node)
             retrieval_method = metadata.get('_retrieval_method', 'unknown')
             
-            content = get_node_text(node)
-            if not content: continue
             source_type = metadata.get('source_type', 'general')
             file_path = metadata.get('file_path', '')
             node_user_id = str(metadata.get('user_id', ''))
@@ -1627,10 +1663,11 @@ class KaiaRAG:
             query_words = set(query_lower.split())
             filename_words = set(basename_lower.replace("_", " ").replace("-", " ").split())
             word_overlap = query_words & filename_words - {"for", "the", "a", "an", "to", "of", "kaia", "file", "doc", "document"}
-            path_boost = 0.6 if len(word_overlap) >= 2 else (0.3 if len(word_overlap) == 1 and source_type == 'knowledge' else 0)
-            type_boosts = getattr(config, 'rag_type_boosts', {'persona': 0.15, 'user_profile': 0.20, 'dream': 0.10, 'user_logs': 0.25})
+            # Fix #2: use 'general_knowledge' (the actual assigned source_type) not 'knowledge'
+            path_boost = 0.6 if len(word_overlap) >= 2 else (0.3 if len(word_overlap) == 1 and source_type == 'general_knowledge' else 0)
+            # Fix #3: rely solely on yaml_config for type_boosts — no inline fallback with stale keys
             boost_key = 'knowledge' if source_type == 'general_knowledge' else source_type
-            type_boost = type_boosts.get(boost_key, 0.0)
+            type_boost = config.rag_type_boosts.get(boost_key, 0.0)
             
             final_score = base_score + path_boost + type_boost
 
@@ -1652,11 +1689,15 @@ class KaiaRAG:
                 except Exception:
                     pass
                 
-                # Fix 3: Echo-Dampening (Prevent conversation loops from outranking original files)
+                # Echo-Dampening: Prevent conversation logs from outranking the original source files
+                # by detecting when a log chunk is merely repeating the query's own terms back.
+                # Fix #7: tokenize content properly (word-boundary split) instead of substring search
+                # to avoid false matches like "an" matching inside "aquarium" or "plan".
                 query_words_significant = [w for w in query_lower.split() 
                                            if w not in SimpleBM25Retriever.CONVERSATIONAL_STOPWORDS]
                 if len(query_words_significant) > 0:
-                    words_found = sum(1 for w in query_words_significant if w in content.lower())
+                    content_tokens = set(re.sub(r"[^\w\s]", " ", content.lower()).split())
+                    words_found = sum(1 for w in query_words_significant if w in content_tokens)
                     echo_ratio = words_found / len(query_words_significant)
                     if echo_ratio > 0.7:  # Log is mostly just repeating the query back verbatim
                         final_score *= 0.6  # 40% dampening
@@ -1681,15 +1722,9 @@ class KaiaRAG:
                 if source_type == 'user_profile': final_score += 0.4
                 elif source_type == 'user_logs' and node_user_id in relevant_ids: final_score += 0.25
 
-            # Apply Pool Normalization after ALL other additive boosts, right before thresholding
-            # Normalize: if logs pool is much smaller than knowledge, deflate its RRF scores
-            if source_type == 'user_logs' and 'logs' in self.indices and 'knowledge' in self.indices:
-                logs_size = len(self.indices['logs'].storage_context.docstore.docs)
-                knowledge_size = len(self.indices['knowledge'].storage_context.docstore.docs)
-                if logs_size > 0 and knowledge_size > 0:
-                    ratio = logs_size / max(knowledge_size, 1)
-                    if ratio < 0.3:  # Logs pool is less than 30% the size of knowledge
-                        final_score *= (0.7 + 0.3 * ratio / 0.3)
+            # Fix #5: Apply Pool Normalization using ratio pre-computed before the loop.
+            if source_type == 'user_logs':
+                final_score *= _pool_deflation_factor
 
             # THRESHOLDING
             # Priority 3: Per-strategy threshold differentiation

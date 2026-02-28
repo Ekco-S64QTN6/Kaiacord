@@ -885,9 +885,19 @@ class IntentParser:
         """Layer 1: Fast Pattern Detection"""
         query_lower = query.lower().strip()
         
-        # Fast-path for explicit "look at file/report/research" intent
-        if any(phrase in query_lower for phrase in ["take a look at", "looked at", "check the", "read the", "seen the", "go over"]):
-            if any(ext in query_lower for ext in [".md", ".txt", ".pdf", "file", "doc", "research", "report"]):
+        # Fast-path for explicit file/document review intent.
+        # Fix #10: Only match explicit file-reference phrases and extensions to avoid
+        # shadowing DIAGNOSTIC_DEEP_DIVE for queries like "check the log file" or
+        # "check the error". Generic words like "file"/"doc" are intentionally excluded.
+        _FILE_REVIEW_CUES = ["take a look at", "looked at", "read the", "seen the", "go over"]
+        _FILE_EXTENSIONS = [".md", ".txt", ".pdf", ".docx"]
+        # Compound noun phrases that unambiguously refer to a document (not a system file/log)
+        _FILE_COMPOUND_PHRASES = ["research file", "research doc", "research report",
+                                   "setup research", "setup file", "setup doc",
+                                   "aquarium research", "planning doc", "planning report"]
+        if any(phrase in query_lower for phrase in _FILE_REVIEW_CUES):
+            if (any(ext in query_lower for ext in _FILE_EXTENSIONS)
+                    or any(phrase in query_lower for phrase in _FILE_COMPOUND_PHRASES)):
                 log_debug("Fast-path trigger: PRECISE_RECALL (file review request)")
                 return Intent(
                     explicit_intent="file review request",
@@ -896,7 +906,7 @@ class IntentParser:
                     temporal_focus="present",
                     relational_context="general",
                     suggested_strategy="PRECISE_RECALL",
-                    confidence=0.85
+                    confidence=0.80  # Lowered slightly to let LLM override if context differs
                 )
 
         for strategy, patterns in self.fast_triggers.items():

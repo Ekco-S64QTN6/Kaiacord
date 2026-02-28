@@ -505,11 +505,14 @@ class YAMLConfig:
 
     @property
     def rag_type_boosts(self) -> dict:
+        # Fix #3: Fallback must mirror the YAML schema exactly.
+        # 'memory' was a dead key — real source_types are 'user_logs' and 'knowledge'.
         return self.get_path('performance.rag_scoring.type_boosts', {
             'persona': 0.15,
             'user_profile': 0.20,
             'dream': 0.10,
-            'memory': 0.25
+            'user_logs': 0.10,
+            'knowledge': 0.20
         })
 
     @property
