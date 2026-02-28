@@ -511,8 +511,10 @@ class KaiaRAG:
             # Check if any indexed file for this itype has changed since the cache was created
             with self._data_lock:
                 for path, meta in self.indexed_files.items():
-                    # We can't perfectly filter by itype easily here, so we invalidate 
-                    # if ANY file in the manifest is newer than the cache cache
+                    # Only invalidate if a file belonging to THIS index type changed
+                    node_itype = meta.get("itype", "")
+                    if node_itype and node_itype != itype:
+                        continue
                     file_mtime = meta.get("mtime", 0)
                     if file_mtime > cache_mtime:
                          log_debug(f"BM25 cache for '{itype}' is stale (file updated).")
@@ -954,8 +956,6 @@ class KaiaRAG:
             self._apply_priority_metadata(doc, itype, file_path)
             if itype == 'persona': doc.metadata['user_id'] = "KAIA_SYSTEM"
             
-            # ... (user metadata logic) ...
-            
             for sub_doc in self._pre_chunk_document(doc):
                 # self._apply_priority_metadata(sub_doc, itype, file_path) # Duplicate call removed
                 nodes = parser.get_nodes_from_documents([sub_doc])
@@ -998,8 +998,8 @@ class KaiaRAG:
                             for doc in md_docs:
                                 doc.metadata.update({'last_modified_at': mtime, 'itype': itype})
                                 self.indices[itype].insert_nodes(parser.get_nodes_from_documents([doc]))
-                            self.indexed_files[os.path.abspath(md_path)] = mtime
-                            self.indexed_files[os.path.abspath(file_path)] = os.path.getmtime(file_path)
+                            self.indexed_files[os.path.abspath(md_path)] = {"mtime": mtime, "size": os.path.getsize(md_path), "nodes": []}
+                            self.indexed_files[os.path.abspath(file_path)] = {"mtime": os.path.getmtime(file_path), "size": 0, "nodes": []}
                         return True
                 except Exception: pass
         
@@ -1651,7 +1651,7 @@ class KaiaRAG:
                 
                 # Fix 3: Echo-Dampening (Prevent conversation loops from outranking original files)
                 query_words_significant = [w for w in query_lower.split() 
-                                           if w not in {"hey", "kaia", "the", "a", "for", "you", "have", "to", "look", "at", "what", "is"}]
+                                           if w not in SimpleBM25Retriever.CONVERSATIONAL_STOPWORDS]
                 if len(query_words_significant) > 0:
                     words_found = sum(1 for w in query_words_significant if w in content.lower())
                     echo_ratio = words_found / len(query_words_significant)
@@ -1789,6 +1789,7 @@ class KaiaRAG:
         if not self.indices or 'logs' not in self.indices:
             return []
             
+        from utils.core.rag_utils import get_node_text
         try:
             cutoff = time.time() - (hours * 3600)
             
