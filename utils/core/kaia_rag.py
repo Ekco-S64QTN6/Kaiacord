@@ -1513,7 +1513,7 @@ class KaiaRAG:
         retrieve_count = base_top_k
 
         if is_kaia_query or strategy == "PRECISE_RECALL" or is_entity_query:
-            target_itypes = ['knowledge', 'logs', 'user_profiles']
+            target_itypes = ['persona', 'knowledge', 'logs', 'user_profiles']
         elif strategy == "DIAGNOSTIC_DEEP_DIVE":
             target_itypes = ['logs']
             retrieve_count = 15
@@ -1669,7 +1669,12 @@ class KaiaRAG:
             boost_key = 'knowledge' if source_type == 'general_knowledge' else source_type
             type_boost = config.rag_type_boosts.get(boost_key, 0.0)
             
-            final_score = base_score + path_boost + type_boost
+            # Strong bonus for the actual persona file on identity queries
+            persona_file_bonus = 0.0
+            if routing.get("is_kaia_query") and basename_lower == "kaia_persona.md":
+                persona_file_bonus = 0.60
+
+            final_score = base_score + path_boost + type_boost + persona_file_bonus
 
             # Fix 1 (Scoring): Same-user boost for logs
             if source_type == 'user_logs':

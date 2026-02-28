@@ -53,11 +53,11 @@ performance:
     base_score_multiplier: 80.0
     path_boost: 0.5
     type_boosts:
-      persona: 0.15
+      persona: 0.40
       user_profile: 0.20
       dream: 0.10
-      memory: 0.25
-      general_knowledge: -0.20
+      user_logs: 0.25
+      knowledge: -0.20
   
   # Requests per minute per user (rate limiting)
   requests_per_minute: 30
