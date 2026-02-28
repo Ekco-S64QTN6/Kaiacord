@@ -250,8 +250,8 @@ class RealTimeStatsPoller:
                             total_dreams += len([f for f in os.listdir(sub_path) if f.startswith('dream_') and f.endswith('.md')])
                 new_stats['dreams_count'] = total_dreams
                 
-                # Indexed Files
-                indexed_path = "memory/rag_storage/indexed_files.json"
+                # Indexed Files — reads file_manifest.json (renamed from indexed_files.json)
+                indexed_path = "memory/rag_storage/file_manifest.json"
                 if os.path.exists(indexed_path):
                     with open(indexed_path, 'r', encoding='utf-8') as f:
                         indexed_data = json.load(f)
