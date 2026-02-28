@@ -170,62 +170,46 @@ async def on_ready():
     # ── PHASE 1: Exclusive GPU warm for chat model ──────────────────────────
     # Runs alone — no other Ollama calls permitted concurrently.
     async with _gpu_startup_lock:
-        _phase1_success = False
-        for _p1_attempt in range(21):  # Increased to 20 retries for ~100s window
-            try:
-                if _p1_attempt > 0:
-                    log_action(
-                        f"[Phase 1] Retry {_p1_attempt}/20 — waiting 5s for Ollama to ready model …"
+        async def _do_phase1():
+            _p1_success = False
+            for _p1_attempt in range(21):
+                try:
+                    if _p1_attempt > 0:
+                        log_action(f"[Phase 1] Retry {_p1_attempt}/20 — waiting 5s...")
+                        await asyncio.sleep(5)
+                    log_action(f"[Phase 1] Claiming GPU for {config.chat_model}...")
+                    await asyncio.wait_for(
+                        ctx.ollama_client.generate(
+                            model=config.chat_model,
+                            prompt=".",
+                            options={"num_gpu": 99, "num_ctx": config.max_context_tokens, "num_predict": 1},
+                            keep_alive=-1,
+                        ),
+                        timeout=config.model_load_timeout
                     )
-                    await asyncio.sleep(5)
-                log_action(
-                    f"[Phase 1] Claiming GPU for {config.chat_model} "
-                    f"({config.max_context_tokens // 1000}k ctx) …"
-                )
-                log_debug(f"[Phase 1] Loading with num_ctx={config.max_context_tokens}")
-                await asyncio.wait_for(
-                    ctx.ollama_client.generate(
-                        model=config.chat_model,
-                        prompt=".",
-                        # NEVER CHANGE THIS TO 99 AGAIN - CAUSES OLLAMA HANGS ON CONSUMER GPUs
-                        options={
-                            "num_gpu": 99,   # Full GPU residency for gemma3:12b
-                            "num_ctx": config.max_context_tokens,
-                            "num_predict": 1
-                        },
-                        keep_alive=-1,       # keep it resident
-                    ),
-                    timeout=config.model_load_timeout
-                )
-                log_success(f"[Phase 1] {config.chat_model} loaded to GPU.")
-                _phase1_success = True
-                break
-            except asyncio.TimeoutError:
-                # A timeout here means something is genuinely wrong, not a loading delay
-                log_error(f"[Phase 1] GPU warm timed out — Ollama may not be responding. Aborting retries.")
-                break
-            except Exception as e:
-                err_str = str(e).lower()
-                # 500 error with "loading" in body is normal during cold starts
-                if "500" in err_str and "loading" in err_str:
-                    log_action(
-                        f"[Phase 1] Ollama is still loading the model. Will retry. ({_p1_attempt}/20)"
-                    )
-                elif "busy" in err_str or "loading another model" in err_str:
-                    log_action(
-                        f"[Phase 1] Ollama busy (loading model). Will retry. ({_p1_attempt}/20)"
-                    )
-                else:
-                    # Unknown error — log and stop retrying
-                    import traceback
-                    log_error(f"[Phase 1] Unexpected error: {e!r}")
-                    log_error(traceback.format_exc())
+                    log_success(f"[Phase 1] {config.chat_model} loaded.")
+                    _p1_success = True
                     break
-        if not _phase1_success:
-            log_error(
-                f"[Phase 1] Could not claim GPU after 20 attempts. "
-                "First real response will trigger a cold load."
-            )
+                except asyncio.TimeoutError:
+                    log_error("[Phase 1] GPU warm timed out inside loop.")
+                    break
+                except Exception as e:
+                    err = str(e).lower()
+                    if "500" in err and "loading" in err or "busy" in err:
+                        log_action(f"[Phase 1] Still loading... ({_p1_attempt}/20)")
+                    else:
+                        log_error(f"[Phase 1] Error: {e}")
+                        break
+            return _p1_success
+
+        try:
+            _phase1_success = await asyncio.wait_for(_do_phase1(), timeout=90.0)
+        except asyncio.TimeoutError:
+            log_error("[Phase 1] GPU warm timed out (90s limit).")
+            _phase1_success = False
+        except Exception as e:
+            log_error(f"[Phase 1] Pre-warm error: {e}")
+            _phase1_success = False
 
     # Poll Ollama's process list to confirm the chat model is actually resident
     # in VRAM before proceeding.  Avoids the guesswork of asyncio.sleep().
