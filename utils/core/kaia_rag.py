@@ -113,9 +113,17 @@ class SimpleBM25Retriever:
         # We KEEP self.nodes because we need to return them in retrieve()
         # but we no longer need to perform the heavy tokenization in the main thread.
         log_debug(f"BM25 initialized in background with {len(self.nodes)} nodes.")
+    CONVERSATIONAL_STOPWORDS = {
+        "hey", "kaia", "have", "you", "had", "chance", "take", "look",
+        "at", "the", "a", "an", "to", "of", "for", "and", "is", "it",
+        "can", "could", "would", "just", "going", "think", "know",
+        "yeah", "ok", "okay", "sure", "actually", "really", "kind",
+        "file", "doc", "document"
+    }
 
     def _tokenize(self, text: str) -> List[str]:
-        return re.sub(r"[^\w\s]", " ", text.lower()).split()
+        tokens = re.sub(r"[^\w\s]", " ", text.lower()).split()
+        return [t for t in tokens if t not in self.CONVERSATIONAL_STOPWORDS and len(t) > 2]
 
     def retrieve(self, query: str, top_k: int = 10):
         """Retrieve top_k nodes using BM25, building synchronously if not yet initialized."""
@@ -1612,12 +1620,23 @@ class KaiaRAG:
             basename_lower = os.path.basename(file_path).lower() if file_path else ""
             query_words = set(query_lower.split())
             filename_words = set(basename_lower.replace("_", " ").replace("-", " ").split())
-            word_overlap = query_words & filename_words - {"for", "the", "a", "an", "to", "of", "kaia"}
+            word_overlap = query_words & filename_words - {"for", "the", "a", "an", "to", "of", "kaia", "file", "doc", "document"}
             path_boost = 0.6 if len(word_overlap) >= 2 else (0.3 if len(word_overlap) == 1 and source_type == 'knowledge' else 0)
             type_boosts = getattr(config, 'rag_type_boosts', {'persona': 0.15, 'user_profile': 0.20, 'dream': 0.10, 'user_logs': 0.25})
             type_boost = type_boosts.get(source_type, 0.0)
             
             final_score = base_score + path_boost + type_boost
+            
+            # Normalize: if logs pool is much smaller than knowledge, deflate its RRF scores
+            # Retrieve pool size context from self.indices 
+            if source_type == 'user_logs' and 'logs' in self.indices and 'knowledge' in self.indices:
+                logs_size = len(self.indices['logs'].storage_context.docstore.docs)
+                knowledge_size = len(self.indices['knowledge'].storage_context.docstore.docs)
+                if logs_size > 0 and knowledge_size > 0:
+                    ratio = logs_size / max(knowledge_size, 1)
+                    if ratio < 0.3:  # Logs pool is less than 30% the size of knowledge
+                        # Scale down up to 30% depending on how small the ratio is
+                        final_score *= (0.7 + 0.3 * ratio / 0.3)
 
             # Fix 1 (Scoring): Same-user boost for logs
             if source_type == 'user_logs':

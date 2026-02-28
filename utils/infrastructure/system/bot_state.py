@@ -65,6 +65,12 @@ class BotState:
                         mentions = state.get('mentioned_files', [])
                         self.mentioned_files = deque(mentions, maxlen=20)
                         
+                        # Load memory contexts
+                        raw_mem = state.get('channel_memory', {})
+                        self.channel_memory = {
+                            int(k) if str(k).isdigit() else k: deque(v, maxlen=5) 
+                            for k, v in raw_mem.items()
+                        }
 
         except Exception as e:
             log_warning(f"Failed to load bot state: {e}\n{traceback.format_exc()}")
@@ -89,6 +95,7 @@ class BotState:
                     'last_dream_date': self.last_dream_date,
                     # boot_complete is TRANSIENT - do not save to disk
                     'mentioned_files': list(self.mentioned_files),
+                    'channel_memory': {k: list(v) for k, v in self.channel_memory.items()},
                     'saved_at': time.time()
                 }
                 

@@ -13,6 +13,9 @@ async def debug_hybrid():
     print("Initializing KaiaRAG for deep debug...")
     try:
         rag = KaiaRAG()
+        # Initialize the indices first so they actually exist in memory
+        await rag.initialize_async()
+        
         index = rag.indices.get('knowledge')
         if not index:
             print("❌ 'knowledge' index not found.")
@@ -27,8 +30,9 @@ async def debug_hybrid():
             return
 
         # Test tokenization on a specific node if possible
-        neuromancer_nodes = [n for n in docs if "Neuromancer" in n.metadata.get('file_path', '')]
-        print(f"Found {len(neuromancer_nodes)} nodes for Neuromancer.")
+        # Test tokenization on a specific node if possible
+        neuromancer_nodes = [n for n in docs if "aquarium" in n.metadata.get('file_path', '').lower()]
+        print(f"Found {len(neuromancer_nodes)} nodes for Aquarium.")
         if neuromancer_nodes:
             sample_text = neuromancer_nodes[0].get_content()
             print(f"Sample snippet: {sample_text[:100]}...")
@@ -37,18 +41,18 @@ async def debug_hybrid():
                 return re.sub(r'[^\w\s]', ' ', text.lower()).split()
             tokens = _tokenize(sample_text)
             print(f"Tokenized snippet (first 10): {tokens[:10]}")
-            if "tessier" in tokens or any("tessier" in t for t in tokens):
-                print("✅ Found 'tessier' in tokens.")
+            if "aquarium" in tokens or any("aquarium" in t for t in tokens):
+                print("✅ Found 'aquarium' in tokens.")
             else:
-                print("❌ 'tessier' NOT found in tokens.")
+                print("❌ 'aquarium' NOT found in tokens.")
 
         bm25_retriever = SimpleBM25Retriever(docs)
         hybrid = HybridRetriever(index, bm25_retriever)
 
         queries = [
-            "Who are Tessier and Ashpool?",
-            "Who are Tessier-Ashpool?",
-            "Molly Millions"
+            "Kaia have you had a chance to take a look at the aquarium research for kaia file?",
+            "Aquarium research for Kaia",
+            "What makes a good planted tank?"
         ]
 
         for query in queries:
@@ -56,7 +60,7 @@ async def debug_hybrid():
             
             # 1. Check Vector Retrieval results
             v_retriever = index.as_retriever(similarity_top_k=10)
-            v_results = v_retriever.retrieve(query)
+            v_results = await v_retriever.aretrieve(query)
             print(f"  Vector found {len(v_results)} nodes.")
             for i, res in enumerate(v_results[:3]):
                 print(f"    V[{i}] Score: {res.score:.4f} | Source: {res.node.metadata.get('file_path','')}")
@@ -68,7 +72,7 @@ async def debug_hybrid():
                 print(f"    B[{i}] Score: {score:.4f} | Source: {node.metadata.get('file_path','')}")
 
             # 3. Check Hybrid RRF results
-            h_results = hybrid.retrieve(query, top_k=5)
+            h_results = await hybrid.retrieve(query, top_k=5)
             print(f"  Hybrid (RRF scaled) found {len(h_results)} nodes.")
             for i, res in enumerate(h_results):
                 print(f"    H[{i}] RRF Scaled Score: {res.score:.4f} | Source: {res.node.metadata.get('file_path','')}")
