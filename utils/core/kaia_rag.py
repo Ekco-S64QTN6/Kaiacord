@@ -93,6 +93,15 @@ from utils.core.hallucination_detector import HallucinationDetector
 
 class SimpleBM25Retriever:
     """BM25 retriever with async initialization and lazy tokenization."""
+    
+    CONVERSATIONAL_STOPWORDS = {
+        "hey", "kaia", "have", "you", "had", "chance", "take", "look",
+        "at", "the", "a", "an", "to", "of", "for", "and", "is", "it",
+        "can", "could", "would", "just", "going", "think", "know",
+        "yeah", "ok", "okay", "sure", "actually", "really", "kind",
+        "file", "doc", "document"
+    }
+
     def __init__(self, nodes: List[NodeWithScore]):
         self.nodes = nodes
         self.bm25 = None
@@ -113,13 +122,6 @@ class SimpleBM25Retriever:
         # We KEEP self.nodes because we need to return them in retrieve()
         # but we no longer need to perform the heavy tokenization in the main thread.
         log_debug(f"BM25 initialized in background with {len(self.nodes)} nodes.")
-    CONVERSATIONAL_STOPWORDS = {
-        "hey", "kaia", "have", "you", "had", "chance", "take", "look",
-        "at", "the", "a", "an", "to", "of", "for", "and", "is", "it",
-        "can", "could", "would", "just", "going", "think", "know",
-        "yeah", "ok", "okay", "sure", "actually", "really", "kind",
-        "file", "doc", "document"
-    }
 
     def _tokenize(self, text: str) -> List[str]:
         tokens = re.sub(r"[^\w\s]", " ", text.lower()).split()
@@ -330,6 +332,7 @@ class KaiaRAG:
         """Asynchronously initialize hierarchical indices."""
         if self._initialized: return
         log_action("Initializing RAG indices in background...")
+        log_info(f"type_boosts active: {getattr(config, 'rag_type_boosts', {})}")
 
         # Step 0: Pre-load NLTK data (Safe in Phase 3 background)
         await asyncio.to_thread(self._preload_nltk)
@@ -1623,20 +1626,10 @@ class KaiaRAG:
             word_overlap = query_words & filename_words - {"for", "the", "a", "an", "to", "of", "kaia", "file", "doc", "document"}
             path_boost = 0.6 if len(word_overlap) >= 2 else (0.3 if len(word_overlap) == 1 and source_type == 'knowledge' else 0)
             type_boosts = getattr(config, 'rag_type_boosts', {'persona': 0.15, 'user_profile': 0.20, 'dream': 0.10, 'user_logs': 0.25})
-            type_boost = type_boosts.get(source_type, 0.0)
+            boost_key = 'knowledge' if source_type == 'general_knowledge' else source_type
+            type_boost = type_boosts.get(boost_key, 0.0)
             
             final_score = base_score + path_boost + type_boost
-            
-            # Normalize: if logs pool is much smaller than knowledge, deflate its RRF scores
-            # Retrieve pool size context from self.indices 
-            if source_type == 'user_logs' and 'logs' in self.indices and 'knowledge' in self.indices:
-                logs_size = len(self.indices['logs'].storage_context.docstore.docs)
-                knowledge_size = len(self.indices['knowledge'].storage_context.docstore.docs)
-                if logs_size > 0 and knowledge_size > 0:
-                    ratio = logs_size / max(knowledge_size, 1)
-                    if ratio < 0.3:  # Logs pool is less than 30% the size of knowledge
-                        # Scale down up to 30% depending on how small the ratio is
-                        final_score *= (0.7 + 0.3 * ratio / 0.3)
 
             # Fix 1 (Scoring): Same-user boost for logs
             if source_type == 'user_logs':
@@ -1684,6 +1677,16 @@ class KaiaRAG:
             elif strategy == "RELATIONAL_MIRROR":
                 if source_type == 'user_profile': final_score += 0.4
                 elif source_type == 'user_logs' and node_user_id in relevant_ids: final_score += 0.25
+
+            # Apply Pool Normalization after ALL other additive boosts, right before thresholding
+            # Normalize: if logs pool is much smaller than knowledge, deflate its RRF scores
+            if source_type == 'user_logs' and 'logs' in self.indices and 'knowledge' in self.indices:
+                logs_size = len(self.indices['logs'].storage_context.docstore.docs)
+                knowledge_size = len(self.indices['knowledge'].storage_context.docstore.docs)
+                if logs_size > 0 and knowledge_size > 0:
+                    ratio = logs_size / max(knowledge_size, 1)
+                    if ratio < 0.3:  # Logs pool is less than 30% the size of knowledge
+                        final_score *= (0.7 + 0.3 * ratio / 0.3)
 
             # THRESHOLDING
             # Priority 3: Per-strategy threshold differentiation
