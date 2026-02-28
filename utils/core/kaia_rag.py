@@ -888,7 +888,8 @@ class KaiaRAG:
             self.indexed_files[abs_path] = {
                 "mtime": mtime,
                 "size": os.path.getsize(file_path),
-                "nodes": entry.get("nodes", []) if entry else []
+                "nodes": entry.get("nodes", []) if entry else [],
+                "itype": itype
             }
             return False
             
@@ -923,7 +924,8 @@ class KaiaRAG:
             self.indexed_files[abs_path] = {
                 "mtime": mtime,
                 "size": os.path.getsize(file_path),
-                "nodes": list(set(existing_nodes + node_ids))
+                "nodes": list(set(existing_nodes + node_ids)),
+                "itype": itype
             }
             self._file_to_nodes[abs_path] = self.indexed_files[abs_path]["nodes"]
         return True
@@ -969,7 +971,8 @@ class KaiaRAG:
             self.indexed_files[abs_path] = {
                 "mtime": mtime,
                 "size": os.path.getsize(file_path),
-                "nodes": all_node_ids
+                "nodes": all_node_ids,
+                "itype": itype
             }
             self._file_to_nodes[abs_path] = self.indexed_files[abs_path]["nodes"]
         if itype != 'logs':
@@ -998,8 +1001,8 @@ class KaiaRAG:
                             for doc in md_docs:
                                 doc.metadata.update({'last_modified_at': mtime, 'itype': itype})
                                 self.indices[itype].insert_nodes(parser.get_nodes_from_documents([doc]))
-                            self.indexed_files[os.path.abspath(md_path)] = {"mtime": mtime, "size": os.path.getsize(md_path), "nodes": []}
-                            self.indexed_files[os.path.abspath(file_path)] = {"mtime": os.path.getmtime(file_path), "size": 0, "nodes": []}
+                            self.indexed_files[os.path.abspath(md_path)] = {"mtime": mtime, "size": os.path.getsize(md_path), "nodes": [], "itype": itype}
+                            self.indexed_files[os.path.abspath(file_path)] = {"mtime": os.path.getmtime(file_path), "size": 0, "nodes": [], "itype": itype}
                         return True
                 except Exception: pass
         
