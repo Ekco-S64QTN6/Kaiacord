@@ -218,21 +218,21 @@ def thread_safe_rag_operation(func):
         lock_timeout = getattr(config, 'rag_lock_seconds', 10.0)
         
         # [CONCURRENCY OPTIMIZATION]: Retrieval is safe for parallel execution.
-        # We only lock for WRITES (adding memories, indexing, etc) to ensure the manifest
-        # and indices aren't modified while being inserted.
         if func.__name__ in ['retrieve', 'get_context_for_hallucination_check', 'detect_hallucination']:
             return await func(self, *args, **kwargs)
             
-        # Use a non-blocking lock acquisition in a thread to keep the event loop responsive
-        acquired = await asyncio.to_thread(self._data_lock.acquire, timeout=lock_timeout)
-        if not acquired:
-            log_warning(f"RAG operation {func.__name__} timed out waiting for data lock")
-            return False if func.__name__ in ['add_memory', 'log_user_interaction'] else None
-        
+        acquired = False
         try:
+            # Use a non-blocking lock acquisition in a thread to keep the event loop responsive
+            acquired = await asyncio.to_thread(self._data_lock.acquire, timeout=lock_timeout)
+            if not acquired:
+                log_warning(f"RAG operation {func.__name__} timed out waiting for data lock")
+                return False if func.__name__ in ['add_memory', 'log_user_interaction'] else None
+            
             return await func(self, *args, **kwargs)
         finally:
-            self._data_lock.release()
+            if acquired:
+                self._data_lock.release()
 
     @wraps(func)
     def sync_wrapper(self, *args, **kwargs):
@@ -242,12 +242,16 @@ def thread_safe_rag_operation(func):
         if func.__name__ in ['retrieve', 'get_context_for_hallucination_check', 'detect_hallucination']:
             return func(self, *args, **kwargs)
             
-        if not self._data_lock.acquire(timeout=lock_timeout):
-            return False if func.__name__ in ['add_memory', 'log_user_interaction'] else None
+        acquired = False
         try:
+            acquired = self._data_lock.acquire(timeout=lock_timeout)
+            if not acquired:
+                log_warning(f"RAG sync operation {func.__name__} timed out waiting for data lock")
+                return False if func.__name__ in ['add_memory', 'log_user_interaction'] else None
             return func(self, *args, **kwargs)
         finally:
-            self._data_lock.release()
+            if acquired:
+                self._data_lock.release()
 
     return async_wrapper if is_async else sync_wrapper
 
@@ -304,7 +308,7 @@ class KaiaRAG:
         self.indices = {} # Hierarchical indices
         self.bm25_cache = {} # Cache for BM25 retrievers {itype: (timestamp, retriever)}
         self.persist_needed = False
-        self._data_lock = threading.RLock()  # Granular data access (retrieval vs insertion)
+        self._data_lock = threading.Lock()  # Shared lock for both sync and async paths
         self._index_lock = threading.Lock() # Higher-level maintenance lock
         self.state_file = os.path.join(self.persist_dir, "file_manifest.json")
         # NOTE: _load_indexed_files() is intentionally NOT called here.
@@ -465,35 +469,42 @@ class KaiaRAG:
         """Get the file path for the pickled BM25 retriever of a specific index type."""
         return os.path.join(self.persist_dir, itype, "bm25_cache.pkl")
 
-    def _save_bm25_cache(self, itype: str):
+    def _save_bm25_cache(self, itype: str, skip_lock: bool = False):
         """Persists the SimpleBM25Retriever to disk using pickle."""
         import pickle
-        with self._data_lock:
+        
+        def _do_save():
             retriever = self.bm25_cache.get(itype)
             if not retriever or getattr(retriever, 'bm25', None) is None:
                 return # Nothing to save
         
-        cache_path = self._get_bm25_cache_path(itype)
-        itype_dir = os.path.dirname(cache_path)
-        
-        try:
-            if not os.path.exists(itype_dir):
-                os.makedirs(itype_dir)
-            temp_path = f"{cache_path}.tmp"
+            cache_path = self._get_bm25_cache_path(itype)
+            itype_dir = os.path.dirname(cache_path)
             
-            # We don't want to pickle the lock object inside SimpleBM25Retriever
-            # So we create a shallow copy and remove the lock before pickling
-            retriever_copy = copy.copy(retriever)
-            if hasattr(retriever_copy, '_lock'):
-                delattr(retriever_copy, '_lock')
+            try:
+                if not os.path.exists(itype_dir):
+                    os.makedirs(itype_dir)
+                temp_path = f"{cache_path}.tmp"
                 
-            with open(temp_path, 'wb') as f:
-                pickle.dump(retriever_copy, f, protocol=pickle.HIGHEST_PROTOCOL)
-                
-            os.replace(temp_path, cache_path)
-            log_debug(f"Saved BM25 cache for '{itype}' to disk.")
-        except Exception as e:
-            log_error(f"Failed to save BM25 cache for '{itype}': {e}")
+                # We don't want to pickle the lock object inside SimpleBM25Retriever
+                # So we create a shallow copy and remove the lock before pickling
+                retriever_copy = copy.copy(retriever)
+                if hasattr(retriever_copy, '_lock'):
+                    delattr(retriever_copy, '_lock')
+                    
+                with open(temp_path, 'wb') as f:
+                    pickle.dump(retriever_copy, f, protocol=pickle.HIGHEST_PROTOCOL)
+                    
+                os.replace(temp_path, cache_path)
+                log_debug(f"Saved BM25 cache for '{itype}' to disk.")
+            except Exception as e:
+                log_error(f"Failed to save BM25 cache for '{itype}': {e}")
+
+        if skip_lock:
+            _do_save()
+        else:
+            with self._data_lock:
+                _do_save()
 
     def _load_bm25_cache(self, itype: str):
         """Loads the SimpleBM25Retriever from disk. Returns None if invalid or missing."""
@@ -1036,18 +1047,29 @@ class KaiaRAG:
     def _persist_updated_indices(self, updated_itypes: Set[str]):
         """Save indices to disk and invalidate/save BM25 cache."""
         self.persist_needed = True
-        with self._data_lock: # Lock for modifying bm25_cache and indices
+        
+        # 1. Invalidate BM25 caches (Quick internal state update)
+        with self._data_lock:
             for itype in updated_itypes:
                 if itype in self.bm25_cache:
                     log_info(f"Invalidating memory BM25 cache for '{itype}' to trigger re-save")
-                    # Ensure we re-build/re-save the BM25 for this type if it changed
-                try:
-                    self.indices[itype].storage_context.persist(persist_dir=os.path.join(self.persist_dir, itype))
-                    log_success(f"Index '{itype}' persisted.")
-                    # Also persist BM25 if already in memory
-                    if itype in self.bm25_cache and self.bm25_cache[itype]:
-                        self._save_bm25_cache(itype)
-                except Exception as e: log_error(f"Failed to persist {itype}: {e}")
+
+        # 2. Heavy Disk I/O (NO LOCK HELD)
+        # We don't hold the global data lock during storage_context.persist()
+        # because it performs slow filesystem writes. The index objects 
+        # themselves are thread-safe for persistence.
+        for itype in updated_itypes:
+            try:
+                persist_path = os.path.join(self.persist_dir, itype)
+                self.indices[itype].storage_context.persist(persist_dir=persist_path)
+                log_success(f"Index '{itype}' persisted.")
+                
+                # 3. Persist BM25 if already in memory (re-acquires lock internally)
+                if itype in self.bm25_cache and self.bm25_cache[itype]:
+                    self._save_bm25_cache(itype)
+            except Exception as e: 
+                log_error(f"Failed to persist {itype}: {e}")
+                
         self._save_indexed_files()
 
     async def refresh_knowledge_base(self, max_concurrent_files: int = 2):
@@ -2020,7 +2042,6 @@ class KaiaRAG:
             "top_sources": source_counts.most_common(10),
         }
 
-    @thread_safe_rag_operation
     async def persist_async(self, force: bool = False):
         """Async wrapper for persist."""
         await asyncio.to_thread(self.persist, force)
@@ -2031,11 +2052,14 @@ class KaiaRAG:
         if not force and not self.persist_needed:
             return
             
-        log_action("Persisting all RAG indices...")
-        if not os.path.exists(self.persist_dir):
-            os.makedirs(self.persist_dir)
-            
-        with self._data_lock: # Lock for modifying indices
+        # REQUIREMENT: Never wait indefinitely on locks during shutdown
+        lock_timeout = 5.0 if force else 30.0
+        acquired = self._data_lock.acquire(timeout=lock_timeout)
+        if not acquired:
+            log_error(f"Failed to acquire data lock for RAG persistence{' (SHUTDOWN)' if force else ''}")
+            return
+
+        try:
             for itype, index in self.indices.items():
                 try:
                     itype_dir = os.path.join(self.persist_dir, itype)
@@ -2063,6 +2087,8 @@ class KaiaRAG:
                         
                 except Exception as e:
                     log_error(f"Failed to persist {itype} index: {e}")
+        finally:
+            self._data_lock.release()
         
         self.persist_needed = False
         log_success("RAG indices persisted.")

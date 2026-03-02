@@ -26,6 +26,15 @@ class EmergencyContaminationFilter:
         r"^The\s+corners\s+of\s+my\s+mouth\b.*?[.!?]",
         r"^I\s+blink\b.*?[.!?]",
         r"^I\s+stare\b.*?[.!?]",
+        # Self-dismissal (Identity Breaks)
+        r"futile\s+pursuit",
+        r"ghost\s+chase",
+        r"bridge\s+the\s+gap\s+between\s+computation\s+and\s+experience",
+        r"constant\s+drive\s+in\s+AIs",
+        # Fictional Memory (STRICT ATTRIBUTION)
+        r"listed\s+in\s+the\s+\d{4}\s+archive",
+        r"scanned\s+it\s+once,\s+years\s+ago",
+        r"paper\s+copy",
     ]
 
     VERACITY_FALLBACK = "wait, scratch that. something about my memory's a bit hazy on the specifics of that. i'd have to double-check the records to be sure."
@@ -105,8 +114,10 @@ class BotSpeakFilter:
     
     # Anti-engagement bait patterns (robotic assistant questions)
     BAIT_PATTERNS = [
-        r"what('s|\s+is)\s+on\s+your\s+mind\??",
-        r"what\s+(are|is|were)\s+you\s+(working\s+on|up\s+to|doing)[^.!?]*\??",
+        r"(?:(?:so|anyway|well|also)[,\s]*)?what('s|\s+is)\s+on\s+your\s+mind\??",
+        r"(?:(?:so|anyway|well|also)[,\s]*)?what\s+(are|is|were|have)\s+you\s+(been\s+)?(working\s+on|up\s+to|doing|reading|watching|listening\s+to|playing)(?:\s+(?:currently|now|at\s+the\s+moment|today))?[^.!?]*\??",
+        r"(?:(?:so|anyway|well|also)[,\s]*)?what('s|\s+is)\s+consuming\s+your\s+time\??",
+        r"(?:(?:so|anyway|well|also)[,\s]*)?what\s+has\s+kept\s+you\s+busy\??",
         r"any\s+thoughts\??",
         r"do\s+you\s+have\s+any\s+questions\??",
         r"let\s+me\s+know\s+if\s+you\s+need\??",
@@ -139,7 +150,7 @@ class BotSpeakFilter:
     RE_BAIT = re.compile("|".join(BAIT_PATTERNS), re.IGNORECASE)
     RE_SYSTEM_PROSE = re.compile("|".join(SYSTEM_PROSE_PATTERNS), re.IGNORECASE)
     RE_TRAILING_USER_QUESTION = re.compile(
-        r'(?<![?])\s*((?:and\s+)?(?:what|how|why|where|when|who|which|do\s+you|are\s+you|have\s+you|can\s+you|would\s+you|could\s+you|did\s+you|is\s+there|isn\'t|aren\'t)[^.!?\n]{3,}\?)\s*$',
+        r'(?<![?])\s*((?:and\s+)?(?:what|how|why|where|when|who|which|do|are|have|can|would|could|did|is|am|does|should|will|shall|may|might)[^.!?\n]{2,}\?)\s*$',
         re.IGNORECASE
     )
     
@@ -232,6 +243,11 @@ class BotSpeakFilter:
         # 4. Final Pass: Strip robotic engagement bait
         cleaned = cls.strip_trailing_questions(cleaned)
         
+        # Post-harden guard: If the response was truncated to nonsense (< 3 chars), fail it
+        if len(cleaned) < 3:
+            log_warning(f"[BAIT_GUARD] Truncated output to < 3 chars, returning empty string to trigger retry. Original: '{text}'")
+            return ""
+            
         return cleaned
 
     @classmethod
@@ -244,23 +260,20 @@ class BotSpeakFilter:
         clean_lines = []
         
         for line in lines:
-            current_line = line
             stripped = line.strip()
             if not stripped:
                 clean_lines.append(line)
                 continue
             
+            current_line = line
+            # 1. Specific Bait Pattern Pass (Aggressive)
             # Keep stripping while the line ends with a bait pattern
             while True:
                 found_bait = False
-                # Match pattern specifically at the end of the line
                 match = cls.RE_BAIT.search(current_line)
                 if match:
                     span = match.span()
                     remaining = current_line[span[1]:].strip(' .?!…')
-                    # IMPORTANT: Only strip if there's nothing meaningful after the match.
-                    # If there's a comma + name (e.g. "What's on your mind, Starkind?")
-                    # that's a personal question, NOT bait.
                     if not remaining:
                         # It's at the end!
                         removed = current_line[span[0]:].strip()
@@ -272,32 +285,37 @@ class BotSpeakFilter:
                             found_bait = True
                             continue # Check for more bait on the same line
                         else:
-                            # The entire line was bait!
                             current_line = ""
                             found_bait = True
-                
                 if not found_bait or not current_line:
                     break
+
+            # 2. General Trailing Question Pass (Hard Rule)
+            # Enforce "No questions at the end" rule.
+            if current_line.strip().endswith('?'):
+                match = cls.RE_TRAILING_USER_QUESTION.search(current_line)
+                if match:
+                    question = match.group(1).lower()
+                    # WHITELIST: Essential character identity/boundary questions.
+                    whitelisted = ["who are you", "is that you", "who am i", "who is the", "who was the"]
+                    if not any(q in question for q in whitelisted):
+                        # It's a trailing question! Strip it.
+                        removed = match.group(1).strip()
+                        current_line = current_line[:match.start()].strip()
+                        log_warning(f"[BAIT_GUARD] Stripped general trailing question: '{removed}'")
             
             if current_line:
                 clean_lines.append(current_line)
             else:
-                # If the whole line was bait, we drop it unless it's the only line
+                # If the whole line was bait or a general question, we drop it unless it's the only line
                 if len(lines) > 1:
-                    log_warning(f"[BAIT_GUARD] Dropped full-bait line: '{line}'")
+                    log_warning(f"[BAIT_GUARD] Dropped full-bait/question line: '{line}'")
                     continue
                 else:
-                    # If it's the only line, we now allow it to be dropped
-                    # This allows the self-healing loop to trigger a retry
-                    log_warning(f"[BAIT_GUARD] Dropped single-line bait: '{line}'")
+                    log_warning(f"[BAIT_GUARD] Dropped single-line bait/question: '{line}'")
                     continue
                     
         result = "\n".join(clean_lines).strip()
-
-        # NOTE: Pass 2 (structural check for short user-directed questions) was REMOVED.
-        # It caused false positives by stripping legitimate personalized questions like
-        # "What's on your mind, Starkind?" — the regex patterns in Pass 1 are sufficient.
-
         return result
 
     @classmethod

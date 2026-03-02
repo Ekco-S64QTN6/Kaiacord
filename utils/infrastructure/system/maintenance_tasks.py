@@ -51,8 +51,8 @@ async def rag_maintenance_task():
         # 1. Scan for new/changed/deleted files (Self-Heal)
         await run_rag(ctx.rag.refresh_knowledge_base)
         
-        # 2. Persist if needed
-        if ctx.rag.persist_needed:
+        # 2. Persist if needed (only if persist_async wasn't already triggered)
+        if getattr(ctx.rag, 'persist_needed', False):
             await ctx.rag.persist_async()
             
         log_success("RAG maintenance complete.")

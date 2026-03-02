@@ -145,15 +145,15 @@ class CleanShutdown:
         if self.rag:
             try:
                 log_info("  💾 Persisting RAG indices...")
-                # Reduce timeout for persistence on shutdown
-                persist_thread = threading.Thread(target=self.rag.persist, args=(True,))
-                persist_thread.daemon = True
-                persist_thread.start()
-                persist_thread.join(timeout=15.0) # Reduced from 30s
-                if persist_thread.is_alive():
-                    log_warning("  ⚠️ RAG persistence taking too long, continuing...")
-                else:
+                # Use async-friendly wait to prevent event loop stall
+                try:
+                    await asyncio.wait_for(
+                        asyncio.to_thread(self.rag.persist, True), 
+                        timeout=15.0
+                    )
                     log_success("  ✅ RAG indices saved")
+                except asyncio.TimeoutError:
+                    log_warning("  ⚠️ RAG persistence taking too long, continuing...")
             except Exception as e:
                 log_error(f"  ❌ Error persisting RAG: {e}")
 
@@ -192,12 +192,15 @@ class CleanShutdown:
         # 5. Force GPU cleanup (Internal Torch/CUDA buffers)
         try:
             from utils.infrastructure.gpu.clear_gpu_memory import force_clear_gpu
-            # Use a raw thread to avoid the default executor
-            cleanup_thread = threading.Thread(target=force_clear_gpu)
-            cleanup_thread.daemon = True
-            cleanup_thread.start()
-            cleanup_thread.join(timeout=5.0) # Reduced from 10s
-            log_info("  ✅ GPU memory released")
+            log_info("  🔄 Releasing GPU memory...")
+            try:
+                await asyncio.wait_for(
+                    asyncio.to_thread(force_clear_gpu),
+                    timeout=5.0
+                )
+                log_info("  ✅ GPU memory released")
+            except asyncio.TimeoutError:
+                log_warning("  ⚠️ GPU memory release taking too long, continuing...")
         except ImportError:
             pass
         except Exception as e:
@@ -212,16 +215,18 @@ class CleanShutdown:
 
         # 7. EMERGENCY: Kill orphaned Ollama runners (VRAM retrieval)
         try:
-            from utils.infrastructure.gpu.clear_gpu_memory import kill_orphaned_runners
             from utils.infrastructure.system.yaml_config import config
-            # Use a raw thread with shorter timeout
-            kill_thread = threading.Thread(
-                target=kill_orphaned_runners, 
-                kwargs={"preserve_model": config.chat_model, "preserve_ctx": config.max_context_tokens}
-            )
-            kill_thread.daemon = True
-            kill_thread.start()
-            kill_thread.join(timeout=5.0) # Reduced from 10s
+            try:
+                await asyncio.wait_for(
+                    asyncio.to_thread(
+                        kill_orphaned_runners,
+                        preserve_model=config.chat_model,
+                        preserve_ctx=config.max_context_tokens
+                    ),
+                    timeout=5.0
+                )
+            except asyncio.TimeoutError:
+                pass
         except Exception: pass
 
         self._shutdown_complete.set()

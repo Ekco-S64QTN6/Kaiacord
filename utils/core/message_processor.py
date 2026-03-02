@@ -3,6 +3,8 @@ import time
 import re
 import hashlib
 import uuid
+import aiohttp
+import base64
 from datetime import datetime
 from typing import Optional, Any, List, Dict, Set
 
@@ -28,6 +30,9 @@ _OBSERVATIONAL_PATTERNS = [
         r"(who|has anyone) (has|have)? ?(been )?(talking|chatting|active|posting|around)",
         r"(tell me|report) .*(chat activity|user activity|what.* users)",
         r"what.* (users?|people|members?) .*(knowledge|know about|understanding of|grasp)",
+        r"summarize\s+(all\s+)?(user\s+)?(interactions?|conversations?|chat|activity|messages?)\s+(over|in|for|from)?\s*(the\s+)?(past|last)\s+\d+\s*(hour|day|minute|week)",
+        r"(what|show|tell me)\s+(happened|was said|went on|occurred)\s+(over|in|during|for)?\s*(the\s+)?(past|last)\s+\d+\s*(hour|day|minute|week)",
+        r"(recap|summary|overview)\s+(of\s+)?(today'?s?|recent|the\s+last|past)\s+(chat|interactions?|activity|conversations?)",
     ]
 ]
 
@@ -259,7 +264,7 @@ class MessageProcessor:
 
         # 2. Classification (Synchronous serial wait to prevent Ollama load spikes)
         c_start = time.perf_counter()
-        self._perform_classification(ctx)
+        await self._perform_classification(ctx)
         await self._finalize_classification(ctx)
         c_dur = time.perf_counter() - c_start
         log_debug(f"METRIC: Classification took {c_dur:.3f}s")
@@ -491,18 +496,28 @@ class MessageProcessor:
         tasks['persona'] = asyncio.create_task(load_persona_async())
         tasks['traits'] = asyncio.create_task(self.personalization_engine.get_user_traits(ctx.author_id))
 
-        # Perform RAG retrieval (Adaptive skip handled upstream in _retrieve_and_generate)
-        tasks['rag'] = asyncio.create_task(self.run_rag(
-            self.rag.retrieve, 
-            clean_query, 
-            user_id=target_user_id, 
-            user_name=target_user_name, 
-            top_k=self.config.rag_top_k,
-            strict_identity=(ctx.category in ["identity", "self", "whoami", "entity"]),
-            include_news=False,
-            category=ctx.category,
-            intent=ctx.intent
-        ))
+        is_observational = _is_observational_query(ctx.sanitized_content)
+        
+        if is_observational:
+            log_info(f"Observational query detected, routing to search_recent_events/get_recent_highlights for {clean_query}")
+            tasks['rag'] = asyncio.create_task(self.run_rag(
+                self.rag.search_recent_events,
+                clean_query,
+                hours=24,
+                limit=10
+            ))
+        else:
+            tasks['rag'] = asyncio.create_task(self.run_rag(
+                self.rag.retrieve, 
+                clean_query, 
+                user_id=target_user_id, 
+                user_name=target_user_name, 
+                top_k=self.config.rag_top_k,
+                strict_identity=(ctx.category in ["identity", "self", "whoami", "entity"]),
+                include_news=False,
+                category=ctx.category,
+                intent=ctx.intent
+            ))
 
         # News triggers - Strict list to avoid false positives on small talk (e.g. "what's new")
         news_inquiry_triggers = ["any updates", "latest news", "current events", "headlines"]
@@ -615,6 +630,22 @@ class MessageProcessor:
         # 2. Build Messages
         messages = self._construct_messages(ctx, optimized)
         
+        # 2.5 Inline Vision Processing (Qwen 3.5 native)
+        if hasattr(ctx.message, 'attachments') and ctx.message.attachments:
+            images = []
+            for att in ctx.message.attachments:
+                if any(getattr(att, 'filename', '').lower().endswith(ext) for ext in ['.png', '.jpg', '.jpeg', '.gif', '.webp']):
+                    try:
+                        log_debug(f"Fetching image attachment for inline vision: {att.url}")
+                        b64 = await self._fetch_image_as_base64(att.url)
+                        images.append(b64)
+                    except Exception as e:
+                        log_warning(f"Failed to fetch image {getattr(att, 'filename', 'unknown')} for inline vision: {e}")
+            
+            if images and messages and messages[-1].get("role") == "user":
+                messages[-1]["images"] = images
+                log_info(f"Attached {len(images)} images to user message for inline multimodal processing.")
+        
         # 3. LLM Generation (flag active to block quips/dreams)
         self.bot_state.is_generating = True
         try:
@@ -647,8 +678,8 @@ class MessageProcessor:
         if not context_str and needs_grounding:
             if is_observational:
                 rag_block += (
-                    "\n\nCRITICAL: You have NO chat logs or records of user interactions to draw from right now. "
-                    "Do NOT invent users, conversations, observations, or anecdotes."
+                    "\n\nCRITICAL: No interaction logs found for that time window. "
+                    "Do not invent users, events, or conversations."
                 )
             else:
                 rag_block += "\n\nCRITICAL: No specific records found. Do not invent details."
@@ -658,7 +689,8 @@ class MessageProcessor:
         full_system_prompt = (
             f"{system_prompt}\n\n"
             f"[CURRENT_TIME] {current_time_str}\n\n"
-            f"{rag_block}"
+            f"{rag_block}\n\n"
+            f"[RESPONSE FORMAT] Always produce a spoken reply after any internal reasoning. Your response must contain visible text outside of <think> tags."
         )
 
         # [DEBUG] Trace final prompt assembly
@@ -748,44 +780,62 @@ class MessageProcessor:
                         # Handle cases like ```message``` without newlines
                         pass
                 
-                # CRITICAL FIX: The LLM sometimes injects ` ``` ` inside its own generated response.
-                # Since ALL kaia responses are wrapped in a Discord code block in messaging.py,
-                # any internal triple backticks will prematurely end the code block and break formatting.
-                # Strip all triple (and double, just in case) backticks. Single backticks for code are fine.
-                content = content.replace("```", "").replace("``", "")
 
-                # THINK TAG VISIBILITY: Capture <think> blocks before stripping for users with think mode on
+
+                # THINK TAG VISIBILITY: Capture <think> blocks BEFORE any content stripping
+                think_is_enabled = False
+                if hasattr(self.bot_state, 'think_mode_users'):
+                    # Discord IDs can sometimes flip between str/int in properties depending on the API path.
+                    user_id = ctx.message.author.id
+                    think_is_enabled = user_id in self.bot_state.think_mode_users or str(user_id) in self.bot_state.think_mode_users or int(user_id) in self.bot_state.think_mode_users
+                
+                # 1. Extract think block FIRST (before backtick strip can corrupt it)
                 think_block = ""
                 think_match = _THINK_BLOCK_PATTERN.search(content)
                 if think_match:
-                    think_is_enabled = (
-                        hasattr(self.bot_state, 'think_mode_users') and
-                        ctx.message.author.id in self.bot_state.think_mode_users
-                    )
                     if think_is_enabled:
                         think_block = think_match.group(1).strip()
                     # Always strip think tags from the main response
                     content = _THINK_BLOCK_PATTERN.sub('', content).strip()
                 
+                # 2. THEN strip backticks (after think content is safe)
+                # CRITICAL FIX: The LLM sometimes injects ``` inside its own response.
+                # Since ALL kaia responses are wrapped in a Discord code block in messaging.py,
+                # any internal triple backticks will prematurely end the code block and break formatting.
+                content = content.replace("```", "").replace("``", "")
+
+                # If nothing visible after stripping think tags, retry regardless of think mode
+                if not content:
+                    log_warning(f"Attempt {attempt + 1}: Model produced only reasoning with no reply. Retrying...")
+                    continue
+                
+                # Strip common preamble patterns from Qwen3.5 reasoning if think mode is off
+                if not think_is_enabled:
+                    content = re.sub(r'^(okay,?\s*let me think|alright,?\s*let me|thinking through this)[^\n]*\n', '', content, flags=re.IGNORECASE).strip()
+
                 # Cleanup
                 should_detect = self.config.get('features.hallucination_detection', True)
-                if should_detect and not self.config.is_owner(ctx.message.author.name, ctx.author_name, ctx.author_id):
+                is_owner = self.config.is_owner(ctx.message.author.name, ctx.author_name, ctx.author_id)
+                log_debug(f"[HALLUCINATION_CHECK] Author: {ctx.message.author.name} (ID: {ctx.author_id}), Config Owner: {is_owner}")
+
+                if should_detect and not is_owner:
                     content = HallucinationDetector.clean_response(content)
                     
                 if not content:
-                    log_warning(f"Attempt {attempt + 1} failed: Hallucination detected (Empty after clean).")
+                    log_warning(f"Attempt {attempt + 1} failed: Empty response after filtering (is_owner={is_owner}). Author: {ctx.message.author.name}")
                     continue
 
-                if not self.config.is_owner(ctx.message.author.name, ctx.author_name, ctx.author_id):
+                if not is_owner:
                     content = EmergencyContaminationFilter.filter_response(content)
                     
                 if not content:
-                    log_warning(f"Attempt {attempt + 1} failed: Veracity violation (Fiction/Contamination detected).")
+                    log_warning(f"Attempt {attempt + 1} failed: Veracity violation (Fiction/Contamination detected). Author: {ctx.message.author.name}, is_owner: {is_owner}")
                     continue
                 
                 # Style Hardening (Silent Stripping)
-                # Re-enabled for everyone as bait-y questions break the illusion
-                content = BotSpeakFilter.strip_bot_speak(content)
+                filtered = BotSpeakFilter.strip_bot_speak(content)
+                # Safety net: never let the filter empty a response (especially for owners with think mode)
+                content = filtered if filtered and filtered.strip() else content
                 
                 if content and content.strip():
                     # Append think block as spoiler if captured
@@ -877,3 +927,11 @@ class MessageProcessor:
                     clean_text = '\n'.join(clean_text.split('\n')[1:]).strip()
         
         await send_kaia_response(channel, clean_text)
+
+    async def _fetch_image_as_base64(self, url: str) -> str:
+        """Fetch an image from a URL and return as a base64 string for inline multimodal vision."""
+        async with aiohttp.ClientSession() as session:
+            async with session.get(url, timeout=10.0) as resp:
+                resp.raise_for_status()
+                data = await resp.read()
+                return base64.b64encode(data).decode('utf-8')

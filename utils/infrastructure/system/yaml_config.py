@@ -17,7 +17,7 @@ from dotenv import load_dotenv
 from pathlib import Path
 
 # Core Constants
-CONTEXT_WINDOW_TOKENS = 8192
+CONTEXT_WINDOW_TOKENS = 12000  # Default for qwen3.5:9b
 
 # Legacy default paths
 from typing import Any, Dict, Optional
@@ -254,11 +254,11 @@ class YAMLConfig:
     
     @property
     def chat_model(self) -> str:
-        return self.get_path('models.chat', 'gemma3:12b')
+        return self.get_path('models.chat', 'qwen3.5:9b')
     
     @property
     def embedding_model(self) -> str:
-        return self.get_path('models.embedding', 'nomic-embed-text')
+        return self.get_path('models.embedding', 'nomic-embed-text-cpu')
     
     @property
     def knowledge_base_dir(self) -> str:

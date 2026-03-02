@@ -164,7 +164,7 @@ async def _reconstruct_bluesky_history():
     """Fetch recent bot posts from Bluesky and rebuild thread counts efficiently."""
     global _silenced_replied_ids
     try:
-        _ensure_social_imports()
+        await asyncio.to_thread(_ensure_social_imports)
         if not is_bluesky_configured or not is_bluesky_configured() or shutdown_manager.shutting_down: return
         
         client = await get_bluesky_client()
