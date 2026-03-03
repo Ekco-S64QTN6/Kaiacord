@@ -1,7 +1,4 @@
 #!/usr/bin/env python3
-import warnings
-# Silence "nag" about switching to google-genai
-warnings.filterwarnings("ignore", category=FutureWarning)
 import os
 import json
 import datetime
@@ -10,16 +7,16 @@ from typing import Optional, List, Dict, Any
 import ollama
 from dotenv import load_dotenv
 from pathlib import Path
-import google.generativeai as genai
+from google import genai
+from google.genai import types
 load_dotenv(dotenv_path=Path(__file__).parent.parent / '.env')
 
 class KaiaNewsUpdater:
     def __init__(self, gemini_api_key: str):
         """Initialize with Gemini API key"""
-        genai.configure(api_key=gemini_api_key)
-        # USE 'gemini-flash-latest' FOR FREE ACCOUNTS.
-        # This is the correct alias for Gemini 1.5 Flash in the legacy SDK.
-        self.model_name = 'gemini-flash-latest' 
+        self.client = genai.Client(api_key=gemini_api_key)
+        # USE 'gemini-2.0-flash' — the successor to gemini-flash-latest.
+        self.model_name = 'gemini-2.0-flash'
         self.knowledge_dir = Path("./knowledge_base/news/daily")
         self.knowledge_dir.mkdir(parents=True, exist_ok=True)
         self.today = datetime.datetime.now().strftime("%Y-%m-%d")
@@ -115,14 +112,15 @@ RULES:
 6. Do NOT include a 'SOURCES' or 'REFERENCES' section at the end of the brief.
 """
         
-        # In legacy google-generativeai, grounding is enabled via tools
+        # google-genai SDK: grounding via GoogleSearch tool
         try:
-            model = genai.GenerativeModel(
-                model_name=self.model_name,
-                tools='google_search_retrieval'
+            response = self.client.models.generate_content(
+                model=self.model_name,
+                contents=prompt,
+                config=types.GenerateContentConfig(
+                    tools=[types.Tool(google_search=types.GoogleSearch())]
+                )
             )
-            
-            response = model.generate_content(prompt)
             
             # Robust text extraction
             brief = (response.text or "").strip()

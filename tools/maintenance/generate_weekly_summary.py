@@ -11,7 +11,8 @@ from datetime import datetime, timedelta
 import re
 
 try:
-    import google.generativeai as genai
+    from google import genai
+    from google.genai import types
 except ImportError:
     genai = None
 
@@ -23,14 +24,10 @@ class WeeklyNewsSummarizer:
     def __init__(self, gemini_api_key: str):
         """Initialize with Gemini API key"""
         if not genai:
-            raise ImportError("google-generativeai not installed")
+            raise ImportError("google-genai not installed")
         
-        genai.configure(api_key=gemini_api_key)
-        # USE 'gemini-flash-latest' FOR FREE ACCOUNTS.
-        # This is the correct alias for Gemini 1.5 Flash in the legacy SDK.
-        # DO NOT change to 'gemini-1.5-pro' to avoid breaking the free tier quota limit.
-        # DO NOT change to 'gemini-1.5-flash' as it causes a 404 error in v1beta.
-        self.model = genai.GenerativeModel('gemini-flash-latest')
+        self.client = genai.Client(api_key=gemini_api_key)
+        self.model_name = 'gemini-2.0-flash'
         self.archive_dir = Path("./knowledge_base/news/archive")
         self.weekly_dir = Path("./knowledge_base/news/weekly")
         self.weekly_dir.mkdir(parents=True, exist_ok=True)
@@ -131,8 +128,11 @@ RULES:
 5. Maximum 40 bullet points total
 """
         
-        # Generate using Gemini
-        response = self.model.generate_content(prompt)
+        # Generate using google-genai SDK
+        response = self.client.models.generate_content(
+            model=self.model_name,
+            contents=prompt
+        )
         summary = response.text.strip()
         
         return summary

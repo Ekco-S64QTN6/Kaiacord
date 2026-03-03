@@ -1,5 +1,5 @@
 import os
-import google.generativeai as genai
+from google import genai
 from dotenv import load_dotenv
 
 # Load environment variables
@@ -11,7 +11,7 @@ def list_gemini_models():
         print("❌ GEMINI_API_KEY not set.")
         return
 
-    genai.configure(api_key=api_key)
+    client = genai.Client(api_key=api_key)
     
     print("--- Available Gemini Models (GenerativeAI SDK) ---")
     try:

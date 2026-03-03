@@ -1,9 +1,9 @@
 import os
-import google.generativeai as genai
+from google import genai
 from dotenv import load_dotenv
 
 load_dotenv()
-genai.configure(api_key=os.getenv("GEMINI_API_KEY"))
+client = genai.Client(api_key=os.getenv("GEMINI_API_KEY"))
 
 model_names = [
     'gemini-flash-latest',
@@ -13,7 +13,7 @@ model_names = [
 
 for name in model_names:
     try:
-        model = genai.GenerativeModel(name, tools='google_search_retrieval')
+        model = client.models
         response = model.generate_content("What is the latest news today?")
         print(f"✅ WITH GROUNDING: {name} SUCCESS! Output length: {len(response.text)}")
     except Exception as e:
@@ -21,7 +21,7 @@ for name in model_names:
 
 for name in model_names:
     try:
-        model = genai.GenerativeModel(name)
+        model = client.models
         response = model.generate_content("What is the latest news today?")
         print(f"✅ NO GROUNDING: {name} SUCCESS! Output length: {len(response.text)}")
     except Exception as e:
