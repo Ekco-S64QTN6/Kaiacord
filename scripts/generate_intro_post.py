@@ -24,7 +24,7 @@ async def generate_intro():
     print("--- Drafting Kaia's Forum Introduction ---")
     
     persona = load_persona()
-    model_name = config.get('intelligence.main_model', 'gemma3:12b')
+    model_name = config.get('intelligence.main_model', 'qwen3.5:9b')
     gpu_manager = OllamaGPUManager(model_name)
     options = gpu_manager.get_gpu_options(for_chat=True)
     

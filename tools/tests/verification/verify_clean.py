@@ -25,7 +25,7 @@ async def test_kaia_responses():
         
         try:
             response = await client.chat(
-                model="gemma3:12b",
+                model="qwen3.5:9b",
                 messages=[
                     {"role": "user", "content": query}
                 ],

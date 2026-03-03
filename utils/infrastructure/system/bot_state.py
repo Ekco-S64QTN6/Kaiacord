@@ -69,8 +69,12 @@ class BotState:
                         # Type contract: channel_memory uses int keys (Discord channel IDs).
                         # JSON always serialises keys as strings, so we cast back to int on load.
                         raw_mem = state.get('channel_memory', {})
+                        # maxlen must match config.max_memory_messages (default 35).
+                        # Was hardcoded to 5, silently truncating history on every restart.
+                        from utils.infrastructure.system.yaml_config import config as _cfg
+                        _maxlen = getattr(_cfg, 'max_memory_messages', 35)
                         self.channel_memory = {
-                            int(k): deque(v, maxlen=5)
+                            int(k): deque(v, maxlen=_maxlen)
                             for k, v in raw_mem.items()
                             if str(k).isdigit()
                         }

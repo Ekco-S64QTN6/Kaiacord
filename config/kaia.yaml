@@ -34,7 +34,8 @@ features:
   dream_mode_enabled: true
 
 timeouts:
-  classification_seconds: 120.0
+  classification_seconds: 60.0
+  classification_join_seconds: 50.0
 
 performance:
   max_consecutive_quips: 5

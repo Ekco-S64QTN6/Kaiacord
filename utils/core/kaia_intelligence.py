@@ -27,6 +27,10 @@ RE_KAIA_REFLECTION_HEADER = re.compile(r"## Kaia's Reflection\s*", flags=re.IGNO
 RE_DATE_FROM_PATH = re.compile(r'(\d{4})(\d{2})(\d{2})')
 RE_MD_JSON_BLOCK_START = re.compile(r'```json\s*')
 RE_MD_BLOCK_BACKTICKS = re.compile(r'```')
+RE_THINK_BLOCK = re.compile(r'<think>[\s\S]*?</think>')
+
+# Strip stale time-anchored status responses from history
+TIME_ANCHOR_PATTERN = re.compile(r"\bit'?s\s+\d+:\d+\b", re.IGNORECASE)
 
 @dataclass
 class Intent:
@@ -176,7 +180,7 @@ class ContextOptimizer:
         self.system_reserve = config.system_reserve_tokens
         # Optimal ratios for different models
         self.ratios = {
-            'gemma3:12b': {'persona': 0.10, 'rag': 0.50, 'history': 0.35, 'system': 0.05},
+            'qwen3.5:9b': {'persona': 0.10, 'rag': 0.50, 'history': 0.35, 'system': 0.05},
             'llama3.2': {'persona': 0.15, 'rag': 0.45, 'history': 0.35, 'system': 0.05},
             'default': {'persona': 0.10, 'rag': 0.50, 'history': 0.30, 'system': 0.10}
         }
@@ -406,6 +410,9 @@ class ContextOptimizer:
                     
                 t_count = self._estimate_tokens(turn.get('content', ''))
                 if hist_current + t_count <= history_budget:
+                    # Strip stale time-anchored status responses from history
+                    if turn.get('role') == 'assistant' and TIME_ANCHOR_PATTERN.search(turn.get('content', '')):
+                        continue
                     optimized_history.insert(0, turn.copy())
                     hist_current += t_count
                 else:
@@ -795,7 +802,7 @@ class IntentParser:
         from utils.infrastructure.system.yaml_config import config
         from utils.infrastructure.gpu.gpu_manager import OllamaGPUManager
         
-        # LAYER 0: Classification Model Selection (Default to gemma2:2b on CPU)
+        # LAYER 0: Classification Model Selection (Default to qwen3.5:2b on CPU)
         # Using a smaller model on CPU prevents GPU semaphore contention.
         self.classification_model = config.get('models.classification_model', 'qwen3.5:2b')
         self.use_gpu_for_classification = config.get('models.classification_on_gpu', False)
@@ -817,15 +824,16 @@ class IntentParser:
                 "num_ctx": classification_ctx,
                 "num_predict": 256,
                 "temperature": 0.1,
-                "top_p": 0.9
+                "top_p": 0.9,
+                "think": False # Prevent thinking mode for classification
             }
         
-        # Overrides for precise classification if using GPU
         if self.use_gpu_for_classification:
             self.classification_options.update({
                 "temperature": 0.1,
                 "top_p": 0.9,
-                "num_predict": 256
+                "num_predict": 256,
+                "think": False
             })
         
         # LAYER 1: Fast Pattern Triggers (Precompiled for performance)
@@ -1014,7 +1022,11 @@ class IntentParser:
             raw_json = response['message']['content'].strip()
             
             clean_json = await self._repair_json(raw_json)
-            data = json.loads(clean_json)
+            try:
+                data = json.loads(clean_json)
+            except json.JSONDecodeError as jde:
+                log_error(f"Intent Analysis JSON Error: {jde}. Raw Content: {raw_json[:200]}...")
+                raise jde
             
             return Intent(
                 explicit_intent=data.get('explicit_intent', query),
@@ -1051,7 +1063,8 @@ class IntentParser:
 
     async def _repair_json(self, text: str) -> str:
         """Attempt to repair broken JSON from LLM output using precompiled regex."""
-        # Remove markdown code blocks if present
+        # Remove think blocks and markdown code blocks if present
+        text = RE_THINK_BLOCK.sub('', text)
         text = RE_MD_JSON_BLOCK_START.sub('', text)
         text = RE_MD_BLOCK_BACKTICKS.sub('', text).strip()
         

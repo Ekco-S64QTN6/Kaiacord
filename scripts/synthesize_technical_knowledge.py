@@ -26,7 +26,7 @@ async def synthesize_technical_knowledge():
         print("No technical logs found to synthesize.")
         return
 
-    model_name = config.get('intelligence.main_model', 'gemma3:12b')
+    model_name = config.get('intelligence.main_model', 'qwen3.5:9b')
     gpu_manager = OllamaGPUManager(model_name)
     options = gpu_manager.get_gpu_options(for_chat=True)
     client = Client(host=config.get('ollama.host', 'http://localhost:11434'))

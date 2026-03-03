@@ -688,7 +688,8 @@ class MessageProcessor:
 
         full_system_prompt = (
             f"{system_prompt}\n\n"
-            f"[CURRENT_TIME] {current_time_str}\n\n"
+            f"[CURRENT_TIME] {current_time_str}\n"
+            f"CRITICAL: This is the real current time. Any timestamps mentioned in conversation history are outdated — do not repeat them.\n\n"
             f"{rag_block}\n\n"
             f"[RESPONSE FORMAT] Always produce a spoken reply after any internal reasoning. Your response must contain visible text outside of <think> tags."
         )
@@ -735,6 +736,21 @@ class MessageProcessor:
         gpu_manager = OllamaGPUManager(self.config.chat_model)
         options = gpu_manager.get_gpu_options(for_chat=True, num_ctx=self.config.max_context_tokens)
         
+        # ── DETERMINE THINK MODE BEFORE THE LOOP ────────────────────────────────
+        # think_is_enabled must be known before building current_options so we can
+        # pass "think": True/False to Ollama.
+        think_is_enabled = False
+        if hasattr(self.bot_state, 'think_mode_users'):
+            user_id = ctx.message.author.id
+            think_is_enabled = (
+                user_id in self.bot_state.think_mode_users
+                or str(user_id) in self.bot_state.think_mode_users
+                or int(user_id) in self.bot_state.think_mode_users
+            )
+
+        # Tell Qwen3.5 whether to produce <think> blocks in this generation.
+        options['think'] = think_is_enabled
+        
         max_attempts = self.config.generation_max_retry_attempts
         base_temp = self.config.generation_base_temperature
         temp_scaling = self.config.generation_temperature_scaling
@@ -780,22 +796,21 @@ class MessageProcessor:
                         # Handle cases like ```message``` without newlines
                         pass
                 
-
-
-                # THINK TAG VISIBILITY: Capture <think> blocks BEFORE any content stripping
-                think_is_enabled = False
-                if hasattr(self.bot_state, 'think_mode_users'):
-                    # Discord IDs can sometimes flip between str/int in properties depending on the API path.
-                    user_id = ctx.message.author.id
-                    think_is_enabled = user_id in self.bot_state.think_mode_users or str(user_id) in self.bot_state.think_mode_users or int(user_id) in self.bot_state.think_mode_users
-                
-                # 1. Extract think block FIRST (before backtick strip can corrupt it)
+                # 1. Extract think block — Ollama with think=True returns thinking in
+                # response['message']['thinking'], NOT as <think> tags in content.
+                # Fall back to regex for any models that still embed tags inline.
                 think_block = ""
+                if think_is_enabled:
+                    # Primary: Ollama native thinking field (Qwen3.5 + Ollama 0.6.5+)
+                    think_block = (response['message'].get('thinking') or '').strip()
+                    
+                # Fallback: some model/ollama combos still inline <think> tags in content
                 think_match = _THINK_BLOCK_PATTERN.search(content)
                 if think_match:
-                    if think_is_enabled:
+                    if think_is_enabled and not think_block:
+                        # Only use inline tags if we didn't already get thinking from the API field
                         think_block = think_match.group(1).strip()
-                    # Always strip think tags from the main response
+                    # Always strip the tags from visible content regardless
                     content = _THINK_BLOCK_PATTERN.sub('', content).strip()
                 
                 # 2. THEN strip backticks (after think content is safe)
@@ -804,10 +819,14 @@ class MessageProcessor:
                 # any internal triple backticks will prematurely end the code block and break formatting.
                 content = content.replace("```", "").replace("``", "")
 
-                # If nothing visible after stripping think tags, retry regardless of think mode
+                # If nothing visible after stripping think tags, check if we have thinking
                 if not content:
-                    log_warning(f"Attempt {attempt + 1}: Model produced only reasoning with no reply. Retrying...")
-                    continue
+                    if think_is_enabled and think_block:
+                        # Success! The model only produced reasoning, but that's valid in think-mode
+                        content = "(Internal reasoning complete. Tap below to view.)"
+                    else:
+                        log_warning(f"Attempt {attempt + 1}: Model produced only reasoning with no reply. Retrying...")
+                        continue
                 
                 # Strip common preamble patterns from Qwen3.5 reasoning if think mode is off
                 if not think_is_enabled:

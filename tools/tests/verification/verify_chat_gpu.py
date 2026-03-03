@@ -11,7 +11,7 @@ from utils.infrastructure.logging.kaia_logger import log_info, log_success, log_
 import ollama
 
 async def verify_chat_gpu():
-    model_name = "gemma3:12b"
+    model_name = "qwen3.5:9b"
     log_info(f"Verifying GPU offloading for chat model: {model_name}")
     
     manager = OllamaGPUManager(model_name)

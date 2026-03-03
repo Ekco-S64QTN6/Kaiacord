@@ -61,7 +61,7 @@ class ModelContextMonitor:
     async def set_model(cls, model_name: str):
         # nomic-embed-text is lightweight and can co-exist with chat models.
         # We don't want to trigger a 'swap' event for it, as that leads to VRAM clearing.
-        if model_name == "nomic-embed-text":
+        if model_name in ("nomic-embed-text", "nomic-embed-text-cpu"):
             return False
             
         async with cls._lock:
@@ -192,11 +192,8 @@ class OllamaGPUManager:
                 from utils.infrastructure.system.yaml_config import config
                 running_models = [
                     config.chat_model, 
-                    config.get('models.classification_model', 'gemma2:2b'),
+                    config.get('models.classification_model', 'qwen3.5:2b'),
                     config.get('models.embedding', 'nomic-embed-text-cpu'),
-                    "gemma2:2b", 
-                    "nomic-embed-text",
-                    "nomic-embed-text-cpu"
                 ]
 
             # Filter duplicates and empty values

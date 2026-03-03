@@ -8,7 +8,7 @@ async def nuclear_unload():
     client = ollama.AsyncClient(timeout=60)
     
     # List of models possibly loaded
-    models = ["gemma3:12b", "gemma2:2b", "nomic-embed-text"]
+    models = ["qwen3.5:9b", "qwen3.5:2b", "nomic-embed-text-cpu"]
     
     for model in models:
         try:

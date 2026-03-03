@@ -137,10 +137,10 @@ timeouts:
 
   # Orchestration wait timeout for classification (seconds)
   # Should be classification_seconds + buffer for overhead
-  orchestration_classification_seconds: 40.0
+  orchestration_classification_seconds: 45.0
 
   # Join timeout for classification task (seconds)
-  classification_join_seconds: 15.0
+  classification_join_seconds: 40.0
 
   # Model pre-warm timeout (seconds)
   prewarm_seconds: 30.0

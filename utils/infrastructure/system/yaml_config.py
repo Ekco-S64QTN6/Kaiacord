@@ -286,7 +286,7 @@ class YAMLConfig:
     
     @property
     def rag_top_k(self) -> int:
-        return self.get_path('performance.rag_top_k', 25)
+        return self.get_path('performance.rag_top_k', 12)
     
     @property
     def rag_node_chunk_size(self) -> int:
@@ -470,7 +470,7 @@ class YAMLConfig:
     @property
     def classification_join_seconds(self) -> float:
         """Join timeout for classification task in seconds"""
-        return self.get_path('timeouts.classification_join_seconds', 5.0)
+        return self.get_path('timeouts.classification_join_seconds', 15.0)
 
     @property
     def shutdown_timeout(self) -> float:
@@ -508,11 +508,11 @@ class YAMLConfig:
         # Fix #3: Fallback must mirror the YAML schema exactly.
         # 'memory' was a dead key — real source_types are 'user_logs' and 'knowledge'.
         return self.get_path('performance.rag_scoring.type_boosts', {
-            'persona': 0.15,
+            'persona': 0.40,
             'user_profile': 0.20,
             'dream': 0.10,
-            'user_logs': 0.10,
-            'knowledge': 0.20
+            'user_logs': 0.25,
+            'knowledge': -0.20
         })
 
     @property
@@ -538,7 +538,7 @@ class YAMLConfig:
     @property
     def token_multiplier(self) -> float:
         """Multiplier for word-to-token estimation (1.3 default for English)"""
-        return self.get_path('performance.token_multiplier', 1.3)
+        return self.get_path('performance.token_multiplier', 1.6)
     
     @property
     def system_reserve_tokens(self) -> int:

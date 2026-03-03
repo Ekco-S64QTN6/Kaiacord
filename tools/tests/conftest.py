@@ -180,7 +180,7 @@ def mock_ollama_client():
     def mock_list():
         return {
             "models": [
-                {"name": "gemma3:12b"},
+                {"name": "qwen3.5:9b"},
                 {"name": "llama3.2-vision:11b"},
                 {"name": "nomic-embed-text"}
             ]

@@ -3,7 +3,7 @@ from ollama import AsyncClient
 
 async def force_unload():
     client = AsyncClient(host='http://localhost:11434')
-    models = ['gemma3:12b', 'nomic-embed-text']
+    models = ['qwen3.5:9b', 'nomic-embed-text']
     
     for model in models:
         print(f"🔄 Unloading {model}...")

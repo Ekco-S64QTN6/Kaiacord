@@ -4,7 +4,7 @@ import asyncio
 import ollama
 
 log_dir = "knowledge_base/user_logs"
-model = "gemma3:12b"
+model = "qwen3.5:9b"
 
 async def generate_profile(user_folder):
     user_name = user_folder.split(os.sep)[-1].rsplit("_", 1)[0].replace("_", " ")

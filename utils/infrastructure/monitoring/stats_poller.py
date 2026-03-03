@@ -149,7 +149,7 @@ class RealTimeStatsPoller:
                     target_models = [
                         config.chat_model,
                         config.embedding_model,
-                        config.get('models.classification_model', 'gemma2:2b')
+                        config.get('models.classification_model', 'qwen3.5:2b')
                     ]
                     
                     model_list = []
