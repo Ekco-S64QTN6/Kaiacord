@@ -966,5 +966,3 @@ class MessageProcessor:
         except Exception as e:
             log_error(f"Error fetching image: {e}")
             return ""
-
-    async def _send_summary_to_logs(self, ctx: MessageContext, content: str, think_block: str):
