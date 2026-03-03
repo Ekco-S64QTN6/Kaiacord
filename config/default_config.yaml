@@ -13,7 +13,7 @@
 # ============================================================================
 models:
   # Main chat model
-  chat: "qwen3.5:9b"
+  chat: "gemma3:12b"
   
   # Embedding model for RAG
   # NOTE: qwen3.5:2b does NOT expose Ollama's embedding API (returns 501).
@@ -22,7 +22,7 @@ models:
   embedding: "nomic-embed-text-cpu"
 
   # Intent classification model
-  classification_model: "qwen3.5:2b"
+  classification_model: "gemma2:2b"
 
   # Whether to run intent classification on GPU (default: false, runs on CPU)
   classification_on_gpu: false

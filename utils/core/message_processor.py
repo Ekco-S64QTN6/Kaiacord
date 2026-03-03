@@ -608,18 +608,7 @@ class MessageProcessor:
         o_dur = time.perf_counter() - o_start
         log_debug(f"METRIC: Context optimization took {o_dur:.3f}s")
 
-        # 2. Build Messages
-        # Compute think mode state here so it can be passed to _construct_messages
-        # and used consistently throughout this generation.
-        think_is_enabled = False
-        if hasattr(self.bot_state, 'think_mode_users'):
-            user_id = ctx.message.author.id
-            think_is_enabled = (
-                user_id in self.bot_state.think_mode_users
-                or str(user_id) in self.bot_state.think_mode_users
-                or int(user_id) in self.bot_state.think_mode_users
-            )
-        messages = self._construct_messages(ctx, optimized, think_is_enabled=think_is_enabled)
+        messages = self._construct_messages(ctx, optimized)
         
         # 2.5 Inline Vision Processing (Qwen 3.5 native)
         if hasattr(ctx.message, 'attachments') and ctx.message.attachments:
@@ -648,7 +637,7 @@ class MessageProcessor:
         # 4. Final Processing & Logging
         await self._post_process_and_log(ctx)
 
-    def _construct_messages(self, ctx: MessageContext, optimized: Dict[str, Any], think_is_enabled: bool = False) -> List[Dict[str, str]]:
+    def _construct_messages(self, ctx: MessageContext, optimized: Dict[str, Any]) -> List[Dict[str, str]]:
         """Build the system, RAG, history, and user messages."""
         system_prompt = optimized['persona']
         context_str = optimized['rag']
@@ -681,8 +670,7 @@ class MessageProcessor:
             f"{system_prompt}\n\n"
             f"[CURRENT_TIME] {current_time_str}\n"
             f"CRITICAL: This is the real current time. Any timestamps mentioned in conversation history are outdated — do not repeat them.\n\n"
-            f"{rag_block}\n\n"
-            f"[RESPONSE FORMAT] Always produce a spoken reply after any internal reasoning. Your response must contain visible text outside of <think> tags."
+            f"{rag_block}"
         )
 
         # [DEBUG] Trace final prompt assembly
@@ -715,13 +703,6 @@ class MessageProcessor:
 
         messages.append({"role": "user", "content": ctx.sanitized_content})
         
-        # Qwen3.5 needs /no_think in the prompt text to reliably suppress
-        # chain-of-thought. The Ollama options['think']=False alone is insufficient.
-        if not think_is_enabled and messages:
-            last_msg = messages[-1]
-            if last_msg['role'] == 'user' and '/no_think' not in last_msg['content']:
-                last_msg['content'] += '\n/no_think'
-        
         log_debug(f"DEBUG: Final messages list contains {len(messages)} items (System + {len(optimized_history)} history turns + User).")
         return messages
 
@@ -733,21 +714,6 @@ class MessageProcessor:
         
         gpu_manager = OllamaGPUManager(self.config.chat_model)
         options = gpu_manager.get_gpu_options(for_chat=True, num_ctx=self.config.max_context_tokens)
-        
-        # ── DETERMINE THINK MODE BEFORE THE LOOP ────────────────────────────────
-        # think_is_enabled must be known before building current_options so we can
-        # pass "think": True/False to Ollama.
-        think_is_enabled = False
-        if hasattr(self.bot_state, 'think_mode_users'):
-            user_id = ctx.message.author.id
-            think_is_enabled = (
-                user_id in self.bot_state.think_mode_users
-                or str(user_id) in self.bot_state.think_mode_users
-                or int(user_id) in self.bot_state.think_mode_users
-            )
-
-        # Tell Qwen3.5 whether to produce <think> blocks in this generation.
-        options['think'] = think_is_enabled
         
         max_attempts = self.config.generation_max_retry_attempts
         base_temp = self.config.generation_base_temperature
@@ -780,66 +746,21 @@ class MessageProcessor:
                 )
                 
                 content = response['message']['content']
-                
-                # Robust stripping of LLM-added outer codeblocks to avoid double-wrapping in Discord
+
+                # Strip LLM-added outer codeblocks
                 content = content.strip()
                 while content.startswith("```") and content.endswith("```"):
                     content = content[3:-3].strip()
-                    # Strip potential language identifier from the first line (e.g., 'markdown' or 'json')
                     if "\n" in content:
                         first_line = content.split('\n')[0].strip()
                         if first_line and not any(c.isspace() for c in first_line) and len(first_line) < 20:
                             content = '\n'.join(content.split('\n')[1:]).strip()
-                    else:
-                        # Handle cases like ```message``` without newlines
-                        pass
-                
-                # 1. Extract think block — Ollama with think=True returns thinking in
-                # response['message']['thinking'], NOT as <think> tags in content.
-                # Fall back to regex for any models that still embed tags inline.
-                think_block = ""
-                if think_is_enabled:
-                    # Primary: Ollama native thinking field (Qwen3.5 + Ollama 0.6.5+)
-                    think_block = (response['message'].get('thinking') or '').strip()
-                    
-                # Fallback: some model/ollama combos still inline <think> tags in content
-                think_match = _THINK_BLOCK_PATTERN.search(content)
-                if think_match:
-                    if think_is_enabled and not think_block:
-                        # Only use inline tags if we didn't already get thinking from the API field
-                        think_block = think_match.group(1).strip()
-                    # Always strip the tags from visible content regardless
-                    content = _THINK_BLOCK_PATTERN.sub('', content).strip()
-                
-                # Strip any orphaned <think> or </think> tags that weren't part of a complete pair.
-                content = re.sub(r'</?think>', '', content).strip()
-                
-                # 2. THEN strip backticks (after think content is safe)
-                # CRITICAL FIX: The LLM sometimes injects ``` inside its own response.
-                # Since ALL kaia responses are wrapped in a Discord code block in messaging.py,
-                # any internal triple backticks will prematurely end the code block and break formatting.
+
                 content = content.replace("```", "").replace("``", "")
 
-                # If nothing visible after stripping think tags, check if we have thinking
                 if not content:
-                    if think_is_enabled and think_block:
-                        content = "(Internal reasoning complete. Tap below to view.)"
-                    elif not think_is_enabled and think_block:
-                        # qwen3.5:9b ignored options['think']=False and routed reply
-                        # to thinking field. Salvage it to avoid 3x wasted retries.
-                        log_debug(
-                            f"Attempt {attempt + 1}: Model routed reply to thinking field "
-                            f"(think_is_enabled=False). Salvaging {len(think_block)} chars."
-                        )
-                        content = think_block
-                        think_block = ""  # Clear so it won't be double-appended as spoiler
-                    else:
-                        log_warning(f"Attempt {attempt + 1}: Model produced only reasoning with no reply. Retrying...")
-                        continue
-                
-                # Strip common preamble patterns from Qwen3.5 reasoning if think mode is off
-                if not think_is_enabled:
-                    content = re.sub(r'^(okay,?\s*let me think|alright,?\s*let me|thinking through this)[^\n]*\n', '', content, flags=re.IGNORECASE).strip()
+                    log_warning(f"Attempt {attempt + 1}: Empty response. Retrying...")
+                    continue
 
                 # Cleanup
                 should_detect = self.config.get('features.hallucination_detection', True)
@@ -866,12 +787,6 @@ class MessageProcessor:
                 content = filtered if filtered and filtered.strip() else content
                 
                 if content and content.strip():
-                    # Append think block as spoiler if captured
-                    if think_block:
-                        # Truncate very long think blocks to avoid Discord message limits
-                        if len(think_block) > 1500:
-                            think_block = think_block[:1500] + "... [truncated]"
-                        content += f"\n\n[chain-of-thought]\n||{think_block}||"
                     return content
                 else:
                     log_warning(f"Attempt {attempt + 1} failed: Result empty after filtering.")

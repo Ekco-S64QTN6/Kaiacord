@@ -5,7 +5,9 @@ scan_knowledge_base.py - Find and quarantine problematic files
 import os
 import shutil
 import re
+import logging
 from pathlib import Path
+
 
 def scan_for_phantom_names():
     """Scan knowledge base for phantom names that shouldn't be there"""
@@ -51,8 +53,11 @@ def scan_for_phantom_names():
             quarantine_path = quarantine_dir / f"{file_path.stem}_{counter}{file_path.suffix}"
             counter += 1
             
-        shutil.move(str(file_path), str(quarantine_path))
+        # shutil.move(str(file_path), str(quarantine_path))
+        logging.warning(f"Problematic file detected (NOT MOVED): {file_path}")
         moved_files.append((file_path.name, found_name))
+
+
     
     return moved_files
 

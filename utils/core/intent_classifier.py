@@ -188,16 +188,16 @@ class IntentParser:
                 "num_ctx": classification_ctx,
                 "num_predict": 256,
                 "temperature": 0.1,
-                "top_p": 0.9,
-                "think": False # Prevent thinking mode for classification
+                "num_predict": 256,
+                "temperature": 0.1,
+                "top_p": 0.9
             }
         
         if self.use_gpu_for_classification:
             self.classification_options.update({
                 "temperature": 0.1,
                 "top_p": 0.9,
-                "num_predict": 256,
-                "think": False
+                "num_predict": 256
             })
         
         # LAYER 1: Fast Pattern Triggers (Precompiled for performance)
@@ -379,34 +379,9 @@ class IntentParser:
             
             raw_json = response['message']['content'].strip()
             
-            # Qwen3.5 sometimes routes output to the 'thinking' field even when
-            # think: False is set. Fall back to thinking content if main content is empty.
             if not raw_json:
-                thinking = response['message'].get('thinking', '').strip()
-                if thinking:
-                    # Find the last complete JSON object — model's actual output is at the end,
-                    # not the schema example it copied from the prompt
-                    json_candidates = re.findall(r'\{[^{}]*"suggested_strategy"[^{}]*\}', thinking, re.DOTALL)
-                    if json_candidates:
-                        raw_json = json_candidates[-1]
-                        log_debug(f"Extracted JSON from thinking field (last candidate, {len(raw_json)} chars)")
-                    else:
-                        # Thinking field has reasoning prose only — model ignored /no_think.
-                        # Don't attempt JSON parse on reasoning text. Fall through to exception path.
-                        log_debug(
-                            f"qwen3.5:2b returned reasoning-only in thinking field "
-                            f"({len(thinking)} chars). Using fast-path fallback."
-                        )
-                        strategy = fast_path_hint if fast_path_hint else "EXPLORATORY_DIALOGUE"
-                        return Intent(
-                            explicit_intent=query,
-                            implied_needs=["classification fallback"],
-                            emotional_context="neutral",
-                            temporal_focus="present_immediate",
-                            relational_context="general",
-                            suggested_strategy=strategy,
-                            confidence=0.5
-                        )
+                log_warning(f"Intent classifier returned empty response.")
+                raise json.JSONDecodeError("Empty response from classifier", "", 0)
             
             clean_json = await self._repair_json(raw_json)
             try:

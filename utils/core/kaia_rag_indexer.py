@@ -23,7 +23,11 @@ import json
 import copy
 import threading
 import traceback
+from datetime import datetime
 from typing import Optional, List, Dict, Any, Tuple, Set
+
+import pypdf
+import docx2txt
 
 from llama_index.core import VectorStoreIndex, SimpleDirectoryReader, StorageContext, Settings, load_index_from_storage, Document
 from llama_index.core.node_parser import SentenceSplitter, CodeSplitter
@@ -31,6 +35,7 @@ from llama_index.core.node_parser import SentenceSplitter, CodeSplitter
 from utils.infrastructure.logging.kaia_logger import (
     log_success, log_info, log_warning, log_error, log_critical, log_action, log_debug
 )
+from utils.infrastructure.system.shutdown_fixed import shutdown_manager
 
 
 class RAGIndexerMixin:
@@ -437,33 +442,33 @@ class RAGIndexerMixin:
             return updated_itypes
             
         log_action(f"Detected {len(deleted_files)} deleted files. Pruning index O(k)...")
-        # Optimization: batch pruning and manifest updates
         to_prune = {} # itype -> list of node_ids
         
-        with self._data_lock: # Lock for reading manifest
+        with self._data_lock:
             for file_path in deleted_files:
                 node_ids = self.indexed_files[file_path].get("nodes", [])
                 if not node_ids:
                     self.indexed_files.pop(file_path, None)
                     continue
                     
-                for itype, index in self.indices.items():
-                    if itype not in to_prune: to_prune[itype] = []
+                for itype in self.indices:
+                    if itype not in to_prune:
+                        to_prune[itype] = []
                     to_prune[itype].extend(node_ids)
                 
                 self.indexed_files.pop(file_path, None)
                 self._file_to_nodes.pop(file_path, None)
             
-        # Actual deletion from indices (gated by itype-level index docs locking if possible, but here we stay simple)
-        if to_prune:
-            with self._data_lock: # Re-acquire for modification
-                for itype, node_ids in to_prune.items():
-                    if not node_ids: continue
-                    try:
-                        self.indices[itype].delete_nodes(node_ids)
-                        updated_itypes.add(itype)
-                    except Exception: pass
-            
+            # Deletion happens inside the same lock scope
+            for itype, node_ids in to_prune.items():
+                if not node_ids:
+                    continue
+                try:
+                    self.indices[itype].delete_nodes(node_ids)
+                    updated_itypes.add(itype)
+                except Exception:
+                    pass
+
         self._save_indexed_files()
         return updated_itypes
 
@@ -721,13 +726,14 @@ class RAGIndexerMixin:
                         return True
                 except Exception: pass
         
-        # Move to corrupt
-        dest = os.path.join(corrupt_dir, os.path.basename(file_path))
-        if os.path.exists(dest): dest = f"{dest}_{int(time.time())}"
-        import shutil
-        shutil.move(file_path, dest)
-        log_critical(f"MOVED CORRUPT FILE TO: {dest}")
+        # Move to corrupt (DISABLED - Files should stay where they are)
+        # dest = os.path.join(corrupt_dir, os.path.basename(file_path))
+        # if os.path.exists(dest): dest = f"{dest}_{int(time.time())}"
+        # import shutil
+        # shutil.move(file_path, dest)
+        log_critical(f"UNABLE TO INDEX CORRUPT FILE: {file_path}. Keeping in original location.")
         return False
+
 
     def _persist_updated_indices(self, updated_itypes: Set[str]):
         """Save indices to disk and invalidate/save BM25 cache."""
@@ -738,6 +744,7 @@ class RAGIndexerMixin:
             for itype in updated_itypes:
                 if itype in self.bm25_cache:
                     log_info(f"Invalidating memory BM25 cache for '{itype}' to trigger re-save")
+                    del self.bm25_cache[itype]
 
         # 2. Heavy Disk I/O (NO LOCK HELD)
         # We don't hold the global data lock during storage_context.persist()

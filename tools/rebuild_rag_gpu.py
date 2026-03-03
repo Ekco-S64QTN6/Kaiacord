@@ -21,7 +21,8 @@ import asyncio
 
 sys.path.append(os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
 
-from utils.infrastructure.logging.kaia_logger import log_info, log_success, log_error, log_action, log_warning
+from utils.infrastructure.logging.kaia_logger import log_info, log_success, log_error, log_action, log_warning, log_debug
+from utils.infrastructure.logging.unified_logging import logger as global_logger
 from utils.infrastructure.system.yaml_config import config
 
 
@@ -105,19 +106,66 @@ if __name__ == "__main__":
                         help="Parallel embedding workers (default: 4)")
     args = parser.parse_args()
 
-    # Safety: warn if bot might be running
     import subprocess
     try:
-        result = subprocess.run(["pgrep", "-f", "python.*Kaiacord.py"],
-                                capture_output=True, text=True, timeout=2)
-        if result.stdout.strip():
-            log_warning("⚠️  Kaiacord.py appears to be running! GPU rebuild will compete for VRAM.")
+        # 1. Robust process detection:
+        # Search for 'python' or 'python3' processes and check their arguments for 'Kaiacord.py'.
+        # This avoids matching terminal window titles or shell command strings.
+        running_pids = []
+        my_pid = os.getpid()
+        
+        # Get all python processes with their full command line
+        ps_cmd = ["ps", "-C", "python,python3", "-o", "pid,args", "--no-headers"]
+        result = subprocess.run(ps_cmd, capture_output=True, text=True)
+        
+        if result.returncode == 0:
+            for line in result.stdout.strip().split('\n'):
+                if not line.strip():
+                    continue
+                parts = line.strip().split(None, 1)
+                if len(parts) < 2:
+                    continue
+                pid_str, args_str = parts
+                pid = int(pid_str)
+                
+                # Check if it's the bot script and not ourselves
+                if pid != my_pid and "Kaiacord.py" in args_str:
+                    # Double check that Kaiacord.py is a distinct argument, not part of a path
+                    # (unless it's the script being run)
+                    if any(arg.endswith("Kaiacord.py") or arg == "Kaiacord.py" for arg in args_str.split()):
+                        running_pids.append(pid_str)
+
+        if running_pids:
+            log_warning(f"⚠️  Kaiacord.py appears to be running (PIDs: {', '.join(running_pids)})!")
+            log_warning("   GPU rebuild will compete for VRAM and may cause the bot to crash.")
             log_warning("   Stop the bot first, or use the regular CPU rebuild: python tools/rebuild_rag.py --clear")
-            response = input("Continue anyway? [y/N]: ").strip().lower()
-            if response != 'y':
+            
+            # Flush loggers before interactive input to prevent terminal corruption
+            sys.stdout.flush()
+            sys.stderr.flush()
+
+            try:
+                print("\n" + "="*50)
+                response = input("PROMPT: Continue anyway? [y/N]: ").strip().lower()
+                print("="*50 + "\n")
+                
+                if not (response == 'y' or response == 'yes'):
+                    log_info("Aborting at user request.")
+                    global_logger.stop()
+                    sys.exit(0)
+            except EOFError:
+                log_error("No interactive terminal detected. Aborting for safety.")
+                global_logger.stop()
+                sys.exit(1)
+            except KeyboardInterrupt:
+                print()
+                log_info("Aborting.")
+                global_logger.stop()
                 sys.exit(0)
-    except Exception:
-        pass
+    except subprocess.TimeoutExpired:
+        log_debug("pgrep check timed out, skipping safety check.")
+    except Exception as e:
+        log_debug(f"pgrep safety check skipped: {e}")
 
     # Check Ollama
     log_info("Checking Ollama status...")

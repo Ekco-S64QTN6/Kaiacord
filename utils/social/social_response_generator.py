@@ -651,13 +651,6 @@ async def generate_quip(ctx, is_manual=False, target_channel=None, on_message_fu
                 )
                 raw_quip = response['message']['content'].strip()
                 
-                # Salvage: qwen3.5:9b sometimes routes reply to thinking field.
-                if not raw_quip:
-                    thinking_content = (response['message'].get('thinking') or '').strip()
-                    if thinking_content:
-                        log_debug(f"Quip: salvaging {len(thinking_content)} chars from thinking field.")
-                        raw_quip = thinking_content
-                
                 processed_quip = clean_quip(raw_quip, max_chars=800)
                 
                 # Quality check
