@@ -8,7 +8,7 @@ import re
 import hashlib
 import yaml
 from pathlib import Path
-from utils.infrastructure.logging.kaia_logger import log_info
+from utils.infrastructure.logging.kaia_logger import log_info, log_warning, log_error
 
 class NewsManager:
     """Unified news manager for scanning, parsing, and retrieving news (Consolidated)"""
@@ -62,9 +62,52 @@ class NewsManager:
             self.last_refresh = datetime.now()
 
     def _parse_md_file(self, file_path: Path):
-        """Parse markdown news file"""
-        with open(file_path, 'r', encoding='utf-8') as f:
-            content = f.read()
+        """Parse markdown news file with frontmatter awareness and size limits"""
+        # 1. SIZE LIMIT: Skip massive files that are clearly reference books/docs
+        # This prevents 20k+ line Project Gutenberg books from being parsed as news.
+        try:
+            with open(file_path, 'r', encoding='utf-8') as f:
+                # Read at most 1001 lines to check limit efficiently
+                lines = []
+                for _ in range(1001):
+                    line = f.readline()
+                    if not line: break
+                    lines.append(line)
+                
+                if len(lines) > 1000:
+                    log_warning(f"Skipping oversized file (>{len(lines)} lines): {file_path.name}")
+                    return
+                
+                content = "".join(lines)
+        except Exception as e:
+            log_error(f"Error reading {file_path}: {e}")
+            return
+
+        # 2. FRONTMATTER AWARENESS
+        # Detect YAML frontmatter to identify document type
+        frontmatter = {}
+        if content.startswith('---'):
+            end_match = re.search(r'^\s*---\s*$', content[3:], re.MULTILINE)
+            if end_match:
+                end_pos = end_match.end() + 3
+                raw_fm = content[3:end_pos-3].strip()
+                try:
+                    frontmatter = yaml.safe_load(raw_fm) or {}
+                    # If we have a frontmatter, strip it from the content for parsing
+                    content = content[end_pos:].strip()
+                except Exception:
+                    pass # Ignore malformed frontmatter
+
+        # 3. TYPE FILTERING
+        doc_type = frontmatter.get('document_type', '').lower()
+        
+        # Explicit skip for non-news types
+        if doc_type in ['ebook', 'document', 'report', 'transcript', 'paper', 'literature']:
+            log_debug(f"Skipping non-news document type '{doc_type}': {file_path.name}")
+            return
+            
+        # If we have a frontmatter but it's not marked as news, we check other indicators
+        # or just allow it if it's small enough and in the news dir.
         
         # Extract date from filename or content
         # Supports YYYY-MM-DD and YYYYMMDD
