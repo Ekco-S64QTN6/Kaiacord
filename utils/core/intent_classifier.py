@@ -384,17 +384,20 @@ class IntentParser:
             if not raw_json:
                 thinking = response['message'].get('thinking', '').strip()
                 if thinking:
-                    if '{' in thinking and '}' in thinking:
-                        log_debug(f"Intent content empty, extracting JSON from thinking field ({len(thinking)} chars)")
-                        raw_json = thinking
+                    # Find the last complete JSON object — model's actual output is at the end,
+                    # not the schema example it copied from the prompt
+                    json_candidates = re.findall(r'\{[^{}]*"suggested_strategy"[^{}]*\}', thinking, re.DOTALL)
+                    if json_candidates:
+                        raw_json = json_candidates[-1]
+                        log_debug(f"Extracted JSON from thinking field (last candidate, {len(raw_json)} chars)")
                     else:
                         # Thinking field has reasoning prose only — model ignored /no_think.
                         # Don't attempt JSON parse on reasoning text. Fall through to exception path.
                         log_warning(
-                            f"qwen3.5:2b put reasoning in thinking field with no JSON "
+                            f"qwen3.5:2b put reasoning in thinking field with no valid JSON "
                             f"({len(thinking)} chars). Using fallback intent."
                         )
-                        raise json.JSONDecodeError("No JSON in thinking field", "", 0)
+                        raise json.JSONDecodeError("No valid JSON in thinking field", "", 0)
             
             clean_json = await self._repair_json(raw_json)
             try:
