@@ -385,6 +385,14 @@ class IntentParser:
             
             raw_json = response['message']['content'].strip()
             
+            # Qwen3.5 sometimes routes output to the 'thinking' field even when
+            # think: False is set. Fall back to thinking content if main content is empty.
+            if not raw_json:
+                thinking = response['message'].get('thinking', '').strip()
+                if thinking:
+                    log_debug(f"Intent content empty, extracting from thinking field ({len(thinking)} chars)")
+                    raw_json = thinking
+            
             clean_json = await self._repair_json(raw_json)
             try:
                 data = json.loads(clean_json)
