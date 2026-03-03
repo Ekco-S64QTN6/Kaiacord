@@ -60,6 +60,7 @@ def sanitize_log_content(text: str) -> str:
     
     # Strip <think>...</think> reasoning blocks from new reasoning models (like Qwen 3.5)
     clean = re.sub(r'<think>.*?</think>', '', clean, flags=re.DOTALL)
+    clean = re.sub(r'</?think>', '', clean)  # Strip orphaned tags that weren't in complete pairs
     
     # Clean up resulting double spaces
     clean = re.sub(r'  +', ' ', clean)

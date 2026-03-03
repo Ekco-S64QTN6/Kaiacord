@@ -42,7 +42,7 @@ class BotState:
     def load(self):
         """Load persisted bot state from JSON file"""
         try:
-            if os.path.exists(self.state_file):
+            if os.path.exists(self.state_file) and os.path.getsize(self.state_file) > 0:
                 with self._lock:
                     with open(self.state_file, 'r') as f:
                         state = json.load(f)

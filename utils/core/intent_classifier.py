@@ -393,11 +393,20 @@ class IntentParser:
                     else:
                         # Thinking field has reasoning prose only — model ignored /no_think.
                         # Don't attempt JSON parse on reasoning text. Fall through to exception path.
-                        log_warning(
-                            f"qwen3.5:2b put reasoning in thinking field with no valid JSON "
-                            f"({len(thinking)} chars). Using fallback intent."
+                        log_debug(
+                            f"qwen3.5:2b returned reasoning-only in thinking field "
+                            f"({len(thinking)} chars). Using fast-path fallback."
                         )
-                        raise json.JSONDecodeError("No valid JSON in thinking field", "", 0)
+                        strategy = fast_path_hint if fast_path_hint else "EXPLORATORY_DIALOGUE"
+                        return Intent(
+                            explicit_intent=query,
+                            implied_needs=["classification fallback"],
+                            emotional_context="neutral",
+                            temporal_focus="present_immediate",
+                            relational_context="general",
+                            suggested_strategy=strategy,
+                            confidence=0.5
+                        )
             
             clean_json = await self._repair_json(raw_json)
             try:

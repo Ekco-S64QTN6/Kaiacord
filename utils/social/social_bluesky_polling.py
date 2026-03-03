@@ -22,6 +22,14 @@ from utils.infrastructure.system.yaml_config import config
 from utils.social.social_tracker import social_tracker
 from utils.infrastructure.circuit_breaker import CircuitBreaker
 
+# Pre-import atproto models at module load to avoid first-call blocking.
+# This import is lightweight once atproto itself is loaded.
+try:
+    from atproto import models as _atproto_models
+except ImportError:
+    _atproto_models = None
+
+
 # ── Module-owned state (moved from kaia_social_responder.py) ─────────────
 _bluesky_breaker = CircuitBreaker("bluesky")
 MAX_THREAD_REPLIES = 5
@@ -31,7 +39,7 @@ async def _reconstruct_bluesky_history(_silenced_replied_ids: set):
     """Fetch recent bot posts from Bluesky and rebuild thread counts efficiently."""
     try:
         from utils.social.kaia_bluesky import get_bluesky_client, is_bluesky_configured
-        from atproto import models
+        models = _atproto_models
 
         if not is_bluesky_configured() or shutdown_manager.shutting_down:
             return
@@ -131,7 +139,7 @@ async def _get_bluesky_mentions(_silenced_replied_ids: set, _save_replied_ids_as
             return []
 
         # Get notifications with limit
-        from atproto import models
+        models = _atproto_models
         notifs = await client.app.bsky.notification.list_notifications(
             params=models.AppBskyNotificationListNotifications.Params(limit=100)
         )
@@ -256,7 +264,7 @@ async def _reply_to_bluesky(mention: Dict[str, Any], response_text: str) -> bool
     """Reply to a Bluesky mention."""
     try:
         from utils.social.kaia_bluesky import get_bluesky_client
-        from atproto import models
+        models = _atproto_models
 
         client = await get_bluesky_client()
         if not client:

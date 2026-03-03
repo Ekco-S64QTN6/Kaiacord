@@ -321,16 +321,23 @@ class MessageProcessor:
             if fast_intent.confidence > 0.9 and fast_intent.suggested_strategy in ["SOCIAL_GREETING", "COMMAND_EXECUTION"]:
                 return
 
-        # 2. Default Fallback (Fast-path only mode)
-        from utils.core.kaia_intelligence import Intent
-        default_intent = Intent(
-            explicit_intent=ctx.sanitized_content,
-            suggested_strategy="EXPLORATORY_DIALOGUE",
-            confidence=0.5
+        # 2. Start Logic Analysis (Layer 2)
+        task_name = f"intent_{ctx.author_id}_{hash(ctx.message.content)}"
+
+        all_tasks = task_registry.get_all_tasks()
+        if task_name in all_tasks and not all_tasks[task_name].done():
+            log_debug(f"Intent analysis already in progress for {ctx.author_name}, reusing task.")
+            ctx.classification_task = all_tasks[task_name]
+            return
+
+        from utils.core.kaia_intelligence import ContextWeaver
+        channel_mem = list(self.bot_state.channel_memory.get(ctx.channel_id, []))
+        context_obj = ContextWeaver.weave(channel_mem)
+
+        ctx.classification_task = asyncio.create_task(
+            self.intent_parser.parse_intent(ctx.sanitized_content, context_obj)
         )
-        ctx.intent = default_intent
-        ctx.category = "general"
-        log_info("No fast-path trigger matched. Using default EXPLORATORY_DIALOGUE.")
+        task_registry.register(task_name, ctx.classification_task)
 
     def _derive_legacy_category(self, intent) -> str:
         """Map new strategies to old categories for backward compatibility."""
@@ -804,6 +811,9 @@ class MessageProcessor:
                     # Always strip the tags from visible content regardless
                     content = _THINK_BLOCK_PATTERN.sub('', content).strip()
                 
+                # Strip any orphaned <think> or </think> tags that weren't part of a complete pair.
+                content = re.sub(r'</?think>', '', content).strip()
+                
                 # 2. THEN strip backticks (after think content is safe)
                 # CRITICAL FIX: The LLM sometimes injects ``` inside its own response.
                 # Since ALL kaia responses are wrapped in a Discord code block in messaging.py,
@@ -813,8 +823,16 @@ class MessageProcessor:
                 # If nothing visible after stripping think tags, check if we have thinking
                 if not content:
                     if think_is_enabled and think_block:
-                        # Success! The model only produced reasoning, but that's valid in think-mode
                         content = "(Internal reasoning complete. Tap below to view.)"
+                    elif not think_is_enabled and think_block:
+                        # qwen3.5:9b ignored options['think']=False and routed reply
+                        # to thinking field. Salvage it to avoid 3x wasted retries.
+                        log_debug(
+                            f"Attempt {attempt + 1}: Model routed reply to thinking field "
+                            f"(think_is_enabled=False). Salvaging {len(think_block)} chars."
+                        )
+                        content = think_block
+                        think_block = ""  # Clear so it won't be double-appended as spoiler
                     else:
                         log_warning(f"Attempt {attempt + 1}: Model produced only reasoning with no reply. Retrying...")
                         continue

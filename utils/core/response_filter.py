@@ -149,10 +149,7 @@ class BotSpeakFilter:
     # Precompiled combined patterns for efficiency
     RE_BAIT = re.compile("|".join(BAIT_PATTERNS), re.IGNORECASE)
     RE_SYSTEM_PROSE = re.compile("|".join(SYSTEM_PROSE_PATTERNS), re.IGNORECASE)
-    RE_TRAILING_USER_QUESTION = re.compile(
-        r'(?<![?])\s*((?:and\s+)?(?:what|how|why|where|when|who|which|do|are|have|can|would|could|did|is|am|does|should|will|shall|may|might)[^.!?\n]{2,}\?)\s*$',
-        re.IGNORECASE
-    )
+
     
     ACTION_VERBS = {
         'nods', 'sighs', 'grins', 'smiles', 'laughs', 'pauses', 'frowns', 'shrugs', 
@@ -290,19 +287,7 @@ class BotSpeakFilter:
                 if not found_bait or not current_line:
                     break
 
-            # 2. General Trailing Question Pass (Hard Rule)
-            # Enforce "No questions at the end" rule.
-            if current_line.strip().endswith('?'):
-                match = cls.RE_TRAILING_USER_QUESTION.search(current_line)
-                if match:
-                    question = match.group(1).lower()
-                    # WHITELIST: Essential character identity/boundary questions.
-                    whitelisted = ["who are you", "is that you", "who am i", "who is the", "who was the"]
-                    if not any(q in question for q in whitelisted):
-                        # It's a trailing question! Strip it.
-                        removed = match.group(1).strip()
-                        current_line = current_line[:match.start()].strip()
-                        log_warning(f"[BAIT_GUARD] Stripped general trailing question: '{removed}'")
+
             
             if current_line:
                 clean_lines.append(current_line)

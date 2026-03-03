@@ -49,7 +49,10 @@ async def get_bluesky_client(force_new: bool = False):
     if not is_bluesky_configured():
         return None
         
-    _ensure_atproto()
+    # Offload the blocking atproto import to a thread on first call.
+    # atproto is large — its first import takes 8-10s and will stall the event loop.
+    if AsyncClient is None:
+        await asyncio.to_thread(_ensure_atproto)
     
     async with _client_lock:
         if force_new:
@@ -202,7 +205,8 @@ async def post_thread_to_bluesky(chunks: list[str]) -> tuple[bool, Optional[str]
     Returns:
         (success, first_post_uri or error_message)
     """
-    _ensure_atproto()
+    if AsyncClient is None:
+        await asyncio.to_thread(_ensure_atproto)
     if models is None:
         return False, "atproto models not available"
     

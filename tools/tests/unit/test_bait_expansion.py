@@ -54,23 +54,7 @@ def test_contamination_filters():
         print(f"Testing CONTAMINATION: '{text}' -> '{result}'")
         assert result is None, f"Failed to catch contamination: {text}"
 
-def test_general_trailing_questions():
-    # Test "hard rule": No questions at the end of a response.
-    general_questions = [
-        "I'm heading to the cafe. Do you want to join me?",
-        "The server is back up. Have you checked the logs?",
-        "I see you're busy. Can I help with anything?",
-        "That's a nice design. How did you come up with it?",
-        "I've updated the news. What do you think of the headlines?"
-    ]
 
-    for content in general_questions:
-        result = BotSpeakFilter.strip_bot_speak(content)
-        print(f"Testing GENERAL: '{content}' -> '{result}'")
-        # Check if the question part was stripped
-        assert '?' not in result, f"Failed to strip general trailing question: {content}"
-        # Ensure the preceding part is kept (if not also bait)
-        assert len(result) > 0, f"Stripped too much from: {content}"
 
 def test_whitelisted_questions():
     # Test identity/character questions that SHOULD be preserved even at the end
@@ -92,7 +76,6 @@ if __name__ == "__main__":
     try:
         test_bait_expansion()
         test_contamination_filters()
-        test_general_trailing_questions()
         test_whitelisted_questions()
         print("\n✅ All bait and trailing question tests passed!")
     except AssertionError as e:
