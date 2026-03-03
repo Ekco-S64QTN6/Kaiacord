@@ -628,7 +628,17 @@ class MessageProcessor:
         log_debug(f"METRIC: Context optimization took {o_dur:.3f}s")
 
         # 2. Build Messages
-        messages = self._construct_messages(ctx, optimized)
+        # Compute think mode state here so it can be passed to _construct_messages
+        # and used consistently throughout this generation.
+        think_is_enabled = False
+        if hasattr(self.bot_state, 'think_mode_users'):
+            user_id = ctx.message.author.id
+            think_is_enabled = (
+                user_id in self.bot_state.think_mode_users
+                or str(user_id) in self.bot_state.think_mode_users
+                or int(user_id) in self.bot_state.think_mode_users
+            )
+        messages = self._construct_messages(ctx, optimized, think_is_enabled=think_is_enabled)
         
         # 2.5 Inline Vision Processing (Qwen 3.5 native)
         if hasattr(ctx.message, 'attachments') and ctx.message.attachments:
@@ -657,7 +667,7 @@ class MessageProcessor:
         # 4. Final Processing & Logging
         await self._post_process_and_log(ctx)
 
-    def _construct_messages(self, ctx: MessageContext, optimized: Dict[str, Any]) -> List[Dict[str, str]]:
+    def _construct_messages(self, ctx: MessageContext, optimized: Dict[str, Any], think_is_enabled: bool = False) -> List[Dict[str, str]]:
         """Build the system, RAG, history, and user messages."""
         system_prompt = optimized['persona']
         context_str = optimized['rag']

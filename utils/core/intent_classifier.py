@@ -390,8 +390,17 @@ class IntentParser:
             if not raw_json:
                 thinking = response['message'].get('thinking', '').strip()
                 if thinking:
-                    log_debug(f"Intent content empty, extracting from thinking field ({len(thinking)} chars)")
-                    raw_json = thinking
+                    if '{' in thinking and '}' in thinking:
+                        log_debug(f"Intent content empty, extracting JSON from thinking field ({len(thinking)} chars)")
+                        raw_json = thinking
+                    else:
+                        # Thinking field has reasoning prose only — model ignored /no_think.
+                        # Don't attempt JSON parse on reasoning text. Fall through to exception path.
+                        log_warning(
+                            f"qwen3.5:2b put reasoning in thinking field with no JSON "
+                            f"({len(thinking)} chars). Using fallback intent."
+                        )
+                        raise json.JSONDecodeError("No JSON in thinking field", "", 0)
             
             clean_json = await self._repair_json(raw_json)
             try:
@@ -412,7 +421,11 @@ class IntentParser:
 
         except Exception as e:
             err_msg = str(e).lower()
-            if "out of memory" in err_msg or "cudamalloc" in err_msg or "terminat" in err_msg:
+            if "no json in thinking field" in err_msg:
+                # Expected fallback case when model ignores /no_think.
+                # Already logged as warning in _analyze_with_llm.
+                pass
+            elif "out of memory" in err_msg or "cudamalloc" in err_msg or "terminat" in err_msg:
                 log_error(f"Intent Analysis CRITICAL OOM: {e}. Falling back to fast-path/default.")
             else:
                 log_error(f"Intent Analysis Failed: {e}")
