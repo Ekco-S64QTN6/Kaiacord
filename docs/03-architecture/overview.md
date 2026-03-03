@@ -150,7 +150,7 @@ sequenceDiagram
 ## GPU Memory Management Strategy
 
 **Priority Levels**:
-1. **CHAT** (P1): Main LLM (e.g., gemma3:12b) remains resident in VRAM for fast response.
+1. **CHAT** (P1): Main LLM (e.g., qwen3.5:9b) remains resident in VRAM for fast response.
 2. **MAINTENANCE**: Periodic RAG re-indexing and nightly Dream cycles.
 
 Kaia is optimized for 12GB VRAM GPUs (like the RTX 3060). Classification and embeddings run on CPU (`num_gpu: 0`), leaving the full GPU budget for the chat model and its 8K-token KV cache.
