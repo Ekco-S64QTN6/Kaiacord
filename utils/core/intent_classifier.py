@@ -367,7 +367,7 @@ class IntentParser:
                 "- CREATIVE_ASSOCIATION: High-variance brainstorming or creative writing.\n"
                 f"{hint_str}"
                 f"CONTEXT: {ctx_str[:200]}\n"
-                f"QUERY: \"{query}\"\nJSON:"
+                f"QUERY: \"{query}\"\n/no_think\nJSON:"
             )
 
 

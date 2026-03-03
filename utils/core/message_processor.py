@@ -724,6 +724,13 @@ class MessageProcessor:
 
         messages.append({"role": "user", "content": ctx.sanitized_content})
         
+        # Qwen3.5 needs /no_think in the prompt text to reliably suppress
+        # chain-of-thought. The Ollama options['think']=False alone is insufficient.
+        if not think_is_enabled and messages:
+            last_msg = messages[-1]
+            if last_msg['role'] == 'user' and '/no_think' not in last_msg['content']:
+                last_msg['content'] += '\n/no_think'
+        
         log_debug(f"DEBUG: Final messages list contains {len(messages)} items (System + {len(optimized_history)} history turns + User).")
         return messages
 
