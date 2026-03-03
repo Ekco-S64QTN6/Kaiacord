@@ -54,10 +54,10 @@ else
 fi
 
 # ── Step 4: Quick model load test ────────────────────────────
-info "Step 4: Testing gemma3:12b model load (this may take 30–60s on cold start)..."
+info "Step 4: Testing qwen3.5:9b model load (this may take 30–60s on cold start)..."
 START=$(date +%s)
 
-RESPONSE=$(ollama run gemma3:12b "Reply with only the word: ready" --nowordwrap 2>&1 || true)
+RESPONSE=$(ollama run qwen3.5:9b "Reply with only the word: ready" --nowordwrap 2>&1 || true)
 END=$(date +%s)
 ELAPSED=$((END - START))
 
@@ -75,14 +75,14 @@ info "Step 5: Checking model residency..."
 PS_OUTPUT=$(ollama ps 2>/dev/null || echo "ollama ps failed")
 echo "$PS_OUTPUT"
 
-if echo "$PS_OUTPUT" | grep -q "gemma3"; then
+if echo "$PS_OUTPUT" | grep -q "qwen3.5:9b"; then
     if echo "$PS_OUTPUT" | grep -E "([0-9]+(\.[0-9]+)? GB)" | grep -qv "0 B"; then
-        ok "gemma3:12b appears resident in VRAM"
+        ok "qwen3.5:9b appears resident in VRAM"
     else
-        warn "gemma3:12b loaded but VRAM size unclear. Check output above."
+        warn "qwen3.5:9b loaded but VRAM size unclear. Check output above."
     fi
 else
-    warn "gemma3:12b not shown in 'ollama ps'. It may have been unloaded after the test."
+    warn "qwen3.5:9b not shown in 'ollama ps'. It may have been unloaded after the test."
 fi
 
 # ── Step 6: Apply RAG lock fix to kaia_rag.py ────────────────

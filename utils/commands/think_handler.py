@@ -18,7 +18,7 @@ async def handle_think_command(ctx, msg, send_kaia_response):
     from utils.infrastructure.system.yaml_config import config
 
     # Owner-only command
-    if not config.is_owner(msg.author.name, user_id=str(msg.author.id)):
+    if not config.is_owner(msg.author.name, author_name=msg.author.display_name, user_id=str(msg.author.id)):
         await send_kaia_response(msg.channel, "Only the owner can toggle think mode.")
         return
 

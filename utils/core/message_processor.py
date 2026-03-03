@@ -949,8 +949,22 @@ class MessageProcessor:
 
     async def _fetch_image_as_base64(self, url: str) -> str:
         """Fetch an image from a URL and return as a base64 string for inline multimodal vision."""
-        async with aiohttp.ClientSession() as session:
-            async with session.get(url, timeout=10.0) as resp:
-                resp.raise_for_status()
-                data = await resp.read()
-                return base64.b64encode(data).decode('utf-8')
+        timeout_seconds = self.config.get('url_fetch_seconds', 15.0)
+        try:
+            async with asyncio.timeout(timeout_seconds + 2.0): # Outer safety
+                async with aiohttp.ClientSession() as session:
+                    async with session.get(url, timeout=aiohttp.ClientTimeout(total=timeout_seconds)) as resp:
+                        if resp.status == 200:
+                            data = await resp.read()
+                            return base64.b64encode(data).decode('utf-8')
+                        else:
+                            log_warning(f"Failed to fetch image: Status {resp.status} for {url}")
+                            return ""
+        except asyncio.TimeoutError:
+            log_warning(f"Timeout fetching image from {url}")
+            return ""
+        except Exception as e:
+            log_error(f"Error fetching image: {e}")
+            return ""
+
+    async def _send_summary_to_logs(self, ctx: MessageContext, content: str, think_block: str):
