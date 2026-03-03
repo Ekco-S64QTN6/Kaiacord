@@ -262,10 +262,10 @@ class MessageProcessor:
         h_dur = time.perf_counter() - h_start
         log_debug(f"METRIC: Hallucination check took {h_dur:.3f}s")
 
-        # 2. Classification (Synchronous serial wait to prevent Ollama load spikes)
+        # 2. Classification (Regex Fast-Path Only)
         c_start = time.perf_counter()
         await self._perform_classification(ctx)
-        await self._finalize_classification(ctx)
+        # Skip _finalize_classification entirely — regex fast-path only
         c_dur = time.perf_counter() - c_start
         log_debug(f"METRIC: Classification took {c_dur:.3f}s")
 
@@ -321,26 +321,16 @@ class MessageProcessor:
             if fast_intent.confidence > 0.9 and fast_intent.suggested_strategy in ["SOCIAL_GREETING", "COMMAND_EXECUTION"]:
                 return
 
-        # 2. Start Logic Analysis (Layer 2)
-        # Deduplication check
-        task_name = f"intent_{ctx.author_id}_{hash(ctx.message.content)}"
-
-        all_tasks = task_registry.get_all_tasks()
-        if task_name in all_tasks and not all_tasks[task_name].done():
-            log_debug(f"Intent analysis already in progress for {ctx.author_name}, reusing task.")
-            ctx.classification_task = all_tasks[task_name]
-            return
-
-        # Start full analysis
-        # We need to construct ContextCtx here if we want context-aware intent
-        from utils.core.kaia_intelligence import ContextWeaver
-        
-        # Use ContextWeaver to build rich context from memory
-        channel_mem = list(self.bot_state.channel_memory.get(ctx.channel_id, []))
-        context_obj = ContextWeaver.weave(channel_mem)
-        
-        ctx.classification_task = asyncio.create_task(self.intent_parser.parse_intent(ctx.sanitized_content, context_obj))
-        task_registry.register(task_name, ctx.classification_task)
+        # 2. Default Fallback (Fast-path only mode)
+        from utils.core.kaia_intelligence import Intent
+        default_intent = Intent(
+            explicit_intent=ctx.sanitized_content,
+            suggested_strategy="EXPLORATORY_DIALOGUE",
+            confidence=0.5
+        )
+        ctx.intent = default_intent
+        ctx.category = "general"
+        log_info("No fast-path trigger matched. Using default EXPLORATORY_DIALOGUE.")
 
     def _derive_legacy_category(self, intent) -> str:
         """Map new strategies to old categories for backward compatibility."""
@@ -364,22 +354,6 @@ class MessageProcessor:
         # noqa: SC001 - Stub intentional until cache re-implementation
         return False
 
-    async def _finalize_classification(self, ctx: MessageContext):
-        """Await the parallel intent task and update context."""
-        if hasattr(ctx, 'classification_task') and ctx.classification_task:
-            try:
-                # Use config value for timeout
-                join_timeout = getattr(self.config, 'classification_join_seconds', 15.0)
-                
-                new_intent = await asyncio.wait_for(ctx.classification_task, timeout=join_timeout)
-                if new_intent:
-                    ctx.intent = new_intent
-                    ctx.category = self._derive_legacy_category(new_intent)
-                    log_info(f"Full intent analysis: {new_intent.suggested_strategy} ({ctx.category})")
-            except asyncio.TimeoutError:
-                log_warning("Intent analysis timed out. Using fast-path result.")
-            except Exception as e:
-                log_error(f"Intent analysis failed: {e}")
 
     async def _retrieve_and_generate(self, ctx: MessageContext):
         """Stage 3: Retrieval, Context Optimization, and Ollama Generation."""
