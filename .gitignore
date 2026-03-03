@@ -34,3 +34,10 @@ knowledge_base/*/*
 test_integration.py
 test_rag_imports.py
 *.log
+test_venv/
+
+# X/Twitter credentials (twikit session cookies)
+cookies.json
+twikit_cookies.json
+x_cookies.json
+*.cookies
