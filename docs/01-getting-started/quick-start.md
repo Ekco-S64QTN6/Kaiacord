@@ -26,8 +26,8 @@ python3 -m venv venv && source venv/bin/activate
 pip install -r requirements.txt
 
 # Pull AI models (this takes time!)
-ollama pull qwen3.5:9b
-ollama pull qwen3.5:2b
+ollama pull gemma3:12b
+ollama pull gemma2:2b
 ollama pull nomic-embed-text-cpu
 
 # Configure

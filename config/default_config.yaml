@@ -16,9 +16,7 @@ models:
   chat: "gemma3:12b"
   
   # Embedding model for RAG
-  # NOTE: qwen3.5:2b does NOT expose Ollama's embedding API (returns 501).
-  # nomic-embed-text-cpu is the correct embedding model — it runs CPU-only
-  # via num_gpu:0 in kaia_rag.py, saving VRAM for the main 9b model.
+  # nomic-embed-text-cpu runs CPU-only via num_gpu:0, preserving VRAM for the chat model.
   embedding: "nomic-embed-text-cpu"
 
   # Intent classification model
@@ -104,7 +102,7 @@ performance:
 rag:
   # Instruction prefixes for embedding models
   # nomic-embed-text requires these prefixes for correct retrieval quality.
-  # If you switch to a Qwen3.5 embedding model, clear both to "".
+  # These are specific to nomic-embed-text and should be removed if switching to a different embedding model.
   query_instruction: "search_query: "
   text_instruction: "search_document: "
 

@@ -79,7 +79,7 @@ class ContextOptimizer:
         self.system_reserve = config.system_reserve_tokens
         # Optimal ratios for different models
         self.ratios = {
-            'qwen3.5:9b': {'persona': 0.10, 'rag': 0.50, 'history': 0.35, 'system': 0.05},
+            'gemma3:12b': {'persona': 0.10, 'rag': 0.50, 'history': 0.35, 'system': 0.05},
             'llama3.2': {'persona': 0.15, 'rag': 0.45, 'history': 0.35, 'system': 0.05},
             'default': {'persona': 0.10, 'rag': 0.50, 'history': 0.30, 'system': 0.10}
         }

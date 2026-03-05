@@ -6,7 +6,7 @@ Converts manual news briefs into Kaia's standard format.
 - Renames daily formats to 'news_brief_YYYYMMDD.md'
 - Renames weekly formats to 'weekly_summary_YYYYMMDD.md'
 - Normalizes headers to '## CATEGORY_NAME' for NewsManager compatibility
-- Generates summaries using Ollama (qwen3.5:9b)
+- Generates summaries using Ollama (gemma3:12b)
 - Triggers RAG reindex
 """
 
@@ -207,7 +207,7 @@ def generate_summary(full_brief, target_date, summary_path):
     
     try:
         response = ollama.chat(
-            model='qwen3.5:9b',
+            model='gemma3:12b',
             messages=[
                 {'role': 'system', 'content': 'You extract concise technical bullet points from news briefs.'},
                 {'role': 'user', 'content': summary_prompt}

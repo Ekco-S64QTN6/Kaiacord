@@ -12,7 +12,7 @@ Kaia uses an enhanced caching system to provide near-instant responses while pre
 ## 2. Intent Analysis (`IntentParser`)
 Before processing a query, Kaia's `IntentParser` (Advanced Intent Understanding Engine) analyzes the intent:
 - **Rule-Based (Fast)**: Uses regex patterns for instant parsing of common intents (Greetings, Identity, News, Commands).
-- **Model-Based (Accurate)**: Falls back to the `qwen3.5:2b` model running on **CPU** (`num_gpu: 0`) for deep cognitive analysis of emotional context, implied needs, and relational cues. Runs via `ThreadPoolExecutor` with a configurable timeout.
+- **Model-Based (Accurate)**: Falls back to the `gemma2:2b` model running on **CPU** (`num_gpu: 0`) for deep cognitive analysis of emotional context, implied needs, and relational cues. Runs via `ThreadPoolExecutor` with a configurable timeout.
 - **Output**: Generates a structured `Intent` object with specific strategies (e.g., `DIAGNOSTIC_DEEP_DIVE`, `DREAM_RECALL`).
 - **Lazy Initialization**: The `IntentParser` is lazily initialized on first use to avoid blocking startup.
 

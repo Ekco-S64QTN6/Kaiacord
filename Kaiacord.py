@@ -246,7 +246,7 @@ async def on_ready():
     ctx.model_warm_pool = ModelWarmPool(ctx.ollama_client)
     ctx.intent_parser = IntentParser(
         ctx.ollama_client,
-        model=config.get('models.classification_model', 'qwen3.5:2b'),
+        model=config.get('models.classification_model', 'gemma2:2b'),
         timeout=config.classification_timeout,
     )
     if ctx.message_processor:
@@ -307,7 +307,7 @@ async def _phase3_background_init():
 
     # 3c. Warm intent classifier on CPU only.
     try:
-        log_action(f"[Phase 3] Warming intent classifier ({config.get('models.classification_model', 'qwen3.5:2b')}) on CPU …")
+        log_action(f"[Phase 3] Warming intent classifier ({config.get('models.classification_model', 'gemma2:2b')}) on CPU …")
         if ctx.intent_parser:
             await ctx.intent_parser.pre_warm()
         log_success("[Phase 3] Intent classifier ready (CPU).")

@@ -47,7 +47,7 @@ async def verify_preemption():
     # 2. Start a high priority task that should wait for the semaphore
     log_info("Starting High Priority Task (CHAT)...")
     task_high = asyncio.create_task(gpu_memory_manager.run_with_gpu_guard(
-        model_name="qwen3.5:9b",
+        model_name="gemma3:12b",
         priority=GPUTaskPriority.CHAT,
         coro=mock_coro(1),
         task_id="high_task"
@@ -63,13 +63,13 @@ async def verify_preemption():
     log_info("Testing re-entrancy...")
     async def nested_coro():
         return await gpu_memory_manager.run_with_gpu_guard(
-            model_name="qwen3.5:9b",
+            model_name="gemma3:12b",
             coro=asyncio.sleep(0.1),
             task_id="nested_task"
         )
         
     await gpu_memory_manager.run_with_gpu_guard(
-        model_name="qwen3.5:9b",
+        model_name="gemma3:12b",
         coro=nested_coro(),
         task_id="parent_task"
     )
@@ -80,7 +80,7 @@ async def verify_preemption():
     log_info("This should trigger preemption of 'low_task'...")
     
     task_critical = await gpu_memory_manager.run_with_gpu_guard(
-        model_name="qwen3.5:9b",
+        model_name="gemma3:12b",
         priority=GPUTaskPriority.CRITICAL,
         coro=mock_coro(1),
         vram_gb=6.0,
@@ -91,7 +91,7 @@ async def verify_preemption():
     # Check if unload_model was called for 'stable-diffusion'
     unloaded_models = [call.args[1] for call in gm_mod.OllamaGPUManager.unload_model.call_args_list]
     if "stable-diffusion" in unloaded_models:
-        log_success("✅ SUCCESS: 'stable-diffusion' was UNLOADED to free VRAM for 'qwen3.5:9b'.")
+        log_success("✅ SUCCESS: 'stable-diffusion' was UNLOADED to free VRAM for 'gemma3:12b'.")
     else:
         log_error("❌ FAILURE: 'stable-diffusion' was NOT unloaded.")
         print(f"Unloaded models: {unloaded_models}")

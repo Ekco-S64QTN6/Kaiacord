@@ -6,7 +6,7 @@ from datetime import datetime
 
 # Configuration
 LOG_DIR = "knowledge_base/user_logs"
-MODEL = "qwen3.5:9b"
+MODEL = "gemma3:12b"
 PERSONA_PATH = "knowledge_base/kaia_persona.md"
 
 async def generate_profile(user_folder):

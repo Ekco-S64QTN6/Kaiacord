@@ -12,7 +12,7 @@ from unittest.mock import MagicMock
 sys.modules['utils.infrastructure.system.yaml_config'] = MagicMock()
 mock_config = sys.modules['utils.infrastructure.system.yaml_config'].config
 mock_config.classification_timeout = 15.0
-mock_config.chat_model = "qwen3.5:9b"
+mock_config.chat_model = "gemma3:12b"
 mock_config.max_context_tokens = 24000
 mock_config.token_multiplier = 1.3
 mock_config.system_reserve_tokens = 256

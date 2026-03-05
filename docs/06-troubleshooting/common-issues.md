@@ -28,7 +28,7 @@ python Kaiacord.py
 
 **Symptom**: VRAM exhausted, model fails to load at boot.
 
-**Cause**: Another application (e.g. games, video editors) consuming VRAM alongside `qwen3.5:9b` + 8k KV cache (~9-10GB total).
+**Cause**: Another application (e.g. games, video editors) consuming VRAM alongside `gemma3:12b` + 8k KV cache (~9-10GB total).
 
 **Solution**:
 ```bash
@@ -37,7 +37,7 @@ nvidia-smi
 
 # Free VRAM manually
 curl http://localhost:11434/api/generate \
-  -d '{"model":"qwen3.5:9b","keep_alive":0}'
+  -d '{"model":"gemma3:12b","keep_alive":0}'
 
 # Reduce context window if needed
 # In config/kaia.yaml:
@@ -132,8 +132,8 @@ python Kaiacord.py
 ollama list
 
 # If empty, pull models:
-ollama pull qwen3.5:9b
-ollama pull qwen3.5:2b
+ollama pull gemma3:12b
+ollama pull gemma2:2b
 ollama pull nomic-embed-text
 
 # If Ollama not running:

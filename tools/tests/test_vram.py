@@ -9,7 +9,7 @@ async def test_value(val):
     
     # First unload
     print("Unloading...")
-    await client.generate(model="qwen3.5:9b", keep_alive=0)
+    await client.generate(model="gemma3:12b", keep_alive=0)
     time.sleep(2)
     
     print(f"Loading with num_gpu={val}...")
@@ -21,7 +21,7 @@ async def test_value(val):
             options["num_gpu"] = val
             
         await asyncio.wait_for(
-            client.generate(model="qwen3.5:9b", prompt=".", options=options),
+            client.generate(model="gemma3:12b", prompt=".", options=options),
             timeout=60.0
         )
         duration = time.time() - start
@@ -30,7 +30,7 @@ async def test_value(val):
         ps = await client.ps()
         found = False
         for m in ps.models:
-            if "qwen3.5:9b" in m.model:
+            if "gemma3:12b" in m.model:
                 print(f"Result in ps: {m.processor} ({m.size_vram / 1024**2:.0f}MB VRAM)")
                 found = True
         if not found:

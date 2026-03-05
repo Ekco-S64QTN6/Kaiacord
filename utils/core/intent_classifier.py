@@ -166,9 +166,9 @@ class IntentParser:
         from utils.infrastructure.system.yaml_config import config
         from utils.infrastructure.gpu.gpu_manager import OllamaGPUManager
         
-        # LAYER 0: Classification Model Selection (Default to qwen3.5:2b on CPU)
+        # LAYER 0: Classification Model Selection (Default to gemma2:2b on CPU)
         # Using a smaller model on CPU prevents GPU semaphore contention.
-        self.classification_model = config.get('models.classification_model', 'qwen3.5:2b')
+        self.classification_model = config.get('models.classification_model', 'gemma2:2b')
         self.use_gpu_for_classification = config.get('models.classification_on_gpu', False)
         
         # [MEMORY OPTIMIZATION]: Intent analysis only needs the current query and 

@@ -86,7 +86,7 @@ class HealthCheck:
                 
                 # Check for required models
                 output = result.stdout
-                required_models = ["qwen3.5:9b", "qwen3.5:2b", "nomic-embed-text"]
+                required_models = ["gemma3:12b", "gemma2:2b", "nomic-embed-text"]
                 found_models = []
                 
                 for model in required_models:
@@ -98,7 +98,7 @@ class HealthCheck:
                 else:
                     missing = set(required_models) - set(found_models)
                     self.check("Ollama Models", False, f"Missing: {', '.join(missing)}")
-                    self.warn("Models", "Run: ollama pull qwen3.5:9b && ollama pull qwen3.5:2b && ollama pull nomic-embed-text")
+                    self.warn("Models", "Run: ollama pull gemma3:12b && ollama pull gemma2:2b && ollama pull nomic-embed-text")
             else:
                 self.check("Ollama", False, "Not responding")
                 

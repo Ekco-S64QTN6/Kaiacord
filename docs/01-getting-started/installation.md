@@ -83,11 +83,11 @@ pip install -r requirements.txt
 **This will download ~20GB of models. Ensure you have space and bandwidth.**
 
 ```bash
-# Chat model (8GB VRAM)
-ollama pull qwen3.5:9b
+# Chat model (~7GB VRAM)
+ollama pull gemma3:12b
 
 # Classification model (runs on CPU)
-ollama pull qwen3.5:2b
+ollama pull gemma2:2b
 
 # Embedding model (runs on CPU)
 ollama pull nomic-embed-text-cpu
@@ -127,8 +127,8 @@ python tools/maintenance/health_check.py
 Expected output:
 ```
 ✅ Ollama server: ONLINE
-✅ qwen3.5:9b: Found
-✅ qwen3.5:2b: Found
+✅ gemma3:12b: Found
+✅ gemma2:2b: Found
 ✅ nomic-embed-text-cpu: Found
 ✅ GPU: NVIDIA RTX 3060 (12GB)
 ✅ Knowledge base: Accessible
@@ -203,7 +203,7 @@ pip install -r requirements.txt --force-reinstall
 ollama list
 
 # Re-pull if needed
-ollama pull qwen3.5:9b
+ollama pull gemma3:12b
 ```
 
 ---

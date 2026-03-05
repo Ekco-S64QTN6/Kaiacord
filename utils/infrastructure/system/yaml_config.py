@@ -17,7 +17,7 @@ from dotenv import load_dotenv
 from pathlib import Path
 
 # Core Constants
-CONTEXT_WINDOW_TOKENS = 12000  # Default for qwen3.5:9b
+CONTEXT_WINDOW_TOKENS = 12000  # Default context window for gemma3:12b
 
 # Legacy default paths
 from typing import Any, Dict, Optional
@@ -254,7 +254,7 @@ class YAMLConfig:
     
     @property
     def chat_model(self) -> str:
-        return self.get_path('models.chat', 'qwen3.5:9b')
+        return self.get_path('models.chat', 'gemma3:12b')
     
     @property
     def embedding_model(self) -> str:
@@ -470,7 +470,7 @@ class YAMLConfig:
     @property
     def classification_join_seconds(self) -> float:
         """Join timeout for classification task in seconds"""
-        return self.get_path('timeouts.classification_join_seconds', 15.0)
+        return self.get_path('timeouts.classification_join_seconds', 40.0)
 
     @property
     def shutdown_timeout(self) -> float:

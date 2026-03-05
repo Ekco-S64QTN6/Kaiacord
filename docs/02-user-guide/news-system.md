@@ -7,7 +7,7 @@ The system uses the Gemini API with **Google Search grounding** to generate accu
 - **Generation**: `tools/maintenance/update_kaia_news.py` calls the Gemini API (`gemini-flash-latest`) with Google Search grounding enabled.
 - **Grounding**: Uses `tools='google_search_retrieval'` to pull real news from Google Search, preventing hallucinated stories.
 - **Ingestion**: The brief is saved to `knowledge_base/news/daily/news_brief_YYYYMMDD.md`.
-- **Summarization**: A condensed version is created as `knowledge_base/news/daily/news_summary_YYYYMMDD.md` using the local `qwen3.5:9b` model.
+- **Summarization**: A condensed version is created as `knowledge_base/news/daily/news_summary_YYYYMMDD.md` using the local `gemma3:12b` model.
 - **Reindexing**: The script triggers a RAG reindex, making the new information available to Kaia immediately.
 
 ## 2. Categories
@@ -45,7 +45,7 @@ If you manually generate a news brief (e.g., via the Gemini web interface), you 
 The script will:
 - Rename and move the file to the proper format (`news_brief_YYYYMMDD.md` for daily, `weekly_summary_YYYYMMDD.md` for weekly).
 - Normalize headers (adding `## ` to category names) for RAG optimization and NewsManager compatibility.
-- Generate a condensed summary (for daily briefs) using the local `qwen3.5:9b` model.
+- Generate a condensed summary (for daily briefs) using the local `gemma3:12b` model.
 - Trigger a RAG reindex.
 
 ## 5. Automation
@@ -73,4 +73,4 @@ Kaia's news responses are optimized for readability:
 
 ## 8. Dependencies
 - **google-genai**: New Google GenAI SDK with grounding support
-- **ollama**: For local summarization with qwen3.5:9b
+- **ollama**: For local summarization with gemma3:12b

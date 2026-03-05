@@ -38,7 +38,6 @@ _OBSERVATIONAL_PATTERNS = [
 
 # Pre-compiled regex for hot-path sanitization
 _JSON_RESPONSE_PATTERN = re.compile(r'^\s*\{.*"response"\s*:', re.DOTALL)
-_THINK_BLOCK_PATTERN = re.compile(r'<think>(.*?)</think>', re.DOTALL)
 _JSON_WRAPPER_PATTERN = re.compile(r'^\s*\{[\s\S]*"response"\s*:\s*"([\s\S]*)"\s*\}\s*$', re.MULTILINE)
 
 def _is_observational_query(text: str) -> bool:
@@ -586,7 +585,7 @@ class MessageProcessor:
 
         messages = self._construct_messages(ctx, optimized)
         
-        # 2.5 Inline Vision Processing (Qwen 3.5 native)
+        # 2.5 Inline Vision Processing (native multimodal)
         if hasattr(ctx.message, 'attachments') and ctx.message.attachments:
             images = []
             for att in ctx.message.attachments:
@@ -759,7 +758,7 @@ class MessageProcessor:
                 
                 # Style Hardening (Silent Stripping)
                 filtered = BotSpeakFilter.strip_bot_speak(content)
-                # Safety net: never let the filter empty a response (especially for owners with think mode)
+                # Safety net: never let the BotSpeakFilter empty a valid response
                 content = filtered if filtered and filtered.strip() else content
                 
                 if content and content.strip():

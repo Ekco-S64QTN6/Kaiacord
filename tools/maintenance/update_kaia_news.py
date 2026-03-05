@@ -185,7 +185,7 @@ RULES:
         
         try:
             response = ollama.chat(
-                model='qwen3.5:9b',
+                model='gemma3:12b',
                 messages=[
                     {'role': 'system', 'content': 'You extract concise technical bullet points from news briefs.'},
                     {'role': 'user', 'content': summary_prompt}

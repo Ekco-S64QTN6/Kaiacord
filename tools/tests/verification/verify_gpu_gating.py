@@ -38,7 +38,7 @@ async def verify_gpu_gating():
     log_info("Starting High Priority Task (CHAT)...")
     t_start = time.perf_counter()
     task_high = asyncio.create_task(gpu_memory_manager.run_with_gpu_guard(
-        model_name="qwen3.5:9b",
+        model_name="gemma3:12b",
         priority=GPUTaskPriority.CHAT,
         coro=mock_coro(0.5),
         task_id="high_task"
@@ -59,13 +59,13 @@ async def verify_gpu_gating():
     async def nested_coro():
         log_action("  Entering nested guard...")
         return await gpu_memory_manager.run_with_gpu_guard(
-            model_name="qwen3.5:9b",
+            model_name="gemma3:12b",
             coro=asyncio.sleep(0.1),
             task_id="nested_task"
         )
         
     await gpu_memory_manager.run_with_gpu_guard(
-        model_name="qwen3.5:9b",
+        model_name="gemma3:12b",
         coro=nested_coro(),
         task_id="parent_task"
     )

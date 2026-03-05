@@ -35,7 +35,6 @@ class BotState:
         self.recent_ingestions: list = []  # List of filenames recently ingested
         self.last_dream_date: str = ""    # YYYY-MM-DD of last nightly dream
         self.mentioned_files: Deque[str] = deque(maxlen=20) # Path of files mentioned
-        self.think_mode_users: set = set()  # Transient: users with <think> tag visibility enabled
         self.is_generating: bool = False     # Transient: True while LLM is generating a user response
         self.load()
 

@@ -21,7 +21,7 @@ async def generate_image(prompt):
 @pytest.mark.asyncio
 async def test_gpu():
 
-    MODEL = "qwen3.5:9b"
+    MODEL = "gemma3:12b"
     print(f"\n--- Testing GPU usage for model: {MODEL} ---")
     client = ollama.AsyncClient()
     
@@ -86,7 +86,7 @@ async def test_ollama_limit():
     client = ollama.AsyncClient()
     try:
         response = await client.chat(
-            model="qwen3.5:9b",
+            model="gemma3:12b",
             messages=[{"role": "user", "content": "Tell me a very long story about a dragon."}],
             options={"num_predict": 512} # Reduced for test speed
         )

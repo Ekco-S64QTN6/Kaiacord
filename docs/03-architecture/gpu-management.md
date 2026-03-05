@@ -9,8 +9,8 @@
 
 | Model | Purpose | Runs On | VRAM Impact |
 |:------|:--------|:--------|:------------|
-| **qwen3.5:9b** | Chat / Generation | GPU | ~6.0 GB |
-| **qwen3.5:2b** | Intent Classification | CPU (`num_gpu: 0`) | 0 GB |
+| **gemma3:12b** | Chat / Generation | GPU | ~7.0 GB |
+| **gemma2:2b** | Intent Classification | CPU (`num_gpu: 0`) | 0 GB |
 | **nomic-embed-text-cpu** | RAG Embeddings | CPU (`num_gpu: 0`) | 0 GB |
 
 ## VRAM Allocation Strategy
@@ -18,15 +18,15 @@
 Kaia is optimized for continuous presence on a single 12GB GPU. Unlike previous versions that swapped models in and out, the current architecture keeps the chat model permanently loaded and offloads all auxiliary inference to CPU.
 
 ### 1. Residency Policy
-- **Chat Model** (`qwen3.5:9b`): Stays loaded in VRAM permanently. Never unloaded.
-- **Classification Model** (`qwen3.5:2b`): Runs entirely on CPU via `ThreadPoolExecutor`. Zero VRAM usage.
+- **Chat Model** (`gemma3:12b`): Stays loaded in VRAM permanently. Never unloaded.
+- **Classification Model** (`gemma2:2b`): Runs entirely on CPU via `ThreadPoolExecutor`. Zero VRAM usage.
 - **Embedding Model** (`nomic-embed-text-cpu`): Runs on CPU via `ollama_additional_kwargs: {"num_gpu": 0}`. Zero VRAM usage.
 
 ### 2. Context Window Optimization
 - **Default Window**: 8192 tokens (config-driven via `config.max_context_tokens`).
 - **VRAM Impact**: Approximately 0.6GB of KV cache on top of the model weights.
-- **Budget**: 6GB (qwen3.5:9b) + 0.6GB (KV cache) + 0.5GB (system overhead) = ~7.1GB total.
-- **Headroom**: ~2GB remains for OS, display buffers, and transient allocations.
+- **Budget**: 7GB (gemma3:12b) + 0.6GB (KV cache) + 0.5GB (system overhead) = ~8.1GB total.
+- **Headroom**: ~4GB remains for OS, display buffers, and transient allocations.
 
 ### 3. GPU Semaphore Guard
 The system uses a global `asyncio.Semaphore(1)` to prevent concurrent GPU access:
@@ -36,8 +36,8 @@ The system uses a global `asyncio.Semaphore(1)` to prevent concurrent GPU access
 
 ### 4. Boot Sequence (Phase 1/2/3)
 On startup, `on_ready()` runs a sequenced boot:
-- **Phase 1**: `qwen3.5:9b` loaded exclusively via direct `ollama.generate()` under `_gpu_startup_lock`. Timeout: `model_load_seconds` (default 240s). A 5s recovery delay after Ollama cleanup ensures the daemon is ready.
-- **Phase 1.5**: `ModelWarmPool` and `IntentParser` (qwen3.5:2b, CPU-only) initialized AFTER GPU is claimed.
+- **Phase 1**: `gemma3:12b` loaded exclusively via direct `ollama.generate()` under `_gpu_startup_lock`. Timeout: `model_load_seconds` (default 240s). A 5s recovery delay after Ollama cleanup ensures the daemon is ready.
+- **Phase 1.5**: `ModelWarmPool` and `IntentParser` (gemma2:2b, CPU-only) initialized AFTER GPU is claimed.
 - **Phase 2**: Bot marked ready to serve messages.
 - **Phase 3**: RAG init, classifier warm, knowledge refresh — all background, non-blocking.
 
@@ -62,7 +62,7 @@ If the application is stopped (either via `Ctrl+C` or the dashboard `[Q]uit` key
 
 ### CUDA Out of Memory (OOM) (`cudaMalloc failed`)
 If you encounter OOM errors (e.g., during model pre-warming or generation):
-1. **Video Games / Background Apps**: `qwen3.5:9b` combined with a 8K token context window consumes ~7.1GB to 8GB of VRAM. This provides high stability even if other apps are running.
+1. **Video Games / Background Apps**: `gemma3:12b` combined with a 8K token context window consumes ~8GB of VRAM. This provides high stability even if other apps are running.
    - *Fix*: If you still hit VRAM issues, open `config/kaia.yaml` and reduce `max_context_tokens` to `4096` to lower the KV cache size footprint and free up space.
 2. **Restart Kaia**: `python Kaiacord.py`
 3. **Clear GPU Cache**: Run `python utils/infrastructure/gpu/clear_gpu_memory.py` manually.

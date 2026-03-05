@@ -6,7 +6,6 @@ from utils.commands.download_handler import handle_download_command
 from utils.commands.forum_handler import handle_forum_command
 from utils.commands.audit_handler import handle_flag_command, handle_audit_command
 from utils.commands.snapshot_handler import handle_snapshot_command
-from utils.commands.think_handler import handle_think_command
 from utils.commands.explain_handler import handle_explain_command
 
 async def dispatch_command(ctx, msg, load_persona_async, send_kaia_response):
@@ -47,10 +46,6 @@ async def dispatch_command(ctx, msg, load_persona_async, send_kaia_response):
 
     if content.startswith("!snapshot"):
         await handle_snapshot_command(ctx, msg, send_kaia_response)
-        return True
-
-    if content.startswith("!think"):
-        await handle_think_command(ctx, msg, send_kaia_response)
         return True
 
     if content.startswith("!explain"):

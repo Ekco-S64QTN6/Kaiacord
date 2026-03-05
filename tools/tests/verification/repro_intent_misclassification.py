@@ -9,7 +9,7 @@ from utils.core.kaia_intelligence import IntentParser
 from utils.infrastructure.logging.kaia_logger import log_info, log_success
 
 async def test_intent_parsing():
-    parser = IntentParser(model="qwen3.5:9b")
+    parser = IntentParser(model="gemma3:12b")
     
     test_queries = [
         "What do you think of the new EverQuest 1 remaster?",

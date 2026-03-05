@@ -2,7 +2,7 @@
 Unit Tests for Tier 1 Features
 ===============================
 
-Tests for: Audit Flags, Snapshots, Think Tags, Provenance
+Tests for: Audit Flags, Snapshots, Provenance
 
 Run: python -m pytest tools/tests/unit/test_tier1_features.py -v
 """
@@ -104,68 +104,6 @@ class TestSnapshotHandler:
         # NOTE: In CI this might fail if cwd doesn't allow writes
 
 
-# ============================================================================
-# Feature 4: Think Tag Visibility
-# ============================================================================
-
-class TestThinkTagHandling:
-    """Test <think> tag capture and stripping logic."""
-
-    def test_think_tags_are_stripped(self):
-        """Verify the regex correctly strips think blocks from content."""
-        content = "Hello <think>internal reasoning here</think> World"
-        cleaned = re.sub(r'<think>.*?</think>', '', content, flags=re.DOTALL).strip()
-        assert cleaned == "Hello  World"
-
-    def test_think_content_is_captured(self):
-        """Verify the regex correctly extracts think block content."""
-        content = "Hello <think>step 1: analyze\nstep 2: respond</think> World"
-        match = re.search(r'<think>(.*?)</think>', content, re.DOTALL)
-        assert match is not None
-        think_text = match.group(1).strip()
-        assert "step 1: analyze" in think_text
-        assert "step 2: respond" in think_text
-
-    def test_no_think_tags_returns_none(self):
-        """When no think tags exist, the regex returns None."""
-        content = "Just a normal response"
-        match = re.search(r'<think>(.*?)</think>', content, re.DOTALL)
-        assert match is None
-
-    def test_multiline_think_blocks(self):
-        """Think blocks can span multiple lines."""
-        content = """Here's my response.
-<think>
-Line 1 of reasoning.
-Line 2 of reasoning.
-Line 3 of reasoning.
-</think>
-The actual answer is 42."""
-        match = re.search(r'<think>(.*?)</think>', content, re.DOTALL)
-        assert match is not None
-        think_text = match.group(1).strip()
-        assert "Line 1" in think_text
-        assert "Line 3" in think_text
-        
-        cleaned = re.sub(r'<think>.*?</think>', '', content, flags=re.DOTALL).strip()
-        assert "The actual answer is 42" in cleaned
-        assert "<think>" not in cleaned
-
-    def test_spoiler_formatting(self):
-        """Think blocks should be formatted as Discord spoiler text."""
-        think_block = "my reasoning process here"
-        formatted = f"||{think_block}||"
-        assert formatted == "||my reasoning process here||"
-
-    def test_think_block_truncation(self):
-        """Very long think blocks should be truncated."""
-        long_think = "x" * 2000
-        max_len = 1500
-        if len(long_think) > max_len:
-            long_think = long_think[:max_len] + "... [truncated]"
-        assert len(long_think) < 2000
-        assert long_think.endswith("... [truncated]")
-
 
 # ============================================================================
 # Feature 6: Provenance Display
@@ -202,73 +140,6 @@ class TestProvenanceFormatting:
         assert preview.endswith("...")
 
 
-# ============================================================================
-# Bot State: Think Mode Users
-# ============================================================================
-
-class TestBotStateThinkMode:
-    """Test think_mode_users set management."""
-
-    def test_think_mode_set_exists_on_init(self):
-        """BotState should initialize with empty think_mode_users set."""
-        from utils.infrastructure.system.bot_state import BotState
-        
-        with tempfile.NamedTemporaryFile(suffix=".json", delete=False) as f:
-            temp_path = f.name
-
-        try:
-            state = BotState(state_file=temp_path)
-            assert hasattr(state, 'think_mode_users')
-            assert isinstance(state.think_mode_users, set)
-            assert len(state.think_mode_users) == 0
-        finally:
-            if os.path.exists(temp_path):
-                os.unlink(temp_path)
-
-    def test_think_mode_add_remove(self):
-        """Users can be added and removed from think mode."""
-        from utils.infrastructure.system.bot_state import BotState
-        
-        with tempfile.NamedTemporaryFile(suffix=".json", delete=False) as f:
-            temp_path = f.name
-
-        try:
-            state = BotState(state_file=temp_path)
-            user_id = 123456789
-            
-            # Add user
-            state.think_mode_users.add(user_id)
-            assert user_id in state.think_mode_users
-            
-            # Remove user
-            state.think_mode_users.discard(user_id)
-            assert user_id not in state.think_mode_users
-        finally:
-            if os.path.exists(temp_path):
-                os.unlink(temp_path)
-
-    def test_think_mode_not_persisted(self):
-        """think_mode_users should NOT be persisted to disk (transient)."""
-        from utils.infrastructure.system.bot_state import BotState
-        
-        with tempfile.NamedTemporaryFile(suffix=".json", delete=False) as f:
-            temp_path = f.name
-
-        try:
-            state = BotState(state_file=temp_path)
-            state.think_mode_users.add(999)
-            state.save()
-            
-            # Wait a moment for the background save thread
-            import time
-            time.sleep(0.2)
-            
-            # Reload — think_mode_users should be empty
-            state2 = BotState(state_file=temp_path)
-            assert 999 not in state2.think_mode_users
-        finally:
-            if os.path.exists(temp_path):
-                os.unlink(temp_path)
 
 
 # ============================================================================
