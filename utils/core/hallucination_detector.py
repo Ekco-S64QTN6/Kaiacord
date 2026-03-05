@@ -12,10 +12,11 @@ class HallucinationDetector:
         r"\[INTERNAL REFLECTION",
         r"\[CONVERSATION HISTORY",
         r"\[IDENTITY CORE",
-        r"\b(rag (nodes?|context|results?)|retrieval (system|archives?|nodes?))\b",
+        r"\b(the\s+)?(rag (nodes?|results?)|retrieval (archives?|nodes?))\b",
         r"\btunable (parameters?|filters?)\b",
         r"\baid\s*\d+\b",
-        r"\bcontext (window|limits?|optimized?)\b",
+        r"\b(my|the model's|the ai's)\s+context (window|limits?|optimized?)\b",
+        r"\bmy retrieval (system|archives?|nodes?)\b",
         
         # High-confidence news/biographical fiction patterns
         r"joint\s+research\s+paper\s+on\s+['\"]?Quantum\s+Consciousness['\"]?",

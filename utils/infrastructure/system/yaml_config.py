@@ -450,7 +450,7 @@ class YAMLConfig:
     @property
     def model_load_timeout(self) -> float:
         """Model load timeout in seconds"""
-        return self.get_path('timeouts.model_load_seconds', 180.0)
+        return self.get_path('timeouts.model_load_seconds', 300.0)
 
     @property
     def rag_lock_seconds(self) -> float:

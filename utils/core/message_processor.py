@@ -255,13 +255,6 @@ class MessageProcessor:
 
     async def _run_intelligence_pipeline(self, ctx: MessageContext):
         """Stage 2: Intelligence, Retrieval, and Response Generation."""
-        # 1. Hallucination Detection
-        h_start = time.perf_counter()
-        if await self._check_hallucination(ctx):
-            return
-        h_dur = time.perf_counter() - h_start
-        log_debug(f"METRIC: Hallucination check took {h_dur:.3f}s")
-
         # 2. Classification (Regex Fast-Path Only)
         c_start = time.perf_counter()
         await self._perform_classification(ctx)
@@ -279,23 +272,6 @@ class MessageProcessor:
             await self._retrieve_and_generate(ctx)
             r_dur = time.perf_counter() - r_start
             log_debug(f"METRIC: Retrieval/Generation took {r_dur:.3f}s")
-
-    async def _check_hallucination(self, ctx: MessageContext) -> bool:
-        """Check if query contains hallucinations."""
-        # 1. Respect Feature Flag
-        if not self.config.get('features.hallucination_detection', True):
-            return False
-            
-        # 2. Skip for Owners/Admins (They are allowed to discuss architecture)
-        if self.config.is_owner(ctx.message.author.name, ctx.author_name, ctx.author_id):
-            return False
-
-        if HallucinationDetector.contains_hallucination(ctx.sanitized_content):
-            log_warning(f"Hallucination detected in query from {ctx.author_name}. Blocking.")
-            log_debug(f"[HALLUCINATION_DEBUG] Content: '{ctx.sanitized_content}'")
-            await ctx.message.channel.send("```\nnot following. try that again.\n```")
-            return True
-        return False
 
     async def _perform_classification(self, ctx: MessageContext):
         """Classify the query using fast-path and prepare full-path task."""

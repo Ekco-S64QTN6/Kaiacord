@@ -35,12 +35,14 @@ features:
 
 timeouts:
   classification_seconds: 60.0
-  classification_join_seconds: 50.0
+  # Model load timeout (seconds) - for full context allocation
+  model_load_seconds: 300.0
 
 performance:
   max_consecutive_quips: 5
   idle_quip_timeout_minutes: 160
   max_context_tokens: 8192
+  url_max_content_length: 8000
   rag_scoring:
     type_boosts:
       persona: 0.15

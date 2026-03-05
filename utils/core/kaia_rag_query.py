@@ -44,6 +44,15 @@ from utils.core.context_optimizer import Intent
 class RAGQueryMixin:
     """Mixin class providing retrieval and query methods for KaiaRAG."""
 
+    # Pre-compiled filename reference patterns for the fast path in retrieve().
+    # Hoisted to class level to avoid list reconstruction on every call.
+    _FILENAME_REF_PATTERNS = [
+        re.compile(r'(?:file\s+(?:called|named|is)\s+)([\w\-\.]+)'),
+        re.compile(r'(?:check|read|look at|review|open)\s+(?:the\s+)?(?:file\s+)?([\w\-\.]{10,})'),
+        re.compile(r'(?:called|named)\s+([\w\-\.]{10,})'),
+        re.compile(r'([\w\-]{10,}\.(?:md|txt|pdf|docx))'),
+    ]
+
     def _route_retrieval_strategy(self, category: str, query_lower: str, intent: Optional[Intent]) -> Dict[str, Any]:
         """Determine the retrieval strategy and flags based on intent and category."""
         strategy = intent.suggested_strategy if intent else None
@@ -85,10 +94,24 @@ class RAGQueryMixin:
         target_file_path = None
         best_match_score = 0
         
-        query_cleaned = query_lower.replace("summarize", "").replace("summary of", "").strip()
+        # Strip all reference phrasing so only the filename tokens remain
+        query_cleaned = query_lower
+        for _strip in ["summarize", "summary of", "check the file called", "check the file named",
+                       "check the file", "kaia check", "look at the file", "read the file",
+                       "the file called", "the file named", "called", "named", "file"]:
+            query_cleaned = query_cleaned.replace(_strip, " ")
+        query_cleaned = re.sub(r'\s+', ' ', query_cleaned).strip()
+        query_cleaned = re.sub(r"'s\b", "", query_cleaned)
         stopwords = {"the", "a", "an", "of", "and", "or", "to", "in", "is", "for", "with", "on", "at", "by", "from", "you", "have", "kaia"}
         query_tokens = set(re.findall(r'\w+', query_cleaned)) - stopwords
         
+        # Strip possessives from query tokens before matching
+        stripped_query_tokens = {re.sub(r"'s$", "", t) for t in query_tokens}
+
+        # Use fuzzy prefix matching — "solarsong" matches "solarsongs"
+        def _tokens_match(qt, ft):
+            return qt == ft or ft.startswith(qt) or qt.startswith(ft)
+
         for path in self.indexed_files:
             fname = os.path.basename(path).lower()
             fname_no_ext = os.path.splitext(fname)[0]
@@ -103,11 +126,21 @@ class RAGQueryMixin:
                     target_file_path = path
                     continue
             
-            common_tokens = query_tokens.intersection(fname_tokens)
-            if len(common_tokens) >= 2:
+            common_tokens = {
+                qt for qt in stripped_query_tokens
+                for ft in fname_tokens
+                if _tokens_match(qt, ft)
+            }
+            if len(common_tokens) >= 2 or (len(common_tokens) >= 1 and any(len(t) >= 8 for t in common_tokens)):
                 fname_coverage = len(common_tokens) / len(fname_tokens)
-                if fname_coverage > 0.5:
-                    score = fname_coverage 
+                
+                # A single long distinctive token is enough to identify a specific file
+                long_common = {t for t in common_tokens if len(t) >= 8}
+                qualifies = (len(common_tokens) >= 2 and fname_coverage > 0.5) or \
+                            (len(long_common) >= 1 and fname_coverage > 0.15)
+                
+                if qualifies:
+                    score = fname_coverage + (0.3 if long_common else 0)
                     if score > best_match_score:
                         best_match_score = score
                         target_file_path = path
@@ -412,6 +445,23 @@ class RAGQueryMixin:
             if routing["strategy"] == "SUMMARIZATION":
                 results = self._get_summarization_nodes(query_lower)
                 if results: return results
+            
+            # Filename-reference fast path — runs regardless of routing strategy.
+            # Catches: "check the file called X", "the file named X", "look at X.md",
+            # "kaia check X", explicit filename pastes with dashes/underscores.
+            for _pat in self._FILENAME_REF_PATTERNS:
+                _match = _pat.search(query_lower)
+                if _match:
+                    _hint = _match.group(1).strip()
+                    if len(_hint) >= 6:  # Ignore short accidental matches
+                        log_debug(f"Filename-reference fast path triggered: '{_hint}'")
+                        _fname_results = self._get_summarization_nodes(_hint)
+                        if _fname_results:
+                            self._last_retrieval_results = _fname_results
+                            self._last_retrieval_node_ids = []
+                            log_success(f"Filename fast path resolved {len(_fname_results)} nodes for '{_hint}'")
+                            return _fname_results
+                    break
             
             # Update user cache
             if time.time() - self._last_user_scan > self._user_scan_interval:

@@ -152,7 +152,7 @@ timeouts:
   typing_indication_seconds: 2.0
 
   # Model load timeout (seconds) - for full context allocation
-  model_load_seconds: 240.0
+  model_load_seconds: 300.0
 
   # RAG internal lock timeout (seconds)
   rag_lock_seconds: 10.0

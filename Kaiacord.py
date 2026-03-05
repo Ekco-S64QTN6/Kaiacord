@@ -205,7 +205,7 @@ async def on_ready():
         try:
             _phase1_success = await asyncio.wait_for(_do_phase1(), timeout=config.model_load_timeout + 30.0)
         except asyncio.TimeoutError:
-            log_error("[Phase 1] GPU warm timed out (90s limit).")
+            log_error(f"[Phase 1] GPU warm timed out ({config.model_load_timeout + 30.0:.0f}s limit).")
             _phase1_success = False
         except Exception as e:
             log_error(f"[Phase 1] Pre-warm error: {e}")

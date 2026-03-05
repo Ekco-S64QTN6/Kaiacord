@@ -162,7 +162,7 @@ class DashboardManager:
         # Clear GPU memory
         try:
             from utils.infrastructure.gpu.clear_gpu_memory import clear_gpu_memory
-            clear_gpu_memory()
+            clear_gpu_memory(silent=True)
         except Exception as e:
             log_warning(f"Failed to clear GPU memory: {e}")
 
