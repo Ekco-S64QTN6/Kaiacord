@@ -32,14 +32,7 @@ from utils.infrastructure.system.yaml_config import config
 from utils.core.hallucination_detector import HallucinationDetector
 from utils.core.kaia_rag_retriever import sanitize_log_content, SimpleBM25Retriever, thread_safe_rag_operation
 
-# Lazy import to avoid circular dependency
-registry = None
-def _get_registry():
-    global registry
-    if registry is None:
-        from utils.social.kaia_identities import IdentityRegistry
-        registry = IdentityRegistry()
-    return registry
+from utils.social.kaia_identities import registry
 
 
 class RAGPersistenceMixin:
@@ -126,7 +119,7 @@ class RAGPersistenceMixin:
                 fid = int(u_id_str)
                 
             if fid:
-                linked_discord = _get_registry().get_discord_id(fid)
+                linked_discord = registry.get_discord_id(fid)
                 if linked_discord:
                     canonical_id = linked_discord
                     log_debug(f"Resolved forum ID {u_id_str} to canonical Discord ID {canonical_id}")

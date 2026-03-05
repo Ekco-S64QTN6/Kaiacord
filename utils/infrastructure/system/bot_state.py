@@ -22,6 +22,7 @@ class BotState:
     def __init__(self, state_file: str = "memory/bot_state.json"):
         self.state_file = state_file
         self._lock = threading.Lock()
+        self._write_lock = threading.Lock()  # Prevents concurrent _persist_to_disk writes
         self.channel_memory: Dict[int, Deque[Dict[str, str]]] = {}
         self.last_interaction_time: float = time.time()
         self.last_active_channel_id: Optional[int] = None
@@ -112,12 +113,24 @@ class BotState:
             log_warning(f"Failed to initiate bot state save: {e}")
 
     def _persist_to_disk(self, state: dict):
-        """Actual disk I/O performed in background thread"""
+        """Actual disk I/O performed in background thread.
+        
+        Uses a dedicated write lock + atomic temp-file swap to prevent
+        concurrent writes from corrupting the file.
+        """
+        if not self._write_lock.acquire(blocking=False):
+            # Another write is already in progress — skip this one.
+            # The next save() call will capture fresher state anyway.
+            return
         try:
-            with open(self.state_file, 'w') as f:
+            tmp_path = self.state_file + ".tmp"
+            with open(tmp_path, 'w') as f:
                 json.dump(state, f, indent=2)
+            os.replace(tmp_path, self.state_file)
         except Exception as e:
             log_warning(f"Background save failed for bot state: {e}")
+        finally:
+            self._write_lock.release()
 
     def reset_quips(self):
         """Reset consecutive quips counter"""

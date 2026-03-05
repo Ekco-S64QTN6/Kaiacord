@@ -245,7 +245,7 @@ class RAGQueryMixin:
     def _resolve_identity_mappings(self, user_id: Any) -> Set[str]:
         """Resolve all linked identities (Discord/Forum) for a given user ID."""
         try:
-            from utils.social.identity_registry import registry
+            from utils.social.kaia_identities import registry
         except ImportError:
             return {str(user_id)} if user_id else set()
             
@@ -483,8 +483,13 @@ class RAGQueryMixin:
             # Retrieval
             target_itypes, retrieve_count = self._target_indices(routing, top_k)
             tasks = [self._execute_hybrid_retrieval(itype, enriched_query, retrieve_count) for itype in target_itypes if itype in self.indices]
-            all_results = await asyncio.gather(*tasks)
-            all_node_results = [node for sublist in all_results for node in sublist]
+            all_results_raw = await asyncio.gather(*tasks, return_exceptions=True)
+            all_node_results = []
+            for i, sublist in enumerate(all_results_raw):
+                if isinstance(sublist, Exception):
+                    log_warning(f"Retrieval task {i} failed: {sublist}")
+                    continue
+                all_node_results.extend(sublist)
             # Cache raw results BEFORE filtering for !explain
             self._last_raw_results = all_node_results
             
@@ -643,15 +648,4 @@ class RAGQueryMixin:
             log_error(f"Failed to search recent events: {e}")
             return []
 
-    @thread_safe_rag_operation
-    async def detect_hallucination(self, bot_response: str, context_text: Optional[str] = None) -> Dict[str, Any]:
-        """Detect potential hallucinations in a bot response."""
-        detector = HallucinationDetector()
-        has_hallucination = detector.contains_hallucination(bot_response)
-        
-        return {
-            "has_hallucination": has_hallucination,
-            "patterns_detected": has_hallucination,
-            "cleaned_response": detector.clean_response(bot_response) if has_hallucination else bot_response
-        }
 

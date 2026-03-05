@@ -819,10 +819,13 @@ class RAGIndexerMixin:
                         return None
 
                 tasks = [process_file(finfo) for finfo in new_file_paths]
-                results = await asyncio.gather(*tasks)
+                results = await asyncio.gather(*tasks, return_exceptions=True)
                 
                 # Track updated types
-                for itype in results:
+                for i, itype in enumerate(results):
+                    if isinstance(itype, Exception):
+                        log_error(f"Parallel indexing task {i} failed: {itype}")
+                        continue
                     if itype:
                         result_itypes.add(itype)
                         updated_itypes.add(itype)

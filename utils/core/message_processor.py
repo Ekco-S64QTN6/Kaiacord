@@ -848,7 +848,7 @@ class MessageProcessor:
 
     async def _fetch_image_as_base64(self, url: str) -> str:
         """Fetch an image from a URL and return as a base64 string for inline multimodal vision."""
-        timeout_seconds = self.config.get('url_fetch_seconds', 15.0)
+        timeout_seconds = self.config.url_fetch_timeout
         try:
             async with asyncio.timeout(timeout_seconds + 2.0): # Outer safety
                 async with aiohttp.ClientSession() as session:

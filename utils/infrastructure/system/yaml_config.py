@@ -16,8 +16,7 @@ import yaml
 from dotenv import load_dotenv
 from pathlib import Path
 
-# Core Constants
-CONTEXT_WINDOW_TOKENS = 12000  # Default context window for gemma3:12b
+
 
 # Legacy default paths
 from typing import Any, Dict, Optional
@@ -311,7 +310,7 @@ class YAMLConfig:
     @property
     def dream_user_quota(self) -> float:
         """Percentage of dreams dedicated to user logs (0.0 - 1.0)"""
-        return self.get_path('features.dream_mode.user_quota', 0.4)
+        return self.get_path('dream_mode.user_quota', 0.4)
     
     @property
     def idle_quip_timeout_minutes(self) -> int:
@@ -327,7 +326,7 @@ class YAMLConfig:
     
     @property
     def max_context_tokens(self) -> int:
-        return self.get_path('performance.max_context_tokens', CONTEXT_WINDOW_TOKENS)
+        return self.get_path('performance.max_context_tokens', 12000)
     
     @property
     def classification_context_tokens(self) -> int:
@@ -340,7 +339,7 @@ class YAMLConfig:
     @property
     def summarization_context_tokens(self) -> int:
         """Boosted context window for summarization tasks"""
-        return self.get_path('performance.summarization_context_tokens', 48000)
+        return self.get_path('performance.summarization_context_tokens', 12000)
     
     @property
     def startup_news_update(self) -> bool:
@@ -379,11 +378,11 @@ class YAMLConfig:
     
     @property
     def bluesky_reply_to_mentions(self) -> bool:
-        return self.get_path('bluesky.reply_to_mentions', True)
+        return self.get_path('bluesky.reply_to_mentions', False)
     
     @property
     def x_reply_to_mentions(self) -> bool:
-        return self.get_path('x_twitter.reply_to_mentions', True)
+        return self.get_path('x_twitter.reply_to_mentions', False)
     
     @property
     def news_auto_trigger(self) -> bool:
@@ -425,12 +424,12 @@ class YAMLConfig:
     @property
     def classification_timeout(self) -> float:
         """Query classification timeout in seconds"""
-        return self.get_path('timeouts.classification_seconds', 25.0)
+        return self.get_path('timeouts.classification_seconds', 35.0)
     
     @property
     def orchestration_classification_timeout(self) -> float:
         """Orchestration wait timeout for classification in seconds"""
-        return self.get_path('timeouts.orchestration_classification_seconds', 30.0)
+        return self.get_path('timeouts.orchestration_classification_seconds', 45.0)
     
     @property
     def prewarm_timeout(self) -> float:
@@ -465,7 +464,7 @@ class YAMLConfig:
     @property
     def llm_request_seconds(self) -> float:
         """LLM request timeout in seconds"""
-        return self.get_path('timeouts.llm_request_seconds', 360.0)
+        return self.get_path('timeouts.llm_request_seconds', 600.0)
 
     @property
     def classification_join_seconds(self) -> float:
@@ -475,7 +474,7 @@ class YAMLConfig:
     @property
     def shutdown_timeout(self) -> float:
         """Overall shutdown timeout in seconds"""
-        return self.get_path('timeouts.shutdown_seconds', 60.0)
+        return self.get_path('timeouts.shutdown_seconds', 120.0)
 
     @property
     def url_fetch_timeout(self) -> float:
@@ -571,7 +570,7 @@ class YAMLConfig:
     @property
     def max_response_tokens(self) -> int:
         """Maximum number of tokens to generate in a response"""
-        return self.get_path('generation.max_response_tokens', 2048)
+        return self.get_path('generation.max_response_tokens', 768)
 
     
     @property

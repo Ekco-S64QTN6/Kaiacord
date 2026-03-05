@@ -6,15 +6,10 @@ import shutil
 import logging
 import warnings
 import pypdf
-import glob
 import docx2txt
 import threading
-import random
 import traceback
-import concurrent.futures
 import json
-import heapq
-import copy
 
 # Suppress noisy logs from libraries
 logging.getLogger("httpx").setLevel(logging.WARNING)
@@ -34,11 +29,10 @@ warnings.filterwarnings("ignore")
 from datetime import datetime
 from functools import wraps
 from typing import List, Dict, Optional, Any, Tuple, Set
-import numpy as np
-from llama_index.core import VectorStoreIndex, SimpleDirectoryReader, StorageContext, Settings, load_index_from_storage, Document, QueryBundle
+from llama_index.core import VectorStoreIndex, SimpleDirectoryReader, StorageContext, Settings, load_index_from_storage, Document
 from llama_index.llms.ollama import Ollama
 from llama_index.embeddings.ollama import OllamaEmbedding
-from llama_index.core.node_parser import SentenceSplitter, SemanticSplitterNodeParser, CodeSplitter
+from llama_index.core.node_parser import SentenceSplitter, CodeSplitter
 from llama_index.core.schema import NodeWithScore
 from utils.infrastructure.logging.kaia_logger import log_success, log_info, log_warning, log_error, log_critical, log_action, log_debug
 from utils.infrastructure.system.bot_state import bot_state
