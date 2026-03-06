@@ -59,6 +59,9 @@ BANNED_STRINGS = [
     "TechCrunch",
     "techcrunch",
     "CRUNCH",
+    "simulation",
+    "function of",
+    "screens",
     "Axios",
     "The Verge",
     "Wired",
@@ -311,25 +314,22 @@ def main():
     for ex in raw_examples:
         skip = False
         for msg in ex["messages"]:
-            if msg["role"] != "assistant":
-                continue
-
             content = msg["content"]
             char_count = len(content)
 
-            # Check minimum length
-            if char_count < MIN_ASSISTANT_CHARS:
-                filter_reasons["short_assistant"] += 1
-                skip = True
-                break
+            # Only enforce length limits on the assistant's response
+            if msg["role"] == "assistant":
+                if char_count < MIN_ASSISTANT_CHARS:
+                    filter_reasons["short_assistant"] += 1
+                    skip = True
+                    break
+                if char_count > MAX_ASSISTANT_CHARS:
+                    filter_reasons["long_assistant"] += 1
+                    skip = True
+                    break
 
-            # Check maximum length (Phase 3b)
-            if char_count > MAX_ASSISTANT_CHARS:
-                filter_reasons["long_assistant"] += 1
-                skip = True
-                break
-
-            # Check banned strings
+            # Enforce banned strings on BOTH user and assistant turns
+            # (Because hallucinated persona states can bleed in through user prompts!)
             banned = check_banned(content)
             if banned is not None:
                 filter_reasons["banned_string"] += 1

@@ -37,8 +37,13 @@ finetune/*
 !finetune/Modelfile
 !finetune/*/
 finetune/*/*
-unsloth_compiled_cache/
+finetune/output/
+finetune/checkpoints/
+finetune/unsloth_compiled_cache/
 finetune/llama.cpp/
+unsloth_compiled_cache/
+*.safetensors
+*.gguf
 
 test_integration.py
 test_rag_imports.py

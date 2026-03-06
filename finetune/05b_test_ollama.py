@@ -29,6 +29,9 @@ for p in PROMPTS:
                 "content": p
             }
         ],
+        "options": {
+            "num_ctx": 2048
+        },
         "stream": False
     }
     try:

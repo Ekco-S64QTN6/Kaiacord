@@ -136,7 +136,7 @@ def main():
         per_device_train_batch_size=1,
         gradient_accumulation_steps=8,       # Effective batch = 8
         warmup_steps=10,
-        num_train_epochs=2,
+        num_train_epochs=6,
         learning_rate=2e-5,
         fp16=False,
         bf16=True,                           # RTX 3060 supports bf16

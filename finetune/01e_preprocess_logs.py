@@ -83,6 +83,9 @@ INJECTION_PATTERNS = [
 
 # Emote lines without asterisks — roleplay action narration
 EMOTE_LINE_PATTERNS = [
+    # Parenthetical stage directions — (kaia shrugs), (She picks up a mug), etc.
+    re.compile(r'^\([^)]{5,80}\)\s*$', re.MULTILINE),  # standalone paren lines
+    re.compile(r'^\((?:kaia|she|he)\s+\w+.*?\)', re.IGNORECASE | re.MULTILINE),
     re.compile(r'^pause\s*[-–]\s*approximately.*$',   re.IGNORECASE | re.MULTILINE),
     re.compile(r'^pause\s*[-–]\s*\d+\s*(seconds?|minutes?).*$', re.IGNORECASE | re.MULTILINE),
     re.compile(r'^accessing and (reviewing|reading|loading)\b.*$', re.IGNORECASE | re.MULTILINE),

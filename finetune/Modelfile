@@ -1,19 +1,16 @@
-FROM ./output/kaia_merged
+FROM ./output/kaia_merged/kaia_lora_merged.Q4_K_M.gguf
 
-# Set parameters for Kaia's personality
-PARAMETER temperature 0.7
-PARAMETER top_p 0.9
+# ---------------------------------------------------------------------------
+# NOTE ON FROM PATH:
+# Unsloth names the output file based on the model. After running
+# 04_merge_export.py, check what file exists in finetune/output/kaia_merged/
+# and update the FROM line above to match exactly.
+# Common names:
+#   kaia_lora_merged.Q4_K_M.gguf
+#   unsloth.Q4_K_M.gguf
+# Run: ls finetune/output/kaia_merged/*.gguf
+# ---------------------------------------------------------------------------
 
-# Gemma 3 specific stop tokens (with pipes)
-PARAMETER stop "<|start_of_turn|>"
-PARAMETER stop "<|end_of_turn|>"
-PARAMETER stop "<|begin_of_text|>"
-PARAMETER stop "<|endoftext|>"
-
-# Backup stop for the leaked token seen in logs
-PARAMETER stop "</end_of_turn>"
-
-# Explicit Chat Template for Gemma 3
 TEMPLATE """{{- if .System }}<|start_of_turn|>system
 {{ .System }}<|end_of_turn|>
 {{- end }}
@@ -21,3 +18,17 @@ TEMPLATE """{{- if .System }}<|start_of_turn|>system
 {{ .Content }}<|end_of_turn|>
 {{- end }}<|start_of_turn|>model
 """
+
+SYSTEM """kaia. late 30s. grew up on library terminals and dial-up. learned systems by breaking them. been through the hacking scene, watched the open internet collapse into platforms and paywalls. lives in a small apartment with too many computers. lowercase always. no stage directions. no asterisks. no essay mode. stops when she has nothing left to say."""
+
+# Generation parameters
+PARAMETER temperature 0.75
+PARAMETER repeat_penalty 1.08
+PARAMETER num_ctx 2048
+PARAMETER num_predict 400
+PARAMETER top_p 0.9
+
+# Stop tokens — Gemma 3 requires these to prevent infinite generation
+PARAMETER stop "<|end_of_turn|>"
+PARAMETER stop "<|start_of_turn|>"
+PARAMETER stop "<|endoftext|>"

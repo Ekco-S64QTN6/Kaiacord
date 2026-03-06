@@ -3,7 +3,9 @@
 04_merge_export.py — Merge LoRA adapter into base model and export to GGUF.
 
 Loads the base model + the saved adapter from training, merges them,
-and exports a GGUF file ready for Ollama.
+and exports a q4_k_m GGUF file ready for Ollama.
+
+Phase 4 fix: MAX_SEQ_LENGTH corrected to 1024 to match 03_train.py.
 """
 
 import os
@@ -15,15 +17,27 @@ from unsloth import FastLanguageModel
 # Paths
 # ---------------------------------------------------------------------------
 
-SCRIPT_DIR = os.path.dirname(os.path.abspath(__file__))
-ADAPTER_DIR = os.path.join(SCRIPT_DIR, "output", "kaia_lora_adapter")
+SCRIPT_DIR    = os.path.dirname(os.path.abspath(__file__))
+ADAPTER_DIR   = os.path.join(SCRIPT_DIR, "output", "kaia_lora_adapter")
 GGUF_OUTPUT_DIR = os.path.join(SCRIPT_DIR, "output", "kaia_merged")
-GGUF_FILE = os.path.join(SCRIPT_DIR, "output", "kaia_merged.gguf")
 
-# Must match training config
-MAX_SEQ_LENGTH = 1024
-DTYPE = None
-LOAD_IN_4BIT = True
+# ---------------------------------------------------------------------------
+# Model config — MUST match 03_train.py exactly
+# ---------------------------------------------------------------------------
+
+MAX_SEQ_LENGTH = 1024   # ← Fixed: was 2048, must match training value
+DTYPE          = None
+LOAD_IN_4BIT   = True
+
+
+def find_gguf_file(directory: str) -> str | None:
+    """Find the exported GGUF file in the output directory."""
+    if not os.path.isdir(directory):
+        return None
+    for fname in os.listdir(directory):
+        if fname.endswith(".gguf"):
+            return os.path.join(directory, fname)
+    return None
 
 
 def main():
@@ -38,7 +52,8 @@ def main():
     # -----------------------------------------------------------------
     print(f"\n{'='*60}")
     print(f"Loading base model + LoRA adapter")
-    print(f"Adapter: {ADAPTER_DIR}")
+    print(f"Adapter:        {ADAPTER_DIR}")
+    print(f"MAX_SEQ_LENGTH: {MAX_SEQ_LENGTH}")
     print(f"{'='*60}\n")
 
     model, tokenizer = FastLanguageModel.from_pretrained(
@@ -49,12 +64,12 @@ def main():
     )
 
     # -----------------------------------------------------------------
-    # 2. Export to GGUF
+    # 2. Export to GGUF (q4_k_m — fits in 12GB VRAM with room to spare)
     # -----------------------------------------------------------------
-    print(f"\nMerging and exporting to GGUF (q4_k_m quantization)...")
-    print(f"Output directory: {GGUF_OUTPUT_DIR}")
+    print(f"\nMerging and exporting to GGUF (q4_k_m)...")
+    print(f"Output directory: {GGUF_OUTPUT_DIR}\n")
 
-    os.makedirs(os.path.dirname(GGUF_OUTPUT_DIR), exist_ok=True)
+    os.makedirs(GGUF_OUTPUT_DIR, exist_ok=True)
 
     model.save_pretrained_gguf(
         GGUF_OUTPUT_DIR,
@@ -63,37 +78,39 @@ def main():
     )
 
     # -----------------------------------------------------------------
-    # 3. Report
+    # 3. Report + Modelfile instructions
     # -----------------------------------------------------------------
-    # Find the actual GGUF file (Unsloth names it based on the model)
-    gguf_dir = GGUF_OUTPUT_DIR
-    gguf_files = []
-    if os.path.isdir(gguf_dir):
-        for f in os.listdir(gguf_dir):
-            if f.endswith(".gguf"):
-                gguf_files.append(os.path.join(gguf_dir, f))
-
-    # Also check if it was saved directly
-    if os.path.isfile(GGUF_FILE):
-        gguf_files.append(GGUF_FILE)
+    gguf_file = find_gguf_file(GGUF_OUTPUT_DIR)
 
     print(f"\n{'='*60}")
     print("GGUF Export Complete!")
     print(f"{'='*60}")
 
-    if gguf_files:
-        for gf in gguf_files:
-            size_bytes = os.path.getsize(gf)
-            size_gb = size_bytes / (1024 ** 3)
-            print(f"  Output: {gf}")
-            print(f"  Size:   {size_gb:.2f} GB ({size_bytes:,} bytes)")
-    else:
-        print(f"  Output directory: {gguf_dir}")
-        print("  (GGUF file will be in the output directory)")
+    if gguf_file:
+        size_gb = os.path.getsize(gguf_file) / (1024 ** 3)
+        print(f"  File: {gguf_file}")
+        print(f"  Size: {size_gb:.2f} GB")
 
-    print(f"\nNext step: Use this GGUF file with Ollama:")
-    print(f"  ollama create kaia -f Modelfile")
-    print(f"  (Point the Modelfile FROM directive to the GGUF path above)")
+        gguf_basename = os.path.basename(gguf_file)
+        relative_path = os.path.join("./output", "kaia_merged", gguf_basename)
+
+        print(f"\n{'='*60}")
+        print("NEXT STEP — update finetune/Modelfile FROM line:")
+        print(f"{'='*60}")
+        print(f"\n  FROM {relative_path}\n")
+        print("Then load into Ollama:")
+        print("  cd /home/ekco/github/Kaiacord")
+        print("  ollama rm kaia-lora || true")
+        print("  ollama create kaia-lora -f finetune/Modelfile")
+        print("  python3 -u finetune/05b_test_ollama.py")
+    else:
+        print(f"\n  Output directory: {GGUF_OUTPUT_DIR}")
+        print("  WARNING: Could not find .gguf file in output dir.")
+        print("  Check the directory manually:")
+        print(f"    ls -lh {GGUF_OUTPUT_DIR}")
+        print("\n  Then update the FROM line in finetune/Modelfile to match.")
+
+    print(f"\n{'='*60}\n")
 
 
 if __name__ == "__main__":
