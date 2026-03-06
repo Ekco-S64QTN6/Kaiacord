@@ -21,7 +21,7 @@ GGUF_OUTPUT_DIR = os.path.join(SCRIPT_DIR, "output", "kaia_merged")
 GGUF_FILE = os.path.join(SCRIPT_DIR, "output", "kaia_merged.gguf")
 
 # Must match training config
-MAX_SEQ_LENGTH = 2048
+MAX_SEQ_LENGTH = 1024
 DTYPE = None
 LOAD_IN_4BIT = True
 

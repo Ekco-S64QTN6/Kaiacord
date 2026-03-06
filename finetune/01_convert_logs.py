@@ -29,14 +29,14 @@ SLIDE_STEP = 1         # slide by 1 exchange
 TRAIN_RATIO = 0.90
 RANDOM_SEED = 42
 MIN_ASSISTANT_CHARS = 20
+MAX_ASSISTANT_CHARS = 600   # ← NEW: hard ceiling for news dumps
 
 # Exclusion list — subdirectories to skip entirely
-EXCLUDE_DIRS = [
-]
+EXCLUDE_DIRS = []
 
-# Banned strings — if any assistant turn in an example contains any of these,
-# the entire example is filtered out.
+# BANNED_STRINGS — original list + Phase 3b news/publication additions
 BANNED_STRINGS = [
+    # ── Original ──────────────────────────────────────────────────────────
     "*",
     "((",
     "as an AI",
@@ -54,6 +54,83 @@ BANNED_STRINGS = [
     "psychotherapy",
     "psychiatric",
     "Status Report:",
+
+    # ── Phase 3b additions — news / publication prose ─────────────────────
+    "TechCrunch",
+    "techcrunch",
+    "CRUNCH",
+    "Axios",
+    "The Verge",
+    "Wired",
+    "Bloomberg",
+    "Reuters",
+    "According to",
+    "according to",
+    "reported by",
+    "as reported",
+    "in a statement",
+    "the company announced",
+    "in an interview with",
+    "sources familiar with",
+    "the filing shows",
+    "the report says",
+    "confirmed to reporters",
+    "funding round",
+    "valuation",
+    "Series A",
+    "Series B",
+    "venture capital",
+    "startup",
+    "co-founder",
+    "raised $",
+    "million",
+    "pre-money",
+    "post-money",
+    "term sheet",
+    # Essay-mode connectors (Phase 3c Overhaul)
+    "this underscores",
+    "it's a stark reminder",
+    "it necessitates",
+    "it renders",
+    "a commendable",
+    "it is imperative",
+    "it is worth noting",
+    "far-reaching consequences",
+    "far-reaching implications",
+    "has the potential to",
+    "it's a sobering reminder",
+    "the underlying message",
+    "it's a disturbing demonstration",
+    "it's a classic case of",
+    "it's a reminder that",
+    "it's fascinating to see",
+    # Robotic action narration
+    "pause - approximately",
+    "pause – approximately",
+    "accessing and reviewing",
+    "accessing and reading",
+    "i'm noting that feedback",
+    "i'm observing that",
+    "i'm reviewing the",
+    "i'm marking this",
+    "i'm flagging this",
+    # Robotic acknowledgment openers
+    "the document details",
+    "the article details",
+    "the filing details",
+    "per the coalition",
+    "per the report",
+    "the findings have the potential",
+    # Generic AI wrap-up phrases
+    "a rather amusing and entirely avoidable",
+    "a correction to the detection algorithm is clearly warranted",
+    "it's ironic, isn't it?",
+    "All rights reserved",
+    "Terms of Service",
+    "Privacy Policy",
+    "© 20",
+    "subscribe to",
+    "newsletter",
 ]
 
 
@@ -227,6 +304,7 @@ def main():
     filter_reasons = {
         "banned_string": 0,
         "short_assistant": 0,
+        "long_assistant": 0,
     }
     ban_detail = {}
 
@@ -236,14 +314,23 @@ def main():
             if msg["role"] != "assistant":
                 continue
 
+            content = msg["content"]
+            char_count = len(content)
+
             # Check minimum length
-            if len(msg["content"]) < MIN_ASSISTANT_CHARS:
+            if char_count < MIN_ASSISTANT_CHARS:
                 filter_reasons["short_assistant"] += 1
                 skip = True
                 break
 
+            # Check maximum length (Phase 3b)
+            if char_count > MAX_ASSISTANT_CHARS:
+                filter_reasons["long_assistant"] += 1
+                skip = True
+                break
+
             # Check banned strings
-            banned = check_banned(msg["content"])
+            banned = check_banned(content)
             if banned is not None:
                 filter_reasons["banned_string"] += 1
                 ban_detail[banned] = ban_detail.get(banned, 0) + 1
@@ -255,10 +342,11 @@ def main():
 
     total_filtered = sum(filter_reasons.values())
     print(f"Filtered out: {total_filtered}")
-    print(f"  - Banned string matches: {filter_reasons['banned_string']}")
+    print(f"  - Banned string matches:                   {filter_reasons['banned_string']}")
     for b, count in sorted(ban_detail.items(), key=lambda x: -x[1]):
         print(f"      '{b}': {count}")
-    print(f"  - Short assistant turns (<{MIN_ASSISTANT_CHARS} chars): {filter_reasons['short_assistant']}")
+    print(f"  - Short assistant turns (<{MIN_ASSISTANT_CHARS} chars):     {filter_reasons['short_assistant']}")
+    print(f"  - Long assistant turns (>{MAX_ASSISTANT_CHARS} chars):      {filter_reasons['long_assistant']}")
     print(f"Passing examples: {len(filtered_examples)}")
 
     # Shuffle & split
