@@ -597,7 +597,7 @@ async def generate_quip(ctx, is_manual=False, target_channel=None, on_message_fu
                     from utils.core.rag_utils import get_node_text
                     for node in rag_results:
                         content = get_node_text(node)
-                        if content: rag_block += f"- {content[:400].replace(chr(10), ' ')}...\n"
+                        if content: rag_block += f"- {content[:800].replace(chr(10), ' ')}...\n"
                     system_prompt += rag_block
         except Exception as rag_err:
             log_warning(f"Failed to inject RAG context: {rag_err}")

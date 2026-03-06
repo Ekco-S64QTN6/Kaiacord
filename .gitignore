@@ -31,6 +31,15 @@ knowledge_base/*
 !knowledge_base/*/
 knowledge_base/*/*
 
+# Fine-tuning
+finetune/*
+!finetune/*.py
+!finetune/Modelfile
+!finetune/*/
+finetune/*/*
+unsloth_compiled_cache/
+finetune/llama.cpp/
+
 test_integration.py
 test_rag_imports.py
 *.log

@@ -70,8 +70,8 @@ performance:
   # Maximum RAG log size (MB) before rotation
   max_log_size_mb: 1000
 
-  # Total tokens for chat model (Lowered to 8192 for stability)
-  max_context_tokens: 12000
+  # Total tokens for chat model (bumped from 12000 to use VRAM headroom)
+  max_context_tokens: 16384
 
   # Context window for CPU-based classification (IntentParser)
   classification_context_tokens: 2048
@@ -81,7 +81,7 @@ performance:
 
   # Summarization burst context (Temporarily expands for large file processing)
   # Safe for 12GB VRAM: 48,000
-  summarization_context_tokens: 12000
+  summarization_context_tokens: 24000
 
   # Token estimation multiplier (words * multiplier = approx tokens)
   # 1.3 is a reasonable estimate for English text; adjust for other languages
@@ -91,7 +91,7 @@ performance:
   system_reserve_tokens: 1250
 
   # Maximum character limit to scrape from a single URL to prevent context explosion
-  url_max_content_length: 2500
+  url_max_content_length: 8000
 
   # RAG Time-Based Boosts (Seconds)
   rag_boosts:
@@ -123,7 +123,7 @@ generation:
   fallback_num_predict: 512
 
   # Maximum number of tokens to generate in a response
-  max_response_tokens: 768
+  max_response_tokens: 1024
 
 # ============================================================================
 # Timeouts Configuration
@@ -169,7 +169,7 @@ timeouts:
   shutdown_seconds: 120.0
 
   # URL fetch timeout (seconds) - max time to wait for a webpage to download
-  url_fetch_seconds: 5.0
+  url_fetch_seconds: 15.0
 
 # ============================================================================
 # Paths Configuration
