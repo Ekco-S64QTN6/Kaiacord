@@ -100,6 +100,11 @@ def load_persona() -> str:
             
         with open(persona_file, 'r', encoding='utf-8') as f:
             content = f.read().strip()
+            
+            # Bug 3 Fix: Strip hard rules from runtime prompt; keep identity/backstory
+            if "## WHO SHE IS" in content:
+                content = "## WHO SHE IS\n" + content.split("## WHO SHE IS", 1)[1].strip()
+                
             _persona_cache = content
             _persona_last_load = mtime
             log_debug(f"Persona loaded successfully from {persona_file} ({len(content)} chars)")

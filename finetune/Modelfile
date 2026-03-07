@@ -1,4 +1,4 @@
-FROM ./output/kaia_merged/kaia_lora_merged.Q4_K_M.gguf
+FROM ./output/kaia_merged_gguf/gemma-3-12b-it.Q4_K_M.gguf
 
 # ---------------------------------------------------------------------------
 # NOTE ON FROM PATH:

@@ -640,10 +640,13 @@ class MessageProcessor:
 
         current_time_str = datetime.now().strftime("%A, %B %d, %Y | %I:%M %p")
 
+        # Bug 2 Fix: Replace the placeholder inside the persona text before sending to LLM
+        if "[CURRENT_TIME]" in system_prompt:
+            system_prompt = system_prompt.replace("[CURRENT_TIME]", current_time_str)
+
         full_system_prompt = (
             f"{system_prompt}\n\n"
-            f"[CURRENT_TIME] {current_time_str}\n"
-            f"CRITICAL: This is the real current time. Any timestamps mentioned in conversation history are outdated — do not repeat them.\n\n"
+            f"CRITICAL: The current time is {current_time_str}. Any timestamps mentioned in conversation history are outdated — do not repeat them.\n\n"
             f"{rag_block}"
         )
 

@@ -437,7 +437,10 @@ class RAGIndexerMixin:
     def _prune_deleted_files(self) -> Set[str]:
         """Detect and remove files from indices that no longer exist on disk using manifest."""
         updated_itypes = set()
-        deleted_files = [p for p in list(self.indexed_files.keys()) if not os.path.exists(p)]
+        deleted_files = [
+            p for p in list(self.indexed_files.keys()) 
+            if not os.path.exists(p) or os.path.basename(p) == "kaia_persona.md"
+        ]
         if not deleted_files:
             return updated_itypes
             
@@ -527,6 +530,8 @@ class RAGIndexerMixin:
         for root, _, files in os.walk(self.knowledge_base_dir):
             if "corrupt_files" in root: continue
             for file in files:
+                if file == "kaia_persona.md":
+                    continue  # EXCLUDED per Bug 1
                 ext = os.path.splitext(file)[1].lower()
                 if ext in supported_exts:
                     full_path = os.path.join(root, file)
@@ -550,13 +555,14 @@ class RAGIndexerMixin:
                         new_file_paths.append((full_path, is_modified, itype == 'logs', itype))
 
         # Check persona file
-        persona_file = "knowledge_base/kaia_persona.md"
-        if os.path.exists(persona_file):
-            norm_path = os.path.abspath(persona_file)
-            mtime = os.path.getmtime(norm_path)
-            entry = self.indexed_files.get(norm_path)
-            if entry is None or mtime > entry.get("mtime", 0):
-                new_file_paths.append((persona_file, entry is not None, False, 'persona'))
+        # Check persona file - EXCLUDED per Bug 1
+        # persona_file = "knowledge_base/kaia_persona.md"
+        # if os.path.exists(persona_file):
+        #     norm_path = os.path.abspath(persona_file)
+        #     mtime = os.path.getmtime(norm_path)
+        #     entry = self.indexed_files.get(norm_path)
+        #     if entry is None or mtime > entry.get("mtime", 0):
+        #         new_file_paths.append((persona_file, entry is not None, False, 'persona'))
         
         return new_file_paths
 
