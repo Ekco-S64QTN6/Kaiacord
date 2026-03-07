@@ -14,6 +14,7 @@ from utils.core.response_filter import HallucinationDetector, BotSpeakFilter
 from utils.core.knowledge_boundary import KnowledgeBoundary
 from utils.infrastructure.monitoring.async_task_registry import task_registry
 from utils.core.kaia_intelligence import ContextWeaver
+from utils.social.kaia_social_responder import load_persona_async
 
 # Constants
 
@@ -142,7 +143,6 @@ class MessageProcessor:
 
         # 3. Command Dispatching (Phase 3 Registry)
         from utils.commands.registry import dispatch_command
-        from utils.social.kaia_social_responder import load_persona_async
         from utils.infrastructure.system.messaging import send_kaia_response
         
         # Note: on_message reference here might need care if we fully decompose
@@ -431,7 +431,6 @@ class MessageProcessor:
 
     async def _setup_retrieval_tasks(self, ctx: MessageContext):
         """Prepare all parallel tasks for retrieval."""
-        from utils.social.kaia_social_responder import load_persona_async
         
         # Determine query details
         clean_query = ctx.sanitized_content.lower().replace("kaia", "").strip("?,. ")
