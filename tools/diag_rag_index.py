@@ -6,6 +6,7 @@ from utils.core.kaia_rag import KaiaRAG
 
 async def diag():
     rag = KaiaRAG()
+    await rag.initialize_async()
     
     print("\n--- RAG DIAGNOSTICS REFINED ---")
     

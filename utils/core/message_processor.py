@@ -101,7 +101,8 @@ class MessageProcessor:
         is_social = platform != 'discord'
         
         if is_social:
-            log_debug(f"Processing social message. Platform: {platform}, Author: {msg.author.name}")
+            author_name = getattr(msg.author, 'name', 'Unknown User')
+            log_debug(f"Processing social message. Platform: {platform}, Author: {author_name}")
             
         if not is_social and msg.author == self.bot.user:
             return
@@ -244,12 +245,14 @@ class MessageProcessor:
         try:
             await gen_task
             duration = time.perf_counter() - start_time
-            log_action(f"TOTAL processing for {msg.author.name}: {duration:.2f}s")
+            author_name = getattr(msg.author, 'name', 'Unknown')
+            log_action(f"TOTAL processing for {author_name}: {duration:.2f}s")
         except asyncio.CancelledError:
             log_warning(f"Generation task for {msg.author.name} was cancelled (likely bot shutdown).")
         except Exception as e:
             import traceback
-            log_error(f"Error in intelligence pipeline: {e}\n{traceback.format_exc()}")
+            error_trace = traceback.format_exc()
+            log_error(f"Error in intelligence pipeline: {e}\n{error_trace}")
             await self._send_response(msg.channel, "Something went wrong in my head. Try again?")
 
     async def _run_intelligence_pipeline(self, ctx: MessageContext):
@@ -347,7 +350,13 @@ class MessageProcessor:
             log_info(f"Adaptive Skip: Bypassing RAG for high-confidence {ctx.intent.suggested_strategy}")
             
             # Populate minimum context needed for generation
-            ctx.system_prompt = await load_persona_async()
+            raw_persona = await load_persona_async()
+            
+            # Resolve runtime tags (Bug 2 Fix implementation)
+            from datetime import datetime
+            current_time = datetime.now().strftime("%A, %B %d, %Y | %I:%M %p")
+            ctx.system_prompt = raw_persona.replace("[CURRENT_TIME]", current_time)
+            
             ctx.context_nodes = []
             
             # Proceed straight to generation
@@ -410,9 +419,11 @@ class MessageProcessor:
         context_list = rag_snippets + history_snippets
         
         # Whitelist current author and bot
-        whitelist = {ctx.author_name, self.bot.user.name, "Kaia"}
+        whitelist = {ctx.author_name, "Kaia"}
+        if self.bot and self.bot.user:
+            whitelist.add(self.bot.user.name)
         # Resolve display name variants
-        if hasattr(ctx.message.author, 'display_name'):
+        if hasattr(ctx.message.author, 'display_name') and ctx.message.author.display_name:
             whitelist.add(ctx.message.author.display_name)
             
         boundary_check = self.knowledge_boundary.check_known_entities(ctx.sanitized_content, context_list, whitelist=whitelist)
@@ -434,17 +445,21 @@ class MessageProcessor:
         
         # Determine query details
         clean_query = ctx.sanitized_content.lower().replace("kaia", "").strip("?,. ")
-        display_name = ctx.message.author.display_name.strip(".")
+        display_name = (getattr(ctx.message.author, 'display_name', '') or "").strip(".")
         
         target_user_id = ctx.author_id
-        target_user_name = ctx.message.author.display_name
+        target_user_name = ctx.author_name
         
         if not clean_query or clean_query in ["who am i", "what am i"]:
             clean_query = f"Who is {display_name}?"
         elif clean_query in ["who are you", "what are you", "who is kaia"]:
             clean_query = "Who is Kaia?"
-            target_user_id = self.bot.user.id
-            target_user_name = self.bot.user.name
+            if self.bot and self.bot.user:
+                target_user_id = self.bot.user.id
+                target_user_name = self.bot.user.name
+            else:
+                target_user_id = 0
+                target_user_name = "Kaia"
 
         # Tasks dictionary (Prevents IndexErrors)
         tasks = {}
@@ -569,7 +584,7 @@ class MessageProcessor:
 
     async def _generate_response_stage(self, ctx: MessageContext):
         """Stage 4: Context Optimization and Multi-pass Generation."""
-        # 1. Context Optimization
+        # 1. CONTEXT OPTIMIZATION
         o_start = time.perf_counter()
         history = list(self.bot_state.channel_memory.get(ctx.channel_id, []))
         optimized = self.context_optimizer.optimize_context(
@@ -582,10 +597,12 @@ class MessageProcessor:
         o_dur = time.perf_counter() - o_start
         log_debug(f"METRIC: Context optimization took {o_dur:.3f}s")
 
+
         messages = self._construct_messages(ctx, optimized)
         
         # 2.5 Inline Vision Processing (native multimodal)
         if hasattr(ctx.message, 'attachments') and ctx.message.attachments:
+
             images = []
             for att in ctx.message.attachments:
                 if any(getattr(att, 'filename', '').lower().endswith(ext) for ext in ['.png', '.jpg', '.jpeg', '.gif', '.webp']):
@@ -640,14 +657,18 @@ class MessageProcessor:
 
         current_time_str = datetime.now().strftime("%A, %B %d, %Y | %I:%M %p")
 
-        # Bug 2 Fix: Replace the placeholder inside the persona text before sending to LLM
-        if "[CURRENT_TIME]" in system_prompt:
-            system_prompt = system_prompt.replace("[CURRENT_TIME]", current_time_str)
+        # Bug 2 Fix: Move time to a metadata block at the end, and stop replacing it inside persona
+        # to prevent the LLM from thinking it's a catchphrase it must repeat.
+        metadata_block = (
+            "\n\n--- METADATA ---\n"
+            f"CURRENT_TIME: {current_time_str}\n"
+            "CRITICAL: Any timestamps in conversation history are outdated. Do not repeat the CURRENT_TIME string in your response."
+        )
 
         full_system_prompt = (
             f"{system_prompt}\n\n"
-            f"CRITICAL: The current time is {current_time_str}. Any timestamps mentioned in conversation history are outdated — do not repeat them.\n\n"
             f"{rag_block}"
+            f"{metadata_block}"
         )
 
         # [DEBUG] Trace final prompt assembly
@@ -663,10 +684,20 @@ class MessageProcessor:
             if isinstance(turn, dict) and 'role' in turn and 'content' in turn:
                 if turn.get('role') == 'system':
                     continue
-                # JSON pollution stripping
-                if turn['role'] == 'assistant' and _JSON_RESPONSE_PATTERN.search(turn['content']):
-                    continue
-                messages.append(turn.copy())
+                # Scrub [CURRENT_TIME] and resolved date strings from history to prevent mimicry
+                turn = turn.copy()
+                content = turn['content']
+                # Remove literal tag
+                content = re.sub(r'\[CURRENT_TIME\]', '', content)
+                # Remove resolved date strings (e.g., Friday, March 06, 2026 | 07:30 PM)
+                content = re.sub(
+                    r'(Monday|Tuesday|Wednesday|Thursday|Friday|Saturday|Sunday),\s+'
+                    r'(January|February|March|April|May|June|July|August|September|October|November|December)'
+                    r'\s+\d{1,2},\s+\d{4}\s+\|[^\n]*',
+                    '', content
+                )
+                turn['content'] = content.strip()
+                messages.append(turn)
 
         # Re-assert conversation target
         if ctx.parent_context:
@@ -735,27 +766,33 @@ class MessageProcessor:
 
                 content = content.replace("```", "").replace("``", "")
 
+                # EMERGENCY FILTER: Strip hallucinated [CURRENT_TIME] or time signatures
+                # preventing history pollution if the LLM ignores instructions.
+                content = re.sub(r'\[CURRENT_TIME\].*', '', content).strip()
+                content = re.sub(r'(Monday|Tuesday|Wednesday|Thursday|Friday|Saturday|Sunday),\s+(January|February|March|April|May|June|July|August|September|October|November|December)\s+\d{1,2},\s+\d{4}\s+\|.*', '', content).strip()
+
                 if not content:
                     log_warning(f"Attempt {attempt + 1}: Empty response. Retrying...")
                     continue
 
                 # Cleanup
                 should_detect = self.config.get('features.hallucination_detection', True)
-                is_owner = self.config.is_owner(ctx.message.author.name, ctx.author_name, ctx.author_id)
-                log_debug(f"[HALLUCINATION_CHECK] Author: {ctx.message.author.name} (ID: {ctx.author_id}), Config Owner: {is_owner}")
+                author_display = getattr(ctx.message.author, 'name', 'Unknown')
+                is_owner = self.config.is_owner(author_display, ctx.author_name, ctx.author_id)
+                log_debug(f"[HALLUCINATION_CHECK] Author: {author_display} (ID: {ctx.author_id}), Config Owner: {is_owner}")
 
                 if should_detect and not is_owner:
                     content = HallucinationDetector.clean_response(content)
                     
                 if not content:
-                    log_warning(f"Attempt {attempt + 1} failed: Empty response after filtering (is_owner={is_owner}). Author: {ctx.message.author.name}")
+                    log_warning(f"Attempt {attempt + 1} failed: Empty response after filtering (is_owner={is_owner}). Author: {author_display}")
                     continue
-
+                
                 if not is_owner:
                     content = EmergencyContaminationFilter.filter_response(content)
                     
                 if not content:
-                    log_warning(f"Attempt {attempt + 1} failed: Veracity violation (Fiction/Contamination detected). Author: {ctx.message.author.name}, is_owner: {is_owner}")
+                    log_warning(f"Attempt {attempt + 1} failed: Veracity violation (Fiction/Contamination detected). Author: {author_display}, is_owner: {is_owner}")
                     continue
                 
                 # Style Hardening (Silent Stripping)
@@ -775,10 +812,10 @@ class MessageProcessor:
 
     async def _post_process_and_log(self, ctx: MessageContext):
         """Final cleanups, sending response, and logging."""
-        if not ctx.response_text:
-            return
+        # 1. FINAL OUTPUT FILTER: Strip hallucinated [CURRENT_TIME] from outgoing text
+        ctx.response_text = re.sub(r'\[CURRENT_TIME\].*?(\n|$)', '', ctx.response_text).strip()
         
-        # 1. SEND RESPONSE
+        # 2. SEND RESPONSE
         await self._send_response(channel=ctx.message.channel, text=ctx.response_text)
         
         # 2. LOGGING & STATE (background to avoid holding up the UI)

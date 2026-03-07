@@ -171,73 +171,51 @@ async def on_ready():
     # Runs alone — no other Ollama calls permitted concurrently.
     async with _gpu_startup_lock:
         async def _do_phase1():
-            _p1_success = False
-            for _p1_attempt in range(21):
+            log_action(f"[Phase 1] Claiming GPU for {config.chat_model}...")
+            # We fire the predictably check into the background so slow VRAM loads don't hit socket timeouts
+            _load_task = asyncio.create_task(
+                ctx.ollama_client.generate(
+                    model=config.chat_model,
+                    prompt=".",
+                    options={"num_gpu": 99, "num_ctx": config.max_context_tokens, "num_predict": 1},
+                    keep_alive=-1,
+                )
+            )
+            
+            # Poll Ollama's process list to confirm the chat model is actually resident in VRAM
+            _vram_confirmed = False
+            start_time = asyncio.get_event_loop().time()
+            max_wait = config.model_load_timeout + 120.0
+            
+            while asyncio.get_event_loop().time() - start_time < max_wait:
                 try:
-                    if _p1_attempt > 0:
-                        log_action(f"[Phase 1] Retry {_p1_attempt}/20 — waiting 5s...")
-                        await asyncio.sleep(5)
-                    log_action(f"[Phase 1] Claiming GPU for {config.chat_model}...")
-                    await asyncio.wait_for(
-                        ctx.ollama_client.generate(
-                            model=config.chat_model,
-                            prompt=".",
-                            options={"num_gpu": 99, "num_ctx": config.max_context_tokens, "num_predict": 1},
-                            keep_alive=-1,
-                        ),
-                        timeout=config.model_load_timeout
-                    )
-                    log_success(f"[Phase 1] {config.chat_model} loaded.")
-                    _p1_success = True
-                    break
-                except asyncio.TimeoutError:
-                    log_error("[Phase 1] GPU warm timed out inside loop.")
-                    break
-                except Exception as e:
-                    err = str(e).lower()
-                    if "500" in err and "loading" in err or "busy" in err:
-                        log_action(f"[Phase 1] Still loading... ({_p1_attempt}/20)")
-                    else:
-                        log_error(f"[Phase 1] Error: {e}")
+                    _ps = await asyncio.to_thread(ollama.ps)
+                    _models = _ps.get("models") or [] if isinstance(_ps, dict) else getattr(_ps, 'models', [])
+                    for m in _models:
+                        name = getattr(m, 'name', m.get('name', '') if isinstance(m, dict) else '')
+                        size_vram = getattr(m, 'size_vram', m.get('size_vram', 0) if isinstance(m, dict) else 0)
+                        base_model = config.chat_model.split(":")[0]
+                        if (base_model in name or name in config.chat_model or config.chat_model in name) and size_vram > 0:
+                            _vram_confirmed = True
+                            break
+                    if _vram_confirmed:
                         break
-            return _p1_success
+                except Exception as e:
+                    pass
+                await asyncio.sleep(2.0)
+                
+            return _vram_confirmed
 
         try:
-            _phase1_success = await asyncio.wait_for(_do_phase1(), timeout=config.model_load_timeout + 30.0)
-        except asyncio.TimeoutError:
-            log_error(f"[Phase 1] GPU warm timed out ({config.model_load_timeout + 30.0:.0f}s limit).")
-            _phase1_success = False
+            _phase1_success = await _do_phase1()
         except Exception as e:
             log_error(f"[Phase 1] Pre-warm error: {e}")
             _phase1_success = False
 
-    # Poll Ollama's process list to confirm the chat model is actually resident
-    # in VRAM before proceeding.  Avoids the guesswork of asyncio.sleep().
-    _vram_confirmed = False
-    for _attempt in range(5):  # Reduce from 10 to 5
-        try:
-            _ps = await asyncio.to_thread(ollama.ps)
-            _models = _ps.get("models") or [] if isinstance(_ps, dict) else getattr(_ps, 'models', [])
-            for m in _models:
-                name = getattr(m, 'name', m.get('name', '') if isinstance(m, dict) else '')
-                size_vram = getattr(m, 'size_vram', m.get('size_vram', 0) if isinstance(m, dict) else 0)
-                # Looser match to handle :latest suffix and ensure it's in GPU
-                base_model = config.chat_model.split(":")[0]
-                if (base_model in name or name in base_model) and size_vram > 0:
-                    _vram_confirmed = True
-                    break
-            if _vram_confirmed:
-                break
-        except Exception as e:
-            log_debug(f"[Phase 1] ps() poll attempt {_attempt}: {e}")
-        await asyncio.sleep(0.5)
-
-    if _vram_confirmed:
+    if _phase1_success:
         log_success(f"[Phase 1] VRAM lock confirmed for {config.chat_model}.")
     else:
-        # Ollama ps() unavailable or model name mismatch — fall back to fixed delay
-        log_info("[Phase 1] Could not confirm VRAM lock via ollama.ps(); waiting 1s as fallback.")
-        await asyncio.sleep(1.0)
+        log_warning(f"[Phase 1] GPU warm could not confirm VRAM lock for {config.chat_model} within timeout. Proceeding anyway.")
 
     # ── PHASE 1.5: Late-initialize CPU models ───────────────────────────────
     # We build these AFTER the chat model has claimed the GPU to prevent

@@ -12,7 +12,11 @@ Maintenance, diagnostic, and recovery utilities for Kaiacord v2.0.
 | `find_contamination.py` | Recovery | Find hallucinated content |
 | `proper_fix.py` | Recovery | Surgical hallucination removal |
 | `scan_knowledge_base.py` | Diagnostics | Scan knowledge base |
+| `diagnose_rag.py` | Diagnostics | Full RAG system diagnostics |
 | `generate_user_profiles.py` | Development | Generate user profiles |
+| `cleanup_kb.py` | Utilities | Knowledge base cleanup |
+| `sanitize_logs.py` | Utilities | Strip runtime tags from user logs |
+| `kb_cleanse_user_logs.py` | Utilities | LLM-powered log content cleanup |
 
 ## Structure
 
@@ -29,6 +33,29 @@ tools/
 │   └── verification/# Logic verification & smoke tests
 └── legacy/          # Historical tools (preserved)
 ```
+
+---
+
+## Core Utilities (`tools/`)
+
+### cleanup_kb.py
+**Knowledge base cleanup**
+```bash
+python tools/cleanup_kb.py
+```
+Clears Out-of-vocabulary and OCR artifacts.
+
+### sanitize_logs.py / kb_cleanse_user_logs.py
+**User log sanitization**
+```bash
+python tools/sanitize_logs.py
+python tools/kb_cleanse_user_logs.py
+```
+Strips injection tags or uses Ollama to denoise and reformat user logs.
+
+### diag_rag_index.py / diagnose_embeddings.py / diagnose_rag.py
+**RAG Pipeline Diagnostics**
+Detailed checks and counts for the Knowledge Base and Embeddings.
 
 ---
 

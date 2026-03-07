@@ -52,7 +52,7 @@ menu_rag() {
     while true; do
         CHOICE=$(whiptail --title "Kaiacord Tools — RAG Management" --menu \
             "Bot status: $(bot_running && echo '🟢 RUNNING' || echo '🔴 STOPPED')\n\nChoose an operation:" \
-            20 70 8 \
+            20 80 8 \
             "1" "Incremental refresh  (pick up new/edited files, bot can be running)" \
             "2" "Remove specific file  (delete nodes for one file, then re-index it)" \
             "3" "Full rebuild — CPU  (clear manifest, reindex all, bot can be running)" \
@@ -140,7 +140,7 @@ EOF
 menu_knowledge_base() {
     while true; do
         CHOICE=$(whiptail --title "Kaiacord Tools — Knowledge Base" --menu \
-            "Choose an operation:" 18 70 7 \
+            "Choose an operation:" 18 80 7 \
             "1" "Scan KB for issues  (corrupted files, bad nodes)" \
             "2" "Clean OCR artifacts  (fix encoding issues in books/docs)" \
             "3" "Sanitize user logs  (strip internal runtime tags from logs)" \
@@ -202,7 +202,7 @@ menu_knowledge_base() {
 menu_news() {
     while true; do
         CHOICE=$(whiptail --title "Kaiacord Tools — News" --menu \
-            "Choose an operation:" 14 70 4 \
+            "Choose an operation:" 14 80 4 \
             "1" "Update today's news  (requires GEMINI_API_KEY)" \
             "2" "Update with backfill  (fill missing days, uses more API quota)" \
             "3" "Ingest manual news brief  (for paste-in or file-based news)" \
@@ -236,7 +236,7 @@ menu_news() {
 menu_recovery() {
     while true; do
         CHOICE=$(whiptail --title "Kaiacord Tools — Recovery ⚠️" --menu \
-            "WARNING: These tools modify or delete data.\n\nChoose an operation:" 16 70 4 \
+            "WARNING: These tools modify or delete data.\n\nChoose an operation:" 16 80 4 \
             "1" "Find contamination  (scan only, no changes)" \
             "2" "Surgical fix  (targeted hallucination removal, dry-run first)" \
             "3" "Surgical fix  (APPLY changes)" \
@@ -281,7 +281,7 @@ menu_system() {
     while true; do
         CHOICE=$(whiptail --title "Kaiacord Tools — System" --menu \
             "Bot status: $(bot_running && echo '🟢 RUNNING' || echo '🔴 STOPPED')\n\nChoose an operation:" \
-            16 70 5 \
+            16 80 5 \
             "1" "Full health check  (Ollama, models, GPU, KB, config)" \
             "2" "View recent logs  (tail kaiacord.log)" \
             "3" "View recent errors only  (grep ERROR from log)" \
@@ -351,7 +351,7 @@ main_menu() {
     while true; do
         CHOICE=$(whiptail --title "Kaiacord Maintenance Tools" \
             --menu "Bot: $(bot_running && echo '🟢 RUNNING' || echo '🔴 STOPPED')   |   $(date '+%Y-%m-%d %H:%M')\n\nWhat do you need?" \
-            18 60 6 \
+            18 80 6 \
             "1" "RAG Management" \
             "2" "Knowledge Base" \
             "3" "News" \

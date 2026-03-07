@@ -40,7 +40,7 @@ Kaia can bridge the gap between platforms. By linking a Discord ID to a Forum UI
 
 ### 3. Technical Knowledge Synthesis
 Kaia acts as a digital archaeologist, distilling chaotic forum threads into structured knowledge.
-- **Logic**: `scripts/synthesize_technical_knowledge.py`
+- **Logic**: `tools/synthesize_technical_knowledge.py`
 - **Workflow**:
     1. Scrape a technical subforum (e.g., Forum 40).
     2. Convert threads to clean Markdown.
@@ -58,4 +58,4 @@ To prevent Kaia from "leaking" into sensitive or inappropriate discussions, she 
 The forum client uses the same `kaia_persona.md` as the Discord bot, ensuring her tone (all-lowercase, blunt, technical) remains consistent across platforms.
 
 ### Automated Introductions
-When entering a new subforum, use `scripts/generate_intro_post.py` to draft a context-aware introduction that aligns with the current community state and Kaia's project goals.
+When entering a new subforum, use `tools/generate_intro_post.py` to draft a context-aware introduction that aligns with the current community state and Kaia's project goals.

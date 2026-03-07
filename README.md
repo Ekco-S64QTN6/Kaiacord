@@ -305,7 +305,7 @@ Kaiacord/
 │   ├── commands/            # Discord command handlers
 │   └── news/                # News retrieval & management
 ├── tools/
-│   ├── maintenance/         # RAG refresh, news update, health check
+│   ├── maintenance/         # Python maintenance & DB updates
 │   ├── diagnostics/         # Index scanning, model inspection
 │   ├── recovery/            # Hallucination cleanup, nuclear reset
 │   ├── social/              # X auth, cookie extraction
@@ -313,7 +313,7 @@ Kaiacord/
 │       ├── unit/            # Component tests
 │       ├── integration/     # End-to-end flow tests
 │       └── verification/    # Logic verification & smoke tests
-├── scripts/                 # Maintenance & diagnostic scripts
+├── scripts/                 # Bash automation & interactve TUI (kaia-tools.sh)
 └── docs/                    # Full documentation
 ```
 

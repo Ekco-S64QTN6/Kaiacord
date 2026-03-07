@@ -20,6 +20,9 @@ import os
 import subprocess
 from pathlib import Path
 
+# Fix sys.path to allow utils resolution when run via python tools/maintenance/health_check.py
+sys.path.append(os.getcwd())
+
 
 class HealthCheck:
     """Health check runner"""

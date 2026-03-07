@@ -8,8 +8,7 @@ from utils.infrastructure.logging.kaia_logger import log_info, log_success, log_
 async def force_reindex():
     log_action("Initializing RAG for force reindex...")
     rag = KaiaRAG()
-    await asyncio.to_thread(rag._load_indexed_files)
-    await asyncio.to_thread(rag._initialize_indices)
+    await rag.initialize_async()  # ← loads indices AND manifest
     
     if len(sys.argv) > 1:
         # Specific file passed as argument — clear it from manifest
@@ -19,15 +18,12 @@ async def force_reindex():
             log_info(f"Cleared {target} from manifest. Will re-index on refresh.")
         else:
             log_info(f"File not in manifest: {target}")
-    else:
-        # No argument — clear entire manifest to force full re-index
-        count = len(rag.indexed_files)
-        rag.indexed_files.clear()
-        log_info(f"Cleared all {count} manifest entries. Full re-index will run.")
+    # else: no args = true incremental, just scan for new/changed files
+    # DO NOT clear manifest here — that's what option 3 is for
     
-    log_action("Running knowledge base refresh...")
+    log_action("Running incremental knowledge base refresh...")
     await rag.refresh_knowledge_base()
-    log_success("Force reindex complete.")
+    log_success("Incremental refresh complete.")
 
 if __name__ == "__main__":
     asyncio.run(force_reindex())

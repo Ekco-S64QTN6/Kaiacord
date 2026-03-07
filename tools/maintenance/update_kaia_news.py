@@ -6,9 +6,9 @@ from pathlib import Path
 from typing import Optional, List, Dict, Any
 import ollama
 from dotenv import load_dotenv
-from pathlib import Path
 from google import genai
 from google.genai import types
+
 load_dotenv(dotenv_path=Path(__file__).parent.parent / '.env')
 
 class KaiaNewsUpdater:
@@ -112,13 +112,13 @@ RULES:
 6. Do NOT include a 'SOURCES' or 'REFERENCES' section at the end of the brief.
 """
         
-        # google-genai SDK: grounding via GoogleSearch tool
+        # generativeai SDK: grounding via GoogleSearch tool
         try:
             response = self.client.models.generate_content(
                 model=self.model_name,
                 contents=prompt,
                 config=types.GenerateContentConfig(
-                    tools=[types.Tool(google_search=types.GoogleSearch())]
+                    tools=[{"google_search": {}}]
                 )
             )
             
@@ -127,7 +127,7 @@ RULES:
             
             if not brief:
                 # Check for candidates and finish reason
-                if response.candidates:
+                if hasattr(response, 'candidates') and response.candidates:
                     finish_reason = response.candidates[0].finish_reason
                     raise ValueError(f"Empty response text (Finish Reason: {finish_reason})")
                 else:

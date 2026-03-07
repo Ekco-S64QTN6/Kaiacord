@@ -22,21 +22,22 @@ class CoreTaskManager:
             if shutdown_manager.shutting_down: return
             try:
                 log_action("Running periodic news refresh...")
-                from tools.maintenance.refresh_news import refresh_news
-                await refresh_news()
-                log_success("Periodic news refresh completed.")
+                import os
+                from tools.maintenance.update_kaia_news import KaiaNewsUpdater
+                api_key = os.getenv("GEMINI_API_KEY")
+                if api_key:
+                    updater = KaiaNewsUpdater(api_key)
+                    await asyncio.to_thread(updater.run, skip_backfill=True)
+                    log_success("Periodic news refresh completed.")
+                else:
+                    log_warning("News refresh skipped: GEMINI_API_KEY not set.")
             except Exception as e:
                 log_error(f"News refresh task failed: {e}")
                 
                 error_str = str(e)
                 if "429" in error_str or "RESOURCE_EXHAUSTED" in error_str:
                     log_error("CRITICAL: Gemini quota exhausted during news refresh. Kaia cannot ingest news today.")
-                    if self.ctx and getattr(self.ctx, 'bot', None):
-                        channel = None
-                        if getattr(self.ctx, 'bot_state', None) and self.ctx.bot_state.last_active_channel_id:
-                            channel = self.ctx.bot.get_channel(self.ctx.bot_state.last_active_channel_id)
-                        if channel:
-                            asyncio.create_task(channel.send("⚠️ **CRITICAL NEWS FAILURE**: Gemini API quota exhausted (`429`). The daily news brief will not be generated."))
+                    # Removed Discord channel alert to prevent spam loops during quota lockouts
 
         @news_refresh_task.error
         async def news_refresh_error(error):
@@ -93,8 +94,33 @@ class CoreTaskManager:
         if not self.ctx: return
         try:
             log_action("Starting integrated news refresh...")
-            from tools.maintenance.refresh_news import refresh_news
-            await refresh_news()
+            import os
+            import sys
+            import asyncio
+            api_key = os.getenv("GEMINI_API_KEY")
+            if api_key:
+                # Run as a separate process using the same python executable to assure environment consistency.
+                script_path = os.path.join(os.path.dirname(os.path.dirname(os.path.dirname(os.path.abspath(__file__)))), "tools", "maintenance", "update_kaia_news.py")
+                log_debug(f"Invoking {script_path} via {sys.executable}")
+                process = await asyncio.create_subprocess_exec(
+                    sys.executable, script_path, "--skip-backfill", "--no-prompt",
+                    stdout=asyncio.subprocess.PIPE,
+                    stderr=asyncio.subprocess.PIPE
+                )
+                stdout, stderr = await process.communicate()
+                
+                if process.returncode == 0:
+                     log_success("External news update process completed successfully.")
+                     if stdout:
+                        for line in stdout.decode().splitlines():
+                             if line.strip(): log_debug(f"[News] {line}")
+                else:
+                     log_error(f"External news update process failed with return code {process.returncode}")
+                     if stderr:
+                         for line in stderr.decode().splitlines():
+                              if line.strip(): log_error(f"[News] {line}")
+            else:
+                log_warning("Integrated news update skipped: GEMINI_API_KEY not set.")
             
             from utils.core.rag_executor import run_rag as run_rag_func
             if self.ctx.rag:
@@ -108,10 +134,10 @@ class CoreTaskManager:
 
     def start(self):
         from utils.infrastructure.monitoring.async_task_registry import task_registry
-        self.news_refresh_task.start()
+        # self.news_refresh_task.start()
         # tasks.loop objects are not asyncio.Task, use get_task()
-        if self.news_refresh_task.get_task():
-            task_registry.register("news_refresh_task", self.news_refresh_task.get_task())
+        # if self.news_refresh_task.get_task():
+        #     task_registry.register("news_refresh_task", self.news_refresh_task.get_task())
         self.dream_engine_task.start()
         if self.dream_engine_task.get_task():
             task_registry.register("dream_engine_task", self.dream_engine_task.get_task())

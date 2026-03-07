@@ -31,12 +31,15 @@ class MessageContext:
     
     @property
     def author_id(self) -> str:
-        return str(self.message.author.id)
+        return str(self.message.author.id) if self.message.author else "0"
         
     @property
     def author_name(self) -> str:
-        return self.message.author.display_name
+        author = self.message.author
+        if not author:
+            return "unknown"
+        return getattr(author, 'display_name', getattr(author, 'name', 'unknown')) or "unknown"
         
     @property
     def channel_id(self) -> int:
-        return self.message.channel.id
+        return self.message.channel.id if self.message.channel else 0

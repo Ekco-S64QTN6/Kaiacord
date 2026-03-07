@@ -22,6 +22,8 @@ import re
 import random
 import time
 import traceback
+import uuid
+import html
 from pathlib import Path
 from typing import Optional, List, Dict, Any
 
@@ -184,10 +186,28 @@ async def get_recent_events_for_reflection(run_rag_func, rag_instance):
     except Exception:
         return []
 
+def _sanitize_rag_content(text: str) -> str:
+    """Strip HTML tags, math unicode, and other non-prose artifacts from RAG content."""
+    if not text:
+        return ""
+    # Strip HTML tags (e.g. <sub>, <sup>, <em>)
+    text = re.sub(r'<[^>]+>', '', text)
+    # Strip HTML entities
+    text = html.unescape(text)
+    # Strip unicode math/symbol blocks (arrows, math operators, etc. - Mathematical Operators block \u2200-\u22FF)
+    # This also handles the specific ⱽ scenario
+    text = re.sub(r'[^\x00-\x7F\u2018\u2019\u201c\u201d\u2013\u2014\u2026]', '', text)
+    # Collapse whitespace
+    text = re.sub(r'\s{2,}', ' ', text).strip()
+    return text
+
 def clean_quip(quip_text, max_chars=800):  # Increased default
     """Clean up generated text while preserving substance."""
     if not quip_text:
         return ""
+    
+    # First line of defense: sanitize against technical artifacts
+    quip_text = _sanitize_rag_content(quip_text)
     
     # Keep more of the original structure
     # Don't strip asterisks or parens
@@ -347,7 +367,10 @@ async def generate_social_thread(bot, ollama_client, reflection_target, context_
     from utils.infrastructure.system.yaml_config import config
     from utils.social.kaia_social_responder import load_persona_async
     
-    system_prompt = await load_persona_async()
+    raw_persona = await load_persona_async()
+    from datetime import datetime
+    current_time_str = datetime.now().strftime("%A, %B %d, %Y | %I:%M %p")
+    system_prompt = raw_persona.replace("[CURRENT_TIME]", current_time_str)
     
     thread_prompt = f"""Context: "{reflection_target}"
 
@@ -580,7 +603,10 @@ async def generate_quip(ctx, is_manual=False, target_channel=None, on_message_fu
         # 4. SINGLE POST FALLBACK (or design choice)
         log_action(f"Generating single broadcast quip...")
         
-        system_prompt = await load_persona_async()
+        raw_persona = await load_persona_async()
+        from datetime import datetime
+        current_time_str = datetime.now().strftime("%A, %B %d, %Y | %I:%M %p")
+        system_prompt = raw_persona.replace("[CURRENT_TIME]", current_time_str)
         
         # --- RAG INTEGRATION START ---
         try:
@@ -597,7 +623,9 @@ async def generate_quip(ctx, is_manual=False, target_channel=None, on_message_fu
                     from utils.core.rag_utils import get_node_text
                     for node in rag_results:
                         content = get_node_text(node)
-                        if content: rag_block += f"- {content[:800].replace(chr(10), ' ')}...\n"
+                        if content:
+                            sanitized = _sanitize_rag_content(content)
+                            rag_block += f"- {sanitized[:800].replace(chr(10), ' ')}...\n"
                     system_prompt += rag_block
         except Exception as rag_err:
             log_warning(f"Failed to inject RAG context: {rag_err}")
@@ -641,17 +669,29 @@ async def generate_quip(ctx, is_manual=False, target_channel=None, on_message_fu
                 if attempt > 0:
                     current_messages.append({"role": "user", "content": "That was a bit too short or generic. Give me something with more teeth—connect it to a specific systemic pattern or observation. Be definitive."})
 
-                response = await asyncio.wait_for(
-                    ollama_client.chat(
-                        model=config.chat_model,
-                        messages=current_messages,
-                        options=options
+                from utils.infrastructure.gpu.gpu_manager import gpu_memory_manager, GPUTaskPriority
+                
+                response = await gpu_memory_manager.run_with_gpu_guard(
+                    model_name=config.chat_model,
+                    priority=GPUTaskPriority.CHAT, # Using CHAT priority for actual generation
+                    coro=asyncio.wait_for(
+                        ollama_client.chat(
+                            model=config.chat_model,
+                            messages=current_messages,
+                            options=options
+                        ),
+                        timeout=120.0
                     ),
-                    timeout=120.0
+                    task_id=f"quip_{uuid.uuid4().hex[:8]}"
                 )
                 raw_quip = response['message']['content'].strip()
                 
                 processed_quip = clean_quip(raw_quip, max_chars=800)
+                
+                # REJECT: Technical artifacts surviving sanitization (Final defense)
+                if re.search(r'<[a-z]+>|[\u2200-\u22FF]|\*\s*[A-Z]\s*[a-z]\d', processed_quip):
+                    log_warning(f"Quip attempt {attempt+1} contains raw technical artifacts. Skipping.")
+                    continue
                 
                 # Quality check
                 if is_too_vague(processed_quip):
