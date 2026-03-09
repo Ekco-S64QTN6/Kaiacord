@@ -473,6 +473,9 @@ class IntentParser:
                              log_info(f"  [Pull] {status}")
                 log_success(f"✅ Successfully pulled {self.classification_model}")
 
+            # [BUG FIX]: name 'config' is not defined
+            from utils.infrastructure.system.yaml_config import config
+            
             # 3. Warming (Respect configuration for GPU/CPU and residency)
             log_action(f"🔥 Warming {self.classification_model} ({'GPU' if self.use_gpu_for_classification else 'CPU'})...")
             
