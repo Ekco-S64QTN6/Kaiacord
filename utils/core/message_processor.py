@@ -79,7 +79,7 @@ class MessageProcessor:
         self.news_enhancer = news_enhancer
         self.rag_enhancer = rag_enhancer
         self.news_manager = ctx.news_manager
-        self.dream_engine = ctx.dream_engine or getattr(ctx, 'dream_engine', None)
+        self.dream_engine = ctx.dream_engine
     
         # Internal components
         from utils.core.context_enricher import ContextEnricher
@@ -371,9 +371,22 @@ class MessageProcessor:
         # Resolve names to results
         task_names = list(tasks_dict.keys())
         task_objects = list(tasks_dict.values())
+        # Outer gather timeout is double the internal retrieval timeout to allow for orchestration overhead
         rag_gather_timeout = self.config.rag_retrieval_timeout * 2  
         try:
-            raw_results = await asyncio.wait_for(asyncio.gather(*task_objects), timeout=rag_gather_timeout)
+            raw_results = await asyncio.wait_for(
+                asyncio.gather(*task_objects, return_exceptions=True),
+                timeout=rag_gather_timeout
+            )
+            # Handle individual task exceptions
+            filtered_results = []
+            for i, r in enumerate(raw_results):
+                if isinstance(r, Exception):
+                    log_warning(f"Retrieval task {task_names[i]} failed: {r}")
+                    filtered_results.append([])
+                else:
+                    filtered_results.append(r)
+            raw_results = filtered_results
         except asyncio.TimeoutError:
             log_warning(f"Top-level RAG retrieval timed out ({rag_gather_timeout}s). Cancelling pending tasks.")
             raw_results = []

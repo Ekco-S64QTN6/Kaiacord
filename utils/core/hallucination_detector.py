@@ -65,9 +65,7 @@ class HallucinationDetector:
         for line in lines:
             if not cls.contains_hallucination(line):
                 clean_lines.append(line)
-            else:
-                # Replace hallucinated line with something neutral
-                clean_lines.append("...")  # Or empty line
+            # else: Skip contaminated lines to avoid visible artifacts like "..." in the response
         
         # If we removed too much, signal failure by returning None
         clean_response = '\n'.join(clean_lines).strip()

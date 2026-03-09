@@ -274,8 +274,7 @@ python tools/diagnostics/scan_knowledge_base.py
 python tools/recovery/find_contamination.py
 
 # 2. Targeted fix
-python tools/recovery/proper_fix.py --dry-run  # Preview
-python tools/recovery/proper_fix.py             # Execute
+- **[proper_fix.py](file:///home/ekco/github/Kaiacord/tools/recovery/proper_fix.py)**: [ARCHIVED] Historical reference for the Phase 28/29 "duplicate method" fix. Do not run.
 
 # 3. If still issues, nuclear option
 python tools/recovery/nuclear_reset.py --dry-run  # Preview

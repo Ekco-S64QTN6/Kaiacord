@@ -484,7 +484,7 @@ class YAMLConfig:
     @property
     def url_fetch_timeout(self) -> float:
         """URL fetch timeout in seconds"""
-        return self.get_path('timeouts.url_fetch_seconds', 5.0)
+        return self.get_path('timeouts.url_fetch_seconds', 15.0)
 
     @property
     def shutdown_task_cancel_timeout(self) -> float:
@@ -575,7 +575,7 @@ class YAMLConfig:
     @property
     def max_response_tokens(self) -> int:
         """Maximum number of tokens to generate in a response"""
-        return self.get_path('generation.max_response_tokens', 768)
+        return self.get_path('generation.max_response_tokens', 1024)
 
     
     @property
