@@ -223,7 +223,14 @@ async def on_ready():
                             if size_vram > 0:
                                 _vram_confirmed = True
                             break
-                    if _vram_confirmed or (_resident_confirmed and current_time - start_time > 60.0):
+                    
+                    if _vram_confirmed:
+                        break   # ✅ genuinely in VRAM — done
+                    if _resident_confirmed and current_time - start_time > 60.0:
+                        # ⚠️  Model is resident in ps() but size_vram == 0.
+                        # Ollama fell back to system RAM (likely CUDA wasn't ready at load time).
+                        log_warning(f"[Phase 1] {config.chat_model} loaded into SYSTEM RAM (size_vram=0). "
+                                    f"Triggering unload → GPU reload cycle...")
                         break
                 except Exception as e:
                     log_debug(f"[Phase 1] ps() poll failed: {type(e).__name__}: {e}")
@@ -240,9 +247,64 @@ async def on_ready():
                         log_error(f"[Phase 1] prewarm task failed: {task_err}")
                         break
 
-                await asyncio.sleep(2.0)
-                
-            return _vram_confirmed or _resident_confirmed
+            # ─── GPU Reload Retry ─────────────────────────────────────────────────
+            if _resident_confirmed and not _vram_confirmed:
+                try:
+                    if _load_task and not _load_task.done():
+                        _load_task.cancel()
+                        try:
+                            await _load_task
+                        except (asyncio.CancelledError, Exception):
+                            pass
+                    # Force full unload
+                    log_action(f"[Phase 1] Unloading CPU-resident {config.chat_model}...")
+                    await asyncio.wait_for(
+                        ctx.ollama_client.generate(model=config.chat_model, keep_alive=0),
+                        timeout=15.0
+                    )
+                except Exception:
+                    pass
+
+                log_info("[Phase 1] Waiting 8s for CUDA context to stabilize before GPU retry...")
+                await asyncio.sleep(8.0)
+
+                log_action(f"[Phase 1] Retry: re-claiming GPU for {config.chat_model}...")
+                _load_task = asyncio.create_task(
+                    ctx.ollama_client.generate(
+                        model=config.chat_model,
+                        prompt=".",
+                        options=options,
+                        keep_alive=-1,
+                    ),
+                    name=f"prewarm_retry_{config.chat_model}"
+                )
+
+                retry_start = asyncio.get_running_loop().time()
+                _vram_confirmed = False
+                while asyncio.get_running_loop().time() - retry_start < 120.0:
+                    await asyncio.sleep(2.0)
+                    try:
+                        _ps = await asyncio.to_thread(ollama.ps)
+                        _models = _ps.get("models") or [] if isinstance(_ps, dict) else getattr(_ps, 'models', [])
+                        for m in _models:
+                            name = getattr(m, 'name', m.get('name', '') if isinstance(m, dict) else '')
+                            size_vram = getattr(m, 'size_vram', m.get('size_vram', 0) if isinstance(m, dict) else 0)
+                            base_model = config.chat_model.split(":")[0]
+                            if (base_model in name or name in config.chat_model or config.chat_model in name):
+                                if size_vram > 0:
+                                    _vram_confirmed = True
+                                break
+                        if _vram_confirmed:
+                            break
+                    except Exception as e:
+                        log_debug(f"[Phase 1 retry] ps() poll error: {e}")
+
+                if _vram_confirmed:
+                    log_success(f"[Phase 1] GPU retry succeeded — {config.chat_model} now in VRAM.")
+                else:
+                    log_error(f"[Phase 1] GPU retry FAILED. Model may still be in system RAM.")
+
+            return _vram_confirmed
 
         _load_task = None
         try:
@@ -259,7 +321,9 @@ async def on_ready():
     if _phase1_success:
         log_success(f"[Phase 1] VRAM lock confirmed for {config.chat_model}.")
     else:
-        log_warning(f"[Phase 1] GPU warm could not confirm VRAM lock for {config.chat_model} within timeout. Proceeding anyway.")
+        log_error(f"[Phase 1] ⚠️  {config.chat_model} failed to load into VRAM. "
+                  f"Running on CPU — responses will be very slow. "
+                  f"Run `ollama ps` and `nvidia-smi` to investigate.")
 
     # ── PHASE 1.5: Late-initialize CPU models ───────────────────────────────
     # We build these AFTER the chat model has claimed the GPU to prevent
@@ -506,7 +570,7 @@ def main():
             )
             clear_gpu_memory(silent=True)
             import time
-            time.sleep(1)  # Minimal safety margin (reduced from 5s)
+            time.sleep(5)  # RESTORED — CUDA needs ~3-5s to reinitialize after runner process kill
         dm.run_curses_mode(_build_logic_layer_sync, run_bot_wrapper)
     else:
         asyncio.run(dm.run_simple_mode(_build_logic_layer_sync, run_bot_wrapper))
