@@ -189,10 +189,25 @@ async def on_ready():
                 name=f"prewarm_{config.chat_model}"
             )
             task_registry.register(f"prewarm_{config.chat_model}", _load_task)
-            _load_task.add_done_callback(
-                lambda t: log_warning(f"Pre-warm of {config.chat_model} failed: {t.exception()}")
-                if not t.cancelled() and t.exception() else None
-            )
+            def _on_prewarm_done(t):
+                if not t.cancelled() and t.exception():
+                    log_warning(f"Pre-warm of {config.chat_model} failed: {t.exception()}. Scheduling reload...")
+                    async def _reload():
+                        await asyncio.sleep(3.0)
+                        try:
+                            await ctx.ollama_client.generate(
+                                model=config.chat_model,
+                                prompt=".",
+                                options=options,
+                                keep_alive=-1,
+                            )
+                            log_success(f"[Phase 1] Recovery reload of {config.chat_model} succeeded.")
+                        except Exception as e:
+                            log_error(f"[Phase 1] Recovery reload failed: {e}")
+                    asyncio.get_event_loop().call_soon_threadsafe(
+                        lambda: asyncio.create_task(_reload())
+                    )
+            _load_task.add_done_callback(_on_prewarm_done)
             
             # Poll Ollama's process list to confirm the chat model is actually resident in VRAM
             _vram_confirmed = False
@@ -228,11 +243,7 @@ async def on_ready():
                     if _vram_confirmed:
                         # Wait for prewarm generate() to complete so Ollama is free
                         if _load_task and not _load_task.done():
-                            log_info("[Phase 1] VRAM confirmed. Waiting for prewarm generate() to finish...")
-                            try:
-                                await asyncio.wait_for(_load_task, timeout=60.0)
-                            except Exception:
-                                pass
+                            log_info("[Phase 1] VRAM confirmed. Prewarm detached to background (keep_alive=-1 ensures residency).")
                         break   # ✅ genuinely in VRAM — done
                     if _resident_confirmed and current_time - start_time > 60.0:
                         # ⚠️  Model is resident in ps() but size_vram == 0.

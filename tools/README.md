@@ -12,11 +12,14 @@ Maintenance, diagnostic, and recovery utilities for Kaiacord v2.0.
 | `find_contamination.py` | Recovery | Find hallucinated content |
 | `proper_fix.py` | Recovery | Surgical hallucination removal |
 | `scan_knowledge_base.py` | Diagnostics | Scan knowledge base |
+| `diag_rag_index.py` | Diagnostics | RAG index diagnostics |
+| `diagnose_embeddings.py` | Diagnostics | Embedding pipeline diagnostics |
 | `diagnose_rag.py` | Diagnostics | Full RAG system diagnostics |
 | `generate_user_profiles.py` | Development | Generate user profiles |
 | `cleanup_kb.py` | Utilities | Knowledge base cleanup |
 | `sanitize_logs.py` | Utilities | Strip runtime tags from user logs |
 | `kb_cleanse_user_logs.py` | Utilities | LLM-powered log content cleanup |
+| `sync_sanitized_logs.py` | Utilities | Sync manual log edits to RAG |
 
 ## Structure
 
@@ -31,6 +34,8 @@ tools/
 │   ├── unit/        # Component unit tests
 │   ├── integration/ # End-to-end flow tests
 │   └── verification/# Logic verification & smoke tests
+├── rebuild_rag_cpu.py # Full RAG rebuild (CPU)
+├── rebuild_rag_gpu.py # Full RAG rebuild (GPU)
 └── legacy/          # Historical tools (preserved)
 ```
 
