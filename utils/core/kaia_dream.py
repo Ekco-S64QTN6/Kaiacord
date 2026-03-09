@@ -73,18 +73,23 @@ YOUR IN-DEPTH REFLECTION:"""
         try:
             full_prompt = persona_content + "\n" + dream_instruction
             
+            from utils.infrastructure.gpu.gpu_manager import OllamaGPUManager
+            gpu_mgr = OllamaGPUManager(self.chat_model)
+            options = gpu_mgr.get_gpu_options(for_chat=True)
+            options.update({
+                "temperature": 0.8,
+                "num_predict": 1000,
+                "stop": ["User:", "Kaia:"]
+            })
+            
             # CRITICAL FIX: Wrap the sync ollama call in an async function...
             async def _run_dream_chat():
                 return await asyncio.to_thread(
                     ollama.chat,
                     model=self.chat_model,
                     messages=[{"role": "user", "content": full_prompt}],
-                    options={
-                        "temperature": 0.8, 
-                        "num_predict": 1000,
-                        "num_ctx": self.config.max_context_tokens,
-                        "stop": ["User:", "Kaia:"]
-                    }
+                    options=options,
+                    keep_alive=-1
                 )
 
             # ...and pass it through the GPU guard to prevent VRAM collisions

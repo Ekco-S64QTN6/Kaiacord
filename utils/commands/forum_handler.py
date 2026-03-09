@@ -362,7 +362,8 @@ async def _handle_reply(ctx, msg, thread_id: int):
                         {"role": "system", "content": system_prompt},
                         {"role": "user", "content": prompt}
                     ],
-                    options=options
+                    options=options,
+                    keep_alive=-1
                 ),
                 timeout=120.0
             )

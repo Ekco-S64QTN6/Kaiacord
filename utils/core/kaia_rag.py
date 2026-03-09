@@ -101,9 +101,24 @@ class KaiaRAG(RAGIndexerMixin, RAGPersistenceMixin, RAGQueryMixin):
         # WARNING: Do NOT use OllamaGPUManager here — it probes Ollama and can trigger
         # VRAM allocation before the Phase 1 GPU lock has been established.
         llm_timeout = getattr(config, 'llm_request_seconds', 360.0)
+        
+        # [VRAM LOCK]: Pass identical options to LlamaIndex's Ollama wrapper
+        # to ensure internal LLM calls (synthesis, etc) don't trigger re-allocations.
+        from utils.infrastructure.gpu.gpu_manager import OllamaGPUManager
+        settings_gpu_mgr = OllamaGPUManager(config.chat_model)
+        settings_options = settings_gpu_mgr.get_gpu_options(for_chat=True)
+        
         Settings.llm = Ollama(
             model=config.chat_model,
-            request_timeout=llm_timeout
+            request_timeout=llm_timeout,
+            context_window=config.max_context_tokens,
+            # [MEMORY OPTIMIZATION]: Pass identical options to LlamaIndex's Ollama wrapper
+            # to ensure internal LLM calls (synthesis, etc) don't trigger re-allocations.
+            additional_kwargs={
+                "num_gpu": 99 if getattr(config, 'gpu_available', True) else 0,
+                "num_thread": 4,
+                "keep_alive": -1
+            }
         )
         
         # Lazy load indices for faster startup

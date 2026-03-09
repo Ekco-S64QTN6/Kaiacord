@@ -402,7 +402,8 @@ Guidelines:
             ollama_client.chat(
                 model=config.chat_model,
                 messages=messages,
-                options=options
+                options=options,
+                keep_alive=-1
             ),
             timeout=600.0  # 10 minute absolute max for full thread generation
         )
@@ -678,7 +679,8 @@ async def generate_quip(ctx, is_manual=False, target_channel=None, on_message_fu
                         ollama_client.chat(
                             model=config.chat_model,
                             messages=current_messages,
-                            options=options
+                            options=options,
+                            keep_alive=-1
                         ),
                         timeout=120.0
                     ),

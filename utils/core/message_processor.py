@@ -746,7 +746,8 @@ class MessageProcessor:
                             self.ollama_client.chat,
                             model=self.config.chat_model,
                             messages=messages,
-                            options=current_options
+                            options=current_options,
+                            keep_alive=-1
                         ),
                         timeout=self.config.chat_generation_timeout
                     ),

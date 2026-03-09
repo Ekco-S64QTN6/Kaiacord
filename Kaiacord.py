@@ -172,11 +172,18 @@ async def on_ready():
             log_action(f"[Phase 1] Claiming GPU for {config.chat_model}...")
             # We fire the predictably check into the background so slow VRAM loads don't hit socket timeouts
             nonlocal _load_task
+            from utils.infrastructure.gpu.gpu_manager import OllamaGPUManager
+            gpu_mgr = OllamaGPUManager(config.chat_model)
+            # Use EXACT SAME options as chat to prevent VRAM re-allocation later
+            options = gpu_mgr.get_gpu_options(for_chat=True)
+            # Force 1 token predict for speed, but preserve other chat flags
+            options['num_predict'] = 1
+            
             _load_task = asyncio.create_task(
                 ctx.ollama_client.generate(
                     model=config.chat_model,
                     prompt=".",
-                    options={"num_gpu": 99, "num_ctx": config.max_context_tokens, "num_predict": 1},
+                    options=options,
                     keep_alive=-1,
                 ),
                 name=f"prewarm_{config.chat_model}"
@@ -203,6 +210,10 @@ async def on_ready():
                 try:
                     _ps = await asyncio.to_thread(ollama.ps)
                     _models = _ps.get("models") or [] if isinstance(_ps, dict) else getattr(_ps, 'models', [])
+                    
+                    if not _models:
+                        log_debug(f"[Phase 1] ps() returned no models (still loading or idle)...")
+                        
                     for m in _models:
                         name = getattr(m, 'name', m.get('name', '') if isinstance(m, dict) else '')
                         size_vram = getattr(m, 'size_vram', m.get('size_vram', 0) if isinstance(m, dict) else 0)
@@ -216,6 +227,19 @@ async def on_ready():
                         break
                 except Exception as e:
                     log_debug(f"[Phase 1] ps() poll failed: {type(e).__name__}: {e}")
+                
+                # [BUG 2 FIX]: If ps() didn't confirm, check if generate() task completed.
+                # A completed generate task with keep_alive=-1 guarantees residency.
+                if not _resident_confirmed and _load_task and _load_task.done() and not _load_task.cancelled():
+                    try:
+                        _load_task.result() # Raises if prewarm failed
+                        _resident_confirmed = True
+                        log_info(f"[Phase 1] generate() completed — model is resident (VRAM unconfirmed by ps).")
+                        break
+                    except Exception as task_err:
+                        log_error(f"[Phase 1] prewarm task failed: {task_err}")
+                        break
+
                 await asyncio.sleep(2.0)
                 
             return _vram_confirmed or _resident_confirmed

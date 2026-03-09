@@ -305,32 +305,30 @@ class OllamaGPUManager:
             return False
     
     def get_gpu_options(self, for_chat: bool = True, num_ctx: Optional[int] = None) -> Dict[str, Any]:
-        """Get optimal GPU options based on context"""
+        """Get optimal GPU options based on context, ensuring consistency for VRAM lock."""
         from utils.infrastructure.system.yaml_config import config
         if num_ctx is None:
             num_ctx = config.max_context_tokens
-        # num_gpu: 99 tells Ollama to offload all layers to GPU (optimal for 12GB cards)
+            
+        # [CONSISTENCY GUARD]: We include num_thread and main_gpu in ALL calls (even if default)
+        # to prevent Ollama from seeing different options objects and triggering re-loads.
         base_options = {
             'num_gpu': 99,
             'num_thread': 4,
+            'main_gpu': 0 if self.gpu_available else 0, # Explicit 0 even if CPU to keep fingerprint same
         }
         
-        if self.gpu_available:
-            base_options['main_gpu'] = 0
-        
         if for_chat:
-            from utils.infrastructure.system.yaml_config import config
             max_tokens = getattr(config, 'max_response_tokens', 2048)
-            
             base_options.update({
-                'num_ctx': num_ctx, # Unified context size from config
+                'num_ctx': num_ctx, 
                 'num_predict': max_tokens,
+                'temperature': getattr(config, 'generation_base_temperature', 0.8),
+                'top_p': 0.9,
             })
         else:
-            # For vision/other tasks - pull from config default
-            from utils.infrastructure.system.yaml_config import config
             base_options.update({
-                'num_ctx': config.max_context_tokens,
+                'num_ctx': num_ctx,
             })
         
         return base_options

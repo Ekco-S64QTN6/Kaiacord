@@ -49,7 +49,7 @@ class ModelWarmPool:
             from utils.infrastructure.gpu.gpu_manager import OllamaGPUManager
             gpu_mgr = OllamaGPUManager(model_name)
             options = gpu_mgr.get_gpu_options(for_chat=True)
-            await self.ollama_client.generate(model=model_name, prompt=".", options=options)
+            await self.ollama_client.generate(model=model_name, prompt=".", options=options, keep_alive=-1)
         except Exception: pass
 
         if not self._scheduler_task or self._scheduler_task.done():
@@ -125,6 +125,7 @@ class ModelWarmPool:
                 try:
                     from utils.infrastructure.gpu.gpu_manager import OllamaGPUManager
                     gpu_mgr = OllamaGPUManager(model_name)
+                    # For shared chat models in the pool, use full chat options
                     options = gpu_mgr.get_gpu_options(for_chat=True)
                     # Lighter: generate(prompt=".") instead of chat()
                     await self.ollama_client.generate(model=model_name, prompt=".", options=options, keep_alive=3600)

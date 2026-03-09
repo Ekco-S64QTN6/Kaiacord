@@ -1063,7 +1063,8 @@ class ForumClient:
                 client.chat, 
                 model=model_name, 
                 messages=[{"role": "user", "content": prompt}],
-                options=options
+                options=options,
+                keep_alive=-1
             )
             
             profile_text = response['message']['content'].strip()
