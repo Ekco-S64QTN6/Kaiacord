@@ -34,7 +34,7 @@ from utils.core.kaia_intelligence import ContextOptimizer, IntentParser, ModelWa
 from utils.core.kaia_rag import KaiaRAG
 from utils.core.message_processor import MessageProcessor
 from utils.core.performance_monitor import PerformanceMonitor
-from utils.infrastructure.logging.kaia_logger import log_action, log_debug, log_error, log_info, log_success
+from utils.infrastructure.logging.kaia_logger import log_action, log_debug, log_error, log_info, log_success, log_warning
 from utils.infrastructure.logging.unified_logging import logger, replace_all_logging
 from utils.infrastructure.monitoring.async_task_registry import task_registry
 from utils.infrastructure.monitoring.stats_tracker import stats_tracker
@@ -63,8 +63,6 @@ ctx.rate_limiter = RateLimiter(config.requests_per_minute)
 ctx.shutdown_manager = shutdown_manager
 ctx.news_manager = NewsManager()
 
-# Semaphore used by RAG embedding operations — CPU-only, max 2 concurrent
-embedding_semaphore = asyncio.Semaphore(2)
 
 # Late-bound helpers (no I/O at construction time)
 ctx.news_enhancer = NewsRetrievalEnhancer()
@@ -173,21 +171,35 @@ async def on_ready():
         async def _do_phase1():
             log_action(f"[Phase 1] Claiming GPU for {config.chat_model}...")
             # We fire the predictably check into the background so slow VRAM loads don't hit socket timeouts
+            nonlocal _load_task
             _load_task = asyncio.create_task(
                 ctx.ollama_client.generate(
                     model=config.chat_model,
                     prompt=".",
                     options={"num_gpu": 99, "num_ctx": config.max_context_tokens, "num_predict": 1},
                     keep_alive=-1,
-                )
+                ),
+                name=f"prewarm_{config.chat_model}"
+            )
+            task_registry.register(f"prewarm_{config.chat_model}", _load_task)
+            _load_task.add_done_callback(
+                lambda t: log_warning(f"Pre-warm of {config.chat_model} failed: {t.exception()}")
+                if not t.cancelled() and t.exception() else None
             )
             
             # Poll Ollama's process list to confirm the chat model is actually resident in VRAM
             _vram_confirmed = False
-            start_time = asyncio.get_event_loop().time()
+            _resident_confirmed = False
+            start_time = asyncio.get_running_loop().time()
+            last_log_time = start_time
             max_wait = config.model_load_timeout + 120.0
             
-            while asyncio.get_event_loop().time() - start_time < max_wait:
+            while asyncio.get_running_loop().time() - start_time < max_wait:
+                current_time = asyncio.get_running_loop().time()
+                if current_time - last_log_time > 20.0:
+                    log_info(f"[Phase 1] Still waiting for {config.chat_model} residency... ({int(current_time - start_time)}s elapsed)")
+                    last_log_time = current_time
+
                 try:
                     _ps = await asyncio.to_thread(ollama.ps)
                     _models = _ps.get("models") or [] if isinstance(_ps, dict) else getattr(_ps, 'models', [])
@@ -195,22 +207,30 @@ async def on_ready():
                         name = getattr(m, 'name', m.get('name', '') if isinstance(m, dict) else '')
                         size_vram = getattr(m, 'size_vram', m.get('size_vram', 0) if isinstance(m, dict) else 0)
                         base_model = config.chat_model.split(":")[0]
-                        if (base_model in name or name in config.chat_model or config.chat_model in name) and size_vram > 0:
-                            _vram_confirmed = True
+                        if (base_model in name or name in config.chat_model or config.chat_model in name):
+                            _resident_confirmed = True
+                            if size_vram > 0:
+                                _vram_confirmed = True
                             break
-                    if _vram_confirmed:
+                    if _vram_confirmed or (_resident_confirmed and current_time - start_time > 60.0):
                         break
                 except Exception as e:
-                    pass
+                    log_debug(f"[Phase 1] ps() poll failed: {type(e).__name__}: {e}")
                 await asyncio.sleep(2.0)
                 
-            return _vram_confirmed
+            return _vram_confirmed or _resident_confirmed
 
+        _load_task = None
         try:
             _phase1_success = await _do_phase1()
         except Exception as e:
             log_error(f"[Phase 1] Pre-warm error: {e}")
             _phase1_success = False
+            if _load_task:
+                try:
+                    _load_task.cancel()
+                except Exception:
+                    pass
 
     if _phase1_success:
         log_success(f"[Phase 1] VRAM lock confirmed for {config.chat_model}.")
@@ -278,7 +298,9 @@ async def _phase3_background_init():
     # 3b-ii. Initialize RAG indices — may trigger embedding calls (CPU-only).
     log_action("[Phase 3] Initializing RAG indices …")
     try:
-        await ctx.rag.initialize_async()
+        from utils.infrastructure.monitoring.watchdog import watchdog
+        with watchdog.suppress():
+            await ctx.rag.initialize_async()
         log_success("[Phase 3] RAG indices initialized.")
     except Exception as e:
         log_error(f"[Phase 3] RAG init error: {e}")
@@ -295,6 +317,9 @@ async def _phase3_background_init():
     # 3d. RAG knowledge base refresh — scans for new/changed files and embeds them.
     try:
         log_action("[Phase 3] Running background RAG knowledge base refresh …")
+        # Bug 2 Fix: Allow Ollama to stabilize after pre-warm before embedding pass
+        log_info("Allowing Ollama to stabilize before embedding pass...")
+        await asyncio.sleep(3.0)
         await run_rag(ctx.rag.refresh_knowledge_base)
         log_success("[Phase 3] RAG knowledge base refreshed.")
     except Exception as e:

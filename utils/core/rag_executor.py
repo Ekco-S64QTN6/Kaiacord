@@ -14,9 +14,6 @@ import inspect
 indexing_semaphore = asyncio.Semaphore(2)
 retrieval_semaphore = asyncio.Semaphore(4)
 
-# Keep the old name as an alias so any code that imported embedding_semaphore
-# directly continues to work without changes.
-embedding_semaphore = indexing_semaphore
 
 # RAG Executor Helper
 rag_executor = concurrent.futures.ThreadPoolExecutor(max_workers=4, thread_name_prefix='rag_worker')

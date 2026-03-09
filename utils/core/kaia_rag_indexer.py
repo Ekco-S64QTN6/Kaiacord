@@ -589,6 +589,11 @@ class RAGIndexerMixin:
             else:
                 return self._index_regular_file(file_path, abs_path, itype)
         except Exception as e:
+            # Bug 2 Fix: Handle transient Ollama server-busy errors (400) or loading state
+            if "status code: 400" in str(e) or "loading model" in str(e).lower():
+                log_warning(f"Ollama server busy while indexing {file_path}. Skipping for this cycle: {e}")
+                return False
+                
             log_error(f"Failed to load file {file_path}: {e}")
             return self._handle_corrupt_file(file_path, itype, corrupt_dir)
 

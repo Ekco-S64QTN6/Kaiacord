@@ -78,6 +78,17 @@ class LoopWatchdog:
         self._monitor_thread.start()
         log_debug(f"LoopWatchdog started (threshold={self.threshold}s)")
 
+    def suppress(self):
+        """Context manager to temporarily suppress stall alerts (e.g. during known-slow init)."""
+        import contextlib
+        @contextlib.contextmanager
+        def _suppress():
+            old_tick = self._last_tick
+            yield
+            # Reset tick to now so the time spent in the suppressed block doesn't count
+            self._last_tick = time.time()
+        return _suppress()
+
     def stop(self):
         """Stop the watchdog."""
         self._stop_event.set()
