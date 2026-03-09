@@ -29,6 +29,10 @@ models:
 # Performance Configuration
 # ============================================================================
 performance:
+  # Thread count for CPU-bound operations (Prompt prefill, Intent classification)
+  # Default matches Ryzen 5 9600X (12 threads)
+  num_thread: 12
+
   # Maximum messages to keep in memory per channel
   max_memory_messages: 35
   

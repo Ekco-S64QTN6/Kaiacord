@@ -185,10 +185,8 @@ class IntentParser:
             # CPU-only options
             self.classification_options = {
                 "num_gpu": 0,
-                "num_thread": 8, # Utilize Ryzen 5 9600X cores
+                "num_thread": config.num_thread, # Utilize Ryzen 5 9600X cores
                 "num_ctx": classification_ctx,
-                "num_predict": 256,
-                "temperature": 0.1,
                 "num_predict": 256,
                 "temperature": 0.1,
                 "top_p": 0.9
@@ -412,7 +410,6 @@ class IntentParser:
             else:
                 log_error(f"Intent Analysis Failed: {e}")
                 import traceback
-                traceback.print_exc()
             
             # Fallback Intent
             # If we have a hint from the fast-path regex, use it. Otherwise, default.

@@ -202,6 +202,7 @@ async def on_ready():
             max_wait = config.model_load_timeout + 120.0
             
             while asyncio.get_running_loop().time() - start_time < max_wait:
+                await asyncio.sleep(2.0)
                 current_time = asyncio.get_running_loop().time()
                 if current_time - last_log_time > 20.0:
                     log_info(f"[Phase 1] Still waiting for {config.chat_model} residency... ({int(current_time - start_time)}s elapsed)")
@@ -225,6 +226,13 @@ async def on_ready():
                             break
                     
                     if _vram_confirmed:
+                        # Wait for prewarm generate() to complete so Ollama is free
+                        if _load_task and not _load_task.done():
+                            log_info("[Phase 1] VRAM confirmed. Waiting for prewarm generate() to finish...")
+                            try:
+                                await asyncio.wait_for(_load_task, timeout=60.0)
+                            except Exception:
+                                pass
                         break   # ✅ genuinely in VRAM — done
                     if _resident_confirmed and current_time - start_time > 60.0:
                         # ⚠️  Model is resident in ps() but size_vram == 0.
@@ -278,6 +286,7 @@ async def on_ready():
                     ),
                     name=f"prewarm_retry_{config.chat_model}"
                 )
+                task_registry.register(f"prewarm_retry_{config.chat_model}", _load_task)
 
                 retry_start = asyncio.get_running_loop().time()
                 _vram_confirmed = False
@@ -396,6 +405,13 @@ async def _phase3_background_init():
     # 3c. Warm intent classifier on CPU only.
     try:
         classifier_device = "GPU" if config.get('models.classification_on_gpu', False) else "CPU"
+        log_action(f"[Phase 3] Waiting for first chat completion before warming intent classifier...")
+        
+        # Sequence Fix: Wait for first chat or 10 min fallback to avoid connection serialization stalls
+        _wait_start = time.time()
+        while not ctx.bot_state.first_chat_done and (time.time() - _wait_start < 600):
+            await asyncio.sleep(5.0)
+            
         log_action(f"[Phase 3] Warming intent classifier ({config.get('models.classification_model', 'gemma2:2b')}) on {classifier_device} …")
         if ctx.intent_parser:
             await ctx.intent_parser.pre_warm()

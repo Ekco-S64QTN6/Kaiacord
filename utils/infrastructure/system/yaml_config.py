@@ -321,6 +321,11 @@ class YAMLConfig:
         return self.get_path('performance.requests_per_minute', 30)
 
     @property
+    def num_thread(self) -> int:
+        """Thread count for CPU-bound operations."""
+        return self.get_path('performance.num_thread', 12)
+
+    @property
     def embedding_request_seconds(self) -> float:
         return self.get_path('timeouts.embedding_request_seconds', 60.0)
     

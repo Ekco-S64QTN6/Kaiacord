@@ -37,6 +37,7 @@ class BotState:
         self.last_dream_date: str = ""    # YYYY-MM-DD of last nightly dream
         self.mentioned_files: Deque[str] = deque(maxlen=20) # Path of files mentioned
         self.is_generating: bool = False     # Transient: True while LLM is generating a user response
+        self.first_chat_done: bool = False   # Transient: True after first successful LLM response
         self.load()
 
     def load(self):

@@ -39,6 +39,9 @@ timeouts:
   classification_seconds: 60.0
   # Model load timeout (seconds) - for full context allocation
   model_load_seconds: 300.0
+  chat_generation_seconds: 90.0
+  llm_request_seconds: 120.0
+  rag_retrieval_seconds: 45.0
 
 performance:
   max_consecutive_quips: 5

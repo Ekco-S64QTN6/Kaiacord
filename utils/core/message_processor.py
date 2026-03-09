@@ -12,9 +12,15 @@ from utils.infrastructure.logging.kaia_logger import log_info, log_debug, log_wa
 from utils.core.message_context import MessageContext
 from utils.core.response_filter import HallucinationDetector, BotSpeakFilter
 from utils.core.knowledge_boundary import KnowledgeBoundary
+from utils.core.rag_executor import run_rag_retrieval
 from utils.infrastructure.monitoring.async_task_registry import task_registry
 from utils.core.kaia_intelligence import ContextWeaver
 from utils.social.kaia_social_responder import load_persona_async
+from utils.commands.memory_handler import handle_memory_command
+from utils.commands.profile_handler import handle_profile_query
+from utils.commands.registry import dispatch_command
+from utils.infrastructure.system.messaging import send_kaia_response
+from utils.core.sanitizer import sanitize_prompt
 
 # Constants
 
@@ -91,7 +97,6 @@ class MessageProcessor:
             
     # Helper to maintain compatibility with legacy run_rag pattern
     async def run_rag(self, fn, *args, **kwargs):
-        from Kaiacord import run_rag_retrieval
         return await run_rag_retrieval(fn, *args, **kwargs)
 
     async def process(self, msg):
@@ -143,10 +148,6 @@ class MessageProcessor:
                 return
 
         # 3. Command Dispatching (Phase 3 Registry)
-        from utils.commands.registry import dispatch_command
-        from utils.infrastructure.system.messaging import send_kaia_response
-        
-        # Note: on_message reference here might need care if we fully decompose
         if await dispatch_command(self.ctx, msg, load_persona_async, send_kaia_response):
             if is_social: log_debug("Social message handled by command dispatcher")
             return
@@ -169,7 +170,6 @@ class MessageProcessor:
             return
 
         # 6. Initialize Context & Update State
-        from utils.core.sanitizer import sanitize_prompt
         
         # Enriched Context: Extract embed text and resolve links
         enriched_raw = await self.context_enricher.enrich_content(msg)
@@ -228,11 +228,9 @@ class MessageProcessor:
 
 
         # 7. Specific Command Handling
-        from utils.commands.memory_handler import handle_memory_command
         if await handle_memory_command(msg, sanitized_content, self.run_rag, self.rag):
             return
 
-        from utils.commands.profile_handler import handle_profile_query
         if await handle_profile_query(msg, sanitized_content, send_kaia_response, self.run_rag, self.rag):
             return
 
@@ -802,6 +800,7 @@ class MessageProcessor:
                 content = filtered if filtered and filtered.strip() else content
                 
                 if content and content.strip():
+                    self.bot_state.first_chat_done = True
                     return content
                 else:
                     log_warning(f"Attempt {attempt + 1} failed: Result empty after filtering.")

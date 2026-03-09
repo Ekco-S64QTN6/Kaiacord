@@ -107,6 +107,14 @@ class KaiaRAG(RAGIndexerMixin, RAGPersistenceMixin, RAGQueryMixin):
         from utils.infrastructure.gpu.gpu_manager import OllamaGPUManager
         settings_gpu_mgr = OllamaGPUManager(config.chat_model)
         settings_options = settings_gpu_mgr.get_gpu_options(for_chat=True)
+        # Remove temperature/top_p from additional_kwargs as LlamaIndex handles them separately
+        clean_additional_kwargs = settings_options.copy()
+        for key in ('temperature', 'top_p'):
+            if key in clean_additional_kwargs:
+                del clean_additional_kwargs[key]
+        
+        # Add keep_alive explicitly
+        clean_additional_kwargs["keep_alive"] = -1
         
         Settings.llm = Ollama(
             model=config.chat_model,
@@ -114,11 +122,7 @@ class KaiaRAG(RAGIndexerMixin, RAGPersistenceMixin, RAGQueryMixin):
             context_window=config.max_context_tokens,
             # [MEMORY OPTIMIZATION]: Pass identical options to LlamaIndex's Ollama wrapper
             # to ensure internal LLM calls (synthesis, etc) don't trigger re-allocations.
-            additional_kwargs={
-                "num_gpu": 99 if getattr(config, 'gpu_available', True) else 0,
-                "num_thread": 4,
-                "keep_alive": -1
-            }
+            additional_kwargs=clean_additional_kwargs
         )
         
         # Lazy load indices for faster startup

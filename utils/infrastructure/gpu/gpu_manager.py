@@ -314,7 +314,7 @@ class OllamaGPUManager:
         # to prevent Ollama from seeing different options objects and triggering re-loads.
         base_options = {
             'num_gpu': 99,
-            'num_thread': 4,
+            'num_thread': config.num_thread,
             'main_gpu': 0, # Explicit 0 to keep fingerprint same
         }
         log_debug(f"[GPUMgr] Generated options (for_chat={for_chat}): {base_options}")
