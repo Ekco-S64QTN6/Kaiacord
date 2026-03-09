@@ -472,20 +472,24 @@ class IntentParser:
                              log_info(f"  [Pull] {status}")
                 log_success(f"✅ Successfully pulled {self.classification_model}")
 
-            # 3. Warming (Force CPU and immediate unload)
-            log_action(f"🔥 Warming {self.classification_model} on CPU...")
-            # We explicitly pass num_gpu: 0 to ensure it doesn't touch VRAM
-            # and keep_alive: 0 to ensure it unloads immediately after the tiny generation.
+            # 3. Warming (Respect configuration for GPU/CPU and residency)
+            log_action(f"🔥 Warming {self.classification_model} ({'GPU' if self.use_gpu_for_classification else 'CPU'})...")
+            
+            # Use appropriate residency: -1 (infinite) if we want it to stay resident, 
+            # or 0 if we want it to unload immediately.
+            keep_alive = -1 if self.use_gpu_for_classification or config.get('models.classification_stay_resident', True) else 0
+            
             options = self.classification_options.copy()
-            options["num_gpu"] = 0
+            # Ensure the pre-warm call matches the intended device
+            options["num_gpu"] = 99 if self.use_gpu_for_classification else 0
             
             await self.ollama_client.generate(
                 model=self.classification_model,
                 prompt=".",
                 options=options,
-                keep_alive=0
+                keep_alive=keep_alive
             )
-            log_success(f"IntentParser model {self.classification_model} warmed (CPU).")
+            log_success(f"IntentParser model {self.classification_model} warmed ({'GPU' if self.use_gpu_for_classification else 'CPU'}).")
         except Exception as e:
             import traceback
             log_error(f"IntentParser pre-warm failed: {e}")

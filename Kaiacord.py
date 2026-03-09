@@ -307,10 +307,11 @@ async def _phase3_background_init():
 
     # 3c. Warm intent classifier on CPU only.
     try:
-        log_action(f"[Phase 3] Warming intent classifier ({config.get('models.classification_model', 'gemma2:2b')}) on CPU …")
+        classifier_device = "GPU" if config.get('models.classification_on_gpu', False) else "CPU"
+        log_action(f"[Phase 3] Warming intent classifier ({config.get('models.classification_model', 'gemma2:2b')}) on {classifier_device} …")
         if ctx.intent_parser:
             await ctx.intent_parser.pre_warm()
-        log_success("[Phase 3] Intent classifier ready (CPU).")
+        log_success(f"[Phase 3] Intent classifier ready ({classifier_device}).")
     except Exception as e:
         log_error(f"[Phase 3] Intent classifier warm failed: {e}")
 
