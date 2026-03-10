@@ -400,6 +400,88 @@ VOICE AND FORMAT RULES (always apply regardless of dream type):
 
         log_info(f"Nightly dreaming complete. Added {new_dreams_count} new thoughts.")
 
+    async def evening_reflection(self, persona_content: str):
+        """Lightweight nightly journal pass to close the 2-day lag loop."""
+        log_action("Starting evening reflection pass...")
+        
+        # 1. Gather recent interactions
+        recent_log_files = []
+        user_logs_dir = self.kb_dir / 'user_logs'
+        if user_logs_dir.exists():
+            cutoff_12h = time.time() - (12 * 3600)
+            for root, _, filenames in os.walk(user_logs_dir):
+                for f in filenames:
+                    if f.startswith('interactions_') and f.endswith('.md'):
+                        p = Path(root) / f
+                        try:
+                            if p.stat().st_mtime > cutoff_12h:
+                                recent_log_files.append(p)
+                        except Exception: pass
+        
+        if not recent_log_files:
+            log_info("Evening reflection: No recent interactions found to reflect on.")
+            return
+
+        # 2. Extract snippets
+        snippets = []
+        for file_path in recent_log_files:
+            try:
+                content = file_path.read_text(encoding='utf-8', errors='replace')
+                # Grab just the last few entries (bottom of the file)
+                entries = content.split('[Post ID:')
+                if len(entries) > 1:
+                    last_entries = ['[Post ID:' + e for e in entries[-3:]]
+                    snippets.append("".join(last_entries))
+                else:
+                    # Generic split if there are no post IDs (e.g. Discord logs)
+                    lines = content.strip().split('\n')
+                    snippets.append("\n".join(lines[-20:]))
+            except Exception: pass
+        
+        if not snippets:
+            return
+            
+        combined_snippets = "\n\n".join(snippets)[:4000]
+
+        # 3. Generate Reflection
+        reflection_instruction = f"""
+[EVENING REFLECTION]
+You are performing your evening reflection. Review today's conversations.
+Write 2-3 sentences max. What stood out? What did you focus on today?
+Speak in the first person. No "Reflection:" or "Kaia:" tags. Just raw text.
+
+TODAY'S CONVERSATIONS:
+{combined_snippets}
+"""
+        try:
+            full_prompt = persona_content + "\n" + reflection_instruction
+            
+            from utils.infrastructure.gpu.gpu_manager import OllamaGPUManager, gpu_memory_manager, GPUTaskPriority
+            gpu_mgr = OllamaGPUManager(self.chat_model)
+            options = gpu_mgr.get_gpu_options(for_chat=True)
+            options.update({"temperature": 0.8, "num_predict": 300, "stop": ["User:", "Kaia:"]})
+            
+            async def _run_reflection_chat():
+                return await asyncio.to_thread(
+                    ollama.chat, model=self.chat_model,
+                    messages=[{"role": "user", "content": full_prompt}],
+                    options=options, keep_alive=-1
+                )
+
+            response = await gpu_memory_manager.run_with_gpu_guard(
+                model_name=self.chat_model,
+                priority=GPUTaskPriority.CHAT, 
+                coro=asyncio.wait_for(_run_reflection_chat(), timeout=120.0),
+                task_id=f"reflect_{uuid.uuid4().hex[:8]}"
+            )
+            
+            reflection_text = response['message']['content'].strip()
+            if reflection_text:
+                self._update_continuity(new_reflection=reflection_text, source_label="Evening Reflection")
+                log_success("Evening reflection completed and added to continuity.")
+        except Exception as e:
+            log_error(f"Evening reflection failed: {e}")
+
     def scan_knowledge_base(self, min_days: int = 2) -> Dict[str, List[Path]]:
         """Scan KB for files older than min_days, grouped by category.
         Falls back to more recent files if none found with the min_days threshold.

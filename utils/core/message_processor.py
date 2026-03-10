@@ -738,6 +738,13 @@ class MessageProcessor:
             else:
                 rag_block += "\n\nCRITICAL: No specific records found. Do not invent details."
 
+        # Epistemic honesty: when retrieval was weak, tell the model to hedge
+        if hasattr(ctx, 'retrieval_confidence') and ctx.retrieval_confidence < 0.45 and ctx.retrieval_node_count < 2:
+            rag_block += (
+                "\n[note: memory retrieval was weak for this query — "
+                "speak from what you know, hedge where uncertain, do not invent]"
+            )
+
         current_time_str = datetime.now().strftime("%A, %B %d, %Y | %I:%M %p")
 
         # Bug 2 Fix: Move time to a metadata block at the end, and stop replacing it inside persona

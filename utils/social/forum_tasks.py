@@ -75,10 +75,42 @@ async def forum_scrape_task():
                 if not posts:
                     continue
                 
-                # Logic to determine if Kaia should reply will go here
-                # (e.g., mention detection or just general engagement)
-                # For now, we just log that we would check them
-                pass
+                # Check if we should reply
+                last_post = posts[-1]
+                poster = last_post.get('author', '')
+                post_text = last_post.get('content', '')
+                
+                # Skip if Kaia posted last, or if auto_reply is disabled
+                if not config.get('forum.auto_reply', False):
+                    continue
+                if poster.lower() in ('kaia', bot_state.get('forum_username', 'kaia').lower()):
+                    continue
+                
+                # Check if post mentions Kaia or is a question
+                is_question = '?' in post_text
+                mentions_kaia = 'kaia' in post_text.lower()
+                if not (is_question or mentions_kaia):
+                    continue
+                
+                # Rate limit: check min_hours_between_posts
+                min_hours = config.get('forum.min_hours_between_posts', 4)
+                last_reply_time = getattr(bot_state, f'forum_last_reply_{thread_id}', 0)
+                import time
+                if time.time() - last_reply_time < min_hours * 3600:
+                    continue
+                
+                # Generate and post reply
+                from Kaiacord import process_external_mention
+                log_action(f"Triggering forum auto-reply for thread {thread_id} to user {poster}")
+                response = await process_external_mention(
+                    content=post_text, author_name=poster,
+                    author_id=poster, platform="forum"
+                )
+                if response:
+                    success = await client.post_reply(thread_id, response)
+                    if success:
+                        setattr(bot_state, f'forum_last_reply_{thread_id}', time.time())
+                        bot_state.save()
 
         # Trigger RAG reindex ONLY if content changed
         if any_updated:

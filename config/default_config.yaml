@@ -365,6 +365,11 @@ dream_mode:
     dreams: 0.50
     reflection: 0.25
 
+  # Evening reflection pass — lightweight journal entry at 10-11pm
+  evening_reflection_enabled: true
+  evening_reflection_start_hour: 22
+  evening_reflection_end_hour: 23
+
 # ============================================================================
 # VBulletin Forum Integration (Project 1999)
 # ============================================================================

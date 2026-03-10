@@ -72,5 +72,30 @@ async def handle_explain_command(ctx, msg, send_kaia_response):
             f"   Preview: {preview}"
         )
 
+    # Confidence summary
+    import time
+    confidence = getattr(rag, '_last_retrieval_confidence', 0.0)
+    node_count = getattr(rag, '_last_retrieval_node_count', 0)
+    
+    # Confidence label
+    if confidence >= 0.75:
+        conf_label = "high — memory well-grounded for this query"
+    elif confidence >= 0.45:
+        conf_label = "moderate — some relevant context found"
+    else:
+        conf_label = "low — weak retrieval, response may lack grounding"
+    
+    lines.append(f"\n{'—' * 40}")
+    lines.append(f"Confidence: {confidence:.2f} ({conf_label})")
+    lines.append(f"Nodes retrieved: {node_count}")
+    
+    # Self-model info
+    self_model_path = os.path.join("memory", "kaia_self_model.md")
+    if os.path.exists(self_model_path):
+        sm_age = (time.time() - os.path.getmtime(self_model_path)) / 86400
+        lines.append(f"Self-model: active (last generated {sm_age:.0f} days ago)")
+    else:
+        lines.append("Self-model: not generated")
+
     await send_kaia_response(msg.channel, "\n".join(lines))
     log_info(f"Provenance display shown for {msg.author.name}")

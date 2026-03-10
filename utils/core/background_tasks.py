@@ -15,6 +15,7 @@ class CoreTaskManager:
         self.ctx = ctx
         self.news_refresh_task = self._make_news_refresh_task()
         self.dream_engine_task = self._make_dream_engine_task()
+        self.evening_reflection_task = self._make_evening_reflection_task()
         
     def _make_news_refresh_task(self):
         @tasks.loop(hours=12)
@@ -89,6 +90,41 @@ class CoreTaskManager:
             
         return dream_engine_task
 
+    def _make_evening_reflection_task(self):
+        @tasks.loop(minutes=30)
+        async def evening_reflection_task():
+            if shutdown_manager.shutting_down: return
+            if not self.ctx or not self.ctx.bot_state or not self.ctx.config: return
+            if getattr(self.ctx.bot_state, 'is_generating_image', False): return
+            if not self.ctx.config.get('dream_mode.evening_reflection_enabled', True): return
+            if not getattr(self.ctx, 'dream_engine', None): return
+
+            now = datetime.now()
+            start_hour = self.ctx.config.get('dream_mode.evening_reflection_start_hour', 22)
+            end_hour = self.ctx.config.get('dream_mode.evening_reflection_end_hour', 23)
+            
+            if start_hour <= now.hour <= end_hour:
+                if getattr(self.ctx.bot_state, 'is_generating', False): return
+
+                last_reflection = getattr(self.ctx.bot_state, 'last_evening_reflection', "")
+                today = now.strftime('%Y-%m-%d')
+                
+                if last_reflection != today:
+                    try:
+                        from utils.social.kaia_social_responder import load_persona_async
+                        persona_content = await load_persona_async()
+                        await self.ctx.dream_engine.evening_reflection(persona_content)
+                        self.ctx.bot_state.last_evening_reflection = today
+                        self.ctx.bot_state.save()
+                    except Exception as e:
+                        log_error(f"Evening reflection task failed: {e}")
+
+        @evening_reflection_task.error
+        async def evening_reflection_error(error):
+            log_error(f"Evening reflection task died: {error}")
+            
+        return evening_reflection_task
+
     async def run_news_update(self):
         """Run integrated news refresh."""
         if not self.ctx: return
@@ -141,11 +177,17 @@ class CoreTaskManager:
         self.dream_engine_task.start()
         if self.dream_engine_task.get_task():
             task_registry.register("dream_engine_task", self.dream_engine_task.get_task())
+            
+        self.evening_reflection_task.start()
+        if self.evening_reflection_task.get_task():
+            task_registry.register("evening_reflection_task", self.evening_reflection_task.get_task())
+            
         log_action("Core background tasks started via CoreTaskManager.")
 
     def stop(self):
         self.news_refresh_task.stop()
         self.dream_engine_task.stop()
+        self.evening_reflection_task.stop()
 
 # Helper for backward compatibility
 _task_manager = None

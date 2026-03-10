@@ -66,8 +66,19 @@ def get_curiosity_prompt(user_id: str, user_name: str, knowledge_base_dir: str,
     if not user_log_dir:
         return None
 
-    # Get recent log files (last 3 days)
-    recent_content = _get_recent_log_content(user_log_dir, days=3)
+    # Adaptive lookback: frequent users get 3 days, infrequent get 14
+    last_file_mtime = _get_latest_log_mtime(user_log_dir)
+    days_since_last = (time.time() - last_file_mtime) / 86400 if last_file_mtime else 999
+    
+    if days_since_last > 30:
+        return None  # Too stale for curiosity
+    elif days_since_last > 7:
+        lookback_days = 14
+    else:
+        lookback_days = 3
+
+    # Get recent log files
+    recent_content = _get_recent_log_content(user_log_dir, days=lookback_days)
     if not recent_content:
         return None
 
@@ -103,6 +114,17 @@ def _find_user_log_dir(user_id: str, user_name: str, knowledge_base_dir: str) ->
             return folder_path
 
     return None
+
+
+def _get_latest_log_mtime(user_log_dir: str) -> Optional[float]:
+    """Get the mtime of the most recent log file."""
+    log_files = glob.glob(os.path.join(user_log_dir, 'interactions_*.md'))
+    if not log_files:
+        return None
+    try:
+        return max(os.path.getmtime(f) for f in log_files)
+    except Exception:
+        return None
 
 
 def _get_recent_log_content(user_log_dir: str, days: int = 3) -> str:
