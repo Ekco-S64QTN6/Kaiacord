@@ -6,9 +6,17 @@ Core utility modules used by Kaiacord.
 
 | Module | Purpose |
 |--------|---------|
-| `kaia_rag.py` | Retrieval-Augmented Generation with hierarchical retrieval and reciprocal rank fusion |
-| `kaia_intelligence.py` | Intelligence Layer: IntentParser (CPU classification), ContextOptimizer, ModelWarmPool |
+| `kaia_rag.py` | RAG facade — delegates to query, indexer, persistence, and retriever modules |
+| `kaia_rag_query.py` | Hybrid BM25+vector retrieval, dynamic scoring, and identity resolution |
+| `kaia_rag_indexer.py` | Document ingestion, BM25 indexing, and parallel background updates |
+| `kaia_rag_persistence.py` | RAG state persistence (JSON manifest + BM25 pickle) and pre-warming |
+| `kaia_rag_retriever.py` | Shared RAG utilities and thread-safe lock decorators |
+| `kaia_intelligence.py` | Intelligence facade — coordinates classification and optimization |
+| `intent_classifier.py` | Dual-mode intent detection (Fast-path Regex + LLM Deep Dive) |
+| `context_optimizer.py` | Dynamic context window management and token budgeting |
+| `context_enricher.py` | Automated content enrichment (URL fetching, attachment scraping) |
 | `kaia_dream.py` | Dream Engine for nightly associative memory processing |
+| `hallucination_detector.py` | Canonical detector for AI structural leaks and fabrications |
 | `message_processor.py` | Modular on_message pipeline with timeout guards and self-healing |
 | `knowledge_boundary.py` | Entity extraction, fuzzy matching, and hallucination prevention boundary |
 | `semantic_cache.py` | Enhanced semantic cache with pollution protection |
@@ -24,7 +32,7 @@ Core utility modules used by Kaiacord.
 | `system/yaml_config.py` | Hierarchical configuration management (env → kaia.yaml → default_config.yaml) |
 | `system/bot_state.py` | Persistent state and interaction tracking |
 | `system/rate_limiter.py` | Per-user interaction rate limiting |
-| `system/shutdown_fixed.py` | Ordered shutdown orchestration (model unload → RAG persist → cleanup) |
+| `system/shutdown_manager.py` | Ordered shutdown orchestration (model unload → RAG persist → cleanup) |
 | `monitoring/stats_tracker.py` | Statistics collection and dashboard data |
 
 ## GPU & System (`utils/infrastructure/gpu/`)

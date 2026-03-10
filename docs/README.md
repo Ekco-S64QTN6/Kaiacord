@@ -28,6 +28,9 @@ Welcome to the Kaiacord documentation! Organized by topic for easy navigation.
 ### 💻 [04 - Development](04-development/)
 - [Testing Guide](04-development/testing.md)
 
+### 🔒 [04 - Security](04-security/)
+- [X/twikit Credentials & Risk Notice](04-security/x-twikit-credentials.md)
+
 ### 🔧 [05 - Maintenance](05-maintenance/)
 - [Procedures](05-maintenance/procedures.md)
 - [Fixes History](05-maintenance/fixes-history.md)
@@ -49,6 +52,7 @@ Welcome to the Kaiacord documentation! Organized by topic for easy navigation.
 |--------------|-------|
 | Get started | [Quick Start](01-getting-started/quick-start.md) |
 | Set up social media | [Social Media Guide](02-user-guide/social-media.md) |
+| Use bot commands | [Command Reference](02-user-guide/commands.md) |
 | Understand the architecture | [System Overview](03-architecture/overview.md) |
 | Fix VRAM issues | [GPU Management](03-architecture/gpu-management.md) |
 | Troubleshoot | [Common Issues](06-troubleshooting/common-issues.md) |

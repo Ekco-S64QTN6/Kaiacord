@@ -26,7 +26,7 @@ This directory contains scripts for maintaining, debugging, and fixing the Kaiac
 
 ### `generate_user_profiles.py`
 **Purpose**: Generates/regenerates user profile summaries from interaction logs.  
-**Usage**: `python tools/development/generate_user_profiles.py`
+**Usage**: `python tools/maintenance/generate_user_profiles.py`
 
 ### `scan_knowledge_base.py`
 **Purpose**: Scans knowledge base for issues or corrupted files.  
@@ -36,9 +36,13 @@ This directory contains scripts for maintaining, debugging, and fixing the Kaiac
 **Purpose**: Force a re-indexing of the knowledge base.  
 **Usage**: `python tools/maintenance/force_reindex.py [optional_file_path]`
 
-### `refresh_news.py`
-**Purpose**: Quick refresh of news content (runs in background during Phase 3 boot).  
-**Usage**: `python tools/maintenance/refresh_news.py`
+### `rebuild_rag_gpu.py`
+**Purpose**: Full GPU-accelerated RAG index rebuild.  
+**Usage**: `python tools/rebuild_rag_gpu.py --clear`
+
+### `ingest_manual_news.py`
+**Purpose**: Manually ingest a news brief into the RAG system.  
+**Usage**: `python tools/maintenance/ingest_manual_news.py path/to/brief.md`
 
 ### `health_check.py`
 **Purpose**: Comprehensive system validation.

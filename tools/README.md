@@ -20,6 +20,9 @@ Maintenance, diagnostic, and recovery utilities for Kaiacord v2.0.
 | `sanitize_logs.py` | Utilities | Strip runtime tags from user logs |
 | `kb_cleanse_user_logs.py` | Utilities | LLM-powered log content cleanup |
 | `sync_sanitized_logs.py` | Utilities | Sync manual log edits to RAG |
+| `rebuild_rag_cpu.py` | Utilities | Full RAG rebuild (CPU) |
+| `rebuild_rag_gpu.py` | Utilities | Full RAG rebuild (GPU) |
+| `ingest_manual_news.py` | Maintenance | Manual ingestion of news briefs |
 
 ## Structure
 
@@ -108,14 +111,14 @@ Scans knowledge base for:
 - Missing embeddings
 - Indexing issues
 
-### trigger_rag_refresh.py
+### force_reindex.py
 **Force RAG re-indexing**
 
 ```bash
-python tools/diagnostics/trigger_rag_refresh.py
+python tools/maintenance/force_reindex.py
 ```
 
-Forces a complete re-index of the knowledge base.
+Forces an incremental or selective re-index of the knowledge base.
 
 ---
 
@@ -152,7 +155,7 @@ python tools/recovery/find_contamination.py
 python tools/recovery/find_contamination.py --dir knowledge_base/user_logs
 ```
 
-Scans for known hallucination patterns (Juanita, Deane, etc.)
+Scans for known hallucination patterns across logs and knowledge base.
 
 ### proper_fix.py
 **Surgical hallucination removal**
@@ -166,48 +169,17 @@ python tools/recovery/proper_fix.py --dry-run
 
 Removes specific hallucination patterns without affecting real data.
 
-### clean_hallucinated_logs.py
-**Clean interaction logs**
-
-```bash
-python tools/recovery/clean_hallucinated_logs.py
-```
-
-Removes hallucinated content from user interaction logs.
-
-### emergency_hallucination_cleanup.py
-**Emergency cleanup**
-
-```bash
-python tools/recovery/emergency_hallucination_cleanup.py
-```
-
-Aggressive hallucination removal for severe contamination.
-
----
-
-## Development Tools (`tools/development/`)
-
 ### generate_user_profiles.py
 **Generate user profiles**
 
 ```bash
-python tools/development/generate_user_profiles.py
-
-# For specific user
-python tools/development/generate_user_profiles.py --user 123456789
+python tools/maintenance/generate_user_profiles.py
 ```
 
-Generates detailed user profiles from interaction logs.
+Rebuilds user interaction profiles from logs.
 
-### profile_generator.py
-**Profile generation utility**
+---
 
-```bash
-python tools/development/profile_generator.py
-```
-
-Helper utility for user profile generation.
 
 ---
 
@@ -245,6 +217,9 @@ python tools/maintenance/health_check.py
 | `integration/` | Full flow tests (chat, core pipeline, RAG integration) |
 | `verification/` | Logic verification, smoke tests, benchmarks |
 | `archive/` | Historical tests (preserved for reference) |
+
+> **Note**: 18 tests in `tools/tests/` have pre-existing failures unrelated to recent development.
+> These are tracked but not blocking. Run `pytest -q 2>&1 | tail -30` to see current status.
 
 ---
 

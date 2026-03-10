@@ -43,6 +43,61 @@
 - Resets when user interacts with Kaia
 - Prevents spam even if RNG is unlucky
 
+---
+
+### 20. Phase 26: RAG Memory Integrity ✅
+**Problem**: Persistent hallucinations in RAG where the LLM would "save" its own fabrications as user memories.
+**Solution**:
+- Implemented `SmartFictionFilter` during RAG ingestion to block known hallucination patterns.
+- Added RAG retrieval boosing for recency and persona nodes.
+- Fixed 10s timeout bug in BM25 hydration.
+
+---
+
+### 21. Phase 27: Dream Engine Optimization ✅
+**Problem**: Nightly dream cycles were failing due to VRAM contention with the chat model.
+**Solution**:
+- Implemented `DreamOptimizer` to scale context window during generation.
+- Added `num_thread` pinning for CPU-based embedding during dream cycles.
+- Fixed `bot_state.json` corruption on hard shutdown.
+
+---
+
+### 22. Phase 28: Modular RAG Split ✅
+**Problem**: `kaia_rag.py` became an unmaintainable monolith (>1200 lines).
+**Solution**:
+- Split RAG into 5 specialized modules: `facade`, `query`, `indexer`, `persistence`, and `retriever`.
+- Implemented `IdentityRegistry` for unified cross-platform user tracking.
+- Optimized RAG pre-warming to use background threads during boot.
+
+---
+
+### 23. Phase 29: Intelligence Layer Facade ✅
+**Problem**: Circular imports between `message_processor.py` and `kaia_intelligence.py`.
+**Solution**:
+- Extracted `intent_classifier.py` and `context_optimizer.py` from the intelligence monolith.
+- Implemented `ContextEnricher` for automated URL fetching.
+- Consolidated all cognitive logic under the `IntelligenceFacade`.
+
+---
+
+### 24. Phase 30: Retrieval Reliability ✅
+**Problem**: Retrieval failures in one RAG index (e.g., news) would kill the entire generation task.
+**Solution**:
+- Wrapped all retrieval tasks in `asyncio.gather(return_exceptions=True)`.
+- Added granular error logging for individual retrieval failures.
+- Implemented 2.0x timeout multiplier for parallel RAG gathering.
+
+---
+
+### 25. Phase 31: System Stabilization ✅
+**Problem**: 500 errors from Ollama during pre-warm tasks and 60s RAG timeouts.
+**Solution**:
+- Prevented pre-warm task cancellation in Python 3.12 via `asyncio.Shield`.
+- Increased `embedding_request_seconds` to 120s in `kaia.yaml` to handle pre-warm latency.
+- Fixed dual-path fallbacks in `kaia-tools.sh` for diagnostic scripts.
+- Resolved `url_fetch_timeout` and `max_response_tokens` fallback mismatches in `yaml_config.py`.
+
 #### 3b. Improved Frequency Logic
 New probabilities (INVERSE of before):
 - **30-60 mins idle**: 15% chance every 15 mins

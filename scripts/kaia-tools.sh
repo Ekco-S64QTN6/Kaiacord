@@ -342,14 +342,7 @@ menu_rag() {
             echo
             info "Triggering incremental RAG refresh..."
             echo "────────────────────────────────────────"
-            if [[ -f tools/maintenance/force_reindex.py ]]; then
-                $PYTHON tools/maintenance/force_reindex.py
-            else
-                # Fallback: touch trigger file
-                touch knowledge_base/.trigger_reindex 2>/dev/null && \
-                    ok "Reindex trigger file created. Bot will pick it up on next cycle." || \
-                    warn "force_reindex.py not found and trigger file failed."
-            fi
+            $PYTHON tools/maintenance/force_reindex.py || warn "force_reindex.py failed."
             echo "────────────────────────────────────────"
             pause
             ;;
@@ -361,11 +354,7 @@ menu_rag() {
             [[ ! -f "$FILE" ]] && { warn "File not found: $FILE"; pause; continue; }
             if confirm "Remove '$FILE' from RAG index and re-index?\n\nThis removes the nodes then triggers re-index."; then
                 echo
-                if [[ -f tools/maintenance/force_reindex.py ]]; then
-                    $PYTHON tools/maintenance/force_reindex.py "$FILE"
-                else
-                    warn "force_reindex.py not found. Manual removal required."
-                fi
+                $PYTHON tools/maintenance/force_reindex.py "$FILE"
                 pause
             fi
             ;;
@@ -430,23 +419,13 @@ PYEOF
             fi
             ;;
         5)
-            # Try multiple possible paths
-            if   [[ -f tools/diag_rag_index.py ]];              then run_tool "RAG Index Diagnostics" tools/diag_rag_index.py
-            elif [[ -f tools/diagnostics/diag_rag_index.py ]];  then run_tool "RAG Index Diagnostics" tools/diagnostics/diag_rag_index.py
-            else fail "diag_rag_index.py not found in tools/ or tools/diagnostics/"; pause
-            fi
+            run_tool "RAG Index Diagnostics" tools/diagnostics/diag_rag_index.py
             ;;
         6)
-            if   [[ -f tools/diagnose_embeddings.py ]];             then run_tool "Embedding Diagnostics" tools/diagnose_embeddings.py
-            elif [[ -f tools/diagnostics/diagnose_embeddings.py ]]; then run_tool "Embedding Diagnostics" tools/diagnostics/diagnose_embeddings.py
-            else fail "diagnose_embeddings.py not found"; pause
-            fi
+            run_tool "Embedding Diagnostics" tools/diagnostics/diagnose_embeddings.py
             ;;
         7)
-            if   [[ -f tools/diagnose_rag.py ]];             then run_tool "Full RAG Debug" tools/diagnose_rag.py
-            elif [[ -f tools/diagnostics/diagnose_rag.py ]]; then run_tool "Full RAG Debug" tools/diagnostics/diagnose_rag.py
-            else fail "diagnose_rag.py not found"; pause
-            fi
+            run_tool "Full RAG Debug" tools/diagnostics/diagnose_rag.py
             ;;
         b|B) return ;;
         esac
@@ -526,7 +505,7 @@ menu_knowledge_base() {
             run_tool "Sync Sanitized Logs" tools/sync_sanitized_logs.py
             ;;
         6)
-            run_tool "Rebuild User Profiles" tools/development/generate_user_profiles.py
+            run_tool "Rebuild User Profiles" tools/maintenance/generate_user_profiles.py
             ;;
         7)
             run_tool "Find Contamination (scan only)" tools/recovery/find_contamination.py

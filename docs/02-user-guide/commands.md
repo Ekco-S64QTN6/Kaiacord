@@ -11,6 +11,9 @@ All commands are prefixed with `!`. Admin commands are restricted to the project
 | `!download <url>` | Ingest a URL into the knowledge base. | All |
 | `!forum [cmd]` | VBulletin forum management. | Mixed |
 | `!dreams [cmd]` | Manage Dream Mode processing. | Admin |
+| `!snapshot` | Capture current context for diagnostics. | Admin |
+| `!flag` / `!audit` | Path to response review / auditing. | Admin |
+| `!explain` | Deep-dive into RAG retrieval logic for last response. | Admin |
 | `!cache [cmd]` | System cache management. | Admin |
 
 ---

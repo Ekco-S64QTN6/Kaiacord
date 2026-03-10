@@ -2,7 +2,7 @@
 
 ## Overview
 
-Kaia is a self-hosted Discord AI bot with local inference and RAG-based memory. This document describes the technical architecture after the latest refactors (Phases 1-15).
+Kaia is a self-hosted Discord AI bot with local inference and RAG-based memory. This document describes the technical architecture after Phase 31 refactors.
 
 ## System Architecture
 
@@ -14,9 +14,14 @@ graph TB
     Ctx --> MP[MessageProcessor]
     
     subgraph CL ["Core Logic"]
-        RAG[kaia_rag.py]
-        Intel[kaia_intelligence.py]
+        RAG["kaia_rag.py (facade)\n+ query / indexer / persistence"]
+        Intel["kaia_intelligence.py (facade)\n+ intent_classifier / context_optimizer"]
         Dream[kaia_dream.py]
+        MP[message_processor.py]
+    end
+
+    subgraph SOC ["Social Layer"]
+        Social["social_responder.py\n+ bluesky / x"]
     end
     
     subgraph INF ["Infrastructure"]
@@ -27,6 +32,7 @@ graph TB
     
     Ctx --> CL
     Ctx --> INF
+    Ctx --> SOC
     DM --> Logging
     DM --> Monitoring
     
@@ -50,6 +56,9 @@ Kaiacord/
 ├── knowledge_base/          # RAG text storage (News, Interaction Logs)
 ├── memory/                  # Persistent data (bot_state.json, rag_storage/)
 ├── tools/                   # Utility & Maintenance Scripts
+│   ├── maintenance/         # News, Indexing, Health checks
+│   ├── diagnostics/         # RAG & Embedding verification
+│   ├── recovery/            # Contamination & Hallucination fixes
 │   └── tests/               # Pytest suite
 ├── docs/                    # Detailed technical documentation
 └── logs/                    # Consolidated logging (kaiacord.log)

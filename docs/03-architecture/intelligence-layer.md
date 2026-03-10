@@ -1,46 +1,63 @@
-# Intelligence Layer
-The Intelligence Layer is a suite of advanced features designed to make Kaia faster, smarter, and more stable.
+# Kaia Intelligence Layer
 
-## 1. Improved Semantic Cache
-Kaia uses an enhanced caching system to provide near-instant responses while preventing keyword pollution.
-- **Normalization**: Queries are normalized by removing extra whitespace and replacing dates/numbers with placeholders (e.g., `[DATE]`, `[YEAR]`).
-- **Keyword Blacklist**: Automatically bypasses caching for queries containing high-risk keywords (e.g., "68k.news", "Elena").
-- **Contextual Differentiation**: Detects if two news queries are about different dates, even if they share similar keywords, preventing stale news from being served.
-- **Adaptive Expiry**: News-related queries expire in 24 hours, while general queries last for 7 days.
-- **Bypass**: Identity-related queries (e.g., "who are you") automatically bypass the cache.
+## Overview
+The Intelligence Layer coordinates the cognitive logic between receiving a message and generating a response. It handles intent classification, context window optimization, content enrichment, and output validation.
 
-## 2. Intent Analysis (`IntentParser`)
-Before processing a query, Kaia's `IntentParser` (Advanced Intent Understanding Engine) analyzes the intent:
-- **Rule-Based (Fast)**: Uses regex patterns for instant parsing of common intents (Greetings, Identity, News, Commands).
-- **Model-Based (Accurate)**: Falls back to the `gemma2:2b` model running on **CPU** (`num_gpu: 0`) for deep cognitive analysis of emotional context, implied needs, and relational cues. Runs via `ThreadPoolExecutor` with a configurable timeout.
-- **Output**: Generates a structured `Intent` object with specific strategies (e.g., `DIAGNOSTIC_DEEP_DIVE`, `DREAM_RECALL`).
-- **Lazy Initialization**: The `IntentParser` is lazily initialized on first use to avoid blocking startup.
+## Architecture
 
-This analysis allows the bot to optimize retrieval and choose the best persona-aligned response strategy.
+```mermaid
+flowchart TD
+    MP[MessageProcessor] --> IF[kaia_intelligence.py Facade]
+    IF --> IC[intent_classifier.py]
+    IF --> CO[context_optimizer.py]
+    IF --> CE[context_enricher.py]
+    
+    CE --> URL[URL Fetching]
+    CE --> AT[Attachments]
+    
+    IC --> GPT[gemma2:2b\nCPU Inference]
+```
 
-## 3. Context Optimization
-The `ContextOptimizer` dynamically manages the limited context window of the LLM:
-- **Persona**: Always prioritized (non-truncating identity anchor).
-- **RAG Context**: Filtered and ranked by relevance and source priority.
-- **Conversation History**: Summarized or truncated to fit within the token limit while maintaining continuity.
-- **Config-Driven**: Context window size controlled by `config.max_context_tokens` (default: 20,000).
+### 1. Intent Classification (`intent_classifier.py`)
+Before any RAG retrieval or LLM call, Kaia determines what the user actually wants. This prevents unnecessary work and optimizes the persona's response strategy.
+- **Dual-Mode Detection**:
+    - **Fast-Path**: Regex-based instant detection for commands, greetings, and simple identity questions.
+    - **Deep-Dive**: Calls `gemma2:2b` on **CPU** for nuanced intents (e.g., `DIAGNOSTIC_DEEP_DIVE`, `DREAM_RECALL`).
+- **Strategy Selection**: Produces a `MessageIntent` object that guides the downstream RAG retrieval and prompt construction.
 
-## 4. Self-Healing System
-To ensure reliability, the `SelfHealingSystem` wraps LLM calls:
-- **Automatic Retries**: If a call fails or produces garbage, it retries with a simplified prompt.
-- **Context Reduction**: If the context is too large, it automatically prunes less relevant nodes.
-- **Temperature Scaling**: On retry, temperature is adjusted to encourage different outputs.
-- **Fallback Responses**: Provides a grounded, persona-aligned fallback if all else fails.
+### 2. Context Optimization (`context_optimizer.py`)
+Manages the limited context window (KV cache) of the primary LLM.
+- **Budgeting**: Allocates tokens between Persona, RAG Context, and Conversation History.
+- **Ranked Pruning**: If context exceeds the limit, lower-ranked RAG nodes or older history are pruned first.
+- **Anchor Nodes**: The persona and the 5 most recent messages are never pruned.
 
-## 5. Model Warm Pool
-Maintains a "warm" state for the primary chat model to reduce first-token latency.
-- **Pre-Warm Timeout**: Wrapped in a strict 300s `asyncio.wait_for` during startup. If the model takes >5 minutes to load, it's logged as a CRITICAL FAILURE.
-- **Keep-Alive**: Periodically pings the model to keep it loaded in VRAM when the bot is active.
+### 3. Content Enrichment (`context_enricher.py`)
+Enhances the prompt with external information without manually re-coding `on_message`.
+- **URL Fetching**: Automatically scrapes and summarizes links found in messages.
+- **Attachment OCR**: Processes text attachments and small images.
+- **Topic Extraction**: Identifies technical entities to trigger specific knowledge boundaries.
 
-## 6. Knowledge Boundary
-The `KnowledgeBoundary` prevents Kaia from hallucinating about entities she doesn't know:
-- **Entity Extraction**: Identifies capitalized names and acronyms from user queries.
-- **Known Entity Database**: Pre-loads entities from user logs, knowledge base files, and identity registry.
-- **Common Words Filter**: Filters out common English words and acronyms (externalized to `config/common_entities.json`).
-- **Fuzzy Matching**: Levenshtein-distance matching for typos, with a configurable performance guard (`fuzzy_max_context_words`) to skip excessively large contexts.
-- **Boundary Response**: When unknown entities are detected, Kaia admits lack of knowledge rather than fabricating information.
+### 4. Self-Healing System (`utils/core/message_processor.py`)
+A 3-pass loop that ensures high-quality output:
+1. **Pass 1**: Standard generation.
+2. **Pass 2 (Retry)**: Triggered if Pass 1 is hallucinated or cuts off. Regenerates with higher temperature and a "corrective" system prompt.
+3. **Pass 3 (Fallback)**: If still failing, provides a pre-grounded "safe" response aligned with the persona.
+
+### 5. Memory Model Warm Pool
+- **Pre-warming**: Ensures `gemma3:12b` is resident in VRAM before the first message.
+- **Recovery Reload**: If the model is swapped out by an external process, the intelligence layer detects the latency spike or 404 and triggers a recovery load.
+
+### 6. Hallucination Guard (`hallucination_detector.py`)
+Canonical detector for AI structural leaks.
+- **Cleanup**: Strips technical artifacts (e.g., "AI Assistant:", "Think:") and known hallucinated names.
+- **Adversarial Check**: Uses pattern matching to detect if the LLM is fabricating memories and strips contaminated lines.
+
+## Interaction Flow
+
+1. **Gatekeeper**: Rate limit and safety check.
+2. **Classify**: Determines `MessageIntent` (CPU/Regex).
+3. **Enriched**: Fetches URLs or attachments if needed.
+4. **Retrieve**: Calls `KaiaRAG` with intent-specific strategy.
+5. **Optimize**: Budgets tokens and constructs the prompt.
+6. **Generate**: 3-pass self-healing loop via Ollama.
+7. **Filter**: Cleans output before sending to Discord.
