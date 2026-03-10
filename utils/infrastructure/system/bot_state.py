@@ -217,6 +217,13 @@ class BotState:
                           decays passively toward 0.3 over time via dream_freshness logic.
         coherence_sample: a 0.0–1.0 score from the latest RAG retrieval. Uses EMA.
         """
+        # Passive engagement decay: halves over 24 hours of no activity
+        if self.last_interaction_time:
+            hours_idle = (time.time() - self.last_interaction_time) / 3600.0
+            if hours_idle > 0.5:  # Only decay if idle > 30 min
+                decay_factor = max(0.0, 1.0 - (hours_idle / 24.0) * 0.5)
+                self.kaia_engagement = max(0.1, self.kaia_engagement * decay_factor)
+
         # Engagement: clamp between 0.1 and 1.0
         if engagement_delta != 0.0:
             self.kaia_engagement = min(1.0, max(0.1, self.kaia_engagement + engagement_delta))
