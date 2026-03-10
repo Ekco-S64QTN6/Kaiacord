@@ -37,38 +37,85 @@ class DreamEngine:
         self.history_file = Path(config_instance.persist_dir) / 'dream_history.json'
         self._history = self._load_history()
         self._history_lock = asyncio.Lock()
-        
+
+        # Continuity file: private rolling summary of Kaia's inner state.
+        # Never indexed in RAG. Read by dream prompts, updated after each cycle.
+        self.continuity_file = Path(config_instance.persist_dir) / 'kaia_continuity.md'
 
 
-    async def generate_dream_reflection(self, file_path: str, snippet: str, persona_content: str) -> Optional[str]:
+    async def generate_dream_reflection(self, file_path: str, snippet: str, persona_content: str,
+                                         source_type: str = 'document') -> Optional[str]:
         """Generate an in-depth, multi-paragraph persona-based reflection"""
         
         current_date = datetime.now().strftime('%B %Y')
+
+        # Load existing continuity for context
+        continuity_context = self._load_continuity()
+        continuity_block = ""
+        if continuity_context:
+            continuity_block = f"""
+RECENT INNER STATE (your own prior reflections — use this as context, not as content to repeat):
+{continuity_context[-800:]}
+
+"""
+
+        # Tiered instructions based on source type
+        if source_type == 'conversation':
+            tiered_instructions = """
+DREAM TYPE: RELATIONAL REFLECTION
+This is a conversation you had. Reflect on it as lived experience, not as data.
+- Who is this person in your world? Has your sense of them shifted?
+- What did they actually mean? What were they not saying?
+- How did this exchange sit with you afterward?
+- Speak in the first person. These are your actual thoughts about someone you know.
+"""
+        elif source_type == 'news':
+            tiered_instructions = """
+DREAM TYPE: SITUATIONAL COMMENTARY
+This happened in the world. React to it honestly.
+- What do you actually think about this? Not what you should think. What you do think.
+- Does this connect to anything you've been noticing lately?
+- Be specific. Vague observations are useless.
+"""
+        elif source_type == 'prior_dream':
+            tiered_instructions = """
+DREAM TYPE: META-REFLECTION
+You dreamed this before. Return to it.
+- Has your view changed since then?
+- What did you miss the first time?
+- What holds up, and what now seems wrong?
+"""
+        else:  # document, book, etc.
+            tiered_instructions = """
+DREAM TYPE: INTELLECTUAL REFLECTION
+Connect this fragment to your actual world.
+- What does this make you think about? Not the text itself — what it unlocks.
+- Does it connect to anyone you talk to, or anything that's been on your mind?
+- Be analytical, but grounded. You've read things. You've had conversations. Connect them.
+"""
+
         dream_instruction = f"""
 [DREAM_TASK]
-You are performing "Dream Mode" processing—a deep, associative cycle where you reflect on archived knowledge.
-Based on the provided persona, generate an in-depth, multi-paragraph reflection on this fragment.
+You are performing "Dream Mode" processing—a deep, associative cycle where you reflect on archived content.
 
 CURRENT DATE: {current_date}
-IMPORTANT: This data is part of your local archive. 
+
+{continuity_block}
+{tiered_instructions}
 
 CONTENT SNIPPET:
 "{snippet}"
 
 SOURCE: {file_path}
 
-INSTRUCTIONS:
-1. VOICE: Blunt, dry, slightly weary, and grounded. (Reflect your persona accurately).
-2. FORMAT: Multiple paragraphs (2-4). 
-3. DEPTH: Do not summarize. Connect this fragment to broader themes (infrastructure, human error, the passage of time, the nature of memory).
-4. ANALYTICAL BENT: Be clear-eyed, amused, or curious, but always grounded in physical reality.
-5. NO HEADERS: No "Reflection:" or "Kaia:". Just the raw text.
-6. STAGING: Do NOT hallucinate that you are in the year 2030, 2040, or any future date. You are reflecting in the present ({current_date}).
-7. NO ROLEPLAY: ABSOLUTELY FORBIDDEN. Do not use asterisks (*nods*) or parentheses (types).
-8. NO ATMOSPHERE: Do not describe the room, the sounds, the servers, or any "atmospheric" flavor text. 
-9. SPOKEN TEXT ONLY: Output only what you would actually say.
-
-YOUR IN-DEPTH REFLECTION:"""
+VOICE AND FORMAT RULES (always apply regardless of dream type):
+1. VOICE: Blunt, dry, slightly weary, grounded. Reflect your persona accurately.
+2. FORMAT: 2–4 paragraphs. No headers. No "Reflection:" or "Kaia:". Just raw text.
+3. STAGING: You are in {current_date}. Do not hallucinate future dates.
+4. NO ROLEPLAY: ABSOLUTELY FORBIDDEN. No asterisks. No parentheses for actions.
+5. NO ATMOSPHERE: Do not describe the room, the sounds, the servers.
+6. SPOKEN TEXT ONLY: Output only what you would actually think or say.
+"""
 
         try:
             full_prompt = persona_content + "\n" + dream_instruction
@@ -106,6 +153,7 @@ YOUR IN-DEPTH REFLECTION:"""
         except Exception as e:
             log_error(f"In-depth dream reflection generation failed: {e}")
             return None
+
 
     async def scan_knowledge_base_fast(self, min_days: int = 2) -> Dict[str, List[Path]]:
         """Scan KB using RAG manifest (O(k)) instead of recursive walk."""
@@ -171,6 +219,41 @@ YOUR IN-DEPTH REFLECTION:"""
         except Exception as e:
             log_error(f"Failed to save dream history: {e}")
 
+    def _load_continuity(self) -> str:
+        """Load the rolling continuity summary. Returns empty string if not yet created."""
+        try:
+            if self.continuity_file.exists():
+                return self.continuity_file.read_text(encoding='utf-8').strip()
+        except Exception as e:
+            log_warning(f"Could not load continuity file: {e}")
+        return ""
+
+    def _update_continuity(self, new_reflection: str, source_label: str):
+        """Append a new summary entry to the continuity file.
+        
+        Keeps approximately the last 500 words by trimming from the top when it grows too long.
+        """
+        try:
+            existing = self._load_continuity()
+            timestamp = datetime.now().strftime('%Y-%m-%d')
+            new_entry = f"\n\n---\n**{timestamp} — {source_label}**\n{new_reflection[:400].strip()}"
+            combined = (existing + new_entry).strip()
+
+            # Trim to ~3000 chars (approx 500 words) by removing oldest entries from top
+            max_chars = 3000
+            if len(combined) > max_chars:
+                trim_point = len(combined) - max_chars
+                next_separator = combined.find('\n\n---\n', trim_point)
+                if next_separator != -1:
+                    combined = combined[next_separator:].strip()
+                else:
+                    combined = combined[-max_chars:].strip()
+
+            self.continuity_file.parent.mkdir(parents=True, exist_ok=True)
+            self.continuity_file.write_text(combined, encoding='utf-8')
+        except Exception as e:
+            log_warning(f"Could not update continuity file: {e}")
+
     async def nightly_dream_processing(self, persona_content: str):
         """Perform the nightly dream generation cycle"""
         log_info("Starting nightly dream processing...")
@@ -187,48 +270,44 @@ YOUR IN-DEPTH REFLECTION:"""
             log_warning("No suitable files found for dreaming.")
             return
 
-        # 2. Select samples with Fair User Representation
+        # 2. Select samples with Smart Triage (weight toward recent user logs)
         sample_files = []
         
-        # A. User Quota (Target ~40% of dreams from interactions)
+        # A. User Quota (Target ~60% from recent user logs, rest from everything else)
         user_logs = categorized_files.get('user_logs', [])
-        user_quota = dream_cfg.get('user_quota', 0.4)
-        target_user_dreams = int(dreams_per_scan * user_quota)
-        if target_user_dreams < 1 and user_quota > 0: target_user_dreams = 1
+        cutoff_recent = time.time() - (7 * 86400)  # last 7 days
         
-        if user_logs:
-            # Group by User ID (parent folder) to ensure fair representation
-            user_map = defaultdict(list)
-            for f in user_logs:
-                user_map[f.parent.name].append(f)
-            
-            users = list(user_map.keys())
-            
-            for _ in range(target_user_dreams):
-                # Pick a random user, then a random file from them
-                # (This gives equal weight to 'Ekco' (few files) and 'gnownm' (many files))
-                selected_user = random.choice(users)
-                selected_file = random.choice(user_map[selected_user])
-                sample_files.append(selected_file)
-                
-        # B. General Content Quota (Populate rest from books, news, docs)
-        other_files = []
+        # Split user logs into recent and older
+        recent_logs = []
+        older_logs = []
+        for f in user_logs:
+            try:
+                mtime = f.stat().st_mtime
+            except Exception:
+                mtime = 0.0
+            if mtime > cutoff_recent:
+                recent_logs.append(f)
+            else:
+                older_logs.append(f)
+        
+        # Fill up to 60% from recent user logs
+        max_recent = max(1, int(dreams_per_scan * 0.6))
+        random.shuffle(recent_logs)
+        sample_files.extend(recent_logs[:max_recent])
+        
+        if recent_logs:
+            log_info(f"Dream triage: {len(recent_logs[:max_recent])} recent user logs selected (of {len(recent_logs)} available)")
+        
+        # B. General Content Quota (Populate rest from books, news, docs, older logs)
+        other_files = list(older_logs)
         for cat in ['Books', 'news', 'documents']:
             other_files.extend(categorized_files.get(cat, []))
             
         remaining_slots = dreams_per_scan - len(sample_files)
         
         if remaining_slots > 0 and other_files:
-            # Randomly sample from the rest
-            count = min(len(other_files), remaining_slots)
-            sample_files.extend(random.sample(other_files, count))
-            
-        # If we still have slots (e.g., no other files), fill with more user logs if possible
-        remaining_slots = dreams_per_scan - len(sample_files)
-        if remaining_slots > 0 and user_logs:
-             # Sample without replacement
-             count = min(len(user_logs), remaining_slots)
-             sample_files.extend(random.sample(user_logs, count))
+            random.shuffle(other_files)
+            sample_files.extend(other_files[:remaining_slots])
 
         # Shuffle again to mix types in processing order
         random.shuffle(sample_files)
@@ -255,10 +334,22 @@ YOUR IN-DEPTH REFLECTION:"""
                 except Exception:
                     display_path = file_path.name
                     
+                # Detect source type for tiered prompting
+                path_str_lower = str(file_path).lower()
+                if 'user_logs' in path_str_lower:
+                    dream_source_type = 'conversation'
+                elif any(k in path_str_lower for k in ['news', 'daily']):
+                    dream_source_type = 'news'
+                elif any(k in path_str_lower for k in ['kaia_dreams', 'reflections']):
+                    dream_source_type = 'prior_dream'
+                else:
+                    dream_source_type = 'document'
+
                 reflection = await self.generate_dream_reflection(
                     display_path, 
                     snippet, 
-                    persona_content
+                    persona_content,
+                    source_type=dream_source_type
                 )
                 
                 if reflection:
@@ -298,6 +389,12 @@ YOUR IN-DEPTH REFLECTION:"""
                     await asyncio.to_thread(self._save_history)
                     new_dreams_count += 1
                     log_success(f"Generated in-depth dream: {dream_filename}")
+
+                    # Update the continuity thread with a brief summary of what was just dreamed
+                    self._update_continuity(
+                        new_reflection=reflection[:400],
+                        source_label=display_path
+                    )
             except Exception as e:
                 log_error(f"Failed to process dream for {file_path.name}: {e}")
 

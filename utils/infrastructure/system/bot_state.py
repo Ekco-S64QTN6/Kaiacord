@@ -38,6 +38,20 @@ class BotState:
         self.mentioned_files: Deque[str] = deque(maxlen=20) # Path of files mentioned
         self.is_generating: bool = False     # Transient: True while LLM is generating a user response
         self.first_chat_done: bool = False   # Transient: True after first successful LLM response
+
+        # Kaia mood state — 3 floats, all 0.0–1.0, persisted across restarts.
+        # Used to inject a single context line into the system prompt.
+        # engagement: how much has she been talked to recently (updated per message)
+        # coherence: rolling average RAG retrieval confidence (updated per retrieval)
+        # dream_freshness: how recently the dream cycle ran successfully (decays over time)
+        self.kaia_engagement: float = 0.5
+        self.kaia_coherence: float = 0.85
+        self.kaia_dream_freshness: float = 1.0
+
+        # Curiosity injection: tracks when we last sent a follow-up prompt per user
+        # Format: { "user_id_str": unix_timestamp_float }
+        self.curiosity_last_sent: dict = {}
+
         self.load()
 
     def load(self):
@@ -53,6 +67,10 @@ class BotState:
                         self.last_quip_time = state.get('last_quip_time', 0.0)
                         self.recent_ingestions = state.get('recent_ingestions', [])
                         self.last_dream_date = state.get('last_dream_date', "")
+                        self.kaia_engagement = float(state.get('kaia_engagement', 0.5))
+                        self.kaia_coherence = float(state.get('kaia_coherence', 0.85))
+                        self.kaia_dream_freshness = float(state.get('kaia_dream_freshness', 1.0))
+                        self.curiosity_last_sent = state.get('curiosity_last_sent', {})
                         
                         # boot_complete is TRANSIENT - do not load from disk
                         self.boot_complete = False
@@ -101,6 +119,10 @@ class BotState:
                     'quip_history': list(self.quip_history),
                     'recent_ingestions': self.recent_ingestions,
                     'last_dream_date': self.last_dream_date,
+                    'kaia_engagement': self.kaia_engagement,
+                    'kaia_coherence': self.kaia_coherence,
+                    'kaia_dream_freshness': self.kaia_dream_freshness,
+                    'curiosity_last_sent': self.curiosity_last_sent,
                     # boot_complete is TRANSIENT - do not save to disk
                     'mentioned_files': list(self.mentioned_files),
                     # Explicitly cast int keys to str for JSON serialisation (JSON keys must be strings).
@@ -187,6 +209,64 @@ class BotState:
         if file_path not in self.mentioned_files:
             self.mentioned_files.append(file_path)
             self.save()
+
+    def update_kaia_state(self, engagement_delta: float = 0.0, coherence_sample: float = None):
+        """Update Kaia's mood state floats. Called by message processor and RAG.
+        
+        engagement_delta: small positive value added per received message (e.g. +0.05),
+                          decays passively toward 0.3 over time via dream_freshness logic.
+        coherence_sample: a 0.0–1.0 score from the latest RAG retrieval. Uses EMA.
+        """
+        # Engagement: clamp between 0.1 and 1.0
+        if engagement_delta != 0.0:
+            self.kaia_engagement = min(1.0, max(0.1, self.kaia_engagement + engagement_delta))
+
+        # Coherence: exponential moving average of RAG quality
+        if coherence_sample is not None:
+            coherence_sample = float(max(0.0, min(1.0, coherence_sample)))
+            self.kaia_coherence = 0.85 * self.kaia_coherence + 0.15 * coherence_sample
+
+        # Dream freshness: decay toward 0 the longer since last dream
+        if self.last_dream_date:
+            try:
+                from datetime import datetime, date
+                last = datetime.strptime(self.last_dream_date, '%Y-%m-%d').date()
+                days_since = (date.today() - last).days
+                # Full freshness for 0 days, decays to 0 over 7 days
+                self.kaia_dream_freshness = max(0.0, 1.0 - (days_since / 7.0))
+            except Exception:
+                self.kaia_dream_freshness = 0.5
+        else:
+            self.kaia_dream_freshness = 0.0
+
+        self.save()
+
+    def get_kaia_state_line(self) -> str:
+        """Returns a single human-readable context line for use in system prompts."""
+        parts = []
+        
+        if self.kaia_engagement >= 0.7:
+            parts.append("active conversation day")
+        elif self.kaia_engagement <= 0.3:
+            parts.append("quiet day")
+        else:
+            parts.append("moderate activity")
+
+        if self.kaia_coherence >= 0.75:
+            parts.append("memory clear")
+        elif self.kaia_coherence >= 0.5:
+            parts.append("memory patchy")
+        else:
+            parts.append("memory index degraded")
+
+        if self.kaia_dream_freshness >= 0.8:
+            parts.append("recently reflected")
+        elif self.kaia_dream_freshness >= 0.3:
+            parts.append("reflection due soon")
+        else:
+            parts.append("dreams overdue")
+
+        return f"[current state: {', '.join(parts)}]"
     @property
     def boot_complete(self) -> bool:
         return self._boot_complete

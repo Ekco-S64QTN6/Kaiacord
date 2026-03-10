@@ -21,6 +21,8 @@ class MessageContext:
     cached_response: Optional[str] = None
     retrieved_context: str = ""
     status_context: str = ""
+    retrieval_confidence: float = 0.0   # 0.0–1.0 avg score of retrieved nodes; 0 = nothing found
+    retrieval_node_count: int = 0       # How many nodes passed the threshold
     
     # Timing & Performance
     start_time: float = field(default_factory=time.time)

@@ -169,6 +169,13 @@ class MessageProcessor:
         if self.shutdown_manager.shutting_down:
             return
 
+        # Update engagement: Kaia was just talked to
+        try:
+            if self.bot_state:
+                self.bot_state.update_kaia_state(engagement_delta=0.05)
+        except Exception:
+            pass
+
         # 6. Initialize Context & Update State
         
         # Enriched Context: Extract embed text and resolve links
@@ -411,6 +418,16 @@ class MessageProcessor:
         # 4. Process Results & Diversify
         await self._process_retrieval_results(ctx, results, ask_whats_new, is_news_query, clean_query)
 
+        # 4c. Capture retrieval confidence from RAG instance and store on context
+        if self.rag and hasattr(self.rag, '_last_retrieval_confidence'):
+            ctx.retrieval_confidence = self.rag._last_retrieval_confidence
+            ctx.retrieval_node_count = getattr(self.rag, '_last_retrieval_node_count', 0)
+            # Update Kaia's coherence state with this retrieval's quality
+            if self.bot_state:
+                self.bot_state.update_kaia_state(coherence_sample=ctx.retrieval_confidence)
+            log_debug(f"Retrieval confidence: {ctx.retrieval_confidence:.2f} "
+                      f"({ctx.retrieval_node_count} nodes)")
+
         # 6. Knowledge Boundary Check (Entity Verification)
         # Cache history in context early to avoid redundant list conversions
         ctx.history = list(self.bot_state.channel_memory.get(ctx.channel_id, []))
@@ -448,7 +465,39 @@ class MessageProcessor:
             else:
                 log_debug(log_msg)
 
-        # 7. Generate Response (Stage 4)
+        # 7. Curiosity injection — soft follow-up prompt for unresolved user mentions
+        curiosity_note = ""
+        try:
+            from utils.core.curiosity_scanner import get_curiosity_prompt
+            curiosity_note = get_curiosity_prompt(
+                user_id=ctx.author_id,
+                user_name=ctx.author_name,
+                knowledge_base_dir=self.config.knowledge_base_dir,
+                last_sent_timestamps=self.bot_state.curiosity_last_sent
+            ) or ""
+            if curiosity_note:
+                # Record that we sent this prompt so cooldown applies
+                import time as _time
+                self.bot_state.curiosity_last_sent[str(ctx.author_id)] = _time.time()
+                self.bot_state.save()
+        except Exception as _ce:
+            log_debug(f"Curiosity scanner error (non-fatal): {_ce}")
+            curiosity_note = ""
+
+        # Append curiosity note to system prompt if present
+        if curiosity_note:
+            ctx.system_prompt = ctx.system_prompt + f"\n\n{curiosity_note}"
+
+        # 8. Mood state injection — one sentence of situational context
+        try:
+            if self.bot_state:
+                mood_line = self.bot_state.get_kaia_state_line()
+                if mood_line:
+                    ctx.system_prompt = ctx.system_prompt + f"\n\n{mood_line}"
+        except Exception:
+            pass  # Never let mood injection break generation
+
+        # 9. Generate Response (Stage 4)
         await self._generate_response_stage(ctx)
 
     async def _setup_retrieval_tasks(self, ctx: MessageContext):
@@ -556,6 +605,29 @@ class MessageProcessor:
         
         # Adaptation
         ctx.system_prompt = self.personalization_engine.adapt_prompt(ctx.system_prompt, ctx.user_traits)
+
+        # Inject self-model at top of system prompt if available
+        # memory/kaia_self_model.md is Kaia's own synthesized identity across time.
+        # It takes precedence over generic persona — it's not who she is, it's who she's been.
+        try:
+            import os
+            self_model_path = os.path.join("memory", "kaia_self_model.md")
+            if os.path.exists(self_model_path):
+                with open(self_model_path, 'r', encoding='utf-8') as _smf:
+                    self_model_content = _smf.read().strip()
+                # Strip the generation comment header if present
+                if self_model_content.startswith('<!--'):
+                    self_model_content = self_model_content[self_model_content.find('-->')+3:].strip()
+                if self_model_content:
+                    ctx.system_prompt = (
+                        f"[SELF-MODEL — who i've been lately, my own words]\n"
+                        f"{self_model_content}\n\n"
+                        f"[PERSONA — core identity]\n"
+                        f"{ctx.system_prompt}"
+                    )
+                    log_debug(f"Self-model injected ({len(self_model_content)} chars)")
+        except Exception as _sme:
+            log_debug(f"Self-model injection skipped: {_sme}")
 
         # Diversification
         if is_news_query:

@@ -22,6 +22,7 @@ import os
 import re
 import asyncio
 import time
+import math
 import heapq
 import random
 import traceback
@@ -280,6 +281,28 @@ class RAGQueryMixin:
         is_dream_query = routing["is_dream_query"]
         is_social_identity = routing["is_social_identity"]
 
+        # Pre-compute current time for recency decay calculations
+        _now_ts = time.time()
+
+        def _recency_decay(file_path: str, source_type: str) -> float:
+            """Returns a 0.2–1.0 multiplier. Recent = 1.0. Old = 0.2 floor.
+            
+            Half-life is configurable. Default: 90 days.
+            Only applied to user_logs, news, and dreams — knowledge docs and persona are timeless.
+            """
+            if source_type not in ('user_logs', 'news', 'dream'):
+                return 1.0  # Timeless content: no decay
+            try:
+                if file_path and os.path.exists(file_path):
+                    age_days = (_now_ts - os.path.getmtime(file_path)) / 86400.0
+                    half_life = getattr(config, 'rag_recency_half_life_days', 90)
+                    decay = math.exp(-age_days * math.log(2) / half_life)
+                    return max(0.2, decay)  # Floor at 0.2 — never fully suppress old content
+            except Exception:
+                pass
+            return 1.0
+
+
         # Fix #5: Compute pool-size ratio ONCE before the per-node loop (O(1) not O(N))
         _pool_deflation_factor = 1.0
         if 'logs' in self.indices and 'knowledge' in self.indices:
@@ -345,6 +368,9 @@ class RAGQueryMixin:
 
             final_score = base_score + path_boost + type_boost + persona_file_bonus
 
+            # Apply recency decay (only affects user_logs, news, dreams)
+            final_score *= _recency_decay(file_path, source_type)
+
             # Fix 1 (Scoring): Same-user boost for logs
             if source_type == 'user_logs':
                 if node_user_id in relevant_ids:
@@ -352,16 +378,8 @@ class RAGQueryMixin:
                 else:
                     final_score += 0.10  # Weaker boost — still preferred over fiction
 
-            # Fix 2: Add recency decay for user_logs
+            # Fix 2: user_logs recency is already handled by _recency_decay above
             if source_type == 'user_logs':
-                try:
-                    if file_path and os.path.exists(file_path):
-                        file_mtime = os.path.getmtime(file_path)
-                        days_old = (time.time() - file_mtime) / 86400
-                        recency_boost = max(0.0, 0.20 * (1 - days_old / 30))  # fades to 0 over 30 days
-                        final_score += recency_boost
-                except Exception:
-                    pass
                 
                 # Echo-Dampening: Prevent conversation logs from outranking the original source files
                 # by detecting when a log chunk is merely repeating the query's own terms back.
@@ -425,7 +443,22 @@ class RAGQueryMixin:
             scored_nodes.append({"content": content, "metadata": metadata, "label": label, "score": final_score})
 
         scored_nodes.sort(key=lambda x: x["score"], reverse=True)
-        return scored_nodes[:top_k]
+
+        # Compute aggregate confidence for this result set
+        top_results = scored_nodes[:top_k]
+        if top_results:
+            avg_score = sum(n["score"] for n in top_results) / len(top_results)
+            # Normalize: scores typically 0.3–2.0 after boosting; practical ceiling 1.5
+            retrieval_confidence = min(1.0, max(0.0, avg_score / 1.5))
+        else:
+            retrieval_confidence = 0.0
+
+        # Store confidence as instance attributes so message_processor can read them
+        # Safe because retrieve() is protected by thread_safe_rag_operation which serializes access.
+        self._last_retrieval_confidence = retrieval_confidence
+        self._last_retrieval_node_count = len(top_results)
+
+        return top_results
 
     @thread_safe_rag_operation
     async def get_context_for_hallucination_check(self, query: str) -> str:
@@ -438,6 +471,10 @@ class RAGQueryMixin:
                 strict_identity: bool = False, include_news: bool = False,
                 category: str = "general", intent: Optional[Intent] = None) -> List[Dict[str, Any]]:
         if not self.indices or not query or not query.strip(): return []
+
+        # Reset per-call retrieval metrics
+        self._last_retrieval_confidence = 0.0
+        self._last_retrieval_node_count = 0
             
         try:
             query_lower = query.lower()

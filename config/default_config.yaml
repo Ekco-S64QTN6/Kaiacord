@@ -44,6 +44,9 @@ performance:
   
   # Number of top RAG results to retrieve
   rag_top_k: 12
+
+  # Half-life for user_logs/news recency decay (days). Higher = slower decay.
+  rag_recency_half_life_days: 90
   
   # RAG Relevance Thresholds
   rag_thresholds:

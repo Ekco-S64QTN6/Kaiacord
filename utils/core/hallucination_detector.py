@@ -1,4 +1,5 @@
 import re
+import json
 from typing import Optional
 from utils.infrastructure.logging.kaia_logger import log_warning
 
@@ -51,12 +52,52 @@ class HallucinationDetector:
     def contains_hallucination(cls, text: str) -> bool:
         """Check if text contains known hallucination patterns"""
         return bool(cls._compiled_pattern.search(text))
-    
+
+    @staticmethod
+    def log_detection(query: str, response_snippet: str, pattern_matched: str, 
+                      confidence: float, action_taken: str):
+        """Append a detection event to the rotating hallucination log.
+        
+        Args:
+            query: The user's query that triggered generation.
+            response_snippet: First 200 chars of the response that was flagged.
+            pattern_matched: The specific pattern or keyword that triggered detection.
+            confidence: 0.0–1.0 score. 1.0 = certain hallucination. 0.5 = heuristic catch.
+            action_taken: 'cleaned', 'suppressed', 'warned', or 'passed'.
+        """
+        import os
+        log_path = os.path.join("memory", "hallucination_log.jsonl")
+        entry = {
+            "timestamp": __import__('time').time(),
+            "date": __import__('datetime').datetime.now().strftime('%Y-%m-%d %H:%M:%S'),
+            "query_snippet": query[:100],
+            "response_snippet": response_snippet[:200],
+            "pattern_matched": pattern_matched,
+            "confidence": round(confidence, 3),
+            "action_taken": action_taken
+        }
+        try:
+            os.makedirs("memory", exist_ok=True)
+            with open(log_path, 'a', encoding='utf-8') as f:
+                f.write(json.dumps(entry) + '\n')
+            # Rotate: keep last 500 entries only
+            with open(log_path, 'r', encoding='utf-8') as f:
+                lines = f.readlines()
+            if len(lines) > 500:
+                with open(log_path, 'w', encoding='utf-8') as f:
+                    f.writelines(lines[-500:])
+        except Exception:
+            pass  # Never let logging break the main flow
+
     @classmethod
-    def clean_response(cls, response: str) -> Optional[str]:
+    def clean_response(cls, response: str, query: str = "") -> Optional[str]:
         """Remove hallucinated content from response"""
         if not cls.contains_hallucination(response):
             return response
+        
+        # Identify what pattern matched for logging
+        match = cls._compiled_pattern.search(response)
+        matched_pattern = match.group(0) if match else "unknown"
         
         # Split into lines and filter out hallucinated ones
         lines = response.split('\n')
@@ -69,6 +110,15 @@ class HallucinationDetector:
         
         # If we removed too much, signal failure by returning None
         clean_response = '\n'.join(clean_lines).strip()
+        
+        action = "cleaned" if clean_response else "suppressed"
+        cls.log_detection(
+            query=query if isinstance(query, str) else "",
+            response_snippet=response[:200] if response else "",
+            pattern_matched=matched_pattern,
+            confidence=0.9,
+            action_taken=action
+        )
         
         if not clean_response:
             return None
