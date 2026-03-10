@@ -26,8 +26,13 @@ from pathlib import Path
 # Add project root to path
 sys.path.insert(0, os.path.dirname(os.path.dirname(os.path.dirname(os.path.abspath(__file__)))))
 
-from utils.infrastructure.system.yaml_config import config
-from utils.infrastructure.logging.kaia_logger import log_info, log_success, log_error, log_warning
+try:
+    from utils.infrastructure.system.yaml_config import config
+    from utils.infrastructure.logging.kaia_logger import log_info, log_success, log_error, log_warning
+except ImportError as e:
+    print(f"Error: Missing dependency: {e}")
+    print("Please run: pip install -r requirements.txt")
+    sys.exit(1)
 
 
 OUTPUT_PATH = Path("memory/kaia_self_model.md")
