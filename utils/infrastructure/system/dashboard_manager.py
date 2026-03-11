@@ -45,12 +45,50 @@ def _run_dashboard_process(shared_stats, log_queue, stop_event, cleanup_complete
             traceback.print_exc()
         raise
 
-async def _stats_sync_task(shared_stats, stats_tracker, stats_poller, stop_event):
+def _count_recent_hallucinations(log_path: str, seconds: int = 86400) -> int:
+    """Count entries in hallucination_log.jsonl from the last N seconds."""
+    import json
+    import time
+    count = 0
+    now = time.time()
+    if not os.path.exists(log_path):
+        return 0
+    try:
+        with open(log_path, 'r') as f:
+            for line in f:
+                if not line.strip(): continue
+                try:
+                    data = json.loads(line)
+                    ts = data.get('timestamp')
+                    if ts and (now - ts) < seconds:
+                        count += 1
+                except Exception:
+                    continue
+    except Exception:
+        pass
+    return count
+
+async def _stats_sync_task(shared_stats, stats_tracker, stats_poller, stop_event, bot_state=None, rag=None):
     """Sync bot stats to shared memory."""
+    hallucination_log = "memory/hallucination_log.jsonl"
     while not stop_event.is_set():
         try:
             s = stats_tracker.get_stats()
             p = stats_poller.get_stats()
+            
+            # Pull RAG metrics
+            rag_confidence = 0.0
+            rag_nodes = 0
+            coherence_ema = 0.85
+            if rag:
+                rag_confidence = getattr(rag, '_last_retrieval_confidence', 0.0)
+                rag_nodes = getattr(rag, '_last_retrieval_node_count', 0)
+            if bot_state:
+                coherence_ema = getattr(bot_state, 'kaia_coherence', 0.85)
+
+            # Daily hallucination count
+            h_count = _count_recent_hallucinations(hallucination_log)
+
             # We use update for bulk modification
             shared_stats.update({
                 'messages': s.get('messages', 0),
@@ -67,18 +105,25 @@ async def _stats_sync_task(shared_stats, stats_tracker, stats_poller, stop_event
                 'dreams_count': p.get('dreams_count', 0),
                 'gpu_util': p.get('gpu_util', 0.0),
                 'gpu_memory': p.get('gpu_memory', 'N/A'),
+                
+                # RAG Health Panel Data
+                'rag_confidence': rag_confidence,
+                'rag_nodes': rag_nodes,
+                'coherence_ema': coherence_ema,
+                'hallucination_count': h_count
             })
         except Exception: pass
         await asyncio.sleep(1.0)
 
 def _run_bot_in_thread(shared_stats, stats_tracker, stats_poller, stop_event, 
-                       m_cleanup_complete_event, initialize_logic_layer, run_bot_async):
+                       m_cleanup_complete_event, initialize_logic_layer, run_bot_async,
+                       bot_state=None, rag=None):
     """Isolated bot thread runner."""
     loop = asyncio.new_event_loop()
     asyncio.set_event_loop(loop)
     try:
         # Start stats sync task
-        sync_task = loop.create_task(_stats_sync_task(shared_stats, stats_tracker, stats_poller, stop_event))
+        sync_task = loop.create_task(_stats_sync_task(shared_stats, stats_tracker, stats_poller, stop_event, bot_state, rag))
         task_registry.register("ui_stats_sync", sync_task)
         
         # Initialize logic layer (e.g., config, state)
@@ -300,7 +345,8 @@ class DashboardManager:
             self.bot_thread = threading.Thread(
                 target=_run_bot_in_thread, 
                 args=(shared_stats, self.stats_tracker, self.stats_poller, self.stop_event, 
-                      m_cleanup_complete_event, initialize_logic_layer, run_bot_async),
+                      m_cleanup_complete_event, initialize_logic_layer, run_bot_async,
+                      self.bot_state, self.ctx.rag),
                 daemon=True, 
                 name="DiscordBot"
             )

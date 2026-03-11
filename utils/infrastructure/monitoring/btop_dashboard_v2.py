@@ -80,6 +80,12 @@ class DashboardState:
     log_entries: Tuple[LogEntry, ...] = field(default_factory=tuple)
     alerts: Tuple[AlertEntry, ...] = field(default_factory=tuple)
     
+    # RAG Metrics
+    rag_confidence: float = 0.0
+    rag_nodes: int = 0
+    coherence_ema: float = 0.85
+    hallucination_count: int = 0
+    
     # Timestamp
     snapshot_time: float = field(default_factory=time.time)
 
@@ -148,10 +154,18 @@ class LayoutManager:
         )
         
         # Bot status (top right)
+        status_height = top_height - 6
         self.panes['status'] = Pane(
             y=y, x=left_width,
-            height=top_height, width=right_width,
+            height=status_height, width=right_width,
             title="BOT STATUS", color_pair=2
+        )
+        
+        # RAG Health (middle right)
+        self.panes['rag_health'] = Pane(
+            y=y + status_height, x=left_width,
+            height=6, width=right_width,
+            title="RAG HEALTH", color_pair=3
         )
         
         y += top_height
@@ -475,6 +489,10 @@ class BtopDashboardV2:
             indexed_files=poller_stats.get('indexed_files', 0) if not self.shared_stats else self.shared_stats.get('indexed_files', 0),
             dreams_count=poller_stats.get('dreams_count', 0) if not self.shared_stats else self.shared_stats.get('dreams_count', 0),
             queue_size=tracker_stats.get('queue_size', 0) or (self.shared_stats.get('queue_size', 0) if self.shared_stats else 0),
+            rag_confidence=self.shared_stats.get('rag_confidence', 0.0) if self.shared_stats else 0.0,
+            rag_nodes=self.shared_stats.get('rag_nodes', 0) if self.shared_stats else 0,
+            coherence_ema=self.shared_stats.get('coherence_ema', 0.85) if self.shared_stats else 0.85,
+            hallucination_count=self.shared_stats.get('hallucination_count', 0) if self.shared_stats else 0,
             log_entries=tuple(log_entries),
             alerts=tuple(alerts[-10:]),  # Limit alerts
             snapshot_time=time.time()
@@ -688,6 +706,43 @@ class BtopDashboardV2:
         self._safe_addstr(inner_y + 3, inner_x + 35, "Active:".ljust(9), curses.color_pair(1) | curses.A_BOLD)
         self._safe_addstr(inner_y + 3, inner_x + 44, f"{state.active_model}", curses.color_pair(3) | curses.A_BOLD)
         
+    def _draw_rag_health_pane(self, state: DashboardState):
+        """Draw RAG health pane"""
+        pane = self.layout.panes.get('rag_health')
+        if not pane:
+            return
+            
+        self._draw_box(pane)
+        
+        inner_y = pane.y + 1
+        inner_x = pane.x + 2
+        inner_width = pane.width - 4
+        
+        # Confidence Bar
+        conf_pct = state.rag_confidence * 100
+        bar_width = min(20, inner_width - 15)
+        bar = self._draw_progress_bar(conf_pct, bar_width)
+        color = self._get_color_for_value(conf_pct, (60, 85))
+        
+        self._safe_addstr(inner_y, inner_x, "Confidence:".ljust(12), curses.color_pair(1) | curses.A_BOLD)
+        self._safe_addstr(inner_y, inner_x + 12, "[", curses.color_pair(6))
+        self._safe_addstr(inner_y, inner_x + 13, bar, curses.color_pair(color))
+        self._safe_addstr(inner_y, inner_x + 13 + bar_width, "]", curses.color_pair(6))
+        self._safe_addstr(inner_y, inner_x + 15 + bar_width, f"{state.rag_confidence:.2f}", curses.color_pair(color) | curses.A_BOLD)
+        
+        # Stats Row
+        self._safe_addstr(inner_y + 1, inner_x, "Retrieved Nodes:".ljust(18), curses.color_pair(1) | curses.A_BOLD)
+        self._safe_addstr(inner_y + 1, inner_x + 18, f"{state.rag_nodes}", curses.color_pair(2) | curses.A_BOLD)
+        
+        self._safe_addstr(inner_y + 2, inner_x, "Coherence EMA:".ljust(18), curses.color_pair(1) | curses.A_BOLD)
+        coh_color = self._get_color_for_value(state.coherence_ema * 100, (60, 85))
+        self._safe_addstr(inner_y + 2, inner_x + 18, f"{state.coherence_ema:.3f}", curses.color_pair(coh_color) | curses.A_BOLD)
+        
+        # Hallucinations
+        h_color = 3 if state.hallucination_count == 0 else (4 if state.hallucination_count < 3 else 5)
+        self._safe_addstr(inner_y + 3, inner_x, "Hallucinations (24h):".ljust(22), curses.color_pair(1) | curses.A_BOLD)
+        self._safe_addstr(inner_y + 3, inner_x + 22, f"{state.hallucination_count}", curses.color_pair(h_color) | curses.A_BOLD)
+        
     def _draw_alerts_pane(self, state: DashboardState):
         """Draw alerts pane"""
         pane = self.layout.panes.get('alerts')
@@ -786,6 +841,7 @@ class BtopDashboardV2:
             # Draw all panes
             self._draw_stats_pane(state)
             self._draw_status_pane(state)
+            self._draw_rag_health_pane(state)
             self._draw_alerts_pane(state)
             self._draw_logs_pane(state)
             self._draw_footer(state)
