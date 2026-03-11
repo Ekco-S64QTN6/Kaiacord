@@ -211,8 +211,12 @@ def gather_files(base_dir: str, category_flag: str) -> list[tuple[Path, str]]:
     # knowledge_base/general_knowledge → actual KB subdirs (Fix 6)
     if category_flag in ['all', 'knowledge']:
         knowledge_dirs = [
-            "Books", "news", "deep_dive_reports", "blogs",
-            "forum_posts", "technical", "infrastructure", "security_research"
+            "books",        
+            "blogs",
+            "documents",
+            "news",
+            "transcripts",
+            "kaia_dreams",
         ]
         for subdir in knowledge_dirs:
             folder = kb_path / subdir
