@@ -8,6 +8,7 @@ from utils.commands.audit_handler import handle_flag_command, handle_audit_comma
 from utils.commands.snapshot_handler import handle_snapshot_command
 from utils.commands.explain_handler import handle_explain_command
 from utils.commands.selfmodel_handler import handle_selfmodel_command
+from utils.commands.enrich_handler import handle_enrich_command
 
 async def dispatch_command(ctx, msg, load_persona_async, send_kaia_response):
     """Route commands to the appropriate handler"""
@@ -55,6 +56,10 @@ async def dispatch_command(ctx, msg, load_persona_async, send_kaia_response):
         
     if content.startswith("!selfmodel"):
         await handle_selfmodel_command(ctx, msg, send_kaia_response)
+        return True
+        
+    if content.startswith("!enrich"):
+        await handle_enrich_command(ctx, msg, send_kaia_response)
         return True
         
     return False

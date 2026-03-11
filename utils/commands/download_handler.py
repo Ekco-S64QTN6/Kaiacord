@@ -148,19 +148,23 @@ async def _download_and_convert(url: str, username: str, user_id: str) -> dict:
     if not markdown_body or len(markdown_body.strip()) < 50:
         raise DownloadError("couldn't extract meaningful text from that URL.")
 
+    markdown_body = _clean_markdown(markdown_body)
+
     # Build metadata frontmatter
     now = datetime.now()
+    date_str = now.strftime('%Y-%m-%d')
     frontmatter = (
         f"---\n"
-        f"source_url: {url}\n"
-        f"downloaded_by: {username}\n"
-        f"downloaded_at: {now.isoformat()}\n"
-        f"content_type: {file_type}\n"
-        f"title: \"{_escape_yaml(title)}\"\n"
+        f"title: \"\"\n"
+        f"summary: \"\"\n"
+        f"keywords: []\n"
+        f"document_type: article\n"
+        f"date: {date_str}\n"
+        f"source_url: \"{url}\"\n"
         f"---\n\n"
     )
     
-    full_content = frontmatter + f"# {title}\n\n" + markdown_body
+    full_content = frontmatter + markdown_body
     
     # Determine target folder
     folder = _classify_folder(url, title, file_type, len(markdown_body.split()))
@@ -292,6 +296,82 @@ def _convert_text(raw_bytes: bytes, url: str) -> tuple:
         markdown_body = text
     
     return title, markdown_body
+
+
+def _clean_markdown(text: str) -> str:
+    """Clean up markdown output to improve RAG quality."""
+    lines = text.split('\n')
+    
+    # 1. First pass: count short lines for frequency filtering
+    from collections import Counter
+    short_lines = Counter()
+    for line in lines:
+        stripped = line.strip()
+        if 0 < len(stripped) < 60:
+            short_lines[stripped] += 1
+            
+    filtered_lines = []
+    
+    for line in lines:
+        stripped = line.strip()
+        
+        # Strip HTML artifacts
+        lower_line = line.lower()
+        if any(tag in lower_line for tag in ['<div', '<span', '<script', '<style', '<nav', '<footer', '<header']):
+            continue
+            
+        # If it's pure boilerplate navigation link 
+        if re.match(r'^\[.*?\]\(.*?\)$', stripped):
+            continue
+            
+        # If it's a separator line of just symbols
+        if stripped and re.match(r'^[\s\|\-\*\+\_\#\=]+$', stripped):
+            continue
+            
+        # If it's a repeated short line (>3 times)
+        if 0 < len(stripped) < 60 and short_lines[stripped] > 3:
+            continue
+            
+        filtered_lines.append(line)
+        
+    # 3. Trim document edges (first 5 and last 5 lines)
+    def _is_edge_noise(l: str) -> bool:
+        s = l.strip()
+        if not s: return True
+        if len(s) < 40: return True
+        if re.match(r'^\[.*?\]\(.*?\)$', s): return True
+        return False
+
+    # Trim start
+    trim_start = 0
+    for i in range(min(5, len(filtered_lines))):
+        if _is_edge_noise(filtered_lines[i]):
+            trim_start = i + 1
+        else:
+            break
+            
+    filtered_lines = filtered_lines[trim_start:]
+    
+    # Trim end
+    trim_end = len(filtered_lines)
+    for i in range(min(5, len(filtered_lines))):
+        idx = len(filtered_lines) - 1 - i
+        if idx < 0: break
+        if _is_edge_noise(filtered_lines[idx]):
+            trim_end = idx
+        else:
+            break
+            
+    filtered_lines = filtered_lines[:trim_end]
+    
+    # Reconstruct text
+    cleaned_text = '\n'.join(filtered_lines)
+    
+    # Collapse 3+ consecutive blank lines to a single blank line
+    # A blank line is \n\n, so 3+ blank lines is \n\n\n\n
+    cleaned_text = re.sub(r'\n{4,}', '\n\n', cleaned_text)
+    
+    return cleaned_text.strip()
 
 
 def _classify_folder(url: str, title: str, file_type: str, word_count: int) -> str:
