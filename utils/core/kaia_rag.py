@@ -100,29 +100,24 @@ class KaiaRAG(RAGIndexerMixin, RAGPersistenceMixin, RAGQueryMixin):
         #
         # WARNING: Do NOT use OllamaGPUManager here — it probes Ollama and can trigger
         # VRAM allocation before the Phase 1 GPU lock has been established.
+        # [VRAM LOCK]: Build options from config directly to avoid synchronous 
+        # OllamaGPUManager instantiation (which triggers slow NVML probing).
+        # Ensures internal LLM calls (synthesis, etc) match the main chat model's fingerprint.
         llm_timeout = getattr(config, 'llm_request_seconds', 360.0)
         
-        # [VRAM LOCK]: Pass identical options to LlamaIndex's Ollama wrapper
-        # to ensure internal LLM calls (synthesis, etc) don't trigger re-allocations.
-        from utils.infrastructure.gpu.gpu_manager import OllamaGPUManager
-        settings_gpu_mgr = OllamaGPUManager(config.chat_model)
-        settings_options = settings_gpu_mgr.get_gpu_options(for_chat=True)
-        # Remove temperature/top_p from additional_kwargs as LlamaIndex handles them separately
-        clean_additional_kwargs = settings_options.copy()
-        for key in ('temperature', 'top_p'):
-            if key in clean_additional_kwargs:
-                del clean_additional_kwargs[key]
-        
-        # Add keep_alive explicitly
-        clean_additional_kwargs["keep_alive"] = -1
+        settings_options = {
+            'num_gpu': 99,
+            'num_thread': getattr(config, 'num_thread', 8),
+            'main_gpu': 0,
+            'num_ctx': config.max_context_tokens,
+            'keep_alive': -1
+        }
         
         Settings.llm = Ollama(
             model=config.chat_model,
             request_timeout=llm_timeout,
             context_window=config.max_context_tokens,
-            # [MEMORY OPTIMIZATION]: Pass identical options to LlamaIndex's Ollama wrapper
-            # to ensure internal LLM calls (synthesis, etc) don't trigger re-allocations.
-            additional_kwargs=clean_additional_kwargs
+            additional_kwargs=settings_options
         )
         
         # Lazy load indices for faster startup

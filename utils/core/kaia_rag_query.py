@@ -695,8 +695,8 @@ class RAGQueryMixin:
                 if matches > 0:
                     scored_events.append((matches, c_text.strip()))
             
-            # Set retrieval confidence for observational queries (Bug fix: was always 0.0)
-            self._last_retrieval_confidence = 0.5 if scored_events else 0.0
+            # Set retrieval confidence for observational queries (Bug fix: neutral 0.5 floor)
+            self._last_retrieval_confidence = 0.5
             self._last_retrieval_node_count = len(scored_events)
 
             scored_events.sort(key=lambda x: x[0], reverse=True)

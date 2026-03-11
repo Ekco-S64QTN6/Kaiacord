@@ -221,7 +221,8 @@ class BotState:
         if self.last_interaction_time:
             hours_idle = (time.time() - self.last_interaction_time) / 3600.0
             if hours_idle > 0.5:  # Only decay if idle > 30 min
-                decay_factor = max(0.0, 1.0 - (hours_idle / 24.0) * 0.5)
+                import math
+                decay_factor = math.pow(0.5, hours_idle / 24.0)
                 self.kaia_engagement = max(0.1, self.kaia_engagement * decay_factor)
 
         # Engagement: clamp between 0.1 and 1.0

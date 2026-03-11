@@ -208,12 +208,17 @@ def gather_files(base_dir: str, category_flag: str) -> list[tuple[Path, str]]:
     kb_path = Path(base_dir)
     files = []
     
-    # knowledge_base/general_knowledge
+    # knowledge_base/general_knowledge → actual KB subdirs (Fix 6)
     if category_flag in ['all', 'knowledge']:
-        gk_path = kb_path / "general_knowledge"
-        if gk_path.exists():
-            for p in gk_path.rglob("*.md"):
-                files.append((p, 'knowledge'))
+        knowledge_dirs = [
+            "Books", "news", "deep_dive_reports", "blogs",
+            "forum_posts", "technical", "infrastructure", "security_research"
+        ]
+        for subdir in knowledge_dirs:
+            folder = kb_path / subdir
+            if folder.exists():
+                for p in folder.rglob("*.md"):
+                    files.append((p, 'knowledge'))
                 
     # knowledge_base/user_logs
     if category_flag in ['all', 'logs']:
@@ -232,6 +237,7 @@ async def main_async():
     parser.add_argument("--limit", type=int, default=50, help="Max files to process per run (default 50).")
     args = parser.parse_args()
     
+    log_info(f"Scanning knowledge base at: {Path(args.dir).absolute()}")
     log_action(f"Starting Metadata Enrichment (Dry Run: {args.dry_run}, Category: {args.category})")
     
     files = gather_files(args.dir, args.category)

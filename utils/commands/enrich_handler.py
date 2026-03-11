@@ -68,32 +68,40 @@ async def handle_enrich_command(ctx, msg, send_kaia_response):
             cwd=str(project_root)
         )
 
-        # Fix 1: Subprocess timeout and progress updates
+        # Fix 1: Subprocess timeout and progress updates using a heartbeat task
         start_time = asyncio.get_event_loop().time()
         max_timeout = 600.0
         
-        try:
+        async def _progress_updater():
             while True:
+                await asyncio.sleep(60)
+                elapsed = int(asyncio.get_event_loop().time() - start_time)
                 try:
-                    # Wait in 60s increments for progress updates
-                    stdout, stderr = await asyncio.wait_for(process.communicate(), timeout=60.0)
-                    break # Done
-                except asyncio.TimeoutError:
-                    elapsed = int(asyncio.get_event_loop().time() - start_time)
-                    if elapsed >= max_timeout:
-                        if process.returncode is None:
-                            try: process.terminate()
-                            except: pass
-                        await status_msg.edit(content=f"❌ **Enrichment Timed Out** (after {elapsed}s)")
-                        return
                     await status_msg.edit(content=f"🔄 **Enrichment in progress...** ({elapsed}s elapsed)")
-        except Exception as e:
-            log_error(f"Error during enrichment Wait: {e}")
-            raise
+                except Exception:
+                    break
 
-        # Parse output for summary (Fix 1: ANSI stripping)
+        progress_task = asyncio.create_task(_progress_updater())
+        
+        try:
+            try:
+                stdout, stderr = await asyncio.wait_for(process.communicate(), timeout=max_timeout)
+            except asyncio.TimeoutError:
+                if process.returncode is None:
+                    try: 
+                        process.terminate()
+                        await process.wait()
+                    except: pass
+                elapsed = int(asyncio.get_event_loop().time() - start_time)
+                await status_msg.edit(content=f"❌ **Enrichment Timed Out** (after {elapsed}s). Run from terminal for large batches.")
+                return
+        finally:
+            progress_task.cancel()
+
+        # Parse output for summary (Fix 1: ANSI + \r stripping)
         ansi_escape = re.compile(r'\x1b\[[0-9;]*m')
-        output_str = ansi_escape.sub('', stdout.decode()).strip()
+        # Replace \r with \n to handle progress line accumulation (Fix 2)
+        output_str = ansi_escape.sub('', stdout.decode()).replace('\r', '\n').strip()
         error_str = stderr.decode().strip()
         
         if error_str:

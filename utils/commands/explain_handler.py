@@ -77,6 +77,20 @@ async def handle_explain_command(ctx, msg, send_kaia_response):
     confidence = getattr(rag, '_last_retrieval_confidence', 0.0)
     node_count = getattr(rag, '_last_retrieval_node_count', 0)
     
+    # Recency stats (newest/oldest)
+    all_dates = []
+    for node in results:
+        fpath = node.get("metadata", {}).get("file_path", "")
+        if fpath and os.path.exists(fpath):
+            try: all_dates.append(os.path.getmtime(fpath))
+            except: pass
+    
+    recency_info = "Recency: unknown"
+    if all_dates:
+        newest = datetime.fromtimestamp(max(all_dates)).strftime("%Y-%m-%d")
+        oldest = datetime.fromtimestamp(min(all_dates)).strftime("%Y-%m-%d")
+        recency_info = f"Recency: {oldest} to {newest}"
+    
     # Confidence label
     if confidence >= 0.75:
         conf_label = "high — memory well-grounded for this query"
@@ -87,7 +101,7 @@ async def handle_explain_command(ctx, msg, send_kaia_response):
     
     lines.append(f"\n{'—' * 40}")
     lines.append(f"Confidence: {confidence:.2f} ({conf_label})")
-    lines.append(f"Nodes retrieved: {node_count}")
+    lines.append(f"Nodes retrieved: {node_count} | {recency_info}")
     
     # Self-model info
     self_model_path = os.path.join("memory", "kaia_self_model.md")
@@ -95,7 +109,7 @@ async def handle_explain_command(ctx, msg, send_kaia_response):
         sm_age = (time.time() - os.path.getmtime(self_model_path)) / 86400
         lines.append(f"Self-model: active (last generated {sm_age:.0f} days ago)")
     else:
-        lines.append("Self-model: not generated")
+        lines.append("Self-model: not active (generate with !selfmodel)")
 
     await send_kaia_response(msg.channel, "\n".join(lines))
     log_info(f"Provenance display shown for {msg.author.name}")

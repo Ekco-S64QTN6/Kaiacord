@@ -756,7 +756,7 @@ class MessageProcessor:
         # Epistemic honesty: when retrieval was weak, tell the model to hedge
         if hasattr(ctx, 'retrieval_confidence') and ctx.retrieval_confidence < 0.45 and ctx.retrieval_node_count < 2:
             rag_block += (
-                "\n[note: memory retrieval was weak for this query — "
+                f"\n[note: memory retrieval was weak (confidence={ctx.retrieval_confidence:.2f}) — "
                 "speak from what you know, hedge where uncertain, do not invent]"
             )
 

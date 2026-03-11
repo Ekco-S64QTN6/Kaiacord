@@ -609,27 +609,53 @@ async def generate_quip(ctx, is_manual=False, target_channel=None, on_message_fu
         current_time_str = datetime.now().strftime("%A, %B %d, %Y | %I:%M %p")
         system_prompt = raw_persona.replace("[CURRENT_TIME]", current_time_str)
         
-        # --- RAG INTEGRATION START ---
+        # --- RAG INTEGRATION START (FEATURE #4: CROSS-SYNTHESIS) ---
         try:
-            search_query = ""
+            # 1. Parallel RAG Retrieval (News vs Knowledge)
+            news_query = ""
+            knowledge_query = ""
+            
             if "news about" in context_type:
-                search_query = context_type.replace("recent news about ", "")
+                news_query = context_type.replace("recent news about ", "")
+                knowledge_query = reflection_target # Use original fragment for knowledge context
             else:
-                search_query = " ".join(reflection_target.split()[:10])
+                news_query = "latest major news" # Baseline news context
+                knowledge_query = reflection_target
+
+            log_debug(f"Quip RAG: news='{news_query}' knowledge='{knowledge_query}'")
+            
+            # Fetch in parallel
+            tasks = [
+                rag_instance.retrieve(news_query, top_k=2, category="news", include_news=True),
+                rag_instance.retrieve(knowledge_query, top_k=2, category="general")
+            ]
+            news_nodes, knowledge_nodes = await asyncio.gather(*tasks)
+            
+            rag_block = "\n\n### RELEVANT CONTEXT (SYNTHESIS REQUIRED)\n"
+            from utils.core.rag_utils import get_node_text
+            
+            if news_nodes:
+                rag_block += "RECENT NEWS:\n"
+                for node in news_nodes:
+                    content = get_node_text(node)
+                    if content:
+                        sanitized = _sanitize_rag_content(content)
+                        rag_block += f"- {sanitized[:400].replace(chr(10), ' ')}...\n"
+            
+            if knowledge_nodes:
+                rag_block += "\nCORE KNOWLEDGE / MEMORIES:\n"
+                for node in knowledge_nodes:
+                    content = get_node_text(node)
+                    if content:
+                        sanitized = _sanitize_rag_content(content)
+                        rag_block += f"- {sanitized[:400].replace(chr(10), ' ')}...\n"
+            
+            if news_nodes or knowledge_nodes:
+                system_prompt += rag_block
+                system_prompt += "\nINSTRUCTION: Find a subtle or blunt connection between these context blocks. Synthesis is preferred over simple repetition."
                 
-            if rag_instance and search_query:
-                rag_results = await rag_instance.retrieve(search_query, top_k=3, category="general")
-                if rag_results:
-                    rag_block = "\n\n### RELEVANT KNOWLEDGE & MEMORIES\n"
-                    from utils.core.rag_utils import get_node_text
-                    for node in rag_results:
-                        content = get_node_text(node)
-                        if content:
-                            sanitized = _sanitize_rag_content(content)
-                            rag_block += f"- {sanitized[:800].replace(chr(10), ' ')}...\n"
-                    system_prompt += rag_block
         except Exception as rag_err:
-            log_warning(f"Failed to inject RAG context: {rag_err}")
+            log_warning(f"Failed to perform quip cross-synthesis RAG: {rag_err}")
         # --- RAG INTEGRATION END ---
 
         # Length Decision: Always aim for substantive length
