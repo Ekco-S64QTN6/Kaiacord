@@ -191,9 +191,10 @@ async def on_ready():
             task_registry.register(f"prewarm_{config.chat_model}", _load_task)
             def _on_prewarm_done(t):
                 if not t.cancelled() and t.exception():
-                    log_warning(f"Pre-warm of {config.chat_model} failed: {t.exception()}. Scheduling reload...")
+                    exc = t.exception()
+                    log_warning(f"Pre-warm of {config.chat_model} failed: {type(exc).__name__}: {exc}. Scheduling reload...")
                     async def _reload():
-                        await asyncio.sleep(3.0)
+                        await asyncio.sleep(30.0)  # was 3.0 — wait for RAG embedding storm to clear
                         try:
                             await ctx.ollama_client.generate(
                                 model=config.chat_model,
@@ -203,10 +204,10 @@ async def on_ready():
                             )
                             log_success(f"[Phase 1] Recovery reload of {config.chat_model} succeeded.")
                         except Exception as e:
-                            log_error(f"[Phase 1] Recovery reload failed: {e}")
-                    asyncio.get_event_loop().call_soon_threadsafe(
-                        lambda: asyncio.create_task(_reload())
-                    )
+                            log_error(f"[Phase 1] Recovery reload failed: {type(e).__name__}: {e}")
+                    
+                    loop = asyncio.get_event_loop()
+                    loop.call_soon(lambda: asyncio.ensure_future(_reload()))
             _load_task.add_done_callback(_on_prewarm_done)
             
             # Poll Ollama's process list to confirm the chat model is actually resident in VRAM
