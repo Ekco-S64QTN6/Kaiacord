@@ -129,10 +129,9 @@ VOICE AND FORMAT RULES (always apply regardless of dream type):
                 "stop": ["User:", "Kaia:"]
             })
             
-            # CRITICAL FIX: Wrap the sync ollama call in an async function...
+            # CRITICAL FIX: Use async client directly for proper cancellation
             async def _run_dream_chat():
-                return await asyncio.to_thread(
-                    ollama.chat,
+                return await self.ollama_client.chat(
                     model=self.chat_model,
                     messages=[{"role": "user", "content": full_prompt}],
                     options=options,
@@ -151,7 +150,7 @@ VOICE AND FORMAT RULES (always apply regardless of dream type):
             
             return response['message']['content'].strip()
         except Exception as e:
-            log_error(f"In-depth dream reflection generation failed: {e}")
+            log_error(f"In-depth dream reflection generation failed: {type(e).__name__}: {e}")
             return None
 
 
@@ -462,10 +461,11 @@ TODAY'S CONVERSATIONS:
             options.update({"temperature": 0.8, "num_predict": 300, "stop": ["User:", "Kaia:"]})
             
             async def _run_reflection_chat():
-                return await asyncio.to_thread(
-                    ollama.chat, model=self.chat_model,
+                return await self.ollama_client.chat(
+                    model=self.chat_model,
                     messages=[{"role": "user", "content": full_prompt}],
-                    options=options, keep_alive=-1
+                    options=options,
+                    keep_alive=-1
                 )
 
             response = await gpu_memory_manager.run_with_gpu_guard(
@@ -480,7 +480,7 @@ TODAY'S CONVERSATIONS:
                 self._update_continuity(new_reflection=reflection_text, source_label="Evening Reflection")
                 log_success("Evening reflection completed and added to continuity.")
         except Exception as e:
-            log_error(f"Evening reflection failed: {e}")
+            log_error(f"Evening reflection failed: {type(e).__name__}: {e}")
 
     def scan_knowledge_base(self, min_days: int = 2) -> Dict[str, List[Path]]:
         """Scan KB for files older than min_days, grouped by category.

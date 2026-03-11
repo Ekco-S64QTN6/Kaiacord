@@ -106,6 +106,12 @@ class CoreTaskManager:
             if start_hour <= now.hour <= end_hour:
                 if getattr(self.ctx.bot_state, 'is_generating', False): return
 
+                # ADD THIS: minimum 5 minutes after boot before first reflection
+                boot_time = getattr(self.ctx.bot_state, 'boot_complete_time', 0)
+                time_since_boot = time.time() - boot_time
+                if not self.ctx.bot_state.boot_complete or time_since_boot < 300:
+                    return
+
                 last_reflection = getattr(self.ctx.bot_state, 'last_evening_reflection', "")
                 today = now.strftime('%Y-%m-%d')
                 
@@ -117,11 +123,11 @@ class CoreTaskManager:
                         self.ctx.bot_state.last_evening_reflection = today
                         self.ctx.bot_state.save()
                     except Exception as e:
-                        log_error(f"Evening reflection task failed: {e}")
+                        log_error(f"Evening reflection task failed: {type(e).__name__}: {e}")
 
         @evening_reflection_task.error
         async def evening_reflection_error(error):
-            log_error(f"Evening reflection task died: {error}")
+            log_error(f"Evening reflection task died: {type(error).__name__}: {error}")
             
         return evening_reflection_task
 

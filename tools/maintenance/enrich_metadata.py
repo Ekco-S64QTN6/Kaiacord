@@ -229,11 +229,15 @@ async def main_async():
     parser.add_argument("--dry-run", action="store_true", help="Print changes without saving.")
     parser.add_argument("--category", choices=['all', 'knowledge', 'logs'], default='all', help="Specific category to enrich.")
     parser.add_argument("--dir", default="./knowledge_base", help="Path to knowledge base root.")
+    parser.add_argument("--limit", type=int, default=50, help="Max files to process per run (default 50).")
     args = parser.parse_args()
     
     log_action(f"Starting Metadata Enrichment (Dry Run: {args.dry_run}, Category: {args.category})")
     
     files = gather_files(args.dir, args.category)
+    if len(files) > args.limit:
+        log_info(f"Capped to {args.limit} files (use --limit N for more)")
+        files = files[:args.limit]
     log_info(f"Found {len(files)} total markdown files matching criteria.")
     
     stats = {'skipped': 0, 'enriched': 0, 'failed': 0}
@@ -246,7 +250,13 @@ async def main_async():
             
     print(" " * 80, end='\r') # clear loading line
     
-    # Final Summary
+    # Final Summary (using plain print for reliable Discord handler parsing)
+    print("--- ENRICHMENT COMPLETED ---")
+    print(f"Enriched: {stats['enriched']}")
+    print(f"Skipped:  {stats['skipped']} (already enriched or too short)")
+    if stats['failed'] > 0:
+        print(f"Failed:   {stats['failed']}")
+
     log_action("--- ENRICHMENT COMPLETED ---")
     log_success(f"Enriched: {stats['enriched']}")
     log_info(f"Skipped:  {stats['skipped']} (Already enriched or too short)")
