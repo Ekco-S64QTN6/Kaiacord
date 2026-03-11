@@ -337,6 +337,17 @@ class RAGQueryMixin:
             if not include_news and (source_type == 'news' or "news" in file_path.lower()): continue
             if source_type == 'user_profile' and (not (is_social_identity or strict_identity) or (node_user_id and node_user_id not in relevant_ids)): continue
             
+            if source_type == 'user_logs' and file_path:
+                try:
+                    path_normalized = file_path.replace('\\', '/')
+                    if '/user_logs/' in path_normalized:
+                        user_dir = path_normalized.split('/user_logs/')[1].split('/')[0]
+                        if not any(str(rid) in user_dir for rid in relevant_ids):
+                            log_warning(f"RAG isolation: discarded log node from foreign user path: {file_path}")
+                            continue
+                except Exception as e:
+                    log_warning(f"RAG isolation: path parse failed for node, allowing through: {file_path} — {e}")
+
             # Fix 1: Differentiate "user-scoped" vs "topic-scoped" log retrieval
             if source_type == 'user_logs' and node_user_id:
                 # For identity/personal queries: strict — only current user's logs

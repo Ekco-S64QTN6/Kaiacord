@@ -11,6 +11,8 @@ psutil==7.2.1
 rich==14.2.0
 google-genai>=1.0.0
 python-box==7.2.0
+Pillow>=10.2.0
+
 
 # LlamaIndex RAG (Ollama-based)
 llama-index-core==0.14.12

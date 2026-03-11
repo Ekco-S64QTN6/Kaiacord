@@ -234,6 +234,14 @@ class IntentParser:
                 r"\b(give me a summary|brief on|overview of)\b",
                 r"\b(recap (the|this)? (thread|conversation|chat))\b"
             ],
+            "RECAP_QUERY": [
+                r"what happened in the last \d+ (hours?|days?)",
+                r"recap the past \d+ (hours?|days?)",
+                r"elaborate on the past \d+ (hours?|days?)",
+                r"summarize (recent|the last|today's)?\s*(interactions?|conversations?|chat|activity)",
+                r"what have you been doing",
+                r"recall the last \d+"
+            ],
             "SYNTHESIS_SCAN": [
                 r"\b(headlines|current events|happening today|latest on)\b",
                 r"^\s*(kaia\s+)?(what's the|any) news\b",

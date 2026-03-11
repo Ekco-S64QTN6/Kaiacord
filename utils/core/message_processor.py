@@ -537,13 +537,20 @@ class MessageProcessor:
                 limit=10
             ))
         else:
+            retrieval_top_k = self.config.rag_top_k
+            strict_identity_flag = (ctx.category in ["identity", "self", "whoami", "entity"])
+
+            if ctx.intent and ctx.intent.suggested_strategy == "RECAP_QUERY":
+                retrieval_top_k = 5
+                strict_identity_flag = True
+                
             tasks['rag'] = asyncio.create_task(self.run_rag(
                 self.rag.retrieve, 
                 clean_query, 
                 user_id=target_user_id, 
                 user_name=target_user_name, 
-                top_k=self.config.rag_top_k,
-                strict_identity=(ctx.category in ["identity", "self", "whoami", "entity"]),
+                top_k=retrieval_top_k,
+                strict_identity=strict_identity_flag,
                 include_news=False,
                 category=ctx.category,
                 intent=ctx.intent
@@ -688,11 +695,19 @@ class MessageProcessor:
 
             images = []
             for att in ctx.message.attachments:
-                if any(getattr(att, 'filename', '').lower().endswith(ext) for ext in ['.png', '.jpg', '.jpeg', '.gif', '.webp']):
+                filename = getattr(att, 'filename', '').lower()
+                if any(filename.endswith(ext) for ext in ['.png', '.jpg', '.jpeg', '.gif', '.webp']):
                     try:
+                        is_gif = filename.endswith('.gif')
                         log_debug(f"Fetching image attachment for inline vision: {att.url}")
-                        b64 = await self._fetch_image_as_base64(att.url)
-                        images.append(b64)
+                        b64 = await self._fetch_image_as_base64(att.url, is_gif=is_gif)
+                        if b64:
+                            images.append(b64)
+                        if is_gif:
+                            try:
+                                await ctx.message.channel.send("*(Viewing first frame of GIF)*")
+                            except Exception:
+                                pass
                     except Exception as e:
                         log_warning(f"Failed to fetch image {getattr(att, 'filename', 'unknown')} for inline vision: {e}")
             
@@ -755,7 +770,21 @@ class MessageProcessor:
             "CRITICAL: Any timestamps in conversation history are outdated. Do not repeat the CURRENT_TIME string in your response."
         )
 
+        recap_constraint_block = ""
+        if ctx.intent and ctx.intent.suggested_strategy == "RECAP_QUERY":
+            recap_constraint_block = (
+                "RECALL CONSTRAINT — ACTIVE\n"
+                "You have been asked to recall recent events or interactions.\n"
+                "You MUST only reference events that appear explicitly in your retrieved RAG context nodes.\n"
+                "If the RAG context is sparse or empty for the requested time window, say so plainly.\n"
+                "Do NOT reconstruct or infer conversations that are not in your retrieved nodes.\n"
+                "A correct response when nodes are sparse is: \"i don't have clear records for that window. the logs i can actually see are from [date of most recent node].\"\n"
+                "Do NOT generate plausible-sounding summaries from your base knowledge. That is a hallucination.\n"
+                "END RECALL CONSTRAINT\n\n"
+            )
+
         full_system_prompt = (
+            f"{recap_constraint_block}"
             f"{system_prompt}\n\n"
             f"{rag_block}"
             f"{metadata_block}"
@@ -977,7 +1006,7 @@ class MessageProcessor:
         
         await send_kaia_response(channel, clean_text)
 
-    async def _fetch_image_as_base64(self, url: str) -> str:
+    async def _fetch_image_as_base64(self, url: str, is_gif: bool = False) -> str:
         """Fetch an image from a URL and return as a base64 string for inline multimodal vision."""
         timeout_seconds = self.config.url_fetch_timeout
         try:
@@ -986,6 +1015,23 @@ class MessageProcessor:
                     async with session.get(url, timeout=aiohttp.ClientTimeout(total=timeout_seconds)) as resp:
                         if resp.status == 200:
                             data = await resp.read()
+
+                            # GIFs: extract first frame and convert to PNG
+                            if is_gif:
+                                try:
+                                    from PIL import Image
+                                    import io
+                                    gif = Image.open(io.BytesIO(data))
+                                    gif.seek(0)  # first frame
+                                    frame = gif.convert("RGBA")
+                                    buf = io.BytesIO()
+                                    frame.save(buf, format="PNG")
+                                    data = buf.getvalue()
+                                    log_info("GIF detected — extracted first frame as PNG for vision processing.")
+                                except Exception as gif_err:
+                                    log_warning(f"GIF frame extraction failed: {gif_err}. Skipping attachment.")
+                                    return ""
+
                             return base64.b64encode(data).decode('utf-8')
                         else:
                             log_warning(f"Failed to fetch image: Status {resp.status} for {url}")
