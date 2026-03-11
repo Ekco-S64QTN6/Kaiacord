@@ -274,7 +274,7 @@ class OllamaGPUManager:
         try:
             from utils.infrastructure.system.yaml_config import config
             ctx_size = config.max_context_tokens
-            timeout = getattr(config, 'model_load_timeout', 60.0)
+            timeout = getattr(config, 'model_load_timeout', 300.0)
             
             log_info(f"🔄 Triggering GPU load for {self.model_name} (num_ctx: {ctx_size})...")
             log_info(f"⏳ Waiting up to {timeout}s for Ollama to allocate VRAM...")
