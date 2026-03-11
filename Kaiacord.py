@@ -225,7 +225,8 @@ async def on_ready():
                     last_log_time = current_time
 
                 try:
-                    _ps = await asyncio.to_thread(ollama.ps)
+                    # Defensive 10s timeout — prevents the boot loop from hanging if Ollama is deadlocked
+                    _ps = await asyncio.wait_for(asyncio.to_thread(ollama.ps), timeout=10.0)
                     _models = _ps.get("models") or [] if isinstance(_ps, dict) else getattr(_ps, 'models', [])
                     
                     if not _models:
@@ -305,7 +306,8 @@ async def on_ready():
                 while asyncio.get_running_loop().time() - retry_start < 120.0:
                     await asyncio.sleep(2.0)
                     try:
-                        _ps = await asyncio.to_thread(ollama.ps)
+                        # Defensive 10s timeout
+                        _ps = await asyncio.wait_for(asyncio.to_thread(ollama.ps), timeout=10.0)
                         _models = _ps.get("models") or [] if isinstance(_ps, dict) else getattr(_ps, 'models', [])
                         for m in _models:
                             name = getattr(m, 'name', m.get('name', '') if isinstance(m, dict) else '')
@@ -449,9 +451,17 @@ async def _phase3_background_init():
     bg_tasks.start_background_core_tasks(ctx)
     start_social_tasks(ctx, on_message)
 
-    if config.startup_news_update:
-        log_action("[Phase 3] Launching background news update …")
-        asyncio.create_task(run_news_update())
+    # 3f. Self-model hygiene check
+    try:
+        self_model_path = os.path.join("memory", "kaia_self_model.md")
+        if os.path.exists(self_model_path):
+            stale_days = (time.time() - os.path.getmtime(self_model_path)) / 86400
+            if stale_days > 7:
+                log_warning(f"[Phase 3] Self-model is stale ({stale_days:.1f} days old). Consider running !selfmodel.")
+        else:
+            log_warning("[Phase 3] Self-model missing. Consider running !selfmodel.")
+    except Exception as e:
+        log_error(f"[Phase 3] Self-model check error: {e}")
 
     log_success("[Phase 3] All background systems online. Kaia fully operational.")
 
