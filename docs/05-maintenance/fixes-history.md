@@ -449,3 +449,56 @@ All filters now implement a **critical safety net**: if cleaning/filtering would
 - `utils/core/kaia_rag.py` - OllamaEmbedding constructor fix
 - `utils/core/knowledge_boundary.py` - Minor regex fix
 - All documentation files - Context window and feature corrections
+---
+
+### 26. Phase 32: Logic Hardiness ✅
+**Problem**: Regression in `RECAP_QUERY` logic and stale unit test patterns.
+**Solution**:
+- Fixed `RECAP_QUERY` time window extraction and routing.
+- Rewrote `test_hallucination.py` to import and use live production patterns.
+- Initialized Coherence EMA to `0.5` to prevent early-boot corruption.
+
+**Files**: `utils/core/message_processor.py`, `tools/tests/unit/test_hallucination.py`
+
+---
+
+### 27. Phase 33: Filesystem Compatibility ✅
+**Problem**: Case-sensitivity issues on Linux for lore entities causing load failures.
+**Solution**:
+- Normalized "Books" to "books" across lore scanning and knowledge boundary.
+- Standardized entity path resolution for Linux/ext4 compatibility.
+
+**Files**: `utils/core/kaia_dream.py`, `utils/core/knowledge_boundary.py`
+
+---
+
+### 28. Phase 34: Resource Optimization ✅
+**Problem**: Excessive disk I/O for identity files and unpersisted social state.
+**Solution**:
+- Implemented 5-minute TTL cache for identity files (`kaia_self_model.md`, `kaia_constitution.md`).
+- Integrated forum rate limit timestamps into `BotState` for persistence.
+
+**Files**: `utils/core/message_processor.py`, `utils/infrastructure/system/bot_state.py`
+
+---
+
+### 29. Phase 35: Review Fixes ✅
+**Problem**: RAG indexing errors and silent crashes in social logic.
+**Solution**:
+- Fixed RAG lock attribute error in reindexing handler.
+- Added `None` guards for context type in social response generator.
+- Updated `MASTER_REPORT.md` with `!reindex --full` guide for manifest cleaning.
+
+**Files**: `utils/core/reindex_handler.py`, `utils/social/social_response_generator.py`
+
+---
+
+### 30. Phase 36: Audit Remediation ✅
+**Problem**: High-priority audit items remained documented but unaddressed since Phase 32.
+**Solution**:
+- Added `return_exceptions=True` to `asyncio.gather` in RAG pipeline.
+- Hardened Phase 1 initialization with task-completion fallback for Ollama `ps()`.
+- Standardized `url_fetch_timeout` (15s) and `max_tokens` (1024) fallbacks.
+- Purged dead `embedding_semaphore`.
+
+**Files**: `utils/core/message_processor.py`, `Kaiacord.py`, `utils/infrastructure/system/yaml_config.py`

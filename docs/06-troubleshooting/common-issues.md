@@ -174,9 +174,9 @@ python Kaiacord.py
 # 1. Find contamination
 python tools/recovery/find_contamination.py
 
-# 2. Surgical fix
-python tools/recovery/proper_fix.py --dry-run  # Preview
-python tools/recovery/proper_fix.py             # Execute
+# 2. Manually inspect and edit or remove the affected file in knowledge_base/
+# Then trigger a reindex:
+python tools/maintenance/force_reindex.py
 
 # 3. If persistent, nuclear option:
 python tools/recovery/nuclear_reset.py --dry-run  # Preview

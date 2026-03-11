@@ -10,7 +10,7 @@ Maintenance, diagnostic, and recovery utilities for Kaiacord v2.0.
 | `health_check.py` | Maintenance | System health validation |
 | `nuclear_reset.py` | Recovery | **Complete system purge** ⚠️ |
 | `find_contamination.py` | Recovery | Find hallucinated content |
-| `proper_fix.py` | Recovery | Surgical hallucination removal |
+| `find_contamination.py` | Recovery | Find hallucinated content |
 | `scan_knowledge_base.py` | Diagnostics | Scan knowledge base |
 | `diag_rag_index.py` | Diagnostics | RAG index diagnostics |
 | `diagnose_embeddings.py` | Diagnostics | Embedding pipeline diagnostics |
@@ -155,19 +155,26 @@ python tools/recovery/find_contamination.py
 python tools/recovery/find_contamination.py --dir knowledge_base/user_logs
 ```
 
-Scans for known hallucination patterns across logs and knowledge base.
+Scans knowledge base and user logs for known hallucination patterns.
 
-### proper_fix.py
-**Surgical hallucination removal**
+
+### rebuild_rag_cpu.py
+**Full RAG rebuild (CPU)**
 
 ```bash
-python tools/recovery/proper_fix.py
-
-# Preview changes
-python tools/recovery/proper_fix.py --dry-run
+python tools/rebuild_rag_cpu.py --clear
 ```
 
-Removes specific hallucination patterns without affecting real data.
+Performs a full rebuild of the RAG indices using CPU-based embedding. Complement to the GPU version.
+
+### ingest_manual_news.py
+**Manual news ingestion**
+
+```bash
+python tools/maintenance/ingest_manual_news.py path/to/brief.md
+```
+
+Manually ingest a news brief into the RAG system for immediate indexing.
 
 ### generate_user_profiles.py
 **Generate user profiles**
@@ -249,7 +256,7 @@ python tools/diagnostics/scan_knowledge_base.py
 python tools/recovery/find_contamination.py
 
 # 2. Targeted fix
-- **[proper_fix.py](file:///home/ekco/github/Kaiacord/tools/recovery/proper_fix.py)**: [ARCHIVED] Historical reference for the Phase 28/29 "duplicate method" fix. Do not run.
+- **[find_contamination.py](file:///home/ekco/github/Kaiacord/tools/recovery/find_contamination.py)**: Use this to locate issues, then manually edit files.
 
 # 3. If still issues, nuclear option
 python tools/recovery/nuclear_reset.py --dry-run  # Preview

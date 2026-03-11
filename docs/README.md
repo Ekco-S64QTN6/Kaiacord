@@ -28,14 +28,14 @@ Welcome to the Kaiacord documentation! Organized by topic for easy navigation.
 ### 💻 [04 - Development](04-development/)
 - [Testing Guide](04-development/testing.md)
 
-### 🔒 [04 - Security](04-security/)
+### 🔒 [05 - Security](04-security/)
 - [X/twikit Credentials & Risk Notice](04-security/x-twikit-credentials.md)
 
-### 🔧 [05 - Maintenance](05-maintenance/)
+### 🔧 [06 - Maintenance](05-maintenance/)
 - [Procedures](05-maintenance/procedures.md)
 - [Fixes History](05-maintenance/fixes-history.md)
 
-### 🛠️ [06 - Troubleshooting](06-troubleshooting/)
+### 🛠️ [07 - Troubleshooting](06-troubleshooting/)
 - [Common Issues](06-troubleshooting/common-issues.md)
 
 ### 📊 [Reports & Planning](reports/README.md)
