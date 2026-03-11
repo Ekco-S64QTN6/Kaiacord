@@ -45,7 +45,7 @@ async def handle_reindex_command(ctx, msg, send_kaia_response):
 
         if full_wipe:
             # Clear the manifest so _find_changed_files() treats everything as new
-            with rag._data_lock:
+            with rag._lock:
                 before_count = len(rag.indexed_files)
                 rag.indexed_files = {}
                 rag._file_to_nodes = {}

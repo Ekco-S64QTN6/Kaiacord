@@ -156,7 +156,7 @@ VOICE AND FORMAT RULES (always apply regardless of dream type):
 
     async def scan_knowledge_base_fast(self, min_days: int = 2) -> Dict[str, List[Path]]:
         """Scan KB using RAG manifest (O(k)) instead of recursive walk."""
-        target_folders = ["Books", "news", "user_logs", "documents"]
+        target_folders = ["books", "news", "user_logs", "documents"]
         categorized_files = {k: [] for k in target_folders}
         cutoff_time = time.time() - (min_days * 86400)
         
@@ -299,7 +299,7 @@ VOICE AND FORMAT RULES (always apply regardless of dream type):
         
         # B. General Content Quota (Populate rest from books, news, docs, older logs)
         other_files = list(older_logs)
-        for cat in ['Books', 'news', 'documents']:
+        for cat in ['books', 'news', 'documents']:
             other_files.extend(categorized_files.get(cat, []))
             
         remaining_slots = dreams_per_scan - len(sample_files)
@@ -486,7 +486,7 @@ TODAY'S CONVERSATIONS:
         """Scan KB for files older than min_days, grouped by category.
         Falls back to more recent files if none found with the min_days threshold.
         """
-        target_folders = ["Books", "news", "user_logs", "documents"]
+        target_folders = ["books", "news", "user_logs", "documents"]
         categorized_files = {k: [] for k in target_folders}
         cutoff_time = time.time() - (min_days * 86400)
         
@@ -596,7 +596,7 @@ TODAY'S CONVERSATIONS:
 
     def _classify_source(self, path: Path) -> str:
         parts = path.parts
-        if "Books" in parts: return "book"
+        if "books" in parts: return "book"
         if "news" in parts: return "news"
         if "user_logs" in parts: return "log"
         return "document"

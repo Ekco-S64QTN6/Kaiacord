@@ -491,10 +491,7 @@ class RAGQueryMixin:
             query_lower = query.lower()
             routing = self._route_retrieval_strategy(category, query_lower, intent)
             
-            # RECAP_QUERY: restrict retrieval to prevent hallucination fodder
-            if routing.get("strategy") == "RECAP_QUERY":
-                top_k = min(top_k, 5)
-                strict_identity = True
+            
 
             if routing["strategy"] == "SUMMARIZATION":
                 results = self._get_summarization_nodes(query_lower)
@@ -653,6 +650,7 @@ class RAGQueryMixin:
         Search for specific recent events in the logs.
         Similar to get_recent_highlights but targeted with a query.
         """
+        self._last_retrieval_confidence = 0.5 # Prevent EMA corruption if no nodes found
         if not self.indices or 'logs' not in self.indices:
             return []
             

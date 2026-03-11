@@ -44,8 +44,12 @@ async def handle_selfmodel_command(ctx, msg, send_kaia_response):
                 content = content[content.find('-->')+3:].strip()
                 
             preview = content[:300] + ("..." if len(content) > 300 else "")
+            # Invalidate the identity cache in message_processor to pick up new model
+            if hasattr(ctx, 'message_processor'):
+                ctx.message_processor._identity_cache_time = 0.0
+                
             await send_kaia_response(msg.channel, f"Self-model updated successfully.\n\n**Preview:**\n{preview}")
-            log_info("Self-model regenerated successfully.")
+            log_info("Self-model regenerated successfully (and cache invalidated).")
         else:
             await send_kaia_response(msg.channel, "Self-model script completed, but output file was not found.")
             log_error("Self-model output file missing after script completion.")

@@ -94,22 +94,23 @@ async def forum_scrape_task():
                 
                 # Rate limit: check min_hours_between_posts
                 min_hours = config.get('forum.min_hours_between_posts', 4)
-                last_reply_time = getattr(bot_state, f'forum_last_reply_{thread_id}', 0)
+                last_reply_time = bot_state.forum_reply_times.get(str(thread_id), 0)
                 import time
                 if time.time() - last_reply_time < min_hours * 3600:
                     continue
                 
                 # Generate and post reply
-                from Kaiacord import process_external_mention
+                from utils.infrastructure.system.external_mention import process_external_mention
                 log_action(f"Triggering forum auto-reply for thread {thread_id} to user {poster}")
                 response = await process_external_mention(
+                    ctx=bot_state.ctx, # Assuming bot_state has ctx or we need another way to get it
                     content=post_text, author_name=poster,
                     author_id=poster, platform="forum"
                 )
                 if response:
                     success = await client.post_reply(thread_id, response)
                     if success:
-                        setattr(bot_state, f'forum_last_reply_{thread_id}', time.time())
+                        bot_state.forum_reply_times[str(thread_id)] = time.time()
                         bot_state.save()
 
         # Trigger RAG reindex ONLY if content changed

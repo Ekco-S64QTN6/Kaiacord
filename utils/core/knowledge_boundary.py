@@ -69,7 +69,7 @@ class KnowledgeBoundary:
         # 2. Scan Knowledge Subdirectories (Books, News, Technical, etc.)
         from pathlib import Path
         subdirs = [
-            "Books", "news", "deep_dive_reports", "blogs", "forum_posts", 
+            "books", "news", "deep_dive_reports", "blogs", "forum_posts", 
             "forum_posts/technical", "technical", "infrastructure", "security_research"
         ]
         for subdir in subdirs:

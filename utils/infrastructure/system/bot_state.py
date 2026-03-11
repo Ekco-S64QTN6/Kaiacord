@@ -38,6 +38,7 @@ class BotState:
         self.mentioned_files: Deque[str] = deque(maxlen=20) # Path of files mentioned
         self.is_generating: bool = False     # Transient: True while LLM is generating a user response
         self.first_chat_done: bool = False   # Transient: True after first successful LLM response
+        self.last_evening_reflection: str = ""  # YYYY-MM-DD, persisted
 
         # Kaia mood state — 3 floats, all 0.0–1.0, persisted across restarts.
         # Used to inject a single context line into the system prompt.
@@ -51,6 +52,7 @@ class BotState:
         # Curiosity injection: tracks when we last sent a follow-up prompt per user
         # Format: { "user_id_str": unix_timestamp_float }
         self.curiosity_last_sent: dict = {}
+        self.forum_reply_times: dict = {}  # {thread_id_str: float timestamp}
 
         self.load()
 
@@ -71,6 +73,8 @@ class BotState:
                         self.kaia_coherence = float(state.get('kaia_coherence', 0.85))
                         self.kaia_dream_freshness = float(state.get('kaia_dream_freshness', 1.0))
                         self.curiosity_last_sent = state.get('curiosity_last_sent', {})
+                        self.last_evening_reflection = state.get('last_evening_reflection', "")
+                        self.forum_reply_times = state.get('forum_reply_times', {})
                         
                         # boot_complete is TRANSIENT - do not load from disk
                         self.boot_complete = False
@@ -123,6 +127,8 @@ class BotState:
                     'kaia_coherence': self.kaia_coherence,
                     'kaia_dream_freshness': self.kaia_dream_freshness,
                     'curiosity_last_sent': self.curiosity_last_sent,
+                    'last_evening_reflection': self.last_evening_reflection,
+                    'forum_reply_times': self.forum_reply_times,
                     # boot_complete is TRANSIENT - do not save to disk
                     'mentioned_files': list(self.mentioned_files),
                     # Explicitly cast int keys to str for JSON serialisation (JSON keys must be strings).

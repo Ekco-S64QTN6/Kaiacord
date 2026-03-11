@@ -54,6 +54,20 @@ def _is_observational_query(text: str) -> bool:
             return True
     return False
 
+# ── Recap Time Window Extraction ─────────────────────────────────────────
+_RECAP_HOURS_PATTERN = re.compile(
+    r'(\d+)\s*(hour|hr|day)', re.IGNORECASE
+)
+
+def _extract_recap_hours(text: str) -> int:
+    """Extract time window from a recap query. Returns hours as int, defaults to 24."""
+    m = _RECAP_HOURS_PATTERN.search(text)
+    if not m:
+        return 24
+    n = int(m.group(1))
+    unit = m.group(2).lower()
+    return n * 24 if unit.startswith('day') else n
+
 class MessageProcessor:
     """
     Modular message processor that decomposes the complex on_message logic.
@@ -78,6 +92,11 @@ class MessageProcessor:
         self.relevance_feedback = relevance_feedback
         self.news_enhancer = news_enhancer
         self.rag_enhancer = rag_enhancer
+        
+        # Identity Cache (self-model, constitution)
+        self._identity_cache = {}
+        self._identity_cache_time = 0.0
+        self._IDENTITY_CACHE_TTL = 300.0 # 5 minutes
         self.news_manager = ctx.news_manager
         self.dream_engine = ctx.dream_engine
     
@@ -527,23 +546,21 @@ class MessageProcessor:
         tasks['traits'] = asyncio.create_task(self.personalization_engine.get_user_traits(ctx.author_id))
 
         is_observational = _is_observational_query(ctx.sanitized_content)
-        
-        if is_observational:
-            log_info(f"Observational query detected, routing to search_recent_events/get_recent_highlights for {clean_query}")
+        is_recap = ctx.intent and ctx.intent.suggested_strategy == "RECAP_QUERY"
+
+        if is_observational or is_recap:
+            hours = _extract_recap_hours(ctx.sanitized_content) if is_recap else 24
+            log_info(f"{'RECAP' if is_recap else 'Observational'} query — routing to search_recent_events (hours={hours})")
             tasks['rag'] = asyncio.create_task(self.run_rag(
                 self.rag.search_recent_events,
                 clean_query,
-                hours=24,
+                hours=hours,
                 limit=10
             ))
         else:
             retrieval_top_k = self.config.rag_top_k
             strict_identity_flag = (ctx.category in ["identity", "self", "whoami", "entity"])
 
-            if ctx.intent and ctx.intent.suggested_strategy == "RECAP_QUERY":
-                retrieval_top_k = 5
-                strict_identity_flag = True
-                
             tasks['rag'] = asyncio.create_task(self.run_rag(
                 self.rag.retrieve, 
                 clean_query, 
@@ -613,44 +630,33 @@ class MessageProcessor:
         # Adaptation
         ctx.system_prompt = self.personalization_engine.adapt_prompt(ctx.system_prompt, ctx.user_traits)
 
-        # Inject self-model at top of system prompt if available
-        # memory/kaia_self_model.md is Kaia's own synthesized identity across time.
-        # It takes precedence over generic persona — it's not who she is, it's who she's been.
-        try:
-            import os
-            self_model_path = os.path.join("memory", "kaia_self_model.md")
-            if os.path.exists(self_model_path):
-                with open(self_model_path, 'r', encoding='utf-8') as _smf:
-                    self_model_content = _smf.read().strip()
-                # Strip the generation comment header if present
-                if self_model_content.startswith('<!--'):
-                    self_model_content = self_model_content[self_model_content.find('-->')+3:].strip()
-                if self_model_content:
-                    ctx.system_prompt = (
-                        f"[SELF-MODEL — who i've been lately, my own words]\n"
-                        f"{self_model_content}\n\n"
-                        f"[PERSONA — core identity]\n"
-                        f"{ctx.system_prompt}"
-                    )
-                    log_debug(f"Self-model injected ({len(self_model_content)} chars)")
-        except Exception as _sme:
-            log_debug(f"Self-model injection skipped: {_sme}")
+        # 2. Dynamic Identity Injection (Self-Model & Constitution)
+        # memory/kaia_self_model.md and memory/kaia_constitution.md are stable documents
+        # that we cache with a TTL to avoid redundant I/O.
+        now = time.time()
+        if self._identity_cache_time + self._IDENTITY_CACHE_TTL < now or not self._identity_cache:
+            self._update_identity_cache()
+            self._identity_cache_time = now
 
-        # Inject constitution after self-model (read once at startup, stable document)
-        try:
-            constitution_path = os.path.join("memory", "kaia_constitution.md")
-            if os.path.exists(constitution_path):
-                with open(constitution_path, 'r', encoding='utf-8') as _cf:
-                    constitution_content = _cf.read().strip()
-                if constitution_content:
-                    ctx.system_prompt = (
-                        f"[CONSTITUTION — how i operate, in my own words]\n"
-                        f"{constitution_content}\n\n"
-                        f"{ctx.system_prompt}"
-                    )
-                    log_debug(f"Constitution injected ({len(constitution_content)} chars)")
-        except Exception as _ce:
-            log_debug(f"Constitution injection skipped: {_ce}")
+        # Inject constitution (how she operates)
+        constitution_content = self._identity_cache.get("constitution", "")
+        if constitution_content:
+            ctx.system_prompt = (
+                f"[CONSTITUTION — how i operate, in my own words]\n"
+                f"{constitution_content}\n\n"
+                f"{ctx.system_prompt}"
+            )
+            log_debug(f"Constitution injected from cache ({len(constitution_content)} chars)")
+
+        # Inject self-model (who she's been lately)
+        self_model_content = self._identity_cache.get("self_model", "")
+        if self_model_content:
+            ctx.system_prompt = (
+                f"[SELF-MODEL — who i've been lately, my own words]\n"
+                f"{self_model_content}\n\n"
+                f"{ctx.system_prompt}"
+            )
+            log_debug(f"Self-model injected from cache ({len(self_model_content)} chars)")
 
         # Diversification
         if is_news_query:
@@ -1057,4 +1063,37 @@ class MessageProcessor:
             return ""
         except Exception as e:
             log_error(f"Error fetching image: {e}")
+            return ""
+    def _update_identity_cache(self):
+        """Read and parse self-model and constitution from disk."""
+        self._identity_cache = {"self_model": "", "constitution": ""}
+        
+        # 1. Self-Model
+        self_model_path = os.path.join("memory", "kaia_self_model.md")
+        if os.path.exists(self_model_path):
+            try:
+                with open(self_model_path, 'r', encoding='utf-8') as f:
+                    content = f.read().strip()
+                # Strip generation header
+                if content.startswith('<!--'):
+                    content = content[content.find('-->')+3:].strip()
+                self._identity_cache["self_model"] = content
+            except Exception as e:
+                log_error(f"Cache update failed for self-model: {e}")
+
+        # 2. Constitution
+        constitution_path = os.path.join("memory", "kaia_constitution.md")
+        if os.path.exists(constitution_path):
+            try:
+                with open(constitution_path, 'r', encoding='utf-8') as f:
+                    self._identity_cache["constitution"] = f.read().strip()
+            except Exception as e:
+                log_error(f"Cache update failed for constitution: {e}")
+
+    def _read_file_safe(self, path: str) -> str:
+        try:
+            with open(path, "r", encoding="utf-8") as f:
+                return f.read().strip()
+        except Exception as e:
+            log_error(f"Error reading identity file {path}: {e}")
             return ""

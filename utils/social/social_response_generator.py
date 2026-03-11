@@ -512,7 +512,7 @@ async def generate_quip(ctx, is_manual=False, target_channel=None, on_message_fu
         if dreams and random.random() < 0.70:
             dream = random.choice(dreams)
             reflection_target = dream["text"]
-            context_type = _get_context_type_for_dream(dream)
+            context_type = _get_context_type_for_dream(dream) or ""
 
         elif memories:
             memory = random.choice(memories)
@@ -522,7 +522,7 @@ async def generate_quip(ctx, is_manual=False, target_channel=None, on_message_fu
             # Fallback for when memories are empty but dreams exist
             dream = random.choice(dreams)
             reflection_target = dream["text"]
-            context_type = _get_context_type_for_dream(dream)
+            context_type = _get_context_type_for_dream(dream) or ""
         
         # concrete fallbacks if target is too thin
         if not reflection_target or len(reflection_target) < 30:

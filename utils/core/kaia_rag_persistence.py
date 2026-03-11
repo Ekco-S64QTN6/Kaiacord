@@ -93,10 +93,15 @@ class RAGPersistenceMixin:
         # ECHO CHAMBER PROTECTION: Prevent self-logging of bots and reflections.
         # This stops the 'Kaia' user logs folder from poisoning the identity core.
         # EXCEPTION: If user_name is "Kaia-Autonomous", it means an autonomous quip we WANT logged.
+        _BOT_NAME_PREFIXES = ["Kaia", "KAIA", "Nexus", "System"]
+        
         bot_ids = [self._bot_user_id, "KAIA_SYSTEM", "KAIA_DREAM"]
         is_autonomous = user_name == "Kaia-Autonomous"
         
-        if not is_autonomous and (str(user_id) in [str(bid) for bid in bot_ids if bid] or user_name == "Kaia"):
+        if not is_autonomous and (
+            str(user_id) in [str(bid) for bid in bot_ids if bid] or 
+            any(user_name.startswith(p) for p in _BOT_NAME_PREFIXES)
+        ):
             log_debug(f"Skipping log_user_interaction for bot identity: {user_name} ({user_id})")
             return True
 
