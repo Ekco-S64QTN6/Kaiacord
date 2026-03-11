@@ -47,7 +47,7 @@ timeouts:
 performance:
   max_consecutive_quips: 5
   idle_quip_timeout_minutes: 160
-  max_context_tokens: 8192
+  max_context_tokens: 10240
   url_max_content_length: 8000
   rag_scoring:
     type_boosts:

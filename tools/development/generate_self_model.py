@@ -185,6 +185,7 @@ STRICT RULES:
 - 400–600 words total
 - end with a single sentence: what you're most curious about right now.
 - no roleplay, no atmosphere, no asterisks
+- use actual usernames from the logs. do not abbreviate, anonymize, or use initials.
 """
 
 

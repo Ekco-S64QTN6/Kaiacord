@@ -636,6 +636,22 @@ class MessageProcessor:
         except Exception as _sme:
             log_debug(f"Self-model injection skipped: {_sme}")
 
+        # Inject constitution after self-model (read once at startup, stable document)
+        try:
+            constitution_path = os.path.join("memory", "kaia_constitution.md")
+            if os.path.exists(constitution_path):
+                with open(constitution_path, 'r', encoding='utf-8') as _cf:
+                    constitution_content = _cf.read().strip()
+                if constitution_content:
+                    ctx.system_prompt = (
+                        f"[CONSTITUTION — how i operate, in my own words]\n"
+                        f"{constitution_content}\n\n"
+                        f"{ctx.system_prompt}"
+                    )
+                    log_debug(f"Constitution injected ({len(constitution_content)} chars)")
+        except Exception as _ce:
+            log_debug(f"Constitution injection skipped: {_ce}")
+
         # Diversification
         if is_news_query:
             log_info(f"Applying news diversification to {ctx.category} query results")
