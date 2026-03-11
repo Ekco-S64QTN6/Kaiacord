@@ -490,6 +490,12 @@ class RAGQueryMixin:
         try:
             query_lower = query.lower()
             routing = self._route_retrieval_strategy(category, query_lower, intent)
+            
+            # RECAP_QUERY: restrict retrieval to prevent hallucination fodder
+            if routing.get("strategy") == "RECAP_QUERY":
+                top_k = min(top_k, 5)
+                strict_identity = True
+
             if routing["strategy"] == "SUMMARIZATION":
                 results = self._get_summarization_nodes(query_lower)
                 if results: return results
