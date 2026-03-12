@@ -239,14 +239,19 @@ menu_system() {
             info "Starting Kaiacord.py..."
             mkdir -p logs
             if [[ "$MODE" == "2" ]]; then
+                # No-GUI: safe to background since it doesn't need a TTY
                 nohup $PYTHON Kaiacord.py --no-gui > logs/kaiacord_startup.log 2>&1 &
+                ok "Started (PID $!). Tailing logs/kaiacord_startup.log for 10s..."
+                sleep 10
+                tail -20 logs/kaiacord_startup.log 2>/dev/null || true
+                pause
             else
-                nohup $PYTHON Kaiacord.py > logs/kaiacord_startup.log 2>&1 &
+                # Curses TUI: needs a real terminal — exec replaces this shell
+                # so the bot inherits the TTY. kaia-tools exits when the bot does.
+                info "Launching curses dashboard (this menu will close)..."
+                sleep 1
+                exec $PYTHON Kaiacord.py
             fi
-            ok "Started (PID $!). Tailing logs/kaiacord_startup.log for 10s..."
-            sleep 10
-            tail -20 logs/kaiacord_startup.log 2>/dev/null || true
-            pause
             ;;
         6)
             if ! bot_running; then
@@ -265,11 +270,21 @@ menu_system() {
                     pkill -f "Kaiacord.py" && ok "Stopped." || warn "Could not stop cleanly."
                     sleep 3
                 fi
+                MODE=$(whiptail --title "Restart Bot" --menu "Choose mode:" 10 50 2 \
+                    "1" "Curses dashboard (default)" \
+                    "2" "No GUI (simple mode)" \
+                    3>&1 1>&2 2>&3) || continue
                 info "Starting bot..."
                 mkdir -p logs
-                nohup $PYTHON Kaiacord.py > logs/kaiacord_startup.log 2>&1 &
-                ok "Started (PID $!). Check logs/kaiacord_startup.log"
-                pause
+                if [[ "$MODE" == "2" ]]; then
+                    nohup $PYTHON Kaiacord.py --no-gui > logs/kaiacord_startup.log 2>&1 &
+                    ok "Started (PID $!). Check logs/kaiacord_startup.log"
+                    pause
+                else
+                    info "Launching curses dashboard (this menu will close)..."
+                    sleep 1
+                    exec $PYTHON Kaiacord.py
+                fi
             fi
             ;;
         8)

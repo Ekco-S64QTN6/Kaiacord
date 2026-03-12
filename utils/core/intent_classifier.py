@@ -469,11 +469,13 @@ class IntentParser:
             # 2. Pull if missing
             if not model_exists:
                 log_action(f"📥 Pulling {self.classification_model} — this may take a few minutes...")
-                # We use the direct client to avoid any wrapper overhead during pull
-                async for progress in await self.ollama_client.pull(model=self.classification_model, stream=True):
+                async for progress in self.ollama_client.pull(model=self.classification_model, stream=True):
                     if hasattr(progress, 'status'):
-                        # Log significant milestones only to avoid spam
                         status = progress.status
+                        if "downloading" not in status.lower() or "100%" in status:
+                             log_info(f"  [Pull] {status}")
+                    elif isinstance(progress, dict) and 'status' in progress:
+                        status = progress['status']
                         if "downloading" not in status.lower() or "100%" in status:
                              log_info(f"  [Pull] {status}")
                 log_success(f"✅ Successfully pulled {self.classification_model}")
@@ -501,7 +503,7 @@ class IntentParser:
             log_success(f"IntentParser model {self.classification_model} warmed ({'GPU' if self.use_gpu_for_classification else 'CPU'}).")
         except Exception as e:
             import traceback
-            log_error(f"IntentParser pre-warm failed: {e}")
+            log_error(f"IntentParser pre-warm failed: {type(e).__name__}: {e}")
             log_debug(f"IntentParser Pre-warm Traceback:\n{traceback.format_exc()}")
 
 # Legacy Alias for Refactor Compatibility

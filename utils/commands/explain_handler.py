@@ -7,6 +7,7 @@ Knowledge Source Provenance Display
 """
 
 import os
+import time
 from datetime import datetime
 from utils.infrastructure.logging.kaia_logger import log_info
 
@@ -27,56 +28,18 @@ async def handle_explain_command(ctx, msg, send_kaia_response):
         )
         return
 
-    # Show top 5 contributing sources
-    top_results = results[:5]
-    lines = [
-        f"PROVENANCE — {len(results)} total source(s) used",
-        "—" * 40,
-    ]
+    # --- Pre-resolve summary values ---
 
-    for i, node in enumerate(top_results, 1):
-        metadata = node.get("metadata", {})
-        score = node.get("score", 0.0)
-        label = node.get("label", "Unknown")
-        file_path = metadata.get("file_path", "")
-        source_type = metadata.get("source_type", "unknown")
-        audit_flags = metadata.get("audit_flags", [])
-        retrieval_method = metadata.get("retrieval_method", "unknown")
-
-        # File info
-        basename = os.path.basename(file_path) if file_path else "unknown"
-
-        # Try to get file modification date
-        mod_date = "unknown"
-        if file_path and os.path.exists(file_path):
-            try:
-                mtime = os.path.getmtime(file_path)
-                mod_date = datetime.fromtimestamp(mtime).strftime("%Y-%m-%d")
-            except Exception:
-                pass
-
-        # Format flags
-        flags_str = ""
-        if audit_flags:
-            flags_str = f"\n     Flags: {', '.join(audit_flags)}"
-
-        # Content preview
-        content = node.get("content", "")
-        preview = content[:100].replace("\n", " ") + ("..." if len(content) > 100 else "")
-
-        lines.append(
-            f"\n#{i} [{label}]  score={score:.3f} [{retrieval_method.upper()}]\n"
-            f"   Source: {basename} ({source_type})\n"
-            f"   Modified: {mod_date}"
-            f"{flags_str}\n"
-            f"   Preview: {preview}"
-        )
-
-    # Confidence summary
-    import time
     confidence = getattr(rag, '_last_retrieval_confidence', 0.0)
-    node_count = getattr(rag, '_last_retrieval_node_count', 0)
-    
+
+    # Confidence label
+    if confidence >= 0.75:
+        conf_label = "high"
+    elif confidence >= 0.45:
+        conf_label = "moderate"
+    else:
+        conf_label = "low"
+
     # Recency stats (newest/oldest)
     all_dates = []
     for node in results:
@@ -84,32 +47,50 @@ async def handle_explain_command(ctx, msg, send_kaia_response):
         if fpath and os.path.exists(fpath):
             try: all_dates.append(os.path.getmtime(fpath))
             except: pass
-    
-    recency_info = "Recency: unknown"
+
+    recency_info = "unknown"
     if all_dates:
         newest = datetime.fromtimestamp(max(all_dates)).strftime("%Y-%m-%d")
         oldest = datetime.fromtimestamp(min(all_dates)).strftime("%Y-%m-%d")
-        recency_info = f"Recency: {oldest} to {newest}"
-    
-    # Confidence label
-    if confidence >= 0.75:
-        conf_label = "high — memory well-grounded for this query"
-    elif confidence >= 0.45:
-        conf_label = "moderate — some relevant context found"
-    else:
-        conf_label = "low — weak retrieval, response may lack grounding"
-    
-    lines.append(f"\n{'—' * 40}")
-    lines.append(f"Confidence: {confidence:.2f} ({conf_label})")
-    lines.append(f"Nodes retrieved: {node_count} | {recency_info}")
-    
-    # Self-model info
+        recency_info = f"{oldest} → {newest}"
+
+    # Self-model status
     self_model_path = os.path.join("memory", "kaia_self_model.md")
     if os.path.exists(self_model_path):
         sm_age = (time.time() - os.path.getmtime(self_model_path)) / 86400
-        lines.append(f"Self-model: active (last generated {sm_age:.0f} days ago)")
+        sm_status = f"active ({sm_age:.0f}d ago)"
     else:
-        lines.append("Self-model: not active (generate with !selfmodel)")
+        sm_status = "inactive"
+
+    # --- Build output ---
+
+    # Show top 8 sources instead of 5
+    top_results = results[:8]
+
+    lines = [
+        f"```",
+        f"📚 PROVENANCE  {len(results)} nodes retrieved  |  Confidence: {confidence:.2f} ({conf_label})",
+        f"{'─' * 56}",
+    ]
+
+    for i, node in enumerate(top_results, 1):
+        metadata = node.get("metadata", {})
+        score    = node.get("score", 0.0)
+        label    = node.get("label", "Unknown")
+        source_type       = metadata.get("source_type", "unknown")
+        retrieval_method  = metadata.get("retrieval_method", "unknown")
+        audit_flags       = metadata.get("audit_flags", [])
+        file_path         = metadata.get("file_path", "")
+        basename          = os.path.basename(file_path) if file_path else "unknown"
+
+        flag_str = f"  ⚑ {', '.join(audit_flags)}" if audit_flags else ""
+        lines.append(f" #{i:<2} {score:.3f} [{retrieval_method.upper():<6}]  {basename}  [{source_type}]{flag_str}")
+
+    lines += [
+        f"{'─' * 56}",
+        f"Range: {recency_info}  |  Self-model: {sm_status}",
+        f"```",
+    ]
 
     await send_kaia_response(msg.channel, "\n".join(lines))
     log_info(f"Provenance display shown for {msg.author.name}")
