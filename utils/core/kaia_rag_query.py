@@ -337,13 +337,13 @@ class RAGQueryMixin:
             if not include_news and (source_type == 'news' or "news" in file_path.lower()): continue
             if source_type == 'user_profile' and (not (is_social_identity or strict_identity) or (node_user_id and node_user_id not in relevant_ids)): continue
             
-            if source_type == 'user_logs' and file_path:
+            if source_type == 'user_logs' and file_path and (strict_identity or is_social_identity):
                 try:
                     path_normalized = file_path.replace('\\', '/')
                     if '/user_logs/' in path_normalized:
                         user_dir = path_normalized.split('/user_logs/')[1].split('/')[0]
                         if not any(str(rid) in user_dir for rid in relevant_ids):
-                            log_warning(f"RAG isolation: discarded log node from foreign user path: {file_path}")
+                            log_debug(f"RAG isolation (strict): skipping foreign user path: {file_path}")
                             continue
                 except Exception as e:
                     log_warning(f"RAG isolation: path parse failed for node, allowing through: {file_path} — {e}")
@@ -585,23 +585,36 @@ class RAGQueryMixin:
             
             recent_nodes = []
             for node in all_nodes:
-                ts_val = node.metadata.get('timestamp')
-                if ts_val:
-                    if isinstance(ts_val, str):
+                ts = 0
+                # Try metadata fields in priority order: explicit timestamp, file mtime, filename date
+                for field in ('timestamp', 'last_modified_at', 'mtime'):
+                    ts_val = node.metadata.get(field)
+                    if ts_val:
+                        if isinstance(ts_val, (int, float)):
+                            ts = float(ts_val)
+                        elif isinstance(ts_val, str):
+                            try:
+                                if "_" in ts_val and len(ts_val) == 15:
+                                    ts = datetime.strptime(ts_val, "%Y%m%d_%H%M%S").timestamp()
+                                else:
+                                    ts = datetime.fromisoformat(ts_val).timestamp()
+                            except Exception:
+                                pass
+                        if ts > 0:
+                            break  # Found a valid timestamp, stop trying
+
+                # Last resort: extract date from file_path (e.g. interactions_20260311.md)
+                if ts == 0:
+                    file_path = node.metadata.get('file_path', '')
+                    m = re.search(r'(\d{8})', os.path.basename(file_path))
+                    if m:
                         try:
-                            # Try custom format first, then ISO
-                            if "_" in ts_val and len(ts_val) == 15:
-                                dt = datetime.strptime(ts_val, "%Y%m%d_%H%M%S")
-                                ts = dt.timestamp()
-                            else:
-                                ts = datetime.fromisoformat(ts_val).timestamp()
+                            ts = datetime.strptime(m.group(1), "%Y%m%d").timestamp()
                         except Exception:
-                            ts = 0
-                    else:
-                        ts = ts_val
-                        
-                    if ts > cutoff:
-                        recent_nodes.append(node)
+                            pass
+
+                if ts > cutoff:
+                    recent_nodes.append(node)
             
             if not recent_nodes:
                 return []
@@ -661,20 +674,34 @@ class RAGQueryMixin:
             
             recent_nodes = []
             for node in all_nodes:
-                ts_val = node.metadata.get('timestamp')
                 ts = 0
-                if ts_val:
-                    if isinstance(ts_val, str):
+                # Try metadata fields in priority order: explicit timestamp, file mtime, filename date
+                for field in ('timestamp', 'last_modified_at', 'mtime'):
+                    ts_val = node.metadata.get(field)
+                    if ts_val:
+                        if isinstance(ts_val, (int, float)):
+                            ts = float(ts_val)
+                        elif isinstance(ts_val, str):
+                            try:
+                                if "_" in ts_val and len(ts_val) == 15:
+                                    ts = datetime.strptime(ts_val, "%Y%m%d_%H%M%S").timestamp()
+                                else:
+                                    ts = datetime.fromisoformat(ts_val).timestamp()
+                            except Exception:
+                                pass
+                        if ts > 0:
+                            break  # Found a valid timestamp, stop trying
+
+                # Last resort: extract date from file_path (e.g. interactions_20260311.md)
+                if ts == 0:
+                    file_path = node.metadata.get('file_path', '')
+                    m = re.search(r'(\d{8})', os.path.basename(file_path))
+                    if m:
                         try:
-                            if "_" in ts_val and len(ts_val) == 15:
-                                dt = datetime.strptime(ts_val, "%Y%m%d_%H%M%S")
-                                ts = dt.timestamp()
-                            else:
-                                ts = datetime.fromisoformat(ts_val).timestamp()
-                        except Exception: pass
-                    else:
-                        ts = ts_val
-                
+                            ts = datetime.strptime(m.group(1), "%Y%m%d").timestamp()
+                        except Exception:
+                            pass
+
                 if ts > cutoff:
                     recent_nodes.append(node)
             
@@ -698,6 +725,20 @@ class RAGQueryMixin:
             self._last_retrieval_node_count = len(scored_events)
 
             scored_events.sort(key=lambda x: x[0], reverse=True)
+
+            # Expose results for !explain (convert plain strings to the dict format explain_handler expects)
+            self._last_retrieval_results = [
+                {
+                    "content": text,
+                    "metadata": {"source_type": "user_logs", "file_path": ""},
+                    "label": "Recent Log",
+                    "score": 0.5,
+                }
+                for _, text in scored_events[:10]
+            ]
+            self._last_retrieval_confidence = 0.5
+            self._last_retrieval_node_count = len(scored_events)
+
             return [text for score, text in scored_events[:limit]]
             
         except Exception as e:

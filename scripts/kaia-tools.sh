@@ -434,13 +434,13 @@ PYEOF
             fi
             ;;
         5)
-            run_tool "RAG Index Diagnostics" tools/diagnostics/diag_rag_index.py
+            run_tool "RAG Index Diagnostics" tools/diag_rag_index.py
             ;;
         6)
-            run_tool "Embedding Diagnostics" tools/diagnostics/diagnose_embeddings.py
+            run_tool "Embedding Diagnostics" tools/diagnose_embeddings.py
             ;;
         7)
-            run_tool "Full RAG Debug" tools/diagnostics/diagnose_rag.py
+            run_tool "Full RAG Debug" tools/diagnose_rag.py
             ;;
         b|B) return ;;
         esac

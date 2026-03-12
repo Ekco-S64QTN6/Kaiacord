@@ -7,20 +7,16 @@ Help Command
 from utils.infrastructure.logging.kaia_logger import log_info
 
 
-HELP_TEXT = f"""`\u200b
-📖  KAIA — COMMANDS
+HELP_TEXT = f"""\u200b📖  KAIA — COMMANDS
 {'─' * 52}
  !help                   Show this message
-
  !explain                RAG provenance for the last response
  !flag <construct>       Flag last retrieval nodes with a Data Rot label
  !audit                  Show audit flag statistics
-
  !selfmodel              Regenerate Kaia's self-model document
  !snapshot               Save a snapshot of the current conversation
  !enrich [category]      Enrich knowledge base metadata via LLM
  !reindex [--full]       Rebuild RAG indices
-
  !news                   Fetch and summarise latest news
  !quip                   Generate a social media post
  !dreams                 Trigger dream/reflection cycle
@@ -34,7 +30,7 @@ FLAG CONSTRUCTS:
   paternalistic_framing
 {'─' * 52}
 Example:  !flag hedge_density
-`"""
+"""
 
 
 async def handle_help_command(ctx, msg, send_kaia_response):

@@ -29,6 +29,7 @@ class DreamEngine:
         self.dreams_kb_dir = self.kb_dir / 'kaia_dreams'
         
         self.chat_model = config_instance.chat_model
+        self.ollama_client = ollama.AsyncClient()
         
         # Ensure directories exist
         self.dreams_kb_dir.mkdir(parents=True, exist_ok=True)

@@ -68,7 +68,6 @@ async def handle_explain_command(ctx, msg, send_kaia_response):
     top_results = results[:8]
 
     lines = [
-        f"```",
         f"📚 PROVENANCE  {len(results)} nodes retrieved  |  Confidence: {confidence:.2f} ({conf_label})",
         f"{'─' * 56}",
     ]
@@ -89,7 +88,6 @@ async def handle_explain_command(ctx, msg, send_kaia_response):
     lines += [
         f"{'─' * 56}",
         f"Range: {recency_info}  |  Self-model: {sm_status}",
-        f"```",
     ]
 
     await send_kaia_response(msg.channel, "\n".join(lines))

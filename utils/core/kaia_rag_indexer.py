@@ -45,18 +45,20 @@ class RAGIndexerMixin:
         """Worker thread: Pre-load NLTK data without redundant network calls."""
         try:
             import nltk
-            from nltk.corpus import stopwords
+            from nltk.corpus import stopwords, words as nltk_words
             # Only download if not already present — avoids network checks at startup
             for resource, path in [
                 ('stopwords', 'corpora/stopwords'),
                 ('punkt', 'tokenizers/punkt'),
                 ('punkt_tab', 'tokenizers/punkt_tab'),
+                ('words', 'corpora/words'),          # Prevents lazy-load thread bug in SentenceSplitter
             ]:
                 try:
                     nltk.data.find(path)
                 except LookupError:
                     nltk.download(resource, quiet=True)
             stopwords.ensure_loaded()
+            nltk_words.ensure_loaded()               # Force eager load — NLTK lazy loader is not thread-safe
         except Exception as e:
             log_warning(f"NLTK pre-load failed: {e}")
 
@@ -589,9 +591,18 @@ class RAGIndexerMixin:
             else:
                 return self._index_regular_file(file_path, abs_path, itype)
         except Exception as e:
+            # NLTK lazy-corpus thread bug — not a corrupt file.
+            # Occurs when SentenceSplitter hits a corpus that wasn't pre-loaded.
+            if 'WordListCorpusReader' in str(e) or 'LazyCorpusLoader' in str(e):
+                log_warning(f"NLTK lazy-load error indexing {file_path} — skipping this cycle (not corrupt): {e}")
+                return False   # Skip, don't quarantine, will retry next refresh
+
             # Bug 2 Fix: Handle transient Ollama server-busy errors (400) or loading state
             if "status code: 400" in str(e) or "loading model" in str(e).lower():
                 log_warning(f"Ollama server busy while indexing {file_path}. Skipping for this cycle: {e}")
+                return False
+
+            if 'skipping' in str(e).lower():
                 return False
                 
             log_error(f"Failed to load file {file_path}: {e}")
@@ -636,6 +647,7 @@ class RAGIndexerMixin:
             'file_offset': last_offset,
             'content_length': len(new_content),
             'last_modified_at': mtime,
+            'timestamp': mtime,
             'itype': itype
         })
         self._apply_priority_metadata(doc, itype, file_path)
@@ -682,7 +694,7 @@ class RAGIndexerMixin:
         
         processed_nodes_batch = []
         for doc in docs:
-            doc.metadata.update({'last_modified_at': mtime, 'file_path': abs_path, 'itype': itype})
+            doc.metadata.update({'last_modified_at': mtime, 'timestamp': mtime, 'file_path': abs_path, 'itype': itype})
             self._apply_priority_metadata(doc, itype, file_path)
             if itype == 'persona': doc.metadata['user_id'] = "KAIA_SYSTEM"
             
