@@ -317,11 +317,12 @@ class MessageProcessor:
         
         if fast_intent:
             ctx.intent = fast_intent
+            ctx.fast_intent_strategy = fast_intent.suggested_strategy
             ctx.category = self._derive_legacy_category(fast_intent)
             log_info(f"Fast-path intent: {fast_intent.suggested_strategy} ({ctx.category})")
             
-            # If high confidence command/greeting, we might skip full analysis
-            if fast_intent.confidence > 0.9 and fast_intent.suggested_strategy in ["SOCIAL_GREETING", "COMMAND_EXECUTION"]:
+            # If high confidence command/greeting/recap, skip full analysis
+            if fast_intent.confidence > 0.9 and fast_intent.suggested_strategy in ["SOCIAL_GREETING", "COMMAND_EXECUTION", "RECAP_QUERY"]:
                 return
 
         # 2. Start Logic Analysis (Layer 2)
@@ -547,10 +548,11 @@ class MessageProcessor:
         tasks['traits'] = asyncio.create_task(self.personalization_engine.get_user_traits(ctx.author_id))
 
         is_observational = _is_observational_query(ctx.sanitized_content)
-        is_recap = ctx.intent and ctx.intent.suggested_strategy == "RECAP_QUERY"
+        is_recap = ctx.fast_intent_strategy == "RECAP_QUERY"
 
         if is_observational or is_recap:
             hours = _extract_recap_hours(ctx.sanitized_content) if is_recap else 24
+            log_info(f"RECAP routing confirmed — strategy={ctx.fast_intent_strategy}")
             log_info(f"{'RECAP' if is_recap else 'Observational'} query — routing to search_recent_events (hours={hours})")
             tasks['rag'] = asyncio.create_task(self.run_rag(
                 self.rag.search_recent_events,
@@ -639,17 +641,7 @@ class MessageProcessor:
             self._update_identity_cache()
             self._identity_cache_time = now
 
-        # Inject constitution (how she operates)
-        constitution_content = self._identity_cache.get("constitution", "")
-        if constitution_content:
-            ctx.system_prompt = (
-                f"[CONSTITUTION — how i operate, in my own words]\n"
-                f"{constitution_content}\n\n"
-                f"{ctx.system_prompt}"
-            )
-            log_debug(f"Constitution injected from cache ({len(constitution_content)} chars)")
-
-        # Inject self-model (who she's been lately)
+        # Inject self-model FIRST (prepends — will be second after constitution prepends on top)
         self_model_content = self._identity_cache.get("self_model", "")
         if self_model_content:
             ctx.system_prompt = (
@@ -658,6 +650,16 @@ class MessageProcessor:
                 f"{ctx.system_prompt}"
             )
             log_debug(f"Self-model injected from cache ({len(self_model_content)} chars)")
+
+        # Inject constitution SECOND (prepends on top — ends up first in final prompt)
+        constitution_content = self._identity_cache.get("constitution", "")
+        if constitution_content:
+            ctx.system_prompt = (
+                f"[CONSTITUTION — how i operate, in my own words]\n"
+                f"{constitution_content}\n\n"
+                f"{ctx.system_prompt}"
+            )
+            log_debug(f"Constitution injected from cache ({len(constitution_content)} chars)")
 
         # Diversification
         if is_news_query:

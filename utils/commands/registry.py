@@ -11,6 +11,7 @@ from utils.commands.explain_handler import handle_explain_command
 from utils.commands.selfmodel_handler import handle_selfmodel_command
 from utils.commands.enrich_handler import handle_enrich_command
 from utils.commands.reindex_handler import handle_reindex_command
+from utils.commands.art_handler import handle_art_command
 
 async def dispatch_command(ctx, msg, load_persona_async, send_kaia_response):
     """Route commands to the appropriate handler"""
@@ -71,5 +72,9 @@ async def dispatch_command(ctx, msg, load_persona_async, send_kaia_response):
     if content.startswith("!reindex"):
         await handle_reindex_command(ctx, msg, send_kaia_response)
         return True
-        
+
+    if content.startswith("!art"):
+        await handle_art_command(ctx, msg, send_kaia_response)
+        return True
+
     return False

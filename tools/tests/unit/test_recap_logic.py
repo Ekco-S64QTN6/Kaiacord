@@ -69,12 +69,12 @@ async def test_setup_retrieval_tasks_recap_routing(mock_load_persona, mock_creat
         is_social=False,
         is_mention=True
     )
-    message_ctx.intent = MagicMock()
-    message_ctx.intent.suggested_strategy = "RECAP_QUERY"
+    message_ctx.fast_intent_strategy = "RECAP_QUERY"
     message_ctx.category = "general"
     
     await processor._setup_retrieval_tasks(message_ctx)
     
     # Check log_info for correct routing and hour extraction
     log_calls = [call.args[0] for call in mock_log_info.call_args_list]
+    assert any("RECAP routing confirmed — strategy=RECAP_QUERY" in s for s in log_calls)
     assert any("RECAP query — routing to search_recent_events (hours=5)" in s for s in log_calls)

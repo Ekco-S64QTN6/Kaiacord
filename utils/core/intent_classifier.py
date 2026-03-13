@@ -229,18 +229,23 @@ class IntentParser:
                 r"\b(logs?|status|restart|boot|system|debug)\b",
                 r"\b(why is it slow|latency|lag|responsive|hang|lockup)\b"
             ],
+            "RECAP_QUERY": [
+                r"recap\b.*\b\d+\s*(hours?|days?|minutes?)",
+                r"what happened.{0,15}\blast\s+\d+\s*(hours?|days?)",
+                r"elaborate on the (past|last) \d+ (hours?|days?)",
+                r"summarize (recent|the last|today'?s?)?\s*(interactions?|conversations?|chat|activity)",
+                r"what have you been (doing|up to)",
+                r"recall the last \d+",
+                r"\b(get|give)\s+(me\s+)?a\s+recap\b",
+                r"\brecap (the|this)?\s*(thread|conversation|chat|channel)\b",
+                r"what('s| has| have) been (going on|happening)",
+                r"what did (i|we|you|people|everyone) (miss|talk about)",
+                r"catch me up",
+                r"what'?s been said",
+            ],
             "SUMMARIZATION": [
                 r"^\s*(kaia\s+)?(summarize|summary of|digest|tl;?dr)\b",
-                r"\b(give me a summary|brief on|overview of)\b",
-                r"\b(recap (the|this)? (thread|conversation|chat))\b"
-            ],
-            "RECAP_QUERY": [
-                r"what happened in the last \d+ (hours?|days?)",
-                r"recap the past \d+ (hours?|days?)",
-                r"elaborate on the past \d+ (hours?|days?)",
-                r"summarize (recent|the last|today's)?\s*(interactions?|conversations?|chat|activity)",
-                r"what have you been doing",
-                r"recall the last \d+"
+                r"\b(give me a summary|brief on|overview of)\b"
             ],
             "SYNTHESIS_SCAN": [
                 r"\b(headlines|current events|happening today|latest on)\b",

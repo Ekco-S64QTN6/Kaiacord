@@ -98,7 +98,7 @@ class RAGPersistenceMixin:
         bot_ids = [self._bot_user_id, "KAIA_SYSTEM", "KAIA_DREAM"]
         is_autonomous = user_name == "Kaia-Autonomous"
         
-        if not is_autonomous and (
+        if (
             str(user_id) in [str(bid) for bid in bot_ids if bid] or 
             any(user_name.startswith(p) for p in _BOT_NAME_PREFIXES)
         ):

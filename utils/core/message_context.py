@@ -15,6 +15,7 @@ class MessageContext:
     root_context: Optional[str] = None
     parent_context: Optional[str] = None
     intent: Optional[Intent] = None
+    fast_intent_strategy: Optional[str] = None  # Stashed from fast-path, immune to async overwrite
     history: List[Dict[str, str]] = field(default_factory=list)
     
     # Retrieval & Intelligence
