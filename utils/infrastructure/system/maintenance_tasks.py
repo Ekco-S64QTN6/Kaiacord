@@ -83,7 +83,7 @@ async def memory_audit_task():
             log_debug(f"Memory Audit: RSS {rss_mb:.1f} MB")
         
         # Memory cleanup thresholds (in MB)
-        NORMAL_THRESHOLD_MB = 12000
+        NORMAL_THRESHOLD_MB = getattr(ctx.config, 'memory_critical_threshold_mb', 12000)
         
         if rss_mb > NORMAL_THRESHOLD_MB:
             from utils.infrastructure.logging.kaia_logger import log_critical

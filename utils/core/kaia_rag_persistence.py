@@ -87,7 +87,7 @@ class RAGPersistenceMixin:
         """
         # GUARD: Bot identity not yet initialized (on_ready hasn't fired)
         if self._bot_user_id is None:
-            log_debug(f"Skipping log_user_interaction: bot_user_id not yet initialized")
+            log_info(f"Skipping log_user_interaction: bot_user_id not yet initialized")
             return True
 
         # ECHO CHAMBER PROTECTION: Prevent self-logging of bots and reflections.
@@ -105,8 +105,9 @@ class RAGPersistenceMixin:
             log_debug(f"Skipping log_user_interaction for bot identity: {user_name} ({user_id})")
             return True
 
-        # Acquire lock unconditionally to ensure we write to disk. 
-        # Persistence is more important than non-blocking here.
+        # Compute paths and state inside the lock. 
+        # Persistence I/O is done outside to prevent blocking.
+        file_io_args = None
         with self._data_lock:
             # 1. CANONICAL IDENTITY RESOLUTION
             # Check if this ID is linked to another (e.g. Forum <-> Discord)
@@ -209,12 +210,28 @@ class RAGPersistenceMixin:
                 # IF new file, offset is length of header (since we write header then interaction)
                 file_offset = os.path.getsize(interaction_log_path) if not is_new_file else len(header_text)
                 
-                with open(interaction_log_path, "a", encoding="utf-8", errors="replace") as f:
-                    if is_new_file:
-                        f.write(header_text)
-                    f.write(interaction_text)
+                file_io_args = {
+                    "path": interaction_log_path,
+                    "is_new": is_new_file,
+                    "header": header_text,
+                    "text": interaction_text,
+                    "user_name": user_name
+                }
                 
-                log_success(f"Logged interaction for {user_name} (Disk Only)")
+            except Exception as e:
+                log_error(f"Error preparing interaction log state: {e}")
+                traceback.print_exc()
+                return False
+
+        # 3. DO FILE I/O OUTSIDE THE LOCK
+        if file_io_args:
+            try:
+                with open(file_io_args["path"], "a", encoding="utf-8", errors="replace") as f:
+                    if file_io_args["is_new"]:
+                        f.write(file_io_args["header"])
+                    f.write(file_io_args["text"])
+                
+                log_success(f"Logged interaction for {file_io_args['user_name']} (Disk Only)")
                 
                 # OPTIMIZATION: Defer indexing to the periodic refresh cycle.
                 # Doing insert_nodes() here triggers synchronous GPU embedding generation,
@@ -225,11 +242,11 @@ class RAGPersistenceMixin:
                 # self.indices['logs'].insert_nodes(nodes) 
                 
                 return True
-
             except Exception as e:
-                log_error(f"Error logging user interaction: {e}")
+                log_error(f"Error logging user interaction to disk: {e}")
                 traceback.print_exc()
                 return False
+        return False
 
     @thread_safe_rag_operation
     async def detect_hallucination(self, bot_response: str, context_text: Optional[str] = None) -> Dict[str, Any]:

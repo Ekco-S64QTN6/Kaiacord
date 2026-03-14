@@ -47,8 +47,10 @@ async def handle_reindex_command(ctx, msg, send_kaia_response):
             # Clear the manifest so _find_changed_files() treats everything as new
             with rag._data_lock:
                 before_count = len(rag.indexed_files)
-                rag.indexed_files = {}
-                rag._file_to_nodes = {}
+                rag.indexed_files.clear()
+                file_nodes = getattr(rag, '_file_to_nodes', None)
+                if file_nodes is not None:
+                    file_nodes.clear()
             log_info(f"Manifest cleared ({before_count} entries wiped). Starting full re-index...")
 
         # Capture manifest size before refresh for delta reporting

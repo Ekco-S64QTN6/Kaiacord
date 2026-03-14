@@ -30,7 +30,12 @@ class CircuitBreaker:
 
     def can_proceed(self) -> bool:
         """Sync check if calls should be allowed through."""
-        with self._lock:
+        if not self._lock.acquire(blocking=False):
+            # If we can't acquire lock, the circuit breaker is busy (likely updating).
+            # We fail open (allow) to avoid blocking the event loop on telemetry state.
+            return True
+            
+        try:
             if self.state == CircuitState.CLOSED:
                 return True
             
@@ -47,29 +52,37 @@ class CircuitBreaker:
                 return True
                 
             return False
+        finally:
+            self._lock.release()
 
     def record_success(self) -> None:
         """Record a successful call — resets failure counter."""
-        with self._lock:
-            if self.state == CircuitState.HALF_OPEN:
-                log_info(f"[CIRCUIT BREAKER] {self.name} RECOVERED. Closing circuit.")
-            elif self.state == CircuitState.OPEN:
-                log_info(f"[CIRCUIT BREAKER] {self.name} manually recovered. Closing circuit.")
-            
-            self.state = CircuitState.CLOSED
-            self.failures = 0
-            self.last_failure_time = None
+        if self._lock.acquire(blocking=False):
+            try:
+                if self.state == CircuitState.HALF_OPEN:
+                    log_info(f"[CIRCUIT BREAKER] {self.name} RECOVERED. Closing circuit.")
+                elif self.state == CircuitState.OPEN:
+                    log_info(f"[CIRCUIT BREAKER] {self.name} manually recovered. Closing circuit.")
+                
+                self.state = CircuitState.CLOSED
+                self.failures = 0
+                self.last_failure_time = None
+            finally:
+                self._lock.release()
 
     def record_failure(self) -> None:
         """Record a failed call — opens the breaker after threshold."""
-        with self._lock:
-            self.failures += 1
-            self.last_failure_time = time.time()
-            
-            if self.failures >= self.failure_threshold:
-                if self.state != CircuitState.OPEN:
-                    log_error(f"[CIRCUIT BREAKER] {self.name} TRIPPED! Opening circuit for {self.recovery_timeout}s.")
-                    self.state = CircuitState.OPEN
+        if self._lock.acquire(blocking=False):
+            try:
+                self.failures += 1
+                self.last_failure_time = time.time()
+                
+                if self.failures >= self.failure_threshold:
+                    if self.state != CircuitState.OPEN:
+                        log_error(f"[CIRCUIT BREAKER] {self.name} TRIPPED! Opening circuit for {self.recovery_timeout}s.")
+                        self.state = CircuitState.OPEN
+            finally:
+                self._lock.release()
 
     async def call(self, func: Callable, *args, **kwargs) -> Any:
         """Async wrapper for unified usage."""

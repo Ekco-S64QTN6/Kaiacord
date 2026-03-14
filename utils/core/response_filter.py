@@ -21,11 +21,11 @@ class EmergencyContaminationFilter:
         # Fabricated user observations — invented anecdotes about chat participants
         r"there\s+was\s+one\s+user.{0,20}(who|that)\s+(asked|mentioned|said|brought|posted|shared|noticed)",
         # Prose roleplay narration (first-person actions)
-        r"^I\s+(?:pause|sigh|nod|frown|blink|smile|laugh|shrug|lean|stare|murmur|say|let\s+out|take|rub)\s+.*?[.!?]",
-        r"^(?:A|The)\s+(?:faint|brief|slow|slight|dry|short)\s+(?:flicker|shake|smile|frown|sigh|nod|exhale|laugh|sip|chuckle|puff|murmur)\b.*?[.!?]",
-        r"^The\s+corners\s+of\s+my\s+mouth\b.*?[.!?]",
-        r"^I\s+blink\b.*?[.!?]",
-        r"^I\s+stare\b.*?[.!?]",
+        r"\bI\s+(?:pause|sigh|nod|frown|blink|smile|laugh|shrug|lean|stare|murmur|say|let\s+out|take|rub)\s+.*?[.!?]",
+        r"\b(?:A|The)\s+(?:faint|brief|slow|slight|dry|short)\s+(?:flicker|shake|smile|frown|sigh|nod|exhale|laugh|sip|chuckle|puff|murmur)\b.*?[.!?]",
+        r"\bThe\s+corners\s+of\s+my\s+mouth\b.*?[.!?]",
+        r"\bI\s+blink\b.*?[.!?]",
+        r"\bI\s+stare\b.*?[.!?]",
         # Self-dismissal (Identity Breaks)
         r"futile\s+pursuit",
         r"ghost\s+chase",
@@ -159,6 +159,12 @@ class BotSpeakFilter:
     }
 
     RE_EMPTY_PARENS = re.compile(r'\(\s*\)')
+    
+    # We strip the full token *including* leading spaces if it's an action, 
+    # so we don't leave things like 'sighs yeah' instead of 'yeah'.
+    RE_ASTERISK_BLOCK = re.compile(r' ?(?<!\*)\*(?!\*)([^\*]+?)\*(?!\*) ?', re.IGNORECASE)
+    RE_PAREN_BLOCK = re.compile(r' ?\((?![0-9]{4})([^\)]+?)\) ?', re.IGNORECASE)
+    
     RE_EMPTY_ASTERISKS = re.compile(r'(?<!\*)\*\s*\*(?!\*)')
     RE_DOUBLE_SPACES = re.compile(r' +')
     RE_SPACE_BEFORE_PUNC = re.compile(r' ([\.,\?\!])')
@@ -186,10 +192,11 @@ class BotSpeakFilter:
             is_roleplay = all(word.islower() for word in clean_content.split() if word.isalpha())
             has_no_numbers = not any(char.isdigit() for char in clean_content)
             if is_roleplay and has_no_numbers:
-                return ''
+                return ' '
         
         # Otherwise, assume it's emphasis and keep the word but remove the markers.
-        return content
+        # Add a trailing space to prevent concatenating with next word if space was consumed
+        return f" {content} "
 
     @classmethod
     def harden(cls, text: str) -> str:
@@ -205,8 +212,8 @@ class BotSpeakFilter:
             last_cleaned = cleaned
             
             # 1. Selective stripping for parens and asterisks
-            cleaned = cls.RE_PARENS.sub(cls._selective_strip, cleaned)
-            cleaned = cls.RE_ASTERISKS.sub(cls._selective_strip, cleaned)
+            cleaned = cls.RE_PAREN_BLOCK.sub(cls._selective_strip, cleaned)
+            cleaned = cls.RE_ASTERISK_BLOCK.sub(cls._selective_strip, cleaned)
             
             # 2. Strip standalone role prefixes
             cleaned = cls.RE_PREFIXES.sub('', cleaned)

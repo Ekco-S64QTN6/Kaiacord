@@ -59,7 +59,7 @@ def sanitize_log_content(text: str) -> str:
     clean = re.sub(r'\[\s*[A-Z]{4,}\s*\]', '', clean)  # Or 4+ consecutive uppercase chars
     
     # Strip <think>...</think> reasoning blocks (defensive strip — no-op for current models)
-    clean = re.sub(r'<think>.*?</think>', '', clean, flags=re.DOTALL)
+    clean = re.sub(r'<think>.{0,5000}?</think>', '', clean, flags=re.DOTALL)
     clean = re.sub(r'</?think>', '', clean)  # Strip orphaned tags that weren't in complete pairs
     
     # Clean up resulting double spaces

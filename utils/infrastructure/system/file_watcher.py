@@ -48,16 +48,20 @@ class KnowledgeBaseWatcher(FileSystemEventHandler):
                     # Debounce: wait a bit for more changes
                     await asyncio.sleep(2)
                     # Clear any other pending changes for the same path
+                    drained = 0
                     while not self.queue.empty():
                         try:
                             self.queue.get_nowait()
                             self.queue.task_done()
+                            drained += 1
                         except (asyncio.QueueEmpty, RuntimeError): break
                     
                     if shutdown_manager.shutting_down:
                         break
 
                     log_action(f"Processing queued change: {path}")
+                    if drained > 0:
+                        log_debug(f"Debounced {drained} additional file events into single refresh.")
                     # Invalidate cache for this file
                     if self.cache_invalidator:
                         self.cache_invalidator.invalidate_for_file(path)

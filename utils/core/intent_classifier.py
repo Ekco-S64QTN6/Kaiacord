@@ -298,12 +298,14 @@ class IntentParser:
                 if compiled_re.search(query_lower):
                     log_debug(f"Fast-path trigger: {strategy}")
                     
+                    temporal_focus = "past_recent" if strategy == "RECAP_QUERY" else "present_immediate"
+                    
                     # Construct a basic Intent object from the trigger
                     return Intent(
                         explicit_intent=query,
                         implied_needs=["immediate_response"],
                         emotional_context="neutral",
-                        temporal_focus="present_immediate",
+                        temporal_focus=temporal_focus,
                         relational_context="direct_command" if "COMMAND" in strategy else "social_casual",
                         suggested_strategy=strategy,
                         confidence=1.0

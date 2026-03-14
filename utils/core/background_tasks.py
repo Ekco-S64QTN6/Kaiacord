@@ -78,6 +78,13 @@ class CoreTaskManager:
                         await self.ctx.dream_engine.nightly_dream_processing(persona_content)
                         
                         from utils.core.rag_executor import run_rag as run_rag_func
+                        
+                        # Wait for any in-progress refresh to clear, then ensure dream files are indexed
+                        for _ in range(6):  # up to 3 minutes
+                            if not getattr(self.ctx.rag, '_indexing_in_progress', False):
+                                break
+                            await asyncio.sleep(30)
+                            
                         await run_rag_func(self.ctx.rag.refresh_knowledge_base)
                         
                         self.ctx.bot_state.last_dream_date = today
@@ -148,7 +155,8 @@ class CoreTaskManager:
                 process = await asyncio.create_subprocess_exec(
                     sys.executable, script_path, "--skip-backfill", "--no-prompt",
                     stdout=asyncio.subprocess.PIPE,
-                    stderr=asyncio.subprocess.PIPE
+                    stderr=asyncio.subprocess.PIPE,
+                    env=os.environ.copy()
                 )
                 stdout, stderr = await process.communicate()
                 

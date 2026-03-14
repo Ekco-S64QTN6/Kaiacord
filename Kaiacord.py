@@ -151,6 +151,7 @@ from utils.infrastructure.system.external_mention import process_external_mentio
 async def on_ready():
     log_info(f"Discord gateway connected as {bot.user}.")
     # Object graph is already built (synchronous Phase 0). No waiting needed.
+    bot_state.boot_complete_time = time.time()
 
     if ctx.rag:
         ctx.rag._bot_user_id = bot.user.id

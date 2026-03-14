@@ -57,16 +57,21 @@ def _is_observational_query(text: str) -> bool:
 
 # ── Recap Time Window Extraction ─────────────────────────────────────────
 _RECAP_HOURS_PATTERN = re.compile(
-    r'(\d+)\s*(hour|hr|day)', re.IGNORECASE
+    r'(\d+)\s*(hour|hr|day|week)', re.IGNORECASE
 )
 
 def _extract_recap_hours(text: str) -> int:
     """Extract time window from a recap query. Returns hours as int, defaults to 24."""
     m = _RECAP_HOURS_PATTERN.search(text)
     if not m:
+        # Check for bare "week" with no number
+        if re.search(r'\bweek\b', text, re.IGNORECASE):
+            return 168
         return 24
     n = int(m.group(1))
     unit = m.group(2).lower()
+    if unit.startswith('week'):
+        return n * 168
     return n * 24 if unit.startswith('day') else n
 
 class MessageProcessor:
@@ -989,7 +994,8 @@ class MessageProcessor:
                      from collections import deque
                      self.bot_state.channel_memory[ctx.channel_id] = deque(maxlen=self.config.max_memory_messages)
                 
-                # BUG 1 FIX: Before writing to interaction log or memory, strip JSON wrapper if found
+                # Defensive strip: ctx.response_text should already be clean, but guard against
+                # future refactors that set it earlier in the pipeline.
                 bot_response = ctx.response_text
                 match = _JSON_WRAPPER_PATTERN.search(bot_response)
                 if match:
