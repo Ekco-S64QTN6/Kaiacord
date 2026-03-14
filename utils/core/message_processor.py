@@ -812,13 +812,15 @@ class MessageProcessor:
         recap_constraint_block = ""
         if ctx.intent and ctx.intent.suggested_strategy == "RECAP_QUERY":
             recap_constraint_block = (
-                "RECALL CONSTRAINT — ACTIVE\n"
+                "RECALL CONSTRAINT — ACTIVE. THIS IS A HARD RULE.\n"
                 "You have been asked to recall recent events or interactions.\n"
-                "You MUST only reference events that appear explicitly in your retrieved RAG context nodes.\n"
-                "If the RAG context is sparse or empty for the requested time window, say so plainly.\n"
-                "Do NOT reconstruct or infer conversations that are not in your retrieved nodes.\n"
-                "A correct response when nodes are sparse is: \"i don't have clear records for that window. the logs i can actually see are from [date of most recent node].\"\n"
-                "Do NOT generate plausible-sounding summaries from your base knowledge. That is a hallucination.\n"
+                "RULE 1: You MAY ONLY reference events whose EXACT TEXT appears in the RAG context nodes below.\n"
+                "RULE 2: If a topic is not in the nodes, you CANNOT mention it. Not as background. Not as context. Not as 'a recurring theme'.\n"
+                "RULE 3: Do NOT infer, extrapolate, or fill gaps with plausible-sounding content.\n"
+                "RULE 4: If the nodes are sparse, say so plainly and list only what you can actually see.\n"
+                "RULE 5: Fabricating summaries is a critical failure. It poisons memory. Do not do it.\n"
+                "A correct sparse response: \"the most recent thing i have logged is [exact content from node]. before that the records are thin.\"\n"
+                "A correct empty response: \"i don't have clear records for that window. the logs i can actually see are from [date of most recent node].\"\n"
                 "END RECALL CONSTRAINT\n\n"
             )
 

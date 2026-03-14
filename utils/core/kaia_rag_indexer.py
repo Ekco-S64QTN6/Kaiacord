@@ -38,8 +38,90 @@ from utils.infrastructure.logging.kaia_logger import (
 from utils.infrastructure.system.shutdown_fixed import shutdown_manager
 
 
+class ConversationTurnSplitter:
+    """
+    Splits structured conversation logs by turn groups.
+    Avoids NLTK entirely — uses regex on [TIMESTAMP] Speaker: markers.
+    Each chunk is N complete turns, preserving timestamps for accurate recall.
+    """
+    _TURN_PATTERN = re.compile(
+        r'(\[\d{4}-\d{2}-\d{2} \d{2}:\d{2}:\d{2}\] (?:User|Kaia|Ekco|social|\w+): )',
+        re.IGNORECASE
+    )
+
+    def __init__(self, turns_per_chunk: int = 6, overlap_turns: int = 1):
+        self.turns_per_chunk = turns_per_chunk
+        self.overlap_turns = overlap_turns
+
+    def get_nodes_from_documents(self, documents: list) -> list:
+        from llama_index.core.schema import TextNode
+        nodes = []
+        for doc in documents:
+            text = doc.text
+            metadata = doc.metadata.copy()
+
+            # Split on turn boundaries
+            parts = self._TURN_PATTERN.split(text)
+            # parts alternates: [pre-turn-text, speaker_header, content, speaker_header, content, ...]
+            turns = []
+            i = 1  # skip any leading text before first turn
+            while i < len(parts) - 1:
+                header = parts[i]
+                body = parts[i + 1] if i + 1 < len(parts) else ""
+                turns.append(header + body.rstrip())
+                i += 2
+
+            if not turns:
+                # No turn markers found — fall back to whole document as one node
+                node = TextNode(text=text, metadata=metadata)
+                node.metadata['chunk_index'] = 0
+                nodes.append(node)
+                continue
+
+            # Group turns into chunks with overlap
+            step = max(1, self.turns_per_chunk - self.overlap_turns)
+            for chunk_idx, start in enumerate(range(0, len(turns), step)):
+                chunk_turns = turns[start:start + self.turns_per_chunk]
+                chunk_text = "\n".join(chunk_turns)
+                if not chunk_text.strip():
+                    continue
+                chunk_meta = metadata.copy()
+                chunk_meta['chunk_index'] = chunk_idx
+                # Extract timestamp from first turn in this chunk for accurate time-window filtering
+                ts_match = re.search(r'\[(\d{4}-\d{2}-\d{2} \d{2}:\d{2}:\d{2})\]', chunk_text)
+                if ts_match:
+                    try:
+                        chunk_meta['timestamp'] = datetime.strptime(
+                            ts_match.group(1), "%Y-%m-%d %H:%M:%S"
+                        ).timestamp()
+                    except Exception:
+                        pass
+                node = TextNode(text=chunk_text, metadata=chunk_meta)
+                nodes.append(node)
+
+        return nodes
+
+
 class RAGIndexerMixin:
     """Mixin class providing document ingestion and indexing methods for KaiaRAG."""
+    
+    import re as _re
+    _LOG_TS_PATTERN = _re.compile(r'\[(\d{4}-\d{2}-\d{2} \d{2}:\d{2}:\d{2})\]')
+
+    @staticmethod
+    def _extract_log_conversation_ts(content: str, fallback: float) -> float:
+        """Extract the first inline [YYYY-MM-DD HH:MM:SS] timestamp from log content.
+        Falls back to file mtime if none found (non-timestamped legacy content)."""
+        m = RAGIndexerMixin._LOG_TS_PATTERN.search(content)
+        if m:
+            try:
+                from datetime import datetime
+                ts = datetime.strptime(m.group(1), "%Y-%m-%d %H:%M:%S").timestamp()
+                log_debug(f"Extracted conversation ts: {m.group(1)} → {ts}")
+                return ts
+            except Exception:
+                pass
+        return fallback
 
     def _preload_nltk(self):
         """Worker thread: Pre-load NLTK data without redundant network calls."""
@@ -263,8 +345,9 @@ class RAGIndexerMixin:
     def _get_node_parser_for_doc(self, itype: str, file_path: str):
         """Dynamic chunking based on content type and index target"""
         if itype == 'logs' or itype == 'conversations':
-            # Keep conversations together with larger chunks
-            return SentenceSplitter(chunk_size=1024, chunk_overlap=200)
+            # Use turn-based splitter for structured logs — avoids NLTK entirely
+            # and preserves per-chunk timestamps for accurate time-window recall
+            return ConversationTurnSplitter(turns_per_chunk=6, overlap_turns=1)
         elif "news_brief" in file_path or "news_summary" in file_path:
             # News briefs: smaller chunks, split by headings
             return SentenceSplitter(chunk_size=1000, chunk_overlap=200, paragraph_separator="\n## ")
@@ -641,13 +724,14 @@ class RAGIndexerMixin:
             
         # Parse nodes and apply metadata outside the lock
         mtime = os.path.getmtime(file_path)
+        conversation_ts = self._extract_log_conversation_ts(new_content, mtime)
         from llama_index.core import Document as LlamaDocument
         doc = LlamaDocument(text=new_content, metadata={
             'file_path': abs_path,
             'file_offset': last_offset,
             'content_length': len(new_content),
             'last_modified_at': mtime,
-            'timestamp': mtime,
+            'timestamp': conversation_ts,
             'itype': itype
         })
         self._apply_priority_metadata(doc, itype, file_path)
@@ -694,7 +778,11 @@ class RAGIndexerMixin:
         
         processed_nodes_batch = []
         for doc in docs:
-            doc.metadata.update({'last_modified_at': mtime, 'timestamp': mtime, 'file_path': abs_path, 'itype': itype})
+            if itype == 'logs':
+                conversation_ts = self._extract_log_conversation_ts(doc.text, mtime)
+            else:
+                conversation_ts = mtime
+            doc.metadata.update({'last_modified_at': mtime, 'timestamp': conversation_ts, 'file_path': abs_path, 'itype': itype})
             self._apply_priority_metadata(doc, itype, file_path)
             if itype == 'persona': doc.metadata['user_id'] = "KAIA_SYSTEM"
             

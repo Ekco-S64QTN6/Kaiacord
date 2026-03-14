@@ -284,7 +284,7 @@ class RAGQueryMixin:
         # Pre-compute current time for recency decay calculations
         _now_ts = time.time()
 
-        def _recency_decay(file_path: str, source_type: str) -> float:
+        def _recency_decay(file_path: str, source_type: str, metadata: dict = None) -> float:
             """Returns a 0.2–1.0 multiplier. Recent = 1.0. Old = 0.2 floor.
             
             Half-life is configurable. Default: 90 days.
@@ -293,11 +293,23 @@ class RAGQueryMixin:
             if source_type not in ('user_logs', 'news', 'dream'):
                 return 1.0  # Timeless content: no decay
             try:
-                if file_path and os.path.exists(file_path):
-                    age_days = (_now_ts - os.path.getmtime(file_path)) / 86400.0
+                ts = 0
+                # Check metadata timestamp first (accurate after indexer fix)
+                if metadata:
+                    ts_val = metadata.get('timestamp', 0)
+                    if isinstance(ts_val, (int, float)) and ts_val > 0:
+                        ts = float(ts_val)
+                    elif isinstance(ts_val, str):
+                        try: ts = datetime.fromisoformat(ts_val).timestamp()
+                        except: pass
+                # Fall back to filesystem mtime
+                if not ts and file_path and os.path.exists(file_path):
+                    ts = os.path.getmtime(file_path)
+                if ts:
+                    age_days = (_now_ts - ts) / 86400.0
                     half_life = getattr(config, 'rag_recency_half_life_days', 90)
                     decay = math.exp(-age_days * math.log(2) / half_life)
-                    return max(0.2, decay)  # Floor at 0.2 — never fully suppress old content
+                    return max(0.2, decay)
             except Exception:
                 pass
             return 1.0
@@ -381,7 +393,7 @@ class RAGQueryMixin:
             final_score = base_score + path_boost + type_boost + persona_file_bonus
 
             # Apply recency decay (only affects user_logs, news, dreams)
-            final_score *= _recency_decay(file_path, source_type)
+            final_score *= _recency_decay(file_path, source_type, metadata)
 
             # Fix 1 (Scoring): Same-user boost for logs
             if source_type == 'user_logs':
@@ -587,30 +599,26 @@ class RAGQueryMixin:
             recent_nodes = []
             for node in all_nodes:
                 ts = 0
-                # 1. First priority: Real file system mtime (most accurate source of truth)
                 file_path = node.metadata.get('file_path', '')
-                if file_path and os.path.exists(file_path):
-                    ts = os.path.getmtime(file_path)
+                
+                # 1. Try metadata fields: explicit timestamp, last_modified_at, mtime
+                for field in ('timestamp', 'last_modified_at', 'mtime'):
+                    ts_val = node.metadata.get(field)
+                    if ts_val:
+                        if isinstance(ts_val, (int, float)):
+                            ts = float(ts_val)
+                        elif isinstance(ts_val, str):
+                            try:
+                                if "_" in ts_val and len(ts_val) == 15:
+                                    ts = datetime.strptime(ts_val, "%Y%m%d_%H%M%S").timestamp()
+                                else:
+                                    ts = datetime.fromisoformat(ts_val).timestamp()
+                            except Exception:
+                                pass
+                        if ts > 0:
+                            break  # Found a valid timestamp, stop trying
 
-                # 2. Try metadata fields: explicit timestamp, last_modified_at, mtime
-                if ts == 0:
-                    for field in ('timestamp', 'last_modified_at', 'mtime'):
-                        ts_val = node.metadata.get(field)
-                        if ts_val:
-                            if isinstance(ts_val, (int, float)):
-                                ts = float(ts_val)
-                            elif isinstance(ts_val, str):
-                                try:
-                                    if "_" in ts_val and len(ts_val) == 15:
-                                        ts = datetime.strptime(ts_val, "%Y%m%d_%H%M%S").timestamp()
-                                    else:
-                                        ts = datetime.fromisoformat(ts_val).timestamp()
-                                except Exception:
-                                    pass
-                            if ts > 0:
-                                break  # Found a valid timestamp, stop trying
-
-                # 3. Last resort: extract date from file_path (e.g. interactions_20260311.md)
+                # 2. Extract date from file_path (e.g. interactions_20260311.md)
                 if ts == 0 and file_path:
                     m = re.search(r'(\d{8})', os.path.basename(file_path))
                     if m:
@@ -621,6 +629,10 @@ class RAGQueryMixin:
                             ts = dt.timestamp()
                         except Exception:
                             pass
+
+                # 3. Last resort: Real file system mtime
+                if ts == 0 and file_path and os.path.exists(file_path):
+                    ts = os.path.getmtime(file_path)
 
                 if ts > cutoff:
                     recent_nodes.append(node)
@@ -685,35 +697,39 @@ class RAGQueryMixin:
             for node in all_nodes:
                 ts = 0
                 file_path = node.metadata.get('file_path', '')
-                # Priority 1: filesystem mtime (most reliable with new timestamped logs)
-                if file_path and os.path.exists(file_path):
-                    ts = os.path.getmtime(file_path)
-                # Priority 2: metadata fields
-                if ts == 0:
-                    for field in ('timestamp', 'last_modified_at', 'mtime'):
-                        ts_val = node.metadata.get(field)
-                        if ts_val:
-                            if isinstance(ts_val, (int, float)):
-                                ts = float(ts_val)
-                            elif isinstance(ts_val, str):
-                                try:
-                                    if "_" in ts_val and len(ts_val) == 15:
-                                        ts = datetime.strptime(ts_val, "%Y%m%d_%H%M%S").timestamp()
-                                    else:
-                                        ts = datetime.fromisoformat(ts_val).timestamp()
-                                except Exception:
-                                    pass
-                            if ts > 0:
-                                break  # Found a valid timestamp, stop trying
+                
+                # Priority 1: metadata fields
+                for field in ('timestamp', 'last_modified_at', 'mtime'):
+                    ts_val = node.metadata.get(field)
+                    if ts_val:
+                        if isinstance(ts_val, (int, float)):
+                            ts = float(ts_val)
+                        elif isinstance(ts_val, str):
+                            try:
+                                if "_" in ts_val and len(ts_val) == 15:
+                                    ts = datetime.strptime(ts_val, "%Y%m%d_%H%M%S").timestamp()
+                                else:
+                                    ts = datetime.fromisoformat(ts_val).timestamp()
+                            except Exception:
+                                pass
+                        if ts > 0:
+                            break  # Found a valid timestamp, stop trying
 
-                # Priority 3: filename date
-                if ts == 0:
+                # Priority 2: filename date
+                if ts == 0 and file_path:
                     m = re.search(r'(\d{8})', os.path.basename(file_path))
                     if m:
                         try:
-                            ts = datetime.strptime(m.group(1), "%Y%m%d").timestamp()
+                            # Add 23h 59m 59s to make it the END of that day, not midnight
+                            dt = datetime.strptime(m.group(1), "%Y%m%d")
+                            dt = dt.replace(hour=23, minute=59, second=59)
+                            ts = dt.timestamp()
                         except Exception:
                             pass
+
+                # Priority 3: filesystem mtime (fallback)
+                if ts == 0 and file_path and os.path.exists(file_path):
+                    ts = os.path.getmtime(file_path)
 
                 if ts > cutoff:
                     recent_nodes.append(node)
@@ -723,15 +739,20 @@ class RAGQueryMixin:
 
             # Simple keyword matching for "search" among recent nodes
             scored_events = []
-            query_words = query.lower().split()
+            
+            from utils.core.kaia_rag_retriever import SimpleBM25Retriever
+            stopwords = set(SimpleBM25Retriever.CONVERSATIONAL_STOPWORDS)
+            query_words = [w for w in query.lower().split() if w not in stopwords and len(w) > 2]
             
             from utils.core.rag_utils import get_node_text
-            for node in recent_nodes:
-                c_text = get_node_text(node)
-                content = c_text.lower()
-                matches = sum(1 for word in query_words if word in content)
-                if matches > 0:
-                    scored_events.append((matches, c_text.strip(), node.metadata))
+            
+            if query_words:
+                for node in recent_nodes:
+                    c_text = get_node_text(node)
+                    content = c_text.lower()
+                    matches = sum(1 for word in query_words if word in content)
+                    if matches > 0:
+                        scored_events.append((matches, c_text.strip(), node.metadata))
             
             if not scored_events:
                 # Fall back: return all recent nodes sorted by recency
@@ -794,7 +815,7 @@ class RAGQueryMixin:
             self._last_retrieval_confidence = 0.5
             self._last_retrieval_node_count = len(scored_events)
 
-            return [text for score, text, meta in scored_events[:limit]]
+            return [text for matches, text, meta in scored_events[:limit]]
             
         except Exception as e:
             log_error(f"Failed to search recent events: {e}")
