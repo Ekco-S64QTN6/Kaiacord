@@ -201,7 +201,9 @@ class RAGPersistenceMixin:
                 message_content = sanitize_log_content(message_content)
                 bot_response = sanitize_log_content(bot_response)
                 
-                interaction_text = f"User: {message_content}\nKaia: {bot_response}\n\n"
+                # Use human-readable datetime format for the log text
+                timestamp_str = datetime.now().strftime("%Y-%m-%d %H:%M:%S")
+                interaction_text = f"[{timestamp_str}] {user_name}: {message_content}\n[{timestamp_str}] Kaia: {bot_response}\n\n"
                 
                 # Get current size before appending for the offset
                 # IF new file, offset is length of header (since we write header then interaction)

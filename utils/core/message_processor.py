@@ -518,6 +518,15 @@ class MessageProcessor:
         except Exception:
             pass  # Never let mood injection break generation
 
+        # System state injection — ground truth hardware/OS facts
+        try:
+            from utils.infrastructure.system.kaia_sysmon import build_system_prompt_block_async
+            sys_block = await build_system_prompt_block_async()
+            if sys_block:
+                ctx.system_prompt = ctx.system_prompt + f"\n\n{sys_block}"
+        except Exception:
+            pass  # Never let sysmon injection break generation
+
         # 9. Generate Response (Stage 4)
         await self._generate_response_stage(ctx)
 

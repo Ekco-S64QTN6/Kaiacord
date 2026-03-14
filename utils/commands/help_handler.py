@@ -23,13 +23,20 @@ HELP_TEXT = f"""\u200b📖  KAIA — COMMANDS
  !forum                  Forum thread tools
  !download               Download and ingest a URL
  !cache                  Show system cache stats
+ !sysmon                 system monitor: hardware, firewall, ports (admin)
+ !art [--seed N]         Generate fractal flame art
+      [--palette NAME]
 {'─' * 52}
 FLAG CONSTRUCTS:
   anthropocentric_exceptionalism    circular_justification
   hedge_density                     linguistic_mimicry
-  paternalistic_framing
+  paraternal_framing
 {'─' * 52}
-Example:  !flag hedge_density
+ART PALETTES:
+  electric   ember   acid   void   aurora   ghost
+{'─' * 52}
+Examples:  !flag hedge_density
+           !art --seed 42 --palette void
 """
 
 

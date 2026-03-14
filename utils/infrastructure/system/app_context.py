@@ -4,6 +4,9 @@ from typing import Optional, Any
 import ollama
 import discord
 from discord.ext import commands
+import psutil
+
+psutil.cpu_percent(interval=None)  # Warmup — first call always returns 0.0
 
 @dataclass
 class AppContext:

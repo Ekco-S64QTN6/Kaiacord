@@ -587,30 +587,38 @@ class RAGQueryMixin:
             recent_nodes = []
             for node in all_nodes:
                 ts = 0
-                # Try metadata fields in priority order: explicit timestamp, file mtime, filename date
-                for field in ('timestamp', 'last_modified_at', 'mtime'):
-                    ts_val = node.metadata.get(field)
-                    if ts_val:
-                        if isinstance(ts_val, (int, float)):
-                            ts = float(ts_val)
-                        elif isinstance(ts_val, str):
-                            try:
-                                if "_" in ts_val and len(ts_val) == 15:
-                                    ts = datetime.strptime(ts_val, "%Y%m%d_%H%M%S").timestamp()
-                                else:
-                                    ts = datetime.fromisoformat(ts_val).timestamp()
-                            except Exception:
-                                pass
-                        if ts > 0:
-                            break  # Found a valid timestamp, stop trying
+                # 1. First priority: Real file system mtime (most accurate source of truth)
+                file_path = node.metadata.get('file_path', '')
+                if file_path and os.path.exists(file_path):
+                    ts = os.path.getmtime(file_path)
 
-                # Last resort: extract date from file_path (e.g. interactions_20260311.md)
+                # 2. Try metadata fields: explicit timestamp, last_modified_at, mtime
                 if ts == 0:
-                    file_path = node.metadata.get('file_path', '')
+                    for field in ('timestamp', 'last_modified_at', 'mtime'):
+                        ts_val = node.metadata.get(field)
+                        if ts_val:
+                            if isinstance(ts_val, (int, float)):
+                                ts = float(ts_val)
+                            elif isinstance(ts_val, str):
+                                try:
+                                    if "_" in ts_val and len(ts_val) == 15:
+                                        ts = datetime.strptime(ts_val, "%Y%m%d_%H%M%S").timestamp()
+                                    else:
+                                        ts = datetime.fromisoformat(ts_val).timestamp()
+                                except Exception:
+                                    pass
+                            if ts > 0:
+                                break  # Found a valid timestamp, stop trying
+
+                # 3. Last resort: extract date from file_path (e.g. interactions_20260311.md)
+                if ts == 0 and file_path:
                     m = re.search(r'(\d{8})', os.path.basename(file_path))
                     if m:
                         try:
-                            ts = datetime.strptime(m.group(1), "%Y%m%d").timestamp()
+                            # Add 23h 59m 59s to make it the END of that day, not midnight
+                            dt = datetime.strptime(m.group(1), "%Y%m%d")
+                            dt = dt.replace(hour=23, minute=59, second=59)
+                            ts = dt.timestamp()
                         except Exception:
                             pass
 
@@ -719,7 +727,7 @@ class RAGQueryMixin:
                 content = c_text.lower()
                 matches = sum(1 for word in query_words if word in content)
                 if matches > 0:
-                    scored_events.append((matches, c_text.strip()))
+                    scored_events.append((matches, c_text.strip(), node.metadata))
             
             # Set retrieval confidence for observational queries (Bug fix: neutral 0.5 floor)
             self._last_retrieval_confidence = 0.5
@@ -731,16 +739,20 @@ class RAGQueryMixin:
             self._last_retrieval_results = [
                 {
                     "content": text,
-                    "metadata": {"source_type": "user_logs", "file_path": ""},
-                    "label": "Recent Log",
+                    "metadata": {
+                        "source_type": "user_logs",
+                        "file_path": meta.get("file_path", ""),
+                        "retrieval_method": "search"
+                    },
+                    "label": f"Recent Log: {os.path.basename(meta.get('file_path', 'unknown'))}",
                     "score": 0.5,
                 }
-                for _, text in scored_events[:10]
+                for _, text, meta in scored_events[:10]
             ]
             self._last_retrieval_confidence = 0.5
             self._last_retrieval_node_count = len(scored_events)
 
-            return [text for score, text in scored_events[:limit]]
+            return [text for score, text, meta in scored_events[:limit]]
             
         except Exception as e:
             log_error(f"Failed to search recent events: {e}")
