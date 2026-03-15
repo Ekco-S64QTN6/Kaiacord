@@ -123,12 +123,12 @@ class FractalFlameRenderer:
         image, params = renderer.generate(seed=42)
     """
 
-    INTERNAL_RES = 1080
+    INTERNAL_RES = 1440
     OUTPUT_RES = 720
-    N_POINTS = 200_000
+    N_POINTS = 300_000
     N_WARMUP = 20
-    N_ITERATIONS = 30
-    DENSITY_SIGMA = 1.0
+    N_ITERATIONS = 50
+    DENSITY_SIGMA = 1.2
     GAMMA = 2.2
 
     def generate(self, seed=None, palette_name=None):

@@ -134,17 +134,21 @@ async def handle_art_command(ctx, msg, send_kaia_response):
         gpu_mgr = OllamaGPUManager(ctx.config.chat_model)
         options = gpu_mgr.get_gpu_options(for_chat=True)
 
-        response = await asyncio.wait_for(
-            ctx.ollama_client.chat(
-                model=ctx.config.chat_model,
-                messages=[
-                    {"role": "system", "content": "you are kaia. lowercase only. one or two sentences max."},
-                    {"role": "user", "content": comment_prompt}
-                ],
-                options={**options, "num_predict": 80}
-            ),
-            timeout=15.0
-        )
+        gpu_semaphore = getattr(ctx, 'gpu_semaphore', None)
+        _comment_lock = gpu_semaphore if gpu_semaphore else asyncio.Semaphore(1)
+
+        async with _comment_lock:
+            response = await asyncio.wait_for(
+                ctx.ollama_client.chat(
+                    model=ctx.config.chat_model,
+                    messages=[
+                        {"role": "system", "content": "you are kaia. lowercase only. one or two sentences max."},
+                        {"role": "user", "content": comment_prompt}
+                    ],
+                    options={**options, "num_predict": 80}
+                ),
+                timeout=15.0
+            )
         comment = response['message']['content'].strip()
         # Strip any asterisks that leaked through
         comment = comment.replace("*", "")
