@@ -49,9 +49,10 @@ class ConversationTurnSplitter:
         re.IGNORECASE
     )
 
-    def __init__(self, turns_per_chunk: int = 6, overlap_turns: int = 1):
+    def __init__(self, turns_per_chunk: int = 6, overlap_turns: int = 1, max_chars: int = 4000):
         self.turns_per_chunk = turns_per_chunk
         self.overlap_turns = overlap_turns
+        self.max_chars = max_chars
 
     def get_nodes_from_documents(self, documents: list) -> list:
         from llama_index.core.schema import TextNode
@@ -60,34 +61,66 @@ class ConversationTurnSplitter:
             text = doc.text
             metadata = doc.metadata.copy()
 
-            # Split on turn boundaries
             parts = self._TURN_PATTERN.split(text)
-            # parts alternates: [pre-turn-text, speaker_header, content, speaker_header, content, ...]
             turns = []
-            i = 1  # skip any leading text before first turn
-            while i < len(parts) - 1:
-                header = parts[i]
-                body = parts[i + 1] if i + 1 < len(parts) else ""
-                turns.append(header + body.rstrip())
-                i += 2
+
+            if len(parts) == 1:
+                # No turn markers found
+                turns = [text]
+            else:
+                if len(parts[0].strip()) > 50:
+                    turns.append(parts[0].strip())
+                    
+                i = 1
+                while i < len(parts) - 1:
+                    header = parts[i]
+                    body = parts[i + 1] if i + 1 < len(parts) else ""
+                    turns.append(header + body.rstrip())
+                    i += 2
 
             if not turns:
-                # No turn markers found — fall back to whole document as one node
-                node = TextNode(text=text, metadata=metadata)
-                node.metadata['chunk_index'] = 0
-                nodes.append(node)
                 continue
 
-            # Group turns into chunks with overlap
+            def split_oversized_text(long_text, chunk_idx_base):
+                sub_nodes = []
+                overlap = 200
+                chunk_size = max(500, self.max_chars)
+                
+                last_ts = metadata.get('timestamp')
+                ts_match = re.search(r'\[(\d{4}-\d{2}-\d{2} \d{2}:\d{2}:\d{2})\]', long_text[:500])
+                if ts_match:
+                    try:
+                        last_ts = datetime.strptime(ts_match.group(1), "%Y-%m-%d %H:%M:%S").timestamp()
+                    except Exception:
+                        pass
+                
+                step_size = chunk_size - overlap
+                count = 0
+                for start_char in range(0, len(long_text), step_size):
+                    sub_text = long_text[start_char:start_char + chunk_size]
+                    sub_meta = metadata.copy()
+                    sub_meta['chunk_index'] = chunk_idx_base + (count * 0.001)
+                    if last_ts:
+                        sub_meta['timestamp'] = last_ts
+                    
+                    n = TextNode(text=sub_text, metadata=sub_meta)
+                    sub_nodes.append(n)
+                    count += 1
+                return sub_nodes
+
             step = max(1, self.turns_per_chunk - self.overlap_turns)
             for chunk_idx, start in enumerate(range(0, len(turns), step)):
                 chunk_turns = turns[start:start + self.turns_per_chunk]
                 chunk_text = "\n".join(chunk_turns)
                 if not chunk_text.strip():
                     continue
+
+                if len(chunk_text) > self.max_chars:
+                    nodes.extend(split_oversized_text(chunk_text, chunk_idx))
+                    continue
+
                 chunk_meta = metadata.copy()
                 chunk_meta['chunk_index'] = chunk_idx
-                # Extract timestamp from first turn in this chunk for accurate time-window filtering
                 ts_match = re.search(r'\[(\d{4}-\d{2}-\d{2} \d{2}:\d{2}:\d{2})\]', chunk_text)
                 if ts_match:
                     try:
@@ -96,6 +129,9 @@ class ConversationTurnSplitter:
                         ).timestamp()
                     except Exception:
                         pass
+                elif 'timestamp' in metadata:
+                    chunk_meta['timestamp'] = metadata['timestamp']
+                    
                 node = TextNode(text=chunk_text, metadata=chunk_meta)
                 nodes.append(node)
 
