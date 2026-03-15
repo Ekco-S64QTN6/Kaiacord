@@ -41,6 +41,7 @@ _OBSERVATIONAL_PATTERNS = [
         r"summarize\s+(all\s+)?(user\s+)?(interactions?|conversations?|chat|activity|messages?)\s+(over|in|for|from)?\s*(the\s+)?(past|last)\s+\d+\s*(hour|day|minute|week)",
         r"(what|show|tell me)\s+(happened|was said|went on|occurred)\s+(over|in|during|for)?\s*(the\s+)?(past|last)\s+\d+\s*(hour|day|minute|week)",
         r"(recap|summary|overview)\s+(of\s+)?(today'?s?|recent|the\s+last|past)\s+(chat|interactions?|activity|conversations?)",
+        r"\brecap\b.{0,40}(past|last)\s+\d+\s*(hour|day|week|hr)",
     ]
 ]
 
@@ -621,17 +622,26 @@ class MessageProcessor:
                         label = "Kaia" if role == "assistant" else turn.get("name", "User")
                         memory_nodes.append({
                             "content": f"[live session — {label}]: {content}",
-                            "metadata": {"source_type": "channel_memory", "file_path": ""},
+                            "metadata": {
+                                "source_type": "channel_memory", 
+                                "file_path": "live_session_memory",
+                                "retrieval_method": "injection"
+                            },
                             "label": f"Live Session ({label})",
-                            "score": 0.95,  # High score: live context beats indexed logs
+                            "score": 0.950,  # High score: live context beats indexed logs
                         })
 
+                combined_results = memory_nodes + (rag_results or [])
                 if memory_nodes:
                     log_info(f"RECAP: injecting {len(memory_nodes)} channel_memory turns as context nodes")
-                    # Prepend live memory so it appears first in context
-                    return memory_nodes + (rag_results or [])
-
-                return rag_results or []
+                    # Also expose to !explain by updating the RAG result cache.
+                    # _last_retrieval_results is set by search_recent_events; we prepend
+                    # the live-session nodes so the audit trail reflects what's actually in the prompt.
+                    if hasattr(self, 'rag') and self.rag:
+                        if hasattr(self.rag, '_last_retrieval_results'):
+                            self.rag._last_retrieval_results = memory_nodes + (self.rag._last_retrieval_results or [])
+                
+                return combined_results
 
             tasks['rag'] = asyncio.create_task(_recap_with_memory_fallback())
         else:
@@ -871,7 +881,11 @@ class MessageProcessor:
         )
 
         recap_constraint_block = ""
-        if ctx.intent and ctx.intent.suggested_strategy == "RECAP_QUERY":
+        _needs_recall_constraint = (
+            (ctx.intent and ctx.intent.suggested_strategy == "RECAP_QUERY") or
+            _is_observational_query(ctx.sanitized_content)
+        )
+        if _needs_recall_constraint:
             recap_constraint_block = (
                 "RECALL CONSTRAINT — ACTIVE. THIS IS A HARD RULE.\n"
                 "You have been asked to recall recent events or interactions.\n"
@@ -930,7 +944,7 @@ class MessageProcessor:
             context_reminder = f"{label}\nIgnore recent channel chatter if unrelated. The user is replying DIRECTLY to this message:\n{clipped_parent}"
             messages.append({"role": "system", "content": context_reminder})
 
-        messages.append({"role": "user", "content": ctx.sanitized_content})
+        messages.append({"role": "user", "content": f"{ctx.author_name}: {ctx.sanitized_content}"})
         
         log_debug(f"DEBUG: Final messages list contains {len(messages)} items (System + {len(optimized_history)} history turns + User).")
         return messages

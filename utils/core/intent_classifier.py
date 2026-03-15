@@ -296,6 +296,13 @@ class IntentParser:
         for strategy, patterns in self.fast_triggers.items():
             for compiled_re in patterns:
                 if compiled_re.search(query_lower):
+                    # Guard: SUMMARIZATION triggered by incidental phrases in long
+                    # conversational messages (e.g. "overview of phylogenetics").
+                    # Real summarization requests are short and directive.
+                    if strategy == "SUMMARIZATION" and len(query_lower.split()) > 25:
+                        log_debug(f"SUMMARIZATION trigger suppressed: message too long ({len(query_lower.split())} words)")
+                        continue
+
                     log_debug(f"Fast-path trigger: {strategy}")
                     
                     temporal_focus = "past_recent" if strategy == "RECAP_QUERY" else "present_immediate"

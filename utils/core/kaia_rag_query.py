@@ -92,6 +92,12 @@ class RAGQueryMixin:
 
     def _get_summarization_nodes(self, query_lower: str) -> List[Dict[str, Any]]:
         """Identify a target file for summarization and retrieve its full content."""
+        # Guard: if the query is very long, it's conversational text, not a file reference.
+        # Short-circuit immediately to prevent spurious document matches.
+        if len(query_lower.split()) > 30:
+            log_debug("_get_summarization_nodes: query too long for file reference — skipping")
+            return []
+
         target_file_path = None
         best_match_score = 0
         
@@ -679,7 +685,7 @@ class RAGQueryMixin:
             log_error(f"Failed to get highlights: {e}")
             return []
 
-    def search_recent_events(self, query: str, hours: int = 24, limit: int = 5) -> List[str]:
+    def search_recent_events(self, query: str, hours: int = 24, limit: int = 5) -> List[Dict[str, Any]]:
         """
         Search for specific recent events in the logs.
         Similar to get_recent_highlights but targeted with a query.
@@ -773,22 +779,23 @@ class RAGQueryMixin:
                     fallback.append((ts, c_text, node.metadata))
                 fallback.sort(key=lambda x: x[0], reverse=True)
                 
-                self._last_retrieval_results = [
+                top_fallback = [
                     {
                         "content": text,
                         "metadata": {
                             "source_type": "user_logs", 
-                            "file_path": meta.get("file_path", "") or meta.get("doc_id", ""), 
+                            "file_path": meta.get("file_path", "") or meta.get("doc_id", "unknown"), 
                             "retrieval_method": "fallback"
                         },
-                        "label": f"Recent Log: {os.path.basename(meta.get('file_path', 'unknown'))}",
+                        "label": f"Recent Log: {os.path.basename(meta.get('file_path') or 'unknown')}",
                         "score": 0.3,
                     }
                     for _, text, meta in fallback[:limit]
                 ]
+                self._last_retrieval_results = top_fallback
                 self._last_retrieval_confidence = 0.3
                 self._last_retrieval_node_count = len(fallback)
-                return [text for _, text, meta in fallback[:limit]]
+                return top_fallback
 
             # Set retrieval confidence for observational queries (Bug fix: neutral 0.5 floor)
             self._last_retrieval_confidence = 0.5
@@ -798,24 +805,25 @@ class RAGQueryMixin:
 
             max_matches = scored_events[0][0] if scored_events else 1
 
-            # Expose results for !explain (convert plain strings to the dict format explain_handler expects)
-            self._last_retrieval_results = [
+            # Keep the structured format for both internal caching and returning, mirroring `retrieve()`
+            top_results = [
                 {
                     "content": text,
                     "metadata": {
                         "source_type": "user_logs",
-                        "file_path": meta.get("file_path", "") or meta.get("doc_id", ""),
+                        "file_path": meta.get("file_path", "") or meta.get("doc_id", "unknown"),
                         "retrieval_method": "search"
                     },
-                    "label": f"Recent Log: {os.path.basename(meta.get('file_path', 'unknown'))}",
+                    "label": f"Recent Log: {os.path.basename(meta.get('file_path') or 'unknown')}",
                     "score": round(0.3 + (0.5 * (matches / max(max_matches, 1))), 3),
                 }
-                for matches, text, meta in scored_events[:10]
+                for matches, text, meta in scored_events[:limit]
             ]
+            self._last_retrieval_results = top_results
             self._last_retrieval_confidence = 0.5
             self._last_retrieval_node_count = len(scored_events)
 
-            return [text for matches, text, meta in scored_events[:limit]]
+            return top_results
             
         except Exception as e:
             log_error(f"Failed to search recent events: {e}")
