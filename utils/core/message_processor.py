@@ -62,17 +62,43 @@ _RECAP_HOURS_PATTERN = re.compile(
 
 def _extract_recap_hours(text: str) -> int:
     """Extract time window from a recap query. Returns hours as int, defaults to 24."""
-    m = _RECAP_HOURS_PATTERN.search(text)
-    if not m:
-        # Check for bare "week" with no number
-        if re.search(r'\bweek\b', text, re.IGNORECASE):
-            return 168
-        return 24
-    n = int(m.group(1))
-    unit = m.group(2).lower()
-    if unit.startswith('week'):
-        return n * 168
-    return n * 24 if unit.startswith('day') else n
+    text_lower = text.lower()
+    
+    m = _RECAP_HOURS_PATTERN.search(text_lower)
+    if m:
+        n = int(m.group(1))
+        unit = m.group(2)
+        if unit.startswith('week'):
+            return n * 168
+        return n * 24 if unit.startswith('day') else n
+
+    # Natural time references
+    if re.search(r'\bweek\b', text_lower):
+        return 168
+
+    now = datetime.now()
+    
+    if re.search(r'\bthis morning\b|\bthis am\b', text_lower):
+        # Hours since midnight
+        return max(1, now.hour + 1)
+    
+    if re.search(r'\btonight\b|\bthis evening\b', text_lower):
+        # Hours since ~5pm or since midnight if it's already past midnight
+        if now.hour >= 17:
+            return max(1, now.hour - 17 + 1)
+        return 8  # Reasonable default for "tonight" in early morning
+    
+    if re.search(r'\blast night\b', text_lower):
+        # Previous evening window: roughly 5pm yesterday to midnight
+        return now.hour + 7  # hours ago to cover ~5pm yesterday
+    
+    if re.search(r'\btoday\b', text_lower):
+        return max(1, now.hour + 1)  # Since midnight today
+    
+    if re.search(r'\byesterday\b', text_lower):
+        return 24 + now.hour  # All of yesterday
+
+    return 24  # True fallback
 
 class MessageProcessor:
     """
@@ -568,12 +594,46 @@ class MessageProcessor:
             hours = _extract_recap_hours(ctx.sanitized_content) if is_recap else 24
             log_info(f"RECAP routing confirmed — strategy={ctx.fast_intent_strategy}")
             log_info(f"{'RECAP' if is_recap else 'Observational'} query — routing to search_recent_events (hours={hours})")
-            tasks['rag'] = asyncio.create_task(self.run_rag(
-                self.rag.search_recent_events,
-                clean_query,
-                hours=hours,
-                limit=10
-            ))
+
+            # Capture channel_memory before task creation (it's a deque, snapshot it now)
+            _channel_memory_snapshot = list(
+                self.bot_state.channel_memory.get(ctx.channel_id, [])
+            ) if self.bot_state else []
+
+            async def _recap_with_memory_fallback():
+                """Run search_recent_events; if sparse, prepend channel_memory as synthetic nodes."""
+                rag_results = await self.run_rag(
+                    self.rag.search_recent_events,
+                    clean_query,
+                    hours=hours,
+                    limit=10
+                )
+
+                # Synthesize channel_memory into RAG-compatible dicts so the RECALL
+                # CONSTRAINT in the generation prompt will permit Kaia to reference them.
+                memory_nodes = []
+                if _channel_memory_snapshot:
+                    for turn in _channel_memory_snapshot:
+                        role = turn.get("role", "")
+                        content = turn.get("content", "").strip()
+                        if not content:
+                            continue
+                        label = "Kaia" if role == "assistant" else turn.get("name", "User")
+                        memory_nodes.append({
+                            "content": f"[live session — {label}]: {content}",
+                            "metadata": {"source_type": "channel_memory", "file_path": ""},
+                            "label": f"Live Session ({label})",
+                            "score": 0.95,  # High score: live context beats indexed logs
+                        })
+
+                if memory_nodes:
+                    log_info(f"RECAP: injecting {len(memory_nodes)} channel_memory turns as context nodes")
+                    # Prepend live memory so it appears first in context
+                    return memory_nodes + (rag_results or [])
+
+                return rag_results or []
+
+            tasks['rag'] = asyncio.create_task(_recap_with_memory_fallback())
         else:
             retrieval_top_k = self.config.rag_top_k
             strict_identity_flag = (ctx.category in ["identity", "self", "whoami", "entity"])
@@ -755,16 +815,17 @@ class MessageProcessor:
                 log_info(f"Attached {len(images)} images to user message for inline multimodal processing.")
         
         # 3. LLM Generation (flag active to block quips/dreams)
-        self.bot_state.is_generating = True
+        if self.bot_state:
+            self.bot_state.is_generating = True
         try:
             g_start = time.perf_counter()
             ctx.response_text = await self._call_ollama_with_retries(ctx, messages)
         finally:
-            self.bot_state.is_generating = False
+            if self.bot_state:
+                self.bot_state.is_generating = False
         
         # 4. Final Processing & Logging
         await self._post_process_and_log(ctx)
-
     def _construct_messages(self, ctx: MessageContext, optimized: Dict[str, Any]) -> List[Dict[str, str]]:
         """Build the system, RAG, history, and user messages."""
         system_prompt = optimized['persona']

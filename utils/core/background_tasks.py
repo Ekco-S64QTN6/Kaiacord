@@ -85,7 +85,13 @@ class CoreTaskManager:
                                 break
                             await asyncio.sleep(30)
                             
-                        await run_rag_func(self.ctx.rag.refresh_knowledge_base)
+                        try:
+                            await asyncio.wait_for(
+                                run_rag_func(self.ctx.rag.refresh_knowledge_base),
+                                timeout=300.0  # 5 min max for post-dream reindex
+                            )
+                        except asyncio.TimeoutError:
+                            log_warning("[Dream] Post-dream RAG refresh timed out. Index will catch up on next !reindex.")
                         
                         self.ctx.bot_state.last_dream_date = today
                         self.ctx.bot_state.save()

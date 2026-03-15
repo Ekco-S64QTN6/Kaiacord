@@ -21,7 +21,7 @@ async def idle_quip_task():
     except Exception as e:
         log_error(f"Idle quip task failed: {e}")
 
-@tasks.loop(minutes=config.get('social.poll_interval_minutes', 3))
+@tasks.loop(minutes=3)  # Default; overridden at runtime below
 async def social_mention_task():
     """Check and reply to social media mentions on Bluesky and X."""
     if not bot_state.boot_complete:
@@ -59,6 +59,7 @@ def start_social_tasks(app_ctx, on_message):
     task_registry.register("idle_quip_task", quip_task)
     
     mention_task = social_mention_task.start()
+    social_mention_task.change_interval(minutes=config.get('social.poll_interval_minutes', 3))
     task_registry.register("social_mention_task", mention_task)
     
     # Start forum background tasks

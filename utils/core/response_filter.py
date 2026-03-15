@@ -37,7 +37,6 @@ class EmergencyContaminationFilter:
         r"paper\s+copy",
     ]
 
-    VERACITY_FALLBACK = "wait, scratch that. something about my memory's a bit hazy on the specifics of that. i'd have to double-check the records to be sure."
     RETRY_THRESHOLD = 0.5  # If more than 50% lines contaminated, retry
     
     _compiled_pattern = re.compile("|".join(CONTAMINATION_PATTERNS), re.IGNORECASE)

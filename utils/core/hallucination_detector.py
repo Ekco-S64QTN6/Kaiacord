@@ -43,7 +43,7 @@ class HallucinationDetector:
         # Admitted Fabrications
         r"\b(my memory is faulty|was a fabrication|mimicking a conversational style|placeholder for a topic)\b",
         r"\b(sorry for the confusion|extrapolating from my general observations|no actual thread with that title)\b",
-        r"\b(memory's\s+a\s+bit\s+hazy|double-check\s+the\s+records|was\s+recalling\s+the\s+wrong\s+study)\b"
+        r"\bwas\s+recalling\s+the\s+wrong\s+study\b"
     ]
     
     _compiled_pattern = re.compile("|".join(HALLUCINATION_PATTERNS), re.IGNORECASE)

@@ -130,25 +130,26 @@ async def handle_art_command(ctx, msg, send_kaia_response):
                 f"speak as kaia. lowercase only. no asterisks."
             )
 
-        from utils.infrastructure.gpu.gpu_manager import OllamaGPUManager
-        gpu_mgr = OllamaGPUManager(ctx.config.chat_model)
-        options = gpu_mgr.get_gpu_options(for_chat=True)
-
-        gpu_semaphore = getattr(ctx, 'gpu_semaphore', None)
-        _comment_lock = gpu_semaphore if gpu_semaphore else asyncio.Semaphore(1)
-
-        async with _comment_lock:
-            response = await asyncio.wait_for(
+        from utils.infrastructure.gpu.gpu_manager import gpu_memory_manager, GPUTaskPriority
+        
+        # Centralized GPU guard (resolves F-02 race condition)
+        response = await gpu_memory_manager.run_with_gpu_guard(
+            model_name=ctx.config.chat_model,
+            priority=GPUTaskPriority.CHAT,
+            coro=asyncio.wait_for(
                 ctx.ollama_client.chat(
                     model=ctx.config.chat_model,
                     messages=[
                         {"role": "system", "content": "you are kaia. lowercase only. one or two sentences max."},
                         {"role": "user", "content": comment_prompt}
                     ],
-                    options={**options, "num_predict": 80}
+                    options={"num_predict": 80}
                 ),
                 timeout=15.0
-            )
+            ),
+            task_id=f"art_comment_{uuid.uuid4().hex[:8]}"
+        )
+        
         comment = response['message']['content'].strip()
         # Strip any asterisks that leaked through
         comment = comment.replace("*", "")

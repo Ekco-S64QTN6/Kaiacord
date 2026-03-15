@@ -241,6 +241,7 @@ class OllamaGPUManager:
         
         try:
             from utils.infrastructure.system.yaml_config import config
+            timeout = getattr(config, 'model_load_timeout', 300.0)
             # Force GPU load with specific settings
             options = self.get_gpu_options(for_chat=True)
             
@@ -251,7 +252,7 @@ class OllamaGPUManager:
             log_info(f"🔄 Testing GPU model load (Lightweight, keep_alive={keep_alive})...")
             await asyncio.wait_for(
                 ollama_client.generate(model=self.model_name, prompt="", keep_alive=keep_alive, options=options),
-                timeout=120.0
+                timeout=timeout
             )
             
             # Verify GPU usage
