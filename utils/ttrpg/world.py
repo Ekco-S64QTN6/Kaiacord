@@ -1,0 +1,109 @@
+LOCATION_DATA = {
+    "oakhaven": {
+        "name": "Oakhaven Town Square",
+        "short": "The muddy square at the heart of OakHaven. The Tricklebrook "
+                 "gurgles somewhere under the bridge planks.",
+        "exits": ["stone_hearth", "hemlocks_store", "shrine",
+                  "watchtower", "whisperwood_edge", "trade_road"],
+        "atmosphere": "grey, damp, watchful. The smell of woodsmoke and wet earth.",
+    },
+    "stone_hearth": {
+        "name": "The Stone Hearth Inn",
+        "short": "OakHaven's only inn. Low beams, a fire that's always lit, "
+                 "ale that's always warm. Mira keeps the peace.",
+        "exits": ["oakhaven"],
+        "atmosphere": "smoky, close, warm. Voices kept low.",
+        "services": {"rest": 5, "ale": 2, "meal": 3},
+    },
+    "hemlocks_store": {
+        "name": "Hemlock's General Store",
+        "short": "Cluttered shelves, the smell of dried herbs and iron. "
+                 "Hemlock knows where everything is, somehow.",
+        "exits": ["oakhaven"],
+        "atmosphere": "dim, organized chaos, the tick of a clock somewhere.",
+    },
+    "shrine": {
+        "name": "Shrine of the Silent Ones",
+        "short": "Crumbling stone. Ancient carvings worn smooth. "
+                 "Someone left fresh flowers this morning.",
+        "exits": ["oakhaven"],
+        "atmosphere": "quiet, oddly still. The forest sounds stop at the threshold.",
+        "blessing": "passive_wis_plus_1",
+    },
+    "watchtower": {
+        "name": "The Watchtower",
+        "short": "Rickety stairs. A view of the Whisperwood canopy. "
+                 "Two bored guards who know more than they let on.",
+        "exits": ["oakhaven"],
+    },
+    "whisperwood_edge": {
+        "name": "Edge of the Whisperwood",
+        "short": "The treeline. Where OakHaven's certainty ends. "
+                 "Light filters strange here. The birds are too loud.",
+        "exits": ["oakhaven", "whisperwood_deep"],
+        "hunting": True,
+        "recommended_level": 1,
+    },
+    "whisperwood_deep": {
+        "name": "Whisperwood Deep",
+        "short": "Proper forest dark. The canopy closes overhead. "
+                 "You can hear things moving that aren't moving for you.",
+        "exits": ["whisperwood_edge", "aeridor_ruins"],
+        "hunting": True,
+        "recommended_level": 4,
+    },
+    "aeridor_ruins": {
+        "name": "Aeridor Ruins",
+        "short": "Stone older than memory. Crystalline formations that catch "
+                 "no light. The ground hums faintly if you stand still.",
+        "exits": ["whisperwood_deep"],
+        "hunting": True,
+        "recommended_level": 7,
+        "lore_events": True,
+    },
+    "trade_road": {
+        "name": "The Trade Road",
+        "short": "Rutted dirt heading north. Good sight lines. "
+                 "That doesn't mean it's safe.",
+        "exits": ["oakhaven"],
+        "hunting": True,
+        "recommended_level": 2,
+    },
+}
+
+def resolve_location(query: str) -> str:
+    """Fuzzy match a location name or alias to a location key."""
+    if not query:
+        return ""
+    q = query.lower().strip()
+    
+    aliases = {
+        "hemlock": "hemlocks_store",
+        "store": "hemlocks_store",
+        "shop": "hemlocks_store",
+        "inn": "stone_hearth",
+        "tavern": "stone_hearth",
+        "shrine": "shrine",
+        "forest": "whisperwood_edge",
+        "woods": "whisperwood_edge",
+        "edge": "whisperwood_edge",
+        "deep": "whisperwood_deep",
+        "ruins": "aeridor_ruins",
+        "road": "trade_road",
+        "town": "oakhaven",
+        "square": "oakhaven",
+        "watchtower": "watchtower",
+        "tower": "watchtower",
+    }
+    
+    if q in aliases:
+        return aliases[q]
+        
+    if q in LOCATION_DATA:
+        return dict(LOCATION_DATA)[q] # ensure validity
+        
+    for key, data in LOCATION_DATA.items():
+        if q in key or q in data.get("name", "").lower():
+            return key
+            
+    return ""

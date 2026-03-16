@@ -13,6 +13,7 @@ from utils.commands.enrich_handler import handle_enrich_command
 from utils.commands.reindex_handler import handle_reindex_command
 from utils.commands.art_handler import handle_art_command
 from utils.commands.sysmon_handler import handle_sysmon_command
+from utils.commands.rpg_handler import handle_rpg_command
 
 async def dispatch_command(ctx, msg, load_persona_async, send_kaia_response):
     """Route commands to the appropriate handler"""
@@ -80,6 +81,10 @@ async def dispatch_command(ctx, msg, load_persona_async, send_kaia_response):
 
     if content.startswith("!art"):
         await handle_art_command(ctx, msg, send_kaia_response)
+        return True
+
+    if content.startswith("!rpg"):
+        await handle_rpg_command(ctx, msg, send_kaia_response)
         return True
 
     return False

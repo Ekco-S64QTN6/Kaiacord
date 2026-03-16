@@ -10,6 +10,7 @@ All commands are prefixed with `!`. Admin commands are restricted to the project
 | `!news [category]` | Fetch news by category. | All |
 | `!download <url>` | Ingest a URL into the knowledge base. | All |
 | `!forum [cmd]` | VBulletin forum management. | Mixed |
+| `!rpg [cmd]` | Play the integrated TTRPG system. | Mixed |
 | `!dreams [cmd]` | Manage Dream Mode processing. | Admin |
 | `!snapshot` | Capture current context for diagnostics. | Admin |
 | `!flag` / `!audit` | Path to response review / auditing. | Admin |
@@ -59,6 +60,28 @@ Manages the response caches.
 
 ---
 
+## TTRPG Commands
+
+Kaia includes a fully integrated TTRPG system where Python handles the mechanics (dice, HP tracking) and Kaia narrates the outcomes in character without hallucinating the results.
+
+### 🎲 Gameplay (`!rpg`)
+- `!rpg new <CharName> <Class>`: Create your character (Warrior/Ranger/Mage/Rogue/Cleric).
+- `!rpg sheet [@user]`: View character sheet.
+- `!rpg action <description>`: Perform an action — Kaia will narrate the result based on a background stat check. Action XP is automatically awarded.
+- `!rpg attack <target>`: Attack a target with an automatic to-hit and damage roll.
+- `!rpg check <stat> [dc:<n>]`: Raw stat check vs difficulty.
+- `!rpg roll <dice>`: Roll arbitrary dice (e.g., `d20`, `2d6+3`).
+- `!rpg inventory [add/remove] <item>`: Manage inventory items.
+- `!rpg heal <amount>` / `!rpg damage <amount>`: Modify HP.
+- `!rpg combat start <enemy> <tier>`: Begin a combat encounter with a difficulty tier (trivial/easy/medium/hard/deadly, admin).
+- `!rpg combat end`: End combat and split XP among all participants (admin).
+- `!rpg combat status`: View the active combat state.
+- `!rpg kill <target>`: Declare a combatant dead and explicitly end combat to split XP.
+- `!rpg session start/end/status`: Admin commands for running an active session in a channel.
+- `!rpg xp <amount> [@user]`: Manual milestone XP allocation for story beats (admin).
+
+---
+
 ## Conversational Triggers
 
 Kaia responds naturally to specific phrases when mentioned or addressed — no `!` prefix needed.
@@ -75,7 +98,7 @@ Kaia responds naturally to specific phrases when mentioned or addressed — no `
 
 | Role | Commands |
 |:---|:---|
-| **All Users** | `!quip`, `!news`, `!download`, `!forum link` |
-| **Admin (ekco)** | All of the above, plus `!dreams`, `!cache`, `!forum scrape/status/allow` |
+| **All Users** | `!quip`, `!news`, `!download`, `!forum link`, `!rpg` (most) |
+| **Admin (ekco)** | All of the above, plus `!dreams`, `!cache`, `!forum scrape/status/allow`, `!rpg session/xp` |
 
 Rate limiting applies to all users (configurable via `performance.requests_per_minute` in `kaia.yaml`).
