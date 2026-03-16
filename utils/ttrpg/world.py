@@ -78,29 +78,33 @@ def resolve_location(query: str) -> str:
     q = query.lower().strip()
     
     aliases = {
-        "hemlock": "hemlocks_store",
-        "store": "hemlocks_store",
-        "shop": "hemlocks_store",
-        "inn": "stone_hearth",
-        "tavern": "stone_hearth",
-        "shrine": "shrine",
-        "forest": "whisperwood_edge",
-        "woods": "whisperwood_edge",
-        "edge": "whisperwood_edge",
-        "deep": "whisperwood_deep",
-        "ruins": "aeridor_ruins",
-        "road": "trade_road",
-        "town": "oakhaven",
-        "square": "oakhaven",
-        "watchtower": "watchtower",
-        "tower": "watchtower",
+        "hemlocks":        "hemlocks_store",
+        "hemlock":         "hemlocks_store",
+        "store":           "hemlocks_store",
+        "shop":            "hemlocks_store",
+        "inn":             "stone_hearth",
+        "tavern":          "stone_hearth",
+        "shrine":          "shrine",
+        "whisperwood":     "whisperwood_edge",
+        "forest":          "whisperwood_edge",
+        "woods":           "whisperwood_edge",
+        "edge":            "whisperwood_edge",
+        "deep":            "whisperwood_deep",
+        "ruins":           "aeridor_ruins",
+        "road":            "trade_road",
+        "town":            "oakhaven",
+        "square":          "oakhaven",
+        "oakhaven":        "oakhaven",
+        "watchtower":      "watchtower",
+        "watchers":        "watchtower",
+        "tower":           "watchtower",
     }
     
     if q in aliases:
         return aliases[q]
         
     if q in LOCATION_DATA:
-        return dict(LOCATION_DATA)[q] # ensure validity
+        return q # ensure validity as key
         
     for key, data in LOCATION_DATA.items():
         if q in key or q in data.get("name", "").lower():

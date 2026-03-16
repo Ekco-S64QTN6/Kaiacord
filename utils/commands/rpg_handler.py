@@ -85,13 +85,17 @@ async def handle_rpg_command(ctx, msg, send_kaia_response):
         "heal":      _handle_heal,
         "event":     _handle_event,
     }
-    
+    async def _auto_send(channel, text, use_code_block=None):
+        if use_code_block is None:
+            use_code_block = "```" not in str(text)
+        return await send_kaia_response(channel, text, use_code_block=use_code_block)
+
     handler = handlers.get(sub, _handle_rpg_help)
     try:
-        await handler(ctx, msg, send_kaia_response, rest, author_id, author_name, is_owner)
+        await handler(ctx, msg, _auto_send, rest, author_id, author_name, is_owner)
     except Exception as e:
         log_error(f"[rpg] Handler error in '{sub}': {e}")
-        await send_kaia_response(msg.channel, f"system fault in `{sub}`. check logs.")
+        await _auto_send(msg.channel, f"system fault in `{sub}`. check logs.")
 
 
 # ── HUD / Status ─────────────────────────────────────────────────────────────
@@ -100,6 +104,9 @@ async def _handle_status(ctx, msg, send, rest, uid, uname, is_owner):
     from utils.ttrpg.character_manager import load
     from utils.ttrpg.progression import hunts_remaining, MAX_HUNTS_PER_DAY, xp_to_next_level
     from utils.ttrpg.world import LOCATION_DATA
+    from utils.ttrpg.session_manager import load_session
+    from utils.ttrpg.rpg_ui import colored_bar, hp_label, CLASS_ICONS, LOCATION_ICONS, ANSI_GREEN, ANSI_RESET
+    import discord
     
     sheet = await asyncio.to_thread(load, uid)
     if not sheet:
@@ -110,24 +117,19 @@ async def _handle_status(ctx, msg, send, rest, uid, uname, is_owner):
     loc_data = LOCATION_DATA.get(loc, {})
     loc_name = loc_data.get("name", loc.replace("_", " ").title())
     
-    hp_cur = sheet["hp"]["current"]
-    hp_max = sheet["hp"]["max"]
-    bar_len = 14
-    hp_filled = int((hp_cur / hp_max) * bar_len) if hp_max > 0 else 0
-    hp_bar = "█" * hp_filled + "░" * (bar_len - hp_filled)
+    hp_cur = sheet["hp"].get("current", 1)
+    hp_max = sheet["hp"].get("max", 1)
     
     xp_cur = sheet["xp"]
     xp_next = xp_to_next_level(sheet["level"])
     if xp_next:
-        # Base XP of current level isn't currently tracked cleanly, so bar is total absolute progression
         from utils.ttrpg.progression import XP_THRESHOLDS
         floor = XP_THRESHOLDS.get(sheet["level"], 0)
         progress = xp_cur - floor
         req = xp_next - floor
-        xp_filled = int((progress / req) * bar_len)
-        xp_bar_str = "█" * xp_filled + "░" * (bar_len - xp_filled) + f" → Lv.{sheet['level'] + 1}"
+        xp_bar_str = colored_bar(progress, req, 14) + f" → Lv.{sheet['level'] + 1}"
     else:
-        xp_bar_str = "██████████████ (MAX)"
+        xp_bar_str = f"{ANSI_GREEN}██████████████{ANSI_RESET} (MAX)"
         
     gil = sheet.get("gil", 0)
     
@@ -148,22 +150,61 @@ async def _handle_status(ctx, msg, send, rest, uid, uname, is_owner):
         nearby.append(n)
     nearby_str = " · ".join(nearby) if nearby else "None"
     
-    board = (
-        f"⚔️  **{sheet['character_name'].upper()}**  |  {sheet['class']} Lv.{sheet['level']}  |  {loc_name}\n"
-        f"━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━\n"
-        f"**HP:**  {hp_cur}/{hp_max} {hp_bar}\n"
-        f"**XP:**  {xp_cur}/{xp_next or 'MAX'} {xp_bar_str}\n"
-        f"**Gil:** {gil}g\n\n"
-        f"**Weapon:** {w_str}\n"
-        f"**Armor:**  {a_str}\n\n"
-        f"**Hunts remaining today:** {hunts}/{MAX_HUNTS_PER_DAY}\n\n"
-        f"**Nearby:** {nearby_str}\n\n"
-        f"`!rpg look` to observe  |  `!rpg help` for commands"
-    )
-    if loc_data.get("hunting"):
-        board += f"  |  `!rpg hunt` to engage"
+    s = await asyncio.to_thread(load_session, str(msg.channel.id))
+    in_combat = False
+    if s and s.get("combat_active"):
+        for m in s.get("monsters", []):
+            if m.get("aggro_uid") == uid:
+                in_combat = True
+                break
+                
+    pct_hp = hp_cur / hp_max if hp_max > 0 else 0
+    if hp_cur <= 0:
+        color = 0x8B0000   # dark red - dead
+    elif in_combat:
+        color = 0xFF4500   # orange-red - fighting
+    elif pct_hp <= 0.3:
+        color = 0xFF6B6B   # red - critical
+    else:
+        color = 0x2D5A27   # deep forest green - normal
         
-    await send(msg.channel, board)
+    embed = discord.Embed(
+        title=f"{CLASS_ICONS.get(sheet.get('class'), '⚔️')}  {sheet['character_name'].upper()}",
+        description=f"*{sheet.get('class')} Lv.{sheet['level']}  ·  {LOCATION_ICONS.get(loc, '🗺️')} {loc_name}*",
+        color=color
+    )
+    
+    embed.add_field(
+        name="❤️ HP",
+        value=f"```ansi\n{colored_bar(hp_cur, hp_max, 14)}\n``` {hp_label(hp_cur, hp_max)}",
+        inline=False
+    )
+    embed.add_field(
+        name="✨ XP",
+        value=f"```ansi\n{xp_bar_str}\n``` {xp_cur}/{xp_next or 'MAX'}",
+        inline=True
+    )
+    embed.add_field(name="💰 Gil", value=f"{gil}g", inline=True)
+    
+    # Empty field for grid alignment if needed, or rely on Discord's 3-column layout
+    
+    embed.add_field(name="🗡️ Weapon", value=w_str, inline=True)
+    embed.add_field(name="🛡️ Armor",  value=a_str, inline=True)
+    embed.add_field(name="🎯 Hunts", value=f"{hunts}/{MAX_HUNTS_PER_DAY} remaining", inline=True)
+    
+    embed.add_field(name="🗺️ Nearby", value=nearby_str, inline=False)
+    
+    conds = sheet.get("conditions", [])
+    if conds:
+        cond_str = ", ".join(c.title() for c in conds)
+        embed.add_field(name="⚠️ Status Effects", value=cond_str, inline=False)
+    
+    footer_text = "!rpg look · !rpg map · !rpg shop"
+    if loc_data.get("hunting"):
+        footer_text += " · !rpg hunt"
+    embed.set_footer(text=footer_text)
+    
+    await msg.channel.send(embed=embed)
 
 
 # ── Character Management ─────────────────────────────────────────────────────
@@ -246,8 +287,18 @@ async def _handle_go(ctx, msg, send, rest, uid, uname, is_owner):
     sheet = await asyncio.to_thread(load, uid)
     if not sheet: return await send(msg.channel, "No character found.")
     
+    current_loc_key = sheet.get("location", "oakhaven")
+    current_loc = LOCATION_DATA.get(current_loc_key, {})
+
     if not rest.strip():
-        return await send(msg.channel, "Where do you want to go?")
+        exits = current_loc.get("exits", [])
+        exit_lines = "\n".join(
+            f"  `!rpg go {key}` — {LOCATION_DATA[key]['name']}"
+            for key in exits
+            if key in LOCATION_DATA
+        )
+        return await send(msg.channel,
+            f"**{current_loc.get('name', current_loc_key)}** — where to?\n\n{exit_lines}")
         
     target = resolve_location(rest.strip())
     current = sheet.get("location", "oakhaven")
@@ -311,23 +362,25 @@ async def _handle_look(ctx, msg, send, rest, uid, uname, is_owner):
             log_error(f"[rpg look] {e}")
 
 async def _handle_map(ctx, msg, send, rest, uid, uname, is_owner):
-    # Currently static representation
-    await send(msg.channel, "```\n"
-               "                    [Spine of the World]\n"
-               "                          |\n"
-               "                    [Grimstone] \n"
-               "                          |\n"
-               "              [Trade Road] ──── [Aeridor Ruins] \n"
-               "                          |\n"
-               "                    [OAKHAVEN] ← hub\n"
-               "                   /    |    \\\n"
-               "          [Stone  ] [Hemlock's] [Shrine of\n"
-               "           Hearth]  [Store]      Silent Ones]\n"
-               "                          |\n"
-               "                    [Whisperwood Edge]\n"
-               "                          |\n"
-               "              [Whisperwood Deep]\n"
-               "```")
+    from utils.ttrpg.character_manager import load
+    from utils.ttrpg.world import LOCATION_DATA
+    
+    sheet = await asyncio.to_thread(load, uid)
+    if not sheet: return
+    
+    current_loc_key = sheet.get("location", "oakhaven")
+    current_loc = LOCATION_DATA.get(current_loc_key, {})
+    
+    exits = current_loc.get("exits", [])
+    exit_lines = "\n".join(
+        f"  `!rpg go {key}` — {LOCATION_DATA[key]['name']}"
+        for key in exits
+        if key in LOCATION_DATA
+    )
+    
+    await send(msg.channel,
+        f"**{current_loc.get('name', current_loc_key)}** — nearby locations:\n\n{exit_lines}\n\n"
+        f"*(Use `!rpg go <location>` to travel)*")
 
 
 # ── Economy / NPCs / World Iterations ───────────────────────────────────────
@@ -606,8 +659,7 @@ async def _handle_hunts(ctx, msg, send, rest, uid, uname, is_owner):
 async def _handle_hunt(ctx, msg, send, rest, uid, uname, is_owner):
     from utils.ttrpg.character_manager import load, save
     from utils.ttrpg.world import LOCATION_DATA
-    from utils.ttrpg.encounter_tables import random_encounter
-    from utils.ttrpg.monster_registry import get as get_monster
+    from utils.ttrpg.monster_registry import random_encounter, get as get_monster
     from utils.ttrpg.progression import hunts_remaining, check_and_reset_hunts, MAX_HUNTS_PER_DAY
     from utils.ttrpg.session_manager import load_session, save_session
     
@@ -628,21 +680,30 @@ async def _handle_hunt(ctx, msg, send, rest, uid, uname, is_owner):
         
     # Engage tracking
     chan_id = str(msg.channel.id)
-    s = await asyncio.to_thread(load_session, chan_id) or {"monsters": []}
+    s = await asyncio.to_thread(load_session, chan_id)
+    if not s:
+        s = {"channel_id": chan_id, "monsters": [], "combat_active": False}
     
     # Are we already fighting something?
     my_fights = [m for m in s.get("monsters", []) if m.get("aggro_uid") == uid]
     if my_fights:
-        m_name = my_fights[0]["name"]
-        return await send(msg.channel, f"You are already fighting a **{m_name}**!\nUse `!rpg attack {my_fights[0]['key']}` or `!rpg flee`.")
+        m_name = my_fights[0].get("name", "Unknown Monster")
+        m_key = my_fights[0].get("key", "monster")
+        return await send(msg.channel, f"You are already fighting a **{m_name}**!\nUse `!rpg attack {m_key}` or `!rpg flee`.")
     
     # Spawn monster
     m_key = random_encounter(loc)
-    m_temp = get_monster(m_key).copy()
+    m_data = get_monster(m_key)
+    if not m_data:
+        return await send(msg.channel, f"Wait... you hear a sound, but nothing emerges. (Error: Monster {m_key} not found)")
+        
+    m_temp = m_data.copy()
+    m_temp["key"] = m_key
     m_temp["hp"] = {"current": m_temp["hp"], "max": m_temp["hp"]}
     m_temp["id"] = f"{m_key}_{_uuid.uuid4().hex[:4]}"
     m_temp["aggro_uid"] = uid  # personal instance
     
+    s.setdefault("channel_id", chan_id)
     s["monsters"].append(m_temp)
     s["combat_active"] = True
     await asyncio.to_thread(save_session, s)
@@ -651,15 +712,27 @@ async def _handle_hunt(ctx, msg, send, rest, uid, uname, is_owner):
     sheet["hunts_today"] = sheet.get("hunts_today", 0) + 1
     await asyncio.to_thread(save, sheet)
     
+    import discord
+    from utils.ttrpg.rpg_ui import TIER_ICONS
+    
     rec = ld.get("recommended_level", 1)
     warn = f"⚠️ *{sheet['character_name']} is underleveled for this area.*\n" if sheet["level"] < rec - 1 else ""
     
-    await send(msg.channel, 
-        f"{warn}⚔️ **{sheet['character_name']}** encounters a **{m_temp['name']}**!\n"
-        f"*{m_temp['description']}*\n"
-        f"`HP: {m_temp['hp']['max']}  ATK: {m_temp['attack']}  DEF: {m_temp['defense']}  |  1 hunt consumed.`\n"
-        f"Use `!rpg attack {m_key}` to strike."
+    monster_desc = m_temp.get("desc", m_temp.get("description", "A dangerous creature."))
+    tier_icon = TIER_ICONS.get(m_temp.get("tier", "medium"), "🟠")
+    
+    embed = discord.Embed(
+        title=f"⚔️ Encounter: {m_temp['name']} {tier_icon}",
+        description=f"{warn}*{monster_desc}*",
+        color=0xFF4500
     )
+    embed.add_field(name="❤️ HP", value=str(m_temp['hp']['max']), inline=True)
+    embed.add_field(name="🗡️ ATK", value=str(m_temp['attack']), inline=True)
+    embed.add_field(name="🛡️ DEF", value=str(m_temp['defense']), inline=True)
+    
+    embed.set_footer(text=f"Use !rpg attack  ·  1 hunt consumed")
+    
+    await msg.channel.send(embed=embed)
 
 async def _handle_attack(ctx, msg, send, rest, uid, uname, is_owner):
     from utils.ttrpg.character_manager import load, save
@@ -685,7 +758,8 @@ async def _handle_attack(ctx, msg, send, rest, uid, uname, is_owner):
     monster_idx = -1
     for i, m in enumerate(s["monsters"]):
         # Prioritize engaging enemies aggro'd onto THIS player
-        if m.get("aggro_uid") == uid or (target_key and target_key in m["key"]):
+        m_key = m.get("key", "")
+        if m.get("aggro_uid") == uid or (target_key and target_key in m_key):
             monster = m
             monster_idx = i
             break
@@ -708,10 +782,26 @@ async def _handle_attack(ctx, msg, send, rest, uid, uname, is_owner):
         
     await asyncio.to_thread(save_session, s)
     
-    xp_gain, gil_gain, level_up_msg = 0, 0, ""
+    xp_gain, gil_gain, level_up_msg, loot_msg, streak_msg = 0, 0, "", "", ""
     if res["monster_defeated"]:
         xp_gain = monster.get("xp", 10)
         gil_gain = monster.get("gil", 5)
+        
+        # Streak mechanics
+        streak = sheet.get("hunt_streak", 0) + 1
+        sheet["hunt_streak"] = streak
+        if streak > 1:
+            streak_bonus_gil = streak * 2
+            gil_gain += streak_bonus_gil
+            streak_msg = f"  🔥 Streak: {streak} (+{streak_bonus_gil}g)"
+            
+        # Loot mechanics
+        from utils.ttrpg.loot_tables import get_loot
+        loot = get_loot(monster.get("tier", "medium"))
+        if loot:
+            sheet.setdefault("inventory", []).append(loot)
+            loot_msg = f"\n🎁 **Looted:** {loot}"
+            
         sheet["xp"] += xp_gain
         sheet["gil"] += gil_gain
         leveled, n_lvl = check_level_up(sheet)
@@ -723,26 +813,40 @@ async def _handle_attack(ctx, msg, send, rest, uid, uname, is_owner):
     m_block = "\n".join(res["exchanges"])
     if res["monster_defeated"]:
         nx = xp_to_next_level(sheet["level"])
-        m_block += f"\n+{xp_gain} XP ({sheet['xp']}/{nx})  +{gil_gain} Gil" + level_up_msg
+        m_block += f"\n+{xp_gain} XP ({sheet['xp']}/{nx})  +{gil_gain} Gil{streak_msg}{loot_msg}{level_up_msg}"
     elif not res["player_alive"]:
+        sheet["hunt_streak"] = 0
         xp_loss = int(sheet["xp"] * 0.10)
         gil_loss = int(sheet["gil"] * 0.05)
         sheet["xp"] = max(0, sheet["xp"] - xp_loss)
         sheet["gil"] = max(0, sheet["gil"] - gil_loss)
         sheet["hp"]["current"] = 1
         sheet["location"] = "oakhaven"
-        await asyncio.to_thread(save, sheet)
-        
         m_block += f"\n\n🚨 **You blacked out.** Townspeople dragged you back to the Shrine of the Silent Ones in Oakhaven. You dropped {xp_loss} XP and {gil_loss} Gil in the dirt."
         
-    await send(msg.channel, m_block)
+    await asyncio.to_thread(save, sheet)
+    
+    import discord
+    embed_color = 0xFF4500 if res["monster_alive"] else 0x2D5A27
+    if not res["player_alive"]:
+        embed_color = 0x8B0000
+
+        
+    embed = discord.Embed(
+        title="⚔️ Combat Log",
+        description=m_block,
+        color=embed_color
+    )
+    await msg.channel.send(embed=embed)
     
     # Kaia Narration Generation
+    monster_desc = monster.get("desc", monster.get("description", "A dangerous creature."))
     truth = build_combat_prompt(
-        sheet, monster["name"], monster.get("description", ""),
-        res["player_hit"], res["player_crit"], res["player_fumble"], res["player_damage"],
+        sheet, monster["name"], monster_desc,
+        res["player_hit"], res["player_crit"], res["player_fumble"], res.get("player_damage", 0),
         res["monster_alive"], res["monster_hit"], res["monster_damage"],
-        res["player_alive"], sheet["hp"]["current"], sheet["hp"]["max"]
+        res["player_alive"], sheet["hp"]["current"], sheet["hp"]["max"],
+        sheet["hp"]["current"] / max(1, sheet["hp"]["max"])
     )
     
     persona = await load_persona_async()
@@ -772,6 +876,12 @@ async def _handle_attack(ctx, msg, send, rest, uid, uname, is_owner):
             pass
 
 async def _handle_flee(ctx, msg, send, rest, uid, uname, is_owner):
+    from utils.ttrpg.character_manager import load, save
+    
+    sheet = await asyncio.to_thread(load, uid)
+    if sheet:
+        sheet["hunt_streak"] = 0
+        await asyncio.to_thread(save, sheet)
     from utils.ttrpg.session_manager import load_session, save_session
     import secrets
     s = await asyncio.to_thread(load_session, str(msg.channel.id))
@@ -807,8 +917,8 @@ async def _handle_roll(ctx, msg, send, rest, uid, uname, is_owner):
 
 async def _handle_bestiary(ctx, msg, send, rest, uid, uname, is_owner):
     if not is_owner: return
-    from utils.ttrpg.monster_registry import list_all
-    await send(msg.channel, list_all())
+    from utils.ttrpg.monster_registry import format_bestiary
+    await send(msg.channel, format_bestiary(), use_code_block=False)
 
 async def _handle_xp(ctx, msg, send, rest, uid, uname, is_owner):
     if not is_owner: return

@@ -282,6 +282,7 @@ class RAGQueryMixin:
         
         scored_nodes = []
         seen_content_hashes: set = set()  # Fix #1: deduplicate cross-index duplicate chunks
+        query_words = set(re.findall(r'\w+', query_lower))
         strategy = routing["strategy"]
         is_casual = routing["is_casual"]
         is_dream_query = routing["is_dream_query"]
@@ -366,6 +367,14 @@ class RAGQueryMixin:
                             continue
                 except Exception as e:
                     log_debug(f"RAG isolation: path parse failed for node: {file_path} — {e}")
+
+            # Fix #2: Path-based relevance boosting
+            basename_lower = os.path.basename(file_path).lower()
+            filename_words = set(re.findall(r'\w+', basename_lower))
+            word_overlap = query_words & filename_words - {"for", "the", "a", "an", "to", "of", "kaia", "file", "doc", "document"}
+            path_boost = 0  # Safe default — overridden below when overlap qualifies
+            if len(word_overlap) >= 1:
+                path_boost = 0.6 if len(word_overlap) >= 2 else (0.3 if len(word_overlap) == 1 and source_type == 'general_knowledge' else 0)
 
             # Fix 1: Differentiate "user-scoped" vs "topic-scoped" log retrieval
             if source_type == 'user_logs' and node_user_id:

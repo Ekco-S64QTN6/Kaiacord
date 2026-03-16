@@ -26,38 +26,86 @@ def _resolve_combat(sheet: dict, monster: dict) -> dict:
     weapon_atk = weapon["attack_bonus"] if weapon else 0
     weapon_dmg_die = weapon["damage_die"] if weapon else 4
     armor_def = armor["defense_bonus"] if armor else 0
-
-    attack_mod = atk_mod + weapon_atk
     
-    raw_hit = secrets.randbelow(20) + 1
-    total_hit = raw_hit + attack_mod
-    mod_str = f"{'+' if attack_mod >= 0 else ''}{attack_mod}"
-    hit_breakdown = f"d20({raw_hit}){mod_str}=**{total_hit}** vs DEF {monster['defense']}"
+    # --- Status Effects ---
+    conditions = set(sheet.get("conditions", []))
+    status_logs = []
+    
+    if "poisoned" in conditions:
+        poison_dmg = 2
+        sheet["hp"]["current"] = max(0, sheet["hp"]["current"] - poison_dmg)
+        status_logs.append(f"🟢 *Poison saps {poison_dmg} HP.*")
+        
+    if sheet["hp"]["current"] <= 0:
+        return {
+            "sheet": sheet,
+            "monster": monster,
+            "player_hit": False, "player_crit": False, "player_fumble": False, "player_damage": 0,
+            "monster_alive": True, "monster_hit": False, "monster_damage": 0,
+            "player_alive": False,
+            "exchanges": status_logs,
+            "monster_defeated": False,
+        }
+        
+    if "weakened" in conditions:
+        atk_mod = atk_mod // 2
+        status_logs.append(f"🦴 *Weakened state halves attack modifier.*")
+        
+    bless_bonus = 2 if "blessed" in conditions else 0
+    if bless_bonus:
+        status_logs.append(f"✨ *Blessed strikes guide your aim (+2).*")
 
-    crit_threshold = 19 if class_name == "Rogue" else 20
-    player_crit = raw_hit >= crit_threshold
-    player_hit = total_hit >= monster["defense"] or player_crit
-    player_fumble = raw_hit == 1
+    # Streak bonus (+1 to hit if streak > 1)
+    streak = sheet.get("hunt_streak", 0)
+    streak_bonus = 1 if streak > 1 else 0
+    if streak_bonus:
+        status_logs.append(f"🔥 *Combat streak adds +{streak_bonus} to hit.*")
 
+    attack_mod = atk_mod + weapon_atk + bless_bonus + streak_bonus
+    
+    # --- Initialize Result Variables ---
+    player_hit = False
+    player_crit = False
+    player_fumble = False
     player_damage = 0
+    hit_breakdown = "—"
     player_dmg_breakdown = "—"
+    is_stunned = False
 
-    if player_hit and not player_fumble:
-        dice_count = 2 if player_crit else 1
-        dmg_rolls = [secrets.randbelow(weapon_dmg_die) + 1 for _ in range(dice_count)]
-        
-        warrior_dmg_bonus = ((sheet.get("level", 1) + 1) // 2) if class_name == "Warrior" else 0
-        total_dmg_bonus = atk_mod + warrior_dmg_bonus
-        
-        player_damage = max(1, sum(dmg_rolls) + total_dmg_bonus)
-        
-        die_str = f"{'2' if player_crit else '1'}d{weapon_dmg_die}"
-        bonus_str = f"{'+' if total_dmg_bonus >= 0 else ''}{total_dmg_bonus}" if total_dmg_bonus != 0 else ""
-        player_dmg_breakdown = (
-            f"{die_str}[{','.join(str(r) for r in dmg_rolls)}]"
-            f"{bonus_str}=**{player_damage}**"
-        )
-        monster["hp"]["current"] = max(0, monster["hp"]["current"] - player_damage)
+    # Stun check
+    if "stunned" in conditions:
+        if secrets.randbelow(2) == 0:
+            is_stunned = True
+            status_logs.append(f"⚡ *Stunned! You lose your attack this round.*")
+    
+    if not is_stunned:
+        raw_hit = secrets.randbelow(20) + 1
+        total_hit = raw_hit + attack_mod
+        mod_str = f"{'+' if attack_mod >= 0 else ''}{attack_mod}"
+        hit_breakdown = f"d20({raw_hit}){mod_str}=**{total_hit}** vs DEF {monster['defense']}"
+    
+        crit_threshold = 19 if class_name == "Rogue" else 20
+        player_crit = raw_hit >= crit_threshold
+        player_hit = total_hit >= monster["defense"] or player_crit
+        player_fumble = raw_hit == 1
+    
+        if player_hit and not player_fumble:
+            dice_count = 2 if player_crit else 1
+            dmg_rolls = [secrets.randbelow(weapon_dmg_die) + 1 for _ in range(dice_count)]
+            
+            warrior_dmg_bonus = ((sheet.get("level", 1) + 1) // 2) if class_name == "Warrior" else 0
+            total_dmg_bonus = atk_mod + warrior_dmg_bonus
+            
+            player_damage = max(1, sum(dmg_rolls) + total_dmg_bonus)
+            
+            die_str = f"{'2' if player_crit else '1'}d{weapon_dmg_die}"
+            bonus_str = f"{'+' if total_dmg_bonus >= 0 else ''}{total_dmg_bonus}" if total_dmg_bonus != 0 else ""
+            player_dmg_breakdown = (
+                f"{die_str}[{','.join(str(r) for r in dmg_rolls)}]"
+                f"{bonus_str}=**{player_damage}**"
+            )
+            monster["hp"]["current"] = max(0, monster["hp"]["current"] - player_damage)
+
 
     monster_alive = monster["hp"]["current"] > 0
 
@@ -83,24 +131,25 @@ def _resolve_combat(sheet: dict, monster: dict) -> dict:
     player_alive = sheet["hp"]["current"] > 0
 
     # formatting exchanges
-    player_attack_result = (
-        "CRITICAL HIT" if player_crit else
-        "FUMBLE" if player_fumble else
-        "HIT" if player_hit else
-        "MISS"
-    )
-
-    exchanges = [
-        f"🗡️ Your attack: {hit_breakdown}",
-        f"   → **{player_attack_result}**" + (f" — {player_dmg_breakdown}" if player_hit and not player_fumble else ""),
-    ]
+    exchanges = list(status_logs)
+    
+    if not is_stunned:
+        player_attack_result = (
+            "CRITICAL HIT" if player_crit else
+            "FUMBLE" if player_fumble else
+            "HIT" if player_hit else
+            "MISS"
+        )
+        exchanges.extend([
+            f"🗡️ Your attack: {hit_breakdown}",
+            f"   → **{player_attack_result}**" + (f" — {player_dmg_breakdown}" if player_hit and not player_fumble else ""),
+        ])
 
     if monster_alive:
+        from utils.ttrpg.rpg_ui import colored_bar
         hp = monster["hp"]
-        bar_filled = int((hp["current"] / hp["max"]) * 10)
-        bar = "█" * bar_filled + "░" * (10 - bar_filled)
-        exchanges.append(f"   {monster['name']} HP: [{bar}] {hp['current']}/{hp['max']}")
-        exchanges.append(f"")
+        bar = colored_bar(hp["current"], hp["max"], 10)
+        exchanges.append(f"   {monster['name']} HP: {hp['current']}/{hp['max']}\n```ansi\n{bar}\n```")
 
         counter_result = "HIT" if monster_hit else "MISS"
         exchanges.append(f"🔴 Counter-attack: d20({monster_raw_hit})+{monster['attack']//3}=**{monster_total_hit}** → **{counter_result}**")

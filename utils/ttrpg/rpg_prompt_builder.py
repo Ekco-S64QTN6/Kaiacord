@@ -72,6 +72,7 @@ def build_combat_prompt(
     player_alive: bool,
     player_hp_after: int,
     player_hp_max: int,
+    player_hp_pct: float,
 ) -> str:
 
     player_outcome = (
@@ -101,6 +102,7 @@ PLAYER STATUS: {player_status} (HP: {player_hp_after}/{player_hp_max})
 
 YOUR TASK: Narrate this entire combat exchange in 2–4 sentences covering both the player's attack and the monster's response.
 Be specific and kinetic. Use the monster description for flavor.
+The player is currently at {int(player_hp_pct * 100)}% HP. Describe their physical state appropriately (e.g. bleeding heavily, barely standing, or completely unharmed).
 Do NOT change any outcome. Do NOT invent damage numbers. Do NOT reference dice or game mechanics.
 If the monster is DEFEATED, describe its final moments.
 If the player is DEFEATED, end with something appropriately grim.
