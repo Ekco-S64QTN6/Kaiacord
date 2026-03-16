@@ -378,16 +378,7 @@ class RAGQueryMixin:
             if is_casual and source_type == 'general_knowledge' and not routing.get('is_entity_query'):
                 continue  # Books have no business in casual chitchat
 
-            if is_dream_query and not (source_type == 'dream' or "kaia_dreams" in file_path or "dream" in content.lower()): continue
-
-            # SCORING
-            basename_lower = os.path.basename(file_path).lower() if file_path else ""
-            query_words = set(query_lower.split())
-            filename_words = set(basename_lower.replace("_", " ").replace("-", " ").split())
-            word_overlap = query_words & filename_words - {"for", "the", "a", "an", "to", "of", "kaia", "file", "doc", "document"}
-            # Fix #2: use 'general_knowledge' (the actual assigned source_type) not 'knowledge'
-            path_boost = 0.6 if len(word_overlap) >= 2 else (0.3 if len(word_overlap) == 1 and source_type == 'general_knowledge' else 0)
-            # Fix #3: rely solely on yaml_config for type_boosts — no inline fallback with stale keys
+            # Fix 3: rely solely on yaml_config for type_boosts — no inline fallback with stale keys
             boost_key = 'knowledge' if source_type == 'general_knowledge' else source_type
             type_boost = config.rag_type_boosts.get(boost_key, 0.0)
             
@@ -397,6 +388,13 @@ class RAGQueryMixin:
                 persona_file_bonus = 0.60
 
             final_score = base_score + path_boost + type_boost + persona_file_bonus
+
+            # Penalize literary prose documents for non-synthesis queries
+            if source_type == 'general_knowledge' and not routing.get('is_entity_query') and not routing.get('is_news_query'):
+                fname_lower = os.path.basename(file_path).lower()
+                LITERARY_MARKERS = ('neuromancer', 'gibson', 'dickens', 'novel', 'fiction')
+                if any(m in fname_lower for m in LITERARY_MARKERS):
+                    final_score *= 0.4  # Heavy deweight — literary style bleeds into generation
 
             # Apply recency decay (only affects user_logs, news, dreams)
             final_score *= _recency_decay(file_path, source_type, metadata)

@@ -18,6 +18,8 @@ class EmergencyContaminationFilter:
         r"In\s+a\s+shocking\s+turn\s+of\s+events",
         r"Breaking\s+news:?",
         r"\b(the state of streaming services|chain of suspicion)\b", # Tracer contamination
+        # Ellipsis-fragmented affect (style bleed from literary RAG sources)
+        r"^The\s+\w+.*?is\.\.\.\s+\w+\.\s+The\s+\w+.*?is\.\.\.",
         # Fabricated user observations — invented anecdotes about chat participants
         r"there\s+was\s+one\s+user.{0,20}(who|that)\s+(asked|mentioned|said|brought|posted|shared|noticed)",
         # Prose roleplay narration (first-person actions)
