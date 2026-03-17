@@ -103,6 +103,69 @@ MONSTERS = {
         "desc": "A floating cloud of animate ash, remnant of something burned long ago.",
     },
 
+    # ── Additional TRIVIAL (early game variety) ────────────────────────────────
+
+    "grat": {
+        "name": "Grat",
+        "hp": 14, "attack": 3, "defense": 8,
+        "xp": 18, "gil": 4, "tier": "trivial",
+        "desc": "A tentacled plant creature that roots itself near water and grabs passing legs.",
+    },
+    "nutkin": {
+        "name": "Nutkin",
+        "hp": 8, "attack": 2, "defense": 8,
+        "xp": 12, "gil": 2, "tier": "trivial",
+        "desc": "An oversized squirrel with a mean disposition and a habit of hoarding sharp things.",
+    },
+    "forest_boar": {
+        "name": "Forest Boar",
+        "hp": 22, "attack": 4, "defense": 8,
+        "xp": 24, "gil": 8, "tier": "trivial",
+        "desc": "A tusked pig that charges when startled. Startles easily.",
+    },
+    "snipper": {
+        "name": "Snipper",
+        "hp": 18, "attack": 4, "defense": 10,
+        "xp": 22, "gil": 6, "tier": "trivial",
+        "desc": "A large crab that wandered far from any water. Confused and aggressive.",
+    },
+    "myconid": {
+        "name": "Myconid",
+        "hp": 16, "attack": 3, "defense": 8,
+        "xp": 20, "gil": 5, "tier": "trivial",
+        "desc": "A walking mushroom creature that releases confusion spores when struck.",
+    },
+    "mud_flan": {
+        "name": "Mud Flan",
+        "hp": 24, "attack": 2, "defense": 7,
+        "xp": 22, "gil": 5, "tier": "trivial",
+        "desc": "A flan variant made of mud rather than gelatine. Slower, dirtier, equally unpleasant.",
+    },
+    "leaf_bunny": {
+        "name": "Leaf Bunny",
+        "hp": 6, "attack": 3, "defense": 11,
+        "xp": 15, "gil": 3, "tier": "trivial",
+        "desc": "A small creature that looks harmless. Bites hard and bolts. Usually gone before you can react.",
+    },
+    "thorn_lizard": {
+        "name": "Thorn Lizard",
+        "hp": 16, "attack": 4, "defense": 9,
+        "xp": 20, "gil": 5, "tier": "trivial",
+        "desc": "A lizard with a hide of hardened spines. Touching it is a mistake. Fighting it is a choice.",
+    },
+    "wisp": {
+        "name": "Will-o'-Wisp",
+        "hp": 10, "attack": 4, "defense": 12,
+        "xp": 22, "gil": 0, "tier": "trivial",
+        "desc": "A floating light. It draws you off the path and then attacks. Classic. Drops nothing.",
+    },
+    "shadow_hound": {
+        "name": "Shadow Hound",
+        "hp": 20, "attack": 5, "defense": 10,
+        "xp": 28, "gil": 6, "tier": "trivial",
+        "desc": "A dog-shaped shadow that has developed opinions about territory.",
+    },
+
     # ══════════════════════════════════════════════════════
     # TIER: EASY  (Level 2-4)
     # ══════════════════════════════════════════════════════
@@ -580,12 +643,24 @@ MONSTERS = {
 
 ENCOUNTER_TABLES = {
     "whisperwood_edge": [
-        ("bat",          30),
-        ("goblin",       30),
-        ("goblin_guard", 15),
-        ("flan",         10),
-        ("wolf",         10),
-        ("killer_bee",    5),
+        ("bat",          12),
+        ("goblin",       10),
+        ("goblin_guard",  8),
+        ("flan",          8),
+        ("mud_flan",      8),
+        ("grat",          8),
+        ("forest_boar",   8),
+        ("leaf_bunny",    7),
+        ("wisp",          7),
+        ("shadow_hound",  7),
+        ("nutkin",        6),
+        ("myconid",       6),
+        ("thorn_lizard",  6),
+        ("snipper",       5),
+        ("wolf",          4),   # wolves still here but no longer dominant
+        ("killer_bee",    3),
+        ("microchu",      3),
+        ("elf_toad",      3),   # was missing from edge table before
     ],
     "whisperwood_deep": [
         ("wolf",         20),

@@ -41,6 +41,8 @@ async def handle_snapshot_command(ctx, msg, send_kaia_response):
         # Extract topic from first substantial message (skip bot commands)
         topic = "General Discussion"
         for m in messages[:10]:
+            if m.author.bot:
+                continue
             text = m.content.strip()
             if not text.startswith("!") and len(text) > 20:
                 # Use first ~80 chars as topic summary
@@ -48,6 +50,9 @@ async def handle_snapshot_command(ctx, msg, send_kaia_response):
                 if len(text) > 80:
                     topic += "..."
                 break
+
+        # Sanitize topic for safe insertion into confirmation block
+        topic_safe = topic.replace("`", "'").replace("*", "").replace("_", "")
 
         # Build the snapshot content
         channel_name = getattr(msg.channel, 'name', 'DM')
@@ -103,9 +108,9 @@ async def handle_snapshot_command(ctx, msg, send_kaia_response):
 
         await send_kaia_response(
             msg.channel,
-            f"Snapshot saved — {len(messages)} messages captured.\n"
-            f"Participants: {', '.join(participants)}\n"
-            f"Topic: {topic}"
+            f"snapshot saved — {len(messages)} messages captured.\n"
+            f"participants: {', '.join(participants)}\n"
+            f"topic: {topic_safe}"
         )
 
     except Exception as e:

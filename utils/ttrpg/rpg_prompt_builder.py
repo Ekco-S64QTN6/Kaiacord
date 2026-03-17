@@ -169,3 +169,21 @@ YOUR TASK: Narrate this event to the channel as Kaia (the GM).
 2-4 sentences. Make it feel atmospheric, grounded, and present in the world.
 Lowercase only. No meta-commentary.
 [END WORLD EVENT]"""
+
+
+def build_event_narration_prompt(sheet: dict, event_title: str, narration_hook: str) -> str:
+    """Build the ground-truth block for a forest event narration."""
+    return f"""[TTRPG GROUND TRUTH — NARRATE THIS EVENT EXACTLY AS DESCRIBED]
+CHARACTER: {sheet['character_name']} ({sheet.get('class', 'Unknown')} Lv.{sheet.get('level', 1)})
+HP: {sheet['hp']['current']}/{sheet['hp']['max']}
+LOCATION: {sheet.get('location', 'unknown')}
+
+EVENT: {event_title}
+WHAT HAPPENED: {narration_hook}
+
+YOUR TASK: Narrate this event in 2-3 sentences. Ground it in the senses — light, sound, smell.
+Do NOT invent HP changes, items, XP, or outcomes beyond what is stated above.
+Do NOT reference dice, game mechanics, or damage numbers.
+Speak as Kaia — the GM narrator. Lowercase, grounded, specific. No purple prose.
+[END GROUND TRUTH]"""
+

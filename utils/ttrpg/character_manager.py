@@ -33,7 +33,7 @@ def save(sheet: dict) -> None:
         os.replace(tmp, p)
 
 def create(user_id: str, user_name: str, character_name: str,
-           class_name: str, stats: dict) -> dict:
+           race: str, class_name: str, stats: dict) -> dict:
     """Create a new character sheet with rolled/assigned stats."""
     from utils.ttrpg.dice_engine import CLASSES
     
@@ -49,6 +49,7 @@ def create(user_id: str, user_name: str, character_name: str,
         "user_id": user_id,
         "user_name": user_name,
         "character_name": character_name,
+        "race": race,
         "class": class_name,
         "level": 1,
         "xp": 0,
@@ -97,11 +98,12 @@ def format_sheet(sheet: dict) -> str:
     skills = ", ".join(sheet.get("skills", [])) if sheet.get("skills") else "none"
     
     return (
-        f"⚔️ **{sheet['character_name']}** — {sheet['class']} Lv.{sheet['level']} | {loc_name}\n"
+        f"⚔️ **{sheet['character_name']}** — {sheet.get('race', '')} {sheet['class']} Lv.{sheet['level']} | {loc_name}\n"
         f"**HP:** {sheet['hp']['current']}/{sheet['hp']['max']}  "
         f"**XP:** {xp_bar}  **Gil:** {gil}g\n"
         f"**Hunts Remaining:** {hunts_rem}/{MAX_HUNTS_PER_DAY}\n"
         f"**Weapon:** {w_name}  **Armor:** {a_name}\n"
+        f"**Conditions:** {conditions}\n"
         f"```\n"
         f"STR {s['str']:2d} ({mod(s['str'])})  "
         f"DEX {s['dex']:2d} ({mod(s['dex'])})  "

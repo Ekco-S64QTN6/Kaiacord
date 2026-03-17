@@ -43,3 +43,81 @@ def random_encounter(location: str) -> str:
         if r < cumulative:
             return monster_key
     return table[-1][0]
+
+
+# ══════════════════════════════════════════════════════════════
+# Forest Event System — LORD-style random events during hunts
+# ══════════════════════════════════════════════════════════════
+
+# Probability a hunt triggers a special event instead of a monster
+# 20% chance at whisperwood_edge, 15% deep, 10% ruins (rarer the deeper you go)
+EVENT_CHANCE = {
+    "whisperwood_edge": 20,
+    "whisperwood_deep": 15,
+    "aeridor_ruins":    10,
+    "trade_road":       18,
+}
+
+def roll_for_event(location: str) -> bool:
+    """Returns True if this hunt should be a special event."""
+    chance = EVENT_CHANCE.get(location, 15)
+    return secrets.randbelow(100) < chance
+
+
+# Weighted event tables per location
+EVENTS = {
+    "whisperwood_edge": [
+        ("sylvan_sprites",       20),
+        ("moogle_sighting",      12),
+        ("injured_silvani",      12),
+        ("old_man_riddle",       10),
+        ("chocobo_tracks",       10),
+        ("aeridor_fragment",      8),
+        ("gilded_mushroom",       8),
+        ("veiled_elder",          7),
+        ("timid_tonberry",        5),
+        ("mognet_delivery",       5),
+        ("crystal_resonance",     3),
+    ],
+    "whisperwood_deep": [
+        ("injured_silvani",      18),
+        ("old_man_riddle",       12),
+        ("veiled_elder",         12),
+        ("aeridor_fragment",     12),
+        ("crystal_resonance",    10),
+        ("timid_tonberry",        8),
+        ("moogle_sighting",       8),
+        ("chocobo_tracks",        8),
+        ("mognet_delivery",       7),
+        ("sylvan_sprites",        5),
+    ],
+    "aeridor_ruins": [
+        ("aeridor_fragment",     25),
+        ("crystal_resonance",    20),
+        ("veiled_elder",         18),
+        ("old_man_riddle",       15),
+        ("timid_tonberry",       12),
+        ("mognet_delivery",      10),
+    ],
+    "trade_road": [
+        ("gilded_mushroom",      20),
+        ("old_man_riddle",       20),
+        ("injured_silvani",      18),
+        ("moogle_sighting",      15),
+        ("chocobo_tracks",       15),
+        ("mognet_delivery",      12),
+    ],
+}
+
+def random_event(location: str) -> str:
+    """Pick a weighted random event for the given location."""
+    table = EVENTS.get(location, EVENTS["whisperwood_edge"])
+    total = sum(w for _, w in table)
+    r = secrets.randbelow(total)
+    cumulative = 0
+    for event_key, weight in table:
+        cumulative += weight
+        if r < cumulative:
+            return event_key
+    return table[0][0]
+

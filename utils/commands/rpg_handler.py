@@ -18,7 +18,13 @@ OAKHAVEN ACTIONS
   !rpg sell <item>           — sell to Hemlock
   !rpg shop                  — view Hemlock's stock
   !rpg use <item>            — use consumable
-  !rpg talk <npc>            — speak with NPC
+  !rpg talk <npc>           — speak with NPC
+  !rpg drink              — Stone Hearth: Buy an ale (2g, +3 temp HP)
+  !rpg gamble             — Stone Hearth: Dice game (10g buy-in)
+  !rpg pray               — Shrine: Daily blessing (+2 next hunt)
+  !rpg offer <amount>     — Shrine: Donate gil for XP (cap 20/day)
+  !rpg scout              — Watchtower: Preview monster activity
+  !rpg deliver            — Turn in a mognet letter (Oakhaven)
 
 COMBAT
   !rpg hunt                  — fight random monster at location (costs 1 hunt)
@@ -84,6 +90,12 @@ async def handle_rpg_command(ctx, msg, send_kaia_response):
         "give":      _handle_give,
         "heal":      _handle_heal,
         "event":     _handle_event,
+        "drink":     _handle_drink,
+        "gamble":    _handle_gamble,
+        "pray":      _handle_pray,
+        "offer":     _handle_offer,
+        "scout":     _handle_scout,
+        "deliver":   _handle_deliver,
     }
     async def _auto_send(channel, text, use_code_block=None):
         if use_code_block is None:
@@ -257,10 +269,7 @@ async def _handle_new(ctx, msg, send, rest, uid, uname, is_owner):
         bonus_str = f" (+{bonus} race)" if bonus else ""
         roll_log.append(f"{stat.upper()}: {sorted(dice)[1:]} = {base}{bonus_str} -> {rolled_stats[stat]}")
     
-    sheet = await asyncio.to_thread(create, uid, uname, char_name, class_name, rolled_stats)
-    sheet["race"] = race
-    from utils.ttrpg.character_manager import save
-    await asyncio.to_thread(save, sheet)
+    sheet = await asyncio.to_thread(create, uid, uname, char_name, race, class_name, rolled_stats)
     
     await send(msg.channel,
         f"**{char_name}**, the {race} {class_name}, has entered Aethelgard.\n\n"
@@ -400,12 +409,20 @@ async def _handle_rest(ctx, msg, send, rest, uid, uname, is_owner):
     hp_cur = sheet["hp"]["current"]
     hp_max = sheet["hp"]["max"]
     
-    if hp_cur >= hp_max:
+    has_ale = "ale_warmth" in sheet.get("conditions", [])
+    if hp_cur >= hp_max and not has_ale:
         return await send(msg.channel, f"**{sheet['character_name']}** is already at maximum health.\nMira raises an eyebrow. *\"You're paying for a room you won't use?\"*")
-        
-    healed = hp_max - hp_cur
-    sheet["hp"]["current"] = hp_max
+
+    # Clear ale temp HP and condition BEFORE healing
+    if "ale_warmth" in sheet.get("conditions", []):
+        sheet["conditions"].remove("ale_warmth")
+        sheet["hp"]["max"] -= 3  # remove the temp bonus
+        sheet["hp"]["current"] = min(sheet["hp"]["current"], sheet["hp"]["max"])
+
+    healed = sheet["hp"]["max"] - sheet["hp"]["current"]
+    sheet["hp"]["current"] = sheet["hp"]["max"]
     sheet["gil"] -= cost
+
     await asyncio.to_thread(save, sheet)
     
     await send(msg.channel, f"🛏️ **{sheet['character_name']}** rests at the Stone Hearth. (-{cost} gil)\nHP restored: **+{healed}** (Full)\nRemaining gil: {sheet['gil']}g")
@@ -644,6 +661,8 @@ async def _handle_use(ctx, msg, send, rest, uid, uname, is_owner):
         sheet["inventory"].remove(item_key)
         await asyncio.to_thread(save, sheet)
         await send(msg.channel, f"Used **{item['name']}**. Restored {healed} HP ({before} → {sheet['hp']['current']})")
+    else:
+        await send(msg.channel, f"**{item['name']}** can't be used. Try selling it: `!rpg sell {item_key}`")
 
 
 # ── Combat ───────────────────────────────────────────────────────────────────
@@ -691,6 +710,22 @@ async def _handle_hunt(ctx, msg, send, rest, uid, uname, is_owner):
         m_key = my_fights[0].get("key", "monster")
         return await send(msg.channel, f"You are already fighting a **{m_name}**!\nUse `!rpg attack {m_key}` or `!rpg flee`.")
     
+    # Roll for special forest event before monster spawn
+    from utils.ttrpg.encounter_tables import roll_for_event, random_event
+    from utils.ttrpg.forest_events import resolve_event
+
+    if roll_for_event(loc):
+        event_key = random_event(loc)
+        result = resolve_event(event_key, sheet)
+        # Pay the hunt cost
+        sheet["hunts_today"] = sheet.get("hunts_today", 0) + 1
+        await _apply_and_narrate_event(ctx, msg, send, sheet, result, uname)
+        return  # event consumed the hunt, done
+
+    # Pay hunt cost BEFORE spawn (crash-safe: hunt is consumed even if spawn fails)
+    sheet["hunts_today"] = sheet.get("hunts_today", 0) + 1
+    await asyncio.to_thread(save, sheet)
+
     # Spawn monster
     m_key = random_encounter(loc)
     m_data = get_monster(m_key)
@@ -707,10 +742,6 @@ async def _handle_hunt(ctx, msg, send, rest, uid, uname, is_owner):
     s["monsters"].append(m_temp)
     s["combat_active"] = True
     await asyncio.to_thread(save_session, s)
-    
-    # Pay cost
-    sheet["hunts_today"] = sheet.get("hunts_today", 0) + 1
-    await asyncio.to_thread(save, sheet)
     
     import discord
     from utils.ttrpg.rpg_ui import TIER_ICONS
@@ -742,6 +773,7 @@ async def _handle_attack(ctx, msg, send, rest, uid, uname, is_owner):
     from utils.infrastructure.gpu.gpu_manager import OllamaGPUManager, gpu_memory_manager, GPUTaskPriority
     from utils.social.kaia_social_responder import load_persona_async
     from utils.ttrpg.progression import check_level_up, xp_to_next_level
+    from utils.ttrpg.loot_tables import get_loot
     
     sheet = await asyncio.to_thread(load, uid)
     if not sheet: return
@@ -772,6 +804,10 @@ async def _handle_attack(ctx, msg, send, rest, uid, uname, is_owner):
     
     sheet = res["sheet"]
     monster = res["monster"]
+
+    # After combat resolves, consume the blessing
+    if "blessed" in sheet.get("conditions", []):
+        sheet["conditions"].remove("blessed")
     
     # Handle state cleanup
     if res["monster_defeated"]:
@@ -796,11 +832,13 @@ async def _handle_attack(ctx, msg, send, rest, uid, uname, is_owner):
             streak_msg = f"  🔥 Streak: {streak} (+{streak_bonus_gil}g)"
             
         # Loot mechanics
-        from utils.ttrpg.loot_tables import get_loot
         loot = get_loot(monster.get("tier", "medium"))
         if loot:
             sheet.setdefault("inventory", []).append(loot)
-            loot_msg = f"\n🎁 **Looted:** {loot}"
+            from utils.ttrpg.shop import find_item as _find_loot
+            loot_info = _find_loot(loot)
+            loot_display = loot_info["name"] if loot_info else loot
+            loot_msg = f"\n🎁 **Looted:** {loot_display}"
             
         sheet["xp"] += xp_gain
         sheet["gil"] += gil_gain
@@ -905,7 +943,403 @@ async def _handle_flee(ctx, msg, send, rest, uid, uname, is_owner):
         await send(msg.channel, f"❌ Flee failed! (d20 = {roll}) You trip. They close the distance.")
 
 
+async def _apply_and_narrate_event(ctx, msg, send, sheet, result, uname):
+    """Apply a forest event's mechanical effects and trigger Kaia narration."""
+    from utils.ttrpg.character_manager import save
+    from utils.ttrpg.progression import check_level_up, xp_to_next_level, MAX_HUNTS_PER_DAY, hunts_remaining
+
+    # Apply mechanical changes
+    sheet["xp"]  = sheet.get("xp", 0) + result["xp"]
+    sheet["gil"] = sheet.get("gil", 0) + result["gil"]
+
+    if result["hp_change"] != 0:
+        sheet["hp"]["current"] = max(0, min(
+            sheet["hp"]["current"] + result["hp_change"],
+            sheet["hp"]["max"]
+        ))
+
+    if result["condition_add"]:
+        sheet.setdefault("conditions", [])
+        if result["condition_add"] not in sheet["conditions"]:
+            sheet["conditions"].append(result["condition_add"])
+
+    if result["condition_remove"] and result["condition_remove"] in sheet.get("conditions", []):
+        sheet["conditions"].remove(result["condition_remove"])
+
+    if result["extra_hunt"]:
+        sheet["hunts_today"] = max(0, sheet.get("hunts_today", 1) - 1)  # refund 1 hunt
+
+    if result["item_add"]:
+        sheet.setdefault("inventory", []).append(result["item_add"])
+
+    leveled_up, new_level = check_level_up(sheet)
+    await asyncio.to_thread(save, sheet)
+
+    # Post mechanical result
+    xp_next = xp_to_next_level(sheet["level"])
+    lines = [
+        f"**{result['title']}**",
+        f"*{result['outcome']}*",
+    ]
+    if result["xp"]:
+        lines.append(f"+{result['xp']} XP ({sheet['xp']}/{xp_next})")
+    if result["gil"]:
+        lines.append(f"+{result['gil']} Gil (total: {sheet['gil']}g)")
+    if result["hp_change"] > 0:
+        lines.append(f"+{result['hp_change']} HP ({sheet['hp']['current']}/{sheet['hp']['max']})")
+    if result["hp_change"] < 0:
+        lines.append(f"{result['hp_change']} HP ({sheet['hp']['current']}/{sheet['hp']['max']})")
+    if result["extra_hunt"]:
+        lines.append(f"Hunts remaining: {hunts_remaining(sheet)}/{MAX_HUNTS_PER_DAY}")
+
+    await send(msg.channel, "\n".join(lines))
+
+    if leveled_up:
+        await send(msg.channel, f"🎉 **{sheet['character_name']} reached Level {new_level}!**")
+
+    # Kaia narrates
+    if result.get("narration_hook"):
+        from utils.ttrpg.rpg_prompt_builder import build_event_narration_prompt
+        from utils.social.kaia_social_responder import load_persona_async
+        from utils.infrastructure.gpu.gpu_manager import OllamaGPUManager, gpu_memory_manager, GPUTaskPriority
+        from utils.infrastructure.system.yaml_config import config
+        import uuid as _uuid
+
+        prompt = build_event_narration_prompt(
+            sheet=sheet,
+            event_title=result["title"],
+            narration_hook=result["narration_hook"],
+        )
+        persona = await load_persona_async()
+        messages = [
+            {"role": "system", "content": f"{persona}\n\n{prompt}"},
+            {"role": "user",   "content": f"{uname} is in the {sheet.get('location', 'forest')}."}
+        ]
+        gpu_manager = OllamaGPUManager(config.chat_model)
+        opts = gpu_manager.get_gpu_options(for_chat=True)
+        opts["num_predict"] = 120
+        opts["temperature"] = 0.9
+
+        async with msg.channel.typing():
+            try:
+                resp = await gpu_memory_manager.run_with_gpu_guard(
+                    model_name=config.chat_model,
+                    priority=GPUTaskPriority.CHAT,
+                    coro=asyncio.wait_for(
+                        ctx.ollama_client.chat(
+                            model=config.chat_model,
+                            messages=messages,
+                            options=opts,
+                            keep_alive=-1
+                        ),
+                        timeout=45.0
+                    ),
+                    task_id=f"rpg_event_{_uuid.uuid4().hex[:8]}"
+                )
+                narration = resp["message"]["content"].strip().replace("```", "")
+                if narration:
+                    await send(msg.channel, f"*{narration}*")
+            except Exception as e:
+                log_error(f"[rpg event narration] {e}")
+
+
+async def _handle_drink(ctx, msg, send, rest, uid, uname, is_owner):
+    """!rpg drink — buy an ale at the Stone Hearth. Costs 2 gil, +3 temporary HP."""
+    from utils.ttrpg.character_manager import load, save
+
+    sheet = await asyncio.to_thread(load, uid)
+    if not sheet:
+        return await send(msg.channel, "no character found.")
+
+    if sheet.get("location") != "stone_hearth":
+        return await send(msg.channel,
+            "you need to be at the Stone Hearth to drink.\n"
+            "`!rpg go stone_hearth`")
+
+    DRINK_COST = 2
+    if sheet.get("gil", 0) < DRINK_COST:
+        return await send(msg.channel,
+            f"Mira glances at your coin purse and shakes her head.\n"
+            f"An ale costs {DRINK_COST} gil. You have {sheet.get('gil', 0)}g.")
+
+    # Grant temp HP by raising max temporarily (tracked via condition)
+    TEMP_HP = 3
+    already_drinking = any("ale" in c.lower() for c in sheet.get("conditions", []))
+    if already_drinking:
+        return await send(msg.channel,
+            f"*Mira refills the tankard without comment.*\n"
+            f"You're already feeling the first one. Another won't stack.")
+
+    sheet["gil"] -= DRINK_COST
+    sheet["hp"]["max"] += TEMP_HP
+    sheet["hp"]["current"] = min(sheet["hp"]["current"] + TEMP_HP, sheet["hp"]["max"])
+    sheet.setdefault("conditions", []).append("ale_warmth")  # removed on next rest
+    await asyncio.to_thread(save, sheet)
+
+    await send(msg.channel,
+        f"🍺 Mira slides a tankard across the bar. (-{DRINK_COST} gil)\n"
+        f"*Temporary HP: +{TEMP_HP}* (HP: {sheet['hp']['current']}/{sheet['hp']['max']})\n"
+        f"*Clears when you next rest.*")
+
+
+async def _handle_gamble(ctx, msg, send, rest, uid, uname, is_owner):
+    """!rpg gamble — dice game at the Stone Hearth. 10 gil buy-in."""
+    import secrets as _sec
+    from utils.ttrpg.character_manager import load, save
+
+    sheet = await asyncio.to_thread(load, uid)
+    if not sheet:
+        return await send(msg.channel, "no character found.")
+
+    if sheet.get("location") != "stone_hearth":
+        return await send(msg.channel,
+            "the dice game only happens at the Stone Hearth.\n"
+            "`!rpg go stone_hearth`")
+
+    BUY_IN = 10
+    if sheet.get("gil", 0) < BUY_IN:
+        return await send(msg.channel,
+            f"the buy-in is {BUY_IN} gil. you have {sheet.get('gil', 0)}g.\n"
+            f"*A weathered man across the table doesn't look up from his cards.*")
+
+    # Roll d6 vs d6. Tie goes to house.
+    player_roll = _sec.randbelow(6) + 1
+    house_roll  = _sec.randbelow(6) + 1
+
+    sheet["gil"] -= BUY_IN
+
+    if player_roll > house_roll:
+        winnings = BUY_IN * 2
+        sheet["gil"] += winnings
+        result_line = f"🎲 You rolled **{player_roll}**, they rolled **{house_roll}**. You win!"
+        gil_line = f"+{BUY_IN} gil (net). Total: {sheet['gil']}g"
+    elif player_roll < house_roll:
+        result_line = f"🎲 You rolled **{player_roll}**, they rolled **{house_roll}**. You lose."
+        gil_line = f"-{BUY_IN} gil. Total: {sheet['gil']}g"
+    else:
+        result_line = f"🎲 You both rolled **{player_roll}**. House takes ties."
+        gil_line = f"-{BUY_IN} gil. Total: {sheet['gil']}g"
+
+    await asyncio.to_thread(save, sheet)
+    await send(msg.channel, f"{result_line}\n{gil_line}")
+
+
+async def _handle_pray(ctx, msg, send, rest, uid, uname, is_owner):
+    """!rpg pray — once per day blessing at the Shrine of the Silent Ones."""
+    from utils.ttrpg.character_manager import load, save
+    from datetime import date
+
+    sheet = await asyncio.to_thread(load, uid)
+    if not sheet:
+        return await send(msg.channel, "no character found.")
+
+    if sheet.get("location") != "shrine":
+        return await send(msg.channel,
+            "you need to be at the Shrine of the Silent Ones to pray.\n"
+            "`!rpg go shrine`")
+
+    # Once per day check
+    today = date.today().strftime("%Y-%m-%d")
+    last_pray = sheet.get("last_pray_date", "")
+    if last_pray == today:
+        return await send(msg.channel,
+            "🕯️ *The shrine is still. You've already made your offering today.*\n"
+            "The Silent Ones do not answer twice.")
+
+    # Check if already blessed
+    if "blessed" in sheet.get("conditions", []):
+        return await send(msg.channel,
+            "🕯️ *You are already carrying the blessing of the Silent Ones.*\n"
+            "Use it before asking for more.")
+
+    sheet.setdefault("conditions", []).append("blessed")
+    sheet["last_pray_date"] = today
+    await asyncio.to_thread(save, sheet)
+
+    await send(msg.channel,
+        "🕯️ **Blessed** — *the shrine acknowledges you.*\n"
+        "Your next hunt grants +2 to all attack and stat rolls.\n"
+        "*The condition clears after your next combat.*")
+
+
+async def _handle_offer(ctx, msg, send, rest, uid, uname, is_owner):
+    """!rpg offer <amount> — donate gil to the shrine for XP."""
+    from utils.ttrpg.character_manager import load, save
+    from utils.ttrpg.progression import check_level_up, xp_to_next_level
+    from datetime import date
+
+    sheet = await asyncio.to_thread(load, uid)
+    if not sheet:
+        return await send(msg.channel, "no character found.")
+
+    if sheet.get("location") != "shrine":
+        return await send(msg.channel,
+            "you need to be at the Shrine of the Silent Ones.\n"
+            "`!rpg go shrine`")
+
+    try:
+        amount = int(rest.strip())
+        assert 1 <= amount <= 9999
+    except:
+        return await send(msg.channel, "usage: `!rpg offer <amount>`\nexample: `!rpg offer 20`")
+
+    if sheet.get("gil", 0) < amount:
+        return await send(msg.channel,
+            f"you only have {sheet.get('gil', 0)} gil.\n"
+            f"*The shrine doesn't judge. It just waits.*")
+
+    # XP reward: 1 per gil, capped at 20 per day
+    today = date.today().strftime("%Y-%m-%d")
+    offered_today = sheet.get("offered_today", {})
+    if isinstance(offered_today, dict):
+        already_offered = offered_today.get(today, 0)
+    else:
+        already_offered = 0
+
+    DAILY_CAP = 20
+    eligible = min(amount, max(0, DAILY_CAP - already_offered))
+    xp_gained = eligible  # 1 XP per gil
+
+    sheet["gil"] -= amount
+    sheet["xp"] += xp_gained
+
+    # Track daily offering
+    sheet["offered_today"] = {today: already_offered + amount}
+
+    leveled_up, new_level = check_level_up(sheet)
+    await asyncio.to_thread(save, sheet)
+
+    xp_next = xp_to_next_level(sheet["level"])
+    msg_lines = [
+        f"🕯️ **{sheet['character_name']}** offers {amount} gil to the Silent Ones.",
+        f"*The coins vanish. The air shifts slightly.*",
+        f"+{xp_gained} XP ({sheet['xp']}/{xp_next})",
+    ]
+    if eligible < amount:
+        msg_lines.append(f"*(daily offering cap reached — {DAILY_CAP} XP max per day)*")
+    if leveled_up:
+        msg_lines.append(f"\n🎉 **{sheet['character_name']} reached Level {new_level}!**")
+
+    await send(msg.channel, "\n".join(msg_lines))
+
+
+async def _handle_scout(ctx, msg, send, rest, uid, uname, is_owner):
+    """!rpg scout — use the Watchtower to preview monster activity."""
+    from utils.ttrpg.character_manager import load, save
+    from utils.ttrpg.monster_registry import MONSTERS, ENCOUNTER_TABLES
+    from datetime import date
+
+    sheet = await asyncio.to_thread(load, uid)
+    if not sheet:
+        return await send(msg.channel, "no character found.")
+
+    if sheet.get("location") != "watchtower":
+        return await send(msg.channel,
+            "you need to be at the Watchtower to scout.\n"
+            "`!rpg go watchtower`")
+
+    # Once per day
+    today = date.today().strftime("%Y-%m-%d")
+    if sheet.get("last_scout_date") == today:
+        return await send(msg.channel,
+            "🗼 *The guards shrug. You've already had your look today.*\n"
+            "Come back tomorrow.")
+
+    sheet["last_scout_date"] = today
+    await asyncio.to_thread(save, sheet)
+
+    # Build intel report from encounter tables
+    HUNTING_LOCATIONS = {
+        "whisperwood_edge": "Edge of the Whisperwood",
+        "whisperwood_deep": "Whisperwood Deep",
+        "aeridor_ruins":    "Aeridor Ruins",
+        "trade_road":       "The Trade Road",
+    }
+
+    lines = ["🗼 **Scout Report** — *from the top of the Watchtower*\n"]
+
+    for loc_key, loc_name in HUNTING_LOCATIONS.items():
+        table = ENCOUNTER_TABLES.get(loc_key, [])
+        if not table:
+            continue
+
+        # Tally tier distribution by weight
+        tier_weights: dict[str, int] = {}
+        total_weight = sum(w for _, w in table)
+        for monster_key, weight in table:
+            tier = MONSTERS.get(monster_key, {}).get("tier", "unknown")
+            tier_weights[tier] = tier_weights.get(tier, 0) + weight
+
+        # Most common tier
+        dominant_tier = max(tier_weights, key=tier_weights.get)
+        dominant_pct = int(tier_weights[dominant_tier] / total_weight * 100)
+
+        # Named preview: highest-weight monster
+        top_monster_key = max(table, key=lambda x: x[1])[0]
+        top_monster = MONSTERS.get(top_monster_key, {})
+
+        # Danger indicator
+        danger = {
+            "trivial": "🟢", "easy": "🟡",
+            "medium": "🟠", "hard": "🔴", "deadly": "💀"
+        }.get(dominant_tier, "⚪")
+
+        lines.append(
+            f"{danger} **{loc_name}**\n"
+            f"   Mostly {dominant_tier} ({dominant_pct}%) — "
+            f"*spotted: {top_monster.get('name', top_monster_key)}*"
+        )
+
+    lines.append(
+        f"\n*A guard leans on his spear without looking at you.*\n"
+        f"*\"Whisperwood's been louder than usual. Watch yourself.\"*"
+    )
+
+    await send(msg.channel, "\n".join(lines))
+
+
+async def _handle_deliver(ctx, msg, send, rest, uid, uname, is_owner):
+    """!rpg deliver — turn in a mognet letter in Oakhaven."""
+    from utils.ttrpg.character_manager import load, save
+
+    sheet = await asyncio.to_thread(load, uid)
+    if not sheet:
+        return await send(msg.channel, "no character found.")
+
+    if sheet.get("location") not in ("oakhaven", "stone_hearth"):
+        return await send(msg.channel,
+            "you need to be in Oakhaven to deliver the letter.")
+
+    if "mognet_letter" not in sheet.get("inventory", []):
+        return await send(msg.channel,
+            "you don't have a mognet letter to deliver.")
+
+    reward_gil = 25
+    reward_xp  = 20
+    sheet["inventory"].remove("mognet_letter")
+    if "mognet_pending" in sheet.get("conditions", []):
+        sheet["conditions"].remove("mognet_pending")
+    sheet["gil"] += reward_gil
+    sheet["xp"]  += reward_xp
+
+    from utils.ttrpg.progression import check_level_up, xp_to_next_level
+    leveled_up, new_level = check_level_up(sheet)
+    await asyncio.to_thread(save, sheet)
+
+    xp_next = xp_to_next_level(sheet["level"])
+    await send(msg.channel,
+        f"📬 **Mognet letter delivered.**\n"
+        f"*A moogle materialises briefly, takes the letter, says 'kupo' with "
+        f"visible relief, and presses a coin purse into your hand before vanishing.*\n"
+        f"+{reward_xp} XP ({sheet['xp']}/{xp_next})  +{reward_gil} Gil")
+
+    if leveled_up:
+        await send(msg.channel,
+            f"🎉 **{sheet['character_name']} reached Level {new_level}!**")
+
+
 # ── Administration & Overrides ───────────────────────────────────────────────
+
 
 async def _handle_roll(ctx, msg, send, rest, uid, uname, is_owner):
     from utils.ttrpg.dice_engine import roll

@@ -39,6 +39,7 @@ class BotState:
         self.is_generating: bool = False     # Transient: True while LLM is generating a user response
         self.first_chat_done: bool = False   # Transient: True after first successful LLM response
         self.last_evening_reflection: str = ""  # YYYY-MM-DD, persisted
+        self.last_dawn_date: str = ""           # YYYY-MM-DD, persisted
 
         # Kaia mood state — 3 floats, all 0.0–1.0, persisted across restarts.
         # Used to inject a single context line into the system prompt.
@@ -74,6 +75,7 @@ class BotState:
                         self.kaia_dream_freshness = float(state.get('kaia_dream_freshness', 1.0))
                         self.curiosity_last_sent = state.get('curiosity_last_sent', {})
                         self.last_evening_reflection = state.get('last_evening_reflection', "")
+                        self.last_dawn_date = state.get('last_dawn_date', "")
                         self.forum_reply_times = state.get('forum_reply_times', {})
                         
                         # boot_complete is TRANSIENT - do not load from disk
@@ -128,6 +130,7 @@ class BotState:
                     'kaia_dream_freshness': self.kaia_dream_freshness,
                     'curiosity_last_sent': self.curiosity_last_sent,
                     'last_evening_reflection': self.last_evening_reflection,
+                    'last_dawn_date': self.last_dawn_date,
                     'forum_reply_times': self.forum_reply_times,
                     # boot_complete is TRANSIENT - do not save to disk
                     'mentioned_files': list(self.mentioned_files),

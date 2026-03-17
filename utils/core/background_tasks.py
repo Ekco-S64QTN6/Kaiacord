@@ -17,6 +17,7 @@ class CoreTaskManager:
         self.news_refresh_task = self._make_news_refresh_task()
         self.dream_engine_task = self._make_dream_engine_task()
         self.evening_reflection_task = self._make_evening_reflection_task()
+        self.aethelgard_dawn_task = self._make_aethelgard_dawn_task()
         
     def _make_news_refresh_task(self):
         @tasks.loop(hours=12)
@@ -145,6 +146,79 @@ class CoreTaskManager:
             
         return evening_reflection_task
 
+    def _make_aethelgard_dawn_task(self):
+        @tasks.loop(minutes=10)
+        async def aethelgard_dawn_task():
+            if shutdown_manager.shutting_down: return
+            if not self.ctx or not self.ctx.bot_state: return
+
+            now = datetime.now()
+
+            # Only fire in the 10-minute window after midnight
+            if now.hour != 0 or now.minute >= 10:
+                return
+
+            # Use last_dawn_date to ensure it fires once per day
+            last_dawn = getattr(self.ctx.bot_state, 'last_dawn_date', "")
+            today = now.strftime('%Y-%m-%d')
+            if last_dawn == today:
+                return
+
+            try:
+                import os
+                import json
+
+                characters_dir = os.path.join("memory", "ttrpg", "characters")
+                if not os.path.exists(characters_dir):
+                    return
+
+                files = [f for f in os.listdir(characters_dir) if f.endswith(".json")]
+                if not files:
+                    return
+
+                # Reset hunts on all character sheets
+                reset_count = 0
+                for fname in files:
+                    path = os.path.join(characters_dir, fname)
+                    try:
+                        with open(path, 'r', encoding='utf-8') as f:
+                            sheet = json.load(f)
+                        if sheet.get("hunts_today", 0) > 0:
+                            sheet["hunts_today"] = 0
+                            sheet["hunts_reset_date"] = today
+                            tmp = path + ".tmp"
+                            with open(tmp, 'w', encoding='utf-8') as f:
+                                json.dump(sheet, f, indent=2)
+                            os.replace(tmp, path)
+                            reset_count += 1
+                    except Exception as e:
+                        log_warning(f"[dawn] Failed to reset hunts for {fname}: {e}")
+
+                # Post announcement to last active channel
+                channel_id = getattr(self.ctx.bot_state, 'last_active_channel_id', None)
+                if channel_id and reset_count > 0:
+                    channel = self.ctx.bot.get_channel(int(channel_id))
+                    if channel:
+                        await channel.send(
+                            "🌅 *A new day dawns in Aethelgard.*\n"
+                            "The roads are quiet. The Whisperwood stirs.\n"
+                            f"**All hunters have been restored to 5/5 hunts.** "
+                            f"({reset_count} adventurer{'s' if reset_count != 1 else ''} refreshed)"
+                        )
+                        log_success(f"[dawn] Hunt reset announced. {reset_count} sheets updated.")
+
+                self.ctx.bot_state.last_dawn_date = today
+                self.ctx.bot_state.save()
+
+            except Exception as e:
+                log_error(f"Aethelgard dawn task failed: {e}")
+
+        @aethelgard_dawn_task.error
+        async def aethelgard_dawn_error(error):
+            log_error(f"Aethelgard dawn task died: {type(error).__name__}: {error}")
+
+        return aethelgard_dawn_task
+
     async def run_news_update(self):
         """Run integrated news refresh."""
         if not self.ctx: return
@@ -203,12 +277,17 @@ class CoreTaskManager:
         if self.evening_reflection_task.get_task():
             task_registry.register("evening_reflection_task", self.evening_reflection_task.get_task())
             
+        self.aethelgard_dawn_task.start()
+        if self.aethelgard_dawn_task.get_task():
+            task_registry.register("aethelgard_dawn_task", self.aethelgard_dawn_task.get_task())
+            
         log_action("Core background tasks started via CoreTaskManager.")
 
     def stop(self):
         self.news_refresh_task.stop()
         self.dream_engine_task.stop()
         self.evening_reflection_task.stop()
+        self.aethelgard_dawn_task.stop()
 
 # Helper for backward compatibility
 _task_manager = None

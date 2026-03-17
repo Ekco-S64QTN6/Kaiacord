@@ -45,4 +45,7 @@ CONSUMABLES = {
     "bandage":        {"name": "Bandage",          "hp_restore": 5,  "value": 6},
     "tonic":          {"name": "Tonic",            "hp_restore": 15, "value": 20},
     "elixir":         {"name": "Elixir",           "hp_restore": 30, "value": 50},
+    # Forest event collectibles (sell-only, no use effect)
+    "aeridor_shard":  {"name": "Aeridor Crystal Shard", "value": 60},
+    "tonberry_knife": {"name": "Tonberry's Knife",      "value": 40},
 }
