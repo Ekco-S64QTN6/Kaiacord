@@ -32,6 +32,13 @@ NPCS = {
         "role": "mystery",
         "dialogue_hook": "He doesn't acknowledge you at first. Then, slowly, he turns.",
     },
+    "guard": {
+        "name": "Watchtower Guard",
+        "location": "watchtower",
+        "description": "One of two guards posted at the Watchtower. Bored, observant, and considerably more informed than they let on. They've been watching the Whisperwood for years.",
+        "role": "info",
+        "dialogue_hook": "He doesn't turn from the window when you approach. His eyes stay on the treeline.",
+    },
 }
 
 def get_npc(key: str) -> dict | None:

@@ -128,7 +128,7 @@ The HP bar color updates dynamically:
 ### 🏘️ Oakhaven Town Square
 The hub. Muddy, watchful, functional. All roads lead here.
 
-**Commands here:** `!rpg look` · `!rpg map` · `!rpg talk elara`
+**Commands here:** `!rpg look` · `!rpg map` · `!rpg talk elara` · `!rpg calendar`
 
 ---
 
@@ -177,6 +177,7 @@ Rickety stairs. A view of the Whisperwood canopy. Two bored guards who know more
 | Command | Effect |
 |:--|:--|
 | `!rpg scout` | Preview monster tier distribution at all hunting grounds (once/day) |
+| `!rpg talk guard` | Speak with the Watchtower guards |
 
 ---
 
@@ -400,6 +401,7 @@ An Aeridorian crystal pulses in the ruin wall. INT check DC 7. Attune: large XP 
 | **Old Man Hemlock** | Hemlock's Store | `!rpg talk hemlock` |
 | **Mira** | Stone Hearth Inn | `!rpg talk barkeep` |
 | **The Hooded Figure** | Stone Hearth Inn | `!rpg talk hooded_figure` |
+| **Watchtower Guard** | The Watchtower | `!rpg talk guard` |
 
 The hooded figure in the corner has not moved in three days. Mira stopped checking.
 
@@ -459,6 +461,7 @@ Elder Treant · Tonberry King · Aeridorian Guardian · The Hooded Figure · Hea
 | `!rpg go <location>` | Travel (supports aliases: inn, woods, ruins, tower…) |
 | `!rpg go` | List available exits from current location |
 | `!rpg map` | Show world map |
+| `!rpg calendar` | View current season and upcoming events |
 
 ### Stone Hearth Inn
 | Command | Description |
@@ -512,6 +515,7 @@ Elder Treant · Tonberry King · Aeridorian Guardian · The Hooded Figure · Hea
 | `!rpg talk hemlock` | Speak with Old Man Hemlock |
 | `!rpg talk barkeep` | Speak with Mira |
 | `!rpg talk hooded_figure` | Speak with the figure in the corner |
+| `!rpg talk guard` | Speak with a guard at the Watchtower |
 
 ### Reference
 | Command | Description |

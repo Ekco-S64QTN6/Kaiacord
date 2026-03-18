@@ -2,9 +2,27 @@ from utils.ttrpg.equipment_registry import WEAPONS, ARMOR, CONSUMABLES, HEMLOCK_
 
 def get_shop_inventory() -> tuple[dict, dict, dict]:
     """Returns available weapons, armor, and consumables for Hemlock."""
-    weapons = {k: WEAPONS[k] for k in HEMLOCK_STOCK_WEAPONS if k in WEAPONS}
-    armor = {k: ARMOR[k] for k in HEMLOCK_STOCK_ARMOR if k in ARMOR}
-    return weapons, armor, CONSUMABLES
+    from utils.ttrpg.calendar import get_season, SEASONAL_SHOP
+    from utils.ttrpg.equipment_registry import HEMLOCK_STOCK_CONSUMABLES
+    
+    season = get_season()
+    seasonal = SEASONAL_SHOP.get(season, {})
+    
+    # Base stock
+    weapons_keys = HEMLOCK_STOCK_WEAPONS.copy()
+    armor_keys = HEMLOCK_STOCK_ARMOR.copy()
+    consumables_keys = HEMLOCK_STOCK_CONSUMABLES.copy()
+    
+    # Add seasonal additions
+    weapons_keys.extend(seasonal.get("weapons", []))
+    armor_keys.extend(seasonal.get("armor", []))
+    consumables_keys.extend(seasonal.get("consumables", []))
+    
+    weapons = {k: WEAPONS[k] for k in weapons_keys if k in WEAPONS}
+    armor = {k: ARMOR[k] for k in armor_keys if k in ARMOR}
+    consumables = {k: CONSUMABLES[k] for k in consumables_keys if k in CONSUMABLES}
+    
+    return weapons, armor, consumables
 
 def find_item(item_key: str) -> dict | None:
     """Finds an item across all registries."""

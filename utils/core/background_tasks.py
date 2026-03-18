@@ -147,37 +147,34 @@ class CoreTaskManager:
         return evening_reflection_task
 
     def _make_aethelgard_dawn_task(self):
-        @tasks.loop(minutes=10)
+        import discord
+        from datetime import datetime, timedelta
+
+        @tasks.loop(hours=24)
         async def aethelgard_dawn_task():
-            if shutdown_manager.shutting_down: return
-            if not self.ctx or not self.ctx.bot_state: return
-
-            now = datetime.now()
-
-            # Only fire in the 10-minute window after midnight
-            if now.hour != 0 or now.minute >= 10:
+            if shutdown_manager.shutting_down:
+                return
+            if not self.ctx or not self.ctx.bot_state:
                 return
 
-            # Use last_dawn_date to ensure it fires once per day
-            last_dawn = getattr(self.ctx.bot_state, 'last_dawn_date', "")
-            today = now.strftime('%Y-%m-%d')
-            if last_dawn == today:
+            today = datetime.now().strftime("%Y-%m-%d")
+
+            # Dedup guard — in case the bot restarts right at midnight
+            if getattr(self.ctx.bot_state, 'last_dawn_date', "") == today:
                 return
 
             try:
                 import os
                 import json
+                from utils.ttrpg.calendar import get_today_summary
 
                 characters_dir = os.path.join("memory", "ttrpg", "characters")
                 if not os.path.exists(characters_dir):
                     return
 
                 files = [f for f in os.listdir(characters_dir) if f.endswith(".json")]
-                if not files:
-                    return
-
-                # Reset hunts on all character sheets
                 reset_count = 0
+
                 for fname in files:
                     path = os.path.join(characters_dir, fname)
                     try:
@@ -194,38 +191,87 @@ class CoreTaskManager:
                     except Exception as e:
                         log_warning(f"[dawn] Failed to reset hunts for {fname}: {e}")
 
-                # Post announcement to the dedicated RPG channel
-                rpg_channel_name = self.ctx.config.get('discord.rpg_channel', 'aethelgard').lower()
-                channel = None
-                if getattr(self.ctx, 'bot', None):
-                    import discord
-                    channel = discord.utils.get(self.ctx.bot.get_all_channels(), name=rpg_channel_name)
-                    
-                if channel is None:
-                    log_warning(f"[dawn] RPG channel '{rpg_channel_name}' not found — skipping announcement.")
-                elif len(files) > 0:
-                    import discord
-                    embed = discord.Embed(
-                        title="🌅 A new day dawns in Aethelgard.",
-                        description="*The roads are quiet. The Whisperwood stirs.*\n\n**All hunters have been restored to 5/5 hunts.**",
-                        color=0xffcc55
+                # Build announcement
+                summary = get_today_summary()
+                season_emoji = summary["season_emoji"]
+                season_name  = summary["season_name"]
+                date_str     = summary["date"]
+                special      = summary["special_day"]
+
+                if reset_count > 0:
+                    lines = [
+                        f"🌅 **A new day dawns in Aethelgard.**",
+                        f"{season_emoji} **{season_name}** — {date_str}",
+                        f"",
+                        f"*{summary['season_flavor']}*",
+                        f"",
+                        f"All hunters restored to 5/5 hunts. "
+                        f"({reset_count} adventurer{'s' if reset_count != 1 else ''} refreshed)",
+                    ]
+                else:
+                    lines = [
+                        f"🌅 **A new day dawns in Aethelgard.**",
+                        f"{season_emoji} **{season_name}** — {date_str}",
+                        f"",
+                        f"*{summary['season_flavor']}*",
+                    ]
+
+                # Special day announcement appended if applicable
+                if special:
+                    lines.append("")
+                    lines.append(special["announcement"])
+                    # If there's a buff, spell it out
+                    if special.get("buff_desc"):
+                        lines.append(f"✨ **Today:** {special['buff_desc']}")
+
+                # Find the rpg broadcast channel by name
+                rpg_channel_name = self.ctx.config.get(
+                    'discord.rpg_channel', 'aethelgard'
+                ).lower()
+                channel = discord.utils.get(
+                    self.ctx.bot.get_all_channels(),
+                    name=rpg_channel_name
+                )
+
+                if channel:
+                    await channel.send("\n".join(lines))
+                    log_success(
+                        f"[dawn] Announced. "
+                        f"Season: {season_name}. "
+                        f"Special: {special['name'] if special else 'none'}. "
+                        f"Resets: {reset_count}."
                     )
-                    footer_text = f"{reset_count} adventurer{'s' if reset_count != 1 else ''} refreshed."
-                    if reset_count == 0:
-                        footer_text = "All adventurers were already rested."
-                    embed.set_footer(text=footer_text)
-                    await channel.send(embed=embed)
-                    log_success(f"[dawn] Hunt reset announced. {reset_count} sheets updated.")
+                else:
+                    log_warning(
+                        f"[dawn] RPG channel '{rpg_channel_name}' not found."
+                    )
 
                 self.ctx.bot_state.last_dawn_date = today
                 self.ctx.bot_state.save()
 
             except Exception as e:
-                log_error(f"Aethelgard dawn task failed: {e}")
+                log_error(f"[dawn] Task failed: {e}")
+
+        @aethelgard_dawn_task.before_loop
+        async def before_dawn():
+            """Sleep until exactly midnight before starting the 24h loop."""
+            await self.ctx.bot.wait_until_ready()
+            now = datetime.now()
+            tomorrow_midnight = (now + timedelta(days=1)).replace(
+                hour=0, minute=0, second=0, microsecond=0
+            )
+            seconds_until_midnight = (tomorrow_midnight - now).total_seconds()
+            log_info(
+                f"[dawn] First fire in "
+                f"{int(seconds_until_midnight // 3600)}h "
+                f"{int((seconds_until_midnight % 3600) // 60)}m — "
+                f"aligned to midnight."
+            )
+            await asyncio.sleep(seconds_until_midnight)
 
         @aethelgard_dawn_task.error
-        async def aethelgard_dawn_error(error):
-            log_error(f"Aethelgard dawn task died: {type(error).__name__}: {error}")
+        async def dawn_error(error):
+            log_error(f"[dawn] Task died: {type(error).__name__}: {error}")
 
         return aethelgard_dawn_task
 

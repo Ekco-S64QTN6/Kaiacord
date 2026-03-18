@@ -31,6 +31,7 @@ ARMOR = {
     "half_plate":       {"name": "Half Plate",         "defense_bonus": 7, "value": 150, "tier": 3},
     "full_plate":       {"name": "Full Plate",         "defense_bonus": 9, "value": 300, "tier": 4},
     "aeridorian_plate": {"name": "Aeridorian Plate",  "defense_bonus": 11,"value": 500, "tier": 5},
+    "fur_cloak":        {"name": "Fur Cloak",         "defense_bonus": 2, "value": 18,  "tier": 1},
 }
 
 # What Hemlock sells (tier 1-2 only — high tier from ruins drops or Grimstone)
@@ -39,6 +40,7 @@ HEMLOCK_STOCK_WEAPONS = ["rusty_dagger", "wooden_club", "shortbow", "hand_axe",
                           "wooden_staff", "iron_staff"]
 HEMLOCK_STOCK_ARMOR   = ["travelers_cloak", "leather_armor", "studded_leather", "chainmail",
                           "mages_robe", "silken_robe"]
+HEMLOCK_STOCK_CONSUMABLES = ["healing_herb", "bandage", "tonic", "torch"]
 
 CONSUMABLES = {
     "adventurers_pack": {"name": "Adventurer's Pack", "hp_restore": 0, "value": 0, "on_use": "starter_kit", "description": "starter pack type !rpg use pack to open"},
@@ -50,6 +52,8 @@ CONSUMABLES = {
     "torch":          {"name": "Torch",            "value": 2},
     "aeridor_shard":  {"name": "Aeridor Crystal Shard", "value": 60},
     "tonberry_knife": {"name": "Tonberry's Knife",      "value": 40},
+    "lucky_charm":    {"name": "Lucky Charm",          "value": 15, "on_use": "luck_roll_bonus"},
+    "antidote":       {"name": "Antidote",             "value": 8,  "on_use": "cure_poison"},
 }
 
 ALIASES = {
@@ -59,4 +63,7 @@ ALIASES = {
     "knife": "tonberry_knife",
     "staff": "wooden_staff",
     "bow": "shortbow",
+    "fur": "fur_cloak",
+    "charm": "lucky_charm",
+    "anti": "antidote",
 }

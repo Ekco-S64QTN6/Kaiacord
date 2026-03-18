@@ -149,9 +149,33 @@ MONSTERS = {
     },
     "thorn_lizard": {
         "name": "Thorn Lizard",
-        "hp": 16, "attack": 4, "defense": 9,
-        "xp": 20, "gil": 5, "tier": "trivial",
-        "desc": "A lizard with a hide of hardened spines. Touching it is a mistake. Fighting it is a choice.",
+        "hp": 16, "attack": 4, "defense": 10,
+        "xp": 22, "gil": 4, "tier": "trivial",
+        "desc": "A relative of the lizardman that never outgrew its spikes. Hard to grab.",
+    },
+    "snow_bunny": {
+        "name": "Snow Bunny",
+        "hp": 6, "attack": 2, "defense": 12,
+        "xp": 15, "gil": 4, "tier": "trivial",
+        "desc": "A white rabbit with eyes like chips of ice. Incredibly fast. Bites when cornered. Winter only.",
+    },
+    "ice_wisp": {
+        "name": "Ice Wisp",
+        "hp": 8, "attack": 5, "defense": 13,
+        "xp": 22, "gil": 0, "tier": "trivial",
+        "desc": "A floating light that appears on frozen nights. Cold radiates from it. Drops nothing.",
+    },
+    "bloom_creeper": {
+        "name": "Bloom Creeper",
+        "hp": 18, "attack": 5, "defense": 8,
+        "xp": 28, "gil": 5, "tier": "trivial",
+        "desc": "A vine creature that only mobilizes in spring when new growth gives it reach. Smells like flowers. Strangles things.",
+    },
+    "summer_hornet": {
+        "name": "Summer Hornet",
+        "hp": 9, "attack": 6, "defense": 12,
+        "xp": 25, "gil": 2, "tier": "trivial",
+        "desc": "A hornet the size of a fist. Summer heat makes them aggressive. Nests near the Whisperwood edge in July and August.",
     },
     "wisp": {
         "name": "Will-o'-Wisp",
@@ -259,6 +283,24 @@ MONSTERS = {
         "hp": 35, "attack": 7, "defense": 11,
         "xp": 55, "gil": 20, "tier": "easy",
         "desc": "A desperate man with a blade. The trade road made him this way. He's made his choice.",
+    },
+    "frost_wolf": {
+        "name": "Frost Wolf",
+        "hp": 32, "attack": 7, "defense": 11,
+        "xp": 50, "gil": 10, "tier": "easy",
+        "desc": "A pale grey wolf with ice-rimed fur. Hunts alone in winter when the pack disperses. Faster than its summer cousin.",
+    },
+    "snow_bandit": {
+        "name": "Desperate Bandit",
+        "hp": 30, "attack": 8, "defense": 10,
+        "xp": 52, "gil": 18, "tier": "easy",
+        "desc": "A road bandit in winter furs. Hungrier and less careful than his summer counterpart. Will fight harder.",
+    },
+    "antler_stag": {
+        "name": "Antler Stag",
+        "hp": 35, "attack": 6, "defense": 9,
+        "xp": 45, "gil": 12, "tier": "easy",
+        "desc": "An enormous stag driven to the forest edge by autumn hunger. Antlers like branches. Not aggressive — until it is.",
     },
 
     # ══════════════════════════════════════════════════════
@@ -727,8 +769,10 @@ def get(name: str) -> dict | None:
         return copy.deepcopy(MONSTERS[matches[0]])
 
     # Name field match
+    name_str = str(name).lower()
     for k, v in MONSTERS.items():
-        if name.lower() in v["name"].lower() or v["name"].lower() in name.lower():
+        v_name = str(v.get("name", "")).lower()
+        if name_str in v_name or v_name in name_str:
             return copy.deepcopy(MONSTERS[k])
 
     return None

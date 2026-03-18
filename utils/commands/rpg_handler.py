@@ -59,6 +59,7 @@ LOCATION_ACTIONS = {
         "`!rpg look` — observe the square",
         "`!rpg talk elara` — speak with Elder Elara",
         "`!rpg map` — view the world map",
+        "`!rpg calendar` — view current season and upcoming events",
     ],
     "stone_hearth": [
         "`!rpg rest` — full heal (5 gil)",
@@ -138,6 +139,7 @@ async def handle_rpg_command(ctx, msg, send_kaia_response):
         "shop":      _handle_shop,
         "use":       _handle_use,
         "talk":      _handle_talk,
+        "calendar":  _handle_calendar,
         "hunt":      _handle_hunt,
         "attack":    _handle_attack,
         "flee":      _handle_flee,
@@ -713,6 +715,61 @@ async def _handle_sell(ctx, msg, send, rest, uid, uname, is_owner):
         color = 0xcc4444
     await msg.channel.send(embed=discord.Embed(description=resp_msg, color=color))
 
+async def _handle_calendar(ctx, msg, send, rest, uid, uname, is_owner):
+    import discord
+    from utils.ttrpg.calendar import get_today_summary, SPECIAL_DAYS
+    from datetime import date
+
+    summary = get_today_summary()
+    season = summary["season"]
+    special = summary["special_day"]
+
+    # Build upcoming events (next 14 days)
+    today = date.today()
+    upcoming = []
+    for i in range(1, 15):
+        from datetime import timedelta
+        check = today + timedelta(days=i)
+        day_data = SPECIAL_DAYS.get((check.month, check.day))
+        if day_data:
+            upcoming.append(f"**{check.strftime('%b %d')}** — {day_data['name']}")
+
+    color_map = {
+        "spring": 0x88cc88,
+        "summer": 0xf5c842,
+        "autumn": 0xd4703c,
+        "winter": 0x88aacc,
+    }
+
+    embed = discord.Embed(
+        title=f"{summary['season_emoji']} {summary['season_name']} — {summary['date']}",
+        description=f"*{summary['season_flavor']}*",
+        color=color_map[season]
+    )
+
+    if special:
+        embed.add_field(
+            name=f"✨ {special['name']}",
+            value=f"{special['desc']}\n\n**Today's effect:** {special.get('buff_desc', 'None')}",
+            inline=False
+        )
+    else:
+        embed.add_field(
+            name="Today",
+            value="An ordinary day. The Whisperwood does not care about ordinary days.",
+            inline=False
+        )
+
+    if upcoming:
+        embed.add_field(
+            name="Upcoming",
+            value="\n".join(upcoming[:5]),
+            inline=False
+        )
+
+    embed.set_footer(text="!rpg calendar — updated daily at dawn")
+    await msg.channel.send(embed=embed)
+
 async def _handle_talk(ctx, msg, send, rest, uid, uname, is_owner):
     from utils.ttrpg.character_manager import load
     from utils.ttrpg.npc_registry import get_npc, NPCS
@@ -892,6 +949,23 @@ async def _handle_use(ctx, msg, send, rest, uid, uname, is_owner):
         sheet["inventory"].extend(["bandage", "healing_herb", "torch"])
         await asyncio.to_thread(save, sheet)
         await msg.channel.send(embed=discord.Embed(description=f"You open the **{item['name']}**.\n\nObtained:\n• Bandage\n• Healing Herb\n• Torch (lore item)", color=0x44aa44))
+    elif item.get("on_use") == "cure_poison":
+        if "poisoned" in sheet.get("conditions", []):
+            sheet["conditions"].remove("poisoned")
+            sheet["inventory"].remove(item_key)
+            await asyncio.to_thread(save, sheet)
+            await msg.channel.send(embed=discord.Embed(description=f"Used **{item['name']}**. The venom fades from your veins.", color=0x44aa44))
+        else:
+            await msg.channel.send(embed=discord.Embed(description=f"You aren't poisoned.", color=0xcc4444))
+    elif item.get("on_use") == "luck_roll_bonus":
+        if "lucky" not in sheet.get("conditions", []):
+            if "conditions" not in sheet: sheet["conditions"] = []
+            sheet["conditions"].append("lucky")
+            sheet["inventory"].remove(item_key)
+            await asyncio.to_thread(save, sheet)
+            await msg.channel.send(embed=discord.Embed(description=f"Used **{item['name']}**. You feel a sudden surge of confidence. (+1 to next hit roll)", color=0x44aa44))
+        else:
+            await msg.channel.send(embed=discord.Embed(description=f"You are already feeling pretty lucky.", color=0xcc4444))
     else:
         await msg.channel.send(embed=discord.Embed(description=f"**{item['name']}** can't be used. Try selling it: `!rpg sell {item_key}`", color=0xcc4444))
 
@@ -904,7 +978,7 @@ async def _handle_hunts(ctx, msg, send, rest, uid, uname, is_owner):
     sheet = await asyncio.to_thread(load, uid)
     if not sheet: return
     import discord
-    await msg.channel.send(embed=discord.Embed(description=f"**{sheet['character_name']}** has {r} hunts remaining today. Reset is at midnight server time.", color=0x888888))
+    await msg.channel.send(embed=discord.Embed(description=f"**{sheet['character_name']}** has {hunts_remaining(sheet)} hunts remaining today. Reset is at midnight server time.", color=0x888888))
 
 async def _handle_hunt(ctx, msg, send, rest, uid, uname, is_owner):
     from utils.ttrpg.character_manager import load, save

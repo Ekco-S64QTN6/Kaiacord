@@ -34,7 +34,13 @@ ENCOUNTER_TABLES = {
 
 def random_encounter(location: str) -> str:
     """Pick a weighted random monster for the given location."""
-    table = ENCOUNTER_TABLES.get(location, ENCOUNTER_TABLES["whisperwood_edge"])
+    import secrets
+    from utils.ttrpg.calendar import get_seasonal_encounter_table
+    
+    base_table = ENCOUNTER_TABLES.get(location, ENCOUNTER_TABLES["whisperwood_edge"])
+    # Merge seasonal additions
+    table = get_seasonal_encounter_table(location, base_table)
+    
     total = sum(w for _, w in table)
     r = secrets.randbelow(total)
     cumulative = 0

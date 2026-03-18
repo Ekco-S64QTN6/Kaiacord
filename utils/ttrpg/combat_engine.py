@@ -61,7 +61,13 @@ def _resolve_combat(sheet: dict, monster: dict) -> dict:
     if streak_bonus:
         status_logs.append(f"🔥 *Combat streak adds +{streak_bonus} to hit.*")
 
-    attack_mod = atk_mod + weapon_atk + bless_bonus + streak_bonus
+    luck_bonus = 1 if "lucky" in conditions else 0
+    if luck_bonus:
+        status_logs.append(f"🍀 *Luck guides your strike (+1).*")
+        if "lucky" in sheet.get("conditions", []):
+            sheet["conditions"].remove("lucky")
+
+    attack_mod = atk_mod + weapon_atk + bless_bonus + streak_bonus + luck_bonus
     
     # --- Initialize Result Variables ---
     player_hit = False
