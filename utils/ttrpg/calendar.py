@@ -396,6 +396,81 @@ SEASONAL_ITEMS = {
 }
 
 
+import hashlib
+
+
+# ══════════════════════════════════════════════════════════
+# WEATHER SYSTEM
+# Deterministic per day — seeded from date ordinal.
+# All players see the same weather. No persistence needed.
+# ══════════════════════════════════════════════════════════
+
+WEATHER_TABLES = {
+    "spring": [
+        # (weight, key, name, desc, emoji, effect)
+        (30, "overcast",     "Overcast",       "Low cloud sits on the Whisperwood. The treeline is grey.",              "☁️",  None),
+        (25, "rain",         "Raining",        "Steady rain. The Tricklebrook is swollen. The mud is worse.",           "🌧️",  {"type": "encounter_mod", "desc": "+10% chance of forest events (creatures seek shelter, paths change)", "value": 10}),
+        (20, "clear",        "Clear",          "Bright spring morning. The forest smells like wet earth and new growth.","🌤️",  None),
+        (15, "fog",          "Foggy",          "Thick fog off the Whisperwood. The Watchtower can see nothing.",        "🌫️",  {"type": "scout_blocked", "desc": "!rpg scout unavailable — fog obscures the canopy", "value": 0}),
+        (10, "storm",        "Storming",       "Thunder from the Spine of the World. The Trade Road is dangerous.",     "⛈️",  {"type": "encounter_mod", "desc": "Trade Road encounters +1 tier today", "value": 1}),
+    ],
+    "summer": [
+        (35, "clear",        "Clear",          "Bright and dry. The Whisperwood hums. Good day for a hunt.",           "☀️",  None),
+        (25, "hot",          "Sweltering",     "Heavy heat. Moving in plate armor today would be a mistake.",          "🌡️",  {"type": "armor_penalty", "desc": "Heavy armor (chainmail+) reduces max HP by 2 today", "value": -2}),
+        (20, "overcast",     "Overcast",       "High cloud, no shade. Warm and grey.",                                "⛅",  None),
+        (15, "rain",         "Rain",           "Brief summer rain. The dust settles. Paths are muddier.",              "🌦️",  None),
+        (5,  "drought_wind", "Dry Wind",       "Hot wind from the west. The Whisperwood is restless. Fire risk.",      "💨",  {"type": "encounter_mod", "desc": "Fire-adjacent monsters more aggressive — +2 ATK for Salamanders and similar", "value": 2}),
+    ],
+    "autumn": [
+        (30, "overcast",     "Overcast",       "Heavy cloud. The light is flat. The forest looks older.",              "☁️",  None),
+        (25, "fog",          "Foggy",          "Morning fog that doesn't lift. The Shrine is invisible from the square.","🌫️", {"type": "scout_blocked", "desc": "!rpg scout unavailable — fog obscures the canopy", "value": 0}),
+        (20, "clear",        "Clear",          "Crisp autumn day. Good visibility. The canopy is red and gold.",        "🍂",  {"type": "xp_bonus", "desc": "+5 XP per monster kill — clear sight, clean work", "value": 5}),
+        (15, "rain",         "Rain",           "Cold autumn rain. The Trade Road is treacherous. Hemlock lit a fire.",  "🌧️",  None),
+        (10, "wind",         "High Wind",      "Wind off the Spine. The Watchtower crew came down. Smart.",            "🌬️",  {"type": "scout_blocked", "desc": "!rpg scout unavailable — tower is unsafe", "value": 0}),
+    ],
+    "winter": [
+        (30, "snow",         "Snowing",        "Fresh snow on Oakhaven. The Trade Road is passable but slow.",         "❄️",  {"type": "encounter_mod", "desc": "+15% chance of winter seasonal creatures", "value": 15}),
+        (25, "blizzard",     "Blizzard",       "White-out conditions. The Whisperwood is impassable above level 4.",   "🌨️",  {"type": "level_gate", "desc": "Whisperwood Deep requires level 6 today — the storm turns back weaker hunters", "value": 6}),
+        (20, "clear",        "Clear",          "Cold and bright. The snow reflects everything. Quiet.",                "🌨️✨", None),
+        (15, "overcast",     "Overcast",       "Flat winter light. Grey sky, grey town. Hemlock's fire is welcome.",   "☁️",  None),
+        (10, "frost",        "Hard Frost",     "Everything is ice. The Tricklebrook is frozen solid.",                 "🧊",  {"type": "gil_bonus", "desc": "+3 Gil per monster kill — pelts are worth more in hard frost", "value": 3}),
+    ],
+}
+
+
+def get_weather(today=None) -> dict:
+    """
+    Return today's weather deterministically.
+    Seeded from date ordinal — same result for every player all day.
+    """
+    if today is None:
+        today = date.today()
+
+    season = get_season(today)
+    table = WEATHER_TABLES[season]
+
+    # Deterministic seed from date
+    seed = int(hashlib.md5(str(today.toordinal()).encode()).hexdigest(), 16) % 10000
+    total = sum(w for w, *_ in table)
+    r = seed % total
+    cumulative = 0
+    for weight, key, name, desc, emoji, effect in table:
+        cumulative += weight
+        if r < cumulative:
+            return {
+                "key": key,
+                "name": name,
+                "desc": desc,
+                "emoji": emoji,
+                "effect": effect,
+                "season": season,
+            }
+    # Fallback
+    weight, key, name, desc, emoji, effect = table[0]
+    return {"key": key, "name": name, "desc": desc,
+            "emoji": emoji, "effect": effect, "season": season}
+
+
 def get_seasonal_encounter_table(location: str, base_table: list) -> list:
     """
     Merge seasonal monsters into the base encounter table for a location.

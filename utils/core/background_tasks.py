@@ -166,30 +166,91 @@ class CoreTaskManager:
             try:
                 import os
                 import json
+                import random
                 from utils.ttrpg.calendar import get_today_summary
+                from utils.ttrpg.world_state import load_world_state, save_world_state
 
                 characters_dir = os.path.join("memory", "ttrpg", "characters")
                 if not os.path.exists(characters_dir):
                     return
 
+                # Tick World State
+                state = load_world_state()
+                from utils.ttrpg.calendar import get_weather
+                weather = get_weather()
+                
+                state["weather"] = weather["key"]
+                state["weather_desc"] = weather["desc"]
+                state["weather_name"] = weather["name"]
+                state["weather_emoji"] = weather["emoji"]
+                
+                # Base modifiers from weather
+                state["atk_mod"] = 0
+                state["def_mod"] = 0
+                state["xp_mult"] = 1.0
+                state["gil_mult"] = 1.0
+                
+                effect = weather.get("effect")
+                if effect:
+                    if "atk" in effect: state["atk_mod"] += effect["atk"]
+                    if "def" in effect: state["def_mod"] += effect["def"]
+                    if "xp" in effect: state["xp_mult"] *= effect["xp"]
+                    if "gil" in effect: state["gil_mult"] *= effect["gil"]
+
+                # Roll for world event (15% chance)
+                if random.random() < 0.15:
+                    EVENTS = [
+                        ("monster_surge", "Roars echo from the Whisperwood. Activity is high.", 1.2, 1.0),
+                        ("economic_boom", "A wealthy merchant caravan has arrived.", 1.0, 1.5),
+                        ("ritual_night", "The Silent Ones are restless. XP flows freely.", 1.5, 0.8),
+                    ]
+                    e_key, e_desc, e_xp_mult, e_gil_mult = random.choice(EVENTS)
+                    state["event"] = e_key
+                    state["event_desc"] = e_desc
+                    state["xp_mult"] *= e_xp_mult
+                    state["gil_mult"] *= e_gil_mult
+                else:
+                    state["event"] = "none"
+                    state["event_desc"] = "Oakhaven is peaceful today."
+
+                state["last_tick"] = time.time()
+                save_world_state(state)
+
                 files = [f for f in os.listdir(characters_dir) if f.endswith(".json")]
                 reset_count = 0
+                total_interest = 0
 
                 for fname in files:
                     path = os.path.join(characters_dir, fname)
                     try:
                         with open(path, 'r', encoding='utf-8') as f:
                             sheet = json.load(f)
+                        
+                        modified = False
+                        # Reset hunts
                         if sheet.get("hunts_today", 0) > 0:
                             sheet["hunts_today"] = 0
                             sheet["hunts_reset_date"] = today
+                            modified = True
+                            reset_count += 1
+                        
+                        # Bank Interest (2%, max 10g)
+                        bank_bal = sheet.get("bank_balance", 0)
+                        if bank_bal > 0:
+                            interest = min(10, int(bank_bal * 0.02))
+                            if interest > 0:
+                                sheet["bank_balance"] += interest
+                                total_interest += interest
+                                modified = True
+                        
+                        if modified:
                             tmp = path + ".tmp"
                             with open(tmp, 'w', encoding='utf-8') as f:
                                 json.dump(sheet, f, indent=2)
                             os.replace(tmp, path)
-                            reset_count += 1
+
                     except Exception as e:
-                        log_warning(f"[dawn] Failed to reset hunts for {fname}: {e}")
+                        log_warning(f"[dawn] Failed to process {fname}: {e}")
 
                 # Build announcement
                 summary = get_today_summary()
@@ -203,18 +264,27 @@ class CoreTaskManager:
                         f"🌅 **A new day dawns in Aethelgard.**",
                         f"{season_emoji} **{season_name}** — {date_str}",
                         f"",
-                        f"*{summary['season_flavor']}*",
+                        f"{state['weather_emoji']} **Weather:** {state['weather_name']} — *{state['weather_desc']}*",
                         f"",
-                        f"All hunters restored to 5/5 hunts. "
-                        f"({reset_count} adventurer{'s' if reset_count != 1 else ''} refreshed)",
+                        f"All hunters restored to 5/5 hunts."
+                        f" ({reset_count} refreshed)"
                     ]
+                    if total_interest > 0:
+                        lines.append(f"💰 **Interest Paid:** {total_interest}g distributed to savers.")
                 else:
                     lines = [
                         f"🌅 **A new day dawns in Aethelgard.**",
                         f"{season_emoji} **{season_name}** — {date_str}",
                         f"",
-                        f"*{summary['season_flavor']}*",
+                        f"{state['weather_emoji']} **Weather:** {state['weather_name']} — *{state['weather_desc']}*",
                     ]
+                    if state["event"] != "none":
+                        lines.append(f"📣 **Event:** {state['event_desc']}")
+                    
+                    lines.extend([
+                        f"",
+                        f"*{summary['season_flavor']}*",
+                    ])
 
                 # Special day announcement appended if applicable
                 if special:

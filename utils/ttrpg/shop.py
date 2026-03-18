@@ -38,14 +38,24 @@ def find_item(item_key: str) -> dict | None:
         return {"category": "consumable", "key": item_key, **CONSUMABLES[item_key]}
     return None
 
-def process_purchase(sheet: dict, item_key: str, quantity: int = 1) -> tuple[bool, str, dict]:
+def process_purchase(sheet: dict, item_key: str, quantity: int = 1, reputation: int = 0) -> tuple[bool, str, dict]:
     """Processes a purchase. Returns (Success, Message, Updated Sheet)"""
+    if reputation < -50:
+        return False, "Hemlock glares at you. 'I don't trade with outlaws. Get out.'", sheet
+    
     item = find_item(item_key)
     if not item:
         return False, f"Item `{item_key}` not found.", sheet
     
     real_key = item["key"]
-    val = item["value"] * quantity
+    
+    # Reputation modifier
+    price_mult = 1.0
+    if reputation >= 100: price_mult = 0.8  # 20% discount
+    elif reputation >= 50:  price_mult = 0.9  # 10% discount
+    elif reputation < -20:  price_mult = 1.1  # 10% markup
+    
+    val = int(item["value"] * quantity * price_mult)
     gil = sheet.get("gil", 0)
     
     if gil < val:
@@ -65,8 +75,11 @@ def process_purchase(sheet: dict, item_key: str, quantity: int = 1) -> tuple[boo
         
     return True, msg, sheet
 
-def process_sell(sheet: dict, item_key: str) -> tuple[bool, str, dict]:
-    """Processes a sale. Sells at 50% value."""
+def process_sell(sheet: dict, item_key: str, reputation: int = 0) -> tuple[bool, str, dict]:
+    """Processes a sale. Sells at 50% base value + reputation bonus."""
+    if reputation < -50:
+        return False, "Hemlock spits on the floor. 'I'm not buying your stolen goods.'", sheet
+    
     from utils.ttrpg.equipment_registry import ALIASES
     item_key = ALIASES.get(item_key, item_key)
     
@@ -77,7 +90,13 @@ def process_sell(sheet: dict, item_key: str) -> tuple[bool, str, dict]:
     if not item:
         return False, f"Unknown item `{item_key}`.", sheet
         
-    val = max(1, item["value"] // 2)
+    # Reputation modifier
+    sell_mult = 0.5
+    if reputation >= 100: sell_mult = 0.7  # 50% base + 20% bonus
+    elif reputation >= 50:  sell_mult = 0.6  # 50% base + 10% bonus
+    elif reputation < -20:  sell_mult = 0.4  # 10% penalty
+    
+    val = max(1, int(item["value"] * sell_mult))
     sheet["inventory"].remove(item_key)
     sheet["gil"] = sheet.get("gil", 0) + val
     

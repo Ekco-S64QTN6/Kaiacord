@@ -128,7 +128,7 @@ The HP bar color updates dynamically:
 ### 🏘️ Oakhaven Town Square
 The hub. Muddy, watchful, functional. All roads lead here.
 
-**Commands here:** `!rpg look` · `!rpg map` · `!rpg talk elara` · `!rpg calendar`
+**Commands here:** `!rpg look` · `!rpg map` · `!rpg talk elara` · `!rpg calendar` · `!rpg notices`
 
 ---
 
@@ -157,7 +157,7 @@ Cluttered shelves. The smell of dried herbs and iron. Hemlock knows where everyt
 | `!rpg sell <item>` | Sell at 50% value |
 | `!rpg talk hemlock` | Speak with Old Man Hemlock |
 
-**Hemlock stocks tier 1–2 only.** High-tier equipment comes from the ruins or Grimstone.
+**Hemlock stocks tier 1–2 only.** High-tier equipment comes from the ruins or Grimstone. Prices are adjusted by your **Reputation**.
 
 ---
 
@@ -178,6 +178,28 @@ Rickety stairs. A view of the Whisperwood canopy. Two bored guards who know more
 |:--|:--|
 | `!rpg scout` | Preview monster tier distribution at all hunting grounds (once/day) |
 | `!rpg talk guard` | Speak with the Watchtower guards |
+| `!rpg notices` | Read the square's board for events and duels |
+
+---
+
+### 🧪 Sister Maren's Hut
+A small lean-to tucked behind the shrine. The air is thick with the scent of drying herbs.
+
+| Command | Effect |
+|:--|:--|
+| `!rpg brew` | Combine ingredients into alchemy recipes |
+| `!rpg talk maren` | Speak with Sister Maren |
+
+---
+
+### 🏦 Oakhaven Bank
+A sturdy stone building near the square. Secure and formal.
+
+| Command | Effect |
+|:--|:--|
+| `!rpg bank balance` | Check your stored Gil |
+| `!rpg bank deposit <amt>` | Store Gil safely (protect from blackout loss) |
+| `!rpg bank withdraw <amt>` | Retrieve your Gil |
 
 ---
 
@@ -192,6 +214,15 @@ Hunt from any location marked *(hunting)* on your HUD. Each hunt costs 1 of your
 Python selects a weighted random monster appropriate for your location, resolves the full combat exchange, applies all damage and XP automatically, and Kaia narrates the outcome. You never touch the dice.
 
 After a hunt, if the monster survives, use `!rpg attack` to continue the fight or `!rpg flee` to attempt escape.
+
+### PvP Duels (Non-Lethal)
+Challenge another player to a duel. Duels always stop at 1 HP ("Yield!").
+
+```
+!rpg duel <@user>
+!rpg accept
+```
+Wins and losses are recorded on the **Notice Board**.
 
 **Daily hunts reset at midnight server time.** A dawn announcement posts in `#aethelgard` when this happens.
 
@@ -462,6 +493,9 @@ Elder Treant · Tonberry King · Aeridorian Guardian · The Hooded Figure · Hea
 | `!rpg go` | List available exits from current location |
 | `!rpg map` | Show world map |
 | `!rpg calendar` | View current season and upcoming events |
+| `!rpg notices` | View world events and duel results |
+| `!rpg duel <@user>` | Challenge a player to a non-lethal duel |
+| `!rpg accept` | Accept a pending duel challenge |
 
 ### Stone Hearth Inn
 | Command | Description |
@@ -477,11 +511,13 @@ Elder Treant · Tonberry King · Aeridorian Guardian · The Hooded Figure · Hea
 |:--|:--|
 | `!rpg pray` | Daily blessing — +2 to all rolls on next hunt |
 | `!rpg offer <amount>` | Donate Gil for XP (1 per Gil, 20/day cap) |
+| `!rpg brew` | Access the alchemy system (at Maren's Hut) |
 
 ### The Watchtower
 | Command | Description |
 |:--|:--|
 | `!rpg scout` | Preview monster activity at all hunting grounds (once/day) |
+| `!rpg bank` | Access banking (deposit/withdraw) |
 
 ### Hemlock's General Store
 | Command | Description |
@@ -522,6 +558,7 @@ Elder Treant · Tonberry King · Aeridorian Guardian · The Hooded Figure · Hea
 |:--|:--|
 | `!rpg bestiary` | Full monster list with stats |
 | `!rpg help` | Quick command list |
+| `!rpg notices` | Read the square's notice board |
 
 ### Admin Only
 | Command | Description |
@@ -561,7 +598,10 @@ You do not need to type exact location keys. These all work:
 | 🟡 Pending | Grimstone not yet accessible |
 | 🟡 Pending | `!rpg use` items inside active combat turn |
 | 🔵 Pending | Loot drops from monster kills (pelts, fangs, cores) |
-| 🔵 Pending | Poisoned / Weakened / Stunned conditions from monsters |
+| 🔵 Pending | Poisoned / Weakened conditions from monsters |
+| ✅ Done | PvP Duel system (non-lethal) |
+| ✅ Done | World State & Reputation mechanics |
+| ✅ Done | Notice Board & Banking |
 
 ---
 

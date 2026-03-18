@@ -86,6 +86,9 @@ def create(user_id: str, user_name: str, character_name: str,
         "completed_quests": [],
         "quest_progress": {},
         "recipes": [], # Learned alchemy recipes
+        "rank": "Novice",
+        "reputation": 0,
+        "bank_balance": 0,
         "created_at": time.time(),
         "last_updated": time.time(),
     }
@@ -104,6 +107,7 @@ def format_sheet(sheet: dict) -> str:
     from utils.ttrpg.progression import hunts_remaining, MAX_HUNTS_PER_DAY
     
     gil = sheet.get("gil", 0)
+    bank = sheet.get("bank_balance", 0)
     loc = sheet.get("location", "oakhaven")
     loc_name = loc.replace("_", " ").title()
     hunts_rem = hunts_remaining(sheet)
@@ -119,13 +123,27 @@ def format_sheet(sheet: dict) -> str:
     active_q = sheet.get("active_quest")
     q_str = f"📜 **Quest:** {active_q.replace('_', ' ').title()}" if active_q else "📜 **Quest:** None"
     
+    bank_line = f"  **Bank:** {bank}g" if bank > 0 else ""
+    
+    rep = sheet.get("reputation", 0)
+    def get_rep_rank(r):
+        if r >= 100: return "Hero"
+        if r >= 50: return "Trusted"
+        if r >= 20: return "Known"
+        if r < -50: return "Outlaw"
+        if r < -20: return "Unwelcome"
+        return "Neutral"
+    
+    rep_str = f"**Reputation:** {get_rep_rank(rep)} ({rep})"
+    
     return (
         f"⚔️ **{sheet['character_name']}** — {sheet.get('race', '')} {sheet['class']} Lv.{sheet['level']} | {loc_name}\n"
         f"**HP:** {sheet['hp']['current']}/{sheet['hp']['max']}  "
-        f"**XP:** {xp_bar}  **Gil:** {gil}g\n"
-        f"**Hunts Remaining:** {hunts_rem}/{MAX_HUNTS_PER_DAY}\n"
+        f"**XP:** {xp_bar}  **Gil:** {gil}g{bank_line}\n"
+        f"**Status:** {rep_str} | {q_str}\n"
+        f"**Hunts:** {hunts_rem}/{MAX_HUNTS_PER_DAY} | **Medals:** {s.get('deaths', 0)} deaths\n"
         f"**Weapon:** {w_name}  **Armor:** {a_name}\n"
-        f"**Conditions:** {conditions} | {q_str}\n"
+        f"**Conditions:** {conditions}\n"
         f"```\n"
         f"STR {s['str']:2d} ({mod(s['str'])})  "
         f"DEX {s['dex']:2d} ({mod(s['dex'])})  "

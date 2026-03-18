@@ -1,8 +1,8 @@
 import secrets
 
-def _resolve_combat(sheet: dict, monster: dict) -> dict:
+def _resolve_combat(sheet: dict, monster: dict, atk_mod_global: int = 0, def_mod_global: int = 0, is_duel: bool = False) -> dict:
     """
-    Resolve one round of combat between a player and a monster.
+    Resolve one round of combat between a player and a monster (or another player).
     Returns a dict with the results.
     """
     class_name = sheet.get("class", "Warrior")
@@ -22,8 +22,12 @@ def _resolve_combat(sheet: dict, monster: dict) -> dict:
 
     from utils.ttrpg.equipment_registry import WEAPONS, ARMOR as ARMOR_DATA
     
-    weapon_key = sheet.get("equipment", {}).get("weapon")
-    armor_key = sheet.get("equipment", {}).get("armor")
+    weapon_data = sheet.get("equipment", {}).get("weapon")
+    armor_data = sheet.get("equipment", {}).get("armor")
+    
+    # Handle both string keys and full dictionaries in equipment slots
+    weapon_key = weapon_data.get("key") if isinstance(weapon_data, dict) else weapon_data
+    armor_key = armor_data.get("key") if isinstance(armor_data, dict) else armor_data
     
     weapon = WEAPONS.get(weapon_key) if weapon_key else None
     armor = ARMOR_DATA.get(armor_key) if armor_key else None
@@ -72,7 +76,7 @@ def _resolve_combat(sheet: dict, monster: dict) -> dict:
         if "lucky" in sheet.get("conditions", []):
             sheet["conditions"].remove("lucky")
 
-    attack_mod = atk_mod + weapon_atk + bless_bonus + streak_bonus + luck_bonus
+    attack_mod = atk_mod + weapon_atk + bless_bonus + streak_bonus + luck_bonus + atk_mod_global
     
     # --- Initialize Result Variables ---
     player_hit = False
@@ -109,6 +113,12 @@ def _resolve_combat(sheet: dict, monster: dict) -> dict:
             
             player_damage = max(1, sum(dmg_rolls) + total_dmg_bonus)
             
+            # Non-lethal duel check
+            if is_duel:
+                if monster["hp"]["current"] - player_damage < 1:
+                    player_damage = max(0, monster["hp"]["current"] - 1)
+                    status_logs.append(f"⚔️ **{sheet['character_name']}** pulls back their strike, dealing non-lethal damage.")
+            
             die_str = f"{'2' if player_crit else '1'}d{weapon_dmg_die}"
             bonus_str = f"{'+' if total_dmg_bonus >= 0 else ''}{total_dmg_bonus}" if total_dmg_bonus != 0 else ""
             player_dmg_breakdown = (
@@ -135,8 +145,16 @@ def _resolve_combat(sheet: dict, monster: dict) -> dict:
 
         if monster_hit:
             base = secrets.randbelow(6) + 1
-            monster_damage = max(1, base + (monster["attack"] // 2))
-            monster_dmg_breakdown = f"1d6({base})+{monster['attack']//2}=**{monster_damage}**"
+            # Apply global defense mod to monster's damage or hit? Usually hit. 
+            # But let's apply a slight damage reduction if def_mod_global is positive (e.g. cover/rain)
+            monster_damage = max(1, base + (monster["attack"] // 2) - def_mod_global)
+            
+            # Non-lethal duel check
+            if is_duel:
+                if sheet["hp"]["current"] - monster_damage < 1:
+                    monster_damage = max(0, sheet["hp"]["current"] - 1)
+            
+            monster_dmg_breakdown = f"1d6({base})+{monster['attack']//2}-{def_mod_global}=**{monster_damage}**"
             sheet["hp"]["current"] = max(0, sheet["hp"]["current"] - monster_damage)
 
     player_alive = sheet["hp"]["current"] > 0
@@ -161,6 +179,9 @@ def _resolve_combat(sheet: dict, monster: dict) -> dict:
         hp = monster["hp"]
         bar = colored_bar(hp["current"], hp["max"], 10)
         exchanges.append(f"   {monster['name']} HP: {hp['current']}/{hp['max']}\n```ansi\n{bar}\n```")
+        
+        if is_duel and hp["current"] == 1:
+            exchanges.append(f"⚔️ **{sheet['character_name']}** stops their blade at **{monster['name']}**'s throat. Yield!")
 
         counter_result = "HIT" if monster_hit else "MISS"
         exchanges.append(f"🔴 Counter-attack: d20({monster_raw_hit})+{monster['attack']//3}=**{monster_total_hit}** → **{counter_result}**")
@@ -171,6 +192,8 @@ def _resolve_combat(sheet: dict, monster: dict) -> dict:
             exchanges.append(f"   Your HP: **{sheet['hp']['current']}/{sheet['hp']['max']}** (untouched)")
     else:
         exchanges.append(f"   {monster['name']} HP: **0** 💀")
+        if is_duel:
+            exchanges.append(f"⚔️ **{sheet['character_name']}** stops their blade at **{monster['name']}**'s throat. Yield!")
 
     return {
         "sheet": sheet,
