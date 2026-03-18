@@ -148,18 +148,56 @@ Vary the topic — don't always use Aeridor or the glow. Use the full world.
 Output only the rumor text. No preamble."""
 
 
-def build_npc_prompt(sheet: dict, npc: dict, player_message: str) -> str:
+def build_npc_prompt(sheet: dict, npc: dict, player_message: str, context: dict) -> str:
     char_name = sheet.get("character_name", "Traveler") if sheet else "Traveler"
     char_class = sheet.get("class", "wanderer") if sheet else "wanderer"
     char_level = sheet.get("level", 1) if sheet else 1
+    
+    # Context extraction
+    season = context.get("season", "unknown season")
+    special_day = context.get("special_day", "")
+    time_of_day = context.get("time_of_day", "unknown time")
+    blacked_out = context.get("blacked_out", False)
+    topic = context.get("topic", "")
+    
+    blackout_context = "The player recently blacked out and was brought back to the shrine." if blacked_out else ""
+    special_day_context = f"Today is {special_day}." if special_day else ""
+    
+    # Quest Context
+    active_q = context.get("active_quest_info")
+    available_qs = context.get("available_quests", [])
+    quest_prompt = ""
+    if active_q:
+        quest_prompt = f"\nQUEST STATUS: The player is on your quest '{active_q['name']}'. "
+        if context.get("quest_progress_msg"):
+            quest_prompt += f"Progress: {context['quest_progress_msg']}. "
+        quest_prompt += "React to their progress."
+    elif available_qs:
+        quest_prompt = f"\nAVAILABLE TASKS: You have tasks for the player: "
+        quest_prompt += ", ".join([f"'{q['name']}' (ID: {q['id']})" for q in available_qs])
+        quest_prompt += ". Hint at these tasks naturally (tell them to use `!rpg accept <id>`)."
     
     return f"""[AETHELGARD NPC]
 You are voicing {npc['name']} in Aethelgard.
 {npc['description']}
 Situation: {npc['dialogue_hook']}
-The person speaking to them is {char_name}, a Level {char_level} {char_class}.
+{quest_prompt}
 
-Respond as {npc['name']} in 2-4 sentences. In character. Lowercase. Specific.
+ENVIRONMENTAL CONTEXT:
+Season: {season}
+{special_day_context}
+Time of Day: {time_of_day}
+THEME/TOPIC TO REFERENCE: {topic}
+
+PLAYER CONTEXT:
+Name: {char_name}
+Class: {char_class}
+Level: {char_level}
+{blackout_context}
+
+YOUR TASK: Respond as {npc['name']} in 2-4 sentences. 
+Kaia riffs on the provided TOPIC in her voice — do not just repeat the topic verbatim, weave it into the character's personality and the current context.
+Respond in character. lowercase. specific. grounded.
 This NPC does not know game mechanics — they speak naturally about the world.
 Do not mention stats, levels, XP, or game systems.
 [END NPC CONTEXT]

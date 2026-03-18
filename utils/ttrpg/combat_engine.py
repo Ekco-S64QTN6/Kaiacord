@@ -20,8 +20,13 @@ def _resolve_combat(sheet: dict, monster: dict) -> dict:
     dex_val = sheet.get("stats", {}).get("dex", 10)
     dex_mod = (dex_val - 10) // 2
 
-    weapon = sheet.get("equipment", {}).get("weapon")
-    armor = sheet.get("equipment", {}).get("armor")
+    from utils.ttrpg.equipment_registry import WEAPONS, ARMOR as ARMOR_DATA
+    
+    weapon_key = sheet.get("equipment", {}).get("weapon")
+    armor_key = sheet.get("equipment", {}).get("armor")
+    
+    weapon = WEAPONS.get(weapon_key) if weapon_key else None
+    armor = ARMOR_DATA.get(armor_key) if armor_key else None
 
     weapon_atk = weapon["attack_bonus"] if weapon else 0
     weapon_dmg_die = weapon["damage_die"] if weapon else 4

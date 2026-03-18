@@ -51,6 +51,10 @@ ADMIN
 import asyncio
 import time
 import uuid as _uuid
+import os
+import json
+import random
+import discord
 from utils.infrastructure.logging.kaia_logger import log_info, log_error, log_warning
 from utils.infrastructure.system.yaml_config import config
 
@@ -162,6 +166,11 @@ async def handle_rpg_command(ctx, msg, send_kaia_response):
         "fountain":  _handle_fountain,
         "leaderboard": _handle_leaderboard,
         "lb":        _handle_leaderboard,
+        "notices":   _handle_notices,
+        "quests":    _handle_quests,
+        "quest":     _handle_quest_detail,
+        "accept":    _handle_accept,
+        "brew":      _handle_brew,
     }
     async def _auto_send(channel, text, use_code_block=None):
         if use_code_block is None:
@@ -771,9 +780,9 @@ async def _handle_calendar(ctx, msg, send, rest, uid, uname, is_owner):
     await msg.channel.send(embed=embed)
 
 async def _handle_talk(ctx, msg, send, rest, uid, uname, is_owner):
-    from utils.ttrpg.character_manager import load
     from utils.ttrpg.npc_registry import get_npc, NPCS
     from utils.ttrpg.rpg_prompt_builder import build_npc_prompt
+    from utils.ttrpg.character_manager import load, save
     from utils.social.kaia_social_responder import load_persona_async
     from utils.infrastructure.gpu.gpu_manager import OllamaGPUManager, gpu_memory_manager, GPUTaskPriority
     
@@ -797,7 +806,105 @@ async def _handle_talk(ctx, msg, send, rest, uid, uname, is_owner):
         
     player_msg = args[1] if len(args) > 1 else "(Approach silently)"
     
-    prompt = build_npc_prompt(sheet, npc, player_msg)
+    # Dynamic Context Calculation
+    from utils.ttrpg.calendar import get_today_summary
+    cal_summary = get_today_summary()
+    season = cal_summary["season_name"]
+    special_day = cal_summary["special_day"]["name"] if cal_summary["special_day"] else ""
+    from datetime import datetime
+    time_of_day_hour = datetime.now().hour
+    
+    if 5 <= time_of_day_hour < 12:
+        time_of_day = "morning"
+    elif 12 <= time_of_day_hour < 17:
+        time_of_day = "afternoon"
+    elif 17 <= time_of_day_hour < 21:
+        time_of_day = "evening"
+    else:
+        time_of_day = "night"
+        
+    blacked_out = False
+    if sheet:
+        if sheet.get("location") == "shrine" and sheet.get("hp", {}).get("current") == 1:
+            blacked_out = True
+            
+    topic = ""
+    if "topics" in npc and npc["topics"]:
+        topic = random.choice(npc["topics"])
+        
+    # Quest Integration
+    from utils.ttrpg.quest_registry import get_npc_quests, get_quest
+    available_quests = []
+    active_quest_info = None
+    quest_progress_msg = ""
+    
+    if sheet:
+        # Check for available quests
+        all_npc_quests = get_npc_quests(npc_key)
+        completed = sheet.get("completed_quests", [])
+        for q in all_npc_quests:
+            if q["id"] not in completed and q["id"] != sheet.get("active_quest"):
+                if sheet["level"] >= q["requirements"].get("level", 1):
+                    available_quests.append(q)
+                    
+        # Check active quest
+        active_id = sheet.get("active_quest")
+        if active_id:
+            q = get_quest(active_id)
+            if q and q["npc"] == npc_key:
+                active_quest_info = q
+                # Calculate progress message
+                prog = sheet.get("quest_progress", {}).get(active_id, [])
+                total = len(q["tasks"])
+                quest_progress_msg = f"{len(prog)}/{total} tasks done: {', '.join(prog)}"
+                
+        # Update progress (Talk tasks)
+        if active_id:
+            q = get_quest(active_id)
+            if q:
+                task_id = f"talk_{npc_key}"
+                if task_id in q["tasks"]:
+                    prog = sheet.setdefault("quest_progress", {}).setdefault(active_id, [])
+                    if task_id not in prog:
+                        prog.append(task_id)
+                        # Check completion
+                        if all(t in prog for t in q["tasks"]):
+                            # Complete!
+                            sheet["xp"] += q["rewards"].get("xp", 0)
+                            sheet["gil"] += q["rewards"].get("gil", 0)
+                            if "item" in q["rewards"]:
+                                sheet.setdefault("inventory", []).append(q["rewards"]["item"])
+                            if "recipe" in q["rewards"]:
+                                r_key = q["rewards"]["recipe"]
+                                if r_key not in sheet.setdefault("recipes", []):
+                                    sheet.setdefault("recipes", []).append(r_key)
+                                    quest_progress_msg += f" (Learned Recipe: {r_key})"
+                            sheet["active_quest"] = None
+                            sheet.setdefault("completed_quests", []).append(active_id)
+                            await _log_world_event(f"**{sheet['character_name']}** completed '**{q['name']}**'.")
+                            quest_progress_msg = "COMPLETED"
+                        else:
+                            await asyncio.to_thread(save, sheet)
+            
+        # Generic turn-in check is covered by the talk task tracking above.
+        # If an NPC has a specific inventory turn-in (like Maren), we can add it here.
+        if npc_key == "maren" and active_id == "maren_herbs":
+            # This is optional if we only want kill_road_bandit + talk_maren.
+            # But we could check for an item here if we wanted.
+            pass
+
+    context = {
+        "season": season,
+        "special_day": special_day,
+        "time_of_day": time_of_day,
+        "blacked_out": blacked_out,
+        "topic": topic,
+        "available_quests": available_quests,
+        "active_quest_info": active_quest_info,
+        "quest_progress_msg": quest_progress_msg
+    }
+    
+    prompt = build_npc_prompt(sheet, npc, player_msg, context)
     persona = await load_persona_async()
     messages = [
         {"role": "system", "content": f"{persona}\n\n{prompt}"},
@@ -830,6 +937,189 @@ async def _handle_talk(ctx, msg, send, rest, uid, uname, is_owner):
                 await msg.channel.send(embed=embed)
         except Exception as e:
             log_error(f"[rpg talk] {e}")
+
+
+async def _log_world_event(event_text):
+    path = os.path.join("memory", "ttrpg", "world_events.json")
+    os.makedirs(os.path.dirname(path), exist_ok=True)
+    
+    events = []
+    if os.path.exists(path):
+        try:
+            with open(path, 'r', encoding='utf-8') as f:
+                events = json.load(f)
+        except:
+            events = []
+            
+    if not isinstance(events, list):
+        events = []
+    events.append(event_text)
+    if len(events) > 10:
+        events = list(events)[-10:]
+        
+    with open(path, 'w', encoding='utf-8') as f:
+        json.dump(events, f, indent=2)
+
+async def _handle_brew(ctx, msg, send, rest, uid, uname, is_owner):
+    from utils.ttrpg.character_manager import load, save
+    from utils.ttrpg.world import LOCATION_DATA
+    from utils.ttrpg.alchemy import brew, get_recipe, ALCHEMY_RECIPES
+    
+    sheet = await asyncio.to_thread(load, uid)
+    if not sheet: return
+    
+    loc = sheet.get("location", "oakhaven")
+    if not LOCATION_DATA.get(loc, {}).get("brewing_allowed"):
+        return await send(msg.channel, "You need a proper station to brew. Try the Herbalist's Hut.")
+        
+    recipe_id = rest.strip().lower()
+    if not recipe_id:
+        # List known recipes
+        known = sheet.get("recipes", [])
+        if not known:
+            return await send(msg.channel, "You don't know any recipes yet. Speak with Sister Maren.")
+        
+        import discord
+        embed = discord.Embed(title="📜 Known Recipes", color=0x2ecc71)
+        for r_key in known:
+            r = get_recipe(r_key)
+            if r:
+                ingredients = ", ".join(r["ingredients"])
+                embed.add_field(name=r["name"], value=f"Ingredients: {ingredients}\n`!rpg brew {r_key}`", inline=False)
+        return await msg.channel.send(embed=embed)
+        
+    success, result_msg = brew(sheet, recipe_id)
+    if success:
+        await asyncio.to_thread(save, sheet)
+        import discord
+        await msg.channel.send(embed=discord.Embed(description=result_msg, color=0x2ecc71))
+    else:
+        import discord
+        await msg.channel.send(embed=discord.Embed(description=result_msg, color=0xcc4444))
+
+async def _handle_notices(ctx, msg, send, rest, uid, uname, is_owner):
+    from utils.ttrpg.character_manager import load
+    sheet = await asyncio.to_thread(load, uid)
+    if sheet and sheet.get("location") != "notice_board":
+        import discord
+        return await msg.channel.send(embed=discord.Embed(description="You must be at the Notice Board to read it. (`!rpg go notice_board`)", color=0xcc4444))
+        
+    import os
+    import json
+    path = os.path.join("memory", "ttrpg", "world_events.json")
+    events = []
+    if os.path.exists(path):
+        try:
+            with open(path, 'r', encoding='utf-8') as f:
+                events = json.load(f)
+        except:
+            pass
+            
+    if not events:
+        desc = "*The board is currently empty. Oakhaven is quiet.*"
+    else:
+        desc = "\n".join([f"• {e}" for e in reversed(events)])
+        
+    import discord
+    embed = discord.Embed(
+        title="📝 Oakhaven Notice Board",
+        description=desc,
+        color=0x8b7355
+    )
+    await msg.channel.send(embed=embed)
+
+
+async def _handle_quests(ctx, msg, send, rest, uid, uname, is_owner):
+    from utils.ttrpg.character_manager import load
+    sheet = await asyncio.to_thread(load, uid)
+    if not sheet: return
+    
+    import discord
+    active = sheet.get("active_quest")
+    completed = sheet.get("completed_quests", [])
+    
+    desc = ""
+    if active:
+        from utils.ttrpg.quest_registry import get_quest
+        q = get_quest(active)
+        if q:
+            desc += f"📜 **Active Quest:** {q['name']}\n> {q['description']}\n\n"
+        else:
+            desc += f"📜 **Active Quest:** {active} (invalid ID)\n\n"
+            
+    if completed:
+        desc += "✅ **Completed Quests:**\n"
+        desc += "\n".join([f"• {q_id.replace('_', ' ').title()}" for q_id in completed])
+    else:
+        desc += "❌ **No completed quests.**"
+        
+    embed = discord.Embed(
+        title=f"Quest Log — {sheet['character_name']}",
+        description=desc,
+        color=0x4a90e2
+    )
+    await msg.channel.send(embed=embed)
+
+async def _handle_quest_detail(ctx, msg, send, rest, uid, uname, is_owner):
+    # !rpg quest <quest_id> or just !rpg quest for current
+    from utils.ttrpg.character_manager import load
+    sheet = await asyncio.to_thread(load, uid)
+    if not sheet: return
+    
+    quest_id = rest.strip().lower() or sheet.get("active_quest")
+    if not quest_id:
+        return await send(msg.channel, "You have no active quest. Speak with NPCs in Oakhaven for tasks.")
+        
+    from utils.ttrpg.quest_registry import get_quest
+    q = get_quest(quest_id)
+    if not q:
+        return await send(msg.channel, f"Quest `{quest_id}` not found.")
+        
+    import discord
+    embed = discord.Embed(
+        title=f"📜 {q['name']}",
+        description=q['description'],
+        color=0x4a90e2
+    )
+    embed.add_field(name="Rewards", value=f"• {q['rewards'].get('xp', 0)} XP\n• {q['rewards'].get('gil', 0)} Gil")
+    if "item" in q['rewards']: embed.add_field(name="Bonus", value=f"🎁 {q['rewards']['item'].replace('_', ' ').title()}")
+    
+    await msg.channel.send(embed=embed)
+
+async def _handle_accept(ctx, msg, send, rest, uid, uname, is_owner):
+    from utils.ttrpg.character_manager import load, save
+    sheet = await asyncio.to_thread(load, uid)
+    if not sheet: return
+    
+    quest_id = rest.strip().lower()
+    if not quest_id:
+        return await send(msg.channel, "Usage: `!rpg accept <quest_id>`")
+        
+    if sheet.get("active_quest"):
+        return await send(msg.channel, f"You are already on a quest: `{sheet['active_quest']}`. Complete or abandon it first.")
+        
+    from utils.ttrpg.quest_registry import get_quest
+    q = get_quest(quest_id)
+    if not q:
+        return await send(msg.channel, f"Quest `{quest_id}` not found.")
+        
+    if quest_id in sheet.get("completed_quests", []):
+        return await send(msg.channel, "You have already completed this quest.")
+        
+    # Check level requirement
+    if sheet['level'] < q['requirements'].get('level', 1):
+        return await send(msg.channel, f"You must be at least Level {q['requirements']['level']} to accept this quest.")
+        
+    sheet["active_quest"] = quest_id
+    await asyncio.to_thread(save, sheet)
+    
+    import discord
+    embed = discord.Embed(
+        title="Quest Accepted!",
+        description=f"You have taken up the task: **{q['name']}**.\n\n*{q['description']}*",
+        color=0x2ecc71
+    )
+    await msg.channel.send(embed=embed)
 
 
 # ── Items and Equipment ──────────────────────────────────────────────────────
@@ -1009,6 +1299,21 @@ async def _handle_hunt(ctx, msg, send, rest, uid, uname, is_owner):
     if not s:
         s = {"channel_id": chan_id, "monsters": [], "combat_active": False}
     
+    # Quest Task Tracking: Hunt Location
+    active_id = sheet.get("active_quest")
+    if active_id:
+        from utils.ttrpg.quest_registry import get_quest
+        q = get_quest(active_id)
+        if q:
+            task_id = f"hunt_{loc}"
+            if task_id in q["tasks"]:
+                prog = sheet.setdefault("quest_progress", {}).setdefault(active_id, [])
+                if task_id not in prog:
+                    prog.append(task_id)
+                    # Note: We don't check for quest completion here (likely multiple tasks)
+                    # but we save the progress.
+                    await asyncio.to_thread(save, sheet)
+
     # Are we already fighting something?
     my_fights = [m for m in s.get("monsters", []) if m.get("aggro_uid") == uid]
     if my_fights:
@@ -1037,43 +1342,70 @@ async def _handle_hunt(ctx, msg, send, rest, uid, uname, is_owner):
     sheet["hunts_today"] = sheet.get("hunts_today", 0) + 1
     await asyncio.to_thread(save, sheet)
 
-    # Spawn monster
-    m_key = random_encounter(loc)
-    m_data = get_monster(m_key)
-    if not m_data:
-        return await msg.channel.send(embed=discord.Embed(description=f"Wait... you hear a sound, but nothing emerges. (Error: Monster {m_key} not found)", color=0xcc4444))
-        
-    m_temp = m_data.copy()
-    m_temp["key"] = m_key
-    m_temp["hp"] = {"current": m_temp["hp"], "max": m_temp["hp"]}
-    m_temp["id"] = f"{m_key}_{_uuid.uuid4().hex[:4]}"
-    m_temp["aggro_uid"] = uid  # personal instance
+    # Spawn monsters based on density
+    density = ld.get("density", 1)
+    dist_mult = ld.get("dist_mult", 1.0)
     
+    num_to_spawn = 1
+    if density > 1:
+        import random
+        spawn_roll = random.random()
+        if density == 2 and spawn_roll < 0.25:
+            num_to_spawn = 2
+        elif density == 3:
+            if spawn_roll < 0.15: num_to_spawn = 3
+            elif spawn_roll < 0.40: num_to_spawn = 2
+            
     s.setdefault("channel_id", chan_id)
-    s["monsters"].append(m_temp)
+    spawned_names = []
+    
+    for _ in range(num_to_spawn):
+        m_key = random_encounter(loc)
+        m_data = get_monster(m_key)
+        if not m_data: continue
+        
+        m_temp = m_data.copy()
+        m_temp["key"] = m_key
+        # Apply distance difficulty scaling
+        scaled_hp = int(m_temp["hp"] * dist_mult)
+        m_temp["hp"] = {"current": scaled_hp, "max": scaled_hp}
+        m_temp["attack"] = int(m_temp.get("attack", 0) * dist_mult)
+        m_temp["id"] = f"{m_key}_{_uuid.uuid4().hex[:4]}"
+        m_temp["aggro_uid"] = uid  # personal instance
+        
+        s["monsters"].append(m_temp)
+        spawned_names.append(f"**{m_temp['name']}**")
+
     s["combat_active"] = True
     await asyncio.to_thread(save_session, s)
     
-    import discord
     from utils.ttrpg.rpg_ui import TIER_ICONS
     
     rec = ld.get("recommended_level", 1)
     warn = f"⚠️ *{sheet['character_name']} is underleveled for this area.*\n" if sheet["level"] < rec - 1 else ""
     
-    monster_desc = m_temp.get("desc", m_temp.get("description", "A dangerous creature."))
-    tier_icon = TIER_ICONS.get(m_temp.get("tier", "medium"), "🟠")
+    monster_desc = m_data.get("desc", m_data.get("description", "A dangerous creature."))
+    tier_icon = TIER_ICONS.get(m_data.get("tier", "medium"), "🟠")
     
+    if num_to_spawn > 1:
+        title = f"⚔️ Encounter: SWARM! {tier_icon}"
+        description = f"{warn}You are surrounded by a group: {', '.join(spawned_names)}\n\n*{monster_desc}*"
+    else:
+        title = f"⚔️ Encounter: {m_data['name']} {tier_icon}"
+        description = f"{warn}*{monster_desc}*"
+
     embed = discord.Embed(
-        title=f"⚔️ Encounter: {m_temp['name']} {tier_icon}",
-        description=f"{warn}*{monster_desc}*",
-        color=0xFF4500
+        title=title,
+        description=description,
+        color=0xFF4500 if num_to_spawn == 1 else 0xCC3300
     )
+    
+    # Show stats of the primary (first) monster
     embed.add_field(name="❤️ HP", value=str(m_temp['hp']['max']), inline=True)
-    embed.add_field(name="🗡️ ATK", value=str(m_temp['attack']), inline=True)
-    embed.add_field(name="🛡️ DEF", value=str(m_temp['defense']), inline=True)
+    embed.add_field(name="🗡️ ATK", value=str(m_data.get('attack', 0)), inline=True)
+    embed.add_field(name="🛡️ DEF", value=str(m_data.get('defense', 0)), inline=True)
     
     embed.set_footer(text=f"Use !rpg attack  ·  1 hunt consumed")
-    
     await msg.channel.send(embed=embed)
 
 async def _handle_attack(ctx, msg, send, rest, uid, uname, is_owner):
@@ -1152,15 +1484,61 @@ async def _handle_attack(ctx, msg, send, rest, uid, uname, is_owner):
             loot_display = loot_info["name"] if loot_info else loot
             loot_msg = f"\n🎁 **Looted:** {loot_display}"
             
+            # Log rare drop if it's high tier or specific items
+            tier = monster.get("tier", "medium")
+            if tier in ["hard", "deadly", "boss"]:
+                await _log_world_event(f"A **{loot_display}** was recovered from the {LOCATION_DATA.get(loc, {}).get('name', loc)}. Oakhaven listens carefully.")
+            
         sheet["xp"] += xp_gain
         sheet["gil"] += gil_gain
+        
+        # Quest Task Tracking: Kill
+        active_id = sheet.get("active_quest")
+        if active_id:
+            from utils.ttrpg.quest_registry import get_quest
+            q = get_quest(active_id)
+            if q:
+                monster_id = monster.get("key")
+                task_id = f"kill_{monster_id}"
+                if task_id in q["tasks"]:
+                    prog = sheet.setdefault("quest_progress", {}).setdefault(active_id, [])
+                    if task_id not in prog:
+                        prog.append(task_id)
+                        # Check Completion
+                        if all(t in prog for t in q["tasks"]):
+                            # Complete!
+                            sheet["xp"] += q["rewards"].get("xp", 0)
+                            sheet["gil"] += q["rewards"].get("gil", 0)
+                            if "item" in q["rewards"]:
+                                sheet.setdefault("inventory", []).append(q["rewards"]["item"])
+                            if "recipe" in q["rewards"]:
+                                r_key = q["rewards"]["recipe"]
+                                if r_key not in sheet.setdefault("recipes", []):
+                                    sheet.setdefault("recipes", []).append(r_key)
+                            sheet["active_quest"] = None
+                            sheet.setdefault("completed_quests", []).append(active_id)
+                            await _log_world_event(f"**{sheet['character_name']}** completed '**{q['name']}**'.")
+                            # Quest completion message will be added to m_block below
+                        else:
+                            await asyncio.to_thread(save, sheet)
         leveled, n_lvl = check_level_up(sheet)
-        if leveled: level_up_msg = f"\n🎉 **LEVEL UP! {sheet['character_name']} grew to level {n_lvl}!**"
+        if leveled: 
+            level_up_msg = f"\n🎉 **LEVEL UP! {sheet['character_name']} grew to level {n_lvl}!**"
+            await _log_world_event(f"**{sheet['character_name']}** reached Level {n_lvl}. Oakhaven noted it cautiously.")
         
     await asyncio.to_thread(save, sheet)
     
     # Emit Math block
     m_block = "\n".join(res["exchanges"])
+    
+    # Add Quest completion message if it was finished in this attack
+    if res["monster_defeated"] and active_id:
+        from utils.ttrpg.quest_registry import get_quest
+        q = get_quest(active_id)
+        if q and q["id"] not in sheet.get("active_quest", ""): # active_quest is None if complete
+             if active_id in sheet.get("completed_quests", []):
+                 m_block += f"\n🏆 **Quest Complete: {q['name']}!**"
+
     if res["monster_defeated"]:
         nx = xp_to_next_level(sheet["level"])
         m_block += f"\n+{xp_gain} XP ({sheet['xp']}/{nx})  +{gil_gain} Gil{streak_msg}{loot_msg}{level_up_msg}"
@@ -1174,6 +1552,7 @@ async def _handle_attack(ctx, msg, send, rest, uid, uname, is_owner):
         sheet["location"] = "shrine"
         sheet["deaths"] = sheet.get("deaths", 0) + 1
         m_block += f"\n\n🚨 **You blacked out.** Townspeople dragged you back to the Shrine of the Silent Ones in Oakhaven. You dropped {xp_loss} XP and {gil_loss} Gil in the dirt."
+        await _log_world_event(f"**{sheet['character_name']}** was found at the Shrine threshold. Hemlock is taking bets.")
         
     await asyncio.to_thread(save, sheet)
     
@@ -1848,6 +2227,11 @@ async def _handle_leaderboard(ctx, msg, send, rest, uid, uname, is_owner):
 async def _handle_event(ctx, msg, send, rest, uid, uname, is_owner):
     if not is_owner: return
     if not rest.strip(): return
+    description = rest.strip()
+    
+    # Log to Notice Board
+    await _log_world_event(f"📣 **WORLD EVENT:** {description}")
+    
     from utils.ttrpg.rpg_prompt_builder import build_event_prompt
     from utils.social.kaia_social_responder import load_persona_async
     from utils.infrastructure.gpu.gpu_manager import OllamaGPUManager, gpu_memory_manager, GPUTaskPriority

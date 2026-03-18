@@ -9,11 +9,11 @@ def get_loot(tier: str) -> Optional[str]:
     """Returns an item key (matching equipment_registry) or None."""
     # (item_key, weight) — keys must exist in equipment_registry.CONSUMABLES or WEAPONS/ARMOR
     tables = {
-        "trivial": [("none", 60), ("healing_herb", 30), ("bandage", 10)],
-        "easy":    [("none", 40), ("healing_herb", 25), ("bandage", 20), ("tonic", 15)],
-        "medium":  [("tonic", 30), ("healing_herb", 20), ("bandage", 30), ("none", 20)],
-        "hard":    [("tonic", 25), ("elixir", 15), ("aeridor_shard", 40), ("none", 20)],
-        "deadly":  [("tonic", 20), ("aeridor_shard", 50), ("elixir", 30)],
+        "trivial": [("none", 40), ("healing_herb", 20), ("bandage", 10), ("honey_sap", 30)],
+        "easy":    [("none", 30), ("healing_herb", 20), ("bandage", 15), ("tonic", 10), ("blood_thistle", 25)],
+        "medium":  [("tonic", 20), ("healing_herb", 15), ("bandage", 20), ("silver_moss", 25), ("none", 20)],
+        "hard":    [("tonic", 20), ("elixir", 10), ("aeridor_shard", 30), ("dire_root", 25), ("none", 15)],
+        "deadly":  [("tonic", 15), ("aeridor_shard", 40), ("elixir", 25), ("dire_root", 20)],
         "boss":    [("elixir", 100)],
     }
     

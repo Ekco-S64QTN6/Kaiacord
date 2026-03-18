@@ -82,6 +82,10 @@ def create(user_id: str, user_name: str, character_name: str,
         "inventory": ["adventurers_pack"],
         "conditions": [],
         "deaths": 0,
+        "active_quest": None,
+        "completed_quests": [],
+        "quest_progress": {},
+        "recipes": [], # Learned alchemy recipes
         "created_at": time.time(),
         "last_updated": time.time(),
     }
@@ -112,13 +116,16 @@ def format_sheet(sheet: dict) -> str:
     inventory = "\n  ".join(sheet.get("inventory", [])) if sheet.get("inventory") else "empty"
     skills = ", ".join(sheet.get("skills", [])) if sheet.get("skills") else "none"
     
+    active_q = sheet.get("active_quest")
+    q_str = f"📜 **Quest:** {active_q.replace('_', ' ').title()}" if active_q else "📜 **Quest:** None"
+    
     return (
         f"⚔️ **{sheet['character_name']}** — {sheet.get('race', '')} {sheet['class']} Lv.{sheet['level']} | {loc_name}\n"
         f"**HP:** {sheet['hp']['current']}/{sheet['hp']['max']}  "
         f"**XP:** {xp_bar}  **Gil:** {gil}g\n"
         f"**Hunts Remaining:** {hunts_rem}/{MAX_HUNTS_PER_DAY}\n"
         f"**Weapon:** {w_name}  **Armor:** {a_name}\n"
-        f"**Conditions:** {conditions}\n"
+        f"**Conditions:** {conditions} | {q_str}\n"
         f"```\n"
         f"STR {s['str']:2d} ({mod(s['str'])})  "
         f"DEX {s['dex']:2d} ({mod(s['dex'])})  "

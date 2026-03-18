@@ -54,6 +54,11 @@ CONSUMABLES = {
     "tonberry_knife": {"name": "Tonberry's Knife",      "value": 40},
     "lucky_charm":    {"name": "Lucky Charm",          "value": 15, "on_use": "luck_roll_bonus"},
     "antidote":       {"name": "Antidote",             "value": 8,  "on_use": "cure_poison"},
+    # Herbalism Ingredients
+    "silver_moss":    {"name": "Silvermoss",           "value": 5, "description": "A glowing moss found near water."},
+    "dire_root":      {"name": "Dire Root",            "value": 10, "description": "A tough, bitter root from deep woods."},
+    "blood_thistle":  {"name": "Blood Thistle",        "value": 8, "description": "A prickly red flower."},
+    "honey_sap":      {"name": "Honey Sap",            "value": 5, "description": "Sweet, sticky sap from ancient trees."},
 }
 
 ALIASES = {

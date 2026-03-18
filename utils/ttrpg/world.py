@@ -4,7 +4,7 @@ LOCATION_DATA = {
         "short": "The muddy square at the heart of OakHaven. The Tricklebrook "
                  "gurgles somewhere under the bridge planks.",
         "exits": ["stone_hearth", "hemlocks_store", "shrine",
-                  "watchtower", "whisperwood_edge", "trade_road"],
+                  "watchtower", "whisperwood_edge", "trade_road", "notice_board", "oakhaven_bank"],
         "atmosphere": "grey, damp, watchful. The smell of woodsmoke and wet earth.",
     },
     "stone_hearth": {
@@ -26,7 +26,7 @@ LOCATION_DATA = {
         "name": "Shrine of the Silent Ones",
         "short": "Crumbling stone. Ancient carvings worn smooth. "
                  "Someone left fresh flowers this morning.",
-        "exits": ["oakhaven"],
+        "exits": ["oakhaven", "herbalists_hut"],
         "atmosphere": "quiet, oddly still. The forest sounds stop at the threshold.",
         "blessing": "passive_wis_plus_1",
     },
@@ -43,6 +43,8 @@ LOCATION_DATA = {
         "exits": ["oakhaven", "whisperwood_deep"],
         "hunting": True,
         "recommended_level": 1,
+        "density": 1,
+        "dist_mult": 1.0,
     },
     "whisperwood_deep": {
         "name": "Whisperwood Deep",
@@ -51,6 +53,8 @@ LOCATION_DATA = {
         "exits": ["whisperwood_edge", "aeridor_ruins"],
         "hunting": True,
         "recommended_level": 4,
+        "density": 2,
+        "dist_mult": 1.25,
     },
     "aeridor_ruins": {
         "name": "Aeridor Ruins",
@@ -59,6 +63,8 @@ LOCATION_DATA = {
         "exits": ["whisperwood_deep"],
         "hunting": True,
         "recommended_level": 7,
+        "density": 3,
+        "dist_mult": 1.5,
         "lore_events": True,
     },
     "trade_road": {
@@ -68,6 +74,27 @@ LOCATION_DATA = {
         "exits": ["oakhaven"],
         "hunting": True,
         "recommended_level": 2,
+        "density": 1,
+        "dist_mult": 1.1,
+    },
+    "notice_board": {
+        "name": "The Notice Board",
+        "short": "A weathered wooden board in the square, covered in layers of parchment and news.",
+        "exits": ["oakhaven"],
+        "atmosphere": "communal, informative, slightly tattered.",
+    },
+    "herbalists_hut": {
+        "name": "Sister Maren's Hut",
+        "short": "A small lean-to tucked behind the shrine. The air is thick with the scent of drying herbs.",
+        "exits": ["shrine"],
+        "atmosphere": "earthy, quiet, medicinal.",
+        "brewing_allowed": True,
+    },
+    "oakhaven_bank": {
+        "name": "Oakhaven Bank",
+        "short": "A sturdy stone building near the square. A heavy wooden box with a complex lock sits behind the counter.",
+        "exits": ["oakhaven"],
+        "atmosphere": "secure, formal, smells of old paper and copper.",
     },
 }
 
@@ -98,6 +125,11 @@ def resolve_location(query: str) -> str:
         "watchtower":      "watchtower",
         "watchers":        "watchtower",
         "tower":           "watchtower",
+        "notices":         "notice_board",
+        "board":           "notice_board",
+        "bank":             "oakhaven_bank",
+        "herbalist":        "herbalists_hut",
+        "hut":              "herbalists_hut",
     }
     
     if q in aliases:
@@ -107,7 +139,10 @@ def resolve_location(query: str) -> str:
         return q # ensure validity as key
         
     for key, data in LOCATION_DATA.items():
-        if q in key or q in data.get("name", "").lower():
+        name = data.get("name", "")
+        if not isinstance(name, str):
+            name = str(name)
+        if q in key or q in name.lower():
             return key
             
     return ""
