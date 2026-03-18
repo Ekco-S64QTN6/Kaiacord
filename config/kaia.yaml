@@ -14,7 +14,8 @@ startup:
   news_update: false
 
 discord:
-  whitelisted_channels: "kaia-opolis"
+  whitelisted_channels: "kaia-opolis,aethelgard"
+  rpg_channel: "aethelgard"
   ignored_users:
     #- "Thorondor_470028550951403531"
     #- "470028550951403531"

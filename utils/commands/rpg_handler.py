@@ -3,13 +3,14 @@
 
 WORLD & MOVEMENT
   !rpg                       — status and location
-  !rpg go <location>         — travel
+  !rpg go <location>         — travel (auto-paths through town)
   !rpg look                  — narrate current location
   !rpg map                   — show accessible locations
 
 CHARACTER
   !rpg new <Name> <Race> <Class>  — create character
   !rpg sheet [@user]              — view sheet
+  !rpg leaderboard / lb           — adventurer rankings
 
 OAKHAVEN ACTIONS
   !rpg rest                  — sleep at inn (costs gil)
@@ -23,6 +24,7 @@ OAKHAVEN ACTIONS
   !rpg gamble             — Stone Hearth: Dice game (10g buy-in)
   !rpg pray               — Shrine: Daily blessing (+2 next hunt)
   !rpg offer <amount>     — Shrine: Donate gil for XP (cap 20/day)
+  !rpg fountain           — Shrine: Sacred spring heal (every other day)
   !rpg scout              — Watchtower: Preview monster activity
   !rpg deliver            — Turn in a mognet letter (Oakhaven)
 
@@ -51,6 +53,65 @@ import time
 import uuid as _uuid
 from utils.infrastructure.logging.kaia_logger import log_info, log_error, log_warning
 from utils.infrastructure.system.yaml_config import config
+
+LOCATION_ACTIONS = {
+    "oakhaven": [
+        "`!rpg look` — observe the square",
+        "`!rpg talk elara` — speak with Elder Elara",
+        "`!rpg map` — view the world map",
+    ],
+    "stone_hearth": [
+        "`!rpg rest` — full heal (5 gil)",
+        "`!rpg drink` — buy an ale, +3 temp HP (2 gil)",
+        "`!rpg gamble` — dice game, 10 gil buy-in",
+        "`!rpg rumor` — hear gossip from the bar",
+        "`!rpg talk barkeep` — speak with Mira",
+        "`!rpg talk hooded_figure` — speak with the figure in the corner",
+    ],
+    "hemlocks_store": [
+        "`!rpg shop` — browse Hemlock's inventory",
+        "`!rpg buy <item>` — purchase an item",
+        "`!rpg sell <item>` — sell something",
+        "`!rpg talk hemlock` — speak with Old Man Hemlock",
+    ],
+    "shrine": [
+        "`!rpg pray` — receive a daily blessing (free)",
+        "`!rpg offer <amount>` — donate gil for XP",
+        "`!rpg fountain` — drink from the sacred spring (full heal, every other day)",
+    ],
+    "watchtower": [
+        "`!rpg scout` — preview monster activity at all hunting grounds (once/day)",
+        "`!rpg talk guard` — speak with the guards",
+    ],
+    "whisperwood_edge": [
+        "`!rpg hunt` — fight a random monster (costs 1 hunt)",
+        "`!rpg look` — observe the treeline",
+    ],
+    "whisperwood_deep": [
+        "`!rpg hunt` — fight a random monster (costs 1 hunt, lvl 4+ recommended)",
+        "`!rpg look` — observe the deep forest",
+    ],
+    "aeridor_ruins": [
+        "`!rpg hunt` — fight a random monster (costs 1 hunt, lvl 7+ recommended)",
+        "`!rpg look` — observe the ruins",
+    ],
+    "trade_road": [
+        "`!rpg hunt` — encounter a road threat (costs 1 hunt)",
+        "`!rpg look` — observe the road",
+    ],
+}
+
+LOCATION_COLORS = {
+    "oakhaven":          0x8b7355,   # muddy brown — the square
+    "stone_hearth":      0xc0622f,   # warm ember orange — the fire
+    "hemlocks_store":    0x6b8e6b,   # muted green — herbs and iron
+    "shrine":            0x9b9bc8,   # pale violet — the Silent Ones
+    "watchtower":        0x8aacbf,   # steel blue — sky and wood
+    "whisperwood_edge":  0x4a7c4e,   # forest green
+    "whisperwood_deep":  0x2d5a35,   # deep dark green
+    "aeridor_ruins":     0x7a6a9a,   # resonance purple
+    "trade_road":        0xa08050,   # dust and dirt
+}
 
 async def handle_rpg_command(ctx, msg, send_kaia_response):
     """Main !rpg dispatcher."""
@@ -96,6 +157,9 @@ async def handle_rpg_command(ctx, msg, send_kaia_response):
         "offer":     _handle_offer,
         "scout":     _handle_scout,
         "deliver":   _handle_deliver,
+        "fountain":  _handle_fountain,
+        "leaderboard": _handle_leaderboard,
+        "lb":        _handle_leaderboard,
     }
     async def _auto_send(channel, text, use_code_block=None):
         if use_code_block is None:
@@ -121,8 +185,12 @@ async def _handle_status(ctx, msg, send, rest, uid, uname, is_owner):
     import discord
     
     sheet = await asyncio.to_thread(load, uid)
+    import discord
     if not sheet:
-        await send(msg.channel, "you do not exist in Aethelgard. type `!rpg new <Name> <Race> <Class>` to begin.")
+        await msg.channel.send(embed=discord.Embed(
+            description="You do not exist in Aethelgard. Type `!rpg new <Name> <Race> <Class>` to begin.",
+            color=0xcc4444
+        ))
         return
         
     loc = sheet.get("location", "oakhaven")
@@ -211,7 +279,9 @@ async def _handle_status(ctx, msg, send, rest, uid, uname, is_owner):
         cond_str = ", ".join(c.title() for c in conds)
         embed.add_field(name="⚠️ Status Effects", value=cond_str, inline=False)
     
-    footer_text = "!rpg look · !rpg map · !rpg shop"
+    loc_hints = LOCATION_ACTIONS.get(loc, ["`!rpg look`"])
+    hint_labels = [h.split("` —")[0].replace("`", "").strip() for h in loc_hints]
+    footer_text = " · ".join(hint_labels)
     if loc_data.get("hunting"):
         footer_text += " · !rpg hunt"
     embed.set_footer(text=footer_text)
@@ -225,19 +295,21 @@ async def _handle_new(ctx, msg, send, rest, uid, uname, is_owner):
     from utils.ttrpg.character_manager import load, create, format_sheet
     from utils.ttrpg.dice_engine import roll, CLASSES
     
+    import discord
     existing = await asyncio.to_thread(load, uid)
     if existing:
-        await send(msg.channel,
-            f"you already have a character: **{existing['character_name']}**. "
-            f"sheets are permanent.")
-        return
+        return await msg.channel.send(embed=discord.Embed(
+            description=f"You already have a character: **{existing['character_name']}**.\nSheets are permanent.",
+            color=0x888888
+        ))
     
     args = rest.split()
     if len(args) < 3:
         class_list = ", ".join(CLASSES.keys())
-        await send(msg.channel,
-            f"usage: `!rpg new <Name> <Race> <Class>`\nclasses: {class_list}")
-        return
+        return await msg.channel.send(embed=discord.Embed(
+            description=f"Usage: `!rpg new <Name> <Race> <Class>`\nClasses: {class_list}",
+            color=0x888888
+        ))
     
     char_name = args[0]
     race = args[1].title()
@@ -245,8 +317,10 @@ async def _handle_new(ctx, msg, send, rest, uid, uname, is_owner):
     
     if class_name not in CLASSES:
         class_list = ", ".join(CLASSES.keys())
-        await send(msg.channel, f"unknown class. options: {class_list}")
-        return
+        return await msg.channel.send(embed=discord.Embed(
+            description=f"Unknown class. Options: {class_list}",
+            color=0xcc4444
+        ))
     
     RACE_BONUSES = {
         "Human":    {"str": 1, "dex": 1, "con": 1, "int": 1, "wis": 1, "cha": 1},
@@ -271,20 +345,21 @@ async def _handle_new(ctx, msg, send, rest, uid, uname, is_owner):
     
     sheet = await asyncio.to_thread(create, uid, uname, char_name, race, class_name, rolled_stats)
     
-    await send(msg.channel,
-        f"**{char_name}**, the {race} {class_name}, has entered Aethelgard.\n\n"
-        f"**Stat rolls (4d6 drop lowest + Race bonuses):**\n```\n" +
-        "\n".join(roll_log) + "\n```\n\n" +
-        f"\nYou awaken in Oakhaven Town Square. Type `!rpg` to view your HUD.")
+    embed = discord.Embed(
+        title="✨ New Adventurer Registered",
+        description=f"**{char_name}**, the {race} {class_name}, has entered Aethelgard.\n\n**Stat rolls (4d6 drop lowest + Race):**\n```\n" + "\n".join(roll_log) + "\n```\n\nYou awaken in Oakhaven Town Square. Type `!rpg` to view your HUD.",
+        color=0xddcc88
+    )
+    await msg.channel.send(embed=embed)
 
 async def _handle_sheet(ctx, msg, send, rest, uid, uname, is_owner):
     from utils.ttrpg.character_manager import load, format_sheet
     target_id = str(msg.mentions[0].id) if msg.mentions else uid
     sheet = await asyncio.to_thread(load, target_id)
+    import discord
     if not sheet:
-        await send(msg.channel, "character not found.")
-        return
-    await send(msg.channel, format_sheet(sheet))
+        return await msg.channel.send(embed=discord.Embed(description="Character not found.", color=0xcc4444))
+    await send(msg.channel, format_sheet(sheet), use_code_block=True)
 
 
 # ── World & Movement ─────────────────────────────────────────────────────────
@@ -292,36 +367,94 @@ async def _handle_sheet(ctx, msg, send, rest, uid, uname, is_owner):
 async def _handle_go(ctx, msg, send, rest, uid, uname, is_owner):
     from utils.ttrpg.character_manager import load, save
     from utils.ttrpg.world import LOCATION_DATA, resolve_location
-    
+    import discord
+
     sheet = await asyncio.to_thread(load, uid)
-    if not sheet: return await send(msg.channel, "No character found.")
-    
+    import discord
+    if not sheet: return await msg.channel.send(embed=discord.Embed(description="No character found.", color=0xcc4444))
+
     current_loc_key = sheet.get("location", "oakhaven")
     current_loc = LOCATION_DATA.get(current_loc_key, {})
 
+    # --- No args: show "where to?" embed ---
     if not rest.strip():
         exits = current_loc.get("exits", [])
         exit_lines = "\n".join(
-            f"  `!rpg go {key}` — {LOCATION_DATA[key]['name']}"
+            f"`!rpg go {key}` — {LOCATION_DATA[key]['name']}"
             for key in exits
             if key in LOCATION_DATA
         )
-        return await send(msg.channel,
-            f"**{current_loc.get('name', current_loc_key)}** — where to?\n\n{exit_lines}")
-        
+        color = LOCATION_COLORS.get(current_loc_key, 0x888888)
+        embed = discord.Embed(
+            title=f"📍 {current_loc.get('name', current_loc_key)}",
+            description=f"*{current_loc.get('short', '')}*",
+            color=color
+        )
+        embed.add_field(name="Where to?", value=exit_lines or "No exits.", inline=False)
+        return await msg.channel.send(embed=embed)
+
     target = resolve_location(rest.strip())
-    current = sheet.get("location", "oakhaven")
-    current_data = LOCATION_DATA.get(current, {})
-    
-    if not target or target not in current_data.get("exits", []):
-        available = " · ".join(LOCATION_DATA.get(e, {}).get("name", e) for e in current_data.get("exits", []))
-        return await send(msg.channel, f"You can't reach that from here. Available exits:\n{available}")
-        
+    if not target or target not in LOCATION_DATA:
+        return await msg.channel.send(embed=discord.Embed(description=f"Unknown location: `{rest.strip()}`", color=0xcc4444))
+
+    if target == current_loc_key:
+        return await msg.channel.send(embed=discord.Embed(description="You're already there.", color=0x888888))
+
+    # --- Auto-path: BFS to find shortest route ---
+    def _find_path(start, end):
+        from collections import deque
+        visited = {start}
+        queue = deque([(start, [start])])
+        while queue:
+            node, path = queue.popleft()
+            for neighbor in LOCATION_DATA.get(node, {}).get("exits", []):
+                if neighbor == end:
+                    return path + [neighbor]
+                if neighbor not in visited:
+                    visited.add(neighbor)
+                    queue.append((neighbor, path + [neighbor]))
+        return None
+
+    direct = target in current_loc.get("exits", [])
+    path = [current_loc_key, target] if direct else _find_path(current_loc_key, target)
+
+    if not path:
+        return await msg.channel.send(embed=discord.Embed(description=f"There's no route from here to **{LOCATION_DATA.get(target, {}).get('name', target)}**.", color=0xcc4444))
+
+    # Move player to final destination
     sheet["location"] = target
     await asyncio.to_thread(save, sheet)
-    
-    name = LOCATION_DATA.get(target, {}).get("name", target)
-    await send(msg.channel, f"🚶 **{sheet['character_name']}** travels to **{name}**.\nType `!rpg look` to observe the surroundings.")
+
+    # Build arrival embed
+    loc_data = LOCATION_DATA.get(target, {})
+    name = loc_data.get("name", target)
+    actions = LOCATION_ACTIONS.get(target, ["`!rpg look` — observe the surroundings"])
+    color = LOCATION_COLORS.get(target, 0x888888)
+
+    # Show travel path if multi-hop
+    if len(path) > 2:
+        via_names = [LOCATION_DATA.get(p, {}).get("name", p) for p in path[1:-1]]
+        desc = f"*Traveling via {', '.join(via_names)}...*\n\n*{loc_data.get('short', '')}*"
+    else:
+        desc = f"*{loc_data.get('short', '')}*"
+
+    embed = discord.Embed(
+        title=f"📍 {name}",
+        description=desc,
+        color=color
+    )
+
+    embed.add_field(
+        name="Available actions",
+        value="\n".join(actions),
+        inline=False
+    )
+
+    rec = loc_data.get("recommended_level")
+    if rec and sheet["level"] < rec - 1:
+        embed.set_footer(text=f"⚠️ Recommended level {rec}+ — proceed with caution")
+
+    await msg.channel.send(embed=embed)
 
 async def _handle_look(ctx, msg, send, rest, uid, uname, is_owner):
     from utils.ttrpg.character_manager import load
@@ -373,7 +506,8 @@ async def _handle_look(ctx, msg, send, rest, uid, uname, is_owner):
 async def _handle_map(ctx, msg, send, rest, uid, uname, is_owner):
     from utils.ttrpg.character_manager import load
     from utils.ttrpg.world import LOCATION_DATA
-    
+    import discord
+
     sheet = await asyncio.to_thread(load, uid)
     if not sheet: return
     
@@ -387,9 +521,13 @@ async def _handle_map(ctx, msg, send, rest, uid, uname, is_owner):
         if key in LOCATION_DATA
     )
     
-    await send(msg.channel,
-        f"**{current_loc.get('name', current_loc_key)}** — nearby locations:\n\n{exit_lines}\n\n"
-        f"*(Use `!rpg go <location>` to travel)*")
+    embed = discord.Embed(
+        title=f"🗺️ {current_loc.get('name', current_loc_key)} — Map",
+        description="*(Use `!rpg go <location>` to travel)*",
+        color=0x4488cc
+    )
+    embed.add_field(name="Accessible Locations", value=exit_lines or "Nowhere else to go.", inline=False)
+    await msg.channel.send(embed=embed)
 
 
 # ── Economy / NPCs / World Iterations ───────────────────────────────────────
@@ -399,19 +537,20 @@ async def _handle_rest(ctx, msg, send, rest, uid, uname, is_owner):
     sheet = await asyncio.to_thread(load, uid)
     if not sheet: return
     
+    import discord
     if sheet.get("location") != "stone_hearth":
-        return await send(msg.channel, "You need to be at the Stone Hearth inn to rest. (`!rpg go stone_hearth`)")
+        return await msg.channel.send(embed=discord.Embed(description="You need to be at the Stone Hearth inn to rest. (`!rpg go stone_hearth`)", color=0xcc4444))
         
     cost = 5
     if sheet.get("gil", 0) < cost:
-        return await send(msg.channel, f"Mira shakes her head. \"Beds aren't free.\"\nYou need {cost} gil. You have {sheet.get('gil', 0)}g.")
+        return await msg.channel.send(embed=discord.Embed(description=f"Mira shakes her head. \"Beds aren't free.\"\nYou need {cost} gil. You have {sheet.get('gil', 0)}g.", color=0xcc4444))
         
     hp_cur = sheet["hp"]["current"]
     hp_max = sheet["hp"]["max"]
     
     has_ale = "ale_warmth" in sheet.get("conditions", [])
     if hp_cur >= hp_max and not has_ale:
-        return await send(msg.channel, f"**{sheet['character_name']}** is already at maximum health.\nMira raises an eyebrow. *\"You're paying for a room you won't use?\"*")
+        return await msg.channel.send(embed=discord.Embed(description=f"**{sheet['character_name']}** is already at maximum health.\nMira raises an eyebrow. *\"You're paying for a room you won't use?\"*", color=0x888888))
 
     # Clear ale temp HP and condition BEFORE healing
     if "ale_warmth" in sheet.get("conditions", []):
@@ -425,7 +564,10 @@ async def _handle_rest(ctx, msg, send, rest, uid, uname, is_owner):
 
     await asyncio.to_thread(save, sheet)
     
-    await send(msg.channel, f"🛏️ **{sheet['character_name']}** rests at the Stone Hearth. (-{cost} gil)\nHP restored: **+{healed}** (Full)\nRemaining gil: {sheet['gil']}g")
+    await msg.channel.send(embed=discord.Embed(
+        description=f"🛏️ **{sheet['character_name']}** rests at the Stone Hearth. (-{cost} gil)\nHP restored: **+{healed}** (Full)\nRemaining gil: {sheet['gil']}g",
+        color=0x44aa44
+    ))
 
 async def _handle_rumor(ctx, msg, send, rest, uid, uname, is_owner):
     from utils.ttrpg.character_manager import load
@@ -434,8 +576,9 @@ async def _handle_rumor(ctx, msg, send, rest, uid, uname, is_owner):
     from utils.infrastructure.gpu.gpu_manager import OllamaGPUManager, gpu_memory_manager, GPUTaskPriority
     
     sheet = await asyncio.to_thread(load, uid)
+    import discord
     if sheet and sheet.get("location") != "stone_hearth":
-        return await send(msg.channel, "You must be at the Stone Hearth to hear rumors. (`!rpg go stone_hearth`)")
+        return await msg.channel.send(embed=discord.Embed(description="You must be at the Stone Hearth to hear rumors. (`!rpg go stone_hearth`)", color=0xcc4444))
         
     prompt = build_rumor_prompt()
     persona = await load_persona_async()
@@ -461,32 +604,47 @@ async def _handle_rumor(ctx, msg, send, rest, uid, uname, is_owner):
                 task_id=f"rpg_rumor_{_uuid.uuid4().hex[:8]}"
             )
             rumor = resp["message"]["content"].strip().replace("```", "")
-            if rumor: await send(msg.channel, f"*{rumor}*")
+            if rumor:
+                embed = discord.Embed(
+                    title="🗣️ Rumor Heard",
+                    description=f"*{rumor}*",
+                    color=0x888888
+                )
+                await msg.channel.send(embed=embed)
         except Exception as e:
             log_error(f"[rpg rumor] {e}")
 
 async def _handle_shop(ctx, msg, send, rest, uid, uname, is_owner):
     from utils.ttrpg.character_manager import load
     from utils.ttrpg.shop import get_shop_inventory
+    import discord
     sheet = await asyncio.to_thread(load, uid)
     if sheet and sheet.get("location") != "hemlocks_store":
-        return await send(msg.channel, "You must be at Hemlock's Store to view inventory. (`!rpg go hemlocks_store`)")
+        return await msg.channel.send(embed=discord.Embed(description="You must be at Hemlock's Store to view inventory. (`!rpg go hemlocks_store`)", color=0xcc4444))
         
     weapons, armor, consumables = get_shop_inventory()
-    
-    lines = ["🛒 **Hemlock's General Store**"]
-    lines.append("──────────────────────────────")
+
+    lines = []
     lines.append("**Weapons**")
     for k, v in weapons.items(): lines.append(f"  `{k:<15}` {v['name']:<20} {v['value']}g")
     lines.append("\n**Armor**")
     for k, v in armor.items(): lines.append(f"  `{k:<15}` {v['name']:<20} {v['value']}g")
     lines.append("\n**Consumables**")
     for k, v in consumables.items(): lines.append(f"  `{k:<15}` {v['name']:<20} {v['value']}g")
-    
+
+    footer_text = ""
     if sheet:
-        lines.append(f"\nYour Gil: **{sheet.get('gil', 0)}g**  |  `!rpg buy <item>` or `!rpg sell <item>`")
-        
-    await send(msg.channel, "```\n" + "\n".join(lines) + "\n```")
+        footer_text = f"Your Gil: {sheet.get('gil', 0)}g  |  !rpg buy <item> or !rpg sell <item>"
+
+    embed = discord.Embed(
+        title="🛒 Hemlock's Store",
+        description="```\n" + "\n".join(lines) + "\n```",
+        color=0x4488cc
+    )
+    if footer_text:
+        embed.set_footer(text=footer_text)
+
+    await msg.channel.send(embed=embed)
 
 async def _handle_buy(ctx, msg, send, rest, uid, uname, is_owner):
     from utils.ttrpg.character_manager import load, save
@@ -494,14 +652,22 @@ async def _handle_buy(ctx, msg, send, rest, uid, uname, is_owner):
     
     sheet = await asyncio.to_thread(load, uid)
     if not sheet: return
+    import discord
     if sheet.get("location") != "hemlocks_store":
-        return await send(msg.channel, "You must be at Hemlock's Store to buy items.")
+        return await msg.channel.send(embed=discord.Embed(description="You must be at Hemlock's Store to buy items.", color=0xcc4444))
         
     if not rest.strip():
-        return await send(msg.channel, "Buy what? Use `!rpg shop` for items.")
+        return await msg.channel.send(embed=discord.Embed(description="Buy what? Use `!rpg shop` for items.", color=0x888888))
         
-    item_key = rest.strip().lower()
-    success, purchase_msg, updated_sheet = process_purchase(sheet, item_key)
+    args = rest.strip().split()
+    if len(args) > 1 and args[-1].isdigit() and int(args[-1]) > 0:
+        quantity = int(args[-1])
+        item_key = " ".join(args[:-1]).lower()
+    else:
+        quantity = 1
+        item_key = rest.strip().lower()
+        
+    success, purchase_msg, updated_sheet = process_purchase(sheet, item_key, quantity)
     
     if success:
         from utils.ttrpg.shop import find_item
@@ -510,22 +676,19 @@ async def _handle_buy(ctx, msg, send, rest, uid, uname, is_owner):
         # Determine specific response with optional soft warnings
         final_msg = purchase_msg
         if item and "classes" in item and updated_sheet["class"] not in item["classes"]:
-            final_msg = (
-                f"Purchased **{item['name']}** for {item['value']}g. (Remaining: {updated_sheet['gil']}g)\n"
-                f"*Note: this is typically used by {'/'.join(item['classes'])} — you can equip it but it may feel awkward.*"
-            )
+            final_msg += f"\n*Note: this is typically used by {'/'.join(item['classes'])} — you can equip it but it may feel awkward.*"
             
-        if item and item["category"] in ["weapon", "armor"]:
+        if item and item["category"] in ["weapon", "armor"] and quantity == 1:
             slot = item["category"]
             if not updated_sheet["equipment"].get(slot):
-                updated_sheet["inventory"].remove(item_key)
+                updated_sheet["inventory"].remove(item["key"])
                 updated_sheet["equipment"][slot] = item
                 final_msg += f"\nAuto-equipped **{item['name']}**."
         
         await asyncio.to_thread(save, updated_sheet)
-        await send(msg.channel, final_msg)
+        await msg.channel.send(embed=discord.Embed(description=final_msg, color=0x44aa44))
     else:
-        await send(msg.channel, purchase_msg)
+        await msg.channel.send(embed=discord.Embed(description=purchase_msg, color=0xcc4444))
 
 async def _handle_sell(ctx, msg, send, rest, uid, uname, is_owner):
     from utils.ttrpg.character_manager import load, save
@@ -533,18 +696,22 @@ async def _handle_sell(ctx, msg, send, rest, uid, uname, is_owner):
     
     sheet = await asyncio.to_thread(load, uid)
     if not sheet: return
+    import discord
     if sheet.get("location") != "hemlocks_store":
-        return await send(msg.channel, "You must remain at Hemlock's Store to sell items.")
+        return await msg.channel.send(embed=discord.Embed(description="You must remain at Hemlock's Store to sell items.", color=0xcc4444))
         
     if not rest.strip():
-        return await send(msg.channel, "Sell what? Use `!rpg inventory` for items.")
+        return await msg.channel.send(embed=discord.Embed(description="Sell what? Use `!rpg inventory` for items.", color=0x888888))
         
     item_key = rest.strip().lower()
     success, resp_msg, updated_sheet = process_sell(sheet, item_key)
     
     if success:
         await asyncio.to_thread(save, updated_sheet)
-    await send(msg.channel, resp_msg)
+        color = 0x44aa44
+    else:
+        color = 0xcc4444
+    await msg.channel.send(embed=discord.Embed(description=resp_msg, color=color))
 
 async def _handle_talk(ctx, msg, send, rest, uid, uname, is_owner):
     from utils.ttrpg.character_manager import load
@@ -556,19 +723,20 @@ async def _handle_talk(ctx, msg, send, rest, uid, uname, is_owner):
     sheet = await asyncio.to_thread(load, uid)
     
     args = rest.strip().split(maxsplit=1)
+    import discord
     if not args:
-        return await send(msg.channel, f"Talk to who? Known NPCs: {', '.join(NPCS.keys())}")
+        return await msg.channel.send(embed=discord.Embed(description=f"Talk to who? Known NPCs: {', '.join(NPCS.keys())}", color=0x888888))
         
     npc_key = args[0].lower()
     npc = get_npc(npc_key)
     if not npc:
-        return await send(msg.channel, f"Nobody by that name. Known NPCs: {', '.join(NPCS.keys())}")
+        return await msg.channel.send(embed=discord.Embed(description=f"Nobody by that name. Known NPCs: {', '.join(NPCS.keys())}", color=0xcc4444))
         
     loc = sheet.get("location", "oakhaven") if sheet else "oakhaven"
     if npc["location"] != "any" and npc["location"] != loc:
         from utils.ttrpg.world import LOCATION_DATA
         target = LOCATION_DATA.get(npc['location'], {}).get('name', npc['location'])
-        return await send(msg.channel, f"**{npc['name']}** isn't here. They're usually at **{target}**.")
+        return await msg.channel.send(embed=discord.Embed(description=f"**{npc['name']}** isn't here. They're usually at **{target}**.", color=0xcc4444))
         
     player_msg = args[1] if len(args) > 1 else "(Approach silently)"
     
@@ -596,7 +764,13 @@ async def _handle_talk(ctx, msg, send, rest, uid, uname, is_owner):
                 task_id=f"rpg_talk_{_uuid.uuid4().hex[:8]}"
             )
             dialogue = resp["message"]["content"].strip().replace("```", "")
-            if dialogue: await send(msg.channel, f"*{dialogue}*")
+            if dialogue: 
+                embed = discord.Embed(
+                    title=f"🗣️ {npc['name']}",
+                    description=f"*{dialogue}*",
+                    color=0x4488cc
+                )
+                await msg.channel.send(embed=embed)
         except Exception as e:
             log_error(f"[rpg talk] {e}")
 
@@ -604,11 +778,56 @@ async def _handle_talk(ctx, msg, send, rest, uid, uname, is_owner):
 # ── Items and Equipment ──────────────────────────────────────────────────────
 
 async def _handle_inventory(ctx, msg, send, rest, uid, uname, is_owner):
+    import discord
     from utils.ttrpg.character_manager import load
+    from utils.ttrpg.shop import find_item
+
     sheet = await asyncio.to_thread(load, uid)
     if not sheet: return
-    inv = "\n".join(f"  • {i}" for i in sheet.get("inventory", [])) or "  (empty)"
-    await send(msg.channel, f"**{sheet['character_name']}'s inventory:**\n{inv}")
+
+    inventory = sheet.get("inventory", [])
+    if not inventory:
+        return await msg.channel.send(embed=discord.Embed(
+            title="🎒 Inventory",
+            description="*Empty.*",
+            color=0x888888
+        ))
+
+    lines = []
+    
+    from collections import Counter
+    inv_counts = Counter(inventory)
+    
+    for key, count in inv_counts.items():
+        item = find_item(key)
+        count_str = f" x{count}" if count > 1 else ""
+        if item:
+            category = item["category"]
+            if category == "consumable":
+                if item.get("on_use") == "starter_kit":
+                    lines.append(f"**{item['name']}**{count_str} — {item.get('description', 'starter pack type !rpg use pack to open')}")
+                else:
+                    hp = item.get("hp_restore", 0)
+                    val = item.get("value", 0)
+                    lines.append(f"**{item['name']}**{count_str} — restores {hp} HP  *(sell: {val // 2}g)*")
+            elif category == "weapon":
+                lines.append(f"**{item['name']}**{count_str} — +{item['attack_bonus']} ATK, d{item['damage_die']}  *(sell: {item['value'] // 2}g)*")
+            elif category == "armor":
+                lines.append(f"**{item['name']}**{count_str} — +{item['defense_bonus']} DEF  *(sell: {item['value'] // 2}g)*")
+            else:
+                lines.append(f"**{item['name']}**{count_str}")
+        else:
+            # Unknown/lore item — show raw with note
+            display = key.replace("_", " ").title()
+            lines.append(f"**{display}**{count_str} — *sell to Hemlock to find out*")
+
+    embed = discord.Embed(
+        title="🎒 Inventory",
+        description="\n".join(lines),
+        color=0x8b7355
+    )
+    embed.set_footer(text="!rpg use <item>  ·  !rpg equip <item>  ·  !rpg sell <item>")
+    await msg.channel.send(embed=embed)
 
 async def _handle_equip(ctx, msg, send, rest, uid, uname, is_owner):
     from utils.ttrpg.character_manager import load, save
@@ -616,16 +835,19 @@ async def _handle_equip(ctx, msg, send, rest, uid, uname, is_owner):
     sheet = await asyncio.to_thread(load, uid)
     if not sheet: return
     
+    import discord
     if not rest.strip():
-        return await send(msg.channel, "Equip what? `!rpg equip <item>`")
+        return await msg.channel.send(embed=discord.Embed(description="Equip what? `!rpg equip <item>`", color=0x888888))
         
     item_key = rest.strip().lower()
+    from utils.ttrpg.equipment_registry import ALIASES
+    item_key = ALIASES.get(item_key, item_key)
     if item_key not in sheet.get("inventory", []):
-        return await send(msg.channel, f"You don't have `{item_key}` in your inventory.")
+        return await msg.channel.send(embed=discord.Embed(description=f"You don't have `{item_key}` in your inventory.", color=0xcc4444))
         
     item = find_item(item_key)
     if not item or item["category"] not in ["weapon", "armor"]:
-        return await send(msg.channel, f"`{item_key}` cannot be equipped.")
+        return await msg.channel.send(embed=discord.Embed(description=f"`{item_key}` cannot be equipped.", color=0xcc4444))
         
     # Unequip existing if slot filled
     slot = item["category"]
@@ -638,7 +860,7 @@ async def _handle_equip(ctx, msg, send, rest, uid, uname, is_owner):
     sheet["equipment"][slot] = item
     await asyncio.to_thread(save, sheet)
     
-    await send(msg.channel, f"Equipped **{item['name']}** as {slot}.")
+    await msg.channel.send(embed=discord.Embed(description=f"Equipped **{item['name']}** as {slot}.", color=0x44aa44))
 
 async def _handle_use(ctx, msg, send, rest, uid, uname, is_owner):
     from utils.ttrpg.character_manager import load, save
@@ -647,22 +869,31 @@ async def _handle_use(ctx, msg, send, rest, uid, uname, is_owner):
     if not sheet: return
     
     item_key = rest.strip().lower()
+    from utils.ttrpg.equipment_registry import ALIASES
+    item_key = ALIASES.get(item_key, item_key)
+        
+    import discord
     if item_key not in sheet.get("inventory", []):
-        return await send(msg.channel, f"You don't have `{item_key}`.")
+        return await msg.channel.send(embed=discord.Embed(description=f"You don't have `{item_key}`.", color=0xcc4444))
         
     item = find_item(item_key)
     if not item or item["category"] != "consumable":
-        return await send(msg.channel, f"You can't use `{item_key}`.")
+        return await msg.channel.send(embed=discord.Embed(description=f"You can't use `{item_key}`.", color=0xcc4444))
         
-    if "hp_restore" in item:
+    if "hp_restore" in item and item["hp_restore"] > 0:
         before = sheet["hp"]["current"]
         sheet["hp"]["current"] = min(sheet["hp"]["current"] + item["hp_restore"], sheet["hp"]["max"])
         healed = sheet["hp"]["current"] - before
         sheet["inventory"].remove(item_key)
         await asyncio.to_thread(save, sheet)
-        await send(msg.channel, f"Used **{item['name']}**. Restored {healed} HP ({before} → {sheet['hp']['current']})")
+        await msg.channel.send(embed=discord.Embed(description=f"Used **{item['name']}**. Restored {healed} HP ({before} → {sheet['hp']['current']})", color=0x44aa44))
+    elif item.get("on_use") == "starter_kit":
+        sheet["inventory"].remove(item_key)
+        sheet["inventory"].extend(["bandage", "healing_herb", "torch"])
+        await asyncio.to_thread(save, sheet)
+        await msg.channel.send(embed=discord.Embed(description=f"You open the **{item['name']}**.\n\nObtained:\n• Bandage\n• Healing Herb\n• Torch (lore item)", color=0x44aa44))
     else:
-        await send(msg.channel, f"**{item['name']}** can't be used. Try selling it: `!rpg sell {item_key}`")
+        await msg.channel.send(embed=discord.Embed(description=f"**{item['name']}** can't be used. Try selling it: `!rpg sell {item_key}`", color=0xcc4444))
 
 
 # ── Combat ───────────────────────────────────────────────────────────────────
@@ -672,8 +903,8 @@ async def _handle_hunts(ctx, msg, send, rest, uid, uname, is_owner):
     from utils.ttrpg.progression import hunts_remaining, MAX_HUNTS_PER_DAY
     sheet = await asyncio.to_thread(load, uid)
     if not sheet: return
-    r = hunts_remaining(sheet)
-    await send(msg.channel, f"**{sheet['character_name']}** has {r} hunts remaining today. Reset is at midnight server time.")
+    import discord
+    await msg.channel.send(embed=discord.Embed(description=f"**{sheet['character_name']}** has {r} hunts remaining today. Reset is at midnight server time.", color=0x888888))
 
 async def _handle_hunt(ctx, msg, send, rest, uid, uname, is_owner):
     from utils.ttrpg.character_manager import load, save
@@ -687,15 +918,16 @@ async def _handle_hunt(ctx, msg, send, rest, uid, uname, is_owner):
     
     loc = sheet.get("location", "oakhaven")
     ld = LOCATION_DATA.get(loc, {})
+    import discord
     if not ld.get("hunting"):
-        return await send(msg.channel, f"You can't hunt in **{ld.get('name', loc)}**.\nTravel somewhere wild first.")
+        return await msg.channel.send(embed=discord.Embed(description=f"You can't hunt in **{ld.get('name', loc)}**.\nTravel somewhere wild first.", color=0xcc4444))
         
     sheet = check_and_reset_hunts(sheet)
     if hunts_remaining(sheet) <= 0:
-        return await send(msg.channel, f"You have exhausted your stamina for the day. (0/{MAX_HUNTS_PER_DAY} hunts remaining)")
+        return await msg.channel.send(embed=discord.Embed(description=f"You have exhausted your stamina for the day. (0/{MAX_HUNTS_PER_DAY} hunts remaining)", color=0xcc4444))
         
     if sheet["hp"]["current"] <= 0:
-        return await send(msg.channel, f"You are far too weak to hunt right now. Go rest.")
+        return await msg.channel.send(embed=discord.Embed(description=f"You are far too weak to hunt right now. Go rest.", color=0xcc4444))
         
     # Engage tracking
     chan_id = str(msg.channel.id)
@@ -708,7 +940,12 @@ async def _handle_hunt(ctx, msg, send, rest, uid, uname, is_owner):
     if my_fights:
         m_name = my_fights[0].get("name", "Unknown Monster")
         m_key = my_fights[0].get("key", "monster")
-        return await send(msg.channel, f"You are already fighting a **{m_name}**!\nUse `!rpg attack {m_key}` or `!rpg flee`.")
+        import discord
+        return await msg.channel.send(embed=discord.Embed(
+            title="⚔️ Already in combat",
+            description=f"You are already fighting a **{m_name}**.\n`!rpg attack {m_key}` · `!rpg flee`",
+            color=0xcc6622
+        ))
     
     # Roll for special forest event before monster spawn
     from utils.ttrpg.encounter_tables import roll_for_event, random_event
@@ -730,7 +967,7 @@ async def _handle_hunt(ctx, msg, send, rest, uid, uname, is_owner):
     m_key = random_encounter(loc)
     m_data = get_monster(m_key)
     if not m_data:
-        return await send(msg.channel, f"Wait... you hear a sound, but nothing emerges. (Error: Monster {m_key} not found)")
+        return await msg.channel.send(embed=discord.Embed(description=f"Wait... you hear a sound, but nothing emerges. (Error: Monster {m_key} not found)", color=0xcc4444))
         
     m_temp = m_data.copy()
     m_temp["key"] = m_key
@@ -777,12 +1014,13 @@ async def _handle_attack(ctx, msg, send, rest, uid, uname, is_owner):
     
     sheet = await asyncio.to_thread(load, uid)
     if not sheet: return
+    import discord
     if sheet["hp"]["current"] <= 0:
-        return await send(msg.channel, "You are incapacitated.")
+        return await msg.channel.send(embed=discord.Embed(description="You are incapacitated.", color=0xcc4444))
         
     s = await asyncio.to_thread(load_session, str(msg.channel.id))
     if not s or not s.get("combat_active") or not s.get("monsters"):
-        return await send(msg.channel, "No active combat. `!rpg hunt` to find something.")
+        return await msg.channel.send(embed=discord.Embed(description="No active combat. `!rpg hunt` to find something.", color=0x888888))
         
     target_key = rest.strip().lower()
     
@@ -797,7 +1035,7 @@ async def _handle_attack(ctx, msg, send, rest, uid, uname, is_owner):
             break
             
     if not monster:
-        return await send(msg.channel, "Cannot identify monster.")
+        return await msg.channel.send(embed=discord.Embed(description="Cannot identify monster.", color=0xcc4444))
         
     # Execute deterministic combat math loop
     res = _resolve_combat(sheet, monster)
@@ -810,7 +1048,7 @@ async def _handle_attack(ctx, msg, send, rest, uid, uname, is_owner):
         sheet["conditions"].remove("blessed")
     
     # Handle state cleanup
-    if res["monster_defeated"]:
+    if res["monster_defeated"] or not res["player_alive"]:
         s["monsters"].pop(monster_idx)
         if not s["monsters"]: s["combat_active"] = False
     else:
@@ -859,7 +1097,8 @@ async def _handle_attack(ctx, msg, send, rest, uid, uname, is_owner):
         sheet["xp"] = max(0, sheet["xp"] - xp_loss)
         sheet["gil"] = max(0, sheet["gil"] - gil_loss)
         sheet["hp"]["current"] = 1
-        sheet["location"] = "oakhaven"
+        sheet["location"] = "shrine"
+        sheet["deaths"] = sheet.get("deaths", 0) + 1
         m_block += f"\n\n🚨 **You blacked out.** Townspeople dragged you back to the Shrine of the Silent Ones in Oakhaven. You dropped {xp_loss} XP and {gil_loss} Gil in the dirt."
         
     await asyncio.to_thread(save, sheet)
@@ -914,14 +1153,10 @@ async def _handle_attack(ctx, msg, send, rest, uid, uname, is_owner):
             pass
 
 async def _handle_flee(ctx, msg, send, rest, uid, uname, is_owner):
-    from utils.ttrpg.character_manager import load, save
-    
-    sheet = await asyncio.to_thread(load, uid)
-    if sheet:
-        sheet["hunt_streak"] = 0
-        await asyncio.to_thread(save, sheet)
     from utils.ttrpg.session_manager import load_session, save_session
     import secrets
+    import discord
+
     s = await asyncio.to_thread(load_session, str(msg.channel.id))
     if not s or not s.get("combat_active"): return
     
@@ -931,16 +1166,16 @@ async def _handle_flee(ctx, msg, send, rest, uid, uname, is_owner):
             to_flee = i
             break
             
-    if to_flee == -1: return await send(msg.channel, "You have nothing chasing you.")
+    if to_flee == -1: return await msg.channel.send(embed=discord.Embed(description="You have nothing chasing you.", color=0xcc4444))
     
     roll = secrets.randbelow(20) + 1
     if roll >= 10:
         s["monsters"].pop(to_flee)
         if not s["monsters"]: s["combat_active"] = False
         await asyncio.to_thread(save_session, s)
-        await send(msg.channel, f"🏃 **{uname}** scrambled to safety! (d20 = {roll})")
+        await msg.channel.send(embed=discord.Embed(description=f"🏃 **{uname}** scrambled to safety! (d20 = {roll})", color=0x44aa44))
     else:
-        await send(msg.channel, f"❌ Flee failed! (d20 = {roll}) You trip. They close the distance.")
+        await msg.channel.send(embed=discord.Embed(description=f"❌ Flee failed! (d20 = {roll}) You trip. They close the distance.", color=0xcc4444))
 
 
 async def _apply_and_narrate_event(ctx, msg, send, sheet, result, uname):
@@ -975,27 +1210,53 @@ async def _apply_and_narrate_event(ctx, msg, send, sheet, result, uname):
     leveled_up, new_level = check_level_up(sheet)
     await asyncio.to_thread(save, sheet)
 
-    # Post mechanical result
+    # Post mechanical result as embed (matches combat log card style)
+    import discord
     xp_next = xp_to_next_level(sheet["level"])
-    lines = [
-        f"**{result['title']}**",
-        f"*{result['outcome']}*",
-    ]
-    if result["xp"]:
-        lines.append(f"+{result['xp']} XP ({sheet['xp']}/{xp_next})")
-    if result["gil"]:
-        lines.append(f"+{result['gil']} Gil (total: {sheet['gil']}g)")
-    if result["hp_change"] > 0:
-        lines.append(f"+{result['hp_change']} HP ({sheet['hp']['current']}/{sheet['hp']['max']})")
-    if result["hp_change"] < 0:
-        lines.append(f"{result['hp_change']} HP ({sheet['hp']['current']}/{sheet['hp']['max']})")
-    if result["extra_hunt"]:
-        lines.append(f"Hunts remaining: {hunts_remaining(sheet)}/{MAX_HUNTS_PER_DAY}")
 
-    await send(msg.channel, "\n".join(lines))
+    event_colors = {
+        "sylvan_sprites":    0x88eea8,   # soft green
+        "moogle_sighting":   0xf5c842,   # moogle yellow
+        "injured_silvani":   0x7ec8e3,   # blue-grey
+        "old_man_riddle":    0xb8a0d8,   # purple
+        "chocobo_tracks":    0xf0d060,   # chocobo yellow
+        "aeridor_fragment":  0x80d8ff,   # crystal blue
+        "gilded_mushroom":   0xd4a843,   # gold
+        "veiled_elder":      0xc0c0d8,   # silver-pale
+        "timid_tonberry":    0x88bb88,   # muted green
+        "mognet_delivery":   0xf4a460,   # sandy orange
+        "crystal_resonance": 0x9988dd,   # resonance purple
+    }
+    color = event_colors.get(result.get("event_key", ""), 0xaaaaaa)
+
+    body_lines = [f"*{result['outcome']}*"]
+    if result["xp"]:
+        body_lines.append(f"+{result['xp']} XP ({sheet['xp']}/{xp_next})")
+    if result["gil"]:
+        body_lines.append(f"+{result['gil']} Gil  (total: {sheet['gil']}g)")
+    if result["hp_change"] > 0:
+        body_lines.append(f"+{result['hp_change']} HP  ({sheet['hp']['current']}/{sheet['hp']['max']})")
+    if result["hp_change"] < 0:
+        body_lines.append(f"{result['hp_change']} HP  ({sheet['hp']['current']}/{sheet['hp']['max']})")
+    if result["extra_hunt"]:
+        body_lines.append(f"🎯 Hunts remaining: {hunts_remaining(sheet)}/{MAX_HUNTS_PER_DAY}")
+    if result["item_add"]:
+        body_lines.append(f"📦 Added to inventory: `{result['item_add']}`")
+
+    embed = discord.Embed(
+        title=result["title"],
+        description="\n".join(body_lines),
+        color=color
+    )
+
+    await msg.channel.send(embed=embed)
 
     if leveled_up:
-        await send(msg.channel, f"🎉 **{sheet['character_name']} reached Level {new_level}!**")
+        import discord
+        await msg.channel.send(embed=discord.Embed(
+            description=f"🎉 **{sheet['character_name']} reached Level {new_level}!**",
+            color=0xffcc00
+        ))
 
     # Kaia narrates
     if result.get("narration_hook"):
@@ -1038,7 +1299,12 @@ async def _apply_and_narrate_event(ctx, msg, send, sheet, result, uname):
                 )
                 narration = resp["message"]["content"].strip().replace("```", "")
                 if narration:
-                    await send(msg.channel, f"*{narration}*")
+                    import discord
+                    embed = discord.Embed(
+                        description=f"*{narration}*",
+                        color=0x4488cc
+                    )
+                    await msg.channel.send(embed=embed)
             except Exception as e:
                 log_error(f"[rpg event narration] {e}")
 
@@ -1048,27 +1314,31 @@ async def _handle_drink(ctx, msg, send, rest, uid, uname, is_owner):
     from utils.ttrpg.character_manager import load, save
 
     sheet = await asyncio.to_thread(load, uid)
+    import discord
     if not sheet:
-        return await send(msg.channel, "no character found.")
+        return await msg.channel.send(embed=discord.Embed(description="No character found.", color=0xcc4444))
 
     if sheet.get("location") != "stone_hearth":
-        return await send(msg.channel,
-            "you need to be at the Stone Hearth to drink.\n"
-            "`!rpg go stone_hearth`")
+        return await msg.channel.send(embed=discord.Embed(
+            description="You need to be at the Stone Hearth to drink.\n`!rpg go stone_hearth`", 
+            color=0xcc4444
+        ))
 
     DRINK_COST = 2
     if sheet.get("gil", 0) < DRINK_COST:
-        return await send(msg.channel,
-            f"Mira glances at your coin purse and shakes her head.\n"
-            f"An ale costs {DRINK_COST} gil. You have {sheet.get('gil', 0)}g.")
+        return await msg.channel.send(embed=discord.Embed(
+            description=f"Mira glances at your coin purse and shakes her head.\nAn ale costs {DRINK_COST} gil. You have {sheet.get('gil', 0)}g.",
+            color=0xcc4444
+        ))
 
     # Grant temp HP by raising max temporarily (tracked via condition)
     TEMP_HP = 3
     already_drinking = any("ale" in c.lower() for c in sheet.get("conditions", []))
     if already_drinking:
-        return await send(msg.channel,
-            f"*Mira refills the tankard without comment.*\n"
-            f"You're already feeling the first one. Another won't stack.")
+        return await msg.channel.send(embed=discord.Embed(
+            description="*Mira refills the tankard without comment.*\nYou're already feeling the first one. Another won't stack.",
+            color=0x888888
+        ))
 
     sheet["gil"] -= DRINK_COST
     sheet["hp"]["max"] += TEMP_HP
@@ -1076,10 +1346,43 @@ async def _handle_drink(ctx, msg, send, rest, uid, uname, is_owner):
     sheet.setdefault("conditions", []).append("ale_warmth")  # removed on next rest
     await asyncio.to_thread(save, sheet)
 
-    await send(msg.channel,
-        f"🍺 Mira slides a tankard across the bar. (-{DRINK_COST} gil)\n"
-        f"*Temporary HP: +{TEMP_HP}* (HP: {sheet['hp']['current']}/{sheet['hp']['max']})\n"
-        f"*Clears when you next rest.*")
+    await msg.channel.send(embed=discord.Embed(
+        description=f"🍺 Mira slides a tankard across the bar. (-{DRINK_COST} gil)\n*Temporary HP: +{TEMP_HP}* (HP: {sheet['hp']['current']}/{sheet['hp']['max']})\n*Clears when you next rest.*",
+        color=0x44aa44
+    ))
+
+
+async def _handle_fountain(ctx, msg, send, rest, uid, uname, is_owner):
+    """!rpg fountain — drink from the healing spring at the Shrine. Once per day, full heal."""
+    from utils.ttrpg.character_manager import load, save
+    from datetime import date
+
+    sheet = await asyncio.to_thread(load, uid)
+    import discord
+    if not sheet:
+        return await msg.channel.send(embed=discord.Embed(description="No character found.", color=0xcc4444))
+
+    if sheet.get("location") != "shrine":
+        return await msg.channel.send(embed=discord.Embed(
+            description="You need to be at the Shrine of the Silent Ones to drink from the fountain.\n`!rpg go shrine`",
+            color=0xcc4444
+        ))
+
+    today = date.today().strftime("%Y-%m-%d")
+    if sheet.get("last_fountain_date") == today:
+        return await msg.channel.send(embed=discord.Embed(
+            description="💧 *The spring's waters are still. You've already partaken today.*\nIts magic needs time to replenish.",
+            color=0x888888
+        ))
+
+    sheet["hp"]["current"] = sheet["hp"]["max"]
+    sheet["last_fountain_date"] = today
+    await asyncio.to_thread(save, sheet)
+
+    await msg.channel.send(embed=discord.Embed(
+        description=f"💧 **{sheet['character_name']} drinks from the spring.**\nYour wounds stitch closed. You are fully recovered. (HP: {sheet['hp']['current']}/{sheet['hp']['max']})\n*Clears when you next rest.*",
+        color=0x44aa44
+    ))
 
 
 async def _handle_gamble(ctx, msg, send, rest, uid, uname, is_owner):
@@ -1088,19 +1391,22 @@ async def _handle_gamble(ctx, msg, send, rest, uid, uname, is_owner):
     from utils.ttrpg.character_manager import load, save
 
     sheet = await asyncio.to_thread(load, uid)
+    import discord
     if not sheet:
-        return await send(msg.channel, "no character found.")
+        return await msg.channel.send(embed=discord.Embed(description="No character found.", color=0xcc4444))
 
     if sheet.get("location") != "stone_hearth":
-        return await send(msg.channel,
-            "the dice game only happens at the Stone Hearth.\n"
-            "`!rpg go stone_hearth`")
+        return await msg.channel.send(embed=discord.Embed(
+            description="The dice game only happens at the Stone Hearth.\n`!rpg go stone_hearth`", 
+            color=0xcc4444
+        ))
 
     BUY_IN = 10
     if sheet.get("gil", 0) < BUY_IN:
-        return await send(msg.channel,
-            f"the buy-in is {BUY_IN} gil. you have {sheet.get('gil', 0)}g.\n"
-            f"*A weathered man across the table doesn't look up from his cards.*")
+        return await msg.channel.send(embed=discord.Embed(
+            description=f"The buy-in is {BUY_IN} gil. you have {sheet.get('gil', 0)}g.\n*A weathered man across the table doesn't look up from his cards.*",
+            color=0xcc4444
+        ))
 
     # Roll d6 vs d6. Tie goes to house.
     player_roll = _sec.randbelow(6) + 1
@@ -1121,7 +1427,10 @@ async def _handle_gamble(ctx, msg, send, rest, uid, uname, is_owner):
         gil_line = f"-{BUY_IN} gil. Total: {sheet['gil']}g"
 
     await asyncio.to_thread(save, sheet)
-    await send(msg.channel, f"{result_line}\n{gil_line}")
+    await msg.channel.send(embed=discord.Embed(
+        description=f"{result_line}\n{gil_line}",
+        color=0x44aa44 if player_roll > house_roll else 0xcc4444
+    ))
 
 
 async def _handle_pray(ctx, msg, send, rest, uid, uname, is_owner):
@@ -1130,36 +1439,40 @@ async def _handle_pray(ctx, msg, send, rest, uid, uname, is_owner):
     from datetime import date
 
     sheet = await asyncio.to_thread(load, uid)
+    import discord
     if not sheet:
-        return await send(msg.channel, "no character found.")
+        return await msg.channel.send(embed=discord.Embed(description="No character found.", color=0xcc4444))
 
     if sheet.get("location") != "shrine":
-        return await send(msg.channel,
-            "you need to be at the Shrine of the Silent Ones to pray.\n"
-            "`!rpg go shrine`")
+        return await msg.channel.send(embed=discord.Embed(
+            description="You need to be at the Shrine of the Silent Ones to pray.\n`!rpg go shrine`",
+            color=0xcc4444
+        ))
 
     # Once per day check
     today = date.today().strftime("%Y-%m-%d")
     last_pray = sheet.get("last_pray_date", "")
     if last_pray == today:
-        return await send(msg.channel,
-            "🕯️ *The shrine is still. You've already made your offering today.*\n"
-            "The Silent Ones do not answer twice.")
+        return await msg.channel.send(embed=discord.Embed(
+            description="🕯️ *The shrine is still. You've already made your offering today.*\nThe Silent Ones do not answer twice.",
+            color=0x888888
+        ))
 
     # Check if already blessed
     if "blessed" in sheet.get("conditions", []):
-        return await send(msg.channel,
-            "🕯️ *You are already carrying the blessing of the Silent Ones.*\n"
-            "Use it before asking for more.")
+        return await msg.channel.send(embed=discord.Embed(
+            description="🕯️ *You are already carrying the blessing of the Silent Ones.*\nUse it before asking for more.",
+            color=0x888888
+        ))
 
     sheet.setdefault("conditions", []).append("blessed")
     sheet["last_pray_date"] = today
     await asyncio.to_thread(save, sheet)
 
-    await send(msg.channel,
-        "🕯️ **Blessed** — *the shrine acknowledges you.*\n"
-        "Your next hunt grants +2 to all attack and stat rolls.\n"
-        "*The condition clears after your next combat.*")
+    await msg.channel.send(embed=discord.Embed(
+        description="🕯️ **Blessed** — *the shrine acknowledges you.*\nYour next hunt grants +2 to all attack and stat rolls.\n*The condition clears after your next combat.*",
+        color=0xaaddff
+    ))
 
 
 async def _handle_offer(ctx, msg, send, rest, uid, uname, is_owner):
@@ -1169,24 +1482,27 @@ async def _handle_offer(ctx, msg, send, rest, uid, uname, is_owner):
     from datetime import date
 
     sheet = await asyncio.to_thread(load, uid)
+    import discord
     if not sheet:
-        return await send(msg.channel, "no character found.")
+        return await msg.channel.send(embed=discord.Embed(description="No character found.", color=0xcc4444))
 
     if sheet.get("location") != "shrine":
-        return await send(msg.channel,
-            "you need to be at the Shrine of the Silent Ones.\n"
-            "`!rpg go shrine`")
+        return await msg.channel.send(embed=discord.Embed(
+            description="You need to be at the Shrine of the Silent Ones.\n`!rpg go shrine`",
+            color=0xcc4444
+        ))
 
     try:
         amount = int(rest.strip())
         assert 1 <= amount <= 9999
     except:
-        return await send(msg.channel, "usage: `!rpg offer <amount>`\nexample: `!rpg offer 20`")
+        return await msg.channel.send(embed=discord.Embed(description="Usage: `!rpg offer <amount>`\nExample: `!rpg offer 20`", color=0x888888))
 
     if sheet.get("gil", 0) < amount:
-        return await send(msg.channel,
-            f"you only have {sheet.get('gil', 0)} gil.\n"
-            f"*The shrine doesn't judge. It just waits.*")
+        return await msg.channel.send(embed=discord.Embed(
+            description=f"You only have {sheet.get('gil', 0)} gil.\n*The shrine doesn't judge. It just waits.*",
+            color=0xcc4444
+        ))
 
     # XP reward: 1 per gil, capped at 20 per day
     today = date.today().strftime("%Y-%m-%d")
@@ -1220,7 +1536,10 @@ async def _handle_offer(ctx, msg, send, rest, uid, uname, is_owner):
     if leveled_up:
         msg_lines.append(f"\n🎉 **{sheet['character_name']} reached Level {new_level}!**")
 
-    await send(msg.channel, "\n".join(msg_lines))
+    await msg.channel.send(embed=discord.Embed(
+        description="\n".join(msg_lines),
+        color=0xaaddff
+    ))
 
 
 async def _handle_scout(ctx, msg, send, rest, uid, uname, is_owner):
@@ -1230,20 +1549,23 @@ async def _handle_scout(ctx, msg, send, rest, uid, uname, is_owner):
     from datetime import date
 
     sheet = await asyncio.to_thread(load, uid)
+    import discord
     if not sheet:
-        return await send(msg.channel, "no character found.")
+        return await msg.channel.send(embed=discord.Embed(description="No character found.", color=0xcc4444))
 
     if sheet.get("location") != "watchtower":
-        return await send(msg.channel,
-            "you need to be at the Watchtower to scout.\n"
-            "`!rpg go watchtower`")
+        return await msg.channel.send(embed=discord.Embed(
+            description="You need to be at the Watchtower to scout.\n`!rpg go watchtower`",
+            color=0xcc4444
+        ))
 
     # Once per day
     today = date.today().strftime("%Y-%m-%d")
     if sheet.get("last_scout_date") == today:
-        return await send(msg.channel,
-            "🗼 *The guards shrug. You've already had your look today.*\n"
-            "Come back tomorrow.")
+        return await msg.channel.send(embed=discord.Embed(
+            description="🗼 *The guards shrug. You've already had your look today.*\nCome back tomorrow.",
+            color=0x888888
+        ))
 
     sheet["last_scout_date"] = today
     await asyncio.to_thread(save, sheet)
@@ -1295,7 +1617,10 @@ async def _handle_scout(ctx, msg, send, rest, uid, uname, is_owner):
         f"*\"Whisperwood's been louder than usual. Watch yourself.\"*"
     )
 
-    await send(msg.channel, "\n".join(lines))
+    await msg.channel.send(embed=discord.Embed(
+        description="\n".join(lines),
+        color=0x8888aa
+    ))
 
 
 async def _handle_deliver(ctx, msg, send, rest, uid, uname, is_owner):
@@ -1303,16 +1628,21 @@ async def _handle_deliver(ctx, msg, send, rest, uid, uname, is_owner):
     from utils.ttrpg.character_manager import load, save
 
     sheet = await asyncio.to_thread(load, uid)
+    import discord
     if not sheet:
-        return await send(msg.channel, "no character found.")
+        return await msg.channel.send(embed=discord.Embed(description="No character found.", color=0xcc4444))
 
     if sheet.get("location") not in ("oakhaven", "stone_hearth"):
-        return await send(msg.channel,
-            "you need to be in Oakhaven to deliver the letter.")
+        return await msg.channel.send(embed=discord.Embed(
+            description="You need to be in Oakhaven to deliver the letter.",
+            color=0xcc4444
+        ))
 
     if "mognet_letter" not in sheet.get("inventory", []):
-        return await send(msg.channel,
-            "you don't have a mognet letter to deliver.")
+        return await msg.channel.send(embed=discord.Embed(
+            description="You don't have a mognet letter to deliver.",
+            color=0xcc4444
+        ))
 
     reward_gil = 25
     reward_xp  = 20
@@ -1327,15 +1657,17 @@ async def _handle_deliver(ctx, msg, send, rest, uid, uname, is_owner):
     await asyncio.to_thread(save, sheet)
 
     xp_next = xp_to_next_level(sheet["level"])
-    await send(msg.channel,
-        f"📬 **Mognet letter delivered.**\n"
-        f"*A moogle materialises briefly, takes the letter, says 'kupo' with "
-        f"visible relief, and presses a coin purse into your hand before vanishing.*\n"
-        f"+{reward_xp} XP ({sheet['xp']}/{xp_next})  +{reward_gil} Gil")
+    embed = discord.Embed(
+        description=f"📬 **Mognet letter delivered.**\n*A moogle materialises briefly, takes the letter, says 'kupo' with visible relief, and presses a coin purse into your hand before vanishing.*\n+{reward_xp} XP ({sheet['xp']}/{xp_next})  +{reward_gil} Gil",
+        color=0xf4a460
+    )
+    await msg.channel.send(embed=embed)
 
     if leveled_up:
-        await send(msg.channel,
-            f"🎉 **{sheet['character_name']} reached Level {new_level}!**")
+        await msg.channel.send(embed=discord.Embed(
+            description=f"🎉 **{sheet['character_name']} reached Level {new_level}!**",
+            color=0xffcc00
+        ))
 
 
 # ── Administration & Overrides ───────────────────────────────────────────────
@@ -1345,9 +1677,13 @@ async def _handle_roll(ctx, msg, send, rest, uid, uname, is_owner):
     from utils.ttrpg.dice_engine import roll
     try:
         total, breakdown = roll(rest.strip() or "d20")
-        await send(msg.channel, f"🎲 **{uname}** rolled `{rest.strip() or 'd20'}`: {breakdown}")
+        import discord
+        await msg.channel.send(embed=discord.Embed(
+            description=f"🎲 **{uname}** rolled `{rest.strip() or 'd20'}`: {breakdown}",
+            color=0x4488cc
+        ))
     except:
-        await send(msg.channel, "invalid syntax")
+        await msg.channel.send(embed=discord.Embed(description="Invalid syntax", color=0xcc4444))
 
 async def _handle_bestiary(ctx, msg, send, rest, uid, uname, is_owner):
     if not is_owner: return
@@ -1356,8 +1692,11 @@ async def _handle_bestiary(ctx, msg, send, rest, uid, uname, is_owner):
 
 async def _handle_xp(ctx, msg, send, rest, uid, uname, is_owner):
     if not is_owner: return
-    # Basic static stub for admin xp
-    await send(msg.channel, "Developer override required to assign arbitrary XP in Aethelgard. Go hunt.")
+    import discord
+    await msg.channel.send(embed=discord.Embed(
+        description="Developer override required to assign arbitrary XP in Aethelgard. Go hunt.",
+        color=0xcc4444
+    ))
 
 async def _handle_give(ctx, msg, send, rest, uid, uname, is_owner):
     if not is_owner: return
@@ -1371,7 +1710,11 @@ async def _handle_give(ctx, msg, send, rest, uid, uname, is_owner):
     if item:
         sheet["inventory"].append(args[0])
         await asyncio.to_thread(save, sheet)
-        await send(msg.channel, f"Admin granted `{args[0]}` to {sheet['character_name']}.")
+        import discord
+        await msg.channel.send(embed=discord.Embed(
+            description=f"Admin granted `{args[0]}` to {sheet['character_name']}.",
+            color=0x44aa44
+        ))
 
 async def _handle_heal(ctx, msg, send, rest, uid, uname, is_owner):
     if not is_owner: return
@@ -1380,7 +1723,53 @@ async def _handle_heal(ctx, msg, send, rest, uid, uname, is_owner):
     if not sheet: return
     sheet["hp"]["current"] = sheet["hp"]["max"]
     await asyncio.to_thread(save, sheet)
-    await send(msg.channel, f"Admin fully healed {sheet['character_name']}.")
+    import discord
+    await msg.channel.send(embed=discord.Embed(
+        description=f"Admin fully healed {sheet['character_name']}.",
+        color=0x44aa44
+    ))
+
+
+async def _handle_leaderboard(ctx, msg, send, rest, uid, uname, is_owner):
+    """!rpg leaderboard — show all characters ranked by XP."""
+    from utils.ttrpg.character_manager import load_all
+    from utils.ttrpg.world import LOCATION_DATA
+    from utils.ttrpg.rpg_ui import CLASS_ICONS, LOCATION_ICONS
+    import discord
+
+    sheets = await asyncio.to_thread(load_all)
+    if not sheets:
+        return await msg.channel.send(embed=discord.Embed(description="No adventurers have been created yet.", color=0x888888))
+
+    # Sort by XP descending, then by level descending
+    sheets.sort(key=lambda s: (s.get("xp", 0), s.get("level", 1)), reverse=True)
+
+    MEDALS = ["🥇", "🥈", "🥉"]
+    lines = []
+    for i, s in enumerate(sheets[:15]):  # cap at 15 entries
+        medal = MEDALS[i] if i < 3 else f"`{i+1}.`"
+        cls_icon = CLASS_ICONS.get(s.get("class", ""), "⚔️")
+        loc_key = s.get("location", "oakhaven")
+        loc_icon = LOCATION_ICONS.get(loc_key, "🗟a️")
+        loc_name = LOCATION_DATA.get(loc_key, {}).get("name", loc_key.replace("_", " ").title())
+        deaths = s.get("deaths", 0)
+        race = s.get("race", "Unknown")
+
+        line = (
+            f"{medal} {cls_icon} **{s.get('character_name', '???')}**\n"
+            f"  {race} {s.get('class', '???')} · Lv.{s.get('level', 1)} · {s.get('xp', 0)} XP\n"
+            f"  💀 {deaths} death{'s' if deaths != 1 else ''} · {loc_icon} {loc_name}"
+        )
+        lines.append(line)
+
+    embed = discord.Embed(
+        title="🏆  AETHELGARD LEADERBOARD",
+        description="\n\n".join(lines),
+        color=0xd4a843  # gold
+    )
+    embed.set_footer(text=f"{len(sheets)} adventurer{'s' if len(sheets) != 1 else ''} registered")
+
+    await msg.channel.send(embed=embed)
 
 async def _handle_event(ctx, msg, send, rest, uid, uname, is_owner):
     if not is_owner: return
@@ -1417,4 +1806,10 @@ async def _handle_event(ctx, msg, send, rest, uid, uname, is_owner):
             log_error(f"[rpg event] {e}")
 
 async def _handle_rpg_help(ctx, msg, send, rest, uid, uname, is_owner):
-    await send(msg.channel, "```\n" + __doc__ + "\n```")
+    import discord
+    embed = discord.Embed(
+        title="📜 Aethelgard Command List",
+        description=__doc__.strip(),
+        color=0x44aa88
+    )
+    await msg.channel.send(embed=embed)

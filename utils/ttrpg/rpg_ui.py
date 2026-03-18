@@ -28,15 +28,13 @@ def colored_bar(current: int, maximum: int, length: int = 14) -> str:
     return bar
 
 def hp_label(current: int, maximum: int) -> str:
-    """HP with skull warning if critical."""
+    """HP text for embed value (no icon — field name already has ❤️)."""
     if maximum <= 0:
-        return f"{ANSI_GRAY}0/0{ANSI_RESET}"
+        return "0/0"
         
     if current <= 0:
-        return f"{ANSI_RED}☠ DEAD{ANSI_RESET}"
-    pct = current / maximum
-    icon = "💀" if pct <= 0.2 else "❤️" if pct <= 0.5 else "💚"
-    return f"{icon} {current}/{maximum}"
+        return "☠ DEAD"
+    return f"{current}/{maximum}"
 
 CLASS_ICONS = {
     "Warrior": "🗡️",
@@ -51,7 +49,7 @@ LOCATION_ICONS = {
     "hemlocks_store":    "⚖️",
     "stone_hearth":      "🍺",
     "market_square":     "🛒",
-    "shrine_silent":     "⛩️",
+    "shrine":            "⛩️",
     "whisperwood_edge":  "🌲",
     "whisperwood_deep":  "🌑",
     "aeridor_ruins":     "🏚️",

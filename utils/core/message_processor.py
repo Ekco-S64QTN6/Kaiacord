@@ -170,13 +170,39 @@ class MessageProcessor:
             log_info(f"Silently ignoring message from ignored user: {author_name} ({author_id})")
             return
 
+        import discord as _discord
+        
         if not is_social and msg.guild is not None:
-            channel_name = msg.channel.name.lower()
-            if channel_name in self.config.blacklisted_channels:
+            # Resolve the effective channel name.
+            # Forum threads: msg.channel is a Thread, parent is the forum channel.
+            # Text channels: msg.channel is the channel itself.
+            is_thread = isinstance(msg.channel, _discord.Thread)
+            if is_thread:
+                effective_channel_name = msg.channel.parent.name.lower() if msg.channel.parent else ""
+            else:
+                effective_channel_name = msg.channel.name.lower()
+
+            if effective_channel_name in self.config.blacklisted_channels:
                 return
-            whitelisted = self.config.whitelisted_channels
-            if whitelisted and channel_name not in whitelisted:
-                return
+                
+            content = getattr(msg, 'content', '').strip().lower()
+            is_rpg_cmd = content.startswith("!rpg")
+            
+            if is_rpg_cmd:
+                rpg_blacklist = ["kaia-opolis", "general", "general chat"]
+                if effective_channel_name in rpg_blacklist:
+                    return # Block RPG commands here
+            else:
+                # Normal Kaia chat routing
+                rpg_channel = self.config.get('discord.rpg_channel', 'aethelgard').lower()
+                
+                # Block Kaia from responding to general chat in the RPG channel/threads
+                if effective_channel_name == rpg_channel:
+                    return
+
+                whitelisted = self.config.whitelisted_channels
+                if whitelisted and effective_channel_name not in whitelisted:
+                    return
 
         # 2. Boot Guard & Readiness Wait
         if not self.bot_state.boot_complete:
@@ -413,7 +439,7 @@ class MessageProcessor:
             # Resolve runtime tags (Bug 2 Fix implementation)
             from datetime import datetime
             current_time = datetime.now().strftime("%A, %B %d, %Y | %I:%M %p")
-            ctx.system_prompt = raw_persona.replace("[CURRENT_TIME]", current_time)
+            ctx.system_prompt = raw_persona.replace("[CURRENT_TIME]", f"[CURRENT_TIME]: {current_time}")
             
             ctx.context_nodes = []
             
@@ -714,6 +740,12 @@ class MessageProcessor:
             
         ctx.user_traits = results.get('traits', {})
         
+        # Scrub RAG context of system time signatures
+        for node in ctx.raw_nodes:
+            if isinstance(node, dict) and 'content' in node:
+                # Handles: [CURRENT_TIME]: ..., CURRENT_TIME: ..., and legacy [CURRENT_TIME]
+                node['content'] = re.sub(r'\[?CURRENT_TIME\]?:?.*', '', node['content']).strip()
+        
         # Adaptation
         ctx.system_prompt = self.personalization_engine.adapt_prompt(ctx.system_prompt, ctx.user_traits)
 
@@ -876,8 +908,8 @@ class MessageProcessor:
         # to prevent the LLM from thinking it's a catchphrase it must repeat.
         metadata_block = (
             "\n\n--- METADATA ---\n"
-            f"CURRENT_TIME: {current_time_str}\n"
-            "CRITICAL: Any timestamps in conversation history are outdated. Do not repeat the CURRENT_TIME string in your response."
+            f"[CURRENT_TIME]: {current_time_str}\n"
+            "CRITICAL: Any timestamps in conversation history are outdated. Do not repeat the [CURRENT_TIME] string or your metadata in your response."
         )
 
         recap_constraint_block = ""
@@ -920,10 +952,11 @@ class MessageProcessor:
                 if turn.get('role') == 'system':
                     continue
                 # Scrub [CURRENT_TIME] and resolved date strings from history to prevent mimicry
+                # Handles: [CURRENT_TIME]: ..., CURRENT_TIME: ..., and legacy [CURRENT_TIME]
                 turn = turn.copy()
                 content = turn['content']
-                # Remove literal tag
-                content = re.sub(r'\[CURRENT_TIME\]', '', content)
+                # Remove any time signatures
+                content = re.sub(r'\[?CURRENT_TIME\]?:?.*', '', content)
                 # Remove resolved date strings (e.g., Friday, March 06, 2026 | 07:30 PM)
                 content = re.sub(
                     r'(Monday|Tuesday|Wednesday|Thursday|Friday|Saturday|Sunday),\s+'
@@ -992,20 +1025,17 @@ class MessageProcessor:
                 content = response['message']['content']
 
                 # Strip LLM-added outer codeblocks
-                content = content.strip()
-                while content.startswith("```") and content.endswith("```"):
-                    content = content[3:-3].strip()
-                    if "\n" in content:
-                        first_line = content.split('\n')[0].strip()
-                        if first_line and not any(c.isspace() for c in first_line) and len(first_line) < 20:
-                            content = '\n'.join(content.split('\n')[1:]).strip()
-
                 content = content.replace("```", "").replace("``", "")
 
                 # EMERGENCY FILTER: Strip hallucinated [CURRENT_TIME] or time signatures
                 # preventing history pollution if the LLM ignores instructions.
-                content = re.sub(r'\[CURRENT_TIME\].*', '', content).strip()
-                content = re.sub(r'(Monday|Tuesday|Wednesday|Thursday|Friday|Saturday|Sunday),\s+(January|February|March|April|May|June|July|August|September|October|November|December)\s+\d{1,2},\s+\d{4}\s+\|.*', '', content).strip()
+                content = re.sub(r'\[?CURRENT_TIME\]?:?.*', '', content).strip()
+                content = re.sub(
+                    r'(Monday|Tuesday|Wednesday|Thursday|Friday|Saturday|Sunday),\s+'
+                    r'(January|February|March|April|May|June|July|August|September|October|November|December)'
+                    r'\s+\d{1,2},\s+\d{4}\s+\|.*',
+                    '', content
+                ).strip()
 
                 if not content:
                     log_warning(f"Attempt {attempt + 1}: Empty response. Retrying...")
@@ -1017,15 +1047,15 @@ class MessageProcessor:
                 is_owner = self.config.is_owner(author_display, ctx.author_name, ctx.author_id)
                 log_debug(f"[HALLUCINATION_CHECK] Author: {author_display} (ID: {ctx.author_id}), Config Owner: {is_owner}")
 
-                if should_detect and not is_owner:
+                if should_detect:
                     content = HallucinationDetector.clean_response(content)
                     
                 if not content:
-                    log_warning(f"Attempt {attempt + 1} failed: Empty response after filtering (is_owner={is_owner}). Author: {author_display}")
+                    log_warning(f"Attempt {attempt + 1} failed: Empty response after filtering. Author: {author_display}")
                     continue
                 
-                if not is_owner:
-                    content = EmergencyContaminationFilter.filter_response(content)
+                # Apply emergency filters to EVERYONE (including owner) to prevent system leaks
+                content = EmergencyContaminationFilter.filter_response(content)
                     
                 if not content:
                     log_warning(f"Attempt {attempt + 1} failed: Veracity violation (Fiction/Contamination detected). Author: {author_display}, is_owner: {is_owner}")
@@ -1049,8 +1079,8 @@ class MessageProcessor:
 
     async def _post_process_and_log(self, ctx: MessageContext):
         """Final cleanups, sending response, and logging."""
-        # 1. FINAL OUTPUT FILTER: Strip hallucinated [CURRENT_TIME] from outgoing text
-        ctx.response_text = re.sub(r'\[CURRENT_TIME\].*?(\n|$)', '', ctx.response_text).strip()
+        # 1. FINAL OUTPUT FILTER: Strip hallucinated [CURRENT_TIME] or CURRENT_TIME from outgoing text
+        ctx.response_text = re.sub(r'\[?CURRENT_TIME\]?:?.*?(?:\n|$)', '', ctx.response_text).strip()
         
         # 2. SEND RESPONSE
         await self._send_response(channel=ctx.message.channel, text=ctx.response_text)

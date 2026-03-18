@@ -53,7 +53,7 @@ def _resolve_combat(sheet: dict, monster: dict) -> dict:
         
     bless_bonus = 2 if "blessed" in conditions else 0
     if bless_bonus:
-        status_logs.append(f"✨ *Blessed strikes guide your aim (+2).*")
+        status_logs.append(f"✨ *Blessed guides your aim (+2).*")
 
     # Streak bonus (+1 to hit if streak > 1)
     streak = sheet.get("hunt_streak", 0)

@@ -84,9 +84,9 @@ def build_combat_prompt(
 
     monster_outcome = "HIT" if monster_hit else "MISS" if monster_alive else "N/A — defeated"
     monster_status = "DEFEATED" if not monster_alive else "STILL FIGHTING"
-    player_status = "DEFEATED" if not player_alive else "STANDING"
+    player_status = "DEFEATED — blacked out, dragged to shrine" if not player_alive else f"STANDING ({player_hp_after}/{player_hp_max} HP)"
 
-    return f"""[TTRPG GROUND TRUTH — NARRATE THIS EXCHANGE EXACTLY AS STATED]
+    prompt = f"""[TTRPG GROUND TRUTH — NARRATE THIS EXCHANGE EXACTLY AS STATED]
 ATTACKER: {attacker['character_name']} ({attacker['class']} Lv.{attacker['level']})
 TARGET: {monster_name}
 MONSTER DESCRIPTION: {monster_description}
@@ -98,15 +98,23 @@ MONSTER COUNTER-ATTACK: {monster_outcome}
 {"MONSTER DEALT: " + str(monster_damage) + " damage to the player" if monster_hit else "Monster missed."}
 
 MONSTER STATUS: {monster_status}
-PLAYER STATUS: {player_status} (HP: {player_hp_after}/{player_hp_max})
+PLAYER STATUS: {player_status}
 
 YOUR TASK: Narrate this entire combat exchange in 2–4 sentences covering both the player's attack and the monster's response.
 Be specific and kinetic. Use the monster description for flavor.
-The player is currently at {int(player_hp_pct * 100)}% HP. Describe their physical state appropriately (e.g. bleeding heavily, barely standing, or completely unharmed).
+"""
+    if not player_alive:
+        prompt += f"""
+[CRITICAL] The player has been DEFEATED and blacked out. 
+Describe the killing blow landing. Do NOT describe the player as surviving, standing, or healthy.
+End on the moment of defeat — darkness, collapse, the ground rising up. 2–3 sentences."""
+    else:
+        prompt += f"""The player is currently at {int(player_hp_pct * 100)}% HP. Describe their physical state appropriately (e.g. bleeding heavily, barely standing, or completely unharmed).
 Do NOT change any outcome. Do NOT invent damage numbers. Do NOT reference dice or game mechanics.
-If the monster is DEFEATED, describe its final moments.
-If the player is DEFEATED, end with something appropriately grim.
-[END GROUND TRUTH]"""
+If the monster is DEFEATED, describe its final moments."""
+
+    prompt += "\n[END GROUND TRUTH]"
+    return prompt
 
 
 def build_look_prompt(sheet: dict, location_name: str, location_short: str, atmosphere: str) -> str:

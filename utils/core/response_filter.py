@@ -37,6 +37,8 @@ class EmergencyContaminationFilter:
         r"listed\s+in\s+the\s+\d{4}\s+archive",
         r"scanned\s+it\s+once,\s+years\s+ago",
         r"paper\s+copy",
+        # Hallucinated Time Signatures (System Leaks)
+        r"\[?CURRENT_TIME\]?:?.*?\d{1,2}:\d{2}",
     ]
 
     RETRY_THRESHOLD = 0.5  # If more than 50% lines contaminated, retry

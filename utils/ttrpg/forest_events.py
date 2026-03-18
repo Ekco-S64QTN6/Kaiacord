@@ -146,7 +146,8 @@ def _injured_silvani(sheet: dict) -> dict:
         heal = secrets.randbelow(5) + 3
         r["xp"] = xp
         r["hp_change"] = heal
-        r["outcome"] = f"You helped the Silvani hunter. +{xp} XP, +{heal} HP from their herb pouch."
+        r["item_add"] = "healing_herb"
+        r["outcome"] = f"You helped the Silvani hunter. +{xp} XP, +{heal} HP. They also gave you a healing herb."
         r["narration_hook"] = (
             "A Silvani — skin shifting between bark-brown and pale — was caught under "
             "a fallen branch at the treeline. The player freed them. The Silvani said "
@@ -163,7 +164,6 @@ def _injured_silvani(sheet: dict) -> dict:
             "Whether it was gratitude or simply survival instinct is unclear."
         )
     return r
-
 
 def _old_man_riddle(sheet: dict) -> dict:
     """Old man with a test — INT check for reward. LORD's old man event."""

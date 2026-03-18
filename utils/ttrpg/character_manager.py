@@ -23,6 +23,20 @@ def load(user_id: str) -> Optional[dict]:
         with open(p, 'r', encoding='utf-8') as f:
             return json.load(f)
 
+def load_all() -> list:
+    """Load every character sheet on disk. Returns a list of dicts."""
+    os.makedirs(CHARACTERS_DIR, exist_ok=True)
+    sheets = []
+    for fname in os.listdir(CHARACTERS_DIR):
+        if not fname.endswith(".json"):
+            continue
+        try:
+            with open(os.path.join(CHARACTERS_DIR, fname), 'r', encoding='utf-8') as f:
+                sheets.append(json.load(f))
+        except (json.JSONDecodeError, OSError):
+            continue
+    return sheets
+
 def save(sheet: dict) -> None:
     p = _path(str(sheet["user_id"]))
     sheet["last_updated"] = time.time()
@@ -65,8 +79,9 @@ def create(user_id: str, user_name: str, character_name: str,
         "hunts_today": 0,
         "hunts_reset_date": datetime.date.today().strftime("%Y-%m-%d"),
         "skills": [],
-        "inventory": ["adventurer's pack"],
+        "inventory": ["adventurers_pack"],
         "conditions": [],
+        "deaths": 0,
         "created_at": time.time(),
         "last_updated": time.time(),
     }

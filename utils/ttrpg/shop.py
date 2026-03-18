@@ -8,6 +8,10 @@ def get_shop_inventory() -> tuple[dict, dict, dict]:
 
 def find_item(item_key: str) -> dict | None:
     """Finds an item across all registries."""
+    from utils.ttrpg.equipment_registry import ALIASES
+    
+    item_key = ALIASES.get(item_key, item_key)
+    
     if item_key in WEAPONS:
         return {"category": "weapon", "key": item_key, **WEAPONS[item_key]}
     if item_key in ARMOR:
@@ -16,29 +20,38 @@ def find_item(item_key: str) -> dict | None:
         return {"category": "consumable", "key": item_key, **CONSUMABLES[item_key]}
     return None
 
-def process_purchase(sheet: dict, item_key: str) -> tuple[bool, str, dict]:
+def process_purchase(sheet: dict, item_key: str, quantity: int = 1) -> tuple[bool, str, dict]:
     """Processes a purchase. Returns (Success, Message, Updated Sheet)"""
     item = find_item(item_key)
     if not item:
         return False, f"Item `{item_key}` not found.", sheet
     
-    val = item["value"]
+    real_key = item["key"]
+    val = item["value"] * quantity
     gil = sheet.get("gil", 0)
     
     if gil < val:
-        return False, f"Not enough gil. {item['name']} costs {val}g. You have {gil}g.", sheet
+        return False, f"Not enough gil. {quantity}x {item['name']} costs {val}g. You have {gil}g.", sheet
         
     sheet["gil"] -= val
     
     if "inventory" not in sheet:
         sheet["inventory"] = []
         
-    sheet["inventory"].append(item_key)
+    sheet["inventory"].extend([real_key] * quantity)
     
-    return True, f"Purchased **{item['name']}** for {val}g. Remaining gil: {sheet['gil']}g.", sheet
+    if quantity == 1:
+        msg = f"Purchased **{item['name']}** for {val}g. Remaining gil: {sheet['gil']}g."
+    else:
+        msg = f"Purchased **{quantity}x {item['name']}** for {val}g. Remaining gil: {sheet['gil']}g."
+        
+    return True, msg, sheet
 
 def process_sell(sheet: dict, item_key: str) -> tuple[bool, str, dict]:
     """Processes a sale. Sells at 50% value."""
+    from utils.ttrpg.equipment_registry import ALIASES
+    item_key = ALIASES.get(item_key, item_key)
+    
     if "inventory" not in sheet or item_key not in sheet["inventory"]:
         return False, f"You don't have `{item_key}` in your inventory.", sheet
         

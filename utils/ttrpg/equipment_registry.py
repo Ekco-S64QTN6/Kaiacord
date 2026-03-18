@@ -41,11 +41,22 @@ HEMLOCK_STOCK_ARMOR   = ["travelers_cloak", "leather_armor", "studded_leather", 
                           "mages_robe", "silken_robe"]
 
 CONSUMABLES = {
+    "adventurers_pack": {"name": "Adventurer's Pack", "hp_restore": 0, "value": 0, "on_use": "starter_kit", "description": "starter pack type !rpg use pack to open"},
     "healing_herb":   {"name": "Healing Herb",    "hp_restore": 8,  "value": 10},
     "bandage":        {"name": "Bandage",          "hp_restore": 5,  "value": 6},
     "tonic":          {"name": "Tonic",            "hp_restore": 15, "value": 20},
     "elixir":         {"name": "Elixir",           "hp_restore": 30, "value": 50},
-    # Forest event collectibles (sell-only, no use effect)
+    # Flavor/Event items
+    "torch":          {"name": "Torch",            "value": 2},
     "aeridor_shard":  {"name": "Aeridor Crystal Shard", "value": 60},
     "tonberry_knife": {"name": "Tonberry's Knife",      "value": 40},
+}
+
+ALIASES = {
+    "herb": "healing_herb",
+    "pack": "adventurers_pack",
+    "shard": "aeridor_shard",
+    "knife": "tonberry_knife",
+    "staff": "wooden_staff",
+    "bow": "shortbow",
 }

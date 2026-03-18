@@ -194,18 +194,28 @@ class CoreTaskManager:
                     except Exception as e:
                         log_warning(f"[dawn] Failed to reset hunts for {fname}: {e}")
 
-                # Post announcement to last active channel
-                channel_id = getattr(self.ctx.bot_state, 'last_active_channel_id', None)
-                if channel_id and reset_count > 0:
-                    channel = self.ctx.bot.get_channel(int(channel_id))
-                    if channel:
-                        await channel.send(
-                            "🌅 *A new day dawns in Aethelgard.*\n"
-                            "The roads are quiet. The Whisperwood stirs.\n"
-                            f"**All hunters have been restored to 5/5 hunts.** "
-                            f"({reset_count} adventurer{'s' if reset_count != 1 else ''} refreshed)"
-                        )
-                        log_success(f"[dawn] Hunt reset announced. {reset_count} sheets updated.")
+                # Post announcement to the dedicated RPG channel
+                rpg_channel_name = self.ctx.config.get('discord.rpg_channel', 'aethelgard').lower()
+                channel = None
+                if getattr(self.ctx, 'bot', None):
+                    import discord
+                    channel = discord.utils.get(self.ctx.bot.get_all_channels(), name=rpg_channel_name)
+                    
+                if channel is None:
+                    log_warning(f"[dawn] RPG channel '{rpg_channel_name}' not found — skipping announcement.")
+                elif len(files) > 0:
+                    import discord
+                    embed = discord.Embed(
+                        title="🌅 A new day dawns in Aethelgard.",
+                        description="*The roads are quiet. The Whisperwood stirs.*\n\n**All hunters have been restored to 5/5 hunts.**",
+                        color=0xffcc55
+                    )
+                    footer_text = f"{reset_count} adventurer{'s' if reset_count != 1 else ''} refreshed."
+                    if reset_count == 0:
+                        footer_text = "All adventurers were already rested."
+                    embed.set_footer(text=footer_text)
+                    await channel.send(embed=embed)
+                    log_success(f"[dawn] Hunt reset announced. {reset_count} sheets updated.")
 
                 self.ctx.bot_state.last_dawn_date = today
                 self.ctx.bot_state.save()
