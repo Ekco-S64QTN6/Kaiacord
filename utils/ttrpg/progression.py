@@ -24,7 +24,7 @@ XP_THRESHOLDS = {
 }
 
 HP_PER_LEVEL = {
-    "Warrior": 6, "Ranger": 5, "Mage": 2,
+    "Warrior": 6, "Ranger": 5, "Mage": 4,
     "Rogue": 4, "Cleric": 5,
 }
 

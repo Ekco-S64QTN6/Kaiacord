@@ -71,11 +71,6 @@ def create(user_id: str, user_name: str, character_name: str,
         "stats": stats,
         "gil": 50,
         "location": "oakhaven",
-        "equipment": {
-            "weapon": None,
-            "armor": None,
-            "offhand": None
-        },
         "hunts_today": 0,
         "hunts_reset_date": datetime.date.today().strftime("%Y-%m-%d"),
         "skills": [],
@@ -92,6 +87,21 @@ def create(user_id: str, user_name: str, character_name: str,
         "created_at": time.time(),
         "last_updated": time.time(),
     }
+    
+    # Class-specific starting gear
+    if class_name == "Warrior":
+        sheet["equipment"] = {"weapon": "hand_axe", "armor": "leather_armor", "offhand": None}
+    elif class_name == "Ranger":
+        sheet["equipment"] = {"weapon": "shortbow", "armor": "leather_armor", "offhand": None}
+    elif class_name == "Mage":
+        sheet["equipment"] = {"weapon": "wooden_staff", "armor": "mages_robe", "offhand": None}
+    elif class_name == "Rogue":
+        sheet["equipment"] = {"weapon": "rusty_dagger", "armor": "leather_armor", "offhand": None}
+    elif class_name == "Cleric":
+        sheet["equipment"] = {"weapon": "wooden_staff", "armor": "leather_armor", "offhand": None}
+    else:
+        sheet["equipment"] = {"weapon": None, "armor": None, "offhand": None}
+        
     save(sheet)
     return sheet
 

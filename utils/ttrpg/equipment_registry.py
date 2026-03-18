@@ -59,6 +59,8 @@ CONSUMABLES = {
     "dire_root":      {"name": "Dire Root",            "value": 10, "description": "A tough, bitter root from deep woods."},
     "blood_thistle":  {"name": "Blood Thistle",        "value": 8, "description": "A prickly red flower."},
     "honey_sap":      {"name": "Honey Sap",            "value": 5, "description": "Sweet, sticky sap from ancient trees."},
+    "gilded_mushroom": {"name": "Gilded Mushroom",     "value": 40, "description": "A rare, gold-capped mushroom. Hemlock pays well for these."},
+    "mognet_letter":   {"name": "Mognet Letter",       "value": 0,  "description": "A sealed letter addressed to 'Someone in Oakhaven'."},
 }
 
 ALIASES = {
@@ -71,4 +73,6 @@ ALIASES = {
     "fur": "fur_cloak",
     "charm": "lucky_charm",
     "anti": "antidote",
+    "mushroom": "gilded_mushroom",
+    "letter": "mognet_letter",
 }

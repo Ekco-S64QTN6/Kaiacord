@@ -9,7 +9,7 @@ STAT_MODIFIER = lambda stat: (stat - 10) // 2
 CLASSES = {
     "Warrior":  {"hp_die": 10, "primary": "str"},
     "Ranger":   {"hp_die": 8,  "primary": "dex"},
-    "Mage":     {"hp_die": 4,  "primary": "int"},
+    "Mage":     {"hp_die": 6,  "primary": "int"},
     "Rogue":    {"hp_die": 6,  "primary": "dex"},
     "Cleric":   {"hp_die": 8,  "primary": "wis"},
 }

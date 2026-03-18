@@ -1,0 +1,52 @@
+[
+  {
+    "class": "Warrior",
+    "win_rate": "91.5%",
+    "deaths": 14,
+    "avg_hp_loss": "6.8",
+    "gil_per_hunt": "7.1",
+    "xp_per_hunt": "27.0",
+    "max_level": 4,
+    "bugs": []
+  },
+  {
+    "class": "Ranger",
+    "win_rate": "90.9%",
+    "deaths": 14,
+    "avg_hp_loss": "7.1",
+    "gil_per_hunt": "7.1",
+    "xp_per_hunt": "26.4",
+    "max_level": 4,
+    "bugs": []
+  },
+  {
+    "class": "Mage",
+    "win_rate": "87.9%",
+    "deaths": 19,
+    "avg_hp_loss": "5.5",
+    "gil_per_hunt": "5.7",
+    "xp_per_hunt": "23.1",
+    "max_level": 4,
+    "bugs": []
+  },
+  {
+    "class": "Rogue",
+    "win_rate": "90.3%",
+    "deaths": 15,
+    "avg_hp_loss": "5.9",
+    "gil_per_hunt": "7.1",
+    "xp_per_hunt": "26.1",
+    "max_level": 4,
+    "bugs": []
+  },
+  {
+    "class": "Cleric",
+    "win_rate": "84.0%",
+    "deaths": 25,
+    "avg_hp_loss": "8.5",
+    "gil_per_hunt": "5.6",
+    "xp_per_hunt": "22.7",
+    "max_level": 4,
+    "bugs": []
+  }
+]

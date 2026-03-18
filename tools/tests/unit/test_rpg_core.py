@@ -196,3 +196,36 @@ def test_deterministic_weather():
     w3 = get_weather(d2)
     assert isinstance(w3, dict)
     assert "key" in w3
+
+# ============================================================================
+# 9. Forest Events & Loot
+# ============================================================================
+
+def test_forest_event_loot():
+    """Verify forest events award correct items, and items can be sold/delivered."""
+    from utils.ttrpg.forest_events import resolve_event
+    from utils.ttrpg.shop import process_sell
+    
+    sheet = {
+        "character_name": "Test",
+        "xp": 0, "gil": 0, "level": 1,
+        "hp": {"current": 10, "max": 10},
+        "inventory": [],
+        "reputation": 0
+    }
+    
+    # Gilded Mushroom
+    res_m = resolve_event("gilded_mushroom", sheet)
+    assert res_m["item_add"] == "gilded_mushroom"
+    assert res_m["gil"] == 0 # No Gil directly anymore
+    
+    # Mognet Letter
+    res_l = resolve_event("mognet_delivery", sheet)
+    assert res_l["item_add"] == "mognet_letter"
+    
+    # Verify Sellable
+    sheet["inventory"] = ["gilded_mushroom"]
+    success, msg, updated_sheet = process_sell(sheet, "gilded_mushroom")
+    assert success is True
+    assert "gilded_mushroom" not in updated_sheet["inventory"]
+    assert updated_sheet["gil"] == 20 # 50% of 40g

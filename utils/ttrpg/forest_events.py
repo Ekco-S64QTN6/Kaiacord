@@ -262,14 +262,13 @@ def _gilded_mushroom(sheet: dict) -> dict:
     r["event_key"] = "gilded_mushroom"
     r["title"] = "🍄 Gilded Mushroom"
 
-    gil = secrets.randbelow(16) + 8  # 8-23 gil
-    r["gil"] = gil
+    r["item_add"] = "gilded_mushroom"
     r["xp"] = 8
-    r["outcome"] = f"Found gilded mushrooms worth {gil} gil. Hemlock will buy these."
+    r["outcome"] = "Found gilded mushrooms. Hemlock in Oakhaven will buy these."
     r["narration_hook"] = (
-        f"Growing in the shadow of a moss-covered stone — gilded mushrooms, "
-        f"rare enough to be worth something. Hemlock would want them. "
-        f"The player pocketed them. ({gil} gil value)"
+        "Growing in the shadow of a moss-covered stone — gilded mushrooms, "
+        "rare enough to be worth something. Hemlock would want them. "
+        "The player pocketed them."
     )
     return r
 
