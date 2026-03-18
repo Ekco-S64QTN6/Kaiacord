@@ -233,7 +233,17 @@ class MessageProcessor:
         if is_social: log_debug("Social message passed command dispatch")
 
         # 4. Trigger Logic
-        is_mention = "kaia" in msg.content.lower() or (not is_social and self.bot.user.mentioned_in(msg))
+        bot_name = self.bot.user.display_name.lower() if (self.bot and self.bot.user) else "kaia"
+        is_mention = (
+            not is_social and (
+                (self.bot and self.bot.user and self.bot.user in msg.mentions)  # proper <@ID> mention (autocomplete)
+                or (self.bot and self.bot.user and f"<@{self.bot.user.id}>" in msg.content)  # explicit ID string fallback
+                or (self.bot and self.bot.user and f"<@!{self.bot.user.id}>" in msg.content) # legacy !ID format
+                or bot_name in msg.content.lower()          # plain text @kaia fallback
+                or any(r.name.lower() == bot_name for r in getattr(msg, 'role_mentions', []))  # role @Kaia
+            )
+        ) or is_social
+        
         if not is_mention and not is_social:
             return
             
@@ -1027,6 +1037,16 @@ class MessageProcessor:
                 # Strip LLM-added outer codeblocks
                 content = content.replace("```", "").replace("``", "")
 
+                # Bug 1 Fix: Guard against sentences truncated by backtick stripping
+                # e.g. "I'd select." or "My answer is." with nothing meaningful after.
+                # This often happens when the model wraps a proper noun in backticks 
+                # which then gets stripped, leaving a trailing period.
+                import re as _re
+                _DANGLING_STUB = _re.compile(r"^[^.!?]{0,60}(select|choose|pick|say|answer|go with)(?:\s+is|\s+was|\s+would be)?\s*\.\s*$", _re.IGNORECASE | _re.MULTILINE)
+                if _DANGLING_STUB.search(content) and len(content.strip()) < 120:
+                    log_warning(f"Attempt {attempt + 1}: Dangling stub detected after stripping. Retrying...")
+                    continue
+
                 # EMERGENCY FILTER: Strip hallucinated [CURRENT_TIME] or time signatures
                 # preventing history pollution if the LLM ignores instructions.
                 content = re.sub(r'\[?CURRENT_TIME\]?:?.*', '', content).strip()
@@ -1110,8 +1130,18 @@ class MessageProcessor:
 
                 # Add author prefix to user message for history disambiguation
                 user_msg_with_author = f"{ctx.author_name}: {ctx.sanitized_content}"
-                self.bot_state.channel_memory[ctx.channel_id].append({"role": "user", "content": user_msg_with_author})
-                self.bot_state.channel_memory[ctx.channel_id].append({"role": "assistant", "content": bot_response})
+                
+                # --- STYLE DRIFT GUARD (Emoji Contamination Fix) ---
+                # Check for "it's..." or "it's…" repetition which indicates a style lock loop.
+                # If detected, we skip logging BOTH the user message and the bot response 
+                # to channel_memory to prevent the logic from feeding the pattern back into the next prompt.
+                ellipses_count = bot_response.lower().count("it's…") + bot_response.lower().count("it's...")
+                if ellipses_count >= 3:
+                    log_warning(f"Style-drift detected ({ellipses_count} occurrences of 'it's...'). Skipping channel_memory log for this turn to prevent loop reinforcement.")
+                else:
+                    self.bot_state.channel_memory[ctx.channel_id].append({"role": "user", "content": user_msg_with_author})
+                    self.bot_state.channel_memory[ctx.channel_id].append({"role": "assistant", "content": bot_response})
+                # ----------------------------------------------------
                 
                 # Update personalization and relevance feedback
                 await self.personalization_engine.learn_from_interaction(ctx.author_id, ctx.sanitized_content, bot_response)

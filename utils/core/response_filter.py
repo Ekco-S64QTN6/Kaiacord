@@ -20,6 +20,9 @@ class EmergencyContaminationFilter:
         r"\b(the state of streaming services|chain of suspicion)\b", # Tracer contamination
         # Ellipsis-fragmented affect (style bleed from literary RAG sources)
         r"^The\s+\w+.*?is\.\.\.\s+\w+\.\s+The\s+\w+.*?is\.\.\.",
+        # Stacked ellipsis-affect pattern (style lock from emoji/minimalist exchange contamination)
+        # Catches: "it's… X.\n\nit's… Y.\n\nit's… Z." repeating 3+ times
+        r"(?:it's[\u2026\.]{1,3}\s+\w[\w\s,]+\.\s*\n\n?){3,}",
         # Fabricated user observations — invented anecdotes about chat participants
         r"there\s+was\s+one\s+user.{0,20}(who|that)\s+(asked|mentioned|said|brought|posted|shared|noticed)",
         # Prose roleplay narration (first-person actions)

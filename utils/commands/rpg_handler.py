@@ -2472,11 +2472,79 @@ async def _handle_event(ctx, msg, send, rest, uid, uname, is_owner):
 
 async def _handle_rpg_help(ctx, msg, send, rest, uid, uname, is_owner):
     import discord
+
     embed = discord.Embed(
-        title="📜 Aethelgard Command List",
-        description=__doc__.strip(),
-        color=0x44aa88
+        title="📜 Aethelgard Commands",
+        description="*Type any command to use it. Most require being in the right location.*",
+        color=0x8b7355
     )
+
+    embed.add_field(name="⚔️ World", value=(
+        "`!rpg` — status & HUD\n"
+        "`!rpg go <place>` — travel\n"
+        "`!rpg look` — describe location\n"
+        "`!rpg map` — world map\n"
+        "`!rpg weather` — today's weather\n"
+        "`!rpg calendar` — season & events"
+    ), inline=True)
+
+    embed.add_field(name="🧍 Character", value=(
+        "`!rpg new <n> <Race> <Class>`\n"
+        "`!rpg sheet` — full stats\n"
+        "`!rpg inventory` — items\n"
+        "`!rpg equip <item>`\n"
+        "`!rpg use <item>`\n"
+        "`!rpg leaderboard`"
+    ), inline=True)
+
+    embed.add_field(name="🗡️ Combat", value=(
+        "`!rpg hunt` — fight (1 hunt)\n"
+        "`!rpg attack` — strike\n"
+        "`!rpg flee` — escape attempt\n"
+        "`!rpg hunts` — hunts left today\n"
+        "`!rpg roll <dice>` — d20, 2d6+3"
+    ), inline=True)
+
+    embed.add_field(name="🍺 Stone Hearth", value=(
+        "`!rpg rest` — full heal (5g)\n"
+        "`!rpg drink` — +3 temp HP (2g)\n"
+        "`!rpg gamble` — dice (10g)\n"
+        "`!rpg rumor` — gossip"
+    ), inline=True)
+
+    embed.add_field(name="🛒 Hemlock's Store", value=(
+        "`!rpg shop` — browse stock\n"
+        "`!rpg buy <item>`\n"
+        "`!rpg sell <item>`"
+    ), inline=True)
+
+    embed.add_field(name="⛩️ Shrine", value=(
+        "`!rpg pray` — daily blessing\n"
+        "`!rpg offer <amount>` — XP\n"
+        "`!rpg brew` — alchemy"
+    ), inline=True)
+
+    embed.add_field(name="🏹 Watchtower", value=(
+        "`!rpg scout` — monster intel\n"
+        "`!rpg talk guard`"
+    ), inline=True)
+
+    embed.add_field(name="🏦 Oakhaven", value=(
+        "`!rpg bank` — deposit/withdraw\n"
+        "`!rpg notices` — notice board\n"
+        "`!rpg quests` — active quests\n"
+        "`!rpg deliver` — mognet mail\n"
+        "`!rpg talk <npc>`"
+    ), inline=True)
+
+    embed.add_field(name="💬 NPCs", value=(
+        "`elara` · `hemlock`\n"
+        "`barkeep` · `guard`\n"
+        "`hooded_figure` · `maren`"
+    ), inline=True)
+
+    embed.set_footer(text="!rpg go  with no argument lists exits from your current location")
+
     await msg.channel.send(embed=embed)
 
 # ── PvP Duels ───────────────────────────────────────────────────────────────

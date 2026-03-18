@@ -122,6 +122,8 @@ ESSAY_MODE_PHRASES = [
     "i'm reviewing",
     "i'm noting that feedback",
     "a rather amusing and entirely avoidable",
+    "it's… ",          # ellipsis-affect stacking
+    "it's… a ",
 ]
 
 # Threshold: how many essay-phrase hits before we flag the turn
