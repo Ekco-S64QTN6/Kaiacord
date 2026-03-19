@@ -9,7 +9,7 @@ QUESTS = {
         "npc": "elara",
         "description": "Elder Elara wants you to introduce yourself to the town. Visit Mira at the Stone Hearth and Hemlock at the shop.",
         "requirements": {"level": 1},
-        "tasks": ["talk_mira", "talk_hemlock", "talk_elara"],
+        "tasks": ["talk_barkeep", "talk_hemlock", "talk_elara"],
         "rewards": {"xp": 50, "gil": 20},
         "completion_msg": "Elder Elara nods approvingly. 'Small steps, adventurer. You're part of Oakhaven now.'",
     },

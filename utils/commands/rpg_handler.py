@@ -75,10 +75,13 @@ from utils.ttrpg.loot_tables import get_loot
 LOCATION_ACTIONS = {
     "oakhaven": [
         "`!rpg look` — observe the square",
+        "`!rpg look at notice_board` — study a specific thing",
+        "`!rpg deliver` — turn in a mognet letter",
         "`!rpg talk elara` — speak with Elder Elara",
+        "`!rpg quests` — view available quests",
         "`!rpg map` — view the world map",
-        "`!rpg calendar` — view current season and upcoming events",
-        "`!rpg weather` — check today's conditions",
+        "`!rpg calendar` — current season & events",
+        "`!rpg weather` — today's conditions",
     ],
     "stone_hearth": [
         "`!rpg rest` — full heal (5 gil)",
@@ -86,38 +89,44 @@ LOCATION_ACTIONS = {
         "`!rpg gamble` — dice game, 10 gil buy-in",
         "`!rpg rumor` — hear gossip from the bar",
         "`!rpg talk barkeep` — speak with Mira",
-        "`!rpg talk hooded_figure` — speak with the figure in the corner",
-        "`!rpg look` — observe the warm, smoky common room",
+        "`!rpg talk hooded_figure` — the figure in the corner",
+        "`!rpg look` — observe the room",
+        "`!rpg look at fire` — study something specific",
     ],
     "hemlocks_store": [
         "`!rpg shop` — browse Hemlock's inventory",
         "`!rpg buy <item>` — purchase an item",
         "`!rpg sell <item>` — sell something",
-        "`!rpg talk hemlock` — speak with Old Man Hemlock",
-        "`!rpg look` — observe the cluttered shelves",
+        "`!rpg inventory` — check your gear",
+        "`!rpg talk hemlock` — speak with Hemlock",
+        "`!rpg look` — observe the shop",
+        "`!rpg look at shelves` — study something specific",
     ],
     "shrine": [
         "`!rpg pray` — receive a daily blessing (free)",
         "`!rpg offer <amount>` — donate gil for XP",
-        "`!rpg fountain` — drink from the sacred spring (full heal, every other day)",
-        "`!rpg look` — observe the ancient stone carvings",
+        "`!rpg fountain` — sacred spring (full heal, once per day)",
+        "`!rpg look` — observe the ancient carvings",
+        "`!rpg look at flame` — study something specific",
     ],
     "watchtower": [
-        "`!rpg scout` — preview monster activity at all hunting grounds (once/day)",
+        "`!rpg scout` — preview monster activity (once/day)",
         "`!rpg talk guard` — speak with the guards",
-        "`!rpg look` — observe the forest canopy from above",
+        "`!rpg look` — observe the canopy from above",
     ],
     "whisperwood_edge": [
         "`!rpg hunt` — fight a random monster (costs 1 hunt)",
         "`!rpg look` — observe the treeline",
+        "`!rpg look at tracks` — study something specific",
     ],
     "whisperwood_deep": [
-        "`!rpg hunt` — fight a random monster (costs 1 hunt, lvl 4+ recommended)",
+        "`!rpg hunt` — fight a monster (lvl 4+ recommended)",
         "`!rpg look` — observe the deep forest",
     ],
     "aeridor_ruins": [
-        "`!rpg hunt` — fight a random monster (costs 1 hunt, lvl 7+ recommended)",
+        "`!rpg hunt` — fight a monster (lvl 7+ recommended)",
         "`!rpg look` — observe the ruins",
+        "`!rpg look at crystals` — study something specific",
     ],
     "trade_road": [
         "`!rpg hunt` — encounter a road threat (costs 1 hunt)",
@@ -125,12 +134,15 @@ LOCATION_ACTIONS = {
     ],
     "notice_board": [
         "`!rpg notices` — read the latest parchment and news",
+        "`!rpg quests` — view available quests",
         "`!rpg look` — observe the crowd at the square",
     ],
     "herbalists_hut": [
-        "`!rpg brew` — combine ingredients into alchemy recipes",
+        "`!rpg brew` — list recipes / brew a potion",
+        "`!rpg brew <recipe>` — brew a specific recipe",
         "`!rpg talk maren` — speak with Sister Maren",
         "`!rpg look` — observe the herbs and vials",
+        "`!rpg look at herbs` — study something specific",
     ],
     "oakhaven_bank": [
         "`!rpg bank` — check balance, deposit, or withdraw gil",
@@ -256,11 +268,31 @@ async def _handle_status(ctx, msg, send, rest, uid, uname, is_owner):
         
     gil = sheet.get("gil", 0)
     
+    from utils.ttrpg.equipment_registry import WEAPONS, ARMOR as ARMOR_REG, HEADGEAR, BOOTS, ACCESSORIES
+
+    def _eq_display(slot_val, registry, atk=False):
+        if not slot_val: return "Unarmed" if atk else "Unarmored"
+        if isinstance(slot_val, dict):
+            data = slot_val
+        else:
+            data = registry.get(slot_val)
+        if not data: return slot_val
+        if atk:
+            return f"{data['name']} (+{data.get('attack_bonus',0)} ATK, d{data.get('damage_die',4)})"
+        return f"{data['name']} (+{data.get('defense_bonus',0)} DEF)"
+
     eq = sheet.get("equipment", {})
-    w = eq.get("weapon")
-    a = eq.get("armor")
-    w_str = f"{w['name']} (+{w['attack_bonus']} ATK, d{w['damage_die']})" if w else "Unarmed"
-    a_str = f"{a['name']} (+{a['defense_bonus']} DEF)" if a else "Unarmored"
+    w_str  = _eq_display(eq.get("weapon"), WEAPONS, atk=True)
+    a_str  = _eq_display(eq.get("armor"),  ARMOR_REG)
+
+    def _eq_name(slot_val, registry):
+        if not slot_val: return "—"
+        if isinstance(slot_val, dict): return slot_val.get("name", "?")
+        return registry.get(slot_val, {}).get("name", slot_val)
+
+    h_str  = _eq_name(eq.get("head"),      HEADGEAR)
+    b_str  = _eq_name(eq.get("boots"),     BOOTS)
+    ac_str = _eq_name(eq.get("accessory"), ACCESSORIES)
     
     hunts = hunts_remaining(sheet)
     
@@ -317,8 +349,11 @@ async def _handle_status(ctx, msg, send, rest, uid, uname, is_owner):
     
     # Empty field for grid alignment if needed, or rely on Discord's 3-column layout
     
-    embed.add_field(name="🗡️ Weapon", value=w_str, inline=True)
-    embed.add_field(name="🛡️ Armor",  value=a_str, inline=True)
+    embed.add_field(name="🗡️ Weapon",    value=w_str,  inline=True)
+    embed.add_field(name="🛡️ Armor",     value=a_str,  inline=True)
+    embed.add_field(name="🪖 Head",      value=h_str,  inline=True)
+    embed.add_field(name="👢 Boots",     value=b_str,  inline=True)
+    embed.add_field(name="💍 Accessory", value=ac_str, inline=True)
     embed.add_field(name="🎯 Hunts", value=f"{hunts}/{MAX_HUNTS_PER_DAY} remaining", inline=True)
     
     rep = sheet.get("reputation", 0)
@@ -516,6 +551,32 @@ async def _handle_look(ctx, msg, send, rest, uid, uname, is_owner):
     
     loc = sheet.get("location", "oakhaven")
     data = LOCATION_DATA.get(loc, {})
+
+    # ── Handle `!rpg look at <target>` ───────────────────────────────────────
+    look_target = rest.strip().lower()
+    if look_target.startswith("at "):
+        look_target = look_target[3:].strip()
+
+    if look_target:
+        from utils.ttrpg.look_targets import LOCATION_LOOK_TARGETS
+        loc_targets = LOCATION_LOOK_TARGETS.get(loc, {})
+        result = loc_targets.get(look_target)
+        if not result:
+            # fuzzy match — "the flame" → "flame", "offering" → "offering bowl"
+            for key in loc_targets:
+                if key in look_target or look_target in key:
+                    result = loc_targets[key]
+                    break
+        if result:
+            embed = discord.Embed(description=result, color=LOCATION_COLORS.get(loc, 0x888888))
+            return await msg.channel.send(embed=embed)
+        else:
+            return await msg.channel.send(embed=discord.Embed(
+                description=f"*{sheet['character_name']} studies the {look_target} carefully. Nothing unusual stands out.*",
+                color=0x888888,
+            ))
+
+    # ── Generic location narration via Ollama ─────────────────────────────────
     
     prompt = build_look_prompt(
         sheet, 
@@ -682,27 +743,70 @@ async def _handle_shop(ctx, msg, send, rest, uid, uname, is_owner):
     if sheet and sheet.get("location") != "hemlocks_store":
         return await msg.channel.send(embed=discord.Embed(description="You must be at Hemlock's Store to view inventory. (`!rpg go hemlocks_store`)", color=0xcc4444))
         
-    weapons, armor, consumables = get_shop_inventory()
+    weapons, armor, headgear, boots, accessories, consumables = get_shop_inventory()
 
-    lines = []
-    lines.append("**Weapons**")
-    for k, v in weapons.items(): lines.append(f"  `{k:<15}` {v['name']:<20} {v['value']}g")
-    lines.append("\n**Armor**")
-    for k, v in armor.items(): lines.append(f"  `{k:<15}` {v['name']:<20} {v['value']}g")
-    lines.append("\n**Consumables**")
-    for k, v in consumables.items(): lines.append(f"  `{k:<15}` {v['name']:<20} {v['value']}g")
+    def _fmt_weapon(k, v):
+        return f"**{v['name']}** · +{v['attack_bonus']} ATK d{v['damage_die']} · {v['value']}g"
+    def _fmt_defense(k, v):
+        cls = f" *({'/'.join(v['classes'])})*" if v.get("classes") else ""
+        return f"**{v['name']}** · +{v['defense_bonus']} DEF{cls} · {v['value']}g"
+    def _fmt_accessory(k, v):
+        parts = []
+        if v.get("defense_bonus"): parts.append(f"+{v['defense_bonus']} DEF")
+        if v.get("attack_bonus"):  parts.append(f"+{v['attack_bonus']} ATK")
+        cls = f" *({'/'.join(v['classes'])})*" if v.get("classes") else ""
+        return f"**{v['name']}** · {', '.join(parts)}{cls} · {v['value']}g"
+    def _fmt_consumable(k, v):
+        hp = v.get("hp_restore", 0)
+        if hp:
+            stat = f"+{hp} HP"
+        elif v.get("on_use"):
+            labels = {"cure_poison": "cures poison", "luck_roll_bonus": "+1 next hit", "starter_kit": "open for items"}
+            stat = labels.get(v["on_use"], v["on_use"])
+        elif v.get("description"):
+            stat = v["description"].split(".")[0].strip() # Clean up description
+        else:
+            stat = "misc"
+        return f"**{v['name']}** · {stat} · {v['value']}g"
 
-    footer_text = ""
-    if sheet:
-        footer_text = f"Your Gil: {sheet.get('gil', 0)}g  |  !rpg buy <item> or !rpg sell <item>"
+    embed = discord.Embed(title="🏪 Hemlock's Store", color=0x4488cc)
 
-    embed = discord.Embed(
-        title="🛒 Hemlock's Store",
-        description="```\n" + "\n".join(lines) + "\n```",
-        color=0x4488cc
+    embed.add_field(
+        name="🗡️ Weapons",
+        value="\n".join(_fmt_weapon(k, v) for k, v in weapons.items()),
+        inline=False
     )
-    if footer_text:
-        embed.set_footer(text=footer_text)
+    embed.add_field(
+        name="🛡️ Armor",
+        value="\n".join(_fmt_defense(k, v) for k, v in armor.items()),
+        inline=False
+    )
+    if headgear:
+        embed.add_field(
+            name="🪖 Headgear",
+            value="\n".join(_fmt_defense(k, v) for k, v in headgear.items()),
+            inline=False
+        )
+    if boots:
+        embed.add_field(
+            name="👢 Boots",
+            value="\n".join(_fmt_defense(k, v) for k, v in boots.items()),
+            inline=False
+        )
+    if accessories:
+        embed.add_field(
+            name="💍 Accessories",
+            value="\n".join(_fmt_accessory(k, v) for k, v in accessories.items()),
+            inline=False
+        )
+    embed.add_field(
+        name="🧪 Consumables",
+        value="\n".join(_fmt_consumable(k, v) for k, v in consumables.items()),
+        inline=False
+    )
+
+    if sheet:
+        embed.set_footer(text=f"💰 Your Gil: {sheet.get('gil', 0)}g  ·  !rpg buy <item>  ·  !rpg sell <item>")
 
     await msg.channel.send(embed=embed)
 
@@ -736,7 +840,7 @@ async def _handle_buy(ctx, msg, send, rest, uid, uname, is_owner):
         if item and "classes" in item and updated_sheet["class"] not in item["classes"]:
             final_msg += f"\n*Note: this is typically used by {'/'.join(item['classes'])} — you can equip it but it may feel awkward.*"
             
-        if item and item["category"] in ["weapon", "armor"] and quantity == 1:
+        if item and item["category"] in ["weapon", "armor", "head", "boots", "accessory"] and quantity == 1:
             slot = item["category"]
             if not updated_sheet["equipment"].get(slot):
                 updated_sheet["inventory"].remove(item["key"])
@@ -759,7 +863,7 @@ async def _handle_sell(ctx, msg, send, rest, uid, uname, is_owner):
     if not rest.strip():
         return await msg.channel.send(embed=discord.Embed(description="Sell what? Use `!rpg inventory` for items.", color=0x888888))
         
-    item_key = rest.strip().lower()
+    item_key = rest.strip().lower().replace(" ", "_")
     success, resp_msg, updated_sheet = process_sell(sheet, item_key, sheet.get("reputation", 0))
     
     if success:
@@ -1049,10 +1153,26 @@ async def _handle_brew(ctx, msg, send, rest, uid, uname, is_owner):
         
     recipe_id = rest.strip().lower()
     if not recipe_id:
-        # List known recipes
         known = sheet.get("recipes", [])
+
+        # Auto-discover recipes from ingredients already in inventory
+        from utils.ttrpg.alchemy import check_and_discover_recipes
+        inv = sheet.get("inventory", [])
+        newly_found = []
+        for ing in inv:
+            new = check_and_discover_recipes(sheet, ing)
+            newly_found.extend(new)
+        if newly_found:
+            await save(sheet)
+            known = sheet.get("recipes", [])
+
         if not known:
-            return await send(msg.channel, "You don't know any recipes yet. Speak with Sister Maren.")
+            return await send(
+                msg.channel,
+                "You haven't learned any recipes yet.\n"
+                "*Pick up crafting ingredients like blood thistle, silver moss, dire root, or honey sap.*\n"
+                "*Sister Maren may also teach you directly.*"
+            )
         
         embed = discord.Embed(title="📜 Known Recipes", color=0x2ecc71)
         for r_key in known:
@@ -1188,17 +1308,36 @@ async def _handle_accept(ctx, msg, send, rest, uid, uname, is_owner):
 
 async def _handle_inventory(ctx, msg, send, rest, uid, uname, is_owner):
     from utils.ttrpg.shop import find_item
+    from utils.ttrpg.equipment_registry import WEAPONS, ARMOR as ARMOR_REG, HEADGEAR, BOOTS, ACCESSORIES
 
     sheet = await load(uid)
     if not sheet: return
 
+    # ── Equipped gear summary ────────────────────────────────────────────────
+    def _eq_name(slot_val, registry):
+        if not slot_val: return "—"
+        if isinstance(slot_val, dict): return slot_val.get("name", "?")
+        return registry.get(slot_val, {}).get("name", slot_val)
+
+    eq = sheet.get("equipment", {})
+    equipped_lines = (
+        f"🗡️ {_eq_name(eq.get('weapon'), WEAPONS)}  "
+        f"🛡️ {_eq_name(eq.get('armor'), ARMOR_REG)}  "
+        f"🪖 {_eq_name(eq.get('head'), HEADGEAR)}\n"
+        f"👢 {_eq_name(eq.get('boots'), BOOTS)}  "
+        f"💍 {_eq_name(eq.get('accessory'), ACCESSORIES)}"
+    )
+
+    # ── Inventory items ──────────────────────────────────────────────────────
     inventory = sheet.get("inventory", [])
     if not inventory:
-        return await msg.channel.send(embed=discord.Embed(
+        embed = discord.Embed(
             title="🎒 Inventory",
-            description="*Empty.*",
+            description=f"**Equipped:**\n{equipped_lines}\n\n*Backpack is empty.*",
             color=0x888888
-        ))
+        )
+        embed.set_footer(text="!rpg equip <item>  ·  !rpg sell <item>")
+        return await msg.channel.send(embed=embed)
 
     lines = []
     
@@ -1219,8 +1358,16 @@ async def _handle_inventory(ctx, msg, send, rest, uid, uname, is_owner):
                     lines.append(f"**{item['name']}**{count_str} — restores {hp} HP  *(sell: {val // 2}g)*")
             elif category == "weapon":
                 lines.append(f"**{item['name']}**{count_str} — +{item['attack_bonus']} ATK, d{item['damage_die']}  *(sell: {item['value'] // 2}g)*")
-            elif category == "armor":
+            elif category in ("armor", "head", "boots"):
                 lines.append(f"**{item['name']}**{count_str} — +{item['defense_bonus']} DEF  *(sell: {item['value'] // 2}g)*")
+            elif category == "accessory":
+                atk = item.get("attack_bonus", 0)
+                dfs = item.get("defense_bonus", 0)
+                stat_parts = []
+                if dfs: stat_parts.append(f"+{dfs} DEF")
+                if atk: stat_parts.append(f"+{atk} ATK")
+                stat_str = ", ".join(stat_parts) if stat_parts else "cosmetic"
+                lines.append(f"**{item['name']}**{count_str} — {stat_str}  *(sell: {item['value'] // 2}g)*")
             else:
                 lines.append(f"**{item['name']}**{count_str}")
         else:
@@ -1230,7 +1377,7 @@ async def _handle_inventory(ctx, msg, send, rest, uid, uname, is_owner):
 
     embed = discord.Embed(
         title="🎒 Inventory",
-        description="\n".join(lines),
+        description=f"**Equipped:**\n{equipped_lines}\n\n**Backpack:**\n" + "\n".join(lines),
         color=0x8b7355
     )
     embed.set_footer(text="!rpg use <item>  ·  !rpg equip <item>  ·  !rpg sell <item>")
@@ -1244,21 +1391,32 @@ async def _handle_equip(ctx, msg, send, rest, uid, uname, is_owner):
     if not rest.strip():
         return await msg.channel.send(embed=discord.Embed(description="Equip what? `!rpg equip <item>`", color=0x888888))
         
-    item_key = rest.strip().lower()
+    item_key = rest.strip().lower().replace(" ", "_")
     from utils.ttrpg.equipment_registry import ALIASES
     item_key = ALIASES.get(item_key, item_key)
     if item_key not in sheet.get("inventory", []):
         return await msg.channel.send(embed=discord.Embed(description=f"You don't have `{item_key}` in your inventory.", color=0xcc4444))
         
     item = find_item(item_key)
-    if not item or item["category"] not in ["weapon", "armor"]:
+    if not item or item["category"] not in ["weapon", "armor", "head", "boots", "accessory"]:
         return await msg.channel.send(embed=discord.Embed(description=f"`{item_key}` cannot be equipped.", color=0xcc4444))
-        
+
+    # Check class restriction
+    item_classes = item.get("classes")
+    if item_classes and sheet.get("class") not in item_classes:
+        class_str = "/".join(item_classes)
+        return await msg.channel.send(embed=discord.Embed(
+            description=f"**{item['name']}** can only be used by: {class_str}.", color=0xcc4444
+        ))
+
     # Unequip existing if slot filled
     slot = item["category"]
-    if sheet["equipment"].get(slot):
-        old = sheet["equipment"][slot]["key"]
-        sheet["inventory"].append(old)
+    old_val = sheet["equipment"].get(slot)
+    if old_val:
+        # Handle both string keys and dict values
+        old_key = old_val.get("key") if isinstance(old_val, dict) else old_val
+        if old_key:
+            sheet["inventory"].append(old_key)
         
     # Equip new
     sheet["inventory"].remove(item_key)
@@ -1272,7 +1430,7 @@ async def _handle_use(ctx, msg, send, rest, uid, uname, is_owner):
     sheet = await load(uid)
     if not sheet: return
     
-    item_key = rest.strip().lower()
+    item_key = rest.strip().lower().replace(" ", "_")
     from utils.ttrpg.equipment_registry import ALIASES
     item_key = ALIASES.get(item_key, item_key)
         
@@ -1554,6 +1712,14 @@ async def _handle_attack(ctx, msg, send, rest, uid, uname, is_owner):
             loot_info = _find_loot(loot)
             loot_display = loot_info["name"] if loot_info else loot
             loot_msg = f"\n🎁 **Looted:** {loot_display}"
+            # Check recipe discovery (triggers on crafting ingredients)
+            from utils.ttrpg.alchemy import check_and_discover_recipes
+            new_recipes = check_and_discover_recipes(sheet, loot)
+            for rk in new_recipes:
+                from utils.ttrpg.alchemy import get_recipe
+                r = get_recipe(rk)
+                if r:
+                    loot_msg += f"\n📖 **Recipe learned:** {r['name']}! Brew at the Herbalist's Hut."
             
             # Log rare drop if it's high tier or specific items
             tier = monster.get("tier", "medium")
@@ -1688,14 +1854,23 @@ async def _handle_flee(ctx, msg, send, rest, uid, uname, is_owner):
             
     if to_flee == -1: return await msg.channel.send(embed=discord.Embed(description="You have nothing chasing you.", color=0xcc4444))
     
-    roll = secrets.randbelow(20) + 1
-    if roll >= 10:
-        s["monsters"].pop(to_flee)
-        if not s["monsters"]: s["combat_active"] = False
-        await save_session(s)
-        await msg.channel.send(embed=discord.Embed(description=f"🏃 **{uname}** scrambled to safety! (d20 = {roll})", color=0x44aa44))
+    # Load sheet to deduct hunt
+    sheet = await load(uid)
+    if sheet:
+        sheet["hunts_today"] = sheet.get("hunts_today", 0) + 1
+        await save(sheet)
+        hunt_note = "\n*(This escape cost 1 hunt stamina)*"
     else:
-        await msg.channel.send(embed=discord.Embed(description=f"❌ Flee failed! (d20 = {roll}) You trip. They close the distance.", color=0xcc4444))
+        hunt_note = ""
+
+    s["monsters"].pop(to_flee)
+    if not s["monsters"]: s["combat_active"] = False
+    await save_session(s)
+    
+    await msg.channel.send(embed=discord.Embed(
+        description=f"🏃 **{uname}** scrambled to safety!{hunt_note}", 
+        color=0x44aa44
+    ))
 
 
 async def _apply_and_narrate_event(ctx, msg, send, sheet, result, uname):
@@ -2392,15 +2567,15 @@ async def _handle_rpg_help(ctx, msg, send, rest, uid, uname, is_owner):
         "`!rpg` — status & HUD\n"
         "`!rpg go <place>` — travel\n"
         "`!rpg look` — describe location\n"
+        "`!rpg look at <thing>` — inspect\n"
         "`!rpg map` — world map\n"
-        "`!rpg weather` — today's weather\n"
-        "`!rpg calendar` — season & events"
+        "`!rpg weather` / `calendar`"
     ), inline=True)
 
     embed.add_field(name="🧍 Character", value=(
         "`!rpg new <n> <Race> <Class>`\n"
         "`!rpg sheet` — full stats\n"
-        "`!rpg inventory` — items\n"
+        "`!rpg inventory` — gear & items\n"
         "`!rpg equip <item>`\n"
         "`!rpg use <item>`\n"
         "`!rpg leaderboard`"
@@ -2410,7 +2585,7 @@ async def _handle_rpg_help(ctx, msg, send, rest, uid, uname, is_owner):
         "`!rpg hunt` — fight (1 hunt)\n"
         "`!rpg attack` — strike\n"
         "`!rpg flee` — escape attempt\n"
-        "`!rpg hunts` — hunts left today\n"
+        "`!rpg duel @user` — PvP\n"
         "`!rpg roll <dice>` — d20, 2d6+3"
     ), inline=True)
 
@@ -2421,7 +2596,7 @@ async def _handle_rpg_help(ctx, msg, send, rest, uid, uname, is_owner):
         "`!rpg rumor` — gossip"
     ), inline=True)
 
-    embed.add_field(name="🛒 Hemlock's Store", value=(
+    embed.add_field(name="🏪 Hemlock's Store", value=(
         "`!rpg shop` — browse stock\n"
         "`!rpg buy <item>`\n"
         "`!rpg sell <item>`"
@@ -2430,7 +2605,13 @@ async def _handle_rpg_help(ctx, msg, send, rest, uid, uname, is_owner):
     embed.add_field(name="⛩️ Shrine", value=(
         "`!rpg pray` — daily blessing\n"
         "`!rpg offer <amount>` — XP\n"
-        "`!rpg brew` — alchemy"
+        "`!rpg fountain` — heal spring"
+    ), inline=True)
+
+    embed.add_field(name="🌿 Herbalist's Hut", value=(
+        "`!rpg brew` — list recipes\n"
+        "`!rpg brew <recipe>` — brew\n"
+        "`!rpg talk maren`"
     ), inline=True)
 
     embed.add_field(name="🏹 Watchtower", value=(
@@ -2441,7 +2622,7 @@ async def _handle_rpg_help(ctx, msg, send, rest, uid, uname, is_owner):
     embed.add_field(name="🏦 Oakhaven", value=(
         "`!rpg bank` — deposit/withdraw\n"
         "`!rpg notices` — notice board\n"
-        "`!rpg quests` — active quests\n"
+        "`!rpg quests` — quest log\n"
         "`!rpg deliver` — mognet mail\n"
         "`!rpg talk <npc>`"
     ), inline=True)

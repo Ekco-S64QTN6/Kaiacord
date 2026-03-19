@@ -20,21 +20,28 @@ def _resolve_combat(sheet: dict, monster: dict, atk_mod_global: int = 0, def_mod
     dex_val = sheet.get("stats", {}).get("dex", 10)
     dex_mod = (dex_val - 10) // 2
 
-    from utils.ttrpg.equipment_registry import WEAPONS, ARMOR as ARMOR_DATA
-    
-    weapon_data = sheet.get("equipment", {}).get("weapon")
-    armor_data = sheet.get("equipment", {}).get("armor")
-    
-    # Handle both string keys and full dictionaries in equipment slots
-    weapon_key = weapon_data.get("key") if isinstance(weapon_data, dict) else weapon_data
-    armor_key = armor_data.get("key") if isinstance(armor_data, dict) else armor_data
-    
-    weapon = WEAPONS.get(weapon_key) if weapon_key else None
-    armor = ARMOR_DATA.get(armor_key) if armor_key else None
+    from utils.ttrpg.equipment_registry import WEAPONS, ARMOR as ARMOR_DATA, HEADGEAR, BOOTS, ACCESSORIES
 
-    weapon_atk = weapon["attack_bonus"] if weapon else 0
-    weapon_dmg_die = weapon["damage_die"] if weapon else 4
-    armor_def = armor["defense_bonus"] if armor else 0
+    def _eq_key(val):
+        """Extract the item key whether the slot stores a string or a dict."""
+        if not val:
+            return None
+        return val.get("key") if isinstance(val, dict) else val
+
+    eq = sheet.get("equipment", {})
+    weapon    = WEAPONS.get(_eq_key(eq.get("weapon")))       or None
+    armor     = ARMOR_DATA.get(_eq_key(eq.get("armor")))     or None
+    head      = HEADGEAR.get(_eq_key(eq.get("head")))        or None
+    boots_eq  = BOOTS.get(_eq_key(eq.get("boots")))          or None
+    accessory = ACCESSORIES.get(_eq_key(eq.get("accessory"))) or None
+
+    weapon_atk     = weapon["attack_bonus"]    if weapon    else 0
+    weapon_dmg_die = weapon["damage_die"]      if weapon    else 4
+    armor_def      = armor["defense_bonus"]    if armor     else 0
+    head_def       = head["defense_bonus"]     if head      else 0
+    boots_def      = boots_eq["defense_bonus"] if boots_eq  else 0
+    acc_def        = accessory["defense_bonus"]if accessory else 0
+    acc_atk        = accessory.get("attack_bonus", 0) if accessory else 0
     
     # --- Status Effects ---
     conditions = set(sheet.get("conditions", []))
@@ -76,7 +83,7 @@ def _resolve_combat(sheet: dict, monster: dict, atk_mod_global: int = 0, def_mod
         if "lucky" in sheet.get("conditions", []):
             sheet["conditions"].remove("lucky")
 
-    attack_mod = atk_mod + weapon_atk + bless_bonus + streak_bonus + luck_bonus + atk_mod_global
+    attack_mod = atk_mod + weapon_atk + acc_atk + bless_bonus + streak_bonus + luck_bonus + atk_mod_global
     
     # --- Initialize Result Variables ---
     player_hit = False
@@ -137,7 +144,7 @@ def _resolve_combat(sheet: dict, monster: dict, atk_mod_global: int = 0, def_mod
     monster_total_hit = 0
 
     if monster_alive:
-        player_defense = 10 + dex_mod + armor_def + def_mod_global
+        player_defense = 10 + dex_mod + armor_def + head_def + boots_def + acc_def + def_mod_global
         monster_attack_mod = monster["attack"] // 3
         monster_raw_hit = secrets.randbelow(20) + 1
         monster_total_hit = monster_raw_hit + monster_attack_mod

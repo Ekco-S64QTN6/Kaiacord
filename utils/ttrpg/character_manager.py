@@ -127,19 +127,21 @@ def _create_sync(user_id: str, user_name: str, character_name: str,
         "last_updated": time.time(),
     }
     
-    # Class-specific starting gear
+    # Class-specific starting gear — head/boots/accessory start as None (must be found or bought)
+    _base_eq = {"weapon": None, "armor": None, "offhand": None,
+                "head": None, "boots": None, "accessory": None}
     if class_name == "Warrior":
-        sheet["equipment"] = {"weapon": "hand_axe", "armor": "leather_armor", "offhand": None}
+        sheet["equipment"] = {**_base_eq, "weapon": "hand_axe",    "armor": "leather_armor"}
     elif class_name == "Ranger":
-        sheet["equipment"] = {"weapon": "shortbow", "armor": "leather_armor", "offhand": None}
+        sheet["equipment"] = {**_base_eq, "weapon": "shortbow",     "armor": "leather_armor"}
     elif class_name == "Mage":
-        sheet["equipment"] = {"weapon": "wooden_staff", "armor": "mages_robe", "offhand": None}
+        sheet["equipment"] = {**_base_eq, "weapon": "wooden_staff", "armor": "mages_robe"}
     elif class_name == "Rogue":
-        sheet["equipment"] = {"weapon": "rusty_dagger", "armor": "leather_armor", "offhand": None}
+        sheet["equipment"] = {**_base_eq, "weapon": "rusty_dagger", "armor": "leather_armor"}
     elif class_name == "Cleric":
-        sheet["equipment"] = {"weapon": "wooden_staff", "armor": "leather_armor", "offhand": None}
+        sheet["equipment"] = {**_base_eq, "weapon": "wooden_staff", "armor": "leather_armor"}
     else:
-        sheet["equipment"] = {"weapon": None, "armor": None, "offhand": None}
+        sheet["equipment"] = _base_eq.copy()
         
     _save_sync(sheet)
     return sheet
@@ -161,9 +163,21 @@ def format_sheet(sheet: Dict[str, Any]) -> str:
     loc_name = loc.replace("_", " ").title()
     hunts_rem = hunts_remaining(sheet)
     
+    from utils.ttrpg.equipment_registry import WEAPONS, ARMOR, HEADGEAR, BOOTS, ACCESSORIES
+
+    def _resolve_eq_name(slot_val, registry, fallback):
+        if not slot_val:
+            return fallback
+        if isinstance(slot_val, dict):
+            return slot_val.get("name", fallback)
+        return registry.get(slot_val, {}).get("name", fallback)
+
     eq = sheet.get("equipment", {})
-    w_name = eq.get("weapon", {}).get("name", "None") if eq.get("weapon") else "Unarmed"
-    a_name = eq.get("armor", {}).get("name", "None") if eq.get("armor") else "Unarmored"
+    w_name  = _resolve_eq_name(eq.get("weapon"),    WEAPONS,     "Unarmed")
+    a_name  = _resolve_eq_name(eq.get("armor"),     ARMOR,       "Unarmored")
+    h_name  = _resolve_eq_name(eq.get("head"),      HEADGEAR,    "—")
+    b_name  = _resolve_eq_name(eq.get("boots"),     BOOTS,       "—")
+    ac_name = _resolve_eq_name(eq.get("accessory"), ACCESSORIES, "—")
     
     conditions = ", ".join(sheet.get("conditions", [])) if sheet.get("conditions") else "none"
     inventory = "\n  ".join(sheet.get("inventory", [])) if sheet.get("inventory") else "empty"
@@ -192,6 +206,7 @@ def format_sheet(sheet: Dict[str, Any]) -> str:
         f"**Status:** {rep_str} | {q_str}\n"
         f"**Hunts:** {hunts_rem}/{MAX_HUNTS_PER_DAY} | **Medals:** {sheet.get('deaths', 0)} deaths\n"
         f"**Weapon:** {w_name}  **Armor:** {a_name}\n"
+        f"**Head:** {h_name}  **Boots:** {b_name}  **Accessory:** {ac_name}\n"
         f"**Conditions:** {conditions}\n"
         f"```\n"
         f"STR {s['str']:2d} ({mod(s['str'])})  "

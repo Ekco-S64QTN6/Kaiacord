@@ -80,3 +80,27 @@ def brew(sheet, recipe_key):
     sheet["xp"] += recipe["xp"]
     
     return True, f"Successfully brewed **{recipe['name']}**! (+{recipe['xp']} XP)"
+
+# ─── Recipe Discovery ─────────────────────────────────────────────────────────
+# Maps ingredient keys → recipe keys they unlock on first pickup
+INGREDIENT_DISCOVERS = {
+    "blood_thistle": "potion",
+    "honey_sap":     "potion",
+    "silver_moss":   "antidote",
+    "dire_root":     "antidote",
+}
+
+def check_and_discover_recipes(sheet: dict, item_key: str) -> list[str]:
+    """
+    Call whenever an item enters the player's inventory.
+    If the item is a crafting ingredient, reveals the associated recipe.
+    Returns list of newly discovered recipe keys (empty if nothing new).
+    """
+    recipe_key = INGREDIENT_DISCOVERS.get(item_key)
+    if not recipe_key:
+        return []
+    known = sheet.get("recipes", [])
+    if recipe_key in known:
+        return []
+    sheet.setdefault("recipes", []).append(recipe_key)
+    return [recipe_key]

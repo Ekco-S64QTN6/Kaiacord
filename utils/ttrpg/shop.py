@@ -1,41 +1,70 @@
-from utils.ttrpg.equipment_registry import WEAPONS, ARMOR, CONSUMABLES, HEMLOCK_STOCK_WEAPONS, HEMLOCK_STOCK_ARMOR
+from utils.ttrpg.equipment_registry import (
+    WEAPONS, ARMOR, CONSUMABLES, HEADGEAR, BOOTS, ACCESSORIES,
+    HEMLOCK_STOCK_WEAPONS, HEMLOCK_STOCK_ARMOR,
+    HEMLOCK_STOCK_HEADGEAR, HEMLOCK_STOCK_BOOTS, HEMLOCK_STOCK_ACCESSORIES,
+)
 
-def get_shop_inventory() -> tuple[dict, dict, dict]:
-    """Returns available weapons, armor, and consumables for Hemlock."""
+def get_shop_inventory() -> tuple[dict, dict, dict, dict, dict, dict]:
+    """Returns available weapons, armor, headgear, boots, accessories, and consumables for Hemlock."""
     from utils.ttrpg.calendar import get_season, SEASONAL_SHOP
     from utils.ttrpg.equipment_registry import HEMLOCK_STOCK_CONSUMABLES
-    
+
     season = get_season()
     seasonal = SEASONAL_SHOP.get(season, {})
-    
-    # Base stock
-    weapons_keys = HEMLOCK_STOCK_WEAPONS.copy()
-    armor_keys = HEMLOCK_STOCK_ARMOR.copy()
+
+    weapons_keys     = HEMLOCK_STOCK_WEAPONS.copy()
+    armor_keys       = HEMLOCK_STOCK_ARMOR.copy()
+    headgear_keys    = HEMLOCK_STOCK_HEADGEAR.copy()
+    boots_keys       = HEMLOCK_STOCK_BOOTS.copy()
+    accessory_keys   = HEMLOCK_STOCK_ACCESSORIES.copy()
     consumables_keys = HEMLOCK_STOCK_CONSUMABLES.copy()
-    
-    # Add seasonal additions
+
     weapons_keys.extend(seasonal.get("weapons", []))
     armor_keys.extend(seasonal.get("armor", []))
+    headgear_keys.extend(seasonal.get("headgear", []))
+    boots_keys.extend(seasonal.get("boots", []))
+    accessory_keys.extend(seasonal.get("accessories", []))
     consumables_keys.extend(seasonal.get("consumables", []))
-    
-    weapons = {k: WEAPONS[k] for k in weapons_keys if k in WEAPONS}
-    armor = {k: ARMOR[k] for k in armor_keys if k in ARMOR}
+
+    weapons     = {k: WEAPONS[k]     for k in weapons_keys     if k in WEAPONS}
+    armor       = {k: ARMOR[k]       for k in armor_keys       if k in ARMOR}
+    headgear    = {k: HEADGEAR[k]    for k in headgear_keys    if k in HEADGEAR}
+    boots       = {k: BOOTS[k]       for k in boots_keys       if k in BOOTS}
+    accessories = {k: ACCESSORIES[k] for k in accessory_keys   if k in ACCESSORIES}
     consumables = {k: CONSUMABLES[k] for k in consumables_keys if k in CONSUMABLES}
-    
-    return weapons, armor, consumables
+
+    return weapons, armor, headgear, boots, accessories, consumables
 
 def find_item(item_key: str) -> dict | None:
-    """Finds an item across all registries."""
+    """Finds an item across all registries. Supports underscored keys,
+    space-separated names, and ALIASES."""
     from utils.ttrpg.equipment_registry import ALIASES
-    
-    item_key = ALIASES.get(item_key, item_key)
-    
-    if item_key in WEAPONS:
-        return {"category": "weapon", "key": item_key, **WEAPONS[item_key]}
-    if item_key in ARMOR:
-        return {"category": "armor", "key": item_key, **ARMOR[item_key]}
-    if item_key in CONSUMABLES:
-        return {"category": "consumable", "key": item_key, **CONSUMABLES[item_key]}
+
+    item_key = item_key.strip().lower()
+    # Normalize: "rusty dagger" → "rusty_dagger"
+    normalized = item_key.replace(" ", "_")
+    item_key = ALIASES.get(item_key, ALIASES.get(normalized, normalized))
+
+    ALL = [
+        ("weapon",    WEAPONS),
+        ("armor",     ARMOR),
+        ("head",      HEADGEAR),
+        ("boots",     BOOTS),
+        ("accessory", ACCESSORIES),
+        ("consumable", CONSUMABLES),
+    ]
+
+    # Direct key match
+    for cat, reg in ALL:
+        if item_key in reg:
+            return {"category": cat, "key": item_key, **reg[item_key]}
+
+    # Fallback: match by item name (e.g. "Rusty Dagger")
+    for cat, reg in ALL:
+        for k, v in reg.items():
+            if v.get("name", "").lower() == item_key.replace("_", " "):
+                return {"category": cat, "key": k, **v}
+
     return None
 
 def process_purchase(sheet: dict, item_key: str, quantity: int = 1, reputation: int = 0) -> tuple[bool, str, dict]:
@@ -81,6 +110,7 @@ def process_sell(sheet: dict, item_key: str, reputation: int = 0) -> tuple[bool,
         return False, "Hemlock spits on the floor. 'I'm not buying your stolen goods.'", sheet
     
     from utils.ttrpg.equipment_registry import ALIASES
+    item_key = item_key.strip().lower().replace(" ", "_")
     item_key = ALIASES.get(item_key, item_key)
     
     if "inventory" not in sheet or item_key not in sheet["inventory"]:
