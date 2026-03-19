@@ -3,12 +3,15 @@ import sys
 import os
 from pathlib import Path
 
+import pytest
+
 # Add project root to path
 sys.path.append(str(Path(__file__).parent))
 
 from utils.core.kaia_rag import KaiaRAG
 from utils.infrastructure.system.yaml_config import config
 
+@pytest.mark.asyncio
 async def test_embedding_device():
     print("Initializing RAG with new CPU-force settings...")
     rag = KaiaRAG()

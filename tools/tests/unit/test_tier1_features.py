@@ -169,9 +169,16 @@ class TestAuditConfig:
 
     def test_default_penalty_value(self):
         """Default audit flag penalty should be 0.15."""
+        import importlib
+        # Ensure a clean import (test_intent_fix.py may have mocked this module)
+        if 'utils.infrastructure.system.yaml_config' in sys.modules:
+            mod = sys.modules['utils.infrastructure.system.yaml_config']
+            if hasattr(mod, '_mock_name') or isinstance(mod, MagicMock):
+                del sys.modules['utils.infrastructure.system.yaml_config']
         from utils.infrastructure.system.yaml_config import YAMLConfig
         config = YAMLConfig()
         assert config.rag_audit_flag_penalty == 0.15
+
 
 
 # ============================================================================

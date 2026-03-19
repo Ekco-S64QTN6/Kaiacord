@@ -3,6 +3,7 @@ import json
 import time
 import threading
 import asyncio
+import functools
 from typing import Dict
 
 SESSIONS_DIR = os.path.join("memory", "ttrpg", "sessions")
@@ -31,7 +32,7 @@ def _load_session_sync(channel_id: str) -> dict | None:
 async def load_session(channel_id: str) -> dict | None:
     lock = await get_session_lock(channel_id)
     async with lock:
-        return await asyncio.to_thread(_load_session_sync, channel_id)
+        return await asyncio.to_thread(functools.partial(_load_session_sync, channel_id))
 
 def _save_session_sync(session: dict) -> None:
     p = _path(str(session["channel_id"]))
@@ -45,7 +46,7 @@ async def save_session(session: dict) -> None:
     chan_id = str(session["channel_id"])
     lock = await get_session_lock(chan_id)
     async with lock:
-        await asyncio.to_thread(_save_session_sync, session)
+        await asyncio.to_thread(functools.partial(_save_session_sync, session))
 
 async def create_session(channel_id: str, scene: str) -> dict:
     session = {
@@ -53,6 +54,7 @@ async def create_session(channel_id: str, scene: str) -> dict:
         "active": True,
         "scene_summary": scene,
         "participants": [],
+        "monsters": [],
         "combat_active": False,
         "turn_order": [],
         "current_turn_index": 0,

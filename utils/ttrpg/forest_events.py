@@ -1,3 +1,4 @@
+import secrets
 """
 forest_events.py — LORD-style random forest events for Aethelgard
 ==================================================================
@@ -23,7 +24,6 @@ Event keys and what they do:
   crystal_resonance   — Aeridorian resonance pulse. XP surge or HP drain.
 """
 
-import random
 import secrets
 from datetime import date
 
@@ -79,7 +79,7 @@ def _sylvan_sprites(sheet: dict) -> dict:
     r["title"] = "✨ Sylvan Sprites"
 
     missing = sheet["hp"]["max"] - sheet["hp"]["current"]
-    heal = min(missing, random.randint(4, 11))  # 4-11 HP
+    heal = min(missing, secrets.randbelow(8) + 4)  # 4-11 HP
 
     if missing == 0:
         r["outcome"] = "You're already at full health. The sprites regard you curiously and drift away."
@@ -106,9 +106,9 @@ def _moogle_sighting(sheet: dict) -> dict:
     r["event_key"] = "moogle_sighting"
     r["title"] = "🎪 Moogle Sighting"
 
-    outcome = random.randint(0, 1)
+    outcome = secrets.randbelow(2)
     if outcome == 0:
-        gil = random.randint(1, 3) * 10  # 10, 20, or 30 gil
+        gil = (secrets.randbelow(3) + 1) * 10  # 10, 20, or 30 gil
         r["gil"] = gil
         r["xp"] = 8
         r["outcome"] = f"The moogle drops a pouch of {gil} gil and disappears."
@@ -139,12 +139,12 @@ def _injured_silvani(sheet: dict) -> dict:
     # Always help — player has no choice in !rpg hunt auto-resolve
     # But outcome varies by player WIS
     wis_mod = (sheet.get("stats", {}).get("wis", 10) - 10) // 2
-    roll = random.randint(1, 10) + wis_mod
+    roll = secrets.randbelow(10) + 1 + wis_mod
 
     if roll >= 6:
         # Successfully helped — their gratitude = XP + small heal
         xp = 25
-        heal = random.randint(3, 7)
+        heal = secrets.randbelow(5) + 3
         r["xp"] = xp
         r["hp_change"] = heal
         r["item_add"] = "healing_herb"
@@ -173,11 +173,11 @@ def _old_man_riddle(sheet: dict) -> dict:
     r["title"] = "🧙 The Old Man's Riddle"
 
     int_mod = (sheet.get("stats", {}).get("int", 10) - 10) // 2
-    roll = random.randint(1, 12) + int_mod
+    roll = secrets.randbelow(12) + 1 + int_mod
     dc = 8
 
     if roll >= dc:
-        reward_type = random.randint(0, 2)
+        reward_type = secrets.randbelow(3)
         if reward_type == 0:
             xp = 30
             r["xp"] = xp
@@ -309,9 +309,9 @@ def _timid_tonberry(sheet: dict) -> dict:
     r["event_key"] = "timid_tonberry"
     r["title"] = "🔪 Timid Tonberry"
 
-    outcome = random.randint(0, 2)
+    outcome = secrets.randbelow(3)
     if outcome == 0:
-        gil = random.randint(60, 100)  # 60-100 gil — tonberries are rich
+        gil = secrets.randbelow(41) + 60  # 60-100 gil — tonberries are rich
         r["gil"] = gil
         r["xp"] = 30
         r["outcome"] = f"It dropped its coin pouch running away. {gil} gil. You feel guilty."
@@ -371,7 +371,7 @@ def _crystal_resonance(sheet: dict) -> dict:
 
     # INT modifier affects outcome
     int_mod = (sheet.get("stats", {}).get("int", 10) - 10) // 2
-    roll = random.randint(1, 10) + int_mod
+    roll = secrets.randbelow(10) + 1 + int_mod
 
     if roll >= 7:
         xp = 35 + (sheet.get("level", 1) * 5)
@@ -384,7 +384,7 @@ def _crystal_resonance(sheet: dict) -> dict:
             "The XP gain feels like knowledge rather than combat experience."
         )
     else:
-        damage = random.randint(3, 7)
+        damage = secrets.randbelow(5) + 3
         r["hp_change"] = -damage
         r["xp"] = 10
         r["outcome"] = f"The resonance rejected you. -{damage} HP, +10 XP."

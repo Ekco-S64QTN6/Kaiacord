@@ -18,7 +18,7 @@ Defense formula reference:
   So DEF 8 = most players hit easily. DEF 18 = only strong builds connect.
 """
 
-import random
+
 
 MONSTERS = {
 

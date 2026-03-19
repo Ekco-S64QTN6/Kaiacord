@@ -9,6 +9,8 @@ import re
 from datetime import datetime, timedelta
 from typing import Optional
 
+import pytest
+
 # Mocking the ImprovedSemanticCache for standalone testing if needed, 
 # but we'll try to import it or just redefine it here for the test script's independence.
 
@@ -143,6 +145,7 @@ class ImprovedSemanticCache:
             "original_query": query[:200]  # Store original for debugging
         }
 
+@pytest.mark.asyncio
 async def test_cache():
     cache = ImprovedSemanticCache(threshold=0.85)
     

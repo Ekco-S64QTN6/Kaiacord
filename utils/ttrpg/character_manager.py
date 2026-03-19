@@ -1,12 +1,13 @@
 """
 Load, save, and create character sheets.
-All I/O is synchronous — wrap in asyncio.to_thread at the handler level.
+All I/O is synchronous — wrap in asyncio.to_thread at the manager level.
 """
 import os
 import json
 import time
 import threading
 import asyncio
+import functools
 from typing import Optional, Dict, Any, List
 
 CHARACTERS_DIR = os.path.join("memory", "ttrpg", "characters")
@@ -37,20 +38,24 @@ async def load(user_id: str) -> Optional[Dict[str, Any]]:
     """Async load with per-user locking."""
     lock = await get_user_lock(user_id)
     async with lock:
-        return await asyncio.to_thread(lambda: _load_sync(user_id))
+        return await asyncio.to_thread(functools.partial(_load_sync, user_id))
 
-def load_all() -> list:
+async def load_all() -> List[Dict[str, Any]]:
     """Load every character sheet on disk. Returns a list of dicts."""
+    return await asyncio.to_thread(_load_all_sync)
+
+def _load_all_sync() -> List[Dict[str, Any]]:
     os.makedirs(CHARACTERS_DIR, exist_ok=True)
     sheets = []
-    for fname in os.listdir(CHARACTERS_DIR):
-        if not fname.endswith(".json"):
-            continue
-        try:
-            with open(os.path.join(CHARACTERS_DIR, fname), 'r', encoding='utf-8') as f:
-                sheets.append(json.load(f))
-        except (json.JSONDecodeError, OSError):
-            continue
+    with _lock:
+        for fname in os.listdir(CHARACTERS_DIR):
+            if not fname.endswith(".json"):
+                continue
+            try:
+                with open(os.path.join(CHARACTERS_DIR, fname), 'r', encoding='utf-8') as f:
+                    sheets.append(json.load(f))
+            except (json.JSONDecodeError, OSError):
+                continue
     return sheets
 
 def _save_sync(sheet: Dict[str, Any]) -> None:
@@ -67,11 +72,22 @@ async def save(sheet: Dict[str, Any]) -> None:
     user_id = str(sheet["user_id"])
     lock = await get_user_lock(user_id)
     async with lock:
-        await asyncio.to_thread(lambda: _save_sync(sheet))
+        await asyncio.to_thread(functools.partial(_save_sync, sheet))
 
-def create(user_id: str, user_name: str, character_name: str,
-           race: str, class_name: str, stats: dict) -> dict:
+async def create(user_id: str, user_name: str, character_name: str,
+           race: str, class_name: str, stats: Dict[str, int]) -> Dict[str, Any]:
     """Create a new character sheet with rolled/assigned stats."""
+    user_id = str(user_id)
+    lock = await get_user_lock(user_id)
+    async with lock:
+        return await asyncio.to_thread(functools.partial(
+            _create_sync, user_id, user_name, character_name, race, class_name, stats
+        ))
+
+
+def _create_sync(user_id: str, user_name: str, character_name: str,
+           race: str, class_name: str, stats: Dict[str, int]) -> Dict[str, Any]:
+    """Synchronous internal creation logic."""
     from utils.ttrpg.dice_engine import CLASSES
     
     if class_name not in CLASSES:
@@ -128,7 +144,7 @@ def create(user_id: str, user_name: str, character_name: str,
     _save_sync(sheet)
     return sheet
 
-def format_sheet(sheet: dict) -> str:
+def format_sheet(sheet: Dict[str, Any]) -> str:
     """Format character sheet for Discord display."""
     s = sheet["stats"]
     mod = lambda v: f"+{(v-10)//2}" if (v-10)//2 >= 0 else str((v-10)//2)
@@ -174,7 +190,7 @@ def format_sheet(sheet: dict) -> str:
         f"**HP:** {sheet['hp']['current']}/{sheet['hp']['max']}  "
         f"**XP:** {xp_bar}  **Gil:** {gil}g{bank_line}\n"
         f"**Status:** {rep_str} | {q_str}\n"
-        f"**Hunts:** {hunts_rem}/{MAX_HUNTS_PER_DAY} | **Medals:** {s.get('deaths', 0)} deaths\n"
+        f"**Hunts:** {hunts_rem}/{MAX_HUNTS_PER_DAY} | **Medals:** {sheet.get('deaths', 0)} deaths\n"
         f"**Weapon:** {w_name}  **Armor:** {a_name}\n"
         f"**Conditions:** {conditions}\n"
         f"```\n"

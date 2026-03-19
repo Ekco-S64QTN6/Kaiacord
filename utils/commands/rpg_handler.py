@@ -57,8 +57,8 @@ import time
 import uuid as _uuid
 import os
 import json
-import random
 import discord
+import secrets
 from utils.infrastructure.logging.kaia_logger import log_info, log_error, log_warning
 from utils.infrastructure.system.yaml_config import config
 from utils.ttrpg.world_state import get_current_state
@@ -67,8 +67,9 @@ from utils.ttrpg.session_manager import load_session, save_session, create_sessi
 from utils.ttrpg.progression import check_and_reset_hunts, hunts_remaining, check_level_up, MAX_HUNTS_PER_DAY, xp_to_next_level, XP_THRESHOLDS
 from utils.social.kaia_social_responder import load_persona_async
 from utils.ttrpg.world import LOCATION_DATA
-from utils.ttrpg.monster_registry import get as get_monster
 from utils.ttrpg.encounter_tables import random_encounter
+import utils.ttrpg.dice_engine as dice_engine
+from utils.ttrpg.monster_registry import get as get_monster
 from utils.ttrpg.loot_tables import get_loot
 
 LOCATION_ACTIONS = {
@@ -227,10 +228,8 @@ async def handle_rpg_command(ctx, msg, send_kaia_response):
 async def _handle_status(ctx, msg, send, rest, uid, uname, is_owner):
     from utils.ttrpg.world import LOCATION_DATA
     from utils.ttrpg.rpg_ui import colored_bar, hp_label, CLASS_ICONS, LOCATION_ICONS, ANSI_GREEN, ANSI_RESET
-    import discord
     
     sheet = await load(uid)
-    import discord
     if not sheet:
         await msg.channel.send(embed=discord.Embed(
             description="You do not exist in Aethelgard. Type `!rpg new <Name> <Race> <Class>` to begin.",
@@ -352,7 +351,6 @@ async def _handle_status(ctx, msg, send, rest, uid, uname, is_owner):
 async def _handle_new(ctx, msg, send, rest, uid, uname, is_owner):
     from utils.ttrpg.dice_engine import roll, CLASSES
     
-    import discord
     existing = await load(uid)
     if existing:
         return await msg.channel.send(embed=discord.Embed(
@@ -400,7 +398,7 @@ async def _handle_new(ctx, msg, send, rest, uid, uname, is_owner):
         bonus_str = f" (+{bonus} race)" if bonus else ""
         roll_log.append(f"{stat.upper()}: {sorted(dice)[1:]} = {base}{bonus_str} -> {rolled_stats[stat]}")
     
-    sheet = await asyncio.to_thread(create, uid, uname, char_name, race, class_name, rolled_stats)
+    sheet = await create(uid, uname, char_name, race, class_name, rolled_stats)
     
     embed = discord.Embed(
         title="✨ New Adventurer Registered",
@@ -412,7 +410,6 @@ async def _handle_new(ctx, msg, send, rest, uid, uname, is_owner):
 async def _handle_sheet(ctx, msg, send, rest, uid, uname, is_owner):
     target_id = str(msg.mentions[0].id) if msg.mentions else uid
     sheet = await load(target_id)
-    import discord
     if not sheet:
         return await msg.channel.send(embed=discord.Embed(description="Character not found.", color=0xcc4444))
     await send(msg.channel, format_sheet(sheet), use_code_block=True)
@@ -422,10 +419,8 @@ async def _handle_sheet(ctx, msg, send, rest, uid, uname, is_owner):
 
 async def _handle_go(ctx, msg, send, rest, uid, uname, is_owner):
     from utils.ttrpg.world import LOCATION_DATA, resolve_location
-    import discord
 
     sheet = await load(uid)
-    import discord
     if not sheet: return await msg.channel.send(embed=discord.Embed(description="No character found.", color=0xcc4444))
 
     current_loc_key = sheet.get("location", "oakhaven")
@@ -573,7 +568,6 @@ async def _handle_look(ctx, msg, send, rest, uid, uname, is_owner):
 
 async def _handle_map(ctx, msg, send, rest, uid, uname, is_owner):
     from utils.ttrpg.world import LOCATION_DATA
-    import discord
 
     sheet = await load(uid)
     if not sheet: return
@@ -609,7 +603,6 @@ async def _handle_rest(ctx, msg, send, rest, uid, uname, is_owner):
     sheet = await load(uid)
     if not sheet: return
     
-    import discord
     if sheet.get("location") != "stone_hearth":
         return await msg.channel.send(embed=discord.Embed(description="You need to be at the Stone Hearth inn to rest. (`!rpg go stone_hearth`)", color=0xcc4444))
         
@@ -646,7 +639,6 @@ async def _handle_rumor(ctx, msg, send, rest, uid, uname, is_owner):
     from utils.infrastructure.gpu.gpu_manager import OllamaGPUManager, gpu_memory_manager, GPUTaskPriority
     
     sheet = await load(uid)
-    import discord
     if sheet and sheet.get("location") != "stone_hearth":
         return await msg.channel.send(embed=discord.Embed(description="You must be at the Stone Hearth to hear rumors. (`!rpg go stone_hearth`)", color=0xcc4444))
         
@@ -686,7 +678,6 @@ async def _handle_rumor(ctx, msg, send, rest, uid, uname, is_owner):
 
 async def _handle_shop(ctx, msg, send, rest, uid, uname, is_owner):
     from utils.ttrpg.shop import get_shop_inventory
-    import discord
     sheet = await load(uid)
     if sheet and sheet.get("location") != "hemlocks_store":
         return await msg.channel.send(embed=discord.Embed(description="You must be at Hemlock's Store to view inventory. (`!rpg go hemlocks_store`)", color=0xcc4444))
@@ -720,7 +711,6 @@ async def _handle_buy(ctx, msg, send, rest, uid, uname, is_owner):
     
     sheet = await load(uid)
     if not sheet: return
-    import discord
     if sheet.get("location") != "hemlocks_store":
         return await msg.channel.send(embed=discord.Embed(description="You must be at Hemlock's Store to buy items.", color=0xcc4444))
         
@@ -763,7 +753,6 @@ async def _handle_sell(ctx, msg, send, rest, uid, uname, is_owner):
     
     sheet = await load(uid)
     if not sheet: return
-    import discord
     if sheet.get("location") != "hemlocks_store":
         return await msg.channel.send(embed=discord.Embed(description="You must remain at Hemlock's Store to sell items.", color=0xcc4444))
         
@@ -781,7 +770,6 @@ async def _handle_sell(ctx, msg, send, rest, uid, uname, is_owner):
     await msg.channel.send(embed=discord.Embed(description=resp_msg, color=color))
 
 async def _handle_calendar(ctx, msg, send, rest, uid, uname, is_owner):
-    import discord
     from utils.ttrpg.calendar import get_today_summary, SPECIAL_DAYS
     from datetime import date
 
@@ -837,7 +825,6 @@ async def _handle_calendar(ctx, msg, send, rest, uid, uname, is_owner):
 
 async def _handle_weather(ctx, msg, send, rest, uid, uname, is_owner):
     """!rpg weather — check today's deterministic weather conditions."""
-    import discord
     from utils.ttrpg.calendar import get_weather, get_today_summary
 
     weather = get_weather()
@@ -879,7 +866,6 @@ async def _handle_talk(ctx, msg, send, rest, uid, uname, is_owner):
     sheet = await load(uid)
     
     args = rest.strip().split(maxsplit=1)
-    import discord
     if not args:
         return await msg.channel.send(embed=discord.Embed(description=f"Talk to who? Known NPCs: {', '.join(NPCS.keys())}", color=0x888888))
         
@@ -920,7 +906,7 @@ async def _handle_talk(ctx, msg, send, rest, uid, uname, is_owner):
             
     topic = ""
     if "topics" in npc and npc["topics"]:
-        topic = random.choice(npc["topics"])
+        topic = npc["topics"][secrets.randbelow(len(npc["topics"]))]
         
     # Quest Integration
     from utils.ttrpg.quest_registry import get_npc_quests, get_quest
@@ -1068,7 +1054,6 @@ async def _handle_brew(ctx, msg, send, rest, uid, uname, is_owner):
         if not known:
             return await send(msg.channel, "You don't know any recipes yet. Speak with Sister Maren.")
         
-        import discord
         embed = discord.Embed(title="📜 Known Recipes", color=0x2ecc71)
         for r_key in known:
             r = get_recipe(r_key)
@@ -1080,20 +1065,16 @@ async def _handle_brew(ctx, msg, send, rest, uid, uname, is_owner):
     success, result_msg = brew(sheet, recipe_id)
     if success:
         await save(sheet)
-        import discord
         await msg.channel.send(embed=discord.Embed(description=result_msg, color=0x2ecc71))
     else:
-        import discord
         await msg.channel.send(embed=discord.Embed(description=result_msg, color=0xcc4444))
 
 async def _handle_notices(ctx, msg, send, rest, uid, uname, is_owner):
     sheet = await load(uid)
     if sheet and sheet.get("location") != "notice_board":
-        import discord
         return await msg.channel.send(embed=discord.Embed(description="You must be at the Notice Board to read it. (`!rpg go notice_board`)", color=0xcc4444))
         
     import os
-    import json
     path = os.path.join("memory", "ttrpg", "world_events.json")
     events = []
     if os.path.exists(path):
@@ -1108,7 +1089,6 @@ async def _handle_notices(ctx, msg, send, rest, uid, uname, is_owner):
     else:
         desc = "\n".join([f"• {e}" for e in reversed(events)])
         
-    import discord
     embed = discord.Embed(
         title="📝 Oakhaven Notice Board",
         description=desc,
@@ -1121,7 +1101,6 @@ async def _handle_quests(ctx, msg, send, rest, uid, uname, is_owner):
     sheet = await load(uid)
     if not sheet: return
     
-    import discord
     active = sheet.get("active_quest")
     completed = sheet.get("completed_quests", [])
     
@@ -1161,7 +1140,6 @@ async def _handle_quest_detail(ctx, msg, send, rest, uid, uname, is_owner):
     if not q:
         return await send(msg.channel, f"Quest `{quest_id}` not found.")
         
-    import discord
     embed = discord.Embed(
         title=f"📜 {q['name']}",
         description=q['description'],
@@ -1198,7 +1176,6 @@ async def _handle_accept(ctx, msg, send, rest, uid, uname, is_owner):
     sheet["active_quest"] = quest_id
     await save(sheet)
     
-    import discord
     embed = discord.Embed(
         title="Quest Accepted!",
         description=f"You have taken up the task: **{q['name']}**.\n\n*{q['description']}*",
@@ -1210,7 +1187,6 @@ async def _handle_accept(ctx, msg, send, rest, uid, uname, is_owner):
 # ── Items and Equipment ──────────────────────────────────────────────────────
 
 async def _handle_inventory(ctx, msg, send, rest, uid, uname, is_owner):
-    import discord
     from utils.ttrpg.shop import find_item
 
     sheet = await load(uid)
@@ -1265,7 +1241,6 @@ async def _handle_equip(ctx, msg, send, rest, uid, uname, is_owner):
     sheet = await load(uid)
     if not sheet: return
     
-    import discord
     if not rest.strip():
         return await msg.channel.send(embed=discord.Embed(description="Equip what? `!rpg equip <item>`", color=0x888888))
         
@@ -1301,7 +1276,6 @@ async def _handle_use(ctx, msg, send, rest, uid, uname, is_owner):
     from utils.ttrpg.equipment_registry import ALIASES
     item_key = ALIASES.get(item_key, item_key)
         
-    import discord
     if item_key not in sheet.get("inventory", []):
         return await msg.channel.send(embed=discord.Embed(description=f"You don't have `{item_key}`.", color=0xcc4444))
         
@@ -1347,12 +1321,10 @@ async def _handle_use(ctx, msg, send, rest, uid, uname, is_owner):
 async def _handle_hunts(ctx, msg, send, rest, uid, uname, is_owner):
     sheet = await load(uid)
     if not sheet: return
-    import discord
     await msg.channel.send(embed=discord.Embed(description=f"**{sheet['character_name']}** has {hunts_remaining(sheet)} hunts remaining today. Reset is at midnight server time.", color=0x888888))
 
 async def _handle_hunt(ctx, msg, send, rest, uid, uname, is_owner):
     from utils.ttrpg.world import LOCATION_DATA
-    from utils.ttrpg.encounter_tables import random_encounter
     from utils.ttrpg.monster_registry import get as get_monster
     from utils.ttrpg.calendar import get_weather
     
@@ -1370,7 +1342,6 @@ async def _handle_hunt(ctx, msg, send, rest, uid, uname, is_owner):
         loc = sheet.get("location", "oakhaven")
         if "Whisperwood Deep" in effect["desc"] and loc == "whisperwood_deep":
             if sheet.get("level", 1) < gate_val:
-                import discord
                 return await msg.channel.send(embed=discord.Embed(
                     description=f"🌨️ **Blizzard Warning:** {effect['desc']}\n*You are currently level {sheet.get('level', 1)} and cannot pass.*",
                     color=0x8aaac8
@@ -1378,7 +1349,6 @@ async def _handle_hunt(ctx, msg, send, rest, uid, uname, is_owner):
     
     loc = sheet.get("location", "oakhaven")
     ld = LOCATION_DATA.get(loc, {})
-    import discord
     if not ld.get("hunting"):
         return await msg.channel.send(embed=discord.Embed(description=f"You can't hunt in **{ld.get('name', loc)}**.\nTravel somewhere wild first.", color=0xcc4444))
         
@@ -1421,7 +1391,6 @@ async def _handle_hunt(ctx, msg, send, rest, uid, uname, is_owner):
     if my_fights:
         m_name = my_fights[0].get("name", "Unknown Monster")
         m_key = my_fights[0].get("key", "monster")
-        import discord
         return await msg.channel.send(embed=discord.Embed(
             title="⚔️ Already in combat",
             description=f"You are already fighting a **{m_name}**.\n`!rpg attack {m_key}` · `!rpg flee`",
@@ -1450,8 +1419,7 @@ async def _handle_hunt(ctx, msg, send, rest, uid, uname, is_owner):
     
     num_to_spawn = 1
     if density > 1:
-        import random
-        spawn_roll = random.random()
+        spawn_roll = secrets.randbelow(100) / 100.0
         if density == 2 and spawn_roll < 0.25:
             num_to_spawn = 2
         elif density == 3:
@@ -1518,7 +1486,7 @@ async def _handle_attack(ctx, msg, send, rest, uid, uname, is_owner):
     
     sheet = await load(uid)
     if not sheet: return
-    import discord
+    loc = sheet.get("location", "oakhaven")
     if sheet["hp"]["current"] <= 0:
         return await msg.channel.send(embed=discord.Embed(description="You are incapacitated.", color=0xcc4444))
         
@@ -1659,7 +1627,6 @@ async def _handle_attack(ctx, msg, send, rest, uid, uname, is_owner):
         
     await save(sheet)
     
-    import discord
     embed_color = 0xFF4500 if res["monster_alive"] else 0x2D5A27
     if not res["player_alive"]:
         embed_color = 0x8B0000
@@ -1709,7 +1676,6 @@ async def _handle_attack(ctx, msg, send, rest, uid, uname, is_owner):
             pass
 
 async def _handle_flee(ctx, msg, send, rest, uid, uname, is_owner):
-    import discord
 
     s = await load_session(str(msg.channel.id))
     if not s or not s.get("combat_active"): return
@@ -1722,7 +1688,7 @@ async def _handle_flee(ctx, msg, send, rest, uid, uname, is_owner):
             
     if to_flee == -1: return await msg.channel.send(embed=discord.Embed(description="You have nothing chasing you.", color=0xcc4444))
     
-    roll = random.randint(1, 20)
+    roll = secrets.randbelow(20) + 1
     if roll >= 10:
         s["monsters"].pop(to_flee)
         if not s["monsters"]: s["combat_active"] = False
@@ -1763,7 +1729,6 @@ async def _apply_and_narrate_event(ctx, msg, send, sheet, result, uname):
     await save(sheet)
 
     # Post mechanical result as embed (matches combat log card style)
-    import discord
     xp_next = xp_to_next_level(sheet["level"])
 
     event_colors = {
@@ -1804,7 +1769,6 @@ async def _apply_and_narrate_event(ctx, msg, send, sheet, result, uname):
     await msg.channel.send(embed=embed)
 
     if leveled_up:
-        import discord
         await msg.channel.send(embed=discord.Embed(
             description=f"🎉 **{sheet['character_name']} reached Level {new_level}!**",
             color=0xffcc00
@@ -1850,7 +1814,6 @@ async def _apply_and_narrate_event(ctx, msg, send, sheet, result, uname):
                 )
                 narration = resp["message"]["content"].strip().replace("```", "")
                 if narration:
-                    import discord
                     embed = discord.Embed(
                         description=f"*{narration}*",
                         color=0x4488cc
@@ -1864,7 +1827,6 @@ async def _handle_drink(ctx, msg, send, rest, uid, uname, is_owner):
     """!rpg drink — buy an ale at the Stone Hearth. Costs 2 gil, +3 temporary HP."""
 
     sheet = await load(uid)
-    import discord
     if not sheet:
         return await msg.channel.send(embed=discord.Embed(description="No character found.", color=0xcc4444))
 
@@ -1907,7 +1869,6 @@ async def _handle_fountain(ctx, msg, send, rest, uid, uname, is_owner):
     from datetime import date
 
     sheet = await load(uid)
-    import discord
     if not sheet:
         return await msg.channel.send(embed=discord.Embed(description="No character found.", color=0xcc4444))
 
@@ -1938,7 +1899,6 @@ async def _handle_gamble(ctx, msg, send, rest, uid, uname, is_owner):
     """!rpg gamble — dice game at the Stone Hearth. 10 gil buy-in."""
 
     sheet = await load(uid)
-    import discord
     if not sheet:
         return await msg.channel.send(embed=discord.Embed(description="No character found.", color=0xcc4444))
 
@@ -1956,8 +1916,8 @@ async def _handle_gamble(ctx, msg, send, rest, uid, uname, is_owner):
         ))
 
     # Roll d6 vs d6. Tie goes to house.
-    player_roll = random.randint(1, 6)
-    house_roll  = random.randint(1, 6)
+    player_roll = secrets.randbelow(6) + 1
+    house_roll  = secrets.randbelow(6) + 1
 
     sheet["gil"] -= BUY_IN
 
@@ -1985,7 +1945,6 @@ async def _handle_pray(ctx, msg, send, rest, uid, uname, is_owner):
     from datetime import date
 
     sheet = await load(uid)
-    import discord
     if not sheet:
         return await msg.channel.send(embed=discord.Embed(description="No character found.", color=0xcc4444))
 
@@ -2026,7 +1985,6 @@ async def _handle_offer(ctx, msg, send, rest, uid, uname, is_owner):
     from datetime import date
 
     sheet = await load(uid)
-    import discord
     if not sheet:
         return await msg.channel.send(embed=discord.Embed(description="No character found.", color=0xcc4444))
 
@@ -2092,7 +2050,6 @@ async def _handle_scout(ctx, msg, send, rest, uid, uname, is_owner):
     from datetime import date
 
     sheet = await load(uid)
-    import discord
     if not sheet:
         return await msg.channel.send(embed=discord.Embed(description="No character found.", color=0xcc4444))
 
@@ -2181,7 +2138,6 @@ async def _handle_scout(ctx, msg, send, rest, uid, uname, is_owner):
 async def _handle_bank(ctx, msg, send, rest, uid, uname, is_owner):
     """!rpg bank [deposit|withdraw] <amount>"""
     from utils.ttrpg.world import LOCATION_DATA
-    import discord
 
     sheet = await load(uid)
     if not sheet: return
@@ -2253,7 +2209,6 @@ async def _handle_deliver(ctx, msg, send, rest, uid, uname, is_owner):
     """!rpg deliver — turn in a mognet letter in Oakhaven."""
 
     sheet = await load(uid)
-    import discord
     if not sheet:
         return await msg.channel.send(embed=discord.Embed(description="No character found.", color=0xcc4444))
 
@@ -2301,7 +2256,6 @@ async def _handle_roll(ctx, msg, send, rest, uid, uname, is_owner):
     from utils.ttrpg.dice_engine import roll
     try:
         total, breakdown = roll(rest.strip() or "d20")
-        import discord
         await msg.channel.send(embed=discord.Embed(
             description=f"🎲 **{uname}** rolled `{rest.strip() or 'd20'}`: {breakdown}",
             color=0x4488cc
@@ -2316,7 +2270,6 @@ async def _handle_bestiary(ctx, msg, send, rest, uid, uname, is_owner):
 
 async def _handle_xp(ctx, msg, send, rest, uid, uname, is_owner):
     if not is_owner: return
-    import discord
     await msg.channel.send(embed=discord.Embed(
         description="Developer override required to assign arbitrary XP in Aethelgard. Go hunt.",
         color=0xcc4444
@@ -2333,7 +2286,6 @@ async def _handle_give(ctx, msg, send, rest, uid, uname, is_owner):
     if item:
         sheet["inventory"].append(args[0])
         await save(sheet)
-        import discord
         await msg.channel.send(embed=discord.Embed(
             description=f"Admin granted `{args[0]}` to {sheet['character_name']}.",
             color=0x44aa44
@@ -2345,7 +2297,6 @@ async def _handle_heal(ctx, msg, send, rest, uid, uname, is_owner):
     if not sheet: return
     sheet["hp"]["current"] = sheet["hp"]["max"]
     await save(sheet)
-    import discord
     await msg.channel.send(embed=discord.Embed(
         description=f"Admin fully healed {sheet['character_name']}.",
         color=0x44aa44
@@ -2356,9 +2307,8 @@ async def _handle_leaderboard(ctx, msg, send, rest, uid, uname, is_owner):
     """!rpg leaderboard — show all characters ranked by XP."""
     from utils.ttrpg.world import LOCATION_DATA
     from utils.ttrpg.rpg_ui import CLASS_ICONS, LOCATION_ICONS
-    import discord
 
-    sheets = await asyncio.to_thread(_load_all_sync)
+    sheets = await load_all()
     if not sheets:
         return await msg.channel.send(embed=discord.Embed(description="No adventurers have been created yet.", color=0x888888))
 
@@ -2431,7 +2381,6 @@ async def _handle_event(ctx, msg, send, rest, uid, uname, is_owner):
             log_error(f"[rpg event] {e}")
 
 async def _handle_rpg_help(ctx, msg, send, rest, uid, uname, is_owner):
-    import discord
 
     embed = discord.Embed(
         title="📜 Aethelgard Commands",
@@ -2534,7 +2483,6 @@ async def _handle_duel(ctx, msg, send, rest, uid, uname, is_owner):
 
     PENDING_DUELS[(uid, target_id)] = time.time()
     
-    import discord
     embed = discord.Embed(
         title="⚔️ DUEL CHALLENGE",
         description=f"**{uname}** has challenged **{target.display_name}** to a duel!\n\n**{target.display_name}**, type `!rpg accept` to engage.\n*Duels are non-lethal (stop at 1 HP).*",
@@ -2581,7 +2529,6 @@ async def _handle_accept(ctx, msg, send, rest, uid, uname, is_owner):
         t_sheet["hp"] = res["monster"]["hp"]
         await save(t_sheet) # target
         
-        import discord
         embed = discord.Embed(
             title="⚔️ DUEL RESULTS",
             description="\n".join(res["exchanges"]),

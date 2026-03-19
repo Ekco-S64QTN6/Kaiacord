@@ -3,11 +3,14 @@ import os
 import sys
 import psutil
 
+import pytest
+
 sys.path.append(os.path.abspath(os.path.join(os.path.dirname(__file__), '../../..')))
 
 from utils.core.kaia_rag import KaiaRAG
 from llama_index.core.schema import Document
 
+@pytest.mark.asyncio
 async def test_bm25():
     avail = psutil.virtual_memory().available / 1024**3
     print(f"Available memory: {avail}GB")

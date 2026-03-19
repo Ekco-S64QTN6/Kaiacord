@@ -2,7 +2,6 @@
 Item drops for monster kills based on their difficulty tier.
 Keys match equipment_registry.py CONSUMABLES entries so items can be used/sold.
 """
-import random
 import secrets
 from typing import Optional
 
@@ -19,7 +18,8 @@ def get_loot(tier: str) -> Optional[str]:
     
     table = tables.get(tier, tables["medium"])
     total_weight = sum(w for _, w in table)
-    roll = random.randint(0, total_weight - 1)
+    roll = secrets.randbelow(total_weight)
+
     
     current = 0
     for item_name, weight in table:

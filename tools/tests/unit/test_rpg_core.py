@@ -20,15 +20,15 @@ from utils.ttrpg.character_manager import create, load
 
 def test_world_state_logic():
     """Verify weather and event logic in world_state.py."""
-    # Test Clear weather (Roll 0.1)
-    with patch("random.random", side_effect=[0.1, 0.95]): # Clear, No event
+    # Test Clear weather (Roll 10 < 60 = clear), No event (Roll 95 >= 10)
+    with patch("secrets.randbelow", side_effect=[10, 95]):
         state = calculate_next_state()
         assert state["weather"] == "clear"
         assert state["atk_mod"] == 0
         
-    # Test Stormy with Resonance Surge (Roll 0.85, 0.05)
-    with patch("random.random", side_effect=[0.85, 0.05]), \
-         patch("random.choice", return_value=("resonance_surge", "surge", {"atk_mod": 2, "def_mod": 2})):
+    # Test Stormy with Resonance Surge
+    # weather_roll=85 (< 95 = stormy), event_roll=5 (< 10 = event), event_idx=0 (resonance_surge)
+    with patch("secrets.randbelow", side_effect=[85, 5, 0]):
         state = calculate_next_state()
         assert state["weather"] == "stormy"
         assert state["event"] == "resonance_surge"
@@ -169,8 +169,9 @@ def test_dialogue_context_logic():
 
 def test_character_creation_and_reputation():
     """Verify default reputation and creation stats."""
-    with patch("utils.ttrpg.character_manager.save"): # Don't write to disk
-        sheet = create("u1", "un", "cn", "Human", "Warrior", {"str":10,"dex":10,"con":10,"int":10,"wis":10,"cha":10})
+    import asyncio
+    with patch("utils.ttrpg.character_manager._save_sync"): # Don't write to disk
+        sheet = asyncio.run(create("u1", "un", "cn", "Human", "Warrior", {"str":10,"dex":10,"con":10,"int":10,"wis":10,"cha":10}))
         assert sheet["reputation"] == 0
         assert sheet["bank_balance"] == 0
         assert sheet["location"] == "oakhaven"

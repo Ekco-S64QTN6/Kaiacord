@@ -3,11 +3,14 @@ import sys
 from pathlib import Path
 from datetime import datetime, timezone, timedelta
 
+import pytest
+
 # Add project root to path
 sys.path.append(str(Path(__file__).parent.parent.parent))
 
 from utils.social.kaia_social_responder import _get_bluesky_mentions
 
+@pytest.mark.asyncio
 async def test_lookback_filter():
     print("\n--- Starting Social Lookback Filter Test ---\n")
     

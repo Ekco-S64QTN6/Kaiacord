@@ -39,19 +39,19 @@ def get_current_state() -> Dict[str, Any]:
     return load_world_state()
 
 def calculate_next_state() -> Dict[str, Any]:
-    import random
+    import secrets
     new_state = DEFAULT_STATE.copy()
     
-    # 1. Roll for Weather
-    w_roll = random.random()
-    if w_roll < 0.6: # 60% Clear
+    # 1. Roll for Weather (percentile-based)
+    w_roll = secrets.randbelow(100)
+    if w_roll < 60: # 60% Clear
         new_state["weather"] = "clear"
         new_state["weather_desc"] = "The sky is a brilliant, cloudless blue."
-    elif w_roll < 0.8: # 20% Overcast
+    elif w_roll < 80: # 20% Overcast
         new_state["weather"] = "overcast"
         new_state["weather_desc"] = "A thick layer of grey clouds hangs low over the trees."
         new_state["atk_mod"] = -1
-    elif w_roll < 0.95: # 15% Stormy
+    elif w_roll < 95: # 15% Stormy
         new_state["weather"] = "stormy"
         new_state["weather_desc"] = "Thunder rumbles as rain lashes against the square."
         new_state["atk_mod"] = -2
@@ -63,14 +63,15 @@ def calculate_next_state() -> Dict[str, Any]:
         new_state["xp_mult"] = 1.5
         
     # 2. Roll for World Event
-    e_roll = random.random()
-    if e_roll < 0.1: # 10% chance of event
+    e_roll = secrets.randbelow(100)
+    if e_roll < 10: # 10% chance of event
         events = [
             ("resonance_surge", "A surge of ancient magic pulses through the ley lines (+2 ATK/DEF).", {"atk_mod": 2, "def_mod": 2}),
             ("hemlock_sale", "Old Man Hemlock is feeling generous today (Selling bonus).", {"gil_mult": 1.25}),
             ("whisper_thin", "The veil is thin. XP flows more freely (+25% XP).", {"xp_mult": 1.25}),
         ]
-        ev_type, ev_desc, mods = random.choice(events)
+        idx = secrets.randbelow(len(events))
+        ev_type, ev_desc, mods = events[idx]
         new_state["event"] = ev_type
         new_state["event_desc"] = ev_desc
         for k, v in mods.items():
@@ -78,3 +79,4 @@ def calculate_next_state() -> Dict[str, Any]:
                 new_state[k] += v # additive
                 
     return new_state
+

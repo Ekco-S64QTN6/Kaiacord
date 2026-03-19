@@ -1,4 +1,3 @@
-import random
 import secrets
 
 ENCOUNTER_TABLES = {
@@ -40,7 +39,7 @@ def random_encounter(location: str) -> str:
     table = get_seasonal_encounter_table(location, base_table)
     
     total = sum(w for _, w in table)
-    r = random.randint(0, total - 1)
+    r = secrets.randbelow(total)
     cumulative = 0
     for monster_key, weight in table:
         cumulative += weight
@@ -59,7 +58,7 @@ EVENT_CHANCE = {
 def roll_for_event(location: str) -> bool:
     """Returns True if this hunt should be a special event."""
     chance = EVENT_CHANCE.get(location, 15)
-    return random.randint(0, 99) < chance
+    return secrets.randbelow(100) < chance
 
 EVENTS = {
     "whisperwood_edge": [
@@ -109,7 +108,7 @@ def random_event(location: str) -> str:
     """Pick a weighted random event for the given location."""
     table = EVENTS.get(location, EVENTS["whisperwood_edge"])
     total = sum(w for _, w in table)
-    r = random.randint(0, total - 1)
+    r = secrets.randbelow(total)
     cumulative = 0
     for event_key, weight in table:
         cumulative += weight

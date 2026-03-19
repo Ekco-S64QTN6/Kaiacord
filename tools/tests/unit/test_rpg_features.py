@@ -9,21 +9,22 @@ from utils.ttrpg.combat_engine import _resolve_combat
 
 def test_world_state_calculation():
     """Test that world state transitions correctly."""
-    # Mock random to ensure deterministic results
-    # weather_roll, event_roll
-    with patch("random.random", side_effect=[0.1, 0.95]): # Clear, None
+    # Mock secrets.randbelow to ensure deterministic results
+    # weather_roll=10 (< 60 = clear), event_roll=95 (>= 10 = no event)
+    with patch("secrets.randbelow", side_effect=[10, 95]):
         new_state = calculate_next_state()
         assert new_state["weather"] == "clear"
         assert new_state["event"] == "none"
         assert new_state["atk_mod"] == 0
         
-    with patch("random.random", side_effect=[0.85, 0.05]), \
-         patch("random.choice", side_effect=[("resonance_surge", "surge", {"atk_mod": 2, "def_mod": 2})]):
+    # weather_roll=85 (< 95 = stormy), event_roll=5 (< 10 = event), event_idx=0 (resonance_surge)
+    with patch("secrets.randbelow", side_effect=[85, 5, 0]):
         new_state = calculate_next_state()
         assert new_state["weather"] == "stormy"
         assert new_state["event"] == "resonance_surge"
         assert new_state["atk_mod"] == -2 + 2 # -2 from storm, +2 from surge
         assert new_state["def_mod"] == -2 + 2
+
 
 def test_reputation_shop_pricing():
     """Test that reputation correctly affects shop prices."""

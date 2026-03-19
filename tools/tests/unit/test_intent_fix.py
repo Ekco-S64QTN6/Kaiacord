@@ -4,6 +4,8 @@ import asyncio
 import re
 from unittest.mock import AsyncMock
 
+import pytest
+
 # Add project root to path
 sys.path.append(os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
 
@@ -19,6 +21,7 @@ mock_config.system_reserve_tokens = 256
 
 from utils.core.kaia_intelligence import IntentParser
 
+@pytest.mark.asyncio
 async def test_fast_parse_biographical():
     print("--- Testing Biographical Fast Parse ---")
     parser = IntentParser(ollama_client=AsyncMock())
@@ -38,6 +41,7 @@ async def test_fast_parse_biographical():
     
     print("✅ All biographical fast-triggers matched correctly.")
 
+@pytest.mark.asyncio
 async def test_news_llm_description():
     print("\n--- Verifying LLM Prompt Descriptions ---")
     # This is not a runtime test but a sanity check on the parser's prompt construction

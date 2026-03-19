@@ -12,10 +12,13 @@ import asyncio
 import sys
 import os
 
+import pytest
+
 # Add project root to path
 sys.path.insert(0, os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
 
 
+@pytest.mark.asyncio
 async def test_task_registration():
     """Test basic task registration"""
     print("Testing task registration...")
@@ -45,6 +48,7 @@ async def test_task_registration():
     print("✅ Task registration works")
 
 
+@pytest.mark.asyncio
 async def test_mass_cancellation():
     """Test cancelling all tasks"""
     print("\nTesting mass cancellation...")
@@ -76,6 +80,7 @@ async def test_mass_cancellation():
     print(f"✅ Mass cancellation completed in {elapsed:.2f}s")
 
 
+@pytest.mark.asyncio
 async def test_auto_cleanup_completed_tasks():
     """Test that completed tasks are auto-cleaned"""
     print("\nTesting auto-cleanup of completed tasks...")
@@ -108,6 +113,7 @@ async def test_auto_cleanup_completed_tasks():
     print("✅ Completed tasks handled correctly")
 
 
+@pytest.mark.asyncio
 async def test_force_clear():
     """Test force clear for emergency shutdown"""
     print("\nTesting force clear...")
@@ -142,6 +148,7 @@ async def test_force_clear():
     print(f"✅ Force clear cancelled {cleared} tasks")
 
 
+@pytest.mark.asyncio
 async def test_shutdown_prevents_new_registration():
     """Test that shutdown prevents new task registration"""
     print("\nTesting shutdown prevents new registration...")
@@ -167,6 +174,7 @@ async def test_shutdown_prevents_new_registration():
     print("✅ New registrations blocked after shutdown")
 
 
+@pytest.mark.asyncio
 async def test_registry_reset():
     """Test registry reset functionality"""
     print("\nTesting registry reset...")
