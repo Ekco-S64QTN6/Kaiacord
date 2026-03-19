@@ -62,6 +62,14 @@ import discord
 from utils.infrastructure.logging.kaia_logger import log_info, log_error, log_warning
 from utils.infrastructure.system.yaml_config import config
 from utils.ttrpg.world_state import get_current_state
+from utils.ttrpg.character_manager import load, save, create, format_sheet, load_all
+from utils.ttrpg.session_manager import load_session, save_session, create_session, end_session
+from utils.ttrpg.progression import check_and_reset_hunts, hunts_remaining, check_level_up, MAX_HUNTS_PER_DAY, xp_to_next_level, XP_THRESHOLDS
+from utils.social.kaia_social_responder import load_persona_async
+from utils.ttrpg.world import LOCATION_DATA
+from utils.ttrpg.monster_registry import get as get_monster
+from utils.ttrpg.encounter_tables import random_encounter
+from utils.ttrpg.loot_tables import get_loot
 
 LOCATION_ACTIONS = {
     "oakhaven": [
@@ -217,14 +225,11 @@ async def handle_rpg_command(ctx, msg, send_kaia_response):
 # ── HUD / Status ─────────────────────────────────────────────────────────────
 
 async def _handle_status(ctx, msg, send, rest, uid, uname, is_owner):
-    from utils.ttrpg.character_manager import load
-    from utils.ttrpg.progression import hunts_remaining, MAX_HUNTS_PER_DAY, xp_to_next_level
     from utils.ttrpg.world import LOCATION_DATA
-    from utils.ttrpg.session_manager import load_session
     from utils.ttrpg.rpg_ui import colored_bar, hp_label, CLASS_ICONS, LOCATION_ICONS, ANSI_GREEN, ANSI_RESET
     import discord
     
-    sheet = await asyncio.to_thread(load, uid)
+    sheet = await load(uid)
     import discord
     if not sheet:
         await msg.channel.send(embed=discord.Embed(
@@ -243,7 +248,6 @@ async def _handle_status(ctx, msg, send, rest, uid, uname, is_owner):
     xp_cur = sheet["xp"]
     xp_next = xp_to_next_level(sheet["level"])
     if xp_next:
-        from utils.ttrpg.progression import XP_THRESHOLDS
         floor = XP_THRESHOLDS.get(sheet["level"], 0)
         progress = xp_cur - floor
         req = xp_next - floor
@@ -270,7 +274,7 @@ async def _handle_status(ctx, msg, send, rest, uid, uname, is_owner):
         nearby.append(n)
     nearby_str = " · ".join(nearby) if nearby else "None"
     
-    s = await asyncio.to_thread(load_session, str(msg.channel.id))
+    s = await load_session(str(msg.channel.id))
     in_combat = False
     if s and s.get("combat_active"):
         for m in s.get("monsters", []):
@@ -346,11 +350,10 @@ async def _handle_status(ctx, msg, send, rest, uid, uname, is_owner):
 # ── Character Management ─────────────────────────────────────────────────────
 
 async def _handle_new(ctx, msg, send, rest, uid, uname, is_owner):
-    from utils.ttrpg.character_manager import load, create, format_sheet
     from utils.ttrpg.dice_engine import roll, CLASSES
     
     import discord
-    existing = await asyncio.to_thread(load, uid)
+    existing = await load(uid)
     if existing:
         return await msg.channel.send(embed=discord.Embed(
             description=f"You already have a character: **{existing['character_name']}**.\nSheets are permanent.",
@@ -407,9 +410,8 @@ async def _handle_new(ctx, msg, send, rest, uid, uname, is_owner):
     await msg.channel.send(embed=embed)
 
 async def _handle_sheet(ctx, msg, send, rest, uid, uname, is_owner):
-    from utils.ttrpg.character_manager import load, format_sheet
     target_id = str(msg.mentions[0].id) if msg.mentions else uid
-    sheet = await asyncio.to_thread(load, target_id)
+    sheet = await load(target_id)
     import discord
     if not sheet:
         return await msg.channel.send(embed=discord.Embed(description="Character not found.", color=0xcc4444))
@@ -419,11 +421,10 @@ async def _handle_sheet(ctx, msg, send, rest, uid, uname, is_owner):
 # ── World & Movement ─────────────────────────────────────────────────────────
 
 async def _handle_go(ctx, msg, send, rest, uid, uname, is_owner):
-    from utils.ttrpg.character_manager import load, save
     from utils.ttrpg.world import LOCATION_DATA, resolve_location
     import discord
 
-    sheet = await asyncio.to_thread(load, uid)
+    sheet = await load(uid)
     import discord
     if not sheet: return await msg.channel.send(embed=discord.Embed(description="No character found.", color=0xcc4444))
 
@@ -477,7 +478,7 @@ async def _handle_go(ctx, msg, send, rest, uid, uname, is_owner):
 
     # Move player to final destination
     sheet["location"] = target
-    await asyncio.to_thread(save, sheet)
+    await save(sheet)
 
     # Build arrival embed
     loc_data = LOCATION_DATA.get(target, {})
@@ -511,13 +512,11 @@ async def _handle_go(ctx, msg, send, rest, uid, uname, is_owner):
     await msg.channel.send(embed=embed)
 
 async def _handle_look(ctx, msg, send, rest, uid, uname, is_owner):
-    from utils.ttrpg.character_manager import load
     from utils.ttrpg.world import LOCATION_DATA
     from utils.ttrpg.rpg_prompt_builder import build_look_prompt
-    from utils.social.kaia_social_responder import load_persona_async
     from utils.infrastructure.gpu.gpu_manager import OllamaGPUManager, gpu_memory_manager, GPUTaskPriority
     
-    sheet = await asyncio.to_thread(load, uid)
+    sheet = await load(uid)
     if not sheet: return
     
     loc = sheet.get("location", "oakhaven")
@@ -573,11 +572,10 @@ async def _handle_look(ctx, msg, send, rest, uid, uname, is_owner):
             log_error(f"[rpg look] {e}")
 
 async def _handle_map(ctx, msg, send, rest, uid, uname, is_owner):
-    from utils.ttrpg.character_manager import load
     from utils.ttrpg.world import LOCATION_DATA
     import discord
 
-    sheet = await asyncio.to_thread(load, uid)
+    sheet = await load(uid)
     if not sheet: return
     
     current_loc_key = sheet.get("location", "oakhaven")
@@ -608,8 +606,7 @@ async def _handle_map(ctx, msg, send, rest, uid, uname, is_owner):
 # ── Economy / NPCs / World Iterations ───────────────────────────────────────
 
 async def _handle_rest(ctx, msg, send, rest, uid, uname, is_owner):
-    from utils.ttrpg.character_manager import load, save
-    sheet = await asyncio.to_thread(load, uid)
+    sheet = await load(uid)
     if not sheet: return
     
     import discord
@@ -637,7 +634,7 @@ async def _handle_rest(ctx, msg, send, rest, uid, uname, is_owner):
     sheet["hp"]["current"] = sheet["hp"]["max"]
     sheet["gil"] -= cost
 
-    await asyncio.to_thread(save, sheet)
+    await save(sheet)
     
     await msg.channel.send(embed=discord.Embed(
         description=f"🛏️ **{sheet['character_name']}** rests at the Stone Hearth. (-{cost} gil)\nHP restored: **+{healed}** (Full)\nRemaining gil: {sheet['gil']}g",
@@ -645,12 +642,10 @@ async def _handle_rest(ctx, msg, send, rest, uid, uname, is_owner):
     ))
 
 async def _handle_rumor(ctx, msg, send, rest, uid, uname, is_owner):
-    from utils.ttrpg.character_manager import load
     from utils.ttrpg.rpg_prompt_builder import build_rumor_prompt
-    from utils.social.kaia_social_responder import load_persona_async
     from utils.infrastructure.gpu.gpu_manager import OllamaGPUManager, gpu_memory_manager, GPUTaskPriority
     
-    sheet = await asyncio.to_thread(load, uid)
+    sheet = await load(uid)
     import discord
     if sheet and sheet.get("location") != "stone_hearth":
         return await msg.channel.send(embed=discord.Embed(description="You must be at the Stone Hearth to hear rumors. (`!rpg go stone_hearth`)", color=0xcc4444))
@@ -690,10 +685,9 @@ async def _handle_rumor(ctx, msg, send, rest, uid, uname, is_owner):
             log_error(f"[rpg rumor] {e}")
 
 async def _handle_shop(ctx, msg, send, rest, uid, uname, is_owner):
-    from utils.ttrpg.character_manager import load
     from utils.ttrpg.shop import get_shop_inventory
     import discord
-    sheet = await asyncio.to_thread(load, uid)
+    sheet = await load(uid)
     if sheet and sheet.get("location") != "hemlocks_store":
         return await msg.channel.send(embed=discord.Embed(description="You must be at Hemlock's Store to view inventory. (`!rpg go hemlocks_store`)", color=0xcc4444))
         
@@ -722,10 +716,9 @@ async def _handle_shop(ctx, msg, send, rest, uid, uname, is_owner):
     await msg.channel.send(embed=embed)
 
 async def _handle_buy(ctx, msg, send, rest, uid, uname, is_owner):
-    from utils.ttrpg.character_manager import load, save
     from utils.ttrpg.shop import process_purchase
     
-    sheet = await asyncio.to_thread(load, uid)
+    sheet = await load(uid)
     if not sheet: return
     import discord
     if sheet.get("location") != "hemlocks_store":
@@ -760,16 +753,15 @@ async def _handle_buy(ctx, msg, send, rest, uid, uname, is_owner):
                 updated_sheet["equipment"][slot] = item
                 final_msg += f"\nAuto-equipped **{item['name']}**."
         
-        await asyncio.to_thread(save, updated_sheet)
+        await save(updated_sheet)
         await msg.channel.send(embed=discord.Embed(description=final_msg, color=0x44aa44))
     else:
         await msg.channel.send(embed=discord.Embed(description=purchase_msg, color=0xcc4444))
 
 async def _handle_sell(ctx, msg, send, rest, uid, uname, is_owner):
-    from utils.ttrpg.character_manager import load, save
     from utils.ttrpg.shop import process_sell
     
-    sheet = await asyncio.to_thread(load, uid)
+    sheet = await load(uid)
     if not sheet: return
     import discord
     if sheet.get("location") != "hemlocks_store":
@@ -782,7 +774,7 @@ async def _handle_sell(ctx, msg, send, rest, uid, uname, is_owner):
     success, resp_msg, updated_sheet = process_sell(sheet, item_key, sheet.get("reputation", 0))
     
     if success:
-        await asyncio.to_thread(save, updated_sheet)
+        await save(updated_sheet)
         color = 0x44aa44
     else:
         color = 0xcc4444
@@ -882,11 +874,9 @@ async def _handle_weather(ctx, msg, send, rest, uid, uname, is_owner):
 async def _handle_talk(ctx, msg, send, rest, uid, uname, is_owner):
     from utils.ttrpg.npc_registry import get_npc, NPCS
     from utils.ttrpg.rpg_prompt_builder import build_npc_prompt
-    from utils.ttrpg.character_manager import load, save
-    from utils.social.kaia_social_responder import load_persona_async
     from utils.infrastructure.gpu.gpu_manager import OllamaGPUManager, gpu_memory_manager, GPUTaskPriority
     
-    sheet = await asyncio.to_thread(load, uid)
+    sheet = await load(uid)
     
     args = rest.strip().split(maxsplit=1)
     import discord
@@ -984,7 +974,7 @@ async def _handle_talk(ctx, msg, send, rest, uid, uname, is_owner):
                             await _log_world_event(f"**{sheet['character_name']}** completed '**{q['name']}**'.")
                             quest_progress_msg = "COMPLETED"
                         else:
-                            await asyncio.to_thread(save, sheet)
+                            await save(sheet)
             
         # Generic turn-in check is covered by the talk task tracking above.
         # If an NPC has a specific inventory turn-in (like Maren), we can add it here.
@@ -1061,11 +1051,10 @@ async def _log_world_event(event_text):
         json.dump(events, f, indent=2)
 
 async def _handle_brew(ctx, msg, send, rest, uid, uname, is_owner):
-    from utils.ttrpg.character_manager import load, save
     from utils.ttrpg.world import LOCATION_DATA
     from utils.ttrpg.alchemy import brew, get_recipe, ALCHEMY_RECIPES
     
-    sheet = await asyncio.to_thread(load, uid)
+    sheet = await load(uid)
     if not sheet: return
     
     loc = sheet.get("location", "oakhaven")
@@ -1090,7 +1079,7 @@ async def _handle_brew(ctx, msg, send, rest, uid, uname, is_owner):
         
     success, result_msg = brew(sheet, recipe_id)
     if success:
-        await asyncio.to_thread(save, sheet)
+        await save(sheet)
         import discord
         await msg.channel.send(embed=discord.Embed(description=result_msg, color=0x2ecc71))
     else:
@@ -1098,8 +1087,7 @@ async def _handle_brew(ctx, msg, send, rest, uid, uname, is_owner):
         await msg.channel.send(embed=discord.Embed(description=result_msg, color=0xcc4444))
 
 async def _handle_notices(ctx, msg, send, rest, uid, uname, is_owner):
-    from utils.ttrpg.character_manager import load
-    sheet = await asyncio.to_thread(load, uid)
+    sheet = await load(uid)
     if sheet and sheet.get("location") != "notice_board":
         import discord
         return await msg.channel.send(embed=discord.Embed(description="You must be at the Notice Board to read it. (`!rpg go notice_board`)", color=0xcc4444))
@@ -1130,8 +1118,7 @@ async def _handle_notices(ctx, msg, send, rest, uid, uname, is_owner):
 
 
 async def _handle_quests(ctx, msg, send, rest, uid, uname, is_owner):
-    from utils.ttrpg.character_manager import load
-    sheet = await asyncio.to_thread(load, uid)
+    sheet = await load(uid)
     if not sheet: return
     
     import discord
@@ -1162,8 +1149,7 @@ async def _handle_quests(ctx, msg, send, rest, uid, uname, is_owner):
 
 async def _handle_quest_detail(ctx, msg, send, rest, uid, uname, is_owner):
     # !rpg quest <quest_id> or just !rpg quest for current
-    from utils.ttrpg.character_manager import load
-    sheet = await asyncio.to_thread(load, uid)
+    sheet = await load(uid)
     if not sheet: return
     
     quest_id = rest.strip().lower() or sheet.get("active_quest")
@@ -1187,8 +1173,7 @@ async def _handle_quest_detail(ctx, msg, send, rest, uid, uname, is_owner):
     await msg.channel.send(embed=embed)
 
 async def _handle_accept(ctx, msg, send, rest, uid, uname, is_owner):
-    from utils.ttrpg.character_manager import load, save
-    sheet = await asyncio.to_thread(load, uid)
+    sheet = await load(uid)
     if not sheet: return
     
     quest_id = rest.strip().lower()
@@ -1211,7 +1196,7 @@ async def _handle_accept(ctx, msg, send, rest, uid, uname, is_owner):
         return await send(msg.channel, f"You must be at least Level {q['requirements']['level']} to accept this quest.")
         
     sheet["active_quest"] = quest_id
-    await asyncio.to_thread(save, sheet)
+    await save(sheet)
     
     import discord
     embed = discord.Embed(
@@ -1226,10 +1211,9 @@ async def _handle_accept(ctx, msg, send, rest, uid, uname, is_owner):
 
 async def _handle_inventory(ctx, msg, send, rest, uid, uname, is_owner):
     import discord
-    from utils.ttrpg.character_manager import load
     from utils.ttrpg.shop import find_item
 
-    sheet = await asyncio.to_thread(load, uid)
+    sheet = await load(uid)
     if not sheet: return
 
     inventory = sheet.get("inventory", [])
@@ -1277,9 +1261,8 @@ async def _handle_inventory(ctx, msg, send, rest, uid, uname, is_owner):
     await msg.channel.send(embed=embed)
 
 async def _handle_equip(ctx, msg, send, rest, uid, uname, is_owner):
-    from utils.ttrpg.character_manager import load, save
     from utils.ttrpg.shop import find_item
-    sheet = await asyncio.to_thread(load, uid)
+    sheet = await load(uid)
     if not sheet: return
     
     import discord
@@ -1305,14 +1288,13 @@ async def _handle_equip(ctx, msg, send, rest, uid, uname, is_owner):
     # Equip new
     sheet["inventory"].remove(item_key)
     sheet["equipment"][slot] = item
-    await asyncio.to_thread(save, sheet)
+    await save(sheet)
     
     await msg.channel.send(embed=discord.Embed(description=f"Equipped **{item['name']}** as {slot}.", color=0x44aa44))
 
 async def _handle_use(ctx, msg, send, rest, uid, uname, is_owner):
-    from utils.ttrpg.character_manager import load, save
     from utils.ttrpg.shop import find_item
-    sheet = await asyncio.to_thread(load, uid)
+    sheet = await load(uid)
     if not sheet: return
     
     item_key = rest.strip().lower()
@@ -1332,18 +1314,18 @@ async def _handle_use(ctx, msg, send, rest, uid, uname, is_owner):
         sheet["hp"]["current"] = min(sheet["hp"]["current"] + item["hp_restore"], sheet["hp"]["max"])
         healed = sheet["hp"]["current"] - before
         sheet["inventory"].remove(item_key)
-        await asyncio.to_thread(save, sheet)
+        await save(sheet)
         await msg.channel.send(embed=discord.Embed(description=f"Used **{item['name']}**. Restored {healed} HP ({before} → {sheet['hp']['current']})", color=0x44aa44))
     elif item.get("on_use") == "starter_kit":
         sheet["inventory"].remove(item_key)
         sheet["inventory"].extend(["bandage", "healing_herb", "torch"])
-        await asyncio.to_thread(save, sheet)
+        await save(sheet)
         await msg.channel.send(embed=discord.Embed(description=f"You open the **{item['name']}**.\n\nObtained:\n• Bandage\n• Healing Herb\n• Torch (lore item)", color=0x44aa44))
     elif item.get("on_use") == "cure_poison":
         if "poisoned" in sheet.get("conditions", []):
             sheet["conditions"].remove("poisoned")
             sheet["inventory"].remove(item_key)
-            await asyncio.to_thread(save, sheet)
+            await save(sheet)
             await msg.channel.send(embed=discord.Embed(description=f"Used **{item['name']}**. The venom fades from your veins.", color=0x44aa44))
         else:
             await msg.channel.send(embed=discord.Embed(description=f"You aren't poisoned.", color=0xcc4444))
@@ -1352,7 +1334,7 @@ async def _handle_use(ctx, msg, send, rest, uid, uname, is_owner):
             if "conditions" not in sheet: sheet["conditions"] = []
             sheet["conditions"].append("lucky")
             sheet["inventory"].remove(item_key)
-            await asyncio.to_thread(save, sheet)
+            await save(sheet)
             await msg.channel.send(embed=discord.Embed(description=f"Used **{item['name']}**. You feel a sudden surge of confidence. (+1 to next hit roll)", color=0x44aa44))
         else:
             await msg.channel.send(embed=discord.Embed(description=f"You are already feeling pretty lucky.", color=0xcc4444))
@@ -1363,22 +1345,18 @@ async def _handle_use(ctx, msg, send, rest, uid, uname, is_owner):
 # ── Combat ───────────────────────────────────────────────────────────────────
 
 async def _handle_hunts(ctx, msg, send, rest, uid, uname, is_owner):
-    from utils.ttrpg.character_manager import load
-    from utils.ttrpg.progression import hunts_remaining, MAX_HUNTS_PER_DAY
-    sheet = await asyncio.to_thread(load, uid)
+    sheet = await load(uid)
     if not sheet: return
     import discord
     await msg.channel.send(embed=discord.Embed(description=f"**{sheet['character_name']}** has {hunts_remaining(sheet)} hunts remaining today. Reset is at midnight server time.", color=0x888888))
 
 async def _handle_hunt(ctx, msg, send, rest, uid, uname, is_owner):
-    from utils.ttrpg.character_manager import load, save
     from utils.ttrpg.world import LOCATION_DATA
-    from utils.ttrpg.monster_registry import random_encounter, get as get_monster
-    from utils.ttrpg.progression import hunts_remaining, check_and_reset_hunts, MAX_HUNTS_PER_DAY
-    from utils.ttrpg.session_manager import load_session, save_session
+    from utils.ttrpg.encounter_tables import random_encounter
+    from utils.ttrpg.monster_registry import get as get_monster
     from utils.ttrpg.calendar import get_weather
     
-    sheet = await asyncio.to_thread(load, uid)
+    sheet = await load(uid)
     if not sheet: return
 
     # Weather Check (e.g. Blizzard level gate)
@@ -1413,9 +1391,15 @@ async def _handle_hunt(ctx, msg, send, rest, uid, uname, is_owner):
         
     # Engage tracking
     chan_id = str(msg.channel.id)
-    s = await asyncio.to_thread(load_session, chan_id)
+    s = await load_session(chan_id)
     if not s:
-        s = {"channel_id": chan_id, "monsters": [], "combat_active": False}
+        s = {
+            "channel_id": chan_id,
+            "active": True,
+            "monsters": [],
+            "combat_active": False,
+            "created_at": time.time(),
+        }
     
     # Quest Task Tracking: Hunt Location
     active_id = sheet.get("active_quest")
@@ -1430,7 +1414,7 @@ async def _handle_hunt(ctx, msg, send, rest, uid, uname, is_owner):
                     prog.append(task_id)
                     # Note: We don't check for quest completion here (likely multiple tasks)
                     # but we save the progress.
-                    await asyncio.to_thread(save, sheet)
+                    await save(sheet)
 
     # Are we already fighting something?
     my_fights = [m for m in s.get("monsters", []) if m.get("aggro_uid") == uid]
@@ -1458,7 +1442,7 @@ async def _handle_hunt(ctx, msg, send, rest, uid, uname, is_owner):
 
     # Pay hunt cost BEFORE spawn (crash-safe: hunt is consumed even if spawn fails)
     sheet["hunts_today"] = sheet.get("hunts_today", 0) + 1
-    await asyncio.to_thread(save, sheet)
+    await save(sheet)
 
     # Spawn monsters based on density
     density = ld.get("density", 1)
@@ -1495,7 +1479,7 @@ async def _handle_hunt(ctx, msg, send, rest, uid, uname, is_owner):
         spawned_names.append(f"**{m_temp['name']}**")
 
     s["combat_active"] = True
-    await asyncio.to_thread(save_session, s)
+    await save_session(s)
     
     from utils.ttrpg.rpg_ui import TIER_ICONS
     
@@ -1527,22 +1511,18 @@ async def _handle_hunt(ctx, msg, send, rest, uid, uname, is_owner):
     await msg.channel.send(embed=embed)
 
 async def _handle_attack(ctx, msg, send, rest, uid, uname, is_owner):
-    from utils.ttrpg.character_manager import load, save
-    from utils.ttrpg.session_manager import load_session, save_session
     from utils.ttrpg.combat_engine import _resolve_combat
     from utils.ttrpg.rpg_prompt_builder import build_combat_prompt
     from utils.infrastructure.gpu.gpu_manager import OllamaGPUManager, gpu_memory_manager, GPUTaskPriority
-    from utils.social.kaia_social_responder import load_persona_async
-    from utils.ttrpg.progression import check_level_up, xp_to_next_level
     from utils.ttrpg.loot_tables import get_loot
     
-    sheet = await asyncio.to_thread(load, uid)
+    sheet = await load(uid)
     if not sheet: return
     import discord
     if sheet["hp"]["current"] <= 0:
         return await msg.channel.send(embed=discord.Embed(description="You are incapacitated.", color=0xcc4444))
         
-    s = await asyncio.to_thread(load_session, str(msg.channel.id))
+    s = await load_session(str(msg.channel.id))
     if not s or not s.get("combat_active") or not s.get("monsters"):
         return await msg.channel.send(embed=discord.Embed(description="No active combat. `!rpg hunt` to find something.", color=0x888888))
         
@@ -1583,7 +1563,7 @@ async def _handle_attack(ctx, msg, send, rest, uid, uname, is_owner):
     else:
         s["monsters"][monster_idx] = monster
         
-    await asyncio.to_thread(save_session, s)
+    await save_session(s)
     
     xp_gain, gil_gain, level_up_msg, loot_msg, streak_msg = 0, 0, "", "", ""
     if res["monster_defeated"]:
@@ -1643,13 +1623,13 @@ async def _handle_attack(ctx, msg, send, rest, uid, uname, is_owner):
                             await _log_world_event(f"**{sheet['character_name']}** completed '**{q['name']}**'.")
                             # Quest completion message will be added to m_block below
                         else:
-                            await asyncio.to_thread(save, sheet)
+                            await save(sheet)
         leveled, n_lvl = check_level_up(sheet)
         if leveled: 
             level_up_msg = f"\n🎉 **LEVEL UP! {sheet['character_name']} grew to level {n_lvl}!**"
             await _log_world_event(f"**{sheet['character_name']}** reached Level {n_lvl}. Oakhaven noted it cautiously.")
         
-    await asyncio.to_thread(save, sheet)
+    await save(sheet)
     
     # Emit Math block
     m_block = "\n".join(res["exchanges"])
@@ -1677,7 +1657,7 @@ async def _handle_attack(ctx, msg, send, rest, uid, uname, is_owner):
         m_block += f"\n\n🚨 **You blacked out.** Townspeople dragged you back to the Shrine of the Silent Ones in Oakhaven. You dropped {xp_loss} XP and {gil_loss} Gil in the dirt."
         await _log_world_event(f"**{sheet['character_name']}** was found at the Shrine threshold. Hemlock is taking bets.")
         
-    await asyncio.to_thread(save, sheet)
+    await save(sheet)
     
     import discord
     embed_color = 0xFF4500 if res["monster_alive"] else 0x2D5A27
@@ -1725,15 +1705,13 @@ async def _handle_attack(ctx, msg, send, rest, uid, uname, is_owner):
             )
             narr = nar["message"]["content"].strip().replace("```", "")
             if narr: await send(msg.channel, f"*{narr}*")
-        except:
+        except Exception:
             pass
 
 async def _handle_flee(ctx, msg, send, rest, uid, uname, is_owner):
-    from utils.ttrpg.session_manager import load_session, save_session
-    import secrets
     import discord
 
-    s = await asyncio.to_thread(load_session, str(msg.channel.id))
+    s = await load_session(str(msg.channel.id))
     if not s or not s.get("combat_active"): return
     
     to_flee = -1
@@ -1744,11 +1722,11 @@ async def _handle_flee(ctx, msg, send, rest, uid, uname, is_owner):
             
     if to_flee == -1: return await msg.channel.send(embed=discord.Embed(description="You have nothing chasing you.", color=0xcc4444))
     
-    roll = secrets.randbelow(20) + 1
+    roll = random.randint(1, 20)
     if roll >= 10:
         s["monsters"].pop(to_flee)
         if not s["monsters"]: s["combat_active"] = False
-        await asyncio.to_thread(save_session, s)
+        await save_session(s)
         await msg.channel.send(embed=discord.Embed(description=f"🏃 **{uname}** scrambled to safety! (d20 = {roll})", color=0x44aa44))
     else:
         await msg.channel.send(embed=discord.Embed(description=f"❌ Flee failed! (d20 = {roll}) You trip. They close the distance.", color=0xcc4444))
@@ -1756,8 +1734,6 @@ async def _handle_flee(ctx, msg, send, rest, uid, uname, is_owner):
 
 async def _apply_and_narrate_event(ctx, msg, send, sheet, result, uname):
     """Apply a forest event's mechanical effects and trigger Kaia narration."""
-    from utils.ttrpg.character_manager import save
-    from utils.ttrpg.progression import check_level_up, xp_to_next_level, MAX_HUNTS_PER_DAY, hunts_remaining
 
     # Apply mechanical changes
     sheet["xp"]  = sheet.get("xp", 0) + result["xp"]
@@ -1784,7 +1760,7 @@ async def _apply_and_narrate_event(ctx, msg, send, sheet, result, uname):
         sheet.setdefault("inventory", []).append(result["item_add"])
 
     leveled_up, new_level = check_level_up(sheet)
-    await asyncio.to_thread(save, sheet)
+    await save(sheet)
 
     # Post mechanical result as embed (matches combat log card style)
     import discord
@@ -1837,7 +1813,6 @@ async def _apply_and_narrate_event(ctx, msg, send, sheet, result, uname):
     # Kaia narrates
     if result.get("narration_hook"):
         from utils.ttrpg.rpg_prompt_builder import build_event_narration_prompt
-        from utils.social.kaia_social_responder import load_persona_async
         from utils.infrastructure.gpu.gpu_manager import OllamaGPUManager, gpu_memory_manager, GPUTaskPriority
         from utils.infrastructure.system.yaml_config import config
         import uuid as _uuid
@@ -1887,9 +1862,8 @@ async def _apply_and_narrate_event(ctx, msg, send, sheet, result, uname):
 
 async def _handle_drink(ctx, msg, send, rest, uid, uname, is_owner):
     """!rpg drink — buy an ale at the Stone Hearth. Costs 2 gil, +3 temporary HP."""
-    from utils.ttrpg.character_manager import load, save
 
-    sheet = await asyncio.to_thread(load, uid)
+    sheet = await load(uid)
     import discord
     if not sheet:
         return await msg.channel.send(embed=discord.Embed(description="No character found.", color=0xcc4444))
@@ -1920,7 +1894,7 @@ async def _handle_drink(ctx, msg, send, rest, uid, uname, is_owner):
     sheet["hp"]["max"] += TEMP_HP
     sheet["hp"]["current"] = min(sheet["hp"]["current"] + TEMP_HP, sheet["hp"]["max"])
     sheet.setdefault("conditions", []).append("ale_warmth")  # removed on next rest
-    await asyncio.to_thread(save, sheet)
+    await save(sheet)
 
     await msg.channel.send(embed=discord.Embed(
         description=f"🍺 Mira slides a tankard across the bar. (-{DRINK_COST} gil)\n*Temporary HP: +{TEMP_HP}* (HP: {sheet['hp']['current']}/{sheet['hp']['max']})\n*Clears when you next rest.*",
@@ -1930,10 +1904,9 @@ async def _handle_drink(ctx, msg, send, rest, uid, uname, is_owner):
 
 async def _handle_fountain(ctx, msg, send, rest, uid, uname, is_owner):
     """!rpg fountain — drink from the healing spring at the Shrine. Once per day, full heal."""
-    from utils.ttrpg.character_manager import load, save
     from datetime import date
 
-    sheet = await asyncio.to_thread(load, uid)
+    sheet = await load(uid)
     import discord
     if not sheet:
         return await msg.channel.send(embed=discord.Embed(description="No character found.", color=0xcc4444))
@@ -1953,7 +1926,7 @@ async def _handle_fountain(ctx, msg, send, rest, uid, uname, is_owner):
 
     sheet["hp"]["current"] = sheet["hp"]["max"]
     sheet["last_fountain_date"] = today
-    await asyncio.to_thread(save, sheet)
+    await save(sheet)
 
     await msg.channel.send(embed=discord.Embed(
         description=f"💧 **{sheet['character_name']} drinks from the spring.**\nYour wounds stitch closed. You are fully recovered. (HP: {sheet['hp']['current']}/{sheet['hp']['max']})\n*Clears when you next rest.*",
@@ -1963,10 +1936,8 @@ async def _handle_fountain(ctx, msg, send, rest, uid, uname, is_owner):
 
 async def _handle_gamble(ctx, msg, send, rest, uid, uname, is_owner):
     """!rpg gamble — dice game at the Stone Hearth. 10 gil buy-in."""
-    import secrets as _sec
-    from utils.ttrpg.character_manager import load, save
 
-    sheet = await asyncio.to_thread(load, uid)
+    sheet = await load(uid)
     import discord
     if not sheet:
         return await msg.channel.send(embed=discord.Embed(description="No character found.", color=0xcc4444))
@@ -1985,8 +1956,8 @@ async def _handle_gamble(ctx, msg, send, rest, uid, uname, is_owner):
         ))
 
     # Roll d6 vs d6. Tie goes to house.
-    player_roll = _sec.randbelow(6) + 1
-    house_roll  = _sec.randbelow(6) + 1
+    player_roll = random.randint(1, 6)
+    house_roll  = random.randint(1, 6)
 
     sheet["gil"] -= BUY_IN
 
@@ -2002,7 +1973,7 @@ async def _handle_gamble(ctx, msg, send, rest, uid, uname, is_owner):
         result_line = f"🎲 You both rolled **{player_roll}**. House takes ties."
         gil_line = f"-{BUY_IN} gil. Total: {sheet['gil']}g"
 
-    await asyncio.to_thread(save, sheet)
+    await save(sheet)
     await msg.channel.send(embed=discord.Embed(
         description=f"{result_line}\n{gil_line}",
         color=0x44aa44 if player_roll > house_roll else 0xcc4444
@@ -2011,10 +1982,9 @@ async def _handle_gamble(ctx, msg, send, rest, uid, uname, is_owner):
 
 async def _handle_pray(ctx, msg, send, rest, uid, uname, is_owner):
     """!rpg pray — once per day blessing at the Shrine of the Silent Ones."""
-    from utils.ttrpg.character_manager import load, save
     from datetime import date
 
-    sheet = await asyncio.to_thread(load, uid)
+    sheet = await load(uid)
     import discord
     if not sheet:
         return await msg.channel.send(embed=discord.Embed(description="No character found.", color=0xcc4444))
@@ -2043,7 +2013,7 @@ async def _handle_pray(ctx, msg, send, rest, uid, uname, is_owner):
 
     sheet.setdefault("conditions", []).append("blessed")
     sheet["last_pray_date"] = today
-    await asyncio.to_thread(save, sheet)
+    await save(sheet)
 
     await msg.channel.send(embed=discord.Embed(
         description="🕯️ **Blessed** — *the shrine acknowledges you.*\nYour next hunt grants +2 to all attack and stat rolls.\n*The condition clears after your next combat.*",
@@ -2053,11 +2023,9 @@ async def _handle_pray(ctx, msg, send, rest, uid, uname, is_owner):
 
 async def _handle_offer(ctx, msg, send, rest, uid, uname, is_owner):
     """!rpg offer <amount> — donate gil to the shrine for XP."""
-    from utils.ttrpg.character_manager import load, save
-    from utils.ttrpg.progression import check_level_up, xp_to_next_level
     from datetime import date
 
-    sheet = await asyncio.to_thread(load, uid)
+    sheet = await load(uid)
     import discord
     if not sheet:
         return await msg.channel.send(embed=discord.Embed(description="No character found.", color=0xcc4444))
@@ -2099,7 +2067,7 @@ async def _handle_offer(ctx, msg, send, rest, uid, uname, is_owner):
     sheet["offered_today"] = {today: already_offered + amount}
 
     leveled_up, new_level = check_level_up(sheet)
-    await asyncio.to_thread(save, sheet)
+    await save(sheet)
 
     xp_next = xp_to_next_level(sheet["level"])
     msg_lines = [
@@ -2120,11 +2088,10 @@ async def _handle_offer(ctx, msg, send, rest, uid, uname, is_owner):
 
 async def _handle_scout(ctx, msg, send, rest, uid, uname, is_owner):
     """!rpg scout — use the Watchtower to preview monster activity."""
-    from utils.ttrpg.character_manager import load, save
     from utils.ttrpg.monster_registry import MONSTERS, ENCOUNTER_TABLES
     from datetime import date
 
-    sheet = await asyncio.to_thread(load, uid)
+    sheet = await load(uid)
     import discord
     if not sheet:
         return await msg.channel.send(embed=discord.Embed(description="No character found.", color=0xcc4444))
@@ -2154,7 +2121,7 @@ async def _handle_scout(ctx, msg, send, rest, uid, uname, is_owner):
         ))
 
     sheet["last_scout_date"] = today
-    await asyncio.to_thread(save, sheet)
+    await save(sheet)
 
     # Build intel report from encounter tables
     HUNTING_LOCATIONS = {
@@ -2213,11 +2180,10 @@ async def _handle_scout(ctx, msg, send, rest, uid, uname, is_owner):
 
 async def _handle_bank(ctx, msg, send, rest, uid, uname, is_owner):
     """!rpg bank [deposit|withdraw] <amount>"""
-    from utils.ttrpg.character_manager import load, save
     from utils.ttrpg.world import LOCATION_DATA
     import discord
 
-    sheet = await asyncio.to_thread(load, uid)
+    sheet = await load(uid)
     if not sheet: return
 
     if sheet.get("location") != "oakhaven_bank":
@@ -2274,7 +2240,7 @@ async def _handle_bank(ctx, msg, send, rest, uid, uname, is_owner):
         sheet["gil"] += amount
         verb = "withdrawn"
 
-    await asyncio.to_thread(save, sheet)
+    await save(sheet)
 
     await msg.channel.send(embed=discord.Embed(
         title="🏦 Transaction Successful",
@@ -2285,9 +2251,8 @@ async def _handle_bank(ctx, msg, send, rest, uid, uname, is_owner):
 
 async def _handle_deliver(ctx, msg, send, rest, uid, uname, is_owner):
     """!rpg deliver — turn in a mognet letter in Oakhaven."""
-    from utils.ttrpg.character_manager import load, save
 
-    sheet = await asyncio.to_thread(load, uid)
+    sheet = await load(uid)
     import discord
     if not sheet:
         return await msg.channel.send(embed=discord.Embed(description="No character found.", color=0xcc4444))
@@ -2312,9 +2277,8 @@ async def _handle_deliver(ctx, msg, send, rest, uid, uname, is_owner):
     sheet["gil"] += reward_gil
     sheet["xp"]  += reward_xp
 
-    from utils.ttrpg.progression import check_level_up, xp_to_next_level
     leveled_up, new_level = check_level_up(sheet)
-    await asyncio.to_thread(save, sheet)
+    await save(sheet)
 
     xp_next = xp_to_next_level(sheet["level"])
     embed = discord.Embed(
@@ -2360,16 +2324,15 @@ async def _handle_xp(ctx, msg, send, rest, uid, uname, is_owner):
 
 async def _handle_give(ctx, msg, send, rest, uid, uname, is_owner):
     if not is_owner: return
-    from utils.ttrpg.character_manager import load, save
     from utils.ttrpg.shop import find_item
     args = rest.strip().split()
     if not args: return
-    sheet = await asyncio.to_thread(load, str(msg.mentions[0].id) if msg.mentions else uid)
+    sheet = await load(str(msg.mentions[0].id) if msg.mentions else uid)
     if not sheet: return
     item = find_item(args[0])
     if item:
         sheet["inventory"].append(args[0])
-        await asyncio.to_thread(save, sheet)
+        await save(sheet)
         import discord
         await msg.channel.send(embed=discord.Embed(
             description=f"Admin granted `{args[0]}` to {sheet['character_name']}.",
@@ -2378,11 +2341,10 @@ async def _handle_give(ctx, msg, send, rest, uid, uname, is_owner):
 
 async def _handle_heal(ctx, msg, send, rest, uid, uname, is_owner):
     if not is_owner: return
-    from utils.ttrpg.character_manager import load, save
-    sheet = await asyncio.to_thread(load, str(msg.mentions[0].id) if msg.mentions else uid)
+    sheet = await load(str(msg.mentions[0].id) if msg.mentions else uid)
     if not sheet: return
     sheet["hp"]["current"] = sheet["hp"]["max"]
-    await asyncio.to_thread(save, sheet)
+    await save(sheet)
     import discord
     await msg.channel.send(embed=discord.Embed(
         description=f"Admin fully healed {sheet['character_name']}.",
@@ -2392,12 +2354,11 @@ async def _handle_heal(ctx, msg, send, rest, uid, uname, is_owner):
 
 async def _handle_leaderboard(ctx, msg, send, rest, uid, uname, is_owner):
     """!rpg leaderboard — show all characters ranked by XP."""
-    from utils.ttrpg.character_manager import load_all
     from utils.ttrpg.world import LOCATION_DATA
     from utils.ttrpg.rpg_ui import CLASS_ICONS, LOCATION_ICONS
     import discord
 
-    sheets = await asyncio.to_thread(load_all)
+    sheets = await asyncio.to_thread(_load_all_sync)
     if not sheets:
         return await msg.channel.send(embed=discord.Embed(description="No adventurers have been created yet.", color=0x888888))
 
@@ -2440,7 +2401,6 @@ async def _handle_event(ctx, msg, send, rest, uid, uname, is_owner):
     await _log_world_event(f"📣 **WORLD EVENT:** {description}")
     
     from utils.ttrpg.rpg_prompt_builder import build_event_prompt
-    from utils.social.kaia_social_responder import load_persona_async
     from utils.infrastructure.gpu.gpu_manager import OllamaGPUManager, gpu_memory_manager, GPUTaskPriority
     
     prompt = build_event_prompt(rest.strip())
@@ -2562,12 +2522,11 @@ async def _handle_duel(ctx, msg, send, rest, uid, uname, is_owner):
     if target_id == uid:
         return await send(msg.channel, "You cannot duel yourself.")
     
-    from utils.ttrpg.character_manager import load
-    target_sheet = await asyncio.to_thread(load, target_id)
+    target_sheet = await load(target_id)
     if not target_sheet:
         return await send(msg.channel, f"{target.display_name} has no character in Aethelgard.")
         
-    sheet = await asyncio.to_thread(load, uid)
+    sheet = await load(uid)
     if not sheet: return
     
     if sheet.get("location") != target_sheet.get("location"):
@@ -2594,11 +2553,10 @@ async def _handle_accept(ctx, msg, send, rest, uid, uname, is_owner):
             break
             
     if challenger_id:
-        from utils.ttrpg.character_manager import load, save
         from utils.ttrpg.combat_engine import _resolve_combat
         
-        c_sheet = await asyncio.to_thread(load, challenger_id)
-        t_sheet = await asyncio.to_thread(load, uid)
+        c_sheet = await load(challenger_id)
+        t_sheet = await load(uid)
         
         if not c_sheet or not t_sheet: return
         
@@ -2619,9 +2577,9 @@ async def _handle_accept(ctx, msg, send, rest, uid, uname, is_owner):
         res = _resolve_combat(c_sheet, m_from_t, is_duel=True)
         
         # Apply results back
-        await asyncio.to_thread(save, res["sheet"]) # challenger
+        await save(res["sheet"]) # challenger
         t_sheet["hp"] = res["monster"]["hp"]
-        await asyncio.to_thread(save, t_sheet) # target
+        await save(t_sheet) # target
         
         import discord
         embed = discord.Embed(
@@ -2635,8 +2593,7 @@ async def _handle_accept(ctx, msg, send, rest, uid, uname, is_owner):
         return
 
     # If no duel, try quest accept
-    from utils.ttrpg.character_manager import load, save
-    sheet = await asyncio.to_thread(load, uid)
+    sheet = await load(uid)
     if not sheet: return
     
     # Generic accept logic (e.g. if sitting in a talk session)

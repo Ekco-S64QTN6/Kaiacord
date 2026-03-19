@@ -6,22 +6,38 @@ import os
 import json
 import time
 import threading
-from typing import Optional
+import asyncio
+from typing import Optional, Dict, Any, List
 
 CHARACTERS_DIR = os.path.join("memory", "ttrpg", "characters")
-_lock = threading.Lock()
+_lock = threading.Lock()  # Protects internal file I/O
+_user_locks: Dict[str, asyncio.Lock] = {} # Protects read-modify-write per user
+_global_lock = asyncio.Lock()  # Protects access to the _user_locks dict
 
 def _path(user_id: str) -> str:
     os.makedirs(CHARACTERS_DIR, exist_ok=True)
     return os.path.join(CHARACTERS_DIR, f"{user_id}.json")
 
-def load(user_id: str) -> Optional[dict]:
+async def get_user_lock(user_id: str) -> asyncio.Lock:
+    """Return an asyncio.Lock dedicated to this user's character sheet."""
+    async with _global_lock:
+        if user_id not in _user_locks:
+            _user_locks[user_id] = asyncio.Lock()
+        return _user_locks[user_id]
+
+def _load_sync(user_id: str) -> Optional[Dict[str, Any]]:
     p = _path(user_id)
     if not os.path.exists(p):
         return None
     with _lock:
         with open(p, 'r', encoding='utf-8') as f:
             return json.load(f)
+
+async def load(user_id: str) -> Optional[Dict[str, Any]]:
+    """Async load with per-user locking."""
+    lock = await get_user_lock(user_id)
+    async with lock:
+        return await asyncio.to_thread(lambda: _load_sync(user_id))
 
 def load_all() -> list:
     """Load every character sheet on disk. Returns a list of dicts."""
@@ -37,7 +53,7 @@ def load_all() -> list:
             continue
     return sheets
 
-def save(sheet: dict) -> None:
+def _save_sync(sheet: Dict[str, Any]) -> None:
     p = _path(str(sheet["user_id"]))
     sheet["last_updated"] = time.time()
     tmp = p + ".tmp"
@@ -45,6 +61,13 @@ def save(sheet: dict) -> None:
         with open(tmp, 'w', encoding='utf-8') as f:
             json.dump(sheet, f, indent=2)
         os.replace(tmp, p)
+
+async def save(sheet: Dict[str, Any]) -> None:
+    """Async save with per-user locking."""
+    user_id = str(sheet["user_id"])
+    lock = await get_user_lock(user_id)
+    async with lock:
+        await asyncio.to_thread(lambda: _save_sync(sheet))
 
 def create(user_id: str, user_name: str, character_name: str,
            race: str, class_name: str, stats: dict) -> dict:
@@ -102,7 +125,7 @@ def create(user_id: str, user_name: str, character_name: str,
     else:
         sheet["equipment"] = {"weapon": None, "armor": None, "offhand": None}
         
-    save(sheet)
+    _save_sync(sheet)
     return sheet
 
 def format_sheet(sheet: dict) -> str:

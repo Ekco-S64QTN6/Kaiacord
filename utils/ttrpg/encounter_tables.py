@@ -1,12 +1,12 @@
+import random
 import secrets
 
 ENCOUNTER_TABLES = {
     "whisperwood_edge": [
-        # (monster_key, weight)  — higher weight = more common
         ("bat",       40),
         ("goblin",    35),
         ("wolf",      20),
-        ("skeleton",  5),   # rare
+        ("skeleton",  5),
     ],
     "whisperwood_deep": [
         ("wolf",      25),
@@ -14,7 +14,7 @@ ENCOUNTER_TABLES = {
         ("ghost",     20),
         ("lizardman", 20),
         ("harpy",     8),
-        ("ochu",      2),   # rare
+        ("ochu",      2),
     ],
     "aeridor_ruins": [
         ("skeleton",  20),
@@ -34,15 +34,13 @@ ENCOUNTER_TABLES = {
 
 def random_encounter(location: str) -> str:
     """Pick a weighted random monster for the given location."""
-    import secrets
     from utils.ttrpg.calendar import get_seasonal_encounter_table
     
     base_table = ENCOUNTER_TABLES.get(location, ENCOUNTER_TABLES["whisperwood_edge"])
-    # Merge seasonal additions
     table = get_seasonal_encounter_table(location, base_table)
     
     total = sum(w for _, w in table)
-    r = secrets.randbelow(total)
+    r = random.randint(0, total - 1)
     cumulative = 0
     for monster_key, weight in table:
         cumulative += weight
@@ -50,13 +48,7 @@ def random_encounter(location: str) -> str:
             return monster_key
     return table[-1][0]
 
-
-# ══════════════════════════════════════════════════════════════
-# Forest Event System — LORD-style random events during hunts
-# ══════════════════════════════════════════════════════════════
-
-# Probability a hunt triggers a special event instead of a monster
-# 20% chance at whisperwood_edge, 15% deep, 10% ruins (rarer the deeper you go)
+# Forest Event System
 EVENT_CHANCE = {
     "whisperwood_edge": 20,
     "whisperwood_deep": 15,
@@ -67,10 +59,8 @@ EVENT_CHANCE = {
 def roll_for_event(location: str) -> bool:
     """Returns True if this hunt should be a special event."""
     chance = EVENT_CHANCE.get(location, 15)
-    return secrets.randbelow(100) < chance
+    return random.randint(0, 99) < chance
 
-
-# Weighted event tables per location
 EVENTS = {
     "whisperwood_edge": [
         ("sylvan_sprites",       20),
@@ -119,11 +109,10 @@ def random_event(location: str) -> str:
     """Pick a weighted random event for the given location."""
     table = EVENTS.get(location, EVENTS["whisperwood_edge"])
     total = sum(w for _, w in table)
-    r = secrets.randbelow(total)
+    r = random.randint(0, total - 1)
     cumulative = 0
     for event_key, weight in table:
         cumulative += weight
         if r < cumulative:
             return event_key
     return table[0][0]
-

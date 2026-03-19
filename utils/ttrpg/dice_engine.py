@@ -1,6 +1,7 @@
 """
 All dice resolution. Pure deterministic Python. No LLM path.
 """
+import random
 import secrets
 from typing import Tuple, Optional
 
@@ -33,7 +34,7 @@ def roll(notation: str) -> Tuple[int, str]:
     if count < 1 or count > 20 or sides < 2 or sides > 100:
         raise ValueError(f"Dice out of range: {notation}")
     
-    rolls = [secrets.randbelow(sides) + 1 for _ in range(count)]
+    rolls = [random.randint(1, sides) for _ in range(count)]
     total = sum(rolls) + modifier
     
     if count == 1:
@@ -57,17 +58,17 @@ def stat_check(stat_value: int, dc: int, advantage: bool = False,
     mod = STAT_MODIFIER(stat_value)
     
     if advantage and not disadvantage:
-        r1 = secrets.randbelow(20) + 1
-        r2 = secrets.randbelow(20) + 1
+        r1 = random.randint(1, 20)
+        r2 = random.randint(1, 20)
         raw = max(r1, r2)
         breakdown = f"d20 (adv) [{r1},{r2}] → {raw}"
     elif disadvantage and not advantage:
-        r1 = secrets.randbelow(20) + 1
-        r2 = secrets.randbelow(20) + 1
+        r1 = random.randint(1, 20)
+        r2 = random.randint(1, 20)
         raw = min(r1, r2)
         breakdown = f"d20 (dis) [{r1},{r2}] → {raw}"
     else:
-        raw = secrets.randbelow(20) + 1
+        raw = random.randint(1, 20)
         breakdown = f"d20 → {raw}"
     
     total = raw + mod
@@ -80,6 +81,6 @@ def stat_check(stat_value: int, dc: int, advantage: bool = False,
 
 def roll_initiative(dex: int) -> Tuple[int, str]:
     mod = STAT_MODIFIER(dex)
-    raw = secrets.randbelow(20) + 1
+    raw = random.randint(1, 20)
     total = raw + mod
     return total, f"d20({raw}){'+' if mod >= 0 else ''}{mod} = **{total}**"

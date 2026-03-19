@@ -1,3 +1,4 @@
+import random
 import secrets
 
 def _resolve_combat(sheet: dict, monster: dict, atk_mod_global: int = 0, def_mod_global: int = 0, is_duel: bool = False) -> dict:
@@ -89,12 +90,12 @@ def _resolve_combat(sheet: dict, monster: dict, atk_mod_global: int = 0, def_mod
 
     # Stun check
     if "stunned" in conditions:
-        if secrets.randbelow(2) == 0:
+        if random.randint(0, 1) == 0:
             is_stunned = True
             status_logs.append(f"⚡ *Stunned! You lose your attack this round.*")
     
     if not is_stunned:
-        raw_hit = secrets.randbelow(20) + 1
+        raw_hit = random.randint(1, 20)
         total_hit = raw_hit + attack_mod
         mod_str = f"{'+' if attack_mod >= 0 else ''}{attack_mod}"
         hit_breakdown = f"d20({raw_hit}){mod_str}=**{total_hit}** vs DEF {monster['defense']}"
@@ -106,7 +107,7 @@ def _resolve_combat(sheet: dict, monster: dict, atk_mod_global: int = 0, def_mod
     
         if player_hit and not player_fumble:
             dice_count = 2 if player_crit else 1
-            dmg_rolls = [secrets.randbelow(weapon_dmg_die) + 1 for _ in range(dice_count)]
+            dmg_rolls = [random.randint(1, weapon_dmg_die) for _ in range(dice_count)]
             
             warrior_dmg_bonus = ((sheet.get("level", 1) + 1) // 2) if class_name == "Warrior" else 0
             total_dmg_bonus = atk_mod + warrior_dmg_bonus
@@ -137,24 +138,29 @@ def _resolve_combat(sheet: dict, monster: dict, atk_mod_global: int = 0, def_mod
     monster_total_hit = 0
 
     if monster_alive:
-        player_defense = 10 + dex_mod + armor_def
+        player_defense = 10 + dex_mod + armor_def + def_mod_global
         monster_attack_mod = monster["attack"] // 3
-        monster_raw_hit = secrets.randbelow(20) + 1
+        monster_raw_hit = random.randint(1, 20)
         monster_total_hit = monster_raw_hit + monster_attack_mod
         monster_hit = monster_total_hit >= player_defense or monster_raw_hit == 20
+        
+        # In duels, if the opponent was brought to 1 HP this round, they shouldn't counter-attack immediately.
+        if is_duel and monster["hp"]["current"] <= 1:
+            monster_hit = False
+            status_logs.append(f"⚔️ **{monster['name']}** is winded and cannot counter.")
 
         if monster_hit:
-            base = secrets.randbelow(6) + 1
+            base = random.randint(1, 6)
             # Apply global defense mod to monster's damage or hit? Usually hit. 
             # But let's apply a slight damage reduction if def_mod_global is positive (e.g. cover/rain)
-            monster_damage = max(1, base + (monster["attack"] // 2) - def_mod_global)
+            monster_damage = max(1, base + (monster["attack"] // 2))
             
             # Non-lethal duel check
             if is_duel:
                 if sheet["hp"]["current"] - monster_damage < 1:
                     monster_damage = max(0, sheet["hp"]["current"] - 1)
             
-            monster_dmg_breakdown = f"1d6({base})+{monster['attack']//2}-{def_mod_global}=**{monster_damage}**"
+            monster_dmg_breakdown = f"1d6({base})+{monster['attack']//2}=**{monster_damage}**"
             sheet["hp"]["current"] = max(0, sheet["hp"]["current"] - monster_damage)
 
     player_alive = sheet["hp"]["current"] > 0

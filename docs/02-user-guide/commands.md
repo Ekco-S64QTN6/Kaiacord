@@ -73,11 +73,6 @@ Kaia includes a fully integrated TTRPG system where Python handles the mechanics
 - `!rpg roll <dice>`: Roll arbitrary dice (e.g., `d20`, `2d6+3`).
 - `!rpg inventory [add/remove] <item>`: Manage inventory items.
 - `!rpg heal <amount>` / `!rpg damage <amount>`: Modify HP.
-- `!rpg combat start <enemy> <tier>`: Begin a combat encounter with a difficulty tier (trivial/easy/medium/hard/deadly, admin).
-- `!rpg combat end`: End combat and split XP among all participants (admin).
-- `!rpg combat status`: View the active combat state.
-- `!rpg kill <target>`: Declare a combatant dead and explicitly end combat to split XP.
-- `!rpg session start/end/status`: Admin commands for running an active session in a channel.
 - `!rpg xp <amount> [@user]`: Manual milestone XP allocation for story beats (admin).
 
 ---

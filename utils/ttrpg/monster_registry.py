@@ -2,7 +2,7 @@
 monster_registry.py — Aethelgard Bestiary
 ==========================================
 ~120 monsters across 6 tiers, heavily inspired by Final Fantasy V.
-Adapted to Aethelgard's lore: Whisperwood, Aeridor ruins, trade road, etc.
+ADAPTED to Aethelgard's lore: Whisperwood, Aeridor ruins, trade road, etc.
 
 Stat guide:
   hp       — hit points
@@ -17,6 +17,8 @@ Defense formula reference:
   Player effective DEF = 10 + DEX mod + armor bonus
   So DEF 8 = most players hit easily. DEF 18 = only strong builds connect.
 """
+
+import random
 
 MONSTERS = {
 
@@ -778,20 +780,6 @@ def get(name: str) -> dict | None:
     return None
 
 
-def random_encounter(location: str) -> str:
-    """Pick a weighted random monster for the given location."""
-    import secrets
-    table = ENCOUNTER_TABLES.get(location)
-    if not table:
-        table = ENCOUNTER_TABLES["whisperwood_edge"]
-    total = sum(w for _, w in table)
-    r = secrets.randbelow(total)
-    cumulative = 0
-    for monster_key, weight in table:
-        cumulative += weight
-        if r < cumulative:
-            return monster_key
-    return table[-1][0]
 
 
 def list_by_tier(tier: str) -> list[tuple[str, dict]]:

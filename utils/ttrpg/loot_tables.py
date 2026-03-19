@@ -2,12 +2,12 @@
 Item drops for monster kills based on their difficulty tier.
 Keys match equipment_registry.py CONSUMABLES entries so items can be used/sold.
 """
+import random
 import secrets
 from typing import Optional
 
 def get_loot(tier: str) -> Optional[str]:
     """Returns an item key (matching equipment_registry) or None."""
-    # (item_key, weight) — keys must exist in equipment_registry.CONSUMABLES or WEAPONS/ARMOR
     tables = {
         "trivial": [("none", 40), ("healing_herb", 20), ("bandage", 10), ("honey_sap", 30)],
         "easy":    [("none", 30), ("healing_herb", 20), ("bandage", 15), ("tonic", 10), ("blood_thistle", 25)],
@@ -19,7 +19,7 @@ def get_loot(tier: str) -> Optional[str]:
     
     table = tables.get(tier, tables["medium"])
     total_weight = sum(w for _, w in table)
-    roll = secrets.randbelow(total_weight)
+    roll = random.randint(0, total_weight - 1)
     
     current = 0
     for item_name, weight in table:
