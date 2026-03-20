@@ -105,8 +105,6 @@ MONSTERS = {
         "desc": "A floating cloud of animate ash, remnant of something burned long ago.",
     },
 
-    # ── Additional TRIVIAL (early game variety) ────────────────────────────────
-
     "grat": {
         "name": "Grat",
         "hp": 14, "attack": 3, "defense": 8,
@@ -190,6 +188,139 @@ MONSTERS = {
         "hp": 16, "attack": 4, "defense": 10,
         "xp": 28, "gil": 6, "tier": "trivial",
         "desc": "A dog-shaped shadow that has developed opinions about territory.",
+    },
+
+    "fire_beetle": {
+        "name": "Fire Beetle",
+        "hp": 14, "attack": 3, "defense": 8,
+        "xp": 18, "gil": 3, "tier": "trivial",
+        "desc": "A beetle the size of a dog with a glowing thorax. Bites leave minor burns. Common near warm rocks.",
+    },
+    "large_bat": {
+        "name": "Large Bat",
+        "hp": 12, "attack": 4, "defense": 9,
+        "xp": 16, "gil": 2, "tier": "trivial",
+        "desc": "A bat with a wingspan wider than a man's arms. Echolocation makes it hard to surprise.",
+    },
+    "gnoll_pup": {
+        "name": "Gnoll Pup",
+        "hp": 18, "attack": 4, "defense": 9,
+        "xp": 22, "gil": 5, "tier": "trivial",
+        "desc": "A young hyena-man. Scrawny and mean. Already knows how to hold a weapon.",
+    },
+    "decaying_skeleton": {
+        "name": "Decaying Skeleton",
+        "hp": 15, "attack": 3, "defense": 7,
+        "xp": 16, "gil": 3, "tier": "trivial",
+        "desc": "Barely held together by old magic. Falls apart if hit hard enough. Reassembles if you don't finish it.",
+    },
+    "spiderling": {
+        "name": "Spiderling",
+        "hp": 8, "attack": 5, "defense": 10,
+        "xp": 20, "gil": 2, "tier": "trivial",
+        "desc": "A young forest spider. Fast, venomous, and angry about being small.",
+    },
+    "hornet": {
+        "name": "Hornet",
+        "hp": 10, "attack": 4, "defense": 11,
+        "xp": 18, "gil": 2, "tier": "trivial",
+        "desc": "A wasp the length of a forearm. Stings paralyze smaller creatures. You are not a smaller creature. Probably.",
+    },
+    "imp": {
+        "name": "Imp",
+        "hp": 12, "attack": 5, "defense": 10,
+        "xp": 24, "gil": 6, "tier": "trivial",
+        "desc": "A tiny devil-creature with bat wings. Throws sparks and insults. Annoying beyond its threat level.",
+    },
+    "leg_eater": {
+        "name": "Leg Eater",
+        "hp": 16, "attack": 3, "defense": 8,
+        "xp": 18, "gil": 4, "tier": "trivial",
+        "desc": "A carnivorous plant that snaps at ankles. Sessile until you step on it.",
+    },
+    "wererat": {
+        "name": "Wererat",
+        "hp": 14, "attack": 4, "defense": 9,
+        "xp": 20, "gil": 5, "tier": "trivial",
+        "desc": "A rat that walks upright and carries a shiv. Found near sewers and basements. Clever enough to ambush.",
+    },
+    "kobold": {
+        "name": "Kobold",
+        "hp": 15, "attack": 4, "defense": 8,
+        "xp": 20, "gil": 4, "tier": "trivial",
+        "desc": "A small, reptilian humanoid. Draconic in lineage, but cowardly in practice. Usually found in large, annoying numbers.",
+    },
+    "giant_rat_mtg": {
+        "name": "Giant Rat",
+        "hp": 12, "attack": 3, "defense": 7,
+        "xp": 15, "gil": 2, "tier": "trivial",
+        "desc": "An unnaturally large rodent. Its bite is infectious and its hunger is bottomless.",
+    },
+    "goblin_guide": {
+        "name": "Goblin Guide",
+        "hp": 18, "attack": 5, "defense": 9,
+        "xp": 25, "gil": 6, "tier": "trivial",
+        "desc": "A frantic goblin that knows the shortcuts. It'll lead you straight to your doom if you aren't careful.",
+    },
+    "llanowar_scout": {
+        "name": "Llanowar Scout",
+        "hp": 16, "attack": 4, "defense": 11,
+        "xp": 18, "gil": 3, "tier": "trivial",
+        "desc": "An elf from a distant woodland. Skilled in woodcraft and defensive strikes.",
+    },
+    "cave_crawler": {
+        "name": "Cave Crawler",
+        "hp": 14, "attack": 3, "defense": 12,
+        "xp": 20, "gil": 4, "tier": "trivial",
+        "desc": "A multi-legged insectoid that clings to cave ceilings. Drops on unsuspecting prey.",
+    },
+    "slime": {
+        "name": "Slime",
+        "hp": 10, "attack": 2, "defense": 15,
+        "xp": 12, "gil": 1, "tier": "trivial",
+        "desc": "A quiver of jelly. Hard to hurt with a blade, but weak to almost everything else.",
+    },
+    "stirge": {
+        "name": "Stirge",
+        "hp": 8, "attack": 4, "defense": 10,
+        "xp": 15, "gil": 2, "tier": "trivial",
+        "desc": "A winged insect-bird that drains blood. They are rarely alone.",
+    },
+    "giant_centipede": {
+        "name": "Giant Centipede",
+        "hp": 12, "attack": 3, "defense": 9,
+        "xp": 18, "gil": 3, "tier": "trivial",
+        "desc": "A massive multi-legged horror. Its mandibles drip with a numbing toxin.",
+    },
+    "mudbrawler": {
+        "name": "Mudbrawler",
+        "hp": 18, "attack": 4, "defense": 7,
+        "xp": 20, "gil": 4, "tier": "trivial",
+        "desc": "A goblinoid creature that thrives in filth and chaos. It fights with clumsy but heavy strikes.",
+    },
+    "homunculus": {
+        "name": "Homunculus",
+        "hp": 10, "attack": 3, "defense": 10,
+        "xp": 15, "gil": 2, "tier": "trivial",
+        "desc": "A tiny, artificial humanoid. It follows its master's telepathic commands with eerie precision.",
+    },
+    "vegepygmy": {
+        "name": "Vegepygmy",
+        "hp": 15, "attack": 4, "defense": 9,
+        "xp": 20, "gil": 3, "tier": "trivial",
+        "desc": "A fungal creature spawned from the remains of others. It communicates through rhythmic thumping.",
+    },
+    "xvart": {
+        "name": "Xvart",
+        "hp": 12, "attack": 3, "defense": 8,
+        "xp": 18, "gil": 4, "tier": "trivial",
+        "desc": "A small, blue-skinned humanoid that worships a minor god of thievery. They are greedy and paranoid.",
+    },
+    "mud_element": {
+        "name": "Mud Element",
+        "hp": 20, "attack": 4, "defense": 7,
+        "xp": 22, "gil": 3, "tier": "trivial",
+        "desc": "A sludge-like creature that slows anyone who steps into its reach.",
     },
 
     # ══════════════════════════════════════════════════════
@@ -303,6 +434,139 @@ MONSTERS = {
         "hp": 35, "attack": 6, "defense": 9,
         "xp": 45, "gil": 12, "tier": "easy",
         "desc": "An enormous stag driven to the forest edge by autumn hunger. Antlers like branches. Not aggressive — until it is.",
+    },
+
+    "gnoll": {
+        "name": "Gnoll",
+        "hp": 35, "attack": 6, "defense": 10,
+        "xp": 48, "gil": 12, "tier": "easy",
+        "desc": "A full-grown hyena-man. Hunts in packs. Laughs before it charges. The laugh is worse.",
+    },
+    "orc_pawn": {
+        "name": "Orc Pawn",
+        "hp": 30, "attack": 5, "defense": 10,
+        "xp": 42, "gil": 9, "tier": "easy",
+        "desc": "An orc foot soldier. Disciplined, armored, and expendable. There are always more.",
+    },
+    "orc_centurion": {
+        "name": "Orc Centurion",
+        "hp": 40, "attack": 7, "defense": 12,
+        "xp": 58, "gil": 14, "tier": "easy",
+        "desc": "An orc officer. Better armor, better weapon, worse attitude. Commands squads of pawns.",
+    },
+    "basilisk": {
+        "name": "Basilisk",
+        "hp": 38, "attack": 6, "defense": 11,
+        "xp": 55, "gil": 15, "tier": "easy",
+        "desc": "An eight-legged reptile with a petrifying gaze. Keep your shield up and your eyes down.",
+    },
+    "bomb": {
+        "name": "Bomb",
+        "hp": 25, "attack": 8, "defense": 9,
+        "xp": 55, "gil": 10, "tier": "easy",
+        "desc": "A floating sphere of compressed fire. It gets bigger when you hit it. Then it explodes.",
+    },
+    "coeurl": {
+        "name": "Coeurl",
+        "hp": 34, "attack": 7, "defense": 11,
+        "xp": 52, "gil": 12, "tier": "easy",
+        "desc": "A panther-like predator with whip-like whiskers that discharge lightning. Silent until it strikes.",
+    },
+    "grenade": {
+        "name": "Grenade",
+        "hp": 30, "attack": 9, "defense": 9,
+        "xp": 58, "gil": 12, "tier": "easy",
+        "desc": "A bomb that has been burning long enough to develop opinions. Larger, angrier, redder.",
+    },
+    "pugil": {
+        "name": "Pugil",
+        "hp": 28, "attack": 6, "defense": 10,
+        "xp": 45, "gil": 8, "tier": "easy",
+        "desc": "A carnivorous fish that has grown legs and a foul temper. Found near Tricklebrook. Surprisingly fast on land.",
+    },
+    "revenant": {
+        "name": "Revenant",
+        "hp": 40, "attack": 7, "defense": 11,
+        "xp": 52, "gil": 0, "tier": "easy",
+        "desc": "An undead warrior with enough memory to hold a grudge. Attacks with purpose, not instinct.",
+    },
+    "gnoll_hunter": {
+        "name": "Gnoll Hunter",
+        "hp": 45, "attack": 7, "defense": 11,
+        "xp": 60, "gil": 15, "tier": "easy",
+        "desc": "A gnoll that has mastered the bow. It tracks its prey for miles before striking from the shadows.",
+    },
+    "bugbear": {
+        "name": "Bugbear",
+        "hp": 55, "attack": 8, "defense": 12,
+        "xp": 75, "gil": 20, "tier": "easy",
+        "desc": "A hulking, hairy goblinoid. Surprisingly stealthy for its size. Hits with the force of a falling tree.",
+    },
+    "rust_monster": {
+        "name": "Rust Monster",
+        "hp": 30, "attack": 6, "defense": 14,
+        "xp": 65, "gil": 0, "tier": "easy",
+        "desc": "An insect-like creature that feeds on metal. Your armor is looking quite delicious to it.",
+    },
+    "harpy_dd": {
+        "name": "Harpy",
+        "hp": 40, "attack": 7, "defense": 10,
+        "xp": 55, "gil": 12, "tier": "easy",
+        "desc": "A creature with the upper body of a woman and the lower body of a bird. Its song lures travelers to their deaths.",
+    },
+    "vampire_nighthawk": {
+        "name": "Vampire Nighthawk",
+        "hp": 35, "attack": 9, "defense": 11,
+        "xp": 80, "gil": 18, "tier": "easy",
+        "desc": "A winged predator that drains the life of its victims. It strikes with precision and lethal intent.",
+    },
+    "kenku": {
+        "name": "Kenku",
+        "hp": 30, "attack": 6, "defense": 11,
+        "xp": 50, "gil": 15, "tier": "easy",
+        "desc": "A flightless bird-man. They mimic sounds to lure prey and communicate in whistles and clicks.",
+    },
+    "lizardfolk_dd": {
+        "name": "Lizardfolk",
+        "hp": 45, "attack": 7, "defense": 13,
+        "xp": 65, "gil": 12, "tier": "easy",
+        "desc": "Cold-blooded warriors of the swamp. They are efficient hunters and scavengers.",
+    },
+    "thri_kreen": {
+        "name": "Thri-Kreen",
+        "hp": 38, "attack": 8, "defense": 12,
+        "xp": 70, "gil": 10, "tier": "easy",
+        "desc": "An insectoid nomad with four arms. They are masters of the desert and waste.",
+    },
+    "sea_serpent_ff": {
+        "name": "Sea Serpent",
+        "hp": 60, "attack": 8, "defense": 10,
+        "xp": 85, "gil": 25, "tier": "easy",
+        "desc": "A smaller cousin of the great dragons. It haunts the coastal waters and river mouths.",
+    },
+    "grimlock": {
+        "name": "Grimlock",
+        "hp": 40, "attack": 7, "defense": 12,
+        "xp": 60, "gil": 15, "tier": "easy",
+        "desc": "A blind, stone-skinned humanoid from the deep underground. It senses vibrations with uncanny accuracy.",
+    },
+    "skum": {
+        "name": "Skum",
+        "hp": 35, "attack": 6, "defense": 11,
+        "xp": 55, "gil": 12, "tier": "easy",
+        "desc": "A warped, aquatic slave of the aboleths. It is a creature of pure, mindless servitude.",
+    },
+    "troglodyte": {
+        "name": "Troglodyte",
+        "hp": 42, "attack": 7, "defense": 13,
+        "xp": 65, "gil": 10, "tier": "easy",
+        "desc": "A lizard-like subterranean dweller. Its stench is so foul it can weaken the strongest warriors.",
+    },
+    "zu_ff": {
+        "name": "Zu",
+        "hp": 65, "attack": 9, "defense": 10,
+        "xp": 90, "gil": 30, "tier": "easy",
+        "desc": "A giant bird of prey that can snatch up a horse in its talons. Its wings create gale-force gusts.",
     },
 
     # ══════════════════════════════════════════════════════
@@ -424,6 +688,115 @@ MONSTERS = {
         "desc": "A former scholar who went too deep into the ruins. Throws volatile compounds. Unpredictable.",
     },
 
+    "hill_gigas": {
+        "name": "Hill Gigas",
+        "hp": 90, "attack": 10, "defense": 12,
+        "xp": 105, "gil": 25, "tier": "medium",
+        "desc": "A giant the height of two men. Throws boulders. Not smart enough to aim well, but doesn't need to be.",
+    },
+    "fire_gigas": {
+        "name": "Fire Gigas",
+        "hp": 95, "attack": 11, "defense": 13,
+        "xp": 115, "gil": 30, "tier": "medium",
+        "desc": "A giant wreathed in flame. The ground chars where it walks. Its fists ignite on impact.",
+    },
+    "griffon": {
+        "name": "Griffon",
+        "hp": 75, "attack": 10, "defense": 13,
+        "xp": 100, "gil": 22, "tier": "medium",
+        "desc": "Eagle head, lion body. Nests on the ruins' highest spires. Protective of territory and young.",
+    },
+    "mindflayer": {
+        "name": "Mindflayer",
+        "hp": 60, "attack": 13, "defense": 12,
+        "xp": 125, "gil": 40, "tier": "medium",
+        "desc": "A tentacle-faced horror that feeds on thoughts. You forget what you were fighting mid-swing.",
+    },
+    "naga": {
+        "name": "Naga",
+        "hp": 70, "attack": 10, "defense": 13,
+        "xp": 110, "gil": 28, "tier": "medium",
+        "desc": "A serpent-bodied woman with a trident and ancient spite. Guards waterways and drowned places.",
+    },
+    "ogre": {
+        "name": "Ogre",
+        "hp": 85, "attack": 10, "defense": 11,
+        "xp": 95, "gil": 20, "tier": "medium",
+        "desc": "A hulking brute with a tree trunk for a weapon. Stupid and strong in exactly that order.",
+    },
+    "spectre": {
+        "name": "Spectre",
+        "hp": 50, "attack": 12, "defense": 14,
+        "xp": 115, "gil": 0, "tier": "medium",
+        "desc": "A ghost that has given up on mourning and moved on to malice. Drains warmth from the air.",
+    },
+    "troll": {
+        "name": "Troll",
+        "hp": 95, "attack": 9, "defense": 11,
+        "xp": 100, "gil": 18, "tier": "medium",
+        "desc": "A gangly, grey-skinned brute that regenerates. You have to burn the pieces or they crawl back together.",
+    },
+    "dullahan": {
+        "name": "Dullahan",
+        "hp": 80, "attack": 12, "defense": 14,
+        "xp": 120, "gil": 35, "tier": "medium",
+        "desc": "A headless knight on a headless horse. Carries its skull under one arm. The skull watches you.",
+    },
+    "sand_angler": {
+        "name": "Sand Angler",
+        "hp": 65, "attack": 9, "defense": 12,
+        "xp": 90, "gil": 15, "tier": "medium",
+        "desc": "Buries itself in the road dust and waits. Its mandibles close faster than you can react.",
+    },
+    "gelatinous_cube": {
+        "name": "Gelatinous Cube",
+        "hp": 60, "attack": 8, "defense": 10,
+        "xp": 80, "gil": 15, "tier": "medium",
+        "desc": "A transparent cube of acid and hunger. It moves silent and slow, digesting everything it touches.",
+    },
+    "nightmare_mtg": {
+        "name": "Nightmare",
+        "hp": 55, "attack": 11, "defense": 13,
+        "xp": 100, "gil": 25, "tier": "medium",
+        "desc": "An undead horse wreathed in dark flames. It leaves scorched hoofprints and the smell of ozone.",
+    },
+    "gorgon_dd": {
+        "name": "Gorgon",
+        "hp": 60, "attack": 10, "defense": 15,
+        "xp": 110, "gil": 20, "tier": "medium",
+        "desc": "A scale-covered bull with a breath that turns creatures to stone. Its hide is as hard as iron.",
+    },
+    "mimic": {
+        "name": "Mimic",
+        "hp": 50, "attack": 12, "defense": 13,
+        "xp": 120, "gil": 50, "tier": "medium",
+        "desc": "A creature that takes the form of inanimate objects. Its tongue is sticky and its teeth are numerous.",
+    },
+    "air_elemental": {
+        "name": "Air Elemental",
+        "hp": 55, "attack": 11, "defense": 14,
+        "xp": 100, "gil": 10, "tier": "medium",
+        "desc": "A living whirlwind. It strikes with the force of a hurricane and vanishes as quickly as it appears.",
+    },
+    "bulette": {
+        "name": "Bulette",
+        "hp": 90, "attack": 12, "defense": 17,
+        "xp": 150, "gil": 40, "tier": "medium",
+        "desc": "The 'land shark'. It burrows through the earth and leaps out to consume its prey in a single bite.",
+    },
+    "hook_horror": {
+        "name": "Hook Horror",
+        "hp": 75, "attack": 11, "defense": 14,
+        "xp": 120, "gil": 25, "tier": "medium",
+        "desc": "An avian-insectoid hybrid that climbs cave walls with massive, hooked claws. It communicates through clicks.",
+    },
+    "umber_hulk": {
+        "name": "Umber Hulk",
+        "hp": 95, "attack": 13, "defense": 15,
+        "xp": 180, "gil": 50, "tier": "medium",
+        "desc": "A massive, ape-like insectoid with eyes that can confuse the mind. It is a master of subterranean ambush.",
+    },
+
     # ══════════════════════════════════════════════════════
     # TIER: HARD  (Level 7-10)
     # ══════════════════════════════════════════════════════
@@ -537,6 +910,139 @@ MONSTERS = {
         "desc": "Born from the Broken Mire. The swamp has given it mass and patience and very little else.",
     },
 
+    "drake": {
+        "name": "Drake",
+        "hp": 130, "attack": 14, "defense": 15,
+        "xp": 220, "gil": 55, "tier": "hard",
+        "desc": "A wingless dragon. What it lacks in flight it makes up for in sheer armored mass and fire breath.",
+    },
+    "medusa": {
+        "name": "Medusa",
+        "hp": 100, "attack": 15, "defense": 14,
+        "xp": 230, "gil": 70, "tier": "hard",
+        "desc": "A woman with snakes for hair and a gaze that turns flesh to stone. Don't look at her face.",
+    },
+    "ghast": {
+        "name": "Ghast",
+        "hp": 110, "attack": 14, "defense": 13,
+        "xp": 200, "gil": 45, "tier": "hard",
+        "desc": "A ghoul that has fed enough to evolve. Paralyzing touch, rotting stench, and a hunger that never ends.",
+    },
+    "wight": {
+        "name": "Wight",
+        "hp": 120, "attack": 15, "defense": 14,
+        "xp": 215, "gil": 55, "tier": "hard",
+        "desc": "An undead lord that drains life with a touch. Where it walks, plants wither and animals flee.",
+    },
+    "wyrm": {
+        "name": "Wyrm",
+        "hp": 150, "attack": 14, "defense": 16,
+        "xp": 240, "gil": 65, "tier": "hard",
+        "desc": "An adolescent dragon. Already dangerous. In a century it will be devastating. Best dealt with now.",
+    },
+    "spectral_knight": {
+        "name": "Spectral Knight",
+        "hp": 125, "attack": 15, "defense": 16,
+        "xp": 235, "gil": 80, "tier": "hard",
+        "desc": "An Aeridorian champion who refused death. Fights with skill perfected over a thousand years of undeath.",
+    },
+    "clay_golem": {
+        "name": "Clay Golem",
+        "hp": 160, "attack": 12, "defense": 16,
+        "xp": 210, "gil": 30, "tier": "hard",
+        "desc": "Animated clay given purpose by ancient wards. Slow but utterly relentless. Absorbs blunt damage.",
+    },
+    "death_claw": {
+        "name": "Death Claw",
+        "hp": 105, "attack": 16, "defense": 14,
+        "xp": 225, "gil": 50, "tier": "hard",
+        "desc": "A massive crustacean with claws that can sever a horse. Found in deep cave systems beneath the ruins.",
+    },
+    "beholder": {
+        "name": "Beholder",
+        "hp": 180, "attack": 18, "defense": 17,
+        "xp": 450, "gil": 150, "tier": "hard",
+        "desc": "A floating orb of eyes and madness. Each eye stalk can fire a different deadly ray.",
+    },
+    "mind_flayer": {
+        "name": "Mind Flayer",
+        "hp": 140, "attack": 16, "defense": 15,
+        "xp": 400, "gil": 120, "tier": "hard",
+        "desc": "An illithid master of psionics. It hungers for brains and enslaves the wills of the weak.",
+    },
+    "rakshasa": {
+        "name": "Rakshasa",
+        "hp": 160, "attack": 15, "defense": 18,
+        "xp": 380, "gil": 200, "tier": "hard",
+        "desc": "A tiger-headed fiend and master of illusion. Its hands are backwards, and its heart is pure malice.",
+    },
+    "iron_giant_ff": {
+        "name": "Iron Giant",
+        "hp": 250, "attack": 20, "defense": 22,
+        "xp": 500, "gil": 250, "tier": "hard",
+        "desc": "A massive, plate-armored golem with a cleaver the size of a man. It exists only to crush.",
+    },
+    "craw_wurm": {
+        "name": "Craw Wurm",
+        "hp": 220, "attack": 16, "defense": 14,
+        "xp": 350, "gil": 80, "tier": "hard",
+        "desc": "A worm so large it can swallow whole wagons. It moves with a crushing weight through the deep forest.",
+    },
+    "bone_devil": {
+        "name": "Bone Devil",
+        "hp": 170, "attack": 17, "defense": 19,
+        "xp": 420, "gil": 140, "tier": "hard",
+        "desc": "A skeletal fiend with a stinging tail. It is a merciless enforcer of hell's laws.",
+    },
+    "death_tyrant": {
+        "name": "Death Tyrant",
+        "hp": 200, "attack": 20, "defense": 18,
+        "xp": 600, "gil": 200, "tier": "hard",
+        "desc": "An undead beholder. Its eye stalks glow with a sickly red light, and its gaze is the very chill of the grave.",
+    },
+    "drider": {
+        "name": "Drider",
+        "hp": 150, "attack": 16, "defense": 17,
+        "xp": 450, "gil": 100, "tier": "hard",
+        "desc": "A drow transformed into a half-spider monstrosity. It is a cursed weaver of webs and shadow.",
+    },
+    "storm_giant": {
+        "name": "Storm Giant",
+        "hp": 300, "attack": 22, "defense": 20,
+        "xp": 700, "gil": 300, "tier": "hard",
+        "desc": "A titan of the heights. It commands the lightning and the thunder with a word.",
+    },
+    "balor_dd": {
+        "name": "Balor",
+        "hp": 350, "attack": 25, "defense": 22,
+        "xp": 1500, "gil": 1000, "tier": "hard",
+        "desc": "A towering demon of fire and shadow. It wields a flaming sword and a multi-tailed whip of lightning.",
+    },
+    "glabrezu": {
+        "name": "Glabrezu",
+        "hp": 220, "attack": 20, "defense": 19,
+        "xp": 800, "gil": 400, "tier": "hard",
+        "desc": "A demon that tempts with power and wealth, only to crush its victims with its massive claws.",
+    },
+    "hezrou": {
+        "name": "Hezrou",
+        "hp": 180, "attack": 18, "defense": 17,
+        "xp": 600, "gil": 200, "tier": "hard",
+        "desc": "A toad-like demon of filth and disease. Its presence is an affront to the senses.",
+    },
+    "marilith": {
+        "name": "Marilith",
+        "hp": 260, "attack": 22, "defense": 20,
+        "xp": 1000, "gil": 600, "tier": "hard",
+        "desc": "A six-armed serpent demon. She is a master of the blade, striking with a whirlwind of steel.",
+    },
+    "vrock": {
+        "name": "Vrock",
+        "hp": 160, "attack": 16, "defense": 16,
+        "xp": 500, "gil": 150, "tier": "hard",
+        "desc": "A vulture-headed demon of greed. Its screech can stun those who witness its horrific dance.",
+    },
+
     # ══════════════════════════════════════════════════════
     # TIER: DEADLY  (Level 10+)
     # ══════════════════════════════════════════════════════
@@ -638,236 +1144,6 @@ MONSTERS = {
         "desc": "A gravity entity. Vast, slow, and possessing a mouth like a collapsed star. It draws things in.",
     },
 
-    # ── EverQuest / FF1-5 EXPANSION: TRIVIAL ─────────────────────────────────
-
-    "fire_beetle": {
-        "name": "Fire Beetle",
-        "hp": 14, "attack": 3, "defense": 8,
-        "xp": 18, "gil": 3, "tier": "trivial",
-        "desc": "A beetle the size of a dog with a glowing thorax. Bites leave minor burns. Common near warm rocks.",
-    },
-    "large_bat": {
-        "name": "Large Bat",
-        "hp": 12, "attack": 4, "defense": 9,
-        "xp": 16, "gil": 2, "tier": "trivial",
-        "desc": "A bat with a wingspan wider than a man's arms. Echolocation makes it hard to surprise.",
-    },
-    "gnoll_pup": {
-        "name": "Gnoll Pup",
-        "hp": 18, "attack": 4, "defense": 9,
-        "xp": 22, "gil": 5, "tier": "trivial",
-        "desc": "A young hyena-man. Scrawny and mean. Already knows how to hold a weapon.",
-    },
-    "decaying_skeleton": {
-        "name": "Decaying Skeleton",
-        "hp": 15, "attack": 3, "defense": 7,
-        "xp": 16, "gil": 3, "tier": "trivial",
-        "desc": "Barely held together by old magic. Falls apart if hit hard enough. Reassembles if you don't finish it.",
-    },
-    "spiderling": {
-        "name": "Spiderling",
-        "hp": 8, "attack": 5, "defense": 10,
-        "xp": 20, "gil": 2, "tier": "trivial",
-        "desc": "A young forest spider. Fast, venomous, and angry about being small.",
-    },
-    "hornet": {
-        "name": "Hornet",
-        "hp": 10, "attack": 4, "defense": 11,
-        "xp": 18, "gil": 2, "tier": "trivial",
-        "desc": "A wasp the length of a forearm. Stings paralyze smaller creatures. You are not a smaller creature. Probably.",
-    },
-    "imp": {
-        "name": "Imp",
-        "hp": 12, "attack": 5, "defense": 10,
-        "xp": 24, "gil": 6, "tier": "trivial",
-        "desc": "A tiny devil-creature with bat wings. Throws sparks and insults. Annoying beyond its threat level.",
-    },
-    "leg_eater": {
-        "name": "Leg Eater",
-        "hp": 16, "attack": 3, "defense": 8,
-        "xp": 18, "gil": 4, "tier": "trivial",
-        "desc": "A carnivorous plant that snaps at ankles. Sessile until you step on it.",
-    },
-    "wererat": {
-        "name": "Wererat",
-        "hp": 14, "attack": 4, "defense": 9,
-        "xp": 20, "gil": 5, "tier": "trivial",
-        "desc": "A rat that walks upright and carries a shiv. Found near sewers and basements. Clever enough to ambush.",
-    },
-
-    # ── EQ / FF1-5 EXPANSION: EASY ────────────────────────────────────────────
-
-    "gnoll": {
-        "name": "Gnoll",
-        "hp": 35, "attack": 6, "defense": 10,
-        "xp": 48, "gil": 12, "tier": "easy",
-        "desc": "A full-grown hyena-man. Hunts in packs. Laughs before it charges. The laugh is worse.",
-    },
-    "orc_pawn": {
-        "name": "Orc Pawn",
-        "hp": 30, "attack": 5, "defense": 10,
-        "xp": 42, "gil": 9, "tier": "easy",
-        "desc": "An orc foot soldier. Disciplined, armored, and expendable. There are always more.",
-    },
-    "orc_centurion": {
-        "name": "Orc Centurion",
-        "hp": 40, "attack": 7, "defense": 12,
-        "xp": 58, "gil": 14, "tier": "easy",
-        "desc": "An orc officer. Better armor, better weapon, worse attitude. Commands squads of pawns.",
-    },
-    "basilisk": {
-        "name": "Basilisk",
-        "hp": 38, "attack": 6, "defense": 11,
-        "xp": 55, "gil": 15, "tier": "easy",
-        "desc": "An eight-legged reptile with a petrifying gaze. Keep your shield up and your eyes down.",
-    },
-    "bomb": {
-        "name": "Bomb",
-        "hp": 25, "attack": 8, "defense": 9,
-        "xp": 55, "gil": 10, "tier": "easy",
-        "desc": "A floating sphere of compressed fire. It gets bigger when you hit it. Then it explodes.",
-    },
-    "coeurl": {
-        "name": "Coeurl",
-        "hp": 34, "attack": 7, "defense": 11,
-        "xp": 52, "gil": 12, "tier": "easy",
-        "desc": "A panther-like predator with whip-like whiskers that discharge lightning. Silent until it strikes.",
-    },
-    "grenade": {
-        "name": "Grenade",
-        "hp": 30, "attack": 9, "defense": 9,
-        "xp": 58, "gil": 12, "tier": "easy",
-        "desc": "A bomb that has been burning long enough to develop opinions. Larger, angrier, redder.",
-    },
-    "pugil": {
-        "name": "Pugil",
-        "hp": 28, "attack": 6, "defense": 10,
-        "xp": 45, "gil": 8, "tier": "easy",
-        "desc": "A carnivorous fish that has grown legs and a foul temper. Found near Tricklebrook. Surprisingly fast on land.",
-    },
-    "revenant": {
-        "name": "Revenant",
-        "hp": 40, "attack": 7, "defense": 11,
-        "xp": 52, "gil": 0, "tier": "easy",
-        "desc": "An undead warrior with enough memory to hold a grudge. Attacks with purpose, not instinct.",
-    },
-
-    # ── EQ / FF1-5 EXPANSION: MEDIUM ──────────────────────────────────────────
-
-    "hill_gigas": {
-        "name": "Hill Gigas",
-        "hp": 90, "attack": 10, "defense": 12,
-        "xp": 105, "gil": 25, "tier": "medium",
-        "desc": "A giant the height of two men. Throws boulders. Not smart enough to aim well, but doesn't need to be.",
-    },
-    "fire_gigas": {
-        "name": "Fire Gigas",
-        "hp": 95, "attack": 11, "defense": 13,
-        "xp": 115, "gil": 30, "tier": "medium",
-        "desc": "A giant wreathed in flame. The ground chars where it walks. Its fists ignite on impact.",
-    },
-    "griffon": {
-        "name": "Griffon",
-        "hp": 75, "attack": 10, "defense": 13,
-        "xp": 100, "gil": 22, "tier": "medium",
-        "desc": "Eagle head, lion body. Nests on the ruins' highest spires. Protective of territory and young.",
-    },
-    "mindflayer": {
-        "name": "Mindflayer",
-        "hp": 60, "attack": 13, "defense": 12,
-        "xp": 125, "gil": 40, "tier": "medium",
-        "desc": "A tentacle-faced horror that feeds on thoughts. You forget what you were fighting mid-swing.",
-    },
-    "naga": {
-        "name": "Naga",
-        "hp": 70, "attack": 10, "defense": 13,
-        "xp": 110, "gil": 28, "tier": "medium",
-        "desc": "A serpent-bodied woman with a trident and ancient spite. Guards waterways and drowned places.",
-    },
-    "ogre": {
-        "name": "Ogre",
-        "hp": 85, "attack": 10, "defense": 11,
-        "xp": 95, "gil": 20, "tier": "medium",
-        "desc": "A hulking brute with a tree trunk for a weapon. Stupid and strong in exactly that order.",
-    },
-    "spectre": {
-        "name": "Spectre",
-        "hp": 50, "attack": 12, "defense": 14,
-        "xp": 115, "gil": 0, "tier": "medium",
-        "desc": "A ghost that has given up on mourning and moved on to malice. Drains warmth from the air.",
-    },
-    "troll": {
-        "name": "Troll",
-        "hp": 95, "attack": 9, "defense": 11,
-        "xp": 100, "gil": 18, "tier": "medium",
-        "desc": "A gangly, grey-skinned brute that regenerates. You have to burn the pieces or they crawl back together.",
-    },
-    "dullahan": {
-        "name": "Dullahan",
-        "hp": 80, "attack": 12, "defense": 14,
-        "xp": 120, "gil": 35, "tier": "medium",
-        "desc": "A headless knight on a headless horse. Carries its skull under one arm. The skull watches you.",
-    },
-    "sand_angler": {
-        "name": "Sand Angler",
-        "hp": 65, "attack": 9, "defense": 12,
-        "xp": 90, "gil": 15, "tier": "medium",
-        "desc": "Buries itself in the road dust and waits. Its mandibles close faster than you can react.",
-    },
-
-    # ── EQ / FF1-5 EXPANSION: HARD ────────────────────────────────────────────
-
-    "drake": {
-        "name": "Drake",
-        "hp": 130, "attack": 14, "defense": 15,
-        "xp": 220, "gil": 55, "tier": "hard",
-        "desc": "A wingless dragon. What it lacks in flight it makes up for in sheer armored mass and fire breath.",
-    },
-    "medusa": {
-        "name": "Medusa",
-        "hp": 100, "attack": 15, "defense": 14,
-        "xp": 230, "gil": 70, "tier": "hard",
-        "desc": "A woman with snakes for hair and a gaze that turns flesh to stone. Don't look at her face.",
-    },
-    "ghast": {
-        "name": "Ghast",
-        "hp": 110, "attack": 14, "defense": 13,
-        "xp": 200, "gil": 45, "tier": "hard",
-        "desc": "A ghoul that has fed enough to evolve. Paralyzing touch, rotting stench, and a hunger that never ends.",
-    },
-    "wight": {
-        "name": "Wight",
-        "hp": 120, "attack": 15, "defense": 14,
-        "xp": 215, "gil": 55, "tier": "hard",
-        "desc": "An undead lord that drains life with a touch. Where it walks, plants wither and animals flee.",
-    },
-    "wyrm": {
-        "name": "Wyrm",
-        "hp": 150, "attack": 14, "defense": 16,
-        "xp": 240, "gil": 65, "tier": "hard",
-        "desc": "An adolescent dragon. Already dangerous. In a century it will be devastating. Best dealt with now.",
-    },
-    "spectral_knight": {
-        "name": "Spectral Knight",
-        "hp": 125, "attack": 15, "defense": 16,
-        "xp": 235, "gil": 80, "tier": "hard",
-        "desc": "An Aeridorian champion who refused death. Fights with skill perfected over a thousand years of undeath.",
-    },
-    "clay_golem": {
-        "name": "Clay Golem",
-        "hp": 160, "attack": 12, "defense": 16,
-        "xp": 210, "gil": 30, "tier": "hard",
-        "desc": "Animated clay given purpose by ancient wards. Slow but utterly relentless. Absorbs blunt damage.",
-    },
-    "death_claw": {
-        "name": "Death Claw",
-        "hp": 105, "attack": 16, "defense": 14,
-        "xp": 225, "gil": 50, "tier": "hard",
-        "desc": "A massive crustacean with claws that can sever a horse. Found in deep cave systems beneath the ruins.",
-    },
-
-    # ── EQ / FF1-5 EXPANSION: DEADLY ──────────────────────────────────────────
-
     "king_behemoth": {
         "name": "King Behemoth",
         "hp": 380, "attack": 22, "defense": 19,
@@ -910,168 +1186,6 @@ MONSTERS = {
         "xp": 680, "gil": 320, "tier": "deadly",
         "desc": "A horseman in black plate that appears on the trade road at midnight. Those who flee say his lance never misses.",
     },
-
-    # ── PHASE 2 EXPANSION (D&D, MtG, FF, EQ) ──────────────────────────────────
-
-    # ── TRIVIAL ──
-    "kobold": {
-        "name": "Kobold",
-        "hp": 15, "attack": 4, "defense": 8,
-        "xp": 20, "gil": 4, "tier": "trivial",
-        "desc": "A small, reptilian humanoid. Draconic in lineage, but cowardly in practice. Usually found in large, annoying numbers.",
-    },
-    "giant_rat_mtg": {
-        "name": "Giant Rat",
-        "hp": 12, "attack": 3, "defense": 7,
-        "xp": 15, "gil": 2, "tier": "trivial",
-        "desc": "An unnaturally large rodent. Its bite is infectious and its hunger is bottomless.",
-    },
-    "goblin_guide": {
-        "name": "Goblin Guide",
-        "hp": 18, "attack": 5, "defense": 9,
-        "xp": 25, "gil": 6, "tier": "trivial",
-        "desc": "A frantic goblin that knows the shortcuts. It'll lead you straight to your doom if you aren't careful.",
-    },
-    "sahagin": {
-        "name": "Sahagin",
-        "hp": 20, "attack": 4, "defense": 10,
-        "xp": 22, "gil": 5, "tier": "trivial",
-        "desc": "A fish-like humanoid with a spear. Smells of brine and old blood.",
-    },
-    "llanowar_scout": {
-        "name": "Llanowar Scout",
-        "hp": 16, "attack": 4, "defense": 11,
-        "xp": 18, "gil": 3, "tier": "trivial",
-        "desc": "An elf from a distant woodland. Skilled in woodcraft and defensive strikes.",
-    },
-    "cave_crawler": {
-        "name": "Cave Crawler",
-        "hp": 14, "attack": 3, "defense": 12,
-        "xp": 20, "gil": 4, "tier": "trivial",
-        "desc": "A multi-legged insectoid that clings to cave ceilings. Drops on unsuspecting prey.",
-    },
-
-    # ── EASY ──
-    "gnoll_hunter": {
-        "name": "Gnoll Hunter",
-        "hp": 45, "attack": 7, "defense": 11,
-        "xp": 60, "gil": 15, "tier": "easy",
-        "desc": "A gnoll that has mastered the bow. It tracks its prey for miles before striking from the shadows.",
-    },
-    "bugbear": {
-        "name": "Bugbear",
-        "hp": 55, "attack": 8, "defense": 12,
-        "xp": 75, "gil": 20, "tier": "easy",
-        "desc": "A hulking, hairy goblinoid. Surprisingly stealthy for its size. Hits with the force of a falling tree.",
-    },
-    "rust_monster": {
-        "name": "Rust Monster",
-        "hp": 30, "attack": 6, "defense": 14,
-        "xp": 65, "gil": 0, "tier": "easy",
-        "desc": "An insect-like creature that feeds on metal. Your armor is looking quite delicious to it.",
-    },
-    "harpy_dd": {
-        "name": "Harpy",
-        "hp": 40, "attack": 7, "defense": 10,
-        "xp": 55, "gil": 12, "tier": "easy",
-        "desc": "A creature with the upper body of a woman and the lower body of a bird. Its song lures travelers to their deaths.",
-    },
-    "cactuar": {
-        "name": "Cactuar",
-        "hp": 15, "attack": 10, "defense": 20,
-        "xp": 100, "gil": 50, "tier": "easy",
-        "desc": "A sentient cactus that runs with a stiff, awkward gait. Be wary of its '1000 Needles' attack.",
-    },
-    "vampire_nighthawk": {
-        "name": "Vampire Nighthawk",
-        "hp": 35, "attack": 9, "defense": 11,
-        "xp": 80, "gil": 18, "tier": "easy",
-        "desc": "A winged predator that drains the life of its victims. It strikes with precision and lethal intent.",
-    },
-
-    # ── MEDIUM ──
-    "gelatinous_cube": {
-        "name": "Gelatinous Cube",
-        "hp": 100, "attack": 9, "defense": 8,
-        "xp": 110, "gil": 30, "tier": "medium",
-        "desc": "A transparent cube of acidic ooze. It cleans dungeon corridors by absorbing everything in its path.",
-    },
-    "displacer_beast": {
-        "name": "Displacer Beast",
-        "hp": 85, "attack": 12, "defense": 15,
-        "xp": 130, "gil": 45, "tier": "medium",
-        "desc": "A six-legged feline with two tentacles. Its magical hide makes it appear to be several feet from its actual location.",
-    },
-    "owlbear": {
-        "name": "Owlbear",
-        "hp": 110, "attack": 11, "defense": 12,
-        "xp": 120, "gil": 20, "tier": "medium",
-        "desc": "A creature with the head of a giant owl and the body of a bear. Known for its terrible screech and deadly hugs.",
-    },
-    "chimera_dd": {
-        "name": "Chimera",
-        "hp": 120, "attack": 13, "defense": 14,
-        "xp": 150, "gil": 60, "tier": "medium",
-        "desc": "A three-headed monstrosity (lion, goat, dragon). It is a chaotic blend of three deadly predators.",
-    },
-    "malboro": {
-        "name": "Malboro",
-        "hp": 130, "attack": 10, "defense": 13,
-        "xp": 160, "gil": 40, "tier": "medium",
-        "desc": "A mass of tentacles and gaping maws. Its 'Bad Breath' can cause a dozen ailments at once.",
-    },
-    "serra_angel": {
-        "name": "Serra Angel",
-        "hp": 90, "attack": 14, "defense": 16,
-        "xp": 200, "gil": 100, "tier": "medium",
-        "desc": "A divine warrior wreathed in light. Her blade is swift and her justice is absolute.",
-    },
-    "nightmare_mtg": {
-        "name": "Nightmare",
-        "hp": 95, "attack": 12, "defense": 11,
-        "xp": 140, "gil": 35, "tier": "medium",
-        "desc": "A flaming black stallion that embodies the fears of the living. Its power grows in the dark.",
-    },
-
-    # ── HARD ──
-    "beholder": {
-        "name": "Beholder",
-        "hp": 180, "attack": 18, "defense": 17,
-        "xp": 450, "gil": 150, "tier": "hard",
-        "desc": "A floating orb of eyes and madness. Each eye stalk can fire a different deadly ray.",
-    },
-    "mind_flayer": {
-        "name": "Mind Flayer",
-        "hp": 140, "attack": 16, "defense": 15,
-        "xp": 400, "gil": 120, "tier": "hard",
-        "desc": "An illithid master of psionics. It hungers for brains and enslaves the wills of the weak.",
-    },
-    "rakshasa": {
-        "name": "Rakshasa",
-        "hp": 160, "attack": 15, "defense": 18,
-        "xp": 380, "gil": 200, "tier": "hard",
-        "desc": "A tiger-headed fiend and master of illusion. Its hands are backwards, and its heart is pure malice.",
-    },
-    "iron_giant_ff": {
-        "name": "Iron Giant",
-        "hp": 250, "attack": 20, "defense": 22,
-        "xp": 500, "gil": 250, "tier": "hard",
-        "desc": "A massive, plate-armored golem with a cleaver the size of a man. It exists only to crush.",
-    },
-    "craw_wurm": {
-        "name": "Craw Wurm",
-        "hp": 220, "attack": 16, "defense": 14,
-        "xp": 350, "gil": 80, "tier": "hard",
-        "desc": "A worm so large it can swallow whole wagons. It moves with a crushing weight through the deep forest.",
-    },
-    "bone_devil": {
-        "name": "Bone Devil",
-        "hp": 170, "attack": 17, "defense": 19,
-        "xp": 420, "gil": 140, "tier": "hard",
-        "desc": "A skeletal fiend with a stinging tail. It is a merciless enforcer of hell's laws.",
-    },
-
-    # ── DEADLY ──
     "tiamat_avatar": {
         "name": "Avatar of Tiamat",
         "hp": 500, "attack": 25, "defense": 22,
@@ -1102,103 +1216,6 @@ MONSTERS = {
         "xp": 900, "gil": 400, "tier": "deadly",
         "desc": "A fallen paladin that has traded its soul for eternal undeath and unholy power.",
     },
-
-    # ── BATCH 2 ──
-
-    "slime": {
-        "name": "Slime",
-        "hp": 10, "attack": 2, "defense": 15,
-        "xp": 12, "gil": 1, "tier": "trivial",
-        "desc": "A quiver of jelly. Hard to hurt with a blade, but weak to almost everything else.",
-    },
-    "stirge": {
-        "name": "Stirge",
-        "hp": 8, "attack": 4, "defense": 10,
-        "xp": 15, "gil": 2, "tier": "trivial",
-        "desc": "A winged insect-bird that drains blood. They are rarely alone.",
-    },
-    "giant_centipede": {
-        "name": "Giant Centipede",
-        "hp": 12, "attack": 3, "defense": 9,
-        "xp": 18, "gil": 3, "tier": "trivial",
-        "desc": "A massive multi-legged horror. Its mandibles drip with a numbing toxin.",
-    },
-    "mudbrawler": {
-        "name": "Mudbrawler",
-        "hp": 18, "attack": 4, "defense": 7,
-        "xp": 20, "gil": 4, "tier": "trivial",
-        "desc": "A goblinoid creature that thrives in filth and chaos. It fights with clumsy but heavy strikes.",
-    },
-
-    "kenku": {
-        "name": "Kenku",
-        "hp": 30, "attack": 6, "defense": 11,
-        "xp": 50, "gil": 15, "tier": "easy",
-        "desc": "A flightless bird-man. They mimic sounds to lure prey and communicate in whistles and clicks.",
-    },
-    "lizardfolk_dd": {
-        "name": "Lizardfolk",
-        "hp": 45, "attack": 7, "defense": 13,
-        "xp": 65, "gil": 12, "tier": "easy",
-        "desc": "Cold-blooded warriors of the swamp. They are efficient hunters and scavengers.",
-    },
-    "thri_kreen": {
-        "name": "Thri-Kreen",
-        "hp": 38, "attack": 8, "defense": 12,
-        "xp": 70, "gil": 10, "tier": "easy",
-        "desc": "An insectoid nomad with four arms. They are masters of the desert and waste.",
-    },
-    "sea_serpent_ff": {
-        "name": "Sea Serpent",
-        "hp": 60, "attack": 8, "defense": 10,
-        "xp": 85, "gil": 25, "tier": "easy",
-        "desc": "A smaller cousin of the great dragons. It haunts the coastal waters and river mouths.",
-    },
-
-    "gorgon_dd": {
-        "name": "Gorgon",
-        "hp": 120, "attack": 12, "defense": 18,
-        "xp": 140, "gil": 40, "tier": "medium",
-        "desc": "A bull-like creature covered in iron scales. Its breath can turn a man to solid stone.",
-    },
-    "manticore": {
-        "name": "Manticore",
-        "hp": 90, "attack": 13, "defense": 14,
-        "xp": 125, "gil": 35, "tier": "medium",
-        "desc": "A monster with the body of a lion, wings of a bat, and a tail full of venomous spikes.",
-    },
-    "wyvern": {
-        "name": "Wyvern",
-        "hp": 105, "attack": 14, "defense": 13,
-        "xp": 135, "gil": 50, "tier": "medium",
-        "desc": "A flying reptile with a sting that can drop a horse. More aggressive and less intelligent than a dragon.",
-    },
-    "air_elemental": {
-        "name": "Air Elemental",
-        "hp": 80, "attack": 12, "defense": 15,
-        "xp": 115, "gil": 0, "tier": "medium",
-        "desc": "A sentient whirlwind. It buffets its foes with gale-force winds and unseen strikes.",
-    },
-
-    "death_tyrant": {
-        "name": "Death Tyrant",
-        "hp": 200, "attack": 20, "defense": 18,
-        "xp": 600, "gil": 200, "tier": "hard",
-        "desc": "An undead beholder. Its eye stalks glow with a sickly red light, and its gaze is the very chill of the grave.",
-    },
-    "drider": {
-        "name": "Drider",
-        "hp": 150, "attack": 16, "defense": 17,
-        "xp": 450, "gil": 100, "tier": "hard",
-        "desc": "A drow transformed into a half-spider monstrosity. It is a cursed weaver of webs and shadow.",
-    },
-    "storm_giant": {
-        "name": "Storm Giant",
-        "hp": 300, "attack": 22, "defense": 20,
-        "xp": 700, "gil": 300, "tier": "hard",
-        "desc": "A titan of the heights. It commands the lightning and the thunder with a word.",
-    },
-
     "ancient_red_dragon": {
         "name": "Ancient Red Dragon",
         "hp": 800, "attack": 32, "defense": 28,
@@ -1217,6 +1234,48 @@ MONSTERS = {
         "xp": 3000, "gil": 2000, "tier": "deadly",
         "desc": "The terror of the deep. Its tentacles can drag the largest ships to a watery grave.",
     },
+    "demogorgon_echo": {
+        "name": "Echo of Demogorgon",
+        "hp": 700, "attack": 32, "defense": 26,
+        "xp": 4000, "gil": 0, "tier": "deadly",
+        "desc": "The Prince of Demons. His two heads, Aameul and Hethradiah, are locked in eternal conflict.",
+    },
+    "orcus_aspect": {
+        "name": "Aspect of Orcus",
+        "hp": 650, "attack": 30, "defense": 25,
+        "xp": 3500, "gil": 0, "tier": "deadly",
+        "desc": "The Demon Prince of Undeath. He wields a skull-tipped wand that can extinguish life with a touch.",
+    },
+    "grazzt_avatar": {
+        "name": "Avatar of Graz'zt",
+        "hp": 600, "attack": 28, "defense": 24,
+        "xp": 3000, "gil": 0, "tier": "deadly",
+        "desc": "The Dark Prince of Pleasure. He is a master of seduction and strategic cruelty.",
+    },
+    "juiblex_shadow": {
+        "name": "Shadow of Juiblex",
+        "hp": 550, "attack": 24, "defense": 22,
+        "xp": 2500, "gil": 0, "tier": "deadly",
+        "desc": "The Faceless Lord. A bubbling mass of slime and eyes that dissolves everything it touches.",
+    },
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
 
     # ══════════════════════════════════════════════════════
     # TIER: BOSS  (named encounters, rare/unique)
@@ -1263,139 +1322,6 @@ MONSTERS = {
         "hp": 450, "attack": 26, "defense": 24,
         "xp": 3500, "gil": 500, "tier": "boss",
         "desc": "The Knight of the Rose, now a Death Knight. His word is death, and his touch is the grave.",
-    },
-
-    # ── BATCH 3 ──
-
-    "homunculus": {
-        "name": "Homunculus",
-        "hp": 10, "attack": 3, "defense": 10,
-        "xp": 15, "gil": 2, "tier": "trivial",
-        "desc": "A tiny, artificial humanoid. It follows its master's telepathic commands with eerie precision.",
-    },
-    "vegepygmy": {
-        "name": "Vegepygmy",
-        "hp": 15, "attack": 4, "defense": 9,
-        "xp": 20, "gil": 3, "tier": "trivial",
-        "desc": "A fungal creature spawned from the remains of others. It communicates through rhythmic thumping.",
-    },
-    "xvart": {
-        "name": "Xvart",
-        "hp": 12, "attack": 3, "defense": 8,
-        "xp": 18, "gil": 4, "tier": "trivial",
-        "desc": "A small, blue-skinned humanoid that worships a minor god of thievery. They are greedy and paranoid.",
-    },
-    "mud_element": {
-        "name": "Mud Element",
-        "hp": 20, "attack": 4, "defense": 7,
-        "xp": 22, "gil": 3, "tier": "trivial",
-        "desc": "A sludge-like creature that slows anyone who steps into its reach.",
-    },
-
-    "grimlock": {
-        "name": "Grimlock",
-        "hp": 40, "attack": 7, "defense": 12,
-        "xp": 60, "gil": 15, "tier": "easy",
-        "desc": "A blind, stone-skinned humanoid from the deep underground. It senses vibrations with uncanny accuracy.",
-    },
-    "skum": {
-        "name": "Skum",
-        "hp": 35, "attack": 6, "defense": 11,
-        "xp": 55, "gil": 12, "tier": "easy",
-        "desc": "A warped, aquatic slave of the aboleths. It is a creature of pure, mindless servitude.",
-    },
-    "troglodyte": {
-        "name": "Troglodyte",
-        "hp": 42, "attack": 7, "defense": 13,
-        "xp": 65, "gil": 10, "tier": "easy",
-        "desc": "A lizard-like subterranean dweller. Its stench is so foul it can weaken the strongest warriors.",
-    },
-    "zu_ff": {
-        "name": "Zu",
-        "hp": 65, "attack": 9, "defense": 10,
-        "xp": 90, "gil": 30, "tier": "easy",
-        "desc": "A giant bird of prey that can snatch up a horse in its talons. Its wings create gale-force gusts.",
-    },
-
-    "bulette": {
-        "name": "Bulette",
-        "hp": 150, "attack": 15, "defense": 18,
-        "xp": 200, "gil": 50, "tier": "medium",
-        "desc": "The 'land shark'. It burrows through the earth and leaps out to consume anything in its path.",
-    },
-    "ettercap": {
-        "name": "Ettercap",
-        "hp": 85, "attack": 12, "defense": 14,
-        "xp": 130, "gil": 30, "tier": "medium",
-        "desc": "A spider-like humanoid that tends to giant arachnids. It weaves complex traps for the unwary.",
-    },
-    "hook_horror": {
-        "name": "Hook Horror",
-        "hp": 110, "attack": 14, "defense": 15,
-        "xp": 160, "gil": 40, "tier": "medium",
-        "desc": "An avian-insectoid hybrid with massive hooks for hands. It climbs walls with ease and strikes with power.",
-    },
-    "umber_hulk": {
-        "name": "Umber Hulk",
-        "hp": 140, "attack": 16, "defense": 17,
-        "xp": 220, "gil": 60, "tier": "medium",
-        "desc": "A massive, armored burrower with confusing eyes. Its gaze can leave a warrior dazed and vulnerable.",
-    },
-
-    "balor_dd": {
-        "name": "Balor",
-        "hp": 350, "attack": 25, "defense": 22,
-        "xp": 1500, "gil": 1000, "tier": "hard",
-        "desc": "A towering demon of fire and shadow. It wields a flaming sword and a multi-tailed whip of lightning.",
-    },
-    "glabrezu": {
-        "name": "Glabrezu",
-        "hp": 220, "attack": 20, "defense": 19,
-        "xp": 800, "gil": 400, "tier": "hard",
-        "desc": "A demon that tempts with power and wealth, only to crush its victims with its massive claws.",
-    },
-    "hezrou": {
-        "name": "Hezrou",
-        "hp": 180, "attack": 18, "defense": 17,
-        "xp": 600, "gil": 200, "tier": "hard",
-        "desc": "A toad-like demon of filth and disease. Its presence is an affront to the senses.",
-    },
-    "marilith": {
-        "name": "Marilith",
-        "hp": 260, "attack": 22, "defense": 20,
-        "xp": 1000, "gil": 600, "tier": "hard",
-        "desc": "A six-armed serpent demon. She is a master of the blade, striking with a whirlwind of steel.",
-    },
-    "vrock": {
-        "name": "Vrock",
-        "hp": 160, "attack": 16, "defense": 16,
-        "xp": 500, "gil": 150, "tier": "hard",
-        "desc": "A vulture-headed demon of greed. Its screech can stun those who witness its horrific dance.",
-    },
-
-    "demogorgon_echo": {
-        "name": "Echo of Demogorgon",
-        "hp": 700, "attack": 32, "defense": 26,
-        "xp": 4000, "gil": 0, "tier": "deadly",
-        "desc": "The Prince of Demons. His two heads, Aameul and Hethradiah, are locked in eternal conflict.",
-    },
-    "orcus_aspect": {
-        "name": "Aspect of Orcus",
-        "hp": 650, "attack": 30, "defense": 25,
-        "xp": 3500, "gil": 0, "tier": "deadly",
-        "desc": "The Demon Prince of Undeath. He wields a skull-tipped wand that can extinguish life with a touch.",
-    },
-    "grazzt_avatar": {
-        "name": "Avatar of Graz'zt",
-        "hp": 600, "attack": 28, "defense": 24,
-        "xp": 3000, "gil": 0, "tier": "deadly",
-        "desc": "The Dark Prince of Pleasure. He is a master of seduction and strategic cruelty.",
-    },
-    "juiblex_shadow": {
-        "name": "Shadow of Juiblex",
-        "hp": 550, "attack": 24, "defense": 22,
-        "xp": 2500, "gil": 0, "tier": "deadly",
-        "desc": "The Faceless Lord. A bubbling mass of slime and eyes that dissolves everything it touches.",
     },
 
     "exdeath_ff5": {
@@ -1452,6 +1378,12 @@ MONSTERS = {
         "xp": 950, "gil": 0, "tier": "boss",
         "desc": "Something has been inside her for a long time. The weight she carries. The warnings she wouldn't give. Now you know why.",
     },
+
+
+
+
+
+
 }
 
 
@@ -1479,7 +1411,6 @@ ENCOUNTER_TABLES = {
         ("killer_bee",         3),
         ("microchu",           3),
         ("elf_toad",           3),
-        # Phase 2 additions
         ("kobold",             8),
         ("giant_rat_mtg",      7),
         ("slime",              7),
@@ -1490,7 +1421,6 @@ ENCOUNTER_TABLES = {
         ("llanowar_scout",     3),
         ("mud_element",        3),
         ("skum",               3),
-        # EQ/FF additions
         ("fire_beetle",        5),
         ("large_bat",          4),
         ("gnoll_pup",          4),
@@ -1500,7 +1430,6 @@ ENCOUNTER_TABLES = {
         ("leg_eater",          3),
         ("wererat",            3),
         ("decaying_skeleton",  3),
-        # Final batch (Trivial/Easy)
         ("black_flan",         4),
         ("moldwynd",           4),
         ("blood_slime",        4),
@@ -1523,7 +1452,6 @@ ENCOUNTER_TABLES = {
         ("harpy",              8),
         ("wind_serpent",       7),
         ("treant",             5),
-        # Phase 2 additions
         ("owlbear",            8),
         ("bugbear",            7),
         ("displacer_beast",    6),
@@ -1539,13 +1467,11 @@ ENCOUNTER_TABLES = {
         ("grimlock",           3),
         ("troglodyte",         3),
         ("zu_ff",              2),
-        # EQ/FF additions
         ("coeurl",             6),
         ("basilisk",           5),
         ("bomb",               4),
         ("gnoll",              4),
         ("ogre",               3),
-        # Final batch (Medium/Hard)
         ("stroper",            5),
         ("bloom_creeper",      5),
         ("pink_puff",          4),
@@ -1586,7 +1512,6 @@ ENCOUNTER_TABLES = {
         ("dark_knight",        7),
         ("tonberry",           6),
         ("lich",               4),
-        # Phase 2 additions
         ("beholder",           5),
         ("mind_flayer",        5),
         ("iron_giant_ff",      4),
@@ -1600,18 +1525,15 @@ ENCOUNTER_TABLES = {
         ("glabrezu",           2),
         ("hezrou",             2),
         ("vrock",              2),
-        # EQ/FF additions
         ("dullahan",           5),
         ("mindflayer",         4),
         ("spectre",            4),
         ("clay_golem",         3),
         ("spectral_knight",    2),
-        # Legendary Bosses (extremely rare)
         ("vecna_lich_god",     1),
         ("acererak",           1),
         ("chaos_ff1",          1),
         ("exdeath_ff5",        1),
-        # Final batch (Hard/Deadly/Boss)
         ("crew_dust",          4),
         ("iron_giant",         4),
         ("magic_dragon",       3),
@@ -1658,20 +1580,17 @@ ENCOUNTER_TABLES = {
         ("bandit",            20),
         ("wolf",              12),
         ("cockatrice",         5),
-        # Phase 2 additions
         ("kobold",            12),
         ("mudbrawler",        10),
         ("xvart",              8),
         ("kenku",              7),
         ("lizardfolk_dd",      6),
         ("goblin_guide",       5),
-        # EQ/FF additions
         ("orc_pawn",           8),
         ("orc_centurion",      5),
         ("gnoll",              4),
         ("pugil",              3),
         ("sand_angler",        3),
-        # Final batch (Travelers/Guards)
         ("gigas",              5),
         ("lizardman",          4),
         ("sea_snake",          4),
@@ -1690,7 +1609,6 @@ ENCOUNTER_TABLES = {
         ("shadow_dancer",     12),
         ("werewolf",          12),
         ("lich",               5),
-        # Phase 2 additions
         ("vampire_nighthawk",  8),
         ("nightmare_mtg",      7),
         ("death_knight_dd",    5),
@@ -1698,13 +1616,13 @@ ENCOUNTER_TABLES = {
         ("orcus_aspect",       2),
         ("grazzt_avatar",      2),
         ("juiblex_shadow",     2),
-        # EQ/FF additions
-        ("revenant",           8),
+        ("hand_axe_goblin",    3),
+        ("skeleton_archer",    3),
+        ("moldwynd",           4),
         ("wight",              5),
         ("spectre",            5),
         ("vampire_lord",       3),
         ("ghast",              5),
-        # Legendary Bosses (extremely rare)
         ("elder_treant",       2),
         ("tonberry_king",      2),
         ("zeromus_ff4",        1),

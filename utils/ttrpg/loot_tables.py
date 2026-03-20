@@ -2,7 +2,6 @@
 Item drops for monster kills based on their difficulty tier.
 Keys match equipment_registry.py so items can be used/sold/equipped.
 Gear drops (head, boots, accessories) added at low probability per tier.
-Expanded with EQ/FF1-5 drops.
 """
 import secrets
 from typing import Optional
@@ -18,7 +17,6 @@ def get_loot(tier: str) -> Optional[str]:
             ("mognet_letter", 4),
             ("rusty_dagger", 5), ("wooden_staff", 5), ("wooden_club", 5),
             ("shortbow", 4), ("hand_axe", 4), ("travelers_cloak", 5), ("torch", 6),
-            # Rare Tier 2 injections
             ("iron_sword", 2), ("spear", 2), ("leather_armor", 2), ("tonic", 2),
         ],
         "easy": [
@@ -32,7 +30,6 @@ def get_loot(tier: str) -> Optional[str]:
             ("battle_axe", 4), ("mages_robe", 4), ("leather_armor", 5),
             ("iron_helm", 4), ("mages_cap", 4), ("heavy_boots", 4), ("soft_slippers", 4),
             ("warriors_bracer", 4), ("scouts_bracer", 4), ("scholars_bracelet", 4),
-            # Rare Tier 3-4 injections
             ("mithral_shirt", 2), ("iron_ring", 2), ("flametongue", 1), ("winged_boots", 1),
         ],
         "medium": [
@@ -48,7 +45,6 @@ def get_loot(tier: str) -> Optional[str]:
             ("studded_leather", 4), ("chainmail", 4), ("black_garb", 3), ("fur_cloak", 3),
             ("steel_visor", 3), ("silken_cowl", 3), ("iron_shod_boots", 3),
             ("foresters_boots", 3), ("ley_walkers", 3), ("crystal_bracelet", 3), ("periapt_poison", 3),
-            # Rare Tier 4-5 injections
             ("aeridor_shard", 2), ("diamond_armor", 1), ("masamune", 1),
         ],
         "hard": [

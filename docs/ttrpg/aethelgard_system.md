@@ -322,16 +322,14 @@ XP is awarded automatically on monster kills and forest events. You never type `
 
 | Item Key | Name | ATK Bonus | Damage | Price |
 |:--|:--|:--|:--|:--|
-| `rusty_dagger` | Rusty Dagger | +0 | d4 | 5g |
-| `wooden_club` | Wooden Club | +0 | d4 | 3g |
-| `hand_axe` | Hand Axe | +1 | d6 | 18g |
 | `shortbow` | Shortbow | +1 | d6 | 20g |
-| `iron_sword` | Iron Sword | +2 | d6 | 35g |
+| `hand_axe` | Hand Axe | +1 | d6 | 18g |
 | `wooden_staff` | Wooden Staff | +1 | d6 | 8g |
+| `iron_sword` | Iron Sword | +2 | d6 | 35g |
+| `iron_staff` | Iron-Shod Staff | +2 | d8 | 30g |
 | `spear` | Spear | +2 | d8 | 40g |
 | `crossbow` | Crossbow | +3 | d8 | 55g |
 | `battle_axe` | Battle Axe | +3 | d8 | 60g |
-| `iron_staff` | Iron-Shod Staff | +2 | d8 | 30g |
 
 *Staves are typically carried by Mages and Clerics. Hemlock will sell to anyone.*
 
@@ -339,12 +337,14 @@ XP is awarded automatically on monster kills and forest events. You never type `
 
 | Item Key | Name | DEF Bonus | Price |
 |:--|:--|:--|:--|
-| `travelers_cloak` | Traveler's Cloak | +0 | 5g |
-| `mages_robe` | Mage's Robe | +1 | 12g |
 | `leather_armor` | Leather Armor | +2 | 20g |
+| `mages_robe` | Mage's Robe | +1 | 12g |
+| `bronze_armor` | Bronze Armor | +3 | 30g |
+| `fur_cloak` | Fur Cloak | +2 | 18g |
 | `studded_leather` | Studded Leather | +3 | 40g |
 | `silken_robe` | Silken Robe | +3 | 45g |
 | `chainmail` | Chainmail | +5 | 80g |
+| `black_garb` | Black Garb | +5 | 90g |
 
 ### High-Tier Equipment (Ruins Drops / Grimstone Only)
 

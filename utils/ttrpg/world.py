@@ -4,7 +4,7 @@ LOCATION_DATA = {
         "short": "The muddy square at the heart of OakHaven. The Tricklebrook "
                  "gurgles somewhere under the bridge planks.",
         "exits": ["stone_hearth", "hemlocks_store", "shrine",
-                  "watchtower", "whisperwood_edge", "trade_road", "notice_board", "oakhaven_bank"],
+                  "watchtower", "oakhaven_bank", "whisperwood_edge", "trade_road"],
         "atmosphere": "grey, damp, watchful. The smell of woodsmoke and wet earth.",
     },
     "stone_hearth": {
@@ -77,12 +77,6 @@ LOCATION_DATA = {
         "density": 1,
         "dist_mult": 1.1,
     },
-    "notice_board": {
-        "name": "The Notice Board",
-        "short": "A weathered wooden board in the square, covered in layers of parchment and news.",
-        "exits": ["oakhaven"],
-        "atmosphere": "communal, informative, slightly tattered.",
-    },
     "herbalists_hut": {
         "name": "Sister Maren's Hut",
         "short": "A small lean-to tucked behind the shrine. The air is thick with the scent of drying herbs.",
@@ -125,8 +119,6 @@ def resolve_location(query: str) -> str:
         "watchtower":      "watchtower",
         "watchers":        "watchtower",
         "tower":           "watchtower",
-        "notices":         "notice_board",
-        "board":           "notice_board",
         "bank":             "oakhaven_bank",
         "herbalist":        "herbalists_hut",
         "hut":              "herbalists_hut",

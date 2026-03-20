@@ -57,6 +57,7 @@ import time
 import uuid as _uuid
 import os
 import json
+import traceback
 import discord
 import secrets
 from utils.infrastructure.logging.kaia_logger import log_info, log_error, log_warning
@@ -71,6 +72,491 @@ from utils.ttrpg.encounter_tables import random_encounter
 import utils.ttrpg.dice_engine as dice_engine
 from utils.ttrpg.monster_registry import get as get_monster
 from utils.ttrpg.loot_tables import get_loot
+
+
+# ── Interaction adapters for button/select callbacks ─────────────────────────
+
+class _InteractionChannel:
+    """Routes .send() through interaction.followup after a defer()."""
+    def __init__(self, interaction: discord.Interaction):
+        self._interaction = interaction
+        self._real = interaction.channel
+        self.id   = self._real.id
+        self.name = getattr(self._real, 'name', '')
+
+    async def send(self, content=None, **kwargs):
+        return await self._interaction.followup.send(content, **kwargs)
+
+    @property
+    def typing(self):
+        return self._real.typing
+
+
+class _InteractionMsg:
+    """Make a discord.Interaction quack like a message for handler reuse."""
+    def __init__(self, interaction: discord.Interaction):
+        self.channel  = _InteractionChannel(interaction)
+        self.author   = interaction.user
+        self.guild    = interaction.guild
+        self.content  = ""
+        self.mentions = []
+
+
+def _make_interaction_send(interaction: discord.Interaction):
+    """Return a send callable that routes through interaction.followup.
+
+    Used as the `send` parameter for handlers that occasionally call
+    send(channel, text) instead of msg.channel.send(embed=...).
+    """
+    async def _send(channel, text, use_code_block=None):
+        if use_code_block is None:
+            use_code_block = "```" not in str(text)
+        if use_code_block:
+            await interaction.followup.send(f"```\n{text.strip()}\n```")
+        else:
+            await interaction.followup.send(text.strip())
+    return _send
+
+
+# Location → list of (label, emoji, command, rest_arg, button_style, row)
+_LOCATION_BUTTONS: dict[str, list] = {
+    "oakhaven": [
+        ("Look", "🔎", "look", "", discord.ButtonStyle.secondary, 0),
+        ("Notices", "📋", "notices", "", discord.ButtonStyle.secondary, 0),
+        ("Quests", "📜", "quests", "", discord.ButtonStyle.secondary, 0),
+        ("Weather", "🌦️", "weather", "", discord.ButtonStyle.secondary, 0),
+        ("Talk Elara", "🧙", "talk", "elara", discord.ButtonStyle.secondary, 1),
+        ("Calendar", "📅", "calendar", "", discord.ButtonStyle.secondary, 1),
+        ("Deliver", "📬", "deliver", "", discord.ButtonStyle.secondary, 1),
+    ],
+    "stone_hearth": [
+        ("Rest", "🛏️", "rest", "", discord.ButtonStyle.green, 0),
+        ("Drink", "🍺", "drink", "", discord.ButtonStyle.blurple, 0),
+        ("Gamble", "🎲", "gamble", "", discord.ButtonStyle.secondary, 0),
+        ("Rumor", "🗣️", "rumor", "", discord.ButtonStyle.secondary, 0),
+        ("Talk Mira","🍻", "talk", "barkeep", discord.ButtonStyle.secondary, 1),
+        ("Talk Stranger","👤","talk", "hooded_figure",discord.ButtonStyle.secondary, 1),
+        ("Look", "🔎", "look", "", discord.ButtonStyle.secondary, 1),
+    ],
+    "hemlocks_store": [
+        ("Shop", "🏪", "shop", "", discord.ButtonStyle.blurple, 0),
+        ("Talk Hemlock","🧓","talk", "hemlock", discord.ButtonStyle.secondary, 0),
+        ("Look", "🔎", "look", "", discord.ButtonStyle.secondary, 0),
+    ],
+    "shrine": [
+        ("Pray", "🕯️", "pray", "", discord.ButtonStyle.secondary, 0),
+        ("Fountain", "💧", "fountain", "", discord.ButtonStyle.secondary, 0),
+        ("Offer", "🪙", "offer", "", discord.ButtonStyle.secondary, 0),
+        ("Look", "🔎", "look", "", discord.ButtonStyle.secondary, 0),
+        ("Look: Flame","🔥", "look", "at flame", discord.ButtonStyle.secondary, 1),
+        ("Look: Altar","⛩️", "look", "at altar", discord.ButtonStyle.secondary, 1),
+    ],
+    "watchtower": [
+        ("Scout", "🗼", "scout", "", discord.ButtonStyle.blurple, 0),
+        ("Talk Guard","⚔️","talk", "guard", discord.ButtonStyle.secondary, 0),
+        ("Look", "🔎", "look", "", discord.ButtonStyle.secondary, 0),
+    ],
+    "whisperwood_edge": [
+        ("Hunt", "🗡️", "hunt", "", discord.ButtonStyle.danger, 0),
+        ("Look", "🔎", "look", "", discord.ButtonStyle.secondary, 0),
+        ("Look: Tracks","🐾","look", "at tracks", discord.ButtonStyle.secondary, 0),
+    ],
+    "whisperwood_deep": [
+        ("Hunt", "🗡️", "hunt", "", discord.ButtonStyle.danger, 0),
+        ("Look", "🔎", "look", "", discord.ButtonStyle.secondary, 0),
+    ],
+    "aeridor_ruins": [
+        ("Hunt", "🗡️", "hunt", "", discord.ButtonStyle.danger, 0),
+        ("Look", "🔎", "look", "", discord.ButtonStyle.secondary, 0),
+        ("Look: Crystals","💎","look","at crystals", discord.ButtonStyle.secondary, 0),
+    ],
+    "trade_road": [
+        ("Hunt", "🗡️", "hunt", "", discord.ButtonStyle.danger, 0),
+        ("Look", "🔎", "look", "", discord.ButtonStyle.secondary, 0),
+    ],
+    "herbalists_hut": [
+        ("Brew", "⚗️", "brew", "", discord.ButtonStyle.green, 0),
+        ("Talk Maren","🌿","talk", "maren", discord.ButtonStyle.secondary, 0),
+        ("Look", "🔎", "look", "", discord.ButtonStyle.secondary, 0),
+        ("Look: Herbs","🫙","look", "at herbs", discord.ButtonStyle.secondary, 0),
+    ],
+    "oakhaven_bank": [
+        ("Deposit", "💰", "bank_deposit", "", discord.ButtonStyle.secondary, 0),
+        ("Withdraw", "💸", "bank_withdraw", "", discord.ButtonStyle.secondary, 0),
+        ("Look", "🔎", "look", "", discord.ButtonStyle.secondary, 0),
+    ],
+}
+
+class RPGFullLocationView(discord.ui.View):
+    """
+    All-in-one location view.
+    Row 0-2: location-specific action buttons (from _LOCATION_BUTTONS)
+    Row 3: 📊 Status · 🎒 Inventory · 🗺️ Map · 📄 Sheet (always present)
+    Row 4: travel select dropdown
+    """
+
+    def __init__(self, ctx_app, msg, uid: str, uname: str, is_owner: bool, location: str):
+        super().__init__(timeout=120)
+        self._ctx = ctx_app
+        self._msg = msg
+        self._uid = uid
+        self._uname = uname
+        self._is_owner = is_owner
+        self._location = location
+        
+        # Build the handler dispatch map inside __init__ to avoid NameErrors
+        self._handler_map = {
+            "status_board": _handle_status,
+            "hunt": _handle_hunt,
+            "rest": _handle_rest,
+            "drink": _handle_drink,
+            "gamble": _handle_gamble,
+            "rumor": _handle_rumor,
+            "shop": _handle_shop,
+            "inventory": _handle_inventory,
+            "pray": _handle_pray,
+            "fountain": _handle_fountain,
+            "scout": _handle_scout,
+            "notices": _handle_notices,
+            "quests": _handle_quests,
+            "brew": _handle_brew,
+            "bank_deposit": _handle_bank_deposit,
+            "bank_withdraw": _handle_bank_withdraw,
+            "map": _handle_map,
+            "look": _handle_look,
+            "talk": _handle_talk,
+            "calendar": _handle_calendar,
+            "weather": _handle_weather,
+            "deliver": _handle_deliver,
+            "hunts": _handle_hunts,
+            "leaderboard": _handle_leaderboard,
+        }
+
+        # ── Location action buttons ───────────────────────────────────
+        for label, emoji, cmd, rest_arg, style, row in _LOCATION_BUTTONS.get(location, []):
+            self._add_btn(label, emoji, cmd, rest_arg, style, row)
+
+        # ── Always-present row 3 (moved up from 4) ────────────────────
+        self._add_btn("Status", "📊", "status_board", "", discord.ButtonStyle.secondary, 3)
+        self._add_btn("Inventory", "🎒", "inventory", "", discord.ButtonStyle.secondary, 3)
+        self._add_btn("Map", "🗺️", "map", "", discord.ButtonStyle.secondary, 3)
+
+        # ── Travel select (row 4 — moved down from 3) ─────────────────
+        from utils.ttrpg.world import LOCATION_DATA
+        exits = LOCATION_DATA.get(location, {}).get("exits", [])
+        if exits:
+            options = []
+            for ex in exits[:25]:
+                td = LOCATION_DATA.get(ex, {})
+                lbl = td.get("name", ex.replace("_", " ").title())
+                em = "🗡️" if td.get("hunting") else "📍"
+                options.append(discord.SelectOption(label=lbl[:100], value=ex, emoji=em))
+
+            sel = discord.ui.Select(placeholder="Travel to...", options=options, row=4)
+
+            async def _travel_cb(interaction: discord.Interaction, _sel=sel):
+                if str(interaction.user.id) != self._uid:
+                    await interaction.response.send_message("```\nnot your menu.\n```", ephemeral=True)
+                    return
+                
+                try:
+                    chosen = interaction.data["values"][0]
+                    await interaction.response.defer()
+                    fake = _InteractionMsg(interaction)
+                    sfn = _make_interaction_send(interaction)
+                    await _handle_go(self._ctx, fake, sfn, chosen, self._uid, self._uname, self._is_owner)
+                except Exception as e:
+                    import traceback
+                    log_error(f"[rpg travel] {e}\n{traceback.format_exc()}")
+                    try:
+                        await interaction.followup.send(f"```\nTravel failed: {e}\n```", ephemeral=True)
+                    except: pass
+
+            sel.callback = _travel_cb
+            self.add_item(sel)
+
+    def _add_btn(self, label: str, emoji: str, cmd: str, rest_arg: str,
+                 style: discord.ButtonStyle, row: int):
+        btn = discord.ui.Button(label=label, emoji=emoji, style=style, row=row)
+
+        async def cb(interaction: discord.Interaction, _cmd=cmd, _rest=rest_arg):
+            if str(interaction.user.id) != self._uid:
+                await interaction.response.send_message(
+                    "```\nthese aren't your buttons.\n```", ephemeral=True)
+                return
+            await interaction.response.defer()
+            fake = _InteractionMsg(interaction)
+            sfn = _make_interaction_send(interaction)
+            handler = self._handler_map.get(_cmd)
+            if handler:
+                try:
+                    await handler(self._ctx, fake, sfn, _rest,
+                                  self._uid, self._uname, self._is_owner)
+                except Exception as e:
+                    import traceback
+                    log_error(f"[rpg btn] {_cmd} failed: {e}\n{traceback.format_exc()}")
+                    await interaction.followup.send(
+                        f"```\nerror in {_cmd}: {e}\n```", ephemeral=True)
+
+        btn.callback = cb
+        self.add_item(btn)
+
+    async def on_timeout(self):
+        pass
+
+
+# Keep this alias so _make_status_view and other helpers still work
+RPGLocationView = RPGFullLocationView
+
+
+class RPGCombatView(discord.ui.View):
+    """Attack / Flee buttons shown during active combat.
+
+    Attached to the hunt encounter embed and to combat-log embeds when the
+    monster is still alive so players can keep clicking instead of typing.
+    """
+
+    def __init__(self, ctx_app, msg, uid: str, uname: str, is_owner: bool, monster_key: str):
+        super().__init__(timeout=120)
+        self._ctx = ctx_app
+        self._msg = msg
+        self._uid = uid
+        self._uname = uname
+        self._is_owner = is_owner
+        self._monster_key = monster_key
+
+        # ── Attack button ─────────────────────────────────────────────
+        atk_btn = discord.ui.Button(
+            label="⚔️ Attack", style=discord.ButtonStyle.danger, row=0
+        )
+
+        async def _attack_cb(interaction: discord.Interaction):
+            if str(interaction.user.id) != self._uid:
+                await interaction.response.send_message(
+                    "```\nthese aren't your buttons.\n```", ephemeral=True
+                )
+                return
+            await interaction.response.defer()
+            fake_msg = _InteractionMsg(interaction)
+            send_fn = _make_interaction_send(interaction)
+            try:
+                await _handle_attack(
+                    self._ctx, fake_msg, send_fn,
+                    self._monster_key, self._uid, self._uname, self._is_owner
+                )
+            except Exception as e:
+                log_error(f"[rpg button] attack failed: {e}")
+                await interaction.followup.send(
+                    "```\nerror running attack. check logs.\n```", ephemeral=True
+                )
+
+        atk_btn.callback = _attack_cb
+        self.add_item(atk_btn)
+
+        # ── Flee button ───────────────────────────────────────────────
+        flee_btn = discord.ui.Button(
+            label="🏃 Flee", style=discord.ButtonStyle.secondary, row=0
+        )
+
+        async def _flee_cb(interaction: discord.Interaction):
+            if str(interaction.user.id) != self._uid:
+                await interaction.response.send_message(
+                    "```\nthese aren't your buttons.\n```", ephemeral=True
+                )
+                return
+            await interaction.response.defer()
+            fake_msg = _InteractionMsg(interaction)
+            send_fn = _make_interaction_send(interaction)
+            try:
+                await _handle_flee(
+                    self._ctx, fake_msg, send_fn,
+                    "", self._uid, self._uname, self._is_owner
+                )
+            except Exception as e:
+                log_error(f"[rpg button] flee failed: {e}")
+                await interaction.followup.send(
+                    "```\nerror running flee. check logs.\n```", ephemeral=True
+                )
+
+        flee_btn.callback = _flee_cb
+        self.add_item(flee_btn)
+
+    async def on_timeout(self):
+        pass
+
+
+def _make_hunt_status_view(ctx, msg, uid, uname, is_owner):
+    """Return a View with 🗡️ Hunt Again + 📊 Status buttons (post-combat/event)."""
+    view = discord.ui.View(timeout=60)
+
+    hunt_btn = discord.ui.Button(label="🗡️ Hunt Again", style=discord.ButtonStyle.secondary, row=3)
+
+    async def _hunt_cb(interaction: discord.Interaction):
+        if str(interaction.user.id) != uid:
+            await interaction.response.send_message("```\nnot your button.\n```", ephemeral=True)
+            return
+        await interaction.response.defer()
+        fake_msg = _InteractionMsg(interaction)
+        send_fn = _make_interaction_send(interaction)
+        await _handle_hunt(ctx, fake_msg, send_fn, "", uid, uname, is_owner)
+
+    hunt_btn.callback = _hunt_cb
+    view.add_item(hunt_btn)
+
+    view.add_item(_make_status_btn(ctx, uid, uname, is_owner))
+    return view
+
+
+def _make_status_btn(ctx, uid, uname, is_owner):
+    """Helper to create a unified Status button."""
+    btn = discord.ui.Button(label="📊 Status", style=discord.ButtonStyle.secondary, row=3)
+    async def _status_cb(interaction: discord.Interaction):
+        if str(interaction.user.id) != uid:
+            await interaction.response.send_message("```\nnot your button.\n```", ephemeral=True)
+            return
+        await interaction.response.defer()
+        fake_msg = _InteractionMsg(interaction)
+        send_fn = _make_interaction_send(interaction)
+        await _handle_status(ctx, fake_msg, send_fn, "", uid, uname, is_owner)
+    btn.callback = _status_cb
+    return btn
+
+
+async def _make_shop_view(ctx, msg, uid, uname, is_owner, items):
+    """Return a View with Buy and Sell select menus."""
+    from utils.ttrpg.shop import find_item
+    from collections import Counter
+
+    view = discord.ui.View(timeout=120)
+
+    # ── Buy menus (Rows 0 & 1) ────────────────────────────────────────
+    # Discord select menus are capped at 25 options. 
+    # Hemlock now has ~40 items, so we split into two menus.
+    chunks = [items[i:i + 25] for i in range(0, len(items), 25)]
+    
+    for idx, chunk in enumerate(chunks):
+        if idx >= 2: break # Max 2 buy rows (50 items total)
+        options = []
+        for item_key in chunk:
+            item = find_item(item_key)
+            if not item: continue
+            label = f"{item['name']} ({item['value']}g)"
+            options.append(discord.SelectOption(label=label[:100], value=item_key))
+
+        if options:
+            placeholder = "🛒 Buy an item..." if idx == 0 else "🛒 Buy (continued)..."
+            buy_select = discord.ui.Select(
+                placeholder=placeholder, options=options, row=idx
+            )
+            async def _buy_cb(interaction: discord.Interaction):
+                if str(interaction.user.id) != uid:
+                    await interaction.response.send_message("```\nnot your menu.\n```", ephemeral=True)
+                    return
+                # Get the value from the specific select that was clicked
+                chosen = interaction.data["values"][0]
+                await interaction.response.defer()
+                fake_msg = _InteractionMsg(interaction)
+                send_fn = _make_interaction_send(interaction)
+                await _handle_buy(ctx, fake_msg, send_fn, chosen, uid, uname, is_owner)
+            buy_select.callback = _buy_cb
+            view.add_item(buy_select)
+
+    # ── Sell menu (Row 2) — built from player's current inventory ─────
+    sheet = await load(uid)
+    if sheet and sheet.get("inventory"):
+        inv_counts = Counter(sheet["inventory"])
+        sell_options = []
+        for item_key, count in inv_counts.items():
+            item = find_item(item_key)
+            if not item: continue
+            sell_val = max(1, item["value"] // 2)
+            label = f"{item['name']} x{count} ({sell_val}g ea)" if count > 1 else f"{item['name']} ({sell_val}g)"
+            sell_options.append(discord.SelectOption(label=label[:100], value=item_key))
+
+        if sell_options:
+            sell_select = discord.ui.Select(
+                placeholder="💰 Sell an item...",
+                options=sell_options[:25],
+                row=2  # Shifted to Row 2
+            )
+            async def _sell_cb(interaction: discord.Interaction):
+                if str(interaction.user.id) != uid:
+                    await interaction.response.send_message("```\nnot your menu.\n```", ephemeral=True)
+                    return
+                chosen = interaction.data["values"][0]
+                await interaction.response.defer()
+                fake_msg = _InteractionMsg(interaction)
+                send_fn = _make_interaction_send(interaction)
+                await _handle_sell(ctx, fake_msg, send_fn, chosen, uid, uname, is_owner)
+            sell_select.callback = _sell_cb
+            view.add_item(sell_select)
+
+    view.add_item(_make_status_btn(ctx, uid, uname, is_owner))
+    return view
+
+
+def _make_inventory_view(ctx, msg, uid, uname, is_owner, inventory):
+    """Return a View with Use and Equip select menus."""
+    from utils.ttrpg.shop import find_item
+    view = discord.ui.View(timeout=120)
+    
+    consumables = []
+    gear = []
+    
+    unique_items = sorted(list(set(inventory)))
+    for k in unique_items:
+        it = find_item(k)
+        if not it: continue
+        if it["category"] == "consumable":
+            consumables.append((k, it))
+        elif it["category"] in ("weapon", "armor", "head", "boots", "accessory"):
+            gear.append((k, it))
+            
+    if consumables:
+        opts = [discord.SelectOption(label=it["name"][:100], value=k) for k, it in consumables[:25]]
+        sel = discord.ui.Select(placeholder="Use item...", options=opts, row=0)
+        async def _use_cb(interaction: discord.Interaction):
+            if str(interaction.user.id) != uid:
+                await interaction.response.send_message("```\nnot your menu.\n```", ephemeral=True)
+                return
+            chosen = interaction.data["values"][0]
+            await interaction.response.defer()
+            fake_msg = _InteractionMsg(interaction)
+            send_fn = _make_interaction_send(interaction)
+            await _handle_use(ctx, fake_msg, send_fn, chosen, uid, uname, is_owner)
+        sel.callback = _use_cb
+        view.add_item(sel)
+        
+    if gear:
+        opts = [discord.SelectOption(label=it["name"][:100], value=k) for k, it in gear[:25]]
+        sel = discord.ui.Select(placeholder="Equip gear...", options=opts, row=1)
+        async def _equip_cb(interaction: discord.Interaction):
+            if str(interaction.user.id) != uid:
+                await interaction.response.send_message("```\nnot your menu.\n```", ephemeral=True)
+                return
+            chosen = interaction.data["values"][0]
+            await interaction.response.defer()
+            fake_msg = _InteractionMsg(interaction)
+            send_fn = _make_interaction_send(interaction)
+            await _handle_equip(ctx, fake_msg, send_fn, chosen, uid, uname, is_owner)
+        sel.callback = _equip_cb
+        view.add_item(sel)
+
+    view.add_item(_make_status_btn(ctx, uid, uname, is_owner))
+    return view
+
+
+def _make_status_view(ctx, msg, uid, uname, is_owner):
+    """Return a View with a single 📊 Status button that re-opens the HUD."""
+    view = discord.ui.View(timeout=60)
+    view.add_item(_make_status_btn(ctx, uid, uname, is_owner))
+    return view
+
+
+def _make_map_view(ctx, msg, uid, uname, is_owner, loc):
+    """Return a full location view — used after blizzard/no-hunt redirects."""
+    return RPGFullLocationView(ctx, msg, uid, uname, is_owner, loc)
+
 
 LOCATION_ACTIONS = {
     "oakhaven": [
@@ -156,7 +642,7 @@ LOCATION_COLORS = {
     "hemlocks_store":    0x6b8e6b,   # muted green — herbs and iron
     "shrine":            0x9b9bc8,   # pale violet — the Silent Ones
     "watchtower":        0x8aacbf,   # steel blue — sky and wood
-    "notice_board":      0x708090,   # slate gray — paper and news
+    # ... removed notice_board ...
     "herbalists_hut":    0x556b2f,   # dark olive green — herbs
     "oakhaven_bank":     0xb8860b,   # dark goldenrod — coins and gil
     "whisperwood_edge":  0x4a7c4e,   # forest green
@@ -179,7 +665,6 @@ async def handle_rpg_command(ctx, msg, send_kaia_response):
     handlers = {
         "status_board": _handle_status,
         "new":       _handle_new,
-        "sheet":     _handle_sheet,
         "go":        _handle_go,
         "look":      _handle_look,
         "map":       _handle_map,
@@ -218,6 +703,8 @@ async def handle_rpg_command(ctx, msg, send_kaia_response):
         "quest":     _handle_quest_detail,
         "accept":    _handle_accept,
         "brew":      _handle_brew,
+        "bank_deposit": _handle_bank_deposit,
+        "bank_withdraw": _handle_bank_withdraw,
         "bank":      _handle_bank,
         "duel":      _handle_duel,
         "weather":   _handle_weather,
@@ -314,9 +801,11 @@ async def _handle_status(ctx, msg, send, rest, uid, uname, is_owner):
                 break
                 
     # World State display
+    from utils.ttrpg.calendar import get_weather
+    weather = get_weather()
     state = get_current_state()
-    world_info = f"🌍 **{state['weather'].capitalize()}** — *{state['weather_desc']}*"
-    if state["event"] != "none":
+    world_info = f"{weather['emoji']} **{weather['name']}** — *{weather['desc']}*"
+    if state.get("event", "none") != "none":
         world_info += f"\n📣 **Event:** {state['event_desc']}"
         
     pct_hp = hp_cur / hp_max if hp_max > 0 else 0
@@ -349,12 +838,14 @@ async def _handle_status(ctx, msg, send, rest, uid, uname, is_owner):
     
     # Empty field for grid alignment if needed, or rely on Discord's 3-column layout
     
-    embed.add_field(name="🗡️ Weapon",    value=w_str,  inline=True)
-    embed.add_field(name="🛡️ Armor",     value=a_str,  inline=True)
-    embed.add_field(name="🪖 Head",      value=h_str,  inline=True)
-    embed.add_field(name="👢 Boots",     value=b_str,  inline=True)
-    embed.add_field(name="💍 Accessory", value=ac_str, inline=True)
-    embed.add_field(name="🎯 Hunts", value=f"{hunts}/{MAX_HUNTS_PER_DAY} remaining", inline=True)
+    # Replace the individual weapon/armor/head/boots/accessory/hunts/reputation fields with:
+    equip_str = (
+        f"🗡️ {w_str}\n"
+        f"🛡️ {a_str}\n"
+        f"🪖 {h_str} 👢 {b_str}\n"
+        f"💍 {ac_str}"
+    )
+    embed.add_field(name="⚔️ Equipment", value=equip_str, inline=True)
     
     rep = sheet.get("reputation", 0)
     rep_rank = "Neutral"
@@ -362,7 +853,8 @@ async def _handle_status(ctx, msg, send, rest, uid, uname, is_owner):
     elif rep >= 50: rep_rank = "Trusted"
     elif rep < -50: rep_rank = "Outlaw"
     elif rep < -20: rep_rank = "Unwelcome"
-    embed.add_field(name="🎭 Reputation", value=f"{rep_rank} ({rep})", inline=True)
+    
+    embed.add_field(name="📊 Stats", value=f"🎯 {hunts}/{MAX_HUNTS_PER_DAY} hunts\n🎭 {rep_rank} ({rep})", inline=True)
     
     embed.add_field(name="🗺️ Nearby", value=nearby_str, inline=False)
     
@@ -371,14 +863,8 @@ async def _handle_status(ctx, msg, send, rest, uid, uname, is_owner):
         cond_str = ", ".join(c.title() for c in conds)
         embed.add_field(name="⚠️ Status Effects", value=cond_str, inline=False)
     
-    loc_hints = LOCATION_ACTIONS.get(loc, ["`!rpg look`"])
-    hint_labels = [h.split("` —")[0].replace("`", "").strip() for h in loc_hints]
-    footer_text = " · ".join(hint_labels)
-    if loc_data.get("hunting"):
-        footer_text += " · !rpg hunt"
-    embed.set_footer(text=footer_text)
-    
-    await msg.channel.send(embed=embed)
+    view = RPGLocationView(ctx, msg, uid, uname, is_owner, loc)
+    await msg.channel.send(embed=embed, view=view)
 
 
 # ── Character Management ─────────────────────────────────────────────────────
@@ -443,11 +929,23 @@ async def _handle_new(ctx, msg, send, rest, uid, uname, is_owner):
     await msg.channel.send(embed=embed)
 
 async def _handle_sheet(ctx, msg, send, rest, uid, uname, is_owner):
+    # For button presses (no @mention), show own sheet as the rich status HUD
     target_id = str(msg.mentions[0].id) if msg.mentions else uid
-    sheet = await load(target_id)
-    if not sheet:
-        return await msg.channel.send(embed=discord.Embed(description="Character not found.", color=0xcc4444))
-    await send(msg.channel, format_sheet(sheet), use_code_block=True)
+    
+    # If viewing someone else's sheet, fall back to text format
+    if target_id != uid:
+        sheet = await load(target_id)
+        if not sheet:
+            return await msg.channel.send(embed=discord.Embed(description="Character not found.", color=0xcc4444))
+        embed = discord.Embed(
+            title=f"📄 {sheet['character_name']}",
+            description=f"```\n{format_sheet(sheet)}\n```",
+            color=0x888888
+        )
+        return await msg.channel.send(embed=embed)
+    
+    # Own sheet — just show the full rich status HUD
+    await _handle_status(ctx, msg, send, rest, uid, uname, is_owner)
 
 
 # ── World & Movement ─────────────────────────────────────────────────────────
@@ -461,22 +959,15 @@ async def _handle_go(ctx, msg, send, rest, uid, uname, is_owner):
     current_loc_key = sheet.get("location", "oakhaven")
     current_loc = LOCATION_DATA.get(current_loc_key, {})
 
-    # --- No args: show "where to?" embed ---
     if not rest.strip():
-        exits = current_loc.get("exits", [])
-        exit_lines = "\n".join(
-            f"`!rpg go {key}` — {LOCATION_DATA[key]['name']}"
-            for key in exits
-            if key in LOCATION_DATA
-        )
         color = LOCATION_COLORS.get(current_loc_key, 0x888888)
         embed = discord.Embed(
             title=f"📍 {current_loc.get('name', current_loc_key)}",
             description=f"*{current_loc.get('short', '')}*",
             color=color
         )
-        embed.add_field(name="Where to?", value=exit_lines or "No exits.", inline=False)
-        return await msg.channel.send(embed=embed)
+        view = RPGFullLocationView(ctx, msg, uid, uname, is_owner, current_loc_key)
+        return await msg.channel.send(embed=embed, view=view)
 
     target = resolve_location(rest.strip())
     if not target or target not in LOCATION_DATA:
@@ -528,18 +1019,12 @@ async def _handle_go(ctx, msg, send, rest, uid, uname, is_owner):
         description=desc,
         color=color
     )
-
-    embed.add_field(
-        name="Available actions",
-        value="\n".join(actions),
-        inline=False
-    )
-
     rec = loc_data.get("recommended_level")
     if rec and sheet["level"] < rec - 1:
         embed.set_footer(text=f"⚠️ Recommended level {rec}+ — proceed with caution")
 
-    await msg.channel.send(embed=embed)
+    view = RPGFullLocationView(ctx, msg, uid, uname, is_owner, target)
+    await msg.channel.send(embed=embed, view=view)
 
 async def _handle_look(ctx, msg, send, rest, uid, uname, is_owner):
     from utils.ttrpg.world import LOCATION_DATA
@@ -616,14 +1101,8 @@ async def _handle_look(ctx, msg, send, rest, uid, uname, is_owner):
                     color=LOCATION_COLORS.get(loc, 0x888888)
                 )
                 
-                # Append actions
-                actions = LOCATION_ACTIONS.get(loc, ["`!rpg look` — observe the surroundings"])
-                embed.add_field(
-                    name="Available actions",
-                    value="\n".join(actions),
-                    inline=False
-                )
-                await msg.channel.send(embed=embed)
+                view = RPGFullLocationView(ctx, msg, uid, uname, is_owner, loc)
+                await msg.channel.send(embed=embed, view=view)
         except Exception as e:
             log_error(f"[rpg look] {e}")
 
@@ -632,30 +1111,34 @@ async def _handle_map(ctx, msg, send, rest, uid, uname, is_owner):
 
     sheet = await load(uid)
     if not sheet: return
-    
+
     current_loc_key = sheet.get("location", "oakhaven")
     current_loc = LOCATION_DATA.get(current_loc_key, {})
-    
+
     exits = current_loc.get("exits", [])
-    exit_lines = "\n".join(
-        f"  `!rpg go {key}` — {LOCATION_DATA[key]['name']}"
-        for key in exits
-        if key in LOCATION_DATA
-    )
-    
+    exit_lines = []
+    for key in exits:
+        if key not in LOCATION_DATA: continue
+        ld = LOCATION_DATA[key]
+        name = ld.get("name", key.replace("_", " ").title())
+        if ld.get("hunting"):
+            name += "  ⚔️"
+        rec = ld.get("recommended_level")
+        if rec:
+            name += f"  *(Lv.{rec}+)*"
+        exit_lines.append(f"• {name}")
+
+    desc = "\n".join(exit_lines) if exit_lines else "*No exits from here.*"
+    desc += "\n\n*Select a destination from the dropdown below.*"
+
     embed = discord.Embed(
-        title=f"🗺️ {current_loc.get('name', current_loc_key)} — Map",
-        description="*(Use `!rpg go <location>` to travel)*",
+        title=f"🗺️ From {current_loc.get('name', current_loc_key)}",
+        description=desc,
         color=0x4488cc
     )
-    
-    # Local Actions
-    actions = LOCATION_ACTIONS.get(current_loc_key, ["`!rpg look` — observe the surroundings"])
-    embed.add_field(name="Available Actions Here", value="\n".join(actions), inline=False)
-    
-    # Exits
-    embed.add_field(name="Accessible Locations", value=exit_lines or "Nowhere else to go.", inline=False)
-    await msg.channel.send(embed=embed)
+
+    view = RPGFullLocationView(ctx, msg, uid, uname, is_owner, current_loc_key)
+    await msg.channel.send(embed=embed, view=view)
 
 
 # ── Economy / NPCs / World Iterations ───────────────────────────────────────
@@ -690,10 +1173,11 @@ async def _handle_rest(ctx, msg, send, rest, uid, uname, is_owner):
 
     await save(sheet)
     
+    view = _make_status_view(ctx, msg, uid, uname, is_owner)
     await msg.channel.send(embed=discord.Embed(
         description=f"🛏️ **{sheet['character_name']}** rests at the Stone Hearth. (-{cost} gil)\nHP restored: **+{healed}** (Full)\nRemaining gil: {sheet['gil']}g",
         color=0x44aa44
-    ))
+    ), view=view)
 
 async def _handle_rumor(ctx, msg, send, rest, uid, uname, is_owner):
     from utils.ttrpg.rpg_prompt_builder import build_rumor_prompt
@@ -733,7 +1217,8 @@ async def _handle_rumor(ctx, msg, send, rest, uid, uname, is_owner):
                     description=f"*{rumor}*",
                     color=0x888888
                 )
-                await msg.channel.send(embed=embed)
+                view = _make_status_view(ctx, msg, uid, uname, is_owner)
+                await msg.channel.send(embed=embed, view=view)
         except Exception as e:
             log_error(f"[rpg rumor] {e}")
 
@@ -808,7 +1293,10 @@ async def _handle_shop(ctx, msg, send, rest, uid, uname, is_owner):
     if sheet:
         embed.set_footer(text=f"💰 Your Gil: {sheet.get('gil', 0)}g  ·  !rpg buy <item>  ·  !rpg sell <item>")
 
-    await msg.channel.send(embed=embed)
+    # Collect all available item keys for the shop view
+    shop_items = list(weapons.keys()) + list(armor.keys()) + list(headgear.keys()) + list(boots.keys()) + list(accessories.keys()) + list(consumables.keys())
+    view = await _make_shop_view(ctx, msg, uid, uname, is_owner, shop_items)
+    await msg.channel.send(embed=embed, view=view)
 
 async def _handle_buy(ctx, msg, send, rest, uid, uname, is_owner):
     from utils.ttrpg.shop import process_purchase
@@ -925,7 +1413,8 @@ async def _handle_calendar(ctx, msg, send, rest, uid, uname, is_owner):
         )
 
     embed.set_footer(text="!rpg calendar — updated daily at dawn")
-    await msg.channel.send(embed=embed)
+    view = _make_status_view(ctx, msg, uid, uname, is_owner)
+    await msg.channel.send(embed=embed, view=view)
 
 async def _handle_weather(ctx, msg, send, rest, uid, uname, is_owner):
     """!rpg weather — check today's deterministic weather conditions."""
@@ -960,7 +1449,8 @@ async def _handle_weather(ctx, msg, send, rest, uid, uname, is_owner):
         color=color_map.get(weather["key"], 0x888888)
     )
     embed.set_footer(text=f"{summary['season_name']} · Weather changes at dawn")
-    await msg.channel.send(embed=embed)
+    view = _make_status_view(ctx, msg, uid, uname, is_owner)
+    await msg.channel.send(embed=embed, view=view)
 
 async def _handle_talk(ctx, msg, send, rest, uid, uname, is_owner):
     from utils.ttrpg.npc_registry import get_npc, NPCS
@@ -1010,7 +1500,10 @@ async def _handle_talk(ctx, msg, send, rest, uid, uname, is_owner):
             
     topic = ""
     if "topics" in npc and npc["topics"]:
-        topic = npc["topics"][secrets.randbelow(len(npc["topics"]))]
+        import hashlib
+        from datetime import date
+        seed = int(hashlib.md5(f"{npc_key}_{uid}_{date.today().isoformat()}".encode()).hexdigest(), 16)
+        topic = npc["topics"][seed % len(npc["topics"])]
         
     # Quest Integration
     from utils.ttrpg.quest_registry import get_npc_quests, get_quest
@@ -1155,32 +1648,47 @@ async def _handle_brew(ctx, msg, send, rest, uid, uname, is_owner):
     if not recipe_id:
         known = sheet.get("recipes", [])
 
-        # Auto-discover recipes from ingredients already in inventory
         from utils.ttrpg.alchemy import check_and_discover_recipes
-        inv = sheet.get("inventory", [])
-        newly_found = []
-        for ing in inv:
-            new = check_and_discover_recipes(sheet, ing)
-            newly_found.extend(new)
-        if newly_found:
-            await save(sheet)
-            known = sheet.get("recipes", [])
+        for ing in sheet.get("inventory", []):
+            check_and_discover_recipes(sheet, ing)
+        await save(sheet)
+        known = sheet.get("recipes", [])
 
         if not known:
-            return await send(
-                msg.channel,
-                "You haven't learned any recipes yet.\n"
-                "*Pick up crafting ingredients like blood thistle, silver moss, dire root, or honey sap.*\n"
-                "*Sister Maren may also teach you directly.*"
-            )
-        
+            return await send(msg.channel,
+                "No recipes known yet. Pick up ingredients like blood thistle, "
+                "silver moss, dire root, or honey sap.")
+
         embed = discord.Embed(title="📜 Known Recipes", color=0x2ecc71)
-        for r_key in known:
+        view = discord.ui.View(timeout=120)
+
+        for i, r_key in enumerate(known):
             r = get_recipe(r_key)
-            if r:
-                ingredients = ", ".join(r["ingredients"])
-                embed.add_field(name=r["name"], value=f"Ingredients: {ingredients}\n`!rpg brew {r_key}`", inline=False)
-        return await msg.channel.send(embed=embed)
+            if not r: continue
+            ingredients = ", ".join(r["ingredients"])
+            embed.add_field(
+                name=r["name"],
+                value=f"*{ingredients}*",
+                inline=True
+            )
+            btn = discord.ui.Button(
+                label=f"Brew {r['name']}",
+                style=discord.ButtonStyle.secondary,
+                row=i % 4
+            )
+            async def _brew_cb(interaction: discord.Interaction, key=r_key):
+                if str(interaction.user.id) != uid:
+                    await interaction.response.send_message("```\nnot yours.\n```", ephemeral=True)
+                    return
+                await interaction.response.defer()
+                fake_msg = _InteractionMsg(interaction)
+                send_fn = _make_interaction_send(interaction)
+                await _handle_brew(ctx, fake_msg, send_fn, key, uid, uname, is_owner)
+            btn.callback = _brew_cb
+            view.add_item(btn)
+
+        view.add_item(_make_status_btn(ctx, uid, uname, is_owner))
+        return await msg.channel.send(embed=embed, view=view)
         
     success, result_msg = brew(sheet, recipe_id)
     if success:
@@ -1190,10 +1698,6 @@ async def _handle_brew(ctx, msg, send, rest, uid, uname, is_owner):
         await msg.channel.send(embed=discord.Embed(description=result_msg, color=0xcc4444))
 
 async def _handle_notices(ctx, msg, send, rest, uid, uname, is_owner):
-    sheet = await load(uid)
-    if sheet and sheet.get("location") != "notice_board":
-        return await msg.channel.send(embed=discord.Embed(description="You must be at the Notice Board to read it. (`!rpg go notice_board`)", color=0xcc4444))
-        
     import os
     path = os.path.join("memory", "ttrpg", "world_events.json")
     events = []
@@ -1214,7 +1718,8 @@ async def _handle_notices(ctx, msg, send, rest, uid, uname, is_owner):
         description=desc,
         color=0x8b7355
     )
-    await msg.channel.send(embed=embed)
+    view = _make_status_view(ctx, msg, uid, uname, is_owner)
+    await msg.channel.send(embed=embed, view=view)
 
 
 async def _handle_quests(ctx, msg, send, rest, uid, uname, is_owner):
@@ -1244,7 +1749,8 @@ async def _handle_quests(ctx, msg, send, rest, uid, uname, is_owner):
         description=desc,
         color=0x4a90e2
     )
-    await msg.channel.send(embed=embed)
+    view = _make_status_view(ctx, msg, uid, uname, is_owner)
+    await msg.channel.send(embed=embed, view=view)
 
 async def _handle_quest_detail(ctx, msg, send, rest, uid, uname, is_owner):
     # !rpg quest <quest_id> or just !rpg quest for current
@@ -1268,41 +1774,8 @@ async def _handle_quest_detail(ctx, msg, send, rest, uid, uname, is_owner):
     embed.add_field(name="Rewards", value=f"• {q['rewards'].get('xp', 0)} XP\n• {q['rewards'].get('gil', 0)} Gil")
     if "item" in q['rewards']: embed.add_field(name="Bonus", value=f"🎁 {q['rewards']['item'].replace('_', ' ').title()}")
     
-    await msg.channel.send(embed=embed)
-
-async def _handle_accept(ctx, msg, send, rest, uid, uname, is_owner):
-    sheet = await load(uid)
-    if not sheet: return
-    
-    quest_id = rest.strip().lower()
-    if not quest_id:
-        return await send(msg.channel, "Usage: `!rpg accept <quest_id>`")
-        
-    if sheet.get("active_quest"):
-        return await send(msg.channel, f"You are already on a quest: `{sheet['active_quest']}`. Complete or abandon it first.")
-        
-    from utils.ttrpg.quest_registry import get_quest
-    q = get_quest(quest_id)
-    if not q:
-        return await send(msg.channel, f"Quest `{quest_id}` not found.")
-        
-    if quest_id in sheet.get("completed_quests", []):
-        return await send(msg.channel, "You have already completed this quest.")
-        
-    # Check level requirement
-    if sheet['level'] < q['requirements'].get('level', 1):
-        return await send(msg.channel, f"You must be at least Level {q['requirements']['level']} to accept this quest.")
-        
-    sheet["active_quest"] = quest_id
-    await save(sheet)
-    
-    embed = discord.Embed(
-        title="Quest Accepted!",
-        description=f"You have taken up the task: **{q['name']}**.\n\n*{q['description']}*",
-        color=0x2ecc71
-    )
-    await msg.channel.send(embed=embed)
-
+    view = _make_status_view(ctx, msg, uid, uname, is_owner)
+    await msg.channel.send(embed=embed, view=view)
 
 # ── Items and Equipment ──────────────────────────────────────────────────────
 
@@ -1336,8 +1809,10 @@ async def _handle_inventory(ctx, msg, send, rest, uid, uname, is_owner):
             description=f"**Equipped:**\n{equipped_lines}\n\n*Backpack is empty.*",
             color=0x888888
         )
-        embed.set_footer(text="!rpg equip <item>  ·  !rpg sell <item>")
-        return await msg.channel.send(embed=embed)
+        embed.set_footer(text="!rpg status  ·  !rpg help")
+        view = _make_status_view(ctx, msg, uid, uname, is_owner)
+        await msg.channel.send(embed=embed, view=view)
+        return
 
     lines = []
     
@@ -1381,7 +1856,8 @@ async def _handle_inventory(ctx, msg, send, rest, uid, uname, is_owner):
         color=0x8b7355
     )
     embed.set_footer(text="!rpg use <item>  ·  !rpg equip <item>  ·  !rpg sell <item>")
-    await msg.channel.send(embed=embed)
+    view = _make_inventory_view(ctx, msg, uid, uname, is_owner, inventory)
+    await msg.channel.send(embed=embed, view=view)
 
 async def _handle_equip(ctx, msg, send, rest, uid, uname, is_owner):
     from utils.ttrpg.shop import find_item
@@ -1479,7 +1955,11 @@ async def _handle_use(ctx, msg, send, rest, uid, uname, is_owner):
 async def _handle_hunts(ctx, msg, send, rest, uid, uname, is_owner):
     sheet = await load(uid)
     if not sheet: return
-    await msg.channel.send(embed=discord.Embed(description=f"**{sheet['character_name']}** has {hunts_remaining(sheet)} hunts remaining today. Reset is at midnight server time.", color=0x888888))
+    view = _make_hunt_status_view(ctx, msg, uid, uname, is_owner)
+    await msg.channel.send(embed=discord.Embed(
+        description=f"**{sheet['character_name']}** has {hunts_remaining(sheet)} hunts remaining today. Reset is at midnight server time.",
+        color=0x888888
+    ), view=view)
 
 async def _handle_hunt(ctx, msg, send, rest, uid, uname, is_owner):
     from utils.ttrpg.world import LOCATION_DATA
@@ -1500,22 +1980,26 @@ async def _handle_hunt(ctx, msg, send, rest, uid, uname, is_owner):
         loc = sheet.get("location", "oakhaven")
         if "Whisperwood Deep" in effect["desc"] and loc == "whisperwood_deep":
             if sheet.get("level", 1) < gate_val:
+                view = _make_map_view(ctx, msg, uid, uname, is_owner, loc)
                 return await msg.channel.send(embed=discord.Embed(
                     description=f"🌨️ **Blizzard Warning:** {effect['desc']}\n*You are currently level {sheet.get('level', 1)} and cannot pass.*",
                     color=0x8aaac8
-                ))
+                ), view=view)
     
     loc = sheet.get("location", "oakhaven")
     ld = LOCATION_DATA.get(loc, {})
     if not ld.get("hunting"):
-        return await msg.channel.send(embed=discord.Embed(description=f"You can't hunt in **{ld.get('name', loc)}**.\nTravel somewhere wild first.", color=0xcc4444))
+        view = _make_map_view(ctx, msg, uid, uname, is_owner, loc)
+        return await msg.channel.send(embed=discord.Embed(description=f"You can't hunt in **{ld.get('name', loc)}**.\nTravel somewhere wild first.", color=0xcc4444), view=view)
         
     sheet = check_and_reset_hunts(sheet)
     if hunts_remaining(sheet) <= 0:
-        return await msg.channel.send(embed=discord.Embed(description=f"You have exhausted your stamina for the day. (0/{MAX_HUNTS_PER_DAY} hunts remaining)", color=0xcc4444))
+        view = _make_status_view(ctx, msg, uid, uname, is_owner)
+        return await msg.channel.send(embed=discord.Embed(description=f"You have exhausted your stamina for the day. (0/{MAX_HUNTS_PER_DAY} hunts remaining)", color=0xcc4444), view=view)
         
     if sheet["hp"]["current"] <= 0:
-        return await msg.channel.send(embed=discord.Embed(description=f"You are far too weak to hunt right now. Go rest.", color=0xcc4444))
+        view = _make_status_view(ctx, msg, uid, uname, is_owner)
+        return await msg.channel.send(embed=discord.Embed(description=f"You are far too weak to hunt right now. Go rest.", color=0xcc4444), view=view)
         
     # Engage tracking
     chan_id = str(msg.channel.id)
@@ -1549,11 +2033,12 @@ async def _handle_hunt(ctx, msg, send, rest, uid, uname, is_owner):
     if my_fights:
         m_name = my_fights[0].get("name", "Unknown Monster")
         m_key = my_fights[0].get("key", "monster")
+        combat_view = RPGCombatView(ctx, msg, uid, uname, is_owner, m_key)
         return await msg.channel.send(embed=discord.Embed(
             title="⚔️ Already in combat",
             description=f"You are already fighting a **{m_name}**.\n`!rpg attack {m_key}` · `!rpg flee`",
             color=0xcc6622
-        ))
+        ), view=combat_view)
     
     # Roll for special forest event before monster spawn
     from utils.ttrpg.encounter_tables import roll_for_event, random_event
@@ -1634,7 +2119,8 @@ async def _handle_hunt(ctx, msg, send, rest, uid, uname, is_owner):
     embed.add_field(name="🛡️ DEF", value=str(m_data.get('defense', 0)), inline=True)
     
     embed.set_footer(text=f"Use !rpg attack  ·  1 hunt consumed")
-    await msg.channel.send(embed=embed)
+    combat_view = RPGCombatView(ctx, msg, uid, uname, is_owner, m_key)
+    await msg.channel.send(embed=embed, view=combat_view)
 
 async def _handle_attack(ctx, msg, send, rest, uid, uname, is_owner):
     from utils.ttrpg.combat_engine import _resolve_combat
@@ -1646,11 +2132,13 @@ async def _handle_attack(ctx, msg, send, rest, uid, uname, is_owner):
     if not sheet: return
     loc = sheet.get("location", "oakhaven")
     if sheet["hp"]["current"] <= 0:
-        return await msg.channel.send(embed=discord.Embed(description="You are incapacitated.", color=0xcc4444))
+        view = _make_status_view(ctx, msg, uid, uname, is_owner)
+        return await msg.channel.send(embed=discord.Embed(description="You are incapacitated.", color=0xcc4444), view=view)
         
     s = await load_session(str(msg.channel.id))
     if not s or not s.get("combat_active") or not s.get("monsters"):
-        return await msg.channel.send(embed=discord.Embed(description="No active combat. `!rpg hunt` to find something.", color=0x888888))
+        view = _make_hunt_status_view(ctx, msg, uid, uname, is_owner)
+        return await msg.channel.send(embed=discord.Embed(description="No active combat. `!rpg hunt` to find something.", color=0x888888), view=view)
         
     target_key = rest.strip().lower()
     
@@ -1803,7 +2291,18 @@ async def _handle_attack(ctx, msg, send, rest, uid, uname, is_owner):
         description=m_block,
         color=embed_color
     )
-    await msg.channel.send(embed=embed)
+    # If monster is still alive, attach Attack/Flee buttons for the next round
+    if res["monster_alive"] and res["player_alive"]:
+        m_key_for_btn = monster.get("key", "monster")
+        combat_view = RPGCombatView(ctx, msg, uid, uname, is_owner, m_key_for_btn)
+        await msg.channel.send(embed=embed, view=combat_view)
+    else:
+        # Victory or Death — show Hunt Again or Status
+        if not res["player_alive"]:
+            view = _make_status_view(ctx, msg, uid, uname, is_owner)
+        else:
+            view = _make_hunt_status_view(ctx, msg, uid, uname, is_owner)
+        await msg.channel.send(embed=embed, view=view)
     
     # Kaia Narration Generation
     monster_desc = monster.get("desc", monster.get("description", "A dangerous creature."))
@@ -1867,10 +2366,11 @@ async def _handle_flee(ctx, msg, send, rest, uid, uname, is_owner):
     if not s["monsters"]: s["combat_active"] = False
     await save_session(s)
     
+    view = _make_hunt_status_view(ctx, msg, uid, uname, is_owner)
     await msg.channel.send(embed=discord.Embed(
         description=f"🏃 **{uname}** scrambled to safety!{hunt_note}", 
         color=0x44aa44
-    ))
+    ), view=view)
 
 
 async def _apply_and_narrate_event(ctx, msg, send, sheet, result, uname):
@@ -2033,10 +2533,11 @@ async def _handle_drink(ctx, msg, send, rest, uid, uname, is_owner):
     sheet.setdefault("conditions", []).append("ale_warmth")  # removed on next rest
     await save(sheet)
 
+    view = _make_status_view(ctx, msg, uid, uname, is_owner)
     await msg.channel.send(embed=discord.Embed(
         description=f"🍺 Mira slides a tankard across the bar. (-{DRINK_COST} gil)\n*Temporary HP: +{TEMP_HP}* (HP: {sheet['hp']['current']}/{sheet['hp']['max']})\n*Clears when you next rest.*",
         color=0x44aa44
-    ))
+    ), view=view)
 
 
 async def _handle_fountain(ctx, msg, send, rest, uid, uname, is_owner):
@@ -2064,10 +2565,11 @@ async def _handle_fountain(ctx, msg, send, rest, uid, uname, is_owner):
     sheet["last_fountain_date"] = today
     await save(sheet)
 
+    view = _make_status_view(ctx, msg, uid, uname, is_owner)
     await msg.channel.send(embed=discord.Embed(
         description=f"💧 **{sheet['character_name']} drinks from the spring.**\nYour wounds stitch closed. You are fully recovered. (HP: {sheet['hp']['current']}/{sheet['hp']['max']})\n*Clears when you next rest.*",
         color=0x44aa44
-    ))
+    ), view=view)
 
 
 async def _handle_gamble(ctx, msg, send, rest, uid, uname, is_owner):
@@ -2109,10 +2611,11 @@ async def _handle_gamble(ctx, msg, send, rest, uid, uname, is_owner):
         gil_line = f"-{BUY_IN} gil. Total: {sheet['gil']}g"
 
     await save(sheet)
+    view = _make_status_view(ctx, msg, uid, uname, is_owner)
     await msg.channel.send(embed=discord.Embed(
         description=f"{result_line}\n{gil_line}",
         color=0x44aa44 if player_roll > house_roll else 0xcc4444
-    ))
+    ), view=view)
 
 
 async def _handle_pray(ctx, msg, send, rest, uid, uname, is_owner):
@@ -2149,19 +2652,18 @@ async def _handle_pray(ctx, msg, send, rest, uid, uname, is_owner):
     sheet["last_pray_date"] = today
     await save(sheet)
 
+    view = _make_status_view(ctx, msg, uid, uname, is_owner)
     await msg.channel.send(embed=discord.Embed(
         description="🕯️ **Blessed** — *the shrine acknowledges you.*\nYour next hunt grants +2 to all attack and stat rolls.\n*The condition clears after your next combat.*",
         color=0xaaddff
-    ))
+    ), view=view)
 
 
 async def _handle_offer(ctx, msg, send, rest, uid, uname, is_owner):
-    """!rpg offer <amount> — donate gil to the shrine for XP."""
     from datetime import date
 
     sheet = await load(uid)
-    if not sheet:
-        return await msg.channel.send(embed=discord.Embed(description="No character found.", color=0xcc4444))
+    if not sheet: return
 
     if sheet.get("location") != "shrine":
         return await msg.channel.send(embed=discord.Embed(
@@ -2169,54 +2671,98 @@ async def _handle_offer(ctx, msg, send, rest, uid, uname, is_owner):
             color=0xcc4444
         ))
 
-    try:
-        amount = int(rest.strip())
-        assert 1 <= amount <= 9999
-    except:
-        return await msg.channel.send(embed=discord.Embed(description="Usage: `!rpg offer <amount>`\nExample: `!rpg offer 20`", color=0x888888))
+    today = date.today().strftime("%Y-%m-%d")
+    offered_today = sheet.get("offered_today", {})
+    already_offered = offered_today.get(today, 0) if isinstance(offered_today, dict) else 0
+    DAILY_CAP = 20
+    remaining_cap = max(0, DAILY_CAP - already_offered)
+    on_hand = sheet.get("gil", 0)
 
-    if sheet.get("gil", 0) < amount:
+    if remaining_cap == 0:
         return await msg.channel.send(embed=discord.Embed(
-            description=f"You only have {sheet.get('gil', 0)} gil.\n*The shrine doesn't judge. It just waits.*",
+            description="🕯️ *The shrine is still. You've reached today's offering limit.*\nReturn tomorrow.",
+            color=0x888888
+        ))
+
+    embed = discord.Embed(
+        title="🕯️ Make an Offering",
+        description=(
+            f"**On Hand:** {on_hand}g\n"
+            f"**XP remaining today:** {remaining_cap}/{DAILY_CAP}\n\n"
+            f"*Each gil offered grants 1 XP, up to {DAILY_CAP} XP per day.*"
+        ),
+        color=0xaaddff
+    )
+
+    view = discord.ui.View(timeout=60)
+
+    # Build amount options: 5, 10, 20 (max), and remaining cap
+    amounts = []
+    for amt in [5, 10]:
+        if amt <= on_hand and amt <= remaining_cap:
+            amounts.append((f"{amt}g", amt))
+    # Max daily XP button
+    max_amt = min(on_hand, remaining_cap)
+    if max_amt > 0 and max_amt not in [5, 10]:
+        amounts.append((f"Max ({max_amt}g = {max_amt} XP)", max_amt))
+    elif max_amt > 0:
+        amounts.append((f"Max ({max_amt}g = {max_amt} XP)", max_amt))
+
+    if not amounts:
+        return await msg.channel.send(embed=discord.Embed(
+            description=f"Not enough gil to offer. You have {on_hand}g.",
             color=0xcc4444
         ))
 
-    # XP reward: 1 per gil, capped at 20 per day
-    today = date.today().strftime("%Y-%m-%d")
-    offered_today = sheet.get("offered_today", {})
-    if isinstance(offered_today, dict):
-        already_offered = offered_today.get(today, 0)
-    else:
-        already_offered = 0
+    for label, amount in amounts:
+        btn = discord.ui.Button(label=label, style=discord.ButtonStyle.secondary, row=0)
 
-    DAILY_CAP = 20
-    eligible = min(amount, max(0, DAILY_CAP - already_offered))
-    xp_gained = eligible  # 1 XP per gil
+        async def _offer_cb(interaction: discord.Interaction, amt=amount):
+            if str(interaction.user.id) != uid:
+                await interaction.response.send_message("```\nnot yours.\n```", ephemeral=True)
+                return
 
-    sheet["gil"] -= amount
-    sheet["xp"] += xp_gained
+            s = await load(uid)
+            t = date.today().strftime("%Y-%m-%d")
+            od = s.get("offered_today", {})
+            already = od.get(t, 0) if isinstance(od, dict) else 0
+            cap_left = max(0, DAILY_CAP - already)
 
-    # Track daily offering
-    sheet["offered_today"] = {today: already_offered + amount}
+            eligible = min(amt, cap_left, s["gil"])
+            if eligible <= 0:
+                await interaction.response.send_message(
+                    embed=discord.Embed(description="Nothing to offer — either capped or out of gil.", color=0xcc4444),
+                    ephemeral=True
+                )
+                return
 
-    leveled_up, new_level = check_level_up(sheet)
-    await save(sheet)
+            s["gil"] -= eligible
+            s["xp"] += eligible
+            s["offered_today"] = {t: already + eligible}
 
-    xp_next = xp_to_next_level(sheet["level"])
-    msg_lines = [
-        f"🕯️ **{sheet['character_name']}** offers {amount} gil to the Silent Ones.",
-        f"*The coins vanish. The air shifts slightly.*",
-        f"+{xp_gained} XP ({sheet['xp']}/{xp_next})",
-    ]
-    if eligible < amount:
-        msg_lines.append(f"*(daily offering cap reached — {DAILY_CAP} XP max per day)*")
-    if leveled_up:
-        msg_lines.append(f"\n🎉 **{sheet['character_name']} reached Level {new_level}!**")
+            leveled_up, new_level = check_level_up(s)
+            await save(s)
 
-    await msg.channel.send(embed=discord.Embed(
-        description="\n".join(msg_lines),
-        color=0xaaddff
-    ))
+            xp_next = xp_to_next_level(s["level"])
+            lines = [
+                f"🕯️ **{eligible}g** offered. The air shifts.",
+                f"+{eligible} XP ({s['xp']}/{xp_next})",
+                f"On Hand: {s['gil']}g"
+            ]
+            if already + eligible >= DAILY_CAP:
+                lines.append("*Daily offering limit reached.*")
+            if leveled_up:
+                lines.append(f"\n🎉 **Level Up! Now Lv.{new_level}!**")
+
+            await interaction.response.send_message(
+                embed=discord.Embed(description="\n".join(lines), color=0xaaddff)
+            )
+
+        btn.callback = _offer_cb
+        view.add_item(btn)
+
+    view.add_item(_make_status_btn(ctx, uid, uname, is_owner))
+    await msg.channel.send(embed=embed, view=view)
 
 
 async def _handle_scout(ctx, msg, send, rest, uid, uname, is_owner):
@@ -2308,74 +2854,101 @@ async def _handle_scout(ctx, msg, send, rest, uid, uname, is_owner):
         color=0x8888aa
     )
     embed.set_footer(text=f"{weather['emoji']} {weather['name']} · {weather['desc']}")
-    await msg.channel.send(embed=embed)
+    view = _make_status_view(ctx, msg, uid, uname, is_owner)
+    await msg.channel.send(embed=embed, view=view)
 
-async def _handle_bank(ctx, msg, send, rest, uid, uname, is_owner):
-    """!rpg bank [deposit|withdraw] <amount>"""
-    from utils.ttrpg.world import LOCATION_DATA
-
+async def _handle_bank_deposit(ctx, msg, send, rest, uid, uname, is_owner):
     sheet = await load(uid)
     if not sheet: return
+    embed = discord.Embed(
+        title="🏦 Deposit Gil",
+        description=f"**Balance:** {sheet.get('bank_balance', 0)}g  ·  **On Hand:** {sheet.get('gil', 0)}g",
+        color=0xaa88ff
+    )
+    view = discord.ui.View(timeout=60)
+    for amt_label, amt_val in [("10g", 10), ("25g", 25), ("50g", 50), ("All", None)]:
+        actual = sheet["gil"] if amt_val is None else amt_val
+        btn = discord.ui.Button(
+            label=f"Deposit {amt_label if amt_val else str(sheet['gil'])+'g'}",
+            style=discord.ButtonStyle.secondary, row=0
+        )
+        async def _dep_cb(interaction: discord.Interaction, amount=actual):
+            if str(interaction.user.id) != uid:
+                await interaction.response.send_message("```\nnot yours.\n```", ephemeral=True)
+                return
+            s = await load(uid)
+            if amount > s["gil"]:
+                await interaction.response.send_message(
+                    embed=discord.Embed(description=f"Not enough gil. You have {s['gil']}g.", color=0xcc4444),
+                    ephemeral=True
+                )
+                return
+            s["gil"] -= amount
+            s["bank_balance"] = s.get("bank_balance", 0) + amount
+            await save(s)
+            await interaction.response.send_message(
+                embed=discord.Embed(
+                    description=f"Deposited **{amount}g**.\nBalance: {s['bank_balance']}g  ·  On Hand: {s['gil']}g",
+                    color=0x44aa44
+                )
+            )
+        btn.callback = _dep_cb
+        view.add_item(btn)
+    view.add_item(_make_status_btn(ctx, uid, uname, is_owner))
+    await msg.channel.send(embed=embed, view=view)
 
-    if sheet.get("location") != "oakhaven_bank":
-        return await msg.channel.send(embed=discord.Embed(
-            description="You need to be at the OakHaven Bank to manage your accounts.\n`!rpg go bank`",
-            color=0xcc4444
-        ))
 
-    if not rest:
-        balance = sheet.get("bank_balance", 0)
-        return await msg.channel.send(embed=discord.Embed(
-            title="🏦 OakHaven Bank",
-            description=f"Welcome back, **{sheet['character_name']}**.\nYour current balance is **{balance}g**.\n\nUse `!rpg bank deposit <amount>` or `!rpg bank withdraw <amount>`.",
-            color=0xaa88ff
-        ))
+async def _handle_bank_withdraw(ctx, msg, send, rest, uid, uname, is_owner):
+    sheet = await load(uid)
+    if not sheet: return
+    balance = sheet.get("bank_balance", 0)
+    embed = discord.Embed(
+        title="🏦 Withdraw Gil",
+        description=f"**Balance:** {balance}g  ·  **On Hand:** {sheet.get('gil', 0)}g",
+        color=0xaa88ff
+    )
+    view = discord.ui.View(timeout=60)
+    for amt_label, amt_val in [("10g", 10), ("25g", 25), ("50g", 50), ("All", None)]:
+        actual = balance if amt_val is None else amt_val
+        btn = discord.ui.Button(
+            label=f"Withdraw {amt_label if amt_val else str(balance)+'g'}",
+            style=discord.ButtonStyle.secondary, row=0
+        )
+        async def _wth_cb(interaction: discord.Interaction, amount=actual):
+            if str(interaction.user.id) != uid:
+                await interaction.response.send_message("```\nnot yours.\n```", ephemeral=True)
+                return
+            s = await load(uid)
+            bank = s.get("bank_balance", 0)
+            if amount > bank:
+                await interaction.response.send_message(
+                    embed=discord.Embed(description=f"Not enough in bank. Balance: {bank}g", color=0xcc4444),
+                    ephemeral=True
+                )
+                return
+            s["bank_balance"] = bank - amount
+            s["gil"] += amount
+            await save(s)
+            await interaction.response.send_message(
+                embed=discord.Embed(
+                    description=f"Withdrew **{amount}g**.\nBalance: {s['bank_balance']}g  ·  On Hand: {s['gil']}g",
+                    color=0x44aa44
+                )
+            )
+        btn.callback = _wth_cb
+        view.add_item(btn)
+    view.add_item(_make_status_btn(ctx, uid, uname, is_owner))
+    await msg.channel.send(embed=embed, view=view)
 
-    parts = rest.split()
-    action = parts[0].lower()
-    amount_str = parts[1] if len(parts) > 1 else ""
 
-    if action not in ["deposit", "withdraw"]:
-        return await msg.channel.send(embed=discord.Embed(description="Invalid action. Use `deposit` or `withdraw`.", color=0xcc4444))
-
-    if not amount_str:
-        return await msg.channel.send(embed=discord.Embed(description=f"Please specify an amount to {action}.", color=0xcc4444))
-
-    try:
-        if amount_str.lower() == "all":
-            if action == "deposit":
-                amount = sheet["gil"]
-            else:
-                amount = sheet.get("bank_balance", 0)
-        else:
-            amount = int(amount_str)
-    except ValueError:
-        return await msg.channel.send(embed=discord.Embed(description="Invalid amount. Please use a number or 'all'.", color=0xcc4444))
-
-    if amount <= 0:
-        return await msg.channel.send(embed=discord.Embed(description="Amount must be greater than zero.", color=0xcc4444))
-
-    if action == "deposit":
-        if sheet["gil"] < amount:
-            return await msg.channel.send(embed=discord.Embed(description="You don't have enough gil on hand.", color=0xcc4444))
-        
-        sheet["gil"] -= amount
-        sheet["bank_balance"] = sheet.get("bank_balance", 0) + amount
-        verb = "deposited"
-    else:
-        current_bank = sheet.get("bank_balance", 0)
-        if current_bank < amount:
-            return await msg.channel.send(embed=discord.Embed(description="You don't have enough gil in your bank account.", color=0xcc4444))
-        
-        sheet["bank_balance"] = current_bank - amount
-        sheet["gil"] += amount
-        verb = "withdrawn"
-
-    await save(sheet)
-
+async def _handle_bank(ctx, msg, send, rest, uid, uname, is_owner):
+    # Keep the legacy !rpg bank for balance checking
+    sheet = await load(uid)
+    if not sheet: return
+    balance = sheet.get("bank_balance", 0)
     await msg.channel.send(embed=discord.Embed(
-        title="🏦 Transaction Successful",
-        description=f"You have {verb} **{amount}g**.\nNew Bank Balance: **{sheet['bank_balance']}g**\nOn Hand: **{sheet['gil']}g**",
+        title="🏦 OakHaven Bank",
+        description=f"Your current balance is **{balance}g**.\nUse `!rpg bank_deposit` or `!rpg bank_withdraw` for transactions.",
         color=0xaa88ff
     ))
 
@@ -2415,7 +2988,8 @@ async def _handle_deliver(ctx, msg, send, rest, uid, uname, is_owner):
         description=f"📬 **Mognet letter delivered.**\n*A moogle materialises briefly, takes the letter, says 'kupo' with visible relief, and presses a coin purse into your hand before vanishing.*\n+{reward_xp} XP ({sheet['xp']}/{xp_next})  +{reward_gil} Gil",
         color=0xf4a460
     )
-    await msg.channel.send(embed=embed)
+    view = _make_status_view(ctx, msg, uid, uname, is_owner)
+    await msg.channel.send(embed=embed, view=view)
 
     if leveled_up:
         await msg.channel.send(embed=discord.Embed(
@@ -2515,7 +3089,8 @@ async def _handle_leaderboard(ctx, msg, send, rest, uid, uname, is_owner):
     )
     embed.set_footer(text=f"{len(sheets)} adventurer{'s' if len(sheets) != 1 else ''} registered")
 
-    await msg.channel.send(embed=embed)
+    view = _make_status_view(ctx, msg, uid, uname, is_owner)
+    await msg.channel.send(embed=embed, view=view)
 
 async def _handle_event(ctx, msg, send, rest, uid, uname, is_owner):
     if not is_owner: return
@@ -2723,10 +3298,32 @@ async def _handle_accept(ctx, msg, send, rest, uid, uname, is_owner):
     # If no duel, try quest accept
     sheet = await load(uid)
     if not sheet: return
-    
-    # Generic accept logic (e.g. if sitting in a talk session)
-    # For now, quests are accepted via !rpg accept <quest_id> or implicitly in talk.
-    # The previous _handle_accept handles quest_id in rest.
-    if rest.strip():
-        # Fallback to existing quest accept logic
-        pass # The handler map already routes to the unified accept below
+
+    quest_id = rest.strip().lower()
+    if not quest_id:
+        return await send(msg.channel, "Usage: `!rpg accept <quest_id>`")
+
+    if sheet.get("active_quest"):
+        return await send(msg.channel, f"You are already on a quest: `{sheet['active_quest']}`. Complete or abandon it first.")
+
+    from utils.ttrpg.quest_registry import get_quest
+    q = get_quest(quest_id)
+    if not q:
+        return await send(msg.channel, f"Quest `{quest_id}` not found.")
+
+    if quest_id in sheet.get("completed_quests", []):
+        return await send(msg.channel, "You have already completed this quest.")
+
+    # Check level requirement
+    if sheet['level'] < q['requirements'].get('level', 1):
+        return await send(msg.channel, f"You must be at least Level {q['requirements']['level']} to accept this quest.")
+
+    sheet["active_quest"] = quest_id
+    await save(sheet)
+
+    embed = discord.Embed(
+        title="Quest Accepted!",
+        description=f"You have taken up the task: **{q['name']}**.\n\n*{q['description']}*",
+        color=0x2ecc71
+    )
+    await msg.channel.send(embed=embed)
