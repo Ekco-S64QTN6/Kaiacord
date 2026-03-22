@@ -52,6 +52,7 @@ class RAGQueryMixin:
         re.compile(r'(?:check|read|look at|review|open)\s+(?:the\s+)?(?:file\s+)?([\w\-\.]{10,})'),
         re.compile(r'(?:called|named)\s+([\w\-\.]{10,})'),
         re.compile(r'([\w\-]{10,}\.(?:md|txt|pdf|docx))'),
+        re.compile(r'\b(?:aquarium|setup|research|migration|report)\s+(?:research|setup|for|doc|file)?\s*(?:for\s+kaia)?\b', re.IGNORECASE),
     ]
 
     def _route_retrieval_strategy(self, category: str, query_lower: str, intent: Optional[Intent]) -> Dict[str, Any]:
@@ -523,6 +524,37 @@ class RAGQueryMixin:
                 results = self._get_summarization_nodes(query_lower)
                 if results: return results
             
+            # Manifest title fast path: match query words against indexed filenames directly
+            _query_words = set(re.findall(r'\w+', query_lower)) - {
+                "the", "a", "an", "of", "and", "or", "to", "in", "is", "for",
+                "with", "on", "at", "by", "from", "you", "have", "kaia", "file",
+                "doc", "document", "check", "look", "read", "take", "chance"
+            }
+            if len(_query_words) >= 2:
+                _best_path = None
+                _best_score = 0
+                for _mpath in self.indexed_files:
+                    _fname = os.path.splitext(os.path.basename(_mpath))[0].lower()
+                    _fname_words = set(re.findall(r'\w+', _fname)) - {"for", "the", "a", "an"}
+                    if not _fname_words:
+                        continue
+                    _overlap = _query_words & _fname_words
+                    _score = len(_overlap) / len(_fname_words)
+                    if len(_overlap) >= 2 and _score > _best_score:
+                        _best_score = _score
+                        _best_path = _mpath
+                if _best_path:
+                    log_info(f"[manifest fast path] matched '{_best_path}' with words {_query_words & _fname_words}")
+                    log_debug(f"Manifest title fast path: '{_best_path}'")
+                    _fname_results = self._get_summarization_nodes(
+                        os.path.splitext(os.path.basename(_best_path))[0].lower()
+                    )
+                    if _fname_results:
+                        self._last_retrieval_results = _fname_results
+                        self._last_retrieval_node_ids = []
+                        log_success(f"Manifest title fast path resolved {len(_fname_results)} nodes")
+                        return _fname_results
+
             # Filename-reference fast path — runs regardless of routing strategy.
             # Catches: "check the file called X", "the file named X", "look at X.md",
             # "kaia check X", explicit filename pastes with dashes/underscores.

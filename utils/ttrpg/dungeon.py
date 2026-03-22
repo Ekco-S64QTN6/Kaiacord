@@ -1,0 +1,258 @@
+"""
+Aethelgard Dungeon System
+Procedural maze generation, state persistence, map rendering.
+"""
+import secrets
+import json
+import os
+from typing import Dict, List, Optional, Tuple
+
+GRID_SIZE = 5
+START_POS = (0, 0)
+
+R_START    = "start"
+R_EMPTY    = "empty"
+R_MONSTER  = "monster"
+R_TREASURE = "treasure"
+R_SHRINE   = "shrine"
+R_TRAP     = "trap"
+R_BOSS     = "boss"
+R_EXIT     = "exit"
+
+ROOM_WEIGHTS = [
+    (R_EMPTY,    18),
+    (R_MONSTER,  45),
+    (R_TREASURE, 15),
+    (R_SHRINE,    8),
+    (R_TRAP,     14),
+]
+
+ROOM_EMOJIS = {
+    R_START:    "🏠",
+    R_EMPTY:    "⬛",
+    R_MONSTER:  "⚔️",
+    R_TREASURE: "💰",
+    R_SHRINE:   "✨",
+    R_TRAP:     "⚡",
+    R_BOSS:     "💀",
+    R_EXIT:     "🚪",
+    "player":   "🔴",
+    "unknown":  "░░",
+}
+
+# Boss name generator
+_BOSS_PREFIXES = [
+    "Rotting", "Hollow", "Ancient", "Ashen", "Sunken", "Cursed",
+    "Broken", "Pale", "Silent", "Festering", "Forgotten", "Bleeding",
+]
+_BOSS_TITLES = [
+    "Warden", "Remnant", "Sentinel", "Walker", "Keeper", "Revenant",
+    "Hollow", "Sovereign", "Exile", "Aberration", "Thrall", "Witness",
+]
+_BOSS_SUFFIXES = [
+    "of the Deep", "of Aeridor", "of the Ruin", "of the Whisperwood",
+    "of the Forgotten Age", "of the Third Vault", "of Broken Stone",
+    "", "", "",  # weighted toward no suffix
+]
+
+def generate_boss_name() -> str:
+    prefix = _BOSS_PREFIXES[secrets.randbelow(len(_BOSS_PREFIXES))]
+    title  = _BOSS_TITLES[secrets.randbelow(len(_BOSS_TITLES))]
+    suffix = _BOSS_SUFFIXES[secrets.randbelow(len(_BOSS_SUFFIXES))]
+    return f"{prefix} {title}{(' ' + suffix) if suffix else ''}"
+
+ROOM_DESCRIPTIONS = {
+    R_START:    "The entry shaft. Torchlight from above. The way back is behind you.",
+    R_EMPTY:    "Bare stone. Something was here once. The marks on the floor suggest it left in a hurry.",
+    R_MONSTER:  "The air changes the moment you step in. Something moves in the dark.",
+    R_TREASURE: "A battered chest, lock already sprung. Whatever got here first left the heavy stuff.",
+    R_SHRINE:   "An alcove with a single candle. Ancient script. The flame doesn't waver in any draft.",
+    R_TRAP:     "The floor looks wrong. Too smooth. The stones are too evenly placed.",
+    R_BOSS:     "The chamber opens wider than any other. Something large has been waiting here for a long time.",
+    R_EXIT:     "Light from a crack above. A rope. The way out.",
+}
+
+DIRECTIONS = {"N": (0, -1), "S": (0, 1), "W": (-1, 0), "E": (1, 0)}
+DIR_OPPOSITE = {"N": "S", "S": "N", "E": "W", "W": "E"}
+
+DUNGEON_DIR = os.path.join("memory", "ttrpg", "dungeons")
+
+
+def _key(x, y): return f"{x},{y}"
+def _in_bounds(x, y): return 0 <= x < GRID_SIZE and 0 <= y < GRID_SIZE
+
+
+def _bfs_distances(sx, sy, connections):
+    from collections import deque
+    dist = {_key(sx, sy): 0}
+    q = deque([(sx, sy)])
+    while q:
+        cx, cy = q.popleft()
+        for d in connections.get(_key(cx, cy), []):
+            dx, dy = DIRECTIONS[d]
+            nx, ny = cx + dx, cy + dy
+            nk = _key(nx, ny)
+            if nk not in dist:
+                dist[nk] = dist[_key(cx, cy)] + 1
+                q.append((nx, ny))
+    return dist
+
+
+def _roll_room_type(dist: int) -> str:
+    weights = ROOM_WEIGHTS if dist < 3 else [
+        (R_EMPTY, 8), (R_MONSTER, 55), (R_TREASURE, 18), (R_SHRINE, 5), (R_TRAP, 14)
+    ]
+    total = sum(w for _, w in weights)
+    r = secrets.randbelow(total)
+    cum = 0
+    for rt, w in weights:
+        cum += w
+        if r < cum:
+            return rt
+    return R_EMPTY
+
+
+def _pick_monster(room_type: str, difficulty: int) -> str:
+    if room_type == R_BOSS:
+        pool = ["dark_knight", "tonberry", "skull_knight", "werewolf", "iron_giant"]
+        return pool[secrets.randbelow(len(pool))]
+    pools = {
+        1: ["goblin", "skeleton", "bat", "wolf", "zombie"],
+        2: ["skeleton", "ghoul", "wolf", "harpy", "lizardman"],
+        3: ["gargoyle", "dark_wizard", "soldier", "lamia"],
+    }
+    pool = pools.get(difficulty, pools[1])
+    return pool[secrets.randbelow(len(pool))]
+
+
+def generate_dungeon(difficulty: int = 1) -> dict:
+    sx, sy = START_POS
+    visited = {(sx, sy)}
+    connections: Dict[str, List[str]] = {_key(sx, sy): []}
+    all_positions = [(sx, sy)]
+    frontier = [(sx, sy)]
+    target = secrets.randbelow(4) + 9  # 9-12 rooms
+
+    while len(all_positions) < target and frontier:
+        cx, cy = frontier[secrets.randbelow(len(frontier))]
+        dirs = list(DIRECTIONS.keys())
+        for i in range(len(dirs) - 1, 0, -1):
+            j = secrets.randbelow(i + 1)
+            dirs[i], dirs[j] = dirs[j], dirs[i]
+
+        moved = False
+        for d in dirs:
+            dx, dy = DIRECTIONS[d]
+            nx, ny = cx + dx, cy + dy
+            if _in_bounds(nx, ny) and (nx, ny) not in visited:
+                visited.add((nx, ny))
+                all_positions.append((nx, ny))
+                ck, nk = _key(cx, cy), _key(nx, ny)
+                connections.setdefault(ck, []).append(d)
+                connections.setdefault(nk, []).append(DIR_OPPOSITE[d])
+                frontier.append((nx, ny))
+                moved = True
+                break
+        if not moved and (cx, cy) in frontier:
+            frontier.remove((cx, cy))
+
+    distances = _bfs_distances(sx, sy, connections)
+    farthest = max(all_positions, key=lambda p: distances.get(_key(*p), 0))
+
+    # Exit: adjacent to boss if possible, else second-farthest
+    exit_pos = None
+    bx, by = farthest
+    for d in connections.get(_key(bx, by), []):
+        dx, dy = DIRECTIONS[d]
+        ex, ey = bx + dx, by + dy
+        if (ex, ey) != (sx, sy) and (ex, ey) in all_positions:
+            exit_pos = (ex, ey)
+            break
+    if not exit_pos:
+        sorted_pos = sorted(all_positions, key=lambda p: distances.get(_key(*p), 0), reverse=True)
+        for p in sorted_pos[1:]:
+            if p != farthest:
+                exit_pos = p
+                break
+
+    rooms = {}
+    boss_assigned = False
+    for pos in all_positions:
+        x, y = pos
+        k = _key(x, y)
+        if pos == (sx, sy):
+            rt = R_START
+        elif pos == farthest and not boss_assigned:
+            rt = R_BOSS
+            boss_assigned = True
+        elif exit_pos and pos == exit_pos:
+            rt = R_EXIT
+        else:
+            rt = _roll_room_type(distances.get(k, 1))
+
+        boss_name = generate_boss_name() if rt == R_BOSS else None
+
+        rooms[k] = {
+            "type": rt,
+            "cleared": rt in (R_START, R_EMPTY),
+            "monster_key": _pick_monster(rt, difficulty) if rt in (R_MONSTER, R_BOSS) else None,
+            "boss_name": boss_name,
+            "description": ROOM_DESCRIPTIONS.get(rt, "A stone room."),
+        }
+
+    return {
+        "player_pos": list(START_POS),
+        "connections": connections,
+        "rooms": rooms,
+        "visited": [_key(*START_POS)],
+        "grid_size": GRID_SIZE,
+        "active": True,
+        "xp_gained": 0,
+        "gil_gained": 0,
+        "loot_gained": [],
+    }
+
+
+def render_map(state: dict) -> str:
+    size = state["grid_size"]
+    px, py = state["player_pos"]
+    visited = set(state["visited"])
+    rooms = state["rooms"]
+
+    lines = []
+    for y in range(size):
+        row = ""
+        for x in range(size):
+            k = _key(x, y)
+            if [x, y] == state["player_pos"]:
+                row += "🔴"
+            elif k in visited:
+                rt = rooms.get(k, {}).get("type", R_EMPTY)
+                row += ROOM_EMOJIS.get(rt, "⬛")
+            elif k in rooms:
+                row += "░░"  # in dungeon but unseen
+            else:
+                row += "　　"  # outside dungeon (full-width spaces)
+        lines.append(row)
+    return "\n".join(lines)
+
+
+def save_dungeon(user_id: str, state: dict):
+    os.makedirs(DUNGEON_DIR, exist_ok=True)
+    path = os.path.join(DUNGEON_DIR, f"{user_id}.json")
+    with open(path, "w") as f:
+        json.dump(state, f, indent=2)
+
+
+def load_dungeon(user_id: str) -> Optional[dict]:
+    path = os.path.join(DUNGEON_DIR, f"{user_id}.json")
+    if not os.path.exists(path):
+        return None
+    with open(path) as f:
+        return json.load(f)
+
+
+def clear_dungeon(user_id: str):
+    path = os.path.join(DUNGEON_DIR, f"{user_id}.json")
+    if os.path.exists(path):
+        os.remove(path)

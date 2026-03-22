@@ -18,6 +18,7 @@ class CoreTaskManager:
         self.dream_engine_task = self._make_dream_engine_task()
         self.evening_reflection_task = self._make_evening_reflection_task()
         self.aethelgard_dawn_task = self._make_aethelgard_dawn_task()
+        self.noon_raid_task = self._make_noon_raid_task()
         
     def _make_news_refresh_task(self):
         @tasks.loop(hours=12)
@@ -345,6 +346,54 @@ class CoreTaskManager:
 
         return aethelgard_dawn_task
 
+    def _make_noon_raid_task(self):
+        import discord
+        from datetime import datetime, timedelta
+
+        RAID_POOL = [
+            ("wolf",     30),
+            ("skeleton", 25),
+            ("goblin",   20),
+            ("bandit",   15),
+            ("ghoul",    10),
+        ]
+
+        TOWN_LOCATIONS = {
+            "oakhaven", "stone_hearth", "hemlocks_store",
+            "shrine", "watchtower", "oakhaven_bank", "herbalists_hut"
+        }
+
+        @tasks.loop(hours=24)
+        async def noon_raid_task():
+            if shutdown_manager.shutting_down: return
+            if not self.ctx or not self.ctx.bot: return
+            try:
+                rpg_channel_name = self.ctx.config.get('discord.rpg_channel', 'aethelgard').lower()
+                channel = discord.utils.get(self.ctx.bot.get_all_channels(), name=rpg_channel_name)
+                if channel:
+                    await run_village_raid(self.ctx, channel)
+            except Exception as e:
+                log_error(f"[noon-raid] Task failed: {e}")
+
+        @noon_raid_task.before_loop
+        async def before_noon_raid():
+            await self.ctx.bot.wait_until_ready()
+            now = datetime.now()
+            today_noon = now.replace(hour=12, minute=0, second=0, microsecond=0)
+            next_noon = today_noon if now < today_noon else today_noon + timedelta(days=1)
+            secs = (next_noon - now).total_seconds()
+            log_info(
+                f"[noon-raid] First fire in "
+                f"{int(secs // 3600)}h {int((secs % 3600) // 60)}m — aligned to noon."
+            )
+            await asyncio.sleep(secs)
+
+        @noon_raid_task.error
+        async def noon_raid_error(error):
+            log_error(f"[noon-raid] Task died: {type(error).__name__}: {error}")
+
+        return noon_raid_task
+
     async def run_news_update(self):
         """Run integrated news refresh."""
         if not self.ctx: return
@@ -407,6 +456,10 @@ class CoreTaskManager:
         if self.aethelgard_dawn_task.get_task():
             task_registry.register("aethelgard_dawn_task", self.aethelgard_dawn_task.get_task())
             
+        self.noon_raid_task.start()
+        if self.noon_raid_task.get_task():
+            task_registry.register("noon_raid_task", self.noon_raid_task.get_task())
+            
         log_action("Core background tasks started via CoreTaskManager.")
 
     def stop(self):
@@ -414,6 +467,7 @@ class CoreTaskManager:
         self.dream_engine_task.stop()
         self.evening_reflection_task.stop()
         self.aethelgard_dawn_task.stop()
+        self.noon_raid_task.stop()
 
 # Helper for backward compatibility
 _task_manager = None
@@ -430,3 +484,472 @@ def stop_background_core_tasks():
 async def run_news_update():
     if _task_manager:
         await _task_manager.run_news_update()
+
+async def run_village_raid(bot_ctx, channel):
+    """Shared raid logic — called by noon task and admin command."""
+    import secrets
+    import discord
+    import asyncio
+    from utils.ttrpg.character_manager import load_all, save
+    from utils.ttrpg.monster_registry import get as get_monster
+    from utils.ttrpg.progression import check_level_up, xp_to_next_level
+    from utils.commands.rpg_handler import _log_world_event
+
+    RAID_POOL = [
+        ("wolf",     30),
+        ("skeleton", 25),
+        ("goblin",   20),
+        ("bandit",   15),
+        ("ghoul",    10),
+    ]
+    TOWN_LOCATIONS = {
+        "oakhaven", "stone_hearth", "hemlocks_store",
+        "shrine", "watchtower", "oakhaven_bank", "herbalists_hut"
+    }
+
+    await channel.send(embed=discord.Embed(
+        title="🔔 VILLAGE ALARM",
+        description=(
+            "*Three rings from the Watchtower bell. The invasion signal.*\n\n"
+            "A guard shouts from the parapet: **\"Something's coming out of the Whisperwood!\"**\n\n"
+            "Elder Elara appears in the square, hands folded, expression unreadable.\n"
+            "*\"Adventurers. To me. Now.\"*"
+        ),
+        color=0xFF4500
+    ))
+    await asyncio.sleep(3)
+
+    all_sheets = await load_all()
+    defenders = [
+        s for s in all_sheets
+        if s.get("location") in TOWN_LOCATIONS
+        and s.get("hp", {}).get("current", 0) > 0
+    ]
+
+    if not defenders:
+        await channel.send(embed=discord.Embed(
+            description=(
+                "*No adventurers were present. The village guard held the perimeter alone.*\n\n"
+                "The threat is repelled. Oakhaven endures. Barely."
+            ),
+            color=0x888888
+        ))
+        return
+
+    num_creatures = secrets.randbelow(2) + 2
+    creatures = []
+    total_xp = 0
+    total_gil = 0
+
+    for _ in range(num_creatures):
+        total_weight = sum(w for _, w in RAID_POOL)
+        r = secrets.randbelow(total_weight)
+        cumulative = 0
+        chosen_key = RAID_POOL[0][0]
+        for key, weight in RAID_POOL:
+            cumulative += weight
+            if r < cumulative:
+                chosen_key = key
+                break
+        m = get_monster(chosen_key)
+        if m:
+            creatures.append(m)
+            total_xp += m.get("xp", 25)
+            total_gil += m.get("gil", 10)
+
+    total_xp = int(total_xp * 1.5)
+    total_gil = int(total_gil * 1.2)
+    creature_names = ", ".join(m["name"] for m in creatures)
+    defenders_list = "\n".join(
+        f"⚔️ **{s['character_name']}** (Lv.{s['level']} {s['class']})"
+        for s in defenders
+    )
+
+    await channel.send(embed=discord.Embed(
+        title="⚔️ Village Defense — Battle Joined",
+        description=(
+            f"**Attacking:** {creature_names}\n"
+            f"**Defenders in Oakhaven:**\n{defenders_list}\n\n"
+            "*The battle is joined at the village perimeter...*"
+        ),
+        color=0xCC4400
+    ))
+    await asyncio.sleep(4)
+
+    contributions = []
+    for s in defenders:
+        roll = secrets.randbelow(20) + 1
+        lvl_bonus = s.get("level", 1)
+        contributions.append((s, roll, roll + lvl_bonus))
+    contributions.sort(key=lambda x: x[2], reverse=True)
+
+    avg = sum(c[2] for c in contributions) / len(contributions)
+    if avg >= 16:
+        outcome = "The attackers are routed decisively. The Whisperwood falls silent."
+        color = 0x2D5A27
+    elif avg >= 11:
+        outcome = "Hard-fought. The creatures retreat, leaving three of their own at the gate."
+        color = 0x44aa44
+    else:
+        outcome = "Ragged but sufficient. Oakhaven holds — for now."
+        color = 0xf5c842
+
+    xp_each = max(1, total_xp // len(defenders))
+    gil_each = max(1, total_gil // len(defenders))
+
+    result_lines = []
+    level_ups = []
+    for s, roll, contribution in contributions:
+        s["xp"] = s.get("xp", 0) + xp_each
+        s["gil"] = s.get("gil", 0) + gil_each
+        leveled, new_lvl = check_level_up(s)
+        await save(s)
+        result_lines.append(
+            f"⚔️ **{s['character_name']}** — d20({roll})+{s.get('level',1)} = **{contribution}**"
+        )
+        if leveled:
+            level_ups.append(f"🎉 **{s['character_name']}** reached **Level {new_lvl}!**")
+
+    result_embed = discord.Embed(
+        title="🛡️ Oakhaven Holds",
+        description=(
+            f"*{outcome}*\n\n"
+            + "\n".join(result_lines)
+            + f"\n\n**Spoils divided equally:** +{xp_each} XP · +{gil_each} Gil each"
+        ),
+        color=color
+    )
+    if level_ups:
+        result_embed.add_field(name="\u200b", value="\n".join(level_ups), inline=False)
+
+    await channel.send(embed=result_embed)
+    await _log_world_event(
+        f"🛡️ **Village Defense:** Oakhaven repelled a raid ({creature_names}). "
+        f"{len(defenders)} defender(s) rewarded."
+    )
+
+async def run_oracle_speaks(bot_ctx, channel):
+    import discord, secrets
+    from utils.ttrpg.character_manager import load_all, save
+    from utils.commands.rpg_handler import _log_world_event
+
+    TOWN_LOCATIONS = {
+        "oakhaven", "stone_hearth", "hemlocks_store",
+        "shrine", "watchtower", "oakhaven_bank", "herbalists_hut"
+    }
+    BUFFS = [
+        ("battle_focus",    "STR checks +1 until next combat"),
+        ("forest_sight",    "DEX checks +1 until next combat"),
+        ("resonance_link",  "INT checks +2 until next combat"),
+        ("shadow_step",     "DEX checks +2 until next combat"),
+        ("divine_clarity",  "WIS checks +2 until next combat"),
+        ("sharp_mind",      "INT +2 on next check"),
+        ("veiled_blessing", "+1 to next roll"),
+    ]
+
+    await channel.send(embed=discord.Embed(
+        title="👁️ A Veiled Elder Appears",
+        description=(
+            "*She was not there a moment ago.*\n\n"
+            "A pale figure stands at the center of the square, silver hair catching no light. "
+            "She does not speak — not in any language that can be written.\n\n"
+            "*Everyone present understands her anyway.*"
+        ),
+        color=0xc0c0d8
+    ))
+    await asyncio.sleep(4)
+
+    all_sheets = await load_all()
+    present = [s for s in all_sheets if s.get("location") in TOWN_LOCATIONS]
+
+    if not present:
+        await channel.send(embed=discord.Embed(
+            description="*No one was there to receive it. The elder folded into shadow and was gone.*",
+            color=0x888888
+        ))
+        return
+
+    result_lines = []
+    for s in present:
+        buff_key, buff_desc = BUFFS[secrets.randbelow(len(BUFFS))]
+        conds = s.setdefault("conditions", [])
+        if buff_key not in conds:
+            conds.append(buff_key)
+        await save(s)
+        result_lines.append(f"✨ **{s['character_name']}** — *{buff_desc}*")
+
+    await channel.send(embed=discord.Embed(
+        title="✨ The Elder's Gift",
+        description=(
+            "*She was gone before anyone could speak.*\n\n"
+            + "\n".join(result_lines)
+        ),
+        color=0xc0c0d8
+    ))
+    await _log_world_event("👁️ **A Veiled Elder** visited Oakhaven. Those present were blessed.")
+
+async def run_moogle_festival(bot_ctx, channel):
+    import discord, secrets
+    from utils.ttrpg.character_manager import load_all, save
+    from utils.commands.rpg_handler import _log_world_event
+
+    TOWN_LOCATIONS = {
+        "oakhaven", "stone_hearth", "hemlocks_store",
+        "shrine", "watchtower", "oakhaven_bank", "herbalists_hut"
+    }
+    # Curated drop pool — useful but not overpowered
+    DROP_POOL = [
+        ("healing_herb", "Healing Herb", 40),
+        ("bandage",       "Bandage",      30),
+        ("tonic",         "Tonic",        20),
+        ("aeridor_shard", "Aeridor Crystal Shard", 5),
+        ("lucky_charm",   "Lucky Charm",  5),
+    ]
+
+    def roll_drop():
+        total = sum(w for _, _, w in DROP_POOL)
+        r = secrets.randbelow(total)
+        cum = 0
+        for key, name, w in DROP_POOL:
+            cum += w
+            if r < cum:
+                return key, name
+        return DROP_POOL[0][0], DROP_POOL[0][1]
+
+    await channel.send(embed=discord.Embed(
+        title="📬 Moogle Mail Drop",
+        description=(
+            "*The sound of bells. Then more bells.*\n\n"
+            "Seventeen moogles appear over the rooftops of Oakhaven simultaneously, "
+            "each carrying an overstuffed satchel. They descend with tremendous ceremony "
+            "and no explanation.\n\n*\"Kupo!\"*"
+        ),
+        color=0xf4a460
+    ))
+    await asyncio.sleep(3)
+
+    all_sheets = await load_all()
+    present = [s for s in all_sheets if s.get("location") in TOWN_LOCATIONS]
+
+    if not present:
+        await channel.send(embed=discord.Embed(
+            description="*No one to deliver to. The moogles left the packages on the ground and flew away, visibly offended.*",
+            color=0x888888
+        ))
+        return
+
+    result_lines = []
+    for s in present:
+        key, name = roll_drop()
+        s.setdefault("inventory", []).append(key)
+        await save(s)
+        result_lines.append(f"📦 **{s['character_name']}** received **{name}**")
+
+    await channel.send(embed=discord.Embed(
+        title="📦 Packages Delivered",
+        description="\n".join(result_lines) + "\n\n*The moogles left without waiting for thanks.*",
+        color=0xf4a460
+    ))
+    await _log_world_event("📬 **Moogle Mail Drop** — packages delivered to all present in Oakhaven.")
+
+async def run_aeridorian_tremor(bot_ctx, channel):
+    import discord, secrets
+    from utils.ttrpg.character_manager import load_all, save
+    from utils.ttrpg.progression import check_level_up, xp_to_next_level
+    from utils.commands.rpg_handler import _log_world_event
+
+    TOWN_LOCATIONS = {
+        "oakhaven", "stone_hearth", "hemlocks_store",
+        "shrine", "watchtower", "oakhaven_bank", "herbalists_hut"
+    }
+
+    await channel.send(embed=discord.Embed(
+        title="💎 Aeridorian Tremor",
+        description=(
+            "*The ground hums. Not an earthquake — something deliberate.*\n\n"
+            "The Aeridor ruins are doing something. Elara locks her door. "
+            "The Shrine flame turns blue.\n\n"
+            "*Whatever it's broadcasting, it's reaching everyone in range.*"
+        ),
+        color=0x9988dd
+    ))
+    await asyncio.sleep(4)
+
+    all_sheets = await load_all()
+    present = [s for s in all_sheets if s.get("location") in TOWN_LOCATIONS]
+
+    if not present:
+        await channel.send(embed=discord.Embed(
+            description="*The pulse washed over an empty square. Oakhaven's cats all looked east at the same time.*",
+            color=0x888888
+        ))
+        return
+
+    result_lines = []
+    level_ups = []
+    for s in present:
+        roll = secrets.randbelow(100)
+        if roll < 40:
+            # XP surge
+            gain = secrets.randbelow(30) + 20
+            s["xp"] = s.get("xp", 0) + gain
+            leveled, new_lvl = check_level_up(s)
+            await save(s)
+            result_lines.append(f"✨ **{s['character_name']}** — resonance surge (+{gain} XP)")
+            if leveled:
+                level_ups.append(f"🎉 **{s['character_name']}** reached **Level {new_lvl}!**")
+        elif roll < 65:
+            # HP restore
+            hp_gain = min(10, s["hp"]["max"] - s["hp"]["current"])
+            s["hp"]["current"] = min(s["hp"]["current"] + hp_gain, s["hp"]["max"])
+            await save(s)
+            result_lines.append(f"💚 **{s['character_name']}** — the pulse closes old wounds (+{hp_gain} HP)")
+        elif roll < 80:
+            # Item drop
+            s.setdefault("inventory", []).append("aeridor_shard")
+            await save(s)
+            result_lines.append(f"💎 **{s['character_name']}** — a crystal shard lands at their feet")
+        else:
+            # Minor HP drain
+            drain = secrets.randbelow(4) + 2
+            s["hp"]["current"] = max(1, s["hp"]["current"] - drain)
+            await save(s)
+            result_lines.append(f"⚡ **{s['character_name']}** — rejection. The pulse pushed back (-{drain} HP)")
+
+    embed = discord.Embed(
+        title="💎 The Pulse Fades",
+        description="\n".join(result_lines),
+        color=0x9988dd
+    )
+    if level_ups:
+        embed.add_field(name="\u200b", value="\n".join(level_ups), inline=False)
+    await channel.send(embed=embed)
+    await _log_world_event("💎 **Aeridorian Tremor** — resonance pulse swept through Oakhaven.")
+
+async def run_tonberry_procession(bot_ctx, channel):
+    import discord, secrets
+    from utils.ttrpg.character_manager import load_all, save
+    from utils.commands.rpg_handler import _log_world_event
+
+    TOWN_LOCATIONS = {
+        "oakhaven", "stone_hearth", "hemlocks_store",
+        "shrine", "watchtower", "oakhaven_bank", "herbalists_hut"
+    }
+
+    await channel.send(embed=discord.Embed(
+        title="🔪 The Tonberry Procession",
+        description=(
+            "*Single file. Lanterns lit. Moving with tremendous dignity through the square.*\n\n"
+            "Nobody knows where they're going. Nobody asks. "
+            "Mira has locked the Stone Hearth door from the inside.\n\n"
+            "*Elara's note, slipped under every door in town: **Do not make eye contact.***"
+        ),
+        color=0x88bb88
+    ))
+    await asyncio.sleep(4)
+
+    all_sheets = await load_all()
+    present = [s for s in all_sheets if s.get("location") in TOWN_LOCATIONS]
+
+    if not present:
+        await channel.send(embed=discord.Embed(
+            description="*They marched through an empty Oakhaven. Left a single coin on the well. Nobody knows why.*",
+            color=0x888888
+        ))
+        return
+
+    result_lines = []
+    for s in present:
+        # 80% watched quietly, 20% disturbed them
+        roll = secrets.randbelow(10)
+        if roll < 8:
+            xp = secrets.randbelow(15) + 10
+            gil = secrets.randbelow(20) + 10
+            s["xp"] = s.get("xp", 0) + xp
+            s["gil"] = s.get("gil", 0) + gil
+            await save(s)
+            result_lines.append(
+                f"🕯️ **{s['character_name']}** watched in silence. A tonberry dropped a coin purse as it passed. (+{xp} XP, +{gil}g)"
+            )
+        else:
+            dmg = secrets.randbelow(8) + 5
+            s["hp"]["current"] = max(1, s["hp"]["current"] - dmg)
+            await save(s)
+            result_lines.append(
+                f"🔪 **{s['character_name']}** made eye contact. The closest tonberry stopped walking. (-{dmg} HP)"
+            )
+
+    await channel.send(embed=discord.Embed(
+        title="🔪 They Have Passed",
+        description="\n".join(result_lines) + "\n\n*The last tonberry disappeared around the corner. The lanterns went out.*",
+        color=0x88bb88
+    ))
+    await _log_world_event("🔪 **The Tonberry Procession** passed through Oakhaven.")
+
+async def run_spine_storm(bot_ctx, channel):
+    import discord, secrets
+    from utils.ttrpg.character_manager import load_all, save
+    from utils.ttrpg.progression import check_level_up
+    from utils.commands.rpg_handler import _log_world_event
+
+    TOWN_LOCATIONS = {
+        "oakhaven", "stone_hearth", "hemlocks_store",
+        "shrine", "watchtower", "oakhaven_bank", "herbalists_hut"
+    }
+    CLASS_EFFECTS = {
+        "Warrior": ("battle_focus",   "The cold sharpens something. STR +1 until next combat."),
+        "Ranger":  ("forest_sight",   "The storm light clarifies distance. DEX +1 until next combat."),
+        "Mage":    ("resonance_link", "The charged air sings. INT +2 until next combat."),
+        "Rogue":   ("shadow_step",    "The fog gives excellent cover. DEX +2 until next combat."),
+        "Cleric":  ("divine_clarity", "The storm feels deliberate. WIS +2 until next combat."),
+    }
+
+    await channel.send(embed=discord.Embed(
+        title="⛈️ Storm of the Spine",
+        description=(
+            "*It came from the Spine of the World and it has opinions.*\n\n"
+            "Lightning that hits the same stone twice. Wind that changes direction mid-gust. "
+            "The Watchtower crew came down twenty minutes ago and haven't said why.\n\n"
+            "*Elara is standing in the square. In the rain. Looking pleased.*"
+        ),
+        color=0x4a4a7a
+    ))
+    await asyncio.sleep(4)
+
+    all_sheets = await load_all()
+    present = [s for s in all_sheets if s.get("location") in TOWN_LOCATIONS]
+
+    if not present:
+        await channel.send(embed=discord.Embed(
+            description="*The storm broke over an empty square. The puddles glow faintly. Nobody saw it.*",
+            color=0x888888
+        ))
+        return
+
+    result_lines = []
+    level_ups = []
+    for s in present:
+        cls = s.get("class", "Warrior")
+        buff_key, buff_desc = CLASS_EFFECTS.get(cls, ("sharp_mind", "+1 to next roll."))
+        conds = s.setdefault("conditions", [])
+        if buff_key not in conds:
+            conds.append(buff_key)
+        xp_bonus = secrets.randbelow(10) + 5
+        s["xp"] = s.get("xp", 0) + xp_bonus
+        leveled, new_lvl = check_level_up(s)
+        await save(s)
+        result_lines.append(f"⚡ **{s['character_name']}** — *{buff_desc}* (+{xp_bonus} XP)")
+        if leveled:
+            level_ups.append(f"🎉 **{s['character_name']}** reached **Level {new_lvl}!**")
+
+    embed = discord.Embed(
+        title="⛈️ The Storm Passes",
+        description="\n".join(result_lines),
+        color=0x4a4a7a
+    )
+    if level_ups:
+        embed.add_field(name="\u200b", value="\n".join(level_ups), inline=False)
+    
+    await channel.send(embed=embed)
+    await _log_world_event("⛈️ **Storm of the Spine** swept through Oakhaven.")
+

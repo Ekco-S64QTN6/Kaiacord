@@ -206,6 +206,12 @@ HEMLOCK_STOCK_CONSUMABLES = ["healing_herb", "bandage", "tonic", "torch", "antid
 
 CONSUMABLES = {
     "adventurers_pack": {"name": "Adventurer's Pack", "hp_restore": 0, "value": 0, "on_use": "starter_kit", "description": "starter pack type !rpg use pack to open"},
+    "lightstone": {
+        "name": "Lightstone",
+        "value": 25,
+        "description": "A wisp's core, still glowing. Permanent light source. Does not deplete.",
+        "tier": 2,
+    },
     "healing_herb":   {"name": "Healing Herb",    "hp_restore": 8,  "value": 10, "tier": 1},
     "bandage":        {"name": "Bandage",          "hp_restore": 5,  "value": 6,  "tier": 1},
     "tonic":          {"name": "Tonic",            "hp_restore": 15, "value": 20, "tier": 2},
@@ -236,6 +242,8 @@ CONSUMABLES = {
 ALIASES = {
     "herb": "healing_herb",
     "pack": "adventurers_pack",
+    "light": "lightstone",
+    "wisp_core": "lightstone",
     "shard": "aeridor_shard",
     "knife": "tonberry_knife",
     "staff": "wooden_staff",

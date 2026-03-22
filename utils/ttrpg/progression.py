@@ -65,9 +65,23 @@ def check_and_reset_hunts(sheet: dict) -> dict:
     if sheet.get("hunts_reset_date") != today:
         sheet["hunts_today"] = 0
         sheet["hunts_reset_date"] = today
+        
+        # Transfer the inn_rest buff from pending to active for the new day
+        if sheet.get("inn_rest_pending", False):
+            sheet["inn_rest_active_today"] = True
+            sheet["inn_rest_pending"] = False
+        else:
+            sheet["inn_rest_active_today"] = False
+            
     return sheet
+
+def get_max_hunts(sheet: dict) -> int:
+    """Returns the maximum hunts available today, accounting for buffs."""
+    sheet = check_and_reset_hunts(sheet)
+    return MAX_HUNTS_PER_DAY + (1 if sheet.get("inn_rest_active_today") else 0)
 
 def hunts_remaining(sheet: dict) -> int:
     """Returns how many hunts the player has left today."""
     sheet = check_and_reset_hunts(sheet)
-    return max(0, MAX_HUNTS_PER_DAY - sheet.get("hunts_today", 0))
+    cap = MAX_HUNTS_PER_DAY + (1 if "ale_warmth" in sheet.get("conditions", []) else 0)
+    return max(0, cap - sheet.get("hunts_today", 0))

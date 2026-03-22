@@ -65,7 +65,7 @@ from utils.infrastructure.system.yaml_config import config
 from utils.ttrpg.world_state import get_current_state
 from utils.ttrpg.character_manager import load, save, create, format_sheet, load_all
 from utils.ttrpg.session_manager import load_session, save_session, create_session, end_session
-from utils.ttrpg.progression import check_and_reset_hunts, hunts_remaining, check_level_up, MAX_HUNTS_PER_DAY, xp_to_next_level, XP_THRESHOLDS
+from utils.ttrpg.progression import check_and_reset_hunts, hunts_remaining, check_level_up, MAX_HUNTS_PER_DAY, get_max_hunts, xp_to_next_level, XP_THRESHOLDS
 from utils.social.kaia_social_responder import load_persona_async
 from utils.ttrpg.world import LOCATION_DATA
 from utils.ttrpg.encounter_tables import random_encounter
@@ -157,17 +157,20 @@ _LOCATION_BUTTONS: dict[str, list] = {
         ("Look", "🔎", "look", "", discord.ButtonStyle.secondary, 0),
     ],
     "whisperwood_edge": [
-        ("Hunt", "🗡️", "hunt", "", discord.ButtonStyle.danger, 0),
-        ("Look", "🔎", "look", "", discord.ButtonStyle.secondary, 0),
+        ("Hunt",    "⚔️",  "hunt",    "", discord.ButtonStyle.danger,     0),
+        ("Dungeon", "🏚️", "dungeon", "", discord.ButtonStyle.primary,    0),
+        ("Look",    "🔎",  "look",    "", discord.ButtonStyle.secondary,  0),
         ("Look: Tracks","🐾","look", "at tracks", discord.ButtonStyle.secondary, 0),
     ],
     "whisperwood_deep": [
-        ("Hunt", "🗡️", "hunt", "", discord.ButtonStyle.danger, 0),
-        ("Look", "🔎", "look", "", discord.ButtonStyle.secondary, 0),
+        ("Hunt",    "⚔️",  "hunt",    "", discord.ButtonStyle.danger,     0),
+        ("Dungeon", "🏚️", "dungeon", "", discord.ButtonStyle.primary,    0),
+        ("Look",    "🔎",  "look",    "", discord.ButtonStyle.secondary,  0),
     ],
     "aeridor_ruins": [
-        ("Hunt", "🗡️", "hunt", "", discord.ButtonStyle.danger, 0),
-        ("Look", "🔎", "look", "", discord.ButtonStyle.secondary, 0),
+        ("Hunt",    "⚔️",  "hunt",    "", discord.ButtonStyle.danger,     0),
+        ("Dungeon", "🏚️", "dungeon", "", discord.ButtonStyle.primary,    0),
+        ("Look",    "🔎",  "look",    "", discord.ButtonStyle.secondary,  0),
         ("Look: Crystals","💎","look","at crystals", discord.ButtonStyle.secondary, 0),
     ],
     "trade_road": [
@@ -216,6 +219,7 @@ class RPGFullLocationView(discord.ui.View):
             "inventory": _handle_inventory,
             "pray": _handle_pray,
             "fountain": _handle_fountain,
+            "offer": _handle_offer,
             "scout": _handle_scout,
             "notices": _handle_notices,
             "quests": _handle_quests,
@@ -230,6 +234,7 @@ class RPGFullLocationView(discord.ui.View):
             "deliver": _handle_deliver,
             "hunts": _handle_hunts,
             "leaderboard": _handle_leaderboard,
+            "dungeon": _handle_dungeon,
         }
 
         # ── Location action buttons ───────────────────────────────────
@@ -243,10 +248,11 @@ class RPGFullLocationView(discord.ui.View):
 
         # ── Travel select (row 4 — moved down from 3) ─────────────────
         from utils.ttrpg.world import LOCATION_DATA
-        exits = LOCATION_DATA.get(location, {}).get("exits", [])
-        if exits:
+        all_locs = [k for k in LOCATION_DATA.keys() if k != location]
+        all_locs.sort(key=lambda k: 1 if LOCATION_DATA.get(k, {}).get("hunting") else 0)
+        if all_locs:
             options = []
-            for ex in exits[:25]:
+            for ex in all_locs[:25]:
                 td = LOCATION_DATA.get(ex, {})
                 lbl = td.get("name", ex.replace("_", " ").title())
                 em = "🗡️" if td.get("hunting") else "📍"
@@ -407,18 +413,17 @@ def _make_hunt_status_view(ctx, msg, uid, uname, is_owner):
     return view
 
 
-def _make_status_btn(ctx, uid, uname, is_owner):
+def _make_status_btn(ctx, uid, uname, is_owner, row=3):
     """Helper to create a unified Status button."""
-    btn = discord.ui.Button(label="📊 Status", style=discord.ButtonStyle.secondary, row=3)
-    async def _status_cb(interaction: discord.Interaction):
+    btn = discord.ui.Button(label="📊 Status", style=discord.ButtonStyle.secondary, row=row)
+    async def _cb(interaction):
         if str(interaction.user.id) != uid:
-            await interaction.response.send_message("```\nnot your button.\n```", ephemeral=True)
+            await interaction.response.send_message("not yours", ephemeral=True)
             return
         await interaction.response.defer()
-        fake_msg = _InteractionMsg(interaction)
-        send_fn = _make_interaction_send(interaction)
-        await _handle_status(ctx, fake_msg, send_fn, "", uid, uname, is_owner)
-    btn.callback = _status_cb
+        fake = _InteractionMsg(interaction)
+        await _handle_status(ctx, fake, _make_interaction_send(interaction), "", uid, uname, is_owner)
+    btn.callback = _cb
     return btn
 
 
@@ -651,6 +656,473 @@ LOCATION_COLORS = {
     "trade_road":        0xa08050,   # dust and dirt
 }
 
+# ── Dungeon ───────────────────────────────────────────────────────────────────
+
+def _dungeon_room_color(room_type):
+    return {
+        "start":    0x888888, "empty":    0x4a4a6a,
+        "monster":  0xFF4500, "treasure": 0xd4a843,
+        "shrine":   0xaaddff, "trap":     0xcc4444,
+        "boss":     0x8B0000, "exit":     0x2D5A27,
+    }.get(room_type, 0x888888)
+
+
+def _get_dungeon_loot_tier(player_level: int, is_boss: bool = False) -> str:
+    """Map player level to loot tier."""
+    if is_boss:
+        if player_level >= 9:  return "hard"
+        if player_level >= 6:  return "medium"
+        return "easy"  # tier 2-3 items at low level still feels good
+    else:
+        # Regular monsters: tier 2 base, rare tier 3
+        if secrets.randbelow(6) == 0:  # ~17% tier up
+            if player_level >= 6:  return "medium"
+            return "easy"
+        return "easy"
+
+def _dungeon_auto_combat(sheet, monster_key, dungeon_state, is_boss=False, boss_name=None):
+    from utils.ttrpg.monster_registry import get as get_monster
+    from utils.ttrpg.equipment_registry import WEAPONS, ARMOR
+    from utils.ttrpg.loot_tables import get_loot
+    from utils.ttrpg.shop import find_item
+
+    monster = get_monster(monster_key)
+    if not monster:
+        return {"sheet": sheet, "dungeon": dungeon_state,
+                "description": "The room is empty.", "loot_desc": ""}
+
+    CLASS_ATTACK_STAT = {"Warrior": "str", "Ranger": "dex",
+                          "Mage": "int", "Rogue": "dex", "Cleric": "wis"}
+    atk_stat = CLASS_ATTACK_STAT.get(sheet.get("class", "Warrior"), "str")
+    atk_mod = (sheet.get("stats", {}).get(atk_stat, 10) - 10) // 2
+    dex_mod = (sheet.get("stats", {}).get("dex", 10) - 10) // 2
+
+    eq = sheet.get("equipment", {})
+    def _eq(val, registry):
+        if not val: return None
+        return val if isinstance(val, dict) else registry.get(val)
+
+    weapon  = _eq(eq.get("weapon"), WEAPONS)
+    armor   = _eq(eq.get("armor"),  ARMOR)
+    weapon_bonus = weapon["attack_bonus"] if weapon else 0
+    dmg_die      = weapon["damage_die"]   if weapon else 4
+    armor_def    = armor["defense_bonus"] if armor  else 0
+    player_def   = 10 + dex_mod + armor_def
+
+    m_hp = monster["hp"]
+    p_hp = sheet["hp"]["current"]
+    log_lines = []
+
+    for _ in range(6):
+        if m_hp <= 0 or p_hp <= 1:
+            break
+        hit = secrets.randbelow(20) + 1 + atk_mod + weapon_bonus
+        if hit >= monster["defense"]:
+            dmg = max(1, secrets.randbelow(dmg_die) + 1 + atk_mod)
+            m_hp = max(0, m_hp - dmg)
+            log_lines.append(f"Hit **{dmg}**")
+        else:
+            log_lines.append("Miss")
+        if m_hp <= 0:
+            break
+        m_hit = secrets.randbelow(20) + 1 + (monster["attack"] // 3)
+        if m_hit >= player_def:
+            m_dmg = max(1, secrets.randbelow(6) + 1 + (monster["attack"] // 2))
+            p_hp = max(1, p_hp - m_dmg)
+            log_lines.append(f"**{monster['name']}** hits {m_dmg}")
+        else:
+            log_lines.append(f"**{monster['name']}** misses")
+
+    sheet["hp"]["current"] = p_hp
+    xp_earn = int(monster.get("xp", 25) * (2 if is_boss else 1))
+    gil_earn = int(monster.get("gil", 5) * (2 if is_boss else 1))
+    sheet["xp"]  = sheet.get("xp",  0) + xp_earn
+    sheet["gil"] = sheet.get("gil", 0) + gil_earn
+    dungeon_state["xp_gained"]  = dungeon_state.get("xp_gained",  0) + xp_earn
+    dungeon_state["gil_gained"] = dungeon_state.get("gil_gained", 0) + gil_earn
+
+    player_level = sheet.get("level", 1)
+
+    if is_boss:
+        # Boss: always 2 gear items from appropriate tier
+        boss_tier = _get_dungeon_loot_tier(player_level, is_boss=True)
+        loot_drops = []
+        for _ in range(2):
+            loot = get_loot(boss_tier)
+            attempts = 0
+            while not loot and attempts < 5:  # ensure we get something
+                loot = get_loot(boss_tier)
+                attempts += 1
+            if loot:
+                sheet.setdefault("inventory", []).append(loot)
+                item = find_item(loot)
+                loot_drops.append(item["name"] if item else loot)
+                dungeon_state.setdefault("loot_gained", []).append(loot)
+        loot_desc = f"🎁 **Boss drops:** {', '.join(loot_drops)}" if loot_drops else ""
+    else:
+        # Regular monster: tier 2 base, rare tier 3, ~40% chance any drop at all
+        if secrets.randbelow(10) < 4:
+            mob_tier = _get_dungeon_loot_tier(player_level, is_boss=False)
+            loot = get_loot(mob_tier)
+            if loot:
+                sheet.setdefault("inventory", []).append(loot)
+                item = find_item(loot)
+                loot_desc = f"🎁 {item['name'] if item else loot}"
+                dungeon_state.setdefault("loot_gained", []).append(loot)
+            else:
+                loot_desc = ""
+        else:
+            loot_desc = ""
+
+    outcome = "defeated" if m_hp <= 0 else "driven off — you're both bleeding"
+    name_used = boss_name if (is_boss and boss_name) else monster.get("name", "Unknown")
+    description = (
+        f"⚔️ **{name_used}** — {outcome}\n"
+        f"*{' · '.join(log_lines[:5])}*\n"
+        f"+{xp_earn} XP · +{gil_earn} Gil"
+    )
+    return {"sheet": sheet, "dungeon": dungeon_state,
+            "description": description, "loot_desc": loot_desc}
+
+
+class DungeonView(discord.ui.View):
+    def __init__(self, ctx_obj, uid, uname, is_owner, dungeon):
+        super().__init__(timeout=300)
+        self._ctx      = ctx_obj
+        self._uid      = uid
+        self._uname    = uname
+        self._is_owner = is_owner
+
+        px, py = dungeon["player_pos"]
+        valid  = dungeon["connections"].get(f"{px},{py}", [])
+
+        # Direction layout: N row 0, W+E row 1, S row 2
+        dir_cfg = [("N","⬆️",0), ("W","⬅️",1), ("E","➡️",1), ("S","⬇️",2)]
+        for d, emoji, row in dir_cfg:
+            btn = discord.ui.Button(
+                label=emoji, row=row,
+                style=discord.ButtonStyle.primary if d in valid else discord.ButtonStyle.secondary,
+                disabled=d not in valid,
+            )
+            if d in valid:
+                async def _move(interaction, direction=d):
+                    if str(interaction.user.id) != self._uid:
+                        await interaction.response.send_message("not your dungeon.", ephemeral=True)
+                        return
+                    await interaction.response.defer()
+                    await _dungeon_move(self._ctx, interaction, self._uid,
+                                        self._uname, self._is_owner, direction)
+                btn.callback = _move
+            self.add_item(btn)
+
+        # Row 3: map + leave + status
+        map_btn = discord.ui.Button(label="🗺️ Map", style=discord.ButtonStyle.secondary, row=3)
+        async def _show_map(interaction):
+            if str(interaction.user.id) != self._uid:
+                await interaction.response.send_message("not yours", ephemeral=True)
+                return
+            from utils.ttrpg.dungeon import load_dungeon, render_map
+            state = load_dungeon(self._uid)
+            if not state:
+                await interaction.response.send_message("no dungeon found", ephemeral=True)
+                return
+            await interaction.response.send_message(
+                embed=discord.Embed(title="🗺️ Dungeon Map",
+                                    description=render_map(state), color=0x7a6a9a),
+                ephemeral=True)
+        map_btn.callback = _show_map
+        self.add_item(map_btn)
+
+        leave_btn = discord.ui.Button(label="🏃 Leave", style=discord.ButtonStyle.danger, row=3)
+        async def _leave(interaction):
+            if str(interaction.user.id) != self._uid:
+                await interaction.response.send_message("not yours", ephemeral=True)
+                return
+            await interaction.response.defer()
+            await _dungeon_leave(self._ctx, interaction, self._uid, self._uname, self._is_owner)
+        leave_btn.callback = _leave
+        self.add_item(leave_btn)
+
+        self.add_item(_make_status_btn(ctx_obj, uid, uname, is_owner, row=3))
+
+
+async def _send_dungeon_room(ctx_obj, channel, uid, uname, is_owner, dungeon,
+                              extra_text=""):
+    px, py = dungeon["player_pos"]
+    room   = dungeon["rooms"].get(f"{px},{py}", {})
+    rt     = room.get("type", "empty")
+
+    sheet  = await load(uid)
+    hp_str = f"❤️ {sheet['hp']['current']}/{sheet['hp']['max']} HP" if sheet else ""
+
+    embed = discord.Embed(
+        title=f"{'💀' if rt == 'boss' else '🏚️'} {rt.title()} Chamber",
+        description=f"*{room.get('description','A stone room.')}*\n\n{hp_str}{extra_text}",
+        color=_dungeon_room_color(rt),
+    )
+    view = DungeonView(ctx_obj, uid, uname, is_owner, dungeon)
+    await channel.send(embed=embed, view=view)
+
+
+async def _dungeon_move(ctx_obj, interaction, uid, uname, is_owner, direction):
+    from utils.ttrpg.dungeon import (load_dungeon, save_dungeon,
+                                      DIRECTIONS, DIR_OPPOSITE,
+                                      R_MONSTER, R_BOSS, R_TREASURE,
+                                      R_SHRINE, R_TRAP, R_EXIT, _key)
+    from utils.ttrpg.loot_tables import get_loot
+    from utils.ttrpg.shop import find_item
+    from utils.ttrpg.progression import check_level_up, xp_to_next_level
+
+    state = load_dungeon(uid)
+    if not state or not state.get("active"):
+        await interaction.followup.send("No active dungeon.", ephemeral=True)
+        return
+
+    sheet = await load(uid)
+    if not sheet:
+        return
+
+    px, py = state["player_pos"]
+    dx, dy = DIRECTIONS[direction]
+    nx, ny = px + dx, py + dy
+    nk = _key(nx, ny)
+
+    if nk not in state["connections"]:
+        await interaction.followup.send("Can't go that way.", ephemeral=True)
+        return
+
+    state["player_pos"] = [nx, ny]
+    if nk not in state["visited"]:
+        state["visited"].append(nk)
+
+    room = state["rooms"].get(nk, {})
+    rt   = room.get("type", "empty")
+
+    # For boss rooms, override description with generated name
+    if rt == "boss" and not room.get("cleared"):
+        boss_name = room.get("boss_name", "Ancient Horror")
+        room["description"] = (
+            f"The chamber opens wide. In the center — **{boss_name}**.\n"
+            f"It has been here a very long time. It knows you're here."
+        )
+        state["rooms"][nk] = room
+
+    encounter_text = ""
+    loot_text      = ""
+
+    if not room.get("cleared", False):
+        if rt in (R_MONSTER, R_BOSS):
+            result = _dungeon_auto_combat(
+                sheet, room.get("monster_key", "goblin"), state,
+                is_boss=(rt == R_BOSS),
+                boss_name=room.get("boss_name")
+            )
+            sheet         = result["sheet"]
+            state         = result["dungeon"]
+            encounter_text = f"\n\n{result['description']}"
+            loot_text      = f"\n{result['loot_desc']}" if result["loot_desc"] else ""
+
+        elif rt == R_TREASURE:
+            loot = get_loot("medium")
+            if loot:
+                sheet.setdefault("inventory", []).append(loot)
+                item = find_item(loot)
+                loot_text = f"\n\n💰 Found: **{item['name'] if item else loot}**"
+                state.setdefault("loot_gained", []).append(loot)
+            else:
+                gil = secrets.randbelow(25) + 10
+                sheet["gil"] = sheet.get("gil", 0) + gil
+                loot_text = f"\n\n💰 Found **{gil} gil** in a cracked chest."
+                state["gil_gained"] = state.get("gil_gained", 0) + gil
+
+        elif rt == R_SHRINE:
+            heal = min(15, sheet["hp"]["max"] - sheet["hp"]["current"])
+            sheet["hp"]["current"] = min(sheet["hp"]["current"] + heal, sheet["hp"]["max"])
+            encounter_text = f"\n\n✨ *The candle. Something old and gentle.* (+{heal} HP)"
+
+        elif rt == R_TRAP:
+            dmg = secrets.randbelow(8) + 3
+            sheet["hp"]["current"] = max(1, sheet["hp"]["current"] - dmg)
+            encounter_text = f"\n\n⚡ *The floor gives way. You catch yourself.* (-{dmg} HP)"
+            if secrets.randbelow(3) == 0:
+                loot = get_loot("easy")
+                if loot:
+                    sheet.setdefault("inventory", []).append(loot)
+                    item = find_item(loot)
+                    loot_text = f"\nBut you find: **{item['name'] if item else loot}**"
+
+        room["cleared"] = True
+        state["rooms"][nk] = room
+
+    # Exit reached
+    if rt == R_EXIT:
+        save_dungeon(uid, state)
+        leveled, new_level = check_level_up(sheet)
+        await save(sheet)
+        await _dungeon_complete(ctx_obj, interaction, uid, uname, is_owner, state, sheet, leveled, new_level)
+        return
+
+    hp_warning = "\n\n⚠️ *HP critically low — consider leaving.*" \
+        if sheet["hp"]["current"] <= sheet["hp"]["max"] // 4 else ""
+
+    leveled, new_level = check_level_up(sheet)
+    await save(sheet)
+    save_dungeon(uid, state)
+
+    level_text = f"\n\n🎉 **Level Up! Now Lv.{new_level}!**" if leveled else ""
+    hp_str = f"\n\n❤️ {sheet['hp']['current']}/{sheet['hp']['max']} HP"
+
+    extra = f"{encounter_text}{loot_text}{hp_str}{hp_warning}{level_text}"
+
+    embed = discord.Embed(
+        title=f"{'💀' if rt == 'boss' else '🏚️'} {rt.title()} Chamber",
+        description=f"*{room.get('description','A stone room.')}*{extra}",
+        color=_dungeon_room_color(rt),
+    )
+    view = DungeonView(ctx_obj, uid, uname, is_owner, state)
+    await interaction.followup.send(embed=embed, view=view)
+
+
+async def _dungeon_complete(ctx_obj, interaction, uid, uname, is_owner,
+                             state, sheet, leveled=False, new_level=0):
+    from utils.ttrpg.dungeon import clear_dungeon
+    from utils.ttrpg.shop import find_item
+
+    bonus_xp  = 75
+    bonus_gil = 40
+    sheet["xp"]  = sheet.get("xp",  0) + bonus_xp
+    sheet["gil"] = sheet.get("gil", 0) + bonus_gil
+    await save(sheet)
+    clear_dungeon(uid)
+
+    xp   = state.get("xp_gained",  0) + bonus_xp
+    gil  = state.get("gil_gained", 0) + bonus_gil
+    loot = state.get("loot_gained", [])
+
+    loot_str = ""
+    if loot:
+        names = [(find_item(l) or {}).get("name", l) for l in loot]
+        loot_str = "\n**Loot:** " + ", ".join(names)
+
+    level_str = f"\n\n🎉 **Level Up! Now Lv.{new_level}!**" if leveled else ""
+
+    embed = discord.Embed(
+        title="🚪 Dungeon Complete — You Escaped",
+        description=(
+            f"*You drag yourself into daylight. The ruins seal behind you.*\n\n"
+            f"**Earned:** +{xp} XP · +{gil} Gil"
+            f"{loot_str}{level_str}"
+        ),
+        color=0x2D5A27,
+    )
+    view = discord.ui.View(timeout=60)
+    view.add_item(_make_status_btn(ctx_obj, uid, uname, is_owner))
+    await interaction.followup.send(embed=embed, view=view)
+    await _log_world_event(f"🏚️ **{sheet['character_name']}** completed a dungeon run.")
+
+
+async def _dungeon_leave(ctx_obj, interaction, uid, uname, is_owner):
+    from utils.ttrpg.dungeon import load_dungeon, clear_dungeon
+    from utils.ttrpg.shop import find_item
+
+    state = load_dungeon(uid)
+    if not state:
+        await interaction.followup.send("No active dungeon.", ephemeral=True)
+        return
+
+    xp   = state.get("xp_gained",  0)
+    gil  = state.get("gil_gained", 0)
+    loot = state.get("loot_gained", [])
+    cleared = sum(1 for r in state["rooms"].values()
+                  if r.get("cleared") and r.get("type") not in ("start", "empty"))
+    clear_dungeon(uid)
+
+    loot_str = ""
+    if loot:
+        names = [(find_item(l) or {}).get("name", l) for l in loot]
+        loot_str = "\n**Kept:** " + ", ".join(names)
+
+    embed = discord.Embed(
+        title="🏃 Left the Dungeon",
+        description=(
+            f"*You find a crack in the stone and squeeze out.*\n\n"
+            f"**This run:** +{xp} XP · +{gil} Gil\n"
+            f"Rooms cleared: {cleared}{loot_str}"
+        ),
+        color=0x888888,
+    )
+    view = discord.ui.View(timeout=60)
+    view.add_item(_make_status_btn(ctx_obj, uid, uname, is_owner))
+    await interaction.followup.send(embed=embed, view=view)
+
+
+async def _handle_dungeon(ctx, msg, send, rest, uid, uname, is_owner):
+    from utils.ttrpg.dungeon import generate_dungeon, save_dungeon, load_dungeon
+
+    # Resume existing run
+    existing = load_dungeon(uid)
+    if existing and existing.get("active"):
+        await msg.channel.send(embed=discord.Embed(
+            description="*You're already in there. Picking up where you left off...*",
+            color=0x7a6a9a))
+        await _send_dungeon_room(ctx, msg.channel, uid, uname, is_owner, existing)
+        return
+
+    sheet = await load(uid)
+    if not sheet: return
+
+    inv = sheet.get("inventory", [])
+    has_lightstone = "lightstone" in inv
+    has_torch      = "torch" in inv
+
+    if not has_lightstone and not has_torch:
+        return await msg.channel.send(embed=discord.Embed(
+            title="⬛ Total Darkness",
+            description=(
+                "*The entrance yawns open. You can't see your hand in front of your face.*\n\n"
+                "You need a light source:\n"
+                "• **Torch** (2g) — buy from Hemlock. Single use.\n"
+                "• **Lightstone** — rare drop from wisps. Permanent."
+            ),
+            color=0x4a4a6a
+        ))
+
+    # Consume torch on entry (lightstone is permanent)
+    if not has_lightstone and has_torch:
+        sheet["inventory"].remove("torch")
+        torch_line = "\n*Your torch gutters. You have one run before it burns out.*"
+    else:
+        torch_line = "\n*The lightstone pulses softly. The dark gives way.*"
+
+    ENTRY_HUNTS = 2
+    sheet = check_and_reset_hunts(sheet)
+    if hunts_remaining(sheet) < ENTRY_HUNTS:
+        return await msg.channel.send(embed=discord.Embed(
+            description=(f"Entering costs **{ENTRY_HUNTS} hunts**. "
+                         f"You have {hunts_remaining(sheet)}/{MAX_HUNTS_PER_DAY}."),
+            color=0xcc4444))
+
+    sheet["hunts_today"] = sheet.get("hunts_today", 0) + ENTRY_HUNTS
+    await save(sheet)
+
+    difficulty = max(1, min(3, (sheet["level"] - 1) // 3 + 1))
+    dungeon = generate_dungeon(difficulty)
+    save_dungeon(uid, dungeon)
+
+    await msg.channel.send(embed=discord.Embed(
+        title="🏚️ Entering the Ruins",
+        description=(
+            "*A breach in the Aeridor stone — a gap that wasn't here yesterday.*\n\n"
+            "Cold air from below. The sound of something shifting.*\n\n"
+            f"*Cost: {ENTRY_HUNTS} hunts. Navigate with the buttons. "
+            f"Healing supplies are your lifeline.*{torch_line}"
+        ),
+        color=0x7a6a9a,
+    ))
+    await asyncio.sleep(2)
+    await _send_dungeon_room(ctx, msg.channel, uid, uname, is_owner, dungeon)
+
+
 async def handle_rpg_command(ctx, msg, send_kaia_response):
     """Main !rpg dispatcher."""
     parts = msg.content.strip().split(maxsplit=2)
@@ -708,6 +1180,7 @@ async def handle_rpg_command(ctx, msg, send_kaia_response):
         "bank":      _handle_bank,
         "duel":      _handle_duel,
         "weather":   _handle_weather,
+        "dungeon":   _handle_dungeon,
     }
     async def _auto_send(channel, text, use_code_block=None):
         if use_code_block is None:
@@ -854,7 +1327,7 @@ async def _handle_status(ctx, msg, send, rest, uid, uname, is_owner):
     elif rep < -50: rep_rank = "Outlaw"
     elif rep < -20: rep_rank = "Unwelcome"
     
-    embed.add_field(name="📊 Stats", value=f"🎯 {hunts}/{MAX_HUNTS_PER_DAY} hunts\n🎭 {rep_rank} ({rep})", inline=True)
+    embed.add_field(name="📊 Stats", value=f"🎯 {hunts}/{get_max_hunts(sheet)} hunts\n🎭 {rep_rank} ({rep})", inline=True)
     
     embed.add_field(name="🗺️ Nearby", value=nearby_str, inline=False)
     
@@ -1171,11 +1644,13 @@ async def _handle_rest(ctx, msg, send, rest, uid, uname, is_owner):
     sheet["hp"]["current"] = sheet["hp"]["max"]
     sheet["gil"] -= cost
 
+    sheet["inn_rest_pending"] = True
+
     await save(sheet)
     
     view = _make_status_view(ctx, msg, uid, uname, is_owner)
     await msg.channel.send(embed=discord.Embed(
-        description=f"🛏️ **{sheet['character_name']}** rests at the Stone Hearth. (-{cost} gil)\nHP restored: **+{healed}** (Full)\nRemaining gil: {sheet['gil']}g",
+        description=f"🛏️ **{sheet['character_name']}** rests at the Stone Hearth. (-{cost} gil)\nHP restored: **+{healed}** (Full)\nRemaining gil: {sheet['gil']}g\n\n*You feel invigorated. (+1 Hunt tomorrow)*",
         color=0x44aa44
     ), view=view)
 
@@ -1540,21 +2015,47 @@ async def _handle_talk(ctx, msg, send, rest, uid, uname, is_owner):
                     prog = sheet.setdefault("quest_progress", {}).setdefault(active_id, [])
                     if task_id not in prog:
                         prog.append(task_id)
-                        # Check completion
                         if all(t in prog for t in q["tasks"]):
-                            # Complete!
-                            sheet["xp"] += q["rewards"].get("xp", 0)
-                            sheet["gil"] += q["rewards"].get("gil", 0)
+                            # Complete — apply rewards
+                            xp_reward  = q["rewards"].get("xp", 0)
+                            gil_reward = q["rewards"].get("gil", 0)
+                            sheet["xp"]  = sheet.get("xp",  0) + xp_reward
+                            sheet["gil"] = sheet.get("gil", 0) + gil_reward
+
                             if "item" in q["rewards"]:
                                 sheet.setdefault("inventory", []).append(q["rewards"]["item"])
                             if "recipe" in q["rewards"]:
-                                r_key = q["rewards"]["recipe"]
-                                if r_key not in sheet.setdefault("recipes", []):
-                                    sheet.setdefault("recipes", []).append(r_key)
-                                    quest_progress_msg += f" (Learned Recipe: {r_key})"
+                                rk = q["rewards"]["recipe"]
+                                if rk not in sheet.setdefault("recipes", []):
+                                    sheet.setdefault("recipes", []).append(rk)
+
                             sheet["active_quest"] = None
                             sheet.setdefault("completed_quests", []).append(active_id)
-                            await _log_world_event(f"**{sheet['character_name']}** completed '**{q['name']}**'.")
+                            await save(sheet)
+
+                            leveled, new_level = check_level_up(sheet)
+                            if leveled:
+                                await save(sheet)
+
+                            from utils.ttrpg.progression import xp_to_next_level
+                            xp_next = xp_to_next_level(sheet["level"])
+                            completion_lines = [
+                                f"**{q['name']}** — complete.",
+                                f"+{xp_reward} XP ({sheet['xp']}/{xp_next})  ·  +{gil_reward} Gil",
+                            ]
+                            if "item" in q["rewards"]:
+                                completion_lines.append(f"🎁 Received: **{q['rewards']['item'].replace('_',' ').title()}**")
+                            if leveled:
+                                completion_lines.append(f"🎉 **Level Up! Now Lv.{new_level}!**")
+
+                            await msg.channel.send(embed=discord.Embed(
+                                title="✅ Quest Complete",
+                                description="\n".join(completion_lines),
+                                color=0x2ecc71
+                            ))
+                            await _log_world_event(
+                                f"✅ **{sheet['character_name']}** completed '**{q['name']}**'."
+                            )
                             quest_progress_msg = "COMPLETED"
                         else:
                             await save(sheet)
@@ -1607,7 +2108,47 @@ async def _handle_talk(ctx, msg, send, rest, uid, uname, is_owner):
                     description=f"*{dialogue}*",
                     color=0x4488cc
                 )
-                await msg.channel.send(embed=embed)
+                view = discord.ui.View(timeout=180)
+
+                # Quest accept buttons
+                if available_quests:
+                    for i, q in enumerate(available_quests[:2]):
+                        btn = discord.ui.Button(
+                            label=f"✅ Accept: {q['name'][:28]}",
+                            style=discord.ButtonStyle.primary,
+                            row=0
+                        )
+                        async def _accept(interaction: discord.Interaction, quest=q):
+                            if str(interaction.user.id) != uid:
+                                await interaction.response.send_message("not yours.", ephemeral=True)
+                                return
+                            await interaction.response.defer()
+                            s = await load(uid)
+                            if s.get("active_quest"):
+                                await interaction.followup.send(embed=discord.Embed(
+                                    description=f"Already on quest: **{s['active_quest']}**.",
+                                    color=0xcc4444), ephemeral=True)
+                                return
+                            s["active_quest"] = quest["id"]
+                            await save(s)
+                            await interaction.followup.send(embed=discord.Embed(
+                                title="📜 Quest Accepted",
+                                description=f"**{quest['name']}**\n\n*{quest['description']}*\n\n"
+                                            f"**Reward:** {quest['rewards'].get('xp',0)} XP · "
+                                            f"{quest['rewards'].get('gil',0)} Gil",
+                                color=0x2ecc71))
+                        btn.callback = _accept
+                        view.add_item(btn)
+
+                # Active quest turn-in hint
+                if active_quest_info and quest_progress_msg == "COMPLETED":
+                    view.add_item(discord.ui.Button(
+                        label="Quest Complete ✓", style=discord.ButtonStyle.success,
+                        row=0, disabled=True))
+
+                view.add_item(_make_status_btn(ctx, uid, uname, is_owner))
+
+                await msg.channel.send(embed=embed, view=view)
         except Exception as e:
             log_error(f"[rpg talk] {e}")
 
@@ -1995,7 +2536,7 @@ async def _handle_hunt(ctx, msg, send, rest, uid, uname, is_owner):
     sheet = check_and_reset_hunts(sheet)
     if hunts_remaining(sheet) <= 0:
         view = _make_status_view(ctx, msg, uid, uname, is_owner)
-        return await msg.channel.send(embed=discord.Embed(description=f"You have exhausted your stamina for the day. (0/{MAX_HUNTS_PER_DAY} hunts remaining)", color=0xcc4444), view=view)
+        return await msg.channel.send(embed=discord.Embed(description=f"You have exhausted your stamina for the day. (0/{get_max_hunts(sheet)} hunts remaining)", color=0xcc4444), view=view)
         
     if sheet["hp"]["current"] <= 0:
         view = _make_status_view(ctx, msg, uid, uname, is_owner)
@@ -2217,6 +2758,10 @@ async def _handle_attack(ctx, msg, send, rest, uid, uname, is_owner):
         sheet["xp"] += xp_gain
         sheet["gil"] += gil_gain
         
+    # Emit Math block
+    m_block = "\n".join(res["exchanges"])
+
+    if res["monster_defeated"]:
         # Quest Task Tracking: Kill
         active_id = sheet.get("active_quest")
         if active_id:
@@ -2229,21 +2774,24 @@ async def _handle_attack(ctx, msg, send, rest, uid, uname, is_owner):
                     prog = sheet.setdefault("quest_progress", {}).setdefault(active_id, [])
                     if task_id not in prog:
                         prog.append(task_id)
-                        # Check Completion
                         if all(t in prog for t in q["tasks"]):
-                            # Complete!
-                            sheet["xp"] += q["rewards"].get("xp", 0)
-                            sheet["gil"] += q["rewards"].get("gil", 0)
+                            xp_reward  = q["rewards"].get("xp", 0)
+                            gil_reward = q["rewards"].get("gil", 0)
+                            sheet["xp"]  = sheet.get("xp",  0) + xp_reward
+                            sheet["gil"] = sheet.get("gil", 0) + gil_reward
                             if "item" in q["rewards"]:
                                 sheet.setdefault("inventory", []).append(q["rewards"]["item"])
                             if "recipe" in q["rewards"]:
-                                r_key = q["rewards"]["recipe"]
-                                if r_key not in sheet.setdefault("recipes", []):
-                                    sheet.setdefault("recipes", []).append(r_key)
+                                rk = q["rewards"]["recipe"]
+                                if rk not in sheet.setdefault("recipes", []):
+                                    sheet.setdefault("recipes", []).append(rk)
                             sheet["active_quest"] = None
                             sheet.setdefault("completed_quests", []).append(active_id)
-                            await _log_world_event(f"**{sheet['character_name']}** completed '**{q['name']}**'.")
-                            # Quest completion message will be added to m_block below
+                            m_block += (
+                                f"\n\n✅ **Quest Complete: {q['name']}**"
+                                f"\n+{xp_reward} XP · +{gil_reward} Gil"
+                            )
+                            await _log_world_event(f"✅ **{sheet['character_name']}** completed '**{q['name']}**'.")
                         else:
                             await save(sheet)
         leveled, n_lvl = check_level_up(sheet)
@@ -2251,18 +2799,16 @@ async def _handle_attack(ctx, msg, send, rest, uid, uname, is_owner):
             level_up_msg = f"\n🎉 **LEVEL UP! {sheet['character_name']} grew to level {n_lvl}!**"
             await _log_world_event(f"**{sheet['character_name']}** reached Level {n_lvl}. Oakhaven noted it cautiously.")
         
+        # Wisp-specific drop: lightstone
+        WISP_KEYS = {"wisp", "ice_wisp", "moldwynd", "crew_dust"}
+        if monster.get("key") in WISP_KEYS and "lightstone" not in sheet.get("inventory", []):
+            if secrets.randbelow(3) == 0:  # 33%
+                sheet.setdefault("inventory", []).append("lightstone")
+                m_block += "\n💡 **Lightstone** — the wisp's core falls. Still glowing."
+
     await save(sheet)
     
-    # Emit Math block
-    m_block = "\n".join(res["exchanges"])
-    
-    # Add Quest completion message if it was finished in this attack
-    if res["monster_defeated"] and active_id:
-        from utils.ttrpg.quest_registry import get_quest
-        q = get_quest(active_id)
-        if q and q["id"] not in sheet.get("active_quest", ""): # active_quest is None if complete
-             if active_id in sheet.get("completed_quests", []):
-                 m_block += f"\n🏆 **Quest Complete: {q['name']}!**"
+
 
     if res["monster_defeated"]:
         nx = xp_to_next_level(sheet["level"])
@@ -2431,7 +2977,7 @@ async def _apply_and_narrate_event(ctx, msg, send, sheet, result, uname):
     if result["hp_change"] < 0:
         body_lines.append(f"{result['hp_change']} HP  ({sheet['hp']['current']}/{sheet['hp']['max']})")
     if result["extra_hunt"]:
-        body_lines.append(f"🎯 Hunts remaining: {hunts_remaining(sheet)}/{MAX_HUNTS_PER_DAY}")
+        body_lines.append(f"🎯 Hunts remaining: {hunts_remaining(sheet)}/{get_max_hunts(sheet)}")
     if result["item_add"]:
         body_lines.append(f"📦 Added to inventory: `{result['item_add']}`")
 
@@ -2530,14 +3076,17 @@ async def _handle_drink(ctx, msg, send, rest, uid, uname, is_owner):
     sheet["gil"] -= DRINK_COST
     sheet["hp"]["max"] += TEMP_HP
     sheet["hp"]["current"] = min(sheet["hp"]["current"] + TEMP_HP, sheet["hp"]["max"])
-    sheet.setdefault("conditions", []).append("ale_warmth")  # removed on next rest
+    sheet.setdefault("conditions", []).append("ale_warmth")
     await save(sheet)
 
     view = _make_status_view(ctx, msg, uid, uname, is_owner)
     await msg.channel.send(embed=discord.Embed(
-        description=f"🍺 Mira slides a tankard across the bar. (-{DRINK_COST} gil)\n*Temporary HP: +{TEMP_HP}* (HP: {sheet['hp']['current']}/{sheet['hp']['max']})\n*Clears when you next rest.*",
-        color=0x44aa44
-    ), view=view)
+        description=(
+            f"🍺 Mira slides a tankard across. (-{DRINK_COST} gil)\n"
+            f"Temp HP: +{TEMP_HP} ({sheet['hp']['current']}/{sheet['hp']['max']})\n"
+            f"*+1 hunt cap until next rest.* ({hunts_remaining(sheet)}/{MAX_HUNTS_PER_DAY + 1} available)\n"
+            f"*Clears on rest.*"
+        ), color=0x44aa44), view=view)
 
 
 async def _handle_fountain(ctx, msg, send, rest, uid, uname, is_owner):
@@ -3094,16 +3643,52 @@ async def _handle_leaderboard(ctx, msg, send, rest, uid, uname, is_owner):
 
 async def _handle_event(ctx, msg, send, rest, uid, uname, is_owner):
     if not is_owner: return
-    if not rest.strip(): return
+
+    from utils.core.background_tasks import (
+        run_village_raid, run_oracle_speaks, run_moogle_festival,
+        run_aeridorian_tremor, run_tonberry_procession, run_spine_storm
+    )
+
+    EVENTS = {
+        "raid":       run_village_raid,
+        "invasion":   run_village_raid,
+        "oracle":     run_oracle_speaks,
+        "moogle":     run_moogle_festival,
+        "mail":       run_moogle_festival,
+        "tremor":     run_aeridorian_tremor,
+        "aeridor":    run_aeridorian_tremor,
+        "tonberry":   run_tonberry_procession,
+        "procession": run_tonberry_procession,
+        "storm":      run_spine_storm,
+        "random":     None,
+    }
+
+    key = rest.strip().lower()
+
+    if key in EVENTS:
+        import secrets as _sec
+        fn = EVENTS[key]
+        if fn is None:  # random
+            fn = _sec.choice([f for k, f in EVENTS.items() if f is not None])
+        await send(msg.channel, f"triggering: **{key}**...")
+        await fn(ctx, msg.channel)
+        return
+
+    if not key:
+        # Show available events
+        available = ", ".join(f"`{k}`" for k in EVENTS)
+        await msg.channel.send(embed=discord.Embed(
+            description=f"**Available events:**\n{available}\n\nUsage: `!rpg event raid`",
+            color=0x888888
+        ))
+        return
+
+    # Legacy: free-form narrative event
     description = rest.strip()
-    
-    # Log to Notice Board
-    await _log_world_event(f"📣 **WORLD EVENT:** {description}")
-    
     from utils.ttrpg.rpg_prompt_builder import build_event_prompt
     from utils.infrastructure.gpu.gpu_manager import OllamaGPUManager, gpu_memory_manager, GPUTaskPriority
-    
-    prompt = build_event_prompt(rest.strip())
+    await _log_world_event(f"📣 **WORLD EVENT:** {description}")
+    prompt = build_event_prompt(description)
     persona = await load_persona_async()
     messages = [
         {"role": "system", "content": f"{persona}\n\n{prompt}"},
@@ -3113,7 +3698,6 @@ async def _handle_event(ctx, msg, send, rest, uid, uname, is_owner):
     opts = gpu_manager.get_gpu_options(for_chat=True)
     opts["num_predict"] = 250
     opts["temperature"] = 0.85
-    
     async with msg.channel.typing():
         try:
             resp = await gpu_memory_manager.run_with_gpu_guard(

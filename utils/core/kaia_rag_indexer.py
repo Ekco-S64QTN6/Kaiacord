@@ -356,7 +356,7 @@ class RAGIndexerMixin:
     def _initialize_indices(self):
         """Initialize hierarchical indices from storage or create new ones."""
         with self._data_lock:
-            index_types = ['persona', 'user_profiles', 'conversations', 'knowledge', 'logs', 'dreams']
+            index_types = ['persona', 'user_profiles', 'knowledge', 'logs', 'dreams']
             for itype in index_types:
                 itype_dir = os.path.join(self.persist_dir, itype)
                 try:
@@ -424,30 +424,7 @@ class RAGIndexerMixin:
             chunks.append(new_doc)
         return chunks
 
-    def is_garbage_text(self, text: str) -> bool:
-        """Detect garbage text from bad PDF extractions"""
-        garbage_patterns = [
-            r"Page \d+ of \d+",
-            r"© \d+",
-            r"All rights reserved",
-            r"Confidential",
-            r"Proprietary",
-            r"(?:\[.*?\]\s*){5,}",  # Excessive consecutive brackets (5+) indicate garbled extraction
-            r"\x00",  # Null characters
-        ]
-        
-        text_lower = text.lower()
-        
-        # If it's very short and looks like metadata
-        if len(text.strip()) < 50 and ("page" in text_lower or "chapter" in text_lower):
-            return True
-        
-        # Check patterns
-        for pattern in garbage_patterns:
-            if re.search(pattern, text, re.IGNORECASE):
-                return True
-        
-        return False
+
 
     def _apply_priority_metadata(self, doc: Document, itype: str, file_path: str):
         """Apply neutral priority and source type metadata"""
@@ -496,12 +473,7 @@ class RAGIndexerMixin:
                     if name_match:
                         doc.metadata['user_name'] = name_match.group(1).replace("_", " ")
 
-        
-        # Add garbage detection metadata
-        if self.is_garbage_text(doc.text):
-            doc.metadata["priority"] = 0.0
-            doc.metadata["source_type"] = "garbage"
-            doc.metadata["garbage"] = True
+
 
     def _populate_indexed_files(self):
         """Populate the set of indexed files from all hierarchical indices without overwriting loaded state."""
@@ -651,8 +623,6 @@ class RAGIndexerMixin:
         for root, _, files in os.walk(self.knowledge_base_dir):
             if "corrupt_files" in root: continue
             for file in files:
-                if file == "kaia_persona.md":
-                    continue  # EXCLUDED per Bug 1
                 ext = os.path.splitext(file)[1].lower()
                 if ext in supported_exts:
                     full_path = os.path.join(root, file)
@@ -660,7 +630,9 @@ class RAGIndexerMixin:
                     mtime = os.path.getmtime(norm_path)
                     
                     itype = 'knowledge'
-                    if "user_logs" in full_path:
+                    if file == "kaia_persona.md":
+                        itype = 'persona'
+                    elif "user_logs" in full_path:
                         itype = 'user_profiles' if "user_profile.md" in file else 'logs'
                     elif "kaia_dreams" in full_path:
                         itype = 'dreams'
