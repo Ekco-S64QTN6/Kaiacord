@@ -72,16 +72,23 @@ def check_and_reset_hunts(sheet: dict) -> dict:
             sheet["inn_rest_pending"] = False
         else:
             sheet["inn_rest_active_today"] = False
+
+        # Clear ale temp HP condition on day reset
+        if "ale_warmth" in sheet.get("conditions", []):
+            sheet["conditions"].remove("ale_warmth")
+            sheet["hp"]["max"] = max(1, sheet["hp"]["max"] - 3)
+            sheet["hp"]["current"] = min(sheet["hp"]["current"], sheet["hp"]["max"])
             
     return sheet
 
 def get_max_hunts(sheet: dict) -> int:
     """Returns the maximum hunts available today, accounting for buffs."""
     sheet = check_and_reset_hunts(sheet)
-    return MAX_HUNTS_PER_DAY + (1 if sheet.get("inn_rest_active_today") else 0)
+    ale_bonus = 1 if "ale_warmth" in sheet.get("conditions", []) else 0
+    rest_bonus = 1 if sheet.get("inn_rest_active_today") else 0
+    return MAX_HUNTS_PER_DAY + ale_bonus + rest_bonus
 
 def hunts_remaining(sheet: dict) -> int:
     """Returns how many hunts the player has left today."""
     sheet = check_and_reset_hunts(sheet)
-    cap = MAX_HUNTS_PER_DAY + (1 if "ale_warmth" in sheet.get("conditions", []) else 0)
-    return max(0, cap - sheet.get("hunts_today", 0))
+    return max(0, get_max_hunts(sheet) - sheet.get("hunts_today", 0))

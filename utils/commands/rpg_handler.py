@@ -128,6 +128,7 @@ _LOCATION_BUTTONS: dict[str, list] = {
         ("Talk Elara", "🧙", "talk", "elara", discord.ButtonStyle.secondary, 1),
         ("Calendar", "📅", "calendar", "", discord.ButtonStyle.secondary, 1),
         ("Deliver", "📬", "deliver", "", discord.ButtonStyle.secondary, 1),
+        ("Abandon", "🗑️", "abandon", "", discord.ButtonStyle.danger, 1),
     ],
     "stone_hearth": [
         ("Rest", "🛏️", "rest", "", discord.ButtonStyle.green, 0),
@@ -235,6 +236,7 @@ class RPGFullLocationView(discord.ui.View):
             "hunts": _handle_hunts,
             "leaderboard": _handle_leaderboard,
             "dungeon": _handle_dungeon,
+            "abandon": _handle_abandon,
         }
 
         # ── Location action buttons ───────────────────────────────────
@@ -645,6 +647,16 @@ def _make_status_view(ctx, msg, uid, uname, is_owner):
     view.add_item(_make_status_btn(ctx, uid, uname, is_owner))
     return view
 
+async def _get_combat_view_if_active(ctx, msg, uid, uname, is_owner):
+    """Returns a RPGCombatView if the player is in active combat, else None."""
+    s = await load_session(str(msg.channel.id))
+    if not s or not s.get("combat_active"):
+        return None
+    for m in s.get("monsters", []):
+        if m.get("aggro_uid") == uid:
+            return RPGCombatView(ctx, msg, uid, uname, is_owner, m.get("key", "monster"))
+    return None
+
 
 def _make_map_view(ctx, msg, uid, uname, is_owner, loc):
     """Return a full location view — used after blizzard/no-hunt redirects."""
@@ -658,6 +670,7 @@ LOCATION_ACTIONS = {
         "`!rpg deliver` — turn in a mognet letter",
         "`!rpg talk elara` — speak with Elder Elara",
         "`!rpg quests` — view available quests",
+        "`!rpg abandon` — drop your current quest",
         "`!rpg map` — view the world map",
         "`!rpg calendar` — current season & events",
         "`!rpg weather` — today's conditions",
@@ -1262,6 +1275,7 @@ async def handle_rpg_command(ctx, msg, send_kaia_response):
         "quests":    _handle_quests,
         "quest":     _handle_quest_detail,
         "accept":    _handle_accept,
+        "abandon":   _handle_abandon,
         "brew":      _handle_brew,
         "bank_deposit": _handle_bank_deposit,
         "bank_withdraw": _handle_bank_withdraw,
@@ -1451,6 +1465,13 @@ async def _handle_new(ctx, msg, send, rest, uid, uname, is_owner):
     char_name = args[0]
     race = args[1].title()
     class_name = args[2].title()
+    
+    VALID_RACES = {"Human", "Elf", "Silvani", "Dwarf", "Glimmerkin", "Veiled"}
+    if race not in VALID_RACES:
+        return await msg.channel.send(embed=discord.Embed(
+            description=f"Unknown race: **{race}**\nValid races: {', '.join(sorted(VALID_RACES))}",
+            color=0xcc4444
+        ))
     
     if class_name not in CLASSES:
         class_list = ", ".join(CLASSES.keys())
@@ -2363,7 +2384,11 @@ async def _handle_quests(ctx, msg, send, rest, uid, uname, is_owner):
         from utils.ttrpg.quest_registry import get_quest
         q = get_quest(active)
         if q:
-            desc += f"📜 **Active Quest:** {q['name']}\n> {q['description']}\n\n"
+            prog = sheet.get("quest_progress", {}).get(active, [])
+            done = len(prog)
+            total = len(q["tasks"])
+            bar = "█" * done + "░" * (total - done)
+            desc += f"📜 **Active Quest:** {q['name']}\n> {q['description']}\n> Progress: `{bar}` {done}/{total} tasks\n\n"
         else:
             desc += f"📜 **Active Quest:** {active} (invalid ID)\n\n"
             
@@ -2380,6 +2405,19 @@ async def _handle_quests(ctx, msg, send, rest, uid, uname, is_owner):
     )
     view = _make_status_view(ctx, msg, uid, uname, is_owner)
     await msg.channel.send(embed=embed, view=view)
+
+async def _handle_abandon(ctx, msg, send, rest, uid, uname, is_owner):
+    sheet = await load(uid)
+    if not sheet or not sheet.get("active_quest"):
+        return await msg.channel.send(embed=discord.Embed(description="No active quest to abandon.", color=0x888888))
+    quest_id = sheet["active_quest"]
+    sheet["active_quest"] = None
+    sheet["quest_progress"] = {k: v for k, v in sheet.get("quest_progress", {}).items() if k != quest_id}
+    await save(sheet)
+    await msg.channel.send(embed=discord.Embed(
+        description=f"Quest **{quest_id.replace('_', ' ').title()}** abandoned. No rewards. The notice board doesn't care.",
+        color=0x888888
+    ))
 
 async def _handle_quest_detail(ctx, msg, send, rest, uid, uname, is_owner):
     # !rpg quest <quest_id> or just !rpg quest for current
@@ -2552,7 +2590,9 @@ async def _handle_use(ctx, msg, send, rest, uid, uname, is_owner):
         healed = sheet["hp"]["current"] - before
         sheet["inventory"].remove(item_key)
         await save(sheet)
-        await msg.channel.send(embed=discord.Embed(description=f"Used **{item['name']}**. Restored {healed} HP ({before} → {sheet['hp']['current']})", color=0x44aa44))
+        combat_view = await _get_combat_view_if_active(ctx, msg, uid, uname, is_owner)
+        view = combat_view if combat_view else _make_status_view(ctx, msg, uid, uname, is_owner)
+        await msg.channel.send(embed=discord.Embed(description=f"Used **{item['name']}**. Restored {healed} HP ({before} → {sheet['hp']['current']})", color=0x44aa44), view=view)
     elif item.get("on_use") == "starter_kit":
         sheet["inventory"].remove(item_key)
         sheet["inventory"].extend(["bandage", "healing_herb", "torch"])
@@ -2563,7 +2603,9 @@ async def _handle_use(ctx, msg, send, rest, uid, uname, is_owner):
             sheet["conditions"].remove("poisoned")
             sheet["inventory"].remove(item_key)
             await save(sheet)
-            await msg.channel.send(embed=discord.Embed(description=f"Used **{item['name']}**. The venom fades from your veins.", color=0x44aa44))
+            combat_view = await _get_combat_view_if_active(ctx, msg, uid, uname, is_owner)
+            view = combat_view if combat_view else _make_status_view(ctx, msg, uid, uname, is_owner)
+            await msg.channel.send(embed=discord.Embed(description=f"Used **{item['name']}**. The venom fades from your veins.", color=0x44aa44), view=view)
         else:
             await msg.channel.send(embed=discord.Embed(description=f"You aren't poisoned.", color=0xcc4444))
     elif item.get("on_use") == "luck_roll_bonus":
@@ -2572,7 +2614,9 @@ async def _handle_use(ctx, msg, send, rest, uid, uname, is_owner):
             sheet["conditions"].append("lucky")
             sheet["inventory"].remove(item_key)
             await save(sheet)
-            await msg.channel.send(embed=discord.Embed(description=f"Used **{item['name']}**. You feel a sudden surge of confidence. (+1 to next hit roll)", color=0x44aa44))
+            combat_view = await _get_combat_view_if_active(ctx, msg, uid, uname, is_owner)
+            view = combat_view if combat_view else _make_status_view(ctx, msg, uid, uname, is_owner)
+            await msg.channel.send(embed=discord.Embed(description=f"Used **{item['name']}**. You feel a sudden surge of confidence. (+1 to next hit roll)", color=0x44aa44), view=view)
         else:
             await msg.channel.send(embed=discord.Embed(description=f"You are already feeling pretty lucky.", color=0xcc4444))
     else:
@@ -2603,17 +2647,14 @@ async def _handle_hunt(ctx, msg, send, rest, uid, uname, is_owner):
     effect = weather.get("effect")
     if effect and effect.get("type") == "level_gate":
         gate_val = effect["value"]
-        # Only gate the specific location mentioned in the effect desc if it's there, 
-        # or generally gate "harder" areas if specified. 
-        # For simplicity based on user prompt: "Whisperwood Deep requires level 6 today"
         loc = sheet.get("location", "oakhaven")
-        if "Whisperwood Deep" in effect["desc"] and loc == "whisperwood_deep":
-            if sheet.get("level", 1) < gate_val:
-                view = _make_map_view(ctx, msg, uid, uname, is_owner, loc)
-                return await msg.channel.send(embed=discord.Embed(
-                    description=f"🌨️ **Blizzard Warning:** {effect['desc']}\n*You are currently level {sheet.get('level', 1)} and cannot pass.*",
-                    color=0x8aaac8
-                ), view=view)
+        gate_locs = effect.get("locations", [loc])
+        if loc in gate_locs and sheet.get("level", 1) < gate_val:
+            view = _make_map_view(ctx, msg, uid, uname, is_owner, loc)
+            return await msg.channel.send(embed=discord.Embed(
+                description=f"🌨️ **Blizzard Warning:** {effect['desc']}\n*You are currently level {sheet.get('level', 1)} and cannot pass.*",
+                color=0x8aaac8
+            ), view=view)
     
     loc = sheet.get("location", "oakhaven")
     ld = LOCATION_DATA.get(loc, {})
@@ -2756,6 +2797,7 @@ async def _handle_attack(ctx, msg, send, rest, uid, uname, is_owner):
     from utils.ttrpg.rpg_prompt_builder import build_combat_prompt
     from utils.infrastructure.gpu.gpu_manager import OllamaGPUManager, gpu_memory_manager, GPUTaskPriority
     from utils.ttrpg.loot_tables import get_loot
+    from utils.ttrpg.calendar import get_weather
     
     sheet = await load(uid)
     if not sheet: return
@@ -2810,8 +2852,14 @@ async def _handle_attack(ctx, msg, send, rest, uid, uname, is_owner):
     
     xp_gain, gil_gain, level_up_msg, loot_msg, streak_msg = 0, 0, "", "", ""
     if res["monster_defeated"]:
-        xp_gain = monster.get("xp", 10)
-        gil_gain = monster.get("gil", 5)
+        xp_gain = int(monster.get("xp", 10) * state.get("xp_mult", 1.0))
+        gil_gain = int(monster.get("gil", 5) * state.get("gil_mult", 1.0))
+        # Weather bonus effects (e.g. clear autumn +5 XP, winter frost +3 Gil)
+        weather_effect = get_weather().get("effect") or {}
+        if weather_effect.get("type") == "xp_bonus":
+            xp_gain += weather_effect.get("value", 0)
+        if weather_effect.get("type") == "gil_bonus":
+            gil_gain += weather_effect.get("value", 0)
         
         # Streak mechanics
         streak = sheet.get("hunt_streak", 0) + 1
@@ -3909,6 +3957,12 @@ PENDING_DUELS = {} # (challenger_id, target_id) -> timestamp
 
 async def _handle_duel(ctx, msg, send, rest, uid, uname, is_owner):
     """!rpg duel <@user> — challenge another player to a non-lethal duel."""
+    # Clean expired challenges (60s timeout)
+    now = time.time()
+    expired = [k for k, ts in PENDING_DUELS.items() if now - ts >= 60]
+    for k in expired:
+        del PENDING_DUELS[k]
+        
     if not msg.mentions:
         return await send(msg.channel, "You must mention someone to duel. `!rpg duel @user`")
     

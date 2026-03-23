@@ -430,7 +430,7 @@ WEATHER_TABLES = {
     ],
     "winter": [
         (30, "snow",         "Snowing",        "Fresh snow on Oakhaven. The Trade Road is passable but slow.",         "❄️",  {"type": "encounter_mod", "desc": "+15% chance of winter seasonal creatures", "value": 15}),
-        (25, "blizzard",     "Blizzard",       "White-out conditions. The Whisperwood is impassable above level 4.",   "🌨️",  {"type": "level_gate", "desc": "Whisperwood Deep requires level 6 today — the storm turns back weaker hunters", "value": 6}),
+        (25, "blizzard",     "Blizzard",       "White-out conditions. The Whisperwood is impassable above level 4.",   "🌨️",  {"type": "level_gate", "desc": "Whisperwood Deep requires level 6 today — the storm turns back weaker hunters", "value": 6, "locations": ["whisperwood_deep"]}),
         (20, "clear",        "Clear",          "Cold and bright. The snow reflects everything. Quiet.",                "🌨️✨", None),
         (15, "overcast",     "Overcast",       "Flat winter light. Grey sky, grey town. Hemlock's fire is welcome.",   "☁️",  None),
         (10, "frost",        "Hard Frost",     "Everything is ice. The Tricklebrook is frozen solid.",                 "🧊",  {"type": "gil_bonus", "desc": "+3 Gil per monster kill — pelts are worth more in hard frost", "value": 3}),
