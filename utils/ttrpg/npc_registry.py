@@ -11,7 +11,10 @@ NPCS = {
             "The Whisperwood boundary moved twelve feet last night. I measured.",
             "Something came back from the ruins that shouldn't have. I'm handling it.",
             "There's a reason nobody builds east of the Tricklebrook.",
-            "Your kind showing up here isn't an accident. I'm still deciding if that's good."
+            "Your kind showing up here isn't an accident. I'm still deciding if that's good.",
+            "The flame at the Shrine has been burning blue for three nights. It's done that twice before. Neither time was pleasant.",
+            "The Aeridor constructs are becoming more active. They weren't dormant — they were waiting.",
+            "Whatever your advanced class becomes, use it carefully. Power without restraint is how we got the ruins in the first place.",
         ],
     },
     "hemlock": {
@@ -25,7 +28,11 @@ NPCS = {
             "Back in Aeridor's time this whole store would've been a resonance depot. Not that anyone knows what that means anymore.",
             "I've raised the price on elixirs. Supply chain. Don't ask.",
             "A Silvani came through last week and bought every antidote I had. Left without saying why.",
-            "The watchtower guards ordered extra rope. Won't say what for."
+            "The watchtower guards ordered extra rope. Won't say what for.",
+            "Aeridor shards? Yes I'll buy them. No I won't tell you why. That's the deal.",
+            "I've been selling to adventurers for forty years. The ones who ask about the deep ruins never come back the same.",
+            "You want good armor? Really good armor? Check the dungeon. What Hemlock stocks is comfortable. What the ruins hold is built to survive.",
+            "The bard's been filling people's heads with songs again. Lovely voice. Wrong about half the details.",
         ],
     },
     "barkeep": {
@@ -39,7 +46,11 @@ NPCS = {
             "The Ironclad Guild men have been in three nights running. Something about the Trade Road.",
             "A traveler from Riverbend said the Silverstream is running black.",
             "Someone left flowers at Elara's door. Nobody's admitting to it.",
-            "The hooded figure paid in coins nobody's seen before."
+            "The hooded figure paid in coins nobody's seen before.",
+            "Caelindra's songs are getting darker. She says she's just reflecting the times. I say she knows something.",
+            "Three adventurers went into the ruins last week. Two came back. The one who didn't was the strongest of them.",
+            "There are stories about what the Shrine flame means when it changes color. I don't repeat them. Bad for business.",
+            "You look like you've been through something. Sit. First one's on me.",
         ],
     },
     "hooded_figure": {
@@ -53,7 +64,10 @@ NPCS = {
             "The ruins are not ruins.",
             "Aeridor didn't fall. It was absorbed.",
             "Ask Elara what she found at the Shrine before you arrived.",
-            "[says nothing. Doesn't look at you. Somehow you feel seen.]"
+            "[says nothing. Doesn't look at you. Somehow you feel seen.]",
+            "The three flames on the seal. Fire, stone, silence. You've seen it. Whether you know what it means is a different question.",
+            "The dungeon shrine rooms respond to those who've listened at the Oakhaven flame. Not everyone can hear it.",
+            "Your choice of path matters. The Aeridor records tracked class designations. Some of those records are still active.",
         ],
     },
     "guard": {
@@ -66,7 +80,10 @@ NPCS = {
             "The canopy's thicker this year. Can't see the smoke from Aeridor anymore.",
             "Saw a light in the deep woods last night. Moved too fast for a lantern.",
             "Hemlock keep asking about the road. Tell him it's as dangerous as ever.",
-            "Don't go east. Not today."
+            "Don't go east. Not today.",
+            "We've started double-watching at dawn. Something comes out of the ruins before sunrise. We don't talk about what it looks like.",
+            "The dungeon entrance opened up near the east wall three months ago. Before you ask: no, we haven't gone in. We're guards, not adventurers.",
+            "Lost two good scouts to the ruins this season. One of them had twenty years of experience. Didn't help.",
         ],
     },
     "maren": {
@@ -79,7 +96,30 @@ NPCS = {
             "The Silvermoss is blooming early this year. The soil must be changing.",
             "Hemlock keeps asking for more Antidote, but the ingredients are getting harder to find.",
             "Some plants only grow where the forest is thinnest. Others only where it's thickest.",
-            "There's a root that only grows in the ruins. I haven't seen it in years."
+            "There's a root that only grows in the ruins. I haven't seen it in years.",
+            "Blood thistle mixed with honey sap. Basic restorative. The Aeridorian archives called it a 'combat tincture.' Different name, same principle.",
+            "Healers and warriors aren't different callings. Both keep people alive. One just does it more directly.",
+            "If you're choosing a path forward — Paladin, Shaman, High Priest — come back and speak to me first. Some paths have aftereffects.",
+        ],
+    },
+
+    # ── NEW: Bard ──────────────────────────────────────────────────────────────
+    "bard": {
+        "name": "Caelindra",
+        "location": "stone_hearth",
+        "description": "A traveling bard with ink-stained fingers and eyes that miss nothing. "
+                       "Her lute is older than she is. Her songs are local gossip dressed in metaphor.",
+        "role": "bard",
+        "dialogue_hook": "She's mid-song when you approach. She doesn't stop, but she tracks you "
+                         "across the room with those careful eyes.",
+        "topics": [
+            "Everything that happens in Oakhaven ends up in a song eventually. Whether you want it to or not.",
+            "I travel the road between Grimstone and the coast. What I hear, I keep. What I witness, I sing.",
+            "The Hooded Figure never tips. But he always listens. That tells you something.",
+            "Adventurers make the best subjects. Short lives, dramatic arcs. No offense.",
+            "The ruins have a sound at midnight. Not loud. But it's there if you're quiet enough to hear it.",
+            "I've been collecting Aeridorian phrases for seven years. Half of them describe things that don't exist anymore. The other half... I'm not certain.",
+            "Ask me for a song. I'll make it about you. You might not like what I notice.",
         ],
     },
 }

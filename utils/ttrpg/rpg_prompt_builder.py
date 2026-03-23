@@ -177,6 +177,35 @@ def build_npc_prompt(sheet: dict, npc: dict, player_message: str, context: dict)
         quest_prompt += ", ".join([f"'{q['name']}' (ID: {q['id']})" for q in available_qs])
         quest_prompt += ". Hint at these tasks naturally (tell them to use `!rpg accept <id>`)."
     
+    if npc.get("role") == "bard" or "Caelindra" in npc.get("name", ""):
+        return f"""[AETHELGARD NPC: THE BARD]
+You are voicing {npc['name']} in Aethelgard.
+{npc['description']}
+Situation: {npc['dialogue_hook']}
+
+ENVIRONMENTAL CONTEXT:
+Season: {season}
+{special_day_context}
+Time of Day: {time_of_day}
+
+TOPIC TO SING ABOUT:
+{topic}
+
+PLAYER CONTEXT:
+Name: {char_name}
+Class: {char_class}
+Level: {char_level}
+{blackout_context}
+
+YOUR TASK: The player wants to hear you perform. Respond as {npc['name']}.
+Weave the TOPIC into a short, moody tavern song or poem (4-6 lines). 
+If specific names/events are in the topic, ensure they are mentioned in the lyrics.
+Respond in character. lowercase lyrics. specific. grounded.
+[END NPC CONTEXT]
+
+{char_name} approaches and says: "{player_message}"
+"""
+
     return f"""[AETHELGARD NPC]
 You are voicing {npc['name']} in Aethelgard.
 {npc['description']}

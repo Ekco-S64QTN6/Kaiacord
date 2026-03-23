@@ -5,48 +5,251 @@ Provides immersive flavor text when players inspect specific objects at location
 
 LOCATION_LOOK_TARGETS = {
     "shrine": {
-        "flame":          "🔥 **The Flame**\n\nYou hold your hand near it. It is warm — but only just. Not the heat of a torch. Something older.\nThe flame tilts toward you as you approach. Not away. Toward.\nYou pull back. The flame settles.",
-        "altar":          "⛩️ **The Altar**\n\nA single slab, perfectly level. Warmer than the air around it.\nWhen you press your palm flat against it, you feel something low. Like a note held too long to be music.",
-        "names":          "📜 **The Carved Names**\n\nThousands of them. Some have dates. Some only names. Short phrases — *Beloved. Unbroken. Remembered. Gone too soon.*\nYou stop at one name. You don't know it. But looking at it makes your chest feel strange.",
-        "carvings":       "📜 **The Carvings**\n\nEvery stone surface is covered. The oldest names are barely legible beneath newer ones.\nSomeone has been adding names recently. The chisel marks are fresh.",
-        "offering bowl":  "🫙 **The Offering Bowl**\n\nA shallow stone bowl, black with age. Old offerings sit in it — a bent copper coin, a tooth, dried flowers.\nThe flame burns from the center, untouched by any of it.\n*Something of value, placed here, tends to be acknowledged.*",
-        "bowl":           "🫙 **The Offering Bowl**\n\nA shallow stone bowl, black with age. Old offerings sit in it — a bent copper coin, a tooth, dried flowers.\nThe flame burns from the center, untouched by any of it.",
-        "stones":         "🪨 **The Standing Stones**\n\nFive stones, each twice your height. Every surface carved. Epitaphs.\n*Here the honored sleep. The fire watches. Do not wake them.*",
-        "stone":          "🪨 **The Standing Stones**\n\nFive stones, each twice your height. Every surface carved. Epitaphs.\n*Here the honored sleep. The fire watches. Do not wake them.*",
+        "flame": (
+            "🔥 **The Flame**\n\n"
+            "You hold your hand near it. It is warm — but only just. Not the heat of a torch. Something older.\n"
+            "The flame tilts toward you as you approach. Not away. Toward.\n\n"
+            "You study it longer than you meant to. There's a pattern in the way it moves — three interlocked spirals, "
+            "repeating, as if it's trying to show you something.\n\n"
+            "*The pattern is familiar in the way things are familiar before you understand why.*\n\n"
+            "🔍 **You've studied the Flame.** Something about the pattern stays with you. "
+            "*(Acquired: Flame-mark — you'll recognize the symbol if you see it again.)*"
+        ),
+        "altar": (
+            "⛩️ **The Altar**\n\n"
+            "A single slab, perfectly level. Warmer than the air around it.\n"
+            "When you press your palm flat against it, you feel something low. Like a note held too long to be music.\n\n"
+            "On the underside of the altar's edge, nearly invisible: carved text in Old Aeridorian.\n"
+            "You can't read it fully, but three words repeat in different forms:\n\n"
+            "> *flame — stone — silence*\n\n"
+            "The same three words appear in a ring around the base, each accompanied by a flame-spiral glyph.\n\n"
+            "🔍 **You've read the Altar inscription.** "
+            "*The three-flame seal appears elsewhere. You'd know it if you found it.*"
+        ),
+        "names": (
+            "📜 **The Carved Names**\n\n"
+            "Thousands of them. Some have dates. Some only names. Short phrases — *Beloved. Unbroken. Remembered. Gone too soon.*\n"
+            "You stop at one name. You don't know it. But looking at it makes your chest feel strange."
+        ),
+        "carvings": (
+            "📜 **The Carvings**\n\n"
+            "Every stone surface is covered. The oldest names are barely legible beneath newer ones.\n"
+            "Someone has been adding names recently. The chisel marks are fresh.\n\n"
+            "Near the base of the central pillar, half-hidden by the altar cloth: "
+            "a phrase in Old Aeridorian, untranslated, carved deeper than the rest.\n"
+            "Whatever it says, someone cared enough to make it permanent."
+        ),
+        "offering bowl": (
+            "🫙 **The Offering Bowl**\n\n"
+            "A shallow stone bowl, black with age. Old offerings sit in it — a bent copper coin, a tooth, dried flowers.\n"
+            "The flame burns from the center, untouched by any of it.\n"
+            "*Something of value, placed here, tends to be acknowledged.*"
+        ),
+        "bowl": (
+            "🫙 **The Offering Bowl**\n\n"
+            "A shallow stone bowl, black with age. Old offerings sit in it — a bent copper coin, a tooth, dried flowers.\n"
+            "The flame burns from the center, untouched by any of it."
+        ),
+        "stones": (
+            "🪨 **The Standing Stones**\n\n"
+            "Five stones, each twice your height. Every surface carved. Epitaphs.\n"
+            "*Here the honored sleep. The fire watches. Do not wake them.*"
+        ),
+        "stone": (
+            "🪨 **The Standing Stones**\n\n"
+            "Five stones, each twice your height. Every surface carved. Epitaphs.\n"
+            "*Here the honored sleep. The fire watches. Do not wake them.*"
+        ),
+        "seal": (
+            "🔶 **The Seal**\n\n"
+            "You weren't looking for it. But once you see it, you can't unsee it — "
+            "carved into the flagstone directly beneath the flame-bowl:\n"
+            "three interlocked spirals in a circle.\n\n"
+            "The same symbol. The same three-flame pattern.\n\n"
+            "You've seen this in the dungeon shrine rooms. You've seen it here.\n"
+            "They're connected.\n\n"
+            "*Elder Elara would know what this means. So would the Hooded Figure, probably.*"
+        ),
     },
     "stone_hearth": {
-        "fire":           "🔥 **The Hearth**\n\nThe fire has been going since before Mira worked here. She inherited it lit.\nA figure in the corner stares into it. Has been staring for an hour.",
-        "hearth":         "🔥 **The Hearth**\n\nThe fire has been going since before Mira worked here. She inherited it lit.\nA figure in the corner stares into it. Has been staring for an hour.",
-        "hooded_figure":  "👤 **The Hooded Figure**\n\nSits in the corner. Face never visible. Speaks rarely.\nHe doesn't look at you. But somehow you feel seen.",
-        "corner":         "👤 **The Corner**\n\nSomething cloaked sits very still in the far corner.\nYou're not sure how long it's been there.",
-        "notice":         "📋 **Posted Notices**\n\n• Caravan work, high road — ask Mira\n• Grimstone steel prices up — third month running\n• Someone's dog is missing. Brown. Answers to nothing.",
-        "bar":            "🍺 **The Bar**\n\nMira keeps it clean. The ale is cold. The stew is hot.\nThat's all she promises. It's enough.",
+        "fire": (
+            "🔥 **The Hearth**\n\n"
+            "The fire has been going since before Mira worked here. She inherited it lit.\n"
+            "A figure in the corner stares into it. Has been staring for an hour."
+        ),
+        "hearth": (
+            "🔥 **The Hearth**\n\n"
+            "The fire has been going since before Mira worked here. She inherited it lit.\n"
+            "A figure in the corner stares into it. Has been staring for an hour."
+        ),
+        "hooded_figure": (
+            "👤 **The Hooded Figure**\n\n"
+            "Sits in the corner. Face never visible. Speaks rarely.\n"
+            "He doesn't look at you. But somehow you feel seen."
+        ),
+        "corner": (
+            "👤 **The Corner**\n\n"
+            "Something cloaked sits very still in the far corner.\n"
+            "You're not sure how long it's been there."
+        ),
+        "notice": (
+            "📋 **Posted Notices**\n\n"
+            "• Caravan work, high road — ask Mira\n"
+            "• Grimstone steel prices up — third month running\n"
+            "• Someone's dog is missing. Brown. Answers to nothing."
+        ),
+        "bar": (
+            "🍺 **The Bar**\n\n"
+            "Mira keeps it clean. The ale is cold. The stew is hot.\n"
+            "That's all she promises. It's enough."
+        ),
+        "bard": (
+            "🎵 **Caelindra**\n\n"
+            "She's in the far corner with a lute and a mostly-full tankard. "
+            "Watching the room with the professional calm of someone who has been paid to watch rooms.\n\n"
+            "She's been playing the same melody for the last twenty minutes. "
+            "Nobody's asked her to stop. Nobody's asked her to continue.\n"
+            "She seems content with that arrangement.\n\n"
+            "*`!rpg talk bard` to hear what she's working on.*"
+        ),
+        "lute": (
+            "🎵 **The Lute**\n\n"
+            "Old. The varnish is worn through in the spots where her hand holds the neck. "
+            "The tuning pegs are different woods — replacements over years.\n\n"
+            "The sound it makes is out of proportion to how tired it looks."
+        ),
     },
     "hemlocks_store": {
-        "shelves":        "🏺 **The Shelves**\n\nCluttered by a logic only Hemlock understands. Dried herbs, iron rivets, three kinds of rope.\nSomething sealed in wax on the top shelf. You can't identify it. He won't say.",
-        "back room":      "🚪 **The Back Room**\n\nThe door is closed. Something moves behind it.\nHemlock doesn't acknowledge that you looked.",
-        "clock":          "🕰️ **The Clock**\n\nA gear-driven clock on the far wall. Keeps perfect time.\nYou don't know where he got it. You don't know how he winds it.",
+        "shelves": (
+            "🏺 **The Shelves**\n\n"
+            "Cluttered by a logic only Hemlock understands. Dried herbs, iron rivets, three kinds of rope.\n"
+            "Something sealed in wax on the top shelf. You can't identify it. He won't say."
+        ),
+        "back room": (
+            "🚪 **The Back Room**\n\n"
+            "The door is closed. Something moves behind it.\n"
+            "Hemlock doesn't acknowledge that you looked."
+        ),
+        "clock": (
+            "🕰️ **The Clock**\n\n"
+            "A gear-driven clock on the far wall. Keeps perfect time.\n"
+            "You don't know where he got it. You don't know how he winds it."
+        ),
+        "shelf": (
+            "🔒 **The Sealed Container**\n\n"
+            "Wax-sealed. Heavy. Labeled in a script you don't recognize.\n"
+            "Hemlock clears his throat without looking up from the counter. "
+            "You stop looking at it."
+        ),
     },
     "aeridor_ruins": {
-        "crystals":       "💎 **The Crystals**\n\nCrystalline formations that don't catch light — they absorb it.\nThe ground hums faintly if you stand still. You're not sure it's the ground.",
-        "carvings":       "📜 **Aeridorian Carvings**\n\nNot decorative. Instructional. Warnings, you think.\nYou can't read Aeridorian. But something about the shapes makes you step back.",
-        "ruins":          "🏚️ **The Ruins**\n\nStone older than memory. Architecture that doesn't follow logic you know.\nWalls at angles that shouldn't hold. They've been holding for a thousand years.",
+        "crystals": (
+            "💎 **The Crystals**\n\n"
+            "Crystalline formations that don't catch light — they absorb it.\n"
+            "The ground hums faintly if you stand still. You're not sure it's the ground.\n\n"
+            "The three-flame pattern is faintly visible in the crystal lattice. "
+            "It's everywhere in here, once you know to look for it."
+        ),
+        "carvings": (
+            "📜 **Aeridorian Carvings**\n\n"
+            "Not decorative. Instructional. Warnings, you think.\n"
+            "You can't read Aeridorian. But something about the shapes makes you step back.\n\n"
+            "One symbol repeats more than others: three interlocked spirals.\n"
+            "You've seen it before. At the Shrine in Oakhaven."
+        ),
+        "ruins": (
+            "🏚️ **The Ruins**\n\n"
+            "Stone older than memory. Architecture that doesn't follow logic you know.\n"
+            "Walls at angles that shouldn't hold. They've been holding for a thousand years."
+        ),
+        "seal": (
+            "🔶 **A Stone Seal**\n\n"
+            "Set into the floor of an antechamber. Three interlocked spirals — "
+            "the same pattern from the Shrine flame in Oakhaven.\n\n"
+            "There's a shallow depression in the center. The size of a palm.\n\n"
+            "*It's waiting for something. Or someone who knows what it means.*"
+        ),
     },
     "whisperwood_edge": {
-        "trees":          "🌲 **The Treeline**\n\nThe forest begins here — abruptly, as if it decided.\nNo birdsong. The underbrush shifts when you're not looking directly at it.",
-        "path":           "🌿 **The Path**\n\nA thin trail worn into the earth. Old. Rarely used, recently.\nSomething large came through here. The bent twigs haven't sprung back yet.",
-        "tracks":         "🐾 **Tracks**\n\nMultiple sets. Mostly deer — then not deer.\nSomething with too many toes pressed deep into the mud. They lead deeper in and don't come back.",
+        "trees": (
+            "🌲 **The Treeline**\n\n"
+            "The forest begins here — abruptly, as if it decided.\n"
+            "No birdsong. The underbrush shifts when you're not looking directly at it."
+        ),
+        "path": (
+            "🌿 **The Path**\n\n"
+            "A thin trail worn into the earth. Old. Rarely used, recently.\n"
+            "Something large came through here. The bent twigs haven't sprung back yet."
+        ),
+        "tracks": (
+            "🐾 **Tracks**\n\n"
+            "Multiple sets. Mostly deer — then not deer.\n"
+            "Something with too many toes pressed deep into the mud. They lead deeper in and don't come back."
+        ),
+        "light": (
+            "💡 **Something Glowing**\n\n"
+            "There. Between the trees. A pale light, low to the ground.\n"
+            "It doesn't flicker the way fire does. It pulses.\n\n"
+            "When you move toward it, it stays the same distance away."
+        ),
     },
     "whisperwood_deep": {
-        "light":          "🌑 **The Dark**\n\nThe canopy closes overhead. The light goes green. Then less than green.\nSomething gave off faint light a moment ago. There's nothing there now.",
-        "sounds":         "👂 **The Sounds**\n\nThe deep forest is not quiet. It's the wrong kind of loud.\nThings moving that aren't moving for you.",
+        "light": (
+            "🌑 **The Dark**\n\n"
+            "The canopy closes overhead. The light goes green. Then less than green.\n"
+            "Something gave off faint light a moment ago. There's nothing there now."
+        ),
+        "sounds": (
+            "👂 **The Sounds**\n\n"
+            "The deep forest is not quiet. It's the wrong kind of loud.\n"
+            "Things moving that aren't moving for you."
+        ),
+        "pattern": (
+            "🔶 **A Pattern on the Bark**\n\n"
+            "Carved into a massive oak. Old enough that the bark has grown around the edges of the cuts.\n"
+            "Three interlocked spirals.\n\n"
+            "The same symbol from the Shrine. The same symbol from the ruins.\n"
+            "*This forest is older than Aeridor. And it remembers.*"
+        ),
     },
     "oakhaven": {
-        "notice_board":   "📋 **The Notice Board**\n\nLayered papers, some rain-warped.\n• REWARD: 40 gil — proof of the bog creature's death (see Elder Elara)\n• MISSING: Three sheep from Aldric's farm. East pasture.\n• The Garrison has withdrawn. Travel in groups.",
-        "tricklebrook":   "💧 **The Tricklebrook**\n\nA stream running under the bridge planks. Cold and clear.\nElara has mentioned the boundary moved. The stream looks the same. You're not sure that's reassuring.",
+        "notice_board": (
+            "📋 **The Notice Board**\n\n"
+            "Layered papers, some rain-warped.\n"
+            "• REWARD: 40 gil — proof of the bog creature's death (see Elder Elara)\n"
+            "• MISSING: Three sheep from Aldric's farm. East pasture.\n"
+            "• The Garrison has withdrawn. Travel in groups."
+        ),
+        "tricklebrook": (
+            "💧 **The Tricklebrook**\n\n"
+            "A stream running under the bridge planks. Cold and clear.\n"
+            "Elara has mentioned the boundary moved. The stream looks the same. You're not sure that's reassuring."
+        ),
+        "well": (
+            "⛲ **The Well**\n\n"
+            "Stone. Old. The bucket rope has been replaced recently — the new rope is still bright.\n"
+            "Someone left a copper coin on the lip of the well. It's still there.\n\n"
+            "*In Aeridorian tradition, coins left at water sources were offerings to resonance pathways beneath the earth.*\n"
+            "Whether this person knew that is unclear."
+        ),
     },
     "herbalists_hut": {
-        "herbs":          "🌿 **The Herbs**\n\nSilver moss. Blood thistle. Dire root. Honey sap.\nSister Maren has catalogued them precisely. The labels are in her own shorthand. You can read enough.",
-        "vials":          "⚗️ **The Vials**\n\nRows of stoppered glass. Some cloudy, some clear, some colors you can't name.\nMaren notices you looking. 'Don't touch the blue ones,' she says. That's all she says.",
+        "herbs": (
+            "🌿 **The Herbs**\n\n"
+            "Silver moss. Blood thistle. Dire root. Honey sap.\n"
+            "Sister Maren has catalogued them precisely. The labels are in her own shorthand. You can read enough."
+        ),
+        "vials": (
+            "⚗️ **The Vials**\n\n"
+            "Rows of stoppered glass. Some cloudy, some clear, some colors you can't name.\n"
+            "Maren notices you looking. 'Don't touch the blue ones,' she says. That's all she says."
+        ),
+        "notes": (
+            "📓 **Maren's Notes**\n\n"
+            "Open on the worktable. Dense handwriting, diagrams of plant structures, "
+            "margin notes in a different hand — older, shakier.\n\n"
+            "A page is dog-eared. The heading: *'On the interaction between Aeridorian resonance and living tissue.'*\n\n"
+            "*You close the notebook. Maren is watching you close it.*"
+        ),
     },
 }

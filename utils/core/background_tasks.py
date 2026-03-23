@@ -371,9 +371,19 @@ class CoreTaskManager:
                 rpg_channel_name = self.ctx.config.get('discord.rpg_channel', 'aethelgard').lower()
                 channel = discord.utils.get(self.ctx.bot.get_all_channels(), name=rpg_channel_name)
                 if channel:
-                    await run_village_raid(self.ctx, channel)
+                    import secrets
+                    EVENT_POOL = [
+                        run_village_raid,
+                        run_oracle_speaks,
+                        run_moogle_festival,
+                        run_aeridorian_tremor,
+                        run_tonberry_procession,
+                        run_spine_storm
+                    ]
+                    chosen_event = secrets.choice(EVENT_POOL)
+                    await chosen_event(self.ctx, channel)
             except Exception as e:
-                log_error(f"[noon-raid] Task failed: {e}")
+                log_error(f"[noon-event] Task failed: {e}")
 
         @noon_raid_task.before_loop
         async def before_noon_raid():

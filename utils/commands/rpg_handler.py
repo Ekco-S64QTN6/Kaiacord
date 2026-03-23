@@ -136,6 +136,7 @@ _LOCATION_BUTTONS: dict[str, list] = {
         ("Rumor", "🗣️", "rumor", "", discord.ButtonStyle.secondary, 0),
         ("Talk Mira","🍻", "talk", "barkeep", discord.ButtonStyle.secondary, 1),
         ("Talk Stranger","👤","talk", "hooded_figure",discord.ButtonStyle.secondary, 1),
+        ("Talk Caelindra","🎵", "talk", "bard", discord.ButtonStyle.secondary, 1),
         ("Look", "🔎", "look", "", discord.ButtonStyle.secondary, 1),
     ],
     "hemlocks_store": [
@@ -1284,9 +1285,26 @@ async def _dungeon_move(ctx_obj, interaction, uid, uname, is_owner, direction):
                 state["gil_gained"] = state.get("gil_gained", 0) + gil
 
         elif rt == R_SHRINE:
-            heal = min(15, sheet["hp"]["max"] - sheet["hp"]["current"])
-            sheet["hp"]["current"] = min(sheet["hp"]["current"] + heal, sheet["hp"]["max"])
-            encounter_text = f"\n\n✨ *The candle. Something old and gentle.* (+{heal} HP)"
+            if room.get("secret_shrine"):
+                if "symbol_of_the_silent_ones" in sheet.get("inventory", []):
+                    from utils.ttrpg.dungeon import SHRINE_ROOM_UNLOCKED
+                    room["description"] = SHRINE_ROOM_UNLOCKED
+                    
+                    sheet.setdefault("conditions", [])
+                    if "blessed" not in sheet["conditions"]:
+                        sheet["conditions"].append("blessed")
+                        
+                    bonus_xp = 150
+                    sheet["xp"] = sheet.get("xp", 0) + bonus_xp
+                    encounter_text = f"\n\n✨ *The seal opens. You are deeply Blessed.* (+{bonus_xp} XP)"
+                else:
+                    from utils.ttrpg.dungeon import SHRINE_ROOM_SEALED
+                    room["description"] = SHRINE_ROOM_SEALED
+                    encounter_text = f"\n\n✨ *The flame flickers, but the seal remains shut.*"
+            else:
+                heal = min(15, sheet["hp"]["max"] - sheet["hp"]["current"])
+                sheet["hp"]["current"] = min(sheet["hp"]["current"] + heal, sheet["hp"]["max"])
+                encounter_text = f"\n\n✨ *The candle. Something old and gentle.* (+{heal} HP)"
 
         elif rt == R_TRAP:
             dmg = secrets.randbelow(8) + 3
@@ -1680,6 +1698,34 @@ async def _handle_status(ctx, msg, send, rest, uid, uname, is_owner):
         cond_str = ", ".join(c.title() for c in conds)
         embed.add_field(name="⚠️ Status Effects", value=cond_str, inline=False)
     
+    if sheet.get("_advancement_pending", False) and not sheet.get("advanced_class"):
+        from utils.ttrpg.class_advancement import get_advanced_options, apply_advanced_class_to_sheet
+        options = get_advanced_options(sheet.get("class", ""))
+        if options:
+            embed.color = 0xffd700
+            embed.description += "\n\n✨ **CLASS ADVANCEMENT AVAILABLE!** ✨\nYou have reached Level 5 and may choose an elite path. Your choice is permanent."
+            
+            sel_options = [discord.SelectOption(label=f"{adv} - {opts['description']}"[:100], value=adv) for adv, opts in options.items()]
+            view = discord.ui.View(timeout=120)
+            sel = discord.ui.Select(placeholder="Choose your path...", options=sel_options, row=0)
+            
+            async def _adv_cb(interaction: discord.Interaction):
+                if str(interaction.user.id) != uid:
+                    return await interaction.response.send_message("Not yours.", ephemeral=True)
+                chosen = interaction.data["values"][0]
+                await interaction.response.defer()
+                s = await load(uid)
+                if not s or not s.get("_advancement_pending"): return
+                s = apply_advanced_class_to_sheet(s, chosen)
+                s["_advancement_pending"] = False
+                await save(s)
+                flavor = options[chosen].get("flavor", f"You are now a {chosen}.")
+                await interaction.followup.send(f"```\n{flavor}\n```\n*You are now a {chosen}! Type `!rpg` to view your stats.*")
+                
+            sel.callback = _adv_cb
+            view.add_item(sel)
+            return await msg.channel.send(embed=embed, view=view)
+
     view = RPGLocationView(ctx, msg, uid, uname, is_owner, loc)
     await msg.channel.send(embed=embed, view=view)
 
@@ -1877,7 +1923,27 @@ async def _handle_look(ctx, msg, send, rest, uid, uname, is_owner):
                     result = loc_targets[key]
                     break
         if result:
+            from utils.ttrpg.world import LOCATION_COLORS
             embed = discord.Embed(description=result, color=LOCATION_COLORS.get(loc, 0x888888))
+            
+            # Secret puzzle trigger
+            if loc == "shrine" and look_target in ("flame", "altar"):
+                secrets = sheet.setdefault("secrets", [])
+                if f"look_{look_target}" not in secrets:
+                    secrets.append(f"look_{look_target}")
+                    embed.set_footer(text="A piece of the pattern clicks into place.")
+                    from utils.ttrpg.character_manager import save
+                    await save(sheet)
+                    
+                    if "look_flame" in secrets and "look_altar" in secrets and "symbol_of_the_silent_ones" not in sheet.get("inventory", []):
+                        sheet.setdefault("inventory", []).append("symbol_of_the_silent_ones")
+                        embed.add_field(
+                            name="Secret Unlocked",
+                            value="You understand the pattern now. You can picture the seal perfectly in your mind.\n*(Acquired: symbol_of_the_silent_ones)*",
+                            inline=False
+                        )
+                        await save(sheet)
+                        
             return await msg.channel.send(embed=embed)
         else:
             return await msg.channel.send(embed=discord.Embed(
@@ -2325,7 +2391,17 @@ async def _handle_talk(ctx, msg, send, rest, uid, uname, is_owner):
             blacked_out = True
             
     topic = ""
-    if "topics" in npc and npc["topics"]:
+    if npc_key == "bard" or npc.get("role") == "bard":
+        import os, json
+        path = os.path.join("memory", "ttrpg", "world_events.json")
+        try:
+            with open(path, 'r', encoding='utf-8') as f:
+                events = json.load(f)
+            recent = events[-5:] if events else ["The world has been quiet lately."]
+            topic = "Recent Events: " + " | ".join(recent)
+        except Exception:
+            topic = "An ancient tale of Aeridor's fall."
+    elif "topics" in npc and npc["topics"]:
         import hashlib
         from datetime import date
         seed = int(hashlib.md5(f"{npc_key}_{uid}_{date.today().isoformat()}".encode()).hexdigest(), 16)

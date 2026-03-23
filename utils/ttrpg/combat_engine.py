@@ -13,7 +13,13 @@ def _resolve_combat(sheet: dict, monster: dict, atk_mod_global: int = 0, def_mod
         "Rogue":   "dex",
         "Cleric":  "wis",
     }
-    atk_stat = CLASS_ATTACK_STAT.get(class_name, "str")
+    adv_class = sheet.get("advanced_class", "")
+    if adv_class == "Wizard":
+        atk_stat = "int"
+    elif adv_class == "High Priest":
+        atk_stat = "wis"
+    else:
+        atk_stat = CLASS_ATTACK_STAT.get(class_name, "str")
     atk_val = sheet.get("stats", {}).get(atk_stat, 10)
     atk_mod = (atk_val - 10) // 2
 
@@ -106,7 +112,11 @@ def _resolve_combat(sheet: dict, monster: dict, atk_mod_global: int = 0, def_mod
         mod_str = f"{'+' if attack_mod >= 0 else ''}{attack_mod}"
         hit_breakdown = f"d20({raw_hit}){mod_str}=**{total_hit}** vs DEF {monster['defense']}"
     
-        crit_threshold = 19 if class_name == "Rogue" else 20
+        crit_threshold = 20
+        if class_name == "Rogue": crit_threshold = 19
+        adv = sheet.get("advanced_class", "")
+        if adv == "Hunter": crit_threshold = 18
+        if adv == "Shadowblade": crit_threshold = 17
         player_crit = raw_hit >= crit_threshold
         player_hit = total_hit >= monster["defense"] or player_crit
         player_fumble = raw_hit == 1
@@ -116,7 +126,11 @@ def _resolve_combat(sheet: dict, monster: dict, atk_mod_global: int = 0, def_mod
             dmg_rolls = [secrets.randbelow(weapon_dmg_die) + 1 for _ in range(dice_count)]
             
             warrior_dmg_bonus = ((sheet.get("level", 1) + 1) // 2) if class_name == "Warrior" else 0
-            total_dmg_bonus = atk_mod + warrior_dmg_bonus
+            adv_bonus_flat = 0
+            if adv_class == "Wizard": adv_bonus_flat = 3
+            if adv_class == "Shadowblade" and player_crit: adv_bonus_flat = 4
+            
+            total_dmg_bonus = atk_mod + warrior_dmg_bonus + adv_bonus_flat
             
             player_damage = max(1, sum(dmg_rolls) + total_dmg_bonus)
             
@@ -125,14 +139,31 @@ def _resolve_combat(sheet: dict, monster: dict, atk_mod_global: int = 0, def_mod
                 if monster["hp"]["current"] - player_damage < 1:
                     player_damage = max(0, monster["hp"]["current"] - 1)
                     status_logs.append(f"⚔️ **{sheet['character_name']}** pulls back their strike, dealing non-lethal damage.")
-            
+                    
+            from utils.ttrpg.class_advancement import apply_advanced_class_to_combat
+            adv_mods = apply_advanced_class_to_combat(
+                sheet, player_damage, True, player_crit, 0, monster, False
+            )
+            pd_bonus = adv_mods["player_damage_bonus"]
+            if pd_bonus:
+                player_damage += pd_bonus
+                
             die_str = f"{'2' if player_crit else '1'}d{weapon_dmg_die}"
             bonus_str = f"{'+' if total_dmg_bonus >= 0 else ''}{total_dmg_bonus}" if total_dmg_bonus != 0 else ""
+            if pd_bonus:
+                bonus_str += f"+{pd_bonus}(Class)"
             player_dmg_breakdown = (
                 f"{die_str}[{','.join(str(r) for r in dmg_rolls)}]"
                 f"{bonus_str}=**{player_damage}**"
             )
             monster["hp"]["current"] = max(0, monster["hp"]["current"] - player_damage)
+            
+            # Apply lifesteal
+            heal = adv_mods["heal_amount"]
+            if heal:
+                sheet["hp"]["current"] = min(sheet["hp"]["max"], sheet["hp"]["current"] + heal)
+            if adv_mods["extra_log"]:
+                status_logs.extend(adv_mods["extra_log"])
 
 
     monster_alive = monster["hp"]["current"] > 0
@@ -161,6 +192,16 @@ def _resolve_combat(sheet: dict, monster: dict, atk_mod_global: int = 0, def_mod
             # But let's apply a slight damage reduction if def_mod_global is positive (e.g. cover/rain)
             monster_damage = max(1, base + (monster["attack"] // 2))
             
+            from utils.ttrpg.class_advancement import apply_advanced_class_to_combat
+            adv_mods = apply_advanced_class_to_combat(
+                sheet, 0, False, False, monster_damage, monster, False
+            )
+            md_reduction = adv_mods["monster_damage_reduction"]
+            if md_reduction:
+                monster_damage = max(0, monster_damage - md_reduction)
+            if adv_mods["extra_log"]:
+                status_logs.extend(adv_mods["extra_log"])
+                
             # Non-lethal duel check
             if is_duel:
                 if sheet["hp"]["current"] - monster_damage < 1:
@@ -170,6 +211,16 @@ def _resolve_combat(sheet: dict, monster: dict, atk_mod_global: int = 0, def_mod
             sheet["hp"]["current"] = max(0, sheet["hp"]["current"] - monster_damage)
 
     player_alive = sheet["hp"]["current"] > 0
+    
+    if monster["hp"]["current"] <= 0:
+        from utils.ttrpg.class_advancement import apply_advanced_class_to_combat
+        adv_mods = apply_advanced_class_to_combat(
+            sheet, 0, False, False, 0, monster, True
+        )
+        if adv_mods["heal_amount"]:
+            sheet["hp"]["current"] = min(sheet["hp"]["max"], sheet["hp"]["current"] + adv_mods["heal_amount"])
+        if adv_mods["extra_log"]:
+            status_logs.extend(adv_mods["extra_log"])
 
     # formatting exchanges
     exchanges = list(status_logs)
