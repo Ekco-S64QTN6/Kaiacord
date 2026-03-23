@@ -373,14 +373,24 @@ class CoreTaskManager:
                 if channel:
                     import secrets
                     EVENT_POOL = [
-                        run_village_raid,
-                        run_oracle_speaks,
-                        run_moogle_festival,
-                        run_aeridorian_tremor,
-                        run_tonberry_procession,
-                        run_spine_storm
+                        (run_village_raid,       35),
+                        (run_oracle_speaks,      12),
+                        (run_moogle_festival,    15),
+                        (run_aeridorian_tremor,  12),
+                        (run_tonberry_procession, 8),
+                        (run_spine_storm,        10),
+                        (run_caravan_arrival,     5),
+                        (run_bard_performance,    3),
                     ]
-                    chosen_event = secrets.choice(EVENT_POOL)
+                    total_w = sum(w for _, w in EVENT_POOL)
+                    r_val = secrets.randbelow(total_w)
+                    cum = 0
+                    chosen_event = EVENT_POOL[0][0]
+                    for fn, w in EVENT_POOL:
+                        cum += w
+                        if r_val < cum:
+                            chosen_event = fn
+                            break
                     await chosen_event(self.ctx, channel)
             except Exception as e:
                 log_error(f"[noon-event] Task failed: {e}")
@@ -981,4 +991,28 @@ async def run_spine_storm(bot_ctx, channel):
     
     await channel.send(embed=embed)
     await _log_world_event("⛈️ **Storm of the Spine** swept through Oakhaven.")
+
+async def run_caravan_arrival(bot_ctx, channel):
+    import discord
+    from utils.infrastructure.logging.kaia_logger import log_action
+    
+    embed = discord.Embed(
+        title="🐪 A Caravan Arrives",
+        description="*A traveling merchant sets up shop in Oakhaven.*",
+        color=0x88cc88
+    )
+    await channel.send(embed=embed)
+    log_action("Noon Event: Caravan Arrival")
+
+async def run_bard_performance(bot_ctx, channel):
+    import discord
+    from utils.infrastructure.logging.kaia_logger import log_action
+    
+    embed = discord.Embed(
+        title="🎵 The Bard Sings",
+        description="*Caelindra strums a lively tune in the Stone Hearth.*",
+        color=0x8888cc
+    )
+    await channel.send(embed=embed)
+    log_action("Noon Event: Bard Performance")
 

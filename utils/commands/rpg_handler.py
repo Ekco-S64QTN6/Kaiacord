@@ -66,6 +66,11 @@ from utils.ttrpg.world_state import get_current_state
 from utils.ttrpg.character_manager import load, save, create, format_sheet, load_all
 from utils.ttrpg.session_manager import load_session, save_session, create_session, end_session
 from utils.ttrpg.progression import check_and_reset_hunts, hunts_remaining, check_level_up, MAX_HUNTS_PER_DAY, get_max_hunts, xp_to_next_level, XP_THRESHOLDS
+from utils.ttrpg.class_advancement import (
+    apply_advanced_class_to_combat, apply_advanced_class_to_sheet,
+    get_advanced_options, get_title, ADVANCED_CLASSES
+)
+from utils.ttrpg.dungeon import _scale_boss_to_level
 from utils.social.kaia_social_responder import load_persona_async
 from utils.ttrpg.world import LOCATION_DATA
 from utils.ttrpg.encounter_tables import random_encounter
@@ -136,8 +141,9 @@ _LOCATION_BUTTONS: dict[str, list] = {
         ("Rumor", "🗣️", "rumor", "", discord.ButtonStyle.secondary, 0),
         ("Talk Mira","🍻", "talk", "barkeep", discord.ButtonStyle.secondary, 1),
         ("Talk Stranger","👤","talk", "hooded_figure",discord.ButtonStyle.secondary, 1),
-        ("Talk Caelindra","🎵", "talk", "bard", discord.ButtonStyle.secondary, 1),
-        ("Look", "🔎", "look", "", discord.ButtonStyle.secondary, 1),
+        ("Talk Bard","🎵", "talk", "bard", discord.ButtonStyle.secondary, 1),
+        ("🎶 Song","🎶", "bard_song", "", discord.ButtonStyle.primary, 1),
+        ("Look", "🔎", "look", "", discord.ButtonStyle.secondary, 2),
     ],
     "hemlocks_store": [
         ("Shop", "🏪", "shop", "", discord.ButtonStyle.blurple, 0),
@@ -237,6 +243,8 @@ class RPGFullLocationView(discord.ui.View):
             "leaderboard": _handle_leaderboard,
             "dungeon": _handle_dungeon,
             "unequip": _handle_unequip,
+            "advance": _handle_advance,
+            "bard_song": _handle_bard_song,
         }
 
         # ── Location action buttons ───────────────────────────────────
@@ -1055,6 +1063,17 @@ async def _dungeon_combat_round(ctx_obj, interaction, uid, uname, is_owner):
     sheet = res["sheet"]
     monster = res["monster"]
 
+    # Apply advanced class passive bonuses
+    adv_mods = apply_advanced_class_to_combat(
+        sheet, res.get("player_damage", 0), res["player_hit"],
+        res["player_crit"], res.get("monster_damage", 0),
+        monster, res["monster_defeated"]
+    )
+    if adv_mods["heal_amount"] and res["player_alive"]:
+        sheet["hp"]["current"] = min(sheet["hp"]["max"], sheet["hp"]["current"] + adv_mods["heal_amount"])
+    if adv_mods["extra_log"]:
+        res["exchanges"].extend(adv_mods["extra_log"])
+
     exchange_text = "\n".join(res["exchanges"])
     loot_text = ""
     level_text = ""
@@ -1241,7 +1260,15 @@ async def _dungeon_move(ctx_obj, interaction, uid, uname, is_owner, direction):
             monster = get_monster(monster_key)
             if monster:
                 is_boss = (rt == R_BOSS)
-                scaled_hp = int(monster["hp"] * 1.0)  # dungeon monsters use base hp
+                if is_boss:
+                    monster = _scale_boss_to_level(monster, state.get("player_level", sheet.get("level", 1)))
+                else:
+                    # Scale regular mobs slightly by difficulty
+                    diff = state.get("difficulty", 1)
+                    scale = 1.0 + (diff - 1) * 0.15
+                    monster["hp"] = max(5, int(monster["hp"] * scale))
+                    monster["attack"] = max(1, int(monster["attack"] * scale))
+                scaled_hp = monster["hp"] if isinstance(monster["hp"], int) else monster["hp"]
                 monster["hp"] = {"current": scaled_hp, "max": scaled_hp}
                 monster["key"] = monster_key
                 state["active_combat"] = {
@@ -1466,7 +1493,7 @@ async def _handle_dungeon(ctx, msg, send, rest, uid, uname, is_owner):
     await save(sheet)
 
     difficulty = max(1, min(3, (sheet["level"] - 1) // 3 + 1))
-    dungeon = generate_dungeon(difficulty)
+    dungeon = generate_dungeon(difficulty, player_level=sheet["level"])
     save_dungeon(uid, dungeon)
 
     await msg.channel.send(embed=discord.Embed(
@@ -1543,6 +1570,8 @@ async def handle_rpg_command(ctx, msg, send_kaia_response):
         "weather":   _handle_weather,
         "dungeon":   _handle_dungeon,
         "unequip":   _handle_unequip,
+        "advance":   _handle_advance,
+        "bard_song": _handle_bard_song,
     }
     async def _auto_send(channel, text, use_code_block=None):
         if use_code_block is None:
@@ -1653,9 +1682,12 @@ async def _handle_status(ctx, msg, send, rest, uid, uname, is_owner):
     else:
         color = 0x2D5A27   # deep forest green - normal
         
+    char_title = get_title(sheet)
+    title_suffix = f" · *{char_title}*" if char_title != "Adventurer" else ""
+    adv_class_str = sheet.get("advanced_class", "") or sheet.get("class", "")
     embed = discord.Embed(
-        title=f"{CLASS_ICONS.get(sheet.get('class'), '⚔️')}  {sheet['character_name'].upper()}",
-        description=f"*{sheet.get('class')} Lv.{sheet['level']}  ·  {LOCATION_ICONS.get(loc, '🗺️')} {loc_name}*\n\n{world_info}",
+        title=f"{CLASS_ICONS.get(sheet.get('class'), '⚔️')}  {sheet['character_name'].upper()}{title_suffix}",
+        description=f"*{adv_class_str} Lv.{sheet['level']}  ·  {LOCATION_ICONS.get(loc, '🗺️')} {loc_name}*\n\n{world_info}",
         color=color
     )
     
@@ -1817,6 +1849,162 @@ async def _handle_sheet(ctx, msg, send, rest, uid, uname, is_owner):
     # Own sheet — just show the full rich status HUD
     await _handle_status(ctx, msg, send, rest, uid, uname, is_owner)
 
+async def _handle_advance(ctx, msg, send, rest, uid, uname, is_owner):
+    """!rpg advance — choose an advanced class at level 5."""
+    sheet = await load(uid)
+    if not sheet:
+        return await msg.channel.send(embed=discord.Embed(
+            description="No character found.", color=0xcc4444
+        ))
+
+    if not sheet.get("_advancement_pending"):
+        if sheet.get("advanced_class"):
+            adv = sheet["advanced_class"]
+            return await msg.channel.send(embed=discord.Embed(
+                description=f"You already advanced to **{adv}**.",
+                color=0x888888
+            ))
+        if sheet["level"] < 5:
+            return await msg.channel.send(embed=discord.Embed(
+                description=f"Advancement unlocks at Level 5. You are Level {sheet['level']}.",
+                color=0x888888
+            ))
+        return await msg.channel.send(embed=discord.Embed(
+            description="No advancement pending.",
+            color=0x888888
+        ))
+
+    base = sheet.get("class", "Warrior")
+    options = get_advanced_options(base)
+    if not options:
+        sheet.pop("_advancement_pending", None)
+        await save(sheet)
+        return await msg.channel.send(embed=discord.Embed(
+            description="No advanced paths available for your class.",
+            color=0x888888
+        ))
+
+    embed = discord.Embed(
+        title=f"⚔️ Advancement — {base} → ???",
+        description=(
+            f"**{sheet['character_name']}** has reached Level 5.\n\n"
+            "The path ahead splits. Choose your specialization:"
+        ),
+        color=0xffcc00
+    )
+
+    view = discord.ui.View(timeout=120)
+    for adv_name, adv_data in options.items():
+        embed.add_field(
+            name=f"**{adv_name}**",
+            value=f"{adv_data['description']}\n*{adv_data['flavor']}*",
+            inline=False
+        )
+        btn = discord.ui.Button(
+            label=f"Choose {adv_name}",
+            style=discord.ButtonStyle.primary,
+            row=0
+        )
+        async def _choose(interaction: discord.Interaction, chosen=adv_name, data=adv_data):
+            if str(interaction.user.id) != uid:
+                await interaction.response.send_message("not your choice.", ephemeral=True)
+                return
+            s = await load(uid)
+            s = apply_advanced_class_to_sheet(s, chosen)
+            s.pop("_advancement_pending", None)
+            await save(s)
+            await interaction.response.send_message(embed=discord.Embed(
+                title=f"✨ {s['character_name']} → {chosen}",
+                description=f"*{data['flavor']}*\n\nYour path is set. The title *{get_title(s)}* is yours.",
+                color=0xffcc00
+            ))
+            await _log_world_event(
+                f"⚔️ **{s['character_name']}** advanced to **{chosen}**. Oakhaven noticed."
+            )
+        btn.callback = _choose
+        view.add_item(btn)
+
+    await msg.channel.send(embed=embed, view=view)
+
+async def _handle_bard_song(ctx, msg, send, rest, uid, uname, is_owner):
+    """Request a song from the Bard — generates a ballad about recent Oakhaven events."""
+    import os, json
+    from utils.infrastructure.gpu.gpu_manager import OllamaGPUManager, gpu_memory_manager, GPUTaskPriority
+
+    sheet = await load(uid)
+    if sheet and sheet.get("location") != "stone_hearth":
+        return await msg.channel.send(embed=discord.Embed(
+            description="The Bard isn't here. Head to the Stone Hearth. (`!rpg go stone_hearth`)",
+            color=0xcc4444
+        ))
+
+    events_path = os.path.join("memory", "ttrpg", "world_events.json")
+    recent_events = []
+    if os.path.exists(events_path):
+        try:
+            with open(events_path, 'r', encoding='utf-8') as f:
+                recent_events = json.load(f)[-6:]
+        except Exception:
+            pass
+
+    all_sheets = await load_all()
+    top_adventurers = sorted(all_sheets, key=lambda s: s.get("xp", 0), reverse=True)[:4]
+    names = [s["character_name"] for s in top_adventurers]
+
+    events_str = "\n".join([f"- {e}" for e in recent_events]) if recent_events else "- A quiet season. The forest waits."
+    names_str = ", ".join(names) if names else uname
+
+    persona = await load_persona_async()
+    prompt = (
+        f"You are Caelindra the Bard performing at the Stone Hearth Inn in Oakhaven.\n"
+        f"Recent events:\n{events_str}\n\n"
+        f"Notable adventurers: {names_str}\n\n"
+        f"Write a ballad (4-10 lines) about these deeds. "
+        f"Voice: dry, specific, sardonic — like a journalist who found melody. "
+        f"It MUST name at least one adventurer. Reference a specific event. "
+        f"Output only the ballad, no preamble."
+    )
+
+    async with msg.channel.typing():
+        song_text = "*The Bard strikes a chord... then shrugs. Nothing comes.*"
+        try:
+            gpu_manager = OllamaGPUManager(config.chat_model)
+            opts = gpu_manager.get_gpu_options(for_chat=True)
+            opts["num_predict"] = 180
+            opts["temperature"] = 0.95
+
+            resp = await gpu_memory_manager.run_with_gpu_guard(
+                model_name=config.chat_model,
+                priority=GPUTaskPriority.CHAT,
+                coro=asyncio.wait_for(
+                    ctx.ollama_client.chat(
+                        model=config.chat_model,
+                        messages=[
+                            {"role": "system", "content": persona + "\n\n" + prompt},
+                            {"role": "user", "content": "Perform the song."}
+                        ],
+                        options=opts,
+                        keep_alive=-1
+                    ),
+                    timeout=45.0
+                ),
+                task_id=f"bard_song_{_uuid.uuid4().hex[:8]}"
+            )
+            raw = resp["message"]["content"].strip().replace("```", "")
+            if raw:
+                song_text = raw
+        except Exception as e:
+            log_error(f"[bard song] {e}")
+
+    embed = discord.Embed(
+        title="🎵 Caelindra Performs",
+        description=f"*{song_text}*",
+        color=0x9b59b6
+    )
+    embed.set_footer(text="The Stone Hearth goes quiet for a moment. Then Mira refills something.")
+    view = _make_status_view(ctx, msg, uid, uname, is_owner)
+    await msg.channel.send(embed=embed, view=view)
+
 
 # ── World & Movement ─────────────────────────────────────────────────────────
 
@@ -1923,7 +2111,6 @@ async def _handle_look(ctx, msg, send, rest, uid, uname, is_owner):
                     result = loc_targets[key]
                     break
         if result:
-            from utils.ttrpg.world import LOCATION_COLORS
             embed = discord.Embed(description=result, color=LOCATION_COLORS.get(loc, 0x888888))
             
             # Secret puzzle trigger
@@ -3320,7 +3507,18 @@ async def _handle_attack(ctx, msg, send, rest, uid, uname, is_owner):
         sheet["gil"] += gil_gain
         
     # Emit Math block
-    m_block = "\n".join(res["exchanges"])
+    # Advanced class passive bonuses
+    adv_mods = apply_advanced_class_to_combat(
+        sheet, res.get("player_damage", 0), res["player_hit"],
+        res["player_crit"], res.get("monster_damage", 0),
+        monster, res["monster_defeated"]
+    )
+    if adv_mods["heal_amount"] and res["player_alive"]:
+        sheet["hp"]["current"] = min(sheet["hp"]["max"], sheet["hp"]["current"] + adv_mods["heal_amount"])
+    if adv_mods["extra_log"]:
+        m_block = "\n".join(res["exchanges"] + adv_mods["extra_log"])
+    else:
+        m_block = "\n".join(res["exchanges"])
 
     if res["monster_defeated"]:
         # Quest Task Tracking: Kill
@@ -4198,6 +4396,9 @@ async def _handle_leaderboard(ctx, msg, send, rest, uid, uname, is_owner):
     for i, s in enumerate(sheets[:15]):  # cap at 15 entries
         medal = MEDALS[i] if i < 3 else f"`{i+1}.`"
         cls_icon = CLASS_ICONS.get(s.get("class", ""), "⚔️")
+        char_title = get_title(s)
+        title_suffix = f" · *{char_title}*" if char_title != "Adventurer" else ""
+        adv_class = s.get("advanced_class", "") or s.get("class", "?")
         loc_key = s.get("location", "oakhaven")
         loc_icon = LOCATION_ICONS.get(loc_key, "🗟a️")
         loc_name = LOCATION_DATA.get(loc_key, {}).get("name", loc_key.replace("_", " ").title())
@@ -4205,8 +4406,8 @@ async def _handle_leaderboard(ctx, msg, send, rest, uid, uname, is_owner):
         race = s.get("race", "Unknown")
 
         line = (
-            f"{medal} {cls_icon} **{s.get('character_name', '???')}**\n"
-            f"  {race} {s.get('class', '???')} · Lv.{s.get('level', 1)} · {s.get('xp', 0)} XP\n"
+            f"{medal} {cls_icon} **{s.get('character_name', '???')}**{title_suffix}\n"
+            f"  {race} {adv_class} · Lv.{s.get('level', 1)} · {s.get('xp', 0)} XP\n"
             f"  💀 {deaths} death{'s' if deaths != 1 else ''} · {loc_icon} {loc_name}"
         )
         lines.append(line)
@@ -4226,7 +4427,8 @@ async def _handle_event(ctx, msg, send, rest, uid, uname, is_owner):
 
     from utils.core.background_tasks import (
         run_village_raid, run_oracle_speaks, run_moogle_festival,
-        run_aeridorian_tremor, run_tonberry_procession, run_spine_storm
+        run_aeridorian_tremor, run_tonberry_procession, run_spine_storm,
+        run_caravan_arrival, run_bard_performance
     )
 
     EVENTS = {
@@ -4240,6 +4442,8 @@ async def _handle_event(ctx, msg, send, rest, uid, uname, is_owner):
         "tonberry":   run_tonberry_procession,
         "procession": run_tonberry_procession,
         "storm":      run_spine_storm,
+        "caravan":    run_caravan_arrival,
+        "bard":       run_bard_performance,
         "random":     None,
     }
 

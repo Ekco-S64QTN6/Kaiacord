@@ -26,6 +26,8 @@ def resolve_event(event_key: str, sheet: dict) -> dict:
         "echo_of_aeridor":   _echo_of_aeridor,
         "dream_walker":      _dream_walker,
         "twin_wisps":        _twin_wisps,
+        "lost_merchant":     _lost_merchant,
+        "ancient_coin":      _ancient_coin,
     }
     handler = handlers.get(event_key, _sylvan_sprites)
     return handler(sheet)
@@ -543,4 +545,38 @@ def _twin_wisps(sheet: dict) -> dict:
             "they settled. One touched the player's shoulder briefly before both drifted away. "
             "Something feels lighter."
         )
+    return r
+
+def _lost_merchant(sheet: dict) -> dict:
+    """A lost merchant needing directions. Charisma/Wisdom reward."""
+    r = _base()
+    r["event_key"] = "lost_merchant"
+    r["title"] = "🧭 The Lost Merchant"
+    
+    gil_reward = secrets.randbelow(40) + 20
+    r["gil"] = gil_reward
+    r["xp"] = 15
+    r["outcome"] = f"You pointed them toward Oakhaven. +{gil_reward} gil, +15 XP."
+    r["narration_hook"] = (
+        "A merchant leading a very tired pack mule, thoroughly lost in the Whisperwood. "
+        "The player pointed them back toward the Oakhaven Trade Road. "
+        f"The merchant pressed a handful of coins ({gil_reward} gil) into the player's hand "
+        "and hurried off before the forest could change its mind about letting them leave."
+    )
+    return r
+
+def _ancient_coin(sheet: dict) -> dict:
+    """Find an ancient Aeridorian coin."""
+    r = _base()
+    r["event_key"] = "ancient_coin"
+    r["title"] = "🪙 Ancient Coin"
+    
+    r["xp"] = 25
+    r["item_add"] = "lucky_charm" # reusing lucky charm as a valuable trinket
+    r["outcome"] = "You found a strange, heavy coin. +25 XP. Acquired: Lucky Charm."
+    r["narration_hook"] = (
+        "Half-buried in the mud on the trail: a coin. Not gil. It's too heavy, the metal is dark, "
+        "and the face stamped on it belongs to an Aeridorian king who died before Oakhaven was built. "
+        "It feels warm to the touch. The player pocketed it."
+    )
     return r
