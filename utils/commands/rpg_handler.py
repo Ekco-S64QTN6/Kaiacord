@@ -128,7 +128,6 @@ _LOCATION_BUTTONS: dict[str, list] = {
         ("Talk Elara", "🧙", "talk", "elara", discord.ButtonStyle.secondary, 1),
         ("Calendar", "📅", "calendar", "", discord.ButtonStyle.secondary, 1),
         ("Deliver", "📬", "deliver", "", discord.ButtonStyle.secondary, 1),
-        ("Abandon", "🗑️", "abandon", "", discord.ButtonStyle.danger, 1),
     ],
     "stone_hearth": [
         ("Rest", "🛏️", "rest", "", discord.ButtonStyle.green, 0),
@@ -236,7 +235,7 @@ class RPGFullLocationView(discord.ui.View):
             "hunts": _handle_hunts,
             "leaderboard": _handle_leaderboard,
             "dungeon": _handle_dungeon,
-            "abandon": _handle_abandon,
+            "unequip": _handle_unequip,
         }
 
         # ── Location action buttons ───────────────────────────────────
@@ -670,7 +669,6 @@ LOCATION_ACTIONS = {
         "`!rpg deliver` — turn in a mognet letter",
         "`!rpg talk elara` — speak with Elder Elara",
         "`!rpg quests` — view available quests",
-        "`!rpg abandon` — drop your current quest",
         "`!rpg map` — view the world map",
         "`!rpg calendar` — current season & events",
         "`!rpg weather` — today's conditions",
@@ -947,6 +945,230 @@ class DungeonView(discord.ui.View):
         self.add_item(_make_status_btn(ctx_obj, uid, uname, is_owner, row=3))
 
 
+class DungeonCombatView(discord.ui.View):
+    """Turn-based combat view for dungeon encounters."""
+
+    def __init__(self, ctx_obj, uid, uname, is_owner, monster_name):
+        super().__init__(timeout=300)
+        self._ctx = ctx_obj
+        self._uid = uid
+        self._uname = uname
+        self._is_owner = is_owner
+
+        atk_btn = discord.ui.Button(label="⚔️ Attack", style=discord.ButtonStyle.danger, row=0)
+        async def _atk_cb(interaction: discord.Interaction):
+            if str(interaction.user.id) != self._uid:
+                await interaction.response.send_message("not your fight.", ephemeral=True)
+                return
+            await interaction.response.defer()
+            await _dungeon_combat_round(self._ctx, interaction, self._uid, self._uname, self._is_owner)
+        atk_btn.callback = _atk_cb
+        self.add_item(atk_btn)
+
+        flee_btn = discord.ui.Button(label="🏃 Flee", style=discord.ButtonStyle.secondary, row=0)
+        async def _flee_cb(interaction: discord.Interaction):
+            if str(interaction.user.id) != self._uid:
+                await interaction.response.send_message("not your fight.", ephemeral=True)
+                return
+            await interaction.response.defer()
+            await _dungeon_combat_flee(self._ctx, interaction, self._uid, self._uname, self._is_owner)
+        flee_btn.callback = _flee_cb
+        self.add_item(flee_btn)
+
+        use_btn = discord.ui.Button(label="🧪 Use Item", style=discord.ButtonStyle.secondary, row=0)
+        async def _use_cb(interaction: discord.Interaction):
+            if str(interaction.user.id) != self._uid:
+                await interaction.response.send_message("not yours.", ephemeral=True)
+                return
+            sheet = await load(self._uid)
+            if not sheet:
+                await interaction.response.send_message("no character found.", ephemeral=True)
+                return
+            from utils.ttrpg.shop import find_item as _fi
+            from collections import Counter
+            inv_counts = Counter(sheet.get("inventory", []))
+            usable = []
+            for item_key, count in inv_counts.items():
+                item = _fi(item_key)
+                if not item or item["category"] != "consumable": continue
+                hp_restore = item.get("hp_restore", 0)
+                on_use = item.get("on_use", "")
+                if hp_restore > 0 or on_use in ("cure_poison", "luck_roll_bonus"):
+                    label = f"{item['name']} (+{hp_restore} HP)" if hp_restore > 0 else f"{item['name']} (cures {on_use.replace('_', ' ')})"
+                    if count > 1: label += f"  x{count}"
+                    usable.append((item_key, label[:100]))
+            if not usable:
+                await interaction.response.send_message("```\nno usable items.\n```", ephemeral=True)
+                return
+            options = [discord.SelectOption(label=label, value=key) for key, label in usable[:25]]
+            sel_view = discord.ui.View(timeout=30)
+            sel = discord.ui.Select(placeholder="Use item...", options=options, row=0)
+            async def _selected(sel_interaction: discord.Interaction):
+                if str(sel_interaction.user.id) != self._uid:
+                    await sel_interaction.response.send_message("not yours.", ephemeral=True)
+                    return
+                chosen = sel_interaction.data["values"][0]
+                await sel_interaction.response.defer()
+                fake_msg = _InteractionMsg(sel_interaction)
+                send_fn = _make_interaction_send(sel_interaction)
+                await _handle_use(self._ctx, fake_msg, send_fn, chosen, self._uid, self._uname, self._is_owner)
+            sel.callback = _selected
+            sel_view.add_item(sel)
+            hp = sheet["hp"]
+            await interaction.response.send_message(f"```\nHP: {hp['current']}/{hp['max']}\n```", view=sel_view, ephemeral=True)
+        use_btn.callback = _use_cb
+        self.add_item(use_btn)
+
+    async def on_timeout(self):
+        pass
+
+
+async def _dungeon_combat_round(ctx_obj, interaction, uid, uname, is_owner):
+    from utils.ttrpg.dungeon import load_dungeon, save_dungeon, _key
+    from utils.ttrpg.combat_engine import _resolve_combat
+    from utils.ttrpg.loot_tables import get_loot
+    from utils.ttrpg.shop import find_item
+    from utils.ttrpg.progression import check_level_up, xp_to_next_level
+    from utils.ttrpg.world_state import get_current_state
+
+    state = load_dungeon(uid)
+    if not state or not state.get("active_combat"):
+        await interaction.followup.send("No active combat.", ephemeral=True)
+        return
+
+    sheet = await load(uid)
+    if not sheet:
+        return
+
+    combat = state["active_combat"]
+    monster = combat["monster"]
+    is_boss = combat.get("is_boss", False)
+    boss_name = combat.get("boss_name")
+    room_key = combat["room_key"]
+
+    world_state = get_current_state()
+    res = _resolve_combat(sheet, monster,
+                          atk_mod_global=world_state.get("atk_mod", 0),
+                          def_mod_global=world_state.get("def_mod", 0))
+
+    sheet = res["sheet"]
+    monster = res["monster"]
+
+    exchange_text = "\n".join(res["exchanges"])
+    loot_text = ""
+    level_text = ""
+    xp_gain = 0
+    gil_gain = 0
+
+    if res["monster_defeated"]:
+        # Clear combat, mark room cleared
+        del state["active_combat"]
+        state["rooms"][room_key]["cleared"] = True
+        xp_gain = int(monster.get("xp", 25) * (2 if is_boss else 1))
+        gil_gain = int(monster.get("gil", 5) * (2 if is_boss else 1))
+        sheet["xp"] = sheet.get("xp", 0) + xp_gain
+        sheet["gil"] = sheet.get("gil", 0) + gil_gain
+        state["xp_gained"] = state.get("xp_gained", 0) + xp_gain
+        state["gil_gained"] = state.get("gil_gained", 0) + gil_gain
+
+        # Loot
+        tier = "hard" if is_boss else _get_dungeon_loot_tier(sheet.get("level", 1), is_boss)
+        if is_boss:
+            drops = []
+            for _ in range(2):
+                loot = get_loot(tier)
+                if loot:
+                    sheet.setdefault("inventory", []).append(loot)
+                    item = find_item(loot)
+                    drops.append(item["name"] if item else loot)
+                    state.setdefault("loot_gained", []).append(loot)
+            if drops: loot_text = f"\n🎁 **Boss drops:** {', '.join(drops)}"
+        elif secrets.randbelow(10) < 4:
+            loot = get_loot(tier)
+            if loot:
+                sheet.setdefault("inventory", []).append(loot)
+                item = find_item(loot)
+                loot_text = f"\n🎁 {item['name'] if item else loot}"
+                state.setdefault("loot_gained", []).append(loot)
+
+        leveled, new_level = check_level_up(sheet)
+        if leveled:
+            level_text = f"\n\n🎉 **Level Up! Now Lv.{new_level}!**"
+
+        xp_next = xp_to_next_level(sheet["level"])
+        exchange_text += f"\n\n+{xp_gain} XP ({sheet['xp']}/{xp_next}) · +{gil_gain} Gil{loot_text}{level_text}"
+
+        await save(sheet)
+        save_dungeon(uid, state)
+
+        embed = discord.Embed(title="⚔️ Victory", description=exchange_text, color=0x2D5A27)
+        # Return to normal dungeon navigation
+        view = DungeonView(ctx_obj, uid, uname, is_owner, state)
+        await interaction.followup.send(embed=embed, view=view)
+
+    elif not res["player_alive"]:
+        # Player defeated in dungeon
+        del state["active_combat"]
+        sheet["hp"]["current"] = 1
+        sheet["location"] = "shrine"
+        sheet["deaths"] = sheet.get("deaths", 0) + 1
+        xp_loss = int(sheet["xp"] * 0.10)
+        gil_loss = int(sheet["gil"] * 0.05)
+        sheet["xp"] = max(0, sheet["xp"] - xp_loss)
+        sheet["gil"] = max(0, sheet["gil"] - gil_loss)
+        await save(sheet)
+        from utils.ttrpg.dungeon import clear_dungeon
+        clear_dungeon(uid)
+        embed = discord.Embed(
+            title="💀 Defeated",
+            description=f"{exchange_text}\n\n*You collapsed in the dark. Someone dragged you back to the Shrine.*\n-{xp_loss} XP · -{gil_loss} Gil",
+            color=0x8B0000
+        )
+        view = _make_status_view(ctx_obj, None, uid, uname, is_owner)
+        await interaction.followup.send(embed=embed, view=view)
+
+    else:
+        # Combat continues — update monster HP in state
+        combat["monster"] = monster
+        state["active_combat"] = combat
+        await save(sheet)
+        save_dungeon(uid, state)
+
+        name_used = boss_name if (is_boss and boss_name) else monster.get("name", "Enemy")
+        embed = discord.Embed(
+            title=f"⚔️ {name_used}",
+            description=exchange_text,
+            color=0xFF4500
+        )
+        view = DungeonCombatView(ctx_obj, uid, uname, is_owner, name_used)
+        await interaction.followup.send(embed=embed, view=view)
+
+
+async def _dungeon_combat_flee(ctx_obj, interaction, uid, uname, is_owner):
+    from utils.ttrpg.dungeon import load_dungeon, save_dungeon
+
+    state = load_dungeon(uid)
+    if not state or not state.get("active_combat"):
+        await interaction.followup.send("No combat to flee from.", ephemeral=True)
+        return
+
+    # Fleeing costs 1 hunt and sends you back one step (just clear combat, stay in room)
+    del state["active_combat"]
+    save_dungeon(uid, state)
+
+    sheet = await load(uid)
+    if sheet:
+        sheet["hunts_today"] = sheet.get("hunts_today", 0) + 1
+        await save(sheet)
+
+    embed = discord.Embed(
+        description="*You scramble back into the corridor.*\n*(1 hunt consumed)*",
+        color=0x888888
+    )
+    view = DungeonView(ctx_obj, uid, uname, is_owner, state)
+    await interaction.followup.send(embed=embed, view=view)
+
+
 async def _send_dungeon_room(ctx_obj, channel, uid, uname, is_owner, dungeon,
                               extra_text=""):
     px, py = dungeon["player_pos"]
@@ -1013,16 +1235,41 @@ async def _dungeon_move(ctx_obj, interaction, uid, uname, is_owner, direction):
 
     if not room.get("cleared", False):
         if rt in (R_MONSTER, R_BOSS):
-            result = _dungeon_auto_combat(
-                sheet, room.get("monster_key", "goblin"), state,
-                is_boss=(rt == R_BOSS),
-                boss_name=room.get("boss_name")
-            )
-            sheet         = result["sheet"]
-            state         = result["dungeon"]
-            encounter_text = f"\n\n{result['description']}"
-            loot_text      = f"\n{result['loot_desc']}" if result["loot_desc"] else ""
+            # Spawn the monster and store it for interactive combat
+            monster_key = room.get("monster_key", "goblin")
+            monster = get_monster(monster_key)
+            if monster:
+                is_boss = (rt == R_BOSS)
+                scaled_hp = int(monster["hp"] * 1.0)  # dungeon monsters use base hp
+                monster["hp"] = {"current": scaled_hp, "max": scaled_hp}
+                monster["key"] = monster_key
+                state["active_combat"] = {
+                    "monster": monster,
+                    "monster_key": monster_key,
+                    "is_boss": is_boss,
+                    "boss_name": room.get("boss_name"),
+                    "room_key": nk,
+                }
+                await save(sheet)
+                save_dungeon(uid, state)
 
+                from utils.ttrpg.rpg_ui import TIER_ICONS
+                tier_icon = TIER_ICONS.get(monster.get("tier", "medium"), "🟠")
+                name_used = room.get("boss_name") if is_boss else monster.get("name", "Unknown")
+                desc = room.get("description", "Something is here.")
+                hp_str = f"\n\n❤️ {sheet['hp']['current']}/{sheet['hp']['max']} HP"
+                embed = discord.Embed(
+                    title=f"{'💀' if is_boss else '⚔️'} {name_used} {tier_icon}",
+                    description=f"*{desc}*\n\n*{monster.get('desc', '')}*{hp_str}",
+                    color=0x8B0000 if is_boss else 0xFF4500,
+                )
+                embed.add_field(name="❤️ HP", value=str(scaled_hp), inline=True)
+                embed.add_field(name="🗡️ ATK", value=str(monster.get("attack", 0)), inline=True)
+                embed.add_field(name="🛡️ DEF", value=str(monster.get("defense", 0)), inline=True)
+                view = DungeonCombatView(ctx_obj, uid, uname, is_owner, name_used)
+                await interaction.followup.send(embed=embed, view=view)
+                return  # Don't fall through to the normal room send
+            # monster lookup failed, treat as empty
         elif rt == R_TREASURE:
             loot = get_loot("medium")
             if loot:
@@ -1055,13 +1302,7 @@ async def _dungeon_move(ctx_obj, interaction, uid, uname, is_owner, direction):
         room["cleared"] = True
         state["rooms"][nk] = room
 
-    # Exit reached
-    if rt == R_EXIT:
-        save_dungeon(uid, state)
-        leveled, new_level = check_level_up(sheet)
-        await save(sheet)
-        await _dungeon_complete(ctx_obj, interaction, uid, uname, is_owner, state, sheet, leveled, new_level)
-        return
+
 
     hp_warning = "\n\n⚠️ *HP critically low — consider leaving.*" \
         if sheet["hp"]["current"] <= sheet["hp"]["max"] // 4 else ""
@@ -1283,6 +1524,7 @@ async def handle_rpg_command(ctx, msg, send_kaia_response):
         "duel":      _handle_duel,
         "weather":   _handle_weather,
         "dungeon":   _handle_dungeon,
+        "unequip":   _handle_unequip,
     }
     async def _auto_send(channel, text, use_code_block=None):
         if use_code_block is None:
@@ -2403,7 +2645,22 @@ async def _handle_quests(ctx, msg, send, rest, uid, uname, is_owner):
         description=desc,
         color=0x4a90e2
     )
-    view = _make_status_view(ctx, msg, uid, uname, is_owner)
+    view = discord.ui.View(timeout=120)
+    if active:
+        abandon_btn = discord.ui.Button(label="🗑️ Abandon Quest", style=discord.ButtonStyle.danger, row=0)
+        async def _abandon_cb(interaction: discord.Interaction):
+            if str(interaction.user.id) != uid:
+                await interaction.response.send_message("```\nnot your quest log.\n```", ephemeral=True)
+                return
+            await interaction.response.defer()
+            fake_msg = _InteractionMsg(interaction)
+            send_fn = _make_interaction_send(interaction)
+            await _handle_abandon(ctx, fake_msg, send_fn, "", uid, uname, is_owner)
+            
+        abandon_btn.callback = _abandon_cb
+        view.add_item(abandon_btn)
+        
+    view.add_item(_make_status_btn(ctx, uid, uname, is_owner, row=1))
     await msg.channel.send(embed=embed, view=view)
 
 async def _handle_abandon(ctx, msg, send, rest, uid, uname, is_owner):
@@ -2568,6 +2825,98 @@ async def _handle_equip(ctx, msg, send, rest, uid, uname, is_owner):
     
     await msg.channel.send(embed=discord.Embed(description=f"Equipped **{item['name']}** as {slot}.", color=0x44aa44))
 
+
+async def _handle_unequip(ctx, msg, send, rest, uid, uname, is_owner):
+    from utils.ttrpg.equipment_registry import WEAPONS, ARMOR as ARMOR_REG, HEADGEAR, BOOTS, ACCESSORIES
+
+    sheet = await load(uid)
+    if not sheet: return
+
+    slot_aliases = {
+        "weapon": "weapon", "sword": "weapon", "bow": "weapon", "axe": "weapon",
+        "staff": "weapon", "dagger": "weapon", "blade": "weapon",
+        "armor": "armor", "chest": "armor", "body": "armor", "robe": "armor",
+        "head": "head", "helm": "head", "helmet": "head", "hat": "head", "hood": "head",
+        "boots": "boots", "feet": "boots", "greaves": "boots",
+        "accessory": "accessory", "ring": "accessory", "bracer": "accessory",
+        "bracelet": "accessory", "amulet": "accessory",
+    }
+
+    eq = sheet.get("equipment", {})
+    arg = rest.strip().lower()
+
+    # Try to find slot by arg — either slot name/alias or item name
+    target_slot = None
+    if arg in slot_aliases:
+        target_slot = slot_aliases[arg]
+    else:
+        # Match against equipped item names
+        registries = {
+            "weapon": WEAPONS, "armor": ARMOR_REG,
+            "head": HEADGEAR, "boots": BOOTS, "accessory": ACCESSORIES
+        }
+        for slot, registry in registries.items():
+            val = eq.get(slot)
+            if not val: continue
+            item_key = val.get("key") if isinstance(val, dict) else val
+            item_name = (val.get("name") if isinstance(val, dict) else registry.get(val, {}).get("name", "")).lower()
+            if arg and (arg in (item_key or "").lower() or arg in item_name):
+                target_slot = slot
+                break
+
+    # No arg or no match — show select menu of equipped items
+    if not target_slot or not eq.get(target_slot):
+        equipped = [(slot, val) for slot, val in eq.items() if val]
+        if not equipped:
+            return await msg.channel.send(embed=discord.Embed(description="Nothing equipped.", color=0x888888))
+
+        if not arg:
+            # Build a select menu
+            registries = {
+                "weapon": WEAPONS, "armor": ARMOR_REG,
+                "head": HEADGEAR, "boots": BOOTS, "accessory": ACCESSORIES
+            }
+            options = []
+            for slot, val in equipped:
+                name = val.get("name") if isinstance(val, dict) else registries.get(slot, {}).get(val, {}).get("name", val)
+                options.append(discord.SelectOption(label=f"{slot.title()}: {name}", value=slot))
+
+            view = discord.ui.View(timeout=60)
+            sel = discord.ui.Select(placeholder="Unequip which item?", options=options, row=0)
+
+            async def _sel_cb(interaction: discord.Interaction):
+                if str(interaction.user.id) != uid:
+                    await interaction.response.send_message("not yours.", ephemeral=True)
+                    return
+                chosen_slot = interaction.data["values"][0]
+                await interaction.response.defer()
+                fake_msg = _InteractionMsg(interaction)
+                send_fn = _make_interaction_send(interaction)
+                await _handle_unequip(ctx, fake_msg, send_fn, chosen_slot, uid, uname, is_owner)
+
+            sel.callback = _sel_cb
+            view.add_item(sel)
+            view.add_item(_make_status_btn(ctx, uid, uname, is_owner))
+            return await msg.channel.send(embed=discord.Embed(description="Select an item to unequip:", color=0x888888), view=view)
+
+        return await msg.channel.send(embed=discord.Embed(
+            description=f"Nothing equipped in that slot matching `{arg}`.", color=0xcc4444
+        ))
+
+    # Unequip
+    val = eq[target_slot]
+    item_key = val.get("key") if isinstance(val, dict) else val
+    item_name = val.get("name") if isinstance(val, dict) else item_key
+
+    if item_key:
+        sheet["inventory"].append(item_key)
+    sheet["equipment"][target_slot] = None
+    await save(sheet)
+
+    await msg.channel.send(embed=discord.Embed(
+        description=f"Unequipped **{item_name}** — moved to inventory.",
+        color=0x44aa44
+    ))
 async def _handle_use(ctx, msg, send, rest, uid, uname, is_owner):
     from utils.ttrpg.shop import find_item
     sheet = await load(uid)

@@ -159,22 +159,6 @@ def generate_dungeon(difficulty: int = 1) -> dict:
     distances = _bfs_distances(sx, sy, connections)
     farthest = max(all_positions, key=lambda p: distances.get(_key(*p), 0))
 
-    # Exit: adjacent to boss if possible, else second-farthest
-    exit_pos = None
-    bx, by = farthest
-    for d in connections.get(_key(bx, by), []):
-        dx, dy = DIRECTIONS[d]
-        ex, ey = bx + dx, by + dy
-        if (ex, ey) != (sx, sy) and (ex, ey) in all_positions:
-            exit_pos = (ex, ey)
-            break
-    if not exit_pos:
-        sorted_pos = sorted(all_positions, key=lambda p: distances.get(_key(*p), 0), reverse=True)
-        for p in sorted_pos[1:]:
-            if p != farthest:
-                exit_pos = p
-                break
-
     rooms = {}
     boss_assigned = False
     for pos in all_positions:
@@ -185,8 +169,6 @@ def generate_dungeon(difficulty: int = 1) -> dict:
         elif pos == farthest and not boss_assigned:
             rt = R_BOSS
             boss_assigned = True
-        elif exit_pos and pos == exit_pos:
-            rt = R_EXIT
         else:
             rt = _roll_room_type(distances.get(k, 1))
 
