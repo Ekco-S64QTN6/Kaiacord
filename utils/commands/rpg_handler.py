@@ -387,6 +387,94 @@ class RPGCombatView(discord.ui.View):
         flee_btn.callback = _flee_cb
         self.add_item(flee_btn)
 
+        # ── Use Item button ───────────────────────────────────────────────
+        use_btn = discord.ui.Button(
+            label="🧪 Use Item", style=discord.ButtonStyle.secondary, row=0
+        )
+
+        async def _use_item_cb(interaction: discord.Interaction):
+            if str(interaction.user.id) != self._uid:
+                await interaction.response.send_message(
+                    "```\nnot your buttons.\n```", ephemeral=True
+                )
+                return
+
+            sheet = await load(self._uid)
+            if not sheet:
+                await interaction.response.send_message(
+                    "```\nno character found.\n```", ephemeral=True
+                )
+                return
+
+            from utils.ttrpg.shop import find_item as _find_item
+            from collections import Counter
+
+            inventory = sheet.get("inventory", [])
+            inv_counts = Counter(inventory)
+
+            # Only show usable consumables (healing, cure, buff)
+            usable = []
+            for item_key, count in inv_counts.items():
+                item = _find_item(item_key)
+                if not item or item["category"] != "consumable":
+                    continue
+                hp_restore = item.get("hp_restore", 0)
+                on_use = item.get("on_use", "")
+                if hp_restore > 0 or on_use in ("cure_poison", "luck_roll_bonus"):
+                    if hp_restore > 0:
+                        label = f"{item['name']} (+{hp_restore} HP)"
+                    elif on_use == "cure_poison":
+                        label = f"{item['name']} (cures poison)"
+                    else:
+                        label = f"{item['name']} (+1 next hit)"
+                    if count > 1:
+                        label += f"  x{count}"
+                    usable.append((item_key, label[:100]))
+
+            if not usable:
+                await interaction.response.send_message(
+                    "```\nno usable items in your pack.\n```", ephemeral=True
+                )
+                return
+
+            options = [
+                discord.SelectOption(label=label, value=key)
+                for key, label in usable[:25]
+            ]
+
+            select_view = discord.ui.View(timeout=30)
+            item_select = discord.ui.Select(
+                placeholder="Choose an item to use...",
+                options=options,
+                row=0
+            )
+
+            async def _item_selected(sel_interaction: discord.Interaction):
+                if str(sel_interaction.user.id) != self._uid:
+                    await sel_interaction.response.send_message("not yours", ephemeral=True)
+                    return
+                chosen = sel_interaction.data["values"][0]
+                await sel_interaction.response.defer()
+                fake_msg = _InteractionMsg(sel_interaction)
+                send_fn = _make_interaction_send(sel_interaction)
+                await _handle_use(
+                    self._ctx, fake_msg, send_fn,
+                    chosen, self._uid, self._uname, self._is_owner
+                )
+
+            item_select.callback = _item_selected
+            select_view.add_item(item_select)
+
+            hp = sheet["hp"]
+            await interaction.response.send_message(
+                f"```\nHP: {hp['current']}/{hp['max']}\n```",
+                view=select_view,
+                ephemeral=True
+            )
+
+        use_btn.callback = _use_item_cb
+        self.add_item(use_btn)
+
     async def on_timeout(self):
         pass
 
@@ -3160,11 +3248,30 @@ async def _handle_gamble(ctx, msg, send, rest, uid, uname, is_owner):
         gil_line = f"-{BUY_IN} gil. Total: {sheet['gil']}g"
 
     await save(sheet)
-    view = _make_status_view(ctx, msg, uid, uname, is_owner)
+
+    gamble_view = discord.ui.View(timeout=60)
+
+    gamble_again_btn = discord.ui.Button(
+        label="🎲 Gamble Again", style=discord.ButtonStyle.secondary, row=0
+    )
+
+    async def _gamble_again_cb(interaction: discord.Interaction):
+        if str(interaction.user.id) != uid:
+            await interaction.response.send_message("```\nnot your table.\n```", ephemeral=True)
+            return
+        await interaction.response.defer()
+        fake_msg = _InteractionMsg(interaction)
+        send_fn = _make_interaction_send(interaction)
+        await _handle_gamble(ctx, fake_msg, send_fn, "", uid, uname, is_owner)
+
+    gamble_again_btn.callback = _gamble_again_cb
+    gamble_view.add_item(gamble_again_btn)
+    gamble_view.add_item(_make_status_btn(ctx, uid, uname, is_owner))
+
     await msg.channel.send(embed=discord.Embed(
         description=f"{result_line}\n{gil_line}",
         color=0x44aa44 if player_roll > house_roll else 0xcc4444
-    ), view=view)
+    ), view=gamble_view)
 
 
 async def _handle_pray(ctx, msg, send, rest, uid, uname, is_owner):

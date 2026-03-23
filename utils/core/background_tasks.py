@@ -584,14 +584,33 @@ async def run_village_raid(bot_ctx, channel):
     contributions.sort(key=lambda x: x[2], reverse=True)
 
     avg = sum(c[2] for c in contributions) / len(contributions)
+    OUTCOMES_DECISIVE = [
+        "The attackers are routed decisively. The Whisperwood falls silent.",
+        "Clean. The defenders held the perimeter without giving ground. Whatever came out of the wood went back into it.",
+        "Decisive repulsion. The creatures didn't make it past the square's edge.",
+        "Not even close. Oakhaven's defenders broke the assault before it fully formed.",
+    ]
+    OUTCOMES_HARD = [
+        "Hard-fought. The creatures are driven off, but not without cost.",
+        "The line held, barely. The attackers retreat into the treeline.",
+        "A grinding defense. Oakhaven stands, though not without bruises.",
+        "They pushed back. It took everything, but the square is clear.",
+    ]
+    OUTCOMES_RAGGED = [
+        "Ragged but sufficient. Oakhaven holds — for now.",
+        "The creatures pull back, and nobody's sure if it's victory or a pause.",
+        "The defenders held the gate. The margin was uncomfortably thin.",
+        "It's over. The square is quiet. Nobody's celebrating.",
+    ]
+
     if avg >= 16:
-        outcome = "The attackers are routed decisively. The Whisperwood falls silent."
+        outcome = OUTCOMES_DECISIVE[secrets.randbelow(len(OUTCOMES_DECISIVE))]
         color = 0x2D5A27
     elif avg >= 11:
-        outcome = "Hard-fought. The creatures retreat, leaving three of their own at the gate."
+        outcome = OUTCOMES_HARD[secrets.randbelow(len(OUTCOMES_HARD))]
         color = 0x44aa44
     else:
-        outcome = "Ragged but sufficient. Oakhaven holds — for now."
+        outcome = OUTCOMES_RAGGED[secrets.randbelow(len(OUTCOMES_RAGGED))]
         color = 0xf5c842
 
     xp_each = max(1, total_xp // len(defenders))
