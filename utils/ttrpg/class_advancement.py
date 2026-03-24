@@ -14,6 +14,16 @@ Cleric      → High Priest  | Shaman
 
 ADVANCED_CLASSES = {
     "Warrior": {
+        "Warrior": {
+            "description": "Master of arms. No tricks, just steel.",
+            "bonuses": {
+                "atk_bonus": 1,
+                "def_bonus": 1,
+                "hp_bonus": 5,
+            },
+            "flavor": "You don't need a new name. The old one was enough.",
+            "is_stay": True,
+        },
         "Paladin": {
             "description": "Holy warrior of the Silent Ones. Smites undead, heals on kill.",
             "bonuses": {
@@ -34,6 +44,16 @@ ADVANCED_CLASSES = {
         },
     },
     "Ranger": {
+        "Ranger": {
+            "description": "Seasoned tracker. Sharper senses, steadier aim.",
+            "bonuses": {
+                "atk_bonus": 1,
+                "xp_bonus_pct": 0.05,
+                "hp_bonus": 4,
+            },
+            "flavor": "The forest doesn't change. You do. That's the difference.",
+            "is_stay": True,
+        },
         "Hunter": {
             "description": "Precise predator. Critical range extended, first strike on entry.",
             "bonuses": {
@@ -54,6 +74,15 @@ ADVANCED_CLASSES = {
         },
     },
     "Mage": {
+        "Mage": {
+            "description": "Pure arcane focus. Deeper reserves, stronger fundamentals.",
+            "bonuses": {
+                "spell_atk_bonus": 2,
+                "hp_bonus": 4,
+            },
+            "flavor": "The resonance hums louder now. You've always known.<br>You just listen better.",
+            "is_stay": True,
+        },
         "Wizard": {
             "description": "Scholar of deep resonance. INT scales attack. Spells hit harder.",
             "bonuses": {
@@ -74,6 +103,16 @@ ADVANCED_CLASSES = {
         },
     },
     "Rogue": {
+        "Rogue": {
+            "description": "Survivor. Quick hands, quicker feet.",
+            "bonuses": {
+                "atk_bonus": 1,
+                "gil_bonus_pct": 0.10,
+                "hp_bonus": 3,
+            },
+            "flavor": "You've survived this long without a title. That IS the title.",
+            "is_stay": True,
+        },
         "Shadowblade": {
             "description": "Ghost with a knife. Crits more, crits harder.",
             "bonuses": {
@@ -94,6 +133,16 @@ ADVANCED_CLASSES = {
         },
     },
     "Cleric": {
+        "Cleric": {
+            "description": "Devoted healer. The old prayers still carry weight.",
+            "bonuses": {
+                "heal_mult": 1.25,
+                "def_bonus": 1,
+                "hp_bonus": 4,
+            },
+            "flavor": "The flame doesn't change. But it burns a little steadier when you're near.",
+            "is_stay": True,
+        },
         "High Priest": {
             "description": "Voice of the Silent Ones. Heals better, smites harder.",
             "bonuses": {
@@ -121,7 +170,7 @@ TITLES = {
     # Base class titles (no advanced class chosen yet)
     "Warrior":     {1: "Grunt", 3: "Soldier", 5: "Veteran", 7: "Warlord", 9: "Champion"},
     "Ranger":      {1: "Scout", 3: "Tracker", 5: "Pathfinder", 7: "Outrider", 9: "Stalker"},
-    "Mage":        {1: "Apprentice", 3: "Caster", 5: "Invoker", 7: "Arcanist", 9: "Magister"},
+    "Mage":        {1: "Apprentice", 3: "Channeler", 5: "Invoker", 7: "Arcanist", 9: "Magister"},
     "Rogue":       {1: "Cutpurse", 3: "Shadow", 5: "Blade", 7: "Phantom", 9: "Wraith"},
     "Cleric":      {1: "Novice", 3: "Acolyte", 5: "Cleric", 7: "Devout", 9: "Saint"},
     # Advanced class titles
@@ -162,7 +211,12 @@ def get_title(sheet: dict) -> str:
     advanced = sheet.get("advanced_class", "")
     base_class = sheet.get("class", "Warrior")
 
-    title_map = TITLES.get(advanced) if advanced else TITLES.get(base_class, {})
+    # "Stay" classes (advanced_class == base_class) use the base title track
+    if advanced and advanced != base_class:
+        title_map = TITLES.get(advanced, {})
+    else:
+        title_map = TITLES.get(base_class, {})
+
     if not title_map:
         return "Adventurer"
 

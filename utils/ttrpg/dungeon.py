@@ -218,11 +218,11 @@ def generate_dungeon(difficulty: int = 1, player_level: int = 1) -> dict:
 
         boss_name = generate_boss_name() if rt == R_BOSS else None
 
-        # One secret shrine per dungeon (chance increases with difficulty)
+        # One secret shrine per dungeon (chance scales with difficulty)
         is_secret_shrine = (
             rt == R_SHRINE
             and not has_secret_shrine
-            and secrets.randbelow(100) < (20 + difficulty * 15)
+            and secrets.randbelow(100) < (30 + difficulty * 20)
         )
         if is_secret_shrine:
             has_secret_shrine = True
@@ -235,6 +235,20 @@ def generate_dungeon(difficulty: int = 1, player_level: int = 1) -> dict:
             "description": ROOM_DESCRIPTIONS.get(rt, "A stone room."),
             "secret_shrine": is_secret_shrine,
         }
+
+    # --- Guarantee at least one shrine room per dungeon ---
+    has_shrine = any(r["type"] == R_SHRINE for r in rooms.values())
+    if not has_shrine:
+        # Convert a random empty room into a shrine
+        empty_keys = [k for k, r in rooms.items() if r["type"] == R_EMPTY]
+        if empty_keys:
+            chosen = empty_keys[secrets.randbelow(len(empty_keys))]
+            rooms[chosen]["type"] = R_SHRINE
+            rooms[chosen]["cleared"] = False
+            rooms[chosen]["description"] = ROOM_DESCRIPTIONS[R_SHRINE]
+            # Roll secret shrine for the forced room too
+            if not has_secret_shrine and secrets.randbelow(100) < (30 + difficulty * 20):
+                rooms[chosen]["secret_shrine"] = True
 
     return {
         "player_pos": list(START_POS),

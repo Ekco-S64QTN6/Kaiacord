@@ -67,7 +67,7 @@ def find_item(item_key: str) -> dict | None:
 
     return None
 
-def process_purchase(sheet: dict, item_key: str, quantity: int = 1, reputation: int = 0) -> tuple[bool, str, dict]:
+def process_purchase(sheet: dict, item_key: str, quantity: int = 1, reputation: int = 0, cha_mod: int = 0) -> tuple[bool, str, dict]:
     """Processes a purchase. Returns (Success, Message, Updated Sheet)"""
     if reputation < -50:
         return False, "Hemlock glares at you. 'I don't trade with outlaws. Get out.'", sheet
@@ -83,6 +83,9 @@ def process_purchase(sheet: dict, item_key: str, quantity: int = 1, reputation: 
     if reputation >= 100: price_mult = 0.8  # 20% discount
     elif reputation >= 50:  price_mult = 0.9  # 10% discount
     elif reputation < -20:  price_mult = 1.1  # 10% markup
+    # CHA discount: each +1 CHA mod = 2% discount (max 10%)
+    cha_discount = min(0.10, max(0.0, cha_mod * 0.02))
+    price_mult -= cha_discount
     
     val = int(item["value"] * quantity * price_mult)
     gil = sheet.get("gil", 0)
@@ -104,8 +107,8 @@ def process_purchase(sheet: dict, item_key: str, quantity: int = 1, reputation: 
         
     return True, msg, sheet
 
-def process_sell(sheet: dict, item_key: str, reputation: int = 0) -> tuple[bool, str, dict]:
-    """Processes a sale. Sells at 50% base value + reputation bonus."""
+def process_sell(sheet: dict, item_key: str, reputation: int = 0, cha_mod: int = 0) -> tuple[bool, str, dict]:
+    """Processes a sale. Sells at 50% base value + reputation bonus + CHA bonus."""
     if reputation < -50:
         return False, "Hemlock spits on the floor. 'I'm not buying your stolen goods.'", sheet
     
@@ -125,6 +128,9 @@ def process_sell(sheet: dict, item_key: str, reputation: int = 0) -> tuple[bool,
     if reputation >= 100: sell_mult = 0.7  # 50% base + 20% bonus
     elif reputation >= 50:  sell_mult = 0.6  # 50% base + 10% bonus
     elif reputation < -20:  sell_mult = 0.4  # 10% penalty
+    # CHA sell bonus: each +1 CHA mod = 2% better sell price (max 10%)
+    cha_bonus = min(0.10, max(0.0, cha_mod * 0.02))
+    sell_mult += cha_bonus
     
     val = max(1, int(item["value"] * sell_mult))
     sheet["inventory"].remove(item_key)

@@ -205,7 +205,9 @@ HEMLOCK_STOCK_ACCESSORIES = ["copper_ring", "warriors_bracer", "scouts_bracer", 
 HEMLOCK_STOCK_CONSUMABLES = ["healing_herb", "bandage", "tonic", "torch", "antidote"]
 
 CONSUMABLES = {
-    "adventurers_pack": {"name": "Adventurer's Pack", "hp_restore": 0, "value": 0, "on_use": "starter_kit", "description": "starter pack type !rpg use pack to open"},
+    "potion_standard": {"name": "Health Potion", "hp_restore": 25, "value": 15, "tier": 2,
+                        "description": "A standard restorative brew. Smells like copper and honey."},
+    "adventurers_pack": {"name": "Adventurer's Pack", "hp_restore": 0, "value": 0, "on_use": "starter_kit", "description": "starter pack — use to open"},
     "lightstone": {
         "name": "Lightstone",
         "value": 25,
@@ -240,6 +242,7 @@ CONSUMABLES = {
 }
 
 ALIASES = {
+    "health_potion": "potion_standard",
     "herb": "healing_herb",
     "pack": "adventurers_pack",
     "light": "lightstone",

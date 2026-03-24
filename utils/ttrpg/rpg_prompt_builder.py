@@ -148,6 +148,18 @@ Vary the topic — don't always use Aeridor or the glow. Use the full world.
 Output only the rumor text. No preamble."""
 
 
+def _cha_npc_line(context: dict) -> str:
+    """Return a CHA-influence line for NPC prompts."""
+    cha_mod = context.get("cha_mod", 0)
+    if cha_mod >= 3:
+        return "CHARISMA NOTE: This player is extremely charismatic. The NPC is warm, trusting, and may share extra information or offer a small favor."
+    elif cha_mod >= 1:
+        return "CHARISMA NOTE: This player is charming. The NPC is friendly and forthcoming."
+    elif cha_mod <= -2:
+        return "CHARISMA NOTE: This player is socially awkward. The NPC is curt and less forthcoming."
+    return ""
+
+
 def build_npc_prompt(sheet: dict, npc: dict, player_message: str, context: dict) -> str:
     char_name = sheet.get("character_name", "Traveler") if sheet else "Traveler"
     char_class = sheet.get("class", "wanderer") if sheet else "wanderer"
@@ -175,7 +187,7 @@ def build_npc_prompt(sheet: dict, npc: dict, player_message: str, context: dict)
     elif available_qs:
         quest_prompt = f"\nAVAILABLE TASKS: You have tasks for the player: "
         quest_prompt += ", ".join([f"'{q['name']}' (ID: {q['id']})" for q in available_qs])
-        quest_prompt += ". Hint at these tasks naturally (tell them to use `!rpg accept <id>`)."
+        quest_prompt += ". Hint at these tasks naturally."
     
     if npc.get("role") == "bard" or "Caelindra" in npc.get("name", ""):
         return f"""[AETHELGARD NPC: THE BARD]
@@ -222,6 +234,7 @@ PLAYER CONTEXT:
 Name: {char_name}
 Class: {char_class}
 Level: {char_level}
+{_cha_npc_line(context)}
 {blackout_context}
 
 YOUR TASK: Respond as {npc['name']} in 2-4 sentences. 

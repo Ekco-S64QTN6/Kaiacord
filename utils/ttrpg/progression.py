@@ -91,6 +91,12 @@ def check_and_reset_hunts(sheet: dict) -> dict:
             sheet["hp"]["max"] = max(1, sheet["hp"]["max"] - 3)
             sheet["hp"]["current"] = min(sheet["hp"]["current"], sheet["hp"]["max"])
 
+        # Clear ALL temporary event conditions on day reset
+        # Only preserve permanent/quest-flag conditions
+        PERMANENT_CONDITIONS = {"Blessed", "mognet_pending"}
+        conditions = sheet.get("conditions", [])
+        sheet["conditions"] = [c for c in conditions if c in PERMANENT_CONDITIONS]
+
     return sheet
 
 

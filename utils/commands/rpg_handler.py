@@ -673,79 +673,72 @@ def _make_map_view(ctx, msg, uid, uname, is_owner, loc):
 
 LOCATION_ACTIONS = {
     "oakhaven": [
-        "`!rpg look` — observe the square",
-        "`!rpg look at notice_board` — study a specific thing",
-        "`!rpg deliver` — turn in a mognet letter",
-        "`!rpg talk elara` — speak with Elder Elara",
-        "`!rpg quests` — view available quests",
-        "`!rpg map` — view the world map",
-        "`!rpg calendar` — current season & events",
-        "`!rpg weather` — today's conditions",
+        "👁️ Look — observe the square",
+        "📜 Notice Board — read community news",
+        "📦 Deliver — turn in a mognet letter",
+        "💬 Talk to Elder Elara",
+        "📋 Quests — view available quests",
+        "🗺️ Map — view the world map",
+        "📅 Calendar — current season & events",
+        "🌤️ Weather — today's conditions",
     ],
     "stone_hearth": [
-        "`!rpg rest` — full heal (5 gil)",
-        "`!rpg drink` — buy an ale, +3 temp HP (2 gil)",
-        "`!rpg gamble` — dice game, 10 gil buy-in",
-        "`!rpg rumor` — hear gossip from the bar",
-        "`!rpg talk barkeep` — speak with Mira",
-        "`!rpg talk hooded_figure` — the figure in the corner",
-        "`!rpg look` — observe the room",
-        "`!rpg look at fire` — study something specific",
+        "🛏️ Rest — full heal (5 gil)",
+        "🍺 Drink — buy an ale, +3 temp HP (2 gil)",
+        "🎲 Gamble — dice game, 10 gil buy-in",
+        "💬 Rumor — hear gossip from the bar",
+        "💬 Talk to Mira the barkeep",
+        "💬 Talk to the hooded figure",
+        "👁️ Look — observe the room",
     ],
     "hemlocks_store": [
-        "`!rpg shop` — browse Hemlock's inventory",
-        "`!rpg buy <item>` — purchase an item",
-        "`!rpg sell <item>` — sell something",
-        "`!rpg inventory` — check your gear",
-        "`!rpg talk hemlock` — speak with Hemlock",
-        "`!rpg look` — observe the shop",
-        "`!rpg look at shelves` — study something specific",
+        "🛒 Shop — browse Hemlock's inventory",
+        "💰 Buy — purchase an item",
+        "💸 Sell — sell something",
+        "🎒 Inventory — check your gear",
+        "💬 Talk to Hemlock",
+        "👁️ Look — observe the shop",
     ],
     "shrine": [
-        "`!rpg pray` — receive a daily blessing (free)",
-        "`!rpg offer <amount>` — donate gil for XP",
-        "`!rpg fountain` — sacred spring (full heal, once per day)",
-        "`!rpg look` — observe the ancient carvings",
-        "`!rpg look at flame` — study something specific",
+        "🙏 Pray — receive a daily blessing (free)",
+        "🪙 Offer — donate gil for XP",
+        "⛲ Fountain — sacred spring (full heal, once per day)",
+        "👁️ Look — observe the ancient carvings",
     ],
     "watchtower": [
-        "`!rpg scout` — preview monster activity (once/day)",
-        "`!rpg talk guard` — speak with the guards",
-        "`!rpg look` — observe the canopy from above",
+        "🔭 Scout — preview monster activity (once/day)",
+        "💬 Talk to the guards",
+        "👁️ Look — observe the canopy from above",
     ],
     "whisperwood_edge": [
-        "`!rpg hunt` — fight a random monster (costs 1 hunt)",
-        "`!rpg look` — observe the treeline",
-        "`!rpg look at tracks` — study something specific",
+        "⚔️ Hunt — fight a random monster (costs 1 hunt)",
+        "👁️ Look — observe the treeline",
     ],
     "whisperwood_deep": [
-        "`!rpg hunt` — fight a monster (lvl 4+ recommended)",
-        "`!rpg look` — observe the deep forest",
+        "⚔️ Hunt — fight a monster (lvl 4+ recommended)",
+        "👁️ Look — observe the deep forest",
     ],
     "aeridor_ruins": [
-        "`!rpg hunt` — fight a monster (lvl 7+ recommended)",
-        "`!rpg look` — observe the ruins",
-        "`!rpg look at crystals` — study something specific",
+        "⚔️ Hunt — fight a monster (lvl 7+ recommended)",
+        "👁️ Look — observe the ruins",
     ],
     "trade_road": [
-        "`!rpg hunt` — encounter a road threat (costs 1 hunt)",
-        "`!rpg look` — observe the road",
+        "⚔️ Hunt — encounter a road threat (costs 1 hunt)",
+        "👁️ Look — observe the road",
     ],
     "notice_board": [
-        "`!rpg notices` — read the latest parchment and news",
-        "`!rpg quests` — view available quests",
-        "`!rpg look` — observe the crowd at the square",
+        "📜 Notices — read the latest parchment and news",
+        "📋 Quests — view available quests",
+        "👁️ Look — observe the crowd at the square",
     ],
     "herbalists_hut": [
-        "`!rpg brew` — list recipes / brew a potion",
-        "`!rpg brew <recipe>` — brew a specific recipe",
-        "`!rpg talk maren` — speak with Sister Maren",
-        "`!rpg look` — observe the herbs and vials",
-        "`!rpg look at herbs` — study something specific",
+        "🧪 Brew — list recipes / brew a potion",
+        "💬 Talk to Sister Maren",
+        "👁️ Look — observe the herbs and vials",
     ],
     "oakhaven_bank": [
-        "`!rpg bank` — check balance, deposit, or withdraw gil",
-        "`!rpg look` — observe the coin-counting and ledger",
+        "🏦 Bank — check balance, deposit, or withdraw gil",
+        "👁️ Look — observe the coin-counting and ledger",
     ],
 }
 
@@ -952,6 +945,51 @@ class DungeonView(discord.ui.View):
         self.add_item(leave_btn)
 
         self.add_item(_make_status_btn(ctx_obj, uid, uname, is_owner, row=3))
+
+        # Use Item button — same pattern as DungeonCombatView
+        use_btn = discord.ui.Button(label="🧪 Use Item", style=discord.ButtonStyle.secondary, row=3)
+        async def _use_cb(interaction: discord.Interaction):
+            if str(interaction.user.id) != self._uid:
+                await interaction.response.send_message("not yours.", ephemeral=True)
+                return
+            sheet = await load(self._uid)
+            if not sheet:
+                await interaction.response.send_message("no character found.", ephemeral=True)
+                return
+            from utils.ttrpg.shop import find_item as _fi
+            from collections import Counter
+            inv_counts = Counter(sheet.get("inventory", []))
+            usable = []
+            for item_key, count in inv_counts.items():
+                item = _fi(item_key)
+                if not item or item["category"] != "consumable": continue
+                hp_restore = item.get("hp_restore", 0)
+                on_use = item.get("on_use", "")
+                if hp_restore > 0 or on_use in ("cure_poison", "luck_roll_bonus"):
+                    label = f"{item['name']} (+{hp_restore} HP)" if hp_restore > 0 else f"{item['name']} (cures {on_use.replace('_', ' ')})"
+                    if count > 1: label += f"  x{count}"
+                    usable.append((item_key, label[:100]))
+            if not usable:
+                await interaction.response.send_message("```\nno usable items.\n```", ephemeral=True)
+                return
+            options = [discord.SelectOption(label=label, value=key) for key, label in usable[:25]]
+            sel_view = discord.ui.View(timeout=30)
+            sel = discord.ui.Select(placeholder="Use item...", options=options, row=0)
+            async def _selected(sel_interaction: discord.Interaction):
+                if str(sel_interaction.user.id) != self._uid:
+                    await sel_interaction.response.send_message("not yours.", ephemeral=True)
+                    return
+                chosen = sel_interaction.data["values"][0]
+                await sel_interaction.response.defer()
+                fake_msg = _InteractionMsg(sel_interaction)
+                send_fn = _make_interaction_send(sel_interaction)
+                await _handle_use(self._ctx, fake_msg, send_fn, chosen, self._uid, self._uname, self._is_owner)
+            sel.callback = _selected
+            sel_view.add_item(sel)
+            hp = sheet["hp"]
+            await interaction.response.send_message(f"```\nHP: {hp['current']}/{hp['max']}\n```", view=sel_view, ephemeral=True)
+        use_btn.callback = _use_cb
+        self.add_item(use_btn)
 
 
 class DungeonCombatView(discord.ui.View):
@@ -1162,6 +1200,47 @@ async def _dungeon_combat_round(ctx_obj, interaction, uid, uname, is_owner):
         )
         view = DungeonCombatView(ctx_obj, uid, uname, is_owner, name_used)
         await interaction.followup.send(embed=embed, view=view)
+
+    # ── Kaia Narration for dungeon combat (skip on player death) ──
+    if res["player_alive"]:
+        try:
+            from utils.ttrpg.rpg_prompt_builder import build_combat_prompt
+            from utils.infrastructure.gpu.gpu_manager import OllamaGPUManager, gpu_memory_manager, GPUTaskPriority
+            from utils.infrastructure.system.yaml_config import config
+            import uuid as _uuid
+            monster_desc = monster.get("desc", monster.get("description", "A dangerous creature."))
+            truth = build_combat_prompt(
+                sheet, monster.get("name", "Enemy"), monster_desc,
+                res["player_hit"], res["player_crit"], res["player_fumble"], res.get("player_damage", 0),
+                not res["monster_defeated"], res["monster_hit"], res.get("monster_damage", 0),
+                res["player_alive"], sheet["hp"]["current"], sheet["hp"]["max"],
+                sheet["hp"]["current"] / max(1, sheet["hp"]["max"])
+            )
+            persona = await load_persona_async()
+            messages = [
+                {"role": "system", "content": f"{persona}\n\n{truth}"},
+                {"role": "user", "content": f"{uname} engages."}
+            ]
+            gpu_manager = OllamaGPUManager(config.chat_model)
+            opts = gpu_manager.get_gpu_options(for_chat=True)
+            opts["num_predict"] = 150
+            opts["temperature"] = 0.85
+            channel = interaction.channel
+            async with channel.typing():
+                nar = await gpu_memory_manager.run_with_gpu_guard(
+                    model_name=config.chat_model,
+                    priority=GPUTaskPriority.CHAT,
+                    coro=asyncio.wait_for(
+                        ctx_obj.ollama_client.chat(model=config.chat_model, messages=messages, options=opts, keep_alive=-1),
+                        timeout=45.0
+                    ),
+                    task_id=f"rpg_dungeon_{_uuid.uuid4().hex[:8]}"
+                )
+                narr = nar["message"]["content"].strip().replace("```", "")
+                if narr:
+                    await channel.send(f"*{narr}*")
+        except Exception:
+            pass  # narration is best-effort
 
 
 async def _dungeon_combat_flee(ctx_obj, interaction, uid, uname, is_owner):
@@ -1683,8 +1762,12 @@ async def _handle_status(ctx, msg, send, rest, uid, uname, is_owner):
         color = 0x2D5A27   # deep forest green - normal
         
     char_title = get_title(sheet)
-    title_suffix = f" · *{char_title}*" if char_title != "Adventurer" else ""
-    adv_class_str = sheet.get("advanced_class", "") or sheet.get("class", "")
+    base_class = sheet.get("class", "Warrior")
+    adv_class = sheet.get("advanced_class", "")
+    # Format: (Title) AdvancedClass  or  (Title) BaseClass
+    display_class = adv_class if (adv_class and adv_class != base_class) else base_class
+    title_suffix = f" · *({char_title}) {display_class}*" if char_title != "Adventurer" else f" · *{display_class}*"
+    adv_class_str = adv_class if (adv_class and adv_class != base_class) else base_class
     embed = discord.Embed(
         title=f"{CLASS_ICONS.get(sheet.get('class'), '⚔️')}  {sheet['character_name'].upper()}{title_suffix}",
         description=f"*{adv_class_str} Lv.{sheet['level']}  ·  {LOCATION_ICONS.get(loc, '🗺️')} {loc_name}*\n\n{world_info}",
@@ -2396,7 +2479,8 @@ async def _handle_buy(ctx, msg, send, rest, uid, uname, is_owner):
         quantity = 1
         item_key = rest.strip().lower()
         
-    success, purchase_msg, updated_sheet = process_purchase(sheet, item_key, quantity, sheet.get("reputation", 0))
+    cha_mod = (sheet.get("stats", {}).get("cha", 10) - 10) // 2
+    success, purchase_msg, updated_sheet = process_purchase(sheet, item_key, quantity, sheet.get("reputation", 0), cha_mod=cha_mod)
     
     if success:
         from utils.ttrpg.shop import find_item
@@ -2431,7 +2515,8 @@ async def _handle_sell(ctx, msg, send, rest, uid, uname, is_owner):
         return await msg.channel.send(embed=discord.Embed(description="Sell what? Use `!rpg inventory` for items.", color=0x888888))
         
     item_key = rest.strip().lower().replace(" ", "_")
-    success, resp_msg, updated_sheet = process_sell(sheet, item_key, sheet.get("reputation", 0))
+    cha_mod = (sheet.get("stats", {}).get("cha", 10) - 10) // 2
+    success, resp_msg, updated_sheet = process_sell(sheet, item_key, sheet.get("reputation", 0), cha_mod=cha_mod)
     
     if success:
         await save(updated_sheet)
@@ -2681,6 +2766,7 @@ async def _handle_talk(ctx, msg, send, rest, uid, uname, is_owner):
             # But we could check for an item here if we wanted.
             pass
 
+    cha_mod = (sheet.get("stats", {}).get("cha", 10) - 10) // 2 if sheet else 0
     context = {
         "season": season,
         "special_day": special_day,
@@ -2689,7 +2775,8 @@ async def _handle_talk(ctx, msg, send, rest, uid, uname, is_owner):
         "topic": topic,
         "available_quests": available_quests,
         "active_quest_info": active_quest_info,
-        "quest_progress_msg": quest_progress_msg
+        "quest_progress_msg": quest_progress_msg,
+        "cha_mod": cha_mod,
     }
     
     prompt = build_npc_prompt(sheet, npc, player_msg, context)
@@ -3329,10 +3416,10 @@ async def _handle_hunt(ctx, msg, send, rest, uid, uname, is_owner):
     if roll_for_event(loc):
         event_key = random_event(loc)
         result = resolve_event(event_key, sheet)
-        # Pay the hunt cost
-        sheet["hunts_today"] = sheet.get("hunts_today", 0) + 1
+        # Events are FREE — they don't consume a daily hunt.
+        # The player still gets their full hunts for combat XP.
         await _apply_and_narrate_event(ctx, msg, send, sheet, result, uname)
-        return  # event consumed the hunt, done
+        return  # event resolved, hunt NOT consumed
 
     # Pay hunt cost BEFORE spawn (crash-safe: hunt is consumed even if spawn fails)
     sheet["hunts_today"] = sheet.get("hunts_today", 0) + 1
@@ -3889,7 +3976,7 @@ async def _handle_gamble(ctx, msg, send, rest, uid, uname, is_owner):
 
     if sheet.get("location") != "stone_hearth":
         return await msg.channel.send(embed=discord.Embed(
-            description="The dice game only happens at the Stone Hearth.\n`!rpg go stone_hearth`", 
+            description="The dice game only happens at the Stone Hearth.", 
             color=0xcc4444
         ))
 

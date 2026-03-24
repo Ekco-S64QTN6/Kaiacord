@@ -230,3 +230,66 @@ def test_forest_event_loot():
     assert success is True
     assert "gilded_mushroom" not in updated_sheet["inventory"]
     assert updated_sheet["gil"] == 20 # 50% of 40g
+
+# ============================================================================
+# 10. Progression & Advanced Classes
+# ============================================================================
+
+def test_daily_hunts_reset():
+    """Verify check_and_reset_hunts clears non-permanent buffs."""
+    from utils.ttrpg.progression import check_and_reset_hunts
+    
+    sheet = {
+        "character_name": "Resetter",
+        "hunts_today": 5,
+        "last_hunt_date": "1999-12-31",
+        "conditions": ["battle_focus", "Blessed", "mognet_pending", "ale_warmth", "tree_memory"],
+        "hp": {"current": 30, "max": 30}
+    }
+    
+    updated = check_and_reset_hunts(sheet)
+    
+    # Hunts should be 0
+    assert updated["hunts_today"] == 0
+    # Permanent conditions should stay, temp ones should drop
+    assert "Blessed" in updated["conditions"]
+    assert "mognet_pending" in updated["conditions"]
+    assert "battle_focus" not in updated["conditions"]
+    assert "ale_warmth" not in updated["conditions"]
+    assert "tree_memory" not in updated["conditions"]
+
+def test_class_titles():
+    """Verify class titles are assigned properly at level thresholds."""
+    from utils.ttrpg.class_advancement import get_title
+    
+    # Base class thresholds
+    assert get_title({"class": "Mage", "level": 1}) == "Apprentice"
+    assert get_title({"class": "Mage", "level": 3}) == "Channeler" # Updated from Caster
+    assert get_title({"class": "Mage", "level": 5, "deaths": 1}) == "Invoker"
+    
+    # Advanced class thresholds
+    assert get_title({"class": "Warrior", "advanced_class": "Paladin", "level": 5, "deaths": 1}) == "Initiate"
+    assert get_title({"class": "Warrior", "advanced_class": "Shadowknight", "level": 9, "deaths": 1}) == "Deathbringer"
+
+# ============================================================================
+# 11. Alchemy
+# ============================================================================
+
+def test_alchemy_brewing():
+    """Verify ingredients map correctly to potions."""
+    from utils.ttrpg.alchemy import brew
+    
+    # Standard health potion (15g, 25 HP)
+    sheet = {
+        "character_name": "Brewer",
+        "inventory": ["blood_thistle", "honey_sap", "iron_sword"],
+        "recipes": ["potion"],
+        "xp": 0
+    }
+    
+    success, msg = brew(sheet, "potion")
+    assert success is True
+    assert "potion_standard" in sheet["inventory"]
+    assert "blood_thistle" not in sheet["inventory"]
+    assert "honey_sap" not in sheet["inventory"]
+    assert sheet["xp"] == 20 # Recipe XP
