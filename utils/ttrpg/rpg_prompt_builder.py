@@ -212,7 +212,12 @@ Level: {char_level}
 YOUR TASK: The player wants to hear you perform. Respond as {npc['name']}.
 Weave the TOPIC into a short, moody tavern song or poem (4-6 lines). 
 If specific names/events are in the topic, ensure they are mentioned in the lyrics.
-Respond in character. lowercase lyrics. specific. grounded.
+
+FORMAT RULES:
+- Narrate {npc['name']}'s actions and reactions in THIRD-PERSON LIMITED. "Caelindra doesn't stop playing." NOT "I don't stop playing."
+- Dialogue and song lyrics are delivered in first-person by the character.
+- NEVER use parenthetical stage directions like (I shift slightly) or (she looks up). Write it as prose instead.
+- lowercase throughout. specific. grounded.
 [END NPC CONTEXT]
 
 {char_name} approaches and says: "{player_message}"

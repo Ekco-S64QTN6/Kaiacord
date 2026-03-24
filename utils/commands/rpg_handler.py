@@ -1715,14 +1715,29 @@ async def _handle_status(ctx, msg, send, rest, uid, uname, is_owner):
     w_str  = _eq_display(eq.get("weapon"), WEAPONS, atk=True)
     a_str  = _eq_display(eq.get("armor"),  ARMOR_REG)
 
-    def _eq_name(slot_val, registry):
+    def _sub_eq_display(slot_val, registry):
         if not slot_val: return "—"
-        if isinstance(slot_val, dict): return slot_val.get("name", "?")
-        return registry.get(slot_val, {}).get("name", slot_val)
+        if isinstance(slot_val, dict):
+            data = slot_val
+        else:
+            data = registry.get(slot_val)
+        if not data: return slot_val
+        
+        name = data.get('name', slot_val)
+        atk = data.get('attack_bonus', 0)
+        dfs = data.get('defense_bonus', 0)
+        
+        stats = []
+        if atk: stats.append(f"+{atk} ATK")
+        if dfs: stats.append(f"+{dfs} DEF")
+        
+        if stats:
+            return f"{name} ({', '.join(stats)})"
+        return name
 
-    h_str  = _eq_name(eq.get("head"),      HEADGEAR)
-    b_str  = _eq_name(eq.get("boots"),     BOOTS)
-    ac_str = _eq_name(eq.get("accessory"), ACCESSORIES)
+    h_str  = _sub_eq_display(eq.get("head"),      HEADGEAR)
+    b_str  = _sub_eq_display(eq.get("boots"),     BOOTS)
+    ac_str = _sub_eq_display(eq.get("accessory"), ACCESSORIES)
     
     hunts = hunts_remaining(sheet)
     
@@ -2788,7 +2803,7 @@ async def _handle_talk(ctx, msg, send, rest, uid, uname, is_owner):
     
     gpu_manager = OllamaGPUManager(config.chat_model)
     opts = gpu_manager.get_gpu_options(for_chat=True)
-    opts["num_predict"] = 150
+    opts["num_predict"] = 300
     opts["temperature"] = 0.85
     
     async with msg.channel.typing():
@@ -3094,6 +3109,9 @@ async def _handle_inventory(ctx, msg, send, rest, uid, uname, is_owner):
     inv_counts = Counter(inventory)
     
     for key, count in inv_counts.items():
+        if key == "symbol_of_the_silent_ones":
+            continue
+            
         item = find_item(key)
         count_str = f" x{count}" if count > 1 else ""
         if item:
@@ -3102,9 +3120,20 @@ async def _handle_inventory(ctx, msg, send, rest, uid, uname, is_owner):
                 if item.get("on_use") == "starter_kit":
                     lines.append(f"**{item['name']}**{count_str} — {item.get('description', 'starter pack type !rpg use pack to open')}")
                 else:
-                    hp = item.get("hp_restore", 0)
                     val = item.get("value", 0)
-                    lines.append(f"**{item['name']}**{count_str} — restores {hp} HP  *(sell: {val // 2}g)*")
+                    hp = item.get("hp_restore", 0)
+                    if item.get("on_use") == "cure_poison":
+                        effect = "Cures poison"
+                    elif item.get("on_use") == "cure_blind":
+                        effect = "Cures blindness"
+                    elif item.get("on_use") == "luck_roll_bonus":
+                        effect = "Grants luck"
+                    elif "description" in item and hp == 0:
+                        effect = item["description"]
+                    else:
+                        effect = f"Restores {hp} HP"
+                        
+                    lines.append(f"**{item['name']}**{count_str} — {effect} *(sell: {val // 2}g)*")
             elif category == "weapon":
                 lines.append(f"**{item['name']}**{count_str} — +{item['attack_bonus']} ATK, d{item['damage_die']}  *(sell: {item['value'] // 2}g)*")
             elif category in ("armor", "head", "boots"):
@@ -3129,7 +3158,6 @@ async def _handle_inventory(ctx, msg, send, rest, uid, uname, is_owner):
         description=f"**Equipped:**\n{equipped_lines}\n\n**Backpack:**\n" + "\n".join(lines),
         color=0x8b7355
     )
-    embed.set_footer(text="!rpg use <item>  ·  !rpg equip <item>  ·  !rpg sell <item>")
     view = _make_inventory_view(ctx, msg, uid, uname, is_owner, inventory)
     await msg.channel.send(embed=embed, view=view)
 
