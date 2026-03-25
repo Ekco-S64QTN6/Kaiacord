@@ -20,9 +20,6 @@ class EmergencyContaminationFilter:
         r"\b(the state of streaming services|chain of suspicion)\b", # Tracer contamination
         # Ellipsis-fragmented affect (style bleed from literary RAG sources)
         r"^The\s+\w+.*?is\.\.\.\s+\w+\.\s+The\s+\w+.*?is\.\.\.",
-        # Stacked ellipsis-affect pattern (style lock from emoji/minimalist exchange contamination)
-        # Catches: "it's… X.\n\nit's… Y.\n\nit's… Z." repeating 3+ times
-        r"(?:it's[\u2026\.]{1,3}\s+\w[\w\s,]+\.\s*\n\n?){3,}",
         # Fabricated user observations — invented anecdotes about chat participants
         r"there\s+was\s+one\s+user.{0,20}(who|that)\s+(asked|mentioned|said|brought|posted|shared|noticed)",
         # Prose roleplay narration (first-person actions)
@@ -52,6 +49,13 @@ class EmergencyContaminationFilter:
     def filter_response(cls, response: str) -> Optional[str]:
         """Remove ANY contamination from response. If too much is removed, return None to trigger retry."""
         if not response:
+            return None
+
+        # Check for scattered ellipsis-affect spam (e.g. "it's...", "is...", "that's...")
+        # Since this affects generation globally, we check the entire response instead of line-by-line
+        affect_spams = re.findall(r"\b(?:it['’]s|is|that['’]s)[\u2026\.]", response, re.IGNORECASE)
+        if len(affect_spams) >= 3:
+            log_warning(f"[VERACITY GUARD] Too much ellipsis-affect spam ({len(affect_spams)} occurrences). Triggering full retry.")
             return None
 
         lines = response.split('\n')
@@ -149,7 +153,6 @@ class BotSpeakFilter:
         r"I\s+don't\s+have\s+personal\s+opinions",
         r"How\s+can\s+I\s+help\s+you\s+today\?",
         r"\b(sentient\s+)?digital\s+entity\b",
-        r"\b(simulation|construct|recalibrate|parsing\s+routines?)\b",
     ]
     
     # Precompiled combined patterns for efficiency
