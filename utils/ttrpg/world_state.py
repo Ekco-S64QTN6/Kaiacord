@@ -13,6 +13,7 @@ DEFAULT_STATE = {
     "def_mod": 0,
     "xp_mult": 1.0,
     "gil_mult": 1.0,
+    "caravan_active": False,
     "last_tick": 0
 }
 

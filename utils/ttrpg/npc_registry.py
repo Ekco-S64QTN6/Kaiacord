@@ -122,7 +122,23 @@ NPCS = {
             "Ask me for a song. I'll make it about you. You might not like what I notice.",
         ],
     },
+    "merchant": {
+        "name": "Traveling Merchant",
+        "location": "caravan",
+        "description": "A merchant in sun-bleached silks with a sharp eye for profit and a friendly, if brief, manner.",
+        "role": "merchant",
+        "dialogue_hook": "He looks up from a ledger, tapping a quill against his chin.",
+        "topics": [
+            "The road north? It's quiet lately. Too quiet. Even the bandits are hiding. Something's moved into the Aeridor Ruins, and it isn't friendly.",
+            "Everything I sell is Tier III. You won't find this level of craftsmanship in a muddy village like Oakhaven. Pick one piece and use it well.",
+            "We've traded from the Crystal Peaks to the Southern Sea. Aethelgard is... different. The air tastes like old magic and fresh blood.",
+            "One gear item per person. No exceptions. I've got a schedule to keep and a dozen towns waiting for a taste of the masterworks.",
+        ],
+    },
 }
+
+# Add alias
+NPCS["caravan"] = NPCS["merchant"]
 
 def get_npc(key: str) -> dict | None:
     return NPCS.get(key.lower())

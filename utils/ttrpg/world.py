@@ -4,7 +4,7 @@ LOCATION_DATA = {
         "short": "The muddy square at the heart of OakHaven. The Tricklebrook "
                  "gurgles somewhere under the bridge planks.",
         "exits": ["stone_hearth", "hemlocks_store", "shrine",
-                  "watchtower", "oakhaven_bank", "whisperwood_edge", "trade_road"],
+                  "watchtower", "oakhaven_bank", "whisperwood_edge", "trade_road", "caravan"],
         "atmosphere": "grey, damp, watchful. The smell of woodsmoke and wet earth.",
     },
     "stone_hearth": {
@@ -90,6 +90,12 @@ LOCATION_DATA = {
         "exits": ["oakhaven"],
         "atmosphere": "secure, formal, smells of old paper and copper.",
     },
+    "caravan": {
+        "name": "Corvus Road Trading Co.",
+        "short": "A large, colorful wagon with unfolding wooden panels showing tier III gear. The smell of exotic spices and fine leather hangs in the air.",
+        "exits": ["oakhaven"],
+        "atmosphere": "bustling, wealthy, temporary. The merchant watches everyone with a keen eye.",
+    },
 }
 
 def resolve_location(query: str) -> str:
@@ -122,6 +128,8 @@ def resolve_location(query: str) -> str:
         "bank":             "oakhaven_bank",
         "herbalist":        "herbalists_hut",
         "hut":              "herbalists_hut",
+        "caravan":          "caravan",
+        "merchant":         "caravan",
     }
     
     if q in aliases:

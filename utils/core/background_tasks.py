@@ -185,6 +185,9 @@ class CoreTaskManager:
                 state["weather_name"] = weather["name"]
                 state["weather_emoji"] = weather["emoji"]
                 
+                # Disable Caravan at Dawn
+                state["caravan_active"] = False
+
                 # Base modifiers from weather
                 state["atk_mod"] = 0
                 state["def_mod"] = 0
@@ -234,6 +237,11 @@ class CoreTaskManager:
                             sheet["hunts_reset_date"] = today
                             modified = True
                             reset_count += 1
+
+                        # Clear Caravan Flags
+                        if sheet.get("flags", {}).get("caravan_gear_bought"):
+                            sheet["flags"]["caravan_gear_bought"] = False
+                            modified = True
 
                         # Clear temporary conditions at dawn
                         DAWN_PERMANENT = {"blessed", "mognet_pending"}
@@ -1005,16 +1013,388 @@ async def run_spine_storm(bot_ctx, channel):
     await _log_world_event("⛈️ **Storm of the Spine** swept through Oakhaven.")
 
 async def run_caravan_arrival(bot_ctx, channel):
+    """Full caravan merchant event — tier 3 gear, 1 gear per customer, buy + talk.
+
+    Only an announcement embed is posted to the channel.  Players click
+    '🐪 Visit Caravan' to open the shop privately (ephemeral).
+    """
     import discord
+    import secrets
+    import asyncio
     from utils.infrastructure.logging.kaia_logger import log_action
-    
-    embed = discord.Embed(
-        title="🐪 A Caravan Arrives",
-        description="*A traveling merchant sets up shop in Oakhaven.*",
-        color=0x88cc88
+    from utils.ttrpg.equipment_registry import (
+        get_caravan_stock, WEAPONS, ARMOR, HEADGEAR, BOOTS, ACCESSORIES, CONSUMABLES,
     )
-    await channel.send(embed=embed)
-    log_action("Noon Event: Caravan Arrival")
+    from utils.ttrpg.shop import find_item, process_purchase
+    from utils.ttrpg.character_manager import load, save
+    from utils.commands.rpg_handler import _log_world_event
+
+    TOWN_LOCATIONS = {
+        "oakhaven", "stone_hearth", "hemlocks_store",
+        "shrine", "watchtower", "oakhaven_bank", "herbalists_hut"
+    }
+
+    CARAVAN_TALK = [
+        (
+            "The Road from Grimstone",
+            "*The merchant leans against a crate and rolls a coin across his knuckles.*\n\n"
+            "\"Three days from Grimstone. Road's worse than last season — bandits twice, "
+            "a fog that didn't move right once. The Ironclad Guild men say the Trade Road "
+            "is their jurisdiction but I didn't see a single patrol past the second mile marker.\"\n\n"
+            "*He spits.* \"Jurisdiction. Right.\""
+        ),
+        (
+            "Corvus Watch Over You",
+            "*He touches a small charm at his throat — three interlocking circles.*\n\n"
+            "\"Corvus, god of travelers and merchants. Every caravan runner carries his mark. "
+            "Not because we're devout — because the alternative is admitting we're out here alone.\"\n\n"
+            "*He glances at the Whisperwood treeline.* \"Some roads, you want someone watching.\""
+        ),
+        (
+            "News from the Coast",
+            "*The merchant sorts through a ledger while he talks.*\n\n"
+            "\"Riverbend's gone quiet. Used to be good business — boat builders, fishermen, "
+            "people who need rope and nails. Last two runs, half the stalls were closed. "
+            "A fisherman told me the Silverstream is running dark. Not muddy. Dark.\"\n\n"
+            "*He doesn't look up from the ledger.* \"I don't fish. Not my problem.\""
+        ),
+        (
+            "The Aeridor Shards",
+            "*His eyes sharpen when you mention the ruins.*\n\n"
+            "\"Shards? Oh, I'll move those. Cities pay well — universities, collectors, "
+            "the odd Ironclad Guild 'researcher.' Your man Hemlock buys them too, but he "
+            "won't say what for. Between you and me, neither will the cities.\"\n\n"
+            "*He taps his nose.* \"Good margins on mystery.\""
+        ),
+        (
+            "Whisperwood Sightings",
+            "*The merchant glances over his shoulder.*\n\n"
+            "\"Silvani on the road two nights ago. Didn't speak to us — never do. But one of them "
+            "stopped and watched the caravan pass for a full minute. My guard said they were counting "
+            "our supplies.\"\n\n"
+            "*He shrugs.* \"Silvani don't steal. But they're paying attention to something.\""
+        ),
+        (
+            "Why Limited Stock",
+            "*He gestures at the single wagon.*\n\n"
+            "\"You see one wagon. One mule. I'm not Hemlock with a storeroom — everything I carry "
+            "is what I could fit past the bandits and the fog and whatever else the road threw at me. "
+            "One piece of real gear per customer. That's the rule.\"\n\n"
+            "*He holds up a finger.* \"Consumables, sure, take what you need. But the steel? "
+            "One item. I need stock for the next town.\""
+        ),
+    ]
+
+    # ── Pre-build stock data (shared across all player views) ────────────
+    gear_keys, consumable_keys = get_caravan_stock()
+    gear_buyers = set()  # UIDs who already bought gear — shared across clicks
+
+    ALL_REGS = {
+        **{k: ("weapon", WEAPONS[k]) for k in WEAPONS},
+        **{k: ("armor", ARMOR[k]) for k in ARMOR},
+        **{k: ("head", HEADGEAR[k]) for k in HEADGEAR},
+        **{k: ("boots", BOOTS[k]) for k in BOOTS},
+        **{k: ("accessory", ACCESSORIES[k]) for k in ACCESSORIES},
+        **{k: ("consumable", CONSUMABLES[k]) for k in CONSUMABLES},
+    }
+
+    def _fmt(key):
+        cat, item = ALL_REGS[key]
+        name = item["name"]
+        val = item["value"]
+        if cat == "weapon":
+            return f"**{name}** · +{item['attack_bonus']} ATK d{item['damage_die']} · {val}g"
+        elif cat in ("armor", "head", "boots"):
+            cls = f" *({'/'.join(item['classes'])})*" if item.get("classes") else ""
+            return f"**{name}** · +{item['defense_bonus']} DEF{cls} · {val}g"
+        elif cat == "accessory":
+            parts = []
+            if item.get("defense_bonus"): parts.append(f"+{item['defense_bonus']} DEF")
+            if item.get("attack_bonus"):  parts.append(f"+{item['attack_bonus']} ATK")
+            cls = f" *({'/'.join(item['classes'])})*" if item.get("classes") else ""
+            return f"**{name}** · {', '.join(parts)}{cls} · {val}g"
+        else:
+            hp = item.get("hp_restore", 0)
+            if hp: stat = f"+{hp} HP"
+            elif item.get("description"): stat = item["description"].split(".")[0].strip()
+            else: stat = "misc"
+            return f"**{name}** · {stat} · {val}g"
+
+    def _build_shop_embed(gil=None):
+        """Build the shop embed (reused for each player visit)."""
+        cat_items = {"🗡️ Weapons": [], "🛡️ Armor": [], "🪖 Headgear": [],
+                     "👢 Boots": [], "💍 Accessories": []}
+        cat_map = {"weapon": "🗡️ Weapons", "armor": "🛡️ Armor", "head": "🪖 Headgear",
+                   "boots": "👢 Boots", "accessory": "💍 Accessories"}
+        for k in gear_keys:
+            cat, _ = ALL_REGS[k]
+            cat_items[cat_map[cat]].append(_fmt(k))
+
+        embed = discord.Embed(
+            title="🐪 Corvus Road Trading Co.",
+            description=(
+                "*Tier III goods — forged in Grimstone, tempered on the road.*\n"
+                "**⚠️ LIMIT: One gear item per customer. Consumables unlimited.**"
+            ),
+            color=0xc8a45c
+        )
+        for section, lines in cat_items.items():
+            if lines:
+                embed.add_field(name=section, value="\n".join(lines), inline=False)
+        if consumable_keys:
+            embed.add_field(
+                name="🧪 Consumables",
+                value="\n".join(_fmt(k) for k in consumable_keys),
+                inline=False
+            )
+        footer = "Select an item below to buy · 💬 Talk for road news"
+        if gil is not None:
+            footer = f"💰 Your Gil: {gil}g  ·  " + footer
+        embed.set_footer(text=footer)
+        return embed
+
+    # ── Per-player shop view (sent ephemeral on Visit click) ─────────────
+    def _make_caravan_shop_view():
+        """Create a fresh CaravanShopView — each player gets their own."""
+        view = discord.ui.View(timeout=300)  # 5 min per player session
+
+        # Gear selects (rows 0 & 1) — chunked at 25
+        chunks = [gear_keys[i:i + 25] for i in range(0, len(gear_keys), 25)]
+        for idx, chunk in enumerate(chunks):
+            if idx >= 2: break
+            options = []
+            for k in chunk:
+                item = find_item(k)
+                if not item: continue
+                options.append(discord.SelectOption(
+                    label=f"{item['name']} ({item['value']}g)"[:100], value=k
+                ))
+            if options:
+                placeholder = "⚔️ Buy gear (1 per customer)..." if idx == 0 else "⚔️ Buy gear (continued)..."
+                gear_sel = discord.ui.Select(
+                    placeholder=placeholder, options=options, row=idx
+                )
+
+                async def _buy_gear(interaction: discord.Interaction):
+                    await interaction.response.defer(ephemeral=True)
+                    uid = str(interaction.user.id)
+                    sheet = await load(uid)
+                    if not sheet:
+                        await interaction.followup.send(
+                            embed=discord.Embed(description="No character found. (`!rpg new`)", color=0xcc4444),
+                            ephemeral=True
+                        )
+                        return
+                    if sheet.get("location") not in TOWN_LOCATIONS:
+                        await interaction.followup.send(
+                            embed=discord.Embed(description="You need to be in town to buy from the caravan.", color=0xcc4444),
+                            ephemeral=True
+                        )
+                        return
+                    if uid in gear_buyers:
+                        await interaction.followup.send(
+                            embed=discord.Embed(
+                                description=(
+                                    "*The merchant shakes his head.*\n\n"
+                                    "\"One piece of gear, friend. I told you — I need stock for the next town. "
+                                    "Consumables are still open if you need supplies.\""
+                                ),
+                                color=0xcc4444
+                            ), ephemeral=True
+                        )
+                        return
+
+                    chosen = interaction.data["values"][0]
+                    cha_mod = (sheet.get("stats", {}).get("cha", 10) - 10) // 2
+                    success, purchase_msg, updated = process_purchase(
+                        sheet, chosen, 1, sheet.get("reputation", 0), cha_mod=cha_mod
+                    )
+                    if success:
+                        item = find_item(chosen)
+                        if item and item["category"] in ("weapon", "armor", "head", "boots", "accessory"):
+                            slot = item["category"]
+                            if not updated["equipment"].get(slot):
+                                updated["inventory"].remove(item["key"])
+                                updated["equipment"][slot] = item
+                                purchase_msg += f"\nAuto-equipped **{item['name']}**."
+                        await save(updated)
+                        gear_buyers.add(uid)
+                        await interaction.followup.send(
+                            embed=discord.Embed(description=f"🐪 {purchase_msg}", color=0x44aa44),
+                            ephemeral=True
+                        )
+                    else:
+                        await interaction.followup.send(
+                            embed=discord.Embed(description=purchase_msg, color=0xcc4444),
+                            ephemeral=True
+                        )
+
+                gear_sel.callback = _buy_gear
+                view.add_item(gear_sel)
+
+        # Consumable select (row 2)
+        cons_options = []
+        for k in consumable_keys:
+            item = find_item(k)
+            if not item: continue
+            cons_options.append(discord.SelectOption(
+                label=f"{item['name']} ({item['value']}g)"[:100], value=k
+            ))
+        if cons_options:
+            cons_sel = discord.ui.Select(
+                placeholder="🧪 Buy consumables...",
+                options=cons_options, row=2
+            )
+
+            async def _buy_consumable(interaction: discord.Interaction):
+                await interaction.response.defer(ephemeral=True)
+                uid = str(interaction.user.id)
+                sheet = await load(uid)
+                if not sheet:
+                    await interaction.followup.send(
+                        embed=discord.Embed(description="No character found.", color=0xcc4444),
+                        ephemeral=True
+                    )
+                    return
+                if sheet.get("location") not in TOWN_LOCATIONS:
+                    await interaction.followup.send(
+                        embed=discord.Embed(description="You need to be in town to buy from the caravan.", color=0xcc4444),
+                        ephemeral=True
+                    )
+                    return
+
+                chosen = interaction.data["values"][0]
+                cha_mod = (sheet.get("stats", {}).get("cha", 10) - 10) // 2
+                success, purchase_msg, updated = process_purchase(
+                    sheet, chosen, 1, sheet.get("reputation", 0), cha_mod=cha_mod
+                )
+                if success:
+                    await save(updated)
+                    await interaction.followup.send(
+                        embed=discord.Embed(description=f"🐪 {purchase_msg}", color=0x44aa44),
+                        ephemeral=True
+                    )
+                else:
+                    await interaction.followup.send(
+                        embed=discord.Embed(description=purchase_msg, color=0xcc4444),
+                        ephemeral=True
+                    )
+
+            cons_sel.callback = _buy_consumable
+            view.add_item(cons_sel)
+
+        # Talk button (row 3)
+        talk_btn = discord.ui.Button(
+            label="Talk", emoji="💬",
+            style=discord.ButtonStyle.secondary, row=3
+        )
+
+        async def _talk(interaction: discord.Interaction):
+            await interaction.response.defer(ephemeral=True)
+            title, body = CARAVAN_TALK[secrets.randbelow(len(CARAVAN_TALK))]
+            await interaction.followup.send(
+                embed=discord.Embed(title=f"🐪 {title}", description=body, color=0xc8a45c),
+                ephemeral=True
+            )
+
+        talk_btn.callback = _talk
+        view.add_item(talk_btn)
+        return view
+
+    # ── Arrival Announcement View (posted to channel) ────────────────────
+    class CaravanArrivalView(discord.ui.View):
+        def __init__(self):
+            super().__init__(timeout=43200)  # 12 hours
+
+            visit_btn = discord.ui.Button(
+                label="Visit Caravan", emoji="🐪",
+                style=discord.ButtonStyle.primary, row=0
+            )
+
+            async def _visit(interaction: discord.Interaction):
+                await interaction.response.defer(ephemeral=True)
+                uid = str(interaction.user.id)
+                sheet = await load(uid)
+                if not sheet:
+                    await interaction.followup.send(
+                        embed=discord.Embed(description="You don't have a character. (`!rpg new`)", color=0xcc4444),
+                        ephemeral=True
+                    )
+                    return
+                if sheet.get("location") not in TOWN_LOCATIONS:
+                    await interaction.followup.send(
+                        embed=discord.Embed(
+                            description="You need to be in town to visit the caravan. Travel to Oakhaven first.",
+                            color=0xcc4444
+                        ),
+                        ephemeral=True
+                    )
+                    return
+
+                # Send the actual shop interface as an ephemeral response
+                shop_embed = _build_shop_embed(gil=sheet.get("gil", 0))
+                shop_view = _make_caravan_shop_view()
+                await interaction.followup.send(
+                    embed=shop_embed, view=shop_view, ephemeral=True
+                )
+
+            visit_btn.callback = _visit
+            self.add_item(visit_btn)
+
+            talk_btn = discord.ui.Button(
+                label="Talk", emoji="💬",
+                style=discord.ButtonStyle.secondary, row=0
+            )
+
+            async def _talk_quick(interaction: discord.Interaction):
+                await interaction.response.defer(ephemeral=True)
+                title, body = CARAVAN_TALK[secrets.randbelow(len(CARAVAN_TALK))]
+                await interaction.followup.send(
+                    embed=discord.Embed(title=f"🐪 {title}", description=body, color=0xc8a45c),
+                    ephemeral=True
+                )
+
+            talk_btn.callback = _talk_quick
+            self.add_item(talk_btn)
+
+        async def on_timeout(self):
+            try:
+                await channel.send(embed=discord.Embed(
+                    description=(
+                        "*The merchant folds the canvas, hitches the mule, and rolls north "
+                        "without a word. By the time anyone looks, the wagon is a speck on "
+                        "the Trade Road.*\n\n"
+                        "*The caravan has departed.*"
+                    ),
+                    color=0x888888
+                ))
+            except Exception:
+                pass
+
+    # ── Post the Arrival Announcement ────────────────────────────────────
+    arrival_embed = discord.Embed(
+        title="🐪 A Caravan Arrives",
+        description=(
+            "*Tier III goods — forged in Grimstone, tempered on the road.*\n"
+            "**⚠️ LIMIT: One gear item per customer. Consumables unlimited.**\n\n"
+            "A traveling merchant sets up shop in Oakhaven.\n"
+            "*\"Grimstone masterworks! Tempered on the road, forged for the brave! Come see the Corvus Road Trading Co.!\"*"
+        ),
+        color=0xc8a45c
+    )
+    arrival_embed.set_footer(text="Merchant departs at midnight · Visit to see stock")
+    
+    view = CaravanArrivalView()
+    await channel.send(embed=arrival_embed, view=view)
+
+    # Update and Save World State
+    from utils.ttrpg.world_state import load_world_state, save_world_state
+    state = load_world_state()
+    state["caravan_active"] = True
+    save_world_state(state)
+
+    await _log_world_event("🐪 **A traveling caravan** arrived in Oakhaven — tier III goods available until midnight.")
+    log_action("Noon Event: Caravan Arrival (full merchant)")
 
 async def run_bard_performance(bot_ctx, channel):
     import discord

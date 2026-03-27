@@ -4,11 +4,26 @@ from utils.ttrpg.equipment_registry import (
     HEMLOCK_STOCK_HEADGEAR, HEMLOCK_STOCK_BOOTS, HEMLOCK_STOCK_ACCESSORIES,
 )
 
-def get_shop_inventory() -> tuple[dict, dict, dict, dict, dict, dict]:
-    """Returns available weapons, armor, headgear, boots, accessories, and consumables for Hemlock."""
+def get_shop_inventory(location: str = "hemlocks_store") -> tuple[dict, dict, dict, dict, dict, dict]:
+    """Returns available weapons, armor, headgear, boots, accessories, and consumables for a location."""
     from utils.ttrpg.calendar import get_season, SEASONAL_SHOP
-    from utils.ttrpg.equipment_registry import HEMLOCK_STOCK_CONSUMABLES
+    from utils.ttrpg.equipment_registry import (
+        HEMLOCK_STOCK_WEAPONS, HEMLOCK_STOCK_ARMOR,
+        HEMLOCK_STOCK_HEADGEAR, HEMLOCK_STOCK_BOOTS, HEMLOCK_STOCK_ACCESSORIES,
+        HEMLOCK_STOCK_CONSUMABLES, get_caravan_stock
+    )
 
+    if location == "caravan":
+        gear_keys, consumable_keys = get_caravan_stock()
+        weapons     = {k: WEAPONS[k]     for k in gear_keys if k in WEAPONS}
+        armor       = {k: ARMOR[k]       for k in gear_keys if k in ARMOR}
+        headgear    = {k: HEADGEAR[k]    for k in gear_keys if k in HEADGEAR}
+        boots       = {k: BOOTS[k]       for k in gear_keys if k in BOOTS}
+        accessories = {k: ACCESSORIES[k] for k in gear_keys if k in ACCESSORIES}
+        consumables = {k: CONSUMABLES[k] for k in consumable_keys if k in CONSUMABLES}
+        return weapons, armor, headgear, boots, accessories, consumables
+
+    # Default: Hemlock's Store
     season = get_season()
     seasonal = SEASONAL_SHOP.get(season, {})
 
@@ -69,12 +84,21 @@ def find_item(item_key: str) -> dict | None:
 
 def process_purchase(sheet: dict, item_key: str, quantity: int = 1, reputation: int = 0, cha_mod: int = 0) -> tuple[bool, str, dict]:
     """Processes a purchase. Returns (Success, Message, Updated Sheet)"""
-    if reputation < -50:
+    loc = sheet.get("location", "hemlocks_store")
+    
+    if loc == "hemlocks_store" and reputation < -50:
         return False, "Hemlock glares at you. 'I don't trade with outlaws. Get out.'", sheet
     
     item = find_item(item_key)
     if not item:
         return False, f"Item `{item_key}` not found.", sheet
+
+    # Caravan specific logic: 1 gear item limit
+    if loc == "caravan":
+        if item["category"] in ("weapon", "armor", "head", "boots", "accessory"):
+            if sheet.get("flags", {}).get("caravan_gear_bought"):
+                return False, "*The merchant shakes his head.*\n\n\"One piece of gear, friend. I need stock for the next town.\"", sheet
+            sheet.setdefault("flags", {})["caravan_gear_bought"] = True
     
     real_key = item["key"]
     
@@ -109,8 +133,11 @@ def process_purchase(sheet: dict, item_key: str, quantity: int = 1, reputation: 
 
 def process_sell(sheet: dict, item_key: str, reputation: int = 0, cha_mod: int = 0) -> tuple[bool, str, dict]:
     """Processes a sale. Sells at 50% base value + reputation bonus + CHA bonus."""
+    loc = sheet.get("location", "hemlocks_store")
     if reputation < -50:
-        return False, "Hemlock spits on the floor. 'I'm not buying your stolen goods.'", sheet
+        merchant_name = "The merchant" if loc == "caravan" else "Hemlock"
+        refusal_msg = "spits on the floor. 'I'm not buying your stolen goods.'" if loc != "caravan" else "shakes his head. 'I don't deal with your kind.'"
+        return False, f"{merchant_name} {refusal_msg}", sheet
     
     from utils.ttrpg.equipment_registry import ALIASES
     item_key = item_key.strip().lower().replace(" ", "_")

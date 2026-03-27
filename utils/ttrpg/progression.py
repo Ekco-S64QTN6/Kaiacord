@@ -103,7 +103,7 @@ def check_and_reset_hunts(sheet: dict) -> dict:
 
         # Clear ALL temporary event conditions on day reset
         # Only preserve permanent/quest-flag conditions
-        PERMANENT_CONDITIONS = {"mognet_pending"}
+        PERMANENT_CONDITIONS = {"blessed", "mognet_pending"}
         conditions = sheet.get("conditions", [])
         sheet["conditions"] = [c for c in conditions if c in PERMANENT_CONDITIONS]
 

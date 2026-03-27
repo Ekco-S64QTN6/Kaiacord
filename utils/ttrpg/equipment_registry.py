@@ -241,6 +241,30 @@ CONSUMABLES = {
     "soft":           {"name": "Soft",                "value": 12, "description": "Cures petrification.", "tier": 2},
 }
 
+def get_caravan_stock():
+    """Return tier-3 item keys split into gear and consumables for the traveling caravan."""
+    gear = []
+    consumable_keys = []
+    for k, v in WEAPONS.items():
+        if v.get("tier") == 3:
+            gear.append(k)
+    for k, v in ARMOR.items():
+        if v.get("tier") == 3:
+            gear.append(k)
+    for k, v in HEADGEAR.items():
+        if v.get("tier") == 3:
+            gear.append(k)
+    for k, v in BOOTS.items():
+        if v.get("tier") == 3:
+            gear.append(k)
+    for k, v in ACCESSORIES.items():
+        if v.get("tier") == 3:
+            gear.append(k)
+    for k, v in CONSUMABLES.items():
+        if v.get("tier") == 3:
+            consumable_keys.append(k)
+    return gear, consumable_keys
+
 ALIASES = {
     "health_potion": "potion_standard",
     "herb": "healing_herb",

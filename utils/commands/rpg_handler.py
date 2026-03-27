@@ -151,6 +151,11 @@ _LOCATION_BUTTONS: dict[str, list] = {
         ("Talk Hemlock","🧓","talk", "hemlock", discord.ButtonStyle.secondary, 0),
         ("Look", "🔎", "look", "", discord.ButtonStyle.secondary, 0),
     ],
+    "caravan": [
+        ("Shop", "🐪", "shop", "", discord.ButtonStyle.blurple, 0),
+        ("Talk Merchant", "👤", "talk", "merchant", discord.ButtonStyle.secondary, 0),
+        ("Look", "🔎", "look", "", discord.ButtonStyle.secondary, 0),
+    ],
     "shrine": [
         ("Pray", "🕯️", "pray", "", discord.ButtonStyle.secondary, 0),
         ("Fountain", "💧", "fountain", "", discord.ButtonStyle.secondary, 0),
@@ -259,7 +264,15 @@ class RPGFullLocationView(discord.ui.View):
 
         # ── Travel select (row 4 — moved down from 3) ─────────────────
         from utils.ttrpg.world import LOCATION_DATA
+        from utils.ttrpg.world_state import load_world_state
+        state = load_world_state()
+        active = state.get("caravan_active", False)
+
         all_locs = [k for k in LOCATION_DATA.keys() if k != location]
+        # Filter caravan if not active
+        if not active:
+            all_locs = [k for k in all_locs if k != "caravan"]
+
         all_locs.sort(key=lambda k: 1 if LOCATION_DATA.get(k, {}).get("hunting") else 0)
         if all_locs:
             options = []
@@ -700,6 +713,12 @@ LOCATION_ACTIONS = {
         "💬 Talk to Hemlock",
         "👁️ Look — observe the shop",
     ],
+    "caravan": [
+        "🐪 Shop — browse the merchant's tier III wares",
+        "💬 Talk — hear stories from the Trade Road",
+        "🎒 Inventory — check your gear",
+        "👁️ Look — observe the colorful wagon",
+    ],
     "shrine": [
         "🙏 Pray — receive a daily blessing (free)",
         "🪙 Offer — donate gil for XP",
@@ -747,6 +766,7 @@ LOCATION_COLORS = {
     "oakhaven":          0x8b7355,   # muddy brown — the square
     "stone_hearth":      0xc0622f,   # warm ember orange — the fire
     "hemlocks_store":    0x6b8e6b,   # muted green — herbs and iron
+    "caravan":           0xc8a45c,   # desert gold — the traveling merchant
     "shrine":            0x9b9bc8,   # pale violet — the Silent Ones
     "watchtower":        0x8aacbf,   # steel blue — sky and wood
     # ... removed notice_board ...
@@ -2400,10 +2420,8 @@ async def _handle_rumor(ctx, msg, send, rest, uid, uname, is_owner):
 async def _handle_shop(ctx, msg, send, rest, uid, uname, is_owner):
     from utils.ttrpg.shop import get_shop_inventory
     sheet = await load(uid)
-    if sheet and sheet.get("location") != "hemlocks_store":
-        return await msg.channel.send(embed=discord.Embed(description="You must be at Hemlock's Store to view inventory. (`!rpg go hemlocks_store`)", color=0xcc4444))
-        
-    weapons, armor, headgear, boots, accessories, consumables = get_shop_inventory()
+    loc = sheet.get("location", "hemlocks_store")
+    weapons, armor, headgear, boots, accessories, consumables = get_shop_inventory(loc)
 
     def _fmt_weapon(k, v):
         return f"**{v['name']}** · +{v['attack_bonus']} ATK d{v['damage_die']} · {v['value']}g"
@@ -2429,7 +2447,9 @@ async def _handle_shop(ctx, msg, send, rest, uid, uname, is_owner):
             stat = "misc"
         return f"**{v['name']}** · {stat} · {v['value']}g"
 
-    embed = discord.Embed(title="🏪 Hemlock's Store", color=0x4488cc)
+    shop_name = "🐪 Corvus Road Trading Co." if loc == "caravan" else "🏪 Hemlock's Store"
+    shop_color = LOCATION_COLORS.get(loc, 0x4488cc)
+    embed = discord.Embed(title=shop_name, color=shop_color)
 
     embed.add_field(
         name="🗡️ Weapons",
@@ -2478,8 +2498,8 @@ async def _handle_buy(ctx, msg, send, rest, uid, uname, is_owner):
     
     sheet = await load(uid)
     if not sheet: return
-    if sheet.get("location") != "hemlocks_store":
-        return await msg.channel.send(embed=discord.Embed(description="You must be at Hemlock's Store to buy items.", color=0xcc4444))
+    if sheet.get("location") not in ("hemlocks_store", "caravan"):
+        return await msg.channel.send(embed=discord.Embed(description="You must be at a merchant location to buy items.", color=0xcc4444))
         
     if not rest.strip():
         return await msg.channel.send(embed=discord.Embed(description="Buy what? Use `!rpg shop` for items.", color=0x888888))
@@ -2513,7 +2533,8 @@ async def _handle_buy(ctx, msg, send, rest, uid, uname, is_owner):
         
         await save(updated_sheet)
         from utils.ttrpg.shop import get_shop_inventory
-        weapons, armor, headgear, boots, accessories, consumables = get_shop_inventory()
+        loc = updated_sheet.get("location", "hemlocks_store")
+        weapons, armor, headgear, boots, accessories, consumables = get_shop_inventory(loc)
         shop_items = list(weapons.keys()) + list(armor.keys()) + list(headgear.keys()) + list(boots.keys()) + list(accessories.keys()) + list(consumables.keys())
         view = await _make_shop_view(ctx, msg, uid, uname, is_owner, shop_items)
         await msg.channel.send(embed=discord.Embed(description=final_msg, color=0x44aa44), view=view)
@@ -2525,8 +2546,8 @@ async def _handle_sell(ctx, msg, send, rest, uid, uname, is_owner):
     
     sheet = await load(uid)
     if not sheet: return
-    if sheet.get("location") != "hemlocks_store":
-        return await msg.channel.send(embed=discord.Embed(description="You must remain at Hemlock's Store to sell items.", color=0xcc4444))
+    if sheet.get("location") not in ("hemlocks_store", "caravan"):
+        return await msg.channel.send(embed=discord.Embed(description="You must remain at a merchant location to sell items.", color=0xcc4444))
         
     if not rest.strip():
         return await msg.channel.send(embed=discord.Embed(description="Sell what? Use `!rpg inventory` for items.", color=0x888888))
@@ -2538,7 +2559,8 @@ async def _handle_sell(ctx, msg, send, rest, uid, uname, is_owner):
     if success:
         await save(updated_sheet)
         from utils.ttrpg.shop import get_shop_inventory
-        weapons, armor, headgear, boots, accessories, consumables = get_shop_inventory()
+        loc = updated_sheet.get("location", "hemlocks_store")
+        weapons, armor, headgear, boots, accessories, consumables = get_shop_inventory(loc)
         shop_items = list(weapons.keys()) + list(armor.keys()) + list(headgear.keys()) + list(boots.keys()) + list(accessories.keys()) + list(consumables.keys())
         view = await _make_shop_view(ctx, msg, uid, uname, is_owner, shop_items)
         await msg.channel.send(embed=discord.Embed(description=resp_msg, color=0x44aa44), view=view)

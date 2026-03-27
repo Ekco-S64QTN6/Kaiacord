@@ -243,7 +243,7 @@ def test_daily_hunts_reset():
         "character_name": "Resetter",
         "hunts_today": 5,
         "last_hunt_date": "1999-12-31",
-        "conditions": ["battle_focus", "Blessed", "mognet_pending", "ale_warmth", "tree_memory"],
+        "conditions": ["battle_focus", "blessed", "mognet_pending", "ale_warmth", "tree_memory"],
         "hp": {"current": 30, "max": 30}
     }
     
@@ -252,7 +252,7 @@ def test_daily_hunts_reset():
     # Hunts should be 0
     assert updated["hunts_today"] == 0
     # Permanent conditions should stay, temp ones should drop
-    assert "Blessed" in updated["conditions"]
+    assert "blessed" in updated["conditions"]
     assert "mognet_pending" in updated["conditions"]
     assert "battle_focus" not in updated["conditions"]
     assert "ale_warmth" not in updated["conditions"]
