@@ -39,6 +39,15 @@ class EmergencyContaminationFilter:
         r"paper\s+copy",
         # Hallucinated Time Signatures (System Leaks)
         r"\[?CURRENT_TIME\]?:?.*?\d{1,2}:\d{2}",
+        # Stuttering / Fragmented Prose (Starkind Loop)
+        r"\b(?i:the)\s*[\u2026\.]{2,}\s+(?i:the)\b",
+        r"\b(?i:i[''\u2019]m)\s*[\u2026\.]{2,}\s+(?i:i[''\u2019]m)\b",
+        r"\b(?i:i)\s*[\u2026\.]{2,}\s+(?i:i)\b",
+        r"\b(?i:we)\s*[\u2026\.]{2,}\s+(?i:we)\b",
+        r"\b(?i:they)\s*[\u2026\.]{2,}\s+(?i:they)\b",
+        r"\b(?i:it[''\u2019]s)\s*[\u2026\.]{2,}\s+(?i:it[''\u2019]s)\b",
+        r"\baesthetic\s+overload\b",
+        r"recalibrat(e|ing)\s+my\s+filters",
     ]
 
     RETRY_THRESHOLD = 0.5  # If more than 50% lines contaminated, retry
@@ -53,9 +62,13 @@ class EmergencyContaminationFilter:
 
         # Check for scattered ellipsis-affect spam (e.g. "it's...", "is...", "that's...")
         # Since this affects generation globally, we check the entire response instead of line-by-line
-        affect_spams = re.findall(r"\b(?:it['’]s|is|that['’]s)[\u2026\.]", response, re.IGNORECASE)
-        if len(affect_spams) >= 3:
-            log_warning(f"[VERACITY GUARD] Too much ellipsis-affect spam ({len(affect_spams)} occurrences). Triggering full retry.")
+        # Broaden to catch any common word followed by ellipsis in a fragmented style
+        affect_spams = re.findall(r"\b(?:it[''\u2019]s|is|that[''\u2019]s|you[''\u2019]re|she[''\u2019]s|he[''\u2019]s|i[''\u2019]m|we[''\u2019]re|the|this|that|what|who|and|but|significant|pleasant|interesting|unsettling|impressive|unprecedented|efficient|overwhelming)[\u2026\.]{2,}", response, re.IGNORECASE)
+        # Also catch any word followed by ellipsis if it happens frequently
+        general_ellipses = re.findall(r"\w+[\u2026\.]{2,}", response)
+        
+        if len(affect_spams) >= 2 or len(general_ellipses) >= 2:
+            log_warning(f"[VERACITY GUARD] Too much ellipsis-affect spam (common: {len(affect_spams)}, total: {len(general_ellipses)}). Triggering full retry.")
             return None
 
         lines = response.split('\n')

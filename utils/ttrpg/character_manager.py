@@ -35,10 +35,18 @@ def _load_sync(user_id: str) -> Optional[Dict[str, Any]]:
             return json.load(f)
 
 async def load(user_id: str) -> Optional[Dict[str, Any]]:
-    """Async load with per-user locking."""
+    """Async load with per-user locking. Applies daily reset if needed."""
     lock = await get_user_lock(user_id)
     async with lock:
-        return await asyncio.to_thread(functools.partial(_load_sync, user_id))
+        sheet = await asyncio.to_thread(functools.partial(_load_sync, user_id))
+        if sheet:
+            from datetime import date
+            today = date.today().strftime("%Y-%m-%d")
+            if sheet.get("hunts_reset_date") != today:
+                from utils.ttrpg.progression import check_and_reset_hunts
+                sheet = check_and_reset_hunts(sheet)
+                await asyncio.to_thread(functools.partial(_save_sync, sheet))
+        return sheet
 
 async def load_all() -> List[Dict[str, Any]]:
     """Load every character sheet on disk. Returns a list of dicts."""

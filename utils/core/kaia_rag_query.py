@@ -52,7 +52,7 @@ class RAGQueryMixin:
         re.compile(r'(?:check|read|look at|review|open)\s+(?:the\s+)?(?:file\s+)?([\w\-\.]{10,})'),
         re.compile(r'(?:called|named)\s+([\w\-\.]{10,})'),
         re.compile(r'([\w\-]{10,}\.(?:md|txt|pdf|docx))'),
-        re.compile(r'\b(?:aquarium|setup|research|migration|report)\s+(?:research|setup|for|doc|file)?\s*(?:for\s+kaia)?\b', re.IGNORECASE),
+        re.compile(r'\b((?:aquarium|setup|research|migration|report)\s+(?:research|setup|for|doc|file)?)\s*(?:for\s+kaia)?\b', re.IGNORECASE),
     ]
 
     def _route_retrieval_strategy(self, category: str, query_lower: str, intent: Optional[Intent]) -> Dict[str, Any]:
@@ -522,7 +522,12 @@ class RAGQueryMixin:
 
             if routing["strategy"] == "SUMMARIZATION":
                 results = self._get_summarization_nodes(query_lower)
-                if results: return results
+                if results:
+                    self._last_retrieval_results = results
+                    self._last_retrieval_node_ids = []
+                    self._last_retrieval_confidence = 1.0
+                    self._last_retrieval_node_count = len(results)
+                    return results
             
             # Manifest title fast path: match query words against indexed filenames directly
             _query_words = set(re.findall(r'\w+', query_lower)) - {
@@ -552,6 +557,8 @@ class RAGQueryMixin:
                     if _fname_results:
                         self._last_retrieval_results = _fname_results
                         self._last_retrieval_node_ids = []
+                        self._last_retrieval_confidence = 1.0
+                        self._last_retrieval_node_count = len(_fname_results)
                         log_success(f"Manifest title fast path resolved {len(_fname_results)} nodes")
                         return _fname_results
 
@@ -568,6 +575,8 @@ class RAGQueryMixin:
                         if _fname_results:
                             self._last_retrieval_results = _fname_results
                             self._last_retrieval_node_ids = []
+                            self._last_retrieval_confidence = 1.0
+                            self._last_retrieval_node_count = len(_fname_results)
                             log_success(f"Filename fast path resolved {len(_fname_results)} nodes for '{_hint}'")
                             return _fname_results
                     break

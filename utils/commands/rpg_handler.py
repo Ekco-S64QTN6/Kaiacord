@@ -31,7 +31,7 @@ LOCATION ACTIONS
   !rpg bank                  — Oakhaven Bank: save/withdraw gil
   !rpg notices               — Notice Board: read community news
   !rpg scout                 — Watchtower: Preview monster activity
-  !rpg deliver               — Turn in a mognet letter (Oakhaven)
+  !rpg mail                  — Moogle Mail system (Oakhaven)
 
 COMBAT & PVP
   !rpg hunt                  — fight random monster (costs 1 hunt)
@@ -70,7 +70,8 @@ from utils.ttrpg.class_advancement import (
     apply_advanced_class_to_combat, apply_advanced_class_to_sheet,
     get_advanced_options, get_title, ADVANCED_CLASSES
 )
-from utils.ttrpg.dungeon import _scale_boss_to_level
+from utils.ttrpg.dungeon import _scale_boss_to_level, load_dungeon, save_dungeon
+from utils.ttrpg.rpg_ui import TIER_ICONS, colored_bar, hp_label, CLASS_ICONS, LOCATION_ICONS, ANSI_GREEN, ANSI_RESET
 from utils.social.kaia_social_responder import load_persona_async
 from utils.ttrpg.world import LOCATION_DATA
 from utils.ttrpg.encounter_tables import random_encounter
@@ -132,7 +133,7 @@ _LOCATION_BUTTONS: dict[str, list] = {
         ("Weather", "🌦️", "weather", "", discord.ButtonStyle.secondary, 0),
         ("Talk Elara", "🧙", "talk", "elara", discord.ButtonStyle.secondary, 1),
         ("Calendar", "📅", "calendar", "", discord.ButtonStyle.secondary, 1),
-        ("Deliver", "📬", "deliver", "", discord.ButtonStyle.secondary, 1),
+        ("Mail", "📬", "mail", "", discord.ButtonStyle.secondary, 1),
     ],
     "stone_hearth": [
         ("Rest", "🛏️", "rest", "", discord.ButtonStyle.green, 0),
@@ -238,7 +239,7 @@ class RPGFullLocationView(discord.ui.View):
             "talk": _handle_talk,
             "calendar": _handle_calendar,
             "weather": _handle_weather,
-            "deliver": _handle_deliver,
+            "mail":    _handle_mail,
             "hunts": _handle_hunts,
             "leaderboard": _handle_leaderboard,
             "dungeon": _handle_dungeon,
@@ -781,109 +782,6 @@ def _get_dungeon_loot_tier(player_level: int, is_boss: bool = False) -> str:
             return "easy"
         return "easy"
 
-def _dungeon_auto_combat(sheet, monster_key, dungeon_state, is_boss=False, boss_name=None):
-    from utils.ttrpg.monster_registry import get as get_monster
-    from utils.ttrpg.equipment_registry import WEAPONS, ARMOR
-    from utils.ttrpg.loot_tables import get_loot
-    from utils.ttrpg.shop import find_item
-
-    monster = get_monster(monster_key)
-    if not monster:
-        return {"sheet": sheet, "dungeon": dungeon_state,
-                "description": "The room is empty.", "loot_desc": ""}
-
-    CLASS_ATTACK_STAT = {"Warrior": "str", "Ranger": "dex",
-                          "Mage": "int", "Rogue": "dex", "Cleric": "wis"}
-    atk_stat = CLASS_ATTACK_STAT.get(sheet.get("class", "Warrior"), "str")
-    atk_mod = (sheet.get("stats", {}).get(atk_stat, 10) - 10) // 2
-    dex_mod = (sheet.get("stats", {}).get("dex", 10) - 10) // 2
-
-    eq = sheet.get("equipment", {})
-    def _eq(val, registry):
-        if not val: return None
-        return val if isinstance(val, dict) else registry.get(val)
-
-    weapon  = _eq(eq.get("weapon"), WEAPONS)
-    armor   = _eq(eq.get("armor"),  ARMOR)
-    weapon_bonus = weapon["attack_bonus"] if weapon else 0
-    dmg_die      = weapon["damage_die"]   if weapon else 4
-    armor_def    = armor["defense_bonus"] if armor  else 0
-    player_def   = 10 + dex_mod + armor_def
-
-    m_hp = monster["hp"]
-    p_hp = sheet["hp"]["current"]
-    log_lines = []
-
-    for _ in range(6):
-        if m_hp <= 0 or p_hp <= 1:
-            break
-        hit = secrets.randbelow(20) + 1 + atk_mod + weapon_bonus
-        if hit >= monster["defense"]:
-            dmg = max(1, secrets.randbelow(dmg_die) + 1 + atk_mod)
-            m_hp = max(0, m_hp - dmg)
-            log_lines.append(f"Hit **{dmg}**")
-        else:
-            log_lines.append("Miss")
-        if m_hp <= 0:
-            break
-        m_hit = secrets.randbelow(20) + 1 + (monster["attack"] // 3)
-        if m_hit >= player_def:
-            m_dmg = max(1, secrets.randbelow(6) + 1 + (monster["attack"] // 2))
-            p_hp = max(1, p_hp - m_dmg)
-            log_lines.append(f"**{monster['name']}** hits {m_dmg}")
-        else:
-            log_lines.append(f"**{monster['name']}** misses")
-
-    sheet["hp"]["current"] = p_hp
-    xp_earn = int(monster.get("xp", 25) * (2 if is_boss else 1))
-    gil_earn = int(monster.get("gil", 5) * (2 if is_boss else 1))
-    sheet["xp"]  = sheet.get("xp",  0) + xp_earn
-    sheet["gil"] = sheet.get("gil", 0) + gil_earn
-    dungeon_state["xp_gained"]  = dungeon_state.get("xp_gained",  0) + xp_earn
-    dungeon_state["gil_gained"] = dungeon_state.get("gil_gained", 0) + gil_earn
-
-    player_level = sheet.get("level", 1)
-
-    if is_boss:
-        # Boss: always 2 gear items from appropriate tier
-        boss_tier = _get_dungeon_loot_tier(player_level, is_boss=True)
-        loot_drops = []
-        for _ in range(2):
-            loot = get_loot(boss_tier)
-            attempts = 0
-            while not loot and attempts < 5:  # ensure we get something
-                loot = get_loot(boss_tier)
-                attempts += 1
-            if loot:
-                sheet.setdefault("inventory", []).append(loot)
-                item = find_item(loot)
-                loot_drops.append(item["name"] if item else loot)
-                dungeon_state.setdefault("loot_gained", []).append(loot)
-        loot_desc = f"🎁 **Boss drops:** {', '.join(loot_drops)}" if loot_drops else ""
-    else:
-        # Regular monster: tier 2 base, rare tier 3, ~40% chance any drop at all
-        if secrets.randbelow(10) < 4:
-            mob_tier = _get_dungeon_loot_tier(player_level, is_boss=False)
-            loot = get_loot(mob_tier)
-            if loot:
-                sheet.setdefault("inventory", []).append(loot)
-                item = find_item(loot)
-                loot_desc = f"🎁 {item['name'] if item else loot}"
-                dungeon_state.setdefault("loot_gained", []).append(loot)
-            else:
-                loot_desc = ""
-        else:
-            loot_desc = ""
-
-    outcome = "defeated" if m_hp <= 0 else "driven off — you're both bleeding"
-    name_used = boss_name if (is_boss and boss_name) else monster.get("name", "Unknown")
-    description = (
-        f"⚔️ **{name_used}** — {outcome}\n"
-        f"*{' · '.join(log_lines[:5])}*\n"
-        f"+{xp_earn} XP · +{gil_earn} Gil"
-    )
-    return {"sheet": sheet, "dungeon": dungeon_state,
-            "description": description, "loot_desc": loot_desc}
 
 
 class DungeonView(discord.ui.View):
@@ -908,9 +806,15 @@ class DungeonView(discord.ui.View):
             if d in valid:
                 async def _move(interaction, direction=d):
                     if str(interaction.user.id) != self._uid:
-                        await interaction.response.send_message("not your dungeon.", ephemeral=True)
+                        try:
+                            await interaction.response.send_message("not your dungeon.", ephemeral=True)
+                        except discord.NotFound:
+                            pass
                         return
-                    await interaction.response.defer()
+                    try:
+                        await interaction.response.defer()
+                    except discord.NotFound:
+                        pass
                     await _dungeon_move(self._ctx, interaction, self._uid,
                                         self._uname, self._is_owner, direction)
                 btn.callback = _move
@@ -920,26 +824,45 @@ class DungeonView(discord.ui.View):
         map_btn = discord.ui.Button(label="🗺️ Map", style=discord.ButtonStyle.secondary, row=3)
         async def _show_map(interaction):
             if str(interaction.user.id) != self._uid:
-                await interaction.response.send_message("not yours", ephemeral=True)
+                try:
+                    await interaction.response.send_message("not yours", ephemeral=True)
+                except discord.NotFound:
+                    pass
                 return
+            try:
+                await interaction.response.defer(ephemeral=True)
+            except discord.NotFound:
+                pass
             from utils.ttrpg.dungeon import load_dungeon, render_map
             state = load_dungeon(self._uid)
             if not state:
-                await interaction.response.send_message("no dungeon found", ephemeral=True)
+                try:
+                    await interaction.followup.send("no dungeon found", ephemeral=True)
+                except discord.NotFound:
+                    pass
                 return
-            await interaction.response.send_message(
-                embed=discord.Embed(title="🗺️ Dungeon Map",
-                                    description=render_map(state), color=0x7a6a9a),
-                ephemeral=True)
+            try:
+                await interaction.followup.send(
+                    embed=discord.Embed(title="🗺️ Dungeon Map",
+                                        description=render_map(state), color=0x7a6a9a),
+                    ephemeral=True)
+            except discord.NotFound:
+                pass
         map_btn.callback = _show_map
         self.add_item(map_btn)
 
         leave_btn = discord.ui.Button(label="🏃 Leave", style=discord.ButtonStyle.danger, row=3)
         async def _leave(interaction):
             if str(interaction.user.id) != self._uid:
-                await interaction.response.send_message("not yours", ephemeral=True)
+                try:
+                    await interaction.response.send_message("not yours", ephemeral=True)
+                except discord.NotFound:
+                    pass
                 return
-            await interaction.response.defer()
+            try:
+                await interaction.response.defer()
+            except discord.NotFound:
+                pass
             await _dungeon_leave(self._ctx, interaction, self._uid, self._uname, self._is_owner)
         leave_btn.callback = _leave
         self.add_item(leave_btn)
@@ -950,11 +873,17 @@ class DungeonView(discord.ui.View):
         use_btn = discord.ui.Button(label="🧪 Use Item", style=discord.ButtonStyle.secondary, row=3)
         async def _use_cb(interaction: discord.Interaction):
             if str(interaction.user.id) != self._uid:
-                await interaction.response.send_message("not yours.", ephemeral=True)
+                try:
+                    await interaction.response.send_message("not yours.", ephemeral=True)
+                except discord.NotFound:
+                    pass
                 return
             sheet = await load(self._uid)
             if not sheet:
-                await interaction.response.send_message("no character found.", ephemeral=True)
+                try:
+                    await interaction.response.send_message("no character found.", ephemeral=True)
+                except discord.NotFound:
+                    pass
                 return
             from utils.ttrpg.shop import find_item as _fi
             from collections import Counter
@@ -970,24 +899,36 @@ class DungeonView(discord.ui.View):
                     if count > 1: label += f"  x{count}"
                     usable.append((item_key, label[:100]))
             if not usable:
-                await interaction.response.send_message("```\nno usable items.\n```", ephemeral=True)
+                try:
+                    await interaction.response.send_message("```\nno usable items.\n```", ephemeral=True)
+                except discord.NotFound:
+                    pass
                 return
             options = [discord.SelectOption(label=label, value=key) for key, label in usable[:25]]
             sel_view = discord.ui.View(timeout=30)
             sel = discord.ui.Select(placeholder="Use item...", options=options, row=0)
             async def _selected(sel_interaction: discord.Interaction):
                 if str(sel_interaction.user.id) != self._uid:
-                    await sel_interaction.response.send_message("not yours.", ephemeral=True)
+                    try:
+                        await sel_interaction.response.send_message("not yours.", ephemeral=True)
+                    except discord.NotFound:
+                        pass
                     return
                 chosen = sel_interaction.data["values"][0]
-                await sel_interaction.response.defer()
+                try:
+                    await sel_interaction.response.defer()
+                except discord.NotFound:
+                    pass
                 fake_msg = _InteractionMsg(sel_interaction)
                 send_fn = _make_interaction_send(sel_interaction)
                 await _handle_use(self._ctx, fake_msg, send_fn, chosen, self._uid, self._uname, self._is_owner)
             sel.callback = _selected
             sel_view.add_item(sel)
             hp = sheet["hp"]
-            await interaction.response.send_message(f"```\nHP: {hp['current']}/{hp['max']}\n```", view=sel_view, ephemeral=True)
+            try:
+                await interaction.response.send_message(f"```\nHP: {hp['current']}/{hp['max']}\n```", view=sel_view, ephemeral=True)
+            except discord.NotFound:
+                pass
         use_btn.callback = _use_cb
         self.add_item(use_btn)
 
@@ -1005,9 +946,15 @@ class DungeonCombatView(discord.ui.View):
         atk_btn = discord.ui.Button(label="⚔️ Attack", style=discord.ButtonStyle.danger, row=0)
         async def _atk_cb(interaction: discord.Interaction):
             if str(interaction.user.id) != self._uid:
-                await interaction.response.send_message("not your fight.", ephemeral=True)
+                try:
+                    await interaction.response.send_message("not your fight.", ephemeral=True)
+                except discord.NotFound:
+                    pass
                 return
-            await interaction.response.defer()
+            try:
+                await interaction.response.defer()
+            except discord.NotFound:
+                pass
             await _dungeon_combat_round(self._ctx, interaction, self._uid, self._uname, self._is_owner)
         atk_btn.callback = _atk_cb
         self.add_item(atk_btn)
@@ -1015,9 +962,15 @@ class DungeonCombatView(discord.ui.View):
         flee_btn = discord.ui.Button(label="🏃 Flee", style=discord.ButtonStyle.secondary, row=0)
         async def _flee_cb(interaction: discord.Interaction):
             if str(interaction.user.id) != self._uid:
-                await interaction.response.send_message("not your fight.", ephemeral=True)
+                try:
+                    await interaction.response.send_message("not your fight.", ephemeral=True)
+                except discord.NotFound:
+                    pass
                 return
-            await interaction.response.defer()
+            try:
+                await interaction.response.defer()
+            except discord.NotFound:
+                pass
             await _dungeon_combat_flee(self._ctx, interaction, self._uid, self._uname, self._is_owner)
         flee_btn.callback = _flee_cb
         self.add_item(flee_btn)
@@ -1025,11 +978,17 @@ class DungeonCombatView(discord.ui.View):
         use_btn = discord.ui.Button(label="🧪 Use Item", style=discord.ButtonStyle.secondary, row=0)
         async def _use_cb(interaction: discord.Interaction):
             if str(interaction.user.id) != self._uid:
-                await interaction.response.send_message("not yours.", ephemeral=True)
+                try:
+                    await interaction.response.send_message("not yours.", ephemeral=True)
+                except discord.NotFound:
+                    pass
                 return
             sheet = await load(self._uid)
             if not sheet:
-                await interaction.response.send_message("no character found.", ephemeral=True)
+                try:
+                    await interaction.response.send_message("no character found.", ephemeral=True)
+                except discord.NotFound:
+                    pass
                 return
             from utils.ttrpg.shop import find_item as _fi
             from collections import Counter
@@ -1045,24 +1004,36 @@ class DungeonCombatView(discord.ui.View):
                     if count > 1: label += f"  x{count}"
                     usable.append((item_key, label[:100]))
             if not usable:
-                await interaction.response.send_message("```\nno usable items.\n```", ephemeral=True)
+                try:
+                    await interaction.response.send_message("```\nno usable items.\n```", ephemeral=True)
+                except discord.NotFound:
+                    pass
                 return
             options = [discord.SelectOption(label=label, value=key) for key, label in usable[:25]]
             sel_view = discord.ui.View(timeout=30)
             sel = discord.ui.Select(placeholder="Use item...", options=options, row=0)
             async def _selected(sel_interaction: discord.Interaction):
                 if str(sel_interaction.user.id) != self._uid:
-                    await sel_interaction.response.send_message("not yours.", ephemeral=True)
+                    try:
+                        await sel_interaction.response.send_message("not yours.", ephemeral=True)
+                    except discord.NotFound:
+                        pass
                     return
                 chosen = sel_interaction.data["values"][0]
-                await sel_interaction.response.defer()
+                try:
+                    await sel_interaction.response.defer()
+                except discord.NotFound:
+                    pass
                 fake_msg = _InteractionMsg(sel_interaction)
                 send_fn = _make_interaction_send(sel_interaction)
                 await _handle_use(self._ctx, fake_msg, send_fn, chosen, self._uid, self._uname, self._is_owner)
             sel.callback = _selected
             sel_view.add_item(sel)
             hp = sheet["hp"]
-            await interaction.response.send_message(f"```\nHP: {hp['current']}/{hp['max']}\n```", view=sel_view, ephemeral=True)
+            try:
+                await interaction.response.send_message(f"```\nHP: {hp['current']}/{hp['max']}\n```", view=sel_view, ephemeral=True)
+            except discord.NotFound:
+                pass
         use_btn.callback = _use_cb
         self.add_item(use_btn)
 
@@ -1101,16 +1072,7 @@ async def _dungeon_combat_round(ctx_obj, interaction, uid, uname, is_owner):
     sheet = res["sheet"]
     monster = res["monster"]
 
-    # Apply advanced class passive bonuses
-    adv_mods = apply_advanced_class_to_combat(
-        sheet, res.get("player_damage", 0), res["player_hit"],
-        res["player_crit"], res.get("monster_damage", 0),
-        monster, res["monster_defeated"]
-    )
-    if adv_mods["heal_amount"] and res["player_alive"]:
-        sheet["hp"]["current"] = min(sheet["hp"]["max"], sheet["hp"]["current"] + adv_mods["heal_amount"])
-    if adv_mods["extra_log"]:
-        res["exchanges"].extend(adv_mods["extra_log"])
+    # Advanced class bonuses are already applied inside _resolve_combat()
 
     exchange_text = "\n".join(res["exchanges"])
     loot_text = ""
@@ -1135,12 +1097,23 @@ async def _dungeon_combat_round(ctx_obj, interaction, uid, uname, is_owner):
             drops = []
             for _ in range(2):
                 loot = get_loot(tier)
+                attempts = 0
+                while not loot and attempts < 5:
+                    loot = get_loot(tier)
+                    attempts += 1
                 if loot:
                     sheet.setdefault("inventory", []).append(loot)
                     item = find_item(loot)
                     drops.append(item["name"] if item else loot)
                     state.setdefault("loot_gained", []).append(loot)
-            if drops: loot_text = f"\n🎁 **Boss drops:** {', '.join(drops)}"
+            if drops:
+                loot_text = f"\n🎁 **Boss drops:** {', '.join(drops)}"
+            else:
+                # Guaranteed fallback: gil payout if loot table still produces nothing
+                bonus_gil = 25
+                sheet["gil"] = sheet.get("gil", 0) + bonus_gil
+                state["gil_gained"] = state.get("gil_gained", 0) + bonus_gil
+                loot_text = f"\n💰 No material loot, but the corpse yields **{bonus_gil} gil**."
         elif secrets.randbelow(10) < 4:
             loot = get_loot(tier)
             if loot:
@@ -1159,10 +1132,14 @@ async def _dungeon_combat_round(ctx_obj, interaction, uid, uname, is_owner):
         await save(sheet)
         save_dungeon(uid, state)
 
-        embed = discord.Embed(title="⚔️ Victory", description=exchange_text, color=0x2D5A27)
-        # Return to normal dungeon navigation
-        view = DungeonView(ctx_obj, uid, uname, is_owner, state)
-        await interaction.followup.send(embed=embed, view=view)
+        if is_boss:
+            # Boss dead — finalize the dungeon run
+            await _dungeon_complete(ctx_obj, interaction, uid, uname, is_owner,
+                                    state, sheet, leveled, new_level)
+        else:
+            embed = discord.Embed(title="⚔️ Victory", description=exchange_text, color=0x2D5A27)
+            view = DungeonView(ctx_obj, uid, uname, is_owner, state)
+            await interaction.followup.send(embed=embed, view=view)
 
     elif not res["player_alive"]:
         # Player defeated in dungeon
@@ -1201,46 +1178,8 @@ async def _dungeon_combat_round(ctx_obj, interaction, uid, uname, is_owner):
         view = DungeonCombatView(ctx_obj, uid, uname, is_owner, name_used)
         await interaction.followup.send(embed=embed, view=view)
 
-    # ── Kaia Narration for dungeon combat (skip on player death) ──
-    if res["player_alive"]:
-        try:
-            from utils.ttrpg.rpg_prompt_builder import build_combat_prompt
-            from utils.infrastructure.gpu.gpu_manager import OllamaGPUManager, gpu_memory_manager, GPUTaskPriority
-            from utils.infrastructure.system.yaml_config import config
-            import uuid as _uuid
-            monster_desc = monster.get("desc", monster.get("description", "A dangerous creature."))
-            truth = build_combat_prompt(
-                sheet, monster.get("name", "Enemy"), monster_desc,
-                res["player_hit"], res["player_crit"], res["player_fumble"], res.get("player_damage", 0),
-                not res["monster_defeated"], res["monster_hit"], res.get("monster_damage", 0),
-                res["player_alive"], sheet["hp"]["current"], sheet["hp"]["max"],
-                sheet["hp"]["current"] / max(1, sheet["hp"]["max"])
-            )
-            persona = await load_persona_async()
-            messages = [
-                {"role": "system", "content": f"{persona}\n\n{truth}"},
-                {"role": "user", "content": f"{uname} engages."}
-            ]
-            gpu_manager = OllamaGPUManager(config.chat_model)
-            opts = gpu_manager.get_gpu_options(for_chat=True)
-            opts["num_predict"] = 150
-            opts["temperature"] = 0.85
-            channel = interaction.channel
-            async with channel.typing():
-                nar = await gpu_memory_manager.run_with_gpu_guard(
-                    model_name=config.chat_model,
-                    priority=GPUTaskPriority.CHAT,
-                    coro=asyncio.wait_for(
-                        ctx_obj.ollama_client.chat(model=config.chat_model, messages=messages, options=opts, keep_alive=-1),
-                        timeout=45.0
-                    ),
-                    task_id=f"rpg_dungeon_{_uuid.uuid4().hex[:8]}"
-                )
-                narr = nar["message"]["content"].strip().replace("```", "")
-                if narr:
-                    await channel.send(f"*{narr}*")
-        except Exception:
-            pass  # narration is best-effort
+    # Kaia narration removed from dungeon combat — too many GPU calls
+    # and typing indicators cause Discord rate limits with concurrent players.
 
 
 async def _dungeon_combat_flee(ctx_obj, interaction, uid, uname, is_owner):
@@ -1273,6 +1212,35 @@ async def _send_dungeon_room(ctx_obj, channel, uid, uname, is_owner, dungeon,
     px, py = dungeon["player_pos"]
     room   = dungeon["rooms"].get(f"{px},{py}", {})
     rt     = room.get("type", "empty")
+
+    # [RESUMPTION] Check if combat is active in this room
+    ac = dungeon.get("active_combat")
+    if ac and ac.get("room_key") == f"{px},{py}":
+        monster = ac["monster"]
+        monster_key = ac["monster_key"]
+        is_boss = ac.get("is_boss", False)
+        name_used = ac.get("boss_name") or monster.get("name", "Unknown")
+        
+        # Resumption uses global imports now
+        tier_icon = TIER_ICONS.get(monster.get("tier", "medium"), "🟠")
+        hp_obj = monster.get("hp", {"current": 0, "max": 0})
+        
+        embed = discord.Embed(
+            title=f"{'💀' if is_boss else '⚔️'} {name_used} {tier_icon} (Resumed)",
+            description=f"*{room.get('description','A stone room.')}*\n\n*{monster.get('desc', '')}*",
+            color=0x8B0000 if is_boss else 0xFF4500,
+        )
+        embed.add_field(name="❤️ Monster HP", value=f"{hp_obj['current']}/{hp_obj['max']}", inline=True)
+        embed.add_field(name="🗡️ ATK", value=str(monster.get("attack", 0)), inline=True)
+        embed.add_field(name="🛡️ DEF", value=str(monster.get("defense", 0)), inline=True)
+        
+        sheet = await load(uid)
+        if sheet:
+            embed.set_footer(text=f"Your HP: {sheet['hp']['current']}/{sheet['hp']['max']}")
+
+        view = DungeonCombatView(ctx_obj, uid, uname, is_owner, name_used)
+        await channel.send(embed=embed, view=view)
+        return
 
     sheet  = await load(uid)
     hp_str = f"❤️ {sheet['hp']['current']}/{sheet['hp']['max']} HP" if sheet else ""
@@ -1334,6 +1302,13 @@ async def _dungeon_move(ctx_obj, interaction, uid, uname, is_owner, direction):
 
     if not room.get("cleared", False):
         if rt in (R_MONSTER, R_BOSS):
+            # [RESUMPTION] Check if we are ALREADY fighting this room
+            ac = state.get("active_combat")
+            if ac and ac.get("room_key") == nk:
+                # Combat already initialized, just send the room (it will auto-resume in _send_dungeon_room)
+                await _send_dungeon_room(ctx_obj, interaction.channel, uid, uname, is_owner, state)
+                return
+
             # Spawn the monster and store it for interactive combat
             monster_key = room.get("monster_key", "goblin")
             monster = get_monster(monster_key)
@@ -1360,7 +1335,6 @@ async def _dungeon_move(ctx_obj, interaction, uid, uname, is_owner, direction):
                 await save(sheet)
                 save_dungeon(uid, state)
 
-                from utils.ttrpg.rpg_ui import TIER_ICONS
                 tier_icon = TIER_ICONS.get(monster.get("tier", "medium"), "🟠")
                 name_used = room.get("boss_name") if is_boss else monster.get("name", "Unknown")
                 desc = room.get("description", "Something is here.")
@@ -1523,7 +1497,7 @@ async def _dungeon_leave(ctx_obj, interaction, uid, uname, is_owner):
 
 
 async def _handle_dungeon(ctx, msg, send, rest, uid, uname, is_owner):
-    from utils.ttrpg.dungeon import generate_dungeon, save_dungeon, load_dungeon
+    from utils.ttrpg.dungeon import generate_dungeon, save_dungeon, load_dungeon, DUNGEON_THEMES
 
     # Resume existing run
     existing = load_dungeon(uid)
@@ -1571,17 +1545,26 @@ async def _handle_dungeon(ctx, msg, send, rest, uid, uname, is_owner):
     sheet["hunts_today"] = sheet.get("hunts_today", 0) + ENTRY_HUNTS
     await save(sheet)
 
-    difficulty = max(1, min(3, (sheet["level"] - 1) // 3 + 1))
-    dungeon = generate_dungeon(difficulty, player_level=sheet["level"])
+    loc = sheet.get("location", "whisperwood_edge")
+    from utils.ttrpg.dungeon import LOCATION_DIFFICULTY_BONUS
+    loc_diff_bonus = LOCATION_DIFFICULTY_BONUS.get(loc, 0)
+    difficulty = max(1, min(3, (sheet["level"] - 1) // 3 + 1 + loc_diff_bonus))
+    dungeon = generate_dungeon(difficulty, player_level=sheet["level"], location=loc)
     save_dungeon(uid, dungeon)
 
+    theme_key  = dungeon.get("theme_key", "undead")
+    theme_data = DUNGEON_THEMES.get(theme_key, {})
+    t_emoji    = theme_data.get("emoji", "🏚️")
+    t_name     = theme_data.get("name", "Unknown Depths")
+    t_flavor   = theme_data.get("flavor", "Something waits in the dark.")
+
     await msg.channel.send(embed=discord.Embed(
-        title="🏚️ Entering the Ruins",
+        title=f"{t_emoji} {t_name}",
         description=(
-            "*A breach in the Aeridor stone — a gap that wasn't here yesterday.*\n\n"
-            "Cold air from below. The sound of something shifting.*\n\n"
-            f"*Cost: {ENTRY_HUNTS} hunts. Navigate with the buttons. "
-            f"Healing supplies are your lifeline.*{torch_line}"
+            f"*{t_flavor}*\n\n"
+            f"*Difficulty: {'⬛' * difficulty}{'░' * (3 - difficulty)}  ·  "
+            f"Cost: {ENTRY_HUNTS} hunts*"
+            f"{torch_line}"
         ),
         color=0x7a6a9a,
     ))
@@ -1632,7 +1615,7 @@ async def handle_rpg_command(ctx, msg, send_kaia_response):
         "pray":      _handle_pray,
         "offer":     _handle_offer,
         "scout":     _handle_scout,
-        "deliver":   _handle_deliver,
+        "mail":      _handle_mail,
         "fountain":  _handle_fountain,
         "leaderboard": _handle_leaderboard,
         "lb":        _handle_leaderboard,
@@ -1669,7 +1652,7 @@ async def handle_rpg_command(ctx, msg, send_kaia_response):
 
 async def _handle_status(ctx, msg, send, rest, uid, uname, is_owner):
     from utils.ttrpg.world import LOCATION_DATA
-    from utils.ttrpg.rpg_ui import colored_bar, hp_label, CLASS_ICONS, LOCATION_ICONS, ANSI_GREEN, ANSI_RESET
+    # Resumption uses global imports now
     
     sheet = await load(uid)
     if not sheet:
@@ -1699,6 +1682,21 @@ async def _handle_status(ctx, msg, send, rest, uid, uname, is_owner):
     gil = sheet.get("gil", 0)
     
     from utils.ttrpg.equipment_registry import WEAPONS, ARMOR as ARMOR_REG, HEADGEAR, BOOTS, ACCESSORIES
+    
+    # [RESUMPTION] Detect if we should add a "Resume Encounter" nudge
+    resume_desc = ""
+    chan_id = str(msg.channel.id)
+    session = await load_session(chan_id)
+    if session and session.get("combat_active"):
+        # Check if author is in this fight
+        mine = [m for m in session.get("monsters", []) if isinstance(m, dict) and m.get("aggro_uid") == uid]
+        if mine:
+            resume_desc = f"\n\n⚔️ **You are currently in combat here!**\nUse `!rpg hunt` to re-open the interface."
+    
+    # Resumption logic
+    dungeon = load_dungeon(uid)
+    if dungeon and dungeon.get("active"):
+        resume_desc += f"\n\n🏚️ **You are currently in a dungeon!**\nUse `!rpg dungeon` to resume exploring."
 
     def _eq_display(slot_val, registry, atk=False):
         if not slot_val: return "Unarmed" if atk else "Unarmored"
@@ -1785,7 +1783,7 @@ async def _handle_status(ctx, msg, send, rest, uid, uname, is_owner):
     adv_class_str = adv_class if (adv_class and adv_class != base_class) else base_class
     embed = discord.Embed(
         title=f"{CLASS_ICONS.get(sheet.get('class'), '⚔️')}  {sheet['character_name'].upper()}{title_suffix}",
-        description=f"*{adv_class_str} Lv.{sheet['level']}  ·  {LOCATION_ICONS.get(loc, '🗺️')} {loc_name}*\n\n{world_info}",
+        description=f"*{adv_class_str} Lv.{sheet['level']}  ·  {LOCATION_ICONS.get(loc, '🗺️')} {loc_name}*\n\n{world_info}{resume_desc}",
         color=color
     )
     
@@ -2514,7 +2512,11 @@ async def _handle_buy(ctx, msg, send, rest, uid, uname, is_owner):
                 final_msg += f"\nAuto-equipped **{item['name']}**."
         
         await save(updated_sheet)
-        await msg.channel.send(embed=discord.Embed(description=final_msg, color=0x44aa44))
+        from utils.ttrpg.shop import get_shop_inventory
+        weapons, armor, headgear, boots, accessories, consumables = get_shop_inventory()
+        shop_items = list(weapons.keys()) + list(armor.keys()) + list(headgear.keys()) + list(boots.keys()) + list(accessories.keys()) + list(consumables.keys())
+        view = await _make_shop_view(ctx, msg, uid, uname, is_owner, shop_items)
+        await msg.channel.send(embed=discord.Embed(description=final_msg, color=0x44aa44), view=view)
     else:
         await msg.channel.send(embed=discord.Embed(description=purchase_msg, color=0xcc4444))
 
@@ -2535,10 +2537,13 @@ async def _handle_sell(ctx, msg, send, rest, uid, uname, is_owner):
     
     if success:
         await save(updated_sheet)
-        color = 0x44aa44
+        from utils.ttrpg.shop import get_shop_inventory
+        weapons, armor, headgear, boots, accessories, consumables = get_shop_inventory()
+        shop_items = list(weapons.keys()) + list(armor.keys()) + list(headgear.keys()) + list(boots.keys()) + list(accessories.keys()) + list(consumables.keys())
+        view = await _make_shop_view(ctx, msg, uid, uname, is_owner, shop_items)
+        await msg.channel.send(embed=discord.Embed(description=resp_msg, color=0x44aa44), view=view)
     else:
-        color = 0xcc4444
-    await msg.channel.send(embed=discord.Embed(description=resp_msg, color=color))
+        await msg.channel.send(embed=discord.Embed(description=resp_msg, color=0xcc4444))
 
 async def _handle_calendar(ctx, msg, send, rest, uid, uname, is_owner):
     from utils.ttrpg.calendar import get_today_summary, SPECIAL_DAYS
@@ -2701,7 +2706,7 @@ async def _handle_talk(ctx, msg, send, rest, uid, uname, is_owner):
     quest_progress_msg = ""
     
     if sheet:
-        # Check for available quests
+        # 1. Available Quests
         all_npc_quests = get_npc_quests(npc_key)
         completed = sheet.get("completed_quests", [])
         for q in all_npc_quests:
@@ -2709,70 +2714,69 @@ async def _handle_talk(ctx, msg, send, rest, uid, uname, is_owner):
                 if sheet["level"] >= q["requirements"].get("level", 1):
                     available_quests.append(q)
                     
-        # Check active quest
+        # 2. Active Quest Progress & Completion
         active_id = sheet.get("active_quest")
         if active_id:
             q = get_quest(active_id)
             if q and q["npc"] == npc_key:
                 active_quest_info = q
-                # Calculate progress message
-                prog = sheet.get("quest_progress", {}).get(active_id, [])
-                total = len(q["tasks"])
-                quest_progress_msg = f"{len(prog)}/{total} tasks done: {', '.join(prog)}"
                 
-        # Update progress (Talk tasks)
-        if active_id:
-            q = get_quest(active_id)
-            if q:
+                # Update progress if this is a talk task
                 task_id = f"talk_{npc_key}"
+                prog = sheet.setdefault("quest_progress", {}).setdefault(active_id, [])
                 if task_id in q["tasks"]:
-                    prog = sheet.setdefault("quest_progress", {}).setdefault(active_id, [])
                     if task_id not in prog:
                         prog.append(task_id)
-                        if all(t in prog for t in q["tasks"]):
-                            # Complete — apply rewards
-                            xp_reward  = q["rewards"].get("xp", 0)
-                            gil_reward = q["rewards"].get("gil", 0)
-                            sheet["xp"]  = sheet.get("xp",  0) + xp_reward
-                            sheet["gil"] = sheet.get("gil", 0) + gil_reward
 
-                            if "item" in q["rewards"]:
-                                sheet.setdefault("inventory", []).append(q["rewards"]["item"])
-                            if "recipe" in q["rewards"]:
-                                rk = q["rewards"]["recipe"]
-                                if rk not in sheet.setdefault("recipes", []):
-                                    sheet.setdefault("recipes", []).append(rk)
+                # Check for completion (even if talk task was already done)
+                if all(t in prog for t in q["tasks"]):
+                    # Complete — apply rewards
+                    xp_reward  = q["rewards"].get("xp", 0)
+                    gil_reward = q["rewards"].get("gil", 0)
+                    sheet["xp"]  = sheet.get("xp",  0) + xp_reward
+                    sheet["gil"] = sheet.get("gil", 0) + gil_reward
 
-                            sheet["active_quest"] = None
-                            sheet.setdefault("completed_quests", []).append(active_id)
-                            await save(sheet)
+                    if "item" in q["rewards"]:
+                        sheet.setdefault("inventory", []).append(q["rewards"]["item"])
+                    if "recipe" in q["rewards"]:
+                        rk = q["rewards"]["recipe"]
+                        if rk not in sheet.setdefault("recipes", []):
+                            sheet.setdefault("recipes", []).append(rk)
 
-                            leveled, new_level = check_level_up(sheet)
-                            if leveled:
-                                await save(sheet)
+                    sheet["active_quest"] = None
+                    sheet.setdefault("completed_quests", []).append(active_id)
+                    await save(sheet)
 
-                            from utils.ttrpg.progression import xp_to_next_level
-                            xp_next = xp_to_next_level(sheet["level"])
-                            completion_lines = [
-                                f"**{q['name']}** — complete.",
-                                f"+{xp_reward} XP ({sheet['xp']}/{xp_next})  ·  +{gil_reward} Gil",
-                            ]
-                            if "item" in q["rewards"]:
-                                completion_lines.append(f"🎁 Received: **{q['rewards']['item'].replace('_',' ').title()}**")
-                            if leveled:
-                                completion_lines.append(f"🎉 **Level Up! Now Lv.{new_level}!**")
+                    leveled, new_level = check_level_up(sheet)
+                    if leveled:
+                        await save(sheet)
 
-                            await msg.channel.send(embed=discord.Embed(
-                                title="✅ Quest Complete",
-                                description="\n".join(completion_lines),
-                                color=0x2ecc71
-                            ))
-                            await _log_world_event(
-                                f"✅ **{sheet['character_name']}** completed '**{q['name']}**'."
-                            )
-                            quest_progress_msg = "COMPLETED"
-                        else:
-                            await save(sheet)
+                    from utils.ttrpg.progression import xp_to_next_level
+                    xp_next = xp_to_next_level(sheet["level"])
+                    completion_lines = [
+                        f"**{q['name']}** — complete.",
+                        f"+{xp_reward} XP ({sheet['xp']}/{xp_next})  ·  +{gil_reward} Gil",
+                    ]
+                    if "item" in q["rewards"]:
+                        completion_lines.append(f"🎁 Received: **{q['rewards']['item'].replace('_',' ').title()}**")
+                    if leveled:
+                        completion_lines.append(f"🎉 **Level Up! Now Lv.{new_level}!**")
+
+                    await msg.channel.send(embed=discord.Embed(
+                        title="✅ Quest Complete",
+                        description="\n".join(completion_lines),
+                        color=0x2ecc71
+                    ))
+                    await _log_world_event(
+                        f"✅ **{sheet['character_name']}** completed '**{q['name']}**'."
+                    )
+                    quest_progress_msg = "COMPLETED"
+                else:
+                    # Not complete, show current progress
+                    total = len(q["tasks"])
+                    quest_progress_msg = f"{len(prog)}/{total} tasks done: {', '.join(prog)}"
+                    await save(sheet)
+
             
         # Generic turn-in check is covered by the talk task tracking above.
         # If an NPC has a specific inventory turn-in (like Maren), we can add it here.
@@ -3421,21 +3425,75 @@ async def _handle_hunt(ctx, msg, send, rest, uid, uname, is_owner):
                 prog = sheet.setdefault("quest_progress", {}).setdefault(active_id, [])
                 if task_id not in prog:
                     prog.append(task_id)
-                    # Note: We don't check for quest completion here (likely multiple tasks)
-                    # but we save the progress.
                     await save(sheet)
+                # Check if this hunt task completed the quest
+                if all(t in prog for t in q["tasks"]):
+                    # Complete — apply rewards inline
+                    xp_reward  = q["rewards"].get("xp", 0)
+                    gil_reward = q["rewards"].get("gil", 0)
+                    sheet["xp"]  = sheet.get("xp",  0) + xp_reward
+                    sheet["gil"] = sheet.get("gil", 0) + gil_reward
+                    if "item" in q["rewards"]:
+                        sheet.setdefault("inventory", []).append(q["rewards"]["item"])
+                    if "recipe" in q["rewards"]:
+                        rk = q["rewards"]["recipe"]
+                        if rk not in sheet.setdefault("recipes", []):
+                            sheet.setdefault("recipes", []).append(rk)
+                    sheet["active_quest"] = None
+                    sheet.setdefault("completed_quests", []).append(active_id)
+                    await save(sheet)
+                    leveled, new_level = check_level_up(sheet)
+                    if leveled:
+                        await save(sheet)
+                    from utils.ttrpg.progression import xp_to_next_level
+                    xp_next = xp_to_next_level(sheet["level"])
+                    lines = [
+                        f"**{q['name']}** — complete.",
+                        f"+{xp_reward} XP ({sheet['xp']}/{xp_next})  ·  +{gil_reward} Gil",
+                    ]
+                    if "item" in q["rewards"]:
+                        lines.append(f"🎁 Received: **{q['rewards']['item'].replace('_',' ').title()}**")
+                    if leveled:
+                        lines.append(f"🎉 **Level Up! Now Lv.{new_level}!**")
+                    await msg.channel.send(embed=discord.Embed(
+                        title="✅ Quest Complete",
+                        description="\n".join(lines),
+                        color=0x2ecc71
+                    ))
+                    await _log_world_event(
+                        f"✅ **{sheet['character_name']}** completed '**{q['name']}**'."
+                    )
 
     # Are we already fighting something?
-    my_fights = [m for m in s.get("monsters", []) if m.get("aggro_uid") == uid]
+    monsters = s.get("monsters", [])
+    my_fights = []
+    for m in monsters:
+        if isinstance(m, dict) and m.get("aggro_uid") == uid:
+            my_fights.append(m)
+
     if my_fights:
-        m_name = my_fights[0].get("name", "Unknown Monster")
-        m_key = my_fights[0].get("key", "monster")
-        combat_view = RPGCombatView(ctx, msg, uid, uname, is_owner, m_key)
-        return await msg.channel.send(embed=discord.Embed(
-            title="⚔️ Already in combat",
-            description=f"You are already fighting a **{m_name}**.\n`!rpg attack {m_key}` · `!rpg flee`",
+        m_data = my_fights[0]
+        m_name = m_data.get("name", "Unknown Monster")
+        m_key = m_data.get("key", "monster")
+        
+        # Resumption uses global imports now
+        tier_icon = TIER_ICONS.get(m_data.get("tier", "medium"), "🟠")
+        hp_obj = m_data.get("hp", {"current": 0, "max": 0})
+        
+        embed = discord.Embed(
+            title=f"⚔️ Already in combat: {m_name} {tier_icon}",
+            description=f"Picking up where you left off...\n*{m_data.get('desc', 'A dangerous creature.')}*",
             color=0xcc6622
-        ), view=combat_view)
+        )
+        # Show current health in resumption
+        hp_bar = colored_bar(hp_obj['current'], hp_obj['max'], 10)
+        embed.add_field(name="❤️ Monster HP", value=f"{hp_bar} {hp_obj['current']}/{hp_obj['max']}", inline=False)
+        embed.add_field(name="🗡️ ATK", value=str(m_data.get('attack', 0)), inline=True)
+        embed.add_field(name="🛡️ DEF", value=str(m_data.get('defense', 0)), inline=True)
+        
+        embed.set_footer(text=f"Your HP: {sheet['hp']['current']}/{sheet['hp']['max']}")
+        combat_view = RPGCombatView(ctx, msg, uid, uname, is_owner, m_key)
+        return await msg.channel.send(embed=embed, view=combat_view)
     
     # Roll for special forest event before monster spawn
     from utils.ttrpg.encounter_tables import roll_for_event, random_event
@@ -3470,7 +3528,7 @@ async def _handle_hunt(ctx, msg, send, rest, uid, uname, is_owner):
     spawned_names = []
     
     for _ in range(num_to_spawn):
-        m_key = random_encounter(loc)
+        m_key = random_encounter(loc, player_level=sheet.get("level", 1))
         m_data = get_monster(m_key)
         if not m_data: continue
         
@@ -3489,7 +3547,6 @@ async def _handle_hunt(ctx, msg, send, rest, uid, uname, is_owner):
     s["combat_active"] = True
     await save_session(s)
     
-    from utils.ttrpg.rpg_ui import TIER_ICONS
     
     rec = ld.get("recommended_level", 1)
     warn = f"⚠️ *{sheet['character_name']} is underleveled for this area.*\n" if sheet["level"] < rec - 1 else ""
@@ -3756,7 +3813,7 @@ async def _handle_attack(ctx, msg, send, rest, uid, uname, is_owner):
                 task_id=f"rpg_fight_{_uuid.uuid4().hex[:8]}"
             )
             narr = nar["message"]["content"].strip().replace("```", "")
-            if narr: await send(msg.channel, f"*{narr}*")
+            if narr: await send(msg.channel, f"```\n{narr}\n```")
         except Exception:
             pass
 
@@ -4395,49 +4452,228 @@ async def _handle_bank(ctx, msg, send, rest, uid, uname, is_owner):
     ))
 
 
-async def _handle_deliver(ctx, msg, send, rest, uid, uname, is_owner):
-    """!rpg deliver — turn in a mognet letter in Oakhaven."""
-
+async def _handle_mail(ctx, msg, send, rest, uid, uname, is_owner):
+    """!rpg mail — Moogle Mail system in Oakhaven."""
     sheet = await load(uid)
-    if not sheet:
-        return await msg.channel.send(embed=discord.Embed(description="No character found.", color=0xcc4444))
+    if not sheet: return
 
     if sheet.get("location") not in ("oakhaven", "stone_hearth"):
         return await msg.channel.send(embed=discord.Embed(
-            description="You need to be in Oakhaven to deliver the letter.",
+            description="You need to be in Oakhaven (or at the Inn) to access the Moogle Mail post.",
             color=0xcc4444
         ))
 
-    if "mognet_letter" not in sheet.get("inventory", []):
-        return await msg.channel.send(embed=discord.Embed(
-            description="You don't have a mognet letter to deliver.",
-            color=0xcc4444
-        ))
+    # 1. Existing Quest Delivery logic (Silent but rewarding)
+    if "mognet_letter" in sheet.get("inventory", []):
+        reward_gil = 25
+        reward_xp  = 20
+        sheet["inventory"].remove("mognet_letter")
+        if "mognet_pending" in sheet.get("conditions", []):
+            sheet["conditions"].remove("mognet_pending")
+        sheet["gil"] += reward_gil
+        sheet["xp"]  += reward_xp
+        leveled_up, new_level = check_level_up(sheet)
+        await save(sheet)
+        
+        xp_next = xp_to_next_level(sheet["level"])
+        quest_msg = f"📬 **Mognet letter delivered.**\n*A moogle materialises briefly, takes the letter, says 'kupo' with visible relief, and vanishes.*\n+{reward_xp} XP ({sheet['xp']}/{xp_next})  +{reward_gil} Gil"
+        await msg.channel.send(embed=discord.Embed(description=quest_msg, color=0xf4a460))
+        if leveled_up:
+            await msg.channel.send(embed=discord.Embed(description=f"🎉 **{sheet['character_name']} reached Level {new_level}!**", color=0xffcc00))
 
-    reward_gil = 25
-    reward_xp  = 20
-    sheet["inventory"].remove("mognet_letter")
-    if "mognet_pending" in sheet.get("conditions", []):
-        sheet["conditions"].remove("mognet_pending")
-    sheet["gil"] += reward_gil
-    sheet["xp"]  += reward_xp
-
-    leveled_up, new_level = check_level_up(sheet)
-    await save(sheet)
-
-    xp_next = xp_to_next_level(sheet["level"])
+    # 2. Main Mail Interface
+    mailbox = sheet.get("mailbox", [])
+    mail_count = len(mailbox)
+    status_text = f"You have **{mail_count}** package(s) waiting." if mail_count > 0 else "Your mailbox is empty."
+    
     embed = discord.Embed(
-        description=f"📬 **Mognet letter delivered.**\n*A moogle materialises briefly, takes the letter, says 'kupo' with visible relief, and presses a coin purse into your hand before vanishing.*\n+{reward_xp} XP ({sheet['xp']}/{xp_next})  +{reward_gil} Gil",
+        title="📬 Moogle Mail Post",
+        description=f"\"Kupo! Welcome to the mail post! Do you have something to send, or are you checking for a delivery?\"\n\n{status_text}",
         color=0xf4a460
     )
-    view = _make_status_view(ctx, msg, uid, uname, is_owner)
+    embed.set_thumbnail(url="https://i.imgur.com/w2YxYmB.png") # Optional Moogle icon if available, or just omit
+    
+    view = MailMenuView(ctx, msg, uid, uname, is_owner, sheet)
     await msg.channel.send(embed=embed, view=view)
 
-    if leveled_up:
-        await msg.channel.send(embed=discord.Embed(
-            description=f"🎉 **{sheet['character_name']} reached Level {new_level}!**",
-            color=0xffcc00
-        ))
+
+class MailMenuView(discord.ui.View):
+    def __init__(self, ctx, msg, uid, uname, is_owner, sheet):
+        super().__init__(timeout=120)
+        self.ctx = ctx
+        self.msg = msg
+        self.uid = uid
+        self.uname = uname
+        self.is_owner = is_owner
+        self.sheet = sheet
+
+    @discord.ui.button(label="Check Mail", emoji="📬", style=discord.ButtonStyle.primary)
+    async def check_mail(self, interaction: discord.Interaction, button: discord.ui.Button):
+        if str(interaction.user.id) != self.uid: return
+        
+        mailbox = self.sheet.get("mailbox", [])
+        if not mailbox:
+            return await interaction.response.send_message("Kupo! Nothing here but dust bunnies.", ephemeral=True)
+        
+        await interaction.response.defer()
+        
+        items_gained = []
+        total_gil = 0
+        for entry in mailbox:
+            if entry.get("item"):
+                self.sheet["inventory"].append(entry["item"])
+                items_gained.append(entry["item"].replace("_", " ").title())
+            total_gil += entry.get("gil", 0)
+        
+        self.sheet["gil"] += total_gil
+        self.sheet["mailbox"] = []
+        await save(self.sheet)
+        
+        res = "kupo! You received:\n"
+        if items_gained: res += f"📦 **Items:** {', '.join(items_gained)}\n"
+        if total_gil: res += f"💰 **Gil:** {total_gil}g\n"
+        
+        embed = discord.Embed(description=res, color=0x44aa44)
+        view = _make_status_view(self.ctx, self.msg, self.uid, self.uname, self.is_owner)
+        await interaction.followup.send(embed=embed, view=view)
+
+    @discord.ui.button(label="Send Mail", emoji="📩", style=discord.ButtonStyle.secondary)
+    async def send_mail_btn(self, interaction: discord.Interaction, button: discord.ui.Button):
+        if str(interaction.user.id) != self.uid: return
+        
+        all_sheets = await load_all()
+        # Filter out self and limit to 25 recent-ish players
+        others = [s for s in all_sheets if str(s["user_id"]) != self.uid]
+        others.sort(key=lambda s: s.get("last_updated", 0), reverse=True)
+        recipients = others[:25]
+        
+        if not recipients:
+            return await interaction.response.send_message("Kupo? There's no one else in Aethelgard to write to!", ephemeral=True)
+
+        view = MailSendView(self.ctx, self.msg, self.uid, self.uname, self.is_owner, self.sheet, recipients)
+        embed = discord.Embed(
+            title="📨 Prepare Dispatch",
+            description="\"Kupo! Who are we sending this to? And don't forget the delivery fee is included!\"",
+            color=0xf4a460
+        )
+        await interaction.response.edit_message(embed=embed, view=view)
+
+
+class MailSendView(discord.ui.View):
+    def __init__(self, ctx, msg, uid, uname, is_owner, sheet, recipients):
+        super().__init__(timeout=180)
+        self.ctx = ctx
+        self.msg = msg
+        self.uid = uid
+        self.uname = uname
+        self.is_owner = is_owner
+        self.sheet = sheet
+        self.recipients = recipients
+        
+        self.selected_recipient_id = None
+        self.selected_item = None
+        self.gil_to_send = 0
+
+        # Recipient Select
+        options = [discord.SelectOption(label=s["character_name"], description=f"Lv.{s['level']} {s['class']}", value=str(s["user_id"])) for s in recipients]
+        self.user_select = discord.ui.Select(placeholder="👤 Select Recipient...", options=options, row=0)
+        self.user_select.callback = self.user_callback
+        self.add_item(self.user_select)
+
+        # Item Select
+        from utils.ttrpg.shop import find_item
+        from collections import Counter
+        inv = self.sheet.get("inventory", [])
+        if inv:
+            counts = Counter(inv)
+            item_options = []
+            for k, v in counts.items():
+                it = find_item(k)
+                name = it["name"] if it else k
+                item_options.append(discord.SelectOption(label=f"{name} (x{v})", value=k))
+            
+            self.item_select = discord.ui.Select(placeholder="📦 Attach Item (Optional)...", options=item_options[:25], row=1)
+            self.item_select.callback = self.item_callback
+            self.add_item(self.item_select)
+        
+        # Dispatch Button (Disabled until recipient picked)
+        self.dispatch_btn = discord.ui.Button(label="Dispatch 📨", style=discord.ButtonStyle.green, row=2, disabled=True)
+        self.dispatch_btn.callback = self.dispatch_callback
+        self.add_item(self.dispatch_btn)
+
+    async def user_callback(self, interaction: discord.Interaction):
+        self.selected_recipient_id = self.user_select.values[0]
+        self.dispatch_btn.disabled = False
+        await interaction.response.edit_message(view=self)
+
+    async def item_callback(self, interaction: discord.Interaction):
+        self.selected_item = self.item_select.values[0]
+        await interaction.response.defer()
+
+    @discord.ui.button(label="Add Gil 💰", style=discord.ButtonStyle.secondary, row=2)
+    async def add_gil_btn(self, interaction: discord.Interaction, button: discord.ui.Button):
+        if str(interaction.user.id) != self.uid: return
+        modal = GilModal(self)
+        await interaction.response.send_modal(modal)
+
+    async def dispatch_callback(self, interaction: discord.Interaction):
+        if not self.selected_recipient_id: return
+        
+        # Final validation
+        if self.gil_to_send > self.sheet.get("gil", 0):
+            return await interaction.response.send_message("Kupo! You don't have enough gil!", ephemeral=True)
+        if self.selected_item and self.selected_item not in self.sheet.get("inventory", []):
+            return await interaction.response.send_message("Kupo? That item seems to have vanished from your bag! Dispatch cancelled.", ephemeral=True)
+
+        await interaction.response.defer()
+        
+        # Deduct from sender
+        if self.selected_item: self.sheet["inventory"].remove(self.selected_item)
+        self.sheet["gil"] -= self.gil_to_send
+        await save(self.sheet)
+        
+        # Add to recipient
+        target_sheet = await load(self.selected_recipient_id)
+        if target_sheet:
+            if "mailbox" not in target_sheet: target_sheet["mailbox"] = []
+            target_sheet["mailbox"].append({
+                "from_name": self.sheet["character_name"],
+                "item": self.selected_item,
+                "gil": self.gil_to_send,
+                "timestamp": time.time()
+            })
+            await save(target_sheet)
+            
+        success_msg = f"📩 **Mail Dispatched!**\n*The moogle takes your package with a sharp salute and flies off toward {target_sheet['character_name'] if target_sheet else 'the horizon'}.*\n"
+        if self.selected_item: 
+            item_display = self.selected_item.replace('_', ' ').title()
+            success_msg += f"- Attached **{item_display}**\n"
+        if self.gil_to_send: success_msg += f"- Enclosed **{self.gil_to_send}g**"
+        
+        embed = discord.Embed(description=success_msg, color=0x44aa44)
+        view = _make_status_view(self.ctx, self.msg, self.uid, self.uname, self.is_owner)
+        await interaction.followup.send(embed=embed, view=view)
+
+
+class GilModal(discord.ui.Modal, title="Enclose Gil"):
+    gil_input = discord.ui.TextInput(label="Amount of Gil", placeholder="Enter amount...", min_length=1, max_length=6)
+
+    def __init__(self, parent_view):
+        super().__init__()
+        self.parent_view = parent_view
+
+    async def on_submit(self, interaction: discord.Interaction):
+        val = self.gil_input.value
+        if not val.isdigit():
+            return await interaction.response.send_message("Kupo! That's not a number!", ephemeral=True)
+        
+        amount = int(val)
+        if amount < 0:
+            return await interaction.response.send_message("Kupo! You can't steal gil via mail!", ephemeral=True)
+            
+        self.parent_view.gil_to_send = amount
+        await interaction.response.send_message(f"💰 **{amount}g** noted for dispatch, kupo!", ephemeral=True)
+
 
 
 # ── Administration & Overrides ───────────────────────────────────────────────
@@ -4497,7 +4733,6 @@ async def _handle_heal(ctx, msg, send, rest, uid, uname, is_owner):
 async def _handle_leaderboard(ctx, msg, send, rest, uid, uname, is_owner):
     """!rpg leaderboard — show all characters ranked by XP."""
     from utils.ttrpg.world import LOCATION_DATA
-    from utils.ttrpg.rpg_ui import CLASS_ICONS, LOCATION_ICONS
 
     sheets = await load_all()
     if not sheets:

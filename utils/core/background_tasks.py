@@ -234,6 +234,18 @@ class CoreTaskManager:
                             sheet["hunts_reset_date"] = today
                             modified = True
                             reset_count += 1
+
+                        # Clear temporary conditions at dawn
+                        DAWN_PERMANENT = {"blessed", "mognet_pending"}
+                        old_conds = sheet.get("conditions", [])
+                        # Ale warmth carries a +3 max HP — strip it before clearing
+                        if "ale_warmth" in old_conds:
+                            sheet["hp"]["max"] = max(1, sheet["hp"]["max"] - 3)
+                            sheet["hp"]["current"] = min(sheet["hp"]["current"], sheet["hp"]["max"])
+                        new_conds = [c for c in old_conds if c in DAWN_PERMANENT]
+                        if old_conds != new_conds:
+                            sheet["conditions"] = new_conds
+                            modified = True
                         
                         # Bank Interest (2%, max 10g)
                         bank_bal = sheet.get("bank_balance", 0)

@@ -64,28 +64,114 @@ def generate_boss_name() -> str:
     return f"{prefix} {title}{(' ' + suffix) if suffix else ''}"
 
 
-# Tiered boss monster pools — matched to player level/difficulty
-BOSS_POOLS = {
-    1: [  # Level 1-3 (difficulty 1)
-        "skull_knight", "dark_wizard", "dullahan", "revenant",
-        "gargoyle", "nachtmahr", "werewolf",
-    ],
-    2: [  # Level 4-6 (difficulty 2)
-        "tonberry", "dark_knight", "minotaur", "iron_giant",
-        "crystelle", "jura_aevis", "necrophobe",
-    ],
-    3: [  # Level 7+ (difficulty 3)
-        "tonberry_king", "lich", "magic_dragon", "adamantoise",
-        "gilgamesh", "azulmagia", "behemoth", "archaeoaevis",
-    ],
+# ── Themed Dungeon Pools ──────────────────────────────────────────────────────
+
+DUNGEON_THEMES = {
+    "undead": {
+        "name": "Undead Crypts",
+        "emoji": "💀",
+        "flavor": "The air reeks of old death. Something was interred here and refused to stay down.",
+        "pools": {
+            1: ["decaying_skeleton", "zombie", "ghoul", "ghost", "blood_slime"],
+            2: ["skeleton", "ghoul", "ghost", "wight", "revenant"],
+            3: ["skull_knight", "wight", "spectral_knight", "dullahan", "lich"],
+        },
+        "boss_pools": {
+            1: ["dullahan", "revenant", "ghoul"],
+            2: ["skull_knight", "dark_knight", "wight"],
+            3: ["lich", "shadow_lich", "tonberry_king"],
+        },
+    },
+    "constructs": {
+        "name": "Aeridorian Vault",
+        "emoji": "💎",
+        "flavor": "Crystal formations absorb light. The constructs still remember their orders.",
+        "pools": {
+            1: ["crew_dust", "gargoyle", "soldier", "flan"],
+            2: ["gargoyle", "soldier", "golem", "crystelle", "dark_wizard"],
+            3: ["soldier", "crystelle", "iron_giant", "clay_golem", "skull_knight"],
+        },
+        "boss_pools": {
+            1: ["gargoyle", "dark_wizard"],
+            2: ["golem", "crystelle", "dark_knight"],
+            3: ["iron_giant", "crystelle"],
+        },
+    },
+    "beasts": {
+        "name": "Hunting Grounds",
+        "emoji": "🐺",
+        "flavor": "Something territorial has nested here. Claw marks on every stone.",
+        "pools": {
+            1: ["wolf", "bat", "large_bat", "spiderling", "forest_boar"],
+            2: ["wolf", "werewolf", "basilisk", "coeurl", "harpy"],
+            3: ["manticore", "werewolf", "wyvern", "earth_bear", "jura_aevis"],
+        },
+        "boss_pools": {
+            1: ["cockatrice", "wolf"],
+            2: ["manticore", "wyvern", "griffon"],
+            3: ["behemoth", "jura_aevis", "magic_dragon"],
+        },
+    },
+    "deepwood": {
+        "name": "Living Depths",
+        "emoji": "🌑",
+        "flavor": "The roots have grown through the walls. The Whisperwood consumed this place long ago.",
+        "pools": {
+            1: ["myconid", "grat", "ochu", "vegepygmy", "leg_eater"],
+            2: ["ochu", "lamia", "cray_claw", "wind_serpent", "treant"],
+            3: ["treant", "malboro", "lamia", "earth_bear", "killer_mantis"],
+        },
+        "boss_pools": {
+            1: ["ochu", "grat"],
+            2: ["treant", "lamia"],
+            3: ["elder_treant", "malboro"],
+        },
+    },
+    "demons": {
+        "name": "Infernal Breach",
+        "emoji": "🔥",
+        "flavor": "The walls are scorched. Something forced its way through here — from below.",
+        "pools": {
+            1: ["imp", "bomb", "black_flan", "blood_slime"],
+            2: ["grenade", "mini_satana", "dark_wizard", "nachtmahr"],
+            3: ["dark_knight", "nachtmahr", "shadow_dancer", "dullahan"],
+        },
+        "boss_pools": {
+            1: ["dark_wizard", "mini_satana"],
+            2: ["dark_knight", "nachtmahr"],
+            3: ["gilgamesh", "apocalypse"],
+        },
+    },
 }
 
-# Regular monster pools per difficulty
-MONSTER_POOLS = {
-    1: ["goblin", "skeleton", "bat", "wolf", "zombie", "bandit", "ghoul"],
-    2: ["skeleton", "ghoul", "wolf", "harpy", "lizardman", "dark_wizard", "gargoyle"],
-    3: ["dark_knight", "skull_knight", "gargoyle", "lamia", "soldier", "iron_giant"],
+LOCATION_THEME_WEIGHTS = {
+    "whisperwood_edge": [("beasts", 45), ("deepwood", 30), ("undead", 25)],
+    "whisperwood_deep": [("deepwood", 40), ("undead", 30), ("beasts", 20), ("demons", 10)],
+    "aeridor_ruins":    [("constructs", 45), ("undead", 30), ("demons", 25)],
+    "trade_road":       [("undead", 35), ("beasts", 35), ("demons", 30)],
 }
+
+LOCATION_DIFFICULTY_BONUS = {
+    "whisperwood_edge": 0,
+    "whisperwood_deep": 0,
+    "trade_road":       0,
+    "aeridor_ruins":    1,
+}
+
+
+def _roll_theme(location: str) -> str:
+    """Roll a weighted random theme key for this dungeon based on entry location."""
+    weights = LOCATION_THEME_WEIGHTS.get(location, [
+        ("undead", 25), ("constructs", 25), ("beasts", 25), ("deepwood", 15), ("demons", 10)
+    ])
+    total = sum(w for _, w in weights)
+    r = secrets.randbelow(total)
+    cum = 0
+    for theme_key, w in weights:
+        cum += w
+        if r < cum:
+            return theme_key
+    return weights[0][0]
 
 
 def _scale_boss_to_level(monster: dict, player_level: int) -> dict:
@@ -159,21 +245,30 @@ def _roll_room_type(dist: int) -> str:
     return R_EMPTY
 
 
-def _pick_monster(room_type: str, difficulty: int) -> str:
+def _pick_monster(room_type: str, difficulty: int, theme: dict = None) -> str:
     if room_type == R_BOSS:
-        pool = BOSS_POOLS.get(difficulty, BOSS_POOLS[1])
-        return pool[secrets.randbelow(len(pool))]
-    pool = MONSTER_POOLS.get(difficulty, MONSTER_POOLS[1])
+        if theme:
+            pool = theme["boss_pools"].get(difficulty, theme["boss_pools"].get(1, ["goblin"]))
+        else:
+            pool = ["skull_knight", "dark_knight", "lich"]
+    else:
+        if theme:
+            pool = theme["pools"].get(difficulty, theme["pools"].get(1, ["goblin"]))
+        else:
+            pool = ["goblin", "skeleton", "wolf"]
     return pool[secrets.randbelow(len(pool))]
 
 
-def generate_dungeon(difficulty: int = 1, player_level: int = 1) -> dict:
+def generate_dungeon(difficulty: int = 1, player_level: int = 1, location: str = "whisperwood_edge") -> dict:
     sx, sy = START_POS
     visited = {(sx, sy)}
     connections: Dict[str, List[str]] = {_key(sx, sy): []}
     all_positions = [(sx, sy)]
     frontier = [(sx, sy)]
     target = secrets.randbelow(4) + 9  # 9-12 rooms
+
+    theme_key = _roll_theme(location)
+    theme = DUNGEON_THEMES.get(theme_key, DUNGEON_THEMES["undead"])
 
     while len(all_positions) < target and frontier:
         cx, cy = frontier[secrets.randbelow(len(frontier))]
@@ -230,7 +325,7 @@ def generate_dungeon(difficulty: int = 1, player_level: int = 1) -> dict:
         rooms[k] = {
             "type": rt,
             "cleared": rt in (R_START, R_EMPTY),
-            "monster_key": _pick_monster(rt, difficulty) if rt in (R_MONSTER, R_BOSS) else None,
+            "monster_key": _pick_monster(rt, difficulty, theme) if rt in (R_MONSTER, R_BOSS) else None,
             "boss_name": boss_name,
             "description": ROOM_DESCRIPTIONS.get(rt, "A stone room."),
             "secret_shrine": is_secret_shrine,
@@ -262,6 +357,11 @@ def generate_dungeon(difficulty: int = 1, player_level: int = 1) -> dict:
         "loot_gained": [],
         "player_level": player_level,
         "difficulty": difficulty,
+        "location": location,
+        "theme_key": theme_key,
+        "theme_name": theme["name"],
+        "theme_emoji": theme["emoji"],
+        "theme_flavor": theme["flavor"],
     }
 
 

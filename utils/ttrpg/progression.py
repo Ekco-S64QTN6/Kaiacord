@@ -63,6 +63,16 @@ def check_level_up(sheet: dict) -> tuple[bool, int]:
     sheet["hp"]["max"] += hp_gain
     sheet["hp"]["current"] = min(sheet["hp"]["current"] + hp_gain, sheet["hp"]["max"])
 
+    # Stat growth: +1 to class primary stat at levels 4 and 8
+    CLASS_PRIMARY_STATS = {
+        "Warrior": "str", "Ranger": "dex", "Mage": "int",
+        "Rogue": "dex", "Cleric": "wis",
+    }
+    if new_level in (4, 8):
+        primary = CLASS_PRIMARY_STATS.get(class_name)
+        if primary:
+            sheet["stats"][primary] = sheet["stats"].get(primary, 10) + 1
+
     # Mark for class advancement at level 5 (if not already advanced)
     if new_level == 5 and not sheet.get("advanced_class"):
         sheet["_advancement_pending"] = True
@@ -93,7 +103,7 @@ def check_and_reset_hunts(sheet: dict) -> dict:
 
         # Clear ALL temporary event conditions on day reset
         # Only preserve permanent/quest-flag conditions
-        PERMANENT_CONDITIONS = {"Blessed", "mognet_pending"}
+        PERMANENT_CONDITIONS = {"mognet_pending"}
         conditions = sheet.get("conditions", [])
         sheet["conditions"] = [c for c in conditions if c in PERMANENT_CONDITIONS]
 

@@ -31,13 +31,35 @@ ENCOUNTER_TABLES = {
     ],
 }
 
-def random_encounter(location: str) -> str:
-    """Pick a weighted random monster for the given location."""
+def random_encounter(location: str, player_level: int = 1) -> str:
+    """Pick a weighted random monster for the given location, filtered by player level."""
     from utils.ttrpg.calendar import get_seasonal_encounter_table
-    
+    from utils.ttrpg.monster_registry import MONSTERS
+
+    TIER_ORDER = ["trivial", "easy", "medium", "hard", "deadly", "boss"]
+
+    # Minimum tier thresholds based on player level
+    min_tier = None
+    if player_level >= 9:
+        min_tier = "hard"
+    elif player_level >= 7:
+        min_tier = "medium"
+    elif player_level >= 4:
+        min_tier = "easy"
+
     base_table = ENCOUNTER_TABLES.get(location, ENCOUNTER_TABLES["whisperwood_edge"])
     table = get_seasonal_encounter_table(location, base_table)
-    
+
+    # Filter out monsters below minimum tier
+    if min_tier:
+        min_idx = TIER_ORDER.index(min_tier)
+        filtered = [
+            (key, weight) for key, weight in table
+            if TIER_ORDER.index(MONSTERS.get(key, {}).get("tier", "trivial")) >= min_idx
+        ]
+        if filtered:  # only use filter if it leaves something to fight
+            table = filtered
+
     total = sum(w for _, w in table)
     r = secrets.randbelow(total)
     cumulative = 0
@@ -49,10 +71,10 @@ def random_encounter(location: str) -> str:
 
 # Forest Event System
 EVENT_CHANCE = {
-    "whisperwood_edge": 20,
-    "whisperwood_deep": 15,
-    "aeridor_ruins":    10,
-    "trade_road":       18,
+    "whisperwood_edge": 12,
+    "whisperwood_deep": 10,
+    "aeridor_ruins":     8,
+    "trade_road":       10,
 }
 
 def roll_for_event(location: str) -> bool:

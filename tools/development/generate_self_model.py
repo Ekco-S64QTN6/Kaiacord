@@ -17,6 +17,7 @@ Schedule: Monthly, or run manually after a major phase of development.
 
 import os
 import sys
+import re
 import glob
 import asyncio
 import argparse
@@ -188,6 +189,30 @@ STRICT RULES:
 - use actual usernames from the logs. do not abbreviate, anonymize, or use initials.
 """
 
+def _sanitize_result(text: str) -> str:
+    """Strip ellipses and roleplay artifacts from the generated self-model."""
+    # 1. Remove unicode ellipses and triple-dots (stop the affect at the source)
+    sanitized = text.replace("…", "...").replace("...", " ")
+    
+    # 2. Fix spacing: "word . word" -> "word. word"
+    sanitized = re.sub(r"\s+\.", ".", sanitized)
+    # Ensure space after period
+    sanitized = re.sub(r"\.([^\s])", r". \1", sanitized)
+    
+    # 3. Strip known roleplay/bot-speak phrases
+    forbidden = [
+        r"recalibrat(e|ing)\s+my\s+filters",
+        r"aesthetic\s+overload",
+        r"system-wide\s+instability",
+        r"feedback\s+loop",
+    ]
+    for pattern in forbidden:
+        sanitized = re.compile(pattern, re.IGNORECASE).sub("", sanitized)
+    
+    # 4. Collapse extra whitespace
+    sanitized = re.sub(r"\s+", " ", sanitized)
+    
+    return sanitized.strip()
 
 # ── Main generation ───────────────────────────────────────────────────────────
 
@@ -265,6 +290,9 @@ async def generate(dry_run: bool = False) -> bool:
         if not result:
             _fail("LLM returned an empty response.")
             return False
+
+        # Apply post-generation sanitization
+        result = _sanitize_result(result)
 
         if len(result) < 100:
             _fail(f"LLM response too short ({len(result)} chars) — likely a refusal or error.")

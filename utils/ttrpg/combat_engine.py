@@ -43,11 +43,25 @@ def _resolve_combat(sheet: dict, monster: dict, atk_mod_global: int = 0, def_mod
 
     weapon_atk     = weapon["attack_bonus"]    if weapon    else 0
     weapon_dmg_die = weapon["damage_die"]      if weapon    else 4
+    weapon_dmg_bonus = weapon.get("damage_bonus", 0) if weapon else 0
     armor_def      = armor["defense_bonus"]    if armor     else 0
     head_def       = head["defense_bonus"]     if head      else 0
     boots_def      = boots_eq["defense_bonus"] if boots_eq  else 0
     acc_def        = accessory["defense_bonus"]if accessory else 0
     acc_atk        = accessory.get("attack_bonus", 0) if accessory else 0
+
+    # --- Advanced Class Flat Bonuses ---
+    adv_flat_atk = 0
+    adv_flat_def = 0
+    adv_class = sheet.get("advanced_class", "")
+    if adv_class:
+        from utils.ttrpg.class_advancement import ADVANCED_CLASSES
+        for base_opts in ADVANCED_CLASSES.values():
+            if adv_class in base_opts:
+                b = base_opts[adv_class].get("bonuses", {})
+                adv_flat_atk = b.get("atk_bonus", 0)
+                adv_flat_def = b.get("def_bonus", 0)
+                break
     
     # --- Status Effects ---
     conditions = set(sheet.get("conditions", []))
@@ -89,7 +103,7 @@ def _resolve_combat(sheet: dict, monster: dict, atk_mod_global: int = 0, def_mod
         if "lucky" in sheet.get("conditions", []):
             sheet["conditions"].remove("lucky")
 
-    attack_mod = atk_mod + weapon_atk + acc_atk + bless_bonus + streak_bonus + luck_bonus + atk_mod_global
+    attack_mod = atk_mod + weapon_atk + acc_atk + adv_flat_atk + bless_bonus + streak_bonus + luck_bonus + atk_mod_global
     
     # --- Initialize Result Variables ---
     player_hit = False
@@ -130,7 +144,7 @@ def _resolve_combat(sheet: dict, monster: dict, atk_mod_global: int = 0, def_mod
             if adv_class == "Wizard": adv_bonus_flat = 3
             if adv_class == "Shadowblade" and player_crit: adv_bonus_flat = 4
             
-            total_dmg_bonus = atk_mod + warrior_dmg_bonus + adv_bonus_flat
+            total_dmg_bonus = atk_mod + warrior_dmg_bonus + adv_bonus_flat + weapon_dmg_bonus
             
             player_damage = max(1, sum(dmg_rolls) + total_dmg_bonus)
             
@@ -175,8 +189,8 @@ def _resolve_combat(sheet: dict, monster: dict, atk_mod_global: int = 0, def_mod
     monster_total_hit = 0
 
     if monster_alive:
-        player_defense = 10 + dex_mod + armor_def + head_def + boots_def + acc_def + def_mod_global
-        monster_attack_mod = monster["attack"] // 3
+        player_defense = 10 + dex_mod + armor_def + head_def + boots_def + acc_def + adv_flat_def + def_mod_global
+        monster_attack_mod = monster["attack"] // 2
         monster_raw_hit = secrets.randbelow(20) + 1
         monster_total_hit = monster_raw_hit + monster_attack_mod
         monster_hit = monster_total_hit >= player_defense or monster_raw_hit == 20
@@ -247,7 +261,7 @@ def _resolve_combat(sheet: dict, monster: dict, atk_mod_global: int = 0, def_mod
             exchanges.append(f"⚔️ **{sheet['character_name']}** stops their blade at **{monster['name']}**'s throat. Yield!")
 
         counter_result = "HIT" if monster_hit else "MISS"
-        exchanges.append(f"🔴 Counter-attack: d20({monster_raw_hit})+{monster['attack']//3}=**{monster_total_hit}** → **{counter_result}**")
+        exchanges.append(f"🔴 Counter-attack: d20({monster_raw_hit})+{monster['attack']//2}=**{monster_total_hit}** → **{counter_result}**")
         if monster_hit:
             exchanges.append(f"   → {monster_dmg_breakdown}")
             exchanges.append(f"   Your HP: {sheet['hp']['current'] + monster_damage} → **{sheet['hp']['current']}/{sheet['hp']['max']}**")
