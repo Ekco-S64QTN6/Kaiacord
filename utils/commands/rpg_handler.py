@@ -1145,6 +1145,14 @@ async def _dungeon_combat_round(ctx_obj, interaction, uid, uname, is_owner):
         leveled, new_level = check_level_up(sheet)
         if leveled:
             level_text = f"\n\n🎉 **Level Up! Now Lv.{new_level}!**"
+            await _log_world_event(f"**{sheet['character_name']}** reached Level {new_level} deep in a dungeon.")
+            lv_embed = discord.Embed(
+                title=f"⬆️ {sheet['character_name']} — Level {new_level}",
+                description=_level_up_flavor(sheet, new_level),
+                color=0xffcc00
+            )
+            lv_embed.set_footer(text=f"{sheet.get('advanced_class') or sheet.get('class', '?')} · Dungeon Run")
+            await _broadcast_world_event(ctx_obj, lv_embed)
 
         xp_next = xp_to_next_level(sheet["level"])
         exchange_text += f"\n\n+{xp_gain} XP ({sheet['xp']}/{xp_next}) · +{gil_gain} Gil{loot_text}{level_text}"
@@ -1479,6 +1487,13 @@ async def _dungeon_complete(ctx_obj, interaction, uid, uname, is_owner,
     view.add_item(_make_status_btn(ctx_obj, uid, uname, is_owner))
     await interaction.followup.send(embed=embed, view=view)
     await _log_world_event(f"🏚️ **{sheet['character_name']}** completed a dungeon run.")
+    dungeon_embed = discord.Embed(
+        title=f"🏚️ {sheet['character_name']} escaped the {state.get('theme_name', 'dungeon')}",
+        description=f"*They found a crack in the stone and squeezed out. Whatever was in there is still in there.*",
+        color=0x7a6a9a
+    )
+    dungeon_embed.set_footer(text=f"+{xp} XP · +{gil} Gil · {len(loot)} item(s)")
+    await _broadcast_world_event(ctx_obj, dungeon_embed)
 
 
 async def _dungeon_leave(ctx_obj, interaction, uid, uname, is_owner):
@@ -2037,6 +2052,13 @@ async def _handle_advance(ctx, msg, send, rest, uid, uname, is_owner):
             await _log_world_event(
                 f"⚔️ **{s['character_name']}** advanced to **{chosen}**. Oakhaven noticed."
             )
+            adv_embed = discord.Embed(
+                title=f"⚔️ {s['character_name']} → {chosen}",
+                description=f"*{data['flavor']}*",
+                color=0xffcc00
+            )
+            adv_embed.set_footer(text=f"Now: {get_title(s)}")
+            await _broadcast_world_event(ctx, adv_embed)
         btn.callback = _choose
         view.add_item(btn)
 
@@ -2792,6 +2814,13 @@ async def _handle_talk(ctx, msg, send, rest, uid, uname, is_owner):
                     await _log_world_event(
                         f"✅ **{sheet['character_name']}** completed '**{q['name']}**'."
                     )
+                    quest_embed = discord.Embed(
+                        title=f"✅ Quest Complete — {q['name']}",
+                        description=f"*{sheet['character_name']} closed the book on another chapter.*",
+                        color=0x2ecc71
+                    )
+                    quest_embed.set_footer(text=f"+{xp_reward} XP · +{gil_reward} Gil")
+                    await _broadcast_world_event(ctx, quest_embed)
                     quest_progress_msg = "COMPLETED"
                 else:
                     # Not complete, show current progress
@@ -2915,6 +2944,47 @@ async def _log_world_event(event_text):
         
     with open(path, 'w', encoding='utf-8') as f:
         json.dump(events, f, indent=2)
+
+async def _broadcast_world_event(ctx, embed: discord.Embed):
+    """Post a notable event embed to the main #aethelgard broadcast channel."""
+    try:
+        channel_name = config.get('discord.rpg_channel', 'aethelgard').lower()
+        channel = discord.utils.get(ctx.bot.get_all_channels(), name=channel_name)
+        if channel:
+            await channel.send(embed=embed)
+    except Exception as e:
+        log_error(f"[rpg broadcast] {e}")
+
+
+def _level_up_flavor(sheet: dict, level: int) -> str:
+    """Short lore-flavored level-up announcement."""
+    name = sheet["character_name"]
+    cls = sheet.get("advanced_class") or sheet.get("class", "Adventurer")
+    loc = sheet.get("location", "oakhaven").replace("_", " ")
+
+    FLAVOR = {
+        2:  f"*The first real fight is behind them. {name} is starting to understand the difference.*",
+        3:  f"*{name} stopped flinching at the sound of something moving in the dark.*",
+        4:  f"*Something about the way {name} moves has changed. The forest notices.*",
+        5:  f"*{name} reached level 5. A crossroads approaches — the path ahead splits.*",
+        6:  f"*{cls} {name} has survived long enough to become something the Whisperwood remembers.*",
+        7:  f"*Seven levels in. The monsters that gave {name} trouble at the start no longer look up.*",
+        8:  f"*The Aeridorian constructs track {name} now. That is not a comfortable thing to know.*",
+        9:  f"*Nine levels. {name} has outlived three scouts and a guard who had twenty years of experience.*",
+        10: f"*{name} reached the cap. Whatever comes next, Oakhaven won't be the same for it.*",
+    }
+    return FLAVOR.get(level, f"*{name} grows stronger. The {loc} feels it.*")
+
+
+def _rare_loot_flavor(monster_name: str, item_name: str, location: str) -> str:
+    loc_name = location.replace("_", " ").title()
+    FLAVOR = [
+        f"*Something worth keeping fell from the {monster_name} in the {loc_name}.*",
+        f"*The {monster_name} had no use for it anymore. Now someone does.*",
+        f"*It wasn't supposed to survive the fight. Neither was the {monster_name}.*",
+        f"*The {loc_name} gives up something old.*",
+    ]
+    return FLAVOR[secrets.randbelow(len(FLAVOR))]
 
 async def _handle_brew(ctx, msg, send, rest, uid, uname, is_owner):
     from utils.ttrpg.world import LOCATION_DATA
@@ -3695,7 +3765,15 @@ async def _handle_attack(ctx, msg, send, rest, uid, uname, is_owner):
             # Log rare drop if it's high tier or specific items
             tier = monster.get("tier", "medium")
             if tier in ["hard", "deadly", "boss"]:
-                await _log_world_event(f"A **{loot_display}** was recovered from the {LOCATION_DATA.get(loc, {}).get('name', loc)}. Oakhaven listens carefully.")
+                loc_name = LOCATION_DATA.get(loc, {}).get('name', loc)
+                await _log_world_event(f"A **{loot_display}** was recovered from the {loc_name}. Oakhaven listens carefully.")
+                loot_embed = discord.Embed(
+                    title=f"🎁 Rare drop — {loot_display}",
+                    description=_rare_loot_flavor(monster.get('name', 'something'), loot_display, loc),
+                    color=0xd4a843
+                )
+                loot_embed.set_footer(text=f"{sheet['character_name']} · {loc_name}")
+                await _broadcast_world_event(ctx, loot_embed)
             
         sheet["xp"] += xp_gain
         sheet["gil"] += gil_gain
@@ -3745,12 +3823,26 @@ async def _handle_attack(ctx, msg, send, rest, uid, uname, is_owner):
                                 f"\n+{xp_reward} XP · +{gil_reward} Gil"
                             )
                             await _log_world_event(f"✅ **{sheet['character_name']}** completed '**{q['name']}**'.")
+                            quest_embed = discord.Embed(
+                                title=f"✅ Quest Complete — {q['name']}",
+                                description=f"*{sheet['character_name']} closed the book on another chapter.*",
+                                color=0x2ecc71
+                            )
+                            quest_embed.set_footer(text=f"+{xp_reward} XP · +{gil_reward} Gil")
+                            await _broadcast_world_event(ctx, quest_embed)
                         else:
                             await save(sheet)
         leveled, n_lvl = check_level_up(sheet)
-        if leveled: 
+        if leveled:
             level_up_msg = f"\n🎉 **LEVEL UP! {sheet['character_name']} grew to level {n_lvl}!**"
             await _log_world_event(f"**{sheet['character_name']}** reached Level {n_lvl}. Oakhaven noted it cautiously.")
+            lv_embed = discord.Embed(
+                title=f"⬆️ {sheet['character_name']} — Level {n_lvl}",
+                description=_level_up_flavor(sheet, n_lvl),
+                color=0xffcc00
+            )
+            lv_embed.set_footer(text=f"{sheet.get('advanced_class') or sheet.get('class', '?')} · {sheet.get('location','').replace('_',' ').title()}")
+            await _broadcast_world_event(ctx, lv_embed)
         
         # Wisp-specific drop: lightstone
         WISP_KEYS = {"wisp", "ice_wisp", "moldwynd", "crew_dust"}
@@ -3777,6 +3869,13 @@ async def _handle_attack(ctx, msg, send, rest, uid, uname, is_owner):
         sheet["deaths"] = sheet.get("deaths", 0) + 1
         m_block += f"\n\n🚨 **You blacked out.** Townspeople dragged you back to the Shrine of the Silent Ones in Oakhaven. You dropped {xp_loss} XP and {gil_loss} Gil in the dirt."
         await _log_world_event(f"**{sheet['character_name']}** was found at the Shrine threshold. Hemlock is taking bets.")
+        death_embed = discord.Embed(
+            title=f"💀 {sheet['character_name']} fell",
+            description=f"*{monster.get('name', 'Something')} left them at the Shrine threshold. {xp_loss} XP and {gil_loss} Gil in the dirt.*",
+            color=0x8B0000
+        )
+        death_embed.set_footer(text=f"Death #{sheet['deaths']} · {sheet.get('location','').replace('_',' ').title()}")
+        await _broadcast_world_event(ctx, death_embed)
         
     await save(sheet)
     
@@ -3943,10 +4042,14 @@ async def _apply_and_narrate_event(ctx, msg, send, sheet, result, uname):
     await msg.channel.send(embed=embed)
 
     if leveled_up:
-        await msg.channel.send(embed=discord.Embed(
-            description=f"🎉 **{sheet['character_name']} reached Level {new_level}!**",
+        await _log_world_event(f"**{sheet['character_name']}** reached Level {new_level} during a world event.")
+        lv_embed = discord.Embed(
+            title=f"⬆️ {sheet['character_name']} — Level {new_level}",
+            description=_level_up_flavor(sheet, new_level),
             color=0xffcc00
-        ))
+        )
+        lv_embed.set_footer(text=f"{sheet.get('advanced_class') or sheet.get('class', '?')} · World Event")
+        await _broadcast_world_event(ctx, lv_embed)
 
     # Kaia narrates
     if result.get("narration_hook"):
@@ -4288,7 +4391,9 @@ async def _handle_offer(ctx, msg, send, rest, uid, uname, is_owner):
 
 async def _handle_scout(ctx, msg, send, rest, uid, uname, is_owner):
     """!rpg scout — use the Watchtower to preview monster activity."""
-    from utils.ttrpg.monster_registry import MONSTERS, ENCOUNTER_TABLES
+    from utils.ttrpg.monster_registry import MONSTERS
+    from utils.ttrpg.monster_registry import ENCOUNTER_TABLES as FULL_TABLES
+    from utils.ttrpg.calendar import get_weather, get_season, SEASONAL_MONSTERS
     from datetime import date
 
     sheet = await load(uid)
@@ -4301,8 +4406,6 @@ async def _handle_scout(ctx, msg, send, rest, uid, uname, is_owner):
             color=0xcc4444
         ))
 
-    # Weather Check for Scout Blocked (Fog/Wind)
-    from utils.ttrpg.calendar import get_weather
     weather = get_weather()
     effect = weather.get("effect")
     if effect and effect.get("type") == "scout_blocked":
@@ -4311,7 +4414,6 @@ async def _handle_scout(ctx, msg, send, rest, uid, uname, is_owner):
             color=0x888888
         ))
 
-    # Once per day
     today = date.today().strftime("%Y-%m-%d")
     if sheet.get("last_scout_date") == today:
         return await msg.channel.send(embed=discord.Embed(
@@ -4322,7 +4424,6 @@ async def _handle_scout(ctx, msg, send, rest, uid, uname, is_owner):
     sheet["last_scout_date"] = today
     await save(sheet)
 
-    # Build intel report from encounter tables
     HUNTING_LOCATIONS = {
         "whisperwood_edge": "Edge of the Whisperwood",
         "whisperwood_deep": "Whisperwood Deep",
@@ -4330,51 +4431,87 @@ async def _handle_scout(ctx, msg, send, rest, uid, uname, is_owner):
         "trade_road":       "The Trade Road",
     }
 
-    lines = ["🗼 **Scout Report** — *from the top of the Watchtower*\n"]
+    DANGER_ICONS = {
+        "trivial": "🟢", "easy": "🟡",
+        "medium": "🟠", "hard": "🔴", "deadly": "💀", "boss": "☠️"
+    }
+
+    season = get_season()
+    seasonal_mods = SEASONAL_MONSTERS.get(season, {})
+
+    lines = [f"🗼 **Scout Report** — *{weather['emoji']} {weather['name']} — {today}*\n"]
 
     for loc_key, loc_name in HUNTING_LOCATIONS.items():
-        table = ENCOUNTER_TABLES.get(loc_key, [])
+        base_table = FULL_TABLES.get(loc_key, [])
+        seasonal = seasonal_mods.get(loc_key, [])
+        table = base_table + seasonal
+
         if not table:
             continue
 
-        # Tally tier distribution by weight
-        tier_weights: dict[str, int] = {}
         total_weight = sum(w for _, w in table)
-        for monster_key, weight in table:
-            tier = MONSTERS.get(monster_key, {}).get("tier", "unknown")
-            tier_weights[tier] = tier_weights.get(tier, 0) + weight
 
-        # Most common tier
+        # Roll 3 distinct random sightings, weighted
+        spotted_keys = []
+        attempts = 0
+        while len(spotted_keys) < 3 and attempts < 20:
+            attempts += 1
+            r = secrets.randbelow(total_weight)
+            cum = 0
+            for mk, w in table:
+                cum += w
+                if r < cum:
+                    if mk not in spotted_keys and mk in MONSTERS:
+                        spotted_keys.append(mk)
+                    break
+
+        # Tier distribution
+        tier_weights: dict[str, int] = {}
+        for mk, w in table:
+            t = MONSTERS.get(mk, {}).get("tier", "trivial")
+            tier_weights[t] = tier_weights.get(t, 0) + w
+
         dominant_tier = max(tier_weights, key=tier_weights.get)
         dominant_pct = int(tier_weights[dominant_tier] / total_weight * 100)
+        danger = DANGER_ICONS.get(dominant_tier, "⚪")
 
-        # Named preview: highest-weight monster
-        top_monster_key = max(table, key=lambda x: x[1])[0]
-        top_monster = MONSTERS.get(top_monster_key, {})
+        spotted_names = [MONSTERS[k]["name"] for k in spotted_keys[:2] if k in MONSTERS]
+        seasonal_note = f"  *(+ {season} spawns)*" if seasonal else ""
 
-        # Danger indicator
-        danger = "Safe"
-        danger = {
-            "trivial": "🟢", "easy": "🟡",
-            "medium": "🟠", "hard": "🔴", "deadly": "💀"
-        }.get(dominant_tier, "⚪")
+        # XP range hint
+        xp_vals = [MONSTERS[mk]["xp"] for mk, _ in table if mk in MONSTERS]
+        xp_hint = f"  ·  XP {min(xp_vals)}–{max(xp_vals)}" if xp_vals else ""
 
         lines.append(
-            f"{danger} **{loc_name}**\n"
-            f"   Mostly {dominant_tier} ({dominant_pct}%) — "
-            f"*spotted: {top_monster.get('name', top_monster_key)}*"
+            f"{danger} **{loc_name}**{seasonal_note}\n"
+            f"   Mostly *{dominant_tier}* ({dominant_pct}%){xp_hint}\n"
+            f"   Spotted: *{', '.join(spotted_names) if spotted_names else 'nothing visible'}*"
         )
-        
-    lines.append(
-        f"\n*A guard leans on his spear without looking at you.*\n"
-        f"*\"Whisperwood's been louder than usual. Watch yourself.\"*"
-    )
+
+    # Weather encounter note
+    if effect and effect.get("type") == "encounter_mod":
+        lines.append(f"\n⚠️ *{weather['name']} effect: {effect['desc']}*")
+
+    # Randomized guard commentary
+    GUARD_COMMENTS = [
+        "*\"Whisperwood's been louder than usual. Watch yourself.\"*",
+        "*\"Something came out of the ruins before sunrise again. We didn't follow it.\"*",
+        "*\"Trade Road's clear as far as I can see. That's about two miles. After that, your problem.\"*",
+        "*\"Don't go past the edge after dark. Not my rule. Just good sense.\"*",
+        "*\"You didn't hear this from me — the deep wood's restless. More than usual.\"*",
+        "*\"The canopy moved this morning. Wind was calm. Make of that what you will.\"*",
+        "*\"Patrol came back short a man last week. We're not talking about it.\"*",
+        "*\"Aeridor's been glowing again at dusk. Third time this month.\"*",
+        "*\"I've got a theory about the ruins. But I like sleeping at night, so I keep it to myself.\"*",
+        "*\"Ruins or deep woods tonight — ruins has better loot. Deep woods wants to keep it.\"*",
+    ]
+    lines.append(f"\n{GUARD_COMMENTS[secrets.randbelow(len(GUARD_COMMENTS))]}")
 
     embed = discord.Embed(
         description="\n".join(lines),
         color=0x8888aa
     )
-    embed.set_footer(text=f"{weather['emoji']} {weather['name']} · {weather['desc']}")
+    embed.set_footer(text=f"Scout intel refreshes daily at dawn · Today: {weather['name']}")
     view = _make_status_view(ctx, msg, uid, uname, is_owner)
     await msg.channel.send(embed=embed, view=view)
 
