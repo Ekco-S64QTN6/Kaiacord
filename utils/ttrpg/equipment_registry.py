@@ -4,14 +4,18 @@ WEAPONS = {
     "wooden_club":    {"name": "Wooden Club",      "attack_bonus": 0, "damage_die": 4,  "damage_bonus": 0, "value": 3,   "tier": 1},
     "wooden_staff":   {"name": "Wooden Staff",    "attack_bonus": 1, "damage_die": 6,  "damage_bonus": 0, "value": 8,   "tier": 1, "classes": ["Mage", "Cleric"]},
     "shortbow":       {"name": "Shortbow",         "attack_bonus": 1, "damage_die": 6,  "damage_bonus": 0, "value": 20,  "tier": 1},
-    "hand_axe":       {"name": "Hand Axe",         "attack_bonus": 1, "damage_die": 6,  "damage_bonus": 0, "value": 18,  "tier": 1},
+    "rusty_hand_axe": {"name": "Rusty Hand Axe",   "attack_bonus": 1, "damage_die": 6,  "damage_bonus": 0, "value": 18,  "tier": 1},
+    "rusty_stiletto": {"name": "Rusty Stiletto",   "attack_bonus": 1, "damage_die": 6,  "damage_bonus": 0, "value": 20,  "tier": 1},
+    "rusty_mace":     {"name": "Rusty Mace",       "attack_bonus": 1, "damage_die": 6,  "damage_bonus": 0, "value": 15,  "tier": 1, "classes": ["Cleric", "Warrior"]},
 
     # Tier 2
     "iron_sword":     {"name": "Iron Sword",       "attack_bonus": 2, "damage_die": 6,  "damage_bonus": 2, "value": 35,  "tier": 2},
     "iron_staff":     {"name": "Iron-Shod Staff", "attack_bonus": 2, "damage_die": 8,  "damage_bonus": 2, "value": 30,  "tier": 2, "classes": ["Mage", "Cleric"]},
-    "spear":          {"name": "Spear",            "attack_bonus": 2, "damage_die": 8,  "damage_bonus": 2, "value": 40,  "tier": 2},
+    "iron_spear":     {"name": "Iron Spear",       "attack_bonus": 2, "damage_die": 8,  "damage_bonus": 2, "value": 40,  "tier": 2},
     "crossbow":       {"name": "Crossbow",         "attack_bonus": 3, "damage_die": 8,  "damage_bonus": 2, "value": 55,  "tier": 2},
-    "battle_axe":     {"name": "Battle Axe",       "attack_bonus": 3, "damage_die": 8,  "damage_bonus": 2, "value": 60,  "tier": 2},
+    "iron_battle_axe":{"name": "Iron Battle Axe",  "attack_bonus": 3, "damage_die": 8,  "damage_bonus": 2, "value": 60,  "tier": 2},
+    "iron_dirk":      {"name": "Iron Dirk",        "attack_bonus": 2, "damage_die": 8,  "damage_bonus": 2, "value": 35,  "tier": 2},
+    "iron_morning_star":{"name": "Iron Morning Star","attack_bonus": 2, "damage_die": 8,  "damage_bonus": 2, "value": 40,  "tier": 2, "classes": ["Cleric", "Warrior"]},
 
     # Tier 3
     "longsword":      {"name": "Longsword",        "attack_bonus": 4, "damage_die": 8,  "damage_bonus": 4, "value": 80,  "tier": 3},
@@ -47,6 +51,17 @@ WEAPONS = {
     "ultima_weapon":  {"name": "Ultima Weapon",    "attack_bonus": 12,"damage_die": 12, "damage_bonus": 8, "value": 1200,"tier": 5},
     "mjolnir":        {"name": "Mjolnir",          "attack_bonus": 9, "damage_die": 12, "damage_bonus": 8, "value": 680, "tier": 5, "classes": ["Warrior", "Cleric"]},
 }
+
+# --- Legacy Compatibility for Renamed Weapons ---
+WEAPONS["hand_axe"]     = WEAPONS["rusty_hand_axe"]
+WEAPONS["stiletto"]     = WEAPONS["rusty_stiletto"]
+WEAPONS["mace"]         = WEAPONS["rusty_mace"]
+WEAPONS["spear"]        = WEAPONS["iron_spear"]
+WEAPONS["battle_axe"]   = WEAPONS["iron_battle_axe"]
+WEAPONS["morning_star"] = WEAPONS["iron_morning_star"]
+WEAPONS["longsword"]    = WEAPONS["steel_longsword"]
+WEAPONS["steel_blade"]  = WEAPONS["steel_dagger"]
+WEAPONS["defender"]     = WEAPONS["flame_scepter"]
 
 ARMOR = {
     # Tier 1
@@ -197,7 +212,7 @@ ACCESSORIES = {
 }
 
 # What Hemlock sells (Tier 1 ONLY — Oakhaven starter stock)
-HEMLOCK_STOCK_WEAPONS = ["shortbow", "hand_axe", "wooden_staff", "iron_sword", "iron_staff", "spear", "crossbow", "battle_axe"]
+HEMLOCK_STOCK_WEAPONS = ["shortbow", "rusty_hand_axe", "rusty_stiletto", "rusty_mace", "wooden_staff", "iron_sword", "iron_dirk", "iron_morning_star", "iron_staff", "iron_spear", "crossbow", "iron_battle_axe"]
 HEMLOCK_STOCK_ARMOR   = ["leather_armor", "mages_robe", "bronze_armor", "fur_cloak", "studded_leather", "chainmail", "silken_robe", "black_garb"]
 HEMLOCK_STOCK_HEADGEAR = ["iron_helm", "scouts_hood", "mages_cap", "bronze_helm", "steel_visor", "leather_coif", "silken_cowl", "horned_helmet", "sages_hat"]
 HEMLOCK_STOCK_BOOTS    = ["worn_boots", "heavy_boots", "trackers_boots", "soft_slippers", "bronze_sabatons"]
@@ -288,6 +303,14 @@ ALIASES = {
     "bracer":   "warriors_bracer",
     "bracelet": "scholars_bracelet",
     "circlet":  "arcane_circlet",
+    "stiletto": "rusty_stiletto",
+    "dirk":     "iron_dirk",
+    "mace":     "rusty_mace",
+    "star":     "iron_morning_star",
+    "spear":    "iron_spear",
+    "axe":      "iron_battle_axe",
+    "dagger":   "steel_dagger",
+    "scepter":  "flame_scepter",
     # EQ / FF aliases
     "potion":   "hi_potion",
     "hipot":    "hi_potion",
