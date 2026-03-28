@@ -129,8 +129,14 @@ def _resolve_combat(sheet: dict, monster: dict, atk_mod_global: int = 0, def_mod
         crit_threshold = 20
         if class_name == "Rogue": crit_threshold = 19
         adv = sheet.get("advanced_class", "")
-        if adv == "Hunter": crit_threshold = 18
-        if adv == "Shadowblade": crit_threshold = 17
+        if adv:
+            from utils.ttrpg.class_advancement import ADVANCED_CLASSES
+            for base_opts in ADVANCED_CLASSES.values():
+                if adv in base_opts:
+                    stored = base_opts[adv].get("bonuses", {}).get("crit_threshold")
+                    if stored:
+                        crit_threshold = stored
+                    break
         player_crit = raw_hit >= crit_threshold
         player_hit = total_hit >= monster["defense"] or player_crit
         player_fumble = raw_hit == 1
@@ -139,7 +145,8 @@ def _resolve_combat(sheet: dict, monster: dict, atk_mod_global: int = 0, def_mod
             dice_count = 2 if player_crit else 1
             dmg_rolls = [secrets.randbelow(weapon_dmg_die) + 1 for _ in range(dice_count)]
             
-            warrior_dmg_bonus = ((sheet.get("level", 1) + 1) // 2) if class_name == "Warrior" else 0
+            # Warrior mastery: +1 damage per 3 levels (Lv.1-3: 0, Lv.4-6: +1, Lv.7-9: +2, Lv.10: +3)
+            warrior_dmg_bonus = (sheet.get("level", 1) - 1) // 3 if class_name == "Warrior" else 0
             adv_bonus_flat = 0
             if adv_class == "Wizard": adv_bonus_flat = 3
             if adv_class == "Shadowblade" and player_crit: adv_bonus_flat = 4
@@ -189,8 +196,18 @@ def _resolve_combat(sheet: dict, monster: dict, atk_mod_global: int = 0, def_mod
     monster_total_hit = 0
 
     if monster_alive:
-        player_defense = 10 + dex_mod + armor_def + head_def + boots_def + acc_def + adv_flat_def + def_mod_global
-        monster_attack_mod = monster["attack"] // 2
+        raw_gear_def = armor_def + head_def + boots_def + acc_def
+        # Soft cap: first 10 points full, remainder halved (diminishing returns)
+        effective_gear_def = min(10, raw_gear_def) + max(0, raw_gear_def - 10) // 2
+        player_defense = 10 + dex_mod + effective_gear_def + adv_flat_def + def_mod_global
+
+        TIER_HIT_MOD = {
+            "trivial":  2, "easy":   4, "medium":  7,
+            "hard":    10, "deadly": 14, "boss":   18,
+        }
+        _tier = monster.get("tier", "medium")
+        monster_attack_mod = TIER_HIT_MOD.get(_tier, monster["attack"] // 2)
+
         monster_raw_hit = secrets.randbelow(20) + 1
         monster_total_hit = monster_raw_hit + monster_attack_mod
         monster_hit = monster_total_hit >= player_defense or monster_raw_hit == 20
@@ -201,10 +218,15 @@ def _resolve_combat(sheet: dict, monster: dict, atk_mod_global: int = 0, def_mod
             status_logs.append(f"⚔️ **{monster['name']}** is winded and cannot counter.")
 
         if monster_hit:
-            base = secrets.randbelow(6) + 1
-            # Apply global defense mod to monster's damage or hit? Usually hit. 
-            # But let's apply a slight damage reduction if def_mod_global is positive (e.g. cover/rain)
-            monster_damage = max(1, base + (monster["attack"] // 2))
+            TIER_DAMAGE = {
+                "trivial": (1, 4), "easy":  (1, 6),
+                "medium":  (1, 8), "hard":  (2, 6),
+                "deadly":  (2, 8), "boss":  (3, 6),
+            }
+            tier = monster.get("tier", "medium")
+            num_dice, die_size = TIER_DAMAGE.get(tier, (1, 6))
+            dmg_rolls = [secrets.randbelow(die_size) + 1 for _ in range(num_dice)]
+            monster_damage = max(1, sum(dmg_rolls) + (monster["attack"] // 2))
             
             from utils.ttrpg.class_advancement import apply_advanced_class_to_combat
             adv_mods = apply_advanced_class_to_combat(
@@ -221,7 +243,7 @@ def _resolve_combat(sheet: dict, monster: dict, atk_mod_global: int = 0, def_mod
                 if sheet["hp"]["current"] - monster_damage < 1:
                     monster_damage = max(0, sheet["hp"]["current"] - 1)
             
-            monster_dmg_breakdown = f"1d6({base})+{monster['attack']//2}=**{monster_damage}**"
+            monster_dmg_breakdown = f"{num_dice}d{die_size}({sum(dmg_rolls)})+{monster['attack']//2}=**{monster_damage}**"
             sheet["hp"]["current"] = max(0, sheet["hp"]["current"] - monster_damage)
 
     player_alive = sheet["hp"]["current"] > 0
@@ -261,7 +283,7 @@ def _resolve_combat(sheet: dict, monster: dict, atk_mod_global: int = 0, def_mod
             exchanges.append(f"⚔️ **{sheet['character_name']}** stops their blade at **{monster['name']}**'s throat. Yield!")
 
         counter_result = "HIT" if monster_hit else "MISS"
-        exchanges.append(f"🔴 Counter-attack: d20({monster_raw_hit})+{monster['attack']//2}=**{monster_total_hit}** → **{counter_result}**")
+        exchanges.append(f"🔴 Counter-attack: d20({monster_raw_hit})+{monster_attack_mod}=**{monster_total_hit}** → **{counter_result}**")
         if monster_hit:
             exchanges.append(f"   → {monster_dmg_breakdown}")
             exchanges.append(f"   Your HP: {sheet['hp']['current'] + monster_damage} → **{sheet['hp']['current']}/{sheet['hp']['max']}**")

@@ -3409,7 +3409,16 @@ async def _handle_use(ctx, msg, send, rest, uid, uname, is_owner):
         
     if "hp_restore" in item and item["hp_restore"] > 0:
         before = sheet["hp"]["current"]
-        sheet["hp"]["current"] = min(sheet["hp"]["current"] + item["hp_restore"], sheet["hp"]["max"])
+        # Cleric/High Priest heal_mult bonus
+        heal_mult = 1.0
+        char_class = sheet.get("class", "")
+        adv_class  = sheet.get("advanced_class", "")
+        if adv_class == "High Priest":
+            heal_mult = 1.5
+        elif adv_class in ("Cleric", "") and char_class == "Cleric":
+            heal_mult = 1.25
+        actual_restore = int(item["hp_restore"] * heal_mult)
+        sheet["hp"]["current"] = min(sheet["hp"]["current"] + actual_restore, sheet["hp"]["max"])
         healed = sheet["hp"]["current"] - before
         sheet["inventory"].remove(item_key)
         await save(sheet)
@@ -3730,6 +3739,16 @@ async def _handle_attack(ctx, msg, send, rest, uid, uname, is_owner):
     if res["monster_defeated"]:
         xp_gain = int(monster.get("xp", 10) * state.get("xp_mult", 1.0))
         gil_gain = int(monster.get("gil", 5) * state.get("gil_mult", 1.0))
+        # Advanced class XP/Gil percentage bonuses
+        _adv = sheet.get("advanced_class", "")
+        if _adv:
+            from utils.ttrpg.class_advancement import ADVANCED_CLASSES
+            for _opts in ADVANCED_CLASSES.values():
+                if _adv in _opts:
+                    _b = _opts[_adv].get("bonuses", {})
+                    xp_gain  = int(xp_gain  * (1.0 + _b.get("xp_bonus_pct",  0.0)))
+                    gil_gain = int(gil_gain * (1.0 + _b.get("gil_bonus_pct", 0.0)))
+                    break
         # Weather bonus effects (e.g. clear autumn +5 XP, winter frost +3 Gil)
         weather_effect = get_weather().get("effect") or {}
         if weather_effect.get("type") == "xp_bonus":
@@ -4198,7 +4217,18 @@ async def _handle_gamble(ctx, msg, send, rest, uid, uname, is_owner):
         ))
 
     # Roll d6 vs d6. Tie goes to house.
-    player_roll = secrets.randbelow(6) + 1
+    # Trickster gamble_edge check
+    has_gamble_edge = False
+    adv = sheet.get("advanced_class", "")
+    if adv == "Trickster":
+        has_gamble_edge = True
+
+    if has_gamble_edge:
+        # Roll twice, take best
+        player_roll = max(secrets.randbelow(6) + 1, secrets.randbelow(6) + 1)
+    else:
+        player_roll = secrets.randbelow(6) + 1
+        
     house_roll  = secrets.randbelow(6) + 1
 
     sheet["gil"] -= BUY_IN

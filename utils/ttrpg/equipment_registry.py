@@ -93,33 +93,33 @@ HEADGEAR = {
     "bronze_helm":       {"name": "Bronze Helm",        "defense_bonus": 1, "value": 15,  "tier": 1},
 
     # Tier 2
-    "steel_visor":       {"name": "Steel Visor",        "defense_bonus": 3, "value": 55,  "tier": 2, "classes": ["Warrior"]},
-    "leather_coif":      {"name": "Leather Coif",       "defense_bonus": 2, "value": 35,  "tier": 2, "classes": ["Ranger", "Rogue"]},
+    "steel_visor":       {"name": "Steel Visor",        "defense_bonus": 2, "value": 55,  "tier": 2, "classes": ["Warrior"]},
+    "leather_coif":      {"name": "Leather Coif",       "defense_bonus": 1, "value": 35,  "tier": 2, "classes": ["Ranger", "Rogue"]},
     "silken_cowl":       {"name": "Silken Cowl",        "defense_bonus": 1, "value": 40,  "tier": 2, "classes": ["Mage", "Cleric"]},
     "horned_helmet":     {"name": "Horned Helmet",      "defense_bonus": 2, "value": 45,  "tier": 2, "classes": ["Warrior"]},
-    "sages_hat":         {"name": "Sage's Hat",         "defense_bonus": 2, "value": 60,  "tier": 2, "classes": ["Mage", "Cleric"]},
+    "sages_hat":         {"name": "Sage's Hat",         "defense_bonus": 1, "value": 60,  "tier": 2, "classes": ["Mage", "Cleric"]},
 
     # Tier 3
-    "siege_helm":        {"name": "Siege Helm",         "defense_bonus": 4, "value": 100, "tier": 3, "classes": ["Warrior"]},
-    "stalkers_cowl":     {"name": "Stalker's Cowl",     "defense_bonus": 3, "value": 80,  "tier": 3, "classes": ["Ranger", "Rogue"]},
-    "arcane_circlet":    {"name": "Arcane Circlet",     "defense_bonus": 2, "value": 90,  "tier": 3, "classes": ["Mage", "Cleric"]},
-    "flame_helm":        {"name": "Flame Helm",         "defense_bonus": 3, "value": 85,  "tier": 3},
-    "gold_hairpin":      {"name": "Gold Hairpin",       "defense_bonus": 3, "value": 75,  "tier": 3, "classes": ["Mage", "Cleric"]},
+    "siege_helm":        {"name": "Siege Helm",         "defense_bonus": 2, "value": 100, "tier": 3, "classes": ["Warrior"]},
+    "stalkers_cowl":     {"name": "Stalker's Cowl",     "defense_bonus": 2, "value": 80,  "tier": 3, "classes": ["Ranger", "Rogue"]},
+    "arcane_circlet":    {"name": "Arcane Circlet",     "defense_bonus": 1, "value": 90,  "tier": 3, "classes": ["Mage", "Cleric"]},
+    "flame_helm":        {"name": "Flame Helm",         "defense_bonus": 2, "value": 85,  "tier": 3},
+    "gold_hairpin":      {"name": "Gold Hairpin",       "defense_bonus": 2, "value": 75,  "tier": 3, "classes": ["Mage", "Cleric"]},
     "ribbon":            {"name": "Ribbon",             "defense_bonus": 2, "value": 120, "tier": 3},
-    "executioner_hood":  {"name": "Executioner's Hood", "defense_bonus": 2, "value": 70,  "tier": 3, "classes": ["Warrior", "Rogue"]},
+    "executioner_hood":  {"name": "Executioner's Hood", "defense_bonus": 1, "value": 70,  "tier": 3, "classes": ["Warrior", "Rogue"]},
     "circlet_persuasion":{"name": "Circlet of Persuasion","defense_bonus": 1, "value": 150, "tier": 3},
 
     # Tier 4
-    "aeridorian_helm":   {"name": "Aeridorian Helm",    "defense_bonus": 5, "value": 200, "tier": 4, "classes": ["Warrior"]},
-    "shadowweave_mask":  {"name": "Shadowweave Mask",   "defense_bonus": 4, "value": 180, "tier": 4, "classes": ["Rogue"]},
-    "resonance_crown":   {"name": "Resonance Crown",    "defense_bonus": 3, "value": 190, "tier": 4, "classes": ["Mage", "Cleric"]},
-    "diamond_helm":      {"name": "Diamond Helm",       "defense_bonus": 4, "value": 180, "tier": 4},
+    "aeridorian_helm":   {"name": "Aeridorian Helm",    "defense_bonus": 3, "value": 200, "tier": 4, "classes": ["Warrior"]},
+    "shadowweave_mask":  {"name": "Shadowweave Mask",   "defense_bonus": 3, "value": 180, "tier": 4, "classes": ["Rogue"]},
+    "resonance_crown":   {"name": "Resonance Crown",    "defense_bonus": 2, "value": 190, "tier": 4, "classes": ["Mage", "Cleric"]},
+    "diamond_helm":      {"name": "Diamond Helm",       "defense_bonus": 3, "value": 180, "tier": 4},
 
     # Tier 5
-    "void_helm":         {"name": "Void Helm",          "defense_bonus": 6, "value": 450, "tier": 5},
-    "brilliance_helm":   {"name": "Helm of Brilliance", "defense_bonus": 5, "value": 500, "tier": 5},
-    "crown_stars":       {"name": "Crown of Stars",     "defense_bonus": 4, "value": 450, "tier": 5, "classes": ["Mage", "Cleric"]},
-    "genji_helm":        {"name": "Genji Helm",         "defense_bonus": 5, "value": 400, "tier": 5, "classes": ["Warrior", "Rogue"]},
+    "void_helm":         {"name": "Void Helm",          "defense_bonus": 3, "value": 450, "tier": 5},
+    "brilliance_helm":   {"name": "Helm of Brilliance", "defense_bonus": 3, "value": 500, "tier": 5},
+    "crown_stars":       {"name": "Crown of Stars",     "defense_bonus": 2, "value": 450, "tier": 5, "classes": ["Mage", "Cleric"]},
+    "genji_helm":        {"name": "Genji Helm",         "defense_bonus": 3, "value": 400, "tier": 5, "classes": ["Warrior", "Rogue"]},
 }
 
 # ─── BOOTS ───────────────────────────────────────────────────────────────────
@@ -132,30 +132,30 @@ BOOTS = {
     "bronze_sabatons":   {"name": "Bronze Sabatons",   "defense_bonus": 1, "value": 18,  "tier": 1},
 
     # Tier 2
-    "iron_shod_boots":   {"name": "Iron-Shod Boots",   "defense_bonus": 3, "value": 60,  "tier": 2, "classes": ["Warrior"]},
-    "shadow_treads":     {"name": "Shadow Treads",      "defense_bonus": 2, "value": 50,  "tier": 2, "classes": ["Rogue"]},
-    "foresters_boots":   {"name": "Forester's Boots",  "defense_bonus": 2, "value": 45,  "tier": 2, "classes": ["Ranger"]},
+    "iron_shod_boots":   {"name": "Iron-Shod Boots",   "defense_bonus": 2, "value": 60,  "tier": 2, "classes": ["Warrior"]},
+    "shadow_treads":     {"name": "Shadow Treads",      "defense_bonus": 1, "value": 50,  "tier": 2, "classes": ["Rogue"]},
+    "foresters_boots":   {"name": "Forester's Boots",  "defense_bonus": 1, "value": 45,  "tier": 2, "classes": ["Ranger"]},
     "ley_walkers":       {"name": "Ley-Walker Sandals","defense_bonus": 1, "value": 40,  "tier": 2, "classes": ["Mage", "Cleric"]},
 
     # Tier 3
-    "wardens_greaves":   {"name": "Warden's Greaves",  "defense_bonus": 4, "value": 120, "tier": 3, "classes": ["Warrior"]},
-    "whisperwood_boots": {"name": "Whisperwood Boots", "defense_bonus": 3, "value": 100, "tier": 3, "classes": ["Ranger", "Rogue"]},
-    "resonance_treads":  {"name": "Resonance Treads",  "defense_bonus": 2, "value": 110, "tier": 3, "classes": ["Mage", "Cleric"]},
-    "flame_greaves":     {"name": "Flame Greaves",     "defense_bonus": 3, "value": 95,  "tier": 3},
-    "striding_boots":    {"name": "Boots of Striding",  "defense_bonus": 2, "value": 80,  "tier": 3},
+    "wardens_greaves":   {"name": "Warden's Greaves",  "defense_bonus": 2, "value": 120, "tier": 3, "classes": ["Warrior"]},
+    "whisperwood_boots": {"name": "Whisperwood Boots", "defense_bonus": 2, "value": 100, "tier": 3, "classes": ["Ranger", "Rogue"]},
+    "resonance_treads":  {"name": "Resonance Treads",  "defense_bonus": 1, "value": 110, "tier": 3, "classes": ["Mage", "Cleric"]},
+    "flame_greaves":     {"name": "Flame Greaves",     "defense_bonus": 2, "value": 95,  "tier": 3},
+    "striding_boots":    {"name": "Boots of Striding",  "defense_bonus": 1, "value": 80,  "tier": 3},
 
     # Tier 4
-    "aeridorian_greaves":{"name": "Aeridorian Greaves","defense_bonus": 5, "value": 220, "tier": 4, "classes": ["Warrior"]},
-    "shadow_striders":   {"name": "Shadow Striders",   "defense_bonus": 4, "value": 200, "tier": 4, "classes": ["Rogue"]},
-    "diamond_boots":     {"name": "Diamond Boots",     "defense_bonus": 4, "value": 195, "tier": 4},
-    "winged_boots":      {"name": "Winged Boots",       "defense_bonus": 3, "value": 300, "tier": 4},
-    "boots_speed":       {"name": "Boots of Speed",     "defense_bonus": 3, "value": 250, "tier": 4},
+    "aeridorian_greaves":{"name": "Aeridorian Greaves","defense_bonus": 3, "value": 220, "tier": 4, "classes": ["Warrior"]},
+    "shadow_striders":   {"name": "Shadow Striders",   "defense_bonus": 3, "value": 200, "tier": 4, "classes": ["Rogue"]},
+    "diamond_boots":     {"name": "Diamond Boots",     "defense_bonus": 3, "value": 195, "tier": 4},
+    "winged_boots":      {"name": "Winged Boots",       "defense_bonus": 2, "value": 300, "tier": 4},
+    "boots_speed":       {"name": "Boots of Speed",     "defense_bonus": 2, "value": 250, "tier": 4},
 
     # Tier 5
-    "void_striders":     {"name": "Void Striders",     "defense_bonus": 6, "value": 480, "tier": 5},
-    "hermes_boots":      {"name": "Hermes Boots",       "defense_bonus": 4, "value": 450, "tier": 5},
-    "genji_boots":       {"name": "Genji Boots",        "defense_bonus": 5, "value": 550, "tier": 5, "classes": ["Warrior", "Rogue"]},
-    "seven_league_boots":{"name": "7-League Boots",    "defense_bonus": 4, "value": 600, "tier": 5},
+    "void_striders":     {"name": "Void Striders",     "defense_bonus": 3, "value": 480, "tier": 5},
+    "hermes_boots":      {"name": "Hermes Boots",       "defense_bonus": 2, "value": 450, "tier": 5},
+    "genji_boots":       {"name": "Genji Boots",        "defense_bonus": 3, "value": 550, "tier": 5, "classes": ["Warrior", "Rogue"]},
+    "seven_league_boots":{"name": "7-League Boots",    "defense_bonus": 2, "value": 600, "tier": 5},
 }
 
 # ─── ACCESSORIES (rings / bracers / bracelets) ───────────────────────────────
@@ -172,25 +172,25 @@ ACCESSORIES = {
     "crystal_bracelet":  {"name": "Crystal Bracelet",  "defense_bonus": 1, "attack_bonus": 0, "value": 45,  "tier": 2, "classes": ["Mage", "Cleric"]},
 
     # Tier 3
-    "silver_ring":       {"name": "Silver Ring",        "defense_bonus": 2, "attack_bonus": 1, "value": 80,  "tier": 3},
-    "tricklebrook_charm":{"name": "Tricklebrook Charm","defense_bonus": 2, "attack_bonus": 0, "value": 75,  "tier": 3},
-    "aeridor_bangle":    {"name": "Aeridor Bangle",    "defense_bonus": 2, "attack_bonus": 2, "value": 100, "tier": 3},
-    "serpentine_bracer": {"name": "Serpentine Bracer", "defense_bonus": 2, "attack_bonus": 2, "value": 85,  "tier": 3, "classes": ["Rogue", "Ranger"]},
-    "gold_ring":         {"name": "Gold Ring",          "defense_bonus": 2, "attack_bonus": 1, "value": 110, "tier": 3},
+    "silver_ring":       {"name": "Silver Ring",        "defense_bonus": 1, "attack_bonus": 1, "value": 80,  "tier": 3},
+    "tricklebrook_charm":{"name": "Tricklebrook Charm","defense_bonus": 1, "attack_bonus": 0, "value": 75,  "tier": 3},
+    "aeridor_bangle":    {"name": "Aeridor Bangle",    "defense_bonus": 1, "attack_bonus": 2, "value": 100, "tier": 3},
+    "serpentine_bracer": {"name": "Serpentine Bracer", "defense_bonus": 1, "attack_bonus": 2, "value": 85,  "tier": 3, "classes": ["Rogue", "Ranger"]},
+    "gold_ring":         {"name": "Gold Ring",          "defense_bonus": 1, "attack_bonus": 1, "value": 110, "tier": 3},
     "ring_protection":   {"name": "Ring of Protection", "defense_bonus": 1, "attack_bonus": 1, "value": 150, "tier": 3},
     "periapt_poison":    {"name": "Periapt of Poison",  "defense_bonus": 1, "attack_bonus": 0, "value": 100, "tier": 3},
 
     # Tier 4
-    "resonance_ring":    {"name": "Resonance Ring",    "defense_bonus": 3, "attack_bonus": 2, "value": 200, "tier": 4},
-    "elaras_token":      {"name": "Elara's Token",     "defense_bonus": 2, "attack_bonus": 0, "value": 0,   "tier": 4},
-    "djarns_ring":       {"name": "Djarn's Ring",       "defense_bonus": 3, "attack_bonus": 3, "value": 250, "tier": 4},
-    "bracers_defense":   {"name": "Bracers of Defense", "defense_bonus": 2, "attack_bonus": 0, "value": 250, "tier": 4},
-    "amulet_health":     {"name": "Amulet of Health",   "defense_bonus": 2, "attack_bonus": 0, "value": 200, "tier": 4},
-    "ogre_gauntlets":    {"name": "Ogre Gauntlets",     "defense_bonus": 1, "attack_bonus": 4, "value": 350, "tier": 4, "classes": ["Warrior"]},
-    "displacement_cloak":{"name": "Displacement Cloak", "defense_bonus": 3, "attack_bonus": 0, "value": 450, "tier": 4},
+    "resonance_ring":    {"name": "Resonance Ring",    "defense_bonus": 2, "attack_bonus": 2, "value": 200, "tier": 4},
+    "elaras_token":      {"name": "Elara's Token",     "defense_bonus": 1, "attack_bonus": 0, "value": 0,   "tier": 4},
+    "djarns_ring":       {"name": "Djarn's Ring",       "defense_bonus": 2, "attack_bonus": 3, "value": 250, "tier": 4},
+    "bracers_defense":   {"name": "Bracers of Defense", "defense_bonus": 1, "attack_bonus": 0, "value": 250, "tier": 4},
+    "amulet_health":     {"name": "Amulet of Health",   "defense_bonus": 1, "attack_bonus": 0, "value": 200, "tier": 4},
+    "ogre_gauntlets":    {"name": "Ogre Gauntlets",     "defense_bonus": 0, "attack_bonus": 4, "value": 350, "tier": 4, "classes": ["Warrior"]},
+    "displacement_cloak":{"name": "Displacement Cloak", "defense_bonus": 2, "attack_bonus": 0, "value": 450, "tier": 4},
 
     # Tier 5
-    "void_band":         {"name": "Void Band",         "defense_bonus": 4, "attack_bonus": 3, "value": 500, "tier": 5},
+    "void_band":         {"name": "Void Band",         "defense_bonus": 2, "attack_bonus": 3, "value": 500, "tier": 5},
     "mox_pearl":         {"name": "Mox Pearl",          "defense_bonus": 0, "attack_bonus": 3, "value": 1000,"tier": 5},
     "giant_belt":        {"name": "Giant Strength Belt","defense_bonus": 0, "attack_bonus": 5, "value": 600, "tier": 5, "classes": ["Warrior"]},
     "black_lotus":       {"name": "Black Lotus",        "defense_bonus": 0, "attack_bonus": 10,"value": 5000,"tier": 5},
