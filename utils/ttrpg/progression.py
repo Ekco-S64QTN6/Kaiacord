@@ -63,15 +63,9 @@ def check_level_up(sheet: dict) -> tuple[bool, int]:
     sheet["hp"]["max"] += hp_gain
     sheet["hp"]["current"] = min(sheet["hp"]["current"] + hp_gain, sheet["hp"]["max"])
 
-    # Stat growth: +1 to class primary stat at levels 4 and 8
-    CLASS_PRIMARY_STATS = {
-        "Warrior": "str", "Ranger": "dex", "Mage": "int",
-        "Rogue": "dex", "Cleric": "wis",
-    }
+    # Stat growth: stat choice at levels 4 and 8
     if new_level in (4, 8):
-        primary = CLASS_PRIMARY_STATS.get(class_name)
-        if primary:
-            sheet["stats"][primary] = sheet["stats"].get(primary, 10) + 1
+        sheet["_stat_choice_pending"] = True  # To be handled by UI or next action
 
     # Mark for class advancement at level 5 (if not already advanced)
     if new_level == 5 and not sheet.get("advanced_class"):

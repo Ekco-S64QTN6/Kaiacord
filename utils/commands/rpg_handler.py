@@ -78,6 +78,13 @@ from utils.ttrpg.encounter_tables import random_encounter
 import utils.ttrpg.dice_engine as dice_engine
 from utils.ttrpg.monster_registry import get as get_monster
 from utils.ttrpg.loot_tables import get_loot
+from utils.ttrpg.broadcast import (
+    log_world_event as _log_world_event,
+    broadcast_world_event as _broadcast_world_event,
+    level_up_flavor as _level_up_flavor,
+    rare_loot_flavor as _rare_loot_flavor,
+    _boss_approach_flavor
+)
 
 
 # ── Interaction adapters for button/select callbacks ─────────────────────────
@@ -202,6 +209,85 @@ _LOCATION_BUTTONS: dict[str, list] = {
         ("Look", "🔎", "look", "", discord.ButtonStyle.secondary, 0),
     ],
 }
+
+class StatChoiceView(discord.ui.View):
+    def __init__(self, ctx, uid, uname, is_owner, primary_stat):
+        super().__init__(timeout=60)
+        self._ctx = ctx
+        self._uid = uid
+        self._uname = uname
+        self._is_owner = is_owner
+        self._primary = primary_stat
+        
+    @discord.ui.button(label="Growth A (+2 Primary)", style=discord.ButtonStyle.green)
+    async def choice_a(self, interaction: discord.Interaction, button: discord.ui.Button):
+        await self._process_choice(interaction, {self._primary: 2})
+        
+    @discord.ui.button(label="Growth B (+1 Pri, +1 CON)", style=discord.ButtonStyle.blurple)
+    async def choice_b(self, interaction: discord.Interaction, button: discord.ui.Button):
+        await self._process_choice(interaction, {self._primary: 1, "con": 1})
+        
+    @discord.ui.button(label="Growth C (+2 CON)", style=discord.ButtonStyle.grey)
+    async def choice_c(self, interaction: discord.Interaction, button: discord.ui.Button):
+        await self._process_choice(interaction, {"con": 2})
+        
+    async def _process_choice(self, interaction, gains):
+        if str(interaction.user.id) != self._uid:
+            return await interaction.response.send_message("This is not your choice to make.", ephemeral=True)
+            
+        sheet = await load(self._uid)
+        if not sheet or not sheet.get("_stat_choice_pending"):
+            return await interaction.response.send_message("No stat choice is currently pending for your character.", ephemeral=True)
+            
+        if "stats" not in sheet:
+            sheet["stats"] = {"str": 10, "dex": 10, "int": 10, "wis": 10, "con": 10, "cha": 10}
+            
+        for stat, val in gains.items():
+            sheet["stats"][stat] = sheet["stats"].get(stat, 10) + val
+            
+        # Retrospective HP boost if CON increased
+        if "con" in gains:
+            # Simple logic: increase max HP by (gains['con'] // 2) * current_level
+            # In D&D/TTRPGs, increasing CON retroactively grants HP for all levels.
+            hp_gain = (gains["con"] // 2) * sheet["level"]
+            sheet["hp"]["max"] += hp_gain
+            sheet["hp"]["current"] += hp_gain
+            
+        del sheet["_stat_choice_pending"]
+        await save(sheet)
+        
+        gains_str = ", ".join([f"+{v} {s.upper()}" for s, v in gains.items()])
+        embed = discord.Embed(
+            title="✨ Growth Confirmed",
+            description=f"Your character has grown stronger! Applied bonuses: **{gains_str}**",
+            color=0x2ECC71
+        )
+        await interaction.response.edit_message(embed=embed, view=None)
+        self.stop()
+
+async def _show_stat_choice(ctx, msg, send, sheet, uid, uname, is_owner):
+    base_class = sheet.get("class", "Warrior")
+    primary = {
+        "Warrior": "str", "Ranger": "dex", "Mage": "int",
+        "Rogue": "dex", "Cleric": "wis"
+    }.get(base_class, "str")
+    
+    primary_label = primary.upper()
+    
+    embed = discord.Embed(
+        title="✨ Level Up: Choose Your Growth",
+        description=(
+            f"You have reached Level {sheet['level']}! "
+            "How have your recent travels shaped you? Choose a focus for your development:\n\n"
+            f"• **Growth A**: +2 {primary_label} (Focus on your primary discipline)\n"
+            f"• **Growth B**: +1 {primary_label}, +1 CON (A balanced approach to power and endurance)\n"
+            f"• **Growth C**: +2 CON (Focus on survival and hardiness)"
+        ),
+        color=0xF1C40F
+    )
+    
+    view = StatChoiceView(ctx, uid, uname, is_owner, primary)
+    await send(msg.channel, embed=embed, view=view)
 
 class RPGFullLocationView(discord.ui.View):
     """
@@ -569,8 +655,28 @@ async def _make_shop_view(ctx, msg, uid, uname, is_owner, items):
                 if str(interaction.user.id) != uid:
                     await interaction.response.send_message("```\nnot your menu.\n```", ephemeral=True)
                     return
-                # Get the value from the specific select that was clicked
                 chosen = interaction.data["values"][0]
+
+                # Consumables get a quantity picker instead of an immediate purchase
+                item = find_item(chosen)
+                if item and item.get("category") == "consumable":
+                    s = await load(uid)
+                    on_hand = s.get("gil", 0) if s else 0
+                    embed = discord.Embed(
+                        title=f"🧪 {item['name']}",
+                        description=(
+                            f"**{item['value']}g each**\n"
+                            f"You have **{on_hand}g** on hand.\n\n"
+                            f"*{item.get('description', '')}*" if item.get("description") else
+                            f"**{item['value']}g each** — You have **{on_hand}g** on hand."
+                        ),
+                        color=0x44aa44
+                    )
+                    qty_view = ConsumableQuantityView(ctx, msg, uid, uname, is_owner, chosen, item)
+                    await interaction.response.send_message(embed=embed, view=qty_view, ephemeral=True)
+                    return
+
+                # Non-consumable gear: proceed as normal
                 await interaction.response.defer()
                 fake_msg = _InteractionMsg(interaction)
                 send_fn = _make_interaction_send(interaction)
@@ -804,6 +910,69 @@ def _get_dungeon_loot_tier(player_level: int, is_boss: bool = False) -> str:
 
 
 
+class BossApproachView(discord.ui.View):
+    """
+    Warning view shown when the player is about to enter an uncleared boss room.
+    Gives them the chance to turn back and clear the rest of the dungeon first.
+    """
+
+    def __init__(self, ctx_obj, uid: str, uname: str, is_owner: bool, direction: str):
+        super().__init__(timeout=120)
+        self._ctx      = ctx_obj
+        self._uid      = uid
+        self._uname    = uname
+        self._is_owner = is_owner
+        self._direction = direction
+
+    @discord.ui.button(label="⚔️ Press Forward", style=discord.ButtonStyle.danger, row=0)
+    async def press_forward(self, interaction: discord.Interaction, button: discord.ui.Button):
+        if str(interaction.user.id) != self._uid:
+            try:
+                await interaction.response.send_message("not your dungeon.", ephemeral=True)
+            except discord.NotFound:
+                pass
+            return
+        try:
+            await interaction.response.defer()
+        except discord.NotFound:
+            pass
+        # boss_warned flag is already set — _dungeon_move will skip the warning and proceed
+        await _dungeon_move(
+            self._ctx, interaction, self._uid,
+            self._uname, self._is_owner, self._direction
+        )
+
+    @discord.ui.button(label="↩️ Retreat", style=discord.ButtonStyle.secondary, row=0)
+    async def retreat(self, interaction: discord.Interaction, button: discord.ui.Button):
+        if str(interaction.user.id) != self._uid:
+            try:
+                await interaction.response.send_message("not your dungeon.", ephemeral=True)
+            except discord.NotFound:
+                pass
+            return
+        try:
+            await interaction.response.defer()
+        except discord.NotFound:
+            pass
+        from utils.ttrpg.dungeon import load_dungeon
+        state = load_dungeon(self._uid)
+        if not state:
+            try:
+                await interaction.followup.send("Dungeon state lost.", ephemeral=True)
+            except discord.NotFound:
+                pass
+            return
+        embed = discord.Embed(
+            description="*You pull back into the corridor. Whatever waits ahead is still there. So is everything you haven't cleared yet.*",
+            color=0x888888
+        )
+        view = DungeonView(self._ctx, self._uid, self._uname, self._is_owner, state)
+        await interaction.followup.send(embed=embed, view=view)
+
+    async def on_timeout(self):
+        pass
+
+
 class DungeonView(discord.ui.View):
     def __init__(self, ctx_obj, uid, uname, is_owner, dungeon):
         super().__init__(timeout=300)
@@ -872,85 +1041,27 @@ class DungeonView(discord.ui.View):
         self.add_item(map_btn)
 
         leave_btn = discord.ui.Button(label="🏃 Leave", style=discord.ButtonStyle.danger, row=3)
-        async def _leave(interaction):
+        async def _leave_cb(interaction: discord.Interaction):
             if str(interaction.user.id) != self._uid:
-                try:
-                    await interaction.response.send_message("not yours", ephemeral=True)
-                except discord.NotFound:
-                    pass
+                try: await interaction.response.send_message("Not your dungeon.", ephemeral=True)
+                except discord.NotFound: pass
                 return
-            try:
-                await interaction.response.defer()
-            except discord.NotFound:
-                pass
-            await _dungeon_leave(self._ctx, interaction, self._uid, self._uname, self._is_owner)
-        leave_btn.callback = _leave
+            await interaction.response.defer()
+            from utils.ttrpg.dungeon import clear_dungeon
+            clear_dungeon(self._uid)
+            await interaction.followup.send("You have left the dungeon and returned to the entrance.")
+        leave_btn.callback = _leave_cb
         self.add_item(leave_btn)
 
-        self.add_item(_make_status_btn(ctx_obj, uid, uname, is_owner, row=3))
-
-        # Use Item button — same pattern as DungeonCombatView
-        use_btn = discord.ui.Button(label="🧪 Use Item", style=discord.ButtonStyle.secondary, row=3)
-        async def _use_cb(interaction: discord.Interaction):
+        status_btn = discord.ui.Button(label="📊 Status", style=discord.ButtonStyle.secondary, row=3)
+        async def _status_cb(interaction: discord.Interaction):
             if str(interaction.user.id) != self._uid:
-                try:
-                    await interaction.response.send_message("not yours.", ephemeral=True)
-                except discord.NotFound:
-                    pass
+                try: await interaction.response.send_message("Not yours.", ephemeral=True)
+                except discord.NotFound: pass
                 return
-            sheet = await load(self._uid)
-            if not sheet:
-                try:
-                    await interaction.response.send_message("no character found.", ephemeral=True)
-                except discord.NotFound:
-                    pass
-                return
-            from utils.ttrpg.shop import find_item as _fi
-            from collections import Counter
-            inv_counts = Counter(sheet.get("inventory", []))
-            usable = []
-            for item_key, count in inv_counts.items():
-                item = _fi(item_key)
-                if not item or item["category"] != "consumable": continue
-                hp_restore = item.get("hp_restore", 0)
-                on_use = item.get("on_use", "")
-                if hp_restore > 0 or on_use in ("cure_poison", "luck_roll_bonus"):
-                    label = f"{item['name']} (+{hp_restore} HP)" if hp_restore > 0 else f"{item['name']} (cures {on_use.replace('_', ' ')})"
-                    if count > 1: label += f"  x{count}"
-                    usable.append((item_key, label[:100]))
-            if not usable:
-                try:
-                    await interaction.response.send_message("```\nno usable items.\n```", ephemeral=True)
-                except discord.NotFound:
-                    pass
-                return
-            options = [discord.SelectOption(label=label, value=key) for key, label in usable[:25]]
-            sel_view = discord.ui.View(timeout=30)
-            sel = discord.ui.Select(placeholder="Use item...", options=options, row=0)
-            async def _selected(sel_interaction: discord.Interaction):
-                if str(sel_interaction.user.id) != self._uid:
-                    try:
-                        await sel_interaction.response.send_message("not yours.", ephemeral=True)
-                    except discord.NotFound:
-                        pass
-                    return
-                chosen = sel_interaction.data["values"][0]
-                try:
-                    await sel_interaction.response.defer()
-                except discord.NotFound:
-                    pass
-                fake_msg = _InteractionMsg(sel_interaction)
-                send_fn = _make_interaction_send(sel_interaction)
-                await _handle_use(self._ctx, fake_msg, send_fn, chosen, self._uid, self._uname, self._is_owner)
-            sel.callback = _selected
-            sel_view.add_item(sel)
-            hp = sheet["hp"]
-            try:
-                await interaction.response.send_message(f"```\nHP: {hp['current']}/{hp['max']}\n```", view=sel_view, ephemeral=True)
-            except discord.NotFound:
-                pass
-        use_btn.callback = _use_cb
-        self.add_item(use_btn)
+            await _handle_status(self._ctx, interaction, _make_interaction_send(interaction), "", self._uid, self._uname, self._is_owner)
+        status_btn.callback = _status_cb
+        self.add_item(status_btn)
 
 
 class DungeonCombatView(discord.ui.View):
@@ -1114,8 +1225,21 @@ async def _dungeon_combat_round(ctx_obj, interaction, uid, uname, is_owner):
         # Loot
         tier = "hard" if is_boss else _get_dungeon_loot_tier(sheet.get("level", 1), is_boss)
         if is_boss:
+            import random
             drops = []
-            for _ in range(2):
+            # First drop: always
+            loot = get_loot(tier)
+            attempts = 0
+            while not loot and attempts < 5:
+                loot = get_loot(tier)
+                attempts += 1
+            if loot:
+                sheet.setdefault("inventory", []).append(loot)
+                item = find_item(loot)
+                drops.append(item["name"] if item else loot)
+                state.setdefault("loot_gained", []).append(loot)
+            # Second drop: 40% chance
+            if random.random() < 0.4:
                 loot = get_loot(tier)
                 attempts = 0
                 while not loot and attempts < 5:
@@ -1308,6 +1432,30 @@ async def _dungeon_move(ctx_obj, interaction, uid, uname, is_owner, direction):
     if nk not in state["connections"]:
         await interaction.followup.send("Can't go that way.", ephemeral=True)
         return
+
+    # ── BOSS WARNING — intercept before moving ────────────────────────
+    preview_room = state["rooms"].get(nk, {})
+    preview_rt   = preview_room.get("type", "empty")
+    warn_key     = f"boss_warned_{nk}"
+
+    if preview_rt == R_BOSS and not preview_room.get("cleared", False) and not state.get(warn_key):
+        state[warn_key] = True          # set flag so second approach skips the warning
+        save_dungeon(uid, state)        # persist flag — player hasn't moved yet
+
+        theme_key = state.get("theme_key", "undead")
+        boss_name = preview_room.get("boss_name", "the Ancient Horror")
+
+        embed = discord.Embed(
+            title="🔴 Something Stirs Ahead",
+            description=_boss_approach_flavor(theme_key, boss_name),
+            color=0x4a0000
+        )
+        embed.set_footer(text="Entering will trigger the boss encounter. The dungeon ends when the boss falls or you fall.")
+
+        view = BossApproachView(ctx_obj, uid, uname, is_owner, direction)
+        await interaction.followup.send(embed=embed, view=view)
+        return   # player stays in current room until they choose
+    # ─────────────────────────────────────────────────────────────────
 
     state["player_pos"] = [nx, ny]
     if nk not in state["visited"]:
@@ -1697,6 +1845,11 @@ async def _handle_status(ctx, msg, send, rest, uid, uname, is_owner):
         ))
         return
         
+    # [LEVEL UP] Stat choice
+    if sheet.get("_stat_choice_pending"):
+        await _show_stat_choice(ctx, msg, send, sheet, uid, uname, is_owner)
+        return
+        
     loc = sheet.get("location", "oakhaven")
     loc_data = LOCATION_DATA.get(loc, {})
     loc_name = loc_data.get("name", loc.replace("_", " ").title())
@@ -1774,14 +1927,6 @@ async def _handle_status(ctx, msg, send, rest, uid, uname, is_owner):
     
     hunts = hunts_remaining(sheet)
     
-    exits = loc_data.get("exits", [])
-    nearby = []
-    for e in exits:
-        ld = LOCATION_DATA.get(e, {})
-        n = ld.get("name", e)
-        if ld.get("hunting"): n += " *(hunting)*"
-        nearby.append(n)
-    nearby_str = " · ".join(nearby) if nearby else "None"
     
     s = await load_session(str(msg.channel.id))
     in_combat = False
@@ -1854,7 +1999,6 @@ async def _handle_status(ctx, msg, send, rest, uid, uname, is_owner):
     
     embed.add_field(name="📊 Stats", value=f"🎯 {hunts}/{get_max_hunts(sheet)} hunts\n🎭 {rep_rank} ({rep})", inline=True)
     
-    embed.add_field(name="🗺️ Nearby", value=nearby_str, inline=False)
     
     conds = sheet.get("conditions", [])
     if conds:
@@ -2924,67 +3068,6 @@ async def _handle_talk(ctx, msg, send, rest, uid, uname, is_owner):
             log_error(f"[rpg talk] {e}")
 
 
-async def _log_world_event(event_text):
-    path = os.path.join("memory", "ttrpg", "world_events.json")
-    os.makedirs(os.path.dirname(path), exist_ok=True)
-    
-    events = []
-    if os.path.exists(path):
-        try:
-            with open(path, 'r', encoding='utf-8') as f:
-                events = json.load(f)
-        except:
-            events = []
-            
-    if not isinstance(events, list):
-        events = []
-    events.append(event_text)
-    if len(events) > 10:
-        events = list(events)[-10:]
-        
-    with open(path, 'w', encoding='utf-8') as f:
-        json.dump(events, f, indent=2)
-
-async def _broadcast_world_event(ctx, embed: discord.Embed):
-    """Post a notable event embed to the main #aethelgard broadcast channel."""
-    try:
-        channel_name = config.get('discord.rpg_channel', 'aethelgard').lower()
-        channel = discord.utils.get(ctx.bot.get_all_channels(), name=channel_name)
-        if channel:
-            await channel.send(embed=embed)
-    except Exception as e:
-        log_error(f"[rpg broadcast] {e}")
-
-
-def _level_up_flavor(sheet: dict, level: int) -> str:
-    """Short lore-flavored level-up announcement."""
-    name = sheet["character_name"]
-    cls = sheet.get("advanced_class") or sheet.get("class", "Adventurer")
-    loc = sheet.get("location", "oakhaven").replace("_", " ")
-
-    FLAVOR = {
-        2:  f"*The first real fight is behind them. {name} is starting to understand the difference.*",
-        3:  f"*{name} stopped flinching at the sound of something moving in the dark.*",
-        4:  f"*Something about the way {name} moves has changed. The forest notices.*",
-        5:  f"*{name} reached level 5. A crossroads approaches — the path ahead splits.*",
-        6:  f"*{cls} {name} has survived long enough to become something the Whisperwood remembers.*",
-        7:  f"*Seven levels in. The monsters that gave {name} trouble at the start no longer look up.*",
-        8:  f"*The Aeridorian constructs track {name} now. That is not a comfortable thing to know.*",
-        9:  f"*Nine levels. {name} has outlived three scouts and a guard who had twenty years of experience.*",
-        10: f"*{name} reached the cap. Whatever comes next, Oakhaven won't be the same for it.*",
-    }
-    return FLAVOR.get(level, f"*{name} grows stronger. The {loc} feels it.*")
-
-
-def _rare_loot_flavor(monster_name: str, item_name: str, location: str) -> str:
-    loc_name = location.replace("_", " ").title()
-    FLAVOR = [
-        f"*Something worth keeping fell from the {monster_name} in the {loc_name}.*",
-        f"*The {monster_name} had no use for it anymore. Now someone does.*",
-        f"*It wasn't supposed to survive the fight. Neither was the {monster_name}.*",
-        f"*The {loc_name} gives up something old.*",
-    ]
-    return FLAVOR[secrets.randbelow(len(FLAVOR))]
 
 async def _handle_brew(ctx, msg, send, rest, uid, uname, is_owner):
     from utils.ttrpg.world import LOCATION_DATA
@@ -3760,7 +3843,7 @@ async def _handle_attack(ctx, msg, send, rest, uid, uname, is_owner):
         streak = sheet.get("hunt_streak", 0) + 1
         sheet["hunt_streak"] = streak
         if streak > 1:
-            streak_bonus_gil = streak * 2
+            streak_bonus_gil = min(streak, 5) * 2
             gil_gain += streak_bonus_gil
             streak_msg = f"  🔥 Streak: {streak} (+{streak_bonus_gil}g)"
             
@@ -4861,6 +4944,101 @@ class GilModal(discord.ui.Modal, title="Enclose Gil"):
             
         self.parent_view.gil_to_send = amount
         await interaction.response.send_message(f"💰 **{amount}g** noted for dispatch, kupo!", ephemeral=True)
+
+
+class ConsumableQuantityView(discord.ui.View):
+    """
+    Shown when a player selects a consumable in the shop.
+    Offers quick-buy amounts and a custom quantity modal.
+    """
+
+    def __init__(self, ctx, msg, uid: str, uname: str, is_owner: bool, item_key: str, item_data: dict):
+        super().__init__(timeout=60)
+        self._ctx       = ctx
+        self._msg       = msg
+        self._uid       = uid
+        self._uname     = uname
+        self._is_owner  = is_owner
+        self._item_key  = item_key
+        self._item_data = item_data
+
+        price = item_data.get("value", 0)
+
+        for label, qty in [("×1", 1), ("×5", 5), ("×10", 10), ("×20", 20)]:
+            cost = price * qty
+            btn = discord.ui.Button(
+                label=f"{label}  ({cost}g)",
+                style=discord.ButtonStyle.primary if qty == 1 else discord.ButtonStyle.secondary,
+                row=0
+            )
+            async def _qty_cb(interaction: discord.Interaction, q=qty):
+                if str(interaction.user.id) != self._uid:
+                    await interaction.response.send_message("not yours.", ephemeral=True)
+                    return
+                await interaction.response.defer()
+                fake_msg = _InteractionMsg(interaction)
+                send_fn  = _make_interaction_send(interaction)
+                await _handle_buy(
+                    self._ctx, fake_msg, send_fn,
+                    f"{self._item_key} {q}",
+                    self._uid, self._uname, self._is_owner
+                )
+            btn.callback = _qty_cb
+            self.add_item(btn)
+
+        custom_btn = discord.ui.Button(label="📝 Custom Amount", style=discord.ButtonStyle.secondary, row=1)
+        async def _custom_cb(interaction: discord.Interaction):
+            if str(interaction.user.id) != self._uid:
+                await interaction.response.send_message("not yours.", ephemeral=True)
+                return
+            await interaction.response.send_modal(
+                ConsumablePurchaseModal(
+                    self._ctx, self._msg, self._uid,
+                    self._uname, self._is_owner,
+                    self._item_key, self._item_data
+                )
+            )
+        custom_btn.callback = _custom_cb
+        self.add_item(custom_btn)
+
+    async def on_timeout(self):
+        pass
+
+
+class ConsumablePurchaseModal(discord.ui.Modal):
+    quantity_input = discord.ui.TextInput(
+        label="Quantity",
+        placeholder="Enter a number (e.g. 15)...",
+        min_length=1,
+        max_length=4,
+    )
+
+    def __init__(self, ctx, msg, uid: str, uname: str, is_owner: bool, item_key: str, item_data: dict):
+        super().__init__(title=f"Buy {item_data.get('name', item_key)[:40]}")
+        self._ctx       = ctx
+        self._msg       = msg
+        self._uid       = uid
+        self._uname     = uname
+        self._is_owner  = is_owner
+        self._item_key  = item_key
+        self._item_data = item_data
+
+    async def on_submit(self, interaction: discord.Interaction):
+        val = self.quantity_input.value.strip()
+        if not val.isdigit() or int(val) < 1:
+            await interaction.response.send_message(
+                "```\nEnter a positive whole number.\n```", ephemeral=True
+            )
+            return
+        qty = int(val)
+        await interaction.response.defer()
+        fake_msg = _InteractionMsg(interaction)
+        send_fn  = _make_interaction_send(interaction)
+        await _handle_buy(
+            self._ctx, fake_msg, send_fn,
+            f"{self._item_key} {qty}",
+            self._uid, self._uname, self._is_owner
+        )
 
 
 
