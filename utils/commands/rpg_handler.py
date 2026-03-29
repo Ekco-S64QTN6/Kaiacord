@@ -1203,6 +1203,22 @@ async def _dungeon_combat_round(ctx_obj, interaction, uid, uname, is_owner):
     sheet = res["sheet"]
     monster = res["monster"]
 
+    # Accumulate for end-of-combat summary
+    state.setdefault("dungeon_combat_log", []).append({
+        "monster_name": monster.get("name", "enemy"),
+        "monster_desc": monster.get("desc", monster.get("description", "")),
+        "player_hit": res["player_hit"],
+        "player_crit": res["player_crit"],
+        "player_fumble": res["player_fumble"],
+        "player_damage": res.get("player_damage", 0),
+        "monster_hit": res["monster_hit"],
+        "monster_damage": res["monster_damage"],
+        "monster_defeated": res["monster_defeated"],
+        "player_alive": res["player_alive"],
+        "player_hp_after": sheet["hp"]["current"],
+        "player_hp_max": sheet["hp"]["max"],
+    })
+
     # Advanced class bonuses are already applied inside _resolve_combat()
 
     exchange_text = "\n".join(res["exchanges"])
@@ -1285,7 +1301,16 @@ async def _dungeon_combat_round(ctx_obj, interaction, uid, uname, is_owner):
         save_dungeon(uid, state)
 
         if is_boss:
-            # Boss dead — finalize the dungeon run
+            # Boss dead — fire summary narration then finalize
+            combat_log = state.get("dungeon_combat_log", [])
+            state["dungeon_combat_log"] = []
+            if combat_log:
+                asyncio.ensure_future(
+                    _narrate_combat_summary(
+                        ctx_obj, interaction.channel, uid, uname, sheet,
+                        combat_log, player_won=True
+                    )
+                )
             await _dungeon_complete(ctx_obj, interaction, uid, uname, is_owner,
                                     state, sheet, leveled, new_level)
         else:
@@ -1313,6 +1338,17 @@ async def _dungeon_combat_round(ctx_obj, interaction, uid, uname, is_owner):
         )
         view = _make_status_view(ctx_obj, None, uid, uname, is_owner)
         await interaction.followup.send(embed=embed, view=view)
+
+        # End-of-dungeon-combat summary on player death
+        combat_log = state.get("dungeon_combat_log", [])
+        state["dungeon_combat_log"] = []
+        if combat_log:
+            asyncio.ensure_future(
+                _narrate_combat_summary(
+                    ctx_obj, interaction.channel, uid, uname, sheet,
+                    combat_log, player_won=False
+                )
+            )
 
     else:
         # Combat continues — update monster HP in state
@@ -3760,6 +3796,52 @@ async def _handle_hunt(ctx, msg, send, rest, uid, uname, is_owner):
     combat_view = RPGCombatView(ctx, msg, uid, uname, is_owner, m_key)
     await msg.channel.send(embed=embed, view=combat_view)
 
+async def _narrate_combat_summary(ctx, channel, uid, uname, sheet, combat_log: list, player_won: bool):
+    """Generate a single end-of-combat summary narration from the accumulated combat log."""
+    from utils.ttrpg.rpg_prompt_builder import build_combat_summary_prompt
+    from utils.infrastructure.gpu.gpu_manager import OllamaGPUManager, gpu_memory_manager, GPUTaskPriority
+    import uuid as _uuid
+
+    if not combat_log:
+        return
+
+    persona = await load_persona_async()
+    prompt = build_combat_summary_prompt(sheet, combat_log, player_won)
+    messages = [
+        {"role": "system", "content": f"{persona}\n\n{prompt}"},
+        {"role": "user",   "content": f"{uname} finished the fight."}
+    ]
+    gpu_manager = OllamaGPUManager(config.chat_model)
+    opts = gpu_manager.get_gpu_options(for_chat=True)
+    opts["num_predict"] = 200
+    opts["temperature"] = 0.85
+
+    async with channel.typing():
+        try:
+            resp = await gpu_memory_manager.run_with_gpu_guard(
+                model_name=config.chat_model,
+                priority=GPUTaskPriority.CHAT,
+                coro=asyncio.wait_for(
+                    ctx.ollama_client.chat(
+                        model=config.chat_model,
+                        messages=messages,
+                        options=opts,
+                        keep_alive=-1
+                    ),
+                    timeout=45.0
+                ),
+                task_id=f"rpg_combat_summary_{_uuid.uuid4().hex[:8]}"
+            )
+            narration = resp["message"]["content"].strip().replace("```", "")
+            if narration:
+                embed = discord.Embed(
+                    description=f"*{narration}*",
+                    color=0x2D5A27 if player_won else 0x8B0000
+                )
+                await channel.send(embed=embed)
+        except Exception as e:
+            log_error(f"[rpg combat summary] {e}")
+
 async def _handle_attack(ctx, msg, send, rest, uid, uname, is_owner):
     from utils.ttrpg.combat_engine import _resolve_combat
     from utils.ttrpg.rpg_prompt_builder import build_combat_prompt
@@ -3815,6 +3897,22 @@ async def _handle_attack(ctx, msg, send, rest, uid, uname, is_owner):
         if not s["monsters"]: s["combat_active"] = False
     else:
         s["monsters"][monster_idx] = monster
+
+    # Accumulate combat log for end-of-combat summary narration
+    s.setdefault("combat_log", []).append({
+        "monster_name": monster.get("name", "enemy"),
+        "monster_desc": monster.get("desc", monster.get("description", "")),
+        "player_hit": res["player_hit"],
+        "player_crit": res["player_crit"],
+        "player_fumble": res["player_fumble"],
+        "player_damage": res.get("player_damage", 0),
+        "monster_hit": res["monster_hit"],
+        "monster_damage": res["monster_damage"],
+        "monster_defeated": res["monster_defeated"],
+        "player_alive": res["player_alive"],
+        "player_hp_after": sheet["hp"]["current"],
+        "player_hp_max": sheet["hp"]["max"],
+    })
         
     await save_session(s)
     
@@ -4003,42 +4101,18 @@ async def _handle_attack(ctx, msg, send, rest, uid, uname, is_owner):
         else:
             view = _make_hunt_status_view(ctx, msg, uid, uname, is_owner)
         await msg.channel.send(embed=embed, view=view)
-    
-    # Kaia Narration Generation
-    monster_desc = monster.get("desc", monster.get("description", "A dangerous creature."))
-    truth = build_combat_prompt(
-        sheet, monster["name"], monster_desc,
-        res["player_hit"], res["player_crit"], res["player_fumble"], res.get("player_damage", 0),
-        res["monster_alive"], res["monster_hit"], res["monster_damage"],
-        res["player_alive"], sheet["hp"]["current"], sheet["hp"]["max"],
-        sheet["hp"]["current"] / max(1, sheet["hp"]["max"])
-    )
-    
-    persona = await load_persona_async()
-    messages = [
-        {"role": "system", "content": f"{persona}\n\n{truth}"},
-        {"role": "user", "content": f"{uname} engages."}
-    ]
-    gpu_manager = OllamaGPUManager(config.chat_model)
-    opts = gpu_manager.get_gpu_options(for_chat=True)
-    opts["num_predict"] = 150
-    opts["temperature"] = 0.85
-    
-    async with msg.channel.typing():
-        try:
-            nar = await gpu_memory_manager.run_with_gpu_guard(
-                model_name=config.chat_model,
-                priority=GPUTaskPriority.CHAT,
-                coro=asyncio.wait_for(
-                    ctx.ollama_client.chat(model=config.chat_model, messages=messages, options=opts, keep_alive=-1),
-                    timeout=45.0
-                ),
-                task_id=f"rpg_fight_{_uuid.uuid4().hex[:8]}"
+
+        # End-of-combat summary narration (fires only when fight is over)
+        combat_ended = res["monster_defeated"] or not res["player_alive"]
+        if combat_ended:
+            combat_log = s.get("combat_log", [])
+            s["combat_log"] = []  # clear log
+            await save_session(s)
+            await _narrate_combat_summary(
+                ctx, msg.channel, uid, uname, sheet,
+                combat_log, player_won=res["monster_defeated"]
             )
-            narr = nar["message"]["content"].strip().replace("```", "")
-            if narr: await send(msg.channel, f"```\n{narr}\n```")
-        except Exception:
-            pass
+    
 
 async def _handle_flee(ctx, msg, send, rest, uid, uname, is_owner):
 

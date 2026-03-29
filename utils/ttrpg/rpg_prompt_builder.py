@@ -280,3 +280,43 @@ Do NOT reference dice, game mechanics, or damage numbers.
 Speak as Kaia — the GM narrator. Lowercase, grounded, specific. No purple prose.
 [END GROUND TRUTH]"""
 
+
+def build_combat_summary_prompt(sheet: dict, combat_log: list, player_won: bool) -> str:
+    """Build a ground-truth block for end-of-combat summary narration."""
+    char_name = sheet.get("character_name", "The adventurer")
+    char_class = sheet.get("class", "warrior")
+    char_level = sheet.get("level", 1)
+    hp_cur = sheet["hp"]["current"]
+    hp_max = sheet["hp"]["max"]
+
+    rounds = len(combat_log)
+    monster_name = combat_log[-1]["monster_name"] if combat_log else "the enemy"
+    monster_desc = combat_log[-1]["monster_desc"] if combat_log else ""
+
+    player_hits   = sum(1 for r in combat_log if r["player_hit"] and not r["player_fumble"])
+    player_crits  = sum(1 for r in combat_log if r["player_crit"])
+    player_misses = sum(1 for r in combat_log if not r["player_hit"])
+    total_dealt   = sum(r["player_damage"] for r in combat_log)
+    monster_hits  = sum(1 for r in combat_log if r["monster_hit"])
+    total_taken   = sum(r["monster_damage"] for r in combat_log)
+
+    outcome = "VICTORY — player defeated the monster" if player_won else "DEFEAT — player was knocked out"
+
+    return f"""[TTRPG GROUND TRUTH — COMBAT SUMMARY — DO NOT CONTRADICT]
+CHARACTER: {char_name} ({char_class} Lv.{char_level})
+HP AFTER FIGHT: {hp_cur}/{hp_max}
+OPPONENT: {monster_name}
+MONSTER DESCRIPTION: {monster_desc}
+
+FIGHT STATS ({rounds} round{'s' if rounds != 1 else ''}):
+  Player: {player_hits} hit(s), {player_crits} crit(s), {player_misses} miss(es), {total_dealt} total damage dealt
+  Monster: {monster_hits} hit(s), {total_taken} total damage dealt to player
+OUTCOME: {outcome}
+
+YOUR TASK: Write a 2–4 sentence summary of this fight as if recalling it just after it ended.
+Capture the feel of the whole encounter — was it close? Dominant? Sloppy? Lucky?
+Reference the monster by name and use its description for flavor.
+Speak as Kaia — lowercase, specific, grounded. No blow-by-blow. No dice. No numbers.
+End on the outcome: either the monster falling, or {char_name} going down.
+[END GROUND TRUTH]"""
+

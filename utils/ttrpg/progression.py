@@ -65,7 +65,7 @@ def check_level_up(sheet: dict) -> tuple[bool, int]:
 
     # Stat growth: stat choice at levels 4 and 8
     if new_level in (4, 8):
-        sheet["_stat_choice_pending"] = True  # To be handled by UI or next action
+        sheet["_stat_choice_pending"] = True
 
     # Mark for class advancement at level 5 (if not already advanced)
     if new_level == 5 and not sheet.get("advanced_class"):
