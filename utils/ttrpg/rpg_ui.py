@@ -27,6 +27,14 @@ def colored_bar(current: int, maximum: int, length: int = 14) -> str:
     bar = color + "█" * filled + ANSI_GRAY + "░" * (length - filled) + ANSI_RESET
     return bar
 
+def hp_bar(current: int, maximum: int, length: int = 14) -> str:
+    """Returns a plain text progress bar (no ANSI) for discord embeds."""
+    if maximum <= 0:
+        return "░" * length
+    pct = current / maximum
+    filled = int(pct * length)
+    return "█" * filled + "░" * (length - filled)
+
 def hp_label(current: int, maximum: int) -> str:
     """HP text for embed value (no icon — field name already has ❤️)."""
     if maximum <= 0:

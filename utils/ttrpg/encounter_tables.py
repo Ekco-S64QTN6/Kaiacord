@@ -12,8 +12,32 @@ EVENT_CHANCE = {
     "trade_road":       15,
 }
 
+# Quest-boosted encounter tables — keyed by synthetic location strings
+QUEST_ENCOUNTER_OVERRIDES = {
+    "trade_road_maren": [
+        ("bandit",       55),   # heavily boosted for Sister Maren's quest
+        ("goblin",       15),
+        ("goblin_guard", 10),
+        ("wolf",          8),
+        ("snow_bandit",   7),
+        ("kobold",        5),
+    ],
+}
+
 def random_encounter(location: str, player_level: int = 1) -> str:
     from utils.ttrpg.calendar import get_seasonal_encounter_table
+
+    # Quest override tables take full precedence
+    if location in QUEST_ENCOUNTER_OVERRIDES:
+        table = QUEST_ENCOUNTER_OVERRIDES[location]
+        total = sum(w for _, w in table)
+        r = secrets.randbelow(total)
+        cum = 0
+        for monster_key, weight in table:
+            cum += weight
+            if r < cum:
+                return monster_key
+        return table[-1][0]
 
     TIER_ORDER = ["trivial", "easy", "medium", "hard", "deadly", "boss"]
     min_tier = None

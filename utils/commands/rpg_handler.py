@@ -71,12 +71,13 @@ from utils.ttrpg.class_advancement import (
     get_advanced_options, get_title, ADVANCED_CLASSES
 )
 from utils.ttrpg.dungeon import _scale_boss_to_level, load_dungeon, save_dungeon
-from utils.ttrpg.rpg_ui import TIER_ICONS, colored_bar, hp_label, CLASS_ICONS, LOCATION_ICONS, ANSI_GREEN, ANSI_RESET
+from utils.ttrpg.rpg_ui import TIER_ICONS, colored_bar, hp_bar, hp_label, CLASS_ICONS, LOCATION_ICONS, ANSI_GREEN, ANSI_RESET
 from utils.social.kaia_social_responder import load_persona_async
 from utils.ttrpg.world import LOCATION_DATA
 from utils.ttrpg.encounter_tables import random_encounter
 import utils.ttrpg.dice_engine as dice_engine
 from utils.ttrpg.monster_registry import get as get_monster
+from utils.ttrpg.shop import find_item
 from utils.ttrpg.loot_tables import get_loot
 from utils.ttrpg.broadcast import (
     log_world_event as _log_world_event,
@@ -1191,6 +1192,7 @@ async def _dungeon_combat_round(ctx_obj, interaction, uid, uname, is_owner):
 
     combat = state["active_combat"]
     monster = combat["monster"]
+    monster_key = combat.get("monster_key", "goblin")
     is_boss = combat.get("is_boss", False)
     boss_name = combat.get("boss_name")
     room_key = combat["room_key"]
@@ -1339,6 +1341,17 @@ async def _dungeon_combat_round(ctx_obj, interaction, uid, uname, is_owner):
         view = _make_status_view(ctx_obj, None, uid, uname, is_owner)
         await interaction.followup.send(embed=embed, view=view)
 
+        # Broadcast death
+        m_name = monster.get("name", monster_key.replace("_", " ").title())
+        await _log_world_event(f"💀 **{sheet['character_name']}** fell to a **{m_name}** in the {state.get('theme_name', 'dungeon')}.")
+        death_embed = discord.Embed(
+            title=f"💀 {sheet['character_name']} fell in the {state.get('theme_name', 'dungeon')}",
+            description=f"*The darkness of the {state.get('theme_name', 'ruins')} claimed them. They were struck down by a **{m_name}**.*",
+            color=0x8B0000
+        )
+        death_embed.set_footer(text=f"Level {sheet.get('level', 1)} {sheet.get('class', '?')}")
+        await _broadcast_world_event(ctx_obj, death_embed)
+
         # End-of-dungeon-combat summary on player death
         combat_log = state.get("dungeon_combat_log", [])
         state["dungeon_combat_log"] = []
@@ -1418,7 +1431,9 @@ async def _send_dungeon_room(ctx_obj, channel, uid, uname, is_owner, dungeon,
             description=f"*{room.get('description','A stone room.')}*\n\n*{monster.get('desc', '')}*",
             color=0x8B0000 if is_boss else 0xFF4500,
         )
-        embed.add_field(name="❤️ Monster HP", value=f"{hp_obj['current']}/{hp_obj['max']}", inline=True)
+        filled = int((hp_obj['current'] / max(hp_obj['max'], 1)) * 10)
+        hb = "█" * filled + "░" * (10 - filled)
+        embed.add_field(name="❤️ Monster HP", value=f"`{hb}` {hp_obj['current']}/{hp_obj['max']}", inline=True)
         embed.add_field(name="🗡️ ATK", value=str(monster.get("attack", 0)), inline=True)
         embed.add_field(name="🛡️ DEF", value=str(monster.get("defense", 0)), inline=True)
         
@@ -1445,8 +1460,9 @@ async def _send_dungeon_room(ctx_obj, channel, uid, uname, is_owner, dungeon,
 async def _dungeon_move(ctx_obj, interaction, uid, uname, is_owner, direction):
     from utils.ttrpg.dungeon import (load_dungeon, save_dungeon,
                                       DIRECTIONS, DIR_OPPOSITE,
-                                      R_MONSTER, R_BOSS, R_TREASURE,
-                                      R_SHRINE, R_TRAP, R_EXIT, _key)
+                                      R_MONSTER, R_BOSS, R_GUARD,
+                                      R_TREASURE, R_SHRINE, R_TRAP,
+                                      R_ANTECHAMBER, _key)
     from utils.ttrpg.loot_tables import get_loot
     from utils.ttrpg.shop import find_item
     from utils.ttrpg.progression import check_level_up, xp_to_next_level
@@ -1513,7 +1529,7 @@ async def _dungeon_move(ctx_obj, interaction, uid, uname, is_owner, direction):
     loot_text      = ""
 
     if not room.get("cleared", False):
-        if rt in (R_MONSTER, R_BOSS):
+        if rt in (R_MONSTER, R_BOSS, R_GUARD):
             # [RESUMPTION] Check if we are ALREADY fighting this room
             ac = state.get("active_combat")
             if ac and ac.get("room_key") == nk:
@@ -1599,10 +1615,59 @@ async def _dungeon_move(ctx_obj, interaction, uid, uname, is_owner, direction):
                 encounter_text = f"\n\n✨ *The candle. Something old and gentle.* (+{heal} HP)"
 
         elif rt == R_TRAP:
-            dmg = secrets.randbelow(8) + 3
-            sheet["hp"]["current"] = max(1, sheet["hp"]["current"] - dmg)
-            encounter_text = f"\n\n⚡ *The floor gives way. You catch yourself.* (-{dmg} HP)"
-            if secrets.randbelow(3) == 0:
+            # Stat-based trap resolution — DEX save with scaling DC
+            dex_val  = sheet.get("stats", {}).get("dex", 10)
+            dex_mod  = (dex_val - 10) // 2
+            char_class = sheet.get("class", "")
+            difficulty = state.get("difficulty", 1)
+
+            # DC scales with dungeon difficulty: 10 / 13 / 16
+            trap_dc = 9 + (difficulty * 3)
+
+            # Bonuses
+            class_bonus = 4 if char_class == "Rogue" else 0
+            luck_bonus  = 2 if "lucky" in sheet.get("conditions", []) else 0
+            total_bonus = dex_mod + class_bonus + luck_bonus
+
+            raw_roll  = secrets.randbelow(20) + 1
+            total_roll = raw_roll + total_bonus
+
+            if total_roll >= trap_dc:
+                # Avoided
+                if char_class == "Rogue":
+                    encounter_text = (
+                        f"\n\n⚡ *Pressure plate. You feel it flex under your boot and go still.*\n"
+                        f"*You find the release pin and disarm it cleanly.*\n"
+                        f"*(d20({raw_roll})+{total_bonus} = {total_roll} vs DC {trap_dc} — disarmed)*"
+                    )
+                else:
+                    encounter_text = (
+                        f"\n\n⚡ *The floor shifts. You lurch sideways and catch the wall.*\n"
+                        f"*The mechanism fires into empty air.*\n"
+                        f"*(d20({raw_roll})+{total_bonus} = {total_roll} vs DC {trap_dc} — evaded)*"
+                    )
+            else:
+                # Triggered — damage scales with difficulty
+                base_dmg = secrets.randbelow(4) + 2          # 2–5
+                diff_dmg = secrets.randbelow(difficulty * 3) + 1  # 1–3 / 1–6 / 1–9
+                dmg = base_dmg + diff_dmg
+                sheet["hp"]["current"] = max(1, sheet["hp"]["current"] - dmg)
+
+                if char_class == "Rogue":
+                    encounter_text = (
+                        f"\n\n⚡ *You spotted it too late. The blade catches your side.*\n"
+                        f"*(-{dmg} HP)*\n"
+                        f"*(d20({raw_roll})+{total_bonus} = {total_roll} vs DC {trap_dc} — triggered)*"
+                    )
+                else:
+                    encounter_text = (
+                        f"\n\n⚡ *The floor gives. You go down with it.*\n"
+                        f"*(-{dmg} HP)*\n"
+                        f"*(d20({raw_roll})+{total_bonus} = {total_roll} vs DC {trap_dc} — triggered)*"
+                    )
+
+            # Small loot chance on triggered traps (unchanged from original)
+            if total_roll < trap_dc and secrets.randbelow(3) == 0:
                 loot = get_loot("easy")
                 if loot:
                     sheet.setdefault("inventory", []).append(loot)
@@ -1658,23 +1723,29 @@ async def _dungeon_complete(ctx_obj, interaction, uid, uname, is_owner,
 
     level_str = f"\n\n🎉 **Level Up! Now Lv.{new_level}!**" if leveled else ""
 
+    # Find boss name for broadcast
+    boss_key = state.get("boss_key", "")
+    boss = state.get("rooms", {}).get(boss_key, {})
+    boss_name = boss.get("boss_name") or "the dungeon boss"
+
     embed = discord.Embed(
-        title="🚪 Dungeon Complete — You Escaped",
+        title="🏰 Dungeon Conquered — Victory",
         description=(
-            f"*You drag yourself into daylight. The ruins seal behind you.*\n\n"
+            f"*The {boss_name} lies broken. You emerge from the ruins in triumph as they seal behind you.*\n\n"
             f"**Earned:** +{xp} XP · +{gil} Gil"
             f"{loot_str}{level_str}"
         ),
-        color=0x2D5A27,
+        color=0xFFAA00,
     )
     view = discord.ui.View(timeout=60)
     view.add_item(_make_status_btn(ctx_obj, uid, uname, is_owner))
     await interaction.followup.send(embed=embed, view=view)
-    await _log_world_event(f"🏚️ **{sheet['character_name']}** completed a dungeon run.")
+    
+    await _log_world_event(f"🏰 **{sheet['character_name']}** conquered the {state.get('theme_name', 'dungeon')}.")
     dungeon_embed = discord.Embed(
-        title=f"🏚️ {sheet['character_name']} escaped the {state.get('theme_name', 'dungeon')}",
-        description=f"*They found a crack in the stone and squeezed out. Whatever was in there is still in there.*",
-        color=0x7a6a9a
+        title=f"🏰 {sheet['character_name']} conquered the {state.get('theme_name', 'dungeon')}",
+        description=f"*The **{boss_name}** has been vanquished. {sheet['character_name']} emerged from the depths in total victory.*",
+        color=0xFFAA00
     )
     dungeon_embed.set_footer(text=f"+{xp} XP · +{gil} Gil · {len(loot)} item(s)")
     await _broadcast_world_event(ctx_obj, dungeon_embed)
@@ -1682,7 +1753,9 @@ async def _dungeon_complete(ctx_obj, interaction, uid, uname, is_owner,
 
 async def _dungeon_leave(ctx_obj, interaction, uid, uname, is_owner):
     from utils.ttrpg.dungeon import load_dungeon, clear_dungeon
-    from utils.ttrpg.shop import find_item
+
+    sheet = await load(uid)
+    if not sheet: return
 
     state = load_dungeon(uid)
     if not state:
@@ -1713,6 +1786,16 @@ async def _dungeon_leave(ctx_obj, interaction, uid, uname, is_owner):
     view = discord.ui.View(timeout=60)
     view.add_item(_make_status_btn(ctx_obj, uid, uname, is_owner))
     await interaction.followup.send(embed=embed, view=view)
+
+    # Broadcast escape
+    await _log_world_event(f"🏃 **{sheet['character_name']}** opted to flee the {state.get('theme_name', 'dungeon')}.")
+    escape_embed = discord.Embed(
+        title=f"🏃 {sheet['character_name']} escaped the {state.get('theme_name', 'dungeon')}",
+        description=f"*They found a crack in the stone and squeezed out. The shadows within remain for another traveler to face.*",
+        color=0x7a6a9a
+    )
+    escape_embed.set_footer(text=f"+{xp} XP · +{gil} Gil · {len(loot)} item(s) kept")
+    await _broadcast_world_event(ctx_obj, escape_embed)
 
 
 async def _handle_dungeon(ctx, msg, send, rest, uid, uname, is_owner):
@@ -3705,9 +3788,10 @@ async def _handle_hunt(ctx, msg, send, rest, uid, uname, is_owner):
             description=f"Picking up where you left off...\n*{m_data.get('desc', 'A dangerous creature.')}*",
             color=0xcc6622
         )
-        # Show current health in resumption
-        hp_bar = colored_bar(hp_obj['current'], hp_obj['max'], 10)
-        embed.add_field(name="❤️ Monster HP", value=f"{hp_bar} {hp_obj['current']}/{hp_obj['max']}", inline=False)
+        # Show current health in resumption (monospaced bar for embeds)
+        filled = int((hp_obj['current'] / max(hp_obj['max'], 1)) * 10)
+        hb = "█" * filled + "░" * (10 - filled)
+        embed.add_field(name="❤️ Monster HP", value=f"`{hb}` {hp_obj['current']}/{hp_obj['max']}", inline=False)
         embed.add_field(name="🗡️ ATK", value=str(m_data.get('attack', 0)), inline=True)
         embed.add_field(name="🛡️ DEF", value=str(m_data.get('defense', 0)), inline=True)
         
@@ -3747,8 +3831,14 @@ async def _handle_hunt(ctx, msg, send, rest, uid, uname, is_owner):
     s.setdefault("channel_id", chan_id)
     spawned_names = []
     
+    # Quest-aware encounter nudge — boost bandit weight for Maren's quest
+    active_quest = sheet.get("active_quest", "")
+    quest_location_override = None
+    if active_quest == "maren_herbs" and loc == "trade_road":
+        quest_location_override = "trade_road_maren"
+
     for _ in range(num_to_spawn):
-        m_key = random_encounter(loc, player_level=sheet.get("level", 1))
+        m_key = random_encounter(quest_location_override or loc, sheet.get("level", 1))
         m_data = get_monster(m_key)
         if not m_data: continue
         
