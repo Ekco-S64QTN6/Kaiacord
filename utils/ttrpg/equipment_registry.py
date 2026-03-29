@@ -18,11 +18,11 @@ WEAPONS = {
     "iron_morning_star":{"name": "Iron Morning Star","attack_bonus": 2, "damage_die": 8,  "damage_bonus": 2, "value": 40,  "tier": 2, "classes": ["Cleric", "Warrior"]},
 
     # Tier 3
-    "longsword":      {"name": "Longsword",        "attack_bonus": 4, "damage_die": 8,  "damage_bonus": 4, "value": 80,  "tier": 3},
-    "steel_blade":    {"name": "Steel Blade",      "attack_bonus": 5, "damage_die": 10, "damage_bonus": 4, "value": 150, "tier": 3},
+    "steel_longsword":{"name": "Steel Longsword",  "attack_bonus": 4, "damage_die": 8,  "damage_bonus": 4, "value": 80,  "tier": 3},
+    "steel_dagger":   {"name": "Steel Dagger",     "attack_bonus": 5, "damage_die": 10, "damage_bonus": 4, "value": 150, "tier": 3},
     "flame_sword":    {"name": "Flame Sword",      "attack_bonus": 4, "damage_die": 8,  "damage_bonus": 4, "value": 90,  "tier": 3},
     "ice_brand":      {"name": "Ice Brand",        "attack_bonus": 4, "damage_die": 8,  "damage_bonus": 4, "value": 95,  "tier": 3},
-    "defender":       {"name": "Defender",          "attack_bonus": 5, "damage_die": 10, "damage_bonus": 4, "value": 160, "tier": 3},
+    "flame_scepter":  {"name": "Flame Scepter",    "attack_bonus": 5, "damage_die": 10, "damage_bonus": 4, "value": 160, "tier": 3},
     "ghoulbane":      {"name": "Ghoulbane",        "attack_bonus": 5, "damage_die": 8,  "damage_bonus": 4, "value": 180, "tier": 3, "classes": ["Warrior", "Cleric"]},
     "flametongue":    {"name": "Flametongue",      "attack_bonus": 5, "damage_die": 8,  "damage_bonus": 4, "value": 250, "tier": 3},
     "frostbrand":     {"name": "Frostbrand",       "attack_bonus": 5, "damage_die": 8,  "damage_bonus": 4, "value": 260, "tier": 3},
@@ -308,6 +308,7 @@ ALIASES = {
     "mace":     "rusty_mace",
     "star":     "iron_morning_star",
     "spear":    "iron_spear",
+    "iron spear": "iron_spear",
     "axe":      "iron_battle_axe",
     "dagger":   "steel_dagger",
     "scepter":  "flame_scepter",

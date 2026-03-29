@@ -1597,7 +1597,7 @@ async def _handle_dungeon(ctx, msg, send, rest, uid, uname, is_owner):
         title=f"{t_emoji} {t_name}",
         description=(
             f"*{t_flavor}*\n\n"
-            f"*Difficulty: {'⬛' * difficulty}{'░' * (3 - difficulty)}  ·  "
+            f"*Difficulty: {'🟥' * difficulty}{'⬜' * (3 - difficulty)}  ·  "
             f"Cost: {ENTRY_HUNTS} hunts*"
             f"{torch_line}"
         ),
@@ -4680,7 +4680,6 @@ async def _handle_mail(ctx, msg, send, rest, uid, uname, is_owner):
         description=f"\"Kupo! Welcome to the mail post! Do you have something to send, or are you checking for a delivery?\"\n\n{status_text}",
         color=0xf4a460
     )
-    embed.set_thumbnail(url="https://i.imgur.com/w2YxYmB.png") # Optional Moogle icon if available, or just omit
     
     view = MailMenuView(ctx, msg, uid, uname, is_owner, sheet)
     await msg.channel.send(embed=embed, view=view)

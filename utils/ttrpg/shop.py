@@ -74,6 +74,14 @@ def find_item(item_key: str) -> dict | None:
         if item_key in reg:
             return {"category": cat, "key": item_key, **reg[item_key]}
 
+    # ── NEW: reverse alias lookup (handles old inventory keys) ──
+    reverse_aliases = {v: k for k, v in ALIASES.items()}
+    alt_key = reverse_aliases.get(item_key)
+    if alt_key:
+        for cat, reg in ALL:
+            if alt_key in reg:
+                return {"category": cat, "key": alt_key, **reg[alt_key]}
+
     # Fallback: match by item name (e.g. "Rusty Dagger")
     for cat, reg in ALL:
         for k, v in reg.items():
@@ -139,16 +147,28 @@ def process_sell(sheet: dict, item_key: str, reputation: int = 0, cha_mod: int =
         refusal_msg = "spits on the floor. 'I'm not buying your stolen goods.'" if loc != "caravan" else "shakes his head. 'I don't deal with your kind.'"
         return False, f"{merchant_name} {refusal_msg}", sheet
     
-    from utils.ttrpg.equipment_registry import ALIASES
-    item_key = item_key.strip().lower().replace(" ", "_")
-    item_key = ALIASES.get(item_key, item_key)
-    
-    if "inventory" not in sheet or item_key not in sheet["inventory"]:
-        return False, f"You don't have `{item_key}` in your inventory.", sheet
-        
     item = find_item(item_key)
     if not item:
         return False, f"Unknown item `{item_key}`.", sheet
+    
+    # ── NEW: Resolve which key is actually in the inventory ──
+    real_key = item["key"]
+    found_key = None
+    inventory = sheet.get("inventory", [])
+    
+    if real_key in inventory:
+        found_key = real_key
+    else:
+        # Check if an older key (alias) is in the inventory instead
+        # e.g. user has "spear" in inventory, but find_item resolved to "iron_spear"
+        from utils.ttrpg.equipment_registry import ALIASES
+        for alias, target in ALIASES.items():
+            if target == real_key and alias in inventory:
+                found_key = alias
+                break
+                
+    if not found_key:
+        return False, f"You don't have `{item_key}` in your inventory.", sheet
         
     # Reputation modifier
     sell_mult = 0.5
@@ -160,7 +180,7 @@ def process_sell(sheet: dict, item_key: str, reputation: int = 0, cha_mod: int =
     sell_mult += cha_bonus
     
     val = max(1, int(item["value"] * sell_mult))
-    sheet["inventory"].remove(item_key)
+    sheet["inventory"].remove(found_key)
     sheet["gil"] = sheet.get("gil", 0) + val
     
     return True, f"Sold **{item['name']}** for {val}g. Total gil: {sheet['gil']}g.", sheet
