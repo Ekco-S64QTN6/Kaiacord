@@ -211,8 +211,8 @@ class BiteView(discord.ui.View):
             not prev_record or self._fish_weight > prev_record.get("weight", 0)
         )
 
-        # Broadcast world event for rare+ catches
-        if cat in ("rare", "epic", "legendary", "mythic") or is_world_record:
+        # Broadcast world event for top-tier world records only
+        if cat in ("epic", "legendary", "mythic") and is_world_record:
             msg_parts = []
             if is_world_record:
                 msg_parts.append("🌍 **NEW WORLD RECORD!**")
@@ -704,13 +704,16 @@ async def _handle_fishing_leaderboard(ctx, interaction: discord.Interaction, uid
 class FishingShopView(discord.ui.View):
     """Buy bait packs and poles from Gregor."""
 
-    def __init__(self, ctx, uid: str, uname: str, is_owner: bool,
-                 sheet: dict, stats: dict, current_bait: str, current_pole: str):
+    def __init__(self, ctx, uid: str, uname: str, is_owner: bool, sheet: dict):
         super().__init__(timeout=120)
         self._ctx = ctx
         self._uid = uid
         self._uname = uname
         self._is_owner = is_owner
+
+        stats = sheet.setdefault("fishing_stats", {})
+        current_bait = stats.get("bait", "earthworm")
+        current_pole = stats.get("pole", "birchwood_rod")
 
         # Bait select (row 0)
         bait_options = []
@@ -871,7 +874,7 @@ async def handle_fish_shop_command(ctx, msg, send, rest, uid, uname, is_owner):
     if not sheet:
         return
     embed, view = _build_fishing_shop_ui(ctx, uid, uname, is_owner, sheet)
-    await send(embed=embed, view=view)
+    await send(None, embed=embed, view=view)
 
 
 async def _show_fishing_menu(ctx, channel, uid: str, uname: str, is_owner: bool, sheet: dict):

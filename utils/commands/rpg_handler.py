@@ -79,7 +79,11 @@ import utils.ttrpg.dice_engine as dice_engine
 from utils.ttrpg.monster_registry import get as get_monster
 from utils.ttrpg.shop import find_item
 from utils.ttrpg.loot_tables import get_loot
-from utils.commands.fishing_handler import handle_fish_command
+from utils.commands.fishing_handler import (
+    handle_fish_command,
+    handle_fish_shop_command,
+    _handle_sell_catch
+)
 from utils.ttrpg.broadcast import (
     log_world_event as _log_world_event,
     broadcast_world_event as _broadcast_world_event,
@@ -123,13 +127,16 @@ def _make_interaction_send(interaction: discord.Interaction):
     Used as the `send` parameter for handlers that occasionally call
     send(channel, text) instead of msg.channel.send(embed=...).
     """
-    async def _send(channel, text, use_code_block=None):
-        if use_code_block is None:
-            use_code_block = "```" not in str(text)
-        if use_code_block:
-            await interaction.followup.send(f"```\n{text.strip()}\n```")
+    async def _send(channel, text=None, use_code_block=None, **kwargs):
+        if text is not None:
+            if use_code_block is None:
+                use_code_block = "```" not in str(text)
+            if use_code_block:
+                await interaction.followup.send(f"```\n{str(text).strip()}\n```", **kwargs)
+            else:
+                await interaction.followup.send(str(text).strip(), **kwargs)
         else:
-            await interaction.followup.send(text.strip())
+            await interaction.followup.send(**kwargs)
     return _send
 
 
