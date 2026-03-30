@@ -19,6 +19,12 @@ Established a real-time announcement system that posts milestones to the `#aethe
 **Caravan Merchant**  
 Introduced the "Corvus Road Trading Co." caravan as a time-bound noon event featuring location-aware shop UI, Tier III inventory, and a strict 1-gear-per-customer purchase limit.
 
+**Consumable Quantity Picker**  
+Streamlined shop transactions by adding a dynamic quantity selector, drastically improving menu UX and eliminating the need to buy items one at a time.
+
+**"Silent Ones" World Event**  
+Added a new randomized background game-state event that modifies global XP and gold reward rates.
+
 ---
 
 ## 2. Dungeon Systems Overhaul
@@ -28,6 +34,9 @@ Dungeons no longer rely on purely random walks. They now use D&D-style structura
 - Defined entry buffers and spine corridors.
 - Branching wings with distinct thematic purposes (e.g., Barracks, Vault Approach) dictating internal room generation.
 - Empty `antechamber` rooms to build atmospheric tension immediately preceding a boss sanctum.
+
+**Boss Room Warnings & Retreats**  
+Implemented atmospheric narrative cues and a direct retreat mechanism when players transition into an antechamber, improving player agency and allowing them to back out before committing to highly lethal boss encounters.
 
 **Stat-Based Trap Mechanics**  
 Replaced legacy flat-damage traps with a dynamic stat-based dexterity save. 
@@ -56,6 +65,12 @@ Implemented numerous previously silent advanced class features:
 - **Trickster:** Implemented the signature `gamble_edge` advantage logic.
 - **Warrior:** Halved and formally documented an invisible flat damage output bonus that was previously drastically skewing DPS balance.
 
+**Equipment Registry Migration**  
+Overhauled the core equipment registry architecture to standardize item lookups, creating a robust background migration script that successfully transferred legacy character inventory data to the new unified keys.
+
+**Event Pacing Adjustments**  
+Rebalanced field exploration pacing by reducing the baseline `EVENT_CHANCE` for random hunting encounters, ensuring events feel more meaningful and less repetitious.
+
 ---
 
 ## 4. System Stability & Bug Fixes
@@ -68,6 +83,9 @@ Implemented a robust state-persistence system for dungeon and field combat, allo
 
 **Quest Logic Refactor**  
 Fixed a critical bug in task tracking where multiple quest steps were failing to record correctly if completed out of alphabetical order.
+
+**Renamed Item Commerce Bug**  
+Resolved an inventory string matching bug that was preventing customized, user-renamed equipment from being recognized or properly sold to merchants.
 
 **Timeout Exception Catching**  
 Integrated widespread `defer()` calls and exception handling for interaction timeouts to eliminate Discord "Unknown Interaction" errors.

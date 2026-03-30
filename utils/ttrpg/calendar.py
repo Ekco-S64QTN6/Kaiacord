@@ -286,6 +286,13 @@ SEASONAL_MONSTERS = {
     },
 }
 
+SEASONAL_FARM_BONUSES = {
+    "spring": {"blood_thistle_seed": 1, "honey_sap_seed": 0},
+    "summer": {"honey_sap_seed": 1, "gilded_mushroom_spore": 0},
+    "autumn": {"silver_moss_spore": 1, "dire_root_bulb": 0},
+    "winter": {"dire_root_bulb": 1},
+}
+
 
 # ══════════════════════════════════════════════════════════
 # SEASONAL SHOP STOCK — Hemlock's inventory changes per season

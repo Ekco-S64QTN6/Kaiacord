@@ -186,7 +186,7 @@ def _get_layouts(difficulty: int) -> list:
             "name": "keep",           # Two parallel corridors joined at end
             "segments": [
                 {"role": "spine", "steps": [(1,0),(1,0),(1,0),(0,1)]},
-                {"role": "wing",  "branch_from": 0, "steps": [(0,1),(1,0),(1,0),(1,0)]},
+                {"role": "wing",  "branch_from": 1, "steps": [(0,1),(1,0),(1,0),(1,0)]},
                 {"role": "wing",  "branch_from": 1, "steps": [(0,-1)]},
                 {"role": "wing",  "branch_from": 3, "steps": [(0,1),(1,0)]},
             ],
@@ -197,7 +197,7 @@ def _get_layouts(difficulty: int) -> list:
                 {"role": "spine", "steps": [(0,1),(1,0),(1,0),(0,-1)]},
                 {"role": "wing",  "branch_from": 1, "steps": [(1,0),(1,0)]},
                 {"role": "wing",  "branch_from": 2, "steps": [(0,1),(0,1)]},
-                {"role": "wing",  "branch_from": 0, "steps": [(-1,0),(-1,0)]},
+                {"role": "wing",  "branch_from": 1, "steps": [(-1,0),(-1,0)]},
             ],
         },
     ]
@@ -218,7 +218,7 @@ def _get_layouts(difficulty: int) -> list:
             "name": "aeridor_vault",  # Formal Aeridorian layout with symmetry
             "segments": [
                 {"role": "spine", "steps": [(1,0),(0,1),(1,0),(0,1),(1,0)]},
-                {"role": "wing",  "branch_from": 0, "steps": [(0,-1),(0,-1)]},
+                {"role": "wing",  "branch_from": 1, "steps": [(0,-1),(0,-1)]},
                 {"role": "wing",  "branch_from": 2, "steps": [(1,0),(1,0)]},
                 {"role": "wing",  "branch_from": 2, "steps": [(-1,0),(-1,0)]},
                 {"role": "wing",  "branch_from": 4, "steps": [(0,1),(1,0)]},

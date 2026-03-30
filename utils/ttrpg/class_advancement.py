@@ -270,7 +270,7 @@ def apply_advanced_class_to_combat(sheet: dict, player_damage: int,
 
     # Paladin — smite undead, heal on kill
     if advanced == "Paladin":
-        if is_undead and bonuses.get("atk_vs_undead"):
+        if player_hit and is_undead and bonuses.get("atk_vs_undead"):
             result["player_damage_bonus"] += bonuses["atk_vs_undead"]
             result["extra_log"].append(f"✝️ *Paladin's smite: +{bonuses['atk_vs_undead']} vs undead.*")
         if monster_defeated and bonuses.get("heal_on_kill"):
@@ -286,7 +286,7 @@ def apply_advanced_class_to_combat(sheet: dict, player_damage: int,
 
     # Necromancer — devastate undead
     elif advanced == "Necromancer":
-        if is_undead and bonuses.get("atk_vs_undead"):
+        if player_hit and is_undead and bonuses.get("atk_vs_undead"):
             result["player_damage_bonus"] += bonuses["atk_vs_undead"]
             result["extra_log"].append(f"💀 *Death mastery: +{bonuses['atk_vs_undead']} vs undead.*")
 

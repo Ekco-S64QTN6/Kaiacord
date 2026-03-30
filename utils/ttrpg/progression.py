@@ -101,6 +101,17 @@ def check_and_reset_hunts(sheet: dict) -> dict:
         conditions = sheet.get("conditions", [])
         sheet["conditions"] = [c for c in conditions if c in PERMANENT_CONDITIONS]
 
+        # Housing daily reset
+        from utils.ttrpg.housing import load_housing, save_housing
+        from utils.ttrpg.farming import reset_daily_farm
+        from utils.ttrpg.pets import reset_daily_pets
+
+        housing = load_housing(str(sheet.get("user_id", "")))
+        if housing and housing.get("last_farm_reset") != today:
+            housing = reset_daily_farm(housing)
+            housing = reset_daily_pets(housing)
+            save_housing(housing)
+
     return sheet
 
 
@@ -109,7 +120,14 @@ def get_max_hunts(sheet: dict) -> int:
     sheet = check_and_reset_hunts(sheet)
     ale_bonus = 1 if "ale_warmth" in sheet.get("conditions", []) else 0
     rest_bonus = 1 if sheet.get("inn_rest_active_today") else 0
-    return MAX_HUNTS_PER_DAY + ale_bonus + rest_bonus
+    
+    # Pet bonus (chocobo chick)
+    from utils.ttrpg.housing import load_housing
+    from utils.ttrpg.pets import get_pet_passive
+    housing = load_housing(str(sheet.get("user_id", "")))
+    pet_bonus = get_pet_passive(housing).get("extra_hunt", 0) if housing else 0
+    
+    return MAX_HUNTS_PER_DAY + ale_bonus + rest_bonus + pet_bonus
 
 
 def hunts_remaining(sheet: dict) -> int:

@@ -252,4 +252,32 @@ LOCATION_LOOK_TARGETS = {
             "*You close the notebook. Maren is watching you close it.*"
         ),
     },
+    "housing_district": {
+        "lane": (
+            "🛤️ **The Lane**\n\n"
+            "A well-trodden dirt path lined with small plots of land. Some are just post-and-rope, others have sturdy fences.\n"
+            "Smoke from a dozen hearths hangs low in the air. It's the most domestic place in Oakhaven."
+        ),
+        "gardens": (
+            "🌿 **The Gardens**\n\n"
+            "Neat rows of soil, some sprouting with the strange, vibrant herbs used in Sister Maren's brewing.\n"
+            "You see blood thistle, honey sap, and silver moss all growing here. "
+            "It shouldn't be possible for them to thrive in the same soil. But they do."
+        ),
+        "barnaby": (
+            "🪑 **Barnaby**\n\n"
+            "Barnaby is currently wrestling with a particularly stubborn piece of oak. He seems to be winning.\n"
+            "Sawdust is permanently settled in his eyebrows. He doesn't seem to mind."
+        ),
+        "pip": (
+            "🐾 **Pip**\n\n"
+            "Pip is surrounded by a small cloud of hovering moogles and at least three cats of varying levels of fluffiness.\n"
+            "They aren't technically selling the animals — they're 'finding them homes'. For a fee."
+        ),
+        "plots": (
+            "🏡 **The Plots**\n\n"
+            "Small staked-out areas. Each has a sign with a name. Some are ornate, some are just charcoal on a plank.\n"
+            "People are building things here. Persistent things."
+        ),
+    },
 }

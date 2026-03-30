@@ -135,6 +135,36 @@ NPCS = {
             "One gear item per person. No exceptions. I've got a schedule to keep and a dozen towns waiting for a taste of the masterworks.",
         ],
     },
+    "barnaby": {
+        "name": "Barnaby",
+        "location": "housing_district",
+        "description": "A stout man with sawdust permanently in his hair. Sells furniture, decorations, and 'improvements' of dubious necessity with great enthusiasm.",
+        "role": "furniture_merchant",
+        "dialogue_hook": "He's sanding something when you arrive. He's always sanding something.",
+        "topics": [
+            "The alchemy bench? Best investment you'll make. Maren charges for the use of her table, you know. She's too polite to say it but she does.",
+            "Oak from the Whisperwood edge. I don't take from the deep. The deep keeps its wood.",
+            "A throne? You want a throne. Everyone says they don't want a throne. Then they see it.",
+            "I made Elder Elara a chair once. She sat in it once. Never came back. I consider it my greatest work.",
+            "The Aeridorian tapestry — found that pattern in the ruins. Don't ask how I survived. I have some questions about that myself.",
+            "Stone throne's for the keep only. You want to know what it feels like to sit in it before you buy? Can't. That's part of the deal.",
+        ],
+    },
+    "pip": {
+        "name": "Pip",
+        "location": "housing_district",
+        "description": "A small, quiet person who moves like they're trying not to startle something. Always has at least one animal on or near them.",
+        "role": "pet_vendor",
+        "dialogue_hook": "Pip is sitting cross-legged on the ground when you arrive. A cat is on their lap. A moogle is hovering nearby pretending not to be interested.",
+        "topics": [
+            "The tonberry? It's docile. I promise. It just holds the knife because that's what tonberries do.",
+            "Feed them every day. I can't stress this enough. Every day.",
+            "The construct isn't a pet. But it stays. So.",
+            "The chocobo chick will imprint on you. That's permanent. Think about whether you want that responsibility.",
+            "Moogle's been with me six years. Delivers letters I didn't ask it to. Brings back things I didn't send. I've stopped questioning it.",
+            "The sprite came from the Whisperwood edge. It followed me home. The Whisperwood let it, I think. I don't know what that means.",
+        ],
+    },
 }
 
 # Add alias

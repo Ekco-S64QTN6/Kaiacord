@@ -103,7 +103,15 @@ def _resolve_combat(sheet: dict, monster: dict, atk_mod_global: int = 0, def_mod
         if "lucky" in sheet.get("conditions", []):
             sheet["conditions"].remove("lucky")
 
-    attack_mod = atk_mod + weapon_atk + acc_atk + adv_flat_atk + bless_bonus + streak_bonus + luck_bonus + atk_mod_global
+    # Pet bonus calculation
+    from utils.ttrpg.housing import load_housing
+    from utils.ttrpg.pets import get_pet_passive
+    housing_pet = load_housing(str(sheet.get("user_id", "")))
+    pet_bonuses = get_pet_passive(housing_pet) if housing_pet else {}
+    
+    pet_combat_bonus = pet_bonuses.get("combat_bonus", 0)
+
+    attack_mod = atk_mod + weapon_atk + acc_atk + adv_flat_atk + bless_bonus + streak_bonus + luck_bonus + atk_mod_global + pet_combat_bonus
     
     # --- Initialize Result Variables ---
     player_hit = False
@@ -257,6 +265,14 @@ def _resolve_combat(sheet: dict, monster: dict, atk_mod_global: int = 0, def_mod
             sheet["hp"]["current"] = min(sheet["hp"]["max"], sheet["hp"]["current"] + adv_mods["heal_amount"])
         if adv_mods["extra_log"]:
             status_logs.extend(adv_mods["extra_log"])
+
+    # Pet post-combat heal (Sylvan Sprite)
+    pet_heal = pet_bonuses.get("combat_heal", 0)
+    if pet_heal > 0 and sheet["hp"]["current"] > 0 and monster["hp"]["current"] <= 0:
+        hp_before = sheet["hp"]["current"]
+        sheet["hp"]["current"] = min(sheet["hp"]["max"], sheet["hp"]["current"] + pet_heal)
+        if sheet["hp"]["current"] > hp_before:
+            status_logs.append(f"✨ **Pet Bonus:** Your sprite mends your wounds (+{pet_heal} HP).")
 
     # formatting exchanges
     exchanges = list(status_logs)

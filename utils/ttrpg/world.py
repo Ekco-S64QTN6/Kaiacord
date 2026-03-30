@@ -96,6 +96,13 @@ LOCATION_DATA = {
         "exits": ["oakhaven"],
         "atmosphere": "bustling, wealthy, temporary. The merchant watches everyone with a keen eye.",
     },
+    "housing_district": {
+        "name": "Oakhaven Housing District",
+        "short": "A quiet lane east of the square. Smoke from hearths, the smell of turned earth. People built lives here.",
+        "exits": ["oakhaven"],   # Only exit is back to Oakhaven — player plots are sub-locations
+        "atmosphere": "settled, domestic, oddly peaceful. The Whisperwood is visible but distant.",
+        "hunting": False,
+    },
 }
 
 def resolve_location(query: str) -> str:
@@ -130,6 +137,10 @@ def resolve_location(query: str) -> str:
         "hut":              "herbalists_hut",
         "caravan":          "caravan",
         "merchant":         "caravan",
+        "housing":          "housing_district",
+        "district":         "housing_district",
+        "plots":            "housing_district",
+        "home":             "housing_district",
     }
     
     if q in aliases:
