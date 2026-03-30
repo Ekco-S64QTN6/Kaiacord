@@ -99,8 +99,15 @@ LOCATION_DATA = {
     "housing_district": {
         "name": "Oakhaven Housing District",
         "short": "A quiet lane east of the square. Smoke from hearths, the smell of turned earth. People built lives here.",
-        "exits": ["oakhaven"],   # Only exit is back to Oakhaven — player plots are sub-locations
+        "exits": ["oakhaven", "tricklebrook_pond"],   # Only exit is back to Oakhaven — player plots are sub-locations
         "atmosphere": "settled, domestic, oddly peaceful. The Whisperwood is visible but distant.",
+        "hunting": False,
+    },
+    "tricklebrook_pond": {
+        "name": "Tricklebrook Pond",
+        "short": "A still, deep pool where the Tricklebrook widens before plunging into the caverns. Old Gregor sits on a stump, watching his bobber.",
+        "exits": ["housing_district"],
+        "atmosphere": "contemplative, quiet, smelling of algae and damp earth.",
         "hunting": False,
     },
 }
@@ -141,6 +148,9 @@ def resolve_location(query: str) -> str:
         "district":         "housing_district",
         "plots":            "housing_district",
         "home":             "housing_district",
+        "pond":             "tricklebrook_pond",
+        "fish":             "tricklebrook_pond",
+        "tricklebrook":     "tricklebrook_pond",
     }
     
     if q in aliases:

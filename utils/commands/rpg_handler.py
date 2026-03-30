@@ -79,6 +79,7 @@ import utils.ttrpg.dice_engine as dice_engine
 from utils.ttrpg.monster_registry import get as get_monster
 from utils.ttrpg.shop import find_item
 from utils.ttrpg.loot_tables import get_loot
+from utils.commands.fishing_handler import handle_fish_command
 from utils.ttrpg.broadcast import (
     log_world_event as _log_world_event,
     broadcast_world_event as _broadcast_world_event,
@@ -215,6 +216,11 @@ _LOCATION_BUTTONS: dict[str, list] = {
         ("Barnaby's", "🪑", "furniture_shop", "", discord.ButtonStyle.secondary, 0),
         ("Pip's Pets", "🐾", "pet_shop", "", discord.ButtonStyle.secondary, 0),
         ("Neighbour Plots", "🏘️", "visit_plots", "", discord.ButtonStyle.secondary, 0),
+        ("Pond", "🎣", "go", "tricklebrook_pond", discord.ButtonStyle.secondary, 0),
+        ("Look", "🔎", "look", "", discord.ButtonStyle.secondary, 0),
+    ],
+    "tricklebrook_pond": [
+        ("Fish", "🎣", "fish", "", discord.ButtonStyle.primary, 0),
         ("Look", "🔎", "look", "", discord.ButtonStyle.secondary, 0),
     ],
 }
@@ -362,6 +368,7 @@ class RPGFullLocationView(discord.ui.View):
             "visit_plots":    _handle_visit_plots,
             "rename_house":   _handle_rename_house,
             "home_training":  _handle_home_training,
+            "fish":           handle_fish_command,
         }
 
         # ── Location action buttons ───────────────────────────────────
@@ -851,6 +858,11 @@ LOCATION_ACTIONS = {
         "🪑 Barnaby's — browse furniture",
         "🐾 Pip's Pets — adopt a companion",
         "🏘️ Neighbour Plots — visit other players' homes",
+        "🎣 Tricklebrook Pond — fish the deep waters",
+    ],
+    "tricklebrook_pond": [
+        "🎣 Fish — cast a line into the dark water",
+        "👁️ Look — observe the reflections on the pond",
     ],
     "oakhaven": [
         "👁️ Look — observe the square",
@@ -930,6 +942,7 @@ LOCATION_ACTIONS = {
 
 LOCATION_COLORS = {
     "housing_district":  0x8b7355,   # warm earthy brown — home soil
+    "tricklebrook_pond": 0x3a8fc1,   # deep pond blue
     "oakhaven":          0x8b7355,   # muddy brown — the square
     "stone_hearth":      0xc0622f,   # warm ember orange — the fire
     "hemlocks_store":    0x6b8e6b,   # muted green — herbs and iron
@@ -1993,6 +2006,7 @@ async def handle_rpg_command(ctx, msg, send_kaia_response):
         "talk":      _handle_talk,
         "calendar":  _handle_calendar,
         "hunt":      _handle_hunt,
+        "fish":      handle_fish_command,
         "attack":    _handle_attack,
         "flee":      _handle_flee,
         "hunts":     _handle_hunts,

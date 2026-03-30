@@ -63,6 +63,7 @@ LOCATION_ICONS = {
     "oakhaven_bank":     "🏦",
     "caravan":           "🐪",
     "housing_district":  "🏡",
+    "tricklebrook_pond": "🎣",
     "whisperwood_edge":  "🌲",
     "whisperwood_deep":  "🌑",
     "aeridor_ruins":     "🏚️",
