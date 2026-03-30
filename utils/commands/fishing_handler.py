@@ -10,7 +10,10 @@ import discord
 import secrets
 from datetime import datetime
 
-from utils.ttrpg.broadcast import log_world_event as _log_world_event
+from utils.ttrpg.broadcast import (
+    log_world_event as _log_world_event,
+    broadcast_world_event as _broadcast_world_event
+)
 from utils.infrastructure.logging.kaia_logger import log_error
 from utils.ttrpg.character_manager import load, save
 from utils.ttrpg.fishing import FISH, BAIT, POLES, get_time_of_day
@@ -95,10 +98,10 @@ class FishingMenuView(discord.ui.View):
 
     @discord.ui.button(label="🛒 Shop", style=discord.ButtonStyle.secondary, row=0)
     async def shop_btn(self, interaction: discord.Interaction, button: discord.ui.Button):
-        if str(interaction.user.id) != self._uid:
-            await interaction.response.send_message("not yours.", ephemeral=True)
-            return
         await interaction.response.defer()
+        if str(interaction.user.id) != self._uid:
+            await interaction.followup.send("not yours.", ephemeral=True)
+            return
         await _handle_fishing_shop(self._ctx, interaction, self._uid, self._uname, self._is_owner)
 
     @discord.ui.button(label="🏆 Records", style=discord.ButtonStyle.secondary, row=1)
@@ -214,7 +217,16 @@ class BiteView(discord.ui.View):
             if is_world_record:
                 msg_parts.append("🌍 **NEW WORLD RECORD!**")
             msg_parts.append(f"🎣 **{self._uname}** caught a **{cat_emoji} {fish_name}** ({self._fish_weight:.2f} lbs) at Tricklebrook Pond!")
-            await _log_world_event(" ".join(msg_parts))
+
+            msg_text = " ".join(msg_parts)
+            await _log_world_event(msg_text)
+            
+            # Post to main #aethelgard broadcast channel
+            embed = discord.Embed(
+                description=msg_text,
+                color=0x4db3ff
+            )
+            await _broadcast_world_event(self._ctx, embed)
 
         sheet = add_to_fishing_bag(sheet, self._fish_key, self._fish_weight, self._fish_value)
 
@@ -223,6 +235,13 @@ class BiteView(discord.ui.View):
         bait_count = fishing_stats.get("bait_count", 0)
         if bait_count > 0:
             fishing_stats["bait_count"] = bait_count - 1
+
+        # Check for pole breakage (5% chance, excluding starter pole)
+        broke_pole = False
+        cur_pole_key = fishing_stats.get("pole", "birchwood_rod")
+        if cur_pole_key != "birchwood_rod" and secrets.randbelow(100) < 5:
+            broke_pole = True
+            fishing_stats["pole"] = "birchwood_rod"
 
         await save(sheet)
 
@@ -233,6 +252,9 @@ class BiteView(discord.ui.View):
             f"⚖️ Weight: **{self._fish_weight:.2f} lbs**",
             f"💰 Value: **{self._fish_value}g** (in bag)",
         ]
+        if broke_pole:
+            p_name = POLES.get(cur_pole_key, {}).get("name", "pole")
+            desc_lines.append(f"\n💥 **CRACK!** Your **{p_name}** snapped under the strain! Back to the Birchwood Rod...")
         if is_world_record:
             desc_lines.append(f"🌍 **NEW WORLD RECORD!** 🌍")
         elif is_personal_record:
@@ -552,6 +574,11 @@ async def _handle_fishing_shop(ctx, interaction: discord.Interaction, uid: str, 
     if not sheet:
         return
 
+    embed, view = _build_fishing_shop_ui(ctx, uid, uname, is_owner, sheet)
+    await interaction.followup.send(embed=embed, view=view)
+
+
+def _build_fishing_shop_ui(ctx, uid: str, uname: str, is_owner: bool, sheet: dict):
     stats = sheet.setdefault("fishing_stats", {})
     current_bait = stats.get("bait", "earthworm")
     current_pole = stats.get("pole", "birchwood_rod")
@@ -575,7 +602,7 @@ async def _handle_fishing_shop(ctx, interaction: discord.Interaction, uid: str, 
     for k, b in BAIT.items():
         ceiling = b["rarity_ceiling"]
         equipped = "✅ " if k == current_bait else "   "
-        bait_lines.append(f"{equipped}**{b['name']}** (×10 for {b['cost'] * 10}g) — up to {ceiling} fish\n*{b['desc']}*")
+        bait_lines.append(f"{equipped}**{b['name']}** (×1 pack of 10 for {b['cost'] * 10}g) — up to {ceiling} fish\n*{b['desc']}*")
     embed.add_field(name="🪱 Bait (sold in packs of 10)", value="\n".join(bait_lines), inline=False)
 
     # Pole section
@@ -587,10 +614,10 @@ async def _handle_fishing_shop(ctx, interaction: discord.Interaction, uid: str, 
             price_str = f"{p['cost']}g"
         equipped = "✅ " if k == current_pole else "   "
         pole_lines.append(f"{equipped}**{p['name']}** ({price_str})\n*{p['desc']}*")
-    embed.add_field(name="🎣 Rods", value="\n".join(pole_lines), inline=False)
+    embed.add_field(name="🎣 Poles", value="\n".join(pole_lines), inline=False)
 
-    view = FishingShopView(ctx, uid, uname, is_owner, sheet, stats, current_bait, current_pole)
-    await interaction.followup.send(embed=embed, view=view)
+    view = FishingShopView(ctx, uid, uname, is_owner, sheet)
+    return embed, view
 
 
 async def _handle_fishing_leaderboard(ctx, interaction: discord.Interaction, uid: str, uname: str, is_owner: bool):
@@ -836,6 +863,15 @@ async def handle_fish_command(ctx, msg, send, rest, uid, uname, is_owner):
         return
 
     await _show_fishing_menu(ctx, msg.channel, uid, uname, is_owner, sheet)
+
+
+async def handle_fish_shop_command(ctx, msg, send, rest, uid, uname, is_owner):
+    """Entry Point for Gregor's Shop from RPG UI buttons or !rpg fish shop."""
+    sheet = await load(uid)
+    if not sheet:
+        return
+    embed, view = _build_fishing_shop_ui(ctx, uid, uname, is_owner, sheet)
+    await send(embed=embed, view=view)
 
 
 async def _show_fishing_menu(ctx, channel, uid: str, uname: str, is_owner: bool, sheet: dict):

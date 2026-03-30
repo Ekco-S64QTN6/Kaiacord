@@ -216,11 +216,12 @@ _LOCATION_BUTTONS: dict[str, list] = {
         ("Barnaby's", "🪑", "furniture_shop", "", discord.ButtonStyle.secondary, 0),
         ("Pip's Pets", "🐾", "pet_shop", "", discord.ButtonStyle.secondary, 0),
         ("Neighbour Plots", "🏘️", "visit_plots", "", discord.ButtonStyle.secondary, 0),
-        ("Pond", "🎣", "go", "tricklebrook_pond", discord.ButtonStyle.secondary, 0),
-        ("Look", "🔎", "look", "", discord.ButtonStyle.secondary, 0),
+        ("Pond", "🎣", "go", "tricklebrook_pond", discord.ButtonStyle.secondary, 1),
+        ("Look", "🔎", "look", "", discord.ButtonStyle.secondary, 1),
     ],
     "tricklebrook_pond": [
         ("Fish", "🎣", "fish", "", discord.ButtonStyle.primary, 0),
+        ("Shop", "🛒", "fish_shop", "", discord.ButtonStyle.secondary, 0),
         ("Look", "🔎", "look", "", discord.ButtonStyle.secondary, 0),
     ],
 }
@@ -369,6 +370,7 @@ class RPGFullLocationView(discord.ui.View):
             "rename_house":   _handle_rename_house,
             "home_training":  _handle_home_training,
             "fish":           handle_fish_command,
+            "fish_shop":      handle_fish_shop_command,
         }
 
         # ── Location action buttons ───────────────────────────────────
@@ -2007,6 +2009,8 @@ async def handle_rpg_command(ctx, msg, send_kaia_response):
         "calendar":  _handle_calendar,
         "hunt":      _handle_hunt,
         "fish":      handle_fish_command,
+        "fish_shop": handle_fish_shop_command,
+        "sell_catch": _handle_sell_catch,
         "attack":    _handle_attack,
         "flee":      _handle_flee,
         "hunts":     _handle_hunts,

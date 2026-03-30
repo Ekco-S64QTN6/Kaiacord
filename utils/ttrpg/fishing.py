@@ -48,7 +48,7 @@ BAIT = {
     "glowfly": {
         "name": "Glowfly",
         "cost": 12,
-        "catch_bonus": 12,
+        "catch_bonus": 10,
         "rarity_ceiling": "epic",
         "preferred_cats": ["rare", "epic"],
         "desc": "Catches the light in the water. Catches fish that want that light.",
@@ -56,7 +56,7 @@ BAIT = {
     "aeridor_lure": {
         "name": "Aeridor Lure",
         "cost": 30,
-        "catch_bonus": 22,
+        "catch_bonus": 20,
         "rarity_ceiling": "legendary",
         "preferred_cats": ["epic", "legendary"],
         "desc": "Crystal-tipped. Hums faintly. Resonance-touched fish respond to it.",
@@ -64,7 +64,7 @@ BAIT = {
     "crystal_bait": {
         "name": "Crystal Bait",
         "cost": 100,
-        "catch_bonus": 35,
+        "catch_bonus": 30,
         "rarity_ceiling": "mythic",
         "preferred_cats": ["legendary", "mythic"],
         "desc": "Aeridorian crystal dust, compressed into bait. The water around it goes still.",
@@ -84,7 +84,7 @@ POLES = {
     "ironwood_rod": {
         "name": "Ironwood Rod",
         "cost": 50,
-        "catch_bonus": 5,
+        "catch_bonus": 2,
         "bite_time_reduction": 1,
         "reel_window": 14,
         "desc": "Dense hardwood. Gives you an edge in the fight.",
@@ -92,7 +92,7 @@ POLES = {
     "whittled_willow": {
         "name": "Whittled Willow",
         "cost": 120,
-        "catch_bonus": 10,
+        "catch_bonus": 5,
         "bite_time_reduction": 2,
         "reel_window": 16,
         "desc": "Flexible. Responsive. The fish hate how patient it makes you.",
@@ -100,7 +100,7 @@ POLES = {
     "resonance_rod": {
         "name": "Resonance Rod",
         "cost": 400,
-        "catch_bonus": 22,
+        "catch_bonus": 10,
         "bite_time_reduction": 3,
         "reel_window": 18,
         "desc": "Aeridorian material. Hums. Rare fish are drawn to the frequency.",
@@ -108,7 +108,7 @@ POLES = {
     "aeridorian_spire": {
         "name": "Aeridorian Spire",
         "cost": 1500,
-        "catch_bonus": 38,
+        "catch_bonus": 20,
         "bite_time_reduction": 4,
         "reel_window": 22,
         "desc": "Crystal-tipped, ancient, perfect. Legendary fish have been caught on this exact pole.",

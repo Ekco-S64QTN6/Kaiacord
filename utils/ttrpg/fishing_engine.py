@@ -21,12 +21,12 @@ FISHING_RECORDS_PATH = os.path.join("memory", "ttrpg", "fishing_records.json")
 # These are base thresholds BEFORE bait/pole bonuses.
 # Higher roll → rarer category selected from available pool.
 RARITY_THRESHOLDS = {
-    "mythic":    98,    # roll 98-100
-    "legendary": 93,    # roll 93-97
-    "epic":      82,    # roll 82-92
-    "rare":      65,    # roll 65-81
-    "uncommon":  38,    # roll 38-64
-    "common":     0,    # roll 0-37
+    "mythic":    999,    # 999-1000 (0.2% base)
+    "legendary": 995,    # 995-998 (0.4% base)
+    "epic":      985,    # 985-994 (1.0% base)
+    "rare":      950,    # 950-984 (3.5% base)
+    "uncommon":  800,    # 800-949 (15% base)
+    "common":      0,    # 0-799 (80% base)
 }
 
 
@@ -57,14 +57,14 @@ def roll_catch(
     if secrets.randbelow(100) < miss_base:
         raise ValueError("miss")
 
-    # Rarity roll (1-100)
-    raw = secrets.randbelow(100) + 1
+    # Rarity roll (1-1000)
+    raw = secrets.randbelow(1000) + 1
     roll = raw + bait["catch_bonus"] + pole["catch_bonus"]
     if "blessed" in conditions:
-        roll += 10
+        roll += 20
     if "lucky" in conditions:
-        roll += 5
-    roll = min(roll, 100)
+        roll += 10
+    roll = min(roll, 1000)
 
     # Select rarity category
     selected_cat = "common"
@@ -136,6 +136,19 @@ def calculate_catch_value(fish_key: str, fish_weight: float, cha_mod: int = 0) -
     bonus_mult = CATEGORY_WEIGHT_BONUS.get(fish["category"], 0.30)
     cha_bonus = 1.0 + (max(0, cha_mod) * 0.02)
     value = int(fish["sell_value"] * (1.0 + bonus_mult * weight_pct) * cha_bonus)
+    
+    # Tiered economic caps to prevent "dragon loot" fishing
+    cat = fish.get("category", "common")
+    if cat == "mythic":
+        value = min(250, value)
+    elif cat == "legendary":
+        value = min(200, value)
+    elif cat == "epic":
+        value = min(150, value)
+    else:
+        # Keep Rare/Uncommon/Common natural (usually 2-95g)
+        pass
+
     return max(1, value)
 
 
