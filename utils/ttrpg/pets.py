@@ -68,9 +68,9 @@ PET_REGISTRY = {
     "aeridor_construct": {
         "name": "Miniature Construct",
         "cost": 5000,
-        "desc": "A palm-sized Aeridorian construct. Still active. Still running its original directives. Nobody knows what they are. +3 DEF while in your home location.",
+        "desc": "A palm-sized Aeridorian construct. Still active. Still running its original directives. Nobody knows what they are. +3 DEF passively while fed.",
         "emoji": "💎",
-        "passive": "home_defense",
+        "passive": "def_bonus",
         "passive_value": 3,
         "food": "aeridor_shard",
         "food_cost": 30,

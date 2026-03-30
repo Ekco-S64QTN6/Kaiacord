@@ -346,6 +346,7 @@ class RPGFullLocationView(discord.ui.View):
             "unequip": _handle_unequip,
             "advance": _handle_advance,
             "bard_song": _handle_bard_song,
+            "go": _handle_go,
             "my_home":        _handle_my_home,
             "buy_house":      _handle_buy_house,
             "upgrade_house":  _handle_upgrade_house,
@@ -845,6 +846,12 @@ def _make_map_view(ctx, msg, uid, uname, is_owner, loc):
 
 
 LOCATION_ACTIONS = {
+    "housing_district": [
+        "🏡 My Home — view your plot and manage it",
+        "🪑 Barnaby's — browse furniture",
+        "🐾 Pip's Pets — adopt a companion",
+        "🏘️ Neighbour Plots — visit other players' homes",
+    ],
     "oakhaven": [
         "👁️ Look — observe the square",
         "📜 Notice Board — read community news",
@@ -922,6 +929,7 @@ LOCATION_ACTIONS = {
 }
 
 LOCATION_COLORS = {
+    "housing_district":  0x8b7355,   # warm earthy brown — home soil
     "oakhaven":          0x8b7355,   # muddy brown — the square
     "stone_hearth":      0xc0622f,   # warm ember orange — the fire
     "hemlocks_store":    0x6b8e6b,   # muted green — herbs and iron
@@ -1748,7 +1756,16 @@ async def _dungeon_move(ctx_obj, interaction, uid, uname, is_owner, direction):
         room["cleared"] = True
         state["rooms"][nk] = room
 
-
+        # Furniture dungeon XP bonus (Aeridorian Tapestry)
+        from utils.ttrpg.housing import load_housing
+        from utils.ttrpg.furniture import get_home_bonuses
+        _housing = load_housing(uid)
+        if _housing:
+            _furniture_bonuses = get_home_bonuses(_housing)
+            _tapestry_xp = _furniture_bonuses.get("dungeon_xp", 0)
+            if _tapestry_xp:
+                sheet["xp"] = sheet.get("xp", 0) + _tapestry_xp
+                state["xp_gained"] = state.get("xp_gained", 0) + _tapestry_xp
 
     hp_warning = "\n\n⚠️ *HP critically low — consider leaving.*" \
         if sheet["hp"]["current"] <= sheet["hp"]["max"] // 4 else ""
@@ -3325,8 +3342,12 @@ async def _handle_brew(ctx, msg, send, rest, uid, uname, is_owner):
     if not sheet: return
     
     loc = sheet.get("location", "oakhaven")
-    if not LOCATION_DATA.get(loc, {}).get("brewing_allowed"):
-        return await send(msg.channel, "You need a proper station to brew. Try the Herbalist's Hut.")
+    from utils.ttrpg.housing import load_housing
+    from utils.ttrpg.furniture import get_home_bonuses
+    _housing = load_housing(uid)
+    _has_alchemy_table = _housing and "alchemy_table" in get_home_bonuses(_housing)
+    if not LOCATION_DATA.get(loc, {}).get("brewing_allowed") and not _has_alchemy_table:
+        return await send(msg.channel, "You need a proper station to brew. Try the Herbalist's Hut, or purchase an Alchemy Workbench for your home.")
         
     recipe_id = rest.strip().lower()
     if not recipe_id:
@@ -4664,9 +4685,17 @@ async def _handle_pray(ctx, msg, send, rest, uid, uname, is_owner):
     if not sheet:
         return await msg.channel.send(embed=discord.Embed(description="No character found.", color=0xcc4444))
 
-    if sheet.get("location") != "shrine":
+    from utils.ttrpg.housing import load_housing
+    from utils.ttrpg.furniture import get_home_bonuses
+    _housing = load_housing(uid)
+    _has_shrine_replica = (
+        _housing 
+        and sheet.get("location") == "housing_district"
+        and "shrine_replica" in _housing.get("furniture", [])
+    )
+    if sheet.get("location") != "shrine" and not _has_shrine_replica:
         return await msg.channel.send(embed=discord.Embed(
-            description="You need to be at the Shrine of the Silent Ones to pray.\n`!rpg go shrine`",
+            description="You need to be at the Shrine of the Silent Ones to pray.\n`!rpg go shrine`\n\n*Or purchase a Shrine Replica for your home.*",
             color=0xcc4444
         ))
 
@@ -5767,6 +5796,7 @@ async def _handle_my_home(ctx, msg, send, rest, uid, uname, is_owner):
             await save(s)
             h = default_housing_sheet(uid, s["character_name"])
             save_housing(h)
+            await _log_world_event(f"🏡 **{s['character_name']}** has settled in Oakhaven, purchasing a new {hut['name']}.")
             await interaction.response.send_message(embed=discord.Embed(
                 description=f"🏡 *{hut['flavor']}*\n\nWelcome home, {s['character_name']}.",
                 color=0x44aa44))
@@ -5804,9 +5834,21 @@ async def _handle_my_home(ctx, msg, send, rest, uid, uname, is_owner):
         desc_parts.append("🌾 **Farm:** No crops planted.")
     if pet_lines:
         desc_parts.append("\n🐾 **Pets:**\n" + "\n".join(pet_lines))
-    if bonuses:
-        bonus_str = "  ".join(f"+{v} {k.replace('_',' ')}" for k, v in bonuses.items())
-        desc_parts.append(f"\n🏠 **Bonuses:** {bonus_str}")
+        
+    furniture_lines = []
+    for f_key in housing.get("furniture", []):
+        f_data = FURNITURE.get(f_key)
+        if f_data:
+            bonus = f_data.get("bonus", {})
+            if bonus:
+                b_str = f"+{bonus.get('value', 0)} {bonus.get('type', '').replace('_', ' ')}"
+            else:
+                b_str = ""
+            furniture_lines.append(f"{f_data['emoji']} **{f_data['name']}**: {b_str}")
+            
+    if furniture_lines:
+        desc_parts.append("\n🪑 **Amenities:**\n" + "\n".join(furniture_lines))
+        
     if harvestable_count:
         desc_parts.append(f"\n✅ **{harvestable_count} crop(s) ready to harvest!**")
 
@@ -5824,11 +5866,32 @@ async def _handle_my_home(ctx, msg, send, rest, uid, uname, is_owner):
     if harvestable_count:
         view.add_item(_make_home_btn(ctx, uid, uname, is_owner, "🪣 Harvest", "harvest_crops", 0, style=discord.ButtonStyle.green))
     # Row 1: Home actions
-    view.add_item(_make_home_btn(ctx, uid, uname, is_owner, "🐾 Feed Pets", "feed_pet", 1))
+    
+    unfed_cost = sum(PET_REGISTRY[p["key"]]["food_cost"] for p in housing.get("pets", []) if not p.get("fed_today"))
+    feed_label = f"🐾 Feed Pets ({unfed_cost}g/day)" if unfed_cost > 0 else "🐾 Feed Pets"
+    view.add_item(_make_home_btn(ctx, uid, uname, is_owner, feed_label, "feed_pet", 1))
+    
     view.add_item(_make_home_btn(ctx, uid, uname, is_owner, "🪑 Decorate", "furniture_shop", 1))
     if get_next_tier(housing["tier"]):
         view.add_item(_make_home_btn(ctx, uid, uname, is_owner, "⬆️ Upgrade", "upgrade_house", 1))
+
+    # Row 1 continued — conditional furniture actions
+    bonuses = get_home_bonuses(housing)
+    if bonuses.get("daily_training"):
+        view.add_item(_make_home_btn(
+            ctx, uid, uname, is_owner, 
+            "🪆 Train", "home_training", 1, 
+            style=discord.ButtonStyle.blurple
+        ))
+
     # Row 2: Status
+    ren_btn = discord.ui.Button(label="🏷️ Rename", style=discord.ButtonStyle.secondary, row=2)
+    async def _ren_cb(interaction):
+        if str(interaction.user.id) != uid: return
+        await interaction.response.send_modal(RenameHouseModal(uid))
+    ren_btn.callback = _ren_cb
+    view.add_item(ren_btn)
+    
     view.add_item(_make_status_btn(ctx, uid, uname, is_owner, row=2))
     await msg.channel.send(embed=embed, view=view)
 
@@ -5850,14 +5913,50 @@ async def _handle_upgrade_house(ctx, msg, send, rest, uid, uname, is_owner):
     next_tier = get_next_tier(housing["tier"])
     tier_data = HOUSING_TIERS[next_tier]
     
-    sheet["gil"] -= tier_data["cost"]
-    await save(sheet)
+    embed = discord.Embed(
+        title="⬆️ Estate Upgrade",
+        description=(
+            f"Upgrade your home to a **{tier_data['name']}**?\n\n"
+            f"**Cost:** {tier_data['cost']}g\n"
+            f"*{tier_data['desc']}*\n\n"
+            f"Includes: {tier_data['farming_plots']} farming plots · {tier_data['pet_slots']} pet slots · "
+            f"{tier_data['furniture_slots']} furniture slots"
+        ),
+        color=0x8b7355
+    )
     
-    housing["tier"] = next_tier
-    save_housing(housing)
+    view = discord.ui.View(timeout=60)
+    confirm_btn = discord.ui.Button(label=f"Confirm Upgrade ({tier_data['cost']}g)", style=discord.ButtonStyle.green)
+    async def _confirm_cb(interaction):
+        if str(interaction.user.id) != uid: return
+        s = await load(uid)
+        can_u, e = can_afford_upgrade(s, housing)
+        if not can_u:
+            return await interaction.response.send_message(e, ephemeral=True)
+            
+        s["gil"] -= tier_data["cost"]
+        await save(s)
+        housing["tier"] = next_tier
+        save_housing(housing)
+        
+        await _log_world_event(f"🏰 **{s['character_name']}** has upgraded their estate to a **{tier_data['name']}**.")
+        
+        await interaction.response.send_message(embed=discord.Embed(
+            description=f"🏠 **Estate Upgraded!** Your home is now a **{tier_data['name']}**.\n*{tier_data['flavor']}*",
+            color=0x44aa44
+        ))
+        
+        fake = _InteractionMsg(interaction)
+        await _handle_my_home(ctx, fake, _make_interaction_send(interaction), rest, uid, uname, is_owner)
+        
+    confirm_btn.callback = _confirm_cb
+    view.add_item(confirm_btn)
+    view.add_item(_make_status_btn(ctx, uid, uname, is_owner))
     
-    await send(msg.channel, f"🏠 **Estate Upgraded!** Your home is now a **{tier_data['name']}**.\n*{tier_data['flavor']}*")
-    await _handle_my_home(ctx, msg, send, rest, uid, uname, is_owner)
+    if hasattr(msg, "edit"):
+        await msg.edit(embed=embed, view=view)
+    else:
+        await send(msg.channel, "", embed=embed, view=view)
 
 async def _handle_farm_view(ctx, msg, send, rest, uid, uname, is_owner):
     from utils.ttrpg.housing import load_housing, get_tier_data
@@ -5965,7 +6064,7 @@ async def _handle_water_crops(ctx, msg, send, rest, uid, uname, is_owner):
             watered_count += 1
     
     if watered_count == 0:
-        return await send(msg.channel, "All crops are already watered today.")
+        return await send(msg.channel, embed=discord.Embed(description="All crops are already watered today.", color=0x888888))
         
     save_housing(housing)
     await send(msg.channel, f"💧 You watered {watered_count} plot(s).")
@@ -6073,6 +6172,7 @@ async def _handle_buy_pet(ctx, msg, send, rest, uid, uname, is_owner):
     housing.setdefault("pets", []).append(new_pet)
     save_housing(housing)
     
+    await _log_world_event(f"🐾 **{sheet['character_name']}** adopted a {pet_data['name']}.")
     await send(msg.channel, f"🐾 **{pet_data['name']} adopted!** It seems happy to follow you home.")
 
 async def _handle_feed_pet(ctx, msg, send, rest, uid, uname, is_owner):
@@ -6092,11 +6192,17 @@ async def _handle_feed_pet(ctx, msg, send, rest, uid, uname, is_owner):
     for p in pets:
         if not p.get("fed_today"):
             p_data = PET_REGISTRY[p["key"]]
-            if sheet["gil"] >= p_data["food_cost"]:
-                sheet["gil"] -= p_data["food_cost"]
+            cost = p_data["food_cost"]
+            if sheet.get("gil", 0) + sheet.get("bank_balance", 0) >= cost:
+                if sheet.get("gil", 0) >= cost:
+                    sheet["gil"] -= cost
+                else:
+                    rem = cost - sheet.get("gil", 0)
+                    sheet["gil"] = 0
+                    sheet["bank_balance"] = sheet.get("bank_balance", 0) - rem
                 p["fed_today"] = True
                 fed_count += 1
-                gil_cost += p_data["food_cost"]
+                gil_cost += cost
     
     if fed_count == 0:
         return await send(msg.channel, "All pets are already fed or you can't afford food.")
@@ -6124,8 +6230,9 @@ async def _handle_furniture_shop(ctx, msg, send, rest, uid, uname, is_owner):
     )
     
     options = []
+    owned = housing.get("furniture", [])
     for key, data in FURNITURE.items():
-        if data["tier"] <= tier_val:
+        if data["tier"] <= tier_val and key not in owned:
             embed.add_field(name=f"{data['emoji']} {data['name']} ({data['cost']}g)", value=data['desc'], inline=False)
             options.append(discord.SelectOption(label=f"{data['name']} ({data['cost']}g)", value=key, emoji=data['emoji']))
 
@@ -6192,8 +6299,27 @@ async def _handle_visit_plots(ctx, msg, send, rest, uid, uname, is_owner):
     view.add_item(_make_status_btn(ctx, uid, uname, is_owner))
     await msg.channel.send(embed=embed, view=view)
 
+class RenameHouseModal(discord.ui.Modal, title="Rename Your Home"):
+    new_name = discord.ui.TextInput(
+        label="New Name", 
+        placeholder="Enter a name (max 50 chars)...",
+        max_length=50
+    )
+    def __init__(self, uid):
+        super().__init__()
+        self.uid = uid
+    async def on_submit(self, interaction):
+        from utils.ttrpg.housing import load_housing, save_housing
+        h = load_housing(self.uid)
+        if not h: return
+        h["house_name"] = self.new_name.value.strip()[:50]
+        save_housing(h)
+        await interaction.response.send_message(
+            f"🏡 Your home is now named **{h['house_name']}**.", ephemeral=True
+        )
+
 async def _handle_rename_house(ctx, msg, send, rest, uid, uname, is_owner):
-    # This would ideally use a Modal, but for simplicity we'll take the rest arg
+    # Left intact as a fallback for text command "!rpg rename_house <name>"
     from utils.ttrpg.housing import load_housing, save_housing
     new_name = rest.strip()
     if not new_name:
@@ -6222,7 +6348,7 @@ async def _handle_home_training(ctx, msg, send, rest, uid, uname, is_owner):
 
     today = date.today().isoformat()
     if housing.get("last_training") == today:
-        return await send(msg.channel, "You've already trained today.")
+        return await send(msg.channel, embed=discord.Embed(description="You've already trained today.", color=0x888888))
 
     housing["last_training"] = today
     save_housing(housing)

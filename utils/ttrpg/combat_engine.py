@@ -207,7 +207,9 @@ def _resolve_combat(sheet: dict, monster: dict, atk_mod_global: int = 0, def_mod
         raw_gear_def = armor_def + head_def + boots_def + acc_def
         # Soft cap: first 10 points full, remainder halved (diminishing returns)
         effective_gear_def = min(10, raw_gear_def) + max(0, raw_gear_def - 10) // 2
-        player_defense = 10 + dex_mod + effective_gear_def + adv_flat_def + def_mod_global
+        
+        pet_def_bonus = pet_bonuses.get("def_bonus", 0)
+        player_defense = 10 + dex_mod + effective_gear_def + adv_flat_def + def_mod_global + pet_def_bonus
 
         TIER_HIT_MOD = {
             "trivial":  2, "easy":   4, "medium":  7,

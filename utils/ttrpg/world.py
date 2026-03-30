@@ -4,7 +4,7 @@ LOCATION_DATA = {
         "short": "The muddy square at the heart of OakHaven. The Tricklebrook "
                  "gurgles somewhere under the bridge planks.",
         "exits": ["stone_hearth", "hemlocks_store", "shrine",
-                  "watchtower", "oakhaven_bank", "whisperwood_edge", "trade_road", "caravan"],
+                  "watchtower", "oakhaven_bank", "whisperwood_edge", "trade_road", "caravan", "housing_district"],
         "atmosphere": "grey, damp, watchful. The smell of woodsmoke and wet earth.",
     },
     "stone_hearth": {

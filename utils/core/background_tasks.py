@@ -273,6 +273,29 @@ class CoreTaskManager:
                     except Exception as e:
                         log_warning(f"[dawn] Failed to process {fname}: {e}")
 
+                # Moogle weekly delivery (fires on Monday)
+                from datetime import date
+                if date.today().weekday() == 0:  # Monday
+                    from utils.ttrpg.housing import load_all_housing
+                    from utils.ttrpg.pets import get_pet_passive, PET_REGISTRY
+                    from utils.ttrpg.loot_tables import get_loot
+                    all_housing = load_all_housing()
+                    for h in all_housing:
+                        pets = h.get("pets", [])
+                        for pet in pets:
+                            if pet["key"] == "moogle" and pet.get("fed_today"):
+                                loot = get_loot("easy")
+                                if loot:
+                                    h.setdefault("mailbox", []).append({
+                                        "from_name": "House Moogle",
+                                        "item": loot,
+                                        "gil": 0,
+                                        "timestamp": time.time()
+                                    })
+                                    from utils.ttrpg.housing import save_housing
+                                    save_housing(h)
+                                    break
+
                 # Build announcement
                 summary = get_today_summary()
                 season_emoji = summary["season_emoji"]
@@ -380,7 +403,8 @@ class CoreTaskManager:
 
         TOWN_LOCATIONS = {
             "oakhaven", "stone_hearth", "hemlocks_store",
-            "shrine", "watchtower", "oakhaven_bank", "herbalists_hut"
+            "shrine", "watchtower", "oakhaven_bank", "herbalists_hut",
+            "housing_district", "caravan"
         }
 
         @tasks.loop(hours=24)
