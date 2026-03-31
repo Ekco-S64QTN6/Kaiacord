@@ -16,7 +16,7 @@ from utils.ttrpg.broadcast import (
 )
 from utils.infrastructure.logging.kaia_logger import log_error
 from utils.ttrpg.character_manager import load, save
-from utils.ttrpg.fishing import FISH, BAIT, POLES, get_time_of_day
+from utils.ttrpg.fishing import FISH, BAIT, POLES, BAG_UPGRADES, DEFAULT_BAG_CAPACITY, get_time_of_day
 from utils.ttrpg.fishing_engine import (
     roll_catch,
     calculate_catch_value,
@@ -71,10 +71,10 @@ class FishingMenuView(discord.ui.View):
         self._sheet = sheet
 
         stats = sheet.get("fishing_stats", {})
-        pole = stats.get("pole", "birchwood_rod")
+        pole = stats.get("pole")
         bait = stats.get("bait", "earthworm")
         bait_count = stats.get("bait_count", 0)
-        pole_name = POLES.get(pole, {}).get("name", "Birchwood Rod")
+        pole_name = POLES.get(pole, {}).get("name", "None") if pole else "None"
         bait_name = BAIT.get(bait, {}).get("name", "Earthworm")
 
         bag_count = sum(len(v) for v in sheet.get("fishing_bag", {}).values())
@@ -236,12 +236,15 @@ class BiteView(discord.ui.View):
         if bait_count > 0:
             fishing_stats["bait_count"] = bait_count - 1
 
-        # Check for pole breakage (5% chance, excluding starter pole)
+        # Check for pole breakage — all poles can snap, per-rod chance
         broke_pole = False
-        cur_pole_key = fishing_stats.get("pole", "birchwood_rod")
-        if cur_pole_key != "birchwood_rod" and secrets.randbelow(100) < 5:
-            broke_pole = True
-            fishing_stats["pole"] = "birchwood_rod"
+        cur_pole_key = fishing_stats.get("pole")
+        if cur_pole_key:
+            pole_data = POLES.get(cur_pole_key, {})
+            snap_chance = pole_data.get("snap_chance", 5)
+            if secrets.randbelow(100) < snap_chance:
+                broke_pole = True
+                fishing_stats["pole"] = None  # no pole — must buy a new one
 
         await save(sheet)
 
@@ -254,14 +257,16 @@ class BiteView(discord.ui.View):
         ]
         if broke_pole:
             p_name = POLES.get(cur_pole_key, {}).get("name", "pole")
-            desc_lines.append(f"\n💥 **CRACK!** Your **{p_name}** snapped under the strain! Back to the Birchwood Rod...")
+            desc_lines.append(f"\n💥 **CRACK!** Your **{p_name}** snapped under the strain! Buy a new rod from Gregor.")
         if is_world_record:
             desc_lines.append(f"🌍 **NEW WORLD RECORD!** 🌍")
         elif is_personal_record:
             desc_lines.append(f"🏅 *Personal best for this species!*")
 
         bag_count = sum(len(v) for v in sheet.get("fishing_bag", {}).values())
-        desc_lines.append(f"\n🐟 Bag: {bag_count} fish — sell to Gregor anytime.")
+        bag_key = fishing_stats.get("bag", "woven_sack")
+        bag_cap = BAG_UPGRADES.get(bag_key, BAG_UPGRADES["woven_sack"])["capacity"]
+        desc_lines.append(f"\n🐟 Bag: {bag_count}/{bag_cap} fish — sell to Gregor anytime.")
 
         # Rarity-based colors
         colors = {
@@ -337,16 +342,48 @@ async def _handle_cast(ctx, interaction: discord.Interaction, uid: str, uname: s
 
     stats = sheet.setdefault("fishing_stats", {})
     bait_key = stats.get("bait", "earthworm")
-    pole_key = stats.get("pole", "birchwood_rod")
+    pole_key = stats.get("pole")
     bait_count = stats.get("bait_count", 0)
 
-    if bait_count <= 0 and bait_key != "earthworm":
+    # No pole = can't fish
+    if not pole_key or pole_key not in POLES:
+        await interaction.followup.send(
+            embed=discord.Embed(
+                description=(
+                    "🎣 **You don't have a fishing rod.**\n"
+                    "Visit Old Gregor's shop to buy one.\n\n"
+                    "*He gestures at the rack by the post. \"Can't fish with your hands.\"*"
+                ),
+                color=0xcc4444,
+            )
+        )
+        return
+
+    # Bait always required — no exceptions
+    if bait_count <= 0:
         await interaction.followup.send(
             embed=discord.Embed(
                 description=(
                     "🪱 **No bait remaining.**\n"
                     "Visit Old Gregor's shop to restock.\n\n"
-                    "*He has earthworms in the box by the left post. Take a handful.*"
+                    "*\"Nothing bites on an empty hook. Buy some bait.\"*"
+                ),
+                color=0xcc4444,
+            )
+        )
+        return
+
+    # Bag capacity check
+    bag_count = sum(len(v) for v in sheet.get("fishing_bag", {}).values())
+    bag_key = stats.get("bag", "woven_sack")
+    bag_data = BAG_UPGRADES.get(bag_key, BAG_UPGRADES["woven_sack"])
+    bag_cap = bag_data["capacity"]
+    if bag_count >= bag_cap:
+        await interaction.followup.send(
+            embed=discord.Embed(
+                description=(
+                    f"🐟 **Your {bag_data['name']} is full!** ({bag_count}/{bag_cap})\n"
+                    f"Sell your fish to Gregor or upgrade your bag in the shop."
                 ),
                 color=0xcc4444,
             )
@@ -581,17 +618,21 @@ async def _handle_fishing_shop(ctx, interaction: discord.Interaction, uid: str, 
 def _build_fishing_shop_ui(ctx, uid: str, uname: str, is_owner: bool, sheet: dict):
     stats = sheet.setdefault("fishing_stats", {})
     current_bait = stats.get("bait", "earthworm")
-    current_pole = stats.get("pole", "birchwood_rod")
+    current_pole = stats.get("pole")
     bait_count = stats.get("bait_count", 0)
     current_bait_name = BAIT.get(current_bait, {}).get("name", "Earthworm")
-    current_pole_name = POLES.get(current_pole, {}).get("name", "Birchwood Rod")
+    current_pole_name = POLES.get(current_pole, {}).get("name", "None") if current_pole else "None"
+    current_bag = stats.get("bag", "woven_sack")
+    bag_data = BAG_UPGRADES.get(current_bag, BAG_UPGRADES["woven_sack"])
+    bag_count = sum(len(v) for v in sheet.get("fishing_bag", {}).values())
 
     embed = discord.Embed(
         title="🪣 Gregor's Tackle & Bait",
         description=(
             f"*The old man gestures at the box of supplies by the post.*\n"
             f"\"Take what you need. Pay first.\"\n\n"
-            f"**Equipped:** {current_pole_name} · {current_bait_name} ×{bait_count}\n"
+            f"**Rod:** {current_pole_name} · **Bait:** {current_bait_name} ×{bait_count}\n"
+            f"**Bag:** {bag_data['name']} ({bag_count}/{bag_data['capacity']})\n"
             f"**Your Gil:** {sheet.get('gil', 0)}g"
         ),
         color=POND_COLOR,
@@ -608,13 +649,21 @@ def _build_fishing_shop_ui(ctx, uid: str, uname: str, is_owner: bool, sheet: dic
     # Pole section
     pole_lines = []
     for k, p in POLES.items():
-        if p["cost"] == 0:
-            price_str = "Free (starter)"
-        else:
-            price_str = f"{p['cost']}g"
+        price_str = f"{p['cost']}g"
         equipped = "✅ " if k == current_pole else "   "
-        pole_lines.append(f"{equipped}**{p['name']}** ({price_str})\n*{p['desc']}*")
-    embed.add_field(name="🎣 Poles", value="\n".join(pole_lines), inline=False)
+        pole_lines.append(f"{equipped}**{p['name']}** ({price_str}) — {p.get('snap_chance', 5)}% break chance\n*{p['desc']}*")
+    embed.add_field(name="🎣 Poles (break on use — buy replacements)", value="\n".join(pole_lines), inline=False)
+
+    # Bag section
+    bag_lines = []
+    for k, bg in BAG_UPGRADES.items():
+        if bg["cost"] == 0:
+            price_str = "Default"
+        else:
+            price_str = f"{bg['cost']}g"
+        equipped = "✅ " if k == current_bag else "   "
+        bag_lines.append(f"{equipped}**{bg['name']}** ({price_str}) — holds {bg['capacity']} fish\n*{bg['desc']}*")
+    embed.add_field(name="🐟 Bag Upgrades", value="\n".join(bag_lines), inline=False)
 
     view = FishingShopView(ctx, uid, uname, is_owner, sheet)
     return embed, view
@@ -702,7 +751,7 @@ async def _handle_fishing_leaderboard(ctx, interaction: discord.Interaction, uid
 # ── Fishing Shop View ─────────────────────────────────────────────────────────
 
 class FishingShopView(discord.ui.View):
-    """Buy bait packs and poles from Gregor."""
+    """Buy bait packs, poles, and bag upgrades from Gregor."""
 
     def __init__(self, ctx, uid: str, uname: str, is_owner: bool, sheet: dict):
         super().__init__(timeout=120)
@@ -713,7 +762,8 @@ class FishingShopView(discord.ui.View):
 
         stats = sheet.setdefault("fishing_stats", {})
         current_bait = stats.get("bait", "earthworm")
-        current_pole = stats.get("pole", "birchwood_rod")
+        current_pole = stats.get("pole")
+        current_bag = stats.get("bag", "woven_sack")
 
         # Bait select (row 0)
         bait_options = []
@@ -765,21 +815,18 @@ class FishingShopView(discord.ui.View):
         bait_sel.callback = _buy_bait
         self.add_item(bait_sel)
 
-        # Pole select (row 1)
+        # Pole select (row 1) — all poles cost gil
         pole_options = []
         for k, p in POLES.items():
-            if p["cost"] == 0:
-                label = f"{p['name']} (Free/Starter)"
-            else:
-                label = f"{p['name']} ({p['cost']}g)"
+            label = f"{p['name']} ({p['cost']}g)"
             pole_options.append(discord.SelectOption(
                 label=label[:100],
                 value=k,
-                description=p["desc"][:100],
+                description=f"{p.get('snap_chance', 5)}% break · {p['desc'][:80]}",
                 emoji="✅" if k == current_pole else None,
             ))
         pole_sel = discord.ui.Select(
-            placeholder="🎣 Buy / equip a pole...", options=pole_options, row=1
+            placeholder="🎣 Buy a pole...", options=pole_options, row=1
         )
 
         async def _buy_pole(interaction: discord.Interaction):
@@ -793,25 +840,23 @@ class FishingShopView(discord.ui.View):
             s = await load(self._uid)
             if not s:
                 return
-            if cost > 0 and s.get("gil", 0) < cost:
+            if s.get("gil", 0) < cost:
                 await interaction.followup.send(
                     f"Not enough gil. {pole_data['name']} costs {cost}g.",
                     ephemeral=True,
                 )
                 return
-            if cost > 0:
-                s["gil"] -= cost
+            s["gil"] -= cost
             fs = s.setdefault("fishing_stats", {})
             fs["pole"] = chosen_pole
             await save(s)
-            purchase_word = "equipped" if cost == 0 else "purchased and equipped"
             await interaction.followup.send(
                 embed=discord.Embed(
                     description=(
                         f"*Gregor tests the flex of the rod once before handing it over.*\n\n"
-                        f"🎣 **{pole_data['name']}** {purchase_word}.\n"
-                        f"*{pole_data['desc']}*"
-                        + (f"\nGil: {s['gil']}g" if cost > 0 else "")
+                        f"🎣 **{pole_data['name']}** purchased and equipped.\n"
+                        f"*{pole_data['desc']}*\n"
+                        f"Gil: {s['gil']}g"
                     ),
                     color=0x2ecc71,
                 )
@@ -820,9 +865,72 @@ class FishingShopView(discord.ui.View):
         pole_sel.callback = _buy_pole
         self.add_item(pole_sel)
 
-        # Sell All button (row 2)
+        # Bag upgrade select (row 2)
+        bag_options = []
+        for k, bg in BAG_UPGRADES.items():
+            if bg["cost"] == 0:
+                label = f"{bg['name']} (Default)"
+            else:
+                label = f"{bg['name']} ({bg['cost']}g)"
+            bag_options.append(discord.SelectOption(
+                label=f"{label} — {bg['capacity']} fish"[:100],
+                value=k,
+                description=bg["desc"][:100],
+                emoji="✅" if k == current_bag else None,
+            ))
+        bag_sel = discord.ui.Select(
+            placeholder="🐟 Upgrade fishing bag...", options=bag_options, row=2
+        )
+
+        async def _buy_bag(interaction: discord.Interaction):
+            if str(interaction.user.id) != self._uid:
+                await interaction.response.send_message("not yours.", ephemeral=True)
+                return
+            await interaction.response.defer()
+            chosen_bag = interaction.data["values"][0]
+            bag_info = BAG_UPGRADES[chosen_bag]
+            cost = bag_info["cost"]
+            s = await load(self._uid)
+            if not s:
+                return
+            fs = s.setdefault("fishing_stats", {})
+            cur_bag_key = fs.get("bag", "woven_sack")
+            # Prevent downgrading
+            cur_bag_cap = BAG_UPGRADES.get(cur_bag_key, BAG_UPGRADES["woven_sack"])["capacity"]
+            if bag_info["capacity"] <= cur_bag_cap:
+                await interaction.followup.send(
+                    f"You already have a **{BAG_UPGRADES[cur_bag_key]['name']}** ({cur_bag_cap} capacity). That's the same or better.",
+                    ephemeral=True,
+                )
+                return
+            if cost > 0 and s.get("gil", 0) < cost:
+                await interaction.followup.send(
+                    f"Not enough gil. {bag_info['name']} costs {cost}g.",
+                    ephemeral=True,
+                )
+                return
+            if cost > 0:
+                s["gil"] -= cost
+            fs["bag"] = chosen_bag
+            await save(s)
+            await interaction.followup.send(
+                embed=discord.Embed(
+                    description=(
+                        f"*Gregor nods approvingly at the upgrade.*\n\n"
+                        f"🐟 **{bag_info['name']}** — now holds {bag_info['capacity']} fish.\n"
+                        f"*{bag_info['desc']}*"
+                        + (f"\nGil: {s['gil']}g" if cost > 0 else "")
+                    ),
+                    color=0x2ecc71,
+                )
+            )
+
+        bag_sel.callback = _buy_bag
+        self.add_item(bag_sel)
+
+        # Sell All button (row 3)
         sell_btn = discord.ui.Button(
-            label="💰 Sell All Fish", style=discord.ButtonStyle.green, row=2
+            label="💰 Sell All Fish", style=discord.ButtonStyle.green, row=3
         )
 
         async def _sell_cb(interaction: discord.Interaction):
@@ -880,16 +988,20 @@ async def handle_fish_shop_command(ctx, msg, send, rest, uid, uname, is_owner):
 async def _show_fishing_menu(ctx, channel, uid: str, uname: str, is_owner: bool, sheet: dict):
     """Send the fishing HUD to the channel."""
     stats = sheet.setdefault("fishing_stats", {})
-    if not stats.get("pole"):
+    if "pole" not in stats:
         stats["pole"] = "birchwood_rod"
         stats["bait"] = "earthworm"
-        stats["bait_count"] = 10  # starter pack
+        stats["bait_count"] = 5  # small starter gift
+        stats["bag"] = "woven_sack"
         await save(sheet)
 
-    pole_name = POLES.get(stats.get("pole", "birchwood_rod"), {}).get("name", "Birchwood Rod")
+    pole_key = stats.get("pole")
+    pole_name = POLES.get(pole_key, {}).get("name", "None") if pole_key else "None"
     bait_name = BAIT.get(stats.get("bait", "earthworm"), {}).get("name", "Earthworm")
     bait_count = stats.get("bait_count", 0)
     bag_count = sum(len(v) for v in sheet.get("fishing_bag", {}).values())
+    bag_key = stats.get("bag", "woven_sack")
+    bag_data = BAG_UPGRADES.get(bag_key, BAG_UPGRADES["woven_sack"])
 
     season = get_season()
     hour = datetime.now().hour
@@ -910,7 +1022,7 @@ async def _show_fishing_menu(ctx, channel, uid: str, uname: str, is_owner: bool,
             f"*{TIME_FLAVOR.get(time_of_day, 'The pond is quiet.')}*\n\n"
             f"**Pole:** {pole_name}\n"
             f"**Bait:** {bait_name} (×{bait_count})\n"
-            f"**Bag:** {bag_count} fish\n"
+            f"**Bag:** {bag_count}/{bag_data['capacity']} fish\n"
             f"**Season:** {season.title()} · **Time:** {time_of_day.title()}"
         ),
         color=POND_COLOR,

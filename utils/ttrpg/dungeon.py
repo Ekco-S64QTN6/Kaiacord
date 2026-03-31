@@ -563,11 +563,31 @@ def _roll_theme(location: str) -> str:
 
 
 def _scale_boss_to_level(monster: dict, player_level: int) -> dict:
-    scale = max(0.45, min(1.0, 0.45 + (player_level - 1) * 0.07))
+    """Scale dungeon boss stats to player level with hard caps."""
+    scale = max(0.30, min(1.0, 0.30 + (player_level - 1) * 0.08))
     m = dict(monster)
     m["hp"] = max(15, int(monster["hp"] * scale))
     m["attack"] = max(3, int(monster["attack"] * scale))
     m["defense"] = max(8, monster["defense"] - max(0, 5 - player_level))
+
+    # Hard HP caps by player level to prevent absurd encounters
+    BOSS_HP_CAPS = {
+        1: 35, 2: 45, 3: 55, 4: 65, 5: 80,
+        6: 110, 7: 140, 8: 180, 9: 220,
+    }
+    hp_cap = BOSS_HP_CAPS.get(player_level)
+    if hp_cap:
+        m["hp"] = min(m["hp"], hp_cap)
+
+    # Cap ATK proportionally
+    BOSS_ATK_CAPS = {
+        1: 6, 2: 8, 3: 10, 4: 12, 5: 14,
+        6: 16, 7: 18, 8: 20, 9: 22,
+    }
+    atk_cap = BOSS_ATK_CAPS.get(player_level)
+    if atk_cap:
+        m["attack"] = min(m["attack"], atk_cap)
+
     return m
 
 

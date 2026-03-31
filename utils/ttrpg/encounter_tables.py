@@ -40,20 +40,27 @@ def random_encounter(location: str, player_level: int = 1) -> str:
         return table[-1][0]
 
     TIER_ORDER = ["trivial", "easy", "medium", "hard", "deadly", "boss"]
-    min_tier = None
-    if player_level >= 9:   min_tier = "hard"
-    elif player_level >= 7: min_tier = "medium"
-    elif player_level >= 4: min_tier = "easy"
+
+    # Level-based tier window: (min_tier, max_tier)
+    # Prevents low-level players from encountering high-tier monsters
+    if player_level >= 9:   min_tier, max_tier = "hard",    "boss"
+    elif player_level >= 7: min_tier, max_tier = "medium",  "deadly"
+    elif player_level >= 4: min_tier, max_tier = "easy",    "medium"
+    else:                   min_tier, max_tier = "trivial", "easy"
 
     base_table = ENCOUNTER_TABLES.get(location, ENCOUNTER_TABLES["whisperwood_edge"])
     table = get_seasonal_encounter_table(location, base_table)
 
-    if min_tier:
-        min_idx = TIER_ORDER.index(min_tier)
-        filtered = [(k, w) for k, w in table
-                    if TIER_ORDER.index(MONSTERS.get(k, {}).get("tier", "trivial")) >= min_idx]
-        if filtered:
-            table = filtered
+    min_idx = TIER_ORDER.index(min_tier)
+    max_idx = TIER_ORDER.index(max_tier)
+    filtered = [
+        (k, w) for k, w in table
+        if min_idx <= TIER_ORDER.index(
+            MONSTERS.get(k, {}).get("tier", "trivial")
+        ) <= max_idx
+    ]
+    if filtered:
+        table = filtered
 
     total = sum(w for _, w in table)
     r = secrets.randbelow(total)

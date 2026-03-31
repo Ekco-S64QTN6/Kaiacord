@@ -57,6 +57,12 @@ Fixed a critical bug where player defense accumulated additively across five slo
 **Tier-Scaled Monster Lethality**  
 - **Hit Modifiers:** Scaled monster hit modifiers drastically based on their tier, rather than simply halving their flat ATK stat.
 - **Damage Output:** Replaced the static `1d6` damage floor for all monsters. Trivial monsters deal `1d4`, Hard monsters deal `2d6`, and Bosses throw `3d6`, ensuring combat threat scales appropriately with the player's HP curve.
+- **Monster Critical Hits (Nat 20s):** Fleshed out critical hits for monsters. When a monster rolls a Natural 20, they now guarantee absolute maximum damage from their tier dice pool (e.g., bypassing a random roll to deal a flat 18 damage on naturally thrown 3d6).
+
+**Encounter Scaling & Safeguards**
+- **Overworld Tier Windowing:** Overhauled encounter tables to enforce both a `min_tier` and `max_tier` per player level. Level 4-5 players are now strictly shielded from inadvertently spawning Deadly or Boss-tier monsters (300+ HP) during exploration.
+- **Dungeon Aggressive Boss Caps:** Reworked boss scaling logic to be generously forgiving at early levels (30% multiplier down from 45%) while strictly capping structural boss health and attack thresholds per player level.
+- **Dungeon Mob Hard-Caps:** Capped regular dungeon monster generation limits by dungeon difficulty, assuring that high-tier theme pools do not spawn unkillable standard mobs in a Difficulty 1 dungeon.
 
 **Class Features Activated**  
 Implemented numerous previously silent advanced class features:
@@ -89,3 +95,19 @@ Resolved an inventory string matching bug that was preventing customized, user-r
 
 **Timeout Exception Catching**  
 Integrated widespread `defer()` calls and exception handling for interaction timeouts to eliminate Discord "Unknown Interaction" errors.
+
+---
+
+## 5. Fishing Economy & Gathering Systems
+
+**Economic Fixes (The Gil Sink)**
+Eliminated the infinite-gil generation exploit by closing loopholes surrounding starter equipment and bait requirements:
+- **Mandatory Bait:** Removed the previous `earthworm` exemption. Fishing without bait is strictly impossible, requiring a permanent, consistent gil sink for all players.
+- **Breakable Starter Gear:** Fixed an issue where the `birchwood_rod` never broke and had a `0g` cost. The rod now costs `15g` and inherits an 8% snap chance, formally wrapping the early game into the economy and forcing repurchases.
+- **Progressive Snap Rates:** All rods now have bespoke break probabilities inversely scaling with their quality (from 8% for basic birch to 2% for the Aeridorian Spire).
+- **None-State Handling:** Wired safety hooks across the system preventing KeyErrors if a player's rod snaps mid-catch, dynamically rendering `None` UI blocks and blocking future casts.
+
+**Bag Capacity Architecture**
+Added a strict bag limit system to prevent infinite passive fish hoarding.
+- Default limit is 20 catches. 
+- Integrated a new "Bag Upgrades" selection directly into Gregor's Shop UI, allowing progression to the 100-capacity "Gregor's Chest".

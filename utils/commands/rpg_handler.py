@@ -224,12 +224,15 @@ _LOCATION_BUTTONS: dict[str, list] = {
         ("Pip's Pets", "🐾", "pet_shop", "", discord.ButtonStyle.secondary, 0),
         ("Neighbour Plots", "🏘️", "visit_plots", "", discord.ButtonStyle.secondary, 0),
         ("Pond", "🎣", "go", "tricklebrook_pond", discord.ButtonStyle.secondary, 1),
+        ("Town Square", "⛲", "go", "oakhaven", discord.ButtonStyle.secondary, 1),
         ("Look", "🔎", "look", "", discord.ButtonStyle.secondary, 1),
     ],
     "tricklebrook_pond": [
         ("Fish", "🎣", "fish", "", discord.ButtonStyle.primary, 0),
         ("Shop", "🛒", "fish_shop", "", discord.ButtonStyle.secondary, 0),
         ("Look", "🔎", "look", "", discord.ButtonStyle.secondary, 0),
+        ("Housing", "🏘️", "go", "housing_district", discord.ButtonStyle.secondary, 1),
+        ("Town Square", "⛲", "go", "oakhaven", discord.ButtonStyle.secondary, 1),
     ],
 }
 
@@ -1651,6 +1654,13 @@ async def _dungeon_move(ctx_obj, interaction, uid, uname, is_owner, direction):
                     scale = 1.0 + (diff - 1) * 0.15
                     monster["hp"] = max(5, int(monster["hp"] * scale))
                     monster["attack"] = max(1, int(monster["attack"] * scale))
+                    # Cap non-boss HP by difficulty to prevent absurd mobs
+                    MOB_HP_CAPS = {1: 35, 2: 60, 3: 90}
+                    MOB_ATK_CAPS = {1: 10, 2: 14, 3: 18}
+                    mob_hp_cap = MOB_HP_CAPS.get(diff, 90)
+                    mob_atk_cap = MOB_ATK_CAPS.get(diff, 18)
+                    monster["hp"] = min(monster["hp"], mob_hp_cap)
+                    monster["attack"] = min(monster["attack"], mob_atk_cap)
                 scaled_hp = monster["hp"] if isinstance(monster["hp"], int) else monster["hp"]
                 monster["hp"] = {"current": scaled_hp, "max": scaled_hp}
                 monster["key"] = monster_key

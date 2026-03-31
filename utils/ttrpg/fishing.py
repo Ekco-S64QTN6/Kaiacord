@@ -75,10 +75,11 @@ BAIT = {
 POLES = {
     "birchwood_rod": {
         "name": "Birchwood Rod",
-        "cost": 0,
+        "cost": 15,
         "catch_bonus": 0,
         "bite_time_reduction": 0,   # seconds off waiting time
         "reel_window": 12,          # seconds to click Reel
+        "snap_chance": 8,           # % chance to break on catch
         "desc": "Cut from the birch by the pond bank. It flexes alarmingly. It works.",
     },
     "ironwood_rod": {
@@ -87,6 +88,7 @@ POLES = {
         "catch_bonus": 2,
         "bite_time_reduction": 1,
         "reel_window": 14,
+        "snap_chance": 6,
         "desc": "Dense hardwood. Gives you an edge in the fight.",
     },
     "whittled_willow": {
@@ -95,6 +97,7 @@ POLES = {
         "catch_bonus": 5,
         "bite_time_reduction": 2,
         "reel_window": 16,
+        "snap_chance": 5,
         "desc": "Flexible. Responsive. The fish hate how patient it makes you.",
     },
     "resonance_rod": {
@@ -103,6 +106,7 @@ POLES = {
         "catch_bonus": 10,
         "bite_time_reduction": 3,
         "reel_window": 18,
+        "snap_chance": 4,
         "desc": "Aeridorian material. Hums. Rare fish are drawn to the frequency.",
     },
     "aeridorian_spire": {
@@ -111,6 +115,7 @@ POLES = {
         "catch_bonus": 20,
         "bite_time_reduction": 4,
         "reel_window": 22,
+        "snap_chance": 2,
         "desc": "Crystal-tipped, ancient, perfect. Legendary fish have been caught on this exact pole.",
     },
 }
@@ -1650,6 +1655,37 @@ CATEGORY_RARITY_WEIGHT = {
     "legendary":  0.8,
     "mythic":     0.2,
 }
+
+# ── Fishing bag upgrades ─────────────────────────────────────────────────────
+BAG_UPGRADES = {
+    "woven_sack": {
+        "name": "Woven Sack",
+        "capacity": 20,
+        "cost": 0,
+        "desc": "A rough sack. Holds 20 fish before it starts leaking.",
+    },
+    "leather_creel": {
+        "name": "Leather Creel",
+        "capacity": 40,
+        "cost": 100,
+        "desc": "Proper fishing bag. Waterproof. Holds 40.",
+    },
+    "reinforced_creel": {
+        "name": "Reinforced Creel",
+        "capacity": 60,
+        "cost": 300,
+        "desc": "Iron-banded. Gregor uses one like it. Holds 60.",
+    },
+    "gregors_chest": {
+        "name": "Gregor's Chest",
+        "capacity": 100,
+        "cost": 800,
+        "desc": "A chest Gregor built himself. Holds 100. He's impressed you need it.",
+    },
+}
+
+DEFAULT_BAG = "woven_sack"
+DEFAULT_BAG_CAPACITY = 20
 
 # Rarity ceiling by bait (max category roll when using this bait)
 BAIT_RARITY_CEILING = {

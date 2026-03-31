@@ -342,11 +342,11 @@ def get_fishing_stats_embed_fields(sheet: dict) -> list[tuple[str, str]]:
     else:
         best_str = "None yet"
 
-    current_pole = stats.get("pole", "birchwood_rod")
+    current_pole = stats.get("pole")
     current_bait = stats.get("bait", "earthworm")
     bait_count = stats.get("bait_count", 0)
 
-    pole_name = POLES.get(current_pole, {}).get("name", current_pole)
+    pole_name = POLES.get(current_pole, {}).get("name", "None") if current_pole else "None"
     bait_name = BAIT.get(current_bait, {}).get("name", current_bait)
 
     return [

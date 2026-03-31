@@ -235,7 +235,12 @@ def _resolve_combat(sheet: dict, monster: dict, atk_mod_global: int = 0, def_mod
             }
             tier = monster.get("tier", "medium")
             num_dice, die_size = TIER_DAMAGE.get(tier, (1, 6))
-            dmg_rolls = [secrets.randbelow(die_size) + 1 for _ in range(num_dice)]
+            monster_crit = (monster_raw_hit == 20)
+            if monster_crit:
+                # Crit: max possible damage on all dice
+                dmg_rolls = [die_size] * num_dice
+            else:
+                dmg_rolls = [secrets.randbelow(die_size) + 1 for _ in range(num_dice)]
             monster_damage = max(1, sum(dmg_rolls) + (monster["attack"] // 2))
             
             from utils.ttrpg.class_advancement import apply_advanced_class_to_combat
@@ -253,7 +258,8 @@ def _resolve_combat(sheet: dict, monster: dict, atk_mod_global: int = 0, def_mod
                 if sheet["hp"]["current"] - monster_damage < 1:
                     monster_damage = max(0, sheet["hp"]["current"] - 1)
             
-            monster_dmg_breakdown = f"{num_dice}d{die_size}({sum(dmg_rolls)})+{monster['attack']//2}=**{monster_damage}**"
+            crit_tag = " 💥CRIT" if monster_crit else ""
+            monster_dmg_breakdown = f"{num_dice}d{die_size}({sum(dmg_rolls)})+{monster['attack']//2}=**{monster_damage}**{crit_tag}"
             sheet["hp"]["current"] = max(0, sheet["hp"]["current"] - monster_damage)
 
     player_alive = sheet["hp"]["current"] > 0
@@ -300,7 +306,8 @@ def _resolve_combat(sheet: dict, monster: dict, atk_mod_global: int = 0, def_mod
         if is_duel and hp["current"] == 1:
             exchanges.append(f"⚔️ **{sheet['character_name']}** stops their blade at **{monster['name']}**'s throat. Yield!")
 
-        counter_result = "HIT" if monster_hit else "MISS"
+        monster_crit_hit = (monster_raw_hit == 20)
+        counter_result = "CRITICAL HIT" if monster_crit_hit else ("HIT" if monster_hit else "MISS")
         exchanges.append(f"🔴 Counter-attack: d20({monster_raw_hit})+{monster_attack_mod}=**{monster_total_hit}** → **{counter_result}**")
         if monster_hit:
             exchanges.append(f"   → {monster_dmg_breakdown}")
