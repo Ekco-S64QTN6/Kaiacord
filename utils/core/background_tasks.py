@@ -371,6 +371,13 @@ class CoreTaskManager:
             """Sleep until exactly midnight before starting the 24h loop."""
             await self.ctx.bot.wait_until_ready()
             now = datetime.now()
+            
+            today_str = now.strftime("%Y-%m-%d")
+            if now.hour == 0 and now.minute < 30:
+                if getattr(self.ctx.bot_state, 'last_dawn_date', "") != today_str:
+                    log_info("[dawn] Booted shortly after midnight. Firing immediately.")
+                    return
+            
             tomorrow_midnight = (now + timedelta(days=1)).replace(
                 hour=0, minute=0, second=0, microsecond=0
             )

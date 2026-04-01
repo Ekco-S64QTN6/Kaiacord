@@ -4,7 +4,7 @@ LOCATION_DATA = {
         "short": "The muddy square at the heart of OakHaven. The Tricklebrook "
                  "gurgles somewhere under the bridge planks.",
         "exits": ["stone_hearth", "hemlocks_store", "shrine",
-                  "watchtower", "oakhaven_bank", "whisperwood_edge", "trade_road", "caravan", "housing_district"],
+                  "watchtower", "oakhaven_bank", "whisperwood_edge", "trade_road", "housing_district"],
         "atmosphere": "grey, damp, watchful. The smell of woodsmoke and wet earth.",
     },
     "stone_hearth": {
@@ -71,7 +71,7 @@ LOCATION_DATA = {
         "name": "The Trade Road",
         "short": "Rutted dirt heading north. Good sight lines. "
                  "That doesn't mean it's safe.",
-        "exits": ["oakhaven"],
+        "exits": ["oakhaven", "caravan"],
         "hunting": True,
         "recommended_level": 2,
         "density": 1,
@@ -93,7 +93,7 @@ LOCATION_DATA = {
     "caravan": {
         "name": "Corvus Road Trading Co.",
         "short": "A large, colorful wagon with unfolding wooden panels showing tier III gear. The smell of exotic spices and fine leather hangs in the air.",
-        "exits": ["oakhaven"],
+        "exits": ["trade_road"],
         "atmosphere": "bustling, wealthy, temporary. The merchant watches everyone with a keen eye.",
     },
     "housing_district": {

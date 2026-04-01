@@ -204,6 +204,7 @@ _LOCATION_BUTTONS: dict[str, list] = {
         ("Look: Crystals","💎","look","at crystals", discord.ButtonStyle.secondary, 0),
     ],
     "trade_road": [
+        ("Caravan", "🐪", "go", "caravan", discord.ButtonStyle.blurple, 0),
         ("Hunt", "🗡️", "hunt", "", discord.ButtonStyle.danger, 0),
         ("Look", "🔎", "look", "", discord.ButtonStyle.secondary, 0),
     ],
@@ -684,9 +685,9 @@ def _make_hunt_status_view(ctx, msg, uid, uname, is_owner):
     return view
 
 
-def _make_status_btn(ctx, uid, uname, is_owner, row=3):
+def _make_status_btn(ctx, uid, uname, is_owner, row=None):
     """Helper to create a unified Status button."""
-    btn = discord.ui.Button(label="📊 Status", style=discord.ButtonStyle.secondary, row=row)
+    btn = discord.ui.Button(label="📊 Status", style=discord.ButtonStyle.secondary) if row is None else discord.ui.Button(label="📊 Status", style=discord.ButtonStyle.secondary, row=row)
     async def _cb(interaction):
         if str(interaction.user.id) != uid:
             await interaction.response.send_message("not yours", ephemeral=True)
@@ -705,13 +706,14 @@ async def _make_shop_view(ctx, msg, uid, uname, is_owner, items):
 
     view = discord.ui.View(timeout=120)
 
-    # ── Buy menus (Rows 0 & 1) ────────────────────────────────────────
-    # Discord select menus are capped at 25 options. 
-    # Hemlock now has ~40 items, so we split into two menus.
+    # ── Buy menus (Rows 0-2) ────────────────────────────────────────
+    # Discord Views allow max 5 rows. We need 1 for Sell, 1 for Status Button.
+    # So Buy menus get max 3 rows (75 items).
     chunks = [items[i:i + 25] for i in range(0, len(items), 25)]
     
-    for idx, chunk in enumerate(chunks):
-        if idx >= 2: break # Max 2 buy rows (50 items total)
+    current_row = 0
+    for chunk in chunks:
+        if current_row >= 3: break # Max 3 buy rows (75 items total)
         options = []
         for item_key in chunk:
             item = find_item(item_key)
@@ -720,9 +722,9 @@ async def _make_shop_view(ctx, msg, uid, uname, is_owner, items):
             options.append(discord.SelectOption(label=label[:100], value=item_key))
 
         if options:
-            placeholder = "🛒 Buy an item..." if idx == 0 else "🛒 Buy (continued)..."
+            placeholder = "🛒 Buy an item..." if current_row == 0 else "🛒 Buy (continued)..."
             buy_select = discord.ui.Select(
-                placeholder=placeholder, options=options, row=idx
+                placeholder=placeholder, options=options[:25], row=current_row
             )
             async def _buy_cb(interaction: discord.Interaction):
                 if str(interaction.user.id) != uid:
@@ -756,8 +758,9 @@ async def _make_shop_view(ctx, msg, uid, uname, is_owner, items):
                 await _handle_buy(ctx, fake_msg, send_fn, chosen, uid, uname, is_owner)
             buy_select.callback = _buy_cb
             view.add_item(buy_select)
+            current_row += 1
 
-    # ── Sell menu (Row 2) — built from player's current inventory ─────
+    # ── Sell menu (Row dependent) — built from player's current inventory ─────
     sheet = await load(uid)
     if sheet and sheet.get("inventory"):
         inv_counts = Counter(sheet["inventory"])
@@ -773,7 +776,7 @@ async def _make_shop_view(ctx, msg, uid, uname, is_owner, items):
             sell_select = discord.ui.Select(
                 placeholder="💰 Sell an item...",
                 options=sell_options[:25],
-                row=2  # Shifted to Row 2
+                row=current_row
             )
             async def _sell_cb(interaction: discord.Interaction):
                 if str(interaction.user.id) != uid:
@@ -786,8 +789,9 @@ async def _make_shop_view(ctx, msg, uid, uname, is_owner, items):
                 await _handle_sell(ctx, fake_msg, send_fn, chosen, uid, uname, is_owner)
             sell_select.callback = _sell_cb
             view.add_item(sell_select)
+            current_row += 1
 
-    view.add_item(_make_status_btn(ctx, uid, uname, is_owner))
+    view.add_item(_make_status_btn(ctx, uid, uname, is_owner, row=current_row))
     return view
 
 
@@ -933,6 +937,7 @@ LOCATION_ACTIONS = {
         "👁️ Look — observe the ruins",
     ],
     "trade_road": [
+        "🐪 Caravan — visit the traveling merchant",
         "⚔️ Hunt — encounter a road threat (costs 1 hunt)",
         "👁️ Look — observe the road",
     ],
@@ -1339,49 +1344,68 @@ async def _dungeon_combat_round(ctx_obj, interaction, uid, uname, is_owner):
         state["xp_gained"] = state.get("xp_gained", 0) + xp_gain
         state["gil_gained"] = state.get("gil_gained", 0) + gil_gain
 
-        # Loot
+        # Loot — split gear and consumable pools
+        from utils.ttrpg.loot_tables import get_gear_loot, get_consumable_loot
         tier = "hard" if is_boss else _get_dungeon_loot_tier(sheet.get("level", 1), is_boss)
         if is_boss:
             import random
             drops = []
-            # First drop: always
-            loot = get_loot(tier)
+            # First gear drop: guaranteed
+            gear = get_gear_loot(tier)
             attempts = 0
-            while not loot and attempts < 5:
-                loot = get_loot(tier)
+            while not gear and attempts < 5:
+                gear = get_gear_loot(tier)
                 attempts += 1
-            if loot:
-                sheet.setdefault("inventory", []).append(loot)
-                item = find_item(loot)
-                drops.append(item["name"] if item else loot)
-                state.setdefault("loot_gained", []).append(loot)
-            # Second drop: 40% chance
+            if gear:
+                sheet.setdefault("inventory", []).append(gear)
+                item = find_item(gear)
+                drops.append(f"⚔️ {item['name'] if item else gear}")
+                state.setdefault("loot_gained", []).append(gear)
+            # Second gear drop: 40% chance
             if random.random() < 0.4:
-                loot = get_loot(tier)
+                gear2 = get_gear_loot(tier)
                 attempts = 0
-                while not loot and attempts < 5:
-                    loot = get_loot(tier)
+                while not gear2 and attempts < 5:
+                    gear2 = get_gear_loot(tier)
                     attempts += 1
-                if loot:
-                    sheet.setdefault("inventory", []).append(loot)
-                    item = find_item(loot)
-                    drops.append(item["name"] if item else loot)
-                    state.setdefault("loot_gained", []).append(loot)
+                if gear2:
+                    sheet.setdefault("inventory", []).append(gear2)
+                    item = find_item(gear2)
+                    drops.append(f"⚔️ {item['name'] if item else gear2}")
+                    state.setdefault("loot_gained", []).append(gear2)
+            # Consumable drop: always
+            cons = get_consumable_loot(tier)
+            if cons:
+                sheet.setdefault("inventory", []).append(cons)
+                item = find_item(cons)
+                drops.append(f"🧪 {item['name'] if item else cons}")
+                state.setdefault("loot_gained", []).append(cons)
             if drops:
-                loot_text = f"\n🎁 **Boss drops:** {', '.join(drops)}"
+                loot_text = f"\n🎁 **Boss drops:**\n" + "\n".join(drops)
             else:
                 # Guaranteed fallback: gil payout if loot table still produces nothing
                 bonus_gil = 25
                 sheet["gil"] = sheet.get("gil", 0) + bonus_gil
                 state["gil_gained"] = state.get("gil_gained", 0) + bonus_gil
                 loot_text = f"\n💰 No material loot, but the corpse yields **{bonus_gil} gil**."
-        elif secrets.randbelow(10) < 4:
-            loot = get_loot(tier)
-            if loot:
-                sheet.setdefault("inventory", []).append(loot)
-                item = find_item(loot)
-                loot_text = f"\n🎁 {item['name'] if item else loot}"
-                state.setdefault("loot_gained", []).append(loot)
+        else:
+            # Normal dungeon kill: 40% gear + always consumable
+            drop_lines = []
+            if secrets.randbelow(10) < 4:
+                gear = get_gear_loot(tier)
+                if gear:
+                    sheet.setdefault("inventory", []).append(gear)
+                    item = find_item(gear)
+                    drop_lines.append(f"⚔️ {item['name'] if item else gear}")
+                    state.setdefault("loot_gained", []).append(gear)
+            cons = get_consumable_loot(tier)
+            if cons:
+                sheet.setdefault("inventory", []).append(cons)
+                item = find_item(cons)
+                drop_lines.append(f"🧪 {item['name'] if item else cons}")
+                state.setdefault("loot_gained", []).append(cons)
+            if drop_lines:
+                loot_text = f"\n🎁 " + ", ".join(drop_lines)
 
         leveled, new_level = check_level_up(sheet)
         if leveled:
@@ -2875,49 +2899,38 @@ async def _handle_shop(ctx, msg, send, rest, uid, uname, is_owner):
             stat = "misc"
         return f"**{v['name']}** · {stat} · {v['value']}g"
 
+    def _chunk_field(embed, name, arr):
+        chunk = ""
+        part = 1
+        for item in arr:
+            if len(chunk) + len(item) + 1 > 1024:
+                embed.add_field(name=name if part == 1 else f"{name} (Cont.)", value=chunk, inline=False)
+                chunk = item + "\n"
+                part += 1
+            else:
+                chunk += item + "\n"
+        if chunk:
+            embed.add_field(name=name if part == 1 else f"{name} (Cont.)", value=chunk, inline=False)
+
     shop_name = "🐪 Corvus Road Trading Co." if loc == "caravan" else "🏪 Hemlock's Store"
     shop_color = LOCATION_COLORS.get(loc, 0x4488cc)
     embed = discord.Embed(title=shop_name, color=shop_color)
 
-    embed.add_field(
-        name="🗡️ Weapons",
-        value="\n".join(_fmt_weapon(k, v) for k, v in weapons.items()),
-        inline=False
-    )
-    embed.add_field(
-        name="🛡️ Armor",
-        value="\n".join(_fmt_defense(k, v) for k, v in armor.items()),
-        inline=False
-    )
-    if headgear:
-        embed.add_field(
-            name="🪖 Headgear",
-            value="\n".join(_fmt_defense(k, v) for k, v in headgear.items()),
-            inline=False
-        )
-    if boots:
-        embed.add_field(
-            name="👢 Boots",
-            value="\n".join(_fmt_defense(k, v) for k, v in boots.items()),
-            inline=False
-        )
-    if accessories:
-        embed.add_field(
-            name="💍 Accessories",
-            value="\n".join(_fmt_accessory(k, v) for k, v in accessories.items()),
-            inline=False
-        )
-    embed.add_field(
-        name="🧪 Consumables",
-        value="\n".join(_fmt_consumable(k, v) for k, v in consumables.items()),
-        inline=False
-    )
+    if weapons:     _chunk_field(embed, "🗡️ Weapons", [_fmt_weapon(k, v) for k, v in weapons.items()])
+    if armor:       _chunk_field(embed, "🛡️ Armor", [_fmt_defense(k, v) for k, v in armor.items()])
+    if headgear:    _chunk_field(embed, "🪖 Headgear", [_fmt_defense(k, v) for k, v in headgear.items()])
+    if boots:       _chunk_field(embed, "👢 Boots", [_fmt_defense(k, v) for k, v in boots.items()])
+    if accessories: _chunk_field(embed, "💍 Accessories", [_fmt_accessory(k, v) for k, v in accessories.items()])
+    if consumables: _chunk_field(embed, "🧪 Consumables", [_fmt_consumable(k, v) for k, v in consumables.items()])
 
     if sheet:
         embed.set_footer(text=f"💰 Your Gil: {sheet.get('gil', 0)}g  ·  !rpg buy <item>  ·  !rpg sell <item>")
 
-    # Collect all available item keys for the shop view
-    shop_items = list(weapons.keys()) + list(armor.keys()) + list(headgear.keys()) + list(boots.keys()) + list(accessories.keys()) + list(consumables.keys())
+    # Collect all available item keys for the shop view, capping at 75 to fit Discord UI limits.
+    # Prioritize Consumables and Weapons so they are never truncated.
+    shop_items = list(consumables.keys()) + list(weapons.keys()) + list(armor.keys()) + list(headgear.keys()) + list(accessories.keys()) + list(boots.keys())
+    shop_items = shop_items[:75]
+    
     view = await _make_shop_view(ctx, msg, uid, uname, is_owner, shop_items)
     await msg.channel.send(embed=embed, view=view)
 
@@ -3664,10 +3677,13 @@ async def _handle_equip(ctx, msg, send, rest, uid, uname, is_owner):
 
     # Check class restriction
     item_classes = item.get("classes")
-    if item_classes and sheet.get("class") not in item_classes:
+    char_class = sheet.get("class", "")
+    adv_class  = sheet.get("advanced_class", "")
+    if item_classes and char_class not in item_classes and adv_class not in item_classes:
         class_str = "/".join(item_classes)
         return await msg.channel.send(embed=discord.Embed(
-            description=f"**{item['name']}** can only be used by: {class_str}.", color=0xcc4444
+            description=f"**{item['name']}** can only be used by: {class_str}.",
+            color=0xcc4444
         ))
 
     # Unequip existing if slot filled
@@ -4228,35 +4244,50 @@ async def _handle_attack(ctx, msg, send, rest, uid, uname, is_owner):
             gil_gain += streak_bonus_gil
             streak_msg = f"  🔥 Streak: {streak} (+{streak_bonus_gil}g)"
             
-        # Loot mechanics
-        loot = get_loot(monster.get("tier", "medium"))
-        if loot:
-            sheet.setdefault("inventory", []).append(loot)
+        # Loot mechanics — dual roll: gear + consumable
+        from utils.ttrpg.loot_tables import get_gear_loot, get_consumable_loot
+        loot_lines = []
+
+        # Gear roll
+        gear_drop = get_gear_loot(monster.get("tier", "medium"))
+        if gear_drop:
+            sheet.setdefault("inventory", []).append(gear_drop)
             from utils.ttrpg.shop import find_item as _find_loot
-            loot_info = _find_loot(loot)
-            loot_display = loot_info["name"] if loot_info else loot
-            loot_msg = f"\n🎁 **Looted:** {loot_display}"
-            # Check recipe discovery (triggers on crafting ingredients)
-            from utils.ttrpg.alchemy import check_and_discover_recipes
-            new_recipes = check_and_discover_recipes(sheet, loot)
-            for rk in new_recipes:
-                from utils.ttrpg.alchemy import get_recipe
-                r = get_recipe(rk)
-                if r:
-                    loot_msg += f"\n📖 **Recipe learned:** {r['name']}! Brew at the Herbalist's Hut."
-            
-            # Log rare drop if it's high tier or specific items
+            gear_info = _find_loot(gear_drop)
+            gear_display = gear_info["name"] if gear_info else gear_drop
+            loot_lines.append(f"⚔️ {gear_display}")
+            # Log rare drop if it's high tier
             tier = monster.get("tier", "medium")
             if tier in ["hard", "deadly", "boss"]:
                 loc_name = LOCATION_DATA.get(loc, {}).get('name', loc)
-                await _log_world_event(f"A **{loot_display}** was recovered from the {loc_name}. Oakhaven listens carefully.")
+                await _log_world_event(f"A **{gear_display}** was recovered from the {loc_name}. Oakhaven listens carefully.")
                 loot_embed = discord.Embed(
-                    title=f"🎁 Rare drop — {loot_display}",
-                    description=_rare_loot_flavor(monster.get('name', 'something'), loot_display, loc),
+                    title=f"🎁 Rare drop — {gear_display}",
+                    description=_rare_loot_flavor(monster.get('name', 'something'), gear_display, loc),
                     color=0xd4a843
                 )
                 loot_embed.set_footer(text=f"{sheet['character_name']} · {loc_name}")
                 await _broadcast_world_event(ctx, loot_embed)
+
+        # Consumable roll
+        consumable_drop = get_consumable_loot(monster.get("tier", "medium"))
+        if consumable_drop:
+            sheet.setdefault("inventory", []).append(consumable_drop)
+            from utils.ttrpg.shop import find_item as _find_cons
+            cons_info = _find_cons(consumable_drop)
+            cons_display = cons_info["name"] if cons_info else consumable_drop
+            loot_lines.append(f"🧪 {cons_display}")
+            # Check recipe discovery (triggers on crafting ingredients)
+            from utils.ttrpg.alchemy import check_and_discover_recipes
+            new_recipes = check_and_discover_recipes(sheet, consumable_drop)
+            for rk in new_recipes:
+                from utils.ttrpg.alchemy import get_recipe
+                r = get_recipe(rk)
+                if r:
+                    loot_lines.append(f"📖 **Recipe learned:** {r['name']}! Brew at the Herbalist's Hut.")
+
+        if loot_lines:
+            loot_msg = "\n🎁 **Looted:**\n" + "\n".join(loot_lines)
             
         sheet["xp"] += xp_gain
         sheet["gil"] += gil_gain
