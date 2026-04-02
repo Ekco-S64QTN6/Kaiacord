@@ -242,7 +242,7 @@ class BiteView(discord.ui.View):
         if cur_pole_key:
             pole_data = POLES.get(cur_pole_key, {})
             snap_chance = pole_data.get("snap_chance", 5)
-            if secrets.randbelow(100) < snap_chance:
+            if secrets.randbelow(10000) < snap_chance * 100:
                 broke_pole = True
                 fishing_stats["pole"] = None  # no pole — must buy a new one
 

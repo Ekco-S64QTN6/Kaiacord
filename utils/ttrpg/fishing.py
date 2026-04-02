@@ -75,47 +75,47 @@ BAIT = {
 POLES = {
     "birchwood_rod": {
         "name": "Birchwood Rod",
-        "cost": 15,
+        "cost": 7,
         "catch_bonus": 0,
         "bite_time_reduction": 0,   # seconds off waiting time
         "reel_window": 12,          # seconds to click Reel
-        "snap_chance": 8,           # % chance to break on catch
+        "snap_chance": 2,           # % chance to break on catch
         "desc": "Cut from the birch by the pond bank. It flexes alarmingly. It works.",
     },
     "ironwood_rod": {
         "name": "Ironwood Rod",
-        "cost": 50,
+        "cost": 25,
         "catch_bonus": 2,
         "bite_time_reduction": 1,
         "reel_window": 14,
-        "snap_chance": 6,
+        "snap_chance": 1.5,
         "desc": "Dense hardwood. Gives you an edge in the fight.",
     },
     "whittled_willow": {
         "name": "Whittled Willow",
-        "cost": 120,
+        "cost": 60,
         "catch_bonus": 5,
         "bite_time_reduction": 2,
         "reel_window": 16,
-        "snap_chance": 5,
+        "snap_chance": 1.25,
         "desc": "Flexible. Responsive. The fish hate how patient it makes you.",
     },
     "resonance_rod": {
         "name": "Resonance Rod",
-        "cost": 400,
+        "cost": 200,
         "catch_bonus": 10,
         "bite_time_reduction": 3,
         "reel_window": 18,
-        "snap_chance": 4,
+        "snap_chance": 1,
         "desc": "Aeridorian material. Hums. Rare fish are drawn to the frequency.",
     },
     "aeridorian_spire": {
         "name": "Aeridorian Spire",
-        "cost": 1500,
+        "cost": 750,
         "catch_bonus": 20,
         "bite_time_reduction": 4,
         "reel_window": 22,
-        "snap_chance": 2,
+        "snap_chance": 0.5,
         "desc": "Crystal-tipped, ancient, perfect. Legendary fish have been caught on this exact pole.",
     },
 }

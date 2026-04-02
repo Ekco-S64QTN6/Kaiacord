@@ -3897,16 +3897,7 @@ async def _handle_hunt(ctx, msg, send, rest, uid, uname, is_owner):
         view = _make_map_view(ctx, msg, uid, uname, is_owner, loc)
         return await msg.channel.send(embed=discord.Embed(description=f"You can't hunt in **{ld.get('name', loc)}**.\nTravel somewhere wild first.", color=0xcc4444), view=view)
         
-    sheet = check_and_reset_hunts(sheet)
-    if hunts_remaining(sheet) <= 0:
-        view = _make_status_view(ctx, msg, uid, uname, is_owner)
-        return await msg.channel.send(embed=discord.Embed(description=f"You have exhausted your stamina for the day. (0/{get_max_hunts(sheet)} hunts remaining)", color=0xcc4444), view=view)
-        
-    if sheet["hp"]["current"] <= 0:
-        view = _make_status_view(ctx, msg, uid, uname, is_owner)
-        return await msg.channel.send(embed=discord.Embed(description=f"You are far too weak to hunt right now. Go rest.", color=0xcc4444), view=view)
-        
-    # Engage tracking
+    # Engage tracking & Resume Logic
     chan_id = str(msg.channel.id)
     s = await load_session(chan_id)
     if not s:
@@ -3917,6 +3908,52 @@ async def _handle_hunt(ctx, msg, send, rest, uid, uname, is_owner):
             "combat_active": False,
             "created_at": time.time(),
         }
+    
+    # Are we already fighting something?
+    monsters = s.get("monsters", [])
+    my_fights = []
+    for m in monsters:
+        if isinstance(m, dict) and m.get("aggro_uid") == uid:
+            my_fights.append(m)
+
+    if my_fights:
+        if sheet["hp"]["current"] <= 0:
+            view = _make_status_view(ctx, msg, uid, uname, is_owner)
+            return await msg.channel.send(embed=discord.Embed(description=f"You are far too weak to resume your hunt right now. Go rest.", color=0xcc4444), view=view)
+            
+        m_data = my_fights[0]
+        m_name = m_data.get("name", "Unknown Monster")
+        m_key = m_data.get("key", "monster")
+        
+        # Resumption uses global imports now
+        tier_icon = TIER_ICONS.get(m_data.get("tier", "medium"), "🟠")
+        hp_obj = m_data.get("hp", {"current": 0, "max": 0})
+        
+        embed = discord.Embed(
+            title=f"⚔️ Already in combat: {m_name} {tier_icon}",
+            description=f"Picking up where you left off...\n*{m_data.get('desc', 'A dangerous creature.')}*",
+            color=0xcc6622
+        )
+        # Show current health in resumption (monospaced bar for embeds)
+        filled = int((hp_obj['current'] / max(hp_obj['max'], 1)) * 10)
+        hb = "█" * filled + "░" * (10 - filled)
+        embed.add_field(name="❤️ Monster HP", value=f"`{hb}` {hp_obj['current']}/{hp_obj['max']}", inline=False)
+        embed.add_field(name="🗡️ ATK", value=str(m_data.get('attack', 0)), inline=True)
+        embed.add_field(name="🛡️ DEF", value=str(m_data.get('defense', 0)), inline=True)
+        
+        embed.set_footer(text=f"Your HP: {sheet['hp']['current']}/{sheet['hp']['max']}")
+        combat_view = RPGCombatView(ctx, msg, uid, uname, is_owner, m_key)
+        return await msg.channel.send(embed=embed, view=combat_view)
+        
+    # Standard hunt stamina & HP flow
+    sheet = check_and_reset_hunts(sheet)
+    if hunts_remaining(sheet) <= 0:
+        view = _make_status_view(ctx, msg, uid, uname, is_owner)
+        return await msg.channel.send(embed=discord.Embed(description=f"You have exhausted your stamina for the day. (0/{get_max_hunts(sheet)} hunts remaining)", color=0xcc4444), view=view)
+        
+    if sheet["hp"]["current"] <= 0:
+        view = _make_status_view(ctx, msg, uid, uname, is_owner)
+        return await msg.channel.send(embed=discord.Embed(description=f"You are far too weak to hunt right now. Go rest.", color=0xcc4444), view=view)
     
     # Quest Task Tracking: Hunt Location
     active_id = sheet.get("active_quest")
@@ -3967,38 +4004,6 @@ async def _handle_hunt(ctx, msg, send, rest, uid, uname, is_owner):
                     await _log_world_event(
                         f"✅ **{sheet['character_name']}** completed '**{q['name']}**'."
                     )
-
-    # Are we already fighting something?
-    monsters = s.get("monsters", [])
-    my_fights = []
-    for m in monsters:
-        if isinstance(m, dict) and m.get("aggro_uid") == uid:
-            my_fights.append(m)
-
-    if my_fights:
-        m_data = my_fights[0]
-        m_name = m_data.get("name", "Unknown Monster")
-        m_key = m_data.get("key", "monster")
-        
-        # Resumption uses global imports now
-        tier_icon = TIER_ICONS.get(m_data.get("tier", "medium"), "🟠")
-        hp_obj = m_data.get("hp", {"current": 0, "max": 0})
-        
-        embed = discord.Embed(
-            title=f"⚔️ Already in combat: {m_name} {tier_icon}",
-            description=f"Picking up where you left off...\n*{m_data.get('desc', 'A dangerous creature.')}*",
-            color=0xcc6622
-        )
-        # Show current health in resumption (monospaced bar for embeds)
-        filled = int((hp_obj['current'] / max(hp_obj['max'], 1)) * 10)
-        hb = "█" * filled + "░" * (10 - filled)
-        embed.add_field(name="❤️ Monster HP", value=f"`{hb}` {hp_obj['current']}/{hp_obj['max']}", inline=False)
-        embed.add_field(name="🗡️ ATK", value=str(m_data.get('attack', 0)), inline=True)
-        embed.add_field(name="🛡️ DEF", value=str(m_data.get('defense', 0)), inline=True)
-        
-        embed.set_footer(text=f"Your HP: {sheet['hp']['current']}/{sheet['hp']['max']}")
-        combat_view = RPGCombatView(ctx, msg, uid, uname, is_owner, m_key)
-        return await msg.channel.send(embed=embed, view=combat_view)
     
     # Roll for special forest event before monster spawn
     from utils.ttrpg.encounter_tables import roll_for_event, random_event
@@ -5764,16 +5769,38 @@ async def _handle_accept(ctx, msg, send, rest, uid, uname, is_owner):
             "id": f"player_{uid}"
         }
         
-        res = _resolve_combat(c_sheet, m_from_t, is_duel=True)
+        if c_sheet["hp"]["current"] <= 1 or m_from_t["hp"]["current"] <= 1:
+            return await send(msg.channel, f"One or both participants are too injured to duel.")
+
+        round_num = 1
+        all_exchanges = []
+        max_rounds = 20
+        
+        while c_sheet["hp"]["current"] > 1 and m_from_t["hp"]["current"] > 1 and round_num <= max_rounds:
+            all_exchanges.append(f"**--- Round {round_num} ---**")
+            res = _resolve_combat(c_sheet, m_from_t, is_duel=True)
+            all_exchanges.extend(res["exchanges"])
+            c_sheet = res["sheet"]
+            m_from_t = res["monster"]
+            if c_sheet["hp"]["current"] <= 1 or m_from_t["hp"]["current"] <= 1:
+                break
+            round_num += 1
+            
+        if round_num > max_rounds:
+            all_exchanges.append(f"**--- The duel ends in a draw after {max_rounds} rounds! ---**")
         
         # Apply results back
-        await save(res["sheet"]) # challenger
-        t_sheet["hp"] = res["monster"]["hp"]
+        await save(c_sheet) # challenger
+        t_sheet["hp"] = m_from_t["hp"]
         await save(t_sheet) # target
         
+        desc = "\n".join(all_exchanges)
+        if len(desc) > 4096:
+            desc = desc[:4000] + "\n...[Combat log truncated due to length]"
+            
         embed = discord.Embed(
             title="⚔️ DUEL RESULTS",
-            description="\n".join(res["exchanges"]),
+            description=desc,
             color=0x4488cc
         )
         await msg.channel.send(embed=embed)
