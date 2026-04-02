@@ -413,7 +413,17 @@ async def _handle_cast(ctx, interaction: discord.Interaction, uid: str, uname: s
         color=POND_COLOR,
     )
     cast_embed.set_footer(text=f"Bait: {bait_name} · Pole: {pole_name}")
-    await interaction.followup.send(embed=cast_embed)
+    try:
+        await interaction.followup.send(embed=cast_embed)
+    except discord.HTTPException as e:
+        if e.status == 429:
+            await asyncio.sleep(2)
+            try:
+                await interaction.followup.send(embed=cast_embed)
+            except discord.HTTPException:
+                pass  # best-effort — don't kill the cast
+        else:
+            raise
 
     # Wait for bite
     wait_time = get_bite_wait_time(pole_key)
@@ -524,7 +534,17 @@ async def _handle_cast(ctx, interaction: discord.Interaction, uid: str, uname: s
     )
     reel_view._channel = channel
 
-    await interaction.followup.send(embed=bite_embed, view=reel_view)
+    try:
+        await interaction.followup.send(embed=bite_embed, view=reel_view)
+    except discord.HTTPException as e:
+        if e.status == 429:
+            await asyncio.sleep(2)
+            try:
+                await interaction.followup.send(embed=bite_embed, view=reel_view)
+            except discord.HTTPException:
+                pass
+        else:
+            raise
 
 
 async def _handle_check_bag(ctx, interaction: discord.Interaction, uid: str, uname: str, is_owner: bool):

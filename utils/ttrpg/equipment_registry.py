@@ -562,11 +562,11 @@ HEADGEAR = {
     "bronze_helm":       {"name": "Bronze Helm",        "defense_bonus": 1, "value": 22,  "tier": 1},
 
     # Tier 2
-    "steel_visor":       {"name": "Steel Visor",        "defense_bonus": 2, "value": 272,  "tier": 2, "droppable_only": True, "classes": ["Warrior"]},
-    "leather_coif":      {"name": "Leather Coif",       "defense_bonus": 1, "value": 258,  "tier": 2, "classes": ["Ranger", "Rogue"]},
-    "silken_cowl":       {"name": "Silken Cowl",        "defense_bonus": 1, "value": 262,  "tier": 2, "droppable_only": True, "classes": ["Mage", "Cleric"]},
-    "horned_helmet":     {"name": "Horned Helmet",      "defense_bonus": 2, "value": 268,  "tier": 2, "classes": ["Warrior"]},
-    "sages_hat":         {"name": "Sage's Hat",         "defense_bonus": 1, "value": 272,  "tier": 2, "classes": ["Mage", "Cleric"]},
+    "steel_visor":       {"name": "Steel Visor",        "defense_bonus": 3, "value": 272,  "tier": 2, "droppable_only": True, "classes": ["Warrior"]},
+    "leather_coif":      {"name": "Leather Coif",       "defense_bonus": 2, "value": 258,  "tier": 2, "classes": ["Ranger", "Rogue"]},
+    "silken_cowl":       {"name": "Silken Cowl",        "defense_bonus": 2, "value": 262,  "tier": 2, "droppable_only": True, "classes": ["Mage", "Cleric"]},
+    "horned_helmet":     {"name": "Horned Helmet",      "defense_bonus": 3, "value": 268,  "tier": 2, "classes": ["Warrior"]},
+    "sages_hat":         {"name": "Sage's Hat",         "defense_bonus": 2, "value": 272,  "tier": 2, "classes": ["Mage", "Cleric"]},
 
     # Tier 3
     "siege_helm":        {"name": "Siege Helm",         "defense_bonus": 2, "value": 840, "tier": 3, "droppable_only": True, "classes": ["Warrior"]},
@@ -733,10 +733,10 @@ BOOTS = {
     "bronze_sabatons":   {"name": "Bronze Sabatons",   "defense_bonus": 1, "value": 24,  "tier": 1},
 
     # Tier 2
-    "iron_shod_boots":   {"name": "Iron-Shod Boots",   "defense_bonus": 2, "value": 268,  "tier": 2, "classes": ["Warrior"]},
-    "shadow_treads":     {"name": "Shadow Treads",      "defense_bonus": 1, "value": 262,  "tier": 2, "classes": ["Rogue"], "droppable_only": True},
-    "foresters_boots":   {"name": "Forester's Boots",  "defense_bonus": 1, "value": 258,  "tier": 2, "droppable_only": True, "classes": ["Ranger"]},
-    "ley_walkers":       {"name": "Ley-Walker Sandals","defense_bonus": 1, "value": 258,  "tier": 2, "droppable_only": True, "classes": ["Mage", "Cleric"]},
+    "iron_shod_boots":   {"name": "Iron-Shod Boots",   "defense_bonus": 3, "value": 268,  "tier": 2, "classes": ["Warrior"]},
+    "shadow_treads":     {"name": "Shadow Treads",      "defense_bonus": 2, "value": 262,  "tier": 2, "classes": ["Rogue"], "droppable_only": True},
+    "foresters_boots":   {"name": "Forester's Boots",  "defense_bonus": 2, "value": 258,  "tier": 2, "droppable_only": True, "classes": ["Ranger"]},
+    "ley_walkers":       {"name": "Ley-Walker Sandals","defense_bonus": 2, "value": 258,  "tier": 2, "droppable_only": True, "classes": ["Mage", "Cleric"]},
 
     # Tier 3
     "wardens_greaves":   {"name": "Warden's Greaves",  "defense_bonus": 2, "value": 840, "tier": 3, "droppable_only": True, "classes": ["Warrior"]},
@@ -763,7 +763,7 @@ BOOTS = {
     # ══════════════════════════════════════════════════════════════
 
     "iron_greaves": {
-        "name": "Iron Greaves", "defense_bonus": 2, "value": 272, "tier": 2,
+        "name": "Iron Greaves", "defense_bonus": 3, "value": 272, "tier": 2,
         "classes": ["Warrior"],
     "droppable_only": True,
     },
@@ -786,7 +786,7 @@ BOOTS = {
     # ══════════════════════════════════════════════════════════════
 
     "trail_boots": {
-        "name": "Trail Boots", "defense_bonus": 1, "value": 260, "tier": 2,
+        "name": "Trail Boots", "defense_bonus": 2, "value": 260, "tier": 2,
         "classes": ["Ranger"],
     },
     "whisper_stride": {
@@ -808,7 +808,7 @@ BOOTS = {
     # ══════════════════════════════════════════════════════════════
 
     "resonance_sandals": {
-        "name": "Resonance Sandals", "defense_bonus": 1, "value": 258, "tier": 2,
+        "name": "Resonance Sandals", "defense_bonus": 2, "value": 258, "tier": 2,
         "classes": ["Mage"],
     },
     "arcane_walkers": {
@@ -826,7 +826,7 @@ BOOTS = {
     # ══════════════════════════════════════════════════════════════
 
     "blessed_sandals": {
-        "name": "Blessed Sandals", "defense_bonus": 1, "value": 260, "tier": 2,
+        "name": "Blessed Sandals", "defense_bonus": 2, "value": 260, "tier": 2,
         "classes": ["Cleric"],
     },
     "shrine_greaves": {
@@ -853,9 +853,9 @@ ACCESSORIES = {
     "scholars_bracelet": {"name": "Scholar's Bracelet", "defense_bonus": 1, "attack_bonus": 0, "value": 16,  "tier": 1, "classes": ["Mage", "Cleric"]},
 
     # Tier 2
-    "iron_ring":         {"name": "Iron Ring",          "defense_bonus": 1, "attack_bonus": 0, "value": 258,  "tier": 2, "droppable_only": True},
-    "oak_bracelet":      {"name": "Oak Bracelet",       "defense_bonus": 1, "attack_bonus": 1, "value": 262,  "tier": 2},
-    "crystal_bracelet":  {"name": "Crystal Bracelet",  "defense_bonus": 1, "attack_bonus": 0, "value": 262,  "tier": 2, "droppable_only": True, "classes": ["Mage", "Cleric"]},
+    "iron_ring":         {"name": "Iron Ring",          "defense_bonus": 2, "attack_bonus": 1, "value": 258,  "tier": 2, "droppable_only": True},
+    "oak_bracelet":      {"name": "Oak Bracelet",       "defense_bonus": 2, "attack_bonus": 1, "value": 262,  "tier": 2},
+    "crystal_bracelet":  {"name": "Crystal Bracelet",  "defense_bonus": 1, "attack_bonus": 1, "value": 262,  "tier": 2, "droppable_only": True, "classes": ["Mage", "Cleric"]},
 
     # Tier 3
     "silver_ring":       {"name": "Silver Ring",        "defense_bonus": 1, "attack_bonus": 1, "value": 840,  "tier": 3, "droppable_only": True},
@@ -999,20 +999,20 @@ CONSUMABLES = {
         "description": "A wisp's core, still glowing. Permanent light source. Does not deplete.",
         "tier": 2,
     },
-    "healing_herb":   {"name": "Healing Herb",    "hp_restore": 8,  "value": 15, "tier": 1},
-    "bandage":        {"name": "Bandage",          "hp_restore": 5,  "value": 15,  "tier": 1},
-    "tonic":          {"name": "Tonic",            "hp_restore": 15, "value": 40, "tier": 2},
-    "elixir":         {"name": "Elixir",           "hp_restore": 30, "value": 250, "tier": 4},
-    "hi_potion":      {"name": "Hi-Potion",        "hp_restore": 20, "value": 100, "tier": 3},
-    "phoenix_down":   {"name": "Phoenix Down",     "hp_restore": 50, "value": 250, "description": "A feather of rebirth. Restores a great deal of HP.", "tier": 4},
-    "ether":          {"name": "Ether",             "value": 100, "description": "A shimmering blue liquid. Restores mental clarity.", "tier": 3},
-    "eye_drops":      {"name": "Eye Drops",         "value": 15,  "on_use": "cure_blind", "description": "Clears blurred vision.", "tier": 1},
+    "healing_herb":   {"name": "Healing Herb",    "hp_restore": 8,  "value": 10,  "tier": 1},
+    "bandage":        {"name": "Bandage",          "hp_restore": 5,  "value": 6,   "tier": 1},
+    "tonic":          {"name": "Tonic",            "hp_restore": 15, "value": 20,  "tier": 2},
+    "elixir":         {"name": "Elixir",           "hp_restore": 30, "value": 50,  "tier": 4},
+    "hi_potion":      {"name": "Hi-Potion",        "hp_restore": 20, "value": 30,  "tier": 3},
+    "phoenix_down":   {"name": "Phoenix Down",     "hp_restore": 50, "value": 80,  "description": "A feather of rebirth. Restores a great deal of HP.", "tier": 4},
+    "ether":          {"name": "Ether",             "value": 60,  "description": "A shimmering blue liquid. Restores mental clarity.", "tier": 3},
+    "eye_drops":      {"name": "Eye Drops",         "value": 12,  "on_use": "cure_blind", "description": "Clears blurred vision.", "tier": 1},
     # Flavor/Event items
     "torch":          {"name": "Torch",            "value": 15, "description": "A simple torch. Lights the way.", "tier": 1},
     "aeridor_shard":  {"name": "Aeridor Crystal Shard", "value": 100, "tier": 3},
     "tonberry_knife": {"name": "Tonberry's Knife",      "value": 100, "tier": 3},
     "lucky_charm":    {"name": "Lucky Charm",          "value": 40, "on_use": "luck_roll_bonus", "tier": 2},
-    "antidote":       {"name": "Antidote",             "value": 15,  "on_use": "cure_poison", "tier": 1},
+    "antidote":       {"name": "Antidote",             "value": 8,   "on_use": "cure_poison", "tier": 1},
     # Herbalism Ingredients
     "silver_moss":    {"name": "Silvermoss",           "value": 40, "description": "A glowing moss found near water.", "tier": 2},
     "dire_root":      {"name": "Dire Root",            "value": 100, "description": "A tough, bitter root from deep woods.", "tier": 3},
@@ -1020,7 +1020,7 @@ CONSUMABLES = {
     "honey_sap":      {"name": "Honey Sap",            "value": 15, "description": "Sweet, sticky sap from ancient trees.", "tier": 1},
     "gilded_mushroom": {"name": "Gilded Mushroom",     "value": 600, "description": "A rare, gold-capped mushroom. Hemlock pays well for these.", "tier": 5},
     "mognet_letter":   {"name": "Mognet Letter",       "value": 0,  "description": "A sealed letter addressed to 'Someone in Oakhaven'.", "tier": 0},
-    "panacea":        {"name": "Panacea",             "value": 250, "description": "Cures all status ailments.", "tier": 4},
+    "panacea":        {"name": "Panacea",             "value": 80,  "description": "Cures all status ailments.", "tier": 4},
     "gold_needle":    {"name": "Gold Needle",         "value": 40, "description": "Cures petrification.", "tier": 2},
     "maidens_kiss":   {"name": "Maiden's Kiss",       "value": 40, "description": "Cures the 'Toad' status.", "tier": 2},
     "soft":           {"name": "Soft",                "value": 40, "description": "Cures petrification.", "tier": 2},

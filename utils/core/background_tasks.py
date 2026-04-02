@@ -411,7 +411,7 @@ class CoreTaskManager:
         TOWN_LOCATIONS = {
             "oakhaven", "stone_hearth", "hemlocks_store",
             "shrine", "watchtower", "oakhaven_bank", "herbalists_hut",
-            "housing_district", "caravan"
+            "housing_district", "tricklebrook_pond", "caravan"
         }
 
         @tasks.loop(hours=24)
@@ -575,7 +575,8 @@ async def run_village_raid(bot_ctx, channel):
     ]
     TOWN_LOCATIONS = {
         "oakhaven", "stone_hearth", "hemlocks_store",
-        "shrine", "watchtower", "oakhaven_bank", "herbalists_hut"
+        "shrine", "watchtower", "oakhaven_bank", "herbalists_hut",
+        "housing_district", "tricklebrook_pond"
     }
 
     await channel.send(embed=discord.Embed(
@@ -725,7 +726,8 @@ async def run_oracle_speaks(bot_ctx, channel):
 
     TOWN_LOCATIONS = {
         "oakhaven", "stone_hearth", "hemlocks_store",
-        "shrine", "watchtower", "oakhaven_bank", "herbalists_hut"
+        "shrine", "watchtower", "oakhaven_bank", "herbalists_hut",
+        "housing_district", "tricklebrook_pond"
     }
     BUFFS = [
         ("battle_focus",    "STR checks +1 until next combat"),
@@ -785,7 +787,8 @@ async def run_moogle_festival(bot_ctx, channel):
 
     TOWN_LOCATIONS = {
         "oakhaven", "stone_hearth", "hemlocks_store",
-        "shrine", "watchtower", "oakhaven_bank", "herbalists_hut"
+        "shrine", "watchtower", "oakhaven_bank", "herbalists_hut",
+        "housing_district", "tricklebrook_pond"
     }
     # Curated drop pool — useful but not overpowered
     DROP_POOL = [
@@ -850,7 +853,8 @@ async def run_aeridorian_tremor(bot_ctx, channel):
 
     TOWN_LOCATIONS = {
         "oakhaven", "stone_hearth", "hemlocks_store",
-        "shrine", "watchtower", "oakhaven_bank", "herbalists_hut"
+        "shrine", "watchtower", "oakhaven_bank", "herbalists_hut",
+        "housing_district", "tricklebrook_pond"
     }
 
     await channel.send(embed=discord.Embed(
@@ -923,7 +927,8 @@ async def run_tonberry_procession(bot_ctx, channel):
 
     TOWN_LOCATIONS = {
         "oakhaven", "stone_hearth", "hemlocks_store",
-        "shrine", "watchtower", "oakhaven_bank", "herbalists_hut"
+        "shrine", "watchtower", "oakhaven_bank", "herbalists_hut",
+        "housing_district", "tricklebrook_pond"
     }
 
     await channel.send(embed=discord.Embed(
@@ -984,7 +989,8 @@ async def run_spine_storm(bot_ctx, channel):
 
     TOWN_LOCATIONS = {
         "oakhaven", "stone_hearth", "hemlocks_store",
-        "shrine", "watchtower", "oakhaven_bank", "herbalists_hut"
+        "shrine", "watchtower", "oakhaven_bank", "herbalists_hut",
+        "housing_district", "tricklebrook_pond"
     }
     CLASS_EFFECTS = {
         "Warrior": ("battle_focus",   "The cold sharpens something. STR +1 until next combat."),
@@ -1062,7 +1068,8 @@ async def run_caravan_arrival(bot_ctx, channel):
 
     TOWN_LOCATIONS = {
         "oakhaven", "stone_hearth", "hemlocks_store",
-        "shrine", "watchtower", "oakhaven_bank", "herbalists_hut"
+        "shrine", "watchtower", "oakhaven_bank", "herbalists_hut",
+        "housing_district", "tricklebrook_pond"
     }
 
     CARAVAN_TALK = [

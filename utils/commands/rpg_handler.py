@@ -420,11 +420,9 @@ class RPGFullLocationView(discord.ui.View):
             
             sel = discord.ui.Select(placeholder="Visit a plot...", options=options[:25], row=4)
         else:
+        # Keep caravan always visible but label it when inactive
+        # (going there when inactive will show an appropriate message)
             all_locs = [k for k in LOCATION_DATA.keys() if k != location]
-            # Filter caravan if not active
-            if not active:
-                all_locs = [k for k in all_locs if k != "caravan"]
-
             all_locs.sort(key=lambda k: 1 if LOCATION_DATA.get(k, {}).get("hunting") else 0)
             if all_locs:
                 options = []
@@ -1299,6 +1297,10 @@ async def _dungeon_combat_round(ctx_obj, interaction, uid, uname, is_owner):
 
     sheet = res["sheet"]
     monster = res["monster"]
+
+    # Consume blessed condition after use (mirrors overworld combat behaviour)
+    if "blessed" in sheet.get("conditions", []):
+        sheet["conditions"].remove("blessed")
 
     # Accumulate for end-of-combat summary
     state.setdefault("dungeon_combat_log", []).append({
@@ -4414,23 +4416,45 @@ async def _handle_attack(ctx, msg, send, rest, uid, uname, is_owner):
         combat_view = RPGCombatView(ctx, msg, uid, uname, is_owner, m_key_for_btn)
         await msg.channel.send(embed=embed, view=combat_view)
     else:
-        # Victory or Death — show Hunt Again or Status
-        if not res["player_alive"]:
-            view = _make_status_view(ctx, msg, uid, uname, is_owner)
-        else:
-            view = _make_hunt_status_view(ctx, msg, uid, uname, is_owner)
-        await msg.channel.send(embed=embed, view=view)
+        await msg.channel.send(embed=embed)
 
-        # End-of-combat summary narration (fires only when fight is over)
+        # End-of-combat summary narration
         combat_ended = res["monster_defeated"] or not res["player_alive"]
         if combat_ended:
             combat_log = s.get("combat_log", [])
-            s["combat_log"] = []  # clear log
+            s["combat_log"] = []
             await save_session(s)
             await _narrate_combat_summary(
                 ctx, msg.channel, uid, uname, sheet,
                 combat_log, player_won=res["monster_defeated"]
             )
+
+        if not res["player_alive"]:
+            view = _make_status_view(ctx, msg, uid, uname, is_owner)
+            await msg.channel.send(embed=discord.Embed(description="You are back at the Shrine.", color=0x888888), view=view)
+        elif res["monster_defeated"]:
+            # Check for remaining swarm members
+            remaining_swarm = [m for m in s.get("monsters", []) if m.get("aggro_uid") == uid]
+            if remaining_swarm:
+                next_m = remaining_swarm[0]
+                next_key = next_m.get("key", "monster")
+                tier_icon = TIER_ICONS.get(next_m.get("tier", "medium"), "🟠")
+                hp_obj = next_m.get("hp", {"current": 0, "max": 0})
+                swarm_embed = discord.Embed(
+                    title=f"⚔️ Swarm! {next_m.get('name', '???')} {tier_icon}",
+                    description=(
+                        f"*{next_m.get('desc', 'Another creature closes in.')}*\n\n"
+                        f"❤️ **{hp_obj['current']}/{hp_obj['max']} HP** · "
+                        f"{len(remaining_swarm)} remain"
+                    ),
+                    color=0xCC3300
+                )
+                swarm_embed.set_footer(text="No additional hunt consumed — this is the same encounter.")
+                combat_view = RPGCombatView(ctx, msg, uid, uname, is_owner, next_key)
+                await msg.channel.send(embed=swarm_embed, view=combat_view)
+            else:
+                view = _make_hunt_status_view(ctx, msg, uid, uname, is_owner)
+                await msg.channel.send(view=view)
     
 
 async def _handle_flee(ctx, msg, send, rest, uid, uname, is_owner):
@@ -5645,6 +5669,7 @@ async def _handle_rpg_help(ctx, msg, send, rest, uid, uname, is_owner):
         "`!rpg hunt` — fight (1 hunt)\n"
         "`!rpg attack` — strike\n"
         "`!rpg flee` — escape attempt\n"
+        "`!rpg dungeon` — enter dungeon (2 hunts)\n"
         "`!rpg duel @user` — PvP\n"
         "`!rpg roll <dice>` — d20, 2d6+3"
     ), inline=True)
@@ -5683,8 +5708,15 @@ async def _handle_rpg_help(ctx, msg, send, rest, uid, uname, is_owner):
         "`!rpg bank` — deposit/withdraw\n"
         "`!rpg notices` — notice board\n"
         "`!rpg quests` — quest log\n"
-        "`!rpg deliver` — mognet mail\n"
+        "`!rpg mail` — moogle mail\n"
         "`!rpg talk <npc>`"
+    ), inline=True)
+
+    embed.add_field(name="🎣 Tricklebrook Pond", value=(
+        "`!rpg go tricklebrook_pond`\n"
+        "`!rpg fish` — open fishing HUD\n"
+        "`!rpg fish_shop` — buy bait & poles\n"
+        "*(Buy bait via Shop button in HUD)*"
     ), inline=True)
 
     embed.add_field(name="💬 NPCs", value=(
@@ -5970,6 +6002,12 @@ async def _handle_my_home(ctx, msg, send, rest, uid, uname, is_owner):
 
     # Row 1 continued — conditional furniture actions
     bonuses = get_home_bonuses(housing)
+    if bonuses.get("home_brewing"):
+        view.add_item(_make_home_btn(
+            ctx, uid, uname, is_owner,
+            "⚗️ Brew", "brew", 1,
+            style=discord.ButtonStyle.blurple
+        ))
     if bonuses.get("daily_training"):
         view.add_item(_make_home_btn(
             ctx, uid, uname, is_owner, 
