@@ -5719,6 +5719,12 @@ async def _handle_rpg_help(ctx, msg, send, rest, uid, uname, is_owner):
         "*(Buy bait via Shop button in HUD)*"
     ), inline=True)
 
+    embed.add_field(name="🏡 Housing District", value=(
+        "`!rpg go housing_district`\n"
+        "`!rpg home` — view/manage your home\n"
+        "*(Farming, pets, & furniture)*"
+    ), inline=True)
+
     embed.add_field(name="💬 NPCs", value=(
         "`elara` · `hemlock`\n"
         "`barkeep` · `guard`\n"

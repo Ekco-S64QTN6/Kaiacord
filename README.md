@@ -193,6 +193,7 @@ First message: `@kaia status` in Discord to verify she's running.
 | 🏛️ | **Forum integration** | VBulletin scraping, Discord ↔ Forum identity linking |
 | 📊 | **Curses dashboard** | Real-time VRAM/GPU stats, live log stream |
 | ⚡ | **Circuit breakers** | Automatic failure isolation for all external APIs |
+| ⚔️ | **Aethelgard TTRPG** | Persistent text RPG with combat, housing, fishing, and LLM narration |
 
 ---
 
@@ -203,6 +204,7 @@ First message: `@kaia status` in Discord to verify she's running.
 | `!news [category]` | Fetch news briefs (`today`, `technology`, `security`, `hacking`, `politics`, `business`, `science`, `culture`) | All |
 | `!download <url>` | Ingest a URL into the knowledge base | All |
 | `!quip` | Trigger a social media post (10m cooldown) | All |
+| `!rpg` | Open the Aethelgard TTRPG HUD and play | All |
 | `!forum link <uid>` | Link Discord identity to forum profile | All |
 | `!dreams list` | Show recent dream reflections | Admin |
 | `!dreams generate` | Force a dream cycle | Admin |

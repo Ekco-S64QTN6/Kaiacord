@@ -140,20 +140,22 @@ All navigation is button-driven. Players use the HUD buttons or `!rpg go <locati
 
 ### Location Map
 ```
-                 [Spine of the World]
-                        |
-                  [Grimstone]  ← locked
-                        |
-            [Trade Road] ──── [Aeridor Ruins]
-                        |
-                  [OAKHAVEN]  ← hub
-                 /    |    \
-        [Stone  ] [Hemlock's] [Shrine →  Maren's Hut]
-         Hearth]  [Store]
-                        |
-                [Whisperwood Edge]  ← lvl 1+
-                        |
-            [Whisperwood Deep]  ← lvl 4+
+                  [Spine of the World]
+                         |
+                   [Grimstone]  ← locked
+                         |
+             [Trade Road] ──── [Aeridor Ruins]
+            /            \
+       [Caravan]    [Tricklebrook Pond]
+                         |
+                   [OAKHAVEN] ──── [Housing District]
+                  /    |    \
+         [Stone  ] [Hemlock's] [Shrine →  Maren's Hut]
+          Hearth]  [Store]
+                         |
+                 [Whisperwood Edge]  ← lvl 1+
+                         |
+             [Whisperwood Deep]  ← lvl 4+
 ```
 
 ### Location Services
@@ -167,6 +169,9 @@ All navigation is button-driven. Players use the HUD buttons or `!rpg go <locati
 | **Watchtower** | Scout (1/day), talk guard |
 | **Maren's Hut** | Brew alchemy recipes, talk Maren |
 | **Bank** | Deposit, withdraw (protects Gil from blackout loss) |
+| **Housing District** | Buy a home, `!rpg home` (Farming, Pets, Decorate) |
+| **Tricklebrook Pond** | `!rpg fish`, `!rpg fish_shop` (Buy bait/poles) |
+| **Caravan** | Only present during certain events. |
 | **Hunting zones** | Hunt (1 of 5 daily hunts), look |
 
 ---
@@ -180,6 +185,9 @@ Fully automatic. Player never touches dice.
 **Player DEF:** `10 + DEX_mod + armor_bonus`
 **Crit (nat 20):** Damage dice doubled
 **Fumble (nat 1):** Auto-miss
+
+### Player vs Player (Duels)
+Players can challenge each other to non-lethal combat using `!rpg duel @user`. Upon acceptance, the duel resolves automatically until one player is reduced to 1 HP. No XP or Gil is lost.
 
 ### Combat Streak
 Consecutive wins → +1 to-hit, Gil multiplier on drops. Reset on flee/blackout.
@@ -288,6 +296,30 @@ Recipes are discovered by picking up ingredients. Brewed at Sister Maren's Hut.
 | Hi-Potion | 20 | 30g | 3 |
 | Elixir | 30 | 50g | 4 |
 | Phoenix Down | 50 | 80g | 4 |
+
+---
+
+## Housing System
+
+Players can purchase a home in the **Housing District** (`!rpg go housing_district`) for an initial 50k Gil (Hut). Upgrading unlocks more options. Access your home menu using `!rpg home`.
+
+### Farming
+Grow crops in your farming plots. Seeds are bought from Hemlock or found. Crops grow over time/interactions, yielding items and cooking ingredients.
+
+### Pets
+Adopt pets to live in your home. Pets require daily feeding and provide powerful passive bonuses when well-fed (e.g., Oakhaven Cat gives +10% Gil multiplier).
+
+### Furniture
+Decorate your house to gain passive bonuses (e.g., Alchemy Workbench enables `!rpg brew` from home, Weapon Rack gives +1 ATK locally, Bed speeds up resting).
+
+---
+
+## Fishing System
+
+Travel to **Tricklebrook Pond** (`!rpg go tricklebrook_pond`) to fish. Open the UI with `!rpg fish`.
+1. **Poles & Bait:** Buy from the Fish Shop. Better poles have faster bite times and higher durability. Specific baits attract specific fish.
+2. **Casting & Reeling:** Cast your line. When a fish bites, an interactive mini-game tests your timing and click speed.
+3. **Selling:** Fish can be sold for Gil or sometimes used in recipes.
 
 ---
 
