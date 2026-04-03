@@ -5876,6 +5876,7 @@ def _make_home_btn(ctx, uid, uname, is_owner, label, cmd, row, style=discord.But
             "visit_plots": _handle_visit_plots,
             "rename_house": _handle_rename_house,
             "home_training": _handle_home_training,
+            "brew": _handle_brew,
         }
         handler = handler_map.get(cmd)
         if handler:
@@ -5991,45 +5992,44 @@ async def _handle_my_home(ctx, msg, send, rest, uid, uname, is_owner):
 
     # Build view
     view = discord.ui.View(timeout=120)
-    # Row 0: Farm actions
-    view.add_item(_make_home_btn(ctx, uid, uname, is_owner, "🌾 Farm", "farm_view", 0))
-    view.add_item(_make_home_btn(ctx, uid, uname, is_owner, "💧 Water", "water_crops", 0))
-    if harvestable_count:
-        view.add_item(_make_home_btn(ctx, uid, uname, is_owner, "🪣 Harvest", "harvest_crops", 0, style=discord.ButtonStyle.green))
-    # Row 1: Home actions
-    
-    unfed_cost = sum(PET_REGISTRY[p["key"]]["food_cost"] for p in housing.get("pets", []) if not p.get("fed_today"))
-    feed_label = f"🐾 Feed Pets ({unfed_cost}g/day)" if unfed_cost > 0 else "🐾 Feed Pets"
-    view.add_item(_make_home_btn(ctx, uid, uname, is_owner, feed_label, "feed_pet", 1))
-    
-    view.add_item(_make_home_btn(ctx, uid, uname, is_owner, "🪑 Decorate", "furniture_shop", 1))
-    if get_next_tier(housing["tier"]):
-        view.add_item(_make_home_btn(ctx, uid, uname, is_owner, "⬆️ Upgrade", "upgrade_house", 1))
 
-    # Row 1 continued — conditional furniture actions
+    # Row 0: Farm actions (harvest handled inside farm_view)
+    farm_label = f"🌾 Farm{' ✅' if harvestable_count else ''}"
+    view.add_item(_make_home_btn(ctx, uid, uname, is_owner, farm_label, "farm_view", 0,
+                                  style=discord.ButtonStyle.green if harvestable_count else discord.ButtonStyle.secondary))
+    view.add_item(_make_home_btn(ctx, uid, uname, is_owner, "💧 Water", "water_crops", 0))
+
+    # Row 1: Pets + shop
+    if housing.get("pets"):
+        unfed_pets = [p for p in housing.get("pets", []) if not p.get("fed_today")]
+        unfed_cost = sum(PET_REGISTRY.get(p["key"], {}).get("food_cost", 0) for p in unfed_pets)
+        feed_label = f"🐾 Feed ({unfed_cost}g)" if unfed_cost > 0 else "🐾 Pets (fed ✅)"
+        feed_style = discord.ButtonStyle.primary if unfed_cost > 0 else discord.ButtonStyle.secondary
+        view.add_item(_make_home_btn(ctx, uid, uname, is_owner, feed_label, "feed_pet", 1, style=feed_style))
+    else:
+        view.add_item(_make_home_btn(ctx, uid, uname, is_owner, "🐾 Adopt Pet", "pet_shop", 1))
+
+    view.add_item(_make_home_btn(ctx, uid, uname, is_owner, "🪑 Decorate", "furniture_shop", 1))
+
+    # Row 2: Conditional actions + upgrade
     bonuses = get_home_bonuses(housing)
     if bonuses.get("home_brewing"):
-        view.add_item(_make_home_btn(
-            ctx, uid, uname, is_owner,
-            "⚗️ Brew", "brew", 1,
-            style=discord.ButtonStyle.blurple
-        ))
+        view.add_item(_make_home_btn(ctx, uid, uname, is_owner, "⚗️ Brew", "brew", 2,
+                                      style=discord.ButtonStyle.blurple))
     if bonuses.get("daily_training"):
-        view.add_item(_make_home_btn(
-            ctx, uid, uname, is_owner, 
-            "🪆 Train", "home_training", 1, 
-            style=discord.ButtonStyle.blurple
-        ))
+        view.add_item(_make_home_btn(ctx, uid, uname, is_owner, "🪆 Train", "home_training", 2,
+                                      style=discord.ButtonStyle.blurple))
+    if get_next_tier(housing["tier"]):
+        view.add_item(_make_home_btn(ctx, uid, uname, is_owner, "⬆️ Upgrade", "upgrade_house", 2))
 
-    # Row 2: Status
-    ren_btn = discord.ui.Button(label="🏷️ Rename", style=discord.ButtonStyle.secondary, row=2)
+    # Row 3: Utility
+    ren_btn = discord.ui.Button(label="🏷️ Rename", style=discord.ButtonStyle.secondary, row=3)
     async def _ren_cb(interaction):
         if str(interaction.user.id) != uid: return
         await interaction.response.send_modal(RenameHouseModal(uid))
     ren_btn.callback = _ren_cb
     view.add_item(ren_btn)
-    
-    view.add_item(_make_status_btn(ctx, uid, uname, is_owner, row=2))
+    view.add_item(_make_status_btn(ctx, uid, uname, is_owner, row=3))
     await msg.channel.send(embed=embed, view=view)
 
 async def _handle_buy_house(ctx, msg, send, rest, uid, uname, is_owner):
@@ -6097,7 +6097,7 @@ async def _handle_upgrade_house(ctx, msg, send, rest, uid, uname, is_owner):
 
 async def _handle_farm_view(ctx, msg, send, rest, uid, uname, is_owner):
     from utils.ttrpg.housing import load_housing, get_tier_data
-    from utils.ttrpg.farming import CROPS, get_crop_stage
+    from utils.ttrpg.farming import CROPS, get_crop_stage, is_harvestable
     from collections import Counter
 
     sheet = await load(uid)
@@ -6107,45 +6107,71 @@ async def _handle_farm_view(ctx, msg, send, rest, uid, uname, is_owner):
     tier_data = get_tier_data(housing["tier"])
     max_plots = tier_data["farming_plots"]
     plots = housing.get("farming", {}).get("plots", [])
-    
+
+    harvestable_count = sum(1 for p in plots if is_harvestable(p))
+
     embed = discord.Embed(
         title=f"🌾 {housing['house_name']} — Garden",
-        description=f"You have **{len(plots)}/{max_plots}** plots in use.",
+        description=f"**{len(plots)}/{max_plots}** plots in use.{' ✅ **Crops ready to harvest!**' if harvestable_count else ''}",
         color=0x44aa44
     )
-    
+
     for i in range(max_plots):
         if i < len(plots):
             p = plots[i]
             c_data = CROPS.get(p["crop_key"], {})
             stage = get_crop_stage(p)
-            watered = "✅" if p.get("watered_today") else "❌"
+            watered = "💧" if p.get("watered_today") else "🌵 needs water"
+            ready = " ✅" if is_harvestable(p) else ""
             embed.add_field(
-                name=f"Plot {i+1}: {c_data.get('name', 'Unknown')}",
-                value=f"Stage: {stage}\nWatered: {watered}",
+                name=f"Plot {i+1}: {c_data.get('name', 'Unknown')}{ready}",
+                value=f"{stage}\n{watered} ({p.get('watered_count',0)} waters)",
                 inline=True
             )
         else:
             embed.add_field(name=f"Plot {i+1}: Empty", value="Available for planting.", inline=True)
 
-    # Planting menu if seeds in inventory
-    inv = Counter(sheet.get("inventory", []))
-    seeds = [(k, CROPS[k]["name"]) for k in inv if k in CROPS]
-    
     view = discord.ui.View(timeout=120)
-    if seeds and len(plots) < max_plots:
-        options = [discord.SelectOption(label=name, value=key) for key, name in seeds[:25]]
-        sel = discord.ui.Select(placeholder="Plant a seed...", options=options, row=0)
-        async def _plant_cb(interaction):
+
+    # Seed planting — only show if there are open plots
+    if len(plots) < max_plots:
+        inv = Counter(sheet.get("inventory", []))
+        seeds = [(k, CROPS[k]["name"]) for k in inv if k in CROPS]
+        if seeds:
+            options = [discord.SelectOption(label=name, value=key, emoji=CROPS[key].get("emoji","🌱")) for key, name in seeds[:25]]
+            sel = discord.ui.Select(placeholder="🌱 Plant a seed...", options=options, row=0)
+            async def _plant_cb(interaction):
+                if str(interaction.user.id) != uid: return
+                chosen = interaction.data["values"][0]
+                await interaction.response.defer()
+                fake = _InteractionMsg(interaction)
+                await _handle_plant_crop(ctx, fake, _make_interaction_send(interaction), chosen, uid, uname, is_owner)
+            sel.callback = _plant_cb
+            view.add_item(sel)
+        else:
+            embed.set_footer(text="No seeds in inventory. Buy seeds from Sister Maren at the Herbalist's Hut.")
+
+    # Action buttons
+    if harvestable_count:
+        harvest_btn = discord.ui.Button(label=f"🪣 Harvest ({harvestable_count} ready)", style=discord.ButtonStyle.green, row=1)
+        async def _harvest_cb(interaction):
             if str(interaction.user.id) != uid: return
-            chosen = interaction.data["values"][0]
             await interaction.response.defer()
             fake = _InteractionMsg(interaction)
-            await _handle_plant_crop(ctx, fake, _make_interaction_send(interaction), chosen, uid, uname, is_owner)
-        sel.callback = _plant_cb
-        view.add_item(sel)
-    
-    view.add_item(_make_home_btn(ctx, uid, uname, is_owner, "🏠 Back home", "my_home", 1))
+            await _handle_harvest_crops(ctx, fake, _make_interaction_send(interaction), "", uid, uname, is_owner)
+        harvest_btn.callback = _harvest_cb
+        view.add_item(harvest_btn)
+
+    water_btn = discord.ui.Button(label="💧 Water All", style=discord.ButtonStyle.blurple, row=1)
+    async def _water_cb(interaction):
+        if str(interaction.user.id) != uid: return
+        await interaction.response.defer()
+        fake = _InteractionMsg(interaction)
+        await _handle_water_crops(ctx, fake, _make_interaction_send(interaction), "", uid, uname, is_owner)
+    water_btn.callback = _water_cb
+    view.add_item(water_btn)
+
+    view.add_item(_make_home_btn(ctx, uid, uname, is_owner, "🏠 Back", "my_home", 1))
     await msg.channel.send(embed=embed, view=view)
 
 async def _handle_plant_crop(ctx, msg, send, rest, uid, uname, is_owner):
@@ -6204,8 +6230,12 @@ async def _handle_water_crops(ctx, msg, send, rest, uid, uname, is_owner):
         return await send(msg.channel, embed=discord.Embed(description="All crops are already watered today.", color=0x888888))
         
     save_housing(housing)
-    await send(msg.channel, f"💧 You watered {watered_count} plot(s).")
-    await _handle_my_home(ctx, msg, send, rest, uid, uname, is_owner)
+    embed = discord.Embed(
+        description=f"💧 You watered **{watered_count}** plot(s). Come back tomorrow to water again.",
+        color=0x44aa44
+    )
+    await msg.channel.send(embed=embed)
+    await _handle_farm_view(ctx, msg, send, rest, uid, uname, is_owner)
 
 async def _handle_harvest_crops(ctx, msg, send, rest, uid, uname, is_owner):
     from utils.ttrpg.housing import load_housing, save_housing
@@ -6303,7 +6333,7 @@ async def _handle_buy_pet(ctx, msg, send, rest, uid, uname, is_owner):
     new_pet = {
         "key": pet_key,
         "name": pet_data["name"],
-        "fed_today": True,
+        "fed_today": False,   # starts unfed — owner feeds on first day
         "days_owned": 0
     }
     housing.setdefault("pets", []).append(new_pet)
@@ -6416,22 +6446,72 @@ async def _handle_buy_furniture(ctx, msg, send, rest, uid, uname, is_owner):
     await send(msg.channel, f"🪑 **{f_data['name']} purchased!** Barnaby promises to deliver it 'soon'. It's already there.")
 
 async def _handle_visit_plots(ctx, msg, send, rest, uid, uname, is_owner):
-    """Handled mostly by the dropdown override in RPGFullLocationView."""
     from utils.ttrpg.housing import load_housing, HOUSING_TIERS
+    from utils.ttrpg.farming import CROPS, get_crop_stage, is_harvestable
+    from utils.ttrpg.pets import PET_REGISTRY
+    from utils.ttrpg.furniture import FURNITURE
+
     target_uid = rest.strip()
-    if not target_uid: return
-    
+    if not target_uid:
+        return await msg.channel.send(embed=discord.Embed(
+            description="No plot selected.", color=0x888888))
+
     housing = load_housing(target_uid)
     if not housing:
-        return await send(msg.channel, "That plot seems empty.")
-        
+        return await msg.channel.send(embed=discord.Embed(
+            description="*That plot is empty — no one has settled here yet.*", color=0x888888))
+
     tier_data = HOUSING_TIERS.get(housing["tier"], {})
+
     embed = discord.Embed(
-        title=f"🏘️ Visiting: {housing['house_name']}",
-        description=f"*{tier_data['desc']}*\n\nOwned by **{housing['character_name']}**.",
+        title=f"{tier_data.get('emoji','🏡')} {housing['house_name']}",
+        description=(
+            f"*{tier_data.get('desc', '')}*\n"
+            f"Owned by **{housing.get('character_name', 'Unknown')}**"
+        ),
         color=0x8b7355
     )
-    # Could add more flavor here later (shops etc)
+
+    # ── Pets ──────────────────────────────────────────────────────────────────
+    pets = housing.get("pets", [])
+    if pets:
+        pet_lines = []
+        for p in pets:
+            p_data = PET_REGISTRY.get(p["key"], {})
+            emoji = p_data.get("emoji", "🐾")
+            days = p.get("days_owned", 0)
+            fed = "✅" if p.get("fed_today") else "❌"
+            pet_lines.append(f"{emoji} **{p['name']}** — {days}d old · Fed: {fed}\n*{p_data.get('desc','')[:60]}*")
+        embed.add_field(name="🐾 Pets", value="\n".join(pet_lines), inline=False)
+
+    # ── Farm ──────────────────────────────────────────────────────────────────
+    plots = housing.get("farming", {}).get("plots", [])
+    if plots:
+        farm_lines = []
+        for i, p in enumerate(plots):
+            c_data = CROPS.get(p["crop_key"], {})
+            stage = get_crop_stage(p)
+            ready = " ✅" if is_harvestable(p) else ""
+            farm_lines.append(f"Plot {i+1}: **{c_data.get('name','?')}**{ready} — {stage}")
+        embed.add_field(name="🌾 Garden", value="\n".join(farm_lines), inline=False)
+    else:
+        embed.add_field(name="🌾 Garden", value="*No crops planted.*", inline=False)
+
+    # ── Furniture ─────────────────────────────────────────────────────────────
+    furniture_keys = housing.get("furniture", [])
+    if furniture_keys:
+        furn_lines = []
+        for f_key in furniture_keys:
+            f_data = FURNITURE.get(f_key)
+            if not f_data: continue
+            bonus = f_data.get("bonus")
+            bonus_str = f" (+{bonus['value']} {bonus['type'].replace('_',' ')})" if bonus else ""
+            furn_lines.append(f"{f_data['emoji']} **{f_data['name']}**{bonus_str}")
+        if furn_lines:
+            embed.add_field(name="🪑 Furnishings", value="\n".join(furn_lines), inline=False)
+
+    embed.set_footer(text=f"{tier_data.get('name','Home')} · {len(plots)} crop(s) · {len(pets)} pet(s) · {len(furniture_keys)} furnishing(s)")
+
     view = discord.ui.View(timeout=60)
     view.add_item(_make_status_btn(ctx, uid, uname, is_owner))
     await msg.channel.send(embed=embed, view=view)
