@@ -274,9 +274,10 @@ class StatChoiceView(discord.ui.View):
             
         # Retrospective HP boost if CON increased
         if "con" in gains:
-            # Simple logic: increase max HP by (gains['con'] // 2) * current_level
+            # Simple logic: increase max HP by (current_con_mod - previous_con_mod) * level, OR per rules:
             # In D&D/TTRPGs, increasing CON retroactively grants HP for all levels.
-            hp_gain = (gains["con"] // 2) * sheet["level"]
+            con_gain = gains["con"]
+            hp_gain = max(1, (con_gain + 1) // 2) * sheet["level"]
             sheet["hp"]["max"] += hp_gain
             sheet["hp"]["current"] += hp_gain
             
@@ -314,7 +315,7 @@ async def _show_stat_choice(ctx, msg, send, sheet, uid, uname, is_owner):
     )
     
     view = StatChoiceView(ctx, uid, uname, is_owner, primary)
-    await send(msg.channel, embed=embed, view=view)
+    await msg.channel.send(embed=embed, view=view)
 
 class RPGFullLocationView(discord.ui.View):
     """
@@ -1292,10 +1293,16 @@ async def _dungeon_combat_round(ctx_obj, interaction, uid, uname, is_owner):
     boss_name = combat.get("boss_name")
     room_key = combat["room_key"]
 
+    from utils.ttrpg.housing import load_housing
+    from utils.ttrpg.pets import get_pet_passive
+    _housing = load_housing(str(sheet.get("user_id", "")))
+    _pet_bonuses = get_pet_passive(_housing) if _housing else {}
+
     world_state = get_current_state()
     res = _resolve_combat(sheet, monster,
                           atk_mod_global=world_state.get("atk_mod", 0),
-                          def_mod_global=world_state.get("def_mod", 0))
+                          def_mod_global=world_state.get("def_mod", 0),
+                          pet_bonuses=_pet_bonuses)
 
     sheet = res["sheet"]
     monster = res["monster"]
@@ -2911,7 +2918,7 @@ async def _handle_go(ctx, msg, send, rest, uid, uname, is_owner):
     # Build arrival embed
     loc_data = LOCATION_DATA.get(target, {})
     name = loc_data.get("name", target)
-    actions = LOCATION_ACTIONS.get(target, ["`!rpg look` — observe the surroundings"])
+    actions = ["`!rpg look` — observe the surroundings"]
     color = LOCATION_COLORS.get(target, 0x888888)
 
     # Show travel path if multi-hop
@@ -4329,17 +4336,17 @@ async def _handle_hunt(ctx, msg, send, rest, uid, uname, is_owner):
         m_data = get_monster(m_key)
         if not m_data: continue
         
-        m_temp = m_data.copy()
-        m_temp["key"] = m_key
+        monster_instance = m_data.copy()
+        monster_instance["key"] = m_key
         # Apply distance difficulty scaling
-        scaled_hp = int(m_temp["hp"] * dist_mult)
-        m_temp["hp"] = {"current": scaled_hp, "max": scaled_hp}
-        m_temp["attack"] = int(m_temp.get("attack", 0) * dist_mult)
-        m_temp["id"] = f"{m_key}_{_uuid.uuid4().hex[:4]}"
-        m_temp["aggro_uid"] = uid  # personal instance
+        scaled_hp = int(monster_instance["hp"] * dist_mult)
+        monster_instance["hp"] = {"current": scaled_hp, "max": scaled_hp}
+        monster_instance["attack"] = int(monster_instance.get("attack", 0) * dist_mult)
+        monster_instance["id"] = f"{m_key}_{_uuid.uuid4().hex[:4]}"
+        monster_instance["aggro_uid"] = uid  # personal instance
         
-        s["monsters"].append(m_temp)
-        spawned_names.append(f"**{m_temp['name']}**")
+        s["monsters"].append(monster_instance)
+        spawned_names.append(f"**{monster_instance['name']}**")
 
     s["combat_active"] = True
     await save_session(s)
@@ -4365,7 +4372,7 @@ async def _handle_hunt(ctx, msg, send, rest, uid, uname, is_owner):
     )
     
     # Show stats of the primary (first) monster
-    embed.add_field(name="❤️ HP", value=str(m_temp['hp']['max']), inline=True)
+    embed.add_field(name="❤️ HP", value=str(monster_instance['hp']['max']), inline=True)
     embed.add_field(name="🗡️ ATK", value=str(m_data.get('attack', 0)), inline=True)
     embed.add_field(name="🛡️ DEF", value=str(m_data.get('defense', 0)), inline=True)
     
@@ -4453,12 +4460,18 @@ async def _handle_attack(ctx, msg, send, rest, uid, uname, is_owner):
     if not monster:
         return await msg.channel.send(embed=discord.Embed(description="Cannot identify monster.", color=0xcc4444))
         
+    from utils.ttrpg.housing import load_housing
+    from utils.ttrpg.pets import get_pet_passive
+    _housing = load_housing(uid)
+    _pet_bonuses = get_pet_passive(_housing) if _housing else {}
+
     # Execute deterministic combat math loop with world state modifiers
     state = get_current_state()
     res = _resolve_combat(
         sheet, monster, 
         atk_mod_global=state.get("atk_mod", 0), 
-        def_mod_global=state.get("def_mod", 0)
+        def_mod_global=state.get("def_mod", 0),
+        pet_bonuses=_pet_bonuses
     )
     
     sheet = res["sheet"]
@@ -6100,9 +6113,14 @@ async def _handle_accept(ctx, msg, send, rest, uid, uname, is_owner):
         all_exchanges = []
         max_rounds = 20
         
+        from utils.ttrpg.housing import load_housing
+        from utils.ttrpg.pets import get_pet_passive
+        _housing = load_housing(uid)
+        _pet_bonuses = get_pet_passive(_housing) if _housing else {}
+        
         while c_sheet["hp"]["current"] > 1 and m_from_t["hp"]["current"] > 1 and round_num <= max_rounds:
             all_exchanges.append(f"**--- Round {round_num} ---**")
-            res = _resolve_combat(c_sheet, m_from_t, is_duel=True)
+            res = _resolve_combat(c_sheet, m_from_t, is_duel=True, pet_bonuses=_pet_bonuses)
             all_exchanges.extend(res["exchanges"])
             c_sheet = res["sheet"]
             m_from_t = res["monster"]
@@ -6132,7 +6150,10 @@ async def _handle_accept(ctx, msg, send, rest, uid, uname, is_owner):
         await _log_world_event(f"⚔️ **DUEL:** {c_sheet['character_name']} vs {t_sheet['character_name']} in {c_sheet['location'].replace('_',' ').title()}.")
         return
 
-    await msg.channel.send(embed=embed)
+    await msg.channel.send(embed=discord.Embed(
+        description="No pending duel or quest acceptance. Use `!rpg duel @user` to challenge someone.",
+        color=0x888888
+    ))
 
 
 # ── Housing Handlers ─────────────────────────────────────────────────────────

@@ -429,6 +429,11 @@ async def _handle_cast(ctx, interaction: discord.Interaction, uid: str, uname: s
     wait_time = get_bite_wait_time(pole_key)
     await asyncio.sleep(wait_time)
 
+    # Reload sheet to prevent stale state usage from before the sleep
+    sheet = await load(uid)
+    if not sheet:
+        return
+
     # Resolve catch
     season = get_season()
     hour = datetime.now().hour

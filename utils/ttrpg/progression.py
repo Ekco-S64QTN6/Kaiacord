@@ -19,7 +19,7 @@ COMBAT_TIERS = {
 
 XP_THRESHOLDS = {
     1:  0,      2:  300,    3:  900,    4:  2700,
-    5:  6500,   6:  14000,  7:  23000,  8:  34000,
+    5:  5000,   6:  11000,  7:  23000,  8:  34000,
     9:  48000,  10: 64000,
 }
 
@@ -46,32 +46,38 @@ def check_level_up(sheet: dict) -> tuple[bool, int]:
     Mutates sheet in place if leveled up.
     Also triggers class advancement prompt at level 5.
     """
-    level = sheet["level"]
-    xp = sheet["xp"]
-    next_threshold = XP_THRESHOLDS.get(level + 1)
+    leveled = False
+    final_level = sheet["level"]
+    
+    while True:
+        level = sheet["level"]
+        next_threshold = XP_THRESHOLDS.get(level + 1)
 
-    if next_threshold is None or xp < next_threshold:
-        return False, level
+        if next_threshold is None or sheet["xp"] < next_threshold:
+            break
 
-    new_level = level + 1
-    sheet["level"] = new_level
+        new_level = level + 1
+        sheet["level"] = new_level
 
-    # Deterministic HP increase: half die + CON modifier (floor 1)
-    con_mod = (sheet["stats"]["con"] - 10) // 2
-    class_name = sheet["class"]
-    hp_gain = max(1, HP_PER_LEVEL.get(class_name, 5) + con_mod)
-    sheet["hp"]["max"] += hp_gain
-    sheet["hp"]["current"] = min(sheet["hp"]["current"] + hp_gain, sheet["hp"]["max"])
+        # Deterministic HP increase: half die + CON modifier (floor 1)
+        con_mod = (sheet["stats"]["con"] - 10) // 2
+        class_name = sheet["class"]
+        hp_gain = max(1, HP_PER_LEVEL.get(class_name, 5) + con_mod)
+        sheet["hp"]["max"] += hp_gain
+        sheet["hp"]["current"] = min(sheet["hp"]["current"] + hp_gain, sheet["hp"]["max"])
 
-    # Stat growth: stat choice at levels 4 and 8
-    if new_level in (4, 8):
-        sheet["_stat_choice_pending"] = True
+        # Stat growth: stat choice at levels 4 and 8
+        if new_level in (4, 8):
+            sheet["_stat_choice_pending"] = True
 
-    # Mark for class advancement at level 5 (if not already advanced)
-    if new_level == 5 and not sheet.get("advanced_class"):
-        sheet["_advancement_pending"] = True
+        # Mark for class advancement at level 5 (if not already advanced)
+        if new_level == 5 and not sheet.get("advanced_class"):
+            sheet["_advancement_pending"] = True
+            
+        leveled = True
+        final_level = new_level
 
-    return True, new_level
+    return leveled, final_level
 
 
 def check_and_reset_hunts(sheet: dict) -> dict:

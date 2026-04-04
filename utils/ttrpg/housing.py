@@ -84,8 +84,10 @@ def default_housing_sheet(user_id: str, character_name: str, tier: str = "hut") 
 # ── Persistence ────────────────────────────────────────────────────────────────
 
 import os, json
+import threading
 
 HOUSING_DIR = os.path.join("memory", "ttrpg", "housing")
+_lock = threading.Lock()
 
 def _housing_path(user_id: str) -> str:
     os.makedirs(HOUSING_DIR, exist_ok=True)
@@ -93,30 +95,33 @@ def _housing_path(user_id: str) -> str:
 
 def load_housing(user_id: str) -> dict | None:
     p = _housing_path(str(user_id))
-    if not os.path.exists(p):
-        return None
-    with open(p, 'r', encoding='utf-8') as f:
-        return json.load(f)
+    with _lock:
+        if not os.path.exists(p):
+            return None
+        with open(p, 'r', encoding='utf-8') as f:
+            return json.load(f)
 
 def save_housing(housing: dict) -> None:
     import time
     p = _housing_path(str(housing["user_id"]))
     housing["last_updated"] = time.time()
     tmp = p + ".tmp"
-    with open(tmp, 'w', encoding='utf-8') as f:
-        json.dump(housing, f, indent=2)
-    os.replace(tmp, p)
+    with _lock:
+        with open(tmp, 'w', encoding='utf-8') as f:
+            json.dump(housing, f, indent=2)
+        os.replace(tmp, p)
 
 def load_all_housing() -> list[dict]:
     os.makedirs(HOUSING_DIR, exist_ok=True)
     result = []
-    for fname in os.listdir(HOUSING_DIR):
-        if fname.endswith(".json"):
-            try:
-                with open(os.path.join(HOUSING_DIR, fname), 'r', encoding='utf-8') as f:
-                    result.append(json.load(f))
-            except:
-                pass
+    with _lock:
+        for fname in os.listdir(HOUSING_DIR):
+            if fname.endswith(".json"):
+                try:
+                    with open(os.path.join(HOUSING_DIR, fname), 'r', encoding='utf-8') as f:
+                        result.append(json.load(f))
+                except:
+                    pass
     return result
 
 def get_tier_data(tier_key: str) -> dict:

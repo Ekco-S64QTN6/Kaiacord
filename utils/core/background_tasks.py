@@ -400,20 +400,6 @@ class CoreTaskManager:
         import discord
         from datetime import datetime, timedelta
 
-        RAID_POOL = [
-            ("wolf",     30),
-            ("skeleton", 25),
-            ("goblin",   20),
-            ("bandit",   15),
-            ("ghoul",    10),
-        ]
-
-        TOWN_LOCATIONS = {
-            "oakhaven", "stone_hearth", "hemlocks_store",
-            "shrine", "watchtower", "oakhaven_bank", "herbalists_hut",
-            "housing_district", "tricklebrook_pond", "caravan"
-        }
-
         @tasks.loop(hours=24)
         async def noon_raid_task():
             if shutdown_manager.shutting_down: return

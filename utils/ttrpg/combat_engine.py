@@ -1,10 +1,11 @@
 import secrets
 
-def _resolve_combat(sheet: dict, monster: dict, atk_mod_global: int = 0, def_mod_global: int = 0, is_duel: bool = False) -> dict:
+def _resolve_combat(sheet: dict, monster: dict, atk_mod_global: int = 0, def_mod_global: int = 0, is_duel: bool = False, pet_bonuses: dict = None) -> dict:
     """
     Resolve one round of combat between a player and a monster (or another player).
     Returns a dict with the results.
     """
+    pet_bonuses = pet_bonuses or {}
     class_name = sheet.get("class", "Warrior")
     CLASS_ATTACK_STAT = {
         "Warrior": "str",
@@ -104,11 +105,6 @@ def _resolve_combat(sheet: dict, monster: dict, atk_mod_global: int = 0, def_mod
             sheet["conditions"].remove("lucky")
 
     # Pet bonus calculation
-    from utils.ttrpg.housing import load_housing
-    from utils.ttrpg.pets import get_pet_passive
-    housing_pet = load_housing(str(sheet.get("user_id", "")))
-    pet_bonuses = get_pet_passive(housing_pet) if housing_pet else {}
-    
     pet_combat_bonus = pet_bonuses.get("combat_bonus", 0)
 
     attack_mod = atk_mod + weapon_atk + acc_atk + adv_flat_atk + bless_bonus + streak_bonus + luck_bonus + atk_mod_global + pet_combat_bonus
@@ -211,12 +207,14 @@ def _resolve_combat(sheet: dict, monster: dict, atk_mod_global: int = 0, def_mod
         pet_def_bonus = pet_bonuses.get("def_bonus", 0)
         player_defense = 10 + dex_mod + effective_gear_def + adv_flat_def + def_mod_global + pet_def_bonus
 
-        TIER_HIT_MOD = {
-            "trivial":  2, "easy":   4, "medium":  7,
-            "hard":    10, "deadly": 14, "boss":   18,
-        }
         _tier = monster.get("tier", "medium")
-        monster_attack_mod = TIER_HIT_MOD.get(_tier, monster["attack"] // 2)
+        _dungeon_diff = monster.get("dungeon_difficulty", 1)
+        
+        def get_monster_attack_mod(tier: str, diff: int = 1) -> int:
+            BASE = {"trivial": 2, "easy": 4, "medium": 7, "hard": 10, "deadly": 14, "boss": 18}
+            return max(2, BASE.get(tier, 7) - (3 - diff) * 2)
+            
+        monster_attack_mod = get_monster_attack_mod(_tier, _dungeon_diff)
 
         monster_raw_hit = secrets.randbelow(20) + 1
         monster_total_hit = monster_raw_hit + monster_attack_mod

@@ -1,5 +1,6 @@
 import os
 import json
+import threading
 from typing import Dict, Any
 
 WORLD_STATE_PATH = os.path.join("memory", "ttrpg", "world_state.json")
@@ -16,68 +17,43 @@ DEFAULT_STATE = {
     "caravan_active": False,
     "last_tick": 0
 }
+_cache = None
+_cache_date = 0.0
+_lock = threading.Lock()
 
 def load_world_state() -> Dict[str, Any]:
-    if not os.path.exists(WORLD_STATE_PATH):
-        return DEFAULT_STATE.copy()
-    try:
-        with open(WORLD_STATE_PATH, "r", encoding="utf-8") as f:
-            state = json.load(f)
-            # Ensure all keys exist
-            for k, v in DEFAULT_STATE.items():
-                if k not in state:
-                    state[k] = v
-            return state
-    except:
-        return DEFAULT_STATE.copy()
+    global _cache, _cache_date
+    with _lock:
+        if not os.path.exists(WORLD_STATE_PATH):
+            return DEFAULT_STATE.copy()
+        try:
+            mtime = os.path.getmtime(WORLD_STATE_PATH)
+            if _cache and mtime <= _cache_date:
+                return _cache.copy()
+                
+            with open(WORLD_STATE_PATH, "r", encoding="utf-8") as f:
+                state = json.load(f)
+                # Ensure all keys exist
+                for k, v in DEFAULT_STATE.items():
+                    if k not in state:
+                        state[k] = v
+                _cache = state
+                _cache_date = mtime
+                return state.copy()
+        except:
+            return DEFAULT_STATE.copy()
 
 def save_world_state(state: Dict[str, Any]):
-    os.makedirs(os.path.dirname(WORLD_STATE_PATH), exist_ok=True)
-    with open(WORLD_STATE_PATH, "w", encoding="utf-8") as f:
-        json.dump(state, f, indent=2)
+    global _cache, _cache_date
+    with _lock:
+        os.makedirs(os.path.dirname(WORLD_STATE_PATH), exist_ok=True)
+        tmp = WORLD_STATE_PATH + ".tmp"
+        with open(tmp, "w", encoding="utf-8") as f:
+            json.dump(state, f, indent=2)
+        os.replace(tmp, WORLD_STATE_PATH)
+        _cache = state.copy()
+        _cache_date = os.path.getmtime(WORLD_STATE_PATH)
 
 def get_current_state() -> Dict[str, Any]:
     return load_world_state()
-
-def calculate_next_state() -> Dict[str, Any]:
-    import secrets
-    new_state = DEFAULT_STATE.copy()
-    
-    # 1. Roll for Weather (percentile-based)
-    w_roll = secrets.randbelow(100)
-    if w_roll < 60: # 60% Clear
-        new_state["weather"] = "clear"
-        new_state["weather_desc"] = "The sky is a brilliant, cloudless blue."
-    elif w_roll < 80: # 20% Overcast
-        new_state["weather"] = "overcast"
-        new_state["weather_desc"] = "A thick layer of grey clouds hangs low over the trees."
-        new_state["atk_mod"] = -1
-    elif w_roll < 95: # 15% Stormy
-        new_state["weather"] = "stormy"
-        new_state["weather_desc"] = "Thunder rumbles as rain lashes against the square."
-        new_state["atk_mod"] = -2
-        new_state["def_mod"] = -2
-    else: # 5% Blood Moon (Aethelgard special)
-        new_state["weather"] = "blood_moon"
-        new_state["weather_desc"] = "The moon hangs bloated and crimson. The monsters are restless."
-        new_state["atk_mod"] = 3
-        new_state["xp_mult"] = 1.5
-        
-    # 2. Roll for World Event
-    e_roll = secrets.randbelow(100)
-    if e_roll < 10: # 10% chance of event
-        events = [
-            ("resonance_surge", "A surge of ancient magic pulses through the ley lines (+2 ATK/DEF).", {"atk_mod": 2, "def_mod": 2}),
-            ("hemlock_sale", "Old Man Hemlock is feeling generous today (Selling bonus).", {"gil_mult": 1.25}),
-            ("whisper_thin", "The veil is thin. XP flows more freely (+25% XP).", {"xp_mult": 1.25}),
-        ]
-        idx = secrets.randbelow(len(events))
-        ev_type, ev_desc, mods = events[idx]
-        new_state["event"] = ev_type
-        new_state["event_desc"] = ev_desc
-        for k, v in mods.items():
-            if k in new_state and isinstance(v, (int, float)):
-                new_state[k] += v # additive
-                
-    return new_state
 

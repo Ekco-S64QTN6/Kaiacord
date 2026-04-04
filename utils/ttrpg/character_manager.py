@@ -26,13 +26,37 @@ async def get_user_lock(user_id: str) -> asyncio.Lock:
             _user_locks[user_id] = asyncio.Lock()
         return _user_locks[user_id]
 
+def _migrate_inventory(sheet: Dict[str, Any]) -> None:
+    """Normalize legacy equipment keys to their current registry keys."""
+    legacy_map = {
+        "hand_axe": "rusty_hand_axe", "stiletto": "rusty_stiletto",
+        "mace": "rusty_mace", "spear": "iron_spear",
+        "battle_axe": "iron_battle_axe", "morning_star": "iron_morning_star",
+        "longsword": "steel_longsword", "steel_blade": "steel_dagger",
+        "defender": "flame_scepter"
+    }
+    if "inventory" in sheet and isinstance(sheet["inventory"], list):
+        for i, item in enumerate(sheet["inventory"]):
+            if item in legacy_map:
+                sheet["inventory"][i] = legacy_map[item]
+    if "equipment" in sheet and isinstance(sheet["equipment"], dict):
+        for slot, item_data in sheet["equipment"].items():
+            if isinstance(item_data, dict) and item_data.get("key") in legacy_map:
+                new_key = legacy_map[item_data["key"]]
+                from utils.ttrpg.equipment_registry import get_equipment
+                new_eq = get_equipment(new_key)
+                if new_eq:
+                    sheet["equipment"][slot] = new_eq
+
 def _load_sync(user_id: str) -> Optional[Dict[str, Any]]:
     p = _path(user_id)
     if not os.path.exists(p):
         return None
     with _lock:
         with open(p, 'r', encoding='utf-8') as f:
-            return json.load(f)
+            sheet = json.load(f)
+            _migrate_inventory(sheet)
+            return sheet
 
 async def load(user_id: str) -> Optional[Dict[str, Any]]:
     """Async load with per-user locking. Applies daily reset if needed."""
@@ -61,7 +85,9 @@ def _load_all_sync() -> List[Dict[str, Any]]:
                 continue
             try:
                 with open(os.path.join(CHARACTERS_DIR, fname), 'r', encoding='utf-8') as f:
-                    sheets.append(json.load(f))
+                    sheet = json.load(f)
+                    _migrate_inventory(sheet)
+                    sheets.append(sheet)
             except (json.JSONDecodeError, OSError):
                 continue
     return sheets

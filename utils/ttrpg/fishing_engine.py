@@ -139,12 +139,8 @@ def calculate_catch_value(fish_key: str, fish_weight: float, cha_mod: int = 0) -
     
     # Tiered economic caps to prevent "dragon loot" fishing
     cat = fish.get("category", "common")
-    if cat == "mythic":
-        value = min(250, value)
-    elif cat == "legendary":
-        value = min(200, value)
-    elif cat == "epic":
-        value = min(150, value)
+    if cat in ("mythic", "legendary", "epic"):
+        value = min(int(fish["sell_value"] * 2.5), value)
     else:
         # Keep Rare/Uncommon/Common natural (usually 2-95g)
         pass
