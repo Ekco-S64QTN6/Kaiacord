@@ -48,6 +48,31 @@ def _migrate_inventory(sheet: Dict[str, Any]) -> None:
                 if new_eq:
                     sheet["equipment"][slot] = new_eq
 
+def _migrate_hp_bonuses(sheet: Dict[str, Any]) -> None:
+    """Retroactively apply HP bonuses for currently equipped tier 4-5 gear."""
+    if sheet.get("_hp_migrated_v2"): return
+    
+    hp_to_add = 0
+    if "equipment" in sheet and isinstance(sheet["equipment"], dict):
+        from utils.ttrpg.equipment_registry import get_equipment
+        for slot, item_data in sheet["equipment"].items():
+            if not item_data: continue
+            item_key = item_data.get("key") if isinstance(item_data, dict) else item_data
+            # Re-fetch from registry to get latest hp_bonus
+            reg_item = get_equipment(item_key)
+            if reg_item:
+                hp_to_add += reg_item.get("hp_bonus", 0)
+                # Update the stored equipment dict to include the new bonus field
+                if isinstance(item_data, dict):
+                    sheet["equipment"][slot] = reg_item
+    
+    if hp_to_add > 0:
+        if "hp" in sheet and isinstance(sheet["hp"], dict):
+            sheet["hp"]["max"] += hp_to_add
+            sheet["hp"]["current"] += hp_to_add
+        
+    sheet["_hp_migrated_v2"] = True
+
 def _load_sync(user_id: str) -> Optional[Dict[str, Any]]:
     p = _path(user_id)
     if not os.path.exists(p):
@@ -56,6 +81,7 @@ def _load_sync(user_id: str) -> Optional[Dict[str, Any]]:
         with open(p, 'r', encoding='utf-8') as f:
             sheet = json.load(f)
             _migrate_inventory(sheet)
+            _migrate_hp_bonuses(sheet)
             return sheet
 
 async def load(user_id: str) -> Optional[Dict[str, Any]]:

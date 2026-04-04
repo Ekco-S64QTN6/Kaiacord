@@ -83,22 +83,19 @@ WEAPONS = {
     "war_halberd": {
         "name": "War Halberd", "attack_bonus": 4, "damage_die": 10,
         "damage_bonus": 4, "value": 870, "tier": 3,
-        "classes": ["Warrior"],
-    "droppable_only": True,
+        "classes": ["Warrior"], "droppable_only": True,
     },
 
     # Tier 4
     "aeridorian_greatsword": {
         "name": "Aeridorian Greatsword", "attack_bonus": 7, "damage_die": 12,
         "damage_bonus": 6, "value": 3000, "tier": 4,
-        "classes": ["Warrior", "Paladin"],
-    "droppable_only": True,
+        "classes": ["Warrior", "Paladin"], "droppable_only": True,
     },
     "champion_spear": {
         "name": "Champion's Spear", "attack_bonus": 6, "damage_die": 12,
         "damage_bonus": 6, "value": 2700, "tier": 4,
-        "classes": ["Warrior"],
-    "droppable_only": True,
+        "classes": ["Warrior"], "droppable_only": True,
     },
 
     # Tier 5
@@ -162,16 +159,14 @@ WEAPONS = {
     "moonbow": {
         "name": "Moonbow", "attack_bonus": 7, "damage_die": 12,
         "damage_bonus": 6, "value": 3200, "tier": 4,
-        "classes": ["Ranger", "Hunter"],
-    "droppable_only": True,
+        "classes": ["Ranger", "Hunter"], "droppable_only": True,
     },
 
     # Tier 5
     "silent_stalker_bow": {
         "name": "Silent Stalker Bow", "attack_bonus": 9, "damage_die": 12,
         "damage_bonus": 8, "value": 7500, "tier": 5,
-        "classes": ["Ranger", "Hunter"],
-    "droppable_only": True,
+        "classes": ["Ranger", "Hunter"], "droppable_only": True,
     },
 
     # ══════════════════════════════════════════════════════════════
@@ -211,22 +206,19 @@ WEAPONS = {
     "elder_orb": {
         "name": "Elder Orb", "attack_bonus": 4, "damage_die": 10,
         "damage_bonus": 4, "value": 895, "tier": 3,
-        "classes": ["Mage", "Cleric"],
-    "droppable_only": True,
+        "classes": ["Mage", "Cleric"], "droppable_only": True,
     },
 
     # Tier 4
     "void_orb": {
         "name": "Void Orb", "attack_bonus": 6, "damage_die": 12,
         "damage_bonus": 6, "value": 2800, "tier": 4,
-        "classes": ["Mage", "Necromancer"],
-    "droppable_only": True,
+        "classes": ["Mage", "Necromancer"], "droppable_only": True,
     },
     "the_whispering_wand": {
         "name": "The Whispering Wand", "attack_bonus": 7, "damage_die": 12,
         "damage_bonus": 6, "value": 3100, "tier": 4,
-        "classes": ["Mage", "Wizard"],
-    "droppable_only": True,
+        "classes": ["Mage", "Wizard"], "droppable_only": True,
     },
 
     # Tier 5
@@ -256,8 +248,7 @@ WEAPONS = {
     "shadow_blade": {
         "name": "Shadow Blade", "attack_bonus": 3, "damage_die": 8,
         "damage_bonus": 2, "value": 295, "tier": 2,
-        "classes": ["Rogue"],
-    "droppable_only": True,
+        "classes": ["Rogue"], "droppable_only": True,
     },
     "assassin_stiletto": {
         "name": "Assassin's Stiletto", "attack_bonus": 2, "damage_die": 6,
@@ -269,42 +260,36 @@ WEAPONS = {
     "gutting_knife": {
         "name": "Gutting Knife", "attack_bonus": 5, "damage_die": 10,
         "damage_bonus": 4, "value": 975, "tier": 3,
-        "classes": ["Rogue"],
-    "droppable_only": True,
+        "classes": ["Rogue"], "droppable_only": True,
     },
     "obsidian_dagger": {
         "name": "Obsidian Dagger", "attack_bonus": 4, "damage_die": 8,
         "damage_bonus": 4, "value": 895, "tier": 3,
-        "classes": ["Rogue", "Ranger"],
-    "droppable_only": True,
+        "classes": ["Rogue", "Ranger"], "droppable_only": True,
     },
 
     # Tier 4
     "whisper_blade": {
         "name": "Whisper Blade", "attack_bonus": 6, "damage_die": 10,
         "damage_bonus": 6, "value": 2700, "tier": 4,
-        "classes": ["Rogue"],
-    "droppable_only": True,
+        "classes": ["Rogue"], "droppable_only": True,
     },
     "the_quiet_death": {
         "name": "The Quiet Death", "attack_bonus": 7, "damage_die": 10,
         "damage_bonus": 6, "value": 3100, "tier": 4,
-        "classes": ["Rogue", "Shadowblade"],
-    "droppable_only": True,
+        "classes": ["Rogue", "Shadowblade"], "droppable_only": True,
     },
 
     # Tier 5
     "voidstep_blade": {
         "name": "Voidstep Blade", "attack_bonus": 10, "damage_die": 12,
         "damage_bonus": 8, "value": 8400, "tier": 5,
-        "classes": ["Rogue", "Shadowblade"],
-    "droppable_only": True,
+        "classes": ["Rogue", "Shadowblade"], "droppable_only": True,
     },
     "the_last_laugh": {
         "name": "The Last Laugh", "attack_bonus": 9, "damage_die": 12,
         "damage_bonus": 8, "value": 7300, "tier": 5,
-        "classes": ["Rogue", "Trickster"],
-    "droppable_only": True,
+        "classes": ["Rogue", "Trickster"], "droppable_only": True,
     },
 
     # ══════════════════════════════════════════════════════════════
@@ -363,14 +348,12 @@ WEAPONS = {
     "morvenna_flail": {
         "name": "Morvenna's Flail", "attack_bonus": 9, "damage_die": 12,
         "damage_bonus": 8, "value": 7500, "tier": 5,
-        "classes": ["Cleric", "Shadowknight", "High Priest"],
-    "droppable_only": True,
+        "classes": ["Cleric", "Shadowknight", "High Priest"], "droppable_only": True,
     },
     "voice_of_dawn": {
         "name": "Voice of Dawn", "attack_bonus": 10, "damage_die": 12,
         "damage_bonus": 8, "value": 8500, "tier": 5,
-        "classes": ["Cleric", "Paladin", "High Priest"],
-    "droppable_only": True,
+        "classes": ["Cleric", "Paladin", "High Priest"], "droppable_only": True,
     },
 }
 
@@ -396,7 +379,7 @@ ARMOR = {
     # Tier 2
     "studded_leather":  {"name": "Studded Leather",   "defense_bonus": 3, "value": 258,  "tier": 2, "droppable_only": True, "classes": ["Warrior", "Ranger", "Rogue"]},
     "chainmail":        {"name": "Chainmail",          "defense_bonus": 5, "value": 295,  "tier": 2, "classes": ["Warrior", "Ranger", "Cleric"]},
-    "silken_robe":      {"name": "Silken Robe",       "defense_bonus": 3, "value": 262,  "tier": 2, "classes": ["Mage", "Cleric"]},
+    "silken_robe":      {"name": "Silken Robe",       "defense_bonus": 2, "value": 262,  "tier": 2, "classes": ["Mage", "Cleric"]},
     "black_garb":       {"name": "Black Garb",        "defense_bonus": 5, "value": 280,  "tier": 2, "classes": ["Rogue", "Ranger"]},
 
     # Tier 3
@@ -404,20 +387,24 @@ ARMOR = {
     "flame_mail":       {"name": "Flame Mail",        "defense_bonus": 7, "value": 970, "tier": 3, "droppable_only": True, "classes": ["Warrior"]},
     "ice_armor":        {"name": "Ice Armor",         "defense_bonus": 7, "value": 970, "tier": 3, "droppable_only": True, "classes": ["Warrior"]},
     "mithral_shirt":    {"name": "Mithral Chain Shirt","defense_bonus": 6, "value": 1150, "tier": 3, "classes": ["Warrior", "Ranger", "Rogue"], "droppable_only": True},
+    "invoker_vestment": {"name": "Invoker's Vestment", "defense_bonus": 3, "stat_bonus": {"int": 1}, "value": 895, "tier": 3, "droppable_only": True, "classes": ["Mage"]},
 
     # Tier 4
-    "full_plate":       {"name": "Full Plate",         "defense_bonus": 9, "value": 3000, "tier": 4, "droppable_only": True, "classes": ["Warrior", "Paladin"]},
+    "full_plate":       {"name": "Full Plate",         "defense_bonus": 7, "stat_bonus": {"str": 1}, "value": 3000, "tier": 4, "droppable_only": True, "classes": ["Warrior", "Paladin"]},
     "diamond_armor":    {"name": "Diamond Armor",     "defense_bonus": 8, "value": 2700, "tier": 4, "classes": ["Warrior"], "droppable_only": True},
-    "arcane_vestment":   {"name": "Arcane Vestment",   "defense_bonus": 6, "value": 2400, "tier": 4, "classes": ["Mage", "Cleric"], "droppable_only": True},
+    "arcane_vestment":  {"name": "Arcane Vestment",    "defense_bonus": 3, "stat_bonus": {"int": 1}, "hp_bonus": 5,  "value": 2400, "tier": 4, "classes": ["Mage", "Cleric"], "droppable_only": True},
+    "void_vestment":    {"name": "Void Vestment",      "defense_bonus": 3, "stat_bonus": {"int": 1}, "hp_bonus": 5,  "value": 3000, "tier": 4, "classes": ["Mage", "Necromancer"], "droppable_only": True},
 
     # Tier 5
     "aeridorian_plate": {"name": "Aeridorian Plate",  "defense_bonus": 11,"value": 3400, "tier": 5, "droppable_only": True},
     "rubicite_armor":   {"name": "Rubicite Armor",    "defense_bonus": 10,"value": 8000, "tier": 5, "droppable_only": True, "classes": ["Warrior"]},
     "dragon_scale":     {"name": "Dragon Scale Mail", "defense_bonus": 10,"value": 9500, "tier": 5, "droppable_only": True},
-    "ethereal_plate":   {"name": "Ethereal Plate",    "defense_bonus": 12,"value": 11000, "tier": 5, "classes": ["Warrior"], "droppable_only": True},
-    "archmage_robe":    {"name": "Robe of the Archmagi","defense_bonus": 8,"value": 9500, "tier": 5, "droppable_only": True, "classes": ["Mage"]},
+    "ethereal_plate":   {"name": "Ethereal Plate",    "defense_bonus": 9, "stat_bonus": {"str": 1}, "hp_bonus": 8,  "value": 11000, "tier": 5, "classes": ["Warrior"], "droppable_only": True},
+    "arcanist_shroud":  {"name": "Arcanist's Shroud",  "defense_bonus": 4, "stat_bonus": {"int": 2}, "hp_bonus": 10, "value": 7600, "tier": 5, "droppable_only": True, "classes": ["Mage", "Wizard", "Necromancer"]},
+    "archmage_robe":    {"name": "Robe of the Archmagi","defense_bonus": 4, "stat_bonus": {"int": 2}, "hp_bonus": 10, "value": 9500, "tier": 5, "droppable_only": True, "classes": ["Mage"]},
     "genji_armor":      {"name": "Genji Armor",       "defense_bonus": 11,"value": 9000, "tier": 5, "droppable_only": True, "classes": ["Warrior", "Rogue"]},
-    "adamantine_plate": {"name": "Adamantine Plate",  "defense_bonus": 12,"value": 12000, "tier": 5, "droppable_only": True, "classes": ["Warrior"]},
+    "adamantine_plate": {"name": "Adamantine Plate",   "defense_bonus": 9, "stat_bonus": {"str": 2}, "hp_bonus": 12, "value": 12000, "tier": 5, "droppable_only": True, "classes": ["Warrior"]},
+    "voice_of_silence_armor": {"name": "Voice of Silence Armor", "defense_bonus": 7, "stat_bonus": {"wis": 3}, "hp_bonus": 8, "value": 9000, "tier": 5, "classes": ["Cleric", "Paladin", "High Priest", "Shaman"]},
 
     # ══════════════════════════════════════════════════════════════
     # WARRIOR — Plate Progression
@@ -429,22 +416,14 @@ ARMOR = {
     },
     "battle_plate": {
         "name": "Battle Plate", "defense_bonus": 6, "value": 290, "tier": 2,
-        "classes": ["Warrior"],
-    "droppable_only": True,
+        "classes": ["Warrior"], "droppable_only": True,
     },
     "knights_plate": {
         "name": "Knight's Plate", "defense_bonus": 8, "value": 900, "tier": 3,
         "classes": ["Warrior"],
     },
-    "warlord_plate": {
-        "name": "Warlord's Plate", "defense_bonus": 10, "value": 3000, "tier": 4,
-        "classes": ["Warrior"],
-    "droppable_only": True,
-    },
-    "champion_plate": {
-        "name": "Champion's Plate", "defense_bonus": 12, "value": 8500, "tier": 5, "droppable_only": True,
-        "classes": ["Warrior"],
-    },
+    "warlord_plate":    {"name": "Warlord's Plate",    "defense_bonus": 7, "stat_bonus": {"str": 1}, "value": 3000, "tier": 4, "classes": ["Warrior"], "droppable_only": True},
+    "champion_plate":   {"name": "Champion's Plate",   "defense_bonus": 9, "stat_bonus": {"str": 2}, "hp_bonus": 10, "value": 8500, "tier": 5, "droppable_only": True, "classes": ["Warrior"]},
 
     # ══════════════════════════════════════════════════════════════
     # RANGER — Natural Leather Progression
@@ -456,8 +435,7 @@ ARMOR = {
     },
     "scouts_leathers": {
         "name": "Scout's Leathers", "defense_bonus": 4, "value": 268, "tier": 2,
-        "classes": ["Ranger"],
-    "droppable_only": True,
+        "classes": ["Ranger"], "droppable_only": True,
     },
     "whisperwood_garb": {
         "name": "Whisperwood Garb", "defense_bonus": 6, "value": 890, "tier": 3,
@@ -465,8 +443,7 @@ ARMOR = {
     },
     "ghost_leather": {
         "name": "Ghost Leather", "defense_bonus": 9, "value": 2800, "tier": 4,
-        "classes": ["Ranger", "Hunter", "Warden"],
-    "droppable_only": True,
+        "classes": ["Ranger", "Hunter", "Warden"], "droppable_only": True,
     },
     "forest_sovereign_armor": {
         "name": "Forest Sovereign Armor", "defense_bonus": 11, "value": 8300, "tier": 5,
@@ -491,8 +468,7 @@ ARMOR = {
     },
     "void_cloth": {
         "name": "Void Cloth", "defense_bonus": 9, "value": 2900, "tier": 4,
-        "classes": ["Rogue", "Shadowblade"],
-    "droppable_only": True,
+        "classes": ["Rogue", "Shadowblade"], "droppable_only": True,
     },
     "void_mantle": {
         "name": "Void Mantle", "defense_bonus": 11, "value": 7800, "tier": 5,
@@ -511,19 +487,9 @@ ARMOR = {
         "name": "Channeler's Robes", "defense_bonus": 3, "value": 262, "tier": 2,
         "classes": ["Mage"],
     },
-    "invoker_vestment": {
-        "name": "Invoker's Vestment", "defense_bonus": 5, "value": 895, "tier": 3, "droppable_only": True,
-        "classes": ["Mage"],
-    },
-    "void_vestment": {
-        "name": "Void Vestment", "defense_bonus": 8, "value": 3000, "tier": 4,
-        "classes": ["Mage", "Necromancer"],
-    "droppable_only": True,
-    },
-    "arcanist_shroud": {
-        "name": "Arcanist's Shroud", "defense_bonus": 10, "value": 7600, "tier": 5, "droppable_only": True,
-        "classes": ["Mage", "Wizard", "Necromancer"],
-    },
+    "invoker_vestment": {"name": "Invoker's Vestment", "defense_bonus": 3, "stat_bonus": {"int": 1}, "value": 895, "tier": 3, "droppable_only": True, "classes": ["Mage"]},
+    "void_vestment":    {"name": "Void Vestment",      "defense_bonus": 3, "stat_bonus": {"int": 1}, "hp_bonus": 5,  "value": 3000, "tier": 4, "classes": ["Mage", "Necromancer"], "droppable_only": True},
+    "arcanist_shroud":  {"name": "Arcanist's Shroud",  "defense_bonus": 4, "stat_bonus": {"int": 2}, "hp_bonus": 10, "value": 7600, "tier": 5, "droppable_only": True, "classes": ["Mage", "Wizard", "Necromancer"]},
 
     # ══════════════════════════════════════════════════════════════
     # CLERIC — Divine Armor Progression
@@ -543,8 +509,7 @@ ARMOR = {
     },
     "saint_plate": {
         "name": "Saint's Plate", "defense_bonus": 10, "value": 3200, "tier": 4,
-        "classes": ["Cleric", "Paladin", "High Priest"],
-    "droppable_only": True,
+        "classes": ["Cleric", "Paladin", "High Priest"], "droppable_only": True,
     },
     "voice_of_silence_armor": {
         "name": "Voice of Silence Armor", "defense_bonus": 11, "value": 9000, "tier": 5,
@@ -600,8 +565,7 @@ HEADGEAR = {
     },
     "battle_visor": {
         "name": "Battle Visor", "defense_bonus": 2, "value": 268, "tier": 2,
-        "classes": ["Warrior"],
-    "droppable_only": True,
+        "classes": ["Warrior"], "droppable_only": True,
     },
     "warlord_helm": {
         "name": "Warlord's Helm", "defense_bonus": 3, "value": 860, "tier": 3,
@@ -613,8 +577,7 @@ HEADGEAR = {
     },
     "the_iron_crown": {
         "name": "The Iron Crown", "defense_bonus": 4, "value": 8000, "tier": 5,
-        "classes": ["Warrior"],
-    "droppable_only": True,
+        "classes": ["Warrior"], "droppable_only": True,
     },
 
     # ══════════════════════════════════════════════════════════════
@@ -635,8 +598,7 @@ HEADGEAR = {
     },
     "hunters_visor": {
         "name": "Hunter's Visor", "defense_bonus": 3, "value": 2800, "tier": 4,
-        "classes": ["Ranger"],
-    "droppable_only": True,
+        "classes": ["Ranger"], "droppable_only": True,
     },
     "forest_crown": {
         "name": "Forest Crown", "defense_bonus": 4, "value": 7500, "tier": 5, "droppable_only": True,
@@ -665,8 +627,7 @@ HEADGEAR = {
     },
     "void_crown": {
         "name": "Void Crown", "defense_bonus": 4, "value": 7500, "tier": 5,
-        "classes": ["Mage"],
-    "droppable_only": True,
+        "classes": ["Mage"], "droppable_only": True,
     },
 
     # ══════════════════════════════════════════════════════════════
@@ -679,8 +640,7 @@ HEADGEAR = {
     },
     "phantom_hood": {
         "name": "Phantom Hood", "defense_bonus": 1, "value": 258, "tier": 2,
-        "classes": ["Rogue"],
-    "droppable_only": True,
+        "classes": ["Rogue"], "droppable_only": True,
     },
     "void_cowl": {
         "name": "Void Cowl", "defense_bonus": 2, "value": 850, "tier": 3, "droppable_only": True,
@@ -688,8 +648,7 @@ HEADGEAR = {
     },
     "ghost_mask": {
         "name": "Ghost Mask", "defense_bonus": 3, "value": 2700, "tier": 4,
-        "classes": ["Rogue"],
-    "droppable_only": True,
+        "classes": ["Rogue"], "droppable_only": True,
     },
     "the_last_face": {
         "name": "The Last Face", "defense_bonus": 4, "value": 7500, "tier": 5,
@@ -714,8 +673,7 @@ HEADGEAR = {
     },
     "high_priest_mitre": {
         "name": "High Priest's Mitre", "defense_bonus": 3, "value": 2900, "tier": 4,
-        "classes": ["Cleric"],
-    "droppable_only": True,
+        "classes": ["Cleric"], "droppable_only": True,
     },
     "silence_crown": {
         "name": "Silence Crown", "defense_bonus": 4, "value": 8000, "tier": 5,
@@ -764,8 +722,7 @@ BOOTS = {
 
     "iron_greaves": {
         "name": "Iron Greaves", "defense_bonus": 3, "value": 272, "tier": 2,
-        "classes": ["Warrior"],
-    "droppable_only": True,
+        "classes": ["Warrior"], "droppable_only": True,
     },
     "battle_greaves": {
         "name": "Battle Greaves", "defense_bonus": 2, "value": 850, "tier": 3,
@@ -773,8 +730,7 @@ BOOTS = {
     },
     "warlord_greaves": {
         "name": "Warlord's Greaves", "defense_bonus": 3, "value": 2900, "tier": 4,
-        "classes": ["Warrior"],
-    "droppable_only": True,
+        "classes": ["Warrior"], "droppable_only": True,
     },
     "champion_sabatons": {
         "name": "Champion's Sabatons", "defense_bonus": 4, "value": 8000, "tier": 5,
@@ -1025,6 +981,15 @@ CONSUMABLES = {
     "maidens_kiss":   {"name": "Maiden's Kiss",       "value": 40, "description": "Cures the 'Toad' status.", "tier": 2},
     "soft":           {"name": "Soft",                "value": 40, "description": "Cures petrification.", "tier": 2},
 }
+
+def get_equipment(key: str) -> dict | None:
+    """Returns an item from any gear registry if found. Returns None otherwise."""
+    for reg in (WEAPONS, ARMOR, HEADGEAR, BOOTS, ACCESSORIES, CONSUMABLES):
+        if key in reg:
+            item = reg[key].copy()
+            item["key"] = key
+            return item
+    return None
 
 def get_caravan_stock():
     """

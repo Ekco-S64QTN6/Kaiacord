@@ -95,7 +95,7 @@ ADVANCED_CLASSES = {
             "bonuses": {
                 "atk_vs_undead": 4,
                 "death_resist": True,
-                "def_bonus": 2,
+                "hp_bonus": 4,
             },
             "flavor": "The Shrine of the Silent Ones goes very quiet when you make your choice.",
         },

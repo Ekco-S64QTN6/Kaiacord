@@ -51,6 +51,20 @@ def _resolve_combat(sheet: dict, monster: dict, atk_mod_global: int = 0, def_mod
     acc_def        = accessory["defense_bonus"]if accessory else 0
     acc_atk        = accessory.get("attack_bonus", 0) if accessory else 0
 
+    # Apply armor stat bonuses to combat stats
+    if armor:
+        armor_stats = armor.get("stat_bonus", {})
+        # INT/WIS/STR bonus to effective atk_val if relevant stat
+        if atk_stat in armor_stats:
+            atk_val += armor_stats[atk_stat]
+            atk_mod = (atk_val - 10) // 2
+        # DEX bonus affects DEF (computed later below)
+        _armor_dex_bonus = armor_stats.get("dex", 0)
+        dex_val += _armor_dex_bonus
+        dex_mod = (dex_val - 10) // 2
+    else:
+        pass
+
     # --- Advanced Class Flat Bonuses ---
     adv_flat_atk = 0
     adv_flat_def = 0
@@ -201,11 +215,19 @@ def _resolve_combat(sheet: dict, monster: dict, atk_mod_global: int = 0, def_mod
 
     if monster_alive:
         raw_gear_def = armor_def + head_def + boots_def + acc_def
-        # Soft cap: first 10 points full, remainder halved (diminishing returns)
+        # Soft cap on gear: first 10 points full, remainder halved
         effective_gear_def = min(10, raw_gear_def) + max(0, raw_gear_def - 10) // 2
-        
+
         pet_def_bonus = pet_bonuses.get("def_bonus", 0)
-        player_defense = 10 + dex_mod + effective_gear_def + adv_flat_def + def_mod_global + pet_def_bonus
+
+        # Global DEF cap: prevents untouchable builds at endgame.
+        # Cap = level * 1.5 + 12 (e.g. L1=13, L5=19, L7=22, L10=27)
+        player_level = sheet.get("level", 1)
+        global_def_cap = int(player_level * 1.5) + 12
+
+        # Assemble total, then clamp
+        raw_total_def = 10 + dex_mod + effective_gear_def + adv_flat_def + def_mod_global + pet_def_bonus
+        player_defense = min(raw_total_def, global_def_cap)
 
         _tier = monster.get("tier", "medium")
         _dungeon_diff = monster.get("dungeon_difficulty", 1)

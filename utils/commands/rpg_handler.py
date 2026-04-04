@@ -3978,12 +3978,24 @@ async def _handle_equip(ctx, msg, send, rest, uid, uname, is_owner):
     slot = item["category"]
     old_val = sheet["equipment"].get(slot)
     if old_val:
+        # Remove old HP bonus if it exists
+        old_hp_bonus = old_val.get("hp_bonus", 0) if isinstance(old_val, dict) else 0
+        if old_hp_bonus:
+            sheet["hp"]["max"] = max(1, sheet["hp"]["max"] - old_hp_bonus)
+            sheet["hp"]["current"] = min(sheet["hp"]["current"], sheet["hp"]["max"])
+
         # Handle both string keys and dict values
         old_key = old_val.get("key") if isinstance(old_val, dict) else old_val
         if old_key:
             sheet["inventory"].append(old_key)
         
     # Equip new
+    # Add new HP bonus if it exists
+    new_hp_bonus = item.get("hp_bonus", 0)
+    if new_hp_bonus:
+        sheet["hp"]["max"] += new_hp_bonus
+        sheet["hp"]["current"] += new_hp_bonus
+
     sheet["inventory"].remove(item_key)
     sheet["equipment"][slot] = item
     await save(sheet)
@@ -4075,6 +4087,13 @@ async def _handle_unequip(ctx, msg, send, rest, uid, uname, is_owner):
 
     if item_key:
         sheet["inventory"].append(item_key)
+
+    # Remove HP bonus
+    hp_bonus = val.get("hp_bonus", 0) if isinstance(val, dict) else 0
+    if hp_bonus:
+        sheet["hp"]["max"] = max(1, sheet["hp"]["max"] - hp_bonus)
+        sheet["hp"]["current"] = min(sheet["hp"]["current"], sheet["hp"]["max"])
+
     sheet["equipment"][target_slot] = None
     await save(sheet)
 

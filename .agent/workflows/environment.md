@@ -92,16 +92,24 @@ Equipment and monster registries use Python dicts (not JSON). When editing:
 
 ## TTRPG Balance Guidelines
 
-Refer to `docs/ttrpg/Aethelgard_TTRPG_Review.md` for the full audit. Key numbers:
-
-| Tier | Weapon ATK+DMG Budget | Armor DEF Budget | Accessory ATK+DEF Budget |
-|---|---|---|---|
-| 1 | 2-4 | 1-2 | 1-2 |
-| 2 | 4-6 | 2-4 | 2-3 |
-| 3 | 7-9 | 4-5 | 3-4 |
-| 4 | 10-13 | 5-7 | 4-5 |
-| 5 | 14-18 | 7-9 | 5-6 |
+Refer to `docs/ttrpg/Aethelgard_TTRPG_Review.md` for the authoritative source of truth on all TTRPG balance targets and stat budgets. Use the budgets defined there for any new item creation.
 
 ## Version Control
 
 The project uses Git. Always check `git diff` and `git log -5` before starting work to understand recent changes.
+
+## ⚠️ ABSOLUTE CRITICAL: Registry Audit Workflow
+
+**NEVER** assume a bulk edit (`multi_replace_file_content`) was safe. Registry files are brittle.
+
+### Mandatory Post-Edit Checklist:
+
+1.  **Functional Audit**: `grep -nE "^def " path/to/registry.py`
+    - Verify that ALL intended functions (e.g., `get_equipment`, `get_caravan_stock`) still exist.
+2.  **Lexical Audit**: `grep -nE "^(WEAPONS|ARMOR|HEADGEAR|BOOTS|ACCESSORIES|CONSUMABLES|ALIASES) =" path/to/registry.py`
+    - Verify that the backbone dictionaries were not overwritten or renamed.
+3.  **Syntax Validation**: `python3 -c "import ast; ast.parse(open('path/to/registry.py').read())"`
+    - If this fails, **do not proceed**. Revert or fix the syntax immediately.
+4.  **No Truncation Check**: Use `tail -n 20` to verify the file ends with the expected closing brace `})` or similar, rather than being cut off mid-dictionary.
+
+**Failure to perform these steps after a bulk edit is a critical violation of safety protocols.**

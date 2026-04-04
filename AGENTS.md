@@ -49,6 +49,20 @@ python3 Kaiacord.py
 - `combat_engine.py`, `shop.py`, `character_manager.py`, `session_manager.py`
 - `progression.py`, `dungeon.py`, `class_advancement.py`, `encounter_tables.py`
 
+## ⚠️ ABSOLUTE CRITICAL: Bulk Edit & Registry Safety
+
+**NEVER use bulk edit tools (`multi_replace_file_content` or regex) on registry files without a POST-EDIT INTEGRITY AUDIT.**
+
+Registry files (like `equipment_registry.py`) contain both large data dictionaries and critical helper functions (like `get_equipment`). Bulk edits have a demonstrated risk of "Silent Deletion"—accidentally truncating the end of a file or overwriting mission-critical functions while modifying data.
+
+### Mandatory Verification Steps for ALL Bulk Edits:
+1.  **Functional Audit**: Immediately after any bulk edit, use `grep -n "def <function_name>"` to verify that all pre-existing helper functions (e.g., `get_equipment`, `get_caravan_stock`) still exist.
+2.  **Lexical Audit**: Ensure all backbone dictionaries (`WEAPONS`, `ARMOR`, `HEADGEAR`, `BOOTS`, `ACCESSORIES`, `CONSUMABLES`, `ALIASES`) have their opening AND closing braces intact.
+3.  **Syntax Check**: Always run `python3 -c "import ast; ast.parse(open('path/to/file').read())"` immediately after an edit.
+4.  **No Truncation**: Never replace the entire content of a registry file with a truncated version. If you are unsure of the file's end, VET it first with `tail` or `view_file`.
+
+**Failure to follow these steps is considered a critical system-breakage event.**
+
 ## Project Structure
 
 ```
@@ -90,15 +104,7 @@ python3 Kaiacord.py
 - **Item properties MUST be at 8-space indent** inside their sub-dict. Watch for `"droppable_only": True` at 4-space indent — this is a known recurring bug that silently corrupts data
 - Every monster key used in `ENCOUNTER_TABLES` MUST have a matching entry in `MONSTERS`
 - Shop stock lists (`HEMLOCK_STOCK_*`) are manually maintained — new buyable items need both the item dict AND the stock list updated
-- Equipment stat budgets by tier:
-
-| Tier | Weapon ATK+DMG | Armor DEF | Accessory ATK+DEF |
-|------|---------------|-----------|-------------------|
-| 1    | 2-4           | 1-2       | 1-2               |
-| 2    | 4-6           | 2-4       | 2-3               |
-| 3    | 7-9           | 4-5       | 3-4               |
-| 4    | 10-13         | 5-7       | 4-5               |
-| 5    | 14-18         | 7-9       | 5-6               |
+- Equipment stat budgets by tier: See `docs/ttrpg/Aethelgard_TTRPG_Review.md` for current balance targets and stat budgets by tier. Do not add items that exceed these budgets without updating the documentation first.
 
 ### Architecture Rules
 - **Python handles all deterministic game state/math.** Never delegate combat resolution, stat calculations, or inventory management to the LLM.
