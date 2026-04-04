@@ -37,8 +37,7 @@ ADVANCED_CLASSES = {
             "description": "Dark blade of Morvenna. Drains life, fears nothing.",
             "bonuses": {
                 "lifesteal_pct": 0.20,
-                "atk_bonus": 2,
-                "bone_shield_on_kill": 3,
+                "atk_bonus": 3,
             },
             "flavor": "The flame at the Shrine gutters when you approach. You take that as a yes.",
         },
@@ -48,18 +47,17 @@ ADVANCED_CLASSES = {
             "description": "Seasoned tracker. Sharper senses, steadier aim.",
             "bonuses": {
                 "atk_bonus": 1,
-                "xp_bonus_pct": 0.05,
+                "extra_hunt": 1,
                 "hp_bonus": 4,
             },
             "flavor": "The forest doesn't change. You do. That's the difference.",
             "is_stay": True,
         },
         "Hunter": {
-            "description": "Precise predator. Critical range extended, first strike on entry.",
+            "description": "Precise predator. Critical range extended, deadly aim.",
             "bonuses": {
                 "crit_threshold": 18,
-                "atk_bonus": 1,
-                "xp_bonus_pct": 0.10,
+                "atk_bonus": 2,
             },
             "flavor": "The forest edge accepts you as part of its pattern. Something shifts.",
         },
@@ -97,7 +95,7 @@ ADVANCED_CLASSES = {
             "bonuses": {
                 "atk_vs_undead": 4,
                 "death_resist": True,
-                "bone_shield_passive": 4,
+                "def_bonus": 2,
             },
             "flavor": "The Shrine of the Silent Ones goes very quiet when you make your choice.",
         },

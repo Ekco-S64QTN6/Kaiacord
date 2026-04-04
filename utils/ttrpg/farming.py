@@ -70,17 +70,18 @@ CROP_STAGES = ["🌱 Seedling", "🌿 Growing", "🌾 Almost Ready", "✅ Ready 
 def get_crop_stage(crop: dict) -> str:
     planted = date.fromisoformat(crop["planted_date"])
     days_grown = (date.today() - planted).days
-    watered_days = crop.get("watered_count", 0)
-    growth_days = CROPS[crop["crop_key"]]["growth_days"]
-
-    # Unwatered crops (except gilded mushroom) don't progress
     crop_data = CROPS[crop["crop_key"]]
+    growth_days = crop_data["growth_days"]
+
+    if is_harvestable(crop):
+        return CROP_STAGES[-1]  # "✅ Ready to Harvest"
+
+    # Wilting is purely cosmetic — doesn't block harvest
     if not crop_data.get("no_water") and not crop.get("watered_today") and days_grown > 0:
-        if watered_days < days_grown:
-            return "🥀 Wilting — needs water"
+        return "🥀 Wilting — water it today"
 
     pct = min(days_grown / growth_days, 1.0)
-    idx = min(int(pct * (len(CROP_STAGES) - 1)), len(CROP_STAGES) - 1)
+    idx = min(int(pct * (len(CROP_STAGES) - 1)), len(CROP_STAGES) - 2)  # cap before "Ready"
     return CROP_STAGES[idx]
 
 def is_harvestable(crop: dict) -> bool:
@@ -88,16 +89,13 @@ def is_harvestable(crop: dict) -> bool:
     days_grown = (date.today() - planted).days
     crop_data = CROPS[crop["crop_key"]]
     growth_days = crop_data["growth_days"]
-    
-    if days_grown < growth_days:
-        return False
-    
-    # Watered check (not for no_water crops)
-    if not crop_data.get("no_water"):
-        if crop.get("watered_count", 0) < growth_days - 1:
-            return False
-    
-    return True
+
+    # Only gate on days grown — wilting affects yield, not harvestability
+    # Exception: gilded mushroom dies if watered (no_water crops gate differently)
+    if crop_data.get("no_water"):
+        return days_grown >= growth_days
+
+    return days_grown >= growth_days
 
 def harvest_crop(crop: dict, season: str) -> tuple[str, int]:
     """Returns (item_key, quantity)."""
@@ -105,12 +103,18 @@ def harvest_crop(crop: dict, season: str) -> tuple[str, int]:
     crop_data = CROPS[crop["crop_key"]]
     min_yield, max_yield = crop_data["yield_amount"]
     qty = secrets.randbelow(max_yield - min_yield + 1) + min_yield
-    
-    # Season bonus
+
+    # Watering bonus: full watered_count >= growth_days - 1 gives +1
+    growth_days = crop_data["growth_days"]
+    watered_count = crop.get("watered_count", 0)
+    if not crop_data.get("no_water") and watered_count >= growth_days - 1:
+        qty += 1
+
+    # Season bonus (additional +1 on top)
     if crop_data.get("season_bonus") == season:
         qty += 1
-    
-    return crop_data["yield_item"], qty
+
+    return crop_data["yield_item"], max(1, qty)
 
 def reset_daily_farm(housing: dict) -> dict:
     """Call on daily reset — clear watered_today flags."""

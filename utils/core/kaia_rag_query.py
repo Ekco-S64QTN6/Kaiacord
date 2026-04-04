@@ -167,12 +167,17 @@ class RAGQueryMixin:
             ]
             if file_nodes:
                 file_nodes.sort(key=lambda x: x.metadata.get('chunk_index', 0))
-                return [{
-                    "content": get_node_text(node),
-                    "metadata": get_node_metadata(node),
-                    "label": f"Full Content: {os.path.basename(target_file_path)}",
-                    "score": 1.0
-                } for node in file_nodes]
+                result_nodes = []
+                for node in file_nodes:
+                    meta = get_node_metadata(node)
+                    meta["retrieval_method"] = "summarization"
+                    result_nodes.append({
+                        "content": get_node_text(node),
+                        "metadata": meta,
+                        "label": f"Full Content: {os.path.basename(target_file_path)}",
+                        "score": 1.0
+                    })
+                return result_nodes
         return []
 
 
@@ -529,27 +534,75 @@ class RAGQueryMixin:
                     self._last_retrieval_node_count = len(results)
                     return results
             
-            # Manifest title fast path: match query words against indexed filenames directly
-            _query_words = set(re.findall(r'\w+', query_lower)) - {
+            # Manifest title fast path: match query words against indexed filenames directly.
+            # SAFETY GUARDS (2026-04-03 incident):
+            #   - Skipped for casual/social/greeting/dream/recap queries
+            #   - Requires at least one distinctive word (>= 6 chars) in the overlap
+            #   - Requires minimum 30% filename coverage
+            #   - Comprehensive stopword lists to prevent spurious matches on
+            #     common words like "what", "why", "work", "does" appearing in titles
+            _FAST_PATH_QUERY_STOPS = {
+                # Articles, prepositions, conjunctions
                 "the", "a", "an", "of", "and", "or", "to", "in", "is", "for",
-                "with", "on", "at", "by", "from", "you", "have", "kaia", "file",
-                "doc", "document", "check", "look", "read", "take", "chance"
+                "with", "on", "at", "by", "from", "not", "but", "so", "if",
+                # Pronouns
+                "i", "me", "my", "you", "your", "he", "she", "it", "its",
+                "we", "our", "they", "them", "their", "this", "that", "who",
+                # Common verbs (prevent spurious matches on titles like
+                # "What is ChatGPT doing and why does it work")
+                "do", "does", "doing", "did", "done", "have", "has", "had",
+                "am", "are", "was", "were", "been", "being",
+                "can", "could", "will", "would", "should", "may", "might",
+                "get", "got", "go", "going", "gone", "come", "came",
+                "make", "made", "take", "took", "give", "say", "said",
+                "know", "think", "want", "need", "like", "feel", "seem",
+                "work", "working", "use", "try", "find", "tell", "ask",
+                # Question words (critical — appear in many document titles)
+                "what", "why", "how", "when", "where", "which",
+                # Common adverbs/adjectives
+                "just", "about", "also", "still", "even", "very", "really",
+                "much", "more", "well", "now", "then", "here", "there",
+                "only", "some", "any", "all", "no", "yes", "up", "out",
+                # Bot-specific
+                "kaia", "file", "doc", "document", "check", "look", "read",
+                "chance",
             }
-            if len(_query_words) >= 2:
+            _FAST_PATH_FNAME_STOPS = {
+                "the", "a", "an", "for", "and", "or", "of", "to", "in", "is",
+                "what", "why", "how", "when", "where", "which", "who",
+                "do", "does", "doing", "did", "it", "its", "not",
+                "are", "was", "were", "been", "being", "has", "have", "had",
+            }
+            _skip_fast_path = (
+                routing.get("is_casual") or
+                routing.get("is_social_identity") or
+                routing.get("strategy") in (
+                    "SOCIAL_GREETING", "RELATIONAL_MIRROR",
+                    "DREAM_RECALL", "RECAP_QUERY",
+                )
+            )
+            _query_words = set(re.findall(r'\w+', query_lower)) - _FAST_PATH_QUERY_STOPS
+            if len(_query_words) >= 2 and not _skip_fast_path:
                 _best_path = None
                 _best_score = 0
+                _best_overlap = set()
                 for _mpath in self.indexed_files:
                     _fname = os.path.splitext(os.path.basename(_mpath))[0].lower()
-                    _fname_words = set(re.findall(r'\w+', _fname)) - {"for", "the", "a", "an"}
+                    _fname_words = set(re.findall(r'\w+', _fname)) - _FAST_PATH_FNAME_STOPS
                     if not _fname_words:
                         continue
                     _overlap = _query_words & _fname_words
+                    # Require at least one distinctive word (>= 6 chars) to avoid
+                    # spurious matches on short common words like "work", "does".
+                    _has_distinctive = any(len(w) >= 6 for w in _overlap)
                     _score = len(_overlap) / len(_fname_words)
-                    if len(_overlap) >= 2 and _score > _best_score:
+                    if (len(_overlap) >= 2 and _has_distinctive
+                            and _score >= 0.3 and _score > _best_score):
                         _best_score = _score
                         _best_path = _mpath
+                        _best_overlap = _overlap
                 if _best_path:
-                    log_info(f"[manifest fast path] matched '{_best_path}' with words {_query_words & _fname_words}")
+                    log_info(f"[manifest fast path] matched '{_best_path}' with words {_best_overlap}")
                     log_debug(f"Manifest title fast path: '{_best_path}'")
                     _fname_results = self._get_summarization_nodes(
                         os.path.splitext(os.path.basename(_best_path))[0].lower()

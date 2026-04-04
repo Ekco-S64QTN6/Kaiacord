@@ -59,8 +59,8 @@ def _resolve_combat(sheet: dict, monster: dict, atk_mod_global: int = 0, def_mod
         for base_opts in ADVANCED_CLASSES.values():
             if adv_class in base_opts:
                 b = base_opts[adv_class].get("bonuses", {})
-                adv_flat_atk = b.get("atk_bonus", 0)
-                adv_flat_def = b.get("def_bonus", 0)
+                adv_flat_atk = b.get("atk_bonus", 0) + b.get("spell_atk_bonus", 0)
+                adv_flat_def = b.get("def_bonus", 0) + b.get("bone_shield_passive", 0)
                 break
     
     # --- Status Effects ---

@@ -6607,8 +6607,18 @@ async def _handle_buy_pet(ctx, msg, send, rest, uid, uname, is_owner):
     if not pet_data: return
 
     tier_data = get_tier_data(housing["tier"])
-    if len(housing.get("pets", [])) >= tier_data["pet_slots"]:
+    existing_pets = housing.get("pets", [])
+
+    # Enforce slot limit
+    if len(existing_pets) >= tier_data["pet_slots"]:
         return await send(msg.channel, "Your home cannot accommodate more pets.")
+
+    # Enforce 1 per type
+    if any(p["key"] == pet_key for p in existing_pets):
+        return await msg.channel.send(embed=discord.Embed(
+            description=f"You already have a **{pet_data['name']}**. Pip shakes their head. \"One of each, friend.\"",
+            color=0xcc4444
+        ))
 
     if sheet["gil"] < pet_data["cost"]:
         return await send(msg.channel, f"Not enough gil ({pet_data['cost']}g).")

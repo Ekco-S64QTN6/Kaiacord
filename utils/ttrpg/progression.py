@@ -120,14 +120,24 @@ def get_max_hunts(sheet: dict) -> int:
     sheet = check_and_reset_hunts(sheet)
     ale_bonus = 1 if "ale_warmth" in sheet.get("conditions", []) else 0
     rest_bonus = 1 if sheet.get("inn_rest_active_today") else 0
-    
+
+    # Advanced class extra hunt (Ranger)
+    adv_class = sheet.get("advanced_class", "")
+    class_hunt_bonus = 0
+    if adv_class:
+        from utils.ttrpg.class_advancement import ADVANCED_CLASSES
+        for base_opts in ADVANCED_CLASSES.values():
+            if adv_class in base_opts:
+                class_hunt_bonus = base_opts[adv_class].get("bonuses", {}).get("extra_hunt", 0)
+                break
+
     # Pet bonus (chocobo chick)
     from utils.ttrpg.housing import load_housing
     from utils.ttrpg.pets import get_pet_passive
     housing = load_housing(str(sheet.get("user_id", "")))
     pet_bonus = get_pet_passive(housing).get("extra_hunt", 0) if housing else 0
-    
-    return MAX_HUNTS_PER_DAY + ale_bonus + rest_bonus + pet_bonus
+
+    return MAX_HUNTS_PER_DAY + ale_bonus + rest_bonus + pet_bonus + class_hunt_bonus
 
 
 def hunts_remaining(sheet: dict) -> int:
