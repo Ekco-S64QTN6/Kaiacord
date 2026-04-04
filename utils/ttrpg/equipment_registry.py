@@ -46,9 +46,9 @@ WEAPONS = {
     "vorpal_sword":   {"name": "Vorpal Sword",     "attack_bonus": 10,"damage_die": 12, "damage_bonus": 8, "value": 8500, "tier": 5, "classes": ["Warrior", "Rogue", "Shadowblade"], "droppable_only": True},
     "staff_magi":     {"name": "Staff of the Magi","attack_bonus": 8, "damage_die": 10, "damage_bonus": 8, "value": 7500, "tier": 5, "classes": ["Mage", "Wizard", "Necromancer"], "droppable_only": True},
     "soulfire":       {"name": "Soulfire",         "attack_bonus": 9, "damage_die": 12, "damage_bonus": 8, "value": 8000, "tier": 5, "classes": ["Cleric", "Paladin", "High Priest"], "droppable_only": True},
-    "excalibur_ff":   {"name": "Excalibur",        "attack_bonus": 11,"damage_die": 12, "damage_bonus": 8, "value": 9500, "tier": 5, "classes": ["Warrior", "Paladin"], "droppable_only": True},
+    "excalibur_ff":   {"name": "Excalibur",        "attack_bonus": 9, "damage_die": 12, "damage_bonus": 8, "value": 9500, "tier": 5, "classes": ["Warrior", "Paladin"], "droppable_only": True},
     "ragnarok_ff":    {"name": "Ragnarok",         "attack_bonus": 10,"damage_die": 12, "damage_bonus": 8, "value": 9000, "tier": 5, "classes": ["Warrior", "Shadowknight"], "droppable_only": True},
-    "ultima_weapon":  {"name": "Ultima Weapon",    "attack_bonus": 12,"damage_die": 12, "damage_bonus": 8, "value": 13000,"tier": 5, "droppable_only": True},
+    "ultima_weapon":  {"name": "Ultima Weapon",    "attack_bonus": 9, "damage_die": 12, "damage_bonus": 8, "value": 13000,"tier": 5, "droppable_only": True},
     "mjolnir":        {"name": "Mjolnir",          "attack_bonus": 9, "damage_die": 12, "damage_bonus": 8, "value": 7800, "tier": 5, "classes": ["Warrior", "Paladin", "Cleric"], "droppable_only": True},
 
     # ══════════════════════════════════════════════════════════════
@@ -800,7 +800,7 @@ BOOTS = {
     "forest_stride": {
         "name": "Forest Stride", "defense_bonus": 3, "value": 7800, "tier": 5,
         "classes": ["Ranger"],
-    "droppable_only": True,
+        "droppable_only": True,
     },
 
     # ══════════════════════════════════════════════════════════════
@@ -818,7 +818,7 @@ BOOTS = {
     "void_walkers": {
         "name": "Void Walkers", "defense_bonus": 2, "value": 2800, "tier": 4,
         "classes": ["Mage"],
-    "droppable_only": True,
+        "droppable_only": True,
     },
 
     # ══════════════════════════════════════════════════════════════
@@ -840,7 +840,7 @@ BOOTS = {
     "silence_treads": {
         "name": "Silence Treads", "defense_bonus": 3, "value": 8000, "tier": 5,
         "classes": ["Cleric"],
-    "droppable_only": True,
+        "droppable_only": True,
     },
 }
 
@@ -879,7 +879,7 @@ ACCESSORIES = {
     "void_band":         {"name": "Void Band",         "defense_bonus": 2, "attack_bonus": 3, "value": 7500, "tier": 5, "droppable_only": True},
     "mox_pearl":         {"name": "Mox Pearl",          "defense_bonus": 0, "attack_bonus": 3, "value": 13000,"tier": 5, "droppable_only": True},
     "giant_belt":        {"name": "Giant Strength Belt","defense_bonus": 0, "attack_bonus": 5, "value": 8000, "tier": 5, "classes": ["Warrior"], "droppable_only": True},
-    "black_lotus":       {"name": "Black Lotus",        "defense_bonus": 0, "attack_bonus": 10,"value": 55000,"tier": 5, "droppable_only": True},
+    "black_lotus":       {"name": "Black Lotus",        "defense_bonus": 0, "attack_bonus": 6, "value": 55000,"tier": 5, "droppable_only": True},
 
     # ══════════════════════════════════════════════════════════════
     # WARRIOR — Gauntlets and Power Bracers
@@ -888,7 +888,7 @@ ACCESSORIES = {
     "iron_gauntlets": {
         "name": "Iron Gauntlets", "defense_bonus": 1, "attack_bonus": 1,
         "value": 268, "tier": 2, "classes": ["Warrior"],
-    "droppable_only": True,
+        "droppable_only": True,
     },
     "battle_bracer": {
         "name": "Battle Bracer", "defense_bonus": 1, "attack_bonus": 2,
@@ -901,7 +901,7 @@ ACCESSORIES = {
     "champion_bracers": {
         "name": "Champion's Bracers", "defense_bonus": 2, "attack_bonus": 4,
         "value": 8000, "tier": 5, "classes": ["Warrior"],
-    "droppable_only": True,
+        "droppable_only": True,
     },
 
     # ══════════════════════════════════════════════════════════════
@@ -919,7 +919,7 @@ ACCESSORIES = {
     "forest_ring": {
         "name": "Forest Ring", "defense_bonus": 1, "attack_bonus": 2,
         "value": 2800, "tier": 4, "classes": ["Ranger"],
-    "droppable_only": True,
+        "droppable_only": True,
     },
 
     # ══════════════════════════════════════════════════════════════
@@ -937,7 +937,7 @@ ACCESSORIES = {
     "void_focus": {
         "name": "Void Focus", "defense_bonus": 1, "attack_bonus": 3,
         "value": 2900, "tier": 4, "classes": ["Mage", "Wizard", "Necromancer"],
-    "droppable_only": True,
+        "droppable_only": True,
     },
 
     # ══════════════════════════════════════════════════════════════
@@ -947,7 +947,7 @@ ACCESSORIES = {
     "shadow_ring": {
         "name": "Shadow Ring", "defense_bonus": 1, "attack_bonus": 1,
         "value": 258, "tier": 2, "classes": ["Rogue"],
-    "droppable_only": True,
+        "droppable_only": True,
     },
     "phantom_bracer": {
         "name": "Phantom Bracer", "defense_bonus": 1, "attack_bonus": 2,
@@ -973,7 +973,7 @@ ACCESSORIES = {
     "saints_medallion": {
         "name": "Saint's Medallion", "defense_bonus": 2, "attack_bonus": 1,
         "value": 2900, "tier": 4, "classes": ["Cleric"],
-    "droppable_only": True,
+        "droppable_only": True,
     },
     "silence_sigil": {
         "name": "Silence Sigil", "defense_bonus": 2, "attack_bonus": 2,

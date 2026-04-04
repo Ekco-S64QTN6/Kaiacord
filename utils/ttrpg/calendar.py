@@ -318,60 +318,12 @@ SEASONAL_SHOP = {
 
 
 # ══════════════════════════════════════════════════════════
-# NEW SEASONAL MONSTERS — stat blocks to add to monster_registry.py
+# SEASONAL MONSTER STATS — REMOVED
 # ══════════════════════════════════════════════════════════
+# These stat blocks have been consolidated into monster_registry.py
+# to prevent desync. Seasonal monsters are referenced by key only
+# in SEASONAL_MONSTERS above; their stats live in MONSTERS dict.
 
-SEASONAL_MONSTER_STATS = {
-    "snow_bunny": {
-        "name": "Snow Bunny",
-        "hp": 6, "attack": 2, "defense": 12,
-        "xp": 15, "gil": 4, "tier": "trivial",
-        "desc": "A white rabbit with eyes like chips of ice. Incredibly fast. Bites when cornered. Winter only.",
-        "season": "winter",
-    },
-    "ice_wisp": {
-        "name": "Ice Wisp",
-        "hp": 8, "attack": 5, "defense": 13,
-        "xp": 22, "gil": 0, "tier": "trivial",
-        "desc": "A floating light that appears on frozen nights. Cold radiates from it. Drops nothing.",
-        "season": "winter",
-    },
-    "frost_wolf": {
-        "name": "Frost Wolf",
-        "hp": 32, "attack": 7, "defense": 11,
-        "xp": 50, "gil": 10, "tier": "easy",
-        "desc": "A pale grey wolf with ice-rimed fur. Hunts alone in winter when the pack disperses. Faster than its summer cousin.",
-        "season": "winter",
-    },
-    "snow_bandit": {
-        "name": "Desperate Bandit",
-        "hp": 30, "attack": 8, "defense": 10,
-        "xp": 52, "gil": 18, "tier": "easy",
-        "desc": "A road bandit in winter furs. Hungrier and less careful than his summer counterpart. Will fight harder.",
-        "season": "winter",
-    },
-    "antler_stag": {
-        "name": "Antler Stag",
-        "hp": 35, "attack": 6, "defense": 9,
-        "xp": 45, "gil": 12, "tier": "easy",
-        "desc": "An enormous stag driven to the forest edge by autumn hunger. Antlers like branches. Not aggressive — until it is.",
-        "season": "autumn",
-    },
-    "bloom_creeper": {
-        "name": "Bloom Creeper",
-        "hp": 18, "attack": 5, "defense": 8,
-        "xp": 28, "gil": 5, "tier": "trivial",
-        "desc": "A vine creature that only mobilizes in spring when new growth gives it reach. Smells like flowers. Strangles things.",
-        "season": "spring",
-    },
-    "summer_hornet": {
-        "name": "Summer Hornet",
-        "hp": 9, "attack": 6, "defense": 12,
-        "xp": 25, "gil": 2, "tier": "trivial",
-        "desc": "A hornet the size of a fist. Summer heat makes them aggressive. Nests near the Whisperwood edge in July and August.",
-        "season": "summer",
-    },
-}
 
 # NEW SEASONAL ITEM
 SEASONAL_ITEMS = {

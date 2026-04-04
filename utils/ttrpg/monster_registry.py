@@ -322,6 +322,18 @@ MONSTERS = {
         "xp": 22, "gil": 3, "tier": "trivial",
         "desc": "A sludge-like creature that slows anyone who steps into its reach.",
     },
+    "hand_axe_goblin": {
+        "name": "Hand Axe Goblin",
+        "hp": 20, "attack": 5, "defense": 9,
+        "xp": 28, "gil": 7, "tier": "trivial",
+        "desc": "A goblin with better equipment and worse manners. Throws hand axes before charging.",
+    },
+    "skeleton_archer": {
+        "name": "Skeleton Archer",
+        "hp": 22, "attack": 6, "defense": 10,
+        "xp": 35, "gil": 8, "tier": "trivial",
+        "desc": "A skeleton that still remembers how to draw a bow. Its aim is disturbingly good.",
+    },
 
     # ══════════════════════════════════════════════════════
     # TIER: EASY  (Level 2-4)
@@ -795,6 +807,36 @@ MONSTERS = {
         "hp": 95, "attack": 13, "defense": 15,
         "xp": 180, "gil": 50, "tier": "medium",
         "desc": "A massive, ape-like insectoid with eyes that can confuse the mind. It is a master of subterranean ambush.",
+    },
+    "owlbear": {
+        "name": "Owlbear",
+        "hp": 75, "attack": 10, "defense": 13,
+        "xp": 100, "gil": 20, "tier": "medium",
+        "desc": "A feathered horror — part owl, part bear, all fury. It charges through undergrowth without slowing.",
+    },
+    "displacer_beast": {
+        "name": "Displacer Beast",
+        "hp": 65, "attack": 11, "defense": 14,
+        "xp": 110, "gil": 25, "tier": "medium",
+        "desc": "A six-legged panther that bends light around itself. It's never quite where it appears to be.",
+    },
+    "ettercap": {
+        "name": "Ettercap",
+        "hp": 55, "attack": 9, "defense": 12,
+        "xp": 90, "gil": 18, "tier": "medium",
+        "desc": "A spider-like humanoid that weaves traps of web and malice. Found near Whisperwood nests.",
+    },
+    "chimera_dd": {
+        "name": "Chimera",
+        "hp": 80, "attack": 11, "defense": 13,
+        "xp": 115, "gil": 30, "tier": "medium",
+        "desc": "Three heads, three breaths, one bad attitude. The goat head is the most dangerous — it bites.",
+    },
+    "serra_angel": {
+        "name": "Serra Angel",
+        "hp": 70, "attack": 10, "defense": 15,
+        "xp": 120, "gil": 35, "tier": "medium",
+        "desc": "A radiant winged warrior from a forgotten age. She guards something that no longer exists.",
     },
 
     # ══════════════════════════════════════════════════════
