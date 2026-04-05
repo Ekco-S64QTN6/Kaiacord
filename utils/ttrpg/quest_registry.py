@@ -30,7 +30,7 @@ QUESTS = {
         "description": "Sister Maren needs rare herbs found only near the Trade Road. Defeat a 'Road Bandit' to recover her stolen supplies.",
         "requirements": {"level": 4},
         "tasks": ["kill_bandit", "talk_maren"],
-        "rewards": {"xp": 200, "gil": 50, "recipe": "potion"},
+        "rewards": {"xp": 200, "gil": 50, "recipe": "potion", "item": "silverleaf"},
         "completion_msg": "Sister Maren's eyes light up. 'The Silverleaf! Now I can finish the brew. Bless you.'",
     }
 }

@@ -34,6 +34,20 @@ def get_shop_inventory(location: str = "hemlocks_store") -> tuple[dict, dict, di
     accessory_keys   = HEMLOCK_STOCK_ACCESSORIES.copy()
     consumables_keys = HEMLOCK_STOCK_CONSUMABLES.copy()
 
+    from utils.ttrpg.calendar import get_special_day
+    special = get_special_day()
+    if special and "shop_special" in special:
+        ex = special["shop_special"].get("extra_stock", [])
+        itemk = special["shop_special"].get("item")
+        for k in ex + ([itemk] if itemk else []):
+            if k in WEAPONS and k not in weapons_keys: weapons_keys.append(k)
+            elif k in ARMOR and k not in armor_keys: armor_keys.append(k)
+            elif k in HEADGEAR and k not in headgear_keys: headgear_keys.append(k)
+            elif k in BOOTS and k not in boots_keys: boots_keys.append(k)
+            elif k in ACCESSORIES and k not in accessory_keys: accessory_keys.append(k)
+            elif k in CONSUMABLES and k not in consumables_keys: consumables_keys.append(k)
+
+
     weapons_keys.extend(seasonal.get("weapons", []))
     armor_keys.extend(seasonal.get("armor", []))
     headgear_keys.extend(seasonal.get("headgear", []))

@@ -1359,7 +1359,13 @@ async def _dungeon_combat_round(ctx_obj, interaction, uid, uname, is_owner):
 
         # Loot — split gear and consumable pools
         from utils.ttrpg.loot_tables import get_gear_loot, get_consumable_loot
-        tier = "hard" if is_boss else _get_dungeon_loot_tier(sheet.get("level", 1), is_boss)
+        level = sheet.get("level", 1)
+        if is_boss:
+            _boss_tier_map = {1: "easy", 2: "easy", 3: "medium", 4: "medium",
+                              5: "hard", 6: "hard", 7: "hard", 8: "deadly", 9: "boss"}
+            tier = _boss_tier_map.get(level, "boss")
+        else:
+            tier = _get_dungeon_loot_tier(level, False)
         if is_boss:
             import random
             drops = []
@@ -5145,6 +5151,22 @@ async def _handle_pray(ctx, msg, send, rest, uid, uname, is_owner):
             color=0xcc4444
         ))
 
+    from utils.ttrpg.calendar import get_special_day
+    special = get_special_day()
+    if special and special.get("shrine_gift"):
+        today = date.today().strftime("%Y-%m-%d")
+        if sheet.get("shrine_gift_date") != today:
+            sheet["shrine_gift_date"] = today
+            from utils.ttrpg.loot_tables import get_consumable_loot
+            gift = get_consumable_loot("hard") or "elixir"
+            sheet.setdefault("inventory", []).append(gift)
+            await save(sheet)
+            return await msg.channel.send(embed=discord.Embed(
+                title="🎁 Feast of the Silent Ones",
+                description=f"A small bundle was left at the threshold.\n**You received a {gift.replace('_',' ').title()}!**",
+                color=0xd4a843
+            ))
+
     # Once per day check
     today = date.today().strftime("%Y-%m-%d")
     last_pray = sheet.get("last_pray_date", "")
@@ -5187,7 +5209,12 @@ async def _handle_offer(ctx, msg, send, rest, uid, uname, is_owner):
     today = date.today().strftime("%Y-%m-%d")
     offered_today = sheet.get("offered_today", {})
     already_offered = offered_today.get(today, 0) if isinstance(offered_today, dict) else 0
-    DAILY_CAP = 20
+
+    from utils.ttrpg.calendar import get_special_day
+    special = get_special_day()
+    DAILY_CAP = 60 if (special and special.get("buff") == "solstice_blessing") else 20
+    XP_MULT = 3 if (special and special.get("buff") == "solstice_blessing") else 1
+
     remaining_cap = max(0, DAILY_CAP - already_offered)
     on_hand = sheet.get("gil", 0)
 
@@ -5202,7 +5229,7 @@ async def _handle_offer(ctx, msg, send, rest, uid, uname, is_owner):
         description=(
             f"**On Hand:** {on_hand}g\n"
             f"**XP remaining today:** {remaining_cap}/{DAILY_CAP}\n\n"
-            f"*Each gil offered grants 1 XP, up to {DAILY_CAP} XP per day.*"
+            f"*Each gil offered grants {XP_MULT} XP, up to {DAILY_CAP} max XP per day.*"
         ),
         color=0xaaddff
     )
@@ -6384,6 +6411,9 @@ async def _handle_my_home(ctx, msg, send, rest, uid, uname, is_owner):
                                       style=discord.ButtonStyle.blurple))
     if bonuses.get("daily_training"):
         view.add_item(_make_home_btn(ctx, uid, uname, is_owner, "🪆 Train", "home_training", 2,
+                                      style=discord.ButtonStyle.blurple))
+    if bonuses.get("home_pray"):
+        view.add_item(_make_home_btn(ctx, uid, uname, is_owner, "🕯️ Pray", "pray", 2,
                                       style=discord.ButtonStyle.blurple))
     if get_next_tier(housing["tier"]):
         view.add_item(_make_home_btn(ctx, uid, uname, is_owner, "⬆️ Upgrade", "upgrade_house", 2))

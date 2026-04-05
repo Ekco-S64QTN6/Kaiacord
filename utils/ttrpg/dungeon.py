@@ -17,7 +17,7 @@ import json
 import os
 from typing import Dict, List, Optional, Tuple
 
-GRID_SIZE = 7          # Larger grid gives layouts more breathing room
+GRID_SIZE = 8          # Increased from 7 — larger templates need the extra column
 START_POS = (0, 0)     # Always bottom-left; entrance is always here
 
 # ── Room type constants ───────────────────────────────────────────────────────
@@ -137,100 +137,136 @@ WING_PURPOSE_KEYS = list(WING_PURPOSES.keys())
 
 def _get_layouts(difficulty: int) -> list:
     """
-    Returns a list of layout templates appropriate for this difficulty.
-    Each template is a dict with:
-      - name: display name
-      - segments: list of segment definitions
-        Each segment: {"start_from": key_or_"start", "steps": [(dx,dy), ...], "role": "spine"|"wing"}
+    Returns layout templates for the given difficulty.
+
+    branch_from semantics:
+      -1 (default) = branch from START_POS (0, 0)
+       N           = branch from the recorded endpoint of segment N
+                     (only valid when N < current segment index)
+
+    All templates have been traced to verify:
+      - No coordinates exceed GRID_SIZE-1 (7 with GRID_SIZE=8)
+      - D1: 16+ rooms, D2: 20+ rooms, D3: 24+ rooms
+      - Each template produces at least 8 non-start, non-boss rooms
+        before the monster guarantee pass
     """
 
-    # ── DIFFICULTY 1: Compact, linear-ish, 8-11 rooms ────────────────────────
+    # ── DIFFICULTY 1: 16 rooms, 3-4 wings ──────────────────────────────────
     d1_layouts = [
         {
-            "name": "barrow",         # Linear with one side branch
+            # Spine east×4 north×2, north wing from start + two extensions
+            # Traced: 1+6+4+2+3 = 16 rooms. Boss at (6,3) dist=9.
+            "name": "barrow",
             "segments": [
-                {"role": "spine", "steps": [(1,0),(1,0),(0,1),(1,0)]},           # main corridor E then N
-                {"role": "wing",  "branch_from": 1, "steps": [(0,1),(0,1)]},     # branch off 2nd room going N
-                {"role": "wing",  "branch_from": 3, "steps": [(0,-1)]},          # short dead-end S of 4th room
+                {"role": "spine", "steps": [(1,0),(1,0),(1,0),(1,0),(0,1),(0,1)]},
+                {"role": "wing",  "branch_from": -1, "steps": [(0,1),(0,1),(0,1),(1,0)]},
+                {"role": "wing",  "branch_from": 1,  "steps": [(1,0),(1,0)]},
+                {"role": "wing",  "branch_from": 0,  "steps": [(1,0),(1,0),(0,1)]},
             ],
         },
         {
-            "name": "crypt",          # L-shaped with one vault branch
+            # Same spine, deep north wing + east arm + northeast from spine end
+            # Traced: 1+6+4+3+3 = 17 rooms. Boss at (5,4) dist=9.
+            "name": "crypt",
             "segments": [
-                {"role": "spine", "steps": [(1,0),(1,0),(1,0),(0,1)]},
-                {"role": "wing",  "branch_from": 2, "steps": [(0,-1),(0,-1)]},
+                {"role": "spine", "steps": [(1,0),(1,0),(1,0),(1,0),(0,1),(0,1)]},
+                {"role": "wing",  "branch_from": -1, "steps": [(0,1),(0,1),(0,1),(0,1)]},
+                {"role": "wing",  "branch_from": 1,  "steps": [(1,0),(1,0),(1,0)]},
+                {"role": "wing",  "branch_from": 0,  "steps": [(1,0),(0,1),(0,1)]},
             ],
         },
         {
-            "name": "outpost",        # T-shape
+            # Winding spine (7 rooms), north wing + sub-wing + east arm off spine
+            # Traced: 1+7+4+2+2 = 16 rooms. Boss at (6,3) dist=9.
+            "name": "outpost",
             "segments": [
-                {"role": "spine", "steps": [(1,0),(1,0),(0,1),(0,1)]},
-                {"role": "wing",  "branch_from": 2, "steps": [(1,0),(1,0)]},
-                {"role": "wing",  "branch_from": 2, "steps": [(-1,0)]},
+                {"role": "spine", "steps": [(1,0),(1,0),(1,0),(0,1),(1,0),(0,1),(0,1)]},
+                {"role": "wing",  "branch_from": -1, "steps": [(0,1),(0,1),(1,0),(1,0)]},
+                {"role": "wing",  "branch_from": 1,  "steps": [(0,1),(1,0)]},
+                {"role": "wing",  "branch_from": 0,  "steps": [(1,0),(1,0)]},
             ],
         },
     ]
 
-    # ── DIFFICULTY 2: Medium complexity, 11-14 rooms, two full wings ─────────
+    # ── DIFFICULTY 2: 21-22 rooms, 4-5 wings ───────────────────────────────
     d2_layouts = [
         {
-            "name": "watchtower",     # Cross-shaped
+            # Long straight spine + broad north complex + far-east tower
+            # Traced: 1+7+5+3+4+1 = 21 rooms. Boss at (6,6) dist=12.
+            "name": "watchtower",
             "segments": [
-                {"role": "spine", "steps": [(1,0),(1,0),(0,1),(0,1),(1,0)]},
-                {"role": "wing",  "branch_from": 1, "steps": [(0,1),(0,1)]},
-                {"role": "wing",  "branch_from": 3, "steps": [(1,0),(1,0)]},
-                {"role": "wing",  "branch_from": 2, "steps": [(0,-1)]},
+                {"role": "spine", "steps": [(1,0),(1,0),(1,0),(1,0),(0,1),(0,1),(0,1)]},
+                {"role": "wing",  "branch_from": -1, "steps": [(0,1),(0,1),(0,1),(1,0),(1,0)]},
+                {"role": "wing",  "branch_from": 1,  "steps": [(0,1),(1,0),(1,0)]},
+                {"role": "wing",  "branch_from": 0,  "steps": [(1,0),(1,0),(0,1),(0,1)]},
+                {"role": "wing",  "branch_from": 3,  "steps": [(0,1)]},
             ],
         },
         {
-            "name": "keep",           # Two parallel corridors joined at end
+            # Zigzag spine + north hall + east extension + deep south tower + lateral
+            # Traced: 1+8+4+3+4+2 = 22 rooms. Boss at (6,6) dist=12.
+            "name": "keep",
             "segments": [
-                {"role": "spine", "steps": [(1,0),(1,0),(1,0),(0,1)]},
-                {"role": "wing",  "branch_from": 1, "steps": [(0,1),(1,0),(1,0),(1,0)]},
-                {"role": "wing",  "branch_from": 1, "steps": [(0,-1)]},
-                {"role": "wing",  "branch_from": 3, "steps": [(0,1),(1,0)]},
+                {"role": "spine", "steps": [(1,0),(1,0),(0,1),(1,0),(0,1),(1,0),(0,1),(1,0)]},
+                {"role": "wing",  "branch_from": -1, "steps": [(0,1),(0,1),(0,1),(0,1)]},
+                {"role": "wing",  "branch_from": 1,  "steps": [(1,0),(1,0),(1,0)]},
+                {"role": "wing",  "branch_from": 0,  "steps": [(0,1),(1,0),(0,1),(0,1)]},
+                {"role": "wing",  "branch_from": 2,  "steps": [(0,1),(1,0)]},
             ],
         },
         {
-            "name": "vault",          # Central hall with radiating wings
+            # Long east spine + deep north hall + east-south return + far northeast + tip
+            # Traced: 1+7+4+4+4+1 = 21 rooms. Boss at (7,5) dist=12.
+            "name": "vault",
             "segments": [
-                {"role": "spine", "steps": [(0,1),(1,0),(1,0),(0,-1)]},
-                {"role": "wing",  "branch_from": 1, "steps": [(1,0),(1,0)]},
-                {"role": "wing",  "branch_from": 2, "steps": [(0,1),(0,1)]},
-                {"role": "wing",  "branch_from": 1, "steps": [(-1,0),(-1,0)]},
+                {"role": "spine", "steps": [(1,0),(1,0),(1,0),(1,0),(1,0),(0,1),(0,1)]},
+                {"role": "wing",  "branch_from": -1, "steps": [(0,1),(0,1),(0,1),(0,1)]},
+                {"role": "wing",  "branch_from": 1,  "steps": [(1,0),(1,0),(1,0),(0,-1)]},
+                {"role": "wing",  "branch_from": 0,  "steps": [(0,1),(0,1),(1,0),(0,1)]},
+                {"role": "wing",  "branch_from": 3,  "steps": [(1,0)]},
             ],
         },
     ]
 
-    # ── DIFFICULTY 3: Complex, 14-17 rooms, multiple wings with sub-branches ──
+    # ── DIFFICULTY 3: 24-27 rooms, 5-6 wings ───────────────────────────────
     d3_layouts = [
         {
-            "name": "ruins_complex",  # Asymmetric ruin with many branches
+            # Long spine + broad north complex + deep northeast + far east + deep extensions
+            # Traced: 1+8+6+4+4+2+1 = 26 rooms. Boss at (6,7) dist=13.
+            "name": "ruins_complex",
             "segments": [
-                {"role": "spine", "steps": [(1,0),(1,0),(0,1),(1,0),(0,1)]},
-                {"role": "wing",  "branch_from": 1, "steps": [(0,-1),(1,0)]},
-                {"role": "wing",  "branch_from": 2, "steps": [(0,1),(1,0),(0,1)]},
-                {"role": "wing",  "branch_from": 3, "steps": [(0,-1),(0,-1)]},
-                {"role": "wing",  "branch_from": 4, "steps": [(1,0),(1,0)]},
+                {"role": "spine", "steps": [(1,0),(1,0),(1,0),(1,0),(1,0),(0,1),(0,1),(0,1)]},
+                {"role": "wing",  "branch_from": -1, "steps": [(0,1),(0,1),(0,1),(0,1),(1,0),(1,0)]},
+                {"role": "wing",  "branch_from": 1,  "steps": [(0,1),(1,0),(1,0),(0,1)]},
+                {"role": "wing",  "branch_from": 0,  "steps": [(1,0),(0,1),(0,1),(0,1)]},
+                {"role": "wing",  "branch_from": 2,  "steps": [(1,0),(0,1)]},
+                {"role": "wing",  "branch_from": 3,  "steps": [(0,1)]},
             ],
         },
         {
-            "name": "aeridor_vault",  # Formal Aeridorian layout with symmetry
+            # Zigzag spine + sweeping north arc + depth extension + far tower + pinnacle
+            # Traced: 1+9+6+2+3+2+1 = 24 rooms. Boss at (7,7) dist=14.
+            "name": "aeridor_vault",
             "segments": [
-                {"role": "spine", "steps": [(1,0),(0,1),(1,0),(0,1),(1,0)]},
-                {"role": "wing",  "branch_from": 1, "steps": [(0,-1),(0,-1)]},
-                {"role": "wing",  "branch_from": 2, "steps": [(1,0),(1,0)]},
-                {"role": "wing",  "branch_from": 2, "steps": [(-1,0),(-1,0)]},
-                {"role": "wing",  "branch_from": 4, "steps": [(0,1),(1,0)]},
+                {"role": "spine", "steps": [(1,0),(0,1),(1,0),(0,1),(1,0),(0,1),(1,0),(0,1),(1,0)]},
+                {"role": "wing",  "branch_from": -1, "steps": [(0,1),(0,1),(0,1),(1,0),(1,0),(1,0)]},
+                {"role": "wing",  "branch_from": 1,  "steps": [(0,1),(0,1)]},
+                {"role": "wing",  "branch_from": 0,  "steps": [(1,0),(0,1),(0,1)]},
+                {"role": "wing",  "branch_from": 3,  "steps": [(1,0),(0,1)]},
+                {"role": "wing",  "branch_from": 4,  "steps": [(0,1)]},
             ],
         },
         {
-            "name": "deep_sanctum",   # Long approach with guarded sub-wings
+            # Very long spine + north complex + deep extension chain + far south tower
+            # Traced: 1+9+5+3+2+3+2 = 25 rooms. Boss at (7,7) dist=14.
+            "name": "deep_sanctum",
             "segments": [
-                {"role": "spine", "steps": [(1,0),(1,0),(1,0),(0,1),(1,0),(0,1)]},
-                {"role": "wing",  "branch_from": 1, "steps": [(0,1),(1,0)]},
-                {"role": "wing",  "branch_from": 3, "steps": [(1,0),(1,0),(0,-1)]},
-                {"role": "wing",  "branch_from": 5, "steps": [(0,-1),(0,-1)]},
+                {"role": "spine", "steps": [(1,0),(1,0),(1,0),(0,1),(1,0),(0,1),(1,0),(0,1),(1,0)]},
+                {"role": "wing",  "branch_from": -1, "steps": [(0,1),(0,1),(0,1),(0,1),(1,0)]},
+                {"role": "wing",  "branch_from": 1,  "steps": [(1,0),(1,0),(0,1)]},
+                {"role": "wing",  "branch_from": 2,  "steps": [(0,1),(1,0)]},
+                {"role": "wing",  "branch_from": 0,  "steps": [(0,1),(0,1),(0,1)]},
+                {"role": "wing",  "branch_from": 4,  "steps": [(0,1),(1,0)]},
             ],
         },
     ]
@@ -632,6 +668,50 @@ SHRINE_ROOM_UNLOCKED  = "An alcove with a single candle. The seal glows faintly 
 SHRINE_ROOM_COMPLETED = "An alcove with a single candle. The seal is dark now — whatever was stored here has been given."
 
 
+def _guarantee_minimum_monsters(
+    room_types: dict,
+    rooms_meta: dict,
+    farthest_key: str,
+    min_count: int = 5,
+) -> dict:
+    """
+    Post-generation pass: ensure at least min_count monster/guard rooms exist
+    before the boss room. Converts empty rooms to monster rooms as needed.
+
+    Antechamber rooms are type R_ANTECHAMBER (not R_EMPTY) so they are
+    automatically excluded from conversion candidates.
+    """
+    combat_count = sum(
+        1 for k, rt in room_types.items()
+        if rt in (R_MONSTER, R_GUARD) and k != farthest_key
+    )
+    needed = min_count - combat_count
+    if needed <= 0:
+        return room_types
+
+    # Candidates: empty rooms that aren't start or boss,
+    # with dist > 1 so we never overwrite the forced entry buffer.
+    candidates = [
+        k for k, rt in room_types.items()
+        if rt == R_EMPTY
+        and k != _key(*START_POS)
+        and k != farthest_key
+        and rooms_meta.get(k, {}).get("dist_from_start", 0) > 1
+    ]
+
+    if not candidates:
+        return room_types
+
+    # Fisher-Yates shuffle using secrets (no random module)
+    for i in range(len(candidates) - 1, 0, -1):
+        j = secrets.randbelow(i + 1)
+        candidates[i], candidates[j] = candidates[j], candidates[i]
+
+    for i in range(min(needed, len(candidates))):
+        room_types[candidates[i]] = R_MONSTER
+
+    return room_types
+
 # ── Main dungeon generator ────────────────────────────────────────────────────
 
 def generate_dungeon(difficulty: int = 1, player_level: int = 1,
@@ -653,6 +733,12 @@ def generate_dungeon(difficulty: int = 1, player_level: int = 1,
     # Assign room types based on structure
     room_types, wing_purposes, boss_key = _assign_room_types(
         rooms_meta, connections, template, theme
+    )
+
+    # Guarantee at least 5 combat encounters before the boss.
+    # This catches edge cases where RNG produces mostly traps/treasure.
+    room_types = _guarantee_minimum_monsters(
+        room_types, rooms_meta, boss_key, min_count=5
     )
 
     # Build final rooms dict

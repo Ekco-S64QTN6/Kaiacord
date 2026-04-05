@@ -971,6 +971,7 @@ CONSUMABLES = {
     "antidote":       {"name": "Antidote",             "value": 8,   "on_use": "cure_poison", "tier": 1},
     # Herbalism Ingredients
     "silver_moss":    {"name": "Silvermoss",           "value": 40, "description": "A glowing moss found near water.", "tier": 2},
+    "silverleaf":     {"name": "Silverleaf",           "value": 200, "description": "A rare, shimmering herb found on the Trade Road.", "tier": 3},
     "dire_root":      {"name": "Dire Root",            "value": 100, "description": "A tough, bitter root from deep woods.", "tier": 3},
     "blood_thistle":  {"name": "Blood Thistle",        "value": 40, "description": "A prickly red flower.", "tier": 2},
     "honey_sap":      {"name": "Honey Sap",            "value": 15, "description": "Sweet, sticky sap from ancient trees.", "tier": 1},
@@ -1023,6 +1024,7 @@ ALIASES = {
     "anti": "antidote",
     "mushroom": "gilded_mushroom",
     "letter": "mognet_letter",
+    "silverleaf": "silverleaf",
     # Headgear / Boots / Accessories
     "helm":     "iron_helm",
     "cap":      "worn_cap",

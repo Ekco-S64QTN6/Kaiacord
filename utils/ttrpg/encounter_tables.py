@@ -51,8 +51,21 @@ def random_encounter(location: str, player_level: int = 1) -> str:
     base_table = ENCOUNTER_TABLES.get(location, ENCOUNTER_TABLES["whisperwood_edge"])
     table = get_seasonal_encounter_table(location, base_table)
 
+    from utils.ttrpg.calendar import get_special_day
+    special = get_special_day()
+    special_mod = special.get("encounter_mod", {}) if special else {}
+
     min_idx = TIER_ORDER.index(min_tier)
     max_idx = TIER_ORDER.index(max_tier)
+
+    tier_shift = special_mod.get("tier_shift", 0)
+    if tier_shift:
+        min_idx = min(len(TIER_ORDER) - 1, max(0, min_idx + tier_shift))
+        max_idx = min(len(TIER_ORDER) - 1, max(0, max_idx + tier_shift))
+
+    if special_mod.get("undead_bonus"):
+        table = table + [("skeleton", 15), ("ghost", 15)]
+
     filtered = [
         (k, w) for k, w in table
         if min_idx <= TIER_ORDER.index(

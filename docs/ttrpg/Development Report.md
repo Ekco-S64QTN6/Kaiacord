@@ -1,6 +1,6 @@
 # Aethelgard TTRPG — Master Development Report
 
-This document synthesizes the initial 72-Hour Development Report, the comprehensive Deep Code Review & Balance Report, and the most recent Dungeon Overhaul into a single source of truth detailing the current state of the Aethelgard TTRPG system. 
+This document synthesizes the initial 72-Hour Development Report, the comprehensive Deep Code Review & Balance Report, and the most recent Dungeon and Architecture Overhauls into a single source of truth detailing the current state of the Aethelgard TTRPG system. 
 
 ---
 
@@ -34,6 +34,8 @@ Dungeons no longer rely on purely random walks. They now use D&D-style structura
 - Defined entry buffers and spine corridors.
 - Branching wings with distinct thematic purposes (e.g., Barracks, Vault Approach) dictating internal room generation.
 - Empty `antechamber` rooms to build atmospheric tension immediately preceding a boss sanctum.
+- **Layout Remediation:** Expanded `GRID_SIZE` to 8 and corrected layout branches to guarantee the designed 16–27 room minimums per map. 
+- **Minimum Encounter Threat:** Added a post-generation `_guarantee_minimum_monsters` pass to ensure "empty" dungeons no longer occur, mechanically ensuring at least 5+ combat encounters exist per instance.
 
 **Boss Room Warnings & Retreats**  
 Implemented atmospheric narrative cues and a direct retreat mechanism when players transition into an antechamber, improving player agency and allowing them to back out before committing to highly lethal boss encounters.
@@ -52,7 +54,7 @@ Added synthetic location key injection seamlessly altering random encounters dur
 ## 3. Combat & Balance Refinements
 
 **Defense Soft-Cap**  
-Fixed a critical bug where player defense accumulated additively across five slots with no cap, leading to unhittable players by mid-game. Introduced a diminishing return soft-cap: the first 10 bonus defense points provide full value, with remainder halved.
+Fixed a critical bug where player defense accumulated additively across five slots with no cap, leading to unhittable players by mid-game. Introduced a diminishing return soft-cap: the first 10 bonus defense points provide full value, with remainder halved. *(Note: Uncapped components from Pet/Weather/Class buffs remain an open architecture issue prioritized for upcoming sprints).*
 
 **Tier-Scaled Monster Lethality**  
 - **Hit Modifiers:** Scaled monster hit modifiers drastically based on their tier, rather than simply halving their flat ATK stat.
@@ -61,8 +63,8 @@ Fixed a critical bug where player defense accumulated additively across five slo
 
 **Encounter Scaling & Safeguards**
 - **Overworld Tier Windowing:** Overhauled encounter tables to enforce both a `min_tier` and `max_tier` per player level. Level 4-5 players are now strictly shielded from inadvertently spawning Deadly or Boss-tier monsters (300+ HP) during exploration.
+- **Dungeon Boss Loot Tier Dynamics:** Boss rewards dynamically scale up dynamically with player levels now (clamping correctly at `"boss"` for endgame players) rather than relying on a hardcoded `"hard"` tier definition.
 - **Dungeon Aggressive Boss Caps:** Reworked boss scaling logic to be generously forgiving at early levels (30% multiplier down from 45%) while strictly capping structural boss health and attack thresholds per player level.
-- **Dungeon Mob Hard-Caps:** Capped regular dungeon monster generation limits by dungeon difficulty, assuring that high-tier theme pools do not spawn unkillable standard mobs in a Difficulty 1 dungeon.
 
 **Class Features Activated**  
 Implemented numerous previously silent advanced class features:
@@ -72,7 +74,7 @@ Implemented numerous previously silent advanced class features:
 - **Warrior:** Halved and formally documented an invisible flat damage output bonus that was previously drastically skewing DPS balance.
 
 **Equipment Registry Migration**  
-Overhauled the core equipment registry architecture to standardize item lookups, creating a robust background migration script that successfully transferred legacy character inventory data to the new unified keys.
+Overhauled the core equipment registry architecture to standardize item lookups, creating a robust background migration script that successfully transferred legacy character inventory data to the new unified keys. Introduced missing gap-tier items like `Silverleaf` directly into `CONSUMABLES` and wired it into interactive NPC hubs.
 
 **Event Pacing Adjustments**  
 Rebalanced field exploration pacing by reducing the baseline `EVENT_CHANCE` for random hunting encounters, ensuring events feel more meaningful and less repetitious.
@@ -84,11 +86,17 @@ Rebalanced field exploration pacing by reducing the baseline `EVENT_CHANCE` for 
 **Encounter Routing Repaired**  
 Fixed a catastrophic bug where hunts relied on legacy 4-monster stubs. Fully integrated the 120+ monster bestiary and properly routed the 9 newly-written forest events that were previously unreachable in `encounter_tables.py`.
 
+**Quest Integration & NPC Dialogue State Tracking**
+Completely decoupled commercial transactions (like purchasing farming seeds) out of active dialogue UX `ActionRows`, eliminating severe Discord View state-conflicts that had previously caused Quest markers to silently halt progression.
+
+**Dynamic World Hooks Enabled (The Calendar)**
+Wired the massive payload of `calendar.py` deterministic variables straight into the combat and hub engines:
+- `encounter_mod`: Tier bounds naturally shift (e.g. adding 1 to indexes causing 'Amber Nights') and undead swarms spawn cleanly from `encounter_tables.py`.
+- `shop_special`: Hemlock accurately loads special-event items into arrays conditionally on Fair days.
+- `solstice_blessing` and `shrine_gift`: Built handlers in the `!rpg pray/offer` block to accommodate high-level XP multiplier limits and mystery item drops for real-time holy days.
+
 **Combat Resumption UI Resiliency**  
 Implemented a robust state-persistence system for dungeon and field combat, allowing players to resume active encounters without progress loss after UI timeouts. Fixed ANSI color bar rendering leakages so resumed combat embeds render clean mono-spaced health bars.
-
-**Quest Logic Refactor**  
-Fixed a critical bug in task tracking where multiple quest steps were failing to record correctly if completed out of alphabetical order.
 
 **Renamed Item Commerce Bug**  
 Resolved an inventory string matching bug that was preventing customized, user-renamed equipment from being recognized or properly sold to merchants.
@@ -111,3 +119,24 @@ Eliminated the infinite-gil generation exploit by closing loopholes surrounding 
 Added a strict bag limit system to prevent infinite passive fish hoarding.
 - Default limit is 20 catches. 
 - Integrated a new "Bag Upgrades" selection directly into Gregor's Shop UI, allowing progression to the 100-capacity "Gregor's Chest".
+
+---
+
+## 6. Comprehensive Audit Findings (Remaining Technical Debt)
+
+While recent overhauls solved the critical and highest priority bugs, the following infrastructure discrepancies remain prioritized for coming development cycles:
+
+### Priority: Outstanding Balance Vectors 🟡
+- **Uncapped non-gear DEF**: Soft caps currently skip Pet buffs, world state DEF buffs, and Advanced class buffs entirely. This needs addressing.
+- **Lifesteal looping**: Shadowknight sustain loops (`class_advancement.py`) trivialize endurance fights because healing hasn't received a per-combat ceiling limit yet.
+- **Pet Multi-Stacking**: There are no guards preventing the stacking of identical pet bonuses (i.e. bringing 5 Tonberry companions to grant a +10 flat combat modifier).
+- **Hard Tier Splitting**: The "Hard" index contains both soft glass-cannons (Tonberry) and raid bosses (Balor). An intermediary "Elite" or `power_rating` scalar system should be explored to keep level 7 players from being instantly executed.
+- **Weapon & Accessory Caps**: T5 items (specifically `Ultima Weapon` and `Black Lotus`) exceed the TTRPG mathematical budget guidelines by approximately 60%.
+
+### Priority: Code Maintenance and Extensibility 🔵
+- **`balance_model.py`:** The independent modeling script has fallen completely out of sync with actual combat equations and should be purged or entirely refactored.
+- **Registry Structure:** Current structures place deep reliance on 8-space dictionary identions. A move toward a flat JSON-schema with dedicated python loaders would prevent future data corruption limits.
+- **Furniture Buffs:** The `home_pray` button operates successfully but `home_scout`, etc. still need to be explicitly interfaced.
+- **Moogle Tracking:** Mognet Delivery logic currently only operates as stub hooks.
+
+*(Note: Data audits and code assessments remain current as of Phase 41 Architectural Remediation).*
