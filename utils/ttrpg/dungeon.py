@@ -1,35 +1,38 @@
 """
 Aethelgard Dungeon System
-Procedural dungeon generation using structural layout templates.
+Room-first generation with MST connectivity + loop corridors.
 
 Design philosophy:
-  - Dungeons follow D&D-style structural archetypes: a defined entry zone,
-    branching wings with purpose, a spine connecting areas, and a boss sanctum
-    at the farthest meaningful point.
-  - Room types are not rolled randomly — they are placed according to their
-    position in the layout (entry buffer, wing body, dead end, spine, sanctum).
-  - Each wing can have a local theme (guard post, ritual space, vault, barracks)
-    that influences room sequencing within it.
-  - The result feels like a place someone built, not a random maze.
+  - Rooms are placed first as discrete 1×1 cells across the grid
+  - A Minimum Spanning Tree guarantees every room is reachable
+  - Extra "loop" edges are added between nearby rooms to create
+    alternative paths and eliminate forced backtracking
+  - Room roles (boss, shrine, treasure, trap, guard) are assigned
+    based on graph topology: distance from start, node degree,
+    dead-end status
+  - The boss always sits at the room farthest from the start
+  - An antechamber sits immediately before the boss
+  - Dead ends (degree-1 nodes) become reward rooms: treasure/shrine
+  - Hub nodes (high degree) become guard checkpoints
 """
 import secrets
 import json
 import os
-from typing import Dict, List, Optional, Tuple
+from typing import Dict, List, Optional, Tuple, Set
 
-GRID_SIZE = 8          # Increased from 7 — larger templates need the extra column
-START_POS = (0, 0)     # Always bottom-left; entrance is always here
+GRID_SIZE = 9          # 9×9 grid gives good spacing
+START_POS = (0, 0)
 
 # ── Room type constants ───────────────────────────────────────────────────────
-R_START    = "start"
-R_EMPTY    = "empty"      # corridor / transitional space
-R_GUARD    = "guard"      # guarded checkpoint — always a monster
-R_MONSTER  = "monster"    # standard combat room
-R_TREASURE = "treasure"
-R_SHRINE   = "shrine"
-R_TRAP     = "trap"
-R_BOSS     = "boss"
-R_ANTECHAMBER = "antechamber"  # room immediately before boss — always empty/atmospheric
+R_START       = "start"
+R_EMPTY       = "empty"
+R_GUARD       = "guard"
+R_MONSTER     = "monster"
+R_TREASURE    = "treasure"
+R_SHRINE      = "shrine"
+R_TRAP        = "trap"
+R_BOSS        = "boss"
+R_ANTECHAMBER = "antechamber"
 
 ROOM_EMOJIS = {
     R_START:       "🏠",
@@ -45,466 +48,57 @@ ROOM_EMOJIS = {
     "unknown":     "░░",
 }
 
-DIRECTIONS = {"N": (0, -1), "S": (0, 1), "W": (-1, 0), "E": (1, 0)}
-DIR_OPPOSITE = {"N": "S", "S": "N", "E": "W", "W": "E"}
+DIRECTIONS    = {"N": (0, -1), "S": (0, 1), "W": (-1, 0), "E": (1, 0)}
+DIR_OPPOSITE  = {"N": "S", "S": "N", "E": "W", "W": "E"}
 
-DUNGEON_DIR = os.path.join("memory", "ttrpg", "dungeons")
+DUNGEON_DIR   = os.path.join("memory", "ttrpg", "dungeons")
 
 
-def _key(x, y):    return f"{x},{y}"
-def _in_bounds(x, y): return 0 <= x < GRID_SIZE and 0 <= y < GRID_SIZE
+def _key(x, y):         return f"{x},{y}"
+def _xy(k):             return tuple(int(v) for v in k.split(","))
+def _in_bounds(x, y):   return 0 <= x < GRID_SIZE and 0 <= y < GRID_SIZE
+def _manhattan(a, b):   return abs(a[0]-b[0]) + abs(a[1]-b[1])
 
 
 # ── Boss name generator ───────────────────────────────────────────────────────
 _BOSS_PREFIXES = [
-    "Rotting", "Hollow", "Ancient", "Ashen", "Sunken", "Cursed",
-    "Broken", "Pale", "Silent", "Festering", "Forgotten", "Bleeding",
-    "Shattered", "Withered", "Voided",
+    "Rotting","Hollow","Ancient","Ashen","Sunken","Cursed",
+    "Broken","Pale","Silent","Festering","Forgotten","Bleeding",
+    "Shattered","Withered","Voided","Bound","Seething",
 ]
 _BOSS_TITLES = [
-    "Warden", "Remnant", "Sentinel", "Walker", "Keeper", "Revenant",
-    "Hollow", "Sovereign", "Exile", "Aberration", "Thrall", "Witness",
-    "Architect", "Inheritor", "Executioner",
+    "Warden","Remnant","Sentinel","Walker","Keeper","Revenant",
+    "Hollow","Sovereign","Exile","Aberration","Thrall","Witness",
+    "Architect","Inheritor","Executioner","Hunger","Vigil",
 ]
 _BOSS_SUFFIXES = [
-    "of the Deep", "of Aeridor", "of the Ruin", "of the Whisperwood",
-    "of the Forgotten Age", "of the Third Vault", "of Broken Stone",
-    "of the Silent Ones", "", "", "",
+    "of the Deep","of Aeridor","of the Ruin","of the Whisperwood",
+    "of the Forgotten Age","of the Third Vault","of Broken Stone",
+    "of the Silent Ones","","","","",
 ]
 
 def generate_boss_name() -> str:
-    prefix = _BOSS_PREFIXES[secrets.randbelow(len(_BOSS_PREFIXES))]
-    title  = _BOSS_TITLES[secrets.randbelow(len(_BOSS_TITLES))]
-    suffix = _BOSS_SUFFIXES[secrets.randbelow(len(_BOSS_SUFFIXES))]
-    return f"{prefix} {title}{(' ' + suffix) if suffix else ''}"
+    p = _BOSS_PREFIXES[secrets.randbelow(len(_BOSS_PREFIXES))]
+    t = _BOSS_TITLES[secrets.randbelow(len(_BOSS_TITLES))]
+    s = _BOSS_SUFFIXES[secrets.randbelow(len(_BOSS_SUFFIXES))]
+    return f"{p} {t}{(' ' + s) if s else ''}"
 
 
-# ── Wing purpose themes ───────────────────────────────────────────────────────
-# Each wing gets a purpose. The purpose determines the room sequence within it.
-# Format: list of (room_type, weight) for non-terminal rooms in the wing.
-# The terminal room (dead end) of each wing always gets a special placement.
-
-WING_PURPOSES = {
-    "guard_post": {
-        "desc": "A military checkpoint. Guards, then a reward for clearing them.",
-        "body_rooms":    [(R_GUARD, 50), (R_MONSTER, 30), (R_EMPTY, 20)],
-        "terminal_room": [(R_TREASURE, 55), (R_TRAP, 30), (R_SHRINE, 15)],
-    },
-    "ritual_space": {
-        "desc": "Aeridorian resonance workings. Unstable and watched.",
-        "body_rooms":    [(R_TRAP, 40), (R_EMPTY, 35), (R_MONSTER, 25)],
-        "terminal_room": [(R_SHRINE, 60), (R_TREASURE, 25), (R_TRAP, 15)],
-    },
-    "barracks": {
-        "desc": "Sleeping quarters for whatever lived here. Now overrun.",
-        "body_rooms":    [(R_MONSTER, 55), (R_GUARD, 30), (R_EMPTY, 15)],
-        "terminal_room": [(R_TREASURE, 45), (R_MONSTER, 35), (R_TRAP, 20)],
-    },
-    "vault_approach": {
-        "desc": "Locked passage toward something valuable. Heavily trapped.",
-        "body_rooms":    [(R_TRAP, 45), (R_GUARD, 35), (R_EMPTY, 20)],
-        "terminal_room": [(R_TREASURE, 70), (R_SHRINE, 30)],
-    },
-    "collapsed_wing": {
-        "desc": "A damaged section. Mostly rubble, occasional survivor.",
-        "body_rooms":    [(R_EMPTY, 50), (R_TRAP, 30), (R_MONSTER, 20)],
-        "terminal_room": [(R_TREASURE, 40), (R_EMPTY, 40), (R_TRAP, 20)],
-    },
-    "sanctum_approach": {
-        "desc": "The path toward something ancient. The air changes here.",
-        "body_rooms":    [(R_MONSTER, 40), (R_TRAP, 30), (R_SHRINE, 30)],
-        "terminal_room": [(R_SHRINE, 55), (R_TREASURE, 25), (R_EMPTY, 20)],
-    },
-}
-
-WING_PURPOSE_KEYS = list(WING_PURPOSES.keys())
-
-
-# ── Layout templates ──────────────────────────────────────────────────────────
-# A layout template defines the structural skeleton of the dungeon.
-# It is a list of "segments" — each segment is a sequence of (dx, dy) steps
-# from the previous segment's starting point.
-#
-# The generator:
-#   1. Picks a template based on difficulty
-#   2. Walks each segment to place rooms
-#   3. Assigns wing purposes to branching segments
-#   4. Places the boss at the end of the longest path from start
-#   5. Places an antechamber one step before the boss
-#
-# Template coordinate system: (dx, dy) steps in grid space.
-# Each step creates one room and connects it to the previous.
-
-def _get_layouts(difficulty: int) -> list:
-    """
-    Returns layout templates for the given difficulty.
-
-    branch_from semantics:
-      -1 (default) = branch from START_POS (0, 0)
-       N           = branch from the recorded endpoint of segment N
-                     (only valid when N < current segment index)
-
-    All templates have been traced to verify:
-      - No coordinates exceed GRID_SIZE-1 (7 with GRID_SIZE=8)
-      - D1: 16+ rooms, D2: 20+ rooms, D3: 24+ rooms
-      - Each template produces at least 8 non-start, non-boss rooms
-        before the monster guarantee pass
-    """
-
-    # ── DIFFICULTY 1: 16 rooms, 3-4 wings ──────────────────────────────────
-    d1_layouts = [
-        {
-            # Spine east×4 north×2, north wing from start + two extensions
-            # Traced: 1+6+4+2+3 = 16 rooms. Boss at (6,3) dist=9.
-            "name": "barrow",
-            "segments": [
-                {"role": "spine", "steps": [(1,0),(1,0),(1,0),(1,0),(0,1),(0,1)]},
-                {"role": "wing",  "branch_from": -1, "steps": [(0,1),(0,1),(0,1),(1,0)]},
-                {"role": "wing",  "branch_from": 1,  "steps": [(1,0),(1,0)]},
-                {"role": "wing",  "branch_from": 0,  "steps": [(1,0),(1,0),(0,1)]},
-            ],
-        },
-        {
-            # Same spine, deep north wing + east arm + northeast from spine end
-            # Traced: 1+6+4+3+3 = 17 rooms. Boss at (5,4) dist=9.
-            "name": "crypt",
-            "segments": [
-                {"role": "spine", "steps": [(1,0),(1,0),(1,0),(1,0),(0,1),(0,1)]},
-                {"role": "wing",  "branch_from": -1, "steps": [(0,1),(0,1),(0,1),(0,1)]},
-                {"role": "wing",  "branch_from": 1,  "steps": [(1,0),(1,0),(1,0)]},
-                {"role": "wing",  "branch_from": 0,  "steps": [(1,0),(0,1),(0,1)]},
-            ],
-        },
-        {
-            # Winding spine (7 rooms), north wing + sub-wing + east arm off spine
-            # Traced: 1+7+4+2+2 = 16 rooms. Boss at (6,3) dist=9.
-            "name": "outpost",
-            "segments": [
-                {"role": "spine", "steps": [(1,0),(1,0),(1,0),(0,1),(1,0),(0,1),(0,1)]},
-                {"role": "wing",  "branch_from": -1, "steps": [(0,1),(0,1),(1,0),(1,0)]},
-                {"role": "wing",  "branch_from": 1,  "steps": [(0,1),(1,0)]},
-                {"role": "wing",  "branch_from": 0,  "steps": [(1,0),(1,0)]},
-            ],
-        },
-    ]
-
-    # ── DIFFICULTY 2: 21-22 rooms, 4-5 wings ───────────────────────────────
-    d2_layouts = [
-        {
-            # Long straight spine + broad north complex + far-east tower
-            # Traced: 1+7+5+3+4+1 = 21 rooms. Boss at (6,6) dist=12.
-            "name": "watchtower",
-            "segments": [
-                {"role": "spine", "steps": [(1,0),(1,0),(1,0),(1,0),(0,1),(0,1),(0,1)]},
-                {"role": "wing",  "branch_from": -1, "steps": [(0,1),(0,1),(0,1),(1,0),(1,0)]},
-                {"role": "wing",  "branch_from": 1,  "steps": [(0,1),(1,0),(1,0)]},
-                {"role": "wing",  "branch_from": 0,  "steps": [(1,0),(1,0),(0,1),(0,1)]},
-                {"role": "wing",  "branch_from": 3,  "steps": [(0,1)]},
-            ],
-        },
-        {
-            # Zigzag spine + north hall + east extension + deep south tower + lateral
-            # Traced: 1+8+4+3+4+2 = 22 rooms. Boss at (6,6) dist=12.
-            "name": "keep",
-            "segments": [
-                {"role": "spine", "steps": [(1,0),(1,0),(0,1),(1,0),(0,1),(1,0),(0,1),(1,0)]},
-                {"role": "wing",  "branch_from": -1, "steps": [(0,1),(0,1),(0,1),(0,1)]},
-                {"role": "wing",  "branch_from": 1,  "steps": [(1,0),(1,0),(1,0)]},
-                {"role": "wing",  "branch_from": 0,  "steps": [(0,1),(1,0),(0,1),(0,1)]},
-                {"role": "wing",  "branch_from": 2,  "steps": [(0,1),(1,0)]},
-            ],
-        },
-        {
-            # Long east spine + deep north hall + east-south return + far northeast + tip
-            # Traced: 1+7+4+4+4+1 = 21 rooms. Boss at (7,5) dist=12.
-            "name": "vault",
-            "segments": [
-                {"role": "spine", "steps": [(1,0),(1,0),(1,0),(1,0),(1,0),(0,1),(0,1)]},
-                {"role": "wing",  "branch_from": -1, "steps": [(0,1),(0,1),(0,1),(0,1)]},
-                {"role": "wing",  "branch_from": 1,  "steps": [(1,0),(1,0),(1,0),(0,-1)]},
-                {"role": "wing",  "branch_from": 0,  "steps": [(0,1),(0,1),(1,0),(0,1)]},
-                {"role": "wing",  "branch_from": 3,  "steps": [(1,0)]},
-            ],
-        },
-    ]
-
-    # ── DIFFICULTY 3: 24-27 rooms, 5-6 wings ───────────────────────────────
-    d3_layouts = [
-        {
-            # Long spine + broad north complex + deep northeast + far east + deep extensions
-            # Traced: 1+8+6+4+4+2+1 = 26 rooms. Boss at (6,7) dist=13.
-            "name": "ruins_complex",
-            "segments": [
-                {"role": "spine", "steps": [(1,0),(1,0),(1,0),(1,0),(1,0),(0,1),(0,1),(0,1)]},
-                {"role": "wing",  "branch_from": -1, "steps": [(0,1),(0,1),(0,1),(0,1),(1,0),(1,0)]},
-                {"role": "wing",  "branch_from": 1,  "steps": [(0,1),(1,0),(1,0),(0,1)]},
-                {"role": "wing",  "branch_from": 0,  "steps": [(1,0),(0,1),(0,1),(0,1)]},
-                {"role": "wing",  "branch_from": 2,  "steps": [(1,0),(0,1)]},
-                {"role": "wing",  "branch_from": 3,  "steps": [(0,1)]},
-            ],
-        },
-        {
-            # Zigzag spine + sweeping north arc + depth extension + far tower + pinnacle
-            # Traced: 1+9+6+2+3+2+1 = 24 rooms. Boss at (7,7) dist=14.
-            "name": "aeridor_vault",
-            "segments": [
-                {"role": "spine", "steps": [(1,0),(0,1),(1,0),(0,1),(1,0),(0,1),(1,0),(0,1),(1,0)]},
-                {"role": "wing",  "branch_from": -1, "steps": [(0,1),(0,1),(0,1),(1,0),(1,0),(1,0)]},
-                {"role": "wing",  "branch_from": 1,  "steps": [(0,1),(0,1)]},
-                {"role": "wing",  "branch_from": 0,  "steps": [(1,0),(0,1),(0,1)]},
-                {"role": "wing",  "branch_from": 3,  "steps": [(1,0),(0,1)]},
-                {"role": "wing",  "branch_from": 4,  "steps": [(0,1)]},
-            ],
-        },
-        {
-            # Very long spine + north complex + deep extension chain + far south tower
-            # Traced: 1+9+5+3+2+3+2 = 25 rooms. Boss at (7,7) dist=14.
-            "name": "deep_sanctum",
-            "segments": [
-                {"role": "spine", "steps": [(1,0),(1,0),(1,0),(0,1),(1,0),(0,1),(1,0),(0,1),(1,0)]},
-                {"role": "wing",  "branch_from": -1, "steps": [(0,1),(0,1),(0,1),(0,1),(1,0)]},
-                {"role": "wing",  "branch_from": 1,  "steps": [(1,0),(1,0),(0,1)]},
-                {"role": "wing",  "branch_from": 2,  "steps": [(0,1),(1,0)]},
-                {"role": "wing",  "branch_from": 0,  "steps": [(0,1),(0,1),(0,1)]},
-                {"role": "wing",  "branch_from": 4,  "steps": [(0,1),(1,0)]},
-            ],
-        },
-    ]
-
-    if difficulty == 1:
-        return d1_layouts
-    elif difficulty == 2:
-        return d2_layouts
-    else:
-        return d3_layouts
-
-
-# ── Layout builder ────────────────────────────────────────────────────────────
-
-def _build_layout_from_template(template: dict) -> Tuple[Dict, Dict, list]:
-    """
-    Walk a layout template and return:
-      rooms_meta: {key: {"segment_role": ..., "segment_idx": ..., "dist_from_start": ..., "is_terminal": bool}}
-      connections: {key: [direction, ...]}
-      all_positions: [(x, y), ...]
-    """
-    rooms_meta = {}
-    connections: Dict[str, List[str]] = {}
-    all_positions = []
-    segment_endpoints: Dict[int, Tuple[int, int]] = {}  # segment_idx → last placed (x,y)
-
-    def _connect(ax, ay, bx, by):
-        # Find direction from a to b
-        dx, dy = bx - ax, by - ay
-        for d, (ddx, ddy) in DIRECTIONS.items():
-            if ddx == dx and ddy == dy:
-                connections.setdefault(_key(ax, ay), []).append(d)
-                connections.setdefault(_key(bx, by), []).append(DIR_OPPOSITE[d])
-                return
-
-    def _place(x, y, role, seg_idx, dist, is_terminal=False):
-        if not _in_bounds(x, y):
-            return False
-        k = _key(x, y)
-        if k in rooms_meta:
-            return False   # collision — skip
-        rooms_meta[k] = {
-            "segment_role": role,
-            "segment_idx": seg_idx,
-            "dist_from_start": dist,
-            "is_terminal": is_terminal,
-        }
-        all_positions.append((x, y))
-        return True
-
-    # Always place start at (0, 0)
-    sx, sy = START_POS
-    _place(sx, sy, "spine", -1, 0, False)
-    segment_endpoints[-1] = (sx, sy)
-    prev_x, prev_y = sx, sy
-
-    segments = template["segments"]
-    for seg_idx, seg in enumerate(segments):
-        role = seg["role"]
-        steps = seg["steps"]
-        branch_from = seg.get("branch_from", -1)  # which segment to branch off
-
-        # Starting point: branch from last room of segment branch_from
-        if branch_from in segment_endpoints:
-            cur_x, cur_y = segment_endpoints[branch_from]
-        else:
-            cur_x, cur_y = segment_endpoints.get(-1, START_POS)
-
-        prev_in_seg_x, prev_in_seg_y = cur_x, cur_y
-        dist_base = rooms_meta.get(_key(cur_x, cur_y), {}).get("dist_from_start", 0)
-
-        for step_i, (dx, dy) in enumerate(steps):
-            nx, ny = cur_x + dx, cur_y + dy
-            is_terminal = (step_i == len(steps) - 1)
-            dist = dist_base + step_i + 1
-
-            if not _in_bounds(nx, ny) or _key(nx, ny) in rooms_meta:
-                # Try to nudge: shift one step perpendicular
-                perp_options = [(-dy, dx), (dy, -dx)]
-                placed = False
-                for pdx, pdy in perp_options:
-                    nx2, ny2 = cur_x + pdx, cur_y + pdy
-                    if _in_bounds(nx2, ny2) and _key(nx2, ny2) not in rooms_meta:
-                        nx, ny = nx2, ny2
-                        placed = True
-                        break
-                if not placed:
-                    # Dead-end early — record last valid pos as endpoint
-                    segment_endpoints[seg_idx] = (cur_x, cur_y)
-                    break
-
-            if _place(nx, ny, role, seg_idx, dist, is_terminal):
-                _connect(cur_x, cur_y, nx, ny)
-                prev_in_seg_x, prev_in_seg_y = cur_x, cur_y
-                cur_x, cur_y = nx, ny
-
-        segment_endpoints[seg_idx] = (cur_x, cur_y)
-
-    return rooms_meta, connections, all_positions
-
-
-# ── Room type assignment ──────────────────────────────────────────────────────
-
-def _assign_room_types(rooms_meta: dict, connections: dict,
-                       template: dict, theme: dict) -> dict:
-    """
-    Assign room types to each position based on structural role and position.
-
-    Rules:
-    - (0,0) = start, always
-    - First spine room after start = empty (entrance buffer)
-    - Second spine room after start = guard or empty
-    - Spine rooms in the middle = mix of monster/empty/trap
-    - The single farthest room from start = boss
-    - Room immediately before boss = antechamber
-    - Wing terminals = based on wing_purpose terminal_room table
-    - Wing bodies = based on wing_purpose body_rooms table
-    - Any room within 2 of start = never a trap or boss
-    """
-    room_types: Dict[str, str] = {}
-
-    # Find the farthest room — that's the boss
-    farthest_key = max(
-        rooms_meta.keys(),
-        key=lambda k: rooms_meta[k]["dist_from_start"]
-    )
-    farthest_dist = rooms_meta[farthest_key]["dist_from_start"]
-
-    # Find antechamber: the room on the path to boss that is one step before it
-    antechamber_key = None
-    boss_neighbors = connections.get(farthest_key, [])
-    for d in boss_neighbors:
-        dx, dy = DIRECTIONS[d]
-        bx, by = int(farthest_key.split(",")[0]), int(farthest_key.split(",")[1])
-        nk = _key(bx + dx, by + dy)
-        if nk in rooms_meta and nk != farthest_key:
-            # Prefer the neighbor that is on the spine
-            if rooms_meta[nk].get("segment_role") == "spine":
-                antechamber_key = nk
-                break
-    # Fallback: any neighbor that isn't start
-    if not antechamber_key:
-        for d in boss_neighbors:
-            dx, dy = DIRECTIONS[d]
-            bx, by = int(farthest_key.split(",")[0]), int(farthest_key.split(",")[1])
-            nk = _key(bx + dx, by + dy)
-            if nk in rooms_meta and nk != _key(*START_POS):
-                antechamber_key = nk
-                break
-
-    # Assign wing purposes — one per unique segment_idx that is a wing
-    wing_purposes_assigned: Dict[int, str] = {}
-    wing_seg_indices = sorted(set(
-        m["segment_idx"] for m in rooms_meta.values()
-        if m["segment_role"] == "wing"
-    ))
-    available_purposes = WING_PURPOSE_KEYS.copy()
-    for seg_idx in wing_seg_indices:
-        if not available_purposes:
-            available_purposes = WING_PURPOSE_KEYS.copy()
-        chosen = available_purposes.pop(secrets.randbelow(len(available_purposes)))
-        wing_purposes_assigned[seg_idx] = chosen
-
-    def _weighted_choice(table):
-        total = sum(w for _, w in table)
-        r = secrets.randbelow(total)
-        cum = 0
-        for rt, w in table:
-            cum += w
-            if r < cum:
-                return rt
-        return table[0][0]
-
-    for k, meta in rooms_meta.items():
-        dist = meta["dist_from_start"]
-        role = meta["segment_role"]
-        seg_idx = meta["segment_idx"]
-        is_terminal = meta["is_terminal"]
-
-        # Fixed placements
-        if k == _key(*START_POS):
-            room_types[k] = R_START
-            continue
-        if k == farthest_key:
-            room_types[k] = R_BOSS
-            continue
-        if k == antechamber_key:
-            room_types[k] = R_ANTECHAMBER
-            continue
-
-        # Entry buffer — first 2 rooms from start are never dangerous
-        if dist <= 1:
-            room_types[k] = R_EMPTY
-            continue
-        if dist == 2:
-            room_types[k] = R_GUARD if secrets.randbelow(2) == 0 else R_EMPTY
-            continue
-
-        # Wing rooms — use wing purpose tables
-        if role == "wing":
-            purpose_key = wing_purposes_assigned.get(seg_idx, "guard_post")
-            purpose = WING_PURPOSES[purpose_key]
-            if is_terminal:
-                room_types[k] = _weighted_choice(purpose["terminal_room"])
-            else:
-                room_types[k] = _weighted_choice(purpose["body_rooms"])
-            continue
-
-        # Spine rooms in the middle
-        # Closer to boss = more dangerous
-        danger_pct = dist / max(farthest_dist, 1)
-        if danger_pct < 0.4:
-            spine_table = [(R_EMPTY, 40), (R_MONSTER, 35), (R_TRAP, 15), (R_SHRINE, 10)]
-        elif danger_pct < 0.7:
-            spine_table = [(R_MONSTER, 45), (R_GUARD, 25), (R_TRAP, 20), (R_EMPTY, 10)]
-        else:
-            spine_table = [(R_MONSTER, 50), (R_GUARD, 30), (R_TRAP, 20)]
-        room_types[k] = _weighted_choice(spine_table)
-
-    return room_types, wing_purposes_assigned, farthest_key
-
-
-# ── Dungeon theme system (unchanged from original) ───────────────────────────
-
+# ── Dungeon themes (unchanged) ────────────────────────────────────────────────
 DUNGEON_THEMES = {
     "undead": {
         "name": "Undead Crypts",
         "emoji": "💀",
         "flavor": "The air reeks of old death. Something was interred here and refused to stay down.",
         "pools": {
-            1: ["decaying_skeleton", "zombie", "ghoul", "ghost", "blood_slime"],
-            2: ["skeleton", "ghoul", "ghost", "wight", "revenant"],
-            3: ["skull_knight", "wight", "spectral_knight", "dullahan", "lich"],
+            1: ["decaying_skeleton","zombie","ghoul","ghost","blood_slime"],
+            2: ["skeleton","ghoul","ghost","wight","revenant"],
+            3: ["skull_knight","wight","spectral_knight","dullahan","lich"],
         },
         "boss_pools": {
-            1: ["dullahan", "revenant", "ghoul"],
-            2: ["skull_knight", "dark_knight", "wight"],
-            3: ["lich", "shadow_lich", "tonberry_king"],
+            1: ["dullahan","revenant","ghoul"],
+            2: ["skull_knight","dark_knight","wight"],
+            3: ["lich","shadow_lich","tonberry_king"],
         },
     },
     "constructs": {
@@ -512,14 +106,14 @@ DUNGEON_THEMES = {
         "emoji": "💎",
         "flavor": "Crystal formations absorb light. The constructs still remember their orders.",
         "pools": {
-            1: ["crew_dust", "gargoyle", "soldier", "flan"],
-            2: ["gargoyle", "soldier", "golem", "crystelle", "dark_wizard"],
-            3: ["soldier", "crystelle", "iron_giant", "clay_golem", "skull_knight"],
+            1: ["crew_dust","gargoyle","soldier","flan"],
+            2: ["gargoyle","soldier","golem","crystelle","dark_wizard"],
+            3: ["soldier","crystelle","iron_giant","clay_golem","skull_knight"],
         },
         "boss_pools": {
-            1: ["gargoyle", "dark_wizard"],
-            2: ["golem", "crystelle", "dark_knight"],
-            3: ["iron_giant", "crystelle"],
+            1: ["gargoyle","dark_wizard"],
+            2: ["golem","crystelle","dark_knight"],
+            3: ["iron_giant","crystelle"],
         },
     },
     "beasts": {
@@ -527,14 +121,14 @@ DUNGEON_THEMES = {
         "emoji": "🐺",
         "flavor": "Something territorial has nested here. Claw marks on every stone.",
         "pools": {
-            1: ["wolf", "bat", "large_bat", "spiderling", "forest_boar"],
-            2: ["wolf", "werewolf", "basilisk", "coeurl", "harpy"],
-            3: ["manticore", "werewolf", "wyvern", "earth_bear", "jura_aevis"],
+            1: ["wolf","bat","large_bat","spiderling","forest_boar"],
+            2: ["wolf","werewolf","basilisk","coeurl","harpy"],
+            3: ["manticore","werewolf","wyvern","earth_bear","jura_aevis"],
         },
         "boss_pools": {
-            1: ["cockatrice", "wolf"],
-            2: ["manticore", "wyvern", "griffon"],
-            3: ["behemoth", "jura_aevis", "magic_dragon"],
+            1: ["cockatrice","wolf"],
+            2: ["manticore","wyvern","griffon"],
+            3: ["behemoth","jura_aevis","magic_dragon"],
         },
     },
     "deepwood": {
@@ -542,14 +136,14 @@ DUNGEON_THEMES = {
         "emoji": "🌑",
         "flavor": "The roots have grown through the walls. The Whisperwood consumed this place long ago.",
         "pools": {
-            1: ["myconid", "grat", "ochu", "vegepygmy", "leg_eater"],
-            2: ["ochu", "lamia", "cray_claw", "wind_serpent", "treant"],
-            3: ["treant", "malboro", "lamia", "earth_bear", "killer_mantis"],
+            1: ["myconid","grat","ochu","vegepygmy","leg_eater"],
+            2: ["ochu","lamia","cray_claw","wind_serpent","treant"],
+            3: ["treant","malboro","lamia","earth_bear","killer_mantis"],
         },
         "boss_pools": {
-            1: ["ochu", "grat"],
-            2: ["treant", "lamia"],
-            3: ["elder_treant", "malboro"],
+            1: ["ochu","grat"],
+            2: ["treant","lamia"],
+            3: ["elder_treant","malboro"],
         },
     },
     "demons": {
@@ -557,23 +151,23 @@ DUNGEON_THEMES = {
         "emoji": "🔥",
         "flavor": "The walls are scorched. Something forced its way through here — from below.",
         "pools": {
-            1: ["imp", "bomb", "black_flan", "blood_slime"],
-            2: ["grenade", "mini_satana", "dark_wizard", "nachtmahr"],
-            3: ["dark_knight", "nachtmahr", "shadow_dancer", "dullahan"],
+            1: ["imp","bomb","black_flan","blood_slime"],
+            2: ["grenade","mini_satana","dark_wizard","nachtmahr"],
+            3: ["dark_knight","nachtmahr","shadow_dancer","dullahan"],
         },
         "boss_pools": {
-            1: ["dark_wizard", "mini_satana"],
-            2: ["dark_knight", "nachtmahr"],
-            3: ["gilgamesh", "apocalypse"],
+            1: ["dark_wizard","mini_satana"],
+            2: ["dark_knight","nachtmahr"],
+            3: ["gilgamesh","apocalypse"],
         },
     },
 }
 
 LOCATION_THEME_WEIGHTS = {
-    "whisperwood_edge": [("beasts", 45), ("deepwood", 30), ("undead", 25)],
-    "whisperwood_deep": [("deepwood", 40), ("undead", 30), ("beasts", 20), ("demons", 10)],
-    "aeridor_ruins":    [("constructs", 45), ("undead", 30), ("demons", 25)],
-    "trade_road":       [("undead", 35), ("beasts", 35), ("demons", 30)],
+    "whisperwood_edge": [("beasts",45),("deepwood",30),("undead",25)],
+    "whisperwood_deep": [("deepwood",40),("undead",30),("beasts",20),("demons",10)],
+    "aeridor_ruins":    [("constructs",45),("undead",30),("demons",25)],
+    "trade_road":       [("undead",35),("beasts",35),("demons",30)],
 }
 
 LOCATION_DIFFICULTY_BONUS = {
@@ -586,7 +180,7 @@ LOCATION_DIFFICULTY_BONUS = {
 
 def _roll_theme(location: str) -> str:
     weights = LOCATION_THEME_WEIGHTS.get(location, [
-        ("undead", 25), ("constructs", 25), ("beasts", 25), ("deepwood", 15), ("demons", 10)
+        ("undead",25),("constructs",25),("beasts",25),("deepwood",15),("demons",10)
     ])
     total = sum(w for _, w in weights)
     r = secrets.randbelow(total)
@@ -598,45 +192,392 @@ def _roll_theme(location: str) -> str:
     return weights[0][0]
 
 
-def _scale_boss_to_level(monster: dict, player_level: int) -> dict:
-    """Scale dungeon boss stats to player level with hard caps."""
-    scale = max(0.30, min(1.0, 0.30 + (player_level - 1) * 0.08))
-    m = dict(monster)
-    m["hp"] = max(15, int(monster["hp"] * scale))
-    m["attack"] = max(3, int(monster["attack"] * scale))
-    m["defense"] = max(8, monster["defense"] - max(0, 5 - player_level))
+# ── Phase 1: Room placement ───────────────────────────────────────────────────
 
-    # Hard HP caps by player level to prevent absurd encounters
-    BOSS_HP_CAPS = {
-        1: 35, 2: 45, 3: 55, 4: 65, 5: 80,
-        6: 110, 7: 140, 8: 180, 9: 220,
-    }
-    hp_cap = BOSS_HP_CAPS.get(player_level)
-    if hp_cap:
-        m["hp"] = min(m["hp"], hp_cap)
+def _place_rooms(num_rooms: int) -> List[Tuple[int,int]]:
+    """
+    Scatter num_rooms cells across the grid, ensuring:
+    - (0,0) is always included (entrance)
+    - No two rooms share a cell
+    - Rooms are spread across the grid (not all clustered)
+    - Minimum spacing of 1 cell between rooms (so corridors have room to exist)
+    """
+    occupied: Set[Tuple[int,int]] = set()
+    rooms: List[Tuple[int,int]] = []
 
-    # Cap ATK proportionally
-    BOSS_ATK_CAPS = {
-        1: 6, 2: 8, 3: 10, 4: 12, 5: 14,
-        6: 16, 7: 18, 8: 20, 9: 22,
-    }
-    atk_cap = BOSS_ATK_CAPS.get(player_level)
-    if atk_cap:
-        m["attack"] = min(m["attack"], atk_cap)
+    # Always start at (0,0)
+    rooms.append(START_POS)
+    occupied.add(START_POS)
 
-    return m
+    attempts = 0
+    max_attempts = num_rooms * 40
+
+    while len(rooms) < num_rooms and attempts < max_attempts:
+        attempts += 1
+        x = secrets.randbelow(GRID_SIZE)
+        y = secrets.randbelow(GRID_SIZE)
+        pos = (x, y)
+
+        if pos in occupied:
+            continue
+
+        # Enforce minimum spacing of 1 cell (rooms can't be directly adjacent —
+        # that space is used for corridor indication in connections dict)
+        too_close = False
+        for rx, ry in rooms:
+            if abs(x - rx) <= 1 and abs(y - ry) <= 1:
+                too_close = True
+                break
+        if too_close:
+            continue
+
+        rooms.append(pos)
+        occupied.add(pos)
+
+    return rooms
 
 
-def _pick_monster(room_type: str, difficulty: int, theme: dict) -> str:
-    if room_type == R_BOSS:
-        pool = theme["boss_pools"].get(difficulty, theme["boss_pools"].get(1, ["goblin"]))
-    elif room_type == R_GUARD:
-        # Guards use one tier lower than regular monsters — they're checkpoints not horrors
-        low_diff = max(1, difficulty - 1)
-        pool = theme["pools"].get(low_diff, theme["pools"].get(1, ["goblin"]))
-    else:
-        pool = theme["pools"].get(difficulty, theme["pools"].get(1, ["goblin"]))
-    return pool[secrets.randbelow(len(pool))]
+# ── Phase 2: MST connectivity (Prim's algorithm) ─────────────────────────────
+
+def _build_mst(rooms: List[Tuple[int,int]]) -> List[Tuple[Tuple[int,int], Tuple[int,int]]]:
+    """
+    Build a Minimum Spanning Tree connecting all rooms.
+    Returns list of (room_a, room_b) edges representing corridors.
+    Uses Manhattan distance as edge weight.
+    """
+    if len(rooms) <= 1:
+        return []
+
+    in_tree: Set[Tuple[int,int]] = {rooms[0]}
+    edges: List[Tuple[Tuple[int,int], Tuple[int,int]]] = []
+
+    while len(in_tree) < len(rooms):
+        best_dist = float('inf')
+        best_edge = None
+
+        for a in in_tree:
+            for b in rooms:
+                if b in in_tree:
+                    continue
+                d = _manhattan(a, b)
+                if d < best_dist:
+                    best_dist = d
+                    best_edge = (a, b)
+
+        if best_edge is None:
+            break
+        edges.append(best_edge)
+        in_tree.add(best_edge[1])
+
+    return edges
+
+
+# ── Phase 3: Add loop corridors ───────────────────────────────────────────────
+
+def _add_loops(
+    rooms: List[Tuple[int,int]],
+    mst_edges: List[Tuple[Tuple[int,int], Tuple[int,int]]],
+    num_loops: int,
+) -> List[Tuple[Tuple[int,int], Tuple[int,int]]]:
+    """
+    Add extra connections between nearby rooms that aren't already connected.
+    This creates loops so players don't have to fully backtrack.
+    Candidates are pairs within Manhattan distance of ~4 that aren't in MST.
+    """
+    mst_set: Set[frozenset] = {frozenset(e) for e in mst_edges}
+    candidates: List[Tuple[int, Tuple[int,int], Tuple[int,int]]] = []
+
+    for i, a in enumerate(rooms):
+        for b in rooms[i+1:]:
+            if frozenset((a, b)) in mst_set:
+                continue
+            d = _manhattan(a, b)
+            if 2 <= d <= 5:   # nearby but not trivially adjacent
+                candidates.append((d, a, b))
+
+    # Sort by distance (prefer shorter extra corridors)
+    candidates.sort(key=lambda x: x[0])
+
+    added = []
+    for _, a, b in candidates:
+        if len(added) >= num_loops:
+            break
+        added.append((a, b))
+
+    return added
+
+
+# ── Phase 4: Build connections dict from edges ────────────────────────────────
+
+def _edges_to_connections(
+    rooms: List[Tuple[int,int]],
+    all_edges: List[Tuple[Tuple[int,int], Tuple[int,int]]],
+) -> Dict[str, List[str]]:
+    """
+    Convert room-pair edges into the connections dict format:
+    { "x,y": ["N","E",...], ... }
+    
+    For each edge (a, b), we need to find the cardinal direction from a→b.
+    Since rooms aren't necessarily adjacent, we route the corridor through
+    intermediate cells and record which direction to travel.
+    
+    Strategy: for each edge, we carve an L-shaped or straight path through
+    intermediate corridor cells, adding those as EMPTY connector nodes,
+    and record the entry/exit directions for each cell along the path.
+    """
+    connections: Dict[str, List[str]] = {_key(*r): [] for r in rooms}
+    corridor_cells: Set[Tuple[int,int]] = set()
+
+    def _add_conn(cx, cy, direction):
+        k = _key(cx, cy)
+        if k not in connections:
+            connections[k] = []
+        if direction not in connections[k]:
+            connections[k].append(direction)
+
+    for (ax, ay), (bx, by) in all_edges:
+        # Route an L-shaped corridor: first horizontal, then vertical
+        # (or straight if same row/column)
+        path_cells = []
+
+        if ax == bx:
+            # Straight vertical
+            step = 1 if by > ay else -1
+            for cy in range(ay, by + step, step):
+                path_cells.append((ax, cy))
+        elif ay == by:
+            # Straight horizontal
+            step = 1 if bx > ax else -1
+            for cx in range(ax, bx + step, step):
+                path_cells.append((cx, ay))
+        else:
+            # L-shaped: go horizontal first, then vertical
+            # Randomly pick which bend to use for variety
+            if secrets.randbelow(2) == 0:
+                # Horizontal first
+                step_x = 1 if bx > ax else -1
+                for cx in range(ax, bx + step_x, step_x):
+                    path_cells.append((cx, ay))
+                step_y = 1 if by > ay else -1
+                for cy in range(ay + step_y, by + step_y, step_y):
+                    path_cells.append((bx, cy))
+            else:
+                # Vertical first
+                step_y = 1 if by > ay else -1
+                for cy in range(ay, by + step_y, step_y):
+                    path_cells.append((ax, cy))
+                step_x = 1 if bx > ax else -1
+                for cx in range(ax + step_x, bx + step_x, step_x):
+                    path_cells.append((cx, by))
+
+        # Deduplicate while preserving order
+        seen = set()
+        clean_path = []
+        for c in path_cells:
+            if c not in seen:
+                seen.add(c)
+                clean_path.append(c)
+
+        # Register corridor cells (intermediate cells not already rooms)
+        room_set = set(rooms)
+        for cell in clean_path:
+            if cell not in room_set and _in_bounds(*cell):
+                corridor_cells.add(cell)
+
+        # Wire up connections along the path
+        for i in range(len(clean_path) - 1):
+            cx, cy = clean_path[i]
+            nx, ny = clean_path[i + 1]
+            if not _in_bounds(cx, cy) or not _in_bounds(nx, ny):
+                continue
+            dx, dy = nx - cx, ny - cy
+            for d, (ddx, ddy) in DIRECTIONS.items():
+                if ddx == dx and ddy == dy:
+                    _add_conn(cx, cy, d)
+                    _add_conn(nx, ny, DIR_OPPOSITE[d])
+                    break
+
+    return connections, corridor_cells
+
+
+# ── Phase 5: Graph analysis ───────────────────────────────────────────────────
+
+def _analyze_graph(
+    rooms: List[Tuple[int,int]],
+    connections: Dict[str, List[str]],
+) -> Dict[str, dict]:
+    """
+    BFS from start to compute:
+    - dist_from_start for every room
+    - degree (number of direct room neighbors)
+    - is_dead_end (degree == 1 and not start)
+    Returns meta dict keyed by "x,y".
+    """
+    room_set = set(rooms)
+    meta: Dict[str, dict] = {}
+
+    # BFS
+    from collections import deque
+    dist: Dict[Tuple[int,int], int] = {START_POS: 0}
+    queue = deque([START_POS])
+    while queue:
+        pos = queue.popleft()
+        k = _key(*pos)
+        for d in connections.get(k, []):
+            dx, dy = DIRECTIONS[d]
+            nx, ny = pos[0] + dx, pos[1] + dy
+            nb = (nx, ny)
+            if nb in room_set and nb not in dist:
+                dist[nb] = dist[pos] + 1
+                queue.append(nb)
+
+    # Compute degree (number of room neighbors through any path)
+    # For simplicity, degree = number of directions with connections that eventually
+    # reach another room cell (not just corridor). We approximate by counting
+    # unique reachable room neighbors.
+    for room in rooms:
+        k = _key(*room)
+        # Direct connection directions
+        direct_dirs = connections.get(k, [])
+        # Count how many adjacent cells exist in our connection graph
+        degree = len(direct_dirs)
+        meta[k] = {
+            "dist_from_start": dist.get(room, 999),
+            "degree": degree,
+            "is_dead_end": degree <= 1 and room != START_POS,
+        }
+
+    return meta
+
+
+# ── Phase 6: Assign room types ────────────────────────────────────────────────
+
+def _assign_room_types(
+    rooms: List[Tuple[int,int]],
+    meta: Dict[str, dict],
+    corridor_cells: Set[Tuple[int,int]],
+    difficulty: int,
+) -> Tuple[Dict[str, str], Tuple[int,int]]:
+    """
+    Assign room types based on topology.
+
+    Rules (in priority order):
+    1. (0,0) → start
+    2. Farthest room → boss
+    3. Room before boss (on shortest path) → antechamber  
+    4. Dead ends (degree 1) → alternate between treasure/shrine/trap
+       (these are the "worth exploring" dead ends)
+    5. High-degree hubs → guard (checkpoints)
+    6. Remaining rooms → monster/empty/trap weighted by distance
+    """
+    room_set = set(rooms)
+
+    # Find boss: farthest room from start
+    boss_pos = max(rooms, key=lambda r: meta[_key(*r)]["dist_from_start"])
+    boss_key = _key(*boss_pos)
+
+    # Find antechamber: room one step before boss in BFS tree
+    # (the room with dist = boss_dist - 1 that has a connection to boss)
+    boss_dist = meta[boss_key]["dist_from_start"]
+    antechamber_pos = None
+    boss_k = _key(*boss_pos)
+    for d in ["N","S","E","W"]:
+        dx, dy = DIRECTIONS[d]
+        nx, ny = boss_pos[0]+dx, boss_pos[1]+dy
+        nb = (nx, ny)
+        nb_k = _key(*nb)
+        if nb in room_set and nb_k in meta:
+            if meta[nb_k]["dist_from_start"] == boss_dist - 1:
+                antechamber_pos = nb
+                break
+    # Fallback: nearest room to boss that isn't boss
+    if not antechamber_pos:
+        candidates = [r for r in rooms if r != boss_pos]
+        if candidates:
+            antechamber_pos = min(
+                candidates,
+                key=lambda r: (_manhattan(r, boss_pos), -meta[_key(*r)]["dist_from_start"])
+            )
+
+    types: Dict[str, str] = {}
+    dead_end_idx = 0
+    dead_end_cycle = [R_TREASURE, R_SHRINE, R_TREASURE, R_TRAP]
+
+    has_secret_shrine = False
+
+    for room in rooms:
+        k = _key(*room)
+        m = meta[k]
+
+        # Fixed
+        if room == START_POS:
+            types[k] = R_START
+            continue
+        if room == boss_pos:
+            types[k] = R_BOSS
+            continue
+        if room == antechamber_pos:
+            types[k] = R_ANTECHAMBER
+            continue
+
+        dist = m["dist_from_start"]
+
+        # Entry buffer — first 2 hops are always safe
+        if dist <= 1:
+            types[k] = R_EMPTY
+            continue
+        if dist == 2:
+            types[k] = R_GUARD if secrets.randbelow(2) == 0 else R_EMPTY
+            continue
+
+        # Dead ends → reward rooms
+        if m["is_dead_end"]:
+            t = dead_end_cycle[dead_end_idx % len(dead_end_cycle)]
+            dead_end_idx += 1
+            types[k] = t
+            continue
+
+        # High-degree hubs → guard checkpoints
+        if m["degree"] >= 4:
+            types[k] = R_GUARD
+            continue
+
+        # Distance-weighted regular rooms
+        danger_pct = dist / max(boss_dist, 1)
+        if danger_pct < 0.35:
+            table = [(R_EMPTY,40),(R_MONSTER,35),(R_TRAP,15),(R_SHRINE,10)]
+        elif danger_pct < 0.65:
+            table = [(R_MONSTER,45),(R_GUARD,20),(R_TRAP,25),(R_EMPTY,10)]
+        else:
+            table = [(R_MONSTER,50),(R_GUARD,25),(R_TRAP,20),(R_SHRINE,5)]
+
+        total = sum(w for _,w in table)
+        r = secrets.randbelow(total)
+        cum = 0
+        for rt, w in table:
+            cum += w
+            if r < cum:
+                types[k] = rt
+                break
+
+    # Ensure at least 1 shrine exists
+    shrine_exists = any(t == R_SHRINE for t in types.values())
+    if not shrine_exists:
+        # Convert the last dead-end treasure to shrine, or a mid-distance empty room
+        for room in rooms:
+            k = _key(*room)
+            if types.get(k) == R_TREASURE and meta[k]["is_dead_end"]:
+                types[k] = R_SHRINE
+                shrine_exists = True
+                break
+        if not shrine_exists:
+            for room in rooms:
+                k = _key(*room)
+                if types.get(k) == R_EMPTY and meta[k]["dist_from_start"] > 2:
+                    types[k] = R_SHRINE
+                    break
+
+    return types, boss_pos
 
 
 # ── Room descriptions ─────────────────────────────────────────────────────────
@@ -653,173 +594,127 @@ ROOM_DESCRIPTIONS = {
     R_ANTECHAMBER: "A still room before the final door. The air is cold and deliberate. Something ancient breathes on the other side.",
 }
 
-# Wing purpose flavor text shown when entering a wing's first room
-WING_ENTRANCE_FLAVOR = {
-    "guard_post":      "*The corridor narrows. Something was stationed here — the fixtures suggest a long watch.*",
-    "ritual_space":    "*The stones hum. Aeridorian glyphs cover the walls. Something was practiced here regularly.*",
-    "barracks":        "*Rusted fixtures line the walls. Whatever slept here doesn't anymore.*",
-    "vault_approach":  "*The floor is scored with old drag marks. Something heavy was moved through here often.*",
-    "collapsed_wing":  "*The ceiling has partially given way. Rubble everywhere. The path is passable, barely.*",
-    "sanctum_approach": "*The air thickens. The light from your source dims slightly. Something ahead doesn't want visitors.*",
-}
-
 SHRINE_ROOM_SEALED    = "An alcove with a single candle. Ancient Aeridorian script. A circular seal in the stone — *three flames intertwined*. It feels like it's waiting for something."
 SHRINE_ROOM_UNLOCKED  = "An alcove with a single candle. The seal glows faintly when you approach. Your hand finds the groove naturally. Something inside the stone shifts."
 SHRINE_ROOM_COMPLETED = "An alcove with a single candle. The seal is dark now — whatever was stored here has been given."
 
 
-def _guarantee_minimum_monsters(
-    room_types: dict,
-    rooms_meta: dict,
-    farthest_key: str,
-    min_count: int = 5,
+def _pick_monster(room_type: str, difficulty: int, theme: dict) -> str:
+    if room_type == R_BOSS:
+        pool = theme["boss_pools"].get(difficulty, theme["boss_pools"].get(1, ["goblin"]))
+    elif room_type == R_GUARD:
+        low_diff = max(1, difficulty - 1)
+        pool = theme["pools"].get(low_diff, theme["pools"].get(1, ["goblin"]))
+    else:
+        pool = theme["pools"].get(difficulty, theme["pools"].get(1, ["goblin"]))
+    return pool[secrets.randbelow(len(pool))]
+
+
+# ── Main generator ────────────────────────────────────────────────────────────
+
+def generate_dungeon(
+    difficulty: int = 1,
+    player_level: int = 1,
+    location: str = "whisperwood_edge",
 ) -> dict:
     """
-    Post-generation pass: ensure at least min_count monster/guard rooms exist
-    before the boss room. Converts empty rooms to monster rooms as needed.
-
-    Antechamber rooms are type R_ANTECHAMBER (not R_EMPTY) so they are
-    automatically excluded from conversion candidates.
-    """
-    combat_count = sum(
-        1 for k, rt in room_types.items()
-        if rt in (R_MONSTER, R_GUARD) and k != farthest_key
-    )
-    needed = min_count - combat_count
-    if needed <= 0:
-        return room_types
-
-    # Candidates: empty rooms that aren't start or boss,
-    # with dist > 1 so we never overwrite the forced entry buffer.
-    candidates = [
-        k for k, rt in room_types.items()
-        if rt == R_EMPTY
-        and k != _key(*START_POS)
-        and k != farthest_key
-        and rooms_meta.get(k, {}).get("dist_from_start", 0) > 1
-    ]
-
-    if not candidates:
-        return room_types
-
-    # Fisher-Yates shuffle using secrets (no random module)
-    for i in range(len(candidates) - 1, 0, -1):
-        j = secrets.randbelow(i + 1)
-        candidates[i], candidates[j] = candidates[j], candidates[i]
-
-    for i in range(min(needed, len(candidates))):
-        room_types[candidates[i]] = R_MONSTER
-
-    return room_types
-
-# ── Main dungeon generator ────────────────────────────────────────────────────
-
-def generate_dungeon(difficulty: int = 1, player_level: int = 1,
-                     location: str = "whisperwood_edge") -> dict:
-    """
-    Generate a structured dungeon using layout templates.
+    Generate a room-first dungeon with MST connectivity and loop corridors.
     Returns the full dungeon state dict ready for save/play.
     """
     theme_key = _roll_theme(location)
     theme     = DUNGEON_THEMES.get(theme_key, DUNGEON_THEMES["undead"])
 
-    # Pick a layout template
-    layouts   = _get_layouts(difficulty)
-    template  = layouts[secrets.randbelow(len(layouts))]
+    # Scale room count and loop count with difficulty
+    # D1: 10–13 rooms, 1–2 loops
+    # D2: 13–17 rooms, 2–3 loops
+    # D3: 17–22 rooms, 3–4 loops
+    base_rooms = {1: 11, 2: 15, 3: 19}
+    variance   = {1: 3,  2: 4,  3: 4}
+    num_rooms  = base_rooms[difficulty] + secrets.randbelow(variance[difficulty])
+    num_loops  = difficulty + secrets.randbelow(2)   # 1–2, 2–3, 3–4
 
-    # Build the structural skeleton
-    rooms_meta, connections, all_positions = _build_layout_from_template(template)
+    # Phase 1: Place rooms
+    rooms = _place_rooms(num_rooms)
 
-    # Assign room types based on structure
-    room_types, wing_purposes, boss_key = _assign_room_types(
-        rooms_meta, connections, template, theme
-    )
+    # Phase 2: MST
+    mst_edges = _build_mst(rooms)
 
-    # Guarantee at least 5 combat encounters before the boss.
-    # This catches edge cases where RNG produces mostly traps/treasure.
-    room_types = _guarantee_minimum_monsters(
-        room_types, rooms_meta, boss_key, min_count=5
-    )
+    # Phase 3: Add loops
+    loop_edges = _add_loops(rooms, mst_edges, num_loops)
 
-    # Build final rooms dict
-    rooms: Dict[str, dict] = {}
+    all_edges = mst_edges + loop_edges
+
+    # Phase 4: Build connections + corridor cells
+    connections, corridor_cells = _edges_to_connections(rooms, all_edges)
+
+    # Phase 5: Graph analysis
+    meta = _analyze_graph(rooms, connections)
+
+    # Phase 6: Assign room types
+    room_types, boss_pos = _assign_room_types(rooms, meta, corridor_cells, difficulty)
+    boss_key = _key(*boss_pos)
+
+    # Phase 7: Build final rooms dict (rooms + corridor connectors)
+    all_cells = list(rooms) + [c for c in corridor_cells if _in_bounds(*c)]
+    rooms_dict: Dict[str, dict] = {}
     has_secret_shrine = False
 
-    for pos in all_positions:
-        k = _key(*pos)
-        rt = room_types.get(k, R_EMPTY)
+    for cell in all_cells:
+        k = _key(*cell)
+        is_room = cell in set(rooms)
+        rt = room_types.get(k, R_EMPTY)  # corridor cells are always empty
 
         boss_name = generate_boss_name() if rt == R_BOSS else None
 
-        # Secret shrine: one per dungeon, only on shrine rooms
-        is_secret_shrine = (
-            rt == R_SHRINE
-            and not has_secret_shrine
-            and secrets.randbelow(100) < (25 + difficulty * 20)
-        )
-        if is_secret_shrine:
-            has_secret_shrine = True
+        # Secret shrine logic
+        is_secret_shrine = False
+        if rt == R_SHRINE and is_room and not has_secret_shrine:
+            if secrets.randbelow(100) < (25 + difficulty * 20):
+                is_secret_shrine = True
+                has_secret_shrine = True
 
         monster_key = None
-        if rt in (R_MONSTER, R_BOSS, R_GUARD):
+        if rt in (R_MONSTER, R_BOSS, R_GUARD) and is_room:
             monster_key = _pick_monster(rt, difficulty, theme)
 
-        desc = ROOM_DESCRIPTIONS.get(rt, "A stone room.")
+        desc = ROOM_DESCRIPTIONS.get(rt, "A stone passage.")
 
-        # Wing entrance flavor: first non-start room of each wing
-        meta = rooms_meta.get(k, {})
-        seg_idx = meta.get("segment_idx", -1)
-        if (meta.get("segment_role") == "wing"
-                and not meta.get("is_terminal")
-                and meta.get("dist_from_start", 0) > 0):
-            # Only show wing flavor on the FIRST room of a wing
-            wing_rooms_in_seg = [
-                kk for kk, mm in rooms_meta.items()
-                if mm.get("segment_idx") == seg_idx
-            ]
-            min_dist_in_seg = min(
-                rooms_meta[kk]["dist_from_start"] for kk in wing_rooms_in_seg
-            )
-            if meta["dist_from_start"] == min_dist_in_seg:
-                purpose_key = wing_purposes.get(seg_idx, "guard_post")
-                wing_flavor = WING_ENTRANCE_FLAVOR.get(purpose_key, "")
-                if wing_flavor:
-                    desc = desc + f"\n\n{wing_flavor}"
-
-        rooms[k] = {
+        rooms_dict[k] = {
             "type":          rt,
-            "cleared":       rt in (R_START, R_EMPTY, R_ANTECHAMBER),
+            "cleared":       rt in (R_START, R_EMPTY, R_ANTECHAMBER) or not is_room,
             "monster_key":   monster_key,
             "boss_name":     boss_name,
             "description":   desc,
             "secret_shrine": is_secret_shrine,
-            "wing_purpose":  wing_purposes.get(seg_idx) if meta.get("segment_role") == "wing" else None,
+            "is_room":       is_room,   # rooms vs corridor connectors
         }
 
-    # Guarantee at least one shrine if none was placed
-    has_shrine = any(r["type"] == R_SHRINE for r in rooms.values())
-    if not has_shrine:
-        # Find a mid-spine room (not start, not boss, not antechamber) to convert
+    # Ensure at least 5 combat rooms among true rooms
+    combat_count = sum(
+        1 for k, r in rooms_dict.items()
+        if r["type"] in (R_MONSTER, R_GUARD) and r["is_room"] and k != boss_key
+    )
+    if combat_count < 5:
+        shortfall = 5 - combat_count
         candidates = [
-            k for k, r in rooms.items()
-            if r["type"] in (R_EMPTY, R_MONSTER)
-            and rooms_meta.get(k, {}).get("segment_role") == "spine"
-            and rooms_meta.get(k, {}).get("dist_from_start", 0) > 2
-            and k != boss_key
+            k for k, r in rooms_dict.items()
+            if r["type"] == R_EMPTY and r["is_room"]
+            and k != _key(*START_POS) and k != boss_key
+            and meta.get(k, {}).get("dist_from_start", 0) > 1
         ]
-        if candidates:
-            chosen = candidates[secrets.randbelow(len(candidates))]
-            rooms[chosen]["type"] = R_SHRINE
-            rooms[chosen]["cleared"] = False
-            rooms[chosen]["monster_key"] = None
-            rooms[chosen]["description"] = ROOM_DESCRIPTIONS[R_SHRINE]
-            if not has_secret_shrine and secrets.randbelow(100) < (25 + difficulty * 20):
-                rooms[chosen]["secret_shrine"] = True
+        # Shuffle candidates
+        for i in range(len(candidates)-1, 0, -1):
+            j = secrets.randbelow(i+1)
+            candidates[i], candidates[j] = candidates[j], candidates[i]
+        for k in candidates[:shortfall]:
+            rooms_dict[k]["type"] = R_MONSTER
+            rooms_dict[k]["cleared"] = False
+            rooms_dict[k]["monster_key"] = _pick_monster(R_MONSTER, difficulty, theme)
 
     return {
         "player_pos":    list(START_POS),
         "connections":   connections,
-        "rooms":         rooms,
+        "rooms":         rooms_dict,
         "visited":       [_key(*START_POS)],
         "grid_size":     GRID_SIZE,
         "active":        True,
@@ -833,15 +728,19 @@ def generate_dungeon(difficulty: int = 1, player_level: int = 1,
         "theme_name":    theme["name"],
         "theme_emoji":   theme["emoji"],
         "theme_flavor":  theme["flavor"],
-        "layout_name":   template["name"],
+        "layout_name":   "room_mst",
         "boss_key":      boss_key,
-        "wing_purposes": {str(k): v for k, v in wing_purposes.items()},
     }
 
 
 # ── Map renderer ─────────────────────────────────────────────────────────────
 
 def render_map(state: dict) -> str:
+    """
+    Render the dungeon as a grid of emoji.
+    Rooms show their type emoji. Corridor connectors show as ⬛.
+    Unknown cells show as ░░.
+    """
     size = state["grid_size"]
     visited = set(state["visited"])
     rooms   = state["rooms"]
@@ -885,3 +784,23 @@ def clear_dungeon(user_id: str):
     path = os.path.join(DUNGEON_DIR, f"{user_id}.json")
     if os.path.exists(path):
         os.remove(path)
+
+
+# ── Scale boss to level (called by rpg_handler) ───────────────────────────────
+
+def _scale_boss_to_level(monster: dict, player_level: int) -> dict:
+    """Scale dungeon boss stats to player level with hard caps."""
+    scale = max(0.30, min(1.0, 0.30 + (player_level - 1) * 0.08))
+    m = dict(monster)
+    m["hp"]     = max(15, int(monster["hp"] * scale))
+    m["attack"] = max(3,  int(monster["attack"] * scale))
+    m["defense"]= max(8,  monster["defense"] - max(0, 5 - player_level))
+
+    BOSS_HP_CAPS  = {1:35,2:45,3:55,4:65,5:80,6:110,7:140,8:180,9:220}
+    BOSS_ATK_CAPS = {1:6, 2:8, 3:10,4:12,5:14,6:16, 7:18, 8:20, 9:22}
+
+    hp_cap  = BOSS_HP_CAPS.get(player_level)
+    atk_cap = BOSS_ATK_CAPS.get(player_level)
+    if hp_cap:  m["hp"]     = min(m["hp"],     hp_cap)
+    if atk_cap: m["attack"] = min(m["attack"],  atk_cap)
+    return m
