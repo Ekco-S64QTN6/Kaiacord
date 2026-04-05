@@ -31,7 +31,7 @@ ADVANCED_CLASSES = {
                 "heal_on_kill": 3,
                 "def_bonus": 1,
             },
-            "flavor": "You kneel at the Shrine and feel something ancient acknowledge you. The flame burns white for a moment.",
+            "flavor": "Aerthis acknowledges your oath. The flame at the Shrine burns white-blue.",
         },
         "Shadowknight": {
             "description": "Dark blade of Morvenna. Drains life, fears nothing.",
@@ -39,7 +39,7 @@ ADVANCED_CLASSES = {
                 "lifesteal_pct": 0.20,
                 "atk_bonus": 3,
             },
-            "flavor": "The flame at the Shrine gutters when you approach. You take that as a yes.",
+            "flavor": "Morvenna is watching. The flame at the Shrine burns amber-black.",
         },
     },
     "Ranger": {
@@ -68,7 +68,7 @@ ADVANCED_CLASSES = {
                 "hp_bonus": 8,
                 "forest_def_bonus": 2,
             },
-            "flavor": "Something old in the deep wood approves. The trees do not move but you sense them watching.",
+            "flavor": "Thornax approves. The Whisperwood breathes with you.",
         },
     },
     "Mage": {
@@ -88,7 +88,7 @@ ADVANCED_CLASSES = {
                 "spell_atk_bonus": 3,
                 "hp_bonus": 4,
             },
-            "flavor": "The Aeridor resonance sings at a frequency you now understand. You wish you didn't.",
+            "flavor": "Sylvara tears open the door for you. The resonance sings aloud.",
         },
         "Necromancer": {
             "description": "Student of Morvenna's final lesson. Undead fear you.",
@@ -97,7 +97,7 @@ ADVANCED_CLASSES = {
                 "death_resist": True,
                 "hp_bonus": 4,
             },
-            "flavor": "The Shrine of the Silent Ones goes very quiet when you make your choice.",
+            "flavor": "Morvenna welcomes your final lesson. The Shrine goes dead quiet.",
         },
     },
     "Rogue": {

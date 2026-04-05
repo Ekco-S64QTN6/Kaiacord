@@ -14,6 +14,8 @@ NPCS = {
             "Your kind showing up here isn't an accident. I'm still deciding if that's good.",
             "The flame at the Shrine has been burning blue for three nights. It's done that twice before. Neither time was pleasant.",
             "The Aeridor constructs are becoming more active. They weren't dormant — they were waiting.",
+            "Aerthis does not reward the devout for faith. He rewards them for action. There's a distinction.",
+            "On Morvenna's Eve, she walks Aethelgard like anyone else. She says she just wants to see how it's going.",
             "Whatever your advanced class becomes, use it carefully. Power without restraint is how we got the ruins in the first place.",
         ],
     },

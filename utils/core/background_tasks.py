@@ -337,6 +337,11 @@ class CoreTaskManager:
                     # If there's a buff, spell it out
                     if special.get("buff_desc"):
                         lines.append(f"✨ **Today:** {special['buff_desc']}")
+                
+                from utils.ttrpg.pantheon import DEITIES
+                import secrets
+                deity_key = secrets.choice(list(DEITIES.keys()))
+                lines.append(f"\n🕯️ *{DEITIES[deity_key]['shrine_flavor']}*")
 
                 # Find the rpg broadcast channel by name
                 rpg_channel_name = self.ctx.config.get(

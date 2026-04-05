@@ -50,10 +50,15 @@ Speak as Kaia — the GM narrator. lowercase, grounded, specific. No "The… nou
 
 
 def build_levelup_prompt(sheet: dict, new_level: int, hp_gained: int) -> str:
+    from utils.ttrpg.pantheon import get_class_deity_name, get_class_deity_epithet
+    d_name = get_class_deity_name(sheet.get('class', 'Warrior'))
+    d_ep = get_class_deity_epithet(sheet.get('class', 'Warrior'))
     return f"""[TTRPG GROUND TRUTH]
 {sheet['character_name']} has leveled up to {sheet['class']} Level {new_level}.
 HP increased by {hp_gained} (new max: {sheet['hp']['max']}).
+Deity Patron: {d_name}, {d_ep}.
 YOUR TASK: Write 1–2 sentences of level-up flavor. Something felt or noticed by the character.
+Include a subtle nod to their deity or patron.
 Do NOT invent new abilities, items, or stats beyond what is stated.
 [END GROUND TRUTH]"""
 
@@ -165,6 +170,9 @@ def build_npc_prompt(sheet: dict, npc: dict, player_message: str, context: dict)
     char_class = sheet.get("class", "wanderer") if sheet else "wanderer"
     char_level = sheet.get("level", 1) if sheet else 1
     
+    from utils.ttrpg.pantheon import get_class_deity_name
+    deity_name = get_class_deity_name(char_class) if sheet else "none"
+
     # Context extraction
     season = context.get("season", "unknown season")
     special_day = context.get("special_day", "")
@@ -207,6 +215,7 @@ PLAYER CONTEXT:
 Name: {char_name}
 Class: {char_class}
 Level: {char_level}
+Deity Patron: {deity_name}
 {blackout_context}
 
 YOUR TASK: The player wants to hear you perform. Respond as {npc['name']}.
@@ -239,6 +248,7 @@ PLAYER CONTEXT:
 Name: {char_name}
 Class: {char_class}
 Level: {char_level}
+Deity Patron: {deity_name}
 {_cha_npc_line(context)}
 {blackout_context}
 

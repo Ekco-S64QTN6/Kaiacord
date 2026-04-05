@@ -73,7 +73,9 @@ class FishingMenuView(discord.ui.View):
         stats = sheet.get("fishing_stats", {})
         pole = stats.get("pole")
         bait = stats.get("bait", "earthworm")
-        bait_count = stats.get("bait_count", 0)
+        if "bait_count" in stats:
+            stats.setdefault("bait_stock", {})[bait] = stats.pop("bait_count", 0)
+        bait_count = stats.get("bait_stock", {}).get(bait, 0)
         pole_name = POLES.get(pole, {}).get("name", "None") if pole else "None"
         bait_name = BAIT.get(bait, {}).get("name", "Earthworm")
 
@@ -232,9 +234,13 @@ class BiteView(discord.ui.View):
 
         # Consume 1 bait
         fishing_stats = sheet.setdefault("fishing_stats", {})
-        bait_count = fishing_stats.get("bait_count", 0)
-        if bait_count > 0:
-            fishing_stats["bait_count"] = bait_count - 1
+        if "bait_count" in fishing_stats:
+            old_bait = fishing_stats.get("bait", "earthworm")
+            fishing_stats.setdefault("bait_stock", {})[old_bait] = fishing_stats.pop("bait_count", 0)
+        bait_stock = fishing_stats.get("bait_stock", {})
+        if bait_stock.get(self._bait_key, 0) > 0:
+            bait_stock[self._bait_key] -= 1
+        fishing_stats["bait_stock"] = bait_stock
 
         # Check for pole breakage — all poles can snap, per-rod chance
         broke_pole = False
@@ -341,9 +347,13 @@ async def _handle_cast(ctx, interaction: discord.Interaction, uid: str, uname: s
         return
 
     stats = sheet.setdefault("fishing_stats", {})
+    if "bait_count" in stats:
+        old_bt = stats.get("bait", "earthworm")
+        stats.setdefault("bait_stock", {})[old_bt] = stats.pop("bait_count", 0)
+    
     bait_key = stats.get("bait", "earthworm")
     pole_key = stats.get("pole")
-    bait_count = stats.get("bait_count", 0)
+    bait_count = stats.get("bait_stock", {}).get(bait_key, 0)
 
     # No pole = can't fish
     if not pole_key or pole_key not in POLES:
@@ -466,9 +476,13 @@ async def _handle_cast(ctx, interaction: discord.Interaction, uid: str, uname: s
         if sheet:
             # Consume bait on miss
             fishing_stats = sheet.setdefault("fishing_stats", {})
-            bait_count = fishing_stats.get("bait_count", 0)
-            if bait_count > 0:
-                fishing_stats["bait_count"] = bait_count - 1
+            if "bait_count" in fishing_stats:
+                old_bait = fishing_stats.get("bait", "earthworm")
+                fishing_stats.setdefault("bait_stock", {})[old_bait] = fishing_stats.pop("bait_count", 0)
+            bait_stock = fishing_stats.get("bait_stock", {})
+            if bait_stock.get(bait_key, 0) > 0:
+                bait_stock[bait_key] -= 1
+            fishing_stats["bait_stock"] = bait_stock
             await save(sheet)
             view = FishingMenuView(ctx, uid, uname, is_owner, sheet)
         else:
@@ -644,7 +658,10 @@ def _build_fishing_shop_ui(ctx, uid: str, uname: str, is_owner: bool, sheet: dic
     stats = sheet.setdefault("fishing_stats", {})
     current_bait = stats.get("bait", "earthworm")
     current_pole = stats.get("pole")
-    bait_count = stats.get("bait_count", 0)
+    if "bait_count" in stats:
+        old_bt = stats.get("bait", "earthworm")
+        stats.setdefault("bait_stock", {})[old_bt] = stats.pop("bait_count", 0)
+    bait_count = stats.get("bait_stock", {}).get(current_bait, 0)
     current_bait_name = BAIT.get(current_bait, {}).get("name", "Earthworm")
     current_pole_name = POLES.get(current_pole, {}).get("name", "None") if current_pole else "None"
     current_bag = stats.get("bag", "woven_sack")
@@ -823,15 +840,20 @@ class FishingShopView(discord.ui.View):
                 return
             s["gil"] -= cost
             fs = s.setdefault("fishing_stats", {})
+            if "bait_count" in fs:
+                old_bait = fs.get("bait", "earthworm")
+                fs.setdefault("bait_stock", {})[old_bait] = fs.pop("bait_count", 0)
             fs["bait"] = chosen_bait
-            fs["bait_count"] = fs.get("bait_count", 0) + 10
+            bait_stock = fs.setdefault("bait_stock", {})
+            bait_stock[chosen_bait] = bait_stock.get(chosen_bait, 0) + 10
             await save(s)
+            total_active_bait = fs["bait_stock"][chosen_bait]
             await interaction.followup.send(
                 embed=discord.Embed(
                     description=(
                         f"*Gregor hands over a pack of {bait_data['name']}.*\n\n"
                         f"✅ **{bait_data['name']} ×10** purchased for **{cost}g**.\n"
-                        f"Bait count: {fs['bait_count']}. Gil: {s['gil']}g"
+                        f"Bait count: {total_active_bait}. Gil: {s['gil']}g"
                     ),
                     color=0x2ecc71,
                 )
@@ -1016,14 +1038,17 @@ async def _show_fishing_menu(ctx, channel, uid: str, uname: str, is_owner: bool,
     if "pole" not in stats:
         stats["pole"] = "birchwood_rod"
         stats["bait"] = "earthworm"
-        stats["bait_count"] = 5  # small starter gift
+        stats.setdefault("bait_stock", {})["earthworm"] = 5  # small starter gift
         stats["bag"] = "woven_sack"
         await save(sheet)
 
     pole_key = stats.get("pole")
     pole_name = POLES.get(pole_key, {}).get("name", "None") if pole_key else "None"
-    bait_name = BAIT.get(stats.get("bait", "earthworm"), {}).get("name", "Earthworm")
-    bait_count = stats.get("bait_count", 0)
+    cur_bt = stats.get("bait", "earthworm")
+    if "bait_count" in stats:
+        stats.setdefault("bait_stock", {})[cur_bt] = stats.pop("bait_count", 0)
+    bait_name = BAIT.get(cur_bt, {}).get("name", "Earthworm")
+    bait_count = stats.get("bait_stock", {}).get(cur_bt, 0)
     bag_count = sum(len(v) for v in sheet.get("fishing_bag", {}).values())
     bag_key = stats.get("bag", "woven_sack")
     bag_data = BAG_UPGRADES.get(bag_key, BAG_UPGRADES["woven_sack"])

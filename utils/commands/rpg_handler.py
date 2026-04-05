@@ -3455,8 +3455,10 @@ async def _handle_talk(ctx, msg, send, rest, uid, uname, is_owner):
             topic = "An ancient tale of Aeridor's fall."
     elif "topics" in npc and npc["topics"]:
         import hashlib
-        from datetime import date
-        seed = int(hashlib.md5(f"{npc_key}_{uid}_{date.today().isoformat()}".encode()).hexdigest(), 16)
+        from datetime import datetime
+        now = datetime.now()
+        time_bucket = f"{now.date().isoformat()}_{now.hour}_{now.minute // 5}"
+        seed = int(hashlib.md5(f"{npc_key}_{uid}_{time_bucket}".encode()).hexdigest(), 16)
         topic = npc["topics"][seed % len(npc["topics"])]
         
     # Quest Integration
@@ -3478,8 +3480,9 @@ async def _handle_talk(ctx, msg, send, rest, uid, uname, is_owner):
         active_id = sheet.get("active_quest")
         if active_id:
             q = get_quest(active_id)
-            if q and q["npc"] == npc_key:
-                active_quest_info = q
+            if q:
+                if q["npc"] == npc_key:
+                    active_quest_info = q
                 
                 # Update progress if this is a talk task
                 task_id = f"talk_{npc_key}"
@@ -5135,7 +5138,7 @@ async def _handle_pray(ctx, msg, send, rest, uid, uname, is_owner):
 
     sheet = await load(uid)
     if not sheet:
-        return await msg.channel.send(embed=discord.Embed(description="No character found.", color=0xcc4444))
+        return await msg.channel.send(embed=discord.Embed(description="No character found.", color=0xcc4444), ephemeral=True)
 
     from utils.ttrpg.housing import load_housing
     from utils.ttrpg.furniture import get_home_bonuses
@@ -5149,7 +5152,7 @@ async def _handle_pray(ctx, msg, send, rest, uid, uname, is_owner):
         return await msg.channel.send(embed=discord.Embed(
             description="You need to be at the Shrine of the Silent Ones to pray.\n`!rpg go shrine`\n\n*Or purchase a Shrine Replica for your home.*",
             color=0xcc4444
-        ))
+        ), ephemeral=True)
 
     from utils.ttrpg.calendar import get_special_day
     special = get_special_day()
@@ -5174,14 +5177,14 @@ async def _handle_pray(ctx, msg, send, rest, uid, uname, is_owner):
         return await msg.channel.send(embed=discord.Embed(
             description="🕯️ *The shrine is still. You've already made your offering today.*\nThe Silent Ones do not answer twice.",
             color=0x888888
-        ))
+        ), ephemeral=True)
 
     # Check if already blessed
     if "blessed" in sheet.get("conditions", []):
         return await msg.channel.send(embed=discord.Embed(
             description="🕯️ *You are already carrying the blessing of the Silent Ones.*\nUse it before asking for more.",
             color=0x888888
-        ))
+        ), ephemeral=True)
 
     sheet.setdefault("conditions", []).append("blessed")
     sheet["last_pray_date"] = today
@@ -6270,6 +6273,7 @@ def _make_home_btn(ctx, uid, uname, is_owner, label, cmd, row, style=discord.But
             "rename_house": _handle_rename_house,
             "home_training": _handle_home_training,
             "brew": _handle_brew,
+            "pray": _handle_pray,
         }
         handler = handler_map.get(cmd)
         if handler:
