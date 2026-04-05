@@ -167,6 +167,21 @@ NPCS = {
             "The sprite came from the Whisperwood edge. It followed me home. The Whisperwood let it, I think. I don't know what that means.",
         ],
     },
+    "gregor": {
+        "name": "Old Gregor",
+        "location": "tricklebrook_pond",
+        "description": "An old, quiet fisherman who runs the tackle shop. He has fished Tricklebrook for decades and knows things about the ruins he doesn't discuss.",
+        "role": "fisherman",
+        "dialogue_hook": "He doesn't look away from his bobber on the water when you approach.",
+        "topics": [
+            "The fish know when you are desperate. That's why you aren't catching anything.",
+            "I've seen things come out of the ruins at midnight. I don't fish here at midnight anymore.",
+            "The Pale King broke my line forty years ago. I'm still waiting for him to come back.",
+            "Best bait is whatever they're biting. Worst bait is whatever you brought.",
+            "Thornax doesn't answer prayers. He answers behavior. Prove you belong, and the forest opens.",
+            "Don't pull the line too early. Patience is the only currency here.",
+        ],
+    },
 }
 
 # Add alias

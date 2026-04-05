@@ -3454,12 +3454,8 @@ async def _handle_talk(ctx, msg, send, rest, uid, uname, is_owner):
         except Exception:
             topic = "An ancient tale of Aeridor's fall."
     elif "topics" in npc and npc["topics"]:
-        import hashlib
-        from datetime import datetime
-        now = datetime.now()
-        time_bucket = f"{now.date().isoformat()}_{now.hour}_{now.minute // 5}"
-        seed = int(hashlib.md5(f"{npc_key}_{uid}_{time_bucket}".encode()).hexdigest(), 16)
-        topic = npc["topics"][seed % len(npc["topics"])]
+        import secrets
+        topic = secrets.choice(npc["topics"])
         
     # Quest Integration
     from utils.ttrpg.quest_registry import get_npc_quests, get_quest

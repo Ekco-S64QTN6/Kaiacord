@@ -120,13 +120,13 @@ class FishingMenuView(discord.ui.View):
             await interaction.response.send_message("not yours.", ephemeral=True)
             return
         await interaction.response.defer()
-        line = GREGOR_LINES[secrets.randbelow(len(GREGOR_LINES))]
-        embed = discord.Embed(
-            title="🎣 Old Gregor",
-            description=line,
-            color=POND_COLOR,
-        )
-        await interaction.followup.send(embed=embed)
+        from utils.commands.rpg_handler import _handle_talk, _InteractionMsg, _make_interaction_send
+        fake = _InteractionMsg(interaction)
+        send_fn = _make_interaction_send(interaction)
+        try:
+            await _handle_talk(self._ctx, fake, send_fn, "gregor", self._uid, self._uname, self._is_owner)
+        except Exception as e:
+            await interaction.followup.send(f"```\nTalk failed: {e}\n```", ephemeral=True)
 
     @discord.ui.button(label="📊 My Stats", style=discord.ButtonStyle.secondary, row=1)
     async def stats_btn(self, interaction: discord.Interaction, button: discord.ui.Button):
