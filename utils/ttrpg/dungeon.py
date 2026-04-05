@@ -407,46 +407,37 @@ def _analyze_graph(
     connections: Dict[str, List[str]],
 ) -> Dict[str, dict]:
     """
-    BFS from start to compute:
-    - dist_from_start for every room
-    - degree (number of direct room neighbors)
-    - is_dead_end (degree == 1 and not start)
-    Returns meta dict keyed by "x,y".
+    BFS from start through ALL connected cells (rooms AND corridor connectors).
+    This is the critical fix: the old BFS only enqueued room cells, which meant
+    it couldn't traverse multi-cell corridors and returned dist=999 for almost
+    every room, causing the boss to spawn near the entrance.
     """
-    room_set = set(rooms)
-    meta: Dict[str, dict] = {}
-
-    # BFS
     from collections import deque
-    dist: Dict[Tuple[int,int], int] = {START_POS: 0}
-    queue = deque([START_POS])
+    room_set = set(rooms)
+
+    # Walk the full connection graph — corridor cells included
+    dist_all: Dict[Tuple[int,int], int] = {START_POS: 0}
+    queue: deque = deque([START_POS])
     while queue:
         pos = queue.popleft()
         k = _key(*pos)
         for d in connections.get(k, []):
             dx, dy = DIRECTIONS[d]
-            nx, ny = pos[0] + dx, pos[1] + dy
-            nb = (nx, ny)
-            if nb in room_set and nb not in dist:
-                dist[nb] = dist[pos] + 1
+            nb = (pos[0] + dx, pos[1] + dy)
+            if nb not in dist_all:
+                dist_all[nb] = dist_all[pos] + 1
                 queue.append(nb)
 
-    # Compute degree (number of room neighbors through any path)
-    # For simplicity, degree = number of directions with connections that eventually
-    # reach another room cell (not just corridor). We approximate by counting
-    # unique reachable room neighbors.
+    meta: Dict[str, dict] = {}
     for room in rooms:
         k = _key(*room)
-        # Direct connection directions
         direct_dirs = connections.get(k, [])
-        # Count how many adjacent cells exist in our connection graph
         degree = len(direct_dirs)
         meta[k] = {
-            "dist_from_start": dist.get(room, 999),
+            "dist_from_start": dist_all.get(room, 999),
             "degree": degree,
             "is_dead_end": degree <= 1 and room != START_POS,
         }
-
     return meta
 
 
@@ -472,8 +463,18 @@ def _assign_room_types(
     """
     room_set = set(rooms)
 
-    # Find boss: farthest room from start
-    boss_pos = max(rooms, key=lambda r: meta[_key(*r)]["dist_from_start"])
+    # Find boss: farthest DEAD-END room from start.
+    # A dead-end guarantees no rooms exist "beyond" the boss — without this,
+    # rooms connected only through the boss room become permanently inaccessible.
+    dead_ends = [r for r in rooms if meta[_key(*r)]["is_dead_end"]]
+    if dead_ends:
+        boss_pos = max(dead_ends, key=lambda r: meta[_key(*r)]["dist_from_start"])
+    else:
+        # Fallback if somehow no dead-ends exist (shouldn't happen with MST)
+        boss_pos = max(
+            [r for r in rooms if r != START_POS],
+            key=lambda r: meta[_key(*r)]["dist_from_start"]
+        )
     boss_key = _key(*boss_pos)
 
     # Find antechamber: room one step before boss in BFS tree
@@ -710,6 +711,41 @@ def generate_dungeon(
             rooms_dict[k]["type"] = R_MONSTER
             rooms_dict[k]["cleared"] = False
             rooms_dict[k]["monster_key"] = _pick_monster(R_MONSTER, difficulty, theme)
+
+    # ── Post-generation reachability prune ────────────────────────────────────
+    # Remove any rooms or corridors not reachable from START_POS.
+    # Defensive against edge cases in corridor routing; also ensures the map
+    # displayed to the player never contains cells they can't reach.
+    from collections import deque as _deque
+    reachable: set = {_key(*START_POS)}
+    _q: _deque = _deque([START_POS])
+    while _q:
+        _pos = _q.popleft()
+        _pk = _key(*_pos)
+        for _d in connections.get(_pk, []):
+            _dx, _dy = DIRECTIONS[_d]
+            _nb = (_pos[0] + _dx, _pos[1] + _dy)
+            _nk = _key(*_nb)
+            if _nk not in reachable:
+                reachable.add(_nk)
+                _q.append(_nb)
+
+    # Prune rooms_dict to only reachable cells
+    rooms_dict = {k: v for k, v in rooms_dict.items() if k in reachable}
+
+    # Prune connections: drop unreachable cells, and trim directions that
+    # point into unreachable cells
+    connections = {
+        k: [
+            d for d in dirs
+            if _key(
+                _xy(k)[0] + DIRECTIONS[d][0],
+                _xy(k)[1] + DIRECTIONS[d][1]
+            ) in reachable
+        ]
+        for k, dirs in connections.items()
+        if k in reachable
+    }
 
     return {
         "player_pos":    list(START_POS),

@@ -1003,9 +1003,7 @@ def get_caravan_stock():
         for k, v in reg.items():
             if v.get("tier") in (2, 3) and not v.get("droppable_only"):
                 gear_keys.append(k)
-    for k, v in CONSUMABLES.items():
-        if v.get("tier") in (2, 3):
-            consumable_keys.append(k)
+    consumable_keys = ["potion_standard", "lightstone", "gold_needle", "maidens_kiss", "soft"]
     return gear_keys, consumable_keys
 
 

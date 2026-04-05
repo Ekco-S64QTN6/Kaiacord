@@ -17,7 +17,7 @@ Established a real-time announcement system that posts milestones to the `#aethe
 - **Dungeon Broadcasts:** Added explicit victory framing (naming the deceased boss), specific monster call-outs on player death, and contextual "crack in the stone" escape flavor for fleeing.
 
 **Caravan Merchant**  
-Introduced the "Corvus Road Trading Co." caravan as a time-bound noon event featuring location-aware shop UI, Tier III inventory, and a strict 1-gear-per-customer purchase limit.
+Introduced the "Corvus Road Trading Co." caravan as a time-bound noon event featuring location-aware shop UI. It maintains a strict 1-gear-per-customer purchase limit and a specialized inventory focused on essential tier-III survival consumables (Health Potions, Lightstones, Gold Needles, Maiden's Kisses, and Softs).
 
 **Consumable Quantity Picker**  
 Streamlined shop transactions by adding a dynamic quantity selector, drastically improving menu UX and eliminating the need to buy items one at a time.
@@ -29,13 +29,13 @@ Added a new randomized background game-state event that modifies global XP and g
 
 ## 2. Dungeon Systems Overhaul
 
-**Template-Driven Layout System**  
-Dungeons no longer rely on purely random walks. They now use D&D-style structural archetypes with logical progression:
-- Defined entry buffers and spine corridors.
-- Branching wings with distinct thematic purposes (e.g., Barracks, Vault Approach) dictating internal room generation.
-- Empty `antechamber` rooms to build atmospheric tension immediately preceding a boss sanctum.
-- **Layout Remediation:** Expanded `GRID_SIZE` to 8 and corrected layout branches to guarantee the designed 16–27 room minimums per map. 
-- **Minimum Encounter Threat:** Added a post-generation `_guarantee_minimum_monsters` pass to ensure "empty" dungeons no longer occur, mechanically ensuring at least 5+ combat encounters exist per instance.
+**Room-First MST Generation System**  
+Dungeons now utilize a high-performance room-first generation algorithm using Minimum Spanning Trees (MST) for guaranteed pathing:
+- **Topology & Connectivity:** Rooms are placed randomly as discrete cells and connected via a Prim's algorithm MST. Extra "loop" edges are injected between nearby branches to eliminate linear "spike" layouts and forced backtracking.
+- **Topological Intelligence:** Automated BFS analysis calculates distance from start and node degrees to intelligently assign room types. Bosses are mathematically restricted to topological dead-ends to prevent soft-locks.
+- **Hub & Reward Rooms:** High-degree junction nodes transformed into Guard Checkpoints, while single-degree dead-ends are guaranteed to contain Shrines or Treasure to encourage full exploration.
+- **Reachability Pruning:** A post-generation BFS pass prunes any isolated tiles or non-functional corridor segments, ensuring absolute map integrity.
+- **Minimum Encounter Threat:** Maintains a `_guarantee_minimum_monsters` pass ensuring at least 5+ combat encounters exist per instance regardless of layout randomness.
 
 **Boss Room Warnings & Retreats**  
 Implemented atmospheric narrative cues and a direct retreat mechanism when players transition into an antechamber, improving player agency and allowing them to back out before committing to highly lethal boss encounters.
