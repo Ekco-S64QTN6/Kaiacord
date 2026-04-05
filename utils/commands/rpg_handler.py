@@ -210,9 +210,10 @@ _LOCATION_BUTTONS: dict[str, list] = {
     ],
     "herbalists_hut": [
         ("Brew", "⚗️", "brew", "", discord.ButtonStyle.green, 0),
+        ("Seeds", "🌱", "seed_shop", "", discord.ButtonStyle.blurple, 0),
         ("Talk Maren","🌿","talk", "maren", discord.ButtonStyle.secondary, 0),
         ("Look", "🔎", "look", "", discord.ButtonStyle.secondary, 0),
-        ("Look: Herbs","🫙","look", "at herbs", discord.ButtonStyle.secondary, 0),
+        ("Look: Herbs","🫙","look", "at herbs", discord.ButtonStyle.secondary, 1),
     ],
     "oakhaven_bank": [
         ("Deposit", "💰", "bank_deposit", "", discord.ButtonStyle.secondary, 0),
@@ -382,6 +383,7 @@ class RPGFullLocationView(discord.ui.View):
             "visit_plots":    _handle_visit_plots,
             "rename_house":   _handle_rename_house,
             "home_training":  _handle_home_training,
+            "seed_shop":      _handle_seed_shop,
             "fish":           handle_fish_command,
             "fish_shop":      handle_fish_shop_command,
         }
@@ -2115,6 +2117,7 @@ async def handle_rpg_command(ctx, msg, send_kaia_response):
         "visit_plots":    _handle_visit_plots,
         "rename_house":   _handle_rename_house,
         "home_training":  _handle_home_training,
+        "seed_shop":      _handle_seed_shop,
     }
     async def _auto_send(channel, text, use_code_block=None):
         if use_code_block is None:
@@ -3538,10 +3541,6 @@ async def _handle_talk(ctx, msg, send, rest, uid, uname, is_owner):
             
         # Generic turn-in check is covered by the talk task tracking above.
         # If an NPC has a specific inventory turn-in (like Maren), we can add it here.
-        if npc_key == "maren" and active_id == "maren_herbs":
-            # This is optional if we only want kill_road_bandit + talk_maren.
-            # But we could check for an item here if we wanted.
-            pass
 
     cha_mod = (sheet.get("stats", {}).get("cha", 10) - 10) // 2 if sheet else 0
     context = {
@@ -3624,43 +3623,7 @@ async def _handle_talk(ctx, msg, send, rest, uid, uname, is_owner):
                         label="Quest Complete ✓", style=discord.ButtonStyle.success,
                         row=0, disabled=True))
 
-                # Sister Maren Special: Buy Seeds
-                if npc_key == "maren":
-                    seed_btn = discord.ui.Button(label="Purchase Seeds", style=discord.ButtonStyle.secondary, row=1)
-                    async def _seed_cb(interaction):
-                        if str(interaction.user.id) != uid: return
-                        await interaction.response.defer()
-                        # Show seed shop
-                        from utils.ttrpg.farming import CROPS
-                        embed_s = discord.Embed(title="🌱 Sister Maren's Seeds", description="Maren brushes soil from her apron. 'The earth provides, if you provide the care.'", color=0x44aa44)
-                        options = []
-                        for k, d in CROPS.items():
-                            embed_s.add_field(name=f"{d['name']} ({d['seed_cost']}g)", value=d['desc'], inline=True)
-                            options.append(discord.SelectOption(label=f"{d['name']} ({d['seed_cost']}g)", value=k, emoji=d['emoji']))
-                        
-                        view_s = discord.ui.View(timeout=120)
-                        sel_s = discord.ui.Select(placeholder="Select seeds to buy...", options=options, row=0)
-                        async def _buy_s_cb(interaction_s):
-                            if str(interaction_s.user.id) != uid: return
-                            chosen = interaction_s.data["values"][0]
-                            await interaction_s.response.defer()
-                            s = await load(uid)
-                            cost = CROPS[chosen]["seed_cost"]
-                            if s["gil"] < cost:
-                                await interaction_s.followup.send(f"Not enough gil ({cost}g).", ephemeral=True)
-                                return
-                            s["gil"] -= cost
-                            s.setdefault("inventory", []).append(chosen)
-                            await save(s)
-                            await interaction_s.followup.send(f"Purchased **{CROPS[chosen]['name']}** for {cost}g.", ephemeral=True)
-                        
-                        sel_s.callback = _buy_s_cb
-                        view_s.add_item(sel_s)
-                        view_s.add_item(_make_status_btn(ctx, uid, uname, is_owner))
-                        await interaction.followup.send(embed=embed_s, view=view_s, ephemeral=True)
-                    
-                    seed_btn.callback = _seed_cb
-                    view.add_item(seed_btn)
+                # Sister Maren's seed shop is now on the location HUD.
 
                 view.add_item(_make_status_btn(ctx, uid, uname, is_owner))
 
@@ -3669,6 +3632,83 @@ async def _handle_talk(ctx, msg, send, rest, uid, uname, is_owner):
             log_error(f"[rpg talk] {e}")
 
 
+
+async def _handle_seed_shop(ctx, msg, send, rest, uid, uname, is_owner):
+    """!rpg seed_shop — Buy seeds from Sister Maren."""
+    from utils.ttrpg.farming import CROPS
+    
+    sheet = await load(uid)
+    if not sheet: return
+
+    if sheet.get("location") != "herbalists_hut":
+        return await msg.channel.send(embed=discord.Embed(
+            description="Sister Maren's seeds are only available at the Herbalist's Hut.\n`!rpg go herbalists_hut`",
+            color=0xcc4444
+        ))
+
+    embed = discord.Embed(
+        title="🌱 Sister Maren's Seeds",
+        description=(
+            "*Maren brushes soil from her apron.*\n\n"
+            "\"The earth provides, if you provide the care.\"\n\n"
+            f"**Your Gil:** {sheet.get('gil', 0)}g"
+        ),
+        color=0x44aa44
+    )
+
+    options = []
+    for k, d in CROPS.items():
+        embed.add_field(
+            name=f"{d['emoji']} {d['name']} ({d['seed_cost']}g)",
+            value=f"{d['desc']}\n*Grows in {d['growth_days']} day(s) → {d['yield_item'].replace('_',' ')}*",
+            inline=True
+        )
+        options.append(discord.SelectOption(
+            label=f"{d['name']} ({d['seed_cost']}g)",
+            value=k,
+            emoji=d['emoji']
+        ))
+
+    view = discord.ui.View(timeout=120)
+    sel = discord.ui.Select(placeholder="🌱 Select seeds to buy...", options=options, row=0)
+
+    async def _buy_seed_cb(interaction: discord.Interaction):
+        if str(interaction.user.id) != uid:
+            await interaction.response.send_message("not yours.", ephemeral=True)
+            return
+        chosen = interaction.data["values"][0]
+        await interaction.response.defer()
+        s = await load(uid)
+        if not s:
+            return
+        cost = CROPS[chosen]["seed_cost"]
+        if s["gil"] < cost:
+            await interaction.followup.send(
+                embed=discord.Embed(
+                    description=f"Not enough gil. **{CROPS[chosen]['name']}** costs {cost}g. You have {s['gil']}g.",
+                    color=0xcc4444
+                ),
+                ephemeral=True
+            )
+            return
+        s["gil"] -= cost
+        s.setdefault("inventory", []).append(chosen)
+        await save(s)
+        await interaction.followup.send(
+            embed=discord.Embed(
+                description=(
+                    f"*Maren wraps the seeds in cloth and hands them over.*\n\n"
+                    f"✅ Purchased **{CROPS[chosen]['name']}** for {cost}g.\n"
+                    f"*Plant it at your home farm.* Remaining gil: {s['gil']}g"
+                ),
+                color=0x44aa44
+            )
+        )
+
+    sel.callback = _buy_seed_cb
+    view.add_item(sel)
+    view.add_item(_make_status_btn(ctx, uid, uname, is_owner))
+    await msg.channel.send(embed=embed, view=view)
 
 async def _handle_brew(ctx, msg, send, rest, uid, uname, is_owner):
     from utils.ttrpg.world import LOCATION_DATA
