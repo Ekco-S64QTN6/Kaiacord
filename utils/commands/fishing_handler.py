@@ -238,8 +238,9 @@ class BiteView(discord.ui.View):
             old_bait = fishing_stats.get("bait", "earthworm")
             fishing_stats.setdefault("bait_stock", {})[old_bait] = fishing_stats.pop("bait_count", 0)
         bait_stock = fishing_stats.get("bait_stock", {})
-        if bait_stock.get(self._bait_key, 0) > 0:
-            bait_stock[self._bait_key] -= 1
+        current_bait = fishing_stats.get("bait", "earthworm")
+        if bait_stock.get(current_bait, 0) > 0:
+            bait_stock[current_bait] -= 1
         fishing_stats["bait_stock"] = bait_stock
 
         # Check for pole breakage — all poles can snap, per-rod chance

@@ -386,6 +386,7 @@ class RPGFullLocationView(discord.ui.View):
             "seed_shop":      _handle_seed_shop,
             "fish":           handle_fish_command,
             "fish_shop":      handle_fish_shop_command,
+            "sell_all_gear":  _handle_sell_all_gear,
         }
 
         # ── Location action buttons ───────────────────────────────────
@@ -709,14 +710,16 @@ async def _make_shop_view(ctx, msg, uid, uname, is_owner, items):
 
     view = discord.ui.View(timeout=120)
 
-    # ── Buy menus (Rows 0-2) ────────────────────────────────────────
-    # Discord Views allow max 5 rows. We need 1 for Sell, 1 for Status Button.
-    # So Buy menus get max 3 rows (75 items).
+    # ── Buy menus (Rows 0-1) ────────────────────────────────────────
+    # Cap at 2 buy rows (50 items) to guarantee room for sell + buyback
+    # dropdowns + a button row within Discord's 5 action-row limit.
+    # Sort items by display name for a stable, alphabetical list
+    items = sorted(items, key=lambda k: (find_item(k) or {}).get("name", k))
     chunks = [items[i:i + 25] for i in range(0, len(items), 25)]
     
     current_row = 0
     for chunk in chunks:
-        if current_row >= 3: break # Max 3 buy rows (75 items total)
+        if current_row >= 2: break  # Max 2 buy rows (50 items)
         options = []
         for item_key in chunk:
             item = find_item(item_key)
@@ -768,7 +771,7 @@ async def _make_shop_view(ctx, msg, uid, uname, is_owner, items):
     if sheet and sheet.get("inventory"):
         inv_counts = Counter(sheet["inventory"])
         sell_options = []
-        for item_key, count in inv_counts.items():
+        for item_key, count in sorted(inv_counts.items(), key=lambda kv: (find_item(kv[0]) or {}).get("name", kv[0])):
             item = find_item(item_key)
             if not item: continue
             sell_val = max(1, item["value"] // 2)
@@ -794,7 +797,71 @@ async def _make_shop_view(ctx, msg, uid, uname, is_owner, items):
             view.add_item(sell_select)
             current_row += 1
 
-    view.add_item(_make_status_btn(ctx, uid, uname, is_owner, row=current_row))
+    buyback_items = (sheet.get("buyback", []) if sheet else [])
+    if buyback_items:
+        bb_options = [
+            discord.SelectOption(
+                label=f"{entry['name']} ({entry['repurchase_price']}g)",
+                value=str(i),
+                description="Buyback at original sell price"
+            )
+            for i, entry in enumerate(buyback_items[:5])
+        ]
+        bb_sel = discord.ui.Select(
+            placeholder="↩️ Buyback recently sold item...",
+            options=bb_options,
+            row=current_row
+        )
+        async def _buyback_cb(interaction: discord.Interaction):
+            if str(interaction.user.id) != uid:
+                await interaction.response.send_message("not yours.", ephemeral=True)
+                return
+            await interaction.response.defer()
+            idx = int(interaction.data["values"][0])
+            s = await load(uid)
+            if not s:
+                return
+            buyback = s.get("buyback", [])
+            if idx >= len(buyback):
+                await interaction.followup.send(embed=discord.Embed(description="That item is no longer available for buyback.", color=0xcc4444), ephemeral=True)
+                return
+            entry = buyback[idx]
+            cost = entry["repurchase_price"]
+            if s.get("gil", 0) < cost:
+                await interaction.followup.send(embed=discord.Embed(description=f"Not enough gil. Buyback costs {cost}g. You have {s['gil']}g.", color=0xcc4444), ephemeral=True)
+                return
+            s["gil"] -= cost
+            s.setdefault("inventory", []).append(entry["key"])
+            s["buyback"].pop(idx)
+            await save(s)
+            await interaction.followup.send(embed=discord.Embed(
+                description=f"↩️ **{entry['name']}** returned to your inventory for {cost}g.\nRemaining gil: {s['gil']}g",
+                color=0x44aa44
+            ))
+        bb_sel.callback = _buyback_cb
+        view.add_item(bb_sel)
+        current_row += 1
+
+    # ── Button row (Sell All + Status) ──────────────────────────────
+    # Always on the last row — current_row is guaranteed <= 4 here
+    btn_row = min(current_row, 4)
+
+    if sheet and sheet.get("inventory"):
+        sell_all_btn = discord.ui.Button(
+            label="💰 Sell All Loot", style=discord.ButtonStyle.danger, row=btn_row
+        )
+        async def _sell_all_shop_cb(interaction: discord.Interaction):
+            if str(interaction.user.id) != uid:
+                await interaction.response.send_message("not yours.", ephemeral=True)
+                return
+            await interaction.response.defer()
+            fake_msg = _InteractionMsg(interaction)
+            send_fn = _make_interaction_send(interaction)
+            await _handle_sell_all_gear(ctx, fake_msg, send_fn, "", uid, uname, is_owner)
+        sell_all_btn.callback = _sell_all_shop_cb
+        view.add_item(sell_all_btn)
+
+    view.add_item(_make_status_btn(ctx, uid, uname, is_owner, row=btn_row))
     return view
 
 
@@ -845,7 +912,22 @@ def _make_inventory_view(ctx, msg, uid, uname, is_owner, inventory):
         sel.callback = _equip_cb
         view.add_item(sel)
 
-    view.add_item(_make_status_btn(ctx, uid, uname, is_owner))
+    if gear:
+        sell_all_btn = discord.ui.Button(
+            label="💰 Sell All Gear", style=discord.ButtonStyle.danger, row=2
+        )
+        async def _sell_all_cb(interaction: discord.Interaction):
+            if str(interaction.user.id) != uid:
+                await interaction.response.send_message("not yours.", ephemeral=True)
+                return
+            await interaction.response.defer()
+            fake_msg = _InteractionMsg(interaction)
+            send_fn = _make_interaction_send(interaction)
+            await _handle_sell_all_gear(ctx, fake_msg, send_fn, "", uid, uname, is_owner)
+        sell_all_btn.callback = _sell_all_cb
+        view.add_item(sell_all_btn)
+
+    view.add_item(_make_status_btn(ctx, uid, uname, is_owner, row=2))
     return view
 
 
@@ -2063,6 +2145,8 @@ async def handle_rpg_command(ctx, msg, send_kaia_response):
         "rumor":     _handle_rumor,
         "buy":       _handle_buy,
         "sell":      _handle_sell,
+        "sell_gear": _handle_sell_all_gear,
+        "sell_all":  _handle_sell_all_gear,
         "shop":      _handle_shop,
         "use":       _handle_use,
         "talk":      _handle_talk,
@@ -3280,7 +3364,7 @@ async def _handle_buy(ctx, msg, send, rest, uid, uname, is_owner):
         await msg.channel.send(embed=discord.Embed(description=purchase_msg, color=0xcc4444))
 
 async def _handle_sell(ctx, msg, send, rest, uid, uname, is_owner):
-    from utils.ttrpg.shop import process_sell
+    from utils.ttrpg.shop import process_sell, find_item as _find_item
     
     sheet = await load(uid)
     if not sheet: return
@@ -3292,9 +3376,18 @@ async def _handle_sell(ctx, msg, send, rest, uid, uname, is_owner):
         
     item_key = rest.strip().lower().replace(" ", "_")
     cha_mod = (sheet.get("stats", {}).get("cha", 10) - 10) // 2
+
+    item_snap = _find_item(item_key)
+    sell_price = max(1, item_snap["value"] // 2) if item_snap else 0
+
     success, resp_msg, updated_sheet = process_sell(sheet, item_key, sheet.get("reputation", 0), cha_mod=cha_mod)
     
     if success:
+        if item_snap:
+            buyback = updated_sheet.setdefault("buyback", [])
+            buyback.insert(0, {"key": item_key, "name": item_snap["name"], "repurchase_price": sell_price})
+            updated_sheet["buyback"] = buyback[:5]
+
         await save(updated_sheet)
         from utils.ttrpg.shop import get_shop_inventory
         loc = updated_sheet.get("location", "hemlocks_store")
@@ -3304,6 +3397,92 @@ async def _handle_sell(ctx, msg, send, rest, uid, uname, is_owner):
         await msg.channel.send(embed=discord.Embed(description=resp_msg, color=0x44aa44), view=view)
     else:
         await msg.channel.send(embed=discord.Embed(description=resp_msg, color=0xcc4444))
+
+
+async def _handle_sell_all_gear(ctx, msg, send, rest, uid, uname, is_owner):
+    """Sell all unequipped, non-consumable inventory items at once."""
+    from utils.ttrpg.shop import find_item as _find_item
+
+    sheet = await load(uid)
+    if not sheet: return
+
+    if sheet.get("location") not in ("hemlocks_store", "caravan"):
+        return await msg.channel.send(embed=discord.Embed(
+            description="You need to be at a merchant to sell.\n`!rpg go hemlocks_store`",
+            color=0xcc4444
+        ))
+
+    eq = sheet.get("equipment", {})
+    equipped_keys = set()
+    for slot_val in eq.values():
+        if not slot_val: continue
+        k = slot_val.get("key") if isinstance(slot_val, dict) else slot_val
+        if k: equipped_keys.add(k)
+
+    PROTECTED_KEYS = {"symbol_of_the_silent_ones", "mognet_letter", "lightstone",
+                      "adventurers_pack", "torch"}
+
+    inventory = sheet.get("inventory", [])
+    sold_lines = []
+    total_gil = 0
+    buyback_entries = []
+    kept = []
+
+    cha_mod = (sheet.get("stats", {}).get("cha", 10) - 10) // 2
+
+    for item_key in inventory:
+        item = _find_item(item_key)
+        if not item:
+            kept.append(item_key)
+            continue
+        if item["category"] == "consumable" and not item.get("gem_tier"):
+            kept.append(item_key)
+            continue
+        if item_key in equipped_keys or item_key in PROTECTED_KEYS:
+            kept.append(item_key)
+            continue
+
+        sell_mult = 0.5
+        if sheet.get("reputation", 0) >= 100: sell_mult = 0.7
+        elif sheet.get("reputation", 0) >= 50: sell_mult = 0.6
+        sell_mult += min(0.10, max(0.0, cha_mod * 0.02))
+        sell_price = max(1, int(item["value"] * sell_mult))
+
+        total_gil += sell_price
+        sold_lines.append(f"• {item['name']} → {sell_price}g")
+        buyback_entries.append({"key": item_key, "name": item["name"], "repurchase_price": sell_price})
+
+    if not sold_lines:
+        return await msg.channel.send(embed=discord.Embed(
+            description="*Hemlock peers into your pack.*\n\"Nothing in here worth buying.\"",
+            color=0x888888
+        ))
+
+    sheet["inventory"] = kept
+    sheet["gil"] = sheet.get("gil", 0) + total_gil
+
+    existing_bb = sheet.get("buyback", [])
+    sheet["buyback"] = (buyback_entries + existing_bb)[:5]
+
+    await save(sheet)
+
+    summary = "\n".join(sold_lines[:20])
+    if len(sold_lines) > 20:
+        summary += f"\n*...and {len(sold_lines) - 20} more items*"
+
+    embed = discord.Embed(
+        title="💰 Bulk Sale Complete",
+        description=(
+            f"*Hemlock sweeps everything off the counter and into his back room.*\n\n"
+            f"{summary}\n\n"
+            f"**Total: +{total_gil}g** · Running total: {sheet['gil']}g"
+        ),
+        color=0x44aa44
+    )
+    embed.set_footer(text="Items can be bought back from the shop dropdown ↩️")
+    view = _make_status_view(ctx, msg, uid, uname, is_owner)
+    await msg.channel.send(embed=embed, view=view)
+
 
 async def _handle_calendar(ctx, msg, send, rest, uid, uname, is_owner):
     from utils.ttrpg.calendar import get_today_summary, SPECIAL_DAYS

@@ -981,6 +981,21 @@ CONSUMABLES = {
     "gold_needle":    {"name": "Gold Needle",         "value": 40, "description": "Cures petrification.", "tier": 2},
     "maidens_kiss":   {"name": "Maiden's Kiss",       "value": 40, "description": "Cures the 'Toad' status.", "tier": 2},
     "soft":           {"name": "Soft",                "value": 40, "description": "Cures petrification.", "tier": 2},
+    "pearl":          {"name": "Pearl",          "value": 25,   "gem_tier": 1, "description": "A lustrous white pearl. Smooth and cold to the touch."},
+    "topaz":          {"name": "Topaz",          "value": 50,   "gem_tier": 1, "description": "A pale golden stone that catches candlelight well."},
+    "peridot":        {"name": "Peridot",        "value": 75,   "gem_tier": 1, "description": "Pale green. Found in the ruins occasionally, origin unclear."},
+    "emerald":        {"name": "Emerald",        "value": 100,  "gem_tier": 1, "description": "Deep green. Worth more than most people earn in a month."},
+    "opal":           {"name": "Opal",           "value": 150,  "gem_tier": 1, "description": "Shifts color in different light. Hemlock keeps a jar of them behind the clock."},
+    "black_pearl":    {"name": "Black Pearl",    "value": 200,  "gem_tier": 2, "description": "A dark lustrous pearl. Rare enough that Hemlock straightens up when you show him."},
+    "fire_opal":      {"name": "Fire Opal",      "value": 300,  "gem_tier": 2, "description": "Burns orange and red inside. Warm to the touch in a way that doesn't make sense."},
+    "star_ruby":      {"name": "Star Ruby",      "value": 400,  "gem_tier": 2, "description": "A six-pointed light moves inside it when you turn it. Nobody explains why."},
+    "fire_emerald":   {"name": "Fire Emerald",   "value": 500,  "gem_tier": 2, "description": "Deep green threaded with veins of red. Aeridorian resonance does strange things to gems."},
+    "sapphire":       {"name": "Sapphire",       "value": 600,  "gem_tier": 3, "description": "Clear blue. This belonged to someone important once. They aren't around anymore."},
+    "ruby":           {"name": "Ruby",           "value": 700,  "gem_tier": 3, "description": "Blood red. The deep ruins produce them occasionally. Nobody asks how."},
+    "jacinth":        {"name": "Jacinth",        "value": 800,  "gem_tier": 3, "description": "Orange-red. The Aeridorian archives describe it as a focusing stone. For what, they don't say."},
+    "black_sapphire": {"name": "Black Sapphire", "value": 850,  "gem_tier": 3, "description": "Deep black with a blue core. The light inside moves on its own. Don't stare."},
+    "diamond":        {"name": "Diamond",        "value": 900,  "gem_tier": 3, "description": "Flawless. Heavy. Elara wouldn't say where the one on her desk came from."},
+    "blue_diamond":   {"name": "Blue Diamond",   "value": 1000, "gem_tier": 3, "description": "The rarest thing you'll find in the ruins. The light inside it doesn't come from outside."},
 }
 
 def get_equipment(key: str) -> dict | None:
@@ -1108,4 +1123,6 @@ ALIASES.update({
     "void ring":        "void_ring",
     "forest ring":      "forest_ring",
     "warlord bracer":   "warlords_gauntlets",
+    "gem":              "pearl",
+    "gems":             "pearl",
 })

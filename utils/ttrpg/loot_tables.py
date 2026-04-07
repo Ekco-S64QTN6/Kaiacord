@@ -229,12 +229,14 @@ def get_consumable_loot(tier: str) -> Optional[str]:
             ("healing_herb", 20), ("bandage", 15), ("honey_sap", 22),
             ("antidote", 6), ("eye_drops", 6), ("torch", 6),
             ("mognet_letter", 5),
+            ("pearl", 8), ("topaz", 5), ("peridot", 3),
         ],
         "easy": [
             ("none", 10),
             ("healing_herb", 14), ("bandage", 12), ("tonic", 8), ("hi_potion", 6),
             ("blood_thistle", 18), ("silver_moss", 14), ("honey_sap", 14),
             ("antidote", 4), ("lucky_charm", 4),
+            ("pearl", 6), ("topaz", 5), ("peridot", 4), ("emerald", 3), ("opal", 2),
         ],
         "medium": [
             ("none", 8),
@@ -244,6 +246,7 @@ def get_consumable_loot(tier: str) -> Optional[str]:
             ("tonberry_knife", 3), ("aeridor_shard", 3),
             ("ether", 5),
             ("gold_needle", 2), ("soft", 2), ("maidens_kiss", 2),
+            ("emerald", 5), ("opal", 4), ("black_pearl", 2), ("fire_opal", 1),
         ],
         "hard": [
             ("none", 4),
@@ -251,18 +254,24 @@ def get_consumable_loot(tier: str) -> Optional[str]:
             ("aeridor_shard", 14), ("dire_root", 16), ("silver_moss", 12),
             ("blood_thistle", 10), ("honey_sap", 8),
             ("phoenix_down", 3), ("panacea", 3), ("ether", 6),
+            ("opal", 3), ("black_pearl", 5), ("fire_opal", 4),
+            ("star_ruby", 3), ("fire_emerald", 2),
         ],
         "deadly": [
             ("tonic", 6), ("elixir", 12), ("phoenix_down", 8),
             ("aeridor_shard", 16), ("dire_root", 12), ("gilded_mushroom", 10),
             ("blood_thistle", 10), ("silver_moss", 10), ("honey_sap", 8),
             ("panacea", 4), ("ether", 8),
+            ("fire_emerald", 4), ("sapphire", 3), ("ruby", 2),
+            ("star_ruby", 3), ("jacinth", 2),
         ],
         "boss": [
             ("elixir", 25), ("phoenix_down", 18), ("gilded_mushroom", 22),
             ("dire_root", 10), ("blood_thistle", 8), ("silver_moss", 8),
             ("honey_sap", 6),
             ("panacea", 5), ("ether", 8),
+            ("sapphire", 5), ("ruby", 4), ("jacinth", 3),
+            ("black_sapphire", 2), ("diamond", 2), ("blue_diamond", 1),
         ],
     }
 
