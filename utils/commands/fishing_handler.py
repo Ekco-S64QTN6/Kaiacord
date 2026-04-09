@@ -829,10 +829,13 @@ class FishingShopView(discord.ui.View):
             await interaction.response.defer()
             chosen_bait = interaction.data["values"][0]
             bait_data = BAIT[chosen_bait]
-            cost = bait_data["cost"] * 10
+            base_cost = bait_data["cost"] * 10
             s = await load(self._uid)
             if not s:
                 return
+            cha_mod = (s.get("stats", {}).get("cha", 10) - 10) // 2
+            cha_discount = min(0.10, max(0.0, cha_mod * 0.02))
+            cost = max(1, int(base_cost * (1.0 - cha_discount)))
             if s.get("gil", 0) < cost:
                 await interaction.followup.send(
                     f"Not enough gil. {bait_data['name']} ×10 costs {cost}g. You have {s.get('gil',0)}g.",
@@ -884,10 +887,13 @@ class FishingShopView(discord.ui.View):
             await interaction.response.defer()
             chosen_pole = interaction.data["values"][0]
             pole_data = POLES[chosen_pole]
-            cost = pole_data["cost"]
+            base_cost = pole_data["cost"]
             s = await load(self._uid)
             if not s:
                 return
+            cha_mod = (s.get("stats", {}).get("cha", 10) - 10) // 2
+            cha_discount = min(0.10, max(0.0, cha_mod * 0.02))
+            cost = max(1, int(base_cost * (1.0 - cha_discount)))
             if s.get("gil", 0) < cost:
                 await interaction.followup.send(
                     f"Not enough gil. {pole_data['name']} costs {cost}g.",
@@ -951,6 +957,9 @@ class FishingShopView(discord.ui.View):
                     ephemeral=True,
                 )
                 return
+            cha_mod = (s.get("stats", {}).get("cha", 10) - 10) // 2
+            cha_discount = min(0.10, max(0.0, cha_mod * 0.02))
+            cost = max(1, int(cost * (1.0 - cha_discount))) if cost > 0 else 0
             if cost > 0 and s.get("gil", 0) < cost:
                 await interaction.followup.send(
                     f"Not enough gil. {bag_info['name']} costs {cost}g.",

@@ -799,10 +799,11 @@ async def _make_shop_view(ctx, msg, uid, uname, is_owner, items):
 
     buyback_items = (sheet.get("buyback", []) if sheet else [])
     if buyback_items:
+        # Use "idx|key" as select value — key is authoritative even if list mutates
         bb_options = [
             discord.SelectOption(
                 label=f"{entry['name']} ({entry['repurchase_price']}g)",
-                value=str(i),
+                value=f"{i}|{entry.get('key', str(i))}",
                 description="Buyback at original sell price"
             )
             for i, entry in enumerate(buyback_items[:5])
@@ -817,22 +818,43 @@ async def _make_shop_view(ctx, msg, uid, uname, is_owner, items):
                 await interaction.response.send_message("not yours.", ephemeral=True)
                 return
             await interaction.response.defer()
-            idx = int(interaction.data["values"][0])
+            raw_val = interaction.data["values"][0]
+            expected_key = raw_val.split("|", 1)[1] if "|" in raw_val else None
             s = await load(uid)
             if not s:
                 return
             buyback = s.get("buyback", [])
-            if idx >= len(buyback):
-                await interaction.followup.send(embed=discord.Embed(description="That item is no longer available for buyback.", color=0xcc4444), ephemeral=True)
+            # Find by item key — robust against list mutations between render and click
+            entry = None
+            actual_idx = None
+            if expected_key:
+                for i, b in enumerate(buyback):
+                    if b.get("key") == expected_key:
+                        entry = b
+                        actual_idx = i
+                        break
+            # Positional fallback
+            if entry is None:
+                fallback = int(raw_val.split("|")[0]) if "|" in raw_val else int(raw_val)
+                if fallback < len(buyback):
+                    entry = buyback[fallback]
+                    actual_idx = fallback
+            if entry is None or actual_idx is None:
+                await interaction.followup.send(
+                    embed=discord.Embed(description="That item is no longer available for buyback.", color=0xcc4444),
+                    ephemeral=True
+                )
                 return
-            entry = buyback[idx]
             cost = entry["repurchase_price"]
             if s.get("gil", 0) < cost:
-                await interaction.followup.send(embed=discord.Embed(description=f"Not enough gil. Buyback costs {cost}g. You have {s['gil']}g.", color=0xcc4444), ephemeral=True)
+                await interaction.followup.send(
+                    embed=discord.Embed(description=f"Not enough gil. Buyback costs {cost}g. You have {s['gil']}g.", color=0xcc4444),
+                    ephemeral=True
+                )
                 return
             s["gil"] -= cost
             s.setdefault("inventory", []).append(entry["key"])
-            s["buyback"].pop(idx)
+            s["buyback"].pop(actual_idx)
             await save(s)
             await interaction.followup.send(embed=discord.Embed(
                 description=f"↩️ **{entry['name']}** returned to your inventory for {cost}g.\nRemaining gil: {s['gil']}g",
@@ -2606,6 +2628,11 @@ async def _handle_sheet(ctx, msg, send, rest, uid, uname, is_owner):
     effective_gear_def = min(10, raw_gear_def) + max(0, raw_gear_def - 10) // 2
     total_def = 10 + dex_mod + effective_gear_def + adv_flat_def + pet_def
 
+    # Apply the same global cap used in combat_engine so the sheet is truthful
+    player_level = sheet.get("level", 1)
+    global_def_cap = int(player_level * 1.5) + 12
+    effective_def = min(total_def, global_def_cap)
+
     # Damage string
     warrior_dmg_bonus = (sheet.get("level", 1) - 1) // 3 if base_class == "Warrior" else 0
     adv_dmg_flat = 3 if adv_class == "Wizard" else 0
@@ -2685,11 +2712,10 @@ async def _handle_sheet(ctx, msg, send, rest, uid, uname, is_owner):
         inline=False
     )
 
-    # Combat summary
     combat_lines = [
         f"⚔️ **ATK:** +{total_atk} to hit",
         f"🗡️ **DMG:** {dmg_str}",
-        f"🛡️ **DEF:** {total_def}",
+        f"🛡️ **DEF:** **{effective_def}**" + (f" *(raw {total_def}, capped)*" if effective_def < total_def else ""),
         f"💥 **Crit:** {crit_thresh}+",
     ]
     embed.add_field(
@@ -2712,8 +2738,10 @@ async def _handle_sheet(ctx, msg, send, rest, uid, uname, is_owner):
 
     breakdown_lines = [
         f"ATK: {' + '.join(atk_parts)}",
-        f"DEF: {' + '.join(def_parts)}",
+        f"DEF: {' + '.join(def_parts)}" + (f" = {total_def} → cap {global_def_cap}" if effective_def < total_def else ""),
     ]
+    if effective_def < total_def:
+        breakdown_lines.append(f"*Level {player_level} cap: Lv×1.5+12 = {global_def_cap} effective DEF*")
     embed.add_field(
         name="🔬 Breakdown",
         value="\n".join(breakdown_lines),

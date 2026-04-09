@@ -179,18 +179,34 @@ def _resolve_combat(sheet: dict, monster: dict, atk_mod_global: int = 0, def_mod
                     player_damage = max(0, monster["hp"]["current"] - 1)
                     status_logs.append(f"⚔️ **{sheet['character_name']}** pulls back their strike, dealing non-lethal damage.")
                     
-            from utils.ttrpg.class_advancement import apply_advanced_class_to_combat
+            from utils.ttrpg.class_advancement import apply_advanced_class_to_combat, resolve_class_proc
             adv_mods = apply_advanced_class_to_combat(
                 sheet, player_damage, True, player_crit, 0, monster, False
             )
             pd_bonus = adv_mods["player_damage_bonus"]
             if pd_bonus:
                 player_damage += pd_bonus
-                
+
+            # ── Class proc (10% base / 50% on crit) ──────────────────────────
+            proc_result = resolve_class_proc(sheet, weapon_dmg_die, player_crit, monster)
+            proc_damage = 0
+            if proc_result["proc_triggered"]:
+                proc_damage = proc_result["proc_damage"]
+                if proc_damage:
+                    player_damage += proc_damage
+                if proc_result["proc_heal"] > 0:
+                    sheet["hp"]["current"] = min(
+                        sheet["hp"]["max"],
+                        sheet["hp"]["current"] + proc_result["proc_heal"]
+                    )
+            # ─────────────────────────────────────────────────────────────────
+
             die_str = f"{'2' if player_crit else '1'}d{weapon_dmg_die}"
             bonus_str = f"{'+' if total_dmg_bonus >= 0 else ''}{total_dmg_bonus}" if total_dmg_bonus != 0 else ""
             if pd_bonus:
                 bonus_str += f"+{pd_bonus}(Class)"
+            if proc_damage:
+                bonus_str += f"+{proc_damage}(Proc)"
             player_dmg_breakdown = (
                 f"{die_str}[{','.join(str(r) for r in dmg_rolls)}]"
                 f"{bonus_str}=**{player_damage}**"
@@ -203,6 +219,9 @@ def _resolve_combat(sheet: dict, monster: dict, atk_mod_global: int = 0, def_mod
                 sheet["hp"]["current"] = min(sheet["hp"]["max"], sheet["hp"]["current"] + heal)
             if adv_mods["extra_log"]:
                 status_logs.extend(adv_mods["extra_log"])
+            # Log proc after main exchange lines
+            if proc_result.get("proc_triggered") and proc_result.get("proc_log"):
+                status_logs.extend(proc_result["proc_log"])
 
 
     monster_alive = monster["hp"]["current"] > 0
@@ -328,7 +347,7 @@ def _resolve_combat(sheet: dict, monster: dict, atk_mod_global: int = 0, def_mod
 
         monster_crit_hit = (monster_raw_hit == 20)
         counter_result = "CRITICAL HIT" if monster_crit_hit else ("HIT" if monster_hit else "MISS")
-        exchanges.append(f"🔴 Counter-attack: d20({monster_raw_hit})+{monster_attack_mod}=**{monster_total_hit}** → **{counter_result}**")
+        exchanges.append(f"🔴 Counter-attack: d20({monster_raw_hit})+{monster_attack_mod}=**{monster_total_hit}** → **{counter_result}** (your DEF: {player_defense})")
         if monster_hit:
             exchanges.append(f"   → {monster_dmg_breakdown}")
             exchanges.append(f"   Your HP: {sheet['hp']['current'] + monster_damage} → **{sheet['hp']['current']}/{sheet['hp']['max']}**")

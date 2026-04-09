@@ -11,11 +11,130 @@ Mage        → Wizard       | Necromancer
 Rogue       → Shadowblade  | Trickster
 Cleric      → High Priest  | Shaman
 """
+import secrets
+
+# ── Class Proc Table ──────────────────────────────────────────────────────────
+# Every class (base and advanced) has a proc that fires on hit.
+# base=0.10  → 10% chance on a normal hit
+# crit=0.50  → 50% chance on a critical hit
+#
+# Types:
+#   "bonus_die"  → roll extra die and add to damage; die="weapon" copies weapon_die
+#   "undead"     → same as bonus_die but only triggers against undead enemies
+#   "heal"       → restore <heal> HP to the player on proc
+
+CLASS_PROCS = {
+    # ── Base classes ──────────────────────────────────────────────────────────
+    "Warrior":      {"name": "Onslaught",       "type": "bonus_die", "die": "weapon", "base": 0.10, "crit": 0.50},
+    "Ranger":       {"name": "True Shot",       "type": "bonus_die", "die": "weapon", "base": 0.10, "crit": 0.50},
+    "Mage":         {"name": "Arcane Surge",    "type": "bonus_die", "die": 8,        "base": 0.10, "crit": 0.50},
+    "Rogue":        {"name": "Backstab",        "type": "bonus_die", "die": "weapon", "base": 0.10, "crit": 0.50},
+    "Cleric":       {"name": "Undead Bane",     "type": "undead",    "die": 6,        "base": 0.10, "crit": 0.50},
+    # ── Advanced classes ──────────────────────────────────────────────────────
+    "Paladin":      {"name": "Holy Smite",      "type": "undead",    "die": 8,        "base": 0.10, "crit": 0.50},
+    "Shadowknight": {"name": "Harm Touch",      "type": "bonus_die", "die": 8,        "base": 0.10, "crit": 0.50},
+    "Hunter":       {"name": "Predator",        "type": "bonus_die", "die": "weapon", "base": 0.10, "crit": 0.50},
+    "Warden":       {"name": "Forest Fury",     "type": "bonus_die", "die": 8,        "base": 0.10, "crit": 0.50},
+    "Wizard":       {"name": "Arcane Nova",     "type": "bonus_die", "die": 10,       "base": 0.10, "crit": 0.50},
+    "Necromancer":  {"name": "Death Touch",     "type": "undead",    "die": 8,        "base": 0.10, "crit": 0.50},
+    "Shadowblade":  {"name": "Shadow Strike",   "type": "bonus_die", "die": "weapon", "base": 0.10, "crit": 0.50},
+    "Trickster":    {"name": "Lucky Break",     "type": "bonus_die", "die": 6,        "base": 0.10, "crit": 0.50},
+    "High Priest":  {"name": "Divine Touch",    "type": "heal",      "heal": 25,      "base": 0.10, "crit": 0.50},
+    "Shaman":       {"name": "Spirit Wrath",    "type": "bonus_die", "die": 8,        "base": 0.10, "crit": 0.50},
+}
+
+_UNDEAD_NAMES = {
+    "skeleton", "zombie", "ghoul", "ghost", "lich", "revenant", "wight",
+    "spectre", "skull knight", "dark knight", "shadow lich", "dullahan",
+    "decaying skeleton", "tonberry king", "elara (turned)",
+}
+
+PROC_EMOJIS = {
+    "Warrior":      "⚔️",
+    "Ranger":       "🎯",
+    "Mage":         "🔮",
+    "Rogue":        "🗡️",
+    "Cleric":       "✝️",
+    "Paladin":      "🌟",
+    "Shadowknight": "🩸",
+    "Hunter":       "🏹",
+    "Warden":       "🌿",
+    "Wizard":       "💫",
+    "Necromancer":  "💀",
+    "Shadowblade":  "🌑",
+    "Trickster":    "🍀",
+    "High Priest":  "☀️",
+    "Shaman":       "🌀",
+}
+
+def resolve_class_proc(sheet: dict, weapon_die: int, player_crit: bool, monster: dict) -> dict:
+    """
+    Roll and resolve a class-based proc for one combat hit.
+
+    Returns a dict:
+        proc_triggered  bool
+        proc_name       str
+        proc_damage     int   (extra damage to add)
+        proc_heal       int   (HP to restore to player)
+        proc_log        list[str]
+    """
+    result = {
+        "proc_triggered": False,
+        "proc_name": "",
+        "proc_damage": 0,
+        "proc_heal": 0,
+        "proc_log": [],
+    }
+
+    adv  = sheet.get("advanced_class", "")
+    base = sheet.get("class", "Warrior")
+    # Advanced class takes priority; "stay" classes keep the base proc
+    active_class = adv if (adv and adv != base) else base
+
+    proc = CLASS_PROCS.get(active_class)
+    if not proc:
+        return result
+
+    proc_type = proc["type"]
+
+    # Undead procs: only fire against undead — check before rolling RNG
+    if proc_type == "undead":
+        m_name = monster.get("name", "").lower()
+        if not any(u in m_name for u in _UNDEAD_NAMES):
+            return result
+
+    # Roll proc chance
+    chance = proc["crit"] if player_crit else proc["base"]
+    if secrets.randbelow(100) >= int(chance * 100):
+        return result
+
+    result["proc_triggered"] = True
+    result["proc_name"] = proc["name"]
+    
+    icon = PROC_EMOJIS.get(active_class, "⚡")
+
+    if proc_type in ("bonus_die", "undead"):
+        die = proc["die"]
+        if die == "weapon":
+            die = weapon_die
+        extra = secrets.randbelow(die) + 1
+        result["proc_damage"] = extra
+        result["proc_log"].append(
+            f"{icon} **{proc['name']}!** +{extra} bonus damage (1d{die})"
+        )
+
+    elif proc_type == "heal":
+        result["proc_heal"] = proc["heal"]
+        result["proc_log"].append(
+            f"{icon} **{proc['name']}!** Restored {proc['heal']} HP"
+        )
+
+    return result
 
 ADVANCED_CLASSES = {
     "Warrior": {
         "Warrior": {
-            "description": "Master of arms. No tricks, just steel.",
+            "description": "Master of arms. Onslaught proc on every hit.",
             "bonuses": {
                 "atk_bonus": 1,
                 "def_bonus": 1,
@@ -25,26 +144,28 @@ ADVANCED_CLASSES = {
             "is_stay": True,
         },
         "Paladin": {
-            "description": "Holy warrior of the Silent Ones. Smites undead, heals on kill.",
+            "description": "Holy warrior. Holy Smite proc vs undead. Heals on kill.",
             "bonuses": {
-                "atk_vs_undead": 3,
+                "atk_vs_undead": 2,
                 "heal_on_kill": 3,
                 "def_bonus": 1,
+                "hp_bonus": 5,
             },
             "flavor": "Aerthis acknowledges your oath. The flame at the Shrine burns white-blue.",
         },
         "Shadowknight": {
-            "description": "Dark blade of Morvenna. Drains life, fears nothing.",
+            "description": "Dark blade. Harm Touch proc. Drains life on every hit.",
             "bonuses": {
-                "lifesteal_pct": 0.20,
-                "atk_bonus": 3,
+                "lifesteal_pct": 0.15,
+                "atk_bonus": 2,
+                "hp_bonus": 5,
             },
             "flavor": "Morvenna is watching. The flame at the Shrine burns amber-black.",
         },
     },
     "Ranger": {
         "Ranger": {
-            "description": "Seasoned tracker. Sharper senses, steadier aim.",
+            "description": "Seasoned tracker. True Shot proc on every hit. +1 daily hunt.",
             "bonuses": {
                 "atk_bonus": 1,
                 "extra_hunt": 1,
@@ -54,35 +175,35 @@ ADVANCED_CLASSES = {
             "is_stay": True,
         },
         "Hunter": {
-            "description": "Precise predator. Critical range extended, deadly aim.",
+            "description": "Predator proc on every hit. Extended crit range.",
             "bonuses": {
                 "crit_threshold": 18,
                 "atk_bonus": 2,
+                "hp_bonus": 4,
             },
             "flavor": "The forest edge accepts you as part of its pattern. Something shifts.",
         },
         "Warden": {
-            "description": "Guardian of the Whisperwood. Hard to kill, harder to wound.",
+            "description": "Forest Fury proc on hit. Hard to kill — strong defense.",
             "bonuses": {
-                "def_bonus": 2,
-                "hp_bonus": 8,
-                "forest_def_bonus": 2,
+                "def_bonus": 3,
+                "hp_bonus": 10,
             },
             "flavor": "Thornax approves. The Whisperwood breathes with you.",
         },
     },
     "Mage": {
         "Mage": {
-            "description": "Pure arcane focus. Deeper reserves, stronger fundamentals.",
+            "description": "Pure arcane focus. Arcane Surge proc on hit.",
             "bonuses": {
                 "spell_atk_bonus": 2,
                 "hp_bonus": 4,
             },
-            "flavor": "The resonance hums louder now. You've always known.<br>You just listen better.",
+            "flavor": "The resonance hums louder now. You've always known. You just listen better.",
             "is_stay": True,
         },
         "Wizard": {
-            "description": "Scholar of deep resonance. INT scales attack. Spells hit harder.",
+            "description": "INT drives all attack rolls. Arcane Nova proc (1d10).",
             "bonuses": {
                 "int_to_atk": True,
                 "spell_atk_bonus": 3,
@@ -91,10 +212,9 @@ ADVANCED_CLASSES = {
             "flavor": "Sylvara tears open the door for you. The resonance sings aloud.",
         },
         "Necromancer": {
-            "description": "Student of Morvenna's final lesson. Undead fear you.",
+            "description": "Death Touch proc vs undead. Deep attunement to the dead.",
             "bonuses": {
                 "atk_vs_undead": 4,
-                "death_resist": True,
                 "hp_bonus": 4,
             },
             "flavor": "Morvenna welcomes your final lesson. The Shrine goes dead quiet.",
@@ -102,7 +222,7 @@ ADVANCED_CLASSES = {
     },
     "Rogue": {
         "Rogue": {
-            "description": "Survivor. Quick hands, quicker feet.",
+            "description": "Survivor. Backstab proc on every hit.",
             "bonuses": {
                 "atk_bonus": 1,
                 "gil_bonus_pct": 0.10,
@@ -112,27 +232,28 @@ ADVANCED_CLASSES = {
             "is_stay": True,
         },
         "Shadowblade": {
-            "description": "Ghost with a knife. Crits more, crits harder.",
+            "description": "Shadow Strike proc on every hit. Crits on 17+.",
             "bonuses": {
                 "crit_threshold": 17,
                 "crit_damage_bonus": 4,
                 "atk_bonus": 1,
+                "hp_bonus": 3,
             },
             "flavor": "The knife feels lighter. The dark feels familiar in a way it didn't before.",
         },
         "Trickster": {
-            "description": "Laughs at bad odds. Steals from the dead.",
+            "description": "Lucky Break proc on hit. Gil mastery.",
             "bonuses": {
                 "gil_bonus_pct": 0.25,
                 "gamble_edge": True,
-                "luck_charges": 2,
+                "hp_bonus": 3,
             },
             "flavor": "A moogle winks at you from a dark corner of the Stone Hearth. You don't question it.",
         },
     },
     "Cleric": {
         "Cleric": {
-            "description": "Devoted healer. The old prayers still carry weight.",
+            "description": "Devoted healer. Undead Bane proc. Enhanced consumable healing.",
             "bonuses": {
                 "heal_mult": 1.25,
                 "def_bonus": 1,
@@ -142,21 +263,21 @@ ADVANCED_CLASSES = {
             "is_stay": True,
         },
         "High Priest": {
-            "description": "Voice of the Silent Ones. Heals better, smites harder.",
+            "description": "WIS drives attack rolls. Divine Touch proc — heals 25 HP on proc.",
             "bonuses": {
                 "heal_mult": 1.5,
                 "wis_to_atk": True,
-                "shrine_offering_bonus": True,
+                "hp_bonus": 4,
             },
             "flavor": "The flame at the Shrine burns three times as bright for a moment. Then settles.",
         },
         "Shaman": {
-            "description": "Reads the old signs. The Whisperwood fights alongside you.",
+            "description": "Spirit Wrath proc on hit. Forest XP bonus. Passive heal on forest events.",
             "bonuses": {
                 "forest_xp_bonus": 0.20,
                 "def_bonus": 1,
-                "weather_resist": True,
                 "nature_heal_on_event": 4,
+                "hp_bonus": 4,
             },
             "flavor": "The Whisperwood acknowledges you as something more than a visitor. That distinction matters.",
         },
@@ -294,6 +415,12 @@ def apply_advanced_class_to_combat(sheet: dict, player_damage: int,
             result["monster_damage_reduction"] += bonuses["forest_def_bonus"]
             if monster_damage > 0:
                 result["extra_log"].append(f"🌲 *Warden's bark: -{bonuses['forest_def_bonus']} damage taken.*")
+
+    # Cleric (stay) — permanent undead bane
+    elif advanced == "Cleric":
+        if player_hit and is_undead and bonuses.get("atk_vs_undead"):
+            result["player_damage_bonus"] += bonuses["atk_vs_undead"]
+            result["extra_log"].append(f"✝️ *Undead bane: +{bonuses['atk_vs_undead']} vs undead.*")
 
     # Shaman — nature heal on event
     elif advanced == "Shaman":
