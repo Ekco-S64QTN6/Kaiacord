@@ -316,9 +316,14 @@ class BiteView(discord.ui.View):
             if sheet:
                 # Still consume bait on escape
                 fishing_stats = sheet.setdefault("fishing_stats", {})
-                bait_count = fishing_stats.get("bait_count", 0)
-                if bait_count > 0:
-                    fishing_stats["bait_count"] = bait_count - 1
+                if "bait_count" in fishing_stats:
+                    old_bait = fishing_stats.get("bait", "earthworm")
+                    fishing_stats.setdefault("bait_stock", {})[old_bait] = fishing_stats.pop("bait_count", 0)
+                bait_stock = fishing_stats.get("bait_stock", {})
+                current_bait = fishing_stats.get("bait", "earthworm")
+                if bait_stock.get(current_bait, 0) > 0:
+                    bait_stock[current_bait] -= 1
+                fishing_stats["bait_stock"] = bait_stock
                 await save(sheet)
                 view = FishingMenuView(self._ctx, self._uid, self._uname, self._is_owner, sheet)
             else:

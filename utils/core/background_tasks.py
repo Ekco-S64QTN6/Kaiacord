@@ -5,7 +5,7 @@ import os
 from dataclasses import dataclass, field
 from datetime import datetime
 from discord.ext import tasks
-from utils.infrastructure.logging.kaia_logger import log_action, log_success, log_error, log_info, log_warning
+from utils.infrastructure.logging.kaia_logger import log_action, log_success, log_error, log_info, log_warning, log_debug
 from utils.infrastructure.system.bot_state import bot_state
 from utils.infrastructure.system.yaml_config import config
 from utils.infrastructure.system.shutdown_fixed import shutdown_manager
@@ -196,10 +196,14 @@ class CoreTaskManager:
                 
                 effect = weather.get("effect")
                 if effect:
-                    if "atk" in effect: state["atk_mod"] += effect["atk"]
-                    if "def" in effect: state["def_mod"] += effect["def"]
-                    if "xp" in effect: state["xp_mult"] *= effect["xp"]
-                    if "gil" in effect: state["gil_mult"] *= effect["gil"]
+                    effect_type  = effect.get("type", "")
+                    effect_value = effect.get("value", 0)
+                    if effect_type == "xp_bonus":
+                        state["xp_mult"] = state.get("xp_mult", 1.0) + (effect_value / 100.0)
+                    elif effect_type == "gil_bonus":
+                        state["gil_mult"] = state.get("gil_mult", 1.0) + (effect_value / 100.0)
+                    elif effect_type == "armor_penalty":
+                        state["def_mod"] = state.get("def_mod", 0) + effect_value
 
                 # Roll for world event (15% chance)
                 if random.random() < 0.15:
@@ -283,18 +287,22 @@ class CoreTaskManager:
                     for h in all_housing:
                         pets = h.get("pets", [])
                         for pet in pets:
-                            if pet["key"] == "moogle" and pet.get("fed_today"):
-                                loot = get_loot("easy")
-                                if loot:
-                                    h.setdefault("mailbox", []).append({
-                                        "from_name": "House Moogle",
-                                        "item": loot,
-                                        "gil": 0,
-                                        "timestamp": time.time()
-                                    })
-                                    from utils.ttrpg.housing import save_housing
-                                    save_housing(h)
-                                    break
+                            if pet["key"] == "moogle":
+                                last_deliv = pet.get("last_moogle_delivery", 0)
+                                elapsed_days = (time.time() - last_deliv) / 86400.0
+                                if elapsed_days > 5:
+                                    pet["last_moogle_delivery"] = time.time()
+                                    loot = get_loot("easy")
+                                    if loot:
+                                        h.setdefault("mailbox", []).append({
+                                            "from_name": "House Moogle",
+                                            "item": loot,
+                                            "gil": 0,
+                                            "timestamp": time.time()
+                                        })
+                                        from utils.ttrpg.housing import save_housing
+                                        save_housing(h)
+                                        break
 
                 # Build announcement
                 summary = get_today_summary()

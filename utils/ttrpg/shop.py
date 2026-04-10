@@ -62,6 +62,15 @@ def get_shop_inventory(location: str = "hemlocks_store") -> tuple[dict, dict, di
     accessories = {k: ACCESSORIES[k] for k in accessory_keys   if k in ACCESSORIES}
     consumables = {k: CONSUMABLES[k] for k in consumables_keys if k in CONSUMABLES}
 
+    # Overlay special discounts non-destructively
+    if special and "shop_special" in special:
+        itemk = special["shop_special"].get("item")
+        if itemk:
+            for d in (weapons, armor, headgear, boots, accessories, consumables):
+                if itemk in d:
+                    d[itemk] = d[itemk].copy()
+                    d[itemk]["value"] = special["shop_special"].get("price", d[itemk]["value"])
+
     return weapons, armor, headgear, boots, accessories, consumables
 
 def find_item(item_key: str) -> dict | None:

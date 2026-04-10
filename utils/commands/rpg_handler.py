@@ -707,7 +707,7 @@ def _make_status_btn(ctx, uid, uname, is_owner, row=None):
     return btn
 
 
-async def _make_shop_view(ctx, msg, uid, uname, is_owner, items):
+async def _make_shop_view(ctx, msg, uid, uname, is_owner, items, sheet=None):
     """Return a View with Buy and Sell select menus."""
     from utils.ttrpg.shop import find_item
     from collections import Counter
@@ -771,7 +771,7 @@ async def _make_shop_view(ctx, msg, uid, uname, is_owner, items):
             current_row += 1
 
     # ── Sell menu (Row dependent) — built from player's current inventory ─────
-    sheet = await load(uid)
+    sheet = sheet or await load(uid)
     if sheet and sheet.get("inventory"):
         inv_counts = Counter(sheet["inventory"])
         sell_options = []
@@ -1292,7 +1292,10 @@ class DungeonView(discord.ui.View):
                 try: await interaction.response.send_message("Not yours.", ephemeral=True)
                 except discord.NotFound: pass
                 return
-            await _handle_status(self._ctx, interaction, _make_interaction_send(interaction), "", self._uid, self._uname, self._is_owner)
+            try: await interaction.response.defer()
+            except discord.NotFound: pass
+            fake = _InteractionMsg(interaction)
+            await _handle_status(self._ctx, fake, _make_interaction_send(interaction), "", self._uid, self._uname, self._is_owner)
         status_btn.callback = _status_cb
         self.add_item(status_btn)
 
@@ -3375,7 +3378,7 @@ async def _handle_shop(ctx, msg, send, rest, uid, uname, is_owner):
     shop_items = list(consumables.keys()) + list(weapons.keys()) + list(armor.keys()) + list(headgear.keys()) + list(accessories.keys()) + list(boots.keys())
     shop_items = shop_items[:75]
     
-    view = await _make_shop_view(ctx, msg, uid, uname, is_owner, shop_items)
+    view = await _make_shop_view(ctx, msg, uid, uname, is_owner, shop_items, sheet=sheet)
     await msg.channel.send(embed=embed, view=view)
 
 async def _handle_buy(ctx, msg, send, rest, uid, uname, is_owner):
@@ -3421,7 +3424,7 @@ async def _handle_buy(ctx, msg, send, rest, uid, uname, is_owner):
         loc = updated_sheet.get("location", "hemlocks_store")
         weapons, armor, headgear, boots, accessories, consumables = get_shop_inventory(loc)
         shop_items = list(weapons.keys()) + list(armor.keys()) + list(headgear.keys()) + list(boots.keys()) + list(accessories.keys()) + list(consumables.keys())
-        view = await _make_shop_view(ctx, msg, uid, uname, is_owner, shop_items)
+        view = await _make_shop_view(ctx, msg, uid, uname, is_owner, shop_items, sheet=sheet)
         await msg.channel.send(embed=discord.Embed(description=final_msg, color=0x44aa44), view=view)
     else:
         await msg.channel.send(embed=discord.Embed(description=purchase_msg, color=0xcc4444))
@@ -3456,7 +3459,7 @@ async def _handle_sell(ctx, msg, send, rest, uid, uname, is_owner):
         loc = updated_sheet.get("location", "hemlocks_store")
         weapons, armor, headgear, boots, accessories, consumables = get_shop_inventory(loc)
         shop_items = list(weapons.keys()) + list(armor.keys()) + list(headgear.keys()) + list(boots.keys()) + list(accessories.keys()) + list(consumables.keys())
-        view = await _make_shop_view(ctx, msg, uid, uname, is_owner, shop_items)
+        view = await _make_shop_view(ctx, msg, uid, uname, is_owner, shop_items, sheet=sheet)
         await msg.channel.send(embed=discord.Embed(description=resp_msg, color=0x44aa44), view=view)
     else:
         await msg.channel.send(embed=discord.Embed(description=resp_msg, color=0xcc4444))
@@ -3790,6 +3793,18 @@ async def _handle_talk(ctx, msg, send, rest, uid, uname, is_owner):
         # If an NPC has a specific inventory turn-in (like Maren), we can add it here.
 
     cha_mod = (sheet.get("stats", {}).get("cha", 10) - 10) // 2 if sheet else 0
+    from utils.ttrpg.furniture import get_home_bonuses
+    from utils.ttrpg.housing import load_housing
+    housing = load_housing(uid)
+    bonuses = get_home_bonuses(housing) if housing else {}
+    if sheet and sheet.get("location") == "housing_district":
+        cha_mod += bonuses.get("home_cha", 0)
+        
+    talk_xp = bonuses.get("talk_xp", 0)
+    if sheet and talk_xp:
+        sheet["xp"] = sheet.get("xp", 0) + talk_xp
+        await save(sheet)
+
     context = {
         "season": season,
         "special_day": special_day,
@@ -4868,9 +4883,16 @@ async def _handle_attack(ctx, msg, send, rest, uid, uname, is_owner):
 
     # Execute deterministic combat math loop with world state modifiers
     state = get_current_state()
+    from utils.ttrpg.furniture import get_home_bonuses
+    home_bonuses = get_home_bonuses(_housing) if _housing else {}
+    if sheet.get("location") == "housing_district":
+        atk_mod_global = state.get("atk_mod", 0) + home_bonuses.get("home_atk", 0) + home_bonuses.get("local_atk", 0)
+    else:
+        atk_mod_global = state.get("atk_mod", 0) + home_bonuses.get("home_atk", 0)
+
     res = _resolve_combat(
         sheet, monster, 
-        atk_mod_global=state.get("atk_mod", 0), 
+        atk_mod_global=atk_mod_global, 
         def_mod_global=state.get("def_mod", 0),
         pet_bonuses=_pet_bonuses
     )
@@ -5190,6 +5212,11 @@ async def _handle_flee(ctx, msg, send, rest, uid, uname, is_owner):
 
 async def _apply_and_narrate_event(ctx, msg, send, sheet, result, uname):
     """Apply a forest event's mechanical effects and trigger Kaia narration."""
+
+    if sheet.get("advanced_class") == "Shaman" and sheet["hp"]["current"] > 0 and sheet["hp"]["current"] < sheet["hp"]["max"]:
+        from utils.ttrpg.class_advancement import ADVANCED_CLASSES
+        heal_amt = ADVANCED_CLASSES["Cleric"]["Shaman"]["bonuses"].get("nature_heal_on_event", 4)
+        sheet["hp"]["current"] = min(sheet["hp"]["current"] + heal_amt, sheet["hp"]["max"])
 
     # Apply mechanical changes
     sheet["xp"]  = sheet.get("xp", 0) + result["xp"]
@@ -5657,7 +5684,13 @@ async def _handle_scout(ctx, msg, send, rest, uid, uname, is_owner):
     if not sheet:
         return await msg.channel.send(embed=discord.Embed(description="No character found.", color=0xcc4444))
 
-    if sheet.get("location") != "watchtower":
+    from utils.ttrpg.housing import load_housing
+    from utils.ttrpg.furniture import get_home_bonuses
+    housing = load_housing(uid)
+    bonuses = get_home_bonuses(housing) if housing else {}
+    has_home_scout = sheet.get("location") == "housing_district" and bonuses.get("home_scout")
+
+    if sheet.get("location") != "watchtower" and not has_home_scout:
         return await msg.channel.send(embed=discord.Embed(
             description="You need to be at the Watchtower to scout.\n`!rpg go watchtower`",
             color=0xcc4444
@@ -5798,6 +5831,18 @@ async def _handle_bank_deposit(ctx, msg, send, rest, uid, uname, is_owner):
                     ephemeral=True
                 )
                 return
+            housing = load_housing(uid)
+            from utils.ttrpg.furniture import get_home_bonuses
+            home_bonuses = get_home_bonuses(housing) if housing else {}
+            bank_cap = 500 + home_bonuses.get("bank_cap", 0)
+            
+            if s.get("bank_balance", 0) + amount > bank_cap:
+                amount = bank_cap - s.get("bank_balance", 0)
+                if amount <= 0:
+                    return await interaction.response.send_message(
+                        embed=discord.Embed(description=f"Your bank is full (Cap: {bank_cap}g).", color=0xcc4444),
+                        ephemeral=True
+                    )    
             s["gil"] -= amount
             s["bank_balance"] = s.get("bank_balance", 0) + amount
             await save(s)
@@ -6703,12 +6748,23 @@ async def _handle_my_home(ctx, msg, send, rest, uid, uname, is_owner):
         desc_parts.append("\n🐾 **Pets:**\n" + "\n".join(pet_lines))
         
     furniture_lines = []
+    bonus_labels = {
+        "home_atk": "Global ATK",
+        "local_atk": "Local ATK (Housing District)",
+        "farm_yield": "Farm Yield",
+        "talk_xp": "Talk XP",
+        "dungeon_xp": "Dungeon XP",
+        "bank_cap": "Bank Storage",
+        "home_cha": "Talking CHA (Home)"
+    }
     for f_key in housing.get("furniture", []):
         f_data = FURNITURE.get(f_key)
         if f_data:
             bonus = f_data.get("bonus", {})
             if bonus:
-                b_str = f"+{bonus.get('value', 0)} {bonus.get('type', '').replace('_', ' ')}"
+                b_type = bonus.get("type", "")
+                label = bonus_labels.get(b_type, b_type.replace('_', ' ').title())
+                b_str = f"+{bonus.get('value', 0)} {label}"
             else:
                 b_str = ""
             furniture_lines.append(f"{f_data['emoji']} **{f_data['name']}**: {b_str}")

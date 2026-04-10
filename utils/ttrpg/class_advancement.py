@@ -399,7 +399,7 @@ def apply_advanced_class_to_combat(sheet: dict, player_damage: int,
     # Shadowknight — lifesteal
     elif advanced == "Shadowknight":
         if player_damage > 0 and bonuses.get("lifesteal_pct"):
-            steal = max(1, int(player_damage * bonuses["lifesteal_pct"]))
+            steal = max(1, min(6, int(player_damage * bonuses["lifesteal_pct"])))
             result["heal_amount"] += steal
             result["extra_log"].append(f"🩸 *Lifesteal: +{steal} HP.*")
 

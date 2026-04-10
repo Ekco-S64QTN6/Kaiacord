@@ -535,10 +535,6 @@ ARMOR = {
         "name": "Saint's Plate", "defense_bonus": 10, "value": 3200, "tier": 4,
         "classes": ["Cleric", "Paladin", "High Priest"], "droppable_only": True,
     },
-    "voice_of_silence_armor": {
-        "name": "Voice of Silence Armor", "defense_bonus": 11, "value": 9000, "tier": 5,
-        "classes": ["Cleric", "Paladin", "High Priest", "Shaman"],
-    },
 }
 
 # ─── HEADGEAR ────────────────────────────────────────────────────────────────
@@ -859,7 +855,7 @@ ACCESSORIES = {
     "void_band":         {"name": "Void Band",         "defense_bonus": 2, "attack_bonus": 3, "value": 7500, "tier": 5, "droppable_only": True},
     "mox_pearl":         {"name": "Mox Pearl",          "defense_bonus": 0, "attack_bonus": 3, "value": 13000,"tier": 5, "droppable_only": True},
     "giant_belt":        {"name": "Giant Strength Belt","defense_bonus": 0, "attack_bonus": 5, "value": 8000, "tier": 5, "classes": ["Warrior"], "droppable_only": True},
-    "black_lotus":       {"name": "Black Lotus",        "defense_bonus": 0, "attack_bonus": 6, "value": 55000,"tier": 5, "droppable_only": True},
+    "black_lotus":       {"name": "Black Lotus",        "defense_bonus": 0, "attack_bonus": 6, "value": 55000,"tier": 5, "classes": ["Wizard", "Necromancer"], "droppable_only": True},
 
     # ══════════════════════════════════════════════════════════════
     # WARRIOR — Gauntlets and Power Bracers

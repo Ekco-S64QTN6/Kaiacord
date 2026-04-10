@@ -58,10 +58,9 @@ CROPS = {
         "growth_days": 5,
         "yield_item": "gilded_mushroom",
         "yield_amount": (1, 2),
-        "desc": "Rare. Grows in darkness. Don't water it — it drowns.",
+        "desc": "Rare. Grows in darkness. Very valuable alchemy ingredient.",
         "emoji": "🍄",
         "season_bonus": None,
-        "no_water": True,             # Special: watering kills it
     },
 }
 
@@ -77,7 +76,7 @@ def get_crop_stage(crop: dict) -> str:
         return CROP_STAGES[-1]  # "✅ Ready to Harvest"
 
     # Wilting is purely cosmetic — doesn't block harvest
-    if not crop_data.get("no_water") and not crop.get("watered_today") and days_grown > 0:
+    if not crop.get("watered_today") and days_grown > 0:
         return "🥀 Wilting — water it today"
 
     pct = min(days_grown / growth_days, 1.0)
@@ -91,10 +90,6 @@ def is_harvestable(crop: dict) -> bool:
     growth_days = crop_data["growth_days"]
 
     # Only gate on days grown — wilting affects yield, not harvestability
-    # Exception: gilded mushroom dies if watered (no_water crops gate differently)
-    if crop_data.get("no_water"):
-        return days_grown >= growth_days
-
     return days_grown >= growth_days
 
 def harvest_crop(crop: dict, season: str) -> tuple[str, int]:
@@ -107,7 +102,7 @@ def harvest_crop(crop: dict, season: str) -> tuple[str, int]:
     # Watering bonus: full watered_count >= growth_days - 1 gives +1
     growth_days = crop_data["growth_days"]
     watered_count = crop.get("watered_count", 0)
-    if not crop_data.get("no_water") and watered_count >= growth_days - 1:
+    if watered_count >= growth_days - 1:
         qty += 1
 
     # Season bonus (additional +1 on top)
