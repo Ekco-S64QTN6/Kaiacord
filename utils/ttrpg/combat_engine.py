@@ -121,7 +121,12 @@ def _resolve_combat(sheet: dict, monster: dict, atk_mod_global: int = 0, def_mod
     # Pet bonus calculation
     pet_combat_bonus = pet_bonuses.get("combat_bonus", 0)
 
-    attack_mod = atk_mod + weapon_atk + acc_atk + adv_flat_atk + bless_bonus + streak_bonus + luck_bonus + atk_mod_global + pet_combat_bonus
+    # Potion buff: Firebrew (+2 ATK until next combat)
+    embered_bonus = 2 if "embered" in conditions else 0
+    if embered_bonus:
+        status_logs.append(f"🔥 *Firebrew burns through your veins (+2 ATK).*")
+
+    attack_mod = atk_mod + weapon_atk + acc_atk + adv_flat_atk + bless_bonus + streak_bonus + luck_bonus + atk_mod_global + pet_combat_bonus + embered_bonus
     
     # --- Initialize Result Variables ---
     player_hit = False
@@ -223,6 +228,32 @@ def _resolve_combat(sheet: dict, monster: dict, atk_mod_global: int = 0, def_mod
             if proc_result.get("proc_triggered") and proc_result.get("proc_log"):
                 status_logs.extend(proc_result["proc_log"])
 
+            # ── Weapon proc (independent 10% / 50% on crit) ──────────────────
+            weapon_proc = weapon.get("proc") if weapon else None
+            if weapon_proc:
+                wp_chance = 0.50 if player_crit else 0.10
+                if secrets.randbelow(100) < int(wp_chance * 100):
+                    wp_die = weapon_proc["die"]
+                    wp_extra = secrets.randbelow(wp_die) + 1
+                    wp_emoji = weapon_proc.get("emoji", "⚡")
+                    wp_name = weapon_proc["name"]
+                    wp_element = weapon_proc.get("element", "")
+                    player_damage += wp_extra
+                    monster["hp"]["current"] = max(0, monster["hp"]["current"] - wp_extra)
+                    status_logs.append(
+                        f"{wp_emoji} **{wp_name}!** +{wp_extra} {wp_element} damage (1d{wp_die})"
+                    )
+                    # Drain element: heal player for proc damage
+                    if wp_element == "drain":
+                        sheet["hp"]["current"] = min(
+                            sheet["hp"]["max"],
+                            sheet["hp"]["current"] + wp_extra
+                        )
+                        status_logs.append(
+                            f"🩸 *Life drained: +{wp_extra} HP*"
+                        )
+            # ─────────────────────────────────────────────────────────────────
+
 
     monster_alive = monster["hp"]["current"] > 0
 
@@ -246,6 +277,13 @@ def _resolve_combat(sheet: dict, monster: dict, atk_mod_global: int = 0, def_mod
 
         # Assemble total, then clamp
         raw_total_def = 10 + dex_mod + effective_gear_def + adv_flat_def + def_mod_global + pet_def_bonus
+
+        # Potion buff: Ironbark Tonic (+2 DEF until next combat)
+        fortified_bonus = 2 if "fortified" in conditions else 0
+        if fortified_bonus:
+            status_logs.append(f"🛡️ *Ironbark hardens your skin (+2 DEF).*")
+            raw_total_def += fortified_bonus
+
         player_defense = min(raw_total_def, global_def_cap)
 
         _tier = monster.get("tier", "medium")
@@ -357,6 +395,13 @@ def _resolve_combat(sheet: dict, monster: dict, atk_mod_global: int = 0, def_mod
         exchanges.append(f"   {monster['name']} HP: **0** 💀")
         if is_duel:
             exchanges.append(f"⚔️ **{sheet['character_name']}** stops their blade at **{monster['name']}**'s throat. Yield!")
+
+    # ── Consume temporary combat buffs ────────────────────────────────────
+    conds = sheet.get("conditions", [])
+    if "embered" in conds:
+        conds.remove("embered")
+    if "fortified" in conds:
+        conds.remove("fortified")
 
     return {
         "sheet": sheet,

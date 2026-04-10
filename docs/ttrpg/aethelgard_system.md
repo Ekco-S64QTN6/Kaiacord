@@ -186,6 +186,9 @@ Fully automatic. Player never touches dice.
 **Crit (nat 20):** Damage dice doubled
 **Fumble (nat 1):** Auto-miss
 
+### Weapon Procs
+Select T3+ weapons possess inherent elemental procs. These trigger independently on standard hits (10% chance) and critical hits (50% chance). They scale in extra damage from 1d4 to 1d8 based on weapon tier, and can trigger simultaneously alongside Class Procs.
+
 ### Player vs Player (Duels)
 Players can challenge each other to non-lethal combat using `!rpg duel @user`. Upon acceptance, the duel resolves automatically until one player is reduced to 1 HP. No XP or Gil is lost.
 
@@ -281,7 +284,15 @@ Recipes are discovered by picking up ingredients. Brewed at Sister Maren's Hut.
 | Recipe | Ingredients | Result | XP |
 |:--|:--|:--|:--|
 | Health Potion | Blood Thistle + Honey Sap | `potion_standard` (25 HP) | 20 |
+| Hi-Potion | Blood Thistle + Silver Moss | `hi_potion` (20 HP) | 30 |
+| Elixir | Silverleaf + Dire Root | `elixir` (30 HP) | 40 |
 | Antidote | Silver Moss + Dire Root | `antidote` | 25 |
+| Greater Antidote | Silver Moss + Opal | `panacea` | 45 |
+| Phoenix Brew | Silverleaf + Star Ruby | `phoenix_down` (50 HP) | 50 |
+| Experience Tonic | Silverleaf + Emerald | `xp_tonic` (+25% XP) | 35 |
+| Hunter's Draught | Dire Root + Topaz | `hunters_draught` (+1 Hunt) | 30 |
+| Ironbark Tonic | Dire Root + Pearl | `ironbark_tonic` (+2 DEF) | 30 |
+| Firebrew | Blood Thistle + Fire Opal | `firebrew` (+2 ATK) | 35 |
 
 ---
 
@@ -296,6 +307,14 @@ Recipes are discovered by picking up ingredients. Brewed at Sister Maren's Hut.
 | Hi-Potion | 20 | 30g | 3 |
 | Elixir | 30 | 50g | 4 |
 | Phoenix Down | 50 | 80g | 4 |
+
+### Buff Potions (Crafted)
+| Item | Effect |
+|:--|:--|
+| Experience Tonic | +25% XP on your next hunt / dungeon kill |
+| Hunter's Draught | Instantly refunds 1 daily hunt upon use |
+| Ironbark Tonic | Grants `Fortified` (+2 DEF for one entire combat encounter) |
+| Firebrew | Grants `Embered` (+2 ATK for one entire combat encounter) |
 
 ---
 
@@ -331,6 +350,9 @@ All temporary conditions are cleared on daily reset (midnight). Only `Blessed` a
 |:--|:--|:--|
 | Blessed | Shrine prayer | +2 to all rolls (consumed after 1 combat) |
 | Ale Warmth | Stone Hearth drink | +3 temp HP (cleared on rest or day reset) |
+| XP Boosted | Experience Tonic | +25% XP on the next combat kill |
+| Fortified | Ironbark Tonic | +2 DEF applied for one entire combat encounter |
+| Embered | Firebrew | +2 ATK applied for one entire combat encounter |
 | Sharp Mind | Old Man's Riddle | +2 to next INT check |
 | Battle Focus | Veiled Elder (Warrior) | +1 to STR checks |
 | Forest Sight | Veiled Elder (Ranger) | +1 to DEX checks |

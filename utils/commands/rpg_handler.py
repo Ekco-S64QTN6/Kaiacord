@@ -608,11 +608,15 @@ class RPGCombatView(discord.ui.View):
                     continue
                 hp_restore = item.get("hp_restore", 0)
                 on_use = item.get("on_use", "")
-                if hp_restore > 0 or on_use in ("cure_poison", "luck_roll_bonus"):
+                if hp_restore > 0 or on_use in ("cure_poison", "luck_roll_bonus", "atk_boost", "def_boost"):
                     if hp_restore > 0:
                         label = f"{item['name']} (+{hp_restore} HP)"
                     elif on_use == "cure_poison":
                         label = f"{item['name']} (cures poison)"
+                    elif on_use == "atk_boost":
+                        label = f"{item['name']} (+2 ATK)"
+                    elif on_use == "def_boost":
+                        label = f"{item['name']} (+2 DEF)"
                     else:
                         label = f"{item['name']} (+1 next hit)"
                     if count > 1:
@@ -806,7 +810,7 @@ async def _make_shop_view(ctx, msg, uid, uname, is_owner, items):
                 value=f"{i}|{entry.get('key', str(i))}",
                 description="Buyback at original sell price"
             )
-            for i, entry in enumerate(buyback_items[:5])
+            for i, entry in enumerate(buyback_items[:25])
         ]
         bb_sel = discord.ui.Select(
             placeholder="↩️ Buyback recently sold item...",
@@ -887,7 +891,7 @@ async def _make_shop_view(ctx, msg, uid, uname, is_owner, items):
     return view
 
 
-def _make_inventory_view(ctx, msg, uid, uname, is_owner, inventory):
+def _make_inventory_view(ctx, msg, uid, uname, is_owner, inventory, page_idx=0, total_pages=1, page_cb=None):
     """Return a View with Use and Equip select menus."""
     from utils.ttrpg.shop import find_item
     view = discord.ui.View(timeout=120)
@@ -949,7 +953,33 @@ def _make_inventory_view(ctx, msg, uid, uname, is_owner, inventory):
         sell_all_btn.callback = _sell_all_cb
         view.add_item(sell_all_btn)
 
-    view.add_item(_make_status_btn(ctx, uid, uname, is_owner, row=2))
+    if total_pages > 1 and page_cb:
+        prev_btn = discord.ui.Button(
+            label="◀ Prev Page", style=discord.ButtonStyle.secondary, row=4, disabled=(page_idx == 0)
+        )
+        async def _prev_cb(interaction: discord.Interaction):
+            if str(interaction.user.id) != uid:
+                return await interaction.response.send_message("not yours.", ephemeral=True)
+            await interaction.response.defer()
+            await page_cb(page_idx - 1, interaction)
+        prev_btn.callback = _prev_cb
+        view.add_item(prev_btn)
+        
+        next_btn = discord.ui.Button(
+            label="Next Page ▶", style=discord.ButtonStyle.secondary, row=4, disabled=(page_idx >= total_pages - 1)
+        )
+        async def _next_cb(interaction: discord.Interaction):
+            if str(interaction.user.id) != uid:
+                return await interaction.response.send_message("not yours.", ephemeral=True)
+            await interaction.response.defer()
+            await page_cb(page_idx + 1, interaction)
+        next_btn.callback = _next_cb
+        view.add_item(next_btn)
+        
+        view.add_item(_make_status_btn(ctx, uid, uname, is_owner, row=4))
+    else:
+        view.add_item(_make_status_btn(ctx, uid, uname, is_owner, row=2))
+
     return view
 
 
@@ -1447,6 +1477,11 @@ async def _dungeon_combat_round(ctx_obj, interaction, uid, uname, is_owner):
         state["rooms"][room_key]["cleared"] = True
         xp_gain = int(monster.get("xp", 25) * (2 if is_boss else 1))
         gil_gain = int(monster.get("gil", 5) * (2 if is_boss else 1))
+
+        # Experience Tonic bonus (+25% XP, consumed on use)
+        if "xp_boosted" in sheet.get("conditions", []):
+            xp_gain = int(xp_gain * 1.25)
+            sheet["conditions"].remove("xp_boosted")
         
         # Pet Gil Bonus (Oakhaven Cat)
         from utils.ttrpg.housing import load_housing
@@ -3414,7 +3449,7 @@ async def _handle_sell(ctx, msg, send, rest, uid, uname, is_owner):
         if item_snap:
             buyback = updated_sheet.setdefault("buyback", [])
             buyback.insert(0, {"key": item_key, "name": item_snap["name"], "repurchase_price": sell_price})
-            updated_sheet["buyback"] = buyback[:5]
+            updated_sheet["buyback"] = buyback[:25]
 
         await save(updated_sheet)
         from utils.ttrpg.shop import get_shop_inventory
@@ -3490,7 +3525,7 @@ async def _handle_sell_all_gear(ctx, msg, send, rest, uid, uname, is_owner):
     sheet["gil"] = sheet.get("gil", 0) + total_gil
 
     existing_bb = sheet.get("buyback", [])
-    sheet["buyback"] = (buyback_entries + existing_bb)[:5]
+    sheet["buyback"] = (buyback_entries + existing_bb)[:25]
 
     await save(sheet)
 
@@ -4164,6 +4199,14 @@ async def _handle_inventory(ctx, msg, send, rest, uid, uname, is_owner):
                         effect = "Cures blindness"
                     elif item.get("on_use") == "luck_roll_bonus":
                         effect = "Grants luck"
+                    elif item.get("on_use") == "xp_boost":
+                        effect = "+25% XP next hunt"
+                    elif item.get("on_use") == "hunt_bonus":
+                        effect = "+1 bonus hunt"
+                    elif item.get("on_use") == "atk_boost":
+                        effect = "+2 ATK (1 combat)"
+                    elif item.get("on_use") == "def_boost":
+                        effect = "+2 DEF (1 combat)"
                     elif "description" in item and hp == 0:
                         effect = item["description"]
                     else:
@@ -4171,7 +4214,11 @@ async def _handle_inventory(ctx, msg, send, rest, uid, uname, is_owner):
                         
                     lines.append(f"**{item['name']}**{count_str} — {effect} *(sell: {val // 2}g)*")
             elif category == "weapon":
-                lines.append(f"**{item['name']}**{count_str} — +{item['attack_bonus']} ATK, d{item['damage_die']}  *(sell: {item['value'] // 2}g)*")
+                proc_str = ""
+                proc_data = item.get("proc")
+                if proc_data:
+                    proc_str = f"  |  Effect: {proc_data.get('emoji', '⚡')}{proc_data['name']}"
+                lines.append(f"**{item['name']}**{count_str} — +{item['attack_bonus']} ATK, d{item['damage_die']}{proc_str}  *(sell: {item['value'] // 2}g)*")
             elif category in ("armor", "head", "boots"):
                 lines.append(f"**{item['name']}**{count_str} — +{item['defense_bonus']} DEF  *(sell: {item['value'] // 2}g)*")
             elif category == "accessory":
@@ -4189,13 +4236,54 @@ async def _handle_inventory(ctx, msg, send, rest, uid, uname, is_owner):
             display = key.replace("_", " ").title()
             lines.append(f"**{display}**{count_str} — *sell to Hemlock to find out*")
 
-    embed = discord.Embed(
-        title="🎒 Inventory",
-        description=f"**Equipped:**\n{equipped_lines}\n\n**Backpack:**\n" + "\n".join(lines),
-        color=0x8b7355
-    )
-    view = _make_inventory_view(ctx, msg, uid, uname, is_owner, inventory)
-    await msg.channel.send(embed=embed, view=view)
+    # ── Character-budget pagination ──────────────────────────────────────────
+    header = f"**Equipped:**\n{equipped_lines}\n\n"
+    # Reserve room for header + page indicator + safety margin
+    MAX_DESC = 4096
+    HEADER_BUDGET = len(header) + 60          # 60 chars for "**Backpack (Page X/Y):**\n"
+    BODY_BUDGET   = MAX_DESC - HEADER_BUDGET  # chars available for item lines
+
+    pages: list[list[str]] = []
+    current_page: list[str] = []
+    current_len = 0
+    for line in lines:
+        # +1 for the "\n" joining character
+        line_cost = len(line) + 1
+        if current_page and current_len + line_cost > BODY_BUDGET:
+            pages.append(current_page)
+            current_page = []
+            current_len = 0
+        current_page.append(line)
+        current_len += line_cost
+    if current_page:
+        pages.append(current_page)
+    if not pages:
+        pages = [[]]
+
+    async def _send_page(page_idx, interaction=None):
+        desc = header + "**Backpack**"
+        if len(pages) > 1:
+            desc += f" (Page {page_idx+1}/{len(pages)})"
+        desc += ":\n"
+
+        if pages[page_idx]:
+            desc += "\n".join(pages[page_idx])
+        else:
+            desc += "*Backpack is empty.*"
+
+        embed = discord.Embed(
+            title="🎒 Inventory",
+            description=desc,
+            color=0x8b7355
+        )
+        view = _make_inventory_view(ctx, msg, uid, uname, is_owner, inventory, page_idx, len(pages), _send_page)
+
+        if interaction:
+            await interaction.message.edit(embed=embed, view=view)
+        else:
+            await msg.channel.send(embed=embed, view=view)
+
+    await _send_page(0)
 
 async def _handle_equip(ctx, msg, send, rest, uid, uname, is_owner):
     from utils.ttrpg.shop import find_item
@@ -4413,6 +4501,48 @@ async def _handle_use(ctx, msg, send, rest, uid, uname, is_owner):
             await msg.channel.send(embed=discord.Embed(description=f"Used **{item['name']}**. You feel a sudden surge of confidence. (+1 to next hit roll)", color=0x44aa44), view=view)
         else:
             await msg.channel.send(embed=discord.Embed(description=f"You are already feeling pretty lucky.", color=0xcc4444))
+    elif item.get("on_use") == "xp_boost":
+        if "xp_boosted" not in sheet.get("conditions", []):
+            if "conditions" not in sheet: sheet["conditions"] = []
+            sheet["conditions"].append("xp_boosted")
+            sheet["inventory"].remove(item_key)
+            await save(sheet)
+            combat_view = await _get_combat_view_if_active(ctx, msg, uid, uname, is_owner)
+            view = combat_view if combat_view else _make_status_view(ctx, msg, uid, uname, is_owner)
+            await msg.channel.send(embed=discord.Embed(description=f"Used **{item['name']}**. 🧪 Your mind sharpens. (+25% XP on next hunt)", color=0x44aa44), view=view)
+        else:
+            await msg.channel.send(embed=discord.Embed(description=f"You're already buzzing with experience tonic.", color=0xcc4444))
+    elif item.get("on_use") == "hunt_bonus":
+        sheet["inventory"].remove(item_key)
+        # Reduce hunts_today by 1 (effectively granting a bonus hunt)
+        sheet["hunts_today"] = max(0, sheet.get("hunts_today", 0) - 1)
+        await save(sheet)
+        from utils.ttrpg.progression import hunts_remaining as _hr, get_max_hunts as _gmh
+        combat_view = await _get_combat_view_if_active(ctx, msg, uid, uname, is_owner)
+        view = combat_view if combat_view else _make_status_view(ctx, msg, uid, uname, is_owner)
+        await msg.channel.send(embed=discord.Embed(description=f"Used **{item['name']}**. 🏹 Your senses sharpen. (+1 bonus hunt today — {_hr(sheet)}/{_gmh(sheet)} remaining)", color=0x44aa44), view=view)
+    elif item.get("on_use") == "atk_boost":
+        if "embered" not in sheet.get("conditions", []):
+            if "conditions" not in sheet: sheet["conditions"] = []
+            sheet["conditions"].append("embered")
+            sheet["inventory"].remove(item_key)
+            await save(sheet)
+            combat_view = await _get_combat_view_if_active(ctx, msg, uid, uname, is_owner)
+            view = combat_view if combat_view else _make_status_view(ctx, msg, uid, uname, is_owner)
+            await msg.channel.send(embed=discord.Embed(description=f"Used **{item['name']}**. 🔥 Fire courses through your arms. (+2 ATK until next combat)", color=0x44aa44), view=view)
+        else:
+            await msg.channel.send(embed=discord.Embed(description=f"You're already burning with firebrew.", color=0xcc4444))
+    elif item.get("on_use") == "def_boost":
+        if "fortified" not in sheet.get("conditions", []):
+            if "conditions" not in sheet: sheet["conditions"] = []
+            sheet["conditions"].append("fortified")
+            sheet["inventory"].remove(item_key)
+            await save(sheet)
+            combat_view = await _get_combat_view_if_active(ctx, msg, uid, uname, is_owner)
+            view = combat_view if combat_view else _make_status_view(ctx, msg, uid, uname, is_owner)
+            await msg.channel.send(embed=discord.Embed(description=f"Used **{item['name']}**. 🛡️ Your skin hardens like bark. (+2 DEF until next combat)", color=0x44aa44), view=view)
+        else:
+            await msg.channel.send(embed=discord.Embed(description=f"You're already toughened by ironbark.", color=0xcc4444))
     else:
         await msg.channel.send(embed=discord.Embed(description=f"**{item['name']}** can't be used. Try selling it: `!rpg sell {item_key}`", color=0xcc4444))
 
@@ -4797,6 +4927,11 @@ async def _handle_attack(ctx, msg, send, rest, uid, uname, is_owner):
             xp_gain += weather_effect.get("value", 0)
         if weather_effect.get("type") == "gil_bonus":
             gil_gain += weather_effect.get("value", 0)
+
+        # Experience Tonic bonus (+25% XP, consumed on use)
+        if "xp_boosted" in sheet.get("conditions", []):
+            xp_gain = int(xp_gain * 1.25)
+            sheet["conditions"].remove("xp_boosted")
         
         # Pet Gil Bonus (Oakhaven Cat)
         from utils.ttrpg.housing import load_housing
