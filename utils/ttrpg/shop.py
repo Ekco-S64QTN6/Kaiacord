@@ -194,10 +194,10 @@ def process_sell(sheet: dict, item_key: str, reputation: int = 0, cha_mod: int =
         return False, f"You don't have `{item_key}` in your inventory.", sheet
         
     # Reputation modifier
-    sell_mult = 0.5
-    if reputation >= 100: sell_mult = 0.7  # 50% base + 20% bonus
-    elif reputation >= 50:  sell_mult = 0.6  # 50% base + 10% bonus
-    elif reputation < -20:  sell_mult = 0.4  # 10% penalty
+    sell_mult = 0.25 # BASE NERF
+    if reputation >= 100: sell_mult = 0.45  # 25% base + 20% bonus
+    elif reputation >= 50:  sell_mult = 0.35  # 25% base + 10% bonus
+    elif reputation < -20:  sell_mult = 0.15  # 10% penalty
     # CHA sell bonus: each +1 CHA mod = 2% better sell price (max 10%)
     cha_bonus = min(0.10, max(0.0, cha_mod * 0.02))
     sell_mult += cha_bonus

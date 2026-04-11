@@ -159,7 +159,7 @@ def get_gear_loot(tier: str) -> Optional[str]:
             ("warlords_gauntlets", 3), ("forest_ring", 3), ("void_focus", 3),
             ("void_ring", 3), ("saints_medallion", 3),
             # Tier 5 generics
-            ("holy_avenger", 2), ("vorpal_sword", 2), ("staff_magi", 2),
+            ("holy_avenger", 3), ("vorpal_sword", 3), ("staff_magi", 3), ("stardust_rod", 3),
             ("dragon_scale", 3), ("ethereal_plate", 3), ("genji_armor", 3),
             ("hermes_boots", 2), ("genji_boots", 2), ("genji_helm", 2),
             ("ogre_gauntlets", 2), ("giant_belt", 2), ("mox_pearl", 1),
@@ -190,7 +190,7 @@ def get_gear_loot(tier: str) -> Optional[str]:
             ("void_band", 6), ("dragon_scale", 5), ("ethereal_plate", 5),
             ("genji_armor", 5), ("genji_boots", 4), ("genji_helm", 4),
             ("hermes_boots", 4), ("mox_pearl", 3),
-            ("holy_avenger", 4), ("vorpal_sword", 4), ("staff_magi", 4),
+            ("holy_avenger", 5), ("vorpal_sword", 5), ("staff_magi", 5), ("stardust_rod", 5),
             ("mjolnir", 4), ("soulfire", 4),
             # Tier 5 class-specific
             ("spine_cleaver", 4), ("champions_legacy", 4),

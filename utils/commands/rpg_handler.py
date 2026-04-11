@@ -989,14 +989,23 @@ def _make_status_view(ctx, msg, uid, uname, is_owner):
     view.add_item(_make_status_btn(ctx, uid, uname, is_owner))
     return view
 
-async def _get_combat_view_if_active(ctx, msg, uid, uname, is_owner):
-    """Returns a RPGCombatView if the player is in active combat, else None."""
+async def _get_active_view(ctx, msg, uid, uname, is_owner):
+    """Returns the correct view context: overworld combat, dungeon combat, dungeon map, or None."""
     s = await load_session(str(msg.channel.id))
-    if not s or not s.get("combat_active"):
-        return None
-    for m in s.get("monsters", []):
-        if m.get("aggro_uid") == uid:
-            return RPGCombatView(ctx, msg, uid, uname, is_owner, m.get("key", "monster"))
+    if s and s.get("combat_active"):
+        for m in s.get("monsters", []):
+            if m.get("aggro_uid") == uid:
+                return RPGCombatView(ctx, msg, uid, uname, is_owner, m.get("key", "monster"))
+
+    from utils.ttrpg.dungeon import load_dungeon
+    d_state = load_dungeon(uid)
+    if d_state and d_state.get("active"):
+        if d_state.get("in_combat"):
+            m_name = d_state.get("monster", {}).get("name", "monster")
+            return DungeonCombatView(ctx, uid, uname, is_owner, m_name)
+        else:
+            return DungeonView(ctx, uid, uname, is_owner, d_state)
+
     return None
 
 
@@ -1005,94 +1014,6 @@ def _make_map_view(ctx, msg, uid, uname, is_owner, loc):
     return RPGFullLocationView(ctx, msg, uid, uname, is_owner, loc)
 
 
-LOCATION_ACTIONS = {
-    "housing_district": [
-        "🏡 My Home — view your plot and manage it",
-        "🪑 Barnaby's — browse furniture",
-        "🐾 Pip's Pets — adopt a companion",
-        "🏘️ Neighbour Plots — visit other players' homes",
-        "🎣 Tricklebrook Pond — fish the deep waters",
-    ],
-    "tricklebrook_pond": [
-        "🎣 Fish — cast a line into the dark water",
-        "👁️ Look — observe the reflections on the pond",
-    ],
-    "oakhaven": [
-        "👁️ Look — observe the square",
-        "📜 Notice Board — read community news",
-        "📦 Deliver — turn in a mognet letter",
-        "💬 Talk to Elder Elara",
-        "📋 Quests — view available quests",
-        "🗺️ Map — view the world map",
-        "📅 Calendar — current season & events",
-        "🌤️ Weather — today's conditions",
-    ],
-    "stone_hearth": [
-        "🛏️ Rest — full heal (5 gil)",
-        "🍺 Drink — buy an ale, +3 temp HP (2 gil)",
-        "🎲 Gamble — dice game, 10 gil buy-in",
-        "💬 Rumor — hear gossip from the bar",
-        "💬 Talk to Mira the barkeep",
-        "💬 Talk to the hooded figure",
-        "👁️ Look — observe the room",
-    ],
-    "hemlocks_store": [
-        "🛒 Shop — browse Hemlock's inventory",
-        "💰 Buy — purchase an item",
-        "💸 Sell — sell something",
-        "🎒 Inventory — check your gear",
-        "💬 Talk to Hemlock",
-        "👁️ Look — observe the shop",
-    ],
-    "caravan": [
-        "🐪 Shop — browse the merchant's tier III wares",
-        "💬 Talk — hear stories from the Trade Road",
-        "🎒 Inventory — check your gear",
-        "👁️ Look — observe the colorful wagon",
-    ],
-    "shrine": [
-        "🙏 Pray — receive a daily blessing (free)",
-        "🪙 Offer — donate gil for XP",
-        "⛲ Fountain — sacred spring (full heal, once per day)",
-        "👁️ Look — observe the ancient carvings",
-    ],
-    "watchtower": [
-        "🔭 Scout — preview monster activity (once/day)",
-        "💬 Talk to the guards",
-        "👁️ Look — observe the canopy from above",
-    ],
-    "whisperwood_edge": [
-        "⚔️ Hunt — fight a random monster (costs 1 hunt)",
-        "👁️ Look — observe the treeline",
-    ],
-    "whisperwood_deep": [
-        "⚔️ Hunt — fight a monster (lvl 4+ recommended)",
-        "👁️ Look — observe the deep forest",
-    ],
-    "aeridor_ruins": [
-        "⚔️ Hunt — fight a monster (lvl 7+ recommended)",
-        "👁️ Look — observe the ruins",
-    ],
-    "trade_road": [
-        "🐪 Caravan — visit the traveling merchant",
-        "⚔️ Hunt — encounter a road threat (costs 1 hunt)",
-        "👁️ Look — observe the road",
-    ],
-    "notice_board": [
-        "📜 Notices — read the latest parchment and news",
-        "📋 Quests — view available quests",
-        "👁️ Look — observe the crowd at the square",
-    ],
-    "herbalists_hut": [
-        "🧪 Brew — list recipes / brew a potion",
-        "💬 Talk to Sister Maren",
-        "👁️ Look — observe the herbs and vials",
-    ],
-    "oakhaven_bank": [
-        "🏦 Bank — check balance, deposit, or withdraw gil",
-        "👁️ Look — observe the coin-counting and ledger",
-    ],
-}
 
 LOCATION_COLORS = {
     "housing_district":  0x8b7355,   # warm earthy brown — home soil
@@ -1437,9 +1358,13 @@ async def _dungeon_combat_round(ctx_obj, interaction, uid, uname, is_owner):
     _housing = load_housing(str(sheet.get("user_id", "")))
     _pet_bonuses = get_pet_passive(_housing) if _housing else {}
 
+    from utils.ttrpg.furniture import get_home_bonuses
+    _home_bonuses = get_home_bonuses(_housing) if _housing else {}
+    _furniture_atk = _home_bonuses.get("home_atk", 0)  # local_atk only applies at home location
+
     world_state = get_current_state()
     res = _resolve_combat(sheet, monster,
-                          atk_mod_global=world_state.get("atk_mod", 0),
+                          atk_mod_global=world_state.get("atk_mod", 0) + _furniture_atk,
                           def_mod_global=world_state.get("def_mod", 0),
                           pet_bonuses=_pet_bonuses)
 
@@ -4487,7 +4412,7 @@ async def _handle_use(ctx, msg, send, rest, uid, uname, is_owner):
         healed = sheet["hp"]["current"] - before
         sheet["inventory"].remove(item_key)
         await save(sheet)
-        combat_view = await _get_combat_view_if_active(ctx, msg, uid, uname, is_owner)
+        combat_view = await _get_active_view(ctx, msg, uid, uname, is_owner)
         view = combat_view if combat_view else _make_status_view(ctx, msg, uid, uname, is_owner)
         await msg.channel.send(embed=discord.Embed(description=f"Used **{item['name']}**. Restored {healed} HP ({before} → {sheet['hp']['current']})", color=0x44aa44), view=view)
     elif item.get("on_use") == "starter_kit":
@@ -4500,7 +4425,7 @@ async def _handle_use(ctx, msg, send, rest, uid, uname, is_owner):
             sheet["conditions"].remove("poisoned")
             sheet["inventory"].remove(item_key)
             await save(sheet)
-            combat_view = await _get_combat_view_if_active(ctx, msg, uid, uname, is_owner)
+            combat_view = await _get_active_view(ctx, msg, uid, uname, is_owner)
             view = combat_view if combat_view else _make_status_view(ctx, msg, uid, uname, is_owner)
             await msg.channel.send(embed=discord.Embed(description=f"Used **{item['name']}**. The venom fades from your veins.", color=0x44aa44), view=view)
         else:
@@ -4511,7 +4436,7 @@ async def _handle_use(ctx, msg, send, rest, uid, uname, is_owner):
             sheet["conditions"].append("lucky")
             sheet["inventory"].remove(item_key)
             await save(sheet)
-            combat_view = await _get_combat_view_if_active(ctx, msg, uid, uname, is_owner)
+            combat_view = await _get_active_view(ctx, msg, uid, uname, is_owner)
             view = combat_view if combat_view else _make_status_view(ctx, msg, uid, uname, is_owner)
             await msg.channel.send(embed=discord.Embed(description=f"Used **{item['name']}**. You feel a sudden surge of confidence. (+1 to next hit roll)", color=0x44aa44), view=view)
         else:
@@ -4522,7 +4447,7 @@ async def _handle_use(ctx, msg, send, rest, uid, uname, is_owner):
             sheet["conditions"].append("xp_boosted")
             sheet["inventory"].remove(item_key)
             await save(sheet)
-            combat_view = await _get_combat_view_if_active(ctx, msg, uid, uname, is_owner)
+            combat_view = await _get_active_view(ctx, msg, uid, uname, is_owner)
             view = combat_view if combat_view else _make_status_view(ctx, msg, uid, uname, is_owner)
             await msg.channel.send(embed=discord.Embed(description=f"Used **{item['name']}**. 🧪 Your mind sharpens. (+25% XP on next hunt)", color=0x44aa44), view=view)
         else:
@@ -4533,7 +4458,7 @@ async def _handle_use(ctx, msg, send, rest, uid, uname, is_owner):
         sheet["hunts_today"] = max(0, sheet.get("hunts_today", 0) - 1)
         await save(sheet)
         from utils.ttrpg.progression import hunts_remaining as _hr, get_max_hunts as _gmh
-        combat_view = await _get_combat_view_if_active(ctx, msg, uid, uname, is_owner)
+        combat_view = await _get_active_view(ctx, msg, uid, uname, is_owner)
         view = combat_view if combat_view else _make_status_view(ctx, msg, uid, uname, is_owner)
         await msg.channel.send(embed=discord.Embed(description=f"Used **{item['name']}**. 🏹 Your senses sharpen. (+1 bonus hunt today — {_hr(sheet)}/{_gmh(sheet)} remaining)", color=0x44aa44), view=view)
     elif item.get("on_use") == "atk_boost":
@@ -4542,7 +4467,7 @@ async def _handle_use(ctx, msg, send, rest, uid, uname, is_owner):
             sheet["conditions"].append("embered")
             sheet["inventory"].remove(item_key)
             await save(sheet)
-            combat_view = await _get_combat_view_if_active(ctx, msg, uid, uname, is_owner)
+            combat_view = await _get_active_view(ctx, msg, uid, uname, is_owner)
             view = combat_view if combat_view else _make_status_view(ctx, msg, uid, uname, is_owner)
             await msg.channel.send(embed=discord.Embed(description=f"Used **{item['name']}**. 🔥 Fire courses through your arms. (+2 ATK until next combat)", color=0x44aa44), view=view)
         else:
@@ -4553,7 +4478,7 @@ async def _handle_use(ctx, msg, send, rest, uid, uname, is_owner):
             sheet["conditions"].append("fortified")
             sheet["inventory"].remove(item_key)
             await save(sheet)
-            combat_view = await _get_combat_view_if_active(ctx, msg, uid, uname, is_owner)
+            combat_view = await _get_active_view(ctx, msg, uid, uname, is_owner)
             view = combat_view if combat_view else _make_status_view(ctx, msg, uid, uname, is_owner)
             await msg.channel.send(embed=discord.Embed(description=f"Used **{item['name']}**. 🛡️ Your skin hardens like bark. (+2 DEF until next combat)", color=0x44aa44), view=view)
         else:
@@ -4983,18 +4908,6 @@ async def _handle_attack(ctx, msg, send, rest, uid, uname, is_owner):
             gear_info = _find_loot(gear_drop)
             gear_display = gear_info["name"] if gear_info else gear_drop
             loot_lines.append(f"⚔️ {gear_display}")
-            # Log rare drop if it's high tier
-            tier = monster.get("tier", "medium")
-            if tier in ["hard", "deadly", "boss"]:
-                loc_name = LOCATION_DATA.get(loc, {}).get('name', loc)
-                await _log_world_event(f"A **{gear_display}** was recovered from the {loc_name}. Oakhaven listens carefully.")
-                loot_embed = discord.Embed(
-                    title=f"🎁 Rare drop — {gear_display}",
-                    description=_rare_loot_flavor(monster.get('name', 'something'), gear_display, loc),
-                    color=0xd4a843
-                )
-                loot_embed.set_footer(text=f"{sheet['character_name']} · {loc_name}")
-                await _broadcast_world_event(ctx, loot_embed)
 
         # Consumable roll
         consumable_drop = get_consumable_loot(monster.get("tier", "medium"))
@@ -5645,7 +5558,8 @@ async def _handle_offer(ctx, msg, send, rest, uid, uname, is_owner):
                 return
 
             s["gil"] -= eligible
-            s["xp"] += eligible
+            xp_earned = eligible * XP_MULT
+            s["xp"] += xp_earned
             s["offered_today"] = {t: already + eligible}
 
             leveled_up, new_level = check_level_up(s)
@@ -5654,7 +5568,7 @@ async def _handle_offer(ctx, msg, send, rest, uid, uname, is_owner):
             xp_next = xp_to_next_level(s["level"])
             lines = [
                 f"🕯️ **{eligible}g** offered. The air shifts.",
-                f"+{eligible} XP ({s['xp']}/{xp_next})",
+                f"+{xp_earned} XP ({s['xp']}/{xp_next})",
                 f"On Hand: {s['gil']}g"
             ]
             if already + eligible >= DAILY_CAP:
@@ -5831,18 +5745,6 @@ async def _handle_bank_deposit(ctx, msg, send, rest, uid, uname, is_owner):
                     ephemeral=True
                 )
                 return
-            housing = load_housing(uid)
-            from utils.ttrpg.furniture import get_home_bonuses
-            home_bonuses = get_home_bonuses(housing) if housing else {}
-            bank_cap = 500 + home_bonuses.get("bank_cap", 0)
-            
-            if s.get("bank_balance", 0) + amount > bank_cap:
-                amount = bank_cap - s.get("bank_balance", 0)
-                if amount <= 0:
-                    return await interaction.response.send_message(
-                        embed=discord.Embed(description=f"Your bank is full (Cap: {bank_cap}g).", color=0xcc4444),
-                        ephemeral=True
-                    )    
             s["gil"] -= amount
             s["bank_balance"] = s.get("bank_balance", 0) + amount
             await save(s)
@@ -7019,13 +6921,14 @@ async def _handle_water_crops(ctx, msg, send, rest, uid, uname, is_owner):
             p["watered_today"] = True
             p["watered_count"] = p.get("watered_count", 0) + 1
             watered_count += 1
-    
+
     if watered_count == 0:
         return await send(msg.channel, embed=discord.Embed(description="All crops are already watered today.", color=0x888888))
-        
+    
     save_housing(housing)
+    
     embed = discord.Embed(
-        description=f"💧 You watered **{watered_count}** plot(s). Come back tomorrow to water again.",
+        description=f"💧 You watered **{watered_count}** plot(s).",
         color=0x44aa44
     )
     await msg.channel.send(embed=embed)
@@ -7373,12 +7276,11 @@ async def _handle_home_training(ctx, msg, send, rest, uid, uname, is_owner):
 
     housing["last_training"] = today
     save_housing(housing)
-    
-    # We should really add 1 to a daily pool, but progression.py uses date checks.
-    # For now, let's just restore 1 hunt if they've used any.
-    if sheet.get("hunts_today", 0) > 0:
-        sheet["hunts_today"] -= 1
-        await save(sheet)
-        await send(msg.channel, "🪆 You beat the dummy for an hour. You feel ready for one more hunt.")
-    else:
-        await send(msg.channel, "🪆 You train hard, but your hunt pool is already full.")
+
+    # Grant 1 bonus hunt by decrementing hunts_today (floor at 0)
+    sheet["hunts_today"] = max(0, sheet.get("hunts_today", 0) - 1)
+    await save(sheet)
+
+    from utils.ttrpg.progression import hunts_remaining
+    remaining = hunts_remaining(sheet)
+    await send(msg.channel, f"🪆 You beat the dummy for an hour. You feel ready for one more hunt. ({remaining} hunts remaining)")

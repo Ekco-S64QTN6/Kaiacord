@@ -188,6 +188,7 @@ ADVANCED_CLASSES = {
             "bonuses": {
                 "def_bonus": 3,
                 "hp_bonus": 10,
+                "forest_def_bonus": 2,
             },
             "flavor": "Thornax approves. The Whisperwood breathes with you.",
         },
@@ -309,11 +310,41 @@ TITLES = {
 SPECIAL_TITLES = [
     (lambda s: s.get("deaths", 0) >= 10, "the Unkillable"),
     (lambda s: s.get("deaths", 0) == 0 and s.get("level", 1) >= 5, "the Unmarked"),
-    (lambda s: s.get("gil", 0) >= 1000, "the Wealthy"),
     (lambda s: len(s.get("completed_quests", [])) >= 3, "the Proven"),
     (lambda s: s.get("reputation", 0) >= 100, "Hero of Oakhaven"),
     (lambda s: s.get("reputation", 0) < -50, "the Unwelcome"),
 ]
+
+
+def _total_gil(sheet: dict) -> int:
+    """Return combined on-hand + bank gil for a character sheet."""
+    return sheet.get("gil", 0) + sheet.get("bank_balance", 0)
+
+
+def _is_wealthiest(sheet: dict) -> bool:
+    """Check if this sheet's owner has the most total gil across all players."""
+    import os, json
+    char_dir = os.path.join("memory", "ttrpg", "characters")
+    if not os.path.isdir(char_dir):
+        return False
+    my_total = _total_gil(sheet)
+    if my_total < 1000:          # minimum threshold to earn title
+        return False
+    my_uid = str(sheet.get("user_id", ""))
+    for fname in os.listdir(char_dir):
+        if not fname.endswith(".json"):
+            continue
+        uid = fname[:-5]
+        if uid == my_uid:
+            continue
+        try:
+            with open(os.path.join(char_dir, fname), "r") as f:
+                other = json.load(f)
+            if _total_gil(other) > my_total:
+                return False     # someone else is richer
+        except Exception:
+            continue
+    return True
 
 
 def get_title(sheet: dict) -> str:
@@ -325,6 +356,10 @@ def get_title(sheet: dict) -> str:
                 return title
         except Exception:
             pass
+
+    # "the Wealthy" — awarded to the single richest player (on-hand + bank)
+    if _is_wealthiest(sheet):
+        return "the Wealthy"
 
     level = sheet.get("level", 1)
     advanced = sheet.get("advanced_class", "")
@@ -416,11 +451,9 @@ def apply_advanced_class_to_combat(sheet: dict, player_damage: int,
             if monster_damage > 0:
                 result["extra_log"].append(f"🌲 *Warden's bark: -{bonuses['forest_def_bonus']} damage taken.*")
 
-    # Cleric (stay) — permanent undead bane
+    # Cleric (stay) — enhanced healing (handled via heal_mult in combat_engine)
     elif advanced == "Cleric":
-        if player_hit and is_undead and bonuses.get("atk_vs_undead"):
-            result["player_damage_bonus"] += bonuses["atk_vs_undead"]
-            result["extra_log"].append(f"✝️ *Undead bane: +{bonuses['atk_vs_undead']} vs undead.*")
+        pass  # heal_mult applied separately in combat_engine.py
 
     # Shaman — nature heal on event
     elif advanced == "Shaman":

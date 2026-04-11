@@ -248,13 +248,13 @@ class CoreTaskManager:
                             modified = True
 
                         # Clear temporary conditions at dawn
-                        DAWN_PERMANENT = {"blessed", "mognet_pending"}
+                        from utils.ttrpg.progression import PERMANENT_CONDITIONS
                         old_conds = sheet.get("conditions", [])
                         # Ale warmth carries a +3 max HP — strip it before clearing
                         if "ale_warmth" in old_conds:
                             sheet["hp"]["max"] = max(1, sheet["hp"]["max"] - 3)
                             sheet["hp"]["current"] = min(sheet["hp"]["current"], sheet["hp"]["max"])
-                        new_conds = [c for c in old_conds if c in DAWN_PERMANENT]
+                        new_conds = [c for c in old_conds if c in PERMANENT_CONDITIONS]
                         if old_conds != new_conds:
                             sheet["conditions"] = new_conds
                             modified = True

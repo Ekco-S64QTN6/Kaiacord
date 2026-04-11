@@ -1734,13 +1734,3 @@ def format_bestiary() -> str:
                 f"XP:{m['xp']:>5}  Gil:{m['gil']:>4}"
             )
     return "\n".join(lines)
-
-
-TIER_COUNTS = {
-    "trivial": len(list_by_tier("trivial")),
-    "easy":    len(list_by_tier("easy")),
-    "medium":  len(list_by_tier("medium")),
-    "hard":    len(list_by_tier("hard")),
-    "deadly":  len(list_by_tier("deadly")),
-    "boss":    len(list_by_tier("boss")),
-}

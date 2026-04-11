@@ -33,6 +33,10 @@ HP_PER_LEVEL = {
 }
 
 MAX_HUNTS_PER_DAY = 5
+MAX_HUNTS_CEILING = 8  # Hard cap regardless of stacking (ale + inn + pet + class)
+
+# Conditions preserved across daily resets (all others are cleared at dawn)
+PERMANENT_CONDITIONS = {"blessed", "mognet_pending"}
 
 
 def xp_to_next_level(current_level: int) -> int:
@@ -103,7 +107,6 @@ def check_and_reset_hunts(sheet: dict) -> dict:
 
         # Clear ALL temporary event conditions on day reset
         # Only preserve permanent/quest-flag conditions
-        PERMANENT_CONDITIONS = {"blessed", "mognet_pending"}
         conditions = sheet.get("conditions", [])
         sheet["conditions"] = [c for c in conditions if c in PERMANENT_CONDITIONS]
 
@@ -143,7 +146,7 @@ def get_max_hunts(sheet: dict) -> int:
     housing = load_housing(str(sheet.get("user_id", "")))
     pet_bonus = get_pet_passive(housing).get("extra_hunt", 0) if housing else 0
 
-    return MAX_HUNTS_PER_DAY + ale_bonus + rest_bonus + pet_bonus + class_hunt_bonus
+    return min(MAX_HUNTS_CEILING, MAX_HUNTS_PER_DAY + ale_bonus + rest_bonus + pet_bonus + class_hunt_bonus)
 
 
 def hunts_remaining(sheet: dict) -> int:

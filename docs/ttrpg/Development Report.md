@@ -134,9 +134,9 @@ While recent overhauls solved the critical and highest priority bugs, the follow
 - **Weapon & Accessory Caps**: T5 items (specifically `Ultima Weapon` and `Black Lotus`) exceed the TTRPG mathematical budget guidelines by approximately 60%.
 
 ### Priority: Code Maintenance and Extensibility 🔵
-- **`balance_model.py`:** The independent modeling script has fallen completely out of sync with actual combat equations and should be purged or entirely refactored.
-- **Registry Structure:** Current structures place deep reliance on 8-space dictionary identions. A move toward a flat JSON-schema with dedicated python loaders would prevent future data corruption limits.
-- **Furniture Buffs:** The `home_pray` button operates successfully but `home_scout`, etc. still need to be explicitly interfaced.
-- **Moogle Tracking:** Mognet Delivery logic currently only operates as stub hooks.
+- **`balance_model.py`:** ~~Deleted~~ — was completely stale and has been removed.
+- **Registry Structure:** Current structures place deep reliance on 8-space dictionary indentions. A move toward a flat JSON-schema with dedicated Python loaders would prevent future data corruption limits.
+- **Furniture Buffs:** All 9 furniture bonuses are now fully wired and operational (as of April 2026).
+- **Moogle Tracking:** Mognet Delivery now uses timestamp-based tracking (`last_moogle_delivery`) and is operational.
 
-*(Note: Data audits and code assessments remain current as of Phase 41 Architectural Remediation).*
+*(Note: See `CLAUDE_REPORT.md` for the most current system status and bug inventory.)*
