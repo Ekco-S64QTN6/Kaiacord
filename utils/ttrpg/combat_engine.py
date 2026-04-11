@@ -1,5 +1,9 @@
 import secrets
 
+from utils.ttrpg.equipment_registry import WEAPONS, ARMOR as ARMOR_DATA, HEADGEAR, BOOTS, ACCESSORIES
+from utils.ttrpg.class_advancement import ADVANCED_CLASSES, apply_advanced_class_to_combat, resolve_class_proc
+from utils.ttrpg.calendar import get_weather
+from utils.ttrpg.rpg_ui import colored_bar
 def _resolve_combat(sheet: dict, monster: dict, atk_mod_global: int = 0, def_mod_global: int = 0, is_duel: bool = False, pet_bonuses: dict = None) -> dict:
     """
     Resolve one round of combat between a player and a monster (or another player).
@@ -26,8 +30,6 @@ def _resolve_combat(sheet: dict, monster: dict, atk_mod_global: int = 0, def_mod
 
     dex_val = sheet.get("stats", {}).get("dex", 10)
     dex_mod = (dex_val - 10) // 2
-
-    from utils.ttrpg.equipment_registry import WEAPONS, ARMOR as ARMOR_DATA, HEADGEAR, BOOTS, ACCESSORIES
 
     def _eq_key(val):
         """Extract the item key whether the slot stores a string or a dict."""
@@ -70,7 +72,6 @@ def _resolve_combat(sheet: dict, monster: dict, atk_mod_global: int = 0, def_mod
     adv_flat_def = 0
     adv_class = sheet.get("advanced_class", "")
     if adv_class:
-        from utils.ttrpg.class_advancement import ADVANCED_CLASSES
         for base_opts in ADVANCED_CLASSES.values():
             if adv_class in base_opts:
                 b = base_opts[adv_class].get("bonuses", {})
@@ -153,7 +154,6 @@ def _resolve_combat(sheet: dict, monster: dict, atk_mod_global: int = 0, def_mod
         if class_name == "Rogue": crit_threshold = 19
         adv = sheet.get("advanced_class", "")
         if adv:
-            from utils.ttrpg.class_advancement import ADVANCED_CLASSES
             for base_opts in ADVANCED_CLASSES.values():
                 if adv in base_opts:
                     stored = base_opts[adv].get("bonuses", {}).get("crit_threshold")
@@ -184,7 +184,6 @@ def _resolve_combat(sheet: dict, monster: dict, atk_mod_global: int = 0, def_mod
                     player_damage = max(0, monster["hp"]["current"] - 1)
                     status_logs.append(f"⚔️ **{sheet['character_name']}** pulls back their strike, dealing non-lethal damage.")
                     
-            from utils.ttrpg.class_advancement import apply_advanced_class_to_combat, resolve_class_proc
             adv_mods = apply_advanced_class_to_combat(
                 sheet, player_damage, True, player_crit, 0, monster, False
             )
@@ -276,8 +275,11 @@ def _resolve_combat(sheet: dict, monster: dict, atk_mod_global: int = 0, def_mod
         global_def_cap = int(player_level * 1.5) + 12
 
         # Assemble total, then clamp
-        raw_total_def = 10 + dex_mod + effective_gear_def + adv_flat_def + def_mod_global + pet_def_bonus
 
+        weather = get_weather()
+        weather_def_mod = weather.get("effect", {}).get("value", 0) if weather and weather.get("effect", {}).get("type") == "armor_penalty" else 0
+        raw_total_def = 10 + dex_mod + effective_gear_def + adv_flat_def + def_mod_global + pet_def_bonus + weather_def_mod
+        
         # Potion buff: Ironbark Tonic (+2 DEF until next combat)
         fortified_bonus = 2 if "fortified" in conditions else 0
         if fortified_bonus:
@@ -320,7 +322,7 @@ def _resolve_combat(sheet: dict, monster: dict, atk_mod_global: int = 0, def_mod
                 dmg_rolls = [secrets.randbelow(die_size) + 1 for _ in range(num_dice)]
             monster_damage = max(1, sum(dmg_rolls) + (monster["attack"] // 2))
             
-            from utils.ttrpg.class_advancement import apply_advanced_class_to_combat
+
             adv_mods = apply_advanced_class_to_combat(
                 sheet, 0, False, False, monster_damage, monster, False
             )
@@ -342,7 +344,7 @@ def _resolve_combat(sheet: dict, monster: dict, atk_mod_global: int = 0, def_mod
     player_alive = sheet["hp"]["current"] > 0
     
     if monster["hp"]["current"] <= 0:
-        from utils.ttrpg.class_advancement import apply_advanced_class_to_combat
+
         adv_mods = apply_advanced_class_to_combat(
             sheet, 0, False, False, 0, monster, True
         )
@@ -375,7 +377,7 @@ def _resolve_combat(sheet: dict, monster: dict, atk_mod_global: int = 0, def_mod
         ])
 
     if monster_alive:
-        from utils.ttrpg.rpg_ui import colored_bar
+
         hp = monster["hp"]
         bar = colored_bar(hp["current"], hp["max"], 10)
         exchanges.append(f"   {monster['name']} HP: {hp['current']}/{hp['max']}\n```ansi\n{bar}\n```")
@@ -398,9 +400,9 @@ def _resolve_combat(sheet: dict, monster: dict, atk_mod_global: int = 0, def_mod
 
     # ── Consume temporary combat buffs ────────────────────────────────────
     conds = sheet.get("conditions", [])
-    if "embered" in conds:
+    if "embered" in conds and not is_stunned and player_hit:
         conds.remove("embered")
-    if "fortified" in conds:
+    if "fortified" in conds and monster_hit:
         conds.remove("fortified")
 
     return {

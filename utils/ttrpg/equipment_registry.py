@@ -513,9 +513,7 @@ ARMOR = {
         "name": "Channeler's Robes", "defense_bonus": 3, "value": 262, "tier": 2,
         "classes": ["Mage", "Wizard", "Necromancer"],
     },
-    "invoker_vestment": {"name": "Invoker's Vestment", "defense_bonus": 3, "stat_bonus": {"int": 1}, "value": 895, "tier": 3, "droppable_only": True, "classes": ["Mage", "Wizard", "Necromancer"]},
-    "void_vestment":    {"name": "Void Vestment",      "defense_bonus": 5, "stat_bonus": {"int": 1}, "hp_bonus": 5,  "value": 1500, "tier": 4, "classes": ["Mage", "Wizard", "Necromancer"], "droppable_only": True},
-    "arcanist_shroud":  {"name": "Arcanist's Shroud",  "defense_bonus": 6, "stat_bonus": {"int": 2}, "hp_bonus": 10, "value": 3800, "tier": 5, "droppable_only": True, "classes": ["Mage", "Wizard", "Necromancer"]},
+
 
     # ══════════════════════════════════════════════════════════════
     # CLERIC — Divine Armor Progression
@@ -857,7 +855,7 @@ ACCESSORIES = {
     "void_band":         {"name": "Void Band",         "defense_bonus": 2, "attack_bonus": 3, "value": 3750, "tier": 5, "droppable_only": True},
     "mox_pearl":         {"name": "Mox Pearl",          "defense_bonus": 0, "attack_bonus": 3, "value": 4333,"tier": 5, "droppable_only": True},
     "giant_belt":        {"name": "Giant Strength Belt","defense_bonus": 0, "attack_bonus": 5, "value": 2666, "tier": 5, "classes": ["Warrior", "Paladin", "Shadowknight"], "droppable_only": True},
-    "black_lotus":       {"name": "Black Lotus",        "defense_bonus": 0, "attack_bonus": 6, "value": 18333,"tier": 5, "classes": ["Wizard", "Necromancer"], "droppable_only": True},
+    "black_lotus":       {"name": "Black Lotus",        "defense_bonus": 0, "attack_bonus": 4, "value": 18333,"tier": 5, "classes": ["Wizard", "Necromancer"], "droppable_only": True},
 
     # ══════════════════════════════════════════════════════════════
     # WARRIOR — Gauntlets and Power Bracers

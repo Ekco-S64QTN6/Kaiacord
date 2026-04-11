@@ -109,10 +109,10 @@ FURNITURE = {
     "vault_chest": {
         "name": "Ironbound Vault Chest",
         "cost": 1500,
-        "desc": "A heavy locked chest. +500g bank storage cap.",
+        "desc": "A heavy locked chest. +5% daily bank interest.",
         "emoji": "🔐",
         "tier": 3,
-        "bonus": {"type": "bank_cap", "value": 500},
+        "bonus": {"type": "interest_bonus", "value": 0.05},
     },
     "portrait": {
         "name": "Commissioned Portrait",

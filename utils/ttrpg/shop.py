@@ -2,7 +2,10 @@ from utils.ttrpg.equipment_registry import (
     WEAPONS, ARMOR, CONSUMABLES, HEADGEAR, BOOTS, ACCESSORIES,
     HEMLOCK_STOCK_WEAPONS, HEMLOCK_STOCK_ARMOR,
     HEMLOCK_STOCK_HEADGEAR, HEMLOCK_STOCK_BOOTS, HEMLOCK_STOCK_ACCESSORIES,
+    ALIASES,
 )
+
+_REVERSE_ALIASES = {v: k for k, v in ALIASES.items()}
 
 def get_shop_inventory(location: str = "hemlocks_store") -> tuple[dict, dict, dict, dict, dict, dict]:
     """Returns available weapons, armor, headgear, boots, accessories, and consumables for a location."""
@@ -98,8 +101,7 @@ def find_item(item_key: str) -> dict | None:
             return {"category": cat, "key": item_key, **reg[item_key]}
 
     # ── NEW: reverse alias lookup (handles old inventory keys) ──
-    reverse_aliases = {v: k for k, v in ALIASES.items()}
-    alt_key = reverse_aliases.get(item_key)
+    alt_key = _REVERSE_ALIASES.get(item_key)
     if alt_key:
         for cat, reg in ALL:
             if alt_key in reg:

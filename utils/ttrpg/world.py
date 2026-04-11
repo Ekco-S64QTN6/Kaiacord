@@ -125,6 +125,7 @@ def resolve_location(query: str) -> str:
         "shop":            "hemlocks_store",
         "inn":             "stone_hearth",
         "tavern":          "stone_hearth",
+        "pub":             "stone_hearth",
         "shrine":          "shrine",
         "whisperwood":     "whisperwood_edge",
         "forest":          "whisperwood_edge",

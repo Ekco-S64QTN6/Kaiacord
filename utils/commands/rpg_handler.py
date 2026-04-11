@@ -1405,6 +1405,20 @@ async def _dungeon_combat_round(ctx_obj, interaction, uid, uname, is_owner):
         state["rooms"][room_key]["cleared"] = True
         xp_gain = int(monster.get("xp", 25) * (2 if is_boss else 1))
         gil_gain = int(monster.get("gil", 5) * (2 if is_boss else 1))
+        
+        # Advanced class bonuses
+        _adv = sheet.get("advanced_class", "")
+        if _adv:
+            from utils.ttrpg.class_advancement import ADVANCED_CLASSES
+            for _opts in ADVANCED_CLASSES.values():
+                if _adv in _opts:
+                    _b = _opts[_adv].get("bonuses", {})
+                    xp_gain  = int(xp_gain  * (1.0 + _b.get("xp_bonus_pct",  0.0)))
+                    gil_gain = int(gil_gain * (1.0 + _b.get("gil_bonus_pct", 0.0)))
+                    _heal = _b.get("heal_on_combat_end", 0)
+                    if _heal > 0 and sheet["hp"]["current"] > 0:
+                        sheet["hp"]["current"] = min(sheet["hp"]["max"], sheet["hp"]["current"] + _heal)
+                    break
 
         # Experience Tonic bonus (+25% XP, consumed on use)
         if "xp_boosted" in sheet.get("conditions", []):
@@ -3411,7 +3425,7 @@ async def _handle_sell_all_gear(ctx, msg, send, rest, uid, uname, is_owner):
         if k: equipped_keys.add(k)
 
     PROTECTED_KEYS = {"symbol_of_the_silent_ones", "mognet_letter", "lightstone",
-                      "adventurers_pack", "torch"}
+                      "adventurers_pack", "torch", "elaras_token"}
 
     inventory = sheet.get("inventory", [])
     sold_lines = []
@@ -4454,8 +4468,8 @@ async def _handle_use(ctx, msg, send, rest, uid, uname, is_owner):
             await msg.channel.send(embed=discord.Embed(description=f"You're already buzzing with experience tonic.", color=0xcc4444))
     elif item.get("on_use") == "hunt_bonus":
         sheet["inventory"].remove(item_key)
-        # Reduce hunts_today by 1 (effectively granting a bonus hunt)
-        sheet["hunts_today"] = max(0, sheet.get("hunts_today", 0) - 1)
+        # Grant a bonus hunt condition instead of decrementing to respect the hard ceiling
+        sheet.setdefault("conditions", []).append("hunt_bonus")
         await save(sheet)
         from utils.ttrpg.progression import hunts_remaining as _hr, get_max_hunts as _gmh
         combat_view = await _get_active_view(ctx, msg, uid, uname, is_owner)
@@ -4576,6 +4590,7 @@ async def _handle_hunt(ctx, msg, send, rest, uid, uname, is_owner):
         
     # Standard hunt stamina & HP flow
     sheet = check_and_reset_hunts(sheet)
+    await save(sheet) # Avoid race condition by persisting reset before awaiting UI
     if hunts_remaining(sheet) <= 0:
         view = _make_status_view(ctx, msg, uid, uname, is_owner)
         return await msg.channel.send(embed=discord.Embed(description=f"You have exhausted your stamina for the day. (0/{get_max_hunts(sheet)} hunts remaining)", color=0xcc4444), view=view)
@@ -4867,6 +4882,9 @@ async def _handle_attack(ctx, msg, send, rest, uid, uname, is_owner):
                     _b = _opts[_adv].get("bonuses", {})
                     xp_gain  = int(xp_gain  * (1.0 + _b.get("xp_bonus_pct",  0.0)))
                     gil_gain = int(gil_gain * (1.0 + _b.get("gil_bonus_pct", 0.0)))
+                    _heal = _b.get("heal_on_combat_end", 0)
+                    if _heal > 0 and sheet["hp"]["current"] > 0:
+                        sheet["hp"]["current"] = min(sheet["hp"]["max"], sheet["hp"]["current"] + _heal)
                     break
         # Weather bonus effects (e.g. clear autumn +5 XP, winter frost +3 Gil)
         weather_effect = get_weather().get("effect") or {}
@@ -5734,11 +5752,12 @@ async def _handle_bank_deposit(ctx, msg, send, rest, uid, uname, is_owner):
             label=f"Deposit {amt_label if amt_val else str(sheet['gil'])+'g'}",
             style=discord.ButtonStyle.secondary, row=0
         )
-        async def _dep_cb(interaction: discord.Interaction, amount=actual):
+        async def _dep_cb(interaction: discord.Interaction, amount=actual, is_all=(amt_val is None)):
             if str(interaction.user.id) != uid:
                 await interaction.response.send_message("```\nnot yours.\n```", ephemeral=True)
                 return
             s = await load(uid)
+            if is_all: amount = s["gil"]
             if amount > s["gil"]:
                 await interaction.response.send_message(
                     embed=discord.Embed(description=f"Not enough gil. You have {s['gil']}g.", color=0xcc4444),
@@ -5776,12 +5795,13 @@ async def _handle_bank_withdraw(ctx, msg, send, rest, uid, uname, is_owner):
             label=f"Withdraw {amt_label if amt_val else str(balance)+'g'}",
             style=discord.ButtonStyle.secondary, row=0
         )
-        async def _wth_cb(interaction: discord.Interaction, amount=actual):
+        async def _wth_cb(interaction: discord.Interaction, amount=actual, is_all=(amt_val is None)):
             if str(interaction.user.id) != uid:
                 await interaction.response.send_message("```\nnot yours.\n```", ephemeral=True)
                 return
             s = await load(uid)
             bank = s.get("bank_balance", 0)
+            if is_all: amount = bank
             if amount > bank:
                 await interaction.response.send_message(
                     embed=discord.Embed(description=f"Not enough in bank. Balance: {bank}g", color=0xcc4444),
@@ -5830,7 +5850,7 @@ async def _handle_mail(ctx, msg, send, rest, uid, uname, is_owner):
     if "mognet_letter" in sheet.get("inventory", []):
         reward_gil = 25
         reward_xp  = 20
-        sheet["inventory"].remove("mognet_letter")
+        sheet["inventory"] = [i for i in sheet.get("inventory", []) if i != "mognet_letter"]
         if "mognet_pending" in sheet.get("conditions", []):
             sheet["conditions"].remove("mognet_pending")
         sheet["gil"] += reward_gil
@@ -6472,11 +6492,29 @@ async def _handle_accept(ctx, msg, send, rest, uid, uname, is_owner):
         # Actually, let's just do one exchange for now or a loop.
         
         # Setup "monster" data from target sheet
+        def _get_k(val): return val.get("key") if isinstance(val, dict) else val
+        
+        from utils.ttrpg.equipment_registry import WEAPONS, ARMOR as AR, HEADGEAR as HG, BOOTS as BT, ACCESSORIES as AC
+        eq = t_sheet.get("equipment", {})
+        w = WEAPONS.get(_get_k(eq.get("weapon"))) or {}
+        a = AR.get(_get_k(eq.get("armor"))) or {}
+        h = HG.get(_get_k(eq.get("head"))) or {}
+        b = BT.get(_get_k(eq.get("boots"))) or {}
+        acc = AC.get(_get_k(eq.get("accessory"))) or {}
+        
+        c = t_sheet.get("class", "Warrior")
+        astat = {"Warrior":"str", "Ranger":"dex", "Mage":"int", "Rogue":"dex", "Cleric":"wis"}.get(c, "str")
+        atk_val = t_sheet.get("stats", {}).get(astat, 10) + a.get("stat_bonus", {}).get(astat, 0)
+        dex_val = t_sheet.get("stats", {}).get("dex", 10) + a.get("stat_bonus", {}).get("dex", 0)
+        
+        t_atk = ((atk_val - 10) // 2) + w.get("attack_bonus", 0) + acc.get("attack_bonus", 0)
+        t_def = 10 + ((dex_val - 10) // 2) + a.get("defense_bonus", 0) + h.get("defense_bonus", 0) + b.get("defense_bonus", 0) + acc.get("defense_bonus", 0)
+
         m_from_t = {
             "name": t_sheet["character_name"],
             "hp": t_sheet["hp"],
-            "attack": t_sheet["stats"]["str"] + 5, # basic attack proxy
-            "defense": 10 + (t_sheet["stats"]["dex"]-10)//2,
+            "attack": t_atk,
+            "defense": t_def,
             "id": f"player_{uid}"
         }
         
@@ -7277,8 +7315,8 @@ async def _handle_home_training(ctx, msg, send, rest, uid, uname, is_owner):
     housing["last_training"] = today
     save_housing(housing)
 
-    # Grant 1 bonus hunt by decrementing hunts_today (floor at 0)
-    sheet["hunts_today"] = max(0, sheet.get("hunts_today", 0) - 1)
+    # Grant a bonus hunt condition to respect the hard ceiling
+    sheet.setdefault("conditions", []).append("hunt_bonus")
     await save(sheet)
 
     from utils.ttrpg.progression import hunts_remaining

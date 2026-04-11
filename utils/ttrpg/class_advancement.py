@@ -189,6 +189,8 @@ ADVANCED_CLASSES = {
                 "def_bonus": 3,
                 "hp_bonus": 10,
                 "forest_def_bonus": 2,
+                "heal_on_combat_end": 5,
+                "xp_bonus_pct": 0.10,
             },
             "flavor": "Thornax approves. The Whisperwood breathes with you.",
         },
@@ -321,30 +323,43 @@ def _total_gil(sheet: dict) -> int:
     return sheet.get("gil", 0) + sheet.get("bank_balance", 0)
 
 
+import time
+_WEALTHIEST_CACHE = {"timestamp": 0, "uid": None}
+
 def _is_wealthiest(sheet: dict) -> bool:
-    """Check if this sheet's owner has the most total gil across all players."""
+    """Check if this sheet's owner has the most total gil across all players (cached)."""
     import os, json
+    my_uid = str(sheet.get("user_id", ""))
+    now = time.time()
+    
+    # Cache hit check (60s TTL)
+    if now - _WEALTHIEST_CACHE["timestamp"] < 60:
+        return _WEALTHIEST_CACHE["uid"] == my_uid
+
     char_dir = os.path.join("memory", "ttrpg", "characters")
     if not os.path.isdir(char_dir):
         return False
-    my_total = _total_gil(sheet)
-    if my_total < 1000:          # minimum threshold to earn title
-        return False
-    my_uid = str(sheet.get("user_id", ""))
+
+    max_gil = 0
+    richest_uid = None
+
     for fname in os.listdir(char_dir):
         if not fname.endswith(".json"):
-            continue
-        uid = fname[:-5]
-        if uid == my_uid:
             continue
         try:
             with open(os.path.join(char_dir, fname), "r") as f:
                 other = json.load(f)
-            if _total_gil(other) > my_total:
-                return False     # someone else is richer
+            total = _total_gil(other)
+            if total > max_gil:
+                max_gil = total
+                richest_uid = str(other.get("user_id", fname[:-5]))
         except Exception:
             continue
-    return True
+
+    _WEALTHIEST_CACHE["timestamp"] = now
+    _WEALTHIEST_CACHE["uid"] = richest_uid if max_gil >= 1000 else None
+    
+    return _WEALTHIEST_CACHE["uid"] == my_uid
 
 
 def get_title(sheet: dict) -> str:

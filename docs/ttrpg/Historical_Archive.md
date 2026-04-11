@@ -1,3 +1,243 @@
+# Historical Development & Audit Archive
+*Combined historical reports, balance audits, and resolved bugs for Aethelgard TTRPG.*
+
+# Shop Restructure — Action Plan
+*Equipment economy rebalance, droppable-only loot, and Hemlock/Caravan split*
+
+---
+
+## What the script does
+
+`restructure_equipment.py` applies four transformations in a single run:
+
+| Pass | What changes |
+|---|---|
+| 1+2 | Rewrites every `"value": N` field across all item dicts (handles both single-line and multi-line formats) |
+| 3+4 | Injects `"droppable_only": True` into ~35% of T2+ items |
+| 5 | Replaces `get_caravan_stock()` with the tier-aware, droppable-filtered version |
+| 6 | Replaces all six `HEMLOCK_STOCK_*` lists with T1-only rosters |
+
+---
+
+## New price tiers
+
+| Tier | Range | Where |
+|---|---|---|
+| T1 | 8g – 75g | Hemlock — starter gear |
+| T2 | 250g – 420g | Caravan (purchasable) or drop |
+| T3 | 750g – 1300g | Caravan (purchasable subset) or drop |
+| T4 | 2200g – 3700g | Drop only |
+| T5 | 5500g – 55 000g | Drop only |
+
+---
+
+## Step-by-step execution
+
+### Step 1 — Run the script
+
+```bash
+# From project root
+python scripts/restructure_equipment.py \
+    utils/ttrpg/equipment_registry.py \
+    utils/ttrpg/equipment_registry.py
+```
+
+Expected output:
+```
+Done → utils/ttrpg/equipment_registry.py
+  droppable_only injected : ~148
+  price targets confirmed : ~268/268
+```
+
+### Step 2 — Remove legacy `HEMLOCK_STOCK_*.extend()` calls
+
+The previous gear-injection session (Part 7 of the class-gear PR) added `.extend()` calls at the bottom of `equipment_registry.py` that append T2+ items back into Hemlock's lists. **These must be removed**, otherwise they override what the script just wrote.
+
+Search for and delete the following block near the bottom of `equipment_registry.py`:
+
+```python
+# ── Add to Hemlock's stock (lower tier new items) ────────────────────────────
+HEMLOCK_STOCK_WEAPONS.extend([
+    "hunting_bow", "skinning_knife", ...
+])
+HEMLOCK_STOCK_ARMOR.extend([...])
+HEMLOCK_STOCK_HEADGEAR.extend([...])
+# etc.
+```
+
+The new `HEMLOCK_STOCK_*` base lists written by the script already contain all correct T1 entries — the extend calls are now redundant and harmful.
+
+### Step 3 — Update `get_caravan_stock()` call sites in `shop.py`
+
+Open `utils/ttrpg/shop.py`. Find `get_shop_inventory()` and verify the caravan branch looks like this (no changes needed if it already calls `get_caravan_stock()` directly):
+
+```python
+if location == "caravan":
+    gear_keys, consumable_keys = get_caravan_stock()   # ← already correct
+    ...
+```
+
+The new `get_caravan_stock()` returns `(List[str], List[str])` — same signature — so no other changes to `shop.py` are required.
+
+### Step 4 — Verify the `_handle_shop` UI row budget
+
+In `rpg_handler.py`, the `_make_shop_view()` function caps buy rows at 3 (75 items max). The new Caravan will surface roughly 40–55 non-droppable T2/T3 items — safely under the 75-item cap.
+
+Verify the cap comment still reads:
+
+```python
+chunks = [items[i:i + 25] for i in range(0, len(items), 25)]
+for chunk in chunks:
+    if current_row >= 3: break  # Max 3 buy rows (75 items total)
+```
+
+No change needed — the budget is fine.
+
+### Step 5 — Sanity check: can players still sell droppable loot?
+
+Yes. The `droppable_only` flag is checked only in `get_caravan_stock()` (and Hemlock's static lists don't include them). It is **not** checked in `process_sell()` — players can always sell any item to Hemlock. This is correct and intentional.
+
+### Step 6 — Verify file parses cleanly
+
+```bash
+python3 -c "import utils.ttrpg.equipment_registry; print('Import OK')"
+```
+
+---
+
+## Droppable-only item breakdown (148 total)
+
+### T2 locked behind combat (~11 items)
+Items that exist in the registry as T2 but are class-gated enough that they should only drop:
+`shadow_blade`, `assassin_stiletto`, `silver_mace`, `scouts_leathers`, `battle_plate`, `battle_visor`, `phantom_hood`, `iron_greaves`, `shadow_treads`, `iron_gauntlets`, `shadow_ring`
+
+### T3 mostly drop (~28 items)
+The named/fancy T3 gear. The generic ones (`flame_sword`, `steel_greatsword`, `temple_hammer`, `whisperwood_recurve`, etc.) **remain purchasable** at the Caravan for 750–900g.
+
+### T4 all drop (49 items)
+Every T4 item. Players must hunt dungeons or rare world encounters. The price column in the registry is preserved for `process_sell()` so Hemlock pays out correctly when players want to off-load loot.
+
+### T5 all drop (60 items)
+Every T5 item. End-game treasures only.
+
+---
+
+## What the Caravan now sells (example subset)
+
+| Item | Price | Classes |
+|---|---|---|
+| Iron Greatsword | 285g | Warrior |
+| Composite Bow | 290g | Ranger |
+| Crystal Wand | 272g | Mage |
+| Shadow Garb | 275g | Rogue |
+| Shrine Chainmail | 278g | Cleric/Warrior |
+| Steel Greatsword | 845g | Warrior |
+| Whisperwood Recurve | 820g | Ranger |
+| Aeridor Wand | 920g | Mage |
+| Temple Hammer | 820g | Cleric |
+| Knights Plate | 900g | Warrior |
+| Phantom Weave ❌ drop | — | Rogue |
+| Mithral Shirt ❌ drop | — | Warrior/Ranger/Rogue |
+
+---
+
+## What Hemlock now sells
+
+**Weapons (14):** Shortbow, Rusty Hand Axe, Rusty Stiletto, Rusty Mace, Wooden Staff, Hunting Bow, Skinning Knife, Rusted Greatsword, Apprentice Wand, Novice Focus, Shiv, Throwing Knife, Iron Flail, Acolyte's Mace
+
+**Armor (9):** Leather Armor, Mage's Robe, Bronze Armor, Fur Cloak, Iron Plating, Ranger's Vest, Cutpurse Leathers, Novice Robes, Acolyte's Vestments
+
+**Headgear (9):** Iron Helm, Scout's Hood, Mage's Cap, Bronze Helm, Soldier's Cap, Ranger's Hat, Shadow Cap, Ember Cowl, Novice Hood
+
+**Boots (5):** Worn Boots, Heavy Boots, Tracker's Boots, Soft Slippers, Bronze Sabatons
+
+**Accessories (4):** Copper Ring, Warrior's Bracer, Scout's Bracer, Scholar's Bracelet
+
+**Consumables (5):** Healing Herb, Bandage, Tonic, Torch, Antidote
+
+---
+
+## Files changed
+
+| File | Change |
+|---|---|
+| `utils/ttrpg/equipment_registry.py` | Prices + droppable_only + get_caravan_stock() + HEMLOCK_STOCK_* |
+| `utils/ttrpg/equipment_registry.py` | Manual: remove legacy `.extend()` calls (Step 2) |
+| No other files need changes | shop.py, rpg_handler.py interfaces are unchanged |
+
+
+---
+
+
+# Aethelgard TTRPG Balance Audit Report
+
+**Date:** March 18, 2026
+**Simulation Scope:** 1,000 Total Hunts (200 per class)
+**Locations Tested:** Whisperwood Edge, Trade Road, Whisperwood Deep, Aeridor Ruins
+
+## Executive Summary
+The Aethelgard TTRPG core systems (Combat, Progression, Events) are **stable**. The simulation encountered zero logic errors or infinite loops across 1,000 simulated encounters. However, there is a significant early-game imbalance regarding class survivability, specifically for the Mage and Cleric.
+
+## Simulation Data (Level 1-4 Progression)
+
+| Class | Win Rate | Deaths | XP/Hunt | Avg HP Loss/Hunt |
+| :--- | :--- | :--- | :--- | :--- |
+| **Warrior** | 97.7% | 4 | 30.6 | 7.0 |
+| **Ranger** | 93.0% | 11 | 26.8 | 7.3 |
+| **Rogue** | 90.5% | 15 | 25.3 | 5.5 |
+| **Cleric** | 84.2% | 26 | 24.1 | 9.1 |
+| **Mage** | 70.9% | 46 | 18.7 | 5.1 |
+
+## Key Findings
+
+### 1. The "Mage One-Shot" Problem
+Mages start with significantly lower HP (4 + CON) than Warriors (10 + CON). In the early game (Whisperwood Edge), even "Trivial" monsters like Goblins (Attack 3) deal an average of 4.5 damage per hit. 
+- **Effect:** A Level 1 Mage is often reduced to critical HP or killed in a single lucky hit from a trivial enemy.
+- **Data Point:** Mage deaths (46) were **11.5x higher** than Warrior deaths (4).
+
+### 2. Cleric Sustain vs. Tankiness
+Clerics suffered the highest "Average HP Loss" (9.1) because they lack the high DEX/AC of Rogues/Rangers and the raw HP of Warriors. They "face-tank" damage but lack the mitigation to survive consistently at Level 1-2.
+
+### 3. Progressive Location Scaling
+The transition from `whisperwood_edge` (Level 1-3) to `trade_road` and `whisperwood_deep` (Level 4+) is well-tuned. XP per hunt scales linearly, and classes that survived the early "hump" reached Level 4 consistently.
+
+## Bug Audit
+- **Infinite Combat:** No cases found. All combats resolved within expected round limits.
+- **Logic Crashes:** Zero exceptions thrown during 1,000 rounds of `_resolve_combat`.
+- **Event Integrity:** Forest events (Sylvan Sprites, Moogle, etc.) functioned perfectly, correctly awarding XP/Gil and applying HP changes.
+
+## Recommendations
+
+### [IMMEDIATE] Mage Early-Game Buff
+Adjust `dice_engine.py` to give Mages a slightly higher base HP die or a flat "Level 1" bonus to prevent instant death.
+- *Current:* 1d4 (Avg 2.5)
+- *Proposed:* 1d6 (Avg 3.5) or +2 Flat HP at Level 1.
+
+### [BALANCE] Cleric AC Tweaks
+Consider allowing Clerics to start with `leather_armor` instead of unarmored to bridge the gap until they can afford better gear.
+
+### [LONG-TERM] Scaling Review
+As players reach Level 10+, the "Deadly" tier monsters (Behemoth, Dragon) may require secondary defenses (Damage Reduction or Evasion) to remain viable for non-Warrior classes.
+
+---
+
+## Post-Buff Verification (March 18, 01:45)
+Following the implementation of the Mage HP buff and Cleric starting armor, a second 1,000-hunt simulation was conducted.
+
+| Class | Original Win Rate | **New Win Rate** | **Death Reduction** |
+| :--- | :--- | :--- | :--- |
+| **Warrior** | 97.7% | 91.5% | - |
+| **Ranger** | 93.0% | 90.9% | - |
+| **Rogue** | 90.5% | 90.3% | - |
+| **Cleric** | 84.2% | 84.0% | (Stabilized) |
+| **Mage** | 70.9% | **87.9%** | **-58% deaths** |
+
+**Conclusion:** The "Mage One-Shot" problem is resolved. Early-game survivability is now normalized across all classes within a 7% spread.
+
+
+---
+
+
 # Aethelgard TTRPG — Master Development Report
 
 This document synthesizes the initial 72-Hour Development Report, the comprehensive Deep Code Review & Balance Report, and the most recent Dungeon and Architecture Overhauls into a single source of truth detailing the current state of the Aethelgard TTRPG system. 
@@ -140,3 +380,32 @@ While recent overhauls solved the critical and highest priority bugs, the follow
 - **Moogle Tracking:** Mognet Delivery now uses timestamp-based tracking (`last_moogle_delivery`) and is operational.
 
 *(Note: See `CLAUDE_REPORT.md` for the most current system status and bug inventory.)*
+
+
+---
+
+# Old Resolved Bugs (from April 11 CLAUDE_REPORT)
+
+### ✅ RESOLVED — Fixed in Prior Sessions
+
+| ID | Bug | Fix |
+|---|---|---|
+| BUG-01 | `NameError: load_housing` in bank deposit callback | Added local import inside closure |
+| BUG-02 | Warden `forest_def_bonus` checked but never defined | Added `"forest_def_bonus": 2` to Warden bonuses |
+| BUG-03 | Solstice offering `XP_MULT` computed but not applied | `s["xp"] += eligible * XP_MULT` |
+| BUG-04 | Training dummy no-op when hunt pool at 0 | Always decrements `hunts_today` (floor 0) |
+| BUG-06 | `PERMANENT_CONDITIONS` dual-defined | Single source in `progression.py` |
+| BUG-07 | Hunt count could stack to 9+ | Hard cap at `MAX_HUNTS_CEILING = 8` |
+| BUG-08 | Dungeon combat missing furniture ATK bonus | Added `home_atk` to dungeon `atk_mod_global` |
+| BUG-09 | Cleric dead `atk_vs_undead` branch | Removed dead conditional |
+| PREV-01–10 | Various furniture/UI wiring fixes | See prior report |
+
+**Previously fixed:**
+- 🔴 Banking crash (`load_housing` missing import)
+- 🔴 Warden `forest_def_bonus` never fired
+- 🔴 Solstice offering XP multiplier not applied
+- 🟠 Training dummy didn't grant hunts when pool was full
+- 🟠 `PERMANENT_CONDITIONS` duplicated across two files
+- 🟡 Hunt count had no hard ceiling
+- 🟡 Dungeon combat missing furniture ATK bonus
+- 🗑️ Dead code removed: `balance_model.py`, `LOCATION_ACTIONS`, `TIER_COUNTS`

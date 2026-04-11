@@ -117,6 +117,13 @@ def check_and_reset_hunts(sheet: dict) -> dict:
 
         housing = load_housing(str(sheet.get("user_id", "")))
         if housing and housing.get("last_farm_reset") != today:
+            from utils.ttrpg.furniture import get_home_bonuses
+            home_bonuses = get_home_bonuses(housing)
+            if "interest_bonus" in home_bonuses:
+                interest_rate = home_bonuses["interest_bonus"]
+                bank = sheet.get("bank_balance", 0)
+                sheet["bank_balance"] = int(bank * (1.0 + interest_rate))
+                
             housing = reset_daily_farm(housing)
             housing = reset_daily_pets(housing)
             save_housing(housing)
@@ -146,7 +153,10 @@ def get_max_hunts(sheet: dict) -> int:
     housing = load_housing(str(sheet.get("user_id", "")))
     pet_bonus = get_pet_passive(housing).get("extra_hunt", 0) if housing else 0
 
-    return min(MAX_HUNTS_CEILING, MAX_HUNTS_PER_DAY + ale_bonus + rest_bonus + pet_bonus + class_hunt_bonus)
+    # Items and random event temporary bonuses
+    hunt_bonus = sum(1 for c in sheet.get("conditions", []) if c == "hunt_bonus")
+
+    return min(MAX_HUNTS_CEILING, MAX_HUNTS_PER_DAY + ale_bonus + rest_bonus + pet_bonus + class_hunt_bonus + hunt_bonus)
 
 
 def hunts_remaining(sheet: dict) -> int:

@@ -111,6 +111,14 @@ def save_housing(housing: dict) -> None:
             json.dump(housing, f, indent=2)
         os.replace(tmp, p)
 
+async def load_housing_async(user_id: str) -> dict | None:
+    import asyncio
+    return await asyncio.to_thread(load_housing, user_id)
+
+async def save_housing_async(housing: dict) -> None:
+    import asyncio
+    await asyncio.to_thread(save_housing, housing)
+
 def load_all_housing() -> list[dict]:
     os.makedirs(HOUSING_DIR, exist_ok=True)
     result = []

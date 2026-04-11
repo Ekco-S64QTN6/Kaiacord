@@ -1390,12 +1390,7 @@ MONSTERS = {
         "xp": 9000, "gil": 0, "tier": "boss",
         "desc": "A mad court mage who has stolen the power of gods. He laughs as the world burns.",
     },
-    "sephiroth_echo": {
-        "name": "Echo of Sephiroth",
-        "hp": 700, "attack": 36, "defense": 22,
-        "xp": 8500, "gil": 0, "tier": "boss",
-        "desc": "A silver-haired angel of death. He moves with a grace that belies his terrifying power.",
-    },
+
     "aeridorian_guardian": {
         "name": "Aeridorian Guardian",
         "hp": 450, "attack": 18, "defense": 20,
@@ -1644,40 +1639,10 @@ ENCOUNTER_TABLES = {
         ("medusa",             2),
         ("troll",              2),
     ],
-    "whisperwood_deep_night": [
-        ("ghost",             20),
-        ("ghoul",             15),
-        ("nachtmahr",         15),
-        ("shadow_dancer",     12),
-        ("werewolf",          12),
-        ("lich",               5),
-        ("vampire_nighthawk",  8),
-        ("nightmare_mtg",      7),
-        ("death_knight_dd",    5),
-        ("demogorgon_echo",    2),
-        ("orcus_aspect",       2),
-        ("grazzt_avatar",      2),
-        ("juiblex_shadow",     2),
-        ("hand_axe_goblin",    3),
-        ("skeleton_archer",    3),
-        ("moldwynd",           4),
-        ("wight",              5),
-        ("spectre",            5),
-        ("vampire_lord",       3),
-        ("ghast",              5),
-        ("elder_treant",       2),
-        ("tonberry_king",      2),
-        ("zeromus_ff4",        1),
-        ("lord_soth",          1),
-        ("shinryu_ff5",        1),
-        ("omega_ff5",          1),
-        ("kefka_ascended",     1),
-        ("sephiroth_echo",     1),
-    ],
+
 }
 
-# Gil drop multiplier for boss tier (bosses don't drop standard gil)
-BOSS_GIL_DROP = 0
+
 
 
 # ══════════════════════════════════════════════════════════
