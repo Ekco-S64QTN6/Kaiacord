@@ -548,7 +548,7 @@ async def run_village_raid(bot_ctx, channel):
     from utils.ttrpg.character_manager import load_all, save
     from utils.ttrpg.monster_registry import get as get_monster
     from utils.ttrpg.progression import check_level_up, xp_to_next_level
-    from utils.commands.rpg_handler import _log_world_event
+    from utils.ttrpg.broadcast import log_world_event as _log_world_event
 
     RAID_POOL = [
         ("wolf",     30),
@@ -706,7 +706,7 @@ async def run_village_raid(bot_ctx, channel):
 async def run_oracle_speaks(bot_ctx, channel):
     import discord, secrets
     from utils.ttrpg.character_manager import load_all, save
-    from utils.commands.rpg_handler import _log_world_event
+    from utils.ttrpg.broadcast import log_world_event as _log_world_event
 
     TOWN_LOCATIONS = {
         "oakhaven", "stone_hearth", "hemlocks_store",
@@ -767,7 +767,7 @@ async def run_oracle_speaks(bot_ctx, channel):
 async def run_moogle_festival(bot_ctx, channel):
     import discord, secrets
     from utils.ttrpg.character_manager import load_all, save
-    from utils.commands.rpg_handler import _log_world_event
+    from utils.ttrpg.broadcast import log_world_event as _log_world_event
 
     TOWN_LOCATIONS = {
         "oakhaven", "stone_hearth", "hemlocks_store",
@@ -833,7 +833,7 @@ async def run_aeridorian_tremor(bot_ctx, channel):
     import discord, secrets
     from utils.ttrpg.character_manager import load_all, save
     from utils.ttrpg.progression import check_level_up, xp_to_next_level
-    from utils.commands.rpg_handler import _log_world_event
+    from utils.ttrpg.broadcast import log_world_event as _log_world_event
 
     TOWN_LOCATIONS = {
         "oakhaven", "stone_hearth", "hemlocks_store",
@@ -907,7 +907,7 @@ async def run_aeridorian_tremor(bot_ctx, channel):
 async def run_tonberry_procession(bot_ctx, channel):
     import discord, secrets
     from utils.ttrpg.character_manager import load_all, save
-    from utils.commands.rpg_handler import _log_world_event
+    from utils.ttrpg.broadcast import log_world_event as _log_world_event
 
     TOWN_LOCATIONS = {
         "oakhaven", "stone_hearth", "hemlocks_store",
@@ -969,7 +969,7 @@ async def run_spine_storm(bot_ctx, channel):
     import discord, secrets
     from utils.ttrpg.character_manager import load_all, save
     from utils.ttrpg.progression import check_level_up
-    from utils.commands.rpg_handler import _log_world_event
+    from utils.ttrpg.broadcast import log_world_event as _log_world_event
 
     TOWN_LOCATIONS = {
         "oakhaven", "stone_hearth", "hemlocks_store",
@@ -1048,7 +1048,7 @@ async def run_caravan_arrival(bot_ctx, channel):
     )
     from utils.ttrpg.shop import find_item, process_purchase
     from utils.ttrpg.character_manager import load, save
-    from utils.commands.rpg_handler import _log_world_event
+    from utils.ttrpg.broadcast import log_world_event as _log_world_event
 
     TOWN_LOCATIONS = {
         "oakhaven", "stone_hearth", "hemlocks_store",

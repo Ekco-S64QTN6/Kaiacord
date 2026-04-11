@@ -257,6 +257,10 @@ Kaia riffs on the provided TOPIC in her voice — do not just repeat the topic v
 Respond in character. lowercase. specific. grounded.
 This NPC does not know game mechanics — they speak naturally about the world.
 Do not mention stats, levels, XP, or game systems.
+
+FORMAT RULES:
+- Narrate the character's physical actions in THIRD-PERSON LIMITED as the GM (e.g., "{npc['name']} shifts in the shadows," NOT "I shift in the shadows").
+- Only spoken dialogue should be delivered in first-person by the character.
 [END NPC CONTEXT]
 
 {char_name} approaches and says: "{player_message}"

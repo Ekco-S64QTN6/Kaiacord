@@ -58,15 +58,14 @@ NPCS = {
     "hooded_figure": {
         "name": "The Hooded Figure",
         "location": "stone_hearth",
-        "description": "Sits in the same corner every night. Face never visible. "
-                       "Speaks rarely. When he does, people listen.",
+        "description": "A mysterious man who sits in the same shadowy corner every night. His face is always hidden beneath a deep cowl. He speaks rarely, but when he does, people listen.",
         "role": "mystery",
-        "dialogue_hook": "He doesn't acknowledge you at first. Then, slowly, he turns.",
+        "dialogue_hook": "The mysterious man remains perfectly still at first. Then, slowly, he shifts his gaze toward you from beneath his cowl.",
         "topics": [
             "The ruins are not ruins.",
             "Aeridor didn't fall. It was absorbed.",
             "Ask Elara what she found at the Shrine before you arrived.",
-            "[says nothing. Doesn't look at you. Somehow you feel seen.]",
+            "[He says nothing. He doesn't look at you. Somehow you feel seen.]",
             "The three flames on the seal. Fire, stone, silence. You've seen it. Whether you know what it means is a different question.",
             "The dungeon shrine rooms respond to those who've listened at the Oakhaven flame. Not everyone can hear it.",
             "Your choice of path matters. The Aeridor records tracked class designations. Some of those records are still active.",

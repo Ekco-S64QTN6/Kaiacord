@@ -84,7 +84,7 @@ def check_level_up(sheet: dict) -> tuple[bool, int]:
     return leveled, final_level
 
 
-def check_and_reset_hunts(sheet: dict) -> dict:
+def check_and_reset_hunts(sheet: dict, housing: dict = None) -> dict:
     """Reset daily hunts if it's a new day."""
     from datetime import date
     today = date.today().strftime("%Y-%m-%d")

@@ -120,7 +120,8 @@ class FishingMenuView(discord.ui.View):
             await interaction.response.send_message("not yours.", ephemeral=True)
             return
         await interaction.response.defer()
-        from utils.commands.rpg_handler import _handle_talk, _InteractionMsg, _make_interaction_send
+        from utils.ttrpg.rpg_social_handler import _handle_talk
+        from utils.ttrpg.rpg_views import _InteractionMsg, _make_interaction_send
         fake = _InteractionMsg(interaction)
         send_fn = _make_interaction_send(interaction)
         try:
