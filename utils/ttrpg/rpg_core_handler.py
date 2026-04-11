@@ -97,8 +97,13 @@ async def _handle_status(ctx, msg, send, rest, uid, uname, is_owner):
     
     # Resumption logic
     dungeon = load_dungeon(uid)
+    dungeon_in_combat = False
     if dungeon and dungeon.get("active"):
-        resume_desc += f"\n\n🏚️ **You are currently in a dungeon!**\nUse `!rpg dungeon` to resume exploring."
+        if dungeon.get("active_combat"):
+            dungeon_in_combat = True
+            resume_desc += f"\n\n⚔️ **You are currently in a dungeon combat!**\nUse `!rpg dungeon` to resume the fight."
+        else:
+            resume_desc += f"\n\n🏚️ **You are currently in a dungeon!**\nUse `!rpg dungeon` to resume exploring."
 
     def _eq_display(slot_val, registry, atk=False):
         if not slot_val: return "Unarmed" if atk else "Unarmored"
@@ -149,6 +154,9 @@ async def _handle_status(ctx, msg, send, rest, uid, uname, is_owner):
             if m.get("aggro_uid") == uid:
                 in_combat = True
                 break
+                
+    if dungeon_in_combat:
+        in_combat = True
                 
     # World State display
     from utils.ttrpg.calendar import get_weather

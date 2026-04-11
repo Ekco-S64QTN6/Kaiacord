@@ -1061,8 +1061,10 @@ async def _get_active_view(ctx, msg, uid, uname, is_owner):
     from utils.ttrpg.dungeon import load_dungeon
     d_state = load_dungeon(uid)
     if d_state and d_state.get("active"):
-        if d_state.get("in_combat"):
-            m_name = d_state.get("monster", {}).get("name", "monster")
+        ac = d_state.get("active_combat")
+        if ac:
+            monster = ac.get("monster", {})
+            m_name = ac.get("boss_name") or monster.get("name", "monster")
             return DungeonCombatView(ctx, uid, uname, is_owner, m_name)
         else:
             return DungeonView(ctx, uid, uname, is_owner, d_state)

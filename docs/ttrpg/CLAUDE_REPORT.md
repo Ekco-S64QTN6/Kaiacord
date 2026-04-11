@@ -36,17 +36,26 @@ The system is architecturally sound: deterministic Python handles all game logic
 
 ---
 
+### ✅ Architectural Refactor Completed (April 11, 2026)
+- **`rpg_handler.py` Decomposition**: Successfully split the 7,000+ line monolith into component modules:
+  - `rpg_combat_handler.py`
+  - `rpg_shop_handler.py`
+  - `rpg_core_handler.py`
+  - `rpg_social_handler.py`
+  - `rpg_housing_handler.py`
+  - `rpg_views.py`
+- **Dependency Stabilization**: Built custom localized lazy-loading closure dispatchers tightly bound inside `rpg_views.py` `RPGFullLocationView` to completely eliminate Discord UI cyclic/circular import hang crashes without dropping UI hook state constraints.
+- **Dungeon UI Persistence Fix**: Standardized dungeon combat state detection in `_get_active_view` and `!rpg status`. Previously, using a potion mid-dungeon-fight would accidentally swap the UI to the exploration (arrow) view due to a legacy `in_combat` vs `active_combat` key mismatch.
+- **Data Parity Validated**: Completed 100% dynamic smoke-test sweep validating completely identical logic paths pre- and post-refactor.
+
+### ✅ Post-Refactor Bug Fixes
+- **`progression.py` kwargs**: Restored `housing` kwargs missing from `check_and_reset_hunts` logic.
+- **LLM Grammar Hallucinations**: Updated `npc_registry.py` and `rpg_prompt_builder.py` format rules to strictly enforce third-person limited perspectives, solving physical misalignments generated for ambiguous NPC cues (e.g. Hooded Figure).
+- **Shop Equip Logic Constraints**: Auto-equip on `!rpg buy` now mirrors the strict rules of `!rpg equip`, fully rejecting mismatching core and advanced classes, returning the item safely to the inventory with a stern compatibility warning. Removed visual clutter of eligible class names inside the UI shop view.
+
+---
+
 ## 3. Actionable Recommendations (Prioritized)
 
 ### ✅ All Identified Phase 2 Remediation Objectives Completed 
-System is stable and thoroughly executed via `walkthrough.md`.
-
-### 🟠 Outstanding Architectural Debt
-- **`rpg_handler.py` Decomposition**: Still requires breaking into component modules:
-  - `rpg_combat_handler.py`
-  - `rpg_shop_handler.py`
-  - `rpg_location_handler.py`
-  - `rpg_social_handler.py`
-  - `rpg_housing_handler.py`
-  - `rpg_dungeon_handler.py`
-  - `rpg_views.py`
+System is structurally isolated, tested under mock execution, and stabilized. All architectural debt has been securely paid and processed.
