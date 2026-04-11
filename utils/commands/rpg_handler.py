@@ -728,7 +728,17 @@ async def _make_shop_view(ctx, msg, uid, uname, is_owner, items, sheet=None):
         for item_key in chunk:
             item = find_item(item_key)
             if not item: continue
-            label = f"{item['name']} ({item['value']}g)"
+            
+            # Apply shop_special calendar override for UI accuracy
+            from utils.ttrpg.calendar import get_special_day
+            special = get_special_day()
+            ui_value = item['value']
+            loc = sheet.get("location", "hemlocks_store") if sheet else "hemlocks_store"
+            if special and "shop_special" in special and loc == "hemlocks_store":
+                if special["shop_special"].get("item") == item_key:
+                    ui_value = special["shop_special"].get("price", ui_value)
+                    
+            label = f"{item['name']} ({ui_value}g)"
             options.append(discord.SelectOption(label=label[:100], value=item_key))
 
         if options:
@@ -747,13 +757,23 @@ async def _make_shop_view(ctx, msg, uid, uname, is_owner, items, sheet=None):
                 if item and item.get("category") == "consumable":
                     s = await load(uid)
                     on_hand = s.get("gil", 0) if s else 0
+                    
+                    # Apply shop_special calendar override for UI accuracy
+                    from utils.ttrpg.calendar import get_special_day
+                    special = get_special_day()
+                    ui_value = item['value']
+                    loc = s.get("location", "hemlocks_store") if s else "hemlocks_store"
+                    if special and "shop_special" in special and loc == "hemlocks_store":
+                        if special["shop_special"].get("item") == chosen:
+                            ui_value = special["shop_special"].get("price", ui_value)
+                            
                     embed = discord.Embed(
                         title=f"🧪 {item['name']}",
                         description=(
-                            f"**{item['value']}g each**\n"
+                            f"**{ui_value}g each**\n"
                             f"You have **{on_hand}g** on hand.\n\n"
                             f"*{item.get('description', '')}*" if item.get("description") else
-                            f"**{item['value']}g each** — You have **{on_hand}g** on hand."
+                            f"**{ui_value}g each** — You have **{on_hand}g** on hand."
                         ),
                         color=0x44aa44
                     )
@@ -5315,7 +5335,7 @@ async def _handle_drink(ctx, msg, send, rest, uid, uname, is_owner):
         description=(
             f"🍺 Mira slides a tankard across. (-{DRINK_COST} gil)\n"
             f"Temp HP: +{TEMP_HP} ({sheet['hp']['current']}/{sheet['hp']['max']})\n"
-            f"*+1 hunt cap until next rest.* ({hunts_remaining(sheet)}/{MAX_HUNTS_PER_DAY + 1} available)\n"
+            f"*+1 hunt cap until next rest.* ({hunts_remaining(sheet)}/{get_max_hunts(sheet)} available)\n"
             f"*Clears on rest.*"
         ), color=0x44aa44), view=view)
 
@@ -7119,9 +7139,28 @@ async def _handle_feed_pet(ctx, msg, send, rest, uid, uname, is_owner):
     if fed_count == 0:
         return await send(msg.channel, "All pets are already fed or you can't afford food.")
 
+    moogle_delivery_msg = ""
+    for p in pets:
+        if p["key"] == "moogle" and p.get("fed_today"):
+            import time
+            from utils.ttrpg.loot_tables import get_loot
+            last_deliv = p.get("last_moogle_delivery", 0)
+            elapsed_days = (time.time() - last_deliv) / 86400.0
+            if elapsed_days > 5:
+                p["last_moogle_delivery"] = time.time()
+                loot = get_loot("easy")
+                if loot:
+                    housing.setdefault("mailbox", []).append({
+                        "from_name": "House Moogle",
+                        "item": loot,
+                        "gil": 0,
+                        "timestamp": time.time()
+                    })
+                    moogle_delivery_msg = "\n💌 *Your House Moogle gratefully accepts the Kupo Nut and drops a letter in your mailbox!*"
+
     await save(sheet)
     save_housing(housing)
-    await send(msg.channel, f"🐾 You fed {fed_count} pet(s) for {gil_cost}g. They look content.")
+    await send(msg.channel, f"🐾 You fed {fed_count} pet(s) for {gil_cost}g. They look content.{moogle_delivery_msg}")
     await _handle_my_home(ctx, msg, send, rest, uid, uname, is_owner)
 
 async def _handle_furniture_shop(ctx, msg, send, rest, uid, uname, is_owner):

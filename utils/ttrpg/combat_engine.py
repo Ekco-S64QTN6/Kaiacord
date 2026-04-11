@@ -277,7 +277,8 @@ def _resolve_combat(sheet: dict, monster: dict, atk_mod_global: int = 0, def_mod
         # Assemble total, then clamp
 
         weather = get_weather()
-        weather_def_mod = weather.get("effect", {}).get("value", 0) if weather and weather.get("effect", {}).get("type") == "armor_penalty" else 0
+        weather_effect = weather.get("effect") if weather else None
+        weather_def_mod = weather_effect.get("value", 0) if weather_effect and weather_effect.get("type") == "armor_penalty" else 0
         raw_total_def = 10 + dex_mod + effective_gear_def + adv_flat_def + def_mod_global + pet_def_bonus + weather_def_mod
         
         # Potion buff: Ironbark Tonic (+2 DEF until next combat)

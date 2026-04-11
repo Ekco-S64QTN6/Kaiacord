@@ -96,50 +96,32 @@ def check_and_reset_hunts(sheet: dict) -> dict:
         if sheet.get("inn_rest_pending", False):
             sheet["inn_rest_active_today"] = True
             sheet["inn_rest_pending"] = False
-        else:
-            sheet["inn_rest_active_today"] = False
+        sheet["hunts_today"] = 0
+        from utils.ttrpg.progression import PERMANENT_CONDITIONS
+        old_conds = sheet.get("conditions", [])
+        sheet["conditions"] = [c for c in old_conds if c in PERMANENT_CONDITIONS]
 
-        # Clear ale temp HP condition on day reset
-        if "ale_warmth" in sheet.get("conditions", []):
-            sheet["conditions"].remove("ale_warmth")
-            sheet["hp"]["max"] = max(1, sheet["hp"]["max"] - 3)
-            sheet["hp"]["current"] = min(sheet["hp"]["current"], sheet["hp"]["max"])
-
-        # Clear ALL temporary event conditions on day reset
-        # Only preserve permanent/quest-flag conditions
-        conditions = sheet.get("conditions", [])
-        sheet["conditions"] = [c for c in conditions if c in PERMANENT_CONDITIONS]
-
-        # Housing daily reset
         from utils.ttrpg.housing import load_housing, save_housing
-        from utils.ttrpg.farming import reset_daily_farm
         from utils.ttrpg.pets import reset_daily_pets
+        from utils.ttrpg.farming import reset_daily_farm
 
-        housing = load_housing(str(sheet.get("user_id", "")))
+        if housing is None:
+            housing = load_housing(str(sheet.get("user_id", "")))
         if housing and housing.get("last_farm_reset") != today:
-            from utils.ttrpg.furniture import get_home_bonuses
-            home_bonuses = get_home_bonuses(housing)
-            if "interest_bonus" in home_bonuses:
-                interest_rate = home_bonuses["interest_bonus"]
-                bank = sheet.get("bank_balance", 0)
-                sheet["bank_balance"] = int(bank * (1.0 + interest_rate))
-                
             housing = reset_daily_farm(housing)
             housing = reset_daily_pets(housing)
             save_housing(housing)
-
+            
     return sheet
 
 
-def get_max_hunts(sheet: dict) -> int:
-    """Returns the maximum hunts available today, accounting for buffs."""
-    sheet = check_and_reset_hunts(sheet)
+def get_max_hunts(sheet: dict, housing: dict = None) -> int:
+    """Calculates the max hunts for a player, applying modifiers."""
+    # Base buffs
     ale_bonus = 1 if "ale_warmth" in sheet.get("conditions", []) else 0
-    rest_bonus = 1 if sheet.get("inn_rest_active_today") else 0
-
-    # Advanced class extra hunt (Ranger)
-    adv_class = sheet.get("advanced_class", "")
+    rest_bonus = 1 if "rested" in sheet.get("conditions", []) else 0
     class_hunt_bonus = 0
+    adv_class = sheet.get("advanced_class", "")
     if adv_class:
         from utils.ttrpg.class_advancement import ADVANCED_CLASSES
         for base_opts in ADVANCED_CLASSES.values():
@@ -148,9 +130,10 @@ def get_max_hunts(sheet: dict) -> int:
                 break
 
     # Pet bonus (chocobo chick)
-    from utils.ttrpg.housing import load_housing
     from utils.ttrpg.pets import get_pet_passive
-    housing = load_housing(str(sheet.get("user_id", "")))
+    if housing is None:
+        from utils.ttrpg.housing import load_housing
+        housing = load_housing(str(sheet.get("user_id", "")))
     pet_bonus = get_pet_passive(housing).get("extra_hunt", 0) if housing else 0
 
     # Items and random event temporary bonuses
@@ -161,8 +144,11 @@ def get_max_hunts(sheet: dict) -> int:
 
 def hunts_remaining(sheet: dict) -> int:
     """Returns how many hunts the player has left today."""
-    sheet = check_and_reset_hunts(sheet)
-    return max(0, get_max_hunts(sheet) - sheet.get("hunts_today", 0))
+    from utils.ttrpg.housing import load_housing
+    housing = load_housing(str(sheet.get("user_id", "")))
+    
+    sheet = check_and_reset_hunts(sheet, housing=housing)
+    return max(0, get_max_hunts(sheet, housing=housing) - sheet.get("hunts_today", 0))
 
 
 def get_character_title(sheet: dict) -> str:

@@ -144,7 +144,15 @@ def process_purchase(sheet: dict, item_key: str, quantity: int = 1, reputation: 
     cha_discount = min(0.10, max(0.0, cha_mod * 0.02))
     price_mult -= cha_discount
     
-    val = int(item["value"] * quantity * price_mult)
+    # Apply shop_special calendar override
+    from utils.ttrpg.calendar import get_special_day
+    special = get_special_day()
+    base_value = item["value"]
+    if special and "shop_special" in special and loc == "hemlocks_store":
+        if special["shop_special"].get("item") == real_key:
+            base_value = special["shop_special"].get("price", base_value)
+
+    val = int(base_value * quantity * price_mult)
     gil = sheet.get("gil", 0)
     
     if gil < val:

@@ -259,13 +259,23 @@ class CoreTaskManager:
                             sheet["conditions"] = new_conds
                             modified = True
                         
-                        # Bank Interest (2%, max 10g)
+                        # Bank Interest (2%, max 10g + bonus)
                         bank_bal = sheet.get("bank_balance", 0)
                         if bank_bal > 0:
-                            interest = min(10, int(bank_bal * 0.02))
-                            if interest > 0:
-                                sheet["bank_balance"] += interest
-                                total_interest += interest
+                            from utils.ttrpg.housing import load_housing
+                            housing_obj = load_housing(str(sheet.get("user_id", "")))
+                            interest_rate = 0.0
+                            if housing_obj:
+                                from utils.ttrpg.furniture import get_home_bonuses
+                                interest_rate = get_home_bonuses(housing_obj).get("interest_bonus", 0.0)
+                            
+                            base_interest = min(10, int(bank_bal * 0.02))
+                            bonus_interest = min(10, int(bank_bal * interest_rate)) if interest_rate > 0 else 0
+                            total_new_interest = base_interest + bonus_interest
+                            
+                            if total_new_interest > 0:
+                                sheet["bank_balance"] += total_new_interest
+                                total_interest += total_new_interest
                                 modified = True
                         
                         if modified:
@@ -277,32 +287,7 @@ class CoreTaskManager:
                     except Exception as e:
                         log_warning(f"[dawn] Failed to process {fname}: {e}")
 
-                # Moogle weekly delivery (fires on Monday)
-                from datetime import date
-                if date.today().weekday() == 0:  # Monday
-                    from utils.ttrpg.housing import load_all_housing
-                    from utils.ttrpg.pets import get_pet_passive, PET_REGISTRY
-                    from utils.ttrpg.loot_tables import get_loot
-                    all_housing = load_all_housing()
-                    for h in all_housing:
-                        pets = h.get("pets", [])
-                        for pet in pets:
-                            if pet["key"] == "moogle":
-                                last_deliv = pet.get("last_moogle_delivery", 0)
-                                elapsed_days = (time.time() - last_deliv) / 86400.0
-                                if elapsed_days > 5:
-                                    pet["last_moogle_delivery"] = time.time()
-                                    loot = get_loot("easy")
-                                    if loot:
-                                        h.setdefault("mailbox", []).append({
-                                            "from_name": "House Moogle",
-                                            "item": loot,
-                                            "gil": 0,
-                                            "timestamp": time.time()
-                                        })
-                                        from utils.ttrpg.housing import save_housing
-                                        save_housing(h)
-                                        break
+
 
                 # Build announcement
                 summary = get_today_summary()

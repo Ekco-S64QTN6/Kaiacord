@@ -167,7 +167,7 @@ class BiteView(discord.ui.View):
     """
 
     def __init__(self, ctx, uid: str, uname: str, is_owner: bool,
-                 fish_key: str, fish_weight: float, fish_value: int, reel_window: int):
+                 fish_key: str, fish_weight: float, fish_value: int, reel_window: int, bait_key: str):
         super().__init__(timeout=reel_window)
         self._ctx = ctx
         self._uid = uid
@@ -177,6 +177,7 @@ class BiteView(discord.ui.View):
         self._fish_weight = fish_weight
         self._fish_value = fish_value
         self._reel_window = reel_window
+        self._bait_key = bait_key
         self._reeled = False
         self._channel = None   # set by caller
 
@@ -232,15 +233,15 @@ class BiteView(discord.ui.View):
 
         sheet = add_to_fishing_bag(sheet, self._fish_key, self._fish_weight, self._fish_value)
 
-        # Consume 1 bait
+        # Consume 1 bait strictly tied to this cast
         fishing_stats = sheet.setdefault("fishing_stats", {})
         if "bait_count" in fishing_stats:
             old_bait = fishing_stats.get("bait", "earthworm")
             fishing_stats.setdefault("bait_stock", {})[old_bait] = fishing_stats.pop("bait_count", 0)
         bait_stock = fishing_stats.get("bait_stock", {})
-        current_bait = fishing_stats.get("bait", "earthworm")
-        if bait_stock.get(current_bait, 0) > 0:
-            bait_stock[current_bait] -= 1
+        
+        if bait_stock.get(self._bait_key, 0) > 0:
+            bait_stock[self._bait_key] -= 1
         fishing_stats["bait_stock"] = bait_stock
 
         # Check for pole breakage — all poles can snap, per-rod chance
@@ -320,9 +321,8 @@ class BiteView(discord.ui.View):
                     old_bait = fishing_stats.get("bait", "earthworm")
                     fishing_stats.setdefault("bait_stock", {})[old_bait] = fishing_stats.pop("bait_count", 0)
                 bait_stock = fishing_stats.get("bait_stock", {})
-                current_bait = fishing_stats.get("bait", "earthworm")
-                if bait_stock.get(current_bait, 0) > 0:
-                    bait_stock[current_bait] -= 1
+                if bait_stock.get(self._bait_key, 0) > 0:
+                    bait_stock[self._bait_key] -= 1
                 fishing_stats["bait_stock"] = bait_stock
                 await save(sheet)
                 view = FishingMenuView(self._ctx, self._uid, self._uname, self._is_owner, sheet)
@@ -555,7 +555,7 @@ async def _handle_cast(ctx, interaction: discord.Interaction, uid: str, uname: s
     channel = interaction.channel
     reel_view = BiteView(
         ctx, uid, uname, is_owner,
-        fish_key, fish_weight, fish_value, reel_window
+        fish_key, fish_weight, fish_value, reel_window, bait_key
     )
     reel_view._channel = channel
 
