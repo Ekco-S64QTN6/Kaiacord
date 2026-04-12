@@ -1,7 +1,7 @@
 WEAPONS = {
     # Tier 1
-    "rusty_dagger":   {"name": "Rusty Dagger",    "attack_bonus": 0, "damage_die": 4,  "damage_bonus": 0, "value": 12,   "tier": 1, "classes": ["Rogue", "Shadowblade", "Trickster", "Mage", "Wizard", "Necromancer", "Ranger", "Warden", "Hunter"]},
-    "wooden_club":    {"name": "Wooden Club",      "attack_bonus": 0, "damage_die": 4,  "damage_bonus": 0, "value": 8,   "tier": 1, "classes": ["Warrior", "Shadowknight", "Cleric", "High Priest", "Paladin", "Shaman"]},
+    "rusty_dagger":   {"name": "Rusty Dagger",    "attack_bonus": 0, "damage_die": 6,  "damage_bonus": 0, "value": 12,   "tier": 1, "classes": ["Rogue", "Shadowblade", "Trickster", "Mage", "Wizard", "Necromancer", "Ranger", "Warden", "Hunter"]},
+    "wooden_club":    {"name": "Wooden Club",      "attack_bonus": 0, "damage_die": 6,  "damage_bonus": 0, "value": 8,   "tier": 1, "classes": ["Warrior", "Shadowknight", "Cleric", "High Priest", "Paladin", "Shaman"]},
     "wooden_staff":   {"name": "Wooden Staff",    "attack_bonus": 1, "damage_die": 6,  "damage_bonus": 0, "value": 18,   "tier": 1, "classes": ["Mage", "Wizard", "Necromancer", "Cleric", "High Priest", "Shaman"]},
     "shortbow":       {"name": "Shortbow",         "attack_bonus": 1, "damage_die": 6,  "damage_bonus": 0, "value": 28,  "tier": 1, "classes": ["Ranger", "Warden", "Hunter", "Rogue", "Shadowblade", "Trickster"]},
     "rusty_hand_axe": {"name": "Rusty Hand Axe",   "attack_bonus": 1, "damage_die": 6,  "damage_bonus": 0, "value": 22,  "tier": 1, "classes": ["Warrior", "Paladin", "Shadowknight", "Ranger", "Warden", "Hunter"]},
@@ -9,7 +9,7 @@ WEAPONS = {
     "rusty_mace":     {"name": "Rusty Mace",       "attack_bonus": 1, "damage_die": 6,  "damage_bonus": 0, "value": 20,  "tier": 1, "classes": ["Cleric", "High Priest", "Shaman", "Warrior", "Paladin", "Shadowknight"]},
 
     # Tier 2
-    "iron_sword":     {"name": "Iron Sword",       "attack_bonus": 2, "damage_die": 6,  "damage_bonus": 2, "value": 260,  "tier": 2, "classes": ["Warrior", "Paladin", "Shadowknight", "Ranger", "Hunter", "Warden"]},
+    "iron_sword":     {"name": "Iron Sword",       "attack_bonus": 2, "damage_die": 8,  "damage_bonus": 2, "value": 260,  "tier": 2, "classes": ["Warrior", "Paladin", "Shadowknight", "Ranger", "Hunter", "Warden"]},
     "iron_staff":     {"name": "Iron-Shod Staff", "attack_bonus": 2, "damage_die": 8,  "damage_bonus": 2, "value": 255,  "tier": 2, "droppable_only": True, "classes": ["Mage", "Wizard", "Necromancer", "Cleric", "High Priest", "Shaman"]},
     "iron_spear":     {"name": "Iron Spear",       "attack_bonus": 2, "damage_die": 8,  "damage_bonus": 2, "value": 270,  "tier": 2, "droppable_only": True, "classes": ["Warrior", "Shadowknight", "Ranger", "Warden", "Hunter", "Paladin"]},
     "crossbow":       {"name": "Crossbow",         "attack_bonus": 3, "damage_die": 8,  "damage_bonus": 2, "value": 295,  "tier": 2, "droppable_only": True, "classes": ["Ranger", "Warden", "Hunter", "Rogue", "Shadowblade", "Trickster"]},
@@ -19,12 +19,12 @@ WEAPONS = {
 
     # Tier 3
     "steel_longsword":{"name": "Steel Longsword",  "attack_bonus": 4, "damage_die": 8,  "damage_bonus": 4, "value": 800,  "tier": 3, "droppable_only": True, "classes": ["Warrior", "Paladin", "Shadowknight"]},
-    "steel_dagger":   {"name": "Steel Dagger",     "attack_bonus": 5, "damage_die": 10, "damage_bonus": 4, "value": 950, "tier": 3, "droppable_only": True, "classes": ["Rogue", "Shadowblade", "Trickster", "Ranger", "Hunter", "Warden"]},
+    "steel_dagger":   {"name": "Steel Dagger",     "attack_bonus": 5, "damage_die": 8, "damage_bonus": 4, "value": 950, "tier": 3, "droppable_only": True, "classes": ["Rogue", "Shadowblade", "Trickster", "Ranger", "Hunter", "Warden"]},
     "flame_sword":    {"name": "Flame Sword",      "attack_bonus": 4, "damage_die": 8,  "damage_bonus": 4, "value": 870,  "tier": 3, "droppable_only": True, "classes": ["Warrior", "Paladin", "Shadowknight", "Mage", "Necromancer", "Wizard"],
                        "proc": {"name": "Engulfing Flames", "emoji": "🔥", "die": 4, "element": "fire"}},
     "ice_brand":      {"name": "Ice Brand",        "attack_bonus": 4, "damage_die": 8,  "damage_bonus": 4, "value": 895,  "tier": 3, "droppable_only": True, "classes": ["Warrior", "Paladin", "Shadowknight", "Mage", "Necromancer", "Wizard"],
                        "proc": {"name": "Frost Shock", "emoji": "❄️", "die": 4, "element": "ice"}},
-    "flame_scepter":  {"name": "Flame Scepter",    "attack_bonus": 5, "damage_die": 10, "damage_bonus": 4, "value": 980, "tier": 3, "classes": ["Mage", "Wizard", "Necromancer", "Cleric", "Shaman", "High Priest"],
+    "flame_scepter":  {"name": "Flame Scepter",    "attack_bonus": 5, "damage_die": 8, "damage_bonus": 4, "value": 980, "tier": 3, "classes": ["Mage", "Wizard", "Necromancer", "Cleric", "Shaman", "High Priest"],
                        "proc": {"name": "Scorching Bolt", "emoji": "🔥", "die": 4, "element": "fire"}},
     "ghoulbane":      {"name": "Ghoulbane",        "attack_bonus": 5, "damage_die": 8,  "damage_bonus": 4, "value": 1050, "tier": 3, "droppable_only": True, "classes": ["Warrior", "Shadowknight", "Paladin", "Cleric", "High Priest", "Shaman"],
                        "proc": {"name": "Spirit Strike", "emoji": "👻", "die": 4, "element": "holy"}},
@@ -36,19 +36,19 @@ WEAPONS = {
     # Tier 4
     "resonance_staff": {"name": "Resonance Staff", "attack_bonus": 5, "damage_die": 10, "damage_bonus": 6, "value": 1200, "tier": 4, "classes": ["Mage", "Cleric", "High Priest", "Shaman", "Wizard", "Necromancer"], "droppable_only": True},
     "resonance_bow":  {"name": "Resonance Bow",    "attack_bonus": 6, "damage_die": 10, "damage_bonus": 6, "value": 1250, "tier": 4, "droppable_only": True, "classes": ["Ranger", "Warden", "Hunter"]},
-    "aeridorian_axe": {"name": "Aeridorian Axe",   "attack_bonus": 7, "damage_die": 12, "damage_bonus": 6, "value": 1500, "tier": 4, "droppable_only": True, "classes": ["Warrior", "Paladin", "Shadowknight"]},
-    "masamune":       {"name": "Masamune",         "attack_bonus": 7, "damage_die": 12, "damage_bonus": 6, "value": 1700, "tier": 4, "classes": ["Warrior", "Paladin", "Shadowknight", "Rogue", "Trickster", "Shadowblade"], "droppable_only": True},
-    "fiery_avenger":  {"name": "Fiery Avenger",    "attack_bonus": 7, "damage_die": 12, "damage_bonus": 6, "value": 1400, "tier": 4, "droppable_only": True, "classes": ["Warrior", "Shadowknight", "Paladin"],
+    "aeridorian_axe": {"name": "Aeridorian Axe",   "attack_bonus": 7, "damage_die": 10, "damage_bonus": 6, "value": 1500, "tier": 4, "droppable_only": True, "classes": ["Warrior", "Paladin", "Shadowknight"]},
+    "masamune":       {"name": "Masamune",         "attack_bonus": 7, "damage_die": 10, "damage_bonus": 6, "value": 1700, "tier": 4, "classes": ["Warrior", "Paladin", "Shadowknight", "Rogue", "Trickster", "Shadowblade"], "droppable_only": True},
+    "fiery_avenger":  {"name": "Fiery Avenger",    "attack_bonus": 7, "damage_die": 10, "damage_bonus": 6, "value": 1400, "tier": 4, "droppable_only": True, "classes": ["Warrior", "Shadowknight", "Paladin"],
                        "proc": {"name": "Flames of Virtue", "emoji": "🔥", "die": 6, "element": "fire"}},
-    "blood_sword":    {"name": "Blood Sword",      "attack_bonus": 6, "damage_die": 8,  "damage_bonus": 6, "value": 1300, "tier": 4, "classes": ["Warrior", "Paladin", "Shadowknight"], "droppable_only": True,
+    "blood_sword":    {"name": "Blood Sword",      "attack_bonus": 6, "damage_die": 10,  "damage_bonus": 6, "value": 1300, "tier": 4, "classes": ["Warrior", "Paladin", "Shadowknight"], "droppable_only": True,
                        "proc": {"name": "Blood Leech", "emoji": "🩸", "die": 6, "element": "drain"}},
     "shining_staff":  {"name": "Shining Staff",    "attack_bonus": 6, "damage_die": 10, "damage_bonus": 6, "value": 1300, "tier": 4, "classes": ["Mage", "Necromancer", "Cleric", "Shaman", "Wizard", "High Priest"], "droppable_only": True},
     "yoichi_bow":     {"name": "Yoichi Bow",       "attack_bonus": 6, "damage_die": 10, "damage_bonus": 6, "value": 1400, "tier": 4, "droppable_only": True, "classes": ["Ranger", "Warden", "Hunter"]},
     "sun_blade":      {"name": "Sun Blade",        "attack_bonus": 6, "damage_die": 10, "damage_bonus": 6, "value": 1800, "tier": 4, "droppable_only": True, "classes": ["Warrior", "Shadowknight", "Paladin"],
                        "proc": {"name": "Sunfire", "emoji": "☀️", "die": 6, "element": "holy"}},
-    "ykesha_sword":   {"name": "Sword of Ykesha",  "attack_bonus": 6, "damage_die": 8,  "damage_bonus": 6, "value": 1250, "tier": 4, "droppable_only": True, "classes": ["Warrior", "Paladin", "Shadowknight"],
+    "ykesha_sword":   {"name": "Sword of Ykesha",  "attack_bonus": 6, "damage_die": 10,  "damage_bonus": 6, "value": 1250, "tier": 4, "droppable_only": True, "classes": ["Warrior", "Paladin", "Shadowknight"],
                        "proc": {"name": "Ykesha's Curse", "emoji": "🟣", "die": 6, "element": "shadow"}},
-    "disruption_mace":{"name": "Mace of Disruption","attack_bonus": 6, "damage_die": 8,  "damage_bonus": 6, "value": 1500, "tier": 4, "droppable_only": True, "classes": ["Cleric", "Shaman", "Paladin", "High Priest"],
+    "disruption_mace":{"name": "Mace of Disruption","attack_bonus": 6, "damage_die": 10,  "damage_bonus": 6, "value": 1500, "tier": 4, "droppable_only": True, "classes": ["Cleric", "Shaman", "Paladin", "High Priest"],
                        "proc": {"name": "Disruption", "emoji": "💥", "die": 6, "element": "holy"}},
 
     # Tier 5
@@ -58,9 +58,9 @@ WEAPONS = {
                        "proc": {"name": "Holy Wrath", "emoji": "✨", "die": 8, "element": "holy"}},
     "vorpal_sword":   {"name": "Vorpal Sword",     "attack_bonus": 10,"damage_die": 12, "damage_bonus": 8, "value": 2833, "tier": 5, "classes": ["Warrior", "Paladin", "Shadowknight", "Rogue", "Trickster", "Shadowblade"], "droppable_only": True,
                        "proc": {"name": "Vorpal Strike", "emoji": "⚡", "die": 8, "element": "vorpal"}},
-    "staff_magi":     {"name": "Staff of the Magi","attack_bonus": 8, "damage_die": 10, "damage_bonus": 8, "value": 3750, "tier": 5, "classes": ["Mage", "Wizard", "Necromancer"], "droppable_only": True,
+    "staff_magi":     {"name": "Staff of the Magi","attack_bonus": 8, "damage_die": 12, "damage_bonus": 8, "value": 3750, "tier": 5, "classes": ["Mage", "Wizard", "Necromancer"], "droppable_only": True,
                        "proc": {"name": "Arcane Blast", "emoji": "🔮", "die": 8, "element": "arcane"}},
-    "stardust_rod":   {"name": "Stardust Rod",     "attack_bonus": 9, "damage_die": 10, "damage_bonus": 8, "value": 3750, "tier": 5, "classes": ["Mage", "Wizard", "Necromancer"], "droppable_only": True,
+    "stardust_rod":   {"name": "Stardust Rod",     "attack_bonus": 9, "damage_die": 12, "damage_bonus": 8, "value": 3750, "tier": 5, "classes": ["Mage", "Wizard", "Necromancer"], "droppable_only": True,
                        "proc": {"name": "Cosmic Resonance", "emoji": "🌠", "die": 10, "element": "arcane"}},
     "soulfire":       {"name": "Soulfire",         "attack_bonus": 9, "damage_die": 10, "damage_bonus": 8, "value": 2666, "tier": 5, "classes": ["Paladin"], "droppable_only": True,
                        "proc": {"name": "Soulfire Blaze", "emoji": "🔥", "die": 8, "element": "fire"}},
@@ -79,43 +79,43 @@ WEAPONS = {
 
     # Tier 1
     "rusted_greatsword": {
-        "name": "Rusted Greatsword", "attack_bonus": 1, "damage_die": 8,
+        "name": "Rusted Greatsword", "attack_bonus": 1, "damage_die": 6,
         "damage_bonus": 0, "value": 20, "tier": 1,
         "classes": ["Warrior", "Paladin", "Shadowknight"],
     },
 
     # Tier 2
     "iron_greatsword": {
-        "name": "Iron Greatsword", "attack_bonus": 2, "damage_die": 10,
+        "name": "Iron Greatsword", "attack_bonus": 2, "damage_die": 6,
         "damage_bonus": 2, "value": 285, "tier": 2,
         "classes": ["Warrior", "Paladin", "Shadowknight"],
     },
     "iron_halberd": {
-        "name": "Iron Halberd", "attack_bonus": 2, "damage_die": 10,
+        "name": "Iron Halberd", "attack_bonus": 2, "damage_die": 6,
         "damage_bonus": 2, "value": 275, "tier": 2,
         "classes": ["Warrior", "Paladin", "Shadowknight"],
     },
 
     # Tier 3
     "steel_greatsword": {
-        "name": "Steel Greatsword", "attack_bonus": 4, "damage_die": 10,
+        "name": "Steel Greatsword", "attack_bonus": 4, "damage_die": 8,
         "damage_bonus": 4, "value": 845, "tier": 3,
         "classes": ["Warrior", "Paladin", "Shadowknight"],
     },
     "war_halberd": {
-        "name": "War Halberd", "attack_bonus": 4, "damage_die": 10,
+        "name": "War Halberd", "attack_bonus": 4, "damage_die": 8,
         "damage_bonus": 4, "value": 870, "tier": 3,
         "classes": ["Warrior", "Paladin", "Shadowknight"], "droppable_only": True,
     },
 
     # Tier 4
     "aeridorian_greatsword": {
-        "name": "Aeridorian Greatsword", "attack_bonus": 7, "damage_die": 12,
+        "name": "Aeridorian Greatsword", "attack_bonus": 7, "damage_die": 10,
         "damage_bonus": 6, "value": 1500, "tier": 4,
         "classes": ["Warrior", "Shadowknight", "Paladin"], "droppable_only": True,
     },
     "champion_spear": {
-        "name": "Champion's Spear", "attack_bonus": 6, "damage_die": 12,
+        "name": "Champion's Spear", "attack_bonus": 6, "damage_die": 10,
         "damage_bonus": 6, "value": 1350, "tier": 4,
         "classes": ["Warrior", "Paladin", "Shadowknight"], "droppable_only": True,
     },
@@ -144,7 +144,7 @@ WEAPONS = {
         "classes": ["Ranger", "Hunter", "Warden", "Rogue", "Shadowblade", "Trickster"],
     },
     "skinning_knife": {
-        "name": "Skinning Knife", "attack_bonus": 0, "damage_die": 4,
+        "name": "Skinning Knife", "attack_bonus": 0, "damage_die": 6,
         "damage_bonus": 0, "value": 14, "tier": 1,
         "classes": ["Ranger", "Hunter", "Warden"],
     },
@@ -163,7 +163,7 @@ WEAPONS = {
 
     # Tier 3
     "whisperwood_recurve": {
-        "name": "Whisperwood Recurve", "attack_bonus": 5, "damage_die": 10,
+        "name": "Whisperwood Recurve", "attack_bonus": 5, "damage_die": 8,
         "damage_bonus": 4, "value": 820, "tier": 3, "droppable_only": True,
         "classes": ["Ranger", "Hunter", "Warden"],
     },
@@ -180,7 +180,7 @@ WEAPONS = {
         "classes": ["Ranger", "Warden", "Hunter"],
     },
     "moonbow": {
-        "name": "Moonbow", "attack_bonus": 7, "damage_die": 12,
+        "name": "Moonbow", "attack_bonus": 7, "damage_die": 10,
         "damage_bonus": 6, "value": 1600, "tier": 4,
         "classes": ["Ranger", "Warden", "Hunter"], "droppable_only": True,
     },
@@ -203,7 +203,7 @@ WEAPONS = {
         "classes": ["Mage", "Wizard", "Necromancer"],
     },
     "novice_focus": {
-        "name": "Novice Focus", "attack_bonus": 0, "damage_die": 4,
+        "name": "Novice Focus", "attack_bonus": 0, "damage_die": 6,
         "damage_bonus": 0, "value": 12, "tier": 1,
         "classes": ["Mage", "Wizard", "Necromancer", "Cleric", "High Priest", "Shaman"],
     },
@@ -234,19 +234,19 @@ WEAPONS = {
 
     # Tier 4
     "void_orb": {
-        "name": "Void Orb", "attack_bonus": 6, "damage_die": 12,
+        "name": "Void Orb", "attack_bonus": 6, "damage_die": 10,
         "damage_bonus": 6, "value": 1400, "tier": 4,
         "classes": ["Mage", "Wizard", "Necromancer"], "droppable_only": True,
     },
     "the_whispering_wand": {
-        "name": "The Whispering Wand", "attack_bonus": 6, "damage_die": 12,
+        "name": "The Whispering Wand", "attack_bonus": 6, "damage_die": 10,
         "damage_bonus": 6, "value": 1550, "tier": 4,
         "classes": ["Mage", "Necromancer", "Wizard"], "droppable_only": True,
     },
 
     # Tier 5
     "null_scepter": {
-        "name": "Null Scepter", "attack_bonus": 9, "damage_die": 12,
+        "name": "Null Scepter", "attack_bonus": 9, "damage_die": 10,
         "damage_bonus": 8, "value": 3900, "tier": 5, "droppable_only": True,
         "classes": ["Mage", "Wizard", "Necromancer"],
         "proc": {"name": "Null Void", "emoji": "🌑", "die": 8, "element": "void"},
@@ -258,12 +258,12 @@ WEAPONS = {
 
     # Tier 1
     "shiv": {
-        "name": "Shiv", "attack_bonus": 0, "damage_die": 4,
+        "name": "Shiv", "attack_bonus": 0, "damage_die": 6,
         "damage_bonus": 0, "value": 8, "tier": 1,
         "classes": ["Rogue", "Shadowblade", "Trickster"],
     },
     "throwing_knife": {
-        "name": "Throwing Knife", "attack_bonus": 1, "damage_die": 4,
+        "name": "Throwing Knife", "attack_bonus": 1, "damage_die": 6,
         "damage_bonus": 0, "value": 14, "tier": 1,
         "classes": ["Rogue", "Shadowblade", "Trickster", "Ranger", "Hunter", "Warden"],
     },
@@ -275,14 +275,14 @@ WEAPONS = {
         "classes": ["Rogue", "Shadowblade", "Trickster"], "droppable_only": True,
     },
     "assassin_stiletto": {
-        "name": "Assassin's Stiletto", "attack_bonus": 2, "damage_die": 6,
+        "name": "Assassin's Stiletto", "attack_bonus": 2, "damage_die": 8,
         "damage_bonus": 2, "value": 272, "tier": 2, "droppable_only": True,
         "classes": ["Rogue", "Shadowblade", "Trickster"],
     },
 
     # Tier 3
     "gutting_knife": {
-        "name": "Gutting Knife", "attack_bonus": 5, "damage_die": 10,
+        "name": "Gutting Knife", "attack_bonus": 5, "damage_die": 8,
         "damage_bonus": 4, "value": 975, "tier": 3,
         "classes": ["Rogue", "Shadowblade", "Trickster"], "droppable_only": True,
     },
@@ -359,7 +359,7 @@ WEAPONS = {
 
     # Tier 4
     "dawn_hammer": {
-        "name": "Dawn Hammer", "attack_bonus": 6, "damage_die": 12,
+        "name": "Dawn Hammer", "attack_bonus": 6, "damage_die": 10,
         "damage_bonus": 6, "value": 1450, "tier": 4, "droppable_only": True,
         "classes": ["Cleric", "Shaman", "Paladin", "High Priest"],
     },

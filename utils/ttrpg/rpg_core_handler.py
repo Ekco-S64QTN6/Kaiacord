@@ -1104,6 +1104,7 @@ async def _handle_weather(ctx, msg, send, rest, uid, uname, is_owner):
 async def _handle_inventory(ctx, msg, send, rest, uid, uname, is_owner):
     from utils.ttrpg.shop import find_item
     from utils.ttrpg.equipment_registry import WEAPONS, ARMOR as ARMOR_REG, HEADGEAR, BOOTS, ACCESSORIES
+    from collections import Counter
 
     sheet = await load(uid)
     if not sheet: return
@@ -1123,7 +1124,6 @@ async def _handle_inventory(ctx, msg, send, rest, uid, uname, is_owner):
         f"💍 {_eq_name(eq.get('accessory'), ACCESSORIES)}"
     )
 
-    # ── Inventory items ──────────────────────────────────────────────────────
     inventory = sheet.get("inventory", [])
     if not inventory:
         embed = discord.Embed(
@@ -1136,110 +1136,142 @@ async def _handle_inventory(ctx, msg, send, rest, uid, uname, is_owner):
         await msg.channel.send(embed=embed, view=view)
         return
 
-    lines = []
-    
-    from collections import Counter
+    # ── Categorize inventory ─────────────────────────────────────────────────
+    GEAR_SLOTS = [
+        ("weapon",    "🗡️ WEAPONS"),
+        ("armor",     "🛡️ ARMOR"),
+        ("head",      "🪖 HEAD"),
+        ("boots",     "👢 BOOTS"),
+        ("accessory", "💍 ACCESSORIES"),
+    ]
+    SLOT_PREFIX = {k: label for k, label in GEAR_SLOTS}
+
+    sections: dict[str, list[str]] = {k: [] for k, _ in GEAR_SLOTS}
+    consumable_lines: list[str] = []
+    misc_lines: list[str] = []
+
     inv_counts = Counter(inventory)
-    
-    for key, count in inv_counts.items():
+
+    for key, count in sorted(inv_counts.items(), key=lambda kv: (find_item(kv[0]) or {}).get("name", kv[0])):
         if key == "symbol_of_the_silent_ones":
             continue
-            
+
         item = find_item(key)
-        count_str = f" x{count}" if count > 1 else ""
+        count_str = f" ×{count}" if count > 1 else ""
+
         if item:
-            category = item["category"]
-            if category == "consumable":
-                if item.get("on_use") == "starter_kit":
-                    lines.append(f"**{item['name']}**{count_str} — {item.get('description', 'starter pack type !rpg use pack to open')}")
-                else:
-                    val = item.get("value", 0)
-                    hp = item.get("hp_restore", 0)
-                    if item.get("on_use") == "cure_poison":
-                        effect = "Cures poison"
-                    elif item.get("on_use") == "cure_blind":
-                        effect = "Cures blindness"
-                    elif item.get("on_use") == "luck_roll_bonus":
-                        effect = "Grants luck"
-                    elif item.get("on_use") == "xp_boost":
-                        effect = "+25% XP next hunt"
-                    elif item.get("on_use") == "hunt_bonus":
-                        effect = "+1 bonus hunt"
-                    elif item.get("on_use") == "atk_boost":
-                        effect = "+2 ATK (1 combat)"
-                    elif item.get("on_use") == "def_boost":
-                        effect = "+2 DEF (1 combat)"
-                    elif "description" in item and hp == 0:
-                        effect = item["description"]
-                    else:
-                        effect = f"Restores {hp} HP"
-                        
-                    lines.append(f"**{item['name']}**{count_str} — {effect} *(sell: {val // 2}g)*")
-            elif category == "weapon":
+            cat = item["category"]
+
+            if cat == "weapon":
                 proc_str = ""
                 proc_data = item.get("proc")
                 if proc_data:
-                    proc_str = f"  |  Effect: {proc_data.get('emoji', '⚡')}{proc_data['name']}"
-                lines.append(f"**{item['name']}**{count_str} — +{item['attack_bonus']} ATK, d{item['damage_die']}{proc_str}  *(sell: {item['value'] // 2}g)*")
-            elif category in ("armor", "head", "boots"):
-                lines.append(f"**{item['name']}**{count_str} — +{item['defense_bonus']} DEF  *(sell: {item['value'] // 2}g)*")
-            elif category == "accessory":
+                    proc_str = f"  {proc_data.get('emoji','⚡')}{proc_data['name']}"
+                class_tag = _get_class_abbr_string(item)
+                line = (
+                    f"**{item['name']}**{count_str} — "
+                    f"+{item['attack_bonus']} ATK, d{item['damage_die']}{proc_str}{class_tag}  "
+                    f"*(sell: {item['value'] // 2}g)*"
+                )
+                sections["weapon"].append(line)
+
+            elif cat == "armor":
+                class_tag = _get_class_abbr_string(item)
+                line = f"**{item['name']}**{count_str} — +{item['defense_bonus']} DEF{class_tag}  *(sell: {item['value'] // 2}g)*"
+                sections["armor"].append(line)
+
+            elif cat == "head":
+                class_tag = _get_class_abbr_string(item)
+                line = f"**{item['name']}**{count_str} — +{item['defense_bonus']} DEF{class_tag}  *(sell: {item['value'] // 2}g)*"
+                sections["head"].append(line)
+
+            elif cat == "boots":
+                class_tag = _get_class_abbr_string(item)
+                line = f"**{item['name']}**{count_str} — +{item['defense_bonus']} DEF{class_tag}  *(sell: {item['value'] // 2}g)*"
+                sections["boots"].append(line)
+
+            elif cat == "accessory":
                 atk = item.get("attack_bonus", 0)
                 dfs = item.get("defense_bonus", 0)
                 stat_parts = []
                 if dfs: stat_parts.append(f"+{dfs} DEF")
                 if atk: stat_parts.append(f"+{atk} ATK")
                 stat_str = ", ".join(stat_parts) if stat_parts else "cosmetic"
-                lines.append(f"**{item['name']}**{count_str} — {stat_str}  *(sell: {item['value'] // 2}g)*")
+                class_tag = _get_class_abbr_string(item)
+                line = f"**{item['name']}**{count_str} — {stat_str}{class_tag}  *(sell: {item['value'] // 2}g)*"
+                sections["accessory"].append(line)
+
+            elif cat == "consumable":
+                val = item.get("value", 0)
+                effect_str = _get_item_effect_string(item)
+                # Helper returns " — effect", we want to strip the " — " prefix for the log if possible or just use it consistently.
+                # Actually _get_item_effect_string returns " — restores 30 HP".
+                # The log format was "**name** — effect".
+                effect = effect_str.lstrip(" — ")
+                consumable_lines.append(f"**{item['name']}**{count_str} — {effect}  *(sell: {val // 2}g)*")
             else:
-                lines.append(f"**{item['name']}**{count_str}")
+                misc_lines.append(f"**{item['name']}**{count_str}")
         else:
-            # Unknown/lore item — show raw with note
             display = key.replace("_", " ").title()
-            lines.append(f"**{display}**{count_str} — *sell to Hemlock to find out*")
+            misc_lines.append(f"**{display}**{count_str} — *sell to Hemlock to find out*")
 
-    # ── Character-budget pagination ──────────────────────────────────────────
+    # ── Build ordered section blocks ─────────────────────────────────────────
+    section_blocks: list[tuple[str, list[str]]] = []
+    for slot_key, slot_label in GEAR_SLOTS:
+        if sections[slot_key]:
+            section_blocks.append((slot_label, sections[slot_key]))
+    if consumable_lines:
+        section_blocks.append(("🧪 CONSUMABLES", consumable_lines))
+    if misc_lines:
+        section_blocks.append(("📦 MISC", misc_lines))
+
+    # ── Pagination (keep sections whole where possible) ───────────────────────
     header = f"**Equipped:**\n{equipped_lines}\n\n"
-    # Reserve room for header + page indicator + safety margin
     MAX_DESC = 4096
-    HEADER_BUDGET = len(header) + 60          # 60 chars for "**Backpack (Page X/Y):**\n"
-    BODY_BUDGET   = MAX_DESC - HEADER_BUDGET  # chars available for item lines
+    HEADER_BUDGET = len(header) + 60
+    BODY_BUDGET = MAX_DESC - HEADER_BUDGET
 
-    pages: list[list[str]] = []
-    current_page: list[str] = []
+    pages: list[list[tuple[str, list[str]]]] = []
+    current_page: list[tuple[str, list[str]]] = []
     current_len = 0
-    for line in lines:
-        # +1 for the "\n" joining character
-        line_cost = len(line) + 1
-        if current_page and current_len + line_cost > BODY_BUDGET:
+
+    for sect_name, sect_lines in section_blocks:
+        block_text = f"**{sect_name}**\n" + "\n".join(sect_lines) + "\n\n"
+        cost = len(block_text)
+        if current_page and current_len + cost > BODY_BUDGET:
             pages.append(current_page)
             current_page = []
             current_len = 0
-        current_page.append(line)
-        current_len += line_cost
+        current_page.append((sect_name, sect_lines))
+        current_len += cost
+
     if current_page:
         pages.append(current_page)
     if not pages:
         pages = [[]]
 
     async def _send_page(page_idx, interaction=None):
-        desc = header + "**Backpack**"
+        desc = header
         if len(pages) > 1:
-            desc += f" (Page {page_idx+1}/{len(pages)})"
-        desc += ":\n"
+            desc += f"*Page {page_idx + 1}/{len(pages)}*\n\n"
 
         if pages[page_idx]:
-            desc += "\n".join(pages[page_idx])
+            for sect_name, sect_lines in pages[page_idx]:
+                desc += f"**{sect_name}**\n"
+                desc += "\n".join(sect_lines)
+                desc += "\n\n"
         else:
             desc += "*Backpack is empty.*"
 
         embed = discord.Embed(
             title="🎒 Inventory",
-            description=desc,
+            description=desc.rstrip(),
             color=0x8b7355
         )
-        view = _make_inventory_view(ctx, msg, uid, uname, is_owner, inventory, page_idx, len(pages), _send_page)
-
+        view = _make_inventory_view(
+            ctx, msg, uid, uname, is_owner, inventory,
+            page_idx, len(pages), _send_page
+        )
         if interaction:
             await interaction.message.edit(embed=embed, view=view)
         else:

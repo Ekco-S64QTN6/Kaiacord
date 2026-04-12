@@ -56,7 +56,8 @@ __all__ = [
     'DungeonView', 'DungeonCombatView', 'MailMenuView', 'MailSendView', 'GilModal', 
     'ConsumableQuantityView', 'ConsumablePurchaseModal', 'RenameHouseModal', 
     '_get_active_view', '_make_status_btn', '_make_home_btn', '_make_status_view', 
-    '_make_map_view', '_make_shop_view', 'LOCATION_COLORS'
+    '_make_map_view', '_make_shop_view', 'LOCATION_COLORS', '_get_class_abbr_string',
+    '_get_item_effect_string'
 ]
 
 
@@ -142,6 +143,47 @@ async def _send_dungeon_room(*args, **kwargs):
 def _dungeon_room_color(*args, **kwargs):
     from utils.ttrpg.rpg_combat_handler import _dungeon_room_color as _f
     return _f(*args, **kwargs)
+
+def _get_class_abbr_string(item):
+    """Return an explicit class requirement string, e.g. [WAR/PAL/SHD]."""
+    classes = item.get("classes")
+    if not classes:
+        return ""
+    MAP = {
+        "Warrior": "WAR", "Paladin": "PAL", "Shadowknight": "SHD",
+        "Ranger": "RGR", "Hunter": "HTR", "Warden": "WRD",
+        "Mage": "MAG", "Wizard": "WIZ", "Necromancer": "NEC",
+        "Rogue": "ROG", "Shadowblade": "SHB", "Trickster": "TRK",
+        "Cleric": "CLR", "High Priest": "HPR", "Shaman": "SHM"
+    }
+    abbrs = [MAP.get(c, c[:3].upper()) for c in classes]
+    if not abbrs: return ""
+    return f" [{'/'.join(abbrs)}]"
+
+def _get_item_effect_string(item):
+    """Return a short description of what a consumable or item does."""
+    if item.get("category") != "consumable":
+        return ""
+    hp = item.get("hp_restore", 0)
+    on_use = item.get("on_use", "")
+    USE_LABELS = {
+        "starter_kit":     "open for items",
+        "cure_poison":     "cures poison",
+        "cure_blind":      "cures blindness",
+        "luck_roll_bonus": "+1 next hit",
+        "xp_boost":        "+25% XP next hunt",
+        "hunt_bonus":      "+1 bonus hunt",
+        "atk_boost":       "+2 ATK (1 combat)",
+        "def_boost":       "+2 DEF (1 combat)",
+    }
+    if on_use in USE_LABELS:
+        effect = USE_LABELS[on_use]
+    elif "description" in item and hp == 0:
+        effect = item["description"]
+    else:
+        effect = f"restores {hp} HP"
+    return f" — {effect}"
+
 
 async def _handle_rumor(*args, **kwargs):
     from utils.ttrpg.rpg_core_handler import _handle_rumor as _f
@@ -840,104 +882,161 @@ def _make_status_btn(ctx, uid, uname, is_owner, row=None):
 
 
 async def _make_shop_view(ctx, msg, uid, uname, is_owner, items, sheet=None):
-    """Return a View with Buy and Sell select menus."""
+    """Return a View with categorized Buy (gear / consumable) and Sell select menus."""
     from utils.ttrpg.shop import find_item
     from collections import Counter
+    from utils.ttrpg.calendar import get_special_day
 
     view = discord.ui.View(timeout=120)
 
-    # ── Buy menus (Rows 0-1) ────────────────────────────────────────
-    # Cap at 2 buy rows (50 items) to guarantee room for sell + buyback
-    # dropdowns + a button row within Discord's 5 action-row limit.
-    # Sort items by display name for a stable, alphabetical list
-    items = sorted(items, key=lambda k: (find_item(k) or {}).get("name", k))
-    chunks = [items[i:i + 25] for i in range(0, len(items), 25)]
-    
+    SLOT_PREFIX = {
+        "weapon":    "[Weapon]",
+        "armor":     "[Armor]",
+        "head":      "[Head]",
+        "boots":     "[Boots]",
+        "accessory": "[Accessory]",
+    }
+
+    special = get_special_day()
+    sheet = sheet or await load(uid)
+    loc = sheet.get("location", "hemlocks_store") if sheet else "hemlocks_store"
+
+    def _ui_price(item_key, base_value):
+        if special and "shop_special" in special and loc == "hemlocks_store":
+            if special["shop_special"].get("item") == item_key:
+                return special["shop_special"].get("price", base_value)
+        return base_value
+
+    # ── Separate items into gear vs consumables ───────────────────────────────
+    items_sorted = sorted(items, key=lambda k: (find_item(k) or {}).get("name", k))
+    gear_items = []
+    consumable_items = []
+    for item_key in items_sorted:
+        item = find_item(item_key)
+        if not item:
+            continue
+        if item["category"] == "consumable":
+            consumable_items.append(item_key)
+        elif item["category"] in ("weapon", "armor", "head", "boots", "accessory"):
+            gear_items.append(item_key)
+
     current_row = 0
-    for chunk in chunks:
-        if current_row >= 2: break  # Max 2 buy rows (50 items)
+
+    # ── Gear buy selects (rows 0–1, max 50 items) ─────────────────────────────
+    gear_chunks = [gear_items[i:i + 25] for i in range(0, len(gear_items), 25)]
+    for chunk in gear_chunks:
+        if current_row >= 2:
+            break
         options = []
         for item_key in chunk:
             item = find_item(item_key)
-            if not item: continue
-            
-            # Apply shop_special calendar override for UI accuracy
-            from utils.ttrpg.calendar import get_special_day
-            special = get_special_day()
-            ui_value = item['value']
-            loc = sheet.get("location", "hemlocks_store") if sheet else "hemlocks_store"
-            if special and "shop_special" in special and loc == "hemlocks_store":
-                if special["shop_special"].get("item") == item_key:
-                    ui_value = special["shop_special"].get("price", ui_value)
-                    
-            label = f"{item['name']} ({ui_value}g)"
+            if not item:
+                continue
+            price = _ui_price(item_key, item["value"])
+            prefix = SLOT_PREFIX.get(item["category"], "")
+            class_tag = _get_class_abbr_string(item)
+            label = f"{prefix} {item['name']} ({price}g){class_tag}"
             options.append(discord.SelectOption(label=label[:100], value=item_key))
 
         if options:
-            placeholder = "🛒 Buy an item..." if current_row == 0 else "🛒 Buy (continued)..."
-            buy_select = discord.ui.Select(
+            placeholder = "⚔️ Buy gear..." if current_row == 0 else "⚔️ Buy gear (more)..."
+            buy_gear_sel = discord.ui.Select(
                 placeholder=placeholder, options=options[:25], row=current_row
             )
-            async def _buy_cb(interaction: discord.Interaction):
+            async def _buy_gear_cb(interaction: discord.Interaction):
                 if str(interaction.user.id) != uid:
                     await interaction.response.send_message("```\nnot your menu.\n```", ephemeral=True)
                     return
                 chosen = interaction.data["values"][0]
+                await interaction.response.defer()
+                fake_msg = _InteractionMsg(interaction)
+                send_fn = _make_interaction_send(interaction)
+                await _handle_buy(ctx, fake_msg, send_fn, chosen, uid, uname, is_owner)
+            buy_gear_sel.callback = _buy_gear_cb
+            view.add_item(buy_gear_sel)
+            current_row += 1
 
-                # Consumables get a quantity picker instead of an immediate purchase
+    # ── Consumable buy select (one row, quantity picker) ──────────────────────
+    if consumable_items and current_row < 3:
+        cons_options = []
+        for item_key in consumable_items[:25]:
+            item = find_item(item_key)
+            if not item:
+                continue
+            price = _ui_price(item_key, item["value"])
+            label = f"🧪 {item['name']} ({price}g){_get_item_effect_string(item)}"
+            cons_options.append(discord.SelectOption(label=label[:100], value=item_key))
+
+        if cons_options:
+            buy_cons_sel = discord.ui.Select(
+                placeholder="🧪 Buy consumables...", options=cons_options, row=current_row
+            )
+            async def _buy_cons_cb(interaction: discord.Interaction):
+                if str(interaction.user.id) != uid:
+                    await interaction.response.send_message("```\nnot your menu.\n```", ephemeral=True)
+                    return
+                chosen = interaction.data["values"][0]
                 item = find_item(chosen)
                 if item and item.get("category") == "consumable":
                     s = await load(uid)
                     on_hand = s.get("gil", 0) if s else 0
-                    
-                    # Apply shop_special calendar override for UI accuracy
-                    from utils.ttrpg.calendar import get_special_day
-                    special = get_special_day()
-                    ui_value = item['value']
-                    loc = s.get("location", "hemlocks_store") if s else "hemlocks_store"
-                    if special and "shop_special" in special and loc == "hemlocks_store":
-                        if special["shop_special"].get("item") == chosen:
-                            ui_value = special["shop_special"].get("price", ui_value)
-                            
+                    ui_value = _ui_price(chosen, item["value"])
+                    embed_desc = (
+                        f"**{ui_value}g each**\n"
+                        f"You have **{on_hand}g** on hand.\n\n"
+                        f"*{item.get('description', '')}*"
+                        if item.get("description") else
+                        f"**{ui_value}g each** — You have **{on_hand}g** on hand."
+                    )
                     embed = discord.Embed(
                         title=f"🧪 {item['name']}",
-                        description=(
-                            f"**{ui_value}g each**\n"
-                            f"You have **{on_hand}g** on hand.\n\n"
-                            f"*{item.get('description', '')}*" if item.get("description") else
-                            f"**{ui_value}g each** — You have **{on_hand}g** on hand."
-                        ),
+                        description=embed_desc,
                         color=0x44aa44
                     )
                     qty_view = ConsumableQuantityView(ctx, msg, uid, uname, is_owner, chosen, item)
                     await interaction.response.send_message(embed=embed, view=qty_view, ephemeral=True)
                     return
-
-                # Non-consumable gear: proceed as normal
                 await interaction.response.defer()
                 fake_msg = _InteractionMsg(interaction)
                 send_fn = _make_interaction_send(interaction)
                 await _handle_buy(ctx, fake_msg, send_fn, chosen, uid, uname, is_owner)
-            buy_select.callback = _buy_cb
-            view.add_item(buy_select)
+            buy_cons_sel.callback = _buy_cons_cb
+            view.add_item(buy_cons_sel)
             current_row += 1
 
-    # ── Sell menu (Row dependent) — built from player's current inventory ─────
-    sheet = sheet or await load(uid)
+    # ── Sell select — gear first (slot-prefixed), then consumables ────────────
     if sheet and sheet.get("inventory"):
         inv_counts = Counter(sheet["inventory"])
-        sell_options = []
-        for item_key, count in sorted(inv_counts.items(), key=lambda kv: (find_item(kv[0]) or {}).get("name", kv[0])):
-            item = find_item(item_key)
-            if not item: continue
-            sell_val = max(1, item["value"] // 2)
-            label = f"{item['name']} x{count} ({sell_val}g ea)" if count > 1 else f"{item['name']} ({sell_val}g)"
-            sell_options.append(discord.SelectOption(label=label[:100], value=item_key))
+        gear_sell_opts = []
+        cons_sell_opts = []
 
-        if sell_options:
-            sell_select = discord.ui.Select(
+        for item_key, count in sorted(
+            inv_counts.items(),
+            key=lambda kv: (find_item(kv[0]) or {}).get("name", kv[0])
+        ):
+            item = find_item(item_key)
+            if not item:
+                continue
+            sell_val = max(1, item["value"] // 2)
+            count_tag = f" ×{count}" if count > 1 else ""
+            base_label = f"{item['name']}{count_tag} ({sell_val}g ea)" if count > 1 else f"{item['name']} ({sell_val}g)"
+
+            if item["category"] in ("weapon", "armor", "head", "boots", "accessory"):
+                prefix = SLOT_PREFIX.get(item["category"], "")
+                class_tag = _get_class_abbr_string(item)
+                gear_sell_opts.append(
+                    discord.SelectOption(label=f"{prefix} {base_label}{class_tag}"[:100], value=item_key)
+                )
+            elif item["category"] == "consumable":
+                cons_sell_opts.append(
+                    discord.SelectOption(label=base_label[:100], value=item_key)
+                )
+
+        all_sell_opts = gear_sell_opts + cons_sell_opts
+        if all_sell_opts and current_row < 4:
+            sell_sel = discord.ui.Select(
                 placeholder="💰 Sell an item...",
-                options=sell_options[:25],
+                options=all_sell_opts[:25],
                 row=current_row
             )
             async def _sell_cb(interaction: discord.Interaction):
@@ -949,13 +1048,13 @@ async def _make_shop_view(ctx, msg, uid, uname, is_owner, items, sheet=None):
                 fake_msg = _InteractionMsg(interaction)
                 send_fn = _make_interaction_send(interaction)
                 await _handle_sell(ctx, fake_msg, send_fn, chosen, uid, uname, is_owner)
-            sell_select.callback = _sell_cb
-            view.add_item(sell_select)
+            sell_sel.callback = _sell_cb
+            view.add_item(sell_sel)
             current_row += 1
 
+    # ── Buyback ───────────────────────────────────────────────────────────────
     buyback_items = (sheet.get("buyback", []) if sheet else [])
-    if buyback_items:
-        # Use "idx|key" as select value — key is authoritative even if list mutates
+    if buyback_items and current_row < 4:
         bb_options = [
             discord.SelectOption(
                 label=f"{entry['name']} ({entry['repurchase_price']}g)",
@@ -980,7 +1079,6 @@ async def _make_shop_view(ctx, msg, uid, uname, is_owner, items, sheet=None):
             if not s:
                 return
             buyback = s.get("buyback", [])
-            # Find by item key — robust against list mutations between render and click
             entry = None
             actual_idx = None
             if expected_key:
@@ -989,7 +1087,6 @@ async def _make_shop_view(ctx, msg, uid, uname, is_owner, items, sheet=None):
                         entry = b
                         actual_idx = i
                         break
-            # Positional fallback
             if entry is None:
                 fallback = int(raw_val.split("|")[0]) if "|" in raw_val else int(raw_val)
                 if fallback < len(buyback):
@@ -1020,8 +1117,7 @@ async def _make_shop_view(ctx, msg, uid, uname, is_owner, items, sheet=None):
         view.add_item(bb_sel)
         current_row += 1
 
-    # ── Button row (Sell All + Status) ──────────────────────────────
-    # Always on the last row — current_row is guaranteed <= 4 here
+    # ── Button row ────────────────────────────────────────────────────────────
     btn_row = min(current_row, 4)
 
     if sheet and sheet.get("inventory"):
@@ -1707,10 +1803,18 @@ def _make_inventory_view(ctx, msg, uid, uname, is_owner, inventory, page_idx=0, 
     """Return a View with Use and Equip select menus."""
     from utils.ttrpg.shop import find_item
     view = discord.ui.View(timeout=120)
-    
+
+    SLOT_PREFIX = {
+        "weapon":    "[Weapon]",
+        "armor":     "[Armor]",
+        "head":      "[Head]",
+        "boots":     "[Boots]",
+        "accessory": "[Accessory]",
+    }
+
     consumables = []
     gear = []
-    
+
     unique_items = sorted(list(set(inventory)))
     for k in unique_items:
         it = find_item(k)
@@ -1719,10 +1823,13 @@ def _make_inventory_view(ctx, msg, uid, uname, is_owner, inventory, page_idx=0, 
             consumables.append((k, it))
         elif it["category"] in ("weapon", "armor", "head", "boots", "accessory"):
             gear.append((k, it))
-            
+
     if consumables:
-        opts = [discord.SelectOption(label=it["name"][:100], value=k) for k, it in consumables[:25]]
-        sel = discord.ui.Select(placeholder="Use item...", options=opts, row=0)
+        opts = [
+            discord.SelectOption(label=f"{it['name']}{_get_item_effect_string(it)}"[:100], value=k) 
+            for k, it in consumables[:25]
+        ]
+        sel = discord.ui.Select(placeholder="🧪 Use consumable...", options=opts, row=0)
         async def _use_cb(interaction: discord.Interaction):
             if str(interaction.user.id) != uid:
                 await interaction.response.send_message("```\nnot your menu.\n```", ephemeral=True)
@@ -1734,10 +1841,16 @@ def _make_inventory_view(ctx, msg, uid, uname, is_owner, inventory, page_idx=0, 
             await _handle_use(ctx, fake_msg, send_fn, chosen, uid, uname, is_owner)
         sel.callback = _use_cb
         view.add_item(sel)
-        
+
     if gear:
-        opts = [discord.SelectOption(label=it["name"][:100], value=k) for k, it in gear[:25]]
-        sel = discord.ui.Select(placeholder="Equip gear...", options=opts, row=1)
+        opts = [
+            discord.SelectOption(
+                label=f"{SLOT_PREFIX.get(it['category'], '')} {it['name']}{_get_class_abbr_string(it)}"[:100],
+                value=k
+            )
+            for k, it in gear[:25]
+        ]
+        sel = discord.ui.Select(placeholder="⚔️ Equip gear...", options=opts, row=1)
         async def _equip_cb(interaction: discord.Interaction):
             if str(interaction.user.id) != uid:
                 await interaction.response.send_message("```\nnot your menu.\n```", ephemeral=True)
@@ -1767,7 +1880,7 @@ def _make_inventory_view(ctx, msg, uid, uname, is_owner, inventory, page_idx=0, 
 
     if total_pages > 1 and page_cb:
         prev_btn = discord.ui.Button(
-            label="◀ Prev Page", style=discord.ButtonStyle.secondary, row=4, disabled=(page_idx == 0)
+            label="◀ Prev", style=discord.ButtonStyle.secondary, row=4, disabled=(page_idx == 0)
         )
         async def _prev_cb(interaction: discord.Interaction):
             if str(interaction.user.id) != uid:
@@ -1776,9 +1889,9 @@ def _make_inventory_view(ctx, msg, uid, uname, is_owner, inventory, page_idx=0, 
             await page_cb(page_idx - 1, interaction)
         prev_btn.callback = _prev_cb
         view.add_item(prev_btn)
-        
+
         next_btn = discord.ui.Button(
-            label="Next Page ▶", style=discord.ButtonStyle.secondary, row=4, disabled=(page_idx >= total_pages - 1)
+            label="Next ▶", style=discord.ButtonStyle.secondary, row=4, disabled=(page_idx >= total_pages - 1)
         )
         async def _next_cb(interaction: discord.Interaction):
             if str(interaction.user.id) != uid:
@@ -1787,7 +1900,7 @@ def _make_inventory_view(ctx, msg, uid, uname, is_owner, inventory, page_idx=0, 
             await page_cb(page_idx + 1, interaction)
         next_btn.callback = _next_cb
         view.add_item(next_btn)
-        
+
         view.add_item(_make_status_btn(ctx, uid, uname, is_owner, row=4))
     else:
         view.add_item(_make_status_btn(ctx, uid, uname, is_owner, row=2))
@@ -2147,120 +2260,6 @@ async def _dungeon_combat_flee(ctx_obj, interaction, uid, uname, is_owner):
     )
     view = DungeonView(ctx_obj, uid, uname, is_owner, state)
     await interaction.followup.send(embed=embed, view=view)
-
-
-
-def _make_hunt_status_view(ctx, msg, uid, uname, is_owner):
-    """Return a View with 🗡️ Hunt Again + 📊 Status buttons (post-combat/event)."""
-    view = discord.ui.View(timeout=60)
-
-    hunt_btn = discord.ui.Button(label="🗡️ Hunt Again", style=discord.ButtonStyle.secondary, row=3)
-
-    async def _hunt_cb(interaction: discord.Interaction):
-        if str(interaction.user.id) != uid:
-            await interaction.response.send_message("```\nnot your button.\n```", ephemeral=True)
-            return
-        await interaction.response.defer()
-        fake_msg = _InteractionMsg(interaction)
-        send_fn = _make_interaction_send(interaction)
-        await _handle_hunt(ctx, fake_msg, send_fn, "", uid, uname, is_owner)
-
-    hunt_btn.callback = _hunt_cb
-    view.add_item(hunt_btn)
-
-    view.add_item(_make_status_btn(ctx, uid, uname, is_owner))
-    return view
-
-def _make_inventory_view(ctx, msg, uid, uname, is_owner, inventory, page_idx=0, total_pages=1, page_cb=None):
-    """Return a View with Use and Equip select menus."""
-    from utils.ttrpg.shop import find_item
-    view = discord.ui.View(timeout=120)
-    
-    consumables = []
-    gear = []
-    
-    unique_items = sorted(list(set(inventory)))
-    for k in unique_items:
-        it = find_item(k)
-        if not it: continue
-        if it["category"] == "consumable":
-            consumables.append((k, it))
-        elif it["category"] in ("weapon", "armor", "head", "boots", "accessory"):
-            gear.append((k, it))
-            
-    if consumables:
-        opts = [discord.SelectOption(label=it["name"][:100], value=k) for k, it in consumables[:25]]
-        sel = discord.ui.Select(placeholder="Use item...", options=opts, row=0)
-        async def _use_cb(interaction: discord.Interaction):
-            if str(interaction.user.id) != uid:
-                await interaction.response.send_message("```\nnot your menu.\n```", ephemeral=True)
-                return
-            chosen = interaction.data["values"][0]
-            await interaction.response.defer()
-            fake_msg = _InteractionMsg(interaction)
-            send_fn = _make_interaction_send(interaction)
-            await _handle_use(ctx, fake_msg, send_fn, chosen, uid, uname, is_owner)
-        sel.callback = _use_cb
-        view.add_item(sel)
-        
-    if gear:
-        opts = [discord.SelectOption(label=it["name"][:100], value=k) for k, it in gear[:25]]
-        sel = discord.ui.Select(placeholder="Equip gear...", options=opts, row=1)
-        async def _equip_cb(interaction: discord.Interaction):
-            if str(interaction.user.id) != uid:
-                await interaction.response.send_message("```\nnot your menu.\n```", ephemeral=True)
-                return
-            chosen = interaction.data["values"][0]
-            await interaction.response.defer()
-            fake_msg = _InteractionMsg(interaction)
-            send_fn = _make_interaction_send(interaction)
-            await _handle_equip(ctx, fake_msg, send_fn, chosen, uid, uname, is_owner)
-        sel.callback = _equip_cb
-        view.add_item(sel)
-
-    if gear:
-        sell_all_btn = discord.ui.Button(
-            label="💰 Sell All Gear", style=discord.ButtonStyle.danger, row=2
-        )
-        async def _sell_all_cb(interaction: discord.Interaction):
-            if str(interaction.user.id) != uid:
-                await interaction.response.send_message("not yours.", ephemeral=True)
-                return
-            await interaction.response.defer()
-            fake_msg = _InteractionMsg(interaction)
-            send_fn = _make_interaction_send(interaction)
-            await _handle_sell_all_gear(ctx, fake_msg, send_fn, "", uid, uname, is_owner)
-        sell_all_btn.callback = _sell_all_cb
-        view.add_item(sell_all_btn)
-
-    if total_pages > 1 and page_cb:
-        prev_btn = discord.ui.Button(
-            label="◀ Prev Page", style=discord.ButtonStyle.secondary, row=4, disabled=(page_idx == 0)
-        )
-        async def _prev_cb(interaction: discord.Interaction):
-            if str(interaction.user.id) != uid:
-                return await interaction.response.send_message("not yours.", ephemeral=True)
-            await interaction.response.defer()
-            await page_cb(page_idx - 1, interaction)
-        prev_btn.callback = _prev_cb
-        view.add_item(prev_btn)
-        
-        next_btn = discord.ui.Button(
-            label="Next Page ▶", style=discord.ButtonStyle.secondary, row=4, disabled=(page_idx >= total_pages - 1)
-        )
-        async def _next_cb(interaction: discord.Interaction):
-            if str(interaction.user.id) != uid:
-                return await interaction.response.send_message("not yours.", ephemeral=True)
-            await interaction.response.defer()
-            await page_cb(page_idx + 1, interaction)
-        next_btn.callback = _next_cb
-        view.add_item(next_btn)
-        
-        view.add_item(_make_status_btn(ctx, uid, uname, is_owner, row=4))
-    else:
-        view.add_item(_make_status_btn(ctx, uid, uname, is_owner, row=2))
-
-    return view
 
 _LOCATION_BUTTONS: dict[str, list] = {
     "oakhaven": [
