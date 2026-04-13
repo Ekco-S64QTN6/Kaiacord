@@ -1054,71 +1054,90 @@ async def _make_shop_view(ctx, msg, uid, uname, is_owner, items, sheet=None):
 
     # ── Buyback ───────────────────────────────────────────────────────────────
     buyback_items = (sheet.get("buyback", []) if sheet else [])
-    if buyback_items and current_row < 4:
-        bb_options = [
-            discord.SelectOption(
-                label=f"{entry['name']} ({entry['repurchase_price']}g)",
-                value=f"{i}|{entry.get('key', str(i))}",
-                description="Buyback at original sell price"
-            )
-            for i, entry in enumerate(buyback_items[:25])
-        ]
-        bb_sel = discord.ui.Select(
-            placeholder="↩️ Buyback recently sold item...",
-            options=bb_options,
-            row=current_row
+    
+    # ── Button row ────────────────────────────────────────────────────────────
+    btn_row = min(current_row, 4)
+
+    if buyback_items:
+        bb_btn = discord.ui.Button(
+            label="↩️ Buyback", style=discord.ButtonStyle.secondary, row=btn_row
         )
-        async def _buyback_cb(interaction: discord.Interaction):
+        async def _open_buyback_cb(interaction: discord.Interaction):
             if str(interaction.user.id) != uid:
                 await interaction.response.send_message("not yours.", ephemeral=True)
                 return
-            await interaction.response.defer()
-            raw_val = interaction.data["values"][0]
-            expected_key = raw_val.split("|", 1)[1] if "|" in raw_val else None
             s = await load(uid)
             if not s:
                 return
-            buyback = s.get("buyback", [])
-            entry = None
-            actual_idx = None
-            if expected_key:
-                for i, b in enumerate(buyback):
-                    if b.get("key") == expected_key:
-                        entry = b
-                        actual_idx = i
-                        break
-            if entry is None:
-                fallback = int(raw_val.split("|")[0]) if "|" in raw_val else int(raw_val)
-                if fallback < len(buyback):
-                    entry = buyback[fallback]
-                    actual_idx = fallback
-            if entry is None or actual_idx is None:
-                await interaction.followup.send(
-                    embed=discord.Embed(description="That item is no longer available for buyback.", color=0xcc4444),
-                    ephemeral=True
-                )
+            buyback_list = s.get("buyback", [])
+            if not buyback_list:
+                await interaction.response.send_message("No items available for buyback.", ephemeral=True)
                 return
-            cost = entry["repurchase_price"]
-            if s.get("gil", 0) < cost:
-                await interaction.followup.send(
-                    embed=discord.Embed(description=f"Not enough gil. Buyback costs {cost}g. You have {s['gil']}g.", color=0xcc4444),
-                    ephemeral=True
-                )
-                return
-            s["gil"] -= cost
-            s.setdefault("inventory", []).append(entry["key"])
-            s["buyback"].pop(actual_idx)
-            await save(s)
-            await interaction.followup.send(embed=discord.Embed(
-                description=f"↩️ **{entry['name']}** returned to your inventory for {cost}g.\nRemaining gil: {s['gil']}g",
-                color=0x44aa44
-            ))
-        bb_sel.callback = _buyback_cb
-        view.add_item(bb_sel)
-        current_row += 1
 
-    # ── Button row ────────────────────────────────────────────────────────────
-    btn_row = min(current_row, 4)
+            bb_options = [
+                discord.SelectOption(
+                    label=f"{entry['name']} ({entry['repurchase_price']}g)"[:100],
+                    value=f"{i}|{entry.get('key', str(i))}",
+                    description="Buyback at original sell price"
+                )
+                for i, entry in enumerate(buyback_list[:25])
+            ]
+            
+            bb_sel = discord.ui.Select(
+                placeholder="↩️ Choose item to buyback...",
+                options=bb_options,
+                row=0
+            )
+
+            async def _buyback_sel_cb(sel_interaction: discord.Interaction):
+                if str(sel_interaction.user.id) != uid:
+                    await sel_interaction.response.send_message("not yours.", ephemeral=True)
+                    return
+                await sel_interaction.response.defer()
+                raw_val = sel_interaction.data["values"][0]
+                expected_key = raw_val.split("|", 1)[1] if "|" in raw_val else None
+                fresh_s = await load(uid)
+                curr_buyback = fresh_s.get("buyback", [])
+                entry = None
+                actual_idx = None
+                if expected_key:
+                    for i, b in enumerate(curr_buyback):
+                        if b.get("key") == expected_key:
+                            entry, actual_idx = b, i
+                            break
+                if entry is None:
+                    fallback = int(raw_val.split("|")[0]) if "|" in raw_val else int(raw_val)
+                    if fallback < len(curr_buyback):
+                        entry, actual_idx = curr_buyback[fallback], fallback
+                if entry is None or actual_idx is None:
+                    await sel_interaction.followup.send(
+                        embed=discord.Embed(description="That item is no longer available for buyback.", color=0xcc4444),
+                        ephemeral=True
+                    )
+                    return
+                cost = entry["repurchase_price"]
+                if fresh_s.get("gil", 0) < cost:
+                    await sel_interaction.followup.send(
+                        embed=discord.Embed(description=f"Not enough gil. Buyback costs {cost}g. You have {fresh_s['gil']}g.", color=0xcc4444),
+                        ephemeral=True
+                    )
+                    return
+                fresh_s["gil"] -= cost
+                fresh_s.setdefault("inventory", []).append(entry["key"])
+                fresh_s["buyback"].pop(actual_idx)
+                await save(fresh_s)
+                await sel_interaction.followup.send(embed=discord.Embed(
+                    description=f"↩️ **{entry['name']}** returned to your inventory for {cost}g.\nRemaining gil: {fresh_s['gil']}g",
+                    color=0x44aa44
+                ), ephemeral=True)
+                
+            bb_sel.callback = _buyback_sel_cb
+            bb_view = discord.ui.View(timeout=60)
+            bb_view.add_item(bb_sel)
+            await interaction.response.send_message("Select an item to buy back:", view=bb_view, ephemeral=True)
+
+        bb_btn.callback = _open_buyback_cb
+        view.add_item(bb_btn)
 
     if sheet and sheet.get("inventory"):
         sell_all_btn = discord.ui.Button(

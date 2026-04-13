@@ -81,6 +81,14 @@ def check_level_up(sheet: dict) -> tuple[bool, int]:
         leveled = True
         final_level = new_level
 
+    # Check level 10 cap
+    if final_level >= 10:
+        final_level = 10
+        sheet["level"] = 10
+        cap_xp = XP_THRESHOLDS.get(10, 64000) + 1
+        if sheet["xp"] > cap_xp:
+            sheet["xp"] = cap_xp
+
     return leveled, final_level
 
 
