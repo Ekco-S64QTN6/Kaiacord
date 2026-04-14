@@ -451,21 +451,40 @@ class RelevanceFeedback:
 
 class PersonalizationEngine:
     """Learn user preferences and adapt responses."""
+    _DEFAULT_TRAITS = {
+        'conciseness': 0.5,
+        'technicality': 0.5,
+        'formality': 0.5,
+        'humor': 0.5
+    }
+
     def __init__(self, max_profiles=500):
-        self.user_profiles = {} # user_id -> {traits}
+        self.user_profiles = OrderedDict()  # LRU via move_to_end
         self.dirty_profiles = set() # user_id
         self.max_profiles = max_profiles
         
     async def get_user_traits(self, user_id):
-        return self.user_profiles.get(str(user_id), {
-            'conciseness': 0.5,
-            'technicality': 0.5,
-            'formality': 0.5,
-            'humor': 0.5
-        })
+        uid = str(user_id)
+        if uid in self.user_profiles:
+            self.user_profiles.move_to_end(uid)  # Touch for LRU
+            return self.user_profiles[uid]
+        return self._DEFAULT_TRAITS.copy()
 
     def adapt_prompt(self, system_prompt, traits):
-        """Persona is the anchor. No hardcoded ad-hoc adaptations."""
+        """Inject lightweight behavioral hints based on learned user traits."""
+        hints = []
+        if traits.get('technicality', 0.5) < 0.35:
+            hints.append("Use plain language. Avoid jargon.")
+        elif traits.get('technicality', 0.5) > 0.70:
+            hints.append("Technical depth is welcome. Be precise.")
+        if traits.get('conciseness', 0.5) > 0.65:
+            hints.append("Keep responses short. This user prefers brevity.")
+        if traits.get('humor', 0.5) > 0.70:
+            hints.append("This user appreciates wit and dry humor.")
+        if traits.get('formality', 0.5) < 0.30:
+            hints.append("Casual register is fine. Relax.")
+        if hints:
+            system_prompt += "\n\n[USER PREFERENCE: " + " ".join(hints) + "]"
         return system_prompt
 
     async def learn_from_interaction(self, user_id, query, response):
@@ -512,19 +531,15 @@ class PersonalizationEngine:
             traits['technicality'] = 0.9 * traits['technicality'] + 0.1 * target_tech
             traits_changed = True
         
-        # Pruning: If pool grows too large, clear 10% (simplest eviction)
-        if len(self.user_profiles) > self.max_profiles:
-            # Drop older entries (not true LRU but keeps it bounded)
-            keys = list(self.user_profiles.keys())
-            # Evict at least 1, or 10%
-            evict_count = max(1, int(self.max_profiles * 0.1))
-            for k in keys[:evict_count]:
-                del self.user_profiles[k]
-           
         if traits_changed:
-            self.user_profiles[user_id] = traits
-            self.dirty_profiles.add(user_id)
-            log_debug(f"Updated profile for {user_id}: C={traits['conciseness']:.2f}, T={traits['technicality']:.2f}")
+            self.user_profiles[canonical_id] = traits
+            self.user_profiles.move_to_end(canonical_id)  # LRU touch
+            self.dirty_profiles.add(canonical_id)
+            log_debug(f"Updated profile for {canonical_id}: C={traits['conciseness']:.2f}, T={traits['technicality']:.2f}")
+
+            # LRU eviction: pop oldest entries when over capacity
+            while len(self.user_profiles) > self.max_profiles:
+                self.user_profiles.popitem(last=False)  # Evict least-recently-used
 
 class PersistentStateManager:
     """Save and load system state to survive restarts."""

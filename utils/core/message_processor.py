@@ -4,6 +4,7 @@ import time
 import re
 import hashlib
 import uuid
+import json
 import aiohttp
 import base64
 from datetime import datetime
@@ -586,6 +587,49 @@ class MessageProcessor:
         except Exception:
             pass  # Never let mood injection break generation
 
+        # 8b. Relationship context injection — per-user familiarity and history
+        try:
+            if self.bot_state:
+                # Time-delta reunion hint (Item 3)
+                time_hint = self.bot_state.get_time_delta_hint(ctx.author_id, ctx.author_name)
+                if time_hint:
+                    ctx.system_prompt = ctx.system_prompt + f"\n\n{time_hint}"
+
+                # Relationship summary (Item 2)
+                rel_summary = self.bot_state.get_relationship_summary(ctx.author_id, ctx.author_name)
+                if rel_summary:
+                    ctx.system_prompt = ctx.system_prompt + f"\n\n{rel_summary}"
+
+                # Relationship events (Item 7)
+                from utils.core.relationship_manager import get_top_events, format_for_injection
+                top_events = get_top_events(ctx.author_id, n=3)
+                if top_events:
+                    events_line = format_for_injection(top_events)
+                    if events_line:
+                        ctx.system_prompt = ctx.system_prompt + f"\n\n{events_line}"
+        except Exception as _rel_err:
+            log_debug(f"Relationship injection error (non-fatal): {_rel_err}")
+
+        # 8c. Beliefs injection — topically relevant persistent opinions (Item 9)
+        try:
+            beliefs_path = os.path.join("memory", "beliefs.json")
+            if os.path.exists(beliefs_path):
+                with open(beliefs_path, 'r', encoding='utf-8') as bf:
+                    all_beliefs = json.load(bf)
+                if all_beliefs:
+                    query_words = set(ctx.sanitized_content.lower().split())
+                    matching = []
+                    for b in all_beliefs:
+                        topic_words = set(b.get('topic', '').lower().split())
+                        if query_words & topic_words:
+                            conf = b.get('confidence', 0.5)
+                            stance_qualifier = '' if conf > 0.7 else ' (uncertain)'
+                            matching.append(f"{b['topic']}: {b['position']}{stance_qualifier}")
+                    if matching:
+                        ctx.system_prompt = ctx.system_prompt + f"\n\n[current stances: {'; '.join(matching[:3])}]"
+        except Exception:
+            pass  # Never let beliefs injection break generation
+
         # System state injection — ground truth hardware/OS facts
         try:
             from utils.infrastructure.system.kaia_sysmon import build_system_prompt_block_async
@@ -776,6 +820,15 @@ class MessageProcessor:
                 f"{ctx.system_prompt}"
             )
             log_debug(f"Self-model injected from cache ({len(self_model_content)} chars)")
+
+        # Inject living identity stream
+        identity_stream = self._identity_cache.get("identity_stream", "")
+        if identity_stream:
+            ctx.system_prompt = (
+                f"[RECENT PERSPECTIVE SHIFTS]\n{identity_stream[-800:]}\n\n"
+                f"{ctx.system_prompt}"
+            )
+            log_debug(f"Identity stream injected from cache")
 
         # Inject constitution SECOND (prepends on top — ends up first in final prompt)
         constitution_content = self._identity_cache.get("constitution", "")
@@ -1128,6 +1181,43 @@ class MessageProcessor:
                 if match:
                     bot_response = match.group(1).replace('\\"', '"').replace('\\n', '\n')
 
+                # ── History Summarization (Item 4) ─────────────────────────────
+                # Before appending new turns, check if deque is near capacity.
+                # If so, summarize oldest 15 turns with a lightweight LLM call.
+                mem = self.bot_state.channel_memory.get(ctx.channel_id)
+                if mem and len(mem) >= 30:
+                    # Cooldown: at most one summarization per 5 minutes per channel
+                    cooldown_key = f"_summarize_cd_{ctx.channel_id}"
+                    last_summarize = getattr(self, cooldown_key, 0.0)
+                    if time.time() - last_summarize > 300:
+                        try:
+                            oldest_turns = list(mem)[:15]
+                            history_text = "\n".join(
+                                f"{t.get('role','?')}: {t.get('content','')[:300]}" for t in oldest_turns
+                            )
+                            summary_prompt = (
+                                f"Summarize these conversation turns in 3 sentences "
+                                f"preserving key facts, decisions, and emotional tone:\n\n{history_text}"
+                            )
+                            resp = await asyncio.wait_for(
+                                self.ollama_client.chat(
+                                    model=self.config.chat_model,
+                                    messages=[{"role": "user", "content": summary_prompt}],
+                                    options={"num_predict": 200, "temperature": 0.3},
+                                    keep_alive=-1
+                                ),
+                                timeout=30.0
+                            )
+                            summary = resp["message"]["content"].strip()
+                            for _ in range(15):
+                                if mem:
+                                    mem.popleft()
+                            mem.appendleft({"role": "system", "content": f"[summary of earlier conversation: {summary}]"})
+                            setattr(self, cooldown_key, time.time())
+                            log_debug(f"History summarization completed for channel {ctx.channel_id}")
+                        except Exception as e:
+                            log_warning(f"History summarization failed: {e}")
+
                 # Add author prefix to user message for history disambiguation
                 user_msg_with_author = f"{ctx.author_name}: {ctx.sanitized_content}"
                 
@@ -1162,6 +1252,59 @@ class MessageProcessor:
                     safe_record_response_time(response_time)
                 except Exception:
                     pass
+
+                # ── Relationship State Update (Items 2, 3, 7) ─────────────────
+                try:
+                    from utils.core.relationship_manager import (
+                        estimate_sentiment, detect_event_type,
+                        save_event_async, RelationshipEvent
+                    )
+                    # Sentiment estimation (keyword-based, no LLM call)
+                    valence = estimate_sentiment(ctx.sanitized_content)
+                    self.bot_state.update_relationship(ctx.author_id, valence_sample=valence)
+
+                    # Detect notable events and persist them
+                    event_type = detect_event_type(ctx.sanitized_content, bot_response)
+                    if event_type:
+                        # Generate a brief summary from the exchange
+                        summary = ctx.sanitized_content[:120]
+                        if len(ctx.sanitized_content) > 120:
+                            summary += "..."
+                        topics = []  # Could extract from intent/category later
+                        weight_map = {
+                            'positive': 0.6, 'friction': 0.8,
+                            'repair': 0.9, 'milestone': 1.0, 'neutral': 0.3
+                        }
+                        event = RelationshipEvent(
+                            timestamp=time.time(),
+                            event_type=event_type,
+                            summary=summary,
+                            emotional_weight=weight_map.get(event_type, 0.5),
+                            topics=topics
+                        )
+                        await save_event_async(ctx.author_id, event)
+                        log_debug(f"Relationship event saved: {event_type} for {ctx.author_name}")
+                except Exception as _rel_err:
+                    log_debug(f"Relationship update error (non-fatal): {_rel_err}")
+
+                # ── Generation Quality Logging (Item 11) ──────────────────────
+                try:
+                    gen_log_path = os.path.join("memory", "generation_log.jsonl")
+                    log_entry = {
+                        "ts": time.time(),
+                        "user_id": ctx.author_id,
+                        "category": ctx.category,
+                        "strategy": ctx.fast_intent_strategy or (ctx.intent.suggested_strategy if ctx.intent else None),
+                        "retrieval_confidence": getattr(ctx, 'retrieval_confidence', 0.0),
+                        "retrieval_nodes": getattr(ctx, 'retrieval_node_count', 0),
+                        "response_len": len(bot_response),
+                        "response_time_s": round(response_time, 2),
+                    }
+                    os.makedirs(os.path.dirname(gen_log_path), exist_ok=True)
+                    with open(gen_log_path, 'a', encoding='utf-8') as glf:
+                        glf.write(json.dumps(log_entry) + '\n')
+                except Exception:
+                    pass  # Never let logging break the pipeline
                 
             except Exception as e:
                 log_error(f"Error in background logging: {e}")
@@ -1220,8 +1363,8 @@ class MessageProcessor:
             log_error(f"Error fetching image: {e}")
             return ""
     def _update_identity_cache(self):
-        """Read and parse self-model and constitution from disk."""
-        self._identity_cache = {"self_model": "", "constitution": ""}
+        """Read and parse self-model, constitution, and identity stream from disk."""
+        self._identity_cache = {"self_model": "", "constitution": "", "identity_stream": ""}
         
         # 1. Self-Model
         self_model_path = os.path.join("memory", "kaia_self_model.md")
@@ -1244,6 +1387,15 @@ class MessageProcessor:
                     self._identity_cache["constitution"] = f.read().strip()
             except Exception as e:
                 log_error(f"Cache update failed for constitution: {e}")
+
+        # 3. Identity Stream
+        stream_path = os.path.join("memory", "identity_stream.md")
+        if os.path.exists(stream_path):
+            try:
+                with open(stream_path, 'r', encoding='utf-8') as f:
+                    self._identity_cache["identity_stream"] = f.read().strip()
+            except Exception as e:
+                log_error(f"Cache update failed for identity stream: {e}")
 
     def _read_file_safe(self, path: str) -> str:
         try:

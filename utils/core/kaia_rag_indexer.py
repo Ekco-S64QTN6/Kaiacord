@@ -441,7 +441,11 @@ class RAGIndexerMixin:
         elif "news_brief" in file_path or "news_summary" in file_path:
             doc.metadata["source_type"] = "news"
         elif itype == 'dreams' or "kaia_dreams" in file_path:
-            doc.metadata["source_type"] = "dream"
+            # Check for kaia_reflection frontmatter or path indicator
+            if hasattr(doc, 'text') and 'source_type: kaia_reflection' in doc.text[:200]:
+                doc.metadata["source_type"] = "kaia_reflection"
+            else:
+                doc.metadata["source_type"] = "dream"
         elif "snapshots" in file_path:
             doc.metadata["source_type"] = "snapshot"
         else:

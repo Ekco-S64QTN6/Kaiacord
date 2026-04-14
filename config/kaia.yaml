@@ -55,5 +55,6 @@ performance:
       persona: 0.15
       user_profile: 0.20
       dream: 0.10
+      kaia_reflection: 0.30
       user_logs: 0.10
       knowledge: -0.20

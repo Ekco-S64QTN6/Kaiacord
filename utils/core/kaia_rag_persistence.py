@@ -83,170 +83,158 @@ class RAGPersistenceMixin:
 
     # Removed @thread_safe_rag_operation to ensure file writing always happens
     def log_user_interaction(self, user_id: int, user_name: str, message_content: str, bot_response: str) -> bool:
-        """Log user interaction to a single file per user, rotating at 100MB.
-        """
+        """Log user interaction to a single file per user, rotating at 100MB."""
         # GUARD: Bot identity not yet initialized (on_ready hasn't fired)
         if self._bot_user_id is None:
             log_info(f"Skipping log_user_interaction: bot_user_id not yet initialized")
             return True
 
         # ECHO CHAMBER PROTECTION: Prevent self-logging of bots and reflections.
-        # This stops the 'Kaia' user logs folder from poisoning the identity core.
-        # EXCEPTION: If user_name is "Kaia-Autonomous", it means an autonomous quip we WANT logged.
         _BOT_NAME_PREFIXES = ["Kaia", "KAIA", "Nexus", "System"]
-        
         bot_ids = [self._bot_user_id, "KAIA_SYSTEM", "KAIA_DREAM"]
-        is_autonomous = user_name == "Kaia-Autonomous"
-        
         if (
-            str(user_id) in [str(bid) for bid in bot_ids if bid] or 
+            str(user_id) in [str(bid) for bid in bot_ids if bid] or
             any(user_name.startswith(p) for p in _BOT_NAME_PREFIXES)
         ):
             log_debug(f"Skipping log_user_interaction for bot identity: {user_name} ({user_id})")
             return True
 
-        # Compute paths and state inside the lock. 
-        # Persistence I/O is done outside to prevent blocking.
+        # Orchestrate the decomposed pipeline
         file_io_args = None
         with self._data_lock:
-            # 1. CANONICAL IDENTITY RESOLUTION
-            # Check if this ID is linked to another (e.g. Forum <-> Discord)
-            
-            u_id_str = str(user_id)
-            canonical_id = u_id_str
-            
-            # If it's a forum ID (forum_user_12345 or just digits), try to get linked Discord ID
-            fid = None
-            if u_id_str.startswith("forum_"):
-                fid_parts = u_id_str.rsplit("_", 1)
-                if len(fid_parts) > 1 and fid_parts[1].isdigit():
-                    fid = int(fid_parts[1])
-            elif u_id_str.isdigit() and len(u_id_str) < 15: # Forum IDs are typically shorter
-                fid = int(u_id_str)
-                
-            if fid:
-                linked_discord = registry.get_discord_id(fid)
-                if linked_discord:
-                    canonical_id = linked_discord
-                    log_debug(f"Resolved forum ID {u_id_str} to canonical Discord ID {canonical_id}")
-            
-            # 2. SELECTION OF LOG DIRECTORY
-            # Sanitize user_name for filesystem
-            safe_user_name = "".join([c for c in user_name if c.isalnum() or c in (' ', '-', '_')]).strip().replace(' ', '_')
-            
-            if canonical_id != u_id_str:
-                # Use the canonical (Discord) ID to unify logs
-                user_dir_name = canonical_id
-            elif u_id_str == "social_bluesky_michaelschellhorn.link":
-                # Keep legacy hack for this specific user if not in registry yet
-                user_dir_name = "Ekco_177011971818782721"
-            elif u_id_str.startswith("social_"):
-                user_dir_name = u_id_str
-            else:
-                user_dir_name = f"{safe_user_name}_{u_id_str}"
-                
-            user_log_dir = os.path.join(self.knowledge_base_dir, "user_logs", user_dir_name)
-            
             try:
-                # Create user directory if it doesn't exist
-                if not os.path.exists(user_log_dir):
-                    os.makedirs(user_log_dir)
-                    log_success(f"Created user log directory")
-                    log_info(user_log_dir)
-                
-                # Find existing log file for TODAY
-                today_str = datetime.now().strftime("%Y%m%d")
-                interaction_log_path = os.path.join(user_log_dir, f"interactions_{today_str}.md")
-                
-                # Check for existing log files and handle oversized logs
-                MAX_SIZE = 100 * 1024 * 1024  # 100MB in bytes
-                
-                if os.path.exists(interaction_log_path):
-                    # If today's log exists and is oversized, create a part 2
-                    if os.path.getsize(interaction_log_path) >= MAX_SIZE:
-                        # Find the next available part number
-                        part = 2
-                        while os.path.exists(os.path.join(user_log_dir, f"interactions_{today_str}_part{part}.md")):
-                            part += 1
-                        interaction_log_path = os.path.join(user_log_dir, f"interactions_{today_str}_part{part}.md")
-                else:
-                    # Check if there's a recent log from another day to potentially reference, 
-                    # but we ALWAYS start a new file for a new day to keep RAG indexing clean.
-                    log_info(f"Starting new interaction log for {today_str}")
-                
-                # Append interaction to the single file
-                timestamp = datetime.now().strftime("%Y%m%d_%H%M%S")
-                
-                # CLEAN HALLUCINATIONS FROM RESPONSE BEFORE LOGGING (Skip for Owners)
-                if HallucinationDetector.contains_hallucination(bot_response):
-                    if not config.is_owner(user_name, user_id=str(user_id)):
-                        log_warning(f"Hallucination detected in response for {user_name}. Cleaning before logging.")
-                        bot_response = HallucinationDetector.clean_response(bot_response)
-                    else:
-                        log_debug(f"Hallucination pattern detected in owner response ({user_name}), but skipping clean.")
-
-                # BUG 1 FIX: Strip JSON wrapper from response before logging
-                json_wrapper_pattern = r'^\s*\{[\s\S]*"response"\s*:\s*"([\s\S]*)"\s*\}\s*$'
-                match = re.search(json_wrapper_pattern, bot_response)
-                if match:
-                    bot_response = match.group(1).replace('\\"', '"').replace('\\n', '\n')
-
-                # Initialize frontmatter if file is new
-                is_new_file = not os.path.exists(interaction_log_path)
-                
-                header_text = ""
-                if is_new_file:
-                    header_text = "---\nsummary: \"\"\nkeywords: []\ndocument_type: Transcript\n---\n\n"
-                
-                # Sanitize internal tags before logging to prevent RAG pollution
-                message_content = sanitize_log_content(message_content)
-                bot_response = sanitize_log_content(bot_response)
-                
-                # Use human-readable datetime format for the log text
-                timestamp_str = datetime.now().strftime("%Y-%m-%d %H:%M:%S")
-                interaction_text = f"[{timestamp_str}] {user_name}: {message_content}\n[{timestamp_str}] Kaia: {bot_response}\n\n"
-                
-                # Get current size before appending for the offset
-                # IF new file, offset is length of header (since we write header then interaction)
-                file_offset = os.path.getsize(interaction_log_path) if not is_new_file else len(header_text)
-                
-                file_io_args = {
-                    "path": interaction_log_path,
-                    "is_new": is_new_file,
-                    "header": header_text,
-                    "text": interaction_text,
-                    "user_name": user_name
-                }
-                
+                canonical_id = self._resolve_canonical_id(user_id)
+                log_path = self._resolve_log_path(canonical_id, user_name, user_id)
+                file_io_args = self._sanitize_and_prepare(
+                    log_path, message_content, bot_response, user_name, user_id
+                )
             except Exception as e:
                 log_error(f"Error preparing interaction log state: {e}")
                 traceback.print_exc()
                 return False
 
-        # 3. DO FILE I/O OUTSIDE THE LOCK
         if file_io_args:
-            try:
-                with open(file_io_args["path"], "a", encoding="utf-8", errors="replace") as f:
-                    if file_io_args["is_new"]:
-                        f.write(file_io_args["header"])
-                    f.write(file_io_args["text"])
-                
-                log_success(f"Logged interaction for {file_io_args['user_name']} (Disk Only)")
-                
-                # OPTIMIZATION: Defer indexing to the periodic refresh cycle.
-                # Doing insert_nodes() here triggers synchronous GPU embedding generation,
-                # which blocks the event loop and competes with the detailed Intent Analysis.
-                # Since short-term context handles "what did I just say", we don't need
-                # milliseconds-fresh RAG for logs.
-                
-                # self.indices['logs'].insert_nodes(nodes) 
-                
-                return True
-            except Exception as e:
-                log_error(f"Error logging user interaction to disk: {e}")
-                traceback.print_exc()
-                return False
+            return self._write_interaction_to_disk(file_io_args)
         return False
+
+    def _resolve_canonical_id(self, user_id: int) -> str:
+        """Resolve forum/alt IDs to canonical Discord identity."""
+        u_id_str = str(user_id)
+        canonical_id = u_id_str
+
+        fid = None
+        if u_id_str.startswith("forum_"):
+            fid_parts = u_id_str.rsplit("_", 1)
+            if len(fid_parts) > 1 and fid_parts[1].isdigit():
+                fid = int(fid_parts[1])
+        elif u_id_str.isdigit() and len(u_id_str) < 15:
+            fid = int(u_id_str)
+
+        if fid:
+            linked_discord = registry.get_discord_id(fid)
+            if linked_discord:
+                canonical_id = linked_discord
+                log_debug(f"Resolved forum ID {u_id_str} to canonical Discord ID {canonical_id}")
+
+        return canonical_id
+
+    def _resolve_log_path(self, canonical_id: str, user_name: str, user_id: int) -> str:
+        """Determine the log file path for a user, creating directories as needed."""
+        u_id_str = str(user_id)
+        safe_user_name = "".join(
+            [c for c in user_name if c.isalnum() or c in (' ', '-', '_')]
+        ).strip().replace(' ', '_')
+
+        if canonical_id != u_id_str:
+            user_dir_name = canonical_id
+        elif u_id_str == "social_bluesky_michaelschellhorn.link":
+            user_dir_name = "Ekco_177011971818782721"
+        elif u_id_str.startswith("social_"):
+            user_dir_name = u_id_str
+        else:
+            user_dir_name = f"{safe_user_name}_{u_id_str}"
+
+        user_log_dir = os.path.join(self.knowledge_base_dir, "user_logs", user_dir_name)
+
+        if not os.path.exists(user_log_dir):
+            os.makedirs(user_log_dir)
+            log_success(f"Created user log directory")
+            log_info(user_log_dir)
+
+        today_str = datetime.now().strftime("%Y%m%d")
+        interaction_log_path = os.path.join(user_log_dir, f"interactions_{today_str}.md")
+
+        MAX_SIZE = 100 * 1024 * 1024  # 100MB
+        if os.path.exists(interaction_log_path):
+            if os.path.getsize(interaction_log_path) >= MAX_SIZE:
+                part = 2
+                while os.path.exists(os.path.join(user_log_dir, f"interactions_{today_str}_part{part}.md")):
+                    part += 1
+                interaction_log_path = os.path.join(user_log_dir, f"interactions_{today_str}_part{part}.md")
+        else:
+            log_info(f"Starting new interaction log for {today_str}")
+
+        return interaction_log_path
+
+    def _sanitize_and_prepare(self, interaction_log_path: str,
+                               message_content: str, bot_response: str,
+                               user_name: str, user_id: int) -> dict:
+        """Clean content and build the file I/O arguments dict."""
+        # CLEAN HALLUCINATIONS FROM RESPONSE BEFORE LOGGING (Skip for Owners)
+        if HallucinationDetector.contains_hallucination(bot_response):
+            if not config.is_owner(user_name, user_id=str(user_id)):
+                log_warning(f"Hallucination detected in response for {user_name}. Cleaning before logging.")
+                bot_response = HallucinationDetector.clean_response(bot_response)
+            else:
+                log_debug(f"Hallucination pattern detected in owner response ({user_name}), but skipping clean.")
+
+        # BUG 1 FIX: Strip JSON wrapper from response before logging
+        json_wrapper_pattern = r'^\s*\{[\s\S]*"response"\s*:\s*"([\s\S]*)"\s*\}\s*$'
+        match = re.search(json_wrapper_pattern, bot_response)
+        if match:
+            bot_response = match.group(1).replace('\\"', '"').replace('\\n', '\n')
+
+        is_new_file = not os.path.exists(interaction_log_path)
+        header_text = ""
+        if is_new_file:
+            header_text = "---\nsummary: \"\"\nkeywords: []\ndocument_type: Transcript\n---\n\n"
+
+        # Sanitize internal tags before logging to prevent RAG pollution
+        message_content = sanitize_log_content(message_content)
+        bot_response = sanitize_log_content(bot_response)
+
+        timestamp_str = datetime.now().strftime("%Y-%m-%d %H:%M:%S")
+        interaction_text = f"[{timestamp_str}] {user_name}: {message_content}\n[{timestamp_str}] Kaia: {bot_response}\n\n"
+
+        return {
+            "path": interaction_log_path,
+            "is_new": is_new_file,
+            "header": header_text,
+            "text": interaction_text,
+            "user_name": user_name
+        }
+
+    def _write_interaction_to_disk(self, file_io_args: dict) -> bool:
+        """Perform the actual file write outside any lock."""
+        try:
+            with open(file_io_args["path"], "a", encoding="utf-8", errors="replace") as f:
+                if file_io_args["is_new"]:
+                    f.write(file_io_args["header"])
+                f.write(file_io_args["text"])
+
+            log_success(f"Logged interaction for {file_io_args['user_name']} (Disk Only)")
+
+            # OPTIMIZATION: Defer indexing to the periodic refresh cycle.
+            # Doing insert_nodes() here triggers synchronous GPU embedding generation,
+            # which blocks the event loop and competes with the detailed Intent Analysis.
+            # Since short-term context handles "what did I just say", we don't need
+            # milliseconds-fresh RAG for logs.
+
+            return True
+        except Exception as e:
+            log_error(f"Error logging user interaction to disk: {e}")
+            traceback.print_exc()
+            return False
 
     @thread_safe_rag_operation
     async def detect_hallucination(self, bot_response: str, context_text: Optional[str] = None) -> Dict[str, Any]:

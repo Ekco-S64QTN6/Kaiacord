@@ -303,7 +303,7 @@ class RAGQueryMixin:
             Half-life is configurable. Default: 90 days.
             Only applied to user_logs, news, and dreams — knowledge docs and persona are timeless.
             """
-            if source_type not in ('user_logs', 'news', 'dream'):
+            if source_type not in ('user_logs', 'news', 'dream', 'kaia_reflection'):
                 return 1.0  # Timeless content: no decay
             try:
                 ts = 0

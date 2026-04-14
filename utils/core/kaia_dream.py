@@ -373,6 +373,7 @@ VOICE AND FORMAT RULES (always apply regardless of dream type):
                     dream_file_path = target_dir / dream_filename
                     
                     with open(dream_file_path, 'w', encoding='utf-8') as df:
+                        df.write(f"---\nsource_type: kaia_reflection\n---\n\n")
                         df.write(f"# Dream Reflection: {display_path}\n")
                         df.write(f"Source: {display_path}\n")
                         df.write(f"Generated: {datetime.now().isoformat()}\n\n")
@@ -395,10 +396,230 @@ VOICE AND FORMAT RULES (always apply regardless of dream type):
                         new_reflection=reflection[:400],
                         source_label=display_path
                     )
+
+                    # Item 8: Structured extraction pipeline
+                    await self._extract_dream_insights(reflection, display_path)
             except Exception as e:
                 log_error(f"Failed to process dream for {file_path.name}: {e}")
 
+        # Item 5: Update identity stream after all dreams are processed
+        if new_dreams_count > 0:
+            await self._update_identity_stream(persona_content)
+
         log_info(f"Nightly dreaming complete. Added {new_dreams_count} new thoughts.")
+
+    async def _update_identity_stream(self, persona_content: str):
+        """Item 5: Generate a first-person identity evolution entry.
+        
+        Appends to memory/identity_stream.md — a living journal that
+        captures how Kaia's perspective is shifting over time.
+        """
+        try:
+            recent = self._load_continuity()[-1000:]
+            if not recent:
+                return
+
+            prompt = (
+                f"{persona_content}\n\n"
+                f"RECENT REFLECTIONS:\n{recent}\n\n"
+                f"Write 2-3 sentences in first person about how your perspective or approach may be subtly "
+                f"shifting. Focus on change, not events. Be specific. Lowercase only. "
+                f"No headers, no labels, no roleplay asterisks."
+            )
+
+            from utils.infrastructure.gpu.gpu_manager import OllamaGPUManager, gpu_memory_manager, GPUTaskPriority
+            gpu_mgr = OllamaGPUManager(self.chat_model)
+            options = gpu_mgr.get_gpu_options(for_chat=True)
+            options.update({"temperature": 0.8, "num_predict": 200, "stop": ["User:", "Kaia:"]})
+
+            async def _run_identity_chat():
+                return await self.ollama_client.chat(
+                    model=self.chat_model,
+                    messages=[{"role": "user", "content": prompt}],
+                    options=options,
+                    keep_alive=-1
+                )
+
+            response = await gpu_memory_manager.run_with_gpu_guard(
+                model_name=self.chat_model,
+                priority=GPUTaskPriority.CHAT,
+                coro=asyncio.wait_for(_run_identity_chat(), timeout=120.0),
+                task_id=f"identity_{uuid.uuid4().hex[:8]}"
+            )
+
+            identity_text = response['message']['content'].strip()
+            if identity_text:
+                identity_path = Path("memory") / "identity_stream.md"
+                identity_path.parent.mkdir(parents=True, exist_ok=True)
+
+                date_str = datetime.now().strftime('%Y-%m-%d')
+                new_entry = f"\n\n---\n**{date_str}**\n{identity_text}"
+
+                existing = ""
+                if identity_path.exists():
+                    existing = identity_path.read_text(encoding='utf-8').strip()
+
+                combined = (existing + new_entry).strip()
+
+                # Trim to ~3000 chars (approx 500 words)
+                max_chars = 3000
+                if len(combined) > max_chars:
+                    trim_point = len(combined) - max_chars
+                    next_sep = combined.find('\n\n---\n', trim_point)
+                    if next_sep != -1:
+                        combined = combined[next_sep:].strip()
+                    else:
+                        combined = combined[-max_chars:].strip()
+
+                identity_path.write_text(combined, encoding='utf-8')
+                log_success("Identity stream updated.")
+        except Exception as e:
+            log_warning(f"Identity stream update failed: {e}")
+
+    async def _extract_dream_insights(self, reflection: str, source_path: str):
+        """Item 8: Extract structured updates from a dream reflection.
+        
+        Runs a lightweight JSON extraction pass to pull:
+        - belief_update: {topic, position, confidence} or null
+        - identity_shift: one sentence or null
+        - relationship_insight: {user_name, summary} or null
+        """
+        try:
+            extraction_prompt = (
+                f"From this reflection, extract structured insights in JSON:\n\n"
+                f"{reflection[:1500]}\n\n"
+                f"Return ONLY valid JSON with these keys:\n"
+                f'- "belief_update": {{"topic": str, "position": str, "confidence": 0.0-1.0}} or null\n'
+                f'- "identity_shift": one sentence string or null\n'
+                f'- "relationship_insight": {{"user_name": str, "summary": str}} or null\n'
+                f"Return only the JSON object, no other text."
+            )
+
+            from utils.infrastructure.gpu.gpu_manager import OllamaGPUManager, gpu_memory_manager, GPUTaskPriority
+            gpu_mgr = OllamaGPUManager(self.chat_model)
+            options = gpu_mgr.get_gpu_options(for_chat=True)
+            options.update({"temperature": 0.2, "num_predict": 300})
+
+            async def _run_extraction():
+                return await self.ollama_client.chat(
+                    model=self.chat_model,
+                    messages=[{"role": "user", "content": extraction_prompt}],
+                    options=options,
+                    keep_alive=-1
+                )
+
+            response = await gpu_memory_manager.run_with_gpu_guard(
+                model_name=self.chat_model,
+                priority=GPUTaskPriority.CHAT,
+                coro=asyncio.wait_for(_run_extraction(), timeout=60.0),
+                task_id=f"extract_{uuid.uuid4().hex[:8]}"
+            )
+
+            raw = response['message']['content'].strip()
+            # Try to parse JSON from the response (handle markdown code blocks)
+            if raw.startswith('```'):
+                raw = raw.split('```')[1]
+                if raw.startswith('json'):
+                    raw = raw[4:]
+                raw = raw.strip()
+
+            try:
+                insights = json.loads(raw)
+            except json.JSONDecodeError:
+                log_debug(f"Dream extraction returned non-JSON: {raw[:100]}")
+                return
+
+            # Process belief update (Item 9)
+            belief = insights.get('belief_update')
+            if belief and isinstance(belief, dict) and belief.get('topic'):
+                self._update_beliefs(belief)
+
+            # Process identity shift (feeds into identity_stream)
+            identity_shift = insights.get('identity_shift')
+            if identity_shift and isinstance(identity_shift, str):
+                self._update_continuity(
+                    new_reflection=identity_shift,
+                    source_label=f"Dream Insight ({source_path})"
+                )
+
+            # Process relationship insight
+            rel_insight = insights.get('relationship_insight')
+            if rel_insight and isinstance(rel_insight, dict) and rel_insight.get('user_name'):
+                try:
+                    from utils.core.relationship_manager import save_event, RelationshipEvent
+                    event = RelationshipEvent(
+                        timestamp=time.time(),
+                        event_type='positive',
+                        summary=rel_insight.get('summary', '')[:200],
+                        emotional_weight=0.5,
+                        topics=[]
+                    )
+                    # We don't have user_id from dream context, so use user_name as key
+                    save_event(f"dream_{rel_insight['user_name']}", event)
+                except Exception:
+                    pass
+
+            log_debug(f"Dream insights extracted from {source_path}")
+        except Exception as e:
+            log_debug(f"Dream extraction failed (non-fatal): {e}")
+
+    def _update_beliefs(self, belief: dict):
+        """Item 9: Update or insert a belief in memory/beliefs.json.
+        
+        Beliefs are revisable — if a topic already exists, the position
+        and confidence are updated rather than duplicated.
+        """
+        beliefs_path = Path("memory") / "beliefs.json"
+        beliefs_path.parent.mkdir(parents=True, exist_ok=True)
+
+        beliefs = []
+        if beliefs_path.exists():
+            try:
+                with open(beliefs_path, 'r', encoding='utf-8') as f:
+                    beliefs = json.load(f)
+            except Exception:
+                beliefs = []
+
+        topic = belief.get('topic', '').strip().lower()
+        position = belief.get('position', '').strip()
+        confidence = float(belief.get('confidence', 0.5))
+
+        if not topic or not position:
+            return
+
+        # Update existing belief or append new one
+        updated = False
+        for b in beliefs:
+            if b.get('topic', '').lower() == topic:
+                b['position'] = position
+                b['confidence'] = confidence
+                b['last_updated'] = time.time()
+                b['source'] = 'dream'
+                updated = True
+                break
+
+        if not updated:
+            beliefs.append({
+                'topic': topic,
+                'position': position,
+                'confidence': confidence,
+                'last_updated': time.time(),
+                'source': 'dream'
+            })
+
+        # Cap at 50 beliefs — remove lowest confidence
+        if len(beliefs) > 50:
+            beliefs.sort(key=lambda b: b.get('confidence', 0), reverse=True)
+            beliefs = beliefs[:40]
+
+        # Atomic write
+        tmp_path = str(beliefs_path) + ".tmp"
+        try:
+            with open(tmp_path, 'w', encoding='utf-8') as f:
+                json.dump(beliefs, f, indent=2)
+            os.replace(tmp_path, str(beliefs_path))
+        except Exception as e:
+            log_warning(f"Failed to save beliefs: {e}")
 
     async def evening_reflection(self, persona_content: str):
         """Lightweight nightly journal pass to close the 2-day lag loop."""

@@ -55,6 +55,19 @@ class BotState:
         self.curiosity_last_sent: dict = {}
         self.forum_reply_times: dict = {}  # {thread_id_str: float timestamp}
 
+        # Per-user relationship state — persisted across restarts.
+        # Schema per user_id key:
+        # {
+        #     "first_seen": float (unix ts),
+        #     "last_seen": float (unix ts),
+        #     "interaction_count": int,
+        #     "familiarity": float 0-1 (EMA of interaction frequency),
+        #     "emotional_valence": float 0-1 (EMA, 0=negative, 1=positive),
+        #     "topic_counts": dict {str: int},
+        #     "last_open_loop": str (description of last unresolved thread)
+        # }
+        self.relationships: Dict[str, dict] = {}
+
         self.load()
 
     def load(self):
@@ -77,6 +90,7 @@ class BotState:
                         self.last_evening_reflection = state.get('last_evening_reflection', "")
                         self.last_dawn_date = state.get('last_dawn_date', "")
                         self.forum_reply_times = state.get('forum_reply_times', {})
+                        self.relationships = state.get('relationships', {})
                         
                         # boot_complete is TRANSIENT - do not load from disk
                         self.boot_complete = False
@@ -132,6 +146,7 @@ class BotState:
                     'last_evening_reflection': self.last_evening_reflection,
                     'last_dawn_date': self.last_dawn_date,
                     'forum_reply_times': self.forum_reply_times,
+                    'relationships': self.relationships,
                     # boot_complete is TRANSIENT - do not save to disk
                     'mentioned_files': list(self.mentioned_files),
                     # Explicitly cast int keys to str for JSON serialisation (JSON keys must be strings).
@@ -284,6 +299,89 @@ class BotState:
             parts.append("dreams overdue")
 
         return f"[current state: {', '.join(parts)}]"
+
+    def update_relationship(self, user_id: str, valence_sample: float = 0.5):
+        """Update the relationship state for a user after an interaction.
+        
+        valence_sample: 0.0=very negative, 0.5=neutral, 1.0=very positive.
+        """
+        now = time.time()
+        uid = str(user_id)
+        rel = self.relationships.get(uid)
+        if rel is None:
+            rel = {
+                'first_seen': now,
+                'last_seen': now,
+                'interaction_count': 0,
+                'familiarity': 0.1,
+                'emotional_valence': 0.5,
+                'topic_counts': {},
+                'last_open_loop': ''
+            }
+            self.relationships[uid] = rel
+
+        rel['interaction_count'] += 1
+        rel['last_seen'] = now
+
+        # Familiarity: EMA based on interaction frequency.
+        # If user interacts often (< 24h gaps), familiarity rises toward 1.0.
+        # If user is absent for days, it decays toward 0.1.
+        hours_since_last = (now - rel.get('last_seen', now)) / 3600.0
+        if hours_since_last < 24:
+            target_fam = min(1.0, 0.6 + rel['interaction_count'] * 0.02)
+        else:
+            target_fam = max(0.1, rel['familiarity'] * 0.8)
+        rel['familiarity'] = 0.85 * rel['familiarity'] + 0.15 * target_fam
+
+        # Emotional valence: EMA of per-interaction sentiment samples
+        rel['emotional_valence'] = 0.8 * rel['emotional_valence'] + 0.2 * valence_sample
+
+        # Prune relationship dict if it grows too large (>1000 users)
+        if len(self.relationships) > 1000:
+            # Remove oldest by last_seen
+            sorted_ids = sorted(self.relationships.keys(),
+                                key=lambda k: self.relationships[k].get('last_seen', 0))
+            for old_id in sorted_ids[:100]:
+                del self.relationships[old_id]
+
+    def get_relationship_summary(self, user_id: str, user_name: str) -> str:
+        """Returns a compact relationship context line for system prompt injection."""
+        rel = self.relationships.get(str(user_id))
+        if not rel or rel.get('interaction_count', 0) < 5:
+            return ""  # Not enough history to be meaningful
+
+        months = int((time.time() - rel.get('first_seen', time.time())) / 2592000)
+        valence = rel.get('emotional_valence', 0.5)
+        mood_word = 'positive' if valence > 0.6 else ('warm' if valence > 0.45 else 'neutral')
+        top_topics = list(rel.get('topic_counts', {}).keys())[:3]
+        topics_str = ', '.join(top_topics) if top_topics else 'varied'
+
+        return (
+            f"[{user_name}: known {months}mo, {rel['interaction_count']} exchanges, "
+            f"recent mood {mood_word}, interests: {topics_str}]"
+        )
+
+    def get_time_delta_hint(self, user_id: str, user_name: str) -> str:
+        """Returns a time-delta behavioral hint based on absence duration."""
+        rel = self.relationships.get(str(user_id))
+        if not rel or not rel.get('last_seen'):
+            return ""  # First interaction, no hint needed
+
+        delta_hours = (time.time() - rel['last_seen']) / 3600.0
+
+        if delta_hours > 120:  # > 5 days
+            return (
+                f"[{user_name} has been away for {int(delta_hours / 24)} days. "
+                f"Acknowledge the gap naturally if it comes up. "
+                f"Reset immediate context expectations.]"
+            )
+        elif delta_hours > 12:  # 12h–5d
+            return (
+                f"[New session with {user_name}. Standard re-engagement. "
+                f"Check open loops if relevant.]"
+            )
+        return ""  # Seamless continuation
+
     @property
     def boot_complete(self) -> bool:
         return self._boot_complete

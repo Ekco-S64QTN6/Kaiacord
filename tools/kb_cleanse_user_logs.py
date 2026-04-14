@@ -80,6 +80,20 @@ async def cleanse_file(client, file_path):
             if len(parts) >= 3:
                 frontmatter = parts[1]
                 content = parts[2].strip()
+                
+                # Check if it has populated metadata (already processed)
+                summary_match = re.search(r'summary:\s*(.*)', frontmatter)
+                keywords_match = re.search(r'keywords:\s*(.*)', frontmatter)
+                
+                def is_populated(match):
+                    if not match: return False
+                    val = match.group(1).strip()
+                    if not val or val in ['""', "''", "[]"]: return False
+                    return True
+                
+                if is_populated(summary_match) and is_populated(keywords_match):
+                    log_info(f"Skipping {file_path.name}: ALREADY PROCESSED (has valid metadata).")
+                    return
 
         # 1. Faster Regex Pre-Pass (Remove asterisks and square brackets)
         content = re.sub(r'\*.*?\*', '', content)

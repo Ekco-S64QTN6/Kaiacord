@@ -1,13 +1,25 @@
 import os
+import sys
 import glob
 import asyncio
 import ollama
+from pathlib import Path
 from datetime import datetime
 
-# Configuration
-LOG_DIR = "knowledge_base/user_logs"
-MODEL = "gemma3:12b"
-PERSONA_PATH = "knowledge_base/kaia_persona.md"
+# Build absolute paths based on this file's location
+_HERE = os.path.abspath(__file__)
+_PROJECT_ROOT = os.path.dirname(os.path.dirname(os.path.dirname(_HERE)))
+if _PROJECT_ROOT not in sys.path:
+    sys.path.insert(0, _PROJECT_ROOT)
+
+LOG_DIR = os.path.join(_PROJECT_ROOT, "knowledge_base", "user_logs")
+PERSONA_PATH = os.path.join(_PROJECT_ROOT, "knowledge_base", "kaia_persona.md")
+
+try:
+    from utils.infrastructure.system.yaml_config import config
+    MODEL = config.chat_model
+except ImportError:
+    MODEL = "gemma3:12b"
 
 async def generate_profile(user_folder):
     """Generate a first-person inner monologue 'cheat sheet' for a user."""
@@ -18,7 +30,7 @@ async def generate_profile(user_folder):
     else:
         user_name = folder_name
         
-    log_files = sorted(glob.glob(os.path.join(user_folder, "interactions_*.txt")))
+    log_files = sorted(glob.glob(os.path.join(user_folder, "interactions_*.md")))
     
     if not log_files:
         print(f"  No logs for {user_name}, skipping.")

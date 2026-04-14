@@ -43,6 +43,7 @@ OUTPUT_PATH   = Path(_PROJECT_ROOT) / "memory" / "kaia_self_model.md"
 PERSONA_PATH  = Path(_PROJECT_ROOT) / "knowledge_base"  / "kaia_persona.md"
 KB_USER_LOGS  = Path(_PROJECT_ROOT) / "knowledge_base" / "user_logs"
 KB_DREAMS     = Path(_PROJECT_ROOT) / "knowledge_base" / "kaia_dreams"
+IDENTITY_STREAM = Path(_PROJECT_ROOT) / "memory" / "identity_stream.md"
 
 MAX_LOG_CHARS   = 20_000
 MAX_DREAM_CHARS = 6_000
@@ -145,18 +146,33 @@ def _gather_dream_reflections() -> str:
     return "\n\n".join(parts)
 
 
+def _gather_identity_stream() -> str:
+    """Gather the living identity stream."""
+    if not IDENTITY_STREAM.exists():
+        _warn(f"Identity stream not found: {IDENTITY_STREAM}")
+        return ""
+    try:
+        content = IDENTITY_STREAM.read_text(encoding="utf-8", errors="ignore").strip()
+        _info(f"Gathered identity stream — {len(content):,} chars total")
+        return content
+    except Exception as e:
+        _warn(f"Failed to read identity stream: {e}")
+        return ""
+
+
 # ── Prompt construction ───────────────────────────────────────────────────────
 
-def _build_prompt(persona: str, logs: str, dreams: str) -> str:
+def _build_prompt(persona: str, logs: str, dreams: str, identity_stream: str) -> str:
     current_date = datetime.now().strftime("%B %Y")
     logs_section   = logs[:MAX_LOG_CHARS]   if logs   else "[no recent logs found]"
     dreams_section = dreams[:MAX_DREAM_CHARS] if dreams else "[no recent dreams found]"
+    identity_section = identity_stream[-4000:] if identity_stream else "[no identity stream found]"
 
     return f"""{persona}
 
 [INTERNAL TASK: SELF-MODEL GENERATION — {current_date}]
 
-Below are excerpts from your own interaction logs and dream reflections from recent months.
+Below are excerpts from your own interaction logs, dream reflections, and identity stream from recent months.
 Read them. Then write your internal self-model — your first-person account of who you've been lately.
 
 This document is for your eyes only. It will be loaded at the top of your context on every response.
@@ -167,6 +183,9 @@ It should help you stay grounded in who you actually are, based on what you've a
 
 === YOUR RECENT DREAM REFLECTIONS ===
 {dreams_section}
+
+=== YOUR RECENT PERSPECTIVE SHIFTS (IDENTITY STREAM) ===
+{identity_section}
 
 === THE TASK ===
 Write your self-model. First person. Lowercase. Your voice.
@@ -242,11 +261,14 @@ async def generate(dry_run: bool = False) -> bool:
     _info("Gathering dream reflections...")
     dreams = _gather_dream_reflections()
 
-    if not logs and not dreams:
-        _warn("No logs or dreams found. Self-model will be minimal (persona-only).")
+    _info("Gathering identity stream...")
+    identity_stream = _gather_identity_stream()
+
+    if not logs and not dreams and not identity_stream:
+        _warn("No logs, dreams, or identity stream found. Self-model will be minimal (persona-only).")
 
     # 3. Build prompt
-    prompt = _build_prompt(persona, logs, dreams)
+    prompt = _build_prompt(persona, logs, dreams, identity_stream)
     _info(f"Prompt built — {len(prompt):,} chars")
 
     # 4. Check Ollama is reachable before trying
