@@ -134,6 +134,8 @@ def brew(sheet, recipe_key):
     
     # Add XP
     sheet["xp"] += recipe["xp"]
+    from utils.ttrpg.progression import check_level_up
+    check_level_up(sheet)
     
     return True, f"Successfully brewed **{recipe['name']}**! (+{recipe['xp']} XP)"
 

@@ -804,7 +804,7 @@ class RPGCombatView(discord.ui.View):
                     continue
                 hp_restore = item.get("hp_restore", 0)
                 on_use = item.get("on_use", "")
-                if hp_restore > 0 or on_use in ("cure_poison", "luck_roll_bonus", "atk_boost", "def_boost"):
+                if hp_restore > 0 or on_use in ("cure_poison", "luck_roll_bonus", "atk_boost", "def_boost", "hunt_bonus", "xp_bonus"):
                     if hp_restore > 0:
                         label = f"{item['name']} (+{hp_restore} HP)"
                     elif on_use == "cure_poison":
@@ -1415,8 +1415,23 @@ class DungeonCombatView(discord.ui.View):
                 if not item or item["category"] != "consumable": continue
                 hp_restore = item.get("hp_restore", 0)
                 on_use = item.get("on_use", "")
-                if hp_restore > 0 or on_use in ("cure_poison", "luck_roll_bonus"):
-                    label = f"{item['name']} (+{hp_restore} HP)" if hp_restore > 0 else f"{item['name']} (cures {on_use.replace('_', ' ')})"
+                if hp_restore > 0 or on_use in ("cure_poison", "luck_roll_bonus", "atk_boost", "def_boost", "hunt_bonus", "xp_bonus"):
+                    if hp_restore > 0:
+                        label = f"{item['name']} (+{hp_restore} HP)"
+                    elif on_use == "cure_poison":
+                        label = f"{item['name']} (Cure Poison)"
+                    elif on_use == "luck_roll_bonus":
+                        label = f"{item['name']} (Lucky)"
+                    elif on_use == "atk_boost":
+                        label = f"{item['name']} (+2 ATK Encounter)"
+                    elif on_use == "def_boost":
+                        label = f"{item['name']} (+2 DEF Encounter)"
+                    elif on_use == "hunt_bonus":
+                        label = f"{item['name']} (+1 Hunt)"
+                    elif on_use == "xp_bonus":
+                        label = f"{item['name']} (+25% XP)"
+                    else:
+                        label = item["name"]
                     if count > 1: label += f"  x{count}"
                     usable.append((item_key, label[:100]))
             if not usable:
@@ -2270,6 +2285,8 @@ async def _dungeon_combat_flee(ctx_obj, interaction, uid, uname, is_owner):
 
     sheet = await load(uid)
     if sheet:
+        for _cb in ["embered", "fortified"]:
+            if _cb in sheet.get("conditions", []): sheet["conditions"].remove(_cb)
         sheet["hunts_today"] = sheet.get("hunts_today", 0) + 1
         await save(sheet)
 

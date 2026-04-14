@@ -2168,8 +2168,8 @@ async def _handle_leaderboard(ctx, msg, send, rest, uid, uname, is_owner):
     if not sheets:
         return await msg.channel.send(embed=discord.Embed(description="No adventurers have been created yet.", color=0x888888))
 
-    # Sort by XP descending, then by level descending
-    sheets.sort(key=lambda s: (s.get("xp", 0), s.get("level", 1)), reverse=True)
+    # Sort by XP descending, then by level descending, then by least deaths
+    sheets.sort(key=lambda s: (s.get("xp", 0), s.get("level", 1), -s.get("deaths", 0)), reverse=True)
 
     MEDALS = ["🥇", "🥈", "🥉"]
     lines = []

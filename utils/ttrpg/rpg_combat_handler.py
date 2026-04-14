@@ -120,6 +120,8 @@ async def _dungeon_combat_round(ctx_obj, interaction, uid, uname, is_owner):
     gil_gain = 0
 
     if res["monster_defeated"]:
+        for _cb in ["embered", "fortified"]:
+            if _cb in sheet.get("conditions", []): sheet["conditions"].remove(_cb)
         # Clear combat, mark room cleared
         del state["active_combat"]
         state["rooms"][room_key]["cleared"] = True
@@ -264,6 +266,8 @@ async def _dungeon_combat_round(ctx_obj, interaction, uid, uname, is_owner):
             await interaction.followup.send(embed=embed, view=view)
 
     elif not res["player_alive"]:
+        for _cb in ["embered", "fortified"]:
+            if _cb in sheet.get("conditions", []): sheet["conditions"].remove(_cb)
         # Player defeated in dungeon
         del state["active_combat"]
         sheet["hp"]["current"] = 1
@@ -698,6 +702,8 @@ async def _handle_attack(ctx, msg, send, rest, uid, uname, is_owner):
     
     # Handle state cleanup
     if res["monster_defeated"] or not res["player_alive"]:
+        for _cb in ["embered", "fortified"]:
+            if _cb in sheet.get("conditions", []): sheet["conditions"].remove(_cb)
         s["monsters"].pop(monster_idx)
         if not s["monsters"]: s["combat_active"] = False
     else:
@@ -982,6 +988,8 @@ async def _handle_flee(ctx, msg, send, rest, uid, uname, is_owner):
     else:
         hunt_note = ""
 
+    for _cb in ["embered", "fortified"]:
+        if _cb in sheet.get("conditions", []): sheet["conditions"].remove(_cb)
     s["monsters"].pop(to_flee)
     if not s["monsters"]: s["combat_active"] = False
     await save_session(s)

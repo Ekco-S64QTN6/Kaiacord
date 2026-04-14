@@ -400,11 +400,8 @@ def _resolve_combat(sheet: dict, monster: dict, atk_mod_global: int = 0, def_mod
             exchanges.append(f"⚔️ **{sheet['character_name']}** stops their blade at **{monster['name']}**'s throat. Yield!")
 
     # ── Consume temporary combat buffs ────────────────────────────────────
-    conds = sheet.get("conditions", [])
-    if "embered" in conds and not is_stunned and player_hit:
-        conds.remove("embered")
-    if "fortified" in conds and monster_hit:
-        conds.remove("fortified")
+    # Potions (embered & fortified) are now meant to last the full combat encounter
+    # Therefore, they won't be cleared here during mid-round resolutions.
 
     return {
         "sheet": sheet,
