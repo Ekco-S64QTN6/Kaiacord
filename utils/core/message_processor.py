@@ -1155,6 +1155,24 @@ class MessageProcessor:
         # 1. FINAL OUTPUT FILTER: Strip hallucinated [CURRENT_TIME] or CURRENT_TIME from outgoing text
         ctx.response_text = re.sub(r'\[?CURRENT_TIME\]?:?.*?(?:\n|$)', '', ctx.response_text).strip()
         
+        # 1b. ELLIPSIS COLLAPSER — last-resort cleanup for style-drifted responses
+        # If the response has excessive ellipsis fragments (word… word… word…),
+        # collapse them to normal punctuation to prevent the user from seeing the drift.
+        _frag_count = len(re.findall(r'\w+[\u2026\.]{2,}', ctx.response_text))
+        if _frag_count >= 3:
+            log_warning(f"[ELLIPSIS_COLLAPSE] Collapsing {_frag_count} ellipsis fragments in output")
+            # Replace word… with word. (or word, depending on context)
+            # First: collapse "word… word" → "word, word" (mid-sentence ellipsis pauses)
+            ctx.response_text = re.sub(r'(\w)[\u2026\.]{2,}\s+', r'\1. ', ctx.response_text)
+            # Second: collapse trailing "word…" at end of line → "word."
+            ctx.response_text = re.sub(r'(\w)[\u2026\.]{2,}$', r'\1.', ctx.response_text, flags=re.MULTILINE)
+            # Third: collapse standalone "…" lines
+            ctx.response_text = re.sub(r'^\s*[\u2026\.]{2,}\s*$', '', ctx.response_text, flags=re.MULTILINE)
+            # Clean up double periods and excess whitespace
+            ctx.response_text = re.sub(r'\.{2,}', '.', ctx.response_text)
+            ctx.response_text = re.sub(r'\n{3,}', '\n\n', ctx.response_text)
+            ctx.response_text = ctx.response_text.strip()
+
         # 2. SEND RESPONSE
         await self._send_response(channel=ctx.message.channel, text=ctx.response_text)
         
@@ -1221,13 +1239,16 @@ class MessageProcessor:
                 # Add author prefix to user message for history disambiguation
                 user_msg_with_author = f"{ctx.author_name}: {ctx.sanitized_content}"
                 
-                # --- STYLE DRIFT GUARD (Emoji Contamination Fix) ---
-                # Check for "it's..." or "it's…" repetition which indicates a style lock loop.
-                # If detected, we skip logging BOTH the user message and the bot response 
-                # to channel_memory to prevent the logic from feeding the pattern back into the next prompt.
-                ellipses_count = bot_response.lower().count("it's…") + bot_response.lower().count("it's...")
-                if ellipses_count >= 3:
-                    log_warning(f"Style-drift detected ({ellipses_count} occurrences of 'it's...'). Skipping channel_memory log for this turn to prevent loop reinforcement.")
+                # --- STYLE DRIFT GUARD (Ellipsis Feedback Loop Prevention) ---
+                # Count ALL ellipsis-fragmented phrases, not just "it's…".
+                # If excessive, skip BOTH channel_memory AND RAG disk log to break the loop.
+                _lower_resp = bot_response.lower()
+                _ellipsis_frags = len(re.findall(r"\w+[\u2026\.]{2,}", _lower_resp))
+                _is_style_drifted = _ellipsis_frags >= 4
+
+                if _is_style_drifted:
+                    log_warning(f"Style-drift detected ({_ellipsis_frags} ellipsis fragments). "
+                                f"Skipping channel_memory AND RAG log to break feedback loop.")
                 else:
                     self.bot_state.channel_memory[ctx.channel_id].append({"role": "user", "content": user_msg_with_author})
                     self.bot_state.channel_memory[ctx.channel_id].append({"role": "assistant", "content": bot_response})
@@ -1237,9 +1258,9 @@ class MessageProcessor:
                 await self.personalization_engine.learn_from_interaction(ctx.author_id, ctx.sanitized_content, bot_response)
                 await self.relevance_feedback.log_interaction(ctx.sanitized_content, bot_response, ctx.author_id, ctx.author_name)
                 
-                # Log for RAG
-                # CRITICAL FIX: Use sanitized_content to avoid poisoning RAG with [REPLYING_TO] tags
-                await self.rag.log_user_interaction_async(ctx.author_id, ctx.author_name, ctx.sanitized_content, bot_response)
+                # Log for RAG — SKIP if style-drifted to prevent poisoning disk logs
+                if not _is_style_drifted:
+                    await self.rag.log_user_interaction_async(ctx.author_id, ctx.author_name, ctx.sanitized_content, bot_response)
                 
                 self.performance_monitor.stop_timer('total', 'response_time')
                 

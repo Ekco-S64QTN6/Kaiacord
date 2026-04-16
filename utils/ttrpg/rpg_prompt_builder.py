@@ -5,6 +5,18 @@ The LLM sees a [TTRPG GROUND TRUTH] block that tells it exactly what
 happened mechanically. Kaia narrates the outcome — she never decides it.
 """
 
+# Injected between persona and prompt in narration system messages.
+# Overrides Kaia's casual Discord persona for TTRPG narration mode.
+TTRPG_NARRATOR_OVERRIDE = (
+    "\n\n[TTRPG NARRATION MODE — ACTIVE]\n"
+    "You are the GM narrator of Aethelgard. Override your conversational persona for this response.\n"
+    "Rules: third person past tense only. No first-person 'I'. No casual language, no exclamation marks.\n"
+    "Style: grounded, specific, literary. Think Ursula K. Le Guin. Lowercase throughout.\n"
+    "Do not narrate your own feelings or opinions. Narrate what happened to the character.\n"
+    "[END OVERRIDE]\n\n"
+)
+
+
 def build_action_prompt(
     actor_sheet: dict,
     action_text: str,

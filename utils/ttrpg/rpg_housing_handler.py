@@ -721,21 +721,24 @@ async def _handle_feed_pet(ctx, msg, send, rest, uid, uname, is_owner):
     moogle_delivery_msg = ""
     for p in pets:
         if p["key"] == "moogle" and p.get("fed_today"):
-            import time
-            from utils.ttrpg.loot_tables import get_loot
-            last_deliv = p.get("last_moogle_delivery", 0)
-            elapsed_days = (time.time() - last_deliv) / 86400.0
-            if elapsed_days > 5:
+            last_deliv = p.get("last_moogle_delivery", None)
+            if last_deliv is None:
+                # First time feeding — set the clock, don't deliver yet
                 p["last_moogle_delivery"] = time.time()
-                loot = get_loot("easy")
-                if loot:
-                    housing.setdefault("mailbox", []).append({
-                        "from_name": "House Moogle",
-                        "item": loot,
-                        "gil": 0,
-                        "timestamp": time.time()
-                    })
-                    moogle_delivery_msg = "\n💌 *Your House Moogle gratefully accepts the Kupo Nut and drops a letter in your mailbox!*"
+            else:
+                elapsed_days = (time.time() - last_deliv) / 86400.0
+                if elapsed_days >= 7:
+                    p["last_moogle_delivery"] = time.time()
+                    loot = get_loot("easy")
+                    if loot:
+                        # Write to character sheet mailbox (not housing)
+                        sheet.setdefault("mailbox", []).append({
+                            "from_name": "House Moogle",
+                            "item": loot,
+                            "gil": 0,
+                            "timestamp": time.time()
+                        })
+                        moogle_delivery_msg = "\n💌 *Your House Moogle gratefully accepts the Kupo Nut and drops a letter in your mailbox!*"
 
     await save(sheet)
     save_housing(housing)

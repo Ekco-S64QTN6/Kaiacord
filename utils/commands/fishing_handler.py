@@ -82,6 +82,62 @@ class FishingMenuView(discord.ui.View):
         bag_count = sum(len(v) for v in sheet.get("fishing_bag", {}).values())
         bag_label = f"🐟 Bag ({bag_count})" if bag_count > 0 else "🐟 Bag (empty)"
 
+    @discord.ui.button(label="🪱 Bait", style=discord.ButtonStyle.secondary, row=0)
+    async def switch_bait_btn(self, interaction: discord.Interaction, button: discord.ui.Button):
+        if str(interaction.user.id) != self._uid:
+            await interaction.response.send_message("not yours.", ephemeral=True)
+            return
+        sheet = await load(self._uid)
+        if not sheet:
+            await interaction.response.send_message("No character found.", ephemeral=True)
+            return
+        stats = sheet.setdefault("fishing_stats", {})
+        # migrate legacy
+        if "bait_count" in stats:
+            old_bt = stats.get("bait", "earthworm")
+            stats.setdefault("bait_stock", {})[old_bt] = stats.pop("bait_count", 0)
+            await save(sheet)
+        bait_stock = stats.get("bait_stock", {})
+        owned = {k: v for k, v in bait_stock.items() if v > 0 and k in BAIT}
+        if not owned:
+            await interaction.response.send_message(
+                embed=discord.Embed(description="No bait in stock. Buy some from Gregor.", color=0xcc4444),
+                ephemeral=True
+            )
+            return
+        cur = stats.get("bait", "earthworm")
+        options = [
+            discord.SelectOption(
+                label=f"{BAIT[k]['name']} ×{v}",
+                value=k,
+                emoji="✅" if k == cur else None
+            )
+            for k, v in owned.items()
+        ]
+        sel_view = discord.ui.View(timeout=30)
+        sel = discord.ui.Select(placeholder="Select active bait...", options=options, row=0)
+        async def _switch_cb(sel_interaction: discord.Interaction):
+            if str(sel_interaction.user.id) != self._uid:
+                await sel_interaction.response.send_message("not yours.", ephemeral=True)
+                return
+            chosen = sel_interaction.data["values"][0]
+            s = await load(self._uid)
+            if not s:
+                return
+            fs = s.setdefault("fishing_stats", {})
+            fs["bait"] = chosen
+            await save(s)
+            await sel_interaction.response.send_message(
+                embed=discord.Embed(
+                    description=f"🪱 Active bait switched to **{BAIT[chosen]['name']}** (×{fs.get('bait_stock', {}).get(chosen, 0)}).",
+                    color=0x2ecc71
+                ),
+                ephemeral=True
+            )
+        sel.callback = _switch_cb
+        sel_view.add_item(sel)
+        await interaction.response.send_message("Switch active bait:", view=sel_view, ephemeral=True)
+
     @discord.ui.button(label="🎣 Cast", style=discord.ButtonStyle.primary, row=0)
     async def cast_btn(self, interaction: discord.Interaction, button: discord.ui.Button):
         if str(interaction.user.id) != self._uid:
@@ -562,15 +618,19 @@ async def _handle_cast(ctx, interaction: discord.Interaction, uid: str, uname: s
 
     try:
         await interaction.followup.send(embed=bite_embed, view=reel_view)
-    except discord.HTTPException as e:
-        if e.status == 429:
+    except (discord.HTTPException, discord.NotFound) as e:
+        if getattr(e, 'status', 0) == 429:
             await asyncio.sleep(2)
             try:
                 await interaction.followup.send(embed=bite_embed, view=reel_view)
-            except discord.HTTPException:
+            except Exception:
                 pass
         else:
-            raise
+            # Interaction token expired or other HTTP error — fall back to channel
+            try:
+                await channel.send(embed=bite_embed, view=reel_view)
+            except Exception:
+                pass
 
 
 async def _handle_check_bag(ctx, interaction: discord.Interaction, uid: str, uname: str, is_owner: bool):
@@ -853,7 +913,7 @@ class FishingShopView(discord.ui.View):
             if "bait_count" in fs:
                 old_bait = fs.get("bait", "earthworm")
                 fs.setdefault("bait_stock", {})[old_bait] = fs.pop("bait_count", 0)
-            fs["bait"] = chosen_bait
+            # Don't switch active bait on purchase — player uses Switch Bait button
             bait_stock = fs.setdefault("bait_stock", {})
             bait_stock[chosen_bait] = bait_stock.get(chosen_bait, 0) + 10
             await save(s)
@@ -1045,7 +1105,7 @@ async def handle_fish_shop_command(ctx, msg, send, rest, uid, uname, is_owner):
     if not sheet:
         return
     embed, view = _build_fishing_shop_ui(ctx, uid, uname, is_owner, sheet)
-    await send(None, embed=embed, view=view)
+    await msg.channel.send(embed=embed, view=view)
 
 
 async def _show_fishing_menu(ctx, channel, uid: str, uname: str, is_owner: bool, sheet: dict):
@@ -1063,8 +1123,16 @@ async def _show_fishing_menu(ctx, channel, uid: str, uname: str, is_owner: bool,
     cur_bt = stats.get("bait", "earthworm")
     if "bait_count" in stats:
         stats.setdefault("bait_stock", {})[cur_bt] = stats.pop("bait_count", 0)
+        await save(sheet)
     bait_name = BAIT.get(cur_bt, {}).get("name", "Earthworm")
-    bait_count = stats.get("bait_stock", {}).get(cur_bt, 0)
+    bait_stock_all = stats.get("bait_stock", {})
+    bait_count = bait_stock_all.get(cur_bt, 0)
+    # Build summary of all owned bait types
+    other_bait = [f"{BAIT[k]['name']}×{v}" for k, v in bait_stock_all.items() if k != cur_bt and v > 0 and k in BAIT]
+    bait_summary = f"{bait_name} (×{bait_count})"
+    if other_bait:
+        bait_summary += f" · Also: {', '.join(other_bait)}"
+
     bag_count = sum(len(v) for v in sheet.get("fishing_bag", {}).values())
     bag_key = stats.get("bag", "woven_sack")
     bag_data = BAG_UPGRADES.get(bag_key, BAG_UPGRADES["woven_sack"])
@@ -1087,7 +1155,7 @@ async def _show_fishing_menu(ctx, channel, uid: str, uname: str, is_owner: bool,
         description=(
             f"*{TIME_FLAVOR.get(time_of_day, 'The pond is quiet.')}*\n\n"
             f"**Pole:** {pole_name}\n"
-            f"**Bait:** {bait_name} (×{bait_count})\n"
+            f"**Bait:** {bait_summary}\n"
             f"**Bag:** {bag_count}/{bag_data['capacity']} fish\n"
             f"**Season:** {season.title()} · **Time:** {time_of_day.title()}"
         ),

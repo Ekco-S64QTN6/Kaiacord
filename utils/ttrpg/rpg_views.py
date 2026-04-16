@@ -1952,8 +1952,9 @@ async def _narrate_combat_summary(ctx, channel, uid, uname, sheet, combat_log: l
 
     persona = await load_persona_async()
     prompt = build_combat_summary_prompt(sheet, combat_log, player_won)
+    from utils.ttrpg.rpg_prompt_builder import TTRPG_NARRATOR_OVERRIDE
     messages = [
-        {"role": "system", "content": f"{persona}\n\n{prompt}"},
+        {"role": "system", "content": f"{persona}{TTRPG_NARRATOR_OVERRIDE}{prompt}"},
         {"role": "user",   "content": f"{uname} finished the fight."}
     ]
     gpu_manager = OllamaGPUManager(config.chat_model)

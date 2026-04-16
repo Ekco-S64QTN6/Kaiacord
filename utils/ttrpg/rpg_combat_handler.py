@@ -1315,8 +1315,9 @@ async def _apply_and_narrate_event(ctx, msg, send, sheet, result, uname):
             narration_hook=result["narration_hook"],
         )
         persona = await load_persona_async()
+        from utils.ttrpg.rpg_prompt_builder import TTRPG_NARRATOR_OVERRIDE
         messages = [
-            {"role": "system", "content": f"{persona}\n\n{prompt}"},
+            {"role": "system", "content": f"{persona}{TTRPG_NARRATOR_OVERRIDE}{prompt}"},
             {"role": "user",   "content": f"{uname} is in the {sheet.get('location', 'forest')}."}
         ]
         gpu_manager = OllamaGPUManager(config.chat_model)
