@@ -217,7 +217,7 @@ ADVANCED_CLASSES = {
         "Necromancer": {
             "description": "Death Touch proc vs undead. Deep attunement to the dead.",
             "bonuses": {
-                "atk_vs_undead": 4,
+                "atk_vs_undead": 3,
                 "hp_bonus": 4,
             },
             "flavor": "Morvenna welcomes your final lesson. The Shrine goes dead quiet.",
@@ -245,7 +245,7 @@ ADVANCED_CLASSES = {
             "flavor": "The knife feels lighter. The dark feels familiar in a way it didn't before.",
         },
         "Trickster": {
-            "description": "Lucky Break proc on hit. Gil mastery.",
+            "description": "Lucky Break proc on hit. Gil mastery. Gambling advantage.",
             "bonuses": {
                 "gil_bonus_pct": 0.25,
                 "gamble_edge": True,
@@ -403,7 +403,8 @@ def get_advanced_options(base_class: str) -> dict:
 def apply_advanced_class_to_combat(sheet: dict, player_damage: int,
                                    player_hit: bool, player_crit: bool,
                                    monster_damage: int, monster: dict,
-                                   monster_defeated: bool) -> dict:
+                                   monster_defeated: bool,
+                                   location: str = None) -> dict:
     """
     Apply advanced class passive bonuses to a resolved combat exchange.
     Returns a dict of modifications:
@@ -461,7 +462,8 @@ def apply_advanced_class_to_combat(sheet: dict, player_damage: int,
 
     # Warden — forest defense
     elif advanced == "Warden":
-        if bonuses.get("forest_def_bonus"):
+        loc = location or sheet.get("location", "")
+        if bonuses.get("forest_def_bonus") and loc in ("whisperwood_edge", "whisperwood_deep"):
             result["monster_damage_reduction"] += bonuses["forest_def_bonus"]
             if monster_damage > 0:
                 result["extra_log"].append(f"🌲 *Warden's bark: -{bonuses['forest_def_bonus']} damage taken.*")

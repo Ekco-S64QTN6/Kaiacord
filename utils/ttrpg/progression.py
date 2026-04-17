@@ -2,24 +2,11 @@
 XP thresholds and level-up logic. All deterministic.
 """
 
-ACTION_XP = {
-    "CRITICAL_SUCCESS": 15,
-    "SUCCESS":          10,
-    "FAILURE":           5,
-    "CRITICAL_FAILURE":  5,
-}
 
-COMBAT_TIERS = {
-    "trivial": 25,
-    "easy":    50,
-    "medium":  100,
-    "hard":    200,
-    "deadly":  500,
-}
 
 XP_THRESHOLDS = {
     1:  0,      2:  300,    3:  900,    4:  2700,
-    5:  5000,   6:  11000,  7:  23000,  8:  34000,
+    5:  5000,   6:  11000,  7:  19000,  8:  28000,
     9:  48000,  10: 64000,
 }
 
@@ -36,7 +23,7 @@ MAX_HUNTS_PER_DAY = 5
 MAX_HUNTS_CEILING = 8  # Hard cap regardless of stacking (ale + inn + pet + class)
 
 # Conditions preserved across daily resets (all others are cleared at dawn)
-PERMANENT_CONDITIONS = {"blessed", "mognet_pending"}
+PERMANENT_CONDITIONS = {"blessed", "mognet_pending", "rested"}
 
 
 def xp_to_next_level(current_level: int) -> int:
@@ -100,14 +87,21 @@ def check_and_reset_hunts(sheet: dict, housing: dict = None) -> dict:
         sheet["hunts_today"] = 0
         sheet["hunts_reset_date"] = today
 
-        # Transfer the inn_rest buff from pending to active for the new day
-        if sheet.get("inn_rest_pending", False):
-            sheet["inn_rest_active_today"] = True
-            sheet["inn_rest_pending"] = False
-        sheet["hunts_today"] = 0
-        from utils.ttrpg.progression import PERMANENT_CONDITIONS
+        # BUG-H1 fix: strip ale_warmth HP bonus before clearing conditions
         old_conds = sheet.get("conditions", [])
+        if "ale_warmth" in old_conds:
+            sheet["hp"]["max"] = max(1, sheet["hp"]["max"] - 3)
+            sheet["hp"]["current"] = min(sheet["hp"]["current"], sheet["hp"]["max"])
+
+        # Clear temporary conditions (PERMANENT_CONDITIONS survive)
         sheet["conditions"] = [c for c in old_conds if c in PERMANENT_CONDITIONS]
+
+        # BUG-C2 fix: transfer inn_rest buff to "rested" condition (after clear)
+        if sheet.get("inn_rest_pending", False):
+            sheet.setdefault("conditions", [])
+            if "rested" not in sheet["conditions"]:
+                sheet["conditions"].append("rested")
+            sheet["inn_rest_pending"] = False
 
         from utils.ttrpg.housing import load_housing, save_housing
         from utils.ttrpg.pets import reset_daily_pets
@@ -150,10 +144,11 @@ def get_max_hunts(sheet: dict, housing: dict = None) -> int:
     return min(MAX_HUNTS_CEILING, MAX_HUNTS_PER_DAY + ale_bonus + rest_bonus + pet_bonus + class_hunt_bonus + hunt_bonus)
 
 
-def hunts_remaining(sheet: dict) -> int:
+def hunts_remaining(sheet: dict, housing: dict = None) -> int:
     """Returns how many hunts the player has left today."""
-    from utils.ttrpg.housing import load_housing
-    housing = load_housing(str(sheet.get("user_id", "")))
+    if housing is None:
+        from utils.ttrpg.housing import load_housing
+        housing = load_housing(str(sheet.get("user_id", "")))
     
     sheet = check_and_reset_hunts(sheet, housing=housing)
     return max(0, get_max_hunts(sheet, housing=housing) - sheet.get("hunts_today", 0))

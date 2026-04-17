@@ -2381,7 +2381,7 @@ _LOCATION_BUTTONS: dict[str, list] = {
         ("My Home", "🏡", "my_home", "", discord.ButtonStyle.green, 0),
         ("Barnaby's", "🪑", "furniture_shop", "", discord.ButtonStyle.secondary, 0),
         ("Pip's Pets", "🐾", "pet_shop", "", discord.ButtonStyle.secondary, 0),
-        ("Neighbour Plots", "🏘️", "visit_plots", "", discord.ButtonStyle.secondary, 0),
+
         ("Pond", "🎣", "go", "tricklebrook_pond", discord.ButtonStyle.secondary, 1),
         ("Town Square", "⛲", "go", "oakhaven", discord.ButtonStyle.secondary, 1),
         ("Look", "🔎", "look", "", discord.ButtonStyle.secondary, 1),

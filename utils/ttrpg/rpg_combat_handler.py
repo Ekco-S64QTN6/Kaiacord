@@ -370,7 +370,7 @@ async def _handle_dungeon(ctx, msg, send, rest, uid, uname, is_owner):
     if hunts_remaining(sheet) < ENTRY_HUNTS:
         return await msg.channel.send(embed=discord.Embed(
             description=(f"Entering costs **{ENTRY_HUNTS} hunts**. "
-                         f"You have {hunts_remaining(sheet)}/{MAX_HUNTS_PER_DAY}."),
+                         f"You have {hunts_remaining(sheet)}/{get_max_hunts(sheet)}."),
             color=0xcc4444))
 
     sheet["hunts_today"] = sheet.get("hunts_today", 0) + ENTRY_HUNTS
@@ -564,6 +564,11 @@ async def _handle_hunt(ctx, msg, send, rest, uid, uname, is_owner):
 
     # Pay hunt cost BEFORE spawn (crash-safe: hunt is consumed even if spawn fails)
     sheet["hunts_today"] = sheet.get("hunts_today", 0) + 1
+
+    # BUG-C2 fix: consume "rested" condition after first hunt of the day
+    if "rested" in sheet.get("conditions", []):
+        sheet["conditions"].remove("rested")
+
     await save(sheet)
 
     # Spawn monsters based on density
@@ -813,7 +818,8 @@ async def _handle_attack(ctx, msg, send, rest, uid, uname, is_owner):
     adv_mods = apply_advanced_class_to_combat(
         sheet, res.get("player_damage", 0), res["player_hit"],
         res["player_crit"], res.get("monster_damage", 0),
-        monster, res["monster_defeated"]
+        monster, res["monster_defeated"],
+        location=sheet.get("location", "")
     )
     if adv_mods["heal_amount"] and res["player_alive"]:
         sheet["hp"]["current"] = min(sheet["hp"]["max"], sheet["hp"]["current"] + adv_mods["heal_amount"])
@@ -1049,42 +1055,50 @@ async def _handle_accept(ctx, msg, send, rest, uid, uname, is_owner):
             break
             
     if challenger_id:
-        from utils.ttrpg.combat_engine import _resolve_combat
+        from utils.ttrpg.combat_engine import _resolve_combat, _compute_player_defense
         
         c_sheet = await load(challenger_id)
         t_sheet = await load(uid)
         
         if not c_sheet or not t_sheet: return
         
-        # Duel is just a special combat resolution
-        # We'll treat the challenger as the "player" and the target as the "monster" for math purposes
-        # but swapped so it feels mutual. 
-        # Actually, let's just do one exchange for now or a loop.
-        
-        # Setup "monster" data from target sheet
+        # Build "monster" data from target sheet using proper defense pipeline
         def _get_k(val): return val.get("key") if isinstance(val, dict) else val
         
-        from utils.ttrpg.equipment_registry import WEAPONS, ARMOR as AR, HEADGEAR as HG, BOOTS as BT, ACCESSORIES as AC
+        from utils.ttrpg.equipment_registry import WEAPONS, ACCESSORIES
         eq = t_sheet.get("equipment", {})
         w = WEAPONS.get(_get_k(eq.get("weapon"))) or {}
-        a = AR.get(_get_k(eq.get("armor"))) or {}
-        h = HG.get(_get_k(eq.get("head"))) or {}
-        b = BT.get(_get_k(eq.get("boots"))) or {}
-        acc = AC.get(_get_k(eq.get("accessory"))) or {}
+        acc = ACCESSORIES.get(_get_k(eq.get("accessory"))) or {}
         
+        # Target attack (simplified — just for the counter-attack stat)
         c = t_sheet.get("class", "Warrior")
-        astat = {"Warrior":"str", "Ranger":"dex", "Mage":"int", "Rogue":"dex", "Cleric":"wis"}.get(c, "str")
-        atk_val = t_sheet.get("stats", {}).get(astat, 10) + a.get("stat_bonus", {}).get(astat, 0)
-        dex_val = t_sheet.get("stats", {}).get("dex", 10) + a.get("stat_bonus", {}).get("dex", 0)
-        
+        adv_class_t = t_sheet.get("advanced_class", "")
+        if adv_class_t == "Wizard": astat = "int"
+        elif adv_class_t == "High Priest": astat = "wis"
+        else: astat = {"Warrior":"str", "Ranger":"dex", "Mage":"int", "Rogue":"dex", "Cleric":"wis"}.get(c, "str")
+        atk_val = t_sheet.get("stats", {}).get(astat, 10)
         t_atk = ((atk_val - 10) // 2) + w.get("attack_bonus", 0) + acc.get("attack_bonus", 0)
-        t_def = 10 + ((dex_val - 10) // 2) + a.get("defense_bonus", 0) + h.get("defense_bonus", 0) + b.get("defense_bonus", 0) + acc.get("defense_bonus", 0)
+
+        # BUG-H1 fix: use proper defense calculation with soft-cap, global cap, etc.
+        from utils.ttrpg.housing import load_housing
+        from utils.ttrpg.pets import get_pet_passive
+        t_housing = load_housing(str(t_sheet.get("user_id", "")))
+        t_pet_bonuses = get_pet_passive(t_housing) if t_housing else {}
+        t_def = _compute_player_defense(t_sheet, pet_bonuses=t_pet_bonuses)
+
+        # BUG-M5 fix: set tier based on target level for correct damage scaling
+        t_level = t_sheet.get("level", 1)
+        if t_level >= 9:    t_tier = "hard"
+        elif t_level >= 7:  t_tier = "medium"
+        elif t_level >= 4:  t_tier = "easy"
+        else:               t_tier = "trivial"
 
         m_from_t = {
             "name": t_sheet["character_name"],
-            "hp": t_sheet["hp"],
+            "hp": t_sheet["hp"].copy(),  # BUG-H3 fix: copy to prevent reference mutation
             "attack": t_atk,
             "defense": t_def,
+            "tier": t_tier,
             "id": f"player_{uid}"
         }
         
@@ -1095,14 +1109,13 @@ async def _handle_accept(ctx, msg, send, rest, uid, uname, is_owner):
         all_exchanges = []
         max_rounds = 20
         
-        from utils.ttrpg.housing import load_housing
-        from utils.ttrpg.pets import get_pet_passive
-        _housing = load_housing(uid)
-        _pet_bonuses = get_pet_passive(_housing) if _housing else {}
+        # BUG-H2 fix: load CHALLENGER's pet bonuses (not target's)
+        c_housing = load_housing(str(c_sheet.get("user_id", "")))
+        c_pet_bonuses = get_pet_passive(c_housing) if c_housing else {}
         
         while c_sheet["hp"]["current"] > 1 and m_from_t["hp"]["current"] > 1 and round_num <= max_rounds:
             all_exchanges.append(f"**--- Round {round_num} ---**")
-            res = _resolve_combat(c_sheet, m_from_t, is_duel=True, pet_bonuses=_pet_bonuses)
+            res = _resolve_combat(c_sheet, m_from_t, is_duel=True, pet_bonuses=c_pet_bonuses)
             all_exchanges.extend(res["exchanges"])
             c_sheet = res["sheet"]
             m_from_t = res["monster"]

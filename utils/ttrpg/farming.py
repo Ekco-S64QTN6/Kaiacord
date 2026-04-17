@@ -92,7 +92,7 @@ def is_harvestable(crop: dict) -> bool:
     # Only gate on days grown — wilting affects yield, not harvestability
     return days_grown >= growth_days
 
-def harvest_crop(crop: dict, season: str) -> tuple[str, int]:
+def harvest_crop(crop: dict, season: str, furniture_yield_bonus: int = 0) -> tuple[str, int]:
     """Returns (item_key, quantity)."""
     import secrets
     crop_data = CROPS[crop["crop_key"]]
@@ -108,6 +108,8 @@ def harvest_crop(crop: dict, season: str) -> tuple[str, int]:
     # Season bonus (additional +1 on top)
     if crop_data.get("season_bonus") == season:
         qty += 1
+
+    qty += furniture_yield_bonus
 
     return crop_data["yield_item"], max(1, qty)
 

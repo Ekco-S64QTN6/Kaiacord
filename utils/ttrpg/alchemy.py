@@ -135,9 +135,13 @@ def brew(sheet, recipe_key):
     # Add XP
     sheet["xp"] += recipe["xp"]
     from utils.ttrpg.progression import check_level_up
-    check_level_up(sheet)
+    has_leveled, new_lvl = check_level_up(sheet)
     
-    return True, f"Successfully brewed **{recipe['name']}**! (+{recipe['xp']} XP)"
+    msg = f"Successfully brewed **{recipe['name']}**! (+{recipe['xp']} XP)"
+    if has_leveled:
+        msg += f"\n🎉 **LEVEL UP!** You are now level {new_lvl}!"
+        
+    return True, msg
 
 # ─── Recipe Discovery ─────────────────────────────────────────────────────────
 # Maps ingredient keys → recipe keys they unlock on first pickup

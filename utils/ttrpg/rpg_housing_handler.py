@@ -588,8 +588,7 @@ async def _handle_harvest_crops(ctx, msg, send, rest, uid, uname, is_owner):
 
     for p in plots:
         if is_harvestable(p):
-            item_key, qty = harvest_crop(p, season)
-            qty += yield_bonus
+            item_key, qty = harvest_crop(p, season, yield_bonus)
             sheet["inventory"].extend([item_key] * qty)
             harvested.append(f"{qty}x {item_key.replace('_',' ')}")
         else:

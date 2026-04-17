@@ -18,7 +18,7 @@ try:
 except ImportError:
     docx2txt = None
 
-from utils.infrastructure.logging.kaia_logger import log_info, log_error, log_warning, log_success, log_action
+from utils.infrastructure.logging.kaia_logger import log_info, log_error, log_warning, log_success, log_action, log_debug
 
 class DreamEngine:
     def __init__(self, config_instance, rag_instance=None):

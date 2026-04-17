@@ -1419,14 +1419,85 @@ async def run_caravan_arrival(bot_ctx, channel):
     log_action("Noon Event: Caravan Arrival (full merchant)")
 
 async def run_bard_performance(bot_ctx, channel):
-    import discord
-    from utils.infrastructure.logging.kaia_logger import log_action
-    
-    embed = discord.Embed(
-        title="🎵 The Bard Sings",
-        description="*Caelindra strums a lively tune in the Stone Hearth.*",
-        color=0x8888cc
+    """Noon event: Caelindra performs an LLM-generated ballad about recent world events."""
+    import discord, os, json, asyncio
+    import uuid as _uuid
+    from utils.infrastructure.logging.kaia_logger import log_action, log_error
+    from utils.infrastructure.system.yaml_config import config
+    from utils.ttrpg.character_manager import load_all
+    from utils.ttrpg.broadcast import log_world_event as _log_world_event
+
+    # Load recent world events for song material
+    events_path = os.path.join("memory", "ttrpg", "world_events.json")
+    recent_events = []
+    if os.path.exists(events_path):
+        try:
+            with open(events_path, 'r', encoding='utf-8') as f:
+                recent_events = json.load(f)[-6:]
+        except Exception:
+            pass
+
+    # Top adventurers for name-drops
+    all_sheets = await load_all()
+    top_adventurers = sorted(all_sheets, key=lambda s: s.get("xp", 0), reverse=True)[:4]
+    names = [s["character_name"] for s in top_adventurers]
+
+    events_str = "\n".join([f"- {e}" for e in recent_events]) if recent_events else "- A quiet season. The forest waits."
+    names_str = ", ".join(names) if names else "the adventurers of Oakhaven"
+
+    # Build prompt (mirrors _handle_bard_song pattern)
+    prompt = (
+        f"You are Caelindra the Bard performing at the Stone Hearth Inn in Oakhaven.\n"
+        f"Recent events:\n{events_str}\n\n"
+        f"Notable adventurers: {names_str}\n\n"
+        f"Write a ballad (4-10 lines) about these deeds. "
+        f"Voice: dry, specific, sardonic — like a journalist who found melody. "
+        f"It MUST name at least one adventurer. Reference a specific event. "
+        f"Output only the ballad, no preamble."
     )
+
+    song_text = "*Caelindra strums a chord, hums something, then shrugs and orders another drink.*"
+    try:
+        from utils.social.kaia_social_responder import load_persona_async
+        from utils.infrastructure.gpu.gpu_manager import OllamaGPUManager, gpu_memory_manager, GPUTaskPriority
+
+        persona = await load_persona_async()
+        gpu_manager = OllamaGPUManager(config.chat_model)
+        opts = gpu_manager.get_gpu_options(for_chat=True)
+        opts["num_predict"] = 180
+        opts["temperature"] = 0.95
+
+        resp = await gpu_memory_manager.run_with_gpu_guard(
+            model_name=config.chat_model,
+            priority=GPUTaskPriority.CHAT,
+            coro=asyncio.wait_for(
+                bot_ctx.ollama_client.chat(
+                    model=config.chat_model,
+                    messages=[
+                        {"role": "system", "content": persona + "\n\n" + prompt},
+                        {"role": "user", "content": "Perform the song."}
+                    ],
+                    options=opts,
+                    keep_alive=-1
+                ),
+                timeout=45.0
+            ),
+            task_id=f"bard_noon_{_uuid.uuid4().hex[:8]}"
+        )
+        raw = resp["message"]["content"].strip().replace("```", "")
+        if raw:
+            song_text = raw
+    except Exception as e:
+        log_error(f"[bard noon event] LLM call failed: {e}")
+
+    embed = discord.Embed(
+        title="🎵 Caelindra Performs",
+        description=f"*{song_text}*",
+        color=0x9b59b6
+    )
+    embed.set_footer(text="The Stone Hearth goes quiet for a moment. Then Mira refills something.")
     await channel.send(embed=embed)
-    log_action("Noon Event: Bard Performance")
+
+    await _log_world_event("🎵 **Caelindra the Bard** performed a ballad at the Stone Hearth.")
+    log_action("Noon Event: Bard Performance (LLM)")
 

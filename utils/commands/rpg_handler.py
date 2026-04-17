@@ -21,7 +21,22 @@ import utils.ttrpg.rpg_shop_handler as sho
 import utils.ttrpg.rpg_housing_handler as hou
 import utils.ttrpg.rpg_core_handler as cor
 from utils.ttrpg.rpg_views import *
-from utils.commands.fishing_handler import handle_fish_command, handle_fish_shop_command, _handle_sell_catch
+from utils.commands.fishing_handler import handle_fish_command, handle_fish_shop_command
+from utils.commands.fishing_handler import _handle_sell_catch as _sell_catch_inner
+
+
+async def _handle_sell_catch_cmd(ctx, msg, send, rest, uid, uname, is_owner):
+    """Adapter: bridge the 7-arg dispatcher signature to fishing handler's 5-arg UI signature."""
+    class _FakeInteraction:
+        """Minimal object mimicking discord.Interaction for fishing handler's followup.send."""
+        def __init__(self, channel):
+            self.channel = channel
+            self.followup = self
+        async def send(self, *args, **kwargs):
+            await self.channel.send(*args, **kwargs)
+
+    fake = _FakeInteraction(msg.channel)
+    await _sell_catch_inner(ctx, fake, uid, uname, is_owner)
 
 
 async def handle_rpg_command(ctx, msg, send_kaia_response):
@@ -54,7 +69,7 @@ async def handle_rpg_command(ctx, msg, send_kaia_response):
         "hunt":      com._handle_hunt,
         "fish":      handle_fish_command,
         "fish_shop": handle_fish_shop_command,
-        "sell_catch": _handle_sell_catch,
+        "sell_catch": _handle_sell_catch_cmd,
         "attack":    com._handle_attack,
         "flee":      com._handle_flee,
         "hunts":     com._handle_hunts,

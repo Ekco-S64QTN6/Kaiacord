@@ -4,6 +4,72 @@ from utils.ttrpg.equipment_registry import WEAPONS, ARMOR as ARMOR_DATA, HEADGEA
 from utils.ttrpg.class_advancement import ADVANCED_CLASSES, apply_advanced_class_to_combat, resolve_class_proc
 from utils.ttrpg.calendar import get_weather
 from utils.ttrpg.rpg_ui import colored_bar
+
+
+def _compute_player_defense(sheet: dict, def_mod_global: int = 0, pet_bonuses: dict = None) -> int:
+    """
+    Compute a player's effective defense using the full pipeline:
+    gear soft-cap, advanced class bonuses, weather, pets, conditions, and global cap.
+    Shared between _resolve_combat and duel setup.
+    """
+    pet_bonuses = pet_bonuses or {}
+
+    def _eq_key(val):
+        if not val:
+            return None
+        return val.get("key") if isinstance(val, dict) else val
+
+    eq = sheet.get("equipment", {})
+    armor     = ARMOR_DATA.get(_eq_key(eq.get("armor")))     or None
+    head      = HEADGEAR.get(_eq_key(eq.get("head")))        or None
+    boots_eq  = BOOTS.get(_eq_key(eq.get("boots")))          or None
+    accessory = ACCESSORIES.get(_eq_key(eq.get("accessory"))) or None
+
+    armor_def  = armor["defense_bonus"]     if armor     else 0
+    head_def   = head["defense_bonus"]      if head      else 0
+    boots_def  = boots_eq["defense_bonus"]  if boots_eq  else 0
+    acc_def    = accessory["defense_bonus"] if accessory else 0
+
+    dex_val = sheet.get("stats", {}).get("dex", 10)
+    if armor:
+        dex_val += armor.get("stat_bonus", {}).get("dex", 0)
+    dex_mod = (dex_val - 10) // 2
+
+    # Advanced class flat DEF bonus
+    adv_flat_def = 0
+    adv_class = sheet.get("advanced_class", "")
+    if adv_class:
+        for base_opts in ADVANCED_CLASSES.values():
+            if adv_class in base_opts:
+                b = base_opts[adv_class].get("bonuses", {})
+                adv_flat_def = b.get("def_bonus", 0) + b.get("bone_shield_passive", 0)
+                break
+
+    # Gear soft-cap
+    raw_gear_def = armor_def + head_def + boots_def + acc_def
+    effective_gear_def = min(10, raw_gear_def) + max(0, raw_gear_def - 10) // 2
+
+    pet_def_bonus = pet_bonuses.get("def_bonus", 0)
+
+    # Weather modifier
+    weather = get_weather()
+    weather_effect = weather.get("effect") if weather else None
+    weather_def_mod = weather_effect.get("value", 0) if weather_effect and weather_effect.get("type") == "armor_penalty" else 0
+
+    raw_total_def = 10 + dex_mod + effective_gear_def + adv_flat_def + def_mod_global + pet_def_bonus + weather_def_mod
+
+    # Conditions
+    conditions = set(sheet.get("conditions", []))
+    if "fortified" in conditions:
+        raw_total_def += 2
+
+    # Global DEF cap
+    player_level = sheet.get("level", 1)
+    global_def_cap = int(player_level * 1.5) + 12
+
+    return min(raw_total_def, global_def_cap)
+
+
 def _resolve_combat(sheet: dict, monster: dict, atk_mod_global: int = 0, def_mod_global: int = 0, is_duel: bool = False, pet_bonuses: dict = None) -> dict:
     """
     Resolve one round of combat between a player and a monster (or another player).
@@ -263,31 +329,12 @@ def _resolve_combat(sheet: dict, monster: dict, atk_mod_global: int = 0, def_mod
     monster_total_hit = 0
 
     if monster_alive:
-        raw_gear_def = armor_def + head_def + boots_def + acc_def
-        # Soft cap on gear: first 10 points full, remainder halved
-        effective_gear_def = min(10, raw_gear_def) + max(0, raw_gear_def - 10) // 2
-
-        pet_def_bonus = pet_bonuses.get("def_bonus", 0)
-
-        # Global DEF cap: prevents untouchable builds at endgame.
-        # Cap = level * 1.5 + 12 (e.g. L1=13, L5=19, L7=22, L10=27)
-        player_level = sheet.get("level", 1)
-        global_def_cap = int(player_level * 1.5) + 12
-
-        # Assemble total, then clamp
-
-        weather = get_weather()
-        weather_effect = weather.get("effect") if weather else None
-        weather_def_mod = weather_effect.get("value", 0) if weather_effect and weather_effect.get("type") == "armor_penalty" else 0
-        raw_total_def = 10 + dex_mod + effective_gear_def + adv_flat_def + def_mod_global + pet_def_bonus + weather_def_mod
+        player_defense = _compute_player_defense(sheet, def_mod_global, pet_bonuses)
         
         # Potion buff: Ironbark Tonic (+2 DEF until next combat)
         fortified_bonus = 2 if "fortified" in conditions else 0
         if fortified_bonus:
             status_logs.append(f"🛡️ *Ironbark hardens your skin (+2 DEF).*")
-            raw_total_def += fortified_bonus
-
-        player_defense = min(raw_total_def, global_def_cap)
 
         _tier = monster.get("tier", "medium")
         _dungeon_diff = monster.get("dungeon_difficulty", 1)

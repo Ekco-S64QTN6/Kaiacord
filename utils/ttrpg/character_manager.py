@@ -94,7 +94,9 @@ async def load(user_id: str) -> Optional[Dict[str, Any]]:
             today = date.today().strftime("%Y-%m-%d")
             if sheet.get("hunts_reset_date") != today:
                 from utils.ttrpg.progression import check_and_reset_hunts
-                sheet = check_and_reset_hunts(sheet)
+                from utils.ttrpg.housing import load_housing
+                housing = await asyncio.to_thread(functools.partial(load_housing, str(sheet.get("user_id", ""))))
+                sheet = check_and_reset_hunts(sheet, housing=housing)
                 await asyncio.to_thread(functools.partial(_save_sync, sheet))
         return sheet
 
@@ -215,7 +217,7 @@ def format_sheet(sheet: Dict[str, Any]) -> str:
     xp_next = xp_to_next_level(sheet["level"])
     xp_bar = f"{sheet['xp']}/{xp_next}" if xp_next else f"{sheet['xp']} (max level)"
     
-    from utils.ttrpg.progression import hunts_remaining, MAX_HUNTS_PER_DAY
+    from utils.ttrpg.progression import hunts_remaining, get_max_hunts
     
     gil = sheet.get("gil", 0)
     bank = sheet.get("bank_balance", 0)
@@ -264,7 +266,7 @@ def format_sheet(sheet: Dict[str, Any]) -> str:
         f"**HP:** {sheet['hp']['current']}/{sheet['hp']['max']}  "
         f"**XP:** {xp_bar}  **Gil:** {gil}g{bank_line}\n"
         f"**Status:** {rep_str} | {q_str}\n"
-        f"**Hunts:** {hunts_rem}/{MAX_HUNTS_PER_DAY} | **Medals:** {sheet.get('deaths', 0)} deaths\n"
+        f"**Hunts:** {hunts_rem}/{get_max_hunts(sheet)} | **Medals:** {sheet.get('deaths', 0)} deaths\n"
         f"**Weapon:** {w_name}  **Armor:** {a_name}\n"
         f"**Head:** {h_name}  **Boots:** {b_name}  **Accessory:** {ac_name}\n"
         f"**Conditions:** {conditions}\n"

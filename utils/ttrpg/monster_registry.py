@@ -521,7 +521,7 @@ MONSTERS = {
         "desc": "An insect-like creature that feeds on metal. Your armor is looking quite delicious to it.",
     },
     "harpy_dd": {
-        "name": "Harpy",
+        "name": "Greater Harpy",
         "hp": 40, "attack": 7, "defense": 10,
         "xp": 55, "gil": 12, "tier": "easy",
         "desc": "A creature with the upper body of a woman and the lower body of a bird. Its song lures travelers to their deaths.",
@@ -1019,7 +1019,7 @@ MONSTERS = {
         "desc": "A tiger-headed fiend and master of illusion. Its hands are backwards, and its heart is pure malice.",
     },
     "iron_giant_ff": {
-        "name": "Iron Giant",
+        "name": "Iron Colossus",
         "hp": 250, "attack": 20, "defense": 22,
         "xp": 500, "gil": 250, "tier": "hard",
         "desc": "A massive, plate-armored golem with a cleaver the size of a man. It exists only to crush.",
