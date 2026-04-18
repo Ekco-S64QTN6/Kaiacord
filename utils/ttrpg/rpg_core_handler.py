@@ -96,7 +96,7 @@ async def _handle_status(ctx, msg, send, rest, uid, uname, is_owner):
             resume_desc = f"\n\n⚔️ **You are currently in combat here!**\nUse `!rpg hunt` to re-open the interface."
     
     # Resumption logic
-    dungeon = load_dungeon(uid)
+    dungeon = await load_dungeon(uid)
     dungeon_in_combat = False
     if dungeon and dungeon.get("active"):
         if dungeon.get("active_combat"):
@@ -1661,19 +1661,34 @@ async def _handle_gamble(ctx, msg, send, rest, uid, uname, is_owner):
         
     house_roll  = secrets.randbelow(6) + 1
 
+    # ── Calendar: Festival of Fools — 2x wins AND 2x losses ───────────
+    from utils.ttrpg.calendar import get_special_day as _get_special_gamble
+    _sp_gamble = _get_special_gamble()
+    _fools_mult = 1
+    if _sp_gamble and _sp_gamble.get("buff") == "fools_luck":
+        _fools_mult = _sp_gamble.get("buff_value", 2)
+
     sheet["gil"] -= BUY_IN
 
     if player_roll > house_roll:
-        winnings = BUY_IN * 2
+        winnings = BUY_IN * 2 * _fools_mult
         sheet["gil"] += winnings
-        result_line = f"🎲 You rolled **{player_roll}**, they rolled **{house_roll}**. You win!"
-        gil_line = f"+{BUY_IN} gil (net). Total: {sheet['gil']}g"
+        net = BUY_IN * _fools_mult
+        fools_tag = " 🎭" if _fools_mult > 1 else ""
+        result_line = f"🎲 You rolled **{player_roll}**, they rolled **{house_roll}**. You win!{fools_tag}"
+        gil_line = f"+{net} gil (net). Total: {sheet['gil']}g"
     elif player_roll < house_roll:
-        result_line = f"🎲 You rolled **{player_roll}**, they rolled **{house_roll}**. You lose."
-        gil_line = f"-{BUY_IN} gil. Total: {sheet['gil']}g"
+        extra_loss = BUY_IN * (_fools_mult - 1)
+        sheet["gil"] = max(0, sheet["gil"] - extra_loss)
+        fools_tag = " 🎭" if _fools_mult > 1 else ""
+        result_line = f"🎲 You rolled **{player_roll}**, they rolled **{house_roll}**. You lose.{fools_tag}"
+        gil_line = f"-{BUY_IN * _fools_mult} gil. Total: {sheet['gil']}g"
     else:
-        result_line = f"🎲 You both rolled **{player_roll}**. House takes ties."
-        gil_line = f"-{BUY_IN} gil. Total: {sheet['gil']}g"
+        extra_loss = BUY_IN * (_fools_mult - 1)
+        sheet["gil"] = max(0, sheet["gil"] - extra_loss)
+        fools_tag = " 🎭" if _fools_mult > 1 else ""
+        result_line = f"🎲 You both rolled **{player_roll}**. House takes ties.{fools_tag}"
+        gil_line = f"-{BUY_IN * _fools_mult} gil. Total: {sheet['gil']}g"
 
     await save(sheet)
 

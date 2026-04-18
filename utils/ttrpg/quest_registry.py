@@ -63,6 +63,36 @@ QUESTS = {
         "rewards": {"xp": 3000, "gil": 500, "item": "void_blade"},
         "completion_msg": "Elara is waiting at the Shrine entrance when you emerge. She doesn't ask what you saw. 'The seal held. This time.' She presses something cold and dark into your hand. 'The Silent Ones left this for whoever came back. Not everyone does.'",
     },
+    "aeridor_remnant": {
+        "id": "aeridor_remnant",
+        "name": "The Waking Metal",
+        "npc": "elara",
+        "description": "An Aeridorian Iron Golem has broken the perimeter of the ruins. Destroy it before it reaches the treeline.",
+        "requirements": {"level": 11},
+        "tasks": ["kill_iron_golem", "talk_elara"],
+        "rewards": {"xp": 5000, "gil": 800, "item": "aeridorian_warplate"},
+        "completion_msg": "Elara inspects the metallic plating you brought back. 'They are learning. Or remembering. I am not sure which is worse.'",
+    },
+    "shadow_incursion": {
+        "id": "shadow_incursion",
+        "name": "The Darkening",
+        "npc": "guard",
+        "description": "The Watchtower reports unnatural cold from the Deepwood. A Shadow Lich is massing forces. End it.",
+        "requirements": {"level": 13},
+        "tasks": ["kill_shadow_lich", "talk_guard"],
+        "rewards": {"xp": 10000, "gil": 1500, "item": "nightfall_ring"},
+        "completion_msg": "The guard shivers despite the sun. 'We saw the shadows retreat. Oakhaven owes you its life today.'",
+    },
+    "the_last_guardian": {
+        "id": "the_last_guardian",
+        "name": "The Last Guardian",
+        "npc": "elara",
+        "description": "The heart of the Aeridor Ruins has opened. We cannot wait any longer. Go in. Do not come out until it is quiet.",
+        "requirements": {"level": 15},
+        "tasks": ["complete_dungeon", "talk_elara"],
+        "rewards": {"xp": 25000, "gil": 5000, "item": "worldsplitter"},
+        "completion_msg": "Elder Elara bows her head. 'It is done. The bones of Aeridor can finally rest. And so can we.'",
+    },
 }
 
 def get_quest(quest_id):

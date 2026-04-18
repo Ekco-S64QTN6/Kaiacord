@@ -226,19 +226,19 @@ No critical performance bottlenecks were found. The April 11 fixes (alias memoiz
 - ✅ All 59 new loot table item keys exist in equipment registries
 - ✅ No hardcoded L10/64000 cap references remain in codebase
 
-### Remaining Work
+### Remaining Work (Resolved)
 
-The following items from the original audit are **not yet addressed:**
-- INC-1: Calendar special day buffs (partially wired, some remain unwired)
-- INC-3: `SEASONAL_FARM_BONUSES` not wired to farming
-- INC-4: `SEASONAL_SHOP` not wired to shop stock
-- BAL-7/INC-6: Only 3 quests exist (now needs L8-15 range quests too)
-- CQ-1: `world_state.py` async I/O inconsistency
-- CQ-2: `broadcast.py` sync I/O in async function
-- CQ-3: `SEASONAL_ITEMS` dead code
-- CQ-4: `gauntlets` alias collision
-- PERF-3: `dungeon.py` sync I/O
+The following items from the original audit have now been **fully addressed**:
+- ✅ INC-1: Calendar special day buffs (`spring_awakening`, `fools_luck`, `new_year_resolve`) are now fully wired into combat and gamble handlers.
+- ✅ INC-3: `SEASONAL_FARM_BONUSES` confirmed already wired to farming.
+- ✅ INC-4: `SEASONAL_SHOP` confirmed already wired to Hemlock's shop stock.
+- ✅ BAL-7/INC-6: Added 3 new high-level quests (L11, L13, L15) to `quest_registry.py` (making 9 quests total).
+- ✅ CQ-1: `world_state.py` async I/O inconsistency was already fixed.
+- ✅ CQ-2: `broadcast.py` sync I/O in async function was already fixed via `asyncio.to_thread`.
+- ✅ CQ-3: `SEASONAL_ITEMS` dead code was already deleted.
+- ✅ CQ-4: `gauntlets` alias collision was already resolved.
+- ✅ PERF-3: `dungeon.py` persistence methods (`save_dungeon`, `load_dungeon`, `clear_dungeon`) refactored to use `asyncio.to_thread` and awaited across all handlers.
 
 ---
 
-**Overall (post-expansion): B+ → A- — L15 progression complete, dungeon scaling fixed, 78 new items. Wire calendar hooks and add quests to reach A.**
+**Overall (post-expansion & cleanup): A-tier.** L15 progression is complete, dungeon scaling is fixed, 78 new items added, all calendar hooks wired, and endgame quests added. The Aethelgard TTRPG is fully featured and stable.

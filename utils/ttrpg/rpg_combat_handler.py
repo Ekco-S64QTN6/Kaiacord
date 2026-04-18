@@ -57,7 +57,7 @@ async def _dungeon_combat_round(ctx_obj, interaction, uid, uname, is_owner):
     from utils.ttrpg.progression import check_level_up, xp_to_next_level
     from utils.ttrpg.world_state import get_current_state
 
-    state = load_dungeon(uid)
+    state = await load_dungeon(uid)
     if not state or not state.get("active_combat"):
         await interaction.followup.send("No active combat.", ephemeral=True)
         return
@@ -83,8 +83,16 @@ async def _dungeon_combat_round(ctx_obj, interaction, uid, uname, is_owner):
     _furniture_atk = _home_bonuses.get("home_atk", 0)  # local_atk only applies at home location
 
     world_state = get_current_state()
+    # Calendar day ATK buffs (spring_awakening +1, amber_sight +2)
+    from utils.ttrpg.calendar import get_special_day as _get_special_day_dng
+    _sp_dng = _get_special_day_dng()
+    _cal_atk = 0
+    if _sp_dng:
+        _b = _sp_dng.get("buff")
+        if _b in ("spring_awakening", "amber_sight"):
+            _cal_atk = _sp_dng.get("buff_value", 0)
     res = _resolve_combat(sheet, monster,
-                          atk_mod_global=world_state.get("atk_mod", 0) + _furniture_atk,
+                          atk_mod_global=world_state.get("atk_mod", 0) + _furniture_atk + _cal_atk,
                           def_mod_global=world_state.get("def_mod", 0),
                           pet_bonuses=_pet_bonuses)
 
@@ -247,7 +255,7 @@ async def _dungeon_combat_round(ctx_obj, interaction, uid, uname, is_owner):
         exchange_text += f"\n\n+{xp_gain} XP ({sheet['xp']}/{xp_next}) · +{gil_gain} Gil{loot_text}{level_text}"
 
         await save(sheet)
-        save_dungeon(uid, state)
+        await save_dungeon(uid, state)
 
         if is_boss:
             # Boss dead — fire summary narration then finalize
@@ -281,7 +289,7 @@ async def _dungeon_combat_round(ctx_obj, interaction, uid, uname, is_owner):
         sheet["gil"] = max(0, sheet["gil"] - gil_loss)
         await save(sheet)
         from utils.ttrpg.dungeon import clear_dungeon
-        clear_dungeon(uid)
+        await clear_dungeon(uid)
         embed = discord.Embed(
             title="💀 Defeated",
             description=f"{exchange_text}\n\n*You collapsed in the dark. Someone dragged you back to the Shrine.*\n-{xp_loss} XP · -{gil_loss} Gil",
@@ -317,7 +325,7 @@ async def _dungeon_combat_round(ctx_obj, interaction, uid, uname, is_owner):
         combat["monster"] = monster
         state["active_combat"] = combat
         await save(sheet)
-        save_dungeon(uid, state)
+        await save_dungeon(uid, state)
 
         name_used = boss_name if (is_boss and boss_name) else monster.get("name", "Enemy")
         embed = discord.Embed(
@@ -333,7 +341,7 @@ async def _handle_dungeon(ctx, msg, send, rest, uid, uname, is_owner):
     from utils.ttrpg.dungeon import generate_dungeon, save_dungeon, load_dungeon, DUNGEON_THEMES
 
     # Resume existing run
-    existing = load_dungeon(uid)
+    existing = await load_dungeon(uid)
     if existing and existing.get("active"):
         await msg.channel.send(embed=discord.Embed(
             description="*You're already in there. Picking up where you left off...*",
@@ -383,7 +391,7 @@ async def _handle_dungeon(ctx, msg, send, rest, uid, uname, is_owner):
     loc_diff_bonus = LOCATION_DIFFICULTY_BONUS.get(loc, 0)
     difficulty = max(1, min(5, (sheet["level"] - 1) // 3 + 1 + loc_diff_bonus))
     dungeon = generate_dungeon(difficulty, player_level=sheet["level"], location=loc)
-    save_dungeon(uid, dungeon)
+    await save_dungeon(uid, dungeon)
 
     theme_key  = dungeon.get("theme_key", "undead")
     theme_data = DUNGEON_THEMES.get(theme_key, {})
@@ -688,10 +696,18 @@ async def _handle_attack(ctx, msg, send, rest, uid, uname, is_owner):
     state = get_current_state()
     from utils.ttrpg.furniture import get_home_bonuses
     home_bonuses = get_home_bonuses(_housing) if _housing else {}
+    # Calendar day ATK buffs (spring_awakening +1, amber_sight +2)
+    from utils.ttrpg.calendar import get_special_day as _get_special_day_ow
+    _sp_ow = _get_special_day_ow()
+    _cal_atk_ow = 0
+    if _sp_ow:
+        _b_ow = _sp_ow.get("buff")
+        if _b_ow in ("spring_awakening", "amber_sight"):
+            _cal_atk_ow = _sp_ow.get("buff_value", 0)
     if sheet.get("location") == "housing_district":
-        atk_mod_global = state.get("atk_mod", 0) + home_bonuses.get("home_atk", 0) + home_bonuses.get("local_atk", 0)
+        atk_mod_global = state.get("atk_mod", 0) + home_bonuses.get("home_atk", 0) + home_bonuses.get("local_atk", 0) + _cal_atk_ow
     else:
-        atk_mod_global = state.get("atk_mod", 0) + home_bonuses.get("home_atk", 0)
+        atk_mod_global = state.get("atk_mod", 0) + home_bonuses.get("home_atk", 0) + _cal_atk_ow
 
     res = _resolve_combat(
         sheet, monster, 
@@ -776,15 +792,20 @@ async def _handle_attack(ctx, msg, send, rest, uid, uname, is_owner):
                 # The Remembrance: +50% XP
                 xp_gain = int(xp_gain * _bv)
             elif _buff == "amber_sight":
-                # Amber Night: +2 ATK already handled by atk_mod_global if wired,
-                # but also apply here as a direct bonus to be safe
-                pass  # ATK bonus is applied in combat_engine via atk_mod_global
+                # Amber Night: +2 ATK — wired into atk_mod_global above
+                pass
             elif _buff == "winter_resolve":
                 # First Day of Winter: +5 max HP today (applied once per combat)
                 if not sheet.get("_winter_resolve_applied"):
                     sheet["hp"]["max"] += _bv
                     sheet["hp"]["current"] += _bv
                     sheet["_winter_resolve_applied"] = True
+            elif _buff == "new_year_resolve":
+                # The Turning: full HP restore once today
+                if not sheet.get("_new_year_applied"):
+                    sheet["hp"]["current"] = sheet["hp"]["max"]
+                    sheet["_new_year_applied"] = True
+                    streak_msg += "  🎆 The Turning: fully restored"
 
         # Experience Tonic bonus (+25% XP, consumed on use)
         if "xp_boosted" in sheet.get("conditions", []):
@@ -1417,7 +1438,7 @@ async def _dungeon_complete(ctx_obj, interaction, uid, uname, is_owner,
                 prog.append("complete_dungeon")
 
     await save(sheet)
-    clear_dungeon(uid)
+    await clear_dungeon(uid)
 
     xp   = state.get("xp_gained",  0) + bonus_xp
     gil  = state.get("gil_gained", 0) + bonus_gil

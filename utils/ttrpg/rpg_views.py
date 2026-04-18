@@ -1174,7 +1174,7 @@ async def _get_active_view(ctx, msg, uid, uname, is_owner):
                 return RPGCombatView(ctx, msg, uid, uname, is_owner, m.get("key", "monster"))
 
     from utils.ttrpg.dungeon import load_dungeon
-    d_state = load_dungeon(uid)
+    d_state = await load_dungeon(uid)
     if d_state and d_state.get("active"):
         ac = d_state.get("active_combat")
         if ac:
@@ -1237,7 +1237,7 @@ class BossApproachView(discord.ui.View):
         except discord.NotFound:
             pass
         from utils.ttrpg.dungeon import load_dungeon
-        state = load_dungeon(self._uid)
+        state = await load_dungeon(self._uid)
         if not state:
             try:
                 await interaction.followup.send("Dungeon state lost.", ephemeral=True)
@@ -1305,7 +1305,7 @@ class DungeonView(discord.ui.View):
             except discord.NotFound:
                 pass
             from utils.ttrpg.dungeon import load_dungeon, render_map
-            state = load_dungeon(self._uid)
+            state = await load_dungeon(self._uid)
             if not state:
                 try:
                     await interaction.followup.send("no dungeon found", ephemeral=True)
@@ -1330,7 +1330,7 @@ class DungeonView(discord.ui.View):
                 return
             await interaction.response.defer()
             from utils.ttrpg.dungeon import clear_dungeon
-            clear_dungeon(self._uid)
+            await clear_dungeon(self._uid)
             await interaction.followup.send("You have left the dungeon and returned to the entrance.")
         leave_btn.callback = _leave_cb
         self.add_item(leave_btn)
@@ -2019,7 +2019,7 @@ async def _dungeon_move(ctx_obj, interaction, uid, uname, is_owner, direction):
     from utils.ttrpg.shop import find_item
     from utils.ttrpg.progression import check_level_up, xp_to_next_level
 
-    state = load_dungeon(uid)
+    state = await load_dungeon(uid)
     if not state or not state.get("active"):
         await interaction.followup.send("No active dungeon.", ephemeral=True)
         return
@@ -2044,7 +2044,7 @@ async def _dungeon_move(ctx_obj, interaction, uid, uname, is_owner, direction):
 
     if preview_rt == R_BOSS and not preview_room.get("cleared", False) and not state.get(warn_key):
         state[warn_key] = True          # set flag so second approach skips the warning
-        save_dungeon(uid, state)        # persist flag — player hasn't moved yet
+        await save_dungeon(uid, state)        # persist flag — player hasn't moved yet
 
         theme_key = state.get("theme_key", "undead")
         boss_name = preview_room.get("boss_name", "the Ancient Horror")
@@ -2120,7 +2120,7 @@ async def _dungeon_move(ctx_obj, interaction, uid, uname, is_owner, direction):
                     "room_key": nk,
                 }
                 await save(sheet)
-                save_dungeon(uid, state)
+                await save_dungeon(uid, state)
 
                 tier_icon = TIER_ICONS.get(monster.get("tier", "medium"), "🟠")
                 name_used = room.get("boss_name") if is_boss else monster.get("name", "Unknown")
@@ -2252,7 +2252,7 @@ async def _dungeon_move(ctx_obj, interaction, uid, uname, is_owner, direction):
 
     leveled, new_level = check_level_up(sheet)
     await save(sheet)
-    save_dungeon(uid, state)
+    await save_dungeon(uid, state)
 
     level_text = f"\n\n🎉 **Level Up! Now Lv.{new_level}!**" if leveled else ""
     hp_str = f"\n\n❤️ {sheet['hp']['current']}/{sheet['hp']['max']} HP"
@@ -2275,14 +2275,14 @@ async def _dungeon_move(ctx_obj, interaction, uid, uname, is_owner, direction):
 async def _dungeon_combat_flee(ctx_obj, interaction, uid, uname, is_owner):
     from utils.ttrpg.dungeon import load_dungeon, save_dungeon
 
-    state = load_dungeon(uid)
+    state = await load_dungeon(uid)
     if not state or not state.get("active_combat"):
         await interaction.followup.send("No combat to flee from.", ephemeral=True)
         return
 
     # Fleeing costs 1 hunt and sends you back one step (just clear combat, stay in room)
     del state["active_combat"]
-    save_dungeon(uid, state)
+    await save_dungeon(uid, state)
 
     sheet = await load(uid)
     if sheet:
