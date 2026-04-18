@@ -946,10 +946,14 @@ async def run_tonberry_procession(bot_ctx, channel):
             gil = secrets.randbelow(20) + 10
             s["xp"] = s.get("xp", 0) + xp
             s["gil"] = s.get("gil", 0) + gil
+            from utils.ttrpg.progression import check_level_up
+            leveled, new_lvl = check_level_up(s)
             await save(s)
             result_lines.append(
                 f"🕯️ **{s['character_name']}** watched in silence. A tonberry dropped a coin purse as it passed. (+{xp} XP, +{gil}g)"
             )
+            if leveled:
+                result_lines.append(f"🎉 **{s['character_name']}** reached **Level {new_lvl}!**")
         else:
             dmg = secrets.randbelow(8) + 5
             s["hp"]["current"] = max(1, s["hp"]["current"] - dmg)

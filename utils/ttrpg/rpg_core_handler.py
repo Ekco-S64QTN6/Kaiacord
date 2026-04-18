@@ -932,7 +932,11 @@ async def _handle_rest(ctx, msg, send, rest, uid, uname, is_owner):
     if sheet.get("location") != "stone_hearth":
         return await msg.channel.send(embed=discord.Embed(description="You need to be at the Stone Hearth inn to rest. (`!rpg go stone_hearth`)", color=0xcc4444))
         
-    cost = 5
+    from utils.ttrpg.calendar import get_special_day
+    _special = get_special_day()
+    _hearthday = _special and _special.get("buff") == "hearthday_warmth"
+
+    cost = 0 if _hearthday else 5
     if sheet.get("gil", 0) < cost:
         return await msg.channel.send(embed=discord.Embed(description=f"Mira shakes her head. \"Beds aren't free.\"\nYou need {cost} gil. You have {sheet.get('gil', 0)}g.", color=0xcc4444))
         
@@ -957,9 +961,10 @@ async def _handle_rest(ctx, msg, send, rest, uid, uname, is_owner):
 
     await save(sheet)
     
+    _hearthday_msg = "\n🍺 *Mira's treat — rest is free today.*" if _hearthday else ""
     view = _make_status_view(ctx, msg, uid, uname, is_owner)
     await msg.channel.send(embed=discord.Embed(
-        description=f"🛏️ **{sheet['character_name']}** rests at the Stone Hearth. (-{cost} gil)\nHP restored: **+{healed}** (Full)\nRemaining gil: {sheet['gil']}g\n\n*You feel invigorated. (+1 Hunt tomorrow)*",
+        description=f"🛏️ **{sheet['character_name']}** rests at the Stone Hearth. (-{cost} gil)\nHP restored: **+{healed}** (Full)\nRemaining gil: {sheet['gil']}g\n\n*You feel invigorated. (+1 Hunt tomorrow)*{_hearthday_msg}",
         color=0x44aa44
     ), view=view)
 
@@ -1750,6 +1755,29 @@ async def _handle_pray(ctx, msg, send, rest, uid, uname, is_owner):
             description="🕯️ *You are already carrying the blessing of the Silent Ones.*\nUse it before asking for more.",
             color=0x888888
         ), ephemeral=True)
+
+    # ── Quest Task Tracking: pray_shrine ────────────────────────────────────
+    active_id = sheet.get("active_quest")
+    if active_id:
+        from utils.ttrpg.quest_registry import get_quest
+        q = get_quest(active_id)
+        if q and "pray_shrine" in q["tasks"]:
+            prog = sheet.setdefault("quest_progress", {}).setdefault(active_id, [])
+            if "pray_shrine" not in prog:
+                prog.append("pray_shrine")
+
+    # ── Calendar Special Day: Morvenna's Ward (+5 HP on prayer) ────────────
+    if special and special.get("buff") == "morvennas_ward":
+        _ward_hp = special.get("buff_value", 5)
+        sheet["hp"]["current"] = min(sheet["hp"]["max"], sheet["hp"]["current"] + _ward_hp)
+        sheet.setdefault("conditions", []).append("blessed")
+        sheet["last_pray_date"] = today
+        await save(sheet)
+        view = _make_status_view(ctx, msg, uid, uname, is_owner)
+        return await msg.channel.send(embed=discord.Embed(
+            description=f"🕯️ **Blessed** — *Morvenna's ward shelters you on this dark night.*\n+2 to next attack rolls · **+{_ward_hp} HP restored**\n*The veil is thin. The dead are restless. But you are protected.*",
+            color=0xaaddff
+        ), view=view)
 
     sheet.setdefault("conditions", []).append("blessed")
     sheet["last_pray_date"] = today

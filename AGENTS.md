@@ -128,10 +128,10 @@ Registry files (like `equipment_registry.py`) contain both large data dictionari
 
 ## Known Issues & Open Work
 
-See `docs/ttrpg/Aethelgard_TTRPG_Review.md` for the full audit. Priority items:
+See `docs/ttrpg/CLAUDE_REPORT.md` for the full audit. Priority items:
 
-- Combat is too easy at high levels due to uncapped DEF stacking from pets/class/weather
-- `balance_model.py` is completely stale — uses wrong formulas, wrong data
-- Only 2 alchemy recipes exist despite full crafting infrastructure
-- Calendar special day effects (`encounter_mod`, `shop_special`, `shrine_gift`) are defined but not wired to handlers
-- Furniture bonuses (`home_brewing`, `daily_training`, `home_pray`, `home_scout`) need integration
+- High-level DEF scaling is managed by the global cap (`level * 1.5 + 12`) and gear soft-cap — both are intentional design
+- Calendar special day buffs are wired to combat, rest, pray, and offer handlers
+- Furniture bonuses (`home_brewing`, `daily_training`, `home_pray`, `home_scout`) are integrated
+- Seasonal shop stock and farm bonuses are wired
+- Quest content is limited (3 quests, L1–7 range) — more needed for L8–10

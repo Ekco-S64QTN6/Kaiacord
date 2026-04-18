@@ -32,7 +32,37 @@ QUESTS = {
         "tasks": ["kill_bandit", "talk_maren"],
         "rewards": {"xp": 200, "gil": 50, "recipe": "potion", "item": "silverleaf"},
         "completion_msg": "Sister Maren's eyes light up. 'The Silverleaf! Now I can finish the brew. Bless you.'",
-    }
+    },
+    "grimstone_relic": {
+        "id": "grimstone_relic",
+        "name": "The Aeridorian Signal",
+        "npc": "elara",
+        "description": "Elder Elara has detected a pulse from deep below Oakhaven — Aeridorian constructs are waking up. Clear a dungeon and report back what you find.",
+        "requirements": {"level": 5},
+        "tasks": ["complete_dungeon", "talk_elara"],
+        "rewards": {"xp": 500, "gil": 200, "item": "lightstone"},
+        "completion_msg": "Elara listens to your account without expression. 'The constructs are active again. That pulse was not random. Something triggered them.' She pauses. 'Keep the lightstone. You'll need it more than I will.'",
+    },
+    "deep_hunt": {
+        "id": "deep_hunt",
+        "name": "What Sleeps Beneath",
+        "npc": "guard",
+        "description": "The Watchtower has lost contact with a patrol in the Whisperwood Deep. Something powerful took them. Find and kill the creatures responsible — a Frost Wolf and an Owlbear.",
+        "requirements": {"level": 7},
+        "tasks": ["kill_frost_wolf", "kill_owlbear", "talk_guard"],
+        "rewards": {"xp": 1200, "gil": 350, "item": "ironbark_potion"},
+        "completion_msg": "The guard stares at the blood on your gear. 'You found them, didn't you. What was left of them.' A long silence. 'The Watchtower owes you a debt. This doesn't cover it, but it's what we have.'",
+    },
+    "silent_ones": {
+        "id": "silent_ones",
+        "name": "The Final Silence",
+        "npc": "elara",
+        "description": "The Shrine of the Silent Ones has gone dark. Elder Elara believes the seal is failing. Pray at the Shrine, then enter the dungeon beneath it and defeat what waits there.",
+        "requirements": {"level": 9},
+        "tasks": ["pray_shrine", "complete_dungeon", "talk_elara"],
+        "rewards": {"xp": 3000, "gil": 500, "item": "void_blade"},
+        "completion_msg": "Elara is waiting at the Shrine entrance when you emerge. She doesn't ask what you saw. 'The seal held. This time.' She presses something cold and dark into your hand. 'The Silent Ones left this for whoever came back. Not everyone does.'",
+    },
 }
 
 def get_quest(quest_id):

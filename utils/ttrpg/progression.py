@@ -141,7 +141,14 @@ def get_max_hunts(sheet: dict, housing: dict = None) -> int:
     # Items and random event temporary bonuses
     hunt_bonus = sum(1 for c in sheet.get("conditions", []) if c == "hunt_bonus")
 
-    return min(MAX_HUNTS_CEILING, MAX_HUNTS_PER_DAY + ale_bonus + rest_bonus + pet_bonus + class_hunt_bonus + hunt_bonus)
+    # Calendar special day bonus (Long Night Vigil: +1 hunt)
+    from utils.ttrpg.calendar import get_special_day
+    _special = get_special_day()
+    calendar_hunt_bonus = 0
+    if _special and _special.get("buff") == "long_night_vigil":
+        calendar_hunt_bonus = _special.get("buff_value", 1)
+
+    return min(MAX_HUNTS_CEILING, MAX_HUNTS_PER_DAY + ale_bonus + rest_bonus + pet_bonus + class_hunt_bonus + hunt_bonus + calendar_hunt_bonus)
 
 
 def hunts_remaining(sheet: dict, housing: dict = None) -> int:

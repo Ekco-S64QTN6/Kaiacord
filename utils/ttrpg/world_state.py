@@ -40,7 +40,9 @@ def load_world_state() -> Dict[str, Any]:
                 _cache = state
                 _cache_date = mtime
                 return state.copy()
-        except:
+        except (OSError, json.JSONDecodeError, ValueError, KeyError) as e:
+            import sys
+            print(f"[world_state] Failed to load {WORLD_STATE_PATH}: {e}", file=sys.stderr)
             return DEFAULT_STATE.copy()
 
 def save_world_state(state: Dict[str, Any]):

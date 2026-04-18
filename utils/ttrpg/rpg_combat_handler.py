@@ -756,6 +756,34 @@ async def _handle_attack(ctx, msg, send, rest, uid, uname, is_owner):
         if weather_effect.get("type") == "gil_bonus":
             gil_gain += weather_effect.get("value", 0)
 
+        # ── Calendar Special Day Buffs ─────────────────────────────────────
+        from utils.ttrpg.calendar import get_special_day
+        _special = get_special_day()
+        if _special:
+            _buff = _special.get("buff")
+            _bv = _special.get("buff_value", 0)
+            if _buff == "long_fire":
+                # Beltane: +3 HP after every successful hunt
+                if res["player_alive"]:
+                    sheet["hp"]["current"] = min(sheet["hp"]["max"], sheet["hp"]["current"] + _bv)
+                    streak_msg += f"  🔥 Long Fire: +{_bv} HP"
+            elif _buff == "harvest_strength":
+                # First Day of Autumn: +1 Gil per kill
+                gil_gain += _bv
+            elif _buff == "remembrance":
+                # The Remembrance: +50% XP
+                xp_gain = int(xp_gain * _bv)
+            elif _buff == "amber_sight":
+                # Amber Night: +2 ATK already handled by atk_mod_global if wired,
+                # but also apply here as a direct bonus to be safe
+                pass  # ATK bonus is applied in combat_engine via atk_mod_global
+            elif _buff == "winter_resolve":
+                # First Day of Winter: +5 max HP today (applied once per combat)
+                if not sheet.get("_winter_resolve_applied"):
+                    sheet["hp"]["max"] += _bv
+                    sheet["hp"]["current"] += _bv
+                    sheet["_winter_resolve_applied"] = True
+
         # Experience Tonic bonus (+25% XP, consumed on use)
         if "xp_boosted" in sheet.get("conditions", []):
             xp_gain = int(xp_gain * 1.25)
@@ -1375,6 +1403,17 @@ async def _dungeon_complete(ctx_obj, interaction, uid, uname, is_owner,
     bonus_gil = 40
     sheet["xp"]  = sheet.get("xp",  0) + bonus_xp
     sheet["gil"] = sheet.get("gil", 0) + bonus_gil
+
+    # Quest Task Tracking: Dungeon completion
+    active_id = sheet.get("active_quest")
+    if active_id:
+        from utils.ttrpg.quest_registry import get_quest
+        q = get_quest(active_id)
+        if q and "complete_dungeon" in q["tasks"]:
+            prog = sheet.setdefault("quest_progress", {}).setdefault(active_id, [])
+            if "complete_dungeon" not in prog:
+                prog.append("complete_dungeon")
+
     await save(sheet)
     clear_dungeon(uid)
 

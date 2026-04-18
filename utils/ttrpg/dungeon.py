@@ -804,8 +804,10 @@ def render_map(state: dict) -> str:
 def save_dungeon(user_id: str, state: dict):
     os.makedirs(DUNGEON_DIR, exist_ok=True)
     path = os.path.join(DUNGEON_DIR, f"{user_id}.json")
-    with open(path, "w") as f:
+    tmp = path + ".tmp"
+    with open(tmp, "w") as f:
         json.dump(state, f, indent=2)
+    os.replace(tmp, path)
 
 
 def load_dungeon(user_id: str) -> Optional[dict]:

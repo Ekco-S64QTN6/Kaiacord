@@ -59,17 +59,21 @@ def get_season(today: Optional[date] = None) -> str:
 
 
 def get_season_day(today: Optional[date] = None) -> int:
-    """Return approximate day within the current season (1-91)."""
+    """Return approximate day within the current season (1-91).
+    Handles year-wrap for winter (Dec, Jan, Feb)."""
     if today is None:
         today = date.today()
     season = get_season(today)
     months = SEASONS[season]
-    # Find position within season
     import calendar as cal
     day = 0
     for m in months:
-        year = today.year
-        if m > today.month or (m == today.month):
+        # Determine the actual year for this month in the season
+        if season == "winter" and m == 12 and today.month <= 2:
+            year = today.year - 1  # December of previous year
+        else:
+            year = today.year
+        if m == today.month:
             break
         day += cal.monthrange(year, m)[1]
     day += today.day
@@ -325,34 +329,9 @@ SEASONAL_SHOP = {
 # in SEASONAL_MONSTERS above; their stats live in MONSTERS dict.
 
 
-# NEW SEASONAL ITEM
-SEASONAL_ITEMS = {
-    "fur_cloak": {
-        "name": "Fur Cloak",
-        "defense_bonus": 2,
-        "value": 18,
-        "tier": 1,
-        "desc": "Heavy winter fur. Keeps the cold out. Available from Hemlock in winter only.",
-        "season": "winter",
-    },
-    "lucky_charm": {
-        "name": "Lucky Charm",
-        "value": 15,
-        "tier": 1,
-        "on_use": "luck_roll_bonus",
-        "desc": "A carved wooden token. Adds +1 to your next roll. Single use.",
-        "season": "spring",  # Festival of Fools only
-    },
-    "antidote": {
-        "name": "Antidote",
-        "hp_restore": 0,
-        "value": 8,
-        "tier": 1,
-        "on_use": "cure_poison",
-        "desc": "Clears the Poisoned condition. Hemlock makes them fresh each spring.",
-        "season": "spring",
-    },
-}
+# SEASONAL_ITEMS — REMOVED
+# These items are defined in equipment_registry.py.
+# Seasonal availability is handled by SEASONAL_SHOP above.
 
 
 import hashlib

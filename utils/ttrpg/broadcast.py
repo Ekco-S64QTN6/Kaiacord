@@ -6,22 +6,28 @@ from utils.infrastructure.logging.kaia_logger import log_error
 from utils.infrastructure.system.yaml_config import config
 
 async def log_world_event(event_text):
-    path = os.path.join("memory", "ttrpg", "world_events.json")
-    os.makedirs(os.path.dirname(path), exist_ok=True)
-    events = []
-    if os.path.exists(path):
-        try:
-            with open(path, 'r', encoding='utf-8') as f:
-                events = json.load(f)
-        except:
-            events = []
-    if not isinstance(events, list):
+    import asyncio
+    import functools
+    def _sync_log(event_text):
+        path = os.path.join("memory", "ttrpg", "world_events.json")
+        os.makedirs(os.path.dirname(path), exist_ok=True)
         events = []
-    events.append(event_text)
-    if len(events) > 10:
-        events = list(events)[-10:]
-    with open(path, 'w', encoding='utf-8') as f:
-        json.dump(events, f, indent=2)
+        if os.path.exists(path):
+            try:
+                with open(path, 'r', encoding='utf-8') as f:
+                    events = json.load(f)
+            except (OSError, json.JSONDecodeError, ValueError):
+                events = []
+        if not isinstance(events, list):
+            events = []
+        events.append(event_text)
+        if len(events) > 10:
+            events = list(events)[-10:]
+        tmp = path + ".tmp"
+        with open(tmp, 'w', encoding='utf-8') as f:
+            json.dump(events, f, indent=2)
+        os.replace(tmp, path)
+    await asyncio.to_thread(functools.partial(_sync_log, event_text))
 
 async def broadcast_world_event(ctx, embed: discord.Embed):
     """Post a notable event embed to the main #aethelgard broadcast channel."""

@@ -105,9 +105,16 @@ def harvest_crop(crop: dict, season: str, furniture_yield_bonus: int = 0) -> tup
     if watered_count >= growth_days - 1:
         qty += 1
 
-    # Season bonus (additional +1 on top)
+    # Per-crop season bonus (additional +1 on top)
     if crop_data.get("season_bonus") == season:
         qty += 1
+
+    # Calendar seasonal farm bonus (from SEASONAL_FARM_BONUSES)
+    from utils.ttrpg.calendar import SEASONAL_FARM_BONUSES
+    seasonal_bonuses = SEASONAL_FARM_BONUSES.get(season, {})
+    crop_key = crop["crop_key"]
+    if crop_key in seasonal_bonuses:
+        qty += seasonal_bonuses[crop_key]
 
     qty += furniture_yield_bonus
 
