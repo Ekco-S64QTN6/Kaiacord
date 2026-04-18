@@ -136,6 +136,29 @@ async def _dungeon_combat_round(ctx_obj, interaction, uid, uname, is_owner):
         xp_gain = int(monster.get("xp", 25) * (2 if is_boss else 1))
         gil_gain = int(monster.get("gil", 5) * (2 if is_boss else 1))
         
+        # ── Calendar Special Day Buffs ─────────────────────────────────────
+        from utils.ttrpg.calendar import get_special_day
+        _sp_dungeon = get_special_day()
+        if _sp_dungeon:
+            _buff = _sp_dungeon.get("buff")
+            _bv = _sp_dungeon.get("buff_value", 0)
+            if _buff == "long_fire":
+                if res["player_alive"]:
+                    sheet["hp"]["current"] = min(sheet["hp"]["max"], sheet["hp"]["current"] + _bv)
+            elif _buff == "harvest_strength":
+                gil_gain += _bv
+            elif _buff == "remembrance":
+                xp_gain = int(xp_gain * _bv)
+            elif _buff == "winter_resolve":
+                if not sheet.get("_winter_resolve_applied"):
+                    sheet["hp"]["max"] += _bv
+                    sheet["hp"]["current"] += _bv
+                    sheet["_winter_resolve_applied"] = True
+            elif _buff == "new_year_resolve":
+                if not sheet.get("_new_year_applied"):
+                    sheet["hp"]["current"] = sheet["hp"]["max"]
+                    sheet["_new_year_applied"] = True
+                    
         # Advanced class bonuses
         _adv = sheet.get("advanced_class", "")
         if _adv:
@@ -1422,8 +1445,11 @@ async def _dungeon_complete(ctx_obj, interaction, uid, uname, is_owner,
     from utils.ttrpg.dungeon import clear_dungeon
     from utils.ttrpg.shop import find_item
 
-    bonus_xp  = 75
-    bonus_gil = 40
+    difficulty = state.get("difficulty", 1)
+    player_level = sheet.get("level", 1)
+    
+    bonus_xp  = 50 + (difficulty * 25) + (player_level * 5)
+    bonus_gil = 25 + (difficulty * 15) + (player_level * 3)
     sheet["xp"]  = sheet.get("xp",  0) + bonus_xp
     sheet["gil"] = sheet.get("gil", 0) + bonus_gil
 

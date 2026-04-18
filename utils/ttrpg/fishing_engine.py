@@ -141,9 +141,6 @@ def calculate_catch_value(fish_key: str, fish_weight: float, cha_mod: int = 0) -
     cat = fish.get("category", "common")
     if cat in ("mythic", "legendary", "epic"):
         value = min(int(fish["sell_value"] * 2.5), value)
-    else:
-        # Keep Rare/Uncommon/Common natural (usually 2-95g)
-        pass
 
     return max(1, value)
 

@@ -512,7 +512,7 @@ async def _handle_mail(ctx, msg, send, rest, uid, uname, is_owner):
     if "mognet_letter" in sheet.get("inventory", []):
         reward_gil = 25
         reward_xp  = 20
-        sheet["inventory"] = [i for i in sheet.get("inventory", []) if i != "mognet_letter"]
+        sheet["inventory"].remove("mognet_letter")
         if "mognet_pending" in sheet.get("conditions", []):
             sheet["conditions"].remove("mognet_pending")
         sheet["gil"] += reward_gil

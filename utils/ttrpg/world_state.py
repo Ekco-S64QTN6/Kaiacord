@@ -59,3 +59,11 @@ def save_world_state(state: Dict[str, Any]):
 def get_current_state() -> Dict[str, Any]:
     return load_world_state()
 
+async def async_load_world_state() -> Dict[str, Any]:
+    import asyncio
+    return await asyncio.to_thread(load_world_state)
+
+async def async_save_world_state(state: Dict[str, Any]):
+    import asyncio
+    await asyncio.to_thread(save_world_state, state)
+

@@ -239,6 +239,21 @@ The following items from the original audit have now been **fully addressed**:
 - ✅ CQ-4: `gauntlets` alias collision was already resolved.
 - ✅ PERF-3: `dungeon.py` persistence methods (`save_dungeon`, `load_dungeon`, `clear_dungeon`) refactored to use `asyncio.to_thread` and awaited across all handlers.
 
+### Phase 4 Maintenance & Optimization (April 18, 2026)
+
+- ✅ **BUG-N1 / PERF-N1:** Wrapped the dawn task character loop in `background_tasks.py` in `asyncio.to_thread` to prevent event loop blocking.
+- ✅ **BUG-N2 / CQ-N3:** Refactored `_is_wealthiest` in `class_advancement.py` to use a background `threading.Thread` for cache updates, eliminating synchronous disk I/O on every title check.
+- ✅ **BUG-N3:** Moved the duel non-lethal cap in `combat_engine.py` to apply *after* all class and weapon proc damage is calculated, preventing accidental duel kills.
+- ✅ **BUG-N4 / INC-N1:** Fully wired calendar holiday buffs (XP/Gil/HP) into `_dungeon_combat_round` in `rpg_combat_handler.py`.
+- ✅ **BUG-N5:** Fixed Mognet letter removal in `rpg_social_handler.py` using `.remove("mognet_letter")` to prevent multiple letters from being consumed for a single delivery.
+- ✅ **BUG-N6:** Added cleanup for stale `_winter_resolve_applied` and `_new_year_applied` flags to the dawn task in `background_tasks.py`.
+- ✅ **BAL-N1:** Scaled dungeon completion bonus XP and Gil by dungeon difficulty and player level in `_dungeon_complete`.
+- ✅ **PERF-N2:** Pre-built `_FISH_INDEX` and `_CAT_FALLBACK` lookup indexes in `fishing.py` for O(1) seasonal filtering, drastically improving `get_available_fish` performance.
+- ✅ **PERF-N3:** Moved inline imports in `encounter_tables.py` to the module level.
+- ✅ **CQ-N1:** Removed dead `else: pass` code block from `calculate_catch_value` in `fishing_engine.py`.
+- ✅ **CQ-N2:** Moved `TIER_DAMAGE` to a module-level constant in `combat_engine.py`.
+- ✅ **CQ-1:** Updated `world_state.py` usages in `background_tasks.py` to use an `asyncio.to_thread` wrapper for state saves.
+
 ---
 
-**Overall (post-expansion & cleanup): A-tier.** L15 progression is complete, dungeon scaling is fixed, 78 new items added, all calendar hooks wired, and endgame quests added. The Aethelgard TTRPG is fully featured and stable.
+**Overall (post-expansion & Phase 4 cleanup): A-tier.** All critical bugs, balance concerns, and missing integrations identified in the audits have been resolved. The architecture is sound, performance is optimized, and endgame features are fully wired.

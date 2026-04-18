@@ -169,7 +169,7 @@ class CoreTaskManager:
                 import json
                 import random
                 from utils.ttrpg.calendar import get_today_summary
-                from utils.ttrpg.world_state import load_world_state, save_world_state
+                from utils.ttrpg.world_state import load_world_state, async_save_world_state
 
                 characters_dir = os.path.join("memory", "ttrpg", "characters")
                 if not os.path.exists(characters_dir):
@@ -222,70 +222,81 @@ class CoreTaskManager:
                     state["event_desc"] = "Oakhaven is peaceful today."
 
                 state["last_tick"] = time.time()
-                save_world_state(state)
+                await async_save_world_state(state)
 
-                files = [f for f in os.listdir(characters_dir) if f.endswith(".json")]
-                reset_count = 0
-                total_interest = 0
+                def _process_characters():
+                    files = [f for f in os.listdir(characters_dir) if f.endswith(".json")]
+                    r_count = 0
+                    t_interest = 0
 
-                for fname in files:
-                    path = os.path.join(characters_dir, fname)
-                    try:
-                        with open(path, 'r', encoding='utf-8') as f:
-                            sheet = json.load(f)
-                        
-                        modified = False
-                        # Reset hunts
-                        if sheet.get("hunts_today", 0) > 0:
-                            sheet["hunts_today"] = 0
-                            sheet["hunts_reset_date"] = today
-                            modified = True
-                            reset_count += 1
-
-                        # Clear Caravan Flags
-                        if sheet.get("flags", {}).get("caravan_gear_bought"):
-                            sheet["flags"]["caravan_gear_bought"] = False
-                            modified = True
-
-                        # Clear temporary conditions at dawn
-                        from utils.ttrpg.progression import PERMANENT_CONDITIONS
-                        old_conds = sheet.get("conditions", [])
-                        # Ale warmth carries a +3 max HP — strip it before clearing
-                        if "ale_warmth" in old_conds:
-                            sheet["hp"]["max"] = max(1, sheet["hp"]["max"] - 3)
-                            sheet["hp"]["current"] = min(sheet["hp"]["current"], sheet["hp"]["max"])
-                        new_conds = [c for c in old_conds if c in PERMANENT_CONDITIONS]
-                        if old_conds != new_conds:
-                            sheet["conditions"] = new_conds
-                            modified = True
-                        
-                        # Bank Interest (2%, max 10g + bonus)
-                        bank_bal = sheet.get("bank_balance", 0)
-                        if bank_bal > 0:
-                            from utils.ttrpg.housing import load_housing
-                            housing_obj = load_housing(str(sheet.get("user_id", "")))
-                            interest_rate = 0.0
-                            if housing_obj:
-                                from utils.ttrpg.furniture import get_home_bonuses
-                                interest_rate = get_home_bonuses(housing_obj).get("interest_bonus", 0.0)
+                    for fname in files:
+                        path = os.path.join(characters_dir, fname)
+                        try:
+                            with open(path, 'r', encoding='utf-8') as f:
+                                sheet = json.load(f)
                             
-                            base_interest = min(10, int(bank_bal * 0.02))
-                            bonus_interest = min(10, int(bank_bal * interest_rate)) if interest_rate > 0 else 0
-                            total_new_interest = base_interest + bonus_interest
-                            
-                            if total_new_interest > 0:
-                                sheet["bank_balance"] += total_new_interest
-                                total_interest += total_new_interest
+                            modified = False
+                            # Reset hunts
+                            if sheet.get("hunts_today", 0) > 0:
+                                sheet["hunts_today"] = 0
+                                sheet["hunts_reset_date"] = today
                                 modified = True
-                        
-                        if modified:
-                            tmp = path + ".tmp"
-                            with open(tmp, 'w', encoding='utf-8') as f:
-                                json.dump(sheet, f, indent=2)
-                            os.replace(tmp, path)
+                                r_count += 1
 
-                    except Exception as e:
-                        log_warning(f"[dawn] Failed to process {fname}: {e}")
+                            # Clear Caravan Flags
+                            if sheet.get("flags", {}).get("caravan_gear_bought"):
+                                sheet["flags"]["caravan_gear_bought"] = False
+                                modified = True
+
+                            # Clear stale calendar buff flags
+                            for stale_key in ("_winter_resolve_applied", "_new_year_applied"):
+                                if stale_key in sheet:
+                                    sheet.pop(stale_key)
+                                    modified = True
+
+                            # Clear temporary conditions at dawn
+                            from utils.ttrpg.progression import PERMANENT_CONDITIONS
+                            old_conds = sheet.get("conditions", [])
+                            # Ale warmth carries a +3 max HP — strip it before clearing
+                            if "ale_warmth" in old_conds:
+                                sheet["hp"]["max"] = max(1, sheet["hp"]["max"] - 3)
+                                sheet["hp"]["current"] = min(sheet["hp"]["current"], sheet["hp"]["max"])
+                            new_conds = [c for c in old_conds if c in PERMANENT_CONDITIONS]
+                            if old_conds != new_conds:
+                                sheet["conditions"] = new_conds
+                                modified = True
+                            
+                            # Bank Interest (2%, max 10g + bonus)
+                            bank_bal = sheet.get("bank_balance", 0)
+                            if bank_bal > 0:
+                                from utils.ttrpg.housing import load_housing
+                                housing_obj = load_housing(str(sheet.get("user_id", "")))
+                                interest_rate = 0.0
+                                if housing_obj:
+                                    from utils.ttrpg.furniture import get_home_bonuses
+                                    interest_rate = get_home_bonuses(housing_obj).get("interest_bonus", 0.0)
+                                
+                                base_interest = min(10, int(bank_bal * 0.02))
+                                bonus_interest = min(10, int(bank_bal * interest_rate)) if interest_rate > 0 else 0
+                                total_new_interest = base_interest + bonus_interest
+                                
+                                if total_new_interest > 0:
+                                    sheet["bank_balance"] += total_new_interest
+                                    t_interest += total_new_interest
+                                    modified = True
+                            
+                            if modified:
+                                tmp = path + ".tmp"
+                                with open(tmp, 'w', encoding='utf-8') as f:
+                                    json.dump(sheet, f, indent=2)
+                                os.replace(tmp, path)
+
+                        except Exception as e:
+                            log_warning(f"[dawn] Failed to process {fname}: {e}")
+                    
+                    return r_count, t_interest
+
+                reset_count, total_interest = await asyncio.to_thread(_process_characters)
 
 
 
@@ -1414,10 +1425,10 @@ async def run_caravan_arrival(bot_ctx, channel):
     await channel.send(embed=arrival_embed, view=view)
 
     # Update and Save World State
-    from utils.ttrpg.world_state import load_world_state, save_world_state
+    from utils.ttrpg.world_state import load_world_state, async_save_world_state
     state = load_world_state()
     state["caravan_active"] = True
-    save_world_state(state)
+    await async_save_world_state(state)
 
     await _log_world_event("🐪 **A traveling caravan** arrived in Oakhaven — tier III goods available until midnight.")
     log_action("Noon Event: Caravan Arrival (full merchant)")

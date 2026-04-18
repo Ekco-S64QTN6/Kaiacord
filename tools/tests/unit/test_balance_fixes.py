@@ -26,9 +26,8 @@ def test_defense_soft_cap():
     
     monster = {"name": "Test", "hp": {"current": 10, "max": 10}, "attack": 10, "defense": 20, "tier": "medium"}
     
-    # Provider more values to avoid StopIteration
-    with patch("secrets.randbelow", side_effect=[14, 14, 0, 0, 0, 0]): # d20 rolls = 15
-        # Player: 15 (Misses 20). Monster: 15 + 7 = 22.
+    with patch("secrets.randbelow", side_effect=[14, 0, 0, 0, 0, 0, 0, 0, 0, 0]): # d20 rolls
+        # Player: 15 (Misses 20). Monster: 1 (Misses 25).
         # Target DEF: 25. Result: MISS.
         res = _resolve_combat(sheet, monster)
         assert res["monster_hit"] is False
@@ -50,13 +49,13 @@ def test_tier_scaled_monster_combat():
     # Deadly Monster
     monster = {"name": "Lich", "attack": 10, "defense": 20, "tier": "deadly", "hp": {"current": 100, "max": 100}}
     # Deadly hit mod = +14
-    # Deadly damage = 2d8 + attack//2 (5)
+    # Deadly damage = 5d6 + attack//2 (5)
     
-    # Sequence: 1.PlayerHit 2.MonsterHit 3.Dmg1 4.Dmg2
-    with patch("secrets.randbelow", side_effect=[0, 15, 1, 2, 0, 0]): 
+    # Sequence: 1.PlayerHit 2.MonsterHit 3..7 Dmg
+    with patch("secrets.randbelow", side_effect=[0, 15, 0, 0, 0, 0, 0, 0, 0, 0, 0]):
         # Player: d20(1) fumble
         # Monster: d20(16) + 14 = 30 (HIT vs 10)
-        # Damage: d8(2) + d8(3) + 5 = 10
+        # Damage: 5 * d6(1) + 5 = 10
         res = _resolve_combat(sheet, monster)
         assert res["monster_hit"] is True
         assert res["monster_damage"] == 10

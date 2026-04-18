@@ -3,6 +3,7 @@ encounter_tables.py — Uses the full monster_registry bestiary.
 Replaces the deprecated stub tables with proper registry import.
 """
 import secrets
+from utils.ttrpg.calendar import get_seasonal_encounter_table, get_special_day
 from utils.ttrpg.monster_registry import ENCOUNTER_TABLES, MONSTERS
 
 EVENT_CHANCE = {
@@ -25,8 +26,6 @@ QUEST_ENCOUNTER_OVERRIDES = {
 }
 
 def random_encounter(location: str, player_level: int = 1) -> str:
-    from utils.ttrpg.calendar import get_seasonal_encounter_table
-
     # Quest override tables take full precedence
     if location in QUEST_ENCOUNTER_OVERRIDES:
         table = QUEST_ENCOUNTER_OVERRIDES[location]
@@ -52,8 +51,7 @@ def random_encounter(location: str, player_level: int = 1) -> str:
 
     base_table = ENCOUNTER_TABLES.get(location, ENCOUNTER_TABLES["whisperwood_edge"])
     table = get_seasonal_encounter_table(location, base_table)
-
-    from utils.ttrpg.calendar import get_special_day
+    
     special = get_special_day()
     special_mod = special.get("encounter_mod", {}) if special else {}
 

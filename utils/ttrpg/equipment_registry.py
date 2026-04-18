@@ -1466,7 +1466,7 @@ ALIASES = {
     "lotus":    "black_lotus",
     "mox":      "mox_pearl",
     "belt":     "giant_belt",
-    "gauntlets":"ogre_gauntlets",
+    "ogre gauntlets": "ogre_gauntlets",
     "needle":   "gold_needle",
     "kiss":     "maidens_kiss",
     "excalibur":"excalibur_ff",

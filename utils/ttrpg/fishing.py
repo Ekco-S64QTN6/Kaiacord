@@ -1698,32 +1698,36 @@ BAIT_RARITY_CEILING = {
 
 # ── Catch table lookup helpers ────────────────────────────────────────────────
 
-def get_fish_by_category(category: str) -> list[tuple[str, dict]]:
-    return [(k, v) for k, v in FISH.items() if v["category"] == category]
+# Pre-build lookup index for O(1) encounter filtering
+_FISH_INDEX = {}
+_CAT_FALLBACK = {c: [] for c in CATEGORY_RARITY_WEIGHT.keys()}
 
+for _key, _fish in FISH.items():
+    _cat = _fish["category"]
+    _CAT_FALLBACK[_cat].append((_key, _fish))
+    for _season in _fish.get("seasons", []):
+        for _time in _fish.get("time_of_day", []):
+            _k = (_cat, _season, _time)
+            if _k not in _FISH_INDEX:
+                _FISH_INDEX[_k] = []
+            _FISH_INDEX[_k].append((_key, _fish))
+
+def get_fish_by_category(category: str) -> list[tuple[str, dict]]:
+    return _CAT_FALLBACK.get(category, [])
 
 def get_available_fish(season: str, time_of_day: str, bait_key: str) -> dict[str, list[tuple[str, dict]]]:
     """
     Return dict of category → list of (key, fish) tuples eligible for this
-    season / time-of-day / bait combination.
+    season / time-of-day / bait combination. Uses O(1) pre-built index.
     """
     ceiling = BAIT_RARITY_CEILING.get(bait_key, list(CATEGORY_RARITY_WEIGHT.keys()))
-    bait_preferred = BAIT.get(bait_key, {}).get("preferred_cats", [])
-
-    result: dict[str, list] = {c: [] for c in ceiling}
-    for key, fish in FISH.items():
-        if fish["category"] not in ceiling:
-            continue
-        if season not in fish["seasons"]:
-            continue
-        if time_of_day not in fish["time_of_day"]:
-            continue
-        result[fish["category"]].append((key, fish))
-
-    # Fallback: if a category is empty, pull all fish of that category (season/time ignored)
+    
+    result: dict[str, list] = {}
     for cat in ceiling:
-        if not result[cat]:
-            result[cat] = [(k, v) for k, v in FISH.items() if v["category"] == cat]
+        available = _FISH_INDEX.get((cat, season, time_of_day))
+        if not available:
+            available = _CAT_FALLBACK.get(cat, [])
+        result[cat] = available
 
     return result
 

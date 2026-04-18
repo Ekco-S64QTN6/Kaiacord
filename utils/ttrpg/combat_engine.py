@@ -5,6 +5,15 @@ from utils.ttrpg.class_advancement import ADVANCED_CLASSES, apply_advanced_class
 from utils.ttrpg.calendar import get_weather
 from utils.ttrpg.rpg_ui import colored_bar
 
+TIER_DAMAGE = {
+    "trivial": (1, 4),
+    "easy":    (1, 6),
+    "medium":  (2, 6),
+    "hard":    (3, 6),
+    "boss":    (4, 6),
+    "deadly":  (5, 6),
+}
+
 
 def _compute_player_defense(sheet: dict, def_mod_global: int = 0, pet_bonuses: dict = None) -> int:
     """
@@ -243,12 +252,6 @@ def _resolve_combat(sheet: dict, monster: dict, atk_mod_global: int = 0, def_mod
             total_dmg_bonus = atk_mod + warrior_dmg_bonus + adv_bonus_flat + weapon_dmg_bonus
             
             player_damage = max(1, sum(dmg_rolls) + total_dmg_bonus)
-            
-            # Non-lethal duel check
-            if is_duel:
-                if monster["hp"]["current"] - player_damage < 1:
-                    player_damage = max(0, monster["hp"]["current"] - 1)
-                    status_logs.append(f"⚔️ **{sheet['character_name']}** pulls back their strike, dealing non-lethal damage.")
                     
             adv_mods = apply_advanced_class_to_combat(
                 sheet, player_damage, True, player_crit, 0, monster, False
@@ -318,6 +321,11 @@ def _resolve_combat(sheet: dict, monster: dict, atk_mod_global: int = 0, def_mod
                             f"🩸 *Life drained: +{wp_extra} HP*"
                         )
             # ─────────────────────────────────────────────────────────────────
+            
+            # Non-lethal duel check applied after all procs
+            if is_duel and monster["hp"]["current"] == 0:
+                monster["hp"]["current"] = 1
+                status_logs.append(f"⚔️ **{sheet['character_name']}** pulls back the final blow, sparing their opponent.")
 
 
     monster_alive = monster["hp"]["current"] > 0
@@ -355,13 +363,7 @@ def _resolve_combat(sheet: dict, monster: dict, atk_mod_global: int = 0, def_mod
             status_logs.append(f"⚔️ **{monster['name']}** is winded and cannot counter.")
 
         if monster_hit:
-            TIER_DAMAGE = {
-                "trivial": (1, 4), "easy":  (1, 6),
-                "medium":  (1, 8), "hard":  (2, 6),
-                "deadly":  (2, 8), "boss":  (3, 6),
-            }
-            tier = monster.get("tier", "medium")
-            num_dice, die_size = TIER_DAMAGE.get(tier, (1, 6))
+            num_dice, die_size = TIER_DAMAGE.get(_tier, (1, 6))
             monster_crit = (monster_raw_hit == 20)
             if monster_crit:
                 # Crit: max possible damage on all dice
