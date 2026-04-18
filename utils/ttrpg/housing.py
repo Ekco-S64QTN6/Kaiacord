@@ -128,7 +128,7 @@ def load_all_housing() -> list[dict]:
                 try:
                     with open(os.path.join(HOUSING_DIR, fname), 'r', encoding='utf-8') as f:
                         result.append(json.load(f))
-                except:
+                except Exception:
                     pass
     return result
 

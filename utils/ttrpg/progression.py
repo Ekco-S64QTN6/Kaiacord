@@ -7,7 +7,8 @@ XP thresholds and level-up logic. All deterministic.
 XP_THRESHOLDS = {
     1:  0,      2:  300,    3:  900,    4:  2700,
     5:  5000,   6:  11000,  7:  19000,  8:  28000,
-    9:  48000,  10: 64000,
+    9:  48000,  10: 64000,  11: 85000,  12: 112000,
+    13: 148000, 14: 195000, 15: 256000,
 }
 
 # Increased HP per level — characters need to survive dungeon bosses
@@ -57,8 +58,8 @@ def check_level_up(sheet: dict) -> tuple[bool, int]:
         sheet["hp"]["max"] += hp_gain
         sheet["hp"]["current"] = min(sheet["hp"]["current"] + hp_gain, sheet["hp"]["max"])
 
-        # Stat growth: stat choice at levels 4 and 8
-        if new_level in (4, 8):
+        # Stat growth: stat choice at levels 4, 8, and 12
+        if new_level in (4, 8, 12):
             sheet["_stat_choice_pending"] = True
 
         # Mark for class advancement at level 5 (if not already advanced)
@@ -68,11 +69,11 @@ def check_level_up(sheet: dict) -> tuple[bool, int]:
         leveled = True
         final_level = new_level
 
-    # Check level 10 cap
-    if final_level >= 10:
-        final_level = 10
-        sheet["level"] = 10
-        cap_xp = XP_THRESHOLDS.get(10, 64000) + 1
+    # Check level 15 cap
+    if final_level >= 15:
+        final_level = 15
+        sheet["level"] = 15
+        cap_xp = XP_THRESHOLDS.get(15, 256000) + 1
         if sheet["xp"] > cap_xp:
             sheet["xp"] = cap_xp
 

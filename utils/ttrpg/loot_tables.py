@@ -176,6 +176,15 @@ def get_gear_loot(tier: str) -> Optional[str]:
             ("the_last_face", 2), ("silence_crown", 2),
             ("champion_sabatons", 2), ("forest_stride", 2), ("silence_treads", 2),
             ("champion_bracers", 2), ("silence_sigil", 2),
+            # Tier 6
+            ("ruinbreaker", 1), ("oathkeeper", 1), ("whisperwind_bow", 1),
+            ("resonance_spire", 1), ("nightfall_edge", 1), ("dawnforged_mace", 1),
+            ("dragon_slayer", 1), ("stormcaller", 1),
+            ("dragonscale_plate", 1), ("whisperwood_aegis", 1), ("resonance_vestment", 1),
+            ("shadowmeld_garb", 1), ("dawn_raiment", 1), ("aeridorian_warplate", 1),
+            ("dragonscale_helm", 1), ("whisperwood_crown", 1), ("resonance_diadem", 1),
+            ("dragonscale_greaves", 1), ("nightfall_treads", 1),
+            ("dragonscale_bracer", 1), ("whisperwood_talisman", 1),
         ],
         "boss": [
             # Tier 4 high-end
@@ -206,6 +215,32 @@ def get_gear_loot(tier: str) -> Optional[str]:
             ("champion_bracers", 4), ("silence_sigil", 4),
             ("giant_belt", 4),
             ("elaras_token", 1),
+            # Tier 6
+            ("ruinbreaker", 3), ("oathkeeper", 3), ("whisperwind_bow", 3),
+            ("predators_fang", 3), ("resonance_spire", 3), ("aethervane", 3),
+            ("nightfall_edge", 3), ("deaths_whisper", 3), ("dawnforged_mace", 3),
+            ("silence_speaker", 3), ("dragon_slayer", 3), ("stormcaller", 3),
+            ("dragonscale_plate", 3), ("whisperwood_aegis", 3), ("resonance_vestment", 3),
+            ("shadowmeld_garb", 3), ("dawn_raiment", 3), ("aeridorian_warplate", 3),
+            ("dragonscale_helm", 3), ("whisperwood_crown", 3), ("resonance_diadem", 3),
+            ("nightfall_mask", 3), ("dawn_circlet", 3),
+            ("dragonscale_greaves", 3), ("whisperwood_stride", 3),
+            ("nightfall_treads", 3), ("dawn_sabatons", 3),
+            ("dragonscale_bracer", 3), ("whisperwood_talisman", 3),
+            ("resonance_focus_t6", 3), ("nightfall_ring", 3),
+            # Tier 7 (rare from bosses)
+            ("worldsplitter", 1), ("morvenna_scythe", 1), ("starfall_bow", 1),
+            ("resonance_singularity", 1), ("aeridorian_cipher", 1),
+            ("phantom_reaver", 1), ("voice_of_the_silent_ones", 1),
+            ("aeridorian_terminus", 1), ("crown_of_ruin", 1), ("the_end", 1),
+            ("worldroot_plate", 1), ("voidweave_robe", 1), ("silent_ones_vestment", 1),
+            ("mythril_shadowmail", 1), ("aeridorian_aegis", 1),
+            ("worldroot_crown", 1), ("voidweave_cowl", 1), ("silent_ones_halo", 1),
+            ("mythril_visor", 1), ("aeridorian_crown", 1),
+            ("worldroot_greaves", 1), ("voidwalker_boots", 1),
+            ("silent_ones_sandals", 1), ("aeridorian_striders", 1),
+            ("worldroot_signet", 1), ("voidweave_band", 1),
+            ("silent_ones_medallion", 1), ("aeridorian_sigil", 1),
         ],
     }
 

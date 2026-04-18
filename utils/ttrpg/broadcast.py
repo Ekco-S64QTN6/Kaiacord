@@ -53,7 +53,12 @@ def level_up_flavor(sheet: dict, level: int) -> str:
         7:  f"*Seven levels in. The monsters that gave {name} trouble at the start no longer look up.*",
         8:  f"*The Aeridorian constructs track {name} now. That is not a comfortable thing to know.*",
         9:  f"*Nine levels. {name} has outlived three scouts and a guard who had twenty years of experience.*",
-        10: f"*{name} reached the cap. Whatever comes next, Oakhaven won't be the same for it.*",
+        10: f"*{name} reached level 10. The things that live in the ruins have started to take notice.*",
+        11: f"*Something shifted in the deep Whisperwood when {name} leveled. The trees leaned in.*",
+        12: f"*Twelve levels. {name} walks into places that kill other adventurers and walks back out. Every time.*",
+        13: f"*The Aeridorian constructs no longer attack {name} on sight. They pause first. That's worse.*",
+        14: f"*Fourteen levels. {name} is becoming something Oakhaven tells stories about. The stories aren't comfortable ones.*",
+        15: f"*{name} reached the pinnacle. Whatever Aeridor was, {name} now stands where its champions stood. The ruins remember.*",
     }
     return FLAVOR.get(level, f"*{name} grows stronger. The {loc} feels it.*")
 

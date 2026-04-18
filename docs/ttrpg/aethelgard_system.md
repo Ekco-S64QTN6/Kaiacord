@@ -1,5 +1,5 @@
 # ⚔️ Aethelgard — System Reference & Player Manual
-*Build 0.2.0 · March 24, 2026*
+*Build 0.3.0 · April 18, 2026 — Level 15 Expansion*
 
 > *"Oakhaven was built on the bones of Aeridor. Everything here is built on something older."*
 
@@ -410,11 +410,13 @@ Special days carry unique buffs (see `calendar.py` for full list): XP bonuses, h
 
 | Level | XP Required | Level | XP Required |
 |:--|:--|:--|:--|
-| 2 | 300 | 7 | 23,000 |
-| 3 | 900 | 8 | 34,000 |
-| 4 | 2,700 | 9 | 48,000 |
-| 5 | 6,500 | 10 | 64,000 |
-| 6 | 14,000 | | |
+| 2 | 300 | 9 | 48,000 |
+| 3 | 900 | 10 | 64,000 |
+| 4 | 2,700 | 11 | 85,000 |
+| 5 | 5,000 | 12 | 112,000 |
+| 6 | 11,000 | 13 | 148,000 |
+| 7 | 19,000 | 14 | 195,000 |
+| 8 | 28,000 | 15 | 256,000 (cap) |
 
 **HP gain per level** = `HP_per_level[class] + CON modifier` (minimum 1).
 

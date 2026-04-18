@@ -290,7 +290,7 @@ async def _handle_talk(ctx, msg, send, rest, uid, uname, is_owner):
     if sheet and talk_xp:
         sheet["xp"] = sheet.get("xp", 0) + talk_xp
         from utils.ttrpg.progression import check_level_up
-        check_level_up(sheet)  # enforce L10 XP cap
+        check_level_up(sheet)  # enforce L15 XP cap
         await save(sheet)
 
     context = {
@@ -390,7 +390,7 @@ async def _handle_notices(ctx, msg, send, rest, uid, uname, is_owner):
         try:
             with open(path, 'r', encoding='utf-8') as f:
                 events = json.load(f)
-        except:
+        except Exception:
             pass
             
     if not events:

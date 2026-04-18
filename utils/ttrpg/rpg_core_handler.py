@@ -2141,7 +2141,7 @@ async def _handle_roll(ctx, msg, send, rest, uid, uname, is_owner):
             description=f"🎲 **{uname}** rolled `{rest.strip() or 'd20'}`: {breakdown}",
             color=0x4488cc
         ))
-    except:
+    except Exception:
         await msg.channel.send(embed=discord.Embed(description="Invalid syntax", color=0xcc4444))
 
 

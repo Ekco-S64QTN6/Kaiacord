@@ -43,7 +43,9 @@ def random_encounter(location: str, player_level: int = 1) -> str:
 
     # Level-based tier window: (min_tier, max_tier)
     # Prevents low-level players from encountering high-tier monsters
-    if player_level >= 9:   min_tier, max_tier = "hard",    "boss"
+    if player_level >= 13:  min_tier, max_tier = "deadly",  "boss"
+    elif player_level >= 11: min_tier, max_tier = "hard",   "boss"
+    elif player_level >= 9:  min_tier, max_tier = "hard",   "boss"
     elif player_level >= 7: min_tier, max_tier = "medium",  "deadly"
     elif player_level >= 4: min_tier, max_tier = "easy",    "medium"
     else:                   min_tier, max_tier = "trivial", "easy"

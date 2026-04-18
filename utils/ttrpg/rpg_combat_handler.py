@@ -165,7 +165,9 @@ async def _dungeon_combat_round(ctx_obj, interaction, uid, uname, is_owner):
         level = sheet.get("level", 1)
         if is_boss:
             _boss_tier_map = {1: "easy", 2: "easy", 3: "medium", 4: "medium",
-                              5: "hard", 6: "hard", 7: "hard", 8: "deadly", 9: "boss"}
+                              5: "hard", 6: "hard", 7: "hard", 8: "deadly", 9: "boss",
+                              10: "boss", 11: "boss", 12: "boss", 13: "boss",
+                              14: "boss", 15: "boss"}
             tier = _boss_tier_map.get(level, "boss")
         else:
             tier = _get_dungeon_loot_tier(level, False)
@@ -379,7 +381,7 @@ async def _handle_dungeon(ctx, msg, send, rest, uid, uname, is_owner):
     loc = sheet.get("location", "whisperwood_edge")
     from utils.ttrpg.dungeon import LOCATION_DIFFICULTY_BONUS
     loc_diff_bonus = LOCATION_DIFFICULTY_BONUS.get(loc, 0)
-    difficulty = max(1, min(3, (sheet["level"] - 1) // 3 + 1 + loc_diff_bonus))
+    difficulty = max(1, min(5, (sheet["level"] - 1) // 3 + 1 + loc_diff_bonus))
     dungeon = generate_dungeon(difficulty, player_level=sheet["level"], location=loc)
     save_dungeon(uid, dungeon)
 
@@ -393,7 +395,7 @@ async def _handle_dungeon(ctx, msg, send, rest, uid, uname, is_owner):
         title=f"{t_emoji} {t_name}",
         description=(
             f"*{t_flavor}*\n\n"
-            f"*Difficulty: {'🟥' * difficulty}{'⬜' * (3 - difficulty)}  ·  "
+            f"*Difficulty: {'🟥' * difficulty}{'⬜' * (5 - difficulty)}  ·  "
             f"Cost: {ENTRY_HUNTS} hunts*"
             f"{torch_line}"
         ),

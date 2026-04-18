@@ -381,6 +381,149 @@ WEAPONS = {
         "damage_bonus": 8, "value": 2833, "tier": 5,
         "classes": ["Cleric", "Shaman", "Paladin", "High Priest"], "droppable_only": True,
     },
+
+    # ══════════════════════════════════════════════════════════════
+    # TIER 6 — Legendary Weapons (L11-13)
+    # Budget: ATK 11-12, DMG 9, d12, proc 1d10
+    # ══════════════════════════════════════════════════════════════
+
+    # Warrior
+    "ruinbreaker": {
+        "name": "Ruinbreaker", "attack_bonus": 12, "damage_die": 12,
+        "damage_bonus": 9, "value": 6500, "tier": 6,
+        "classes": ["Warrior", "Paladin", "Shadowknight"], "droppable_only": True,
+        "proc": {"name": "Ruin Shatter", "emoji": "💥", "die": 10, "element": "force"},
+    },
+    "oathkeeper": {
+        "name": "Oathkeeper", "attack_bonus": 11, "damage_die": 12,
+        "damage_bonus": 9, "value": 7200, "tier": 6,
+        "classes": ["Warrior", "Paladin"], "droppable_only": True,
+        "proc": {"name": "Sacred Vow", "emoji": "✝️", "die": 10, "element": "holy"},
+    },
+    # Ranger
+    "whisperwind_bow": {
+        "name": "Whisperwind Bow", "attack_bonus": 11, "damage_die": 12,
+        "damage_bonus": 9, "value": 6800, "tier": 6,
+        "classes": ["Ranger", "Hunter", "Warden"], "droppable_only": True,
+        "proc": {"name": "Wind Pierce", "emoji": "🌬️", "die": 10, "element": "wind"},
+    },
+    "predators_fang": {
+        "name": "Predator's Fang", "attack_bonus": 12, "damage_die": 12,
+        "damage_bonus": 9, "value": 6200, "tier": 6,
+        "classes": ["Ranger", "Hunter"], "droppable_only": True,
+    },
+    # Mage
+    "resonance_spire": {
+        "name": "Resonance Spire", "attack_bonus": 11, "damage_die": 12,
+        "damage_bonus": 9, "value": 7000, "tier": 6,
+        "classes": ["Mage", "Wizard", "Necromancer"], "droppable_only": True,
+        "proc": {"name": "Resonance Pulse", "emoji": "💎", "die": 10, "element": "arcane"},
+    },
+    "aethervane": {
+        "name": "Aethervane", "attack_bonus": 11, "damage_die": 12,
+        "damage_bonus": 9, "value": 7500, "tier": 6,
+        "classes": ["Mage", "Wizard", "Necromancer", "Cleric", "High Priest", "Shaman"], "droppable_only": True,
+        "proc": {"name": "Aether Surge", "emoji": "🌀", "die": 10, "element": "arcane"},
+    },
+    # Rogue
+    "nightfall_edge": {
+        "name": "Nightfall Edge", "attack_bonus": 12, "damage_die": 12,
+        "damage_bonus": 9, "value": 6300, "tier": 6,
+        "classes": ["Rogue", "Shadowblade", "Trickster"], "droppable_only": True,
+        "proc": {"name": "Eclipse Strike", "emoji": "🌑", "die": 10, "element": "shadow"},
+    },
+    "deaths_whisper": {
+        "name": "Death's Whisper", "attack_bonus": 11, "damage_die": 12,
+        "damage_bonus": 9, "value": 6900, "tier": 6,
+        "classes": ["Rogue", "Shadowblade"], "droppable_only": True,
+    },
+    # Cleric
+    "dawnforged_mace": {
+        "name": "Dawnforged Mace", "attack_bonus": 11, "damage_die": 12,
+        "damage_bonus": 9, "value": 7100, "tier": 6,
+        "classes": ["Cleric", "High Priest", "Shaman", "Paladin"], "droppable_only": True,
+        "proc": {"name": "Dawn's Judgment", "emoji": "☀️", "die": 10, "element": "holy"},
+    },
+    "silence_speaker": {
+        "name": "Silence Speaker", "attack_bonus": 12, "damage_die": 12,
+        "damage_bonus": 9, "value": 6600, "tier": 6,
+        "classes": ["Cleric", "High Priest", "Shaman"], "droppable_only": True,
+        "proc": {"name": "Void Whisper", "emoji": "🟣", "die": 10, "element": "shadow"},
+    },
+    # Generic T6
+    "dragon_slayer": {
+        "name": "Dragon Slayer", "attack_bonus": 12, "damage_die": 12,
+        "damage_bonus": 9, "value": 5500, "tier": 6, "droppable_only": True,
+        "proc": {"name": "Wyrm's Bane", "emoji": "🐉", "die": 10, "element": "fire"},
+    },
+    "stormcaller": {
+        "name": "Stormcaller", "attack_bonus": 11, "damage_die": 12,
+        "damage_bonus": 9, "value": 7800, "tier": 6, "droppable_only": True,
+        "proc": {"name": "Thunder Strike", "emoji": "⚡", "die": 10, "element": "lightning"},
+    },
+
+    # ══════════════════════════════════════════════════════════════
+    # TIER 7 — Mythic Weapons (L14-15)
+    # Budget: ATK 12-14, DMG 10, d12, proc 1d12
+    # ══════════════════════════════════════════════════════════════
+
+    "worldsplitter": {
+        "name": "Worldsplitter", "attack_bonus": 14, "damage_die": 12,
+        "damage_bonus": 10, "value": 18000, "tier": 7,
+        "classes": ["Warrior", "Paladin", "Shadowknight"], "droppable_only": True,
+        "proc": {"name": "Rift Cleave", "emoji": "🌌", "die": 12, "element": "void"},
+    },
+    "morvenna_scythe": {
+        "name": "Morvenna's Scythe", "attack_bonus": 13, "damage_die": 12,
+        "damage_bonus": 10, "value": 16500, "tier": 7,
+        "classes": ["Shadowknight", "Necromancer"], "droppable_only": True,
+        "proc": {"name": "Reap", "emoji": "💀", "die": 12, "element": "shadow"},
+    },
+    "starfall_bow": {
+        "name": "Starfall Bow", "attack_bonus": 13, "damage_die": 12,
+        "damage_bonus": 10, "value": 17000, "tier": 7,
+        "classes": ["Ranger", "Hunter", "Warden"], "droppable_only": True,
+        "proc": {"name": "Starfall", "emoji": "🌠", "die": 12, "element": "celestial"},
+    },
+    "resonance_singularity": {
+        "name": "Resonance Singularity", "attack_bonus": 13, "damage_die": 12,
+        "damage_bonus": 10, "value": 19000, "tier": 7,
+        "classes": ["Mage", "Wizard", "Necromancer"], "droppable_only": True,
+        "proc": {"name": "Singularity Burst", "emoji": "⚫", "die": 12, "element": "void"},
+    },
+    "aeridorian_cipher": {
+        "name": "Aeridorian Cipher", "attack_bonus": 12, "damage_die": 12,
+        "damage_bonus": 10, "value": 20000, "tier": 7,
+        "classes": ["Mage", "Wizard", "Necromancer", "Cleric", "High Priest", "Shaman"], "droppable_only": True,
+        "proc": {"name": "Ancient Reckoning", "emoji": "📜", "die": 12, "element": "arcane"},
+    },
+    "phantom_reaver": {
+        "name": "Phantom Reaver", "attack_bonus": 14, "damage_die": 12,
+        "damage_bonus": 10, "value": 15500, "tier": 7,
+        "classes": ["Rogue", "Shadowblade", "Trickster"], "droppable_only": True,
+        "proc": {"name": "Phase Strike", "emoji": "👻", "die": 12, "element": "shadow"},
+    },
+    "voice_of_the_silent_ones": {
+        "name": "Voice of the Silent Ones", "attack_bonus": 13, "damage_die": 12,
+        "damage_bonus": 10, "value": 18500, "tier": 7,
+        "classes": ["Cleric", "High Priest", "Shaman", "Paladin"], "droppable_only": True,
+        "proc": {"name": "Divine Silence", "emoji": "🤫", "die": 12, "element": "holy"},
+    },
+    "aeridorian_terminus": {
+        "name": "Aeridorian Terminus", "attack_bonus": 14, "damage_die": 12,
+        "damage_bonus": 10, "value": 13000, "tier": 7, "droppable_only": True,
+        "proc": {"name": "Final Resonance", "emoji": "💫", "die": 12, "element": "arcane"},
+    },
+    "crown_of_ruin": {
+        "name": "Crown of Ruin", "attack_bonus": 13, "damage_die": 12,
+        "damage_bonus": 10, "value": 14000, "tier": 7, "droppable_only": True,
+        "proc": {"name": "Ruination", "emoji": "👑", "die": 12, "element": "void"},
+    },
+    "the_end": {
+        "name": "The End", "attack_bonus": 14, "damage_die": 12,
+        "damage_bonus": 10, "value": 20000, "tier": 7, "droppable_only": True,
+        "proc": {"name": "Finality", "emoji": "🕳️", "die": 12, "element": "void"},
+    },
 }
 
 # --- Legacy Compatibility for Renamed Weapons ---
@@ -534,6 +677,71 @@ ARMOR = {
     "saint_plate": {
         "name": "Saint's Plate", "defense_bonus": 8, "value": 1600, "tier": 4,
         "classes": ["Cleric", "Shaman", "Paladin", "High Priest"], "droppable_only": True,
+    },
+
+    # ══════════════════════════════════════════════════════════════
+    # TIER 6 — Legendary Armor (L11-13)
+    # Budget: DEF 13-15, optional stat/HP bonus
+    # ══════════════════════════════════════════════════════════════
+    "dragonscale_plate": {
+        "name": "Dragonscale Plate", "defense_bonus": 15, "value": 6000, "tier": 6,
+        "classes": ["Warrior", "Paladin", "Shadowknight"], "droppable_only": True,
+        "stat_bonus": {"str": 2}, "hp_bonus": 10,
+    },
+    "whisperwood_aegis": {
+        "name": "Whisperwood Aegis", "defense_bonus": 13, "value": 6500, "tier": 6,
+        "classes": ["Ranger", "Hunter", "Warden"], "droppable_only": True,
+        "stat_bonus": {"dex": 2}, "hp_bonus": 8,
+    },
+    "resonance_vestment": {
+        "name": "Resonance Vestment", "defense_bonus": 8, "value": 7000, "tier": 6,
+        "classes": ["Mage", "Wizard", "Necromancer"], "droppable_only": True,
+        "stat_bonus": {"int": 3}, "hp_bonus": 12,
+    },
+    "shadowmeld_garb": {
+        "name": "Shadowmeld Garb", "defense_bonus": 11, "value": 6200, "tier": 6,
+        "classes": ["Rogue", "Shadowblade", "Trickster"], "droppable_only": True,
+        "stat_bonus": {"dex": 2}, "hp_bonus": 8,
+    },
+    "dawn_raiment": {
+        "name": "Dawn Raiment", "defense_bonus": 14, "value": 7200, "tier": 6,
+        "classes": ["Cleric", "High Priest", "Shaman", "Paladin"], "droppable_only": True,
+        "stat_bonus": {"wis": 3}, "hp_bonus": 10,
+    },
+    "aeridorian_warplate": {
+        "name": "Aeridorian Warplate", "defense_bonus": 15, "value": 5800, "tier": 6,
+        "droppable_only": True,
+        "stat_bonus": {"str": 2}, "hp_bonus": 8,
+    },
+
+    # ══════════════════════════════════════════════════════════════
+    # TIER 7 — Mythic Armor (L14-15)
+    # Budget: DEF 16-18, stat/HP bonus
+    # ══════════════════════════════════════════════════════════════
+    "worldroot_plate": {
+        "name": "Worldroot Plate", "defense_bonus": 18, "value": 16000, "tier": 7,
+        "classes": ["Warrior", "Paladin", "Shadowknight"], "droppable_only": True,
+        "stat_bonus": {"str": 3, "con": 2}, "hp_bonus": 15,
+    },
+    "voidweave_robe": {
+        "name": "Voidweave Robe", "defense_bonus": 10, "value": 18000, "tier": 7,
+        "classes": ["Mage", "Wizard", "Necromancer"], "droppable_only": True,
+        "stat_bonus": {"int": 4}, "hp_bonus": 15,
+    },
+    "silent_ones_vestment": {
+        "name": "Silent Ones' Vestment", "defense_bonus": 16, "value": 17000, "tier": 7,
+        "classes": ["Cleric", "High Priest", "Shaman", "Paladin"], "droppable_only": True,
+        "stat_bonus": {"wis": 4}, "hp_bonus": 14,
+    },
+    "mythril_shadowmail": {
+        "name": "Mythril Shadowmail", "defense_bonus": 16, "value": 15000, "tier": 7,
+        "classes": ["Rogue", "Shadowblade", "Trickster", "Ranger", "Hunter", "Warden"], "droppable_only": True,
+        "stat_bonus": {"dex": 3}, "hp_bonus": 12,
+    },
+    "aeridorian_aegis": {
+        "name": "Aeridorian Aegis", "defense_bonus": 18, "value": 20000, "tier": 7,
+        "droppable_only": True,
+        "stat_bonus": {"str": 2, "con": 2}, "hp_bonus": 18,
     },
 }
 
@@ -699,6 +907,66 @@ HEADGEAR = {
         "name": "Silence Crown", "defense_bonus": 4, "value": 2666, "tier": 5,
         "classes": ["Cleric", "High Priest", "Shaman"],
     },
+
+    # ══════════════════════════════════════════════════════════════
+    # TIER 6 — Legendary Headgear (L11-13)
+    # Budget: DEF 5-7, stat/HP bonus
+    # ══════════════════════════════════════════════════════════════
+    "dragonscale_helm": {
+        "name": "Dragonscale Helm", "defense_bonus": 7, "value": 5500, "tier": 6,
+        "classes": ["Warrior", "Paladin", "Shadowknight"], "droppable_only": True,
+        "stat_bonus": {"str": 1}, "hp_bonus": 6,
+    },
+    "whisperwood_crown": {
+        "name": "Whisperwood Crown", "defense_bonus": 5, "value": 6200, "tier": 6,
+        "classes": ["Ranger", "Hunter", "Warden"], "droppable_only": True,
+        "stat_bonus": {"dex": 2},
+    },
+    "resonance_diadem": {
+        "name": "Resonance Diadem", "defense_bonus": 4, "value": 6800, "tier": 6,
+        "classes": ["Mage", "Wizard", "Necromancer"], "droppable_only": True,
+        "stat_bonus": {"int": 2}, "hp_bonus": 5,
+    },
+    "nightfall_mask": {
+        "name": "Nightfall Mask", "defense_bonus": 6, "value": 5800, "tier": 6,
+        "classes": ["Rogue", "Shadowblade", "Trickster"], "droppable_only": True,
+        "stat_bonus": {"dex": 1},
+    },
+    "dawn_circlet": {
+        "name": "Dawn Circlet", "defense_bonus": 6, "value": 6500, "tier": 6,
+        "classes": ["Cleric", "High Priest", "Shaman", "Paladin"], "droppable_only": True,
+        "stat_bonus": {"wis": 2}, "hp_bonus": 4,
+    },
+
+    # ══════════════════════════════════════════════════════════════
+    # TIER 7 — Mythic Headgear (L14-15)
+    # Budget: DEF 7-8, stat/HP bonus
+    # ══════════════════════════════════════════════════════════════
+    "worldroot_crown": {
+        "name": "Worldroot Crown", "defense_bonus": 8, "value": 14000, "tier": 7,
+        "classes": ["Warrior", "Paladin", "Shadowknight"], "droppable_only": True,
+        "stat_bonus": {"str": 2, "con": 1}, "hp_bonus": 8,
+    },
+    "voidweave_cowl": {
+        "name": "Voidweave Cowl", "defense_bonus": 5, "value": 16000, "tier": 7,
+        "classes": ["Mage", "Wizard", "Necromancer"], "droppable_only": True,
+        "stat_bonus": {"int": 3}, "hp_bonus": 8,
+    },
+    "silent_ones_halo": {
+        "name": "Silent Ones' Halo", "defense_bonus": 7, "value": 15000, "tier": 7,
+        "classes": ["Cleric", "High Priest", "Shaman", "Paladin"], "droppable_only": True,
+        "stat_bonus": {"wis": 3}, "hp_bonus": 6,
+    },
+    "mythril_visor": {
+        "name": "Mythril Visor", "defense_bonus": 7, "value": 13000, "tier": 7,
+        "classes": ["Rogue", "Shadowblade", "Trickster", "Ranger", "Hunter", "Warden"], "droppable_only": True,
+        "stat_bonus": {"dex": 2}, "hp_bonus": 5,
+    },
+    "aeridorian_crown": {
+        "name": "Aeridorian Crown", "defense_bonus": 8, "value": 18000, "tier": 7,
+        "droppable_only": True,
+        "stat_bonus": {"str": 1, "int": 1, "wis": 1}, "hp_bonus": 10,
+    },
 }
 
 # ─── BOOTS ───────────────────────────────────────────────────────────────────
@@ -817,6 +1085,56 @@ BOOTS = {
         "name": "Silence Treads", "defense_bonus": 3, "value": 2666, "tier": 5,
         "classes": ["Cleric", "High Priest", "Shaman"],
         "droppable_only": True,
+    },
+
+    # ══════════════════════════════════════════════════════════════
+    # TIER 6 — Legendary Boots (L11-13)
+    # Budget: DEF 4-6, stat bonus
+    # ══════════════════════════════════════════════════════════════
+    "dragonscale_greaves": {
+        "name": "Dragonscale Greaves", "defense_bonus": 6, "value": 5200, "tier": 6,
+        "classes": ["Warrior", "Paladin", "Shadowknight"], "droppable_only": True,
+        "hp_bonus": 5,
+    },
+    "whisperwood_stride": {
+        "name": "Whisperwood Stride", "defense_bonus": 4, "value": 5800, "tier": 6,
+        "classes": ["Ranger", "Hunter", "Warden"], "droppable_only": True,
+        "stat_bonus": {"dex": 1},
+    },
+    "nightfall_treads": {
+        "name": "Nightfall Treads", "defense_bonus": 5, "value": 5500, "tier": 6,
+        "classes": ["Rogue", "Shadowblade", "Trickster"], "droppable_only": True,
+        "stat_bonus": {"dex": 1},
+    },
+    "dawn_sabatons": {
+        "name": "Dawn Sabatons", "defense_bonus": 5, "value": 6000, "tier": 6,
+        "classes": ["Cleric", "High Priest", "Shaman", "Paladin"], "droppable_only": True,
+        "stat_bonus": {"wis": 1},
+    },
+
+    # ══════════════════════════════════════════════════════════════
+    # TIER 7 — Mythic Boots (L14-15)
+    # Budget: DEF 6-8, stat/HP bonus
+    # ══════════════════════════════════════════════════════════════
+    "worldroot_greaves": {
+        "name": "Worldroot Greaves", "defense_bonus": 8, "value": 14000, "tier": 7,
+        "classes": ["Warrior", "Paladin", "Shadowknight"], "droppable_only": True,
+        "stat_bonus": {"con": 2}, "hp_bonus": 6,
+    },
+    "voidwalker_boots": {
+        "name": "Voidwalker Boots", "defense_bonus": 6, "value": 15000, "tier": 7,
+        "classes": ["Mage", "Wizard", "Necromancer", "Rogue", "Shadowblade", "Trickster"], "droppable_only": True,
+        "stat_bonus": {"int": 1, "dex": 1}, "hp_bonus": 4,
+    },
+    "silent_ones_sandals": {
+        "name": "Silent Ones' Sandals", "defense_bonus": 7, "value": 13500, "tier": 7,
+        "classes": ["Cleric", "High Priest", "Shaman", "Paladin"], "droppable_only": True,
+        "stat_bonus": {"wis": 2}, "hp_bonus": 5,
+    },
+    "aeridorian_striders": {
+        "name": "Aeridorian Striders", "defense_bonus": 7, "value": 16000, "tier": 7,
+        "droppable_only": True,
+        "stat_bonus": {"dex": 2}, "hp_bonus": 6,
     },
 }
 
@@ -954,6 +1272,63 @@ ACCESSORIES = {
     "silence_sigil": {
         "name": "Silence Sigil", "defense_bonus": 2, "attack_bonus": 2,
         "value": 2666, "tier": 5, "classes": ["Cleric", "High Priest", "Shaman"],
+    },
+
+    # ══════════════════════════════════════════════════════════════
+    # TIER 6 — Legendary Accessories (L11-13)
+    # Budget: ATK 3-5, DEF 2-3, stat bonus
+    # ══════════════════════════════════════════════════════════════
+    "dragonscale_bracer": {
+        "name": "Dragonscale Bracer", "defense_bonus": 3, "attack_bonus": 4,
+        "value": 5500, "tier": 6,
+        "classes": ["Warrior", "Paladin", "Shadowknight"], "droppable_only": True,
+        "stat_bonus": {"str": 1},
+    },
+    "whisperwood_talisman": {
+        "name": "Whisperwood Talisman", "defense_bonus": 2, "attack_bonus": 4,
+        "value": 6000, "tier": 6,
+        "classes": ["Ranger", "Hunter", "Warden"], "droppable_only": True,
+        "stat_bonus": {"dex": 1},
+    },
+    "resonance_focus_t6": {
+        "name": "Resonance Focus", "defense_bonus": 1, "attack_bonus": 5,
+        "value": 6500, "tier": 6,
+        "classes": ["Mage", "Wizard", "Necromancer"], "droppable_only": True,
+        "stat_bonus": {"int": 2},
+    },
+    "nightfall_ring": {
+        "name": "Nightfall Ring", "defense_bonus": 2, "attack_bonus": 5,
+        "value": 5800, "tier": 6,
+        "classes": ["Rogue", "Shadowblade", "Trickster"], "droppable_only": True,
+    },
+
+    # ══════════════════════════════════════════════════════════════
+    # TIER 7 — Mythic Accessories (L14-15)
+    # Budget: ATK 5-6, DEF 3-4, stat bonus
+    # ══════════════════════════════════════════════════════════════
+    "worldroot_signet": {
+        "name": "Worldroot Signet", "defense_bonus": 4, "attack_bonus": 5,
+        "value": 14000, "tier": 7,
+        "classes": ["Warrior", "Paladin", "Shadowknight"], "droppable_only": True,
+        "stat_bonus": {"str": 2}, "hp_bonus": 5,
+    },
+    "voidweave_band": {
+        "name": "Voidweave Band", "defense_bonus": 2, "attack_bonus": 6,
+        "value": 16000, "tier": 7,
+        "classes": ["Mage", "Wizard", "Necromancer"], "droppable_only": True,
+        "stat_bonus": {"int": 3},
+    },
+    "silent_ones_medallion": {
+        "name": "Silent Ones' Medallion", "defense_bonus": 3, "attack_bonus": 5,
+        "value": 15000, "tier": 7,
+        "classes": ["Cleric", "High Priest", "Shaman", "Paladin"], "droppable_only": True,
+        "stat_bonus": {"wis": 2}, "hp_bonus": 4,
+    },
+    "aeridorian_sigil": {
+        "name": "Aeridorian Sigil", "defense_bonus": 4, "attack_bonus": 6,
+        "value": 18000, "tier": 7,
+        "droppable_only": True,
+        "stat_bonus": {"str": 1, "int": 1}, "hp_bonus": 6,
     },
 }
 

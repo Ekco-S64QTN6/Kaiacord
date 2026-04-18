@@ -664,7 +664,7 @@ class RPGFullLocationView(discord.ui.View):
                     log_error(f"[rpg travel] {e}\n{traceback.format_exc()}")
                     try:
                         await interaction.followup.send(f"```\nTravel failed: {e}\n```", ephemeral=True)
-                    except: pass
+                    except Exception: pass
 
             sel.callback = _travel_cb
             self.add_item(sel)

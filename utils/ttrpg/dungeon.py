@@ -94,11 +94,15 @@ DUNGEON_THEMES = {
             1: ["decaying_skeleton","zombie","ghoul","ghost","blood_slime"],
             2: ["skeleton","ghoul","ghost","wight","revenant"],
             3: ["skull_knight","wight","spectral_knight","dullahan","lich"],
+            4: ["shadow_lich","vampire_lord","dark_rider","death_knight_dd","bone_devil"],
+            5: ["lich","shadow_lich","death_tyrant","nicol_bolas_echo","vecna_lich_god"],
         },
         "boss_pools": {
             1: ["dullahan","revenant","ghoul"],
             2: ["skull_knight","dark_knight","wight"],
             3: ["lich","shadow_lich","tonberry_king"],
+            4: ["death_tyrant","vampire_lord","death_knight_dd"],
+            5: ["vecna_lich_god","acererak","lord_soth"],
         },
     },
     "constructs": {
@@ -109,11 +113,15 @@ DUNGEON_THEMES = {
             1: ["crew_dust","gargoyle","soldier","flan"],
             2: ["gargoyle","soldier","golem","crystelle","dark_wizard"],
             3: ["soldier","crystelle","iron_giant","clay_golem","skull_knight"],
+            4: ["iron_golem","iron_giant_ff","beholder","mind_flayer","crystelle"],
+            5: ["omega","adamantoise","tiamat_avatar","bahamut_ff","iron_golem"],
         },
         "boss_pools": {
             1: ["gargoyle","dark_wizard"],
             2: ["golem","crystelle","dark_knight"],
             3: ["iron_giant","crystelle"],
+            4: ["iron_giant_ff","beholder","mind_flayer"],
+            5: ["omega_ff5","aeridorian_guardian","shinryu_ff5"],
         },
     },
     "beasts": {
@@ -124,11 +132,15 @@ DUNGEON_THEMES = {
             1: ["wolf","bat","large_bat","spiderling","forest_boar"],
             2: ["wolf","werewolf","basilisk","coeurl","harpy"],
             3: ["manticore","werewolf","wyvern","earth_bear","jura_aevis"],
+            4: ["behemoth","great_behemoth","dragon","hydra","red_dragon"],
+            5: ["king_behemoth","shinryu","ancient_red_dragon","frost_dragon","shivan_dragon"],
         },
         "boss_pools": {
             1: ["cockatrice","wolf"],
             2: ["manticore","wyvern","griffon"],
             3: ["behemoth","jura_aevis","magic_dragon"],
+            4: ["great_behemoth","dragon","hydra"],
+            5: ["king_behemoth","shinryu_ff5","bahamut_ff"],
         },
     },
     "deepwood": {
@@ -139,11 +151,15 @@ DUNGEON_THEMES = {
             1: ["myconid","grat","ochu","vegepygmy","leg_eater"],
             2: ["ochu","lamia","cray_claw","wind_serpent","treant"],
             3: ["treant","malboro","lamia","earth_bear","killer_mantis"],
+            4: ["elder_treant","exdeath_tree","apocalypse","great_behemoth","craw_wurm"],
+            5: ["whisperwood_heart","atomos","shinryu","king_behemoth","exdeath_tree"],
         },
         "boss_pools": {
             1: ["ochu","grat"],
             2: ["treant","lamia"],
             3: ["elder_treant","malboro"],
+            4: ["exdeath_tree","great_behemoth","apocalypse"],
+            5: ["whisperwood_heart","elder_treant","exdeath_ff5"],
         },
     },
     "demons": {
@@ -154,11 +170,15 @@ DUNGEON_THEMES = {
             1: ["imp","bomb","black_flan","blood_slime"],
             2: ["grenade","mini_satana","dark_wizard","nachtmahr"],
             3: ["dark_knight","nachtmahr","shadow_dancer","dullahan"],
+            4: ["balor_dd","marilith","glabrezu","bone_devil","hezrou"],
+            5: ["demogorgon_echo","orcus_aspect","grazzt_avatar","kefka_ascended","balor_dd"],
         },
         "boss_pools": {
             1: ["dark_wizard","mini_satana"],
             2: ["dark_knight","nachtmahr"],
             3: ["gilgamesh","apocalypse"],
+            4: ["balor_dd","marilith","storm_giant"],
+            5: ["chaos_ff1","kefka_ascended","demogorgon_echo"],
         },
     },
 }
@@ -174,7 +194,7 @@ LOCATION_DIFFICULTY_BONUS = {
     "whisperwood_edge": 0,
     "whisperwood_deep": 0,
     "trade_road":       0,
-    "aeridor_ruins":    1,
+    "aeridor_ruins":    2,
 }
 
 
@@ -629,10 +649,12 @@ def generate_dungeon(
     # D1: 10–13 rooms, 1–2 loops
     # D2: 13–17 rooms, 2–3 loops
     # D3: 17–22 rooms, 3–4 loops
-    base_rooms = {1: 11, 2: 15, 3: 19}
-    variance   = {1: 3,  2: 4,  3: 4}
-    num_rooms  = base_rooms[difficulty] + secrets.randbelow(variance[difficulty])
-    num_loops  = difficulty + secrets.randbelow(2)   # 1–2, 2–3, 3–4
+    # D4: 20–25 rooms, 4–5 loops
+    # D5: 23–28 rooms, 5–6 loops
+    base_rooms = {1: 11, 2: 15, 3: 19, 4: 21, 5: 24}
+    variance   = {1: 3,  2: 4,  3: 4,  4: 5,  5: 5}
+    num_rooms  = base_rooms.get(difficulty, 24) + secrets.randbelow(variance.get(difficulty, 5))
+    num_loops  = difficulty + secrets.randbelow(2)   # 1–2, 2–3, 3–4, 4–5, 5–6
 
     # Phase 1: Place rooms
     rooms = _place_rooms(num_rooms)
@@ -834,8 +856,8 @@ def _scale_boss_to_level(monster: dict, player_level: int) -> dict:
     m["attack"] = max(3,  int(monster["attack"] * scale))
     m["defense"]= max(8,  monster["defense"] - max(0, 5 - player_level))
 
-    BOSS_HP_CAPS  = {1:35,2:45,3:55,4:65,5:80,6:110,7:140,8:180,9:220}
-    BOSS_ATK_CAPS = {1:6, 2:8, 3:10,4:12,5:14,6:16, 7:18, 8:20, 9:22}
+    BOSS_HP_CAPS  = {1:35,2:45,3:55,4:65,5:80,6:110,7:140,8:180,9:220,10:270,11:330,12:400,13:480,14:570,15:680}
+    BOSS_ATK_CAPS = {1:6, 2:8, 3:10,4:12,5:14,6:16, 7:18, 8:20, 9:22, 10:24, 11:26, 12:28, 13:30, 14:32, 15:35}
 
     hp_cap  = BOSS_HP_CAPS.get(player_level)
     atk_cap = BOSS_ATK_CAPS.get(player_level)

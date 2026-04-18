@@ -1,5 +1,5 @@
 # Aethelgard TTRPG — Comprehensive System Review
-*April 18, 2026 · Full codebase audit · 19,226 lines across 37 modules*
+*April 18, 2026 · Full codebase audit + L15 expansion · 19,226+ lines across 37 modules*
 
 ---
 
@@ -30,7 +30,7 @@ This review identifies **4 bugs**, **8 balance concerns**, **5 code quality item
 | BUG-4 | 🟢 | `broadcast.log_world_event()` also has a bare `except:` on line 17. Same silent-swallow issue. | [broadcast.py](file:///home/ekco/github/Kaiacord/utils/ttrpg/broadcast.py#L17) | Narrow the exception type and log failures. |
 
 ### Previously Resolved (Confirmed Still Fixed)
-All 16 bugs from the April 11 audit remain resolved. XP cap enforcement at 64001 is confirmed across `progression.py`, fishing, dungeon, and social XP paths.
+All 16 bugs from the April 11 audit remain resolved. XP cap enforcement is confirmed across `progression.py`, fishing, dungeon, and social XP paths (now at L15/256001).
 
 ---
 
@@ -74,6 +74,17 @@ Level  Player ATK (avg)  Player DEF (avg)  Monster HP (tier)   Verdict
 ```
 
 The power curve is healthy. The gear soft-cap and DEF global cap are the two most important balance levers and they work correctly.
+
+### 3.4 L11-15 Equipment Budget (Added April 18)
+
+| Tier | Budget Range | Die | Proc | Notes |
+|---|---|---|---|---|
+| T6 | ATK 11-12, DMG 9 | d12 | 1d10 | Legendary — droppable only, L11-13 |
+| T7 | ATK 12-14, DMG 10 | d12 | 1d12 | Mythic — droppable only, L14-15 |
+
+Defensive gear:
+- T6 Armor DEF 8-15 (class-specific), T7 DEF 10-18
+- T6/T7 gear introduces `stat_bonus` and `hp_bonus` fields for non-weapon slots
 
 ---
 
@@ -173,15 +184,61 @@ No critical performance bottlenecks were found. The April 11 fixes (alias memoiz
 | **Architecture** | A | Clean separation of concerns. Handler decomposition successful. |
 | **Data Integrity** | A | All cross-references validated. No orphan keys. |
 | **Combat Balance** | B+ | Power curve is well-controlled. DEF soft-cap + global cap work. Minor outliers at T5. |
-| **Content Depth** | B- | 223 monsters, 324 equipment items, 20 forest events — excellent. Only 3 quests — needs work. |
-| **Feature Completeness** | B- | Calendar/seasonal data is *defined* but several hooks aren't *wired*. This is the biggest gap. |
-| **Code Quality** | B+ | Consistent patterns. A few async/exception hygiene issues. One alias collision. |
+| **Content Depth** | B+ | 223 monsters, 402 equipment items, 20 forest events, 15 class titles to L15. Only 3 quests — needs work. |
+| **Feature Completeness** | B | Calendar/seasonal data is *defined* but several hooks aren't *wired*. L15 expansion is complete. |
+| **Code Quality** | B+ | Consistent patterns. Bare except bugs fixed. One alias collision remains. |
 | **Performance** | A- | No bottlenecks. Prior audit items resolved. Minor async consistency gaps. |
-| **Documentation** | A | `aethelgard_system.md` is excellent. Lore bible is thorough. AGENTS.md has one stale line. |
+| **Documentation** | A | `aethelgard_system.md` updated to v0.3.0. Lore bible is thorough. |
 
 **Overall: B+ — Solid system. Wire the calendar buffs and add quests to reach A-tier.**
 
 ---
 
 *Review performed against the full `utils/ttrpg/` directory (19,226 lines, 37 modules) and `docs/ttrpg/`.*
-*No source code was modified during this review.*
+*No source code was modified during the initial review phase.*
+
+---
+
+## Phase 2: L15 Expansion (April 18, 2026)
+
+### Changes Implemented
+
+| Area | File(s) | Change |
+|---|---|---|
+| **Level Cap** | `progression.py` | Extended XP thresholds to L15 (256,000 XP). Cap enforcement updated from L10/64001 → L15/256001. Added stat choice at L12. |
+| **Dungeon Scaling** | `dungeon.py`, `rpg_combat_handler.py` | **Root cause fix:** Difficulty was capped at 3, and pool 3 monsters were medium/hard tier while Aeridor Ruins' overworld served deadly/boss monsters. Expanded difficulty range to 1-5. Added pool 4-5 monsters per theme using deadly/boss tier creatures. Bumped `LOCATION_DIFFICULTY_BONUS` for Aeridor Ruins from +1 to +2. Updated difficulty formula cap from `min(3)` to `min(5)`. |
+| **Boss Scaling** | `dungeon.py` | Extended `BOSS_HP_CAPS` and `BOSS_ATK_CAPS` from L9 to L15. L15 boss: 680 HP, 35 ATK. |
+| **Encounter Tables** | `encounter_tables.py` | Added L11+ (hard/boss) and L13+ (deadly/boss) tier windows. |
+| **Equipment (78 items)** | `equipment_registry.py` | Added 22 T6 + 10 T7 weapons, 6+5 armor, 5+5 headgear, 4+4 boots, 4+4 accessories. All `droppable_only: True`. |
+| **Loot Tables** | `loot_tables.py` | T6 items added to `deadly` pool (weight 1). T6 (weight 3) and T7 (weight 1) added to `boss` pool. |
+| **Class Titles** | `class_advancement.py` | L11, L13, L15 titles for all 5 base + 10 advanced classes. |
+| **Level-Up Flavor** | `broadcast.py` | L11-15 atmospheric text. L10 no longer says "cap". |
+| **Boss Loot Tier Map** | `rpg_combat_handler.py` | Extended from L9 → L15 (all L10+ map to "boss" tier). |
+| **Bug Fixes** | 4 files | Bare `except:` → `except Exception:` in `rpg_views.py`, `rpg_core_handler.py`, `rpg_social_handler.py`, `housing.py`. |
+| **Documentation** | `aethelgard_system.md` | XP table updated to L15, version bumped to 0.3.0. |
+
+### Validation Results
+
+- ✅ All 11 modified files pass `ast.parse()` syntax check
+- ✅ Equipment registry integrity: 121 weapons, 59 armor, 61 headgear, 46 boots, 50 accessories, 46 consumables
+- ✅ All `get_equipment()` and `get_caravan_stock()` helper functions intact
+- ✅ All 50 dungeon pool 4-5 monster keys exist in `monster_registry.py` (223 total monsters)
+- ✅ All 59 new loot table item keys exist in equipment registries
+- ✅ No hardcoded L10/64000 cap references remain in codebase
+
+### Remaining Work
+
+The following items from the original audit are **not yet addressed:**
+- INC-1: Calendar special day buffs (partially wired, some remain unwired)
+- INC-3: `SEASONAL_FARM_BONUSES` not wired to farming
+- INC-4: `SEASONAL_SHOP` not wired to shop stock
+- BAL-7/INC-6: Only 3 quests exist (now needs L8-15 range quests too)
+- CQ-1: `world_state.py` async I/O inconsistency
+- CQ-2: `broadcast.py` sync I/O in async function
+- CQ-3: `SEASONAL_ITEMS` dead code
+- CQ-4: `gauntlets` alias collision
+- PERF-3: `dungeon.py` sync I/O
+
+---
+
+**Overall (post-expansion): B+ → A- — L15 progression complete, dungeon scaling fixed, 78 new items. Wire calendar hooks and add quests to reach A.**

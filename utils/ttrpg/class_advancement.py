@@ -290,22 +290,22 @@ ADVANCED_CLASSES = {
 # Title progression: base class and advanced class titles by level
 TITLES = {
     # Base class titles (no advanced class chosen yet)
-    "Warrior":     {1: "Grunt", 3: "Soldier", 5: "Veteran", 7: "Warlord", 9: "Champion"},
-    "Ranger":      {1: "Scout", 3: "Tracker", 5: "Pathfinder", 7: "Outrider", 9: "Stalker"},
-    "Mage":        {1: "Apprentice", 3: "Channeler", 5: "Invoker", 7: "Arcanist", 9: "Magister"},
-    "Rogue":       {1: "Cutpurse", 3: "Shadow", 5: "Blade", 7: "Phantom", 9: "Wraith"},
-    "Cleric":      {1: "Novice", 3: "Acolyte", 5: "Cleric", 7: "Devout", 9: "Saint"},
+    "Warrior":     {1: "Grunt", 3: "Soldier", 5: "Veteran", 7: "Warlord", 9: "Champion", 11: "Conqueror", 13: "Overlord", 15: "Legend"},
+    "Ranger":      {1: "Scout", 3: "Tracker", 5: "Pathfinder", 7: "Outrider", 9: "Stalker", 11: "Vanguard", 13: "Windwalker", 15: "Mythwalker"},
+    "Mage":        {1: "Apprentice", 3: "Channeler", 5: "Invoker", 7: "Arcanist", 9: "Magister", 11: "Sage", 13: "Archon", 15: "Resonance Lord"},
+    "Rogue":       {1: "Cutpurse", 3: "Shadow", 5: "Blade", 7: "Phantom", 9: "Wraith", 11: "Specter", 13: "Revenant", 15: "Myth"},
+    "Cleric":      {1: "Novice", 3: "Acolyte", 5: "Cleric", 7: "Devout", 9: "Saint", 11: "Hierophant", 13: "Oracle", 15: "Exalted"},
     # Advanced class titles
-    "Paladin":        {5: "Initiate", 7: "Knight", 9: "Champion of Silence", 10: "Blessed Blade"},
-    "Shadowknight":   {5: "Shade", 7: "Dread Knight", 9: "Deathbringer", 10: "Terror of the Ruins"},
-    "Hunter":         {5: "Stalker", 7: "Predator", 9: "Apex Hunter", 10: "Legend of the Forest"},
-    "Warden":         {5: "Keeper", 7: "Sentinel", 9: "Guardian of the Deep", 10: "Heart of Whisperwood"},
-    "Wizard":         {5: "Scholar", 7: "Arcanist", 9: "Archmage", 10: "Resonance-Touched"},
-    "Necromancer":    {5: "Student of Death", 7: "Bone Whisperer", 9: "Lich-Touched", 10: "Morvenna's Hand"},
-    "Shadowblade":    {5: "Knife in the Dark", 7: "Ghost", 9: "Phantom", 10: "The Last Face You See"},
-    "Trickster":      {5: "Scoundrel", 7: "Schemer", 9: "Legend", 10: "Myth and Rumor"},
-    "High Priest":    {5: "Acolyte", 7: "Priest", 9: "Voice of the Silent", 10: "They Who Are Heard"},
-    "Shaman":         {5: "Listener", 7: "Speaker", 9: "Worldsong", 10: "The Forest's Voice"},
+    "Paladin":        {5: "Initiate", 7: "Knight", 9: "Champion of Silence", 10: "Blessed Blade", 11: "Crusader", 13: "Exemplar", 15: "Aegis of Silence"},
+    "Shadowknight":   {5: "Shade", 7: "Dread Knight", 9: "Deathbringer", 10: "Terror of the Ruins", 11: "Dread Lord", 13: "Abyssal Knight", 15: "The Undying"},
+    "Hunter":         {5: "Stalker", 7: "Predator", 9: "Apex Hunter", 10: "Legend of the Forest", 11: "Apex", 13: "Ghost of the Wood", 15: "The Unseen"},
+    "Warden":         {5: "Keeper", 7: "Sentinel", 9: "Guardian of the Deep", 10: "Heart of Whisperwood", 11: "Ancient", 13: "Earthbound", 15: "Worldroot"},
+    "Wizard":         {5: "Scholar", 7: "Arcanist", 9: "Archmage", 10: "Resonance-Touched", 11: "Sage", 13: "Resonance Master", 15: "Ascendant"},
+    "Necromancer":    {5: "Student of Death", 7: "Bone Whisperer", 9: "Lich-Touched", 10: "Morvenna's Hand", 11: "Death Speaker", 13: "Grave Lord", 15: "Morvenna's Chosen"},
+    "Shadowblade":    {5: "Knife in the Dark", 7: "Ghost", 9: "Phantom", 10: "The Last Face You See", 11: "Void Walker", 13: "Dusk", 15: "The Nothing"},
+    "Trickster":      {5: "Scoundrel", 7: "Schemer", 9: "Legend", 10: "Myth and Rumor", 11: "Fable", 13: "Paradox", 15: "The Impossible"},
+    "High Priest":    {5: "Acolyte", 7: "Priest", 9: "Voice of the Silent", 10: "They Who Are Heard", 11: "Archbishop", 13: "Voice Eternal", 15: "The Silence Itself"},
+    "Shaman":         {5: "Listener", 7: "Speaker", 9: "Worldsong", 10: "The Forest's Voice", 11: "Spiritcaller", 13: "World Whisperer", 15: "The Forest Made Flesh"},
 }
 
 # Special titles from achievements
