@@ -289,7 +289,6 @@ async def _handle_talk(ctx, msg, send, rest, uid, uname, is_owner):
     talk_xp = bonuses.get("talk_xp", 0)
     if sheet and talk_xp:
         sheet["xp"] = sheet.get("xp", 0) + talk_xp
-        from utils.ttrpg.progression import check_level_up
         check_level_up(sheet)  # enforce L15 XP cap
         await save(sheet)
 

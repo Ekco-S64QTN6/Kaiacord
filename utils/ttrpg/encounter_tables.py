@@ -23,6 +23,25 @@ QUEST_ENCOUNTER_OVERRIDES = {
         ("snow_bandit",   7),
         ("kobold",        5),
     ],
+    "whisperwood_deep_hunt": [
+        ("owlbear",      35),   # heavily boosted for deep hunt
+        ("frost_wolf",   35),   # heavily boosted for deep hunt
+        ("dire_wolf",    15),
+        ("troll",        10),
+        ("ghost",         5),
+    ],
+    "aeridor_ruins_remnant": [
+        ("iron_golem",      60),   # heavily boosted for remnant quest
+        ("stone_golem",     20),
+        ("clockwork_guard", 15),
+        ("basilisk",         5),
+    ],
+    "whisperwood_deep_shadow": [
+        ("shadow_lich",  50),   # heavily boosted for shadow incursion
+        ("lich",         25),
+        ("wraith",       15),
+        ("ghost",        10),
+    ],
 }
 
 def random_encounter(location: str, player_level: int = 1) -> str:

@@ -57,11 +57,11 @@ QUESTS = {
         "id": "silent_ones",
         "name": "The Final Silence",
         "npc": "elara",
-        "description": "The Shrine of the Silent Ones has gone dark. Elder Elara believes the seal is failing. Pray at the Shrine, then enter the dungeon beneath it and defeat what waits there.",
+        "description": "The Shrine of the Silent Ones has gone dark. Elder Elara believes the seal is failing. Pray at the Shrine, then seek out a dungeon and defeat its boss to purge the corrupted essence.",
         "requirements": {"level": 9},
         "tasks": ["pray_shrine", "complete_dungeon", "talk_elara"],
         "rewards": {"xp": 3000, "gil": 500, "item": "void_blade"},
-        "completion_msg": "Elara is waiting at the Shrine entrance when you emerge. She doesn't ask what you saw. 'The seal held. This time.' She presses something cold and dark into your hand. 'The Silent Ones left this for whoever came back. Not everyone does.'",
+        "completion_msg": "Elara is waiting in the square when you return. She doesn't ask what you saw in the dark. 'The seal held. This time.' She presses something cold and heavy into your hand. 'The Silent Ones left this for whoever came back. Not everyone does.'",
     },
     "aeridor_remnant": {
         "id": "aeridor_remnant",

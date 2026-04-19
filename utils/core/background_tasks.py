@@ -266,24 +266,7 @@ class CoreTaskManager:
                                 sheet["conditions"] = new_conds
                                 modified = True
                             
-                            # Bank Interest (2%, max 10g + bonus)
-                            bank_bal = sheet.get("bank_balance", 0)
-                            if bank_bal > 0:
-                                from utils.ttrpg.housing import load_housing
-                                housing_obj = load_housing(str(sheet.get("user_id", "")))
-                                interest_rate = 0.0
-                                if housing_obj:
-                                    from utils.ttrpg.furniture import get_home_bonuses
-                                    interest_rate = get_home_bonuses(housing_obj).get("interest_bonus", 0.0)
-                                
-                                base_interest = min(10, int(bank_bal * 0.02))
-                                bonus_interest = min(10, int(bank_bal * interest_rate)) if interest_rate > 0 else 0
-                                total_new_interest = base_interest + bonus_interest
-                                
-                                if total_new_interest > 0:
-                                    sheet["bank_balance"] += total_new_interest
-                                    t_interest += total_new_interest
-                                    modified = True
+                            # Bank Interest (2%, max 10g + bonus) has been removed
                             
                             if modified:
                                 tmp = path + ".tmp"
@@ -317,8 +300,6 @@ class CoreTaskManager:
                         f"All hunters restored to 5/5 hunts."
                         f" ({reset_count} refreshed)"
                     ]
-                    if total_interest > 0:
-                        lines.append(f"💰 **Interest Paid:** {total_interest}g distributed to savers.")
                 else:
                     lines = [
                         f"🌅 **A new day dawns in Aethelgard.**",

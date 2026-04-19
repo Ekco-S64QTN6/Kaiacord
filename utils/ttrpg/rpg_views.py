@@ -1017,7 +1017,10 @@ async def _make_shop_view(ctx, msg, uid, uname, is_owner, items, sheet=None):
             item = find_item(item_key)
             if not item:
                 continue
-            sell_val = max(1, item["value"] // 2)
+            from utils.ttrpg.shop import get_sell_price
+            cha_mod = (sheet.get("stats", {}).get("cha", 10) - 10) // 2 if sheet else 0
+            reputation = sheet.get("reputation", 0) if sheet else 0
+            sell_val = get_sell_price(item["value"], reputation, cha_mod)
             count_tag = f" ×{count}" if count > 1 else ""
             base_label = f"{item['name']}{count_tag} ({sell_val}g ea)" if count > 1 else f"{item['name']} ({sell_val}g)"
 

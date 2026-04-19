@@ -620,11 +620,17 @@ async def _handle_hunt(ctx, msg, send, rest, uid, uname, is_owner):
     s.setdefault("channel_id", chan_id)
     spawned_names = []
     
-    # Quest-aware encounter nudge — boost bandit weight for Maren's quest
+    # Quest-aware encounter nudge
     active_quest = sheet.get("active_quest", "")
     quest_location_override = None
     if active_quest == "maren_herbs" and loc == "trade_road":
         quest_location_override = "trade_road_maren"
+    elif active_quest == "deep_hunt" and loc == "whisperwood_deep":
+        quest_location_override = "whisperwood_deep_hunt"
+    elif active_quest == "aeridor_remnant" and loc == "aeridor_ruins":
+        quest_location_override = "aeridor_ruins_remnant"
+    elif active_quest == "shadow_incursion" and loc == "whisperwood_deep":
+        quest_location_override = "whisperwood_deep_shadow"
 
     for _ in range(num_to_spawn):
         m_key = random_encounter(quest_location_override or loc, sheet.get("level", 1))

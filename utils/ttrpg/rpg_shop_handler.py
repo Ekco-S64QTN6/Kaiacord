@@ -181,7 +181,11 @@ async def _handle_sell(ctx, msg, send, rest, uid, uname, is_owner):
     cha_mod = (sheet.get("stats", {}).get("cha", 10) - 10) // 2
 
     item_snap = _find_item(item_key)
-    sell_price = max(1, item_snap["value"] // 2) if item_snap else 0
+    if item_snap:
+        from utils.ttrpg.shop import get_sell_price
+        sell_price = get_sell_price(item_snap["value"], sheet.get("reputation", 0), cha_mod)
+    else:
+        sell_price = 0
 
     success, resp_msg, updated_sheet = process_sell(sheet, item_key, sheet.get("reputation", 0), cha_mod=cha_mod)
     
@@ -245,11 +249,8 @@ async def _handle_sell_all_gear(ctx, msg, send, rest, uid, uname, is_owner):
             kept.append(item_key)
             continue
 
-        sell_mult = 0.5
-        if sheet.get("reputation", 0) >= 100: sell_mult = 0.7
-        elif sheet.get("reputation", 0) >= 50: sell_mult = 0.6
-        sell_mult += min(0.10, max(0.0, cha_mod * 0.02))
-        sell_price = max(1, int(item["value"] * sell_mult))
+        from utils.ttrpg.shop import get_sell_price
+        sell_price = get_sell_price(item["value"], sheet.get("reputation", 0), cha_mod)
 
         total_gil += sell_price
         sold_lines.append(f"• {item['name']} → {sell_price}g")
