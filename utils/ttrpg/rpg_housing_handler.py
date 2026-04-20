@@ -279,13 +279,17 @@ async def _handle_my_home(ctx, msg, send, rest, uid, uname, is_owner):
         
     furniture_lines = []
     bonus_labels = {
-        "home_atk": "Global ATK",
-        "local_atk": "Local ATK (Housing District)",
+        "home_atk": "ATK",
+        "local_atk": "Local ATK",
         "farm_yield": "Farm Yield",
         "talk_xp": "Talk XP",
         "dungeon_xp": "Dungeon XP",
         "bank_cap": "Bank Storage",
-        "home_cha": "Talking CHA (Home)"
+        "home_cha": "CHA",
+        "home_scout": "Scout",
+        "home_pray": "Home Pray",
+        "home_brewing": "Home Brewing",
+        "home_bank": "Bank Access (Home)"
     }
     for f_key in housing.get("furniture", []):
         f_data = FURNITURE.get(f_key)
@@ -294,7 +298,10 @@ async def _handle_my_home(ctx, msg, send, rest, uid, uname, is_owner):
             if bonus:
                 b_type = bonus.get("type", "")
                 label = bonus_labels.get(b_type, b_type.replace('_', ' ').title())
-                b_str = f"+{bonus.get('value', 0)} {label}"
+                if b_type in ["home_brewing", "home_pray", "home_bank", "home_scout"]:
+                    b_str = label
+                else:
+                    b_str = f"+{bonus.get('value', 0)} {label}"
             else:
                 b_str = ""
             furniture_lines.append(f"{f_data['emoji']} **{f_data['name']}**: {b_str}")
@@ -342,6 +349,9 @@ async def _handle_my_home(ctx, msg, send, rest, uid, uname, is_owner):
                                       style=discord.ButtonStyle.blurple))
     if bonuses.get("home_pray"):
         view.add_item(_make_home_btn(ctx, uid, uname, is_owner, "🕯️ Pray", "pray", 2,
+                                      style=discord.ButtonStyle.blurple))
+    if bonuses.get("home_bank"):
+        view.add_item(_make_home_btn(ctx, uid, uname, is_owner, "🏦 Bank", "bank", 2,
                                       style=discord.ButtonStyle.blurple))
     if get_next_tier(housing["tier"]):
         view.add_item(_make_home_btn(ctx, uid, uname, is_owner, "⬆️ Upgrade", "upgrade_house", 2))

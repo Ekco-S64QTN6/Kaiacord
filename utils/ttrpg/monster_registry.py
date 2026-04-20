@@ -1260,7 +1260,7 @@ MONSTERS = {
     },
     "ancient_red_dragon": {
         "name": "Ancient Red Dragon",
-        "hp": 800, "attack": 32, "defense": 28,
+        "hp": 400, "attack": 32, "defense": 28,
         "xp": 5000, "gil": 10000, "tier": "deadly",
         "desc": "The ultimate incarnation of greed and fire. Its mere presence can scorch the earth for miles.",
     },
@@ -1278,13 +1278,13 @@ MONSTERS = {
     },
     "demogorgon_echo": {
         "name": "Echo of Demogorgon",
-        "hp": 700, "attack": 32, "defense": 26,
+        "hp": 350, "attack": 32, "defense": 26,
         "xp": 4000, "gil": 0, "tier": "deadly",
         "desc": "The Prince of Demons. His two heads, Aameul and Hethradiah, are locked in eternal conflict.",
     },
     "orcus_aspect": {
         "name": "Aspect of Orcus",
-        "hp": 650, "attack": 30, "defense": 25,
+        "hp": 350, "attack": 30, "defense": 25,
         "xp": 3500, "gil": 0, "tier": "deadly",
         "desc": "The Demon Prince of Undeath. He wields a skull-tipped wand that can extinguish life with a touch.",
     },
@@ -1349,13 +1349,13 @@ MONSTERS = {
     },
     "chaos_ff1": {
         "name": "Chaos",
-        "hp": 700, "attack": 32, "defense": 26,
+        "hp": 400, "attack": 32, "defense": 26,
         "xp": 6000, "gil": 0, "tier": "boss",
         "desc": "The source of all ruin. A cycle of hatred and power that spans across time.",
     },
     "zeromus_ff4": {
         "name": "Zeromus",
-        "hp": 800, "attack": 34, "defense": 28,
+        "hp": 400, "attack": 34, "defense": 28,
         "xp": 7000, "gil": 0, "tier": "boss",
         "desc": "The embodiment of pure spite. It does not exist, yet its hatred is absolute.",
     },
@@ -1368,7 +1368,7 @@ MONSTERS = {
 
     "exdeath_ff5": {
         "name": "Exdeath",
-        "hp": 850, "attack": 32, "defense": 26,
+        "hp": 450, "attack": 32, "defense": 26,
         "xp": 8000, "gil": 0, "tier": "boss",
         "desc": "A tree born of ancient malice. He seeks to return all to the Void.",
     },
@@ -1380,13 +1380,13 @@ MONSTERS = {
     },
     "omega_ff5": {
         "name": "Omega",
-        "hp": 900, "attack": 36, "defense": 35,
+        "hp": 500, "attack": 36, "defense": 35,
         "xp": 10000, "gil": 0, "tier": "boss",
         "desc": "An ancient machine of war. its defense is impenetrable, and its fire is absolute.",
     },
     "kefka_ascended": {
         "name": "Kefka (Ascended)",
-        "hp": 750, "attack": 34, "defense": 24,
+        "hp": 400, "attack": 34, "defense": 24,
         "xp": 9000, "gil": 0, "tier": "boss",
         "desc": "A mad court mage who has stolen the power of gods. He laughs as the world burns.",
     },

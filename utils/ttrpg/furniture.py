@@ -67,10 +67,10 @@ FURNITURE = {
     "mounted_trophy": {
         "name": "Monster Trophy Mount",
         "cost": 250,
-        "desc": "A taxidermied head from something you killed. +2 ATK when hunting at your home location.",
+        "desc": "A taxidermied head from something you killed. +2 ATK.",
         "emoji": "🐺",
         "tier": 2,
-        "bonus": {"type": "local_atk", "value": 2},
+        "bonus": {"type": "home_atk", "value": 2},
     },
     "alchemy_table": {
         "name": "Alchemy Workbench",
@@ -109,10 +109,10 @@ FURNITURE = {
     "vault_chest": {
         "name": "Ironbound Vault Chest",
         "cost": 1500,
-        "desc": "A heavy locked chest. +5% daily bank interest.",
+        "desc": "A heavy locked chest. Bank access from home.",
         "emoji": "🔐",
         "tier": 3,
-        "bonus": {"type": "interest_bonus", "value": 0.05},
+        "bonus": {"type": "home_bank", "value": 1},
     },
     "portrait": {
         "name": "Commissioned Portrait",

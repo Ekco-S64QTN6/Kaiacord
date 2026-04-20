@@ -227,7 +227,8 @@ async def _handle_sell_all_gear(ctx, msg, send, rest, uid, uname, is_owner):
         if k: equipped_keys.add(k)
 
     PROTECTED_KEYS = {"symbol_of_the_silent_ones", "mognet_letter", "lightstone",
-                      "adventurers_pack", "torch", "elaras_token"}
+                      "adventurers_pack", "torch", "elaras_token",
+                      "emerald", "topaz", "pearl", "fire_opal", "opal", "star_ruby"}
 
     inventory = sheet.get("inventory", [])
     sold_lines = []
