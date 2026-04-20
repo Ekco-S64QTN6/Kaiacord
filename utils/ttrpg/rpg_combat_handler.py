@@ -649,6 +649,9 @@ async def _handle_hunt(ctx, msg, send, rest, uid, uname, is_owner):
         s["monsters"].append(monster_instance)
         spawned_names.append(f"**{monster_instance['name']}**")
 
+    if not spawned_names:
+        return await msg.channel.send(embed=discord.Embed(description="You searched the area but found nothing this time.", color=0x888888))
+        
     s["combat_active"] = True
     await save_session(s)
     
@@ -656,14 +659,16 @@ async def _handle_hunt(ctx, msg, send, rest, uid, uname, is_owner):
     rec = ld.get("recommended_level", 1)
     warn = f"⚠️ *{sheet['character_name']} is underleveled for this area.*\n" if sheet["level"] < rec - 1 else ""
     
-    monster_desc = m_data.get("desc", m_data.get("description", "A dangerous creature."))
-    tier_icon = TIER_ICONS.get(m_data.get("tier", "medium"), "🟠")
+    primary_monster = s["monsters"][-len(spawned_names)]
+    monster_desc = primary_monster.get("desc", primary_monster.get("description", "A dangerous creature."))
+    tier_icon = TIER_ICONS.get(primary_monster.get("tier", "medium"), "🟠")
+    m_key = primary_monster.get("key", "monster")
     
     if num_to_spawn > 1:
         title = f"⚔️ Encounter: SWARM! {tier_icon}"
         description = f"{warn}You are surrounded by a group: {', '.join(spawned_names)}\n\n*{monster_desc}*"
     else:
-        title = f"⚔️ Encounter: {m_data['name']} {tier_icon}"
+        title = f"⚔️ Encounter: {primary_monster.get('name', 'Enemy')} {tier_icon}"
         description = f"{warn}*{monster_desc}*"
 
     embed = discord.Embed(
@@ -673,9 +678,9 @@ async def _handle_hunt(ctx, msg, send, rest, uid, uname, is_owner):
     )
     
     # Show stats of the primary (first) monster
-    embed.add_field(name="❤️ HP", value=str(monster_instance['hp']['max']), inline=True)
-    embed.add_field(name="🗡️ ATK", value=str(m_data.get('attack', 0)), inline=True)
-    embed.add_field(name="🛡️ DEF", value=str(m_data.get('defense', 0)), inline=True)
+    embed.add_field(name="❤️ HP", value=str(primary_monster['hp']['max']), inline=True)
+    embed.add_field(name="🗡️ ATK", value=str(primary_monster.get('attack', 0)), inline=True)
+    embed.add_field(name="🛡️ DEF", value=str(primary_monster.get('defense', 0)), inline=True)
     
     embed.set_footer(text=f"Use !rpg attack  ·  1 hunt consumed")
     combat_view = RPGCombatView(ctx, msg, uid, uname, is_owner, m_key)

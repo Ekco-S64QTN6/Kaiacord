@@ -88,6 +88,7 @@ async def handle_rpg_command(ctx, msg, send_kaia_response):
         "offer":     cor._handle_offer,
         "scout":     cor._handle_scout,
         "mail":      soc._handle_mail,
+        "deliver":   soc._handle_mail,
         "fountain":  cor._handle_fountain,
         "leaderboard": cor._handle_leaderboard,
         "lb":        cor._handle_leaderboard,
