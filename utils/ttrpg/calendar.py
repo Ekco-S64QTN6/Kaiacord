@@ -69,13 +69,16 @@ def get_season_day(today: Optional[date] = None) -> int:
     day = 0
     for m in months:
         # Determine the actual year for this month in the season
-        if season == "winter" and m == 12 and today.month <= 2:
-            year = today.year - 1  # December of previous year
+        if season == "winter" and m == 12:
+            year = today.year - 1 if today.month <= 2 else today.year
         else:
             year = today.year
-        if m == today.month:
+        # Build a date for the first of this month in the correct year
+        m_year = year
+        if m == today.month and m_year == today.year:
+            # We've reached the current month — add partial days and stop
             break
-        day += cal.monthrange(year, m)[1]
+        day += cal.monthrange(m_year, m)[1]
     day += today.day
     return day
 

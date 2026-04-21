@@ -133,9 +133,9 @@ async def _handle_brew(ctx, msg, send, rest, uid, uname, is_owner):
     if not sheet: return
     
     loc = sheet.get("location", "oakhaven")
-    from utils.ttrpg.housing import load_housing
+    from utils.ttrpg.housing import load_housing_async
     from utils.ttrpg.furniture import get_home_bonuses
-    _housing = load_housing(uid)
+    _housing = await load_housing_async(uid)
     _has_alchemy_table = _housing and get_home_bonuses(_housing).get("home_brewing")
     if not LOCATION_DATA.get(loc, {}).get("brewing_allowed") and not _has_alchemy_table:
         return await send(msg.channel, "You need a proper station to brew. Try the Herbalist's Hut, or purchase an Alchemy Workbench for your home.")
@@ -617,10 +617,10 @@ async def _handle_harvest_crops(ctx, msg, send, rest, uid, uname, is_owner):
 
 async def _handle_pet_shop(ctx, msg, send, rest, uid, uname, is_owner):
     from utils.ttrpg.pets import PET_REGISTRY
-    from utils.ttrpg.housing import load_housing
+    from utils.ttrpg.housing import load_housing_async
 
     sheet = await load(uid)
-    housing = load_housing(uid)
+    housing = await load_housing_async(uid)
     if not sheet or not housing:
         return await send(msg.channel, "Visit `My Home` to establish a plot first.")
 
@@ -757,10 +757,10 @@ async def _handle_feed_pet(ctx, msg, send, rest, uid, uname, is_owner):
 
 async def _handle_furniture_shop(ctx, msg, send, rest, uid, uname, is_owner):
     from utils.ttrpg.furniture import FURNITURE, HOUSING_TIER_TO_FURNITURE_TIER
-    from utils.ttrpg.housing import load_housing
+    from utils.ttrpg.housing import load_housing_async
 
     sheet = await load(uid)
-    housing = load_housing(uid)
+    housing = await load_housing_async(uid)
     if not sheet or not housing:
         return await send(msg.channel, "Visit `My Home` to establish a plot first.")
 

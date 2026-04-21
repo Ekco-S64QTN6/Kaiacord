@@ -330,7 +330,7 @@ async def _handle_sheet(ctx, msg, send, rest, uid, uname, is_owner):
     """!rpg sheet — detailed character sheet with computed combat stats."""
     from utils.ttrpg.equipment_registry import WEAPONS, ARMOR as ARMOR_REG, HEADGEAR, BOOTS, ACCESSORIES
     from utils.ttrpg.class_advancement import ADVANCED_CLASSES, get_title
-    from utils.ttrpg.housing import load_housing
+    from utils.ttrpg.housing import load_housing_async
     from utils.ttrpg.pets import get_pet_passive
     from utils.ttrpg.dice_engine import STAT_MODIFIER, CLASSES
 
@@ -426,7 +426,7 @@ async def _handle_sheet(ctx, msg, send, rest, uid, uname, is_owner):
                 break
 
     # Pet bonuses
-    housing = load_housing(str(sheet.get("user_id", target_id)))
+    housing = await load_housing_async(str(sheet.get("user_id", target_id)))
     pet_bonuses = get_pet_passive(housing) if housing else {}
     pet_combat = pet_bonuses.get("combat_bonus", 0)
     pet_def = pet_bonuses.get("def_bonus", 0)
@@ -1725,9 +1725,9 @@ async def _handle_pray(ctx, msg, send, rest, uid, uname, is_owner):
     if not sheet:
         return await msg.channel.send(embed=discord.Embed(description="No character found.", color=0xcc4444), ephemeral=True)
 
-    from utils.ttrpg.housing import load_housing
+    from utils.ttrpg.housing import load_housing_async
     from utils.ttrpg.furniture import get_home_bonuses
-    _housing = load_housing(uid)
+    _housing = await load_housing_async(uid)
     _has_shrine_replica = (
         _housing 
         and sheet.get("location") == "housing_district"
@@ -1928,9 +1928,9 @@ async def _handle_scout(ctx, msg, send, rest, uid, uname, is_owner):
     if not sheet:
         return await msg.channel.send(embed=discord.Embed(description="No character found.", color=0xcc4444))
 
-    from utils.ttrpg.housing import load_housing
+    from utils.ttrpg.housing import load_housing_async
     from utils.ttrpg.furniture import get_home_bonuses
-    housing = load_housing(uid)
+    housing = await load_housing_async(uid)
     bonuses = get_home_bonuses(housing) if housing else {}
     has_home_scout = sheet.get("location") == "housing_district" and bonuses.get("home_scout")
 

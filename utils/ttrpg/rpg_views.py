@@ -273,6 +273,10 @@ async def _handle_water_crops(*args, **kwargs):
     from utils.ttrpg.rpg_housing_handler import _handle_water_crops as _f
     return await _f(*args, **kwargs)
 
+async def _handle_bank(*args, **kwargs):
+    from utils.ttrpg.rpg_core_handler import _handle_bank as _f
+    return await _f(*args, **kwargs)
+
 async def _handle_status(*args, **kwargs):
     from utils.ttrpg.rpg_core_handler import _handle_status as _f
     return await _f(*args, **kwargs)
@@ -1782,6 +1786,7 @@ def _make_home_btn(ctx, uid, uname, is_owner, label, cmd, row, style=discord.But
             "home_training": _handle_home_training,
             "brew": _handle_brew,
             "pray": _handle_pray,
+            "bank": _handle_bank,
         }
         handler = handler_map.get(cmd)
         if handler:
@@ -1800,11 +1805,11 @@ class RenameHouseModal(discord.ui.Modal, title="Rename Your Home"):
         super().__init__()
         self.uid = uid
     async def on_submit(self, interaction):
-        from utils.ttrpg.housing import load_housing, save_housing
-        h = load_housing(self.uid)
+        from utils.ttrpg.housing import load_housing_async, save_housing_async
+        h = await load_housing_async(self.uid)
         if not h: return
         h["house_name"] = self.new_name.value.strip()[:50]
-        save_housing(h)
+        await save_housing_async(h)
         await interaction.response.send_message(
             f"🏡 Your home is now named **{h['house_name']}**.", ephemeral=True
         )
@@ -2240,9 +2245,9 @@ async def _dungeon_move(ctx_obj, interaction, uid, uname, is_owner, direction):
         state["rooms"][nk] = room
 
         # Furniture dungeon XP bonus (Aeridorian Tapestry)
-        from utils.ttrpg.housing import load_housing
+        from utils.ttrpg.housing import load_housing_async
         from utils.ttrpg.furniture import get_home_bonuses
-        _housing = load_housing(uid)
+        _housing = await load_housing_async(uid)
         if _housing:
             _furniture_bonuses = get_home_bonuses(_housing)
             _tapestry_xp = _furniture_bonuses.get("dungeon_xp", 0)

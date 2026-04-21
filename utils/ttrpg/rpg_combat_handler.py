@@ -73,9 +73,9 @@ async def _dungeon_combat_round(ctx_obj, interaction, uid, uname, is_owner):
     boss_name = combat.get("boss_name")
     room_key = combat["room_key"]
 
-    from utils.ttrpg.housing import load_housing
+    from utils.ttrpg.housing import load_housing_async
     from utils.ttrpg.pets import get_pet_passive
-    _housing = load_housing(str(sheet.get("user_id", "")))
+    _housing = await load_housing_async(str(sheet.get("user_id", "")))
     _pet_bonuses = get_pet_passive(_housing) if _housing else {}
 
     from utils.ttrpg.furniture import get_home_bonuses
@@ -179,9 +179,9 @@ async def _dungeon_combat_round(ctx_obj, interaction, uid, uname, is_owner):
             sheet["conditions"].remove("xp_boosted")
         
         # Pet Gil Bonus (Oakhaven Cat)
-        from utils.ttrpg.housing import load_housing
+        from utils.ttrpg.housing import load_housing_async
         from utils.ttrpg.pets import get_pet_passive
-        housing_rewards = load_housing(uid)
+        housing_rewards = await load_housing_async(uid)
         pet_rewards = get_pet_passive(housing_rewards) if housing_rewards else {}
         if pet_rewards.get("gil_bonus_pct"):
             gil_gain = int(gil_gain * (1.0 + pet_rewards["gil_bonus_pct"]))
@@ -203,7 +203,6 @@ async def _dungeon_combat_round(ctx_obj, interaction, uid, uname, is_owner):
         else:
             tier = _get_dungeon_loot_tier(level, False)
         if is_boss:
-            import random
             drops = []
             # First gear drop: guaranteed
             gear = get_gear_loot(tier)
@@ -217,7 +216,7 @@ async def _dungeon_combat_round(ctx_obj, interaction, uid, uname, is_owner):
                 drops.append(f"⚔️ {item['name'] if item else gear}")
                 state.setdefault("loot_gained", []).append(gear)
             # Second gear drop: 40% chance
-            if random.random() < 0.4:
+            if secrets.randbelow(10) < 4:
                 gear2 = get_gear_loot(tier)
                 attempts = 0
                 while not gear2 and attempts < 5:
@@ -721,9 +720,9 @@ async def _handle_attack(ctx, msg, send, rest, uid, uname, is_owner):
     if not monster:
         return await msg.channel.send(embed=discord.Embed(description="Cannot identify monster.", color=0xcc4444))
         
-    from utils.ttrpg.housing import load_housing
+    from utils.ttrpg.housing import load_housing_async
     from utils.ttrpg.pets import get_pet_passive
-    _housing = load_housing(uid)
+    _housing = await load_housing_async(uid)
     _pet_bonuses = get_pet_passive(_housing) if _housing else {}
 
     # Execute deterministic combat math loop with world state modifiers
@@ -847,9 +846,9 @@ async def _handle_attack(ctx, msg, send, rest, uid, uname, is_owner):
             sheet["conditions"].remove("xp_boosted")
         
         # Pet Gil Bonus (Oakhaven Cat)
-        from utils.ttrpg.housing import load_housing
+        from utils.ttrpg.housing import load_housing_async
         from utils.ttrpg.pets import get_pet_passive
-        housing_rewards = load_housing(uid)
+        housing_rewards = await load_housing_async(uid)
         pet_rewards = get_pet_passive(housing_rewards) if housing_rewards else {}
         if pet_rewards.get("gil_bonus_pct"):
             gil_gain = int(gil_gain * (1.0 + pet_rewards["gil_bonus_pct"]))
@@ -1165,9 +1164,9 @@ async def _handle_accept(ctx, msg, send, rest, uid, uname, is_owner):
         t_atk = ((atk_val - 10) // 2) + w.get("attack_bonus", 0) + acc.get("attack_bonus", 0)
 
         # BUG-H1 fix: use proper defense calculation with soft-cap, global cap, etc.
-        from utils.ttrpg.housing import load_housing
+        from utils.ttrpg.housing import load_housing_async
         from utils.ttrpg.pets import get_pet_passive
-        t_housing = load_housing(str(t_sheet.get("user_id", "")))
+        t_housing = await load_housing_async(str(t_sheet.get("user_id", "")))
         t_pet_bonuses = get_pet_passive(t_housing) if t_housing else {}
         t_def = _compute_player_defense(t_sheet, pet_bonuses=t_pet_bonuses)
 
@@ -1195,7 +1194,7 @@ async def _handle_accept(ctx, msg, send, rest, uid, uname, is_owner):
         max_rounds = 20
         
         # BUG-H2 fix: load CHALLENGER's pet bonuses (not target's)
-        c_housing = load_housing(str(c_sheet.get("user_id", "")))
+        c_housing = await load_housing_async(str(c_sheet.get("user_id", "")))
         c_pet_bonuses = get_pet_passive(c_housing) if c_housing else {}
         
         while c_sheet["hp"]["current"] > 1 and m_from_t["hp"]["current"] > 1 and round_num <= max_rounds:

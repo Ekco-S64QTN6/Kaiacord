@@ -280,8 +280,8 @@ async def _handle_talk(ctx, msg, send, rest, uid, uname, is_owner):
 
     cha_mod = (sheet.get("stats", {}).get("cha", 10) - 10) // 2 if sheet else 0
     from utils.ttrpg.furniture import get_home_bonuses
-    from utils.ttrpg.housing import load_housing
-    housing = load_housing(uid)
+    from utils.ttrpg.housing import load_housing_async
+    housing = await load_housing_async(uid)
     bonuses = get_home_bonuses(housing) if housing else {}
     if sheet and sheet.get("location") == "housing_district":
         cha_mod += bonuses.get("home_cha", 0)
