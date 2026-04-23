@@ -2391,7 +2391,9 @@ _LOCATION_BUTTONS: dict[str, list] = {
     "trade_road": [
         ("Caravan", "🐪", "go", "caravan", discord.ButtonStyle.blurple, 0),
         ("Hunt", "🗡️", "hunt", "", discord.ButtonStyle.danger, 0),
-        ("Look", "🔎", "look", "", discord.ButtonStyle.secondary, 0),
+        ("North (Grimstone)", "⛏️", "go", "grimstone", discord.ButtonStyle.secondary, 1),
+        ("South (Oakhaven)", "🏘️", "go", "oakhaven", discord.ButtonStyle.secondary, 1),
+        ("Look", "🔎", "look", "", discord.ButtonStyle.secondary, 1),
     ],
     "herbalists_hut": [
         ("Brew", "⚗️", "brew", "", discord.ButtonStyle.green, 0),
