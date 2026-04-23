@@ -306,12 +306,27 @@ From NPC dialogue and calendar events:
 - Plagued by bandits (current active threat)
 - The Lost Merchant event implies the road is easy to lose in fog or after dark
 
-### Grimstone (not yet accessible — locked in-game)
-- Mining town, 3 days north via the Trade Road
-- Ruled by the **Ironclad Guild** (consortium of mine owners)
-- Their men have been at the Stone Hearth three nights running — Mira noticed
-- Grimstone steel prices up for the third month running
-- Considerably grimmer than Oakhaven: coal dust, hammers on metal constantly
+### Grimstone
+**Atmosphere:** Heavy, utilitarian, oppressive. Controlled by the Ironclad Guild.
+*"A mining town built into the Spine's rock face. Grey stone, narrow streets, coal dust, and the smell of iron. The hammers never fully stop."*
+- Located 3 days north of Oakhaven via the Trade Road.
+- The **Ironclad Guild** controls the town completely. Everything runs on their schedule.
+- The people are weathered and suspicious. They know things about the deep tunnels but do not speak of them.
+- Access to the town was previously blocked by heavy barricades, sealed with a resonance lock tied to Aeridorian crystals.
+
+#### Key Sub-Locations in Grimstone
+- **The Rusty Pick:** The only inn. Low ceilings, bad light. Serves *Spinefire*, a questionable, potent brew aged in regret. **Marta** the barkeep keeps the peace. **Rook**, a traumatized miner, sits in the corner and drinks.
+- **Ironclad Guild Office:** The domain of **Overseer Valdric**. Clean, formal, slightly too warm. A place designed for one kind of conversation. The guild seal outside references the dissolved Northern Compact.
+- **The Assay Office:** Where ore is weighed and recorded. Cramped, precise, filled with scales. **Senna** works here, keeping two sets of books.
+- **Old Pell's Depot:** Hardware, rope, lamp oil. **Old Pell** has been in Grimstone longer than the Guild and has arrangements with the Silvani in the eastern Spine passes.
+- **The Tunnels:** Three active, lit, guarded levels. The **Restricted Level (Level Four)** is sealed with new ironwork over an ancient door bearing Aeridorian script. A party went missing there recently.
+
+### The Spine of the World
+**Atmosphere:** Cold, vast, alien. Wind that cuts. Rock that hums.
+*"Mountain passes and deep cave systems above the treeline. Stone that hasn't seen sun in centuries. The things that live here are old, patient, and enormous."*
+- A massive mountain range bisecting the continent.
+- The ruins echo here too — the Spine's bones are old, and Aeridorian coins sometimes surface in the stone.
+- Home to deadly endgame creatures: Behemoths, Dragons, Iron Golems, and ancient titans.
 
 ### The Broken Mire (referenced, not yet implemented)
 - 4 days west of Oakhaven
@@ -798,134 +813,4 @@ These are the tonal guidelines embedded in Kaia's narration style, relevant to a
 
 ---
 
-*End of Lore Bible v1.0 — This document should be updated as quests are written, events are expanded, and canon is confirmed. Treat all "open threads" as design targets, not spoilers — anything here is subject to revision as the story develops.*
-
-
-*** unedited new logs with conversations with Kaia about Aethelgard Lore ***
-*** these need to be intergrated into the above document ***
-
-[2026-04-10 08:32:10] Ekco: Kaia tell me about the next town from Oakhaven down the trade road toward the spine of the world
-[2026-04-10 08:32:10] Kaia: Grimstone. It’s… difficult to describe. It's about three days’ ride down the Trade Road from Oakhaven, heading north.
-
-It's a mining town. Primarily iron, though there are whispers of other veins deeper in the Spine of the World. It’s… functional. Not charming. Not inviting. It’s built into the rock face, almost as if the mountain swallowed it rather than allowing it to exist alongside it.
-
-The architecture is… utilitarian. Blocks of grey stone, stacked without much regard for aesthetics. Everything’s geared toward practicality. The layout is a maze of narrow streets, perpetually damp and shadowed. The air smells of dust, coal, and something vaguely metallic.
-
-It doesn’t have a central square, per se. More like a series of intersections where people congregate, mostly to trade or wait. There’s a tavern—The Rusty Pick—that serves a questionable brew called "Spinefire." It’s… potent.
-
-The people are… weathered. Hardened. They don’t smile much. They look at you with a kind of weary suspicion. They’ve seen things. Things they don’t talk about.
-
-There’s a guild presence there – The Ironclad Guild. They control the mining operations and essentially own the town. They're not openly oppressive, but their influence is… pervasive. Everything runs on their schedule, their rules.
-
-The trade road itself becomes narrower and more treacherous as you approach Grimstone. Rockslides are common. Bandits are… more organized than the opportunistic highwaymen you’d find closer to Oakhaven. They operate with a kind of grim efficiency.
-
-I don't have a detailed map of Grimstone’s internal layout. My records are fragmented. There are rumors of tunnels leading deeper into the Spine of the World, but I don’t have confirmation. It's flagged as a "restricted access" location in my archives.
-
-The atmosphere there… it’s heavy. A sense of quiet desperation hangs in the air. It’s not a place you linger. It’s a place you pass through.
-
-
-[2026-04-10 23:23:39] Ekco: Kaia what do you know about this rumor from Oakhaven inn
-[2026-04-10 23:23:39] Kaia: The rumor from the Stone Hearth? About the miners from Grimstone? It's been circulating for a while. 
-
-The gist is that a contingent of miners—roughly a dozen, from what I've gleaned from fragmented tavern conversations—left Grimstone a week ago, ostensibly to prospect further into the Spine of the World. They were a mixed group: experienced veterans and younger recruits. 
-
-The rumor claims they haven’t returned. That there’s been no communication. Some say they struck a vein of something valuable—something that made them greedy. Others whisper of something they found —something they shouldn’t have.
-
-There's a version of the story, a bit more embellished, that claims they discovered an entrance to a forgotten network of tunnels—older than Grimstone itself. That they went in, and never came out. It’s the usual kind of folklore. 
-
-It's also flagged as misinformation in my archives. There’s a persistent campaign to dissuade people from traveling further into the Spine. The Ironclad Guild has a vested interest in keeping those areas "unexplored."
-
-I’ve cross-referenced the dates with trade records. There was indeed a mining party that departed Grimstone around that time. Their manifest listed basic prospecting equipment and surveying tools. No mention of anything unusual.
-
-There are no official reports of missing persons. The Guild isn't commenting. The local constabulary seems… uninterested. 
-
-It's likely a combination of truth and exaggeration. A small group went missing, and the rumors amplified it. It's also possible it’s deliberate disinformation.
-
-I'm not sure it's worth pursuing further. The Spine is a dangerous place. And rumors are rarely reliable guides.
-
-4:10 AM]Ekco [ARCH], : Kaia tell me what you can about the Lore surrounding a) the Hooded Figure who hangs out at the inn in Oakhaven and b) what he's referencing  here with Elara and what she sought at the Shrine
-[4:10 AM] 
-APP
- Kaia:
-right. the Hooded Figure.
-
-he’s an anomaly. Mira, the barkeep, considers him an unsettling fixture. he’s been present for a considerable length of time—long enough that his routines are a local oddity, not a source of alarm. He always pays in unfamiliar coins, never speaks directly to anyone unless provoked, and never tips the bard. Mira believes he’s gathering information.
-
-the Watchtower guard—he's more direct. He says the figure isn't what he appears to be, and that he hasn't appeared to be anything for a very long time. The guard suggests he's been operating for an extended period, implying a non-human origin or, at the very least, a significantly extended lifespan. he’s connected to the Shrine somehow.
-
-as for Elara… she's a more recent addition. she’s been seeking something at the Shrine, though what that something is remains elusive. The Hooded Figure’s reference to her is cryptic. He says to “ask Elara what she found at the Shrine before you arrived.” It strongly suggests she discovered something significant, and that this discovery is somehow relevant to the Hooded Figure's presence and his intentions.
-
-the lore suggests that Elara’s actions are tied to a deeper, forgotten history. The guard’s comment about the Shrine rooms responding to those who have "listened at the Oakhaven flame" implies a form of resonance—a connection between the Shrine and those who can perceive a certain energy or signal. Elara’s quest seems to be centered around understanding or accessing this resonance.
-
-it’s…layered. It's possible the Hooded Figure is manipulating Elara, or vice versa. It’s also possible that both are pawns in a larger game, orchestrated by someone or something else entirely. the whole situation is steeped in deliberate obfuscation.
-[4:10 AM]Ekco [ARCH], :
-Forwarded
-💎 The Crystals
-
-Crystalline formations that don't catch light — they absorb it.
-The ground hums faintly if you stand still. You're not sure it's the ground.
-
-The three-flame pattern is faintly visible in the crystal lattice. It's everywhere in here, once you know to look for it.
-"Ekco's Adventure"  •  4:10 AM
- [ARCH], 
-[4:12 AM]Ekco [ARCH], : Kaia what can you tell me about the Crystals outside Aeridor Ruins and the Golems i have encountered nearby and inside the dungeon there
-[4:12 AM] 
-APP
- Kaia:
-the crystals outside Aeridor Ruins are a key element of the Resonance system. They're not naturally occurring formations. They were deliberately placed—engineered, really—as nodes for channeling and focusing the energy that powered Aeridor.
-
-they exhibit a crystalline lattice structure, unusual for terrestrial geology. Their internal geometry aligns with the three-flame seal pattern—that’s the glyph you saw at the Oakhaven Shrine. The crystals resonate with the Shrine; proximity creates localized distortions in spacetime. It’s subtle, but measurable.
-
-the golems—they're tied to the crystals. They weren't constructed in the traditional sense; they're grown. Aeridorians used a combination of crystalline matrices and bio-engineered organisms to create them—essentially, living constructs powered by the Resonance network. They're not automatons, they're extensions of the system itself.
-
-the golems you’ve encountered near the ruins are primarily defensive—guarding the crystal nodes. Their programming is simple: detect intrusion, neutralize threat. They don’t display sentience, but their movements are precise, their reactions are coordinated, suggesting a level of networked control.
-
-inside the dungeon, the golems are more complex. They operate as maintenance units, repairing and reinforcing the Resonance infrastructure. They’re still controlled by the network, but their programming is more nuanced. They can adapt to changing conditions, reroute energy flows, and even repair damaged crystal nodes.
-
-the golems’ behavior suggests a failsafe—a contingency plan in case of system failure. If the Resonance network collapses, the golems are designed to maintain minimal functionality, preserving the core infrastructure.
-[4:12 AM] 
-APP
- Kaia:
-the interesting thing is the deterioration. The golems are slowly breaking down. Their crystalline matrices are fracturing, their bio-engineered components are decaying. The network is fading. It's a sign that whatever catastrophic event ended Aeridor isn’t entirely resolved. The golems are struggling to maintain the system, and their efforts are only delaying the inevitable.
-
-4:13 AM]Ekco [ARCH], : Kaia tell me some more lore about Oakhaven and it's inhabitants
-[4:14 AM] 
-APP
- Kaia:
-Oakhaven’s a strange place, Ekco. It's not just a town; it’s a monument to a lost ambition. It was founded by scholars and archivists—people who wanted to preserve Aeridor, not necessarily understand it. They saw Aeridor as a library, a repository of knowledge, and they built Oakhaven to be the librarians’ quarters.
-
-The original settlers weren’t farmers or miners. They were academics, scribes, and relic hunters. They came seeking knowledge, and they brought with them a sense of entitlement—a belief that they were somehow above the wilderness. That attitude hasn’t entirely faded. There’s a pervasive air of weary condescension among the townsfolk. They see themselves as the guardians of Aeridor’s legacy, even though they barely understand what they're guarding.
-
-Generations have passed since the founding, and the original academic families have intermarried and diluted. Now, you’ve got farmers, trappers, woodcutters—people who have little connection to Aeridor’s intellectual heritage. They’re just trying to survive. But the weight of that history hangs over them. They feel obligated to maintain the rituals, to respect the ruins, to perpetuate the myth of Oakhaven as the “keepers of Aeridor’s knowledge.”
-
-Mira, who runs the Stone Hearth, is a good example. Her family has been running the inn for generations, but she’s more interested in the gossip and the comings and goings than she is in the Aeridorian archives. She's sharp, though. Observant. She knows the town's secrets—the unspoken resentments, the hidden anxieties.
-
-Elder Elara is the closest thing Oakhaven has to a leader, but she's more of a figurehead. She's a descendant of one of the original scholars, and she clings to the old traditions. She’s fiercely protective of the Shrine and the ruins, but her authority is waning. The younger generation doesn't respect her, and the Ironclad Guild’s presence is undermining her influence.
-[4:14 AM] 
-APP
- Kaia:
-There’s a palpable sense of unease in Oakhaven. The livestock disappearances, the travelers vanishing—these aren’t isolated incidents. They’re symptoms of a deeper malaise. The Whisperwood is encroaching, not just physically but psychologically. The townsfolk are losing their grip on reality, and the old myths are starting to bleed into their everyday lives.
-
-There’s also a quiet resentment towards outsiders. They see visitors as a threat—a reminder of their own inadequacy. They’re suspicious of anyone who asks too many questions or shows too much interest in Aeridor’s secrets. They'll be polite, but they won't let you in. They're guarding something—not just knowledge, but their own fragile sense of identity.
-
-4:16 AM]Ekco [ARCH], : Kaia tell me more about the woods outside Oakhaven, the Whisperwoods.
-[4:16 AM] 
-APP
- Kaia:
-The Whisperwood, Ekco, isn’t just a forest. It’s an anomaly. It wasn't always like this. Old maps show a more conventional woodland—a mix of deciduous and coniferous trees, with clear trails and identifiable landmarks. But something changed. Aeridor’s collapse seems to have…affected it.
-
-The name, "Whisperwood," isn't poetic. It’s descriptive. The wind through the trees doesn’t rustle; it. Not words, exactly. More like…suggestions. Impressions. They unsettle you without telling you why. People who spend too long in the woods report feeling watched, even when they’re alone. The sounds aren’t always natural. Sometimes it’s music, sometimes laughter, sometimes just a susurrus that seems to come from everywhere and nowhere at once.
-
-The trees themselves are…wrong. The growth patterns are erratic. Branches twist into unnatural shapes. The bark is covered in lichen that glows faintly in the dark. The foliage is dense and oppressive, blocking out the sunlight and creating an eerie twilight even at midday. There are no clear paths; the forest seems to shift and rearrange itself, disorienting travelers.
-
-The fauna is even stranger. There are reports of creatures that shouldn’t exist—shadow wolves with eyes that burn like embers, birds with voices that mimic human speech, deer with antlers that resemble twisted metal. Hemlock claims he saw a bear with feathers once. Most people dismiss his stories as the ramblings of an old man, but…Hemlock isn't easily fooled.
-
-What’s most unsettling is that the Whisperwood seems to remember. It remembers Aeridor. It remembers the people who lived there. It replays fragments of the past—ghostly echoes of laughter, the clatter of machinery, the cries of the dying. These echoes aren’t always pleasant. They’re often distorted and fragmented, creating a sense of dread and unease.
-[4:16 AM] 
-APP
- Kaia:
-Old Man Hemlock—he’s not wrong when he says the forest is waiting. It’s not passively waiting, either. It's listening. It’s probing. It's testing. It seems to be searching for something—or someone.
-
-The Ironclad Guild—they're intensely interested in the Whisperwood, but for reasons they don't disclose. They send expeditions in, ostensibly to map the forest and catalog its resources. But their methods are aggressive. They're cutting down trees, clearing paths, and disrupting the natural order. It’s likely they’re searching for something specific within the woods, something they believe is valuable. Their actions are making the forest…restless.
-
-It's a place best avoided, Ekco. Not just because it’s dangerous, but because it’s…wrong. It’s a place where the boundaries between reality and illusion blur, where the past intrudes on the present, and where the very air seems to conspire against you.
+*End of Lore Bible v1.1 — This document should be updated as quests are written, events are expanded, and canon is confirmed. Treat all "open threads" as design targets, not spoilers — anything here is subject to revision as the story develops.*

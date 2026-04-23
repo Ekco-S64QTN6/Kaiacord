@@ -148,7 +148,10 @@ LOCATION_LOOK_TARGETS = {
             "Crystalline formations that don't catch light — they absorb it.\n"
             "The ground hums faintly if you stand still. You're not sure it's the ground.\n\n"
             "The three-flame pattern is faintly visible in the crystal lattice. "
-            "It's everywhere in here, once you know to look for it."
+            "It's everywhere in here, once you know to look for it.\n\n"
+            "*Something in the lattice is different today. A secondary resonance — "
+            "artificial, imposed. A lock. Someone used Aeridorian principles to seal the Trade Road.*\n\n"
+            "*(If you're on the right quest, you might know how to break it.)*"
         ),
         "carvings": (
             "📜 **Aeridorian Carvings**\n\n"
@@ -278,6 +281,84 @@ LOCATION_LOOK_TARGETS = {
             "🏡 **The Plots**\n\n"
             "Small staked-out areas. Each has a sign with a name. Some are ornate, some are just charcoal on a plank.\n"
             "People are building things here. Persistent things."
+        ),
+    },
+    "rusty_pick": {
+        "fire": (
+            "🔥 **The Hearth**\n\n"
+            "Unlike Mira's, this one goes out sometimes. Marta relights it without comment.\n"
+            "The warmth is real. It doesn't make the place feel warmer."
+        ),
+        "rook": (
+            "👤 **Rook**\n\n"
+            "He's in the corner. He has been in the corner for some time.\n"
+            "His eyes are clear. He's not drunk. He's waiting for something.\n"
+            "You're not sure what.\n\n"
+            "*`!rpg talk rook` — if you're ready to hear something you can't unhear.*"
+        ),
+        "spinefire": (
+            "🥃 **Spinefire**\n\n"
+            "A local brew. Amber-dark. Smells of mineral and pine smoke.\n"
+            "Marta pours it in a stone cup, not glass. There's a reason for that.\n"
+            "The warmth it produces is geological in nature."
+        ),
+        "notice": (
+            "📋 **Posted Notices**\n\n"
+            "• Restricted Level: Entry prohibited. Guild order. Dated three months ago.\n"
+            "• Shift assignments — twelve names. Two are crossed out.\n"
+            "• Lost: one miner's lamp. Brown leather strap. Answer to nothing."
+        ),
+    },
+    "grimstone": {
+        "tunnels": (
+            "⛏️ **The Tunnel Entrances**\n\n"
+            "Three levels visible from the main street. Levels One through Three: active, lit, guarded.\n"
+            "Level Four entrance: sealed with new ironwork. A posted notice: *Restricted. Guild Authority.*\n"
+            "The new ironwork is six months old. The old door behind it is much older.\n\n"
+            "*The old door has Aeridorian script above the frame. It says something. "
+            "You can't read it. But you've seen that script before.*"
+        ),
+        "guild sign": (
+            "🏭 **The Ironclad Guild Seal**\n\n"
+            "A stylized anvil and gear, pressed into the stone above the office door.\n"
+            "Underneath it, in smaller text: *By Charter of the Northern Compact.*\n\n"
+            "The Northern Compact was dissolved fourteen years ago. Nobody's changed the sign."
+        ),
+        "mine": (
+            "⛏️ **The Mine**\n\n"
+            "Deep. The kind of deep that makes sound different.\n"
+            "You can hear the hammers from the street. They have a rhythm.\n"
+            "Three levels down, the rhythm changes."
+        ),
+    },
+    "assay_office": {
+        "scales": (
+            "⚖️ **The Scales**\n\n"
+            "Precise. Expensive. Senna keeps them calibrated to three decimal places.\n"
+            "There is a set of smaller scales in the locked drawer that reads differently.\n"
+            "You only know that because she's told you. Or because you're observant.\n"
+            "Or both."
+        ),
+        "ledger": (
+            "📓 **The Ledgers**\n\n"
+            "Rows and rows of numbers. Iron yield, grade, weight, date, provenance.\n"
+            "The numbers for Levels One through Three look normal.\n"
+            "There are no ledgers for Level Four.\n\n"
+            "*Someone recorded something. Those records aren't here.*"
+        ),
+    },
+    "pells_depot": {
+        "rope": (
+            "🪢 **The Rope**\n\n"
+            "Several grades. Old Pell keeps the good braided silk-core rope behind the counter.\n"
+            "That's the kind that doesn't freeze stiff at altitude.\n"
+            "He stocks a lot of it for a hardware store in a mining town."
+        ),
+        "map": (
+            "🗺️ **The Wall**\n\n"
+            "There's a map on the wall. Grimstone, the Trade Road, the Spine passes.\n"
+            "It shows three passes. The Guild maps show two.\n\n"
+            "*Old Pell is looking at you. He saw you notice.*"
         ),
     },
 }

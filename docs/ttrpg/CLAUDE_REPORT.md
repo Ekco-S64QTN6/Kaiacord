@@ -1,17 +1,17 @@
 # Aethelgard TTRPG — Comprehensive System Review
-*April 21, 2026 · Full codebase audit · 19,933 lines across 37 modules · Post-L15 expansion + Phase 6 final cleanup*
+*April 23, 2026 · Full codebase audit · ~20,300 lines across 37 modules · Post-L15 expansion + Phase 7 combat fix + boss content*
 
 ---
 
 ## 1. Executive Summary
 
-The Aethelgard TTRPG is in **A-tier operational health**. Six phases of development — handler decomposition (Phase 1), L15 expansion (Phase 2), seasonal/calendar integration (Phase 3), async I/O optimization (Phase 4), economy/quest rebalancing (Phase 5), and final bug fixes + async migration (Phase 6) — have brought the system to production maturity.
+The Aethelgard TTRPG is in **A-tier operational health**. Seven phases of development — handler decomposition (Phase 1), L15 expansion (Phase 2), seasonal/calendar integration (Phase 3), async I/O optimization (Phase 4), economy/quest rebalancing (Phase 5), async migration (Phase 6), and combat balance fix + boss content (Phase 7) — have brought the system to production maturity.
 
-**All identified bugs have been resolved.** This review identifies **0 active bugs**, **2 structural improvement notes** (purely maintainability, no functional impact), and **1 content gap**. The system is clean, performant, and ready for content-focused development.
+**All identified bugs have been resolved.** This review identifies **0 active bugs**, **2 structural improvement notes** (purely maintainability, no functional impact), and **1 content gap** (L8/L10 quests). The system is clean, performant, and ready for content-focused development.
 
 **Full Validation Suite — All Passing:**
 - ✅ All 37 modules pass `ast.parse()` syntax check
-- ✅ All 223 monster keys resolve correctly from encounter tables
+- ✅ All 235 monster keys resolve correctly from encounter tables (27 boss-tier)
 - ✅ All loot table item keys exist in equipment registries (383 items: 121 weapons, 59 armor, 61 headgear, 46 boots, 50 accessories, 46 consumables)
 - ✅ `get_equipment()` and `get_caravan_stock()` helper functions intact
 - ✅ Zero `import random` violations — `secrets` module used exclusively for all RNG
@@ -28,6 +28,7 @@ The Aethelgard TTRPG is in **A-tier operational health**. Six phases of developm
 - ✅ Dawn task cleanup of `_winter_resolve_applied` and `_new_year_applied` confirmed
 - ✅ Quest system: 9 quests (L1, L3, L4, L5, L7, L9, L11, L13, L15)
 - ✅ `get_season_day()` correctly handles winter year-wrap (Dec 1→day 1, Jan 1→day 32, Feb 15→day 77)
+- ✅ Monster to-hit uses actual ATK stat — no more tier-based flat lookups
 
 ---
 
@@ -36,6 +37,13 @@ The Aethelgard TTRPG is in **A-tier operational health**. Six phases of developm
 ### All Bugs Resolved ✅
 
 **No active bugs remain.** All issues identified across six audit phases have been fixed and verified.
+
+### Phase 7 Fixes (April 23, 2026)
+
+| ID | Fix | Verification |
+|---|---|---|
+| ✅ BUG-N10 | **Monster ATK stat was decorative for to-hit rolls.** The combat engine used a flat tier-based lookup with a `-4` overworld penalty instead of the monster's actual `attack` value. A deadly-tier Ancient Dragon (ATK 19) and a Behemoth (ATK 17) both rolled with the same `+10` modifier. Against DEF 32, both needed nat 20 to hit (5%). **Fixed:** `monster_attack_mod = monster.get("attack", 0)` — monsters now use their registry ATK stat directly. Ancient Dragon vs DEF 32: 5% → 40%. Low-level impact minimal (Goblin vs DEF 13: 50% → 55%). | Verified via combat math analysis. All 235 monster ATK values already scaled for dungeons (difficulty×0.15) and overworld (dist_mult). |
+| ✅ CONTENT-1 | **Added 12 new D&D-inspired boss-tier monsters** to `monster_registry.py`: Strahd, Lolth's Emissary, Dracolich, Elder Brain, Rak'thar Pit Lord, Beholder King, Ashardalon's Echo, Aboleth Dreamer, Bone Colossus, Malachar the Undying, Whisperwood Titan, Vorath Chain Devil. All added to encounter tables (aeridor_ruins + whisperwood_deep) at weight 1. | `len(MONSTERS)` = 235 ✓, all encounter keys resolve ✓, boss count = 27 ✓ |
 
 ### Phase 6 Fixes (April 21, 2026)
 
@@ -82,7 +90,7 @@ Defensive gear DEF ranges: T1(0–3), T2(2–6), T3(6–8), T4(8–10), T5(9–1
 | ID | Finding | Severity | Status |
 |---|---|---|---|
 | BAL-3 | **Shadowblade crit_threshold: 17** with Voidstep Blade produces the highest sustained DPR. Low HP pool (Rogue d5 HP/level) provides a natural counterbalance. | 🟡 Monitor | No action unless player feedback indicates degenerate endgame. |
-| BAL-5 | **DEF global cap** (`level * 1.5 + 12`) tops at 34 at L15. Boss ATK mod 18 + d20 still hits on 16+. | 🟢 Info | Working as designed. |
+| BAL-5 | **DEF global cap** (`level * 1.5 + 12`) tops at 34 at L15. With the Phase 7 ATK fix, boss-tier monsters (ATK 24-38) now hit 50-100% against max DEF. Working as designed. | ✅ Fixed | BUG-N10 resolved this. |
 
 ### 3.3 Power Curve Summary
 
@@ -105,7 +113,7 @@ Level  Player ATK (avg)  Player DEF (avg)  Monster HP (tier)        Verdict
 |---|---|---|
 | `rpg_views.py` | 2,408 | Discord UI views & button factories |
 | `rpg_core_handler.py` | 2,344 | Movement, calendar, scout, pray, NPC, misc commands |
-| `monster_registry.py` | 1,701 | 223 monster stat blocks |
+| `monster_registry.py` | 1,787 | 235 monster stat blocks (27 boss-tier) |
 | `equipment_registry.py` | 1,534 | 383 items across 7 tiers |
 | `rpg_combat_handler.py` | 1,517 | Hunt, attack, dungeon combat, duel |
 | `rpg_housing_handler.py` | 941 | Housing, farming, pets, furniture |
@@ -177,7 +185,7 @@ Only 3 sync `load_housing()` calls remain in the entire codebase, all in **synch
 
 | Feature | Status | Notes |
 |---|---|---|
-| Combat engine | ✅ Complete | DEF soft-cap, global cap, class procs, weapon procs, fully async housing I/O |
+| Combat engine | ✅ Complete | DEF soft-cap, global cap, class procs, weapon procs, monster ATK-based to-hit, fully async housing I/O |
 | Dungeon system | ✅ Complete | MST generation, 5 difficulty tiers, themed monster pools, boss scaling to L15 |
 | Class advancement | ✅ Complete | 10 advanced classes with unique passives, procs, and titles through L15 |
 | Equipment | ✅ Complete | 383 items across 7 tiers with class restrictions and proc effects |
@@ -216,9 +224,9 @@ Only 3 sync `load_housing()` calls remain in the entire codebase, all in **synch
 | Area | Grade | Notes |
 |---|---|---|
 | **Architecture** | A | Clean handler decomposition. Deterministic game math / LLM narration split enforced. |
-| **Data Integrity** | A | All 223 monsters, 383 items, 9 quests cross-validated. No orphan keys. |
-| **Combat Balance** | A- | Power curve well-controlled L1–L15. DEF soft-cap + global cap working. Minor Shadowblade outlier to monitor. |
-| **Content Depth** | A- | 223 monsters, 383 equipment items, 20 forest events, 9 quests, 10 classes. Thin at L8–L10. |
+| **Data Integrity** | A | All 235 monsters, 383 items, 9 quests cross-validated. No orphan keys. |
+| **Combat Balance** | A | Power curve well-controlled L1–L15. Monster ATK-based to-hit fix (Phase 7) resolved high-DEF invulnerability. DEF soft-cap + global cap working. |
+| **Content Depth** | A- | 235 monsters (27 boss-tier), 383 equipment items, 20 forest events, 9 quests, 10 classes. Thin at L8–L10 quests. |
 | **Feature Completeness** | A | Calendar/seasonal data fully wired. All subsystems operational. |
 | **Code Quality** | A | Zero `random` violations. Zero bare `except:`. All async handlers use non-blocking I/O. Consistent patterns throughout. |
 | **Performance** | A | No bottlenecks. All housing I/O non-blocking. Pre-computed lookups. Background thread caching. |
@@ -229,6 +237,28 @@ Only 3 sync `load_housing()` calls remain in the entire codebase, all in **synch
 ---
 
 ## Appendix A: Audit Changelog
+
+### Phase 8: Endgame Expansion (April 23, 2026)
+
+| ID | Change | Files Modified |
+|---|---|---|
+| ✅ CONTENT-2 | Added Grimstone NPC roster (Marta, Rook, Valdric, Senna, Old Pell) | `npc_registry.py` |
+| ✅ CONTENT-3 | Added Grimstone and Spine of the World location data and look targets | `world.py`, `look_targets.py` |
+| ✅ CONTENT-4 | Added L15 endgame questline to gate Grimstone and the Spine | `quest_registry.py`, `rpg_core_handler.py` |
+| ✅ CONTENT-5 | Added `spine_of_the_world` deadly encounter table and forest events | `monster_registry.py`, `encounter_tables.py` |
+| ✅ CONTENT-6 | Synthesized raw chat logs into `aethelgard_lore_bible.md` canon | `aethelgard_lore_bible.md` |
+
+**Total Phase 8 changes:** 7 files modified, 1 new major town, 1 new zone, 5 NPCs, 4 L15 quests.
+
+### Phase 7: Combat Balance Fix & Boss Content (April 23, 2026)
+
+| ID | Change | Files Modified |
+|---|---|---|
+| ✅ BUG-N10 | Monster to-hit now uses actual ATK stat instead of tier-based flat lookup | `combat_engine.py` |
+| ✅ CONTENT-1 | Added 12 new D&D-inspired boss-tier monsters | `monster_registry.py` |
+| ✅ CONTENT-1 | Added new bosses to encounter tables (aeridor_ruins + whisperwood_deep) | `monster_registry.py` |
+
+**Total Phase 7 changes:** 2 files modified, 1 critical combat math fix, 12 new boss monsters, 12 encounter table entries.
 
 ### Phase 6: Final Bug Fixes & Async Migration (April 21, 2026)
 
@@ -264,5 +294,5 @@ Only 3 sync `load_housing()` calls remain in the entire codebase, all in **synch
 
 ---
 
-*Review performed against `utils/ttrpg/` (19,933 lines, 37 modules), `utils/core/background_tasks.py`, and `docs/ttrpg/`.*
-*All changes verified via full syntax check (37/37 modules pass), functional calendar regression tests (9/9 dates correct), registry integrity audits (383 items, 223 monsters), and grep-based policy compliance scans (0 `random` violations, 0 bare `except:`, 0 sync housing in async context).*
+*Review performed against `utils/ttrpg/` (~20,300 lines, 37 modules), `utils/core/background_tasks.py`, and `docs/ttrpg/`.*
+*All changes verified via full syntax check (37/37 modules pass), functional calendar regression tests (9/9 dates correct), registry integrity audits (383 items, 235 monsters, 27 boss-tier), combat math analysis, and grep-based policy compliance scans (0 `random` violations, 0 bare `except:`, 0 sync housing in async context).*

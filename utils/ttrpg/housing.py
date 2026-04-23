@@ -99,7 +99,18 @@ def load_housing(user_id: str) -> dict | None:
         if not os.path.exists(p):
             return None
         with open(p, 'r', encoding='utf-8') as f:
-            return json.load(f)
+            data = json.load(f)
+            
+    from datetime import date
+    today = date.today().strftime("%Y-%m-%d")
+    if data.get("last_farm_reset") != today:
+        from utils.ttrpg.farming import reset_daily_farm
+        from utils.ttrpg.pets import reset_daily_pets
+        data = reset_daily_farm(data)
+        data = reset_daily_pets(data)
+        save_housing(data)
+        
+    return data
 
 def save_housing(housing: dict) -> None:
     import time

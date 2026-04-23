@@ -417,6 +417,12 @@ LOCATION_COLORS = {
     "whisperwood_deep":  0x2d5a35,   # deep dark green
     "aeridor_ruins":     0x7a6a9a,   # resonance purple
     "trade_road":        0xa08050,   # dust and dirt
+    "grimstone":        0x4a5054,   # dark iron grey
+    "rusty_pick":       0x8b4513,   # smoky wood brown
+    "ironclad_office":  0x60666b,   # polished steel grey
+    "assay_office":     0x756b59,   # tarnished brass
+    "pells_depot":      0x5c4033,   # oiled leather
+    "spine_of_the_world": 0xcad0d3, # freezing high-altitude slate
 }
 
 
@@ -2400,6 +2406,44 @@ _LOCATION_BUTTONS: dict[str, list] = {
         ("Look", "🔎", "look", "", discord.ButtonStyle.secondary, 0),
         ("Housing", "🏘️", "go", "housing_district", discord.ButtonStyle.secondary, 1),
         ("Town Square", "⛲", "go", "oakhaven", discord.ButtonStyle.secondary, 1),
+    ],
+    "grimstone": [
+        ("Look", "🔎", "look", "", discord.ButtonStyle.secondary, 0),
+        ("Rusty Pick", "🥃", "go", "rusty_pick", discord.ButtonStyle.secondary, 1),
+        ("Guild Office", "🏭", "go", "ironclad_office", discord.ButtonStyle.secondary, 1),
+        ("Assay", "⚖️", "go", "assay_office", discord.ButtonStyle.secondary, 1),
+        ("Depot", "🪢", "go", "pells_depot", discord.ButtonStyle.secondary, 1),
+        ("Spine", "🏔️", "go", "spine_of_the_world", discord.ButtonStyle.secondary, 2),
+    ],
+    "rusty_pick": [
+        ("Rest", "🛏️", "rest", "", discord.ButtonStyle.green, 0),
+        ("Drink", "🥃", "drink", "", discord.ButtonStyle.blurple, 0),
+        ("Talk Marta", "👤", "talk", "marta", discord.ButtonStyle.secondary, 0),
+        ("Talk Rook", "👤", "talk", "rook", discord.ButtonStyle.secondary, 0),
+        ("Look", "🔎", "look", "", discord.ButtonStyle.secondary, 1),
+        ("Town", "⛏️", "go", "grimstone", discord.ButtonStyle.secondary, 1),
+    ],
+    "ironclad_office": [
+        ("Talk Valdric", "👤", "talk", "valdric", discord.ButtonStyle.secondary, 0),
+        ("Look", "🔎", "look", "", discord.ButtonStyle.secondary, 0),
+        ("Town", "⛏️", "go", "grimstone", discord.ButtonStyle.secondary, 0),
+    ],
+    "assay_office": [
+        ("Talk Senna", "👤", "talk", "senna", discord.ButtonStyle.secondary, 0),
+        ("Look", "🔎", "look", "", discord.ButtonStyle.secondary, 0),
+        ("Town", "⛏️", "go", "grimstone", discord.ButtonStyle.secondary, 0),
+    ],
+    "pells_depot": [
+        ("Shop", "🏪", "shop", "", discord.ButtonStyle.blurple, 0),
+        ("Talk Pell", "👤", "talk", "old_pell", discord.ButtonStyle.secondary, 0),
+        ("Look", "🔎", "look", "", discord.ButtonStyle.secondary, 0),
+        ("Town", "⛏️", "go", "grimstone", discord.ButtonStyle.secondary, 0),
+    ],
+    "spine_of_the_world": [
+        ("Hunt", "⚔️", "hunt", "", discord.ButtonStyle.danger, 0),
+        ("Dungeon", "🏚️", "dungeon", "", discord.ButtonStyle.primary, 0),
+        ("Look", "🔎", "look", "", discord.ButtonStyle.secondary, 0),
+        ("Town", "⛏️", "go", "grimstone", discord.ButtonStyle.secondary, 1),
     ],
 }
 

@@ -1416,12 +1416,85 @@ MONSTERS = {
         "desc": "Something has been inside her for a long time. The weight she carries. The warnings she wouldn't give. Now you know why.",
     },
 
+    # ── NEW D&D-INSPIRED BOSSES ──────────────────────────────────────────
 
-
+    "strahd_lord_of_shadows": {
+        "name": "Strahd, Lord of Shadows",
+        "hp": 480, "attack": 30, "defense": 24,
+        "xp": 4500, "gil": 500, "tier": "boss",
+        "desc": "A vampire lord older than Oakhaven itself. He ruled a kingdom once. Now he rules only the dark. His sword arm has not dulled in centuries.",
+    },
+    "lolth_emissary": {
+        "name": "Lolth's Emissary",
+        "hp": 520, "attack": 28, "defense": 22,
+        "xp": 4000, "gil": 400, "tier": "boss",
+        "desc": "An avatar of the Spider Queen, draped in living silk. Eight eyes regard you from beneath a crown of chitin. The webs here are older than the trees.",
+    },
+    "the_dracolich": {
+        "name": "The Dracolich",
+        "hp": 600, "attack": 32, "defense": 28,
+        "xp": 7500, "gil": 600, "tier": "boss",
+        "desc": "A dragon that chose undeath over oblivion. Its bones are fused with Aeridorian crystal. Its breath is necrotic frost. It remembers everything.",
+    },
+    "elder_brain": {
+        "name": "The Elder Brain",
+        "hp": 400, "attack": 26, "defense": 20,
+        "xp": 3500, "gil": 300, "tier": "boss",
+        "desc": "The collective consciousness of an illithid colony, pulsing in a pool of brine beneath the ruins. It has been thinking about you for a very long time.",
+    },
+    "rakthar_pit_lord": {
+        "name": "Rak'thar, Pit Lord",
+        "hp": 550, "attack": 34, "defense": 26,
+        "xp": 6500, "gil": 0, "tier": "boss",
+        "desc": "An archdevil summoned through an Aeridorian gate that was never meant to open. He is patient, armored in contract-forged iron, and he has already taken your measure.",
+    },
+    "beholder_king": {
+        "name": "The Beholder King",
+        "hp": 380, "attack": 24, "defense": 18,
+        "xp": 3000, "gil": 350, "tier": "boss",
+        "desc": "A floating sphere of hate with a central eye that unmakes magic and a crown of stalks that each carry death in a different flavor. It believes it is the only real thing in the room.",
+    },
+    "ashardalon_echo": {
+        "name": "Ashardalon's Echo",
+        "hp": 650, "attack": 36, "defense": 30,
+        "xp": 9000, "gil": 800, "tier": "boss",
+        "desc": "The resonant memory of an ancient wyrm, crystallized in Aeridorian stone. It is not alive. It does not need to be. Its fire is real enough.",
+    },
+    "aboleth_dreamer": {
+        "name": "The Aboleth Dreamer",
+        "hp": 500, "attack": 22, "defense": 20,
+        "xp": 3000, "gil": 250, "tier": "boss",
+        "desc": "An aquatic horror from before the age of mortals. It sleeps beneath the deepest ruins and dreams of a time when it ruled everything. Its dreams are contagious.",
+    },
+    "bone_colossus": {
+        "name": "The Bone Colossus",
+        "hp": 700, "attack": 28, "defense": 32,
+        "xp": 5000, "gil": 0, "tier": "boss",
+        "desc": "An undead construct assembled from the remains of a thousand soldiers. It stands three stories tall and its fists are siege weapons. The Whisperwood built it from what it swallowed.",
+    },
+    "malachar_the_undying": {
+        "name": "Malachar the Undying",
+        "hp": 450, "attack": 32, "defense": 22,
+        "xp": 5500, "gil": 600, "tier": "boss",
+        "desc": "Aethelgard's last archmage. He did not die when Aeridor fell — he refused. His phylactery is somewhere in the ruins, and he has had centuries to prepare for visitors.",
+    },
+    "whisperwood_titan": {
+        "name": "The Whisperwood Titan",
+        "hp": 580, "attack": 24, "defense": 26,
+        "xp": 4000, "gil": 0, "tier": "boss",
+        "desc": "A colossus of root and stone that stirs when the forest is deeply threatened. It moves like an earthquake and speaks in the groaning of a thousand trees bending at once.",
+    },
+    "vorath_chain_devil": {
+        "name": "Vorath, the Chain Devil",
+        "hp": 420, "attack": 30, "defense": 20,
+        "xp": 4500, "gil": 400, "tier": "boss",
+        "desc": "A devil that binds souls with chains forged from broken promises. Each link was a person once. He offers deals in a voice like dragging iron across stone.",
+    },
 
 
 
 }
+
 
 
 # ══════════════════════════════════════════════════════════
@@ -1537,6 +1610,12 @@ ENCOUNTER_TABLES = {
         ("craw_wurm",          2),
         ("cactuar",            2),
         ("harpy_dd",           2),
+        ("strahd_lord_of_shadows", 1),
+        ("lolth_emissary",     1),
+        ("bone_colossus",      1),
+        ("whisperwood_titan",  1),
+        ("vorath_chain_devil", 1),
+        ("aboleth_dreamer",    1),
     ],
     "aeridor_ruins": [
         ("skeleton",          12),
@@ -1610,6 +1689,12 @@ ENCOUNTER_TABLES = {
         ("ancient_red_dragon", 1),
         ("tarrasque",          1),
         ("kraken_dd",          1),
+        ("the_dracolich",      1),
+        ("elder_brain",        1),
+        ("rakthar_pit_lord",   1),
+        ("beholder_king",      1),
+        ("ashardalon_echo",    1),
+        ("malachar_the_undying", 1),
     ],
     "trade_road": [
         ("goblin",            25),
@@ -1639,7 +1724,34 @@ ENCOUNTER_TABLES = {
         ("medusa",             2),
         ("troll",              2),
     ],
-
+    "spine_of_the_world": [
+        # Heavy deadly/boss tier — L15 endgame content
+        ("behemoth",           12),
+        ("great_behemoth",     10),
+        ("king_behemoth",       8),
+        ("dragon",             10),
+        ("red_dragon",          8),
+        ("frost_dragon",        8),
+        ("ancient_red_dragon",  4),
+        ("adamantoise",         6),
+        ("iron_golem",         10),
+        ("iron_giant_ff",       8),
+        ("shinryu",             4),
+        ("omega",               3),
+        ("tiamat_avatar",       3),
+        ("bahamut_ff",          2),
+        ("storm_giant",        10),
+        ("hydra",               8),
+        ("wyvern",              6),
+        ("manticore",           4),
+        ("griffon",             4),
+        # Spine-specific flavour — reuse existing bestiary
+        ("dark_rider",          5),   # patrols the Spine road
+        ("bone_devil",          4),
+        ("death_tyrant",        3),
+        ("balor_dd",            2),
+        ("tonberry_king",       1),   # it followed you from the Whisperwood
+    ],
 }
 
 

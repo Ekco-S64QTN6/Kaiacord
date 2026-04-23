@@ -739,14 +739,44 @@ async def _handle_go(ctx, msg, send, rest, uid, uname, is_owner):
     if target == current_loc_key:
         return await msg.channel.send(embed=discord.Embed(description="You're already there.", color=0x888888))
 
+    # Gate check for locked locations
+    target_data = LOCATION_DATA.get(target, {})
+    locked_quest = target_data.get("locked_until_quest")
+    if locked_quest:
+        sheet = await load(uid)
+        if sheet:
+            completed = sheet.get("completed_quests", [])
+            if locked_quest not in completed:
+                from utils.ttrpg.quest_registry import get_quest
+                q = get_quest(locked_quest)
+                q_name = q["name"] if q else locked_quest.replace("_", " ").title()
+                return await msg.channel.send(embed=discord.Embed(
+                    title="⛔ Road Barricaded",
+                    description=(
+                        f"*The Trade Road north is blocked. Ironclad Guild barricades, "
+                        f"reinforced with something that isn't just wood and iron.*\n\n"
+                        f"A guard in grey wool waves you back without making eye contact.\n\n"
+                        f"*There may be a way through. Elara might know. The Hooded Figure "
+                        f"certainly does.*\n\n"
+                        f"*(Complete quest: **{q_name}** to unlock this location.)*"
+                    ),
+                    color=0x8B0000
+                ))
+
     # --- Auto-path: BFS to find shortest route ---
-    def _find_path(start, end):
+    def _find_path(start, end, completed_quests):
         from collections import deque
         visited = {start}
         queue = deque([(start, [start])])
         while queue:
             node, path = queue.popleft()
             for neighbor in LOCATION_DATA.get(node, {}).get("exits", []):
+                # Check if neighbor is locked
+                n_data = LOCATION_DATA.get(neighbor, {})
+                n_lock = n_data.get("locked_until_quest")
+                if n_lock and n_lock not in completed_quests:
+                    continue  # Cannot traverse through locked locations
+                    
                 if neighbor == end:
                     return path + [neighbor]
                 if neighbor not in visited:
@@ -755,7 +785,14 @@ async def _handle_go(ctx, msg, send, rest, uid, uname, is_owner):
         return None
 
     direct = target in current_loc.get("exits", [])
-    path = [current_loc_key, target] if direct else _find_path(current_loc_key, target)
+    
+    # Ensure we have the completed quests list for pathfinding
+    completed_quests = []
+    sheet = await load(uid)
+    if sheet:
+        completed_quests = sheet.get("completed_quests", [])
+        
+    path = [current_loc_key, target] if direct else _find_path(current_loc_key, target, completed_quests)
 
     if not path:
         return await msg.channel.send(embed=discord.Embed(description=f"There's no route from here to **{LOCATION_DATA.get(target, {}).get('name', target)}**.", color=0xcc4444))
@@ -837,6 +874,51 @@ async def _handle_look(ctx, msg, send, rest, uid, uname, is_owner):
                         )
                         await save(sheet)
                         
+            # Grimstone path quest trigger — crystals at Aeridor Ruins
+            if loc == "aeridor_ruins" and look_target in ("crystals",):
+                active_id = sheet.get("active_quest")
+                if active_id == "grimstone_path":
+                    from utils.ttrpg.quest_registry import get_quest
+                    q = get_quest(active_id)
+                    if q:
+                        prog = sheet.setdefault("quest_progress", {}).setdefault(active_id, [])
+                        tasks_done = all(t in prog for t in ["talk_elara", "talk_hooded_figure"])
+                        if tasks_done and "look_crystals" not in prog:
+                            prog.append("look_crystals")
+                            # Check completion
+                            if all(t in prog for t in q["tasks"]):
+                                xp_reward = q["rewards"].get("xp", 0)
+                                gil_reward = q["rewards"].get("gil", 0)
+                                sheet["xp"] = sheet.get("xp", 0) + xp_reward
+                                sheet["gil"] = sheet.get("gil", 0) + gil_reward
+                                if "item" in q["rewards"]:
+                                    sheet.setdefault("inventory", []).append(q["rewards"]["item"])
+                                sheet["active_quest"] = None
+                                sheet.setdefault("completed_quests", []).append(active_id)
+                                await save(sheet)
+                                
+                                leveled, new_level = check_level_up(sheet)
+                                if leveled:
+                                    await save(sheet)
+                                embed.add_field(
+                                    name="⚡ The Lock Shatters",
+                                    value=(
+                                        "The moment your understanding of the three-flame pattern meets the imposed resonance lock, "
+                                        "something releases.\n\n"
+                                        "The crystal lattice flares — once, bright, complete — and goes still.\n\n"
+                                        "*Somewhere on the Trade Road north, a barricade collapses.*\n\n"
+                                        "✅ **Quest Complete: The Road to Iron**\n"
+                                        f"+{xp_reward} XP · +{gil_reward} Gil"
+                                    ),
+                                    inline=False
+                                )
+                                from utils.ttrpg.rpg_social_handler import _log_world_event
+                                await _log_world_event(
+                                    f"⚡ **{sheet['character_name']}** broke the Guild's resonance lock. The road to Grimstone is open."
+                                )
+                            else:
+                                embed.set_footer(text="The lock responds to you. But you don't have everything you need yet.")
+                            await save(sheet)
             return await msg.channel.send(embed=embed)
         else:
             return await msg.channel.send(embed=discord.Embed(

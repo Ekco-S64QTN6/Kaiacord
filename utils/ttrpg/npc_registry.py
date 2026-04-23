@@ -181,10 +181,96 @@ NPCS = {
             "Don't pull the line too early. Patience is the only currency here.",
         ],
     },
+    "marta": {
+        "name": "Marta",
+        "location": "rusty_pick",
+        "description": "The Rusty Pick's barkeep. Broad-shouldered, iron-grey hair, hands that have been burned by Spinefire more than once. She is not unfriendly. She is simply finished with sentiment.",
+        "role": "innkeeper",
+        "dialogue_hook": "She sets a cup down in front of you without being asked. It is not ale.",
+        "topics": [
+            "Spinefire's a local brew. You won't find it south of the second Spine pass. There's a reason for that.",
+            "We've had three overseers in eight years. Valdric's the longest-lasting. That tells you something about Valdric.",
+            "I don't ask what comes out of the deep tunnels. I haven't for a long time.",
+            "Rook's been sitting in that corner since the Restricted Level incident. He drinks, he sleeps, he comes back. Nobody asks him to leave.",
+            "The Guild men pay in scrip. I take scrip. I don't enjoy taking scrip.",
+            "Someone left a note under my door last week. I burned it. I don't know if that was the right choice.",
+            "You came from Oakhaven? How's the Shrine? I haven't been south since my mother died. That was eleven years ago.",
+            "The tunnels go deeper than the Guild admits. The miners know. Everyone knows. Nobody says.",
+        ],
+    },
+    "rook": {
+        "name": "Rook",
+        "location": "rusty_pick",
+        "description": "A broad-framed miner with dust permanently in the lines of his face. He has been drinking at the same table for what appears to be some weeks. His eyes are clear. That's almost worse.",
+        "role": "mystery",
+        "dialogue_hook": "He looks up when you approach. He doesn't say anything. He waits to see what you're about.",
+        "topics": [
+            "I don't go below Level Four anymore. I'm not going to explain that.",
+            "We went in as six. We came out as five. Carver and Delve came out wrong. Mossen didn't come out.",
+            "The resonance down there isn't like the ruins outside Oakhaven. The ruins feel old. The deep vein feels... current.",
+            "I filed a report with the Guild. Valdric filed it somewhere. I never saw it again.",
+            "If you go down there, bring light you can trust. Not a torch. Something that doesn't breathe.",
+            "The thing that got Mossen — it wasn't a creature. It was a construct. But it wasn't running Aeridorian directives. Something had rewritten it.",
+            "[He drinks. He doesn't look at you. After a long time:] If you find Mossen, don't bring him back. That's all I'll say.",
+            "Spinefire helps. Doesn't fix anything. Helps.",
+        ],
+    },
+    "valdric": {
+        "name": "Overseer Valdric",
+        "location": "ironclad_office",
+        "description": "A neat man in a grey wool coat with Ironclad Guild insignia on the collar. He smiles when he meets you. The smile arrives before his eyes do.",
+        "role": "antagonist",
+        "dialogue_hook": "He rises from behind his desk. He extends a hand. His grip is measured.",
+        "topics": [
+            "Grimstone is a productive operation. We have our challenges, but every frontier settlement does.",
+            "The Trade Road incident has been resolved. We appreciate Oakhaven's patience during the disruption.",
+            "The Restricted Level is restricted for safety reasons. Cave-in risk. It's nothing more than that.",
+            "If you're looking for work, we have surface-side contracts available. The Guild compensates fairly.",
+            "Elder Elara and I have corresponded. I have nothing but respect for her. She is cautious, which I understand.",
+            "The missing party from the Restricted Level — that's a personnel matter. I'm not at liberty to discuss it.",
+            "Grimstone has a future. Iron is always needed. The Spine provides.",
+            "[He pauses before answering your next question. Just briefly. Just long enough to decide something.]",
+        ],
+    },
+    "senna": {
+        "name": "Senna",
+        "location": "assay_office",
+        "description": "A slight woman with ink on her fingers and a careful way of moving, like someone who has learned to take up as little space as possible. She is the Guild's assayer. She weighs things.",
+        "role": "quest_giver",
+        "dialogue_hook": "She glances past you when you enter. Checking who else came in.",
+        "topics": [
+            "I record yield. Weight, grade, provenance. Numbers. That's the job.",
+            "The numbers from the Restricted Level don't match the ore. They never did. I noted it. The discrepancy notes disappeared.",
+            "Valdric is not stupid. He knows I know. We don't discuss it.",
+            "There's something coming out of the deep tunnels that isn't iron. It hums. The scale reads wrong when it's on the pan.",
+            "I have copies of the real ledgers. I've had them for four months. I don't know what to do with them.",
+            "Elder Elara — I've heard that name. She's the one in Oakhaven who would understand what these numbers mean, isn't she.",
+            "If I give you something, and you take it south, and Valdric finds out — I need you to understand what that means for me.",
+            "I keep the copies in a flask in my coat. They're on very thin paper. I've been practical about this.",
+        ],
+    },
+    "old_pell": {
+        "name": "Old Pell",
+        "location": "pells_depot",
+        "description": "A wiry old man who moves faster than he looks like he should. He sells lamp oil, rope, pick handles, and dried provisions. The stock is always oddly specific. The prices are oddly fair.",
+        "role": "merchant",
+        "dialogue_hook": "He's rearranging a shelf when you come in. He doesn't turn around.",
+        "topics": [
+            "Rope. Oil. Hardware. That's what I sell. If you want conversation, Marta's is next street over.",
+            "I've been in Grimstone thirty-one years. I was here before the Guild. That's a different kind of knowing.",
+            "There's a pass through the Spine, east of the main road. The Guild doesn't use it. I do.",
+            "The Silvani don't trust the Guild. They trust me. That took a long time to arrange and I'm not going to explain the details.",
+            "The thing in the deep tunnels — I don't know what it is. But the Silvani do. They've been staying clear of the Spine's east face for three seasons now.",
+            "I'm too old to go through the pass myself these days. My knees. It's a specific problem.",
+            "What comes through the pass stays between me and whoever's carrying it. That's the arrangement.",
+            "You have the look of someone Elara sent. She didn't send you. But you have the look.",
+        ],
+    },
 }
 
 # Add alias
 NPCS["caravan"] = NPCS["merchant"]
+NPCS["pell"] = NPCS["old_pell"]
 
 def get_npc(key: str) -> dict | None:
     return NPCS.get(key.lower())

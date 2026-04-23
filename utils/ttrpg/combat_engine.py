@@ -344,14 +344,11 @@ def _resolve_combat(sheet: dict, monster: dict, atk_mod_global: int = 0, def_mod
         if fortified_bonus:
             status_logs.append(f"🛡️ *Ironbark hardens your skin (+2 DEF).*")
 
+        # Monster to-hit uses the monster's own ATK stat directly.
+        # This value is already scaled for dungeons (difficulty * 0.15) and
+        # overworld distance (dist_mult) before entering combat resolution.
         _tier = monster.get("tier", "medium")
-        _dungeon_diff = monster.get("dungeon_difficulty", 1)
-        
-        def get_monster_attack_mod(tier: str, diff: int = 1) -> int:
-            BASE = {"trivial": 2, "easy": 4, "medium": 7, "hard": 10, "deadly": 14, "boss": 18}
-            return max(2, BASE.get(tier, 7) - (3 - diff) * 2)
-            
-        monster_attack_mod = get_monster_attack_mod(_tier, _dungeon_diff)
+        monster_attack_mod = monster.get("attack", 0)
 
         monster_raw_hit = secrets.randbelow(20) + 1
         monster_total_hit = monster_raw_hit + monster_attack_mod
