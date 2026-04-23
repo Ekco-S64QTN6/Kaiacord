@@ -636,9 +636,23 @@ class RPGFullLocationView(discord.ui.View):
             
             sel = discord.ui.Select(placeholder="Visit a plot...", options=options[:25], row=4)
         else:
-        # Keep caravan always visible but label it when inactive
-        # (going there when inactive will show an appropriate message)
-            all_locs = [k for k in LOCATION_DATA.keys() if k != location]
+            # Separate regions to prevent global menu clutter and spoilers
+            grimstone_region = {"grimstone", "rusty_pick", "ironclad_office", "assay_office", "pells_depot", "spine_of_the_world"}
+            is_grimstone_area = location in grimstone_region
+            
+            all_locs = []
+            for k in LOCATION_DATA.keys():
+                if k == location:
+                    continue
+                # Both regions share the trade_road as a connector
+                if k == "trade_road":
+                    all_locs.append(k)
+                    continue
+                    
+                k_is_grimstone = k in grimstone_region
+                if is_grimstone_area == k_is_grimstone:
+                    all_locs.append(k)
+
             all_locs.sort(key=lambda k: 1 if LOCATION_DATA.get(k, {}).get("hunting") else 0)
             if all_locs:
                 options = []

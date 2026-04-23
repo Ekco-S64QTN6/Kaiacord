@@ -952,17 +952,17 @@ async def _handle_attack(ctx, msg, send, rest, uid, uname, is_owner):
                             await _broadcast_world_event(ctx, quest_embed)
                         else:
                             await save(sheet)
-        leveled, n_lvl = check_level_up(sheet)
-        if leveled:
-            level_up_msg = f"\n🎉 **LEVEL UP! {sheet['character_name']} grew to level {n_lvl}!**"
-            await _log_world_event(f"**{sheet['character_name']}** reached Level {n_lvl}. Oakhaven noted it cautiously.")
-            lv_embed = discord.Embed(
-                title=f"⬆️ {sheet['character_name']} — Level {n_lvl}",
-                description=_level_up_flavor(sheet, n_lvl),
-                color=0xffcc00
-            )
-            lv_embed.set_footer(text=f"{sheet.get('advanced_class') or sheet.get('class', '?')} · {sheet.get('location','').replace('_',' ').title()}")
-            await _broadcast_world_event(ctx, lv_embed)
+    leveled, n_lvl = check_level_up(sheet)
+    if leveled:
+        level_up_msg = f"\n🎉 **LEVEL UP! {sheet['character_name']} grew to level {n_lvl}!**"
+        await _log_world_event(f"**{sheet['character_name']}** reached Level {n_lvl}. Oakhaven noted it cautiously.")
+        lv_embed = discord.Embed(
+            title=f"⬆️ {sheet['character_name']} — Level {n_lvl}",
+            description=_level_up_flavor(sheet, n_lvl),
+            color=0xffcc00
+        )
+        lv_embed.set_footer(text=f"{sheet.get('advanced_class') or sheet.get('class', '?')} · {sheet.get('location','').replace('_',' ').title()}")
+        await _broadcast_world_event(ctx, lv_embed)
         
         # Wisp-specific drop: lightstone
         WISP_KEYS = {"wisp", "ice_wisp", "moldwynd", "crew_dust"}

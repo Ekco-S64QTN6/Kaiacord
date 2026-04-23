@@ -340,7 +340,7 @@ async def _handle_talk(ctx, msg, send, rest, uid, uname, is_owner):
                 if available_quests:
                     for i, q in enumerate(available_quests[:2]):
                         btn = discord.ui.Button(
-                            label=f"✅ Accept: {q['name'][:28]}",
+                            label=f"❓ Ask about: {q['name'][:24]}",
                             style=discord.ButtonStyle.primary,
                             row=0
                         )

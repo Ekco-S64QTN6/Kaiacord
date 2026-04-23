@@ -862,7 +862,6 @@ async def _handle_look(ctx, msg, send, rest, uid, uname, is_owner):
                 if f"look_{look_target}" not in secrets:
                     secrets.append(f"look_{look_target}")
                     embed.set_footer(text="A piece of the pattern clicks into place.")
-                    from utils.ttrpg.character_manager import save
                     await save(sheet)
                     
                     if "look_flame" in secrets and "look_altar" in secrets and "symbol_of_the_silent_ones" not in sheet.get("inventory", []):
@@ -882,7 +881,7 @@ async def _handle_look(ctx, msg, send, rest, uid, uname, is_owner):
                     q = get_quest(active_id)
                     if q:
                         prog = sheet.setdefault("quest_progress", {}).setdefault(active_id, [])
-                        tasks_done = all(t in prog for t in ["talk_elara", "talk_hooded_figure"])
+                        tasks_done = all(t in prog for t in ["talk_elara"])
                         if tasks_done and "look_crystals" not in prog:
                             prog.append("look_crystals")
                             # Check completion

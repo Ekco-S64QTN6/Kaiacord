@@ -201,13 +201,14 @@ def build_npc_prompt(sheet: dict, npc: dict, player_message: str, context: dict)
     quest_prompt = ""
     if active_q:
         quest_prompt = f"\nQUEST STATUS: The player is on your quest '{active_q['name']}'. "
+        quest_prompt += f"Quest details: {active_q.get('description', '')}. "
         if context.get("quest_progress_msg"):
             quest_prompt += f"Progress: {context['quest_progress_msg']}. "
-        quest_prompt += "React to their progress."
+        quest_prompt += "React to their progress based on the quest details."
     elif available_qs:
         quest_prompt = f"\nAVAILABLE TASKS: You have tasks for the player: "
-        quest_prompt += ", ".join([f"'{q['name']}' (ID: {q['id']})" for q in available_qs])
-        quest_prompt += ". Hint at these tasks naturally."
+        quest_prompt += ", ".join([f"'{q['name']}' ({q.get('description', '')})" for q in available_qs])
+        quest_prompt += ". Hint at these tasks naturally and give them the information they need to start."
     
     if npc.get("role") == "bard" or "Caelindra" in npc.get("name", ""):
         return f"""[AETHELGARD NPC: THE BARD]
