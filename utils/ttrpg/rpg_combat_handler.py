@@ -533,54 +533,56 @@ async def _handle_hunt(ctx, msg, send, rest, uid, uname, is_owner):
         return await msg.channel.send(embed=discord.Embed(description=f"You are far too weak to hunt right now. Go rest.", color=0xcc4444), view=view)
     
     # Quest Task Tracking: Hunt Location
-    active_id = sheet.get("active_quest")
-    if active_id:
+    active_ids = sheet.get("active_quests", [])
+    if active_ids:
         from utils.ttrpg.quest_registry import get_quest
-        q = get_quest(active_id)
-        if q:
-            task_id = f"hunt_{loc}"
-            if task_id in q["tasks"]:
-                prog = sheet.setdefault("quest_progress", {}).setdefault(active_id, [])
-                if task_id not in prog:
-                    prog.append(task_id)
-                    await save(sheet)
-                # Check if this hunt task completed the quest
-                if all(t in prog for t in q["tasks"]):
-                    # Complete — apply rewards inline
-                    xp_reward  = q["rewards"].get("xp", 0)
-                    gil_reward = q["rewards"].get("gil", 0)
-                    sheet["xp"]  = sheet.get("xp",  0) + xp_reward
-                    sheet["gil"] = sheet.get("gil", 0) + gil_reward
-                    if "item" in q["rewards"]:
-                        sheet.setdefault("inventory", []).append(q["rewards"]["item"])
-                    if "recipe" in q["rewards"]:
-                        rk = q["rewards"]["recipe"]
-                        if rk not in sheet.setdefault("recipes", []):
-                            sheet.setdefault("recipes", []).append(rk)
-                    sheet["active_quest"] = None
-                    sheet.setdefault("completed_quests", []).append(active_id)
-                    await save(sheet)
-                    leveled, new_level = check_level_up(sheet)
-                    if leveled:
+        for active_id in list(active_ids):
+            q = get_quest(active_id)
+            if q:
+                task_id = f"hunt_{loc}"
+                if task_id in q["tasks"]:
+                    prog = sheet.setdefault("quest_progress", {}).setdefault(active_id, [])
+                    if task_id not in prog:
+                        prog.append(task_id)
                         await save(sheet)
-                    from utils.ttrpg.progression import xp_to_next_level
-                    xp_next = xp_to_next_level(sheet["level"])
-                    lines = [
-                        f"**{q['name']}** — complete.",
-                        f"+{xp_reward} XP ({sheet['xp']}/{xp_next})  ·  +{gil_reward} Gil",
-                    ]
-                    if "item" in q["rewards"]:
-                        lines.append(f"🎁 Received: **{q['rewards']['item'].replace('_',' ').title()}**")
-                    if leveled:
-                        lines.append(f"🎉 **Level Up! Now Lv.{new_level}!**")
-                    await msg.channel.send(embed=discord.Embed(
-                        title="✅ Quest Complete",
-                        description="\n".join(lines),
-                        color=0x2ecc71
-                    ))
-                    await _log_world_event(
-                        f"✅ **{sheet['character_name']}** completed '**{q['name']}**'."
-                    )
+                    # Check if this hunt task completed the quest
+                    if all(t in prog for t in q["tasks"]):
+                        # Complete — apply rewards inline
+                        xp_reward  = q["rewards"].get("xp", 0)
+                        gil_reward = q["rewards"].get("gil", 0)
+                        sheet["xp"]  = sheet.get("xp",  0) + xp_reward
+                        sheet["gil"] = sheet.get("gil", 0) + gil_reward
+                        if "item" in q["rewards"]:
+                            sheet.setdefault("inventory", []).append(q["rewards"]["item"])
+                        if "recipe" in q["rewards"]:
+                            rk = q["rewards"]["recipe"]
+                            if rk not in sheet.setdefault("recipes", []):
+                                sheet.setdefault("recipes", []).append(rk)
+                        if active_id in sheet.get("active_quests", []):
+                            sheet["active_quests"].remove(active_id)
+                        sheet.setdefault("completed_quests", []).append(active_id)
+                        await save(sheet)
+                        leveled, new_level = check_level_up(sheet)
+                        if leveled:
+                            await save(sheet)
+                        from utils.ttrpg.progression import xp_to_next_level
+                        xp_next = xp_to_next_level(sheet["level"])
+                        lines = [
+                            f"**{q['name']}** — complete.",
+                            f"+{xp_reward} XP ({sheet['xp']}/{xp_next})  ·  +{gil_reward} Gil",
+                        ]
+                        if "item" in q["rewards"]:
+                            lines.append(f"🎁 Received: **{q['rewards']['item'].replace('_',' ').title()}**")
+                        if leveled:
+                            lines.append(f"🎉 **Level Up! Now Lv.{new_level}!**")
+                        await msg.channel.send(embed=discord.Embed(
+                            title="✅ Quest Complete",
+                            description="\n".join(lines),
+                            color=0x2ecc71
+                        ))
+                        await _log_world_event(
+                            f"✅ **{sheet['character_name']}** completed '**{q['name']}**'."
+                        )
     
     # Roll for special forest event before monster spawn
     from utils.ttrpg.encounter_tables import roll_for_event, random_event
@@ -620,15 +622,15 @@ async def _handle_hunt(ctx, msg, send, rest, uid, uname, is_owner):
     spawned_names = []
     
     # Quest-aware encounter nudge
-    active_quest = sheet.get("active_quest", "")
+    active_quests = sheet.get("active_quests", [])
     quest_location_override = None
-    if active_quest == "maren_herbs" and loc == "trade_road":
+    if "maren_herbs" in active_quests and loc == "trade_road":
         quest_location_override = "trade_road_maren"
-    elif active_quest == "deep_hunt" and loc == "whisperwood_deep":
+    elif "deep_hunt" in active_quests and loc == "whisperwood_deep":
         quest_location_override = "whisperwood_deep_hunt"
-    elif active_quest == "aeridor_remnant" and loc == "aeridor_ruins":
+    elif "aeridor_remnant" in active_quests and loc == "aeridor_ruins":
         quest_location_override = "aeridor_ruins_remnant"
-    elif active_quest == "shadow_incursion" and loc == "whisperwood_deep":
+    elif "shadow_incursion" in active_quests and loc == "whisperwood_deep":
         quest_location_override = "whisperwood_deep_shadow"
 
     for _ in range(num_to_spawn):
@@ -914,42 +916,44 @@ async def _handle_attack(ctx, msg, send, rest, uid, uname, is_owner):
 
     if res["monster_defeated"]:
         # Quest Task Tracking: Kill
-        active_id = sheet.get("active_quest")
-        if active_id:
+        active_ids = sheet.get("active_quests", [])
+        if active_ids:
             from utils.ttrpg.quest_registry import get_quest
-            q = get_quest(active_id)
-            if q:
-                monster_id = monster.get("key")
-                task_id = f"kill_{monster_id}"
-                if task_id in q["tasks"]:
-                    prog = sheet.setdefault("quest_progress", {}).setdefault(active_id, [])
-                    if task_id not in prog:
-                        prog.append(task_id)
-                        if all(t in prog for t in q["tasks"]):
-                            xp_reward  = q["rewards"].get("xp", 0)
-                            gil_reward = q["rewards"].get("gil", 0)
-                            sheet["xp"]  = sheet.get("xp",  0) + xp_reward
-                            sheet["gil"] = sheet.get("gil", 0) + gil_reward
-                            if "item" in q["rewards"]:
-                                sheet.setdefault("inventory", []).append(q["rewards"]["item"])
-                            if "recipe" in q["rewards"]:
-                                rk = q["rewards"]["recipe"]
-                                if rk not in sheet.setdefault("recipes", []):
-                                    sheet.setdefault("recipes", []).append(rk)
-                            sheet["active_quest"] = None
-                            sheet.setdefault("completed_quests", []).append(active_id)
-                            m_block += (
-                                f"\n\n✅ **Quest Complete: {q['name']}**"
-                                f"\n+{xp_reward} XP · +{gil_reward} Gil"
-                            )
-                            await _log_world_event(f"✅ **{sheet['character_name']}** completed '**{q['name']}**'.")
-                            quest_embed = discord.Embed(
-                                title=f"✅ Quest Complete — {q['name']}",
-                                description=f"*{sheet['character_name']} closed the book on another chapter.*",
-                                color=0x2ecc71
-                            )
-                            quest_embed.set_footer(text=f"+{xp_reward} XP · +{gil_reward} Gil")
-                            await _broadcast_world_event(ctx, quest_embed)
+            for active_id in list(active_ids):
+                q = get_quest(active_id)
+                if q:
+                    monster_id = monster.get("key")
+                    task_id = f"kill_{monster_id}"
+                    if task_id in q["tasks"]:
+                        prog = sheet.setdefault("quest_progress", {}).setdefault(active_id, [])
+                        if task_id not in prog:
+                            prog.append(task_id)
+                            if all(t in prog for t in q["tasks"]):
+                                xp_reward  = q["rewards"].get("xp", 0)
+                                gil_reward = q["rewards"].get("gil", 0)
+                                sheet["xp"]  = sheet.get("xp",  0) + xp_reward
+                                sheet["gil"] = sheet.get("gil", 0) + gil_reward
+                                if "item" in q["rewards"]:
+                                    sheet.setdefault("inventory", []).append(q["rewards"]["item"])
+                                if "recipe" in q["rewards"]:
+                                    rk = q["rewards"]["recipe"]
+                                    if rk not in sheet.setdefault("recipes", []):
+                                        sheet.setdefault("recipes", []).append(rk)
+                                if active_id in sheet.get("active_quests", []):
+                                    sheet["active_quests"].remove(active_id)
+                                sheet.setdefault("completed_quests", []).append(active_id)
+                                m_block += (
+                                    f"\n\n✅ **Quest Complete: {q['name']}**"
+                                    f"\n+{xp_reward} XP · +{gil_reward} Gil"
+                                )
+                                await _log_world_event(f"✅ **{sheet['character_name']}** completed '**{q['name']}**'.")
+                                quest_embed = discord.Embed(
+                                    title=f"✅ Quest Complete — {q['name']}",
+                                    description=f"*{sheet['character_name']} closed the book on another chapter.*",
+                                    color=0x2ecc71
+                                )
+                                quest_embed.set_footer(text=f"+{xp_reward} XP · +{gil_reward} Gil")
+                                await _broadcast_world_event(ctx, quest_embed)
                         else:
                             await save(sheet)
     leveled, n_lvl = check_level_up(sheet)
@@ -1464,14 +1468,15 @@ async def _dungeon_complete(ctx_obj, interaction, uid, uname, is_owner,
     sheet["gil"] = sheet.get("gil", 0) + bonus_gil
 
     # Quest Task Tracking: Dungeon completion
-    active_id = sheet.get("active_quest")
-    if active_id:
+    active_ids = sheet.get("active_quests", [])
+    if active_ids:
         from utils.ttrpg.quest_registry import get_quest
-        q = get_quest(active_id)
-        if q and "complete_dungeon" in q["tasks"]:
-            prog = sheet.setdefault("quest_progress", {}).setdefault(active_id, [])
-            if "complete_dungeon" not in prog:
-                prog.append("complete_dungeon")
+        for active_id in list(active_ids):
+            q = get_quest(active_id)
+            if q and "complete_dungeon" in q["tasks"]:
+                prog = sheet.setdefault("quest_progress", {}).setdefault(active_id, [])
+                if "complete_dungeon" not in prog:
+                    prog.append("complete_dungeon")
 
     await save(sheet)
     await clear_dungeon(uid)

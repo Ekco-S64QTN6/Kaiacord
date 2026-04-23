@@ -196,14 +196,15 @@ def build_npc_prompt(sheet: dict, npc: dict, player_message: str, context: dict)
     special_day_context = f"Today is {special_day}." if special_day else ""
     
     # Quest Context
-    active_q = context.get("active_quest_info")
+    active_qs = context.get("active_quests_info", [])
     available_qs = context.get("available_quests", [])
     quest_prompt = ""
-    if active_q:
-        quest_prompt = f"\nQUEST STATUS: The player is on your quest '{active_q['name']}'. "
-        quest_prompt += f"Quest details: {active_q.get('description', '')}. "
-        if context.get("quest_progress_msg"):
-            quest_prompt += f"Progress: {context['quest_progress_msg']}. "
+    if active_qs:
+        quest_prompt = "\nQUEST STATUS: The player is currently on your quests:\n"
+        for i, q in enumerate(active_qs):
+            prog = context.get("quest_progress_msgs", [])
+            prog_str = next((p for p in prog if q["name"] in p), "No progress yet")
+            quest_prompt += f"- '{q['name']}': {q.get('description', '')} (Progress: {prog_str})\n"
         quest_prompt += "React to their progress based on the quest details."
     elif available_qs:
         quest_prompt = f"\nAVAILABLE TASKS: You have tasks for the player: "

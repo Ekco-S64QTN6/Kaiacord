@@ -276,4 +276,4 @@ def test_alchemy_brewing():
     assert "potion_standard" in sheet["inventory"]
     assert "blood_thistle" not in sheet["inventory"]
     assert "honey_sap" not in sheet["inventory"]
-    assert sheet["xp"] == 20 # Recipe XP
+    assert sheet["xp"] == 0 # Recipe XP removed

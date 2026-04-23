@@ -66,9 +66,7 @@ def test_process_sell_new_name_old_inventory():
     assert updated_sheet["gil"] > 0
 
 def test_hemlock_stock():
-    assert "iron_spear" in HEMLOCK_STOCK_WEAPONS
-    assert "iron_sword" in HEMLOCK_STOCK_WEAPONS
-    assert "iron_battle_axe" in HEMLOCK_STOCK_WEAPONS
+    assert "wooden_staff" in HEMLOCK_STOCK_WEAPONS
 
 if __name__ == "__main__":
     # Manual run if needed

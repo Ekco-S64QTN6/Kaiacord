@@ -250,7 +250,19 @@ Only 3 sync `load_housing()` calls remain in the entire codebase, all in **synch
 
 **Total Phase 8 changes:** 7 files modified, 1 new major town, 1 new zone, 5 NPCs, 4 L15 quests.
 
-### Phase 7: Combat Balance Fix & Boss Content (April 23, 2026)
+### Phase 8.1: Endgame System Stabilization (April 23, 2026)
+
+| ID | Change | Files Modified |
+|---|---|---|
+| ✅ UI-5 | Segregated Travel Dropdown to prevent global map UI clutter and spoilers | `rpg_views.py` |
+| ✅ UI-6 | Added explicit Trade Road navigation buttons for Oakhaven/Grimstone | `rpg_views.py` |
+| ✅ BUG-C5 | Fixed critical indentation bug that prevented `check_level_up` from firing on non-quest kills | `rpg_combat_handler.py` |
+| ✅ BUG-N11 | Fixed `UnboundLocalError` for `save()` import inside conditional logic | `rpg_core_handler.py` |
+| ✅ CONTENT-7 | Fixed "Road to Iron" task schema to prevent double-talk requirement | `quest_registry.py`, `rpg_core_handler.py` |
+| ✅ PROMPT-1 | Injected quest `description` text into Kaia prompt for accurate dialogue | `rpg_prompt_builder.py` |
+| ✅ UI-7 | Changed quest accept button label from "Accept:" to "Ask about:" for better narrative flow | `rpg_social_handler.py` |
+
+**Total Phase 8.1 changes:** 5 files modified, 3 bugs fixed, 3 UI/UX improvements.
 
 | ID | Change | Files Modified |
 |---|---|---|

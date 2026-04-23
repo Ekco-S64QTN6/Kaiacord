@@ -191,25 +191,25 @@ async def _handle_talk(ctx, msg, send, rest, uid, uname, is_owner):
     # Quest Integration
     from utils.ttrpg.quest_registry import get_npc_quests, get_quest
     available_quests = []
-    active_quest_info = None
-    quest_progress_msg = ""
+    active_quests_info = []
+    quest_progress_msgs = []
     
     if sheet:
         # 1. Available Quests
         all_npc_quests = get_npc_quests(npc_key)
         completed = sheet.get("completed_quests", [])
+        active_ids = sheet.get("active_quests", [])
         for q in all_npc_quests:
-            if q["id"] not in completed and q["id"] != sheet.get("active_quest"):
+            if q["id"] not in completed and q["id"] not in active_ids:
                 if sheet["level"] >= q["requirements"].get("level", 1):
                     available_quests.append(q)
                     
         # 2. Active Quest Progress & Completion
-        active_id = sheet.get("active_quest")
-        if active_id:
+        for active_id in list(active_ids):
             q = get_quest(active_id)
             if q:
                 if q["npc"] == npc_key:
-                    active_quest_info = q
+                    active_quests_info.append(q)
                 
                 # Update progress if this is a talk task
                 task_id = f"talk_{npc_key}"
@@ -233,7 +233,8 @@ async def _handle_talk(ctx, msg, send, rest, uid, uname, is_owner):
                         if rk not in sheet.setdefault("recipes", []):
                             sheet.setdefault("recipes", []).append(rk)
 
-                    sheet["active_quest"] = None
+                    if active_id in sheet.get("active_quests", []):
+                        sheet["active_quests"].remove(active_id)
                     sheet.setdefault("completed_quests", []).append(active_id)
                     await save(sheet)
 
@@ -267,11 +268,13 @@ async def _handle_talk(ctx, msg, send, rest, uid, uname, is_owner):
                     )
                     quest_embed.set_footer(text=f"+{xp_reward} XP · +{gil_reward} Gil")
                     await _broadcast_world_event(ctx, quest_embed)
-                    quest_progress_msg = "COMPLETED"
+                    if q["npc"] == npc_key:
+                        quest_progress_msgs.append(f"'{q['name']}': COMPLETED")
                 else:
                     # Not complete, show current progress
                     total = len(q["tasks"])
-                    quest_progress_msg = f"{len(prog)}/{total} tasks done: {', '.join(prog)}"
+                    if q["npc"] == npc_key:
+                        quest_progress_msgs.append(f"'{q['name']}': {len(prog)}/{total} tasks done: {', '.join(prog)}")
                     await save(sheet)
 
             
@@ -299,8 +302,8 @@ async def _handle_talk(ctx, msg, send, rest, uid, uname, is_owner):
         "blacked_out": blacked_out,
         "topic": topic,
         "available_quests": available_quests,
-        "active_quest_info": active_quest_info,
-        "quest_progress_msg": quest_progress_msg,
+        "active_quests_info": active_quests_info,
+        "quest_progress_msgs": quest_progress_msgs,
         "cha_mod": cha_mod,
     }
     
@@ -350,12 +353,18 @@ async def _handle_talk(ctx, msg, send, rest, uid, uname, is_owner):
                                 return
                             await interaction.response.defer()
                             s = await load(uid)
-                            if s.get("active_quest"):
+                            active_quests = s.get("active_quests", [])
+                            if len(active_quests) >= 3:
                                 await interaction.followup.send(embed=discord.Embed(
-                                    description=f"Already on quest: **{s['active_quest']}**.",
+                                    description=f"You already have 3 active quests. Complete or abandon one first.",
                                     color=0xcc4444), ephemeral=True)
                                 return
-                            s["active_quest"] = quest["id"]
+                            if quest["id"] in active_quests:
+                                await interaction.followup.send(embed=discord.Embed(
+                                    description=f"Already on quest: **{quest['name']}**.",
+                                    color=0xcc4444), ephemeral=True)
+                                return
+                            s.setdefault("active_quests", []).append(quest["id"])
                             await save(s)
                             await interaction.followup.send(embed=discord.Embed(
                                 title="📜 Quest Accepted",
@@ -367,7 +376,7 @@ async def _handle_talk(ctx, msg, send, rest, uid, uname, is_owner):
                         view.add_item(btn)
 
                 # Active quest turn-in hint
-                if active_quest_info and quest_progress_msg == "COMPLETED":
+                if any("COMPLETED" in msg for msg in quest_progress_msgs):
                     view.add_item(discord.ui.Button(
                         label="Quest Complete ✓", style=discord.ButtonStyle.success,
                         row=0, disabled=True))
@@ -410,21 +419,24 @@ async def _handle_quests(ctx, msg, send, rest, uid, uname, is_owner):
     sheet = await load(uid)
     if not sheet: return
     
-    active = sheet.get("active_quest")
+    active = sheet.get("active_quests", [])
     completed = sheet.get("completed_quests", [])
     
     desc = ""
     if active:
         from utils.ttrpg.quest_registry import get_quest
-        q = get_quest(active)
-        if q:
-            prog = sheet.get("quest_progress", {}).get(active, [])
-            done = len(prog)
-            total = len(q["tasks"])
-            bar = "█" * done + "░" * (total - done)
-            desc += f"📜 **Active Quest:** {q['name']}\n> {q['description']}\n> Progress: `{bar}` {done}/{total} tasks\n\n"
-        else:
-            desc += f"📜 **Active Quest:** {active} (invalid ID)\n\n"
+        for a_id in active:
+            q = get_quest(a_id)
+            if q:
+                prog = sheet.get("quest_progress", {}).get(a_id, [])
+                done = len(prog)
+                total = len(q["tasks"])
+                bar = "█" * done + "░" * (total - done)
+                desc += f"📜 **{q['name']}**\n> {q['description']}\n> Progress: `{bar}` {done}/{total} tasks\n\n"
+            else:
+                desc += f"📜 **{a_id}** (invalid ID)\n\n"
+    else:
+        desc += "📜 **Active Quests:** None\n\n"
             
     if completed:
         desc += "✅ **Completed Quests:**\n"
@@ -439,18 +451,32 @@ async def _handle_quests(ctx, msg, send, rest, uid, uname, is_owner):
     )
     view = discord.ui.View(timeout=120)
     if active:
-        abandon_btn = discord.ui.Button(label="🗑️ Abandon Quest", style=discord.ButtonStyle.danger, row=0)
-        async def _abandon_cb(interaction: discord.Interaction):
-            if str(interaction.user.id) != uid:
-                await interaction.response.send_message("```\nnot your quest log.\n```", ephemeral=True)
-                return
-            await interaction.response.defer()
-            fake_msg = _InteractionMsg(interaction)
-            send_fn = _make_interaction_send(interaction)
-            await _handle_abandon(ctx, fake_msg, send_fn, "", uid, uname, is_owner)
-            
-        abandon_btn.callback = _abandon_cb
-        view.add_item(abandon_btn)
+        # Give a drop-down menu if multiple, or a single button if 1
+        if len(active) == 1:
+            abandon_btn = discord.ui.Button(label="🗑️ Abandon Quest", style=discord.ButtonStyle.danger, row=0)
+            async def _abandon_single(interaction: discord.Interaction):
+                if str(interaction.user.id) != uid:
+                    await interaction.response.send_message("```\nnot your quest log.\n```", ephemeral=True)
+                    return
+                await interaction.response.defer()
+                fake_msg = _InteractionMsg(interaction)
+                send_fn = _make_interaction_send(interaction)
+                await _handle_abandon(ctx, fake_msg, send_fn, active[0], uid, uname, is_owner)
+            abandon_btn.callback = _abandon_single
+            view.add_item(abandon_btn)
+        else:
+            options = [discord.SelectOption(label=f"Abandon: {get_quest(a)['name'][:25] if get_quest(a) else a}", value=a) for a in active]
+            select = discord.ui.Select(placeholder="Select a quest to abandon...", options=options, row=0)
+            async def _abandon_select(interaction: discord.Interaction):
+                if str(interaction.user.id) != uid:
+                    await interaction.response.send_message("not yours.", ephemeral=True)
+                    return
+                await interaction.response.defer()
+                fake_msg = _InteractionMsg(interaction)
+                send_fn = _make_interaction_send(interaction)
+                await _handle_abandon(ctx, fake_msg, send_fn, select.values[0], uid, uname, is_owner)
+            select.callback = _abandon_select
+            view.add_item(select)
         
     view.add_item(_make_status_btn(ctx, uid, uname, is_owner, row=1))
     await msg.channel.send(embed=embed, view=view)
@@ -458,10 +484,20 @@ async def _handle_quests(ctx, msg, send, rest, uid, uname, is_owner):
 
 async def _handle_abandon(ctx, msg, send, rest, uid, uname, is_owner):
     sheet = await load(uid)
-    if not sheet or not sheet.get("active_quest"):
+    active = sheet.get("active_quests", []) if sheet else []
+    if not sheet or not active:
         return await msg.channel.send(embed=discord.Embed(description="No active quest to abandon.", color=0x888888))
-    quest_id = sheet["active_quest"]
-    sheet["active_quest"] = None
+    
+    quest_id = rest.strip().lower()
+    if not quest_id and len(active) == 1:
+        quest_id = active[0]
+    elif not quest_id:
+        return await msg.channel.send(embed=discord.Embed(description="Specify which quest to abandon.", color=0x888888))
+        
+    if quest_id not in active:
+        return await msg.channel.send(embed=discord.Embed(description="You don't have that quest active.", color=0x888888))
+        
+    sheet["active_quests"].remove(quest_id)
     sheet["quest_progress"] = {k: v for k, v in sheet.get("quest_progress", {}).items() if k != quest_id}
     await save(sheet)
     await msg.channel.send(embed=discord.Embed(
@@ -475,9 +511,9 @@ async def _handle_quest_detail(ctx, msg, send, rest, uid, uname, is_owner):
     sheet = await load(uid)
     if not sheet: return
     
-    quest_id = rest.strip().lower() or sheet.get("active_quest")
+    quest_id = rest.strip().lower()
     if not quest_id:
-        return await send(msg.channel, "You have no active quest. Speak with NPCs in Oakhaven for tasks.")
+        return await send(msg.channel, "Specify a quest ID or use `!rpg quest` to see your log.")
         
     from utils.ttrpg.quest_registry import get_quest
     q = get_quest(quest_id)

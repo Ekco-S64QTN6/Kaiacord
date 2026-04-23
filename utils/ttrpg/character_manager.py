@@ -73,6 +73,16 @@ def _migrate_hp_bonuses(sheet: Dict[str, Any]) -> None:
         
     sheet["_hp_migrated_v2"] = True
 
+def _migrate_quests(sheet: Dict[str, Any]) -> None:
+    """Migrate from single active_quest string to active_quests list."""
+    if "active_quests" not in sheet:
+        sheet["active_quests"] = []
+    
+    if "active_quest" in sheet:
+        old_quest = sheet.pop("active_quest")
+        if old_quest and old_quest not in sheet["active_quests"]:
+            sheet["active_quests"].append(old_quest)
+
 def _load_sync(user_id: str) -> Optional[Dict[str, Any]]:
     p = _path(user_id)
     if not os.path.exists(p):
@@ -82,6 +92,7 @@ def _load_sync(user_id: str) -> Optional[Dict[str, Any]]:
             sheet = json.load(f)
             _migrate_inventory(sheet)
             _migrate_hp_bonuses(sheet)
+            _migrate_quests(sheet)
             return sheet
 
 async def load(user_id: str) -> Optional[Dict[str, Any]]:
@@ -115,6 +126,8 @@ def _load_all_sync() -> List[Dict[str, Any]]:
                 with open(os.path.join(CHARACTERS_DIR, fname), 'r', encoding='utf-8') as f:
                     sheet = json.load(f)
                     _migrate_inventory(sheet)
+                    _migrate_hp_bonuses(sheet)
+                    _migrate_quests(sheet)
                     sheets.append(sheet)
             except (json.JSONDecodeError, OSError):
                 continue
@@ -178,7 +191,7 @@ def _create_sync(user_id: str, user_name: str, character_name: str,
         "inventory": ["adventurers_pack"],
         "conditions": [],
         "deaths": 0,
-        "active_quest": None,
+        "active_quests": [],
         "completed_quests": [],
         "quest_progress": {},
         "recipes": [], # Learned alchemy recipes
@@ -245,8 +258,8 @@ def format_sheet(sheet: Dict[str, Any]) -> str:
     inventory = "\n  ".join(sheet.get("inventory", [])) if sheet.get("inventory") else "empty"
     skills = ", ".join(sheet.get("skills", [])) if sheet.get("skills") else "none"
     
-    active_q = sheet.get("active_quest")
-    q_str = f"📜 **Quest:** {active_q.replace('_', ' ').title()}" if active_q else "📜 **Quest:** None"
+    active_qs = sheet.get("active_quests", [])
+    q_str = f"📜 **Quests:** {len(active_qs)} active" if active_qs else "📜 **Quests:** None"
     
     bank_line = f"  **Bank:** {bank}g" if bank > 0 else ""
     

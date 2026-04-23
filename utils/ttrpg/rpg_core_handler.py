@@ -482,7 +482,7 @@ async def _handle_sheet(ctx, msg, send, rest, uid, uname, is_owner):
     deaths = sheet.get("deaths", 0)
     streak = sheet.get("hunt_streak", 0)
     completed_quests = len(sheet.get("completed_quests", []))
-    active_quest = sheet.get("active_quest")
+    active_quests = sheet.get("active_quests", [])
     known_recipes = len(sheet.get("recipes", []))
     secrets_found = len(sheet.get("secrets", []))
     conditions = sheet.get("conditions", [])
@@ -597,16 +597,20 @@ async def _handle_sheet(ctx, msg, send, rest, uid, uname, is_owner):
     )
     embed.add_field(name="📚 Knowledge", value=misc, inline=True)
 
-    # Active quest
-    if active_quest:
+    # Active quests
+    if active_quests:
         from utils.ttrpg.quest_registry import get_quest
-        q = get_quest(active_quest)
-        q_name = q["name"] if q else active_quest.replace("_", " ").title()
-        prog = sheet.get("quest_progress", {}).get(active_quest, [])
-        total_tasks = len(q["tasks"]) if q else "?"
+        quest_lines = []
+        for aq in active_quests:
+            q = get_quest(aq)
+            q_name = q["name"] if q else aq.replace("_", " ").title()
+            prog = sheet.get("quest_progress", {}).get(aq, [])
+            total_tasks = len(q["tasks"]) if q else "?"
+            quest_lines.append(f"**{q_name}** — {len(prog)}/{total_tasks} tasks")
+            
         embed.add_field(
-            name="📜 Active Quest",
-            value=f"**{q_name}** — {len(prog)}/{total_tasks} tasks",
+            name=f"📜 Active Quests ({len(active_quests)})",
+            value="\n".join(quest_lines),
             inline=False
         )
 
@@ -875,12 +879,12 @@ async def _handle_look(ctx, msg, send, rest, uid, uname, is_owner):
                         
             # Grimstone path quest trigger — crystals at Aeridor Ruins
             if loc == "aeridor_ruins" and look_target in ("crystals",):
-                active_id = sheet.get("active_quest")
-                if active_id == "grimstone_path":
+                active_ids = sheet.get("active_quests", [])
+                if "grimstone_path" in active_ids:
                     from utils.ttrpg.quest_registry import get_quest
-                    q = get_quest(active_id)
+                    q = get_quest("grimstone_path")
                     if q:
-                        prog = sheet.setdefault("quest_progress", {}).setdefault(active_id, [])
+                        prog = sheet.setdefault("quest_progress", {}).setdefault("grimstone_path", [])
                         tasks_done = all(t in prog for t in ["talk_elara"])
                         if tasks_done and "look_crystals" not in prog:
                             prog.append("look_crystals")
@@ -892,8 +896,8 @@ async def _handle_look(ctx, msg, send, rest, uid, uname, is_owner):
                                 sheet["gil"] = sheet.get("gil", 0) + gil_reward
                                 if "item" in q["rewards"]:
                                     sheet.setdefault("inventory", []).append(q["rewards"]["item"])
-                                sheet["active_quest"] = None
-                                sheet.setdefault("completed_quests", []).append(active_id)
+                                sheet["active_quests"].remove("grimstone_path")
+                                sheet.setdefault("completed_quests", []).append("grimstone_path")
                                 await save(sheet)
                                 
                                 leveled, new_level = check_level_up(sheet)
@@ -1637,16 +1641,20 @@ async def _handle_drink(ctx, msg, send, rest, uid, uname, is_owner):
     if not sheet:
         return await msg.channel.send(embed=discord.Embed(description="No character found.", color=0xcc4444))
 
-    if sheet.get("location") != "stone_hearth":
+    loc = sheet.get("location")
+    if loc not in ("stone_hearth", "rusty_pick"):
         return await msg.channel.send(embed=discord.Embed(
-            description="You need to be at the Stone Hearth to drink.\n`!rpg go stone_hearth`", 
+            description="You need to be at a tavern to drink.\n`!rpg go stone_hearth` or `!rpg go rusty_pick`", 
             color=0xcc4444
         ))
+        
+    DRINK_COST = 2 if loc == "stone_hearth" else 3
+    drink_name = "an ale" if loc == "stone_hearth" else "a shot of Spinefire"
+    barkeeper = "Mira" if loc == "stone_hearth" else "Marta"
 
-    DRINK_COST = 2
     if sheet.get("gil", 0) < DRINK_COST:
         return await msg.channel.send(embed=discord.Embed(
-            description=f"Mira glances at your coin purse and shakes her head.\nAn ale costs {DRINK_COST} gil. You have {sheet.get('gil', 0)}g.",
+            description=f"{barkeeper} glances at your coin purse and shakes her head.\n{drink_name.capitalize()} costs {DRINK_COST} gil. You have {sheet.get('gil', 0)}g.",
             color=0xcc4444
         ))
 
@@ -1655,7 +1663,7 @@ async def _handle_drink(ctx, msg, send, rest, uid, uname, is_owner):
     already_drinking = any("ale" in c.lower() for c in sheet.get("conditions", []))
     if already_drinking:
         return await msg.channel.send(embed=discord.Embed(
-            description="*Mira refills the tankard without comment.*\nYou're already feeling the first one. Another won't stack.",
+            description=f"*{barkeeper} pours another without comment.*\nYou're already feeling the first one. Another won't stack.",
             color=0x888888
         ))
 
@@ -1666,9 +1674,10 @@ async def _handle_drink(ctx, msg, send, rest, uid, uname, is_owner):
     await save(sheet)
 
     view = _make_status_view(ctx, msg, uid, uname, is_owner)
+    icon = "🍺" if loc == "stone_hearth" else "🥃"
     await msg.channel.send(embed=discord.Embed(
         description=(
-            f"🍺 Mira slides a tankard across. (-{DRINK_COST} gil)\n"
+            f"{icon} {barkeeper} slides {drink_name} across. (-{DRINK_COST} gil)\n"
             f"Temp HP: +{TEMP_HP} ({sheet['hp']['current']}/{sheet['hp']['max']})\n"
             f"*+1 hunt cap until next rest.* ({hunts_remaining(sheet)}/{get_max_hunts(sheet)} available)\n"
             f"*Clears on rest.*"
@@ -1853,14 +1862,15 @@ async def _handle_pray(ctx, msg, send, rest, uid, uname, is_owner):
         ), ephemeral=True)
 
     # ── Quest Task Tracking: pray_shrine ────────────────────────────────────
-    active_id = sheet.get("active_quest")
-    if active_id:
+    active_ids = sheet.get("active_quests", [])
+    if active_ids:
         from utils.ttrpg.quest_registry import get_quest
-        q = get_quest(active_id)
-        if q and "pray_shrine" in q["tasks"]:
-            prog = sheet.setdefault("quest_progress", {}).setdefault(active_id, [])
-            if "pray_shrine" not in prog:
-                prog.append("pray_shrine")
+        for active_id in list(active_ids):
+            q = get_quest(active_id)
+            if q and "pray_shrine" in q["tasks"]:
+                prog = sheet.setdefault("quest_progress", {}).setdefault(active_id, [])
+                if "pray_shrine" not in prog:
+                    prog.append("pray_shrine")
 
     # ── Calendar Special Day: Morvenna's Ward (+5 HP on prayer) ────────────
     if special and special.get("buff") == "morvennas_ward":
