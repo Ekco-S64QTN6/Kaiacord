@@ -1014,16 +1014,23 @@ async def _handle_rest(ctx, msg, send, rest, uid, uname, is_owner):
     sheet = await load(uid)
     if not sheet: return
     
-    if sheet.get("location") != "stone_hearth":
-        return await msg.channel.send(embed=discord.Embed(description="You need to be at the Stone Hearth inn to rest. (`!rpg go stone_hearth`)", color=0xcc4444))
+    loc = sheet.get("location")
+    if loc not in ("stone_hearth", "rusty_pick"):
+        return await msg.channel.send(embed=discord.Embed(description="You need to be at an inn to rest.\n`!rpg go stone_hearth` or `!rpg go rusty_pick`", color=0xcc4444))
         
     from utils.ttrpg.calendar import get_special_day
     _special = get_special_day()
     _hearthday = _special and _special.get("buff") == "hearthday_warmth"
 
     cost = 0 if _hearthday else 5
+    if loc == "rusty_pick":
+        cost = 10 if not _hearthday else 0
+        innkeeper = "Marta"
+    else:
+        innkeeper = "Mira"
+
     if sheet.get("gil", 0) < cost:
-        return await msg.channel.send(embed=discord.Embed(description=f"Mira shakes her head. \"Beds aren't free.\"\nYou need {cost} gil. You have {sheet.get('gil', 0)}g.", color=0xcc4444))
+        return await msg.channel.send(embed=discord.Embed(description=f"{innkeeper} shakes her head. \"Beds aren't free.\"\nYou need {cost} gil. You have {sheet.get('gil', 0)}g.", color=0xcc4444))
         
     hp_cur = sheet["hp"]["current"]
     hp_max = sheet["hp"]["max"]

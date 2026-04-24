@@ -246,7 +246,7 @@ NPCS = {
             "I have copies of the real ledgers. I've had them for four months. I don't know what to do with them.",
             "Elder Elara — I've heard that name. She's the one in Oakhaven who would understand what these numbers mean, isn't she.",
             "If I give you something, and you take it south, and Valdric finds out — I need you to understand what that means for me.",
-            "I keep the copies in a flask in my coat. They're on very thin paper. I've been practical about this.",
+            "I keep the copies in a flask in my coat. They're on very thin paper. Take them. Travel to Oakhaven and speak to Elder Elara. Don't let Valdric see you leave.",
         ],
     },
     "old_pell": {
@@ -263,7 +263,7 @@ NPCS = {
             "The thing in the deep tunnels — I don't know what it is. But the Silvani do. They've been staying clear of the Spine's east face for three seasons now.",
             "I'm too old to go through the pass myself these days. My knees. It's a specific problem.",
             "What comes through the pass stays between me and whoever's carrying it. That's the arrangement.",
-            "You have the look of someone Elara sent. She didn't send you. But you have the look.",
+            "You have the look of someone Elara sent. She didn't send you. But you have the look. Go clear the pass for me—a single hunt up in the Spine should do it. Come back when you're done.",
         ],
     },
 }

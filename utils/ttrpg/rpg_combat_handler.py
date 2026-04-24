@@ -50,20 +50,29 @@ class _InteractionMsg:
 from utils.ttrpg.rpg_views import *
 
 async def _dungeon_combat_round(ctx_obj, interaction, uid, uname, is_owner):
-    from utils.ttrpg.dungeon import load_dungeon, save_dungeon, _key
+    from utils.ttrpg.dungeon import _key
     from utils.ttrpg.combat_engine import _resolve_combat
     from utils.ttrpg.loot_tables import get_loot
     from utils.ttrpg.shop import find_item
     from utils.ttrpg.progression import check_level_up, xp_to_next_level
     from utils.ttrpg.world_state import get_current_state
 
-    state = await load_dungeon(uid)
-    if not state or not state.get("active_combat"):
-        await interaction.followup.send("No active combat.", ephemeral=True)
-        return
-
     sheet = await load(uid)
     if not sheet:
+        return
+
+    loc = sheet.get("location", "whisperwood_edge")
+    if loc == "spine_of_the_world":
+        from utils.ttrpg.spine_dungeon import load_spine_dungeon, save_spine_dungeon
+        state = await load_spine_dungeon(uid)
+        save_func = save_spine_dungeon
+    else:
+        from utils.ttrpg.dungeon import load_dungeon, save_dungeon
+        state = await load_dungeon(uid)
+        save_func = save_dungeon
+
+    if not state or not state.get("active_combat"):
+        await interaction.followup.send("No active combat.", ephemeral=True)
         return
 
     combat = state["active_combat"]
@@ -277,9 +286,9 @@ async def _dungeon_combat_round(ctx_obj, interaction, uid, uname, is_owner):
         exchange_text += f"\n\n+{xp_gain} XP ({sheet['xp']}/{xp_next}) · +{gil_gain} Gil{loot_text}{level_text}"
 
         await save(sheet)
-        await save_dungeon(uid, state)
+        await save_func(uid, state)
 
-        if is_boss:
+        if is_boss and not state.get("is_spine"):
             # Boss dead — fire summary narration then finalize
             combat_log = state.get("dungeon_combat_log", [])
             state["dungeon_combat_log"] = []
@@ -293,6 +302,19 @@ async def _dungeon_combat_round(ctx_obj, interaction, uid, uname, is_owner):
             await _dungeon_complete(ctx_obj, interaction, uid, uname, is_owner,
                                     state, sheet, leveled, new_level)
         else:
+            if is_boss and state.get("is_spine"):
+                active_ids = sheet.get("active_quests", [])
+                if active_ids:
+                    from utils.ttrpg.quest_registry import get_quest
+                    for active_id in list(active_ids):
+                        q = get_quest(active_id)
+                        if q and "complete_dungeon" in q["tasks"]:
+                            prog = sheet.setdefault("quest_progress", {}).setdefault(active_id, [])
+                            if "complete_dungeon" not in prog:
+                                prog.append("complete_dungeon")
+                                exchange_text += f"\n📜 *Quest Progress: {q['name']}*"
+                await save(sheet)
+
             embed = discord.Embed(title="⚔️ Victory", description=exchange_text, color=0x2D5A27)
             view = DungeonView(ctx_obj, uid, uname, is_owner, state)
             await interaction.followup.send(embed=embed, view=view)
@@ -347,7 +369,7 @@ async def _dungeon_combat_round(ctx_obj, interaction, uid, uname, is_owner):
         combat["monster"] = monster
         state["active_combat"] = combat
         await save(sheet)
-        await save_dungeon(uid, state)
+        await save_func(uid, state)
 
         name_used = boss_name if (is_boss and boss_name) else monster.get("name", "Enemy")
         embed = discord.Embed(

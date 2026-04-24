@@ -1332,7 +1332,16 @@ class DungeonView(discord.ui.View):
             except discord.NotFound:
                 pass
             from utils.ttrpg.dungeon import load_dungeon, render_map
-            state = await load_dungeon(self._uid)
+            from utils.ttrpg.spine_dungeon import load_spine_dungeon, render_spine_map
+            
+            is_spine = dungeon.get("is_spine", False)
+            if is_spine:
+                state = await load_spine_dungeon(self._uid)
+                map_str = render_spine_map(state) if state else "no dungeon found"
+            else:
+                state = await load_dungeon(self._uid)
+                map_str = render_map(state) if state else "no dungeon found"
+                
             if not state:
                 try:
                     await interaction.followup.send("no dungeon found", ephemeral=True)
@@ -1342,7 +1351,7 @@ class DungeonView(discord.ui.View):
             try:
                 await interaction.followup.send(
                     embed=discord.Embed(title="🗺️ Dungeon Map",
-                                        description=render_map(state), color=0x7a6a9a),
+                                        description=map_str, color=0x7a6a9a),
                     ephemeral=True)
             except discord.NotFound:
                 pass
@@ -1387,12 +1396,17 @@ class DungeonView(discord.ui.View):
                 async def _descend_cb(interaction: discord.Interaction):
                     if str(interaction.user.id) != self._uid: return
                     await interaction.response.defer()
-                    from utils.ttrpg.spine_dungeon import generate_spine_floor, save_spine_dungeon, MAX_FLOOR
+                    from utils.ttrpg.spine_dungeon import generate_spine_floor, save_spine_dungeon, load_spine_dungeon, MAX_FLOOR, _xy
                     current_floor = dungeon.get("floor_num", 1)
                     if current_floor >= MAX_FLOOR:
                         await interaction.followup.send("You have reached the bottom. There is no deeper.", ephemeral=True)
                         return
-                    new_state = generate_spine_floor(current_floor + 1, dungeon.get("player_level", 1))
+                    new_state = await load_spine_dungeon(self._uid, target_floor=current_floor + 1)
+                    if not new_state:
+                        new_state = generate_spine_floor(current_floor + 1, dungeon.get("player_level", 1))
+                    
+                    new_state["player_pos"] = list(_xy(new_state["stairs_up_key"]))
+                    new_state["active"] = True
                     await save_spine_dungeon(self._uid, new_state)
                     await _send_dungeon_room(self._ctx, interaction.channel, self._uid, self._uname, self._is_owner, new_state, extra_text="\n\n*You descend into the dark.*")
                 descend_btn.callback = _descend_cb
@@ -1402,9 +1416,14 @@ class DungeonView(discord.ui.View):
                 async def _ascend_cb(interaction: discord.Interaction):
                     if str(interaction.user.id) != self._uid: return
                     await interaction.response.defer()
-                    from utils.ttrpg.spine_dungeon import generate_spine_floor, save_spine_dungeon
+                    from utils.ttrpg.spine_dungeon import generate_spine_floor, save_spine_dungeon, load_spine_dungeon, _xy
                     current_floor = dungeon.get("floor_num", 1)
-                    new_state = generate_spine_floor(current_floor - 1, dungeon.get("player_level", 1))
+                    new_state = await load_spine_dungeon(self._uid, target_floor=current_floor - 1)
+                    if not new_state:
+                        new_state = generate_spine_floor(current_floor - 1, dungeon.get("player_level", 1))
+                    
+                    new_state["player_pos"] = list(_xy(new_state["stairs_down_key"]))
+                    new_state["active"] = True
                     await save_spine_dungeon(self._uid, new_state)
                     await _send_dungeon_room(self._ctx, interaction.channel, self._uid, self._uname, self._is_owner, new_state, extra_text="\n\n*You ascend the stairs.*")
                 ascend_btn.callback = _ascend_cb
@@ -2073,8 +2092,7 @@ def _make_hunt_status_view(ctx, msg, uid, uname, is_owner):
     return view
 
 async def _dungeon_move(ctx_obj, interaction, uid, uname, is_owner, direction):
-    from utils.ttrpg.dungeon import (load_dungeon, save_dungeon,
-                                      DIRECTIONS, DIR_OPPOSITE,
+    from utils.ttrpg.dungeon import (DIRECTIONS, DIR_OPPOSITE,
                                       R_MONSTER, R_BOSS, R_GUARD,
                                       R_TREASURE, R_SHRINE, R_TRAP,
                                       R_ANTECHAMBER, _key)
@@ -2082,13 +2100,22 @@ async def _dungeon_move(ctx_obj, interaction, uid, uname, is_owner, direction):
     from utils.ttrpg.shop import find_item
     from utils.ttrpg.progression import check_level_up, xp_to_next_level
 
-    state = await load_dungeon(uid)
-    if not state or not state.get("active"):
-        await interaction.followup.send("No active dungeon.", ephemeral=True)
-        return
-
     sheet = await load(uid)
     if not sheet:
+        return
+
+    loc = sheet.get("location", "whisperwood_edge")
+    if loc == "spine_of_the_world":
+        from utils.ttrpg.spine_dungeon import load_spine_dungeon, save_spine_dungeon
+        state = await load_spine_dungeon(uid)
+        save_func = save_spine_dungeon
+    else:
+        from utils.ttrpg.dungeon import load_dungeon, save_dungeon
+        state = await load_dungeon(uid)
+        save_func = save_dungeon
+
+    if not state or not state.get("active"):
+        await interaction.followup.send("No active dungeon.", ephemeral=True)
         return
 
     px, py = state["player_pos"]
@@ -2107,7 +2134,7 @@ async def _dungeon_move(ctx_obj, interaction, uid, uname, is_owner, direction):
 
     if preview_rt == R_BOSS and not preview_room.get("cleared", False) and not state.get(warn_key):
         state[warn_key] = True          # set flag so second approach skips the warning
-        await save_dungeon(uid, state)        # persist flag — player hasn't moved yet
+        await save_func(uid, state)        # persist flag — player hasn't moved yet
 
         theme_key = state.get("theme_key", "undead")
         boss_name = preview_room.get("boss_name", "the Ancient Horror")
@@ -2183,7 +2210,7 @@ async def _dungeon_move(ctx_obj, interaction, uid, uname, is_owner, direction):
                     "room_key": nk,
                 }
                 await save(sheet)
-                await save_dungeon(uid, state)
+                await save_func(uid, state)
 
                 tier_icon = TIER_ICONS.get(monster.get("tier", "medium"), "🟠")
                 name_used = room.get("boss_name") if is_boss else monster.get("name", "Unknown")
@@ -2315,7 +2342,7 @@ async def _dungeon_move(ctx_obj, interaction, uid, uname, is_owner, direction):
 
     leveled, new_level = check_level_up(sheet)
     await save(sheet)
-    await save_dungeon(uid, state)
+    await save_func(uid, state)
 
     level_text = f"\n\n🎉 **Level Up! Now Lv.{new_level}!**" if leveled else ""
     hp_str = f"\n\n❤️ {sheet['hp']['current']}/{sheet['hp']['max']} HP"
@@ -2336,16 +2363,26 @@ async def _dungeon_move(ctx_obj, interaction, uid, uname, is_owner, direction):
     await interaction.followup.send(embed=embed, view=view)
 
 async def _dungeon_combat_flee(ctx_obj, interaction, uid, uname, is_owner):
-    from utils.ttrpg.dungeon import load_dungeon, save_dungeon
+    sheet = await load(uid)
+    if not sheet: return
 
-    state = await load_dungeon(uid)
+    loc = sheet.get("location", "whisperwood_edge")
+    if loc == "spine_of_the_world":
+        from utils.ttrpg.spine_dungeon import load_spine_dungeon, save_spine_dungeon
+        state = await load_spine_dungeon(uid)
+        save_func = save_spine_dungeon
+    else:
+        from utils.ttrpg.dungeon import load_dungeon, save_dungeon
+        state = await load_dungeon(uid)
+        save_func = save_dungeon
+
     if not state or not state.get("active_combat"):
         await interaction.followup.send("No combat to flee from.", ephemeral=True)
         return
 
     # Fleeing costs 1 hunt and sends you back one step (just clear combat, stay in room)
     del state["active_combat"]
-    await save_dungeon(uid, state)
+    await save_func(uid, state)
 
     sheet = await load(uid)
     if sheet:
