@@ -361,18 +361,28 @@ async def _dungeon_combat_round(ctx_obj, interaction, uid, uname, is_owner):
 
 async def _handle_dungeon(ctx, msg, send, rest, uid, uname, is_owner):
     from utils.ttrpg.dungeon import generate_dungeon, save_dungeon, load_dungeon, DUNGEON_THEMES
-
-    # Resume existing run
-    existing = await load_dungeon(uid)
-    if existing and existing.get("active"):
-        await msg.channel.send(embed=discord.Embed(
-            description="*You're already in there. Picking up where you left off...*",
-            color=0x7a6a9a))
-        await _send_dungeon_room(ctx, msg.channel, uid, uname, is_owner, existing)
-        return
+    from utils.ttrpg.spine_dungeon import load_spine_dungeon, save_spine_dungeon, generate_spine_floor
 
     sheet = await load(uid)
     if not sheet: return
+    loc = sheet.get("location", "whisperwood_edge")
+
+    if loc == "spine_of_the_world":
+        existing = await load_spine_dungeon(uid)
+        if existing and existing.get("active"):
+            await msg.channel.send(embed=discord.Embed(
+                description="*You return to the Ironvein Deep. Picking up where you left off...*",
+                color=0x7a6a9a))
+            await _send_dungeon_room(ctx, msg.channel, uid, uname, is_owner, existing)
+            return
+    else:
+        existing = await load_dungeon(uid)
+        if existing and existing.get("active"):
+            await msg.channel.send(embed=discord.Embed(
+                description="*You're already in there. Picking up where you left off...*",
+                color=0x7a6a9a))
+            await _send_dungeon_room(ctx, msg.channel, uid, uname, is_owner, existing)
+            return
 
     inv = sheet.get("inventory", [])
     has_lightstone = "lightstone" in inv
@@ -408,18 +418,28 @@ async def _handle_dungeon(ctx, msg, send, rest, uid, uname, is_owner):
     sheet["hunts_today"] = sheet.get("hunts_today", 0) + ENTRY_HUNTS
     await save(sheet)
 
-    loc = sheet.get("location", "whisperwood_edge")
-    from utils.ttrpg.dungeon import LOCATION_DIFFICULTY_BONUS
-    loc_diff_bonus = LOCATION_DIFFICULTY_BONUS.get(loc, 0)
-    difficulty = max(1, min(5, (sheet["level"] - 1) // 3 + 1 + loc_diff_bonus))
-    dungeon = generate_dungeon(difficulty, player_level=sheet["level"], location=loc)
-    await save_dungeon(uid, dungeon)
+    if loc == "spine_of_the_world":
+        dungeon = await load_spine_dungeon(uid)
+        if not dungeon:
+            dungeon = generate_spine_floor(1, sheet["level"])
+        dungeon["active"] = True
+        await save_spine_dungeon(uid, dungeon)
+        t_emoji = dungeon.get("theme_emoji", "⛏️")
+        t_name = dungeon.get("theme_name", "The Working Tunnels")
+        t_flavor = dungeon.get("theme_flavor", "Active mine workings.")
+        difficulty = dungeon.get("difficulty", 5)
+    else:
+        from utils.ttrpg.dungeon import LOCATION_DIFFICULTY_BONUS
+        loc_diff_bonus = LOCATION_DIFFICULTY_BONUS.get(loc, 0)
+        difficulty = max(1, min(5, (sheet["level"] - 1) // 3 + 1 + loc_diff_bonus))
+        dungeon = generate_dungeon(difficulty, player_level=sheet["level"], location=loc)
+        await save_dungeon(uid, dungeon)
 
-    theme_key  = dungeon.get("theme_key", "undead")
-    theme_data = DUNGEON_THEMES.get(theme_key, {})
-    t_emoji    = theme_data.get("emoji", "🏚️")
-    t_name     = theme_data.get("name", "Unknown Depths")
-    t_flavor   = theme_data.get("flavor", "Something waits in the dark.")
+        theme_key  = dungeon.get("theme_key", "undead")
+        theme_data = DUNGEON_THEMES.get(theme_key, {})
+        t_emoji    = theme_data.get("emoji", "🏚️")
+        t_name     = theme_data.get("name", "Unknown Depths")
+        t_flavor   = theme_data.get("flavor", "Something waits in the dark.")
 
     await msg.channel.send(embed=discord.Embed(
         title=f"{t_emoji} {t_name}",
@@ -1295,10 +1315,18 @@ async def _send_dungeon_room(ctx_obj, channel, uid, uname, is_owner, dungeon,
     ROOM_TITLE_ICONS = {
         "boss": "💀", "antechamber": "🌑", "guard": "🛡️",
         "shrine": "✨", "treasure": "💰", "trap": "⚡",
+        "stairs_down": "🔽", "stairs_up": "🔼",
     }
     icon = ROOM_TITLE_ICONS.get(rt, "🏚️")
+    
+    title_text = f"{icon} {rt.replace('_', ' ').title()} Chamber"
+    if dungeon.get("is_spine"):
+        floor_num = dungeon.get("floor_num", 1)
+        theme_name = dungeon.get("theme_name", "Spine")
+        title_text = f"{icon} {theme_name} — Floor {floor_num}"
+
     embed = discord.Embed(
-        title=f"{icon} {rt.title()} Chamber",
+        title=title_text,
         description=f"*{room.get('description','A stone room.')}*\n\n{hp_str}{extra_text}",
         color=_dungeon_room_color(rt),
     )
@@ -1316,6 +1344,8 @@ def _dungeon_room_color(room_type):
         "trap":         0xcc4444,
         "boss":         0x8B0000,
         "antechamber":  0x2a0a0a,   # near-black — ominous
+        "stairs_up":    0x4a4a6a,
+        "stairs_down":  0x4a4a6a,
     }.get(room_type, 0x888888)
 
 async def _apply_and_narrate_event(ctx, msg, send, sheet, result, uname):

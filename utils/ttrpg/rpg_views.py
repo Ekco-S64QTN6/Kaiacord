@@ -1356,8 +1356,13 @@ class DungeonView(discord.ui.View):
                 except discord.NotFound: pass
                 return
             await interaction.response.defer()
-            from utils.ttrpg.dungeon import clear_dungeon
-            await clear_dungeon(self._uid)
+            if dungeon.get("is_spine"):
+                from utils.ttrpg.spine_dungeon import save_spine_dungeon
+                dungeon["active"] = False
+                await save_spine_dungeon(self._uid, dungeon)
+            else:
+                from utils.ttrpg.dungeon import clear_dungeon
+                await clear_dungeon(self._uid)
             await interaction.followup.send("You have left the dungeon and returned to the entrance.")
         leave_btn.callback = _leave_cb
         self.add_item(leave_btn)
@@ -1374,6 +1379,36 @@ class DungeonView(discord.ui.View):
             await _handle_status(self._ctx, fake, _make_interaction_send(interaction), "", self._uid, self._uname, self._is_owner)
         status_btn.callback = _status_cb
         self.add_item(status_btn)
+
+        if dungeon.get("is_spine"):
+            rt = dungeon["rooms"].get(f"{px},{py}", {}).get("type", "empty")
+            if rt == "stairs_down":
+                descend_btn = discord.ui.Button(label="🔽 Descend", style=discord.ButtonStyle.success, row=4)
+                async def _descend_cb(interaction: discord.Interaction):
+                    if str(interaction.user.id) != self._uid: return
+                    await interaction.response.defer()
+                    from utils.ttrpg.spine_dungeon import generate_spine_floor, save_spine_dungeon, MAX_FLOOR
+                    current_floor = dungeon.get("floor_num", 1)
+                    if current_floor >= MAX_FLOOR:
+                        await interaction.followup.send("You have reached the bottom. There is no deeper.", ephemeral=True)
+                        return
+                    new_state = generate_spine_floor(current_floor + 1, dungeon.get("player_level", 1))
+                    await save_spine_dungeon(self._uid, new_state)
+                    await _send_dungeon_room(self._ctx, interaction.channel, self._uid, self._uname, self._is_owner, new_state, extra_text="\n\n*You descend into the dark.*")
+                descend_btn.callback = _descend_cb
+                self.add_item(descend_btn)
+            elif rt == "stairs_up" and dungeon.get("floor_num", 1) > 1:
+                ascend_btn = discord.ui.Button(label="🔼 Ascend", style=discord.ButtonStyle.success, row=4)
+                async def _ascend_cb(interaction: discord.Interaction):
+                    if str(interaction.user.id) != self._uid: return
+                    await interaction.response.defer()
+                    from utils.ttrpg.spine_dungeon import generate_spine_floor, save_spine_dungeon
+                    current_floor = dungeon.get("floor_num", 1)
+                    new_state = generate_spine_floor(current_floor - 1, dungeon.get("player_level", 1))
+                    await save_spine_dungeon(self._uid, new_state)
+                    await _send_dungeon_room(self._ctx, interaction.channel, self._uid, self._uname, self._is_owner, new_state, extra_text="\n\n*You ascend the stairs.*")
+                ascend_btn.callback = _ascend_cb
+                self.add_item(ascend_btn)
 
 
 class DungeonCombatView(discord.ui.View):

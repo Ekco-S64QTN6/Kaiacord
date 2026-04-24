@@ -1491,7 +1491,40 @@ MONSTERS = {
         "desc": "A devil that binds souls with chains forged from broken promises. Each link was a person once. He offers deals in a voice like dragging iron across stone.",
     },
 
+    # ══════════════════════════════════════════════════════════
+    # SPINE OF THE WORLD — IRONVEIN DEEP MEGA DUNGEON
+    # ══════════════════════════════════════════════════════════
 
+    "foreman_kregg": {
+        "name": "Foreman Kregg",
+        "hp": 280, "attack": 22, "defense": 18,
+        "xp": 600, "gil": 200, "tier": "boss",
+        "desc": "The Ironclad Guild's enforcer in the deep tunnels. Doesn't ask questions. Follows Valdric's orders. A pickaxe in one hand, a weighted chain in the other.",
+    },
+    "the_unburied": {
+        "name": "The Unburied",
+        "hp": 350, "attack": 24, "defense": 19,
+        "xp": 800, "gil": 250, "tier": "boss",
+        "desc": "A miner who died in the abandoned section and didn't stay dead. The Guild lantern still clips to his belt. He remembers the way out. He can never leave.",
+    },
+    "resonance_warden": {
+        "name": "Resonance Warden",
+        "hp": 420, "attack": 26, "defense": 21,
+        "xp": 1000, "gil": 350, "tier": "boss",
+        "desc": "An Aeridorian construct of pure crystal. Built to protect the resonance vein. It has been doing so for a thousand years. It is very good at its job.",
+    },
+    "the_last_of_the_party": {
+        "name": "The Last of the Party",
+        "hp": 480, "attack": 28, "defense": 22,
+        "xp": 1200, "gil": 400, "tier": "boss",
+        "desc": "He was the mining party's leader. He found what was sealed. He wasn't strong enough to resist it. His pickaxe is still in his hand. His eyes are not his own.",
+    },
+    "the_bound_architect": {
+        "name": "The Bound Architect",
+        "hp": 580, "attack": 32, "defense": 24,
+        "xp": 2000, "gil": 600, "tier": "boss",
+        "desc": "The thing that built the deep vault. Still here. Still building. It is not Aeridorian — it is what the Aeridorians found and tried to contain. It has been patient. It is finished waiting.",
+    },
 
 }
 
