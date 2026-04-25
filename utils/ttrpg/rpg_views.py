@@ -2192,11 +2192,18 @@ async def _dungeon_move(ctx_obj, interaction, uid, uname, is_owner, direction):
                     scale = 1.0 + (diff - 1) * 0.15
                     monster["hp"] = max(5, int(monster["hp"] * scale))
                     monster["attack"] = max(1, int(monster["attack"] * scale))
-                    # Cap non-boss HP by difficulty to prevent absurd mobs
-                    MOB_HP_CAPS = {1: 35, 2: 60, 3: 90}
-                    MOB_ATK_CAPS = {1: 10, 2: 14, 3: 18}
-                    mob_hp_cap = MOB_HP_CAPS.get(diff, 90)
-                    mob_atk_cap = MOB_ATK_CAPS.get(diff, 18)
+                    # Cap non-boss monsters by difficulty to prevent absurd stats.
+                    # Targets ~50-55% hit rate against a well-geared player at
+                    # the recommended level for that difficulty tier.
+                    MOB_HP_CAPS = {1: 35, 2: 60, 3: 90, 4: 130, 5: 180}
+                    MOB_ATK_CAPS = {1: 10, 2: 14, 3: 18, 4: 20, 5: 22}
+                    mob_hp_cap = MOB_HP_CAPS.get(diff, 180)
+                    mob_atk_cap = MOB_ATK_CAPS.get(diff, 22)
+                    # For spine dungeon, also enforce a level-based ATK hard cap
+                    # (same formula as overworld: DEF_cap - 10)
+                    _plvl = state.get("player_level", sheet.get("level", 1))
+                    _level_atk_cap = int(_plvl * 1.5 + 2)
+                    mob_atk_cap = min(mob_atk_cap, _level_atk_cap)
                     monster["hp"] = min(monster["hp"], mob_hp_cap)
                     monster["attack"] = min(monster["attack"], mob_atk_cap)
                 scaled_hp = monster["hp"] if isinstance(monster["hp"], int) else monster["hp"]

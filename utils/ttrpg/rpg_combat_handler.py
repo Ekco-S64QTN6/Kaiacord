@@ -690,6 +690,13 @@ async def _handle_hunt(ctx, msg, send, rest, uid, uname, is_owner):
         import math
         atk_mult = min(1.35, 1.0 + math.log(dist_mult) / math.log(2)) if dist_mult > 1.0 else dist_mult
         monster_instance["attack"] = int(monster_instance.get("attack", 0) * atk_mult)
+        # Hard cap: overworld ATK must not exceed what gives ~50-55% hit rate
+        # against the player's DEF cap (level*1.5+12).  Needed because boss-tier
+        # monsters (exdeath_ff5 ATK 32, tarrasque ATK 35) appear in overworld
+        # encounter tables and their base ATK already exceeds reasonable values.
+        _player_level = sheet.get("level", 1)
+        _overworld_atk_cap = int(_player_level * 1.5 + 2)   # DEF_cap - 10
+        monster_instance["attack"] = min(monster_instance["attack"], _overworld_atk_cap)
         monster_instance["id"] = f"{m_key}_{_uuid.uuid4().hex[:4]}"
         monster_instance["aggro_uid"] = uid  # personal instance
         

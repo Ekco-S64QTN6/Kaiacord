@@ -35,7 +35,7 @@ ROOM_EMOJIS = {
 DIRECTIONS   = {"N": (0, -1), "S": (0, 1), "W": (-1, 0), "E": (1, 0)}
 DIR_OPPOSITE = {"N": "S", "S": "N", "E": "W", "W": "E"}
 SPINE_DIR    = os.path.join("memory", "ttrpg", "dungeons")
-GRID_SIZE    = 10
+GRID_SIZE    = 15
 
 def _key(x, y): return f"{x},{y}"
 def _xy(k):     return tuple(int(v) for v in k.split(","))
@@ -122,26 +122,74 @@ def respawn_monsters(state: dict) -> dict:
 # ── Map renderer ──────────────────────────────────────────────────────────────
 
 def render_spine_map(state: dict) -> str:
-    """Render the spine dungeon floor as an emoji grid."""
+    """Render the spine dungeon floor as a viewport-cropped emoji grid.
+
+    Shows an 11×11 window centered on the player. Named rooms display
+    their label letter when unvisited, and their type emoji when visited.
+    """
     size = state["grid_size"]
     visited = set(state["visited"])
     rooms = state["rooms"]
+    px, py = state["player_pos"]
+
+    # Letter labels → emoji digits for unvisited rooms
+    LABEL_EMOJI = {
+        "A": "🇦", "B": "🇧", "C": "🇨", "D": "🇩", "E": "🇪",
+        "F": "🇫", "G": "🇬", "H": "🇭", "I": "🇮", "J": "🇯",
+        "K": "🇰", "L": "🇱", "M": "🇲", "N": "🇳",
+    }
+
+    # Viewport: 11×11 centered on player, clamped to grid bounds
+    VIEW = 11
+    half = VIEW // 2
+    vx0 = max(0, min(px - half, size - VIEW))
+    vy0 = max(0, min(py - half, size - VIEW))
+    vx1 = min(size, vx0 + VIEW)
+    vy1 = min(size, vy0 + VIEW)
 
     lines = []
-    for y in range(size):
+
+    # Top edge indicator
+    if vy0 > 0:
+        lines.append("  " * (VIEW // 2) + "⬆️")
+
+    for y in range(vy0, vy1):
         row = ""
-        for x in range(size):
+        for x in range(vx0, vx1):
             k = _key(x, y)
             if [x, y] == state["player_pos"]:
                 row += "🔴"
             elif k in visited:
-                rt = rooms.get(k, {}).get("type", R_EMPTY)
-                row += SPINE_ROOM_EMOJIS.get(rt, "⬜")
+                rm = rooms.get(k, {})
+                rt = rm.get("type", R_EMPTY)
+                if rm.get("cleared"):
+                    # Show type emoji for cleared rooms (so the map is readable)
+                    if rm.get("is_room"):
+                        row += ROOM_EMOJIS.get(rt, "⬜")
+                    else:
+                        row += "⬜"  # corridor
+                else:
+                    row += ROOM_EMOJIS.get(rt, "⬜")
             elif k in rooms:
-                row += "░░"
+                rm = rooms[k]
+                label = rm.get("label")
+                if label and label in LABEL_EMOJI:
+                    row += LABEL_EMOJI[label]
+                elif rm.get("is_room"):
+                    row += "░░"
+                else:
+                    row += "▫️"  # unvisited corridor
             else:
-                row += "⬛"  # Solid block to prevent Discord from trimming leading whitespace
+                row += "⬛"
         lines.append(row)
+
+    # Bottom edge indicator
+    if vy1 < size:
+        lines.append("  " * (VIEW // 2) + "⬇️")
+
+    floor_num = state.get("floor_num", 1)
+    lines.insert(0, f"⛏️ **Floor {floor_num}** — {state.get('theme_name', 'The Ironvein Deep')}")
+
     return "\n".join(lines)
 
 
