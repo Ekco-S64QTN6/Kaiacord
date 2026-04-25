@@ -685,7 +685,11 @@ async def _handle_hunt(ctx, msg, send, rest, uid, uname, is_owner):
         # Apply distance difficulty scaling
         scaled_hp = int(monster_instance["hp"] * dist_mult)
         monster_instance["hp"] = {"current": scaled_hp, "max": scaled_hp}
-        monster_instance["attack"] = int(monster_instance.get("attack", 0) * dist_mult)
+        # ATK scales with diminishing returns to prevent impossible-to-dodge hits
+        # at high dist_mult values (e.g. Spine at 1.75x).  HP stays linear.
+        import math
+        atk_mult = min(1.35, 1.0 + math.log(dist_mult) / math.log(2)) if dist_mult > 1.0 else dist_mult
+        monster_instance["attack"] = int(monster_instance.get("attack", 0) * atk_mult)
         monster_instance["id"] = f"{m_key}_{_uuid.uuid4().hex[:4]}"
         monster_instance["aggro_uid"] = uid  # personal instance
         

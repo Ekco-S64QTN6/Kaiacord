@@ -308,7 +308,7 @@ SEASONAL_FARM_BONUSES = {
 
 SEASONAL_SHOP = {
     "spring": {
-        "consumables": ["antidote"],           # poison more common, Hemlock stocks cures
+        "consumables": ["eye_drops"],           # poison more common, Hemlock stocks cures
     },
     "summer": {
         "consumables": ["tonic", "elixir"],    # travelers stocking up, supply is higher

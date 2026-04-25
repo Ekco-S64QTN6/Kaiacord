@@ -1037,7 +1037,7 @@ async def _handle_rest(ctx, msg, send, rest, uid, uname, is_owner):
     
     has_ale = "ale_warmth" in sheet.get("conditions", [])
     if hp_cur >= hp_max and not has_ale:
-        return await msg.channel.send(embed=discord.Embed(description=f"**{sheet['character_name']}** is already at maximum health.\nMira raises an eyebrow. *\"You're paying for a room you won't use?\"*", color=0x888888))
+        return await msg.channel.send(embed=discord.Embed(description=f"**{sheet['character_name']}** is already at maximum health.\n{innkeeper} raises an eyebrow. *\"You're paying for a room you won't use?\"*", color=0x888888))
 
     # Clear ale temp HP and condition BEFORE healing
     if "ale_warmth" in sheet.get("conditions", []):
@@ -1053,10 +1053,11 @@ async def _handle_rest(ctx, msg, send, rest, uid, uname, is_owner):
 
     await save(sheet)
     
-    _hearthday_msg = "\n🍺 *Mira's treat — rest is free today.*" if _hearthday else ""
+    _hearthday_msg = f"\n🍺 *{innkeeper}'s treat — rest is free today.*" if _hearthday else ""
+    inn_name = "the Rusty Pick" if loc == "rusty_pick" else "the Stone Hearth"
     view = _make_status_view(ctx, msg, uid, uname, is_owner)
     await msg.channel.send(embed=discord.Embed(
-        description=f"🛏️ **{sheet['character_name']}** rests at the Stone Hearth. (-{cost} gil)\nHP restored: **+{healed}** (Full)\nRemaining gil: {sheet['gil']}g\n\n*You feel invigorated. (+1 Hunt tomorrow)*{_hearthday_msg}",
+        description=f"🛏️ **{sheet['character_name']}** rests at {inn_name}. (-{cost} gil)\nHP restored: **+{healed}** (Full)\nRemaining gil: {sheet['gil']}g\n\n*You feel invigorated. (+1 Hunt tomorrow)*{_hearthday_msg}",
         color=0x44aa44
     ), view=view)
 

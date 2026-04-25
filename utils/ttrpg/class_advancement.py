@@ -47,6 +47,7 @@ _UNDEAD_NAMES = {
     "skeleton", "zombie", "ghoul", "ghost", "lich", "revenant", "wight",
     "spectre", "skull knight", "dark knight", "shadow lich", "dullahan",
     "decaying skeleton", "tonberry king", "elara (turned)",
+    "necrophobe", "shadow dancer",
 }
 
 PROC_EMOJIS = {
@@ -442,12 +443,7 @@ def apply_advanced_class_to_combat(sheet: dict, player_damage: int,
         return result
 
     m_name_lower = monster.get("name", "").lower()
-    UNDEAD_NAMES = {
-        "skeleton", "zombie", "ghoul", "ghost", "lich", "revenant", "wight",
-        "spectre", "skull knight", "dark knight", "shadow lich", "tonberry king",
-        "necrophobe", "shadow dancer", "decaying skeleton",
-    }
-    is_undead = any(u in m_name_lower for u in UNDEAD_NAMES)
+    is_undead = any(u in m_name_lower for u in _UNDEAD_NAMES)
 
     # Paladin — smite undead, heal on kill
     if advanced == "Paladin":

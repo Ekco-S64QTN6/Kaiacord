@@ -3,75 +3,53 @@ Alchemy System - Recipes and brewing logic for Aethelgard
 """
 
 ALCHEMY_RECIPES = {
-    "antidote": {
-        "name": "Antidote",
-        "ingredients": ["silver_moss", "dire_root"],
-        "result": "antidote",
-        "description": "A clear, bitter brew that neutralizes toxins.",
-        "xp": 25,
-    },
     "potion": {
         "name": "Health Potion",
         "ingredients": ["blood_thistle", "honey_sap"],
         "result": "potion_standard",
         "description": "A standard restorative brew. Smells like copper and honey.",
-        "xp": 20,
     },
     "hi_potion_brew": {
         "name": "Hi-Potion",
         "ingredients": ["blood_thistle", "silver_moss"],
         "result": "hi_potion",
         "description": "A stronger restorative — the moss stabilizes the thistle's potency.",
-        "xp": 30,
     },
     "elixir_brew": {
         "name": "Elixir",
         "ingredients": ["silverleaf", "dire_root"],
         "result": "elixir",
         "description": "A deep green draught. The Silverleaf's shimmer fades as the root absorbs it.",
-        "xp": 40,
     },
     "xp_tonic": {
         "name": "Experience Tonic",
         "ingredients": ["silverleaf", "emerald"],
         "result": "xp_tonic",
         "description": "The emerald dissolves into a luminous green liquid. Sharpens the mind.",
-        "xp": 35,
     },
     "hunters_draught": {
         "name": "Hunter's Draught",
         "ingredients": ["dire_root", "topaz"],
         "result": "hunters_draught",
         "description": "A bitter amber tonic. The topaz dust settles into an oily film that smells like pine.",
-        "xp": 30,
     },
     "ironbark_tonic": {
         "name": "Ironbark Tonic",
         "ingredients": ["dire_root", "pearl"],
         "result": "ironbark_tonic",
         "description": "The root hardens as it absorbs the pearl's essence. Skin toughens on contact.",
-        "xp": 30,
     },
     "firebrew": {
         "name": "Firebrew",
         "ingredients": ["blood_thistle", "fire_opal"],
         "result": "firebrew",
         "description": "The opal cracks and bleeds fire into the brew. Handle with care.",
-        "xp": 35,
-    },
-    "greater_antidote": {
-        "name": "Greater Antidote",
-        "ingredients": ["silver_moss", "opal"],
-        "result": "panacea",
-        "description": "The opal refracts the moss's healing energy into every color. Cures anything.",
-        "xp": 45,
     },
     "phoenix_brew": {
         "name": "Phoenix Brew",
         "ingredients": ["silverleaf", "star_ruby"],
         "result": "phoenix_down",
         "description": "The star ruby ignites the silverleaf. It burns without consuming. Life from flames.",
-        "xp": 50,
     },
 }
 
@@ -141,8 +119,8 @@ INGREDIENT_DISCOVERS = {
     # Original herb recipes
     "blood_thistle": "potion",
     "honey_sap":     "potion",
-    "silver_moss":   "antidote",
-    "dire_root":     "antidote",
+    "silver_moss":   "hi_potion_brew",
+    "dire_root":     "elixir_brew",
     # New recipes — herbs unlock them
     "silverleaf":    "elixir_brew",
     # Gems unlock their specific recipes
@@ -150,7 +128,6 @@ INGREDIENT_DISCOVERS = {
     "topaz":         "hunters_draught",
     "pearl":         "ironbark_tonic",
     "fire_opal":     "firebrew",
-    "opal":          "greater_antidote",
     "star_ruby":     "phoenix_brew",
 }
 
@@ -158,7 +135,7 @@ INGREDIENT_DISCOVERS = {
 # picking up a second ingredient for a DIFFERENT recipe reveals that one too.
 SECONDARY_DISCOVERS = {
     "blood_thistle": ["hi_potion_brew", "firebrew"],
-    "silver_moss":   ["hi_potion_brew", "greater_antidote"],
+    "silver_moss":   ["hi_potion_brew"],
     "dire_root":     ["elixir_brew", "hunters_draught", "ironbark_tonic"],
     "silverleaf":    ["xp_tonic", "phoenix_brew"],
 }

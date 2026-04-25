@@ -1338,7 +1338,15 @@ HEMLOCK_STOCK_ARMOR   = ['leather_armor', 'mages_robe', 'bronze_armor', 'fur_clo
 HEMLOCK_STOCK_HEADGEAR = ['iron_helm', 'scouts_hood', 'mages_cap', 'bronze_helm', 'soldiers_cap', 'ranger_hat', 'shadow_cap', 'ember_cowl', 'novice_hood']
 HEMLOCK_STOCK_BOOTS    = ['worn_boots', 'heavy_boots', 'trackers_boots', 'soft_slippers', 'bronze_sabatons']
 HEMLOCK_STOCK_ACCESSORIES = ['copper_ring', 'warriors_bracer', 'scouts_bracer', 'scholars_bracelet']
-HEMLOCK_STOCK_CONSUMABLES = ['healing_herb', 'bandage', 'tonic', 'torch', 'antidote']
+HEMLOCK_STOCK_CONSUMABLES = ['healing_herb', 'bandage', 'tonic', 'torch']
+
+# What Old Pell sells (Grimstone — hardware & provisions)
+PELLS_STOCK_WEAPONS     = ['rusty_hand_axe', 'iron_flail', 'skinning_knife']
+PELLS_STOCK_ARMOR       = ['leather_armor', 'iron_plating']
+PELLS_STOCK_HEADGEAR    = ['iron_helm', 'worn_cap']
+PELLS_STOCK_BOOTS       = ['heavy_boots', 'worn_boots']
+PELLS_STOCK_ACCESSORIES = ['warriors_bracer']
+PELLS_STOCK_CONSUMABLES = ['torch', 'bandage', 'healing_herb', 'tonic', 'lightstone']
 
 CONSUMABLES = {
     "potion_standard": {"name": "Health Potion", "hp_restore": 25, "value": 40, "tier": 2,
@@ -1363,7 +1371,7 @@ CONSUMABLES = {
     "aeridor_shard":  {"name": "Aeridor Crystal Shard", "value": 100, "tier": 3},
     "tonberry_knife": {"name": "Tonberry's Knife",      "value": 100, "tier": 3},
     "lucky_charm":    {"name": "Lucky Charm",          "value": 40, "on_use": "luck_roll_bonus", "tier": 2},
-    "antidote":       {"name": "Antidote",             "value": 8,   "on_use": "cure_poison", "tier": 1},
+    "antidote":       {"name": "Antidote",             "value": 8,   "on_use": "cure_poison", "tier": 1, "deprecated": True},
     # Herbalism Ingredients
     "silver_moss":    {"name": "Silvermoss",           "value": 40, "description": "A glowing moss found near water.", "tier": 2},
     "silverleaf":     {"name": "Silverleaf",           "value": 200, "description": "A rare, shimmering herb found on the Trade Road.", "tier": 3},
@@ -1372,10 +1380,10 @@ CONSUMABLES = {
     "honey_sap":      {"name": "Honey Sap",            "value": 15, "description": "Sweet, sticky sap from ancient trees.", "tier": 1},
     "gilded_mushroom": {"name": "Gilded Mushroom",     "value": 600, "description": "A rare, gold-capped mushroom. Hemlock pays well for these.", "tier": 5},
     "mognet_letter":   {"name": "Mognet Letter",       "value": 0,  "description": "A sealed letter addressed to 'Someone in Oakhaven'.", "tier": 0},
-    "panacea":        {"name": "Panacea",             "value": 80,  "description": "Cures all status ailments.", "tier": 4},
-    "gold_needle":    {"name": "Gold Needle",         "value": 40, "description": "Cures petrification.", "tier": 2},
-    "maidens_kiss":   {"name": "Maiden's Kiss",       "value": 40, "description": "Cures the 'Toad' status.", "tier": 2},
-    "soft":           {"name": "Soft",                "value": 40, "description": "Cures petrification.", "tier": 2},
+    "panacea":        {"name": "Panacea",             "value": 80,  "description": "Cures all status ailments.", "tier": 4, "deprecated": True},
+    "gold_needle":    {"name": "Gold Needle",         "value": 40, "description": "Cures petrification.", "tier": 2, "deprecated": True},
+    "maidens_kiss":   {"name": "Maiden's Kiss",       "value": 40, "description": "Cures the 'Toad' status.", "tier": 2, "deprecated": True},
+    "soft":           {"name": "Soft",                "value": 40, "description": "Cures petrification.", "tier": 2, "deprecated": True},
     # Craftable Buff Potions
     "xp_tonic":       {"name": "Experience Tonic",    "value": 60, "on_use": "xp_boost",  "description": "+25% XP on next hunt.",      "tier": 3},
     "hunters_draught": {"name": "Hunter's Draught",   "value": 55, "on_use": "hunt_bonus", "description": "+1 bonus hunt today.",       "tier": 3},
@@ -1418,7 +1426,7 @@ def get_caravan_stock():
         for k, v in reg.items():
             if v.get("tier") in (2, 3) and not v.get("droppable_only"):
                 gear_keys.append(k)
-    consumable_keys = ["potion_standard", "lightstone", "gold_needle", "maidens_kiss", "soft"]
+    consumable_keys = ["potion_standard", "lightstone"]
     return gear_keys, consumable_keys
 
 
@@ -1434,7 +1442,7 @@ ALIASES = {
     "bow": "shortbow",
     "fur": "fur_cloak",
     "charm": "lucky_charm",
-    "anti": "antidote",
+
     "mushroom": "gilded_mushroom",
     "letter": "mognet_letter",
     "silverleaf": "silverleaf",
@@ -1467,8 +1475,7 @@ ALIASES = {
     "mox":      "mox_pearl",
     "belt":     "giant_belt",
     "ogre gauntlets": "ogre_gauntlets",
-    "needle":   "gold_needle",
-    "kiss":     "maidens_kiss",
+
     "excalibur":"excalibur_ff",
     "ragnarok": "ragnarok_ff",
     "ultima":   "ultima_weapon",

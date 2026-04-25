@@ -865,7 +865,7 @@ def _scale_boss_to_level(monster: dict, player_level: int) -> dict:
     m["defense"]= max(8,  monster["defense"] - max(0, 5 - player_level))
 
     BOSS_HP_CAPS  = {1:35,2:45,3:55,4:65,5:80,6:110,7:140,8:180,9:220,10:270,11:330,12:400,13:480,14:570,15:680}
-    BOSS_ATK_CAPS = {1:6, 2:8, 3:10,4:12,5:14,6:16, 7:18, 8:20, 9:22, 10:24, 11:26, 12:28, 13:30, 14:32, 15:35}
+    BOSS_ATK_CAPS = {1:6, 2:8, 3:10,4:12,5:14,6:16, 7:18, 8:20, 9:22, 10:17, 11:18, 12:20, 13:21, 14:23, 15:24}
 
     hp_cap  = BOSS_HP_CAPS.get(player_level)
     atk_cap = BOSS_ATK_CAPS.get(player_level)

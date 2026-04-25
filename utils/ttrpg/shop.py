@@ -26,6 +26,20 @@ def get_shop_inventory(location: str = "hemlocks_store") -> tuple[dict, dict, di
         consumables = {k: CONSUMABLES[k] for k in consumable_keys if k in CONSUMABLES}
         return weapons, armor, headgear, boots, accessories, consumables
 
+    if location == "pells_depot":
+        from utils.ttrpg.equipment_registry import (
+            PELLS_STOCK_WEAPONS, PELLS_STOCK_ARMOR,
+            PELLS_STOCK_HEADGEAR, PELLS_STOCK_BOOTS,
+            PELLS_STOCK_ACCESSORIES, PELLS_STOCK_CONSUMABLES,
+        )
+        weapons     = {k: WEAPONS[k]     for k in PELLS_STOCK_WEAPONS     if k in WEAPONS}
+        armor       = {k: ARMOR[k]       for k in PELLS_STOCK_ARMOR       if k in ARMOR}
+        headgear    = {k: HEADGEAR[k]    for k in PELLS_STOCK_HEADGEAR    if k in HEADGEAR}
+        boots       = {k: BOOTS[k]       for k in PELLS_STOCK_BOOTS       if k in BOOTS}
+        accessories = {k: ACCESSORIES[k] for k in PELLS_STOCK_ACCESSORIES if k in ACCESSORIES}
+        consumables = {k: CONSUMABLES[k] for k in PELLS_STOCK_CONSUMABLES if k in CONSUMABLES}
+        return weapons, armor, headgear, boots, accessories, consumables
+
     # Default: Hemlock's Store
     season = get_season()
     seasonal = SEASONAL_SHOP.get(season, {})

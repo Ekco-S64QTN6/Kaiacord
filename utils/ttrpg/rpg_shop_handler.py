@@ -88,7 +88,12 @@ async def _handle_shop(ctx, msg, send, rest, uid, uname, is_owner):
         if chunk:
             embed.add_field(name=name if part == 1 else f"{name} (Cont.)", value=chunk, inline=False)
 
-    shop_name = "🐪 Corvus Road Trading Co." if loc == "caravan" else "🏪 Hemlock's Store"
+    if loc == "caravan":
+        shop_name = "🐪 Corvus Road Trading Co."
+    elif loc == "pells_depot":
+        shop_name = "🪢 Old Pell's Depot"
+    else:
+        shop_name = "🏪 Hemlock's Store"
     shop_color = LOCATION_COLORS.get(loc, 0x4488cc)
     embed = discord.Embed(title=shop_name, color=shop_color)
 
@@ -116,7 +121,7 @@ async def _handle_buy(ctx, msg, send, rest, uid, uname, is_owner):
     
     sheet = await load(uid)
     if not sheet: return
-    if sheet.get("location") not in ("hemlocks_store", "caravan"):
+    if sheet.get("location") not in ("hemlocks_store", "caravan", "pells_depot"):
         return await msg.channel.send(embed=discord.Embed(description="You must be at a merchant location to buy items.", color=0xcc4444))
         
     if not rest.strip():
@@ -171,7 +176,7 @@ async def _handle_sell(ctx, msg, send, rest, uid, uname, is_owner):
     
     sheet = await load(uid)
     if not sheet: return
-    if sheet.get("location") not in ("hemlocks_store", "caravan"):
+    if sheet.get("location") not in ("hemlocks_store", "caravan", "pells_depot"):
         return await msg.channel.send(embed=discord.Embed(description="You must remain at a merchant location to sell items.", color=0xcc4444))
         
     if not rest.strip():
@@ -213,9 +218,9 @@ async def _handle_sell_all_gear(ctx, msg, send, rest, uid, uname, is_owner):
     sheet = await load(uid)
     if not sheet: return
 
-    if sheet.get("location") not in ("hemlocks_store", "caravan"):
+    if sheet.get("location") not in ("hemlocks_store", "caravan", "pells_depot"):
         return await msg.channel.send(embed=discord.Embed(
-            description="You need to be at a merchant to sell.\n`!rpg go hemlocks_store`",
+            description="You need to be at a merchant to sell.\n`!rpg go hemlocks_store` or `!rpg go pells_depot`",
             color=0xcc4444
         ))
 
@@ -257,9 +262,10 @@ async def _handle_sell_all_gear(ctx, msg, send, rest, uid, uname, is_owner):
         sold_lines.append(f"• {item['name']} → {sell_price}g")
         buyback_entries.append({"key": item_key, "name": item["name"], "repurchase_price": sell_price})
 
+    merchant_name = "Old Pell" if sheet.get("location") == "pells_depot" else "Hemlock"
     if not sold_lines:
         return await msg.channel.send(embed=discord.Embed(
-            description="*Hemlock peers into your pack.*\n\"Nothing in here worth buying.\"",
+            description=f"*{merchant_name} peers into your pack.*\n\"{('Nothing in here I need.' if merchant_name == 'Old Pell' else 'Nothing in here worth buying.')}\""  ,
             color=0x888888
         ))
 
@@ -278,7 +284,7 @@ async def _handle_sell_all_gear(ctx, msg, send, rest, uid, uname, is_owner):
     embed = discord.Embed(
         title="💰 Bulk Sale Complete",
         description=(
-            f"*Hemlock sweeps everything off the counter and into his back room.*\n\n"
+            f"*{merchant_name} sweeps everything off the counter and into the back.*\n\n"
             f"{summary}\n\n"
             f"**Total: +{total_gil}g** · Running total: {sheet['gil']}g"
         ),
