@@ -78,6 +78,8 @@ def generate_spine_floor(floor_num: int, player_level: int) -> dict:
         "rooms":         rooms,
         "visited":       [stairs_up],
         "grid_size":     layout["grid_size"],
+        "stairs_up_key": stairs_up,
+        "stairs_down_key": layout.get("stairs_down_key"),
         "active":        True,
         "xp_gained":     0,
         "gil_gained":    0,
@@ -241,9 +243,17 @@ async def load_spine_dungeon(user_id: str, target_floor: int = None) -> Optional
         state["active"] = container["active"]
         state["last_respawn_date"] = container["last_respawn_date"]
         
+        layout = FLOORS.get(int(active_fnum))
+        if layout:
+            if "stairs_up_key" not in state:
+                state["stairs_up_key"] = layout.get("stairs_up_key")
+            if "stairs_down_key" not in state:
+                state["stairs_down_key"] = layout.get("stairs_down_key")
+        
         if target_floor is None and not container.get("active") and active_fnum == "1":
             from utils.ttrpg.spine_dungeon import _xy
-            state["player_pos"] = list(_xy(state["stairs_up_key"]))
+            if state.get("stairs_up_key"):
+                state["player_pos"] = list(_xy(state["stairs_up_key"]))
             state["active"] = True
             
         return state
