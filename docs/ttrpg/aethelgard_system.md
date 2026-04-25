@@ -1,5 +1,5 @@
 # ⚔️ Aethelgard — System Reference & Player Manual
-*Build 0.3.0 · April 18, 2026 — Level 15 Expansion*
+*Build 0.4.0 · April 25, 2026 — Endgame Expansion & Balance*
 
 > *"Oakhaven was built on the bones of Aeridor. Everything here is built on something older."*
 
@@ -142,7 +142,7 @@ All navigation is button-driven. Players use the HUD buttons or `!rpg go <locati
 ```
                   [Spine of the World]
                          |
-                   [Grimstone]  ← locked
+                   [Grimstone]
                          |
              [Trade Road] ──── [Aeridor Ruins]
             /            \
@@ -171,7 +171,10 @@ All navigation is button-driven. Players use the HUD buttons or `!rpg go <locati
 | **Bank** | Deposit, withdraw (protects Gil from blackout loss) |
 | **Housing District** | Buy a home, `!rpg home` (Farming, Pets, Decorate) |
 | **Tricklebrook Pond** | `!rpg fish`, `!rpg fish_shop` (Buy bait/poles) |
-| **Caravan** | Only present during certain events. |
+| **Grimstone** | Look, travel to Spine, talk to NPCs |
+| **The Rusty Pick** | Rest (7g), drink (+4 temp HP, 3g), rumor |
+| **Pell's Depot** | Shop, buy, sell, talk Pell |
+| **Caravan** | Only present during certain noon events. |
 | **Hunting zones** | Hunt (1 of 5 daily hunts), look |
 
 ---
@@ -182,7 +185,8 @@ Fully automatic. Player never touches dice.
 
 **Attack:** `d20 + class_attack_mod + weapon_bonus vs monster_DEF`
 **Damage:** `weapon_die + class_attack_mod`
-**Player DEF:** `10 + DEX_mod + armor_bonus`
+**Player DEF:** `10 + DEX_mod + armor_bonus` (Max `Level * 1.5 + 12`)
+**Monster ATK:** Uses actual monster ATK stat. Overworld scaling uses logarithmic dampening (max 1.35x based on distance).
 **Crit (nat 20):** Damage dice doubled
 **Fumble (nat 1):** Auto-miss
 
@@ -256,6 +260,9 @@ CHA modifier = `(CHA - 10) // 2` (standard TTRPG formula).
 
 Procedurally generated 5×5 grid, 9-12 rooms. Entered via button at hunting locations.
 
+### The Spine of the World
+A massive 15-floor mega-dungeon located past Grimstone. Unlike procedural dungeons, the Spine features a fixed, hand-crafted layout with intricate floor connectivity, static encounters, and unique bosses.
+
 ### Room Types
 
 | Type | Weight | Description |
@@ -272,8 +279,9 @@ Procedurally generated 5×5 grid, 9-12 rooms. Entered via button at hunting loca
 ### Secret Shrine (Quest)
 Some shrine rooms contain a **sealed Aeridorian shrine** with a three-flame seal. Players who've studied the flame and altar at the Oakhaven Shrine (`look flame`, `look altar`) can interact.
 
-### Boss Scaling
-Boss stats scale to player level: `0.45x at L1 → 1.0x at L9`.
+### Boss Scaling & Encounters
+Boss stats scale to player level: `0.45x at L1 → 1.0x at L15`. Dungeon Boss ATK caps are tightly calibrated to ensure a ~50-55% hit rate.
+**Boss Room Warning:** Entering a boss room triggers a narrative warning, allowing players a chance to retreat before engaging.
 
 ---
 
@@ -375,7 +383,12 @@ All temporary conditions are cleared on daily reset (midnight). Only `Blessed` a
 | The Hooded Figure | Stone Hearth | Mystery, lore hints |
 | Watchtower Guard | Watchtower | Scout info, quest giver |
 | Sister Maren | Herbalist's Hut | Alchemy, herbalism quests |
-| Caelindra | Stone Hearth | Bard, sings world events |
+| Caelindra | Stone Hearth | Bard, sings world events at noon |
+| Marta | The Rusty Pick (Grimstone) | Innkeeper |
+| Old Pell | Pell's Depot (Grimstone) | Merchant, hardware supplies |
+| Rook | Grimstone | Town guard / watcher |
+| Valdric | Grimstone | Mercenary, quest giver |
+| Senna | Grimstone | Local resident |
 
 NPC dialogue is LLM-generated using `build_npc_prompt()` with context: season, time of day, CHA modifier, active quest status, and NPC-specific topics.
 
@@ -388,6 +401,11 @@ NPC dialogue is LLM-generated using `build_npc_prompt()` with context: season, t
 | A Stranger in the Mud | Elara | 1 | Talk barkeep, hemlock, elara | 50 XP, 20 Gil |
 | The Darkening Woods | Guard | 3 | Hunt whisperwood_deep, talk guard | 150 XP, 100 Gil, lucky_charm |
 | Sister Maren's Request | Maren | 4 | Kill bandit, talk maren | 200 XP, 50 Gil, potion recipe |
+| The Aeridorian Signal | Valdric | 5 | Find signal in ruins | 300 XP, 100 Gil |
+| The Road to Iron | Elara | 7 | Travel to Grimstone, talk to Pell | 600 XP, 250 Gil |
+| The Final Silence | Valdric | 15 | Delve the Spine of the World | 2000 XP, 1500 Gil |
+
+*Note: This is a partial list. There are currently 13+ quests spanning levels 1 through 15.*
 
 ---
 
@@ -430,12 +448,17 @@ The game uses **Discord button-based navigation** (no command syntax shown to pl
 
 - **HUD** — Main status embed with HP bar, XP, Gil, equipment, hunts
 - **Navigation View** — Travel buttons for connected locations
-- **Shop View** — Buy/sell item selects
+- **Shop View** — Buy/sell item selects, including a **Consumable Quantity Picker** for bulk transactions
 - **Dungeon View** — Direction buttons (N/S/E/W), Use Item, Leave
 - **Combat View** — Attack, Flee, Use Item buttons
 - **Class Advancement View** — Choice buttons at level 5
 
 HUD title format: `(Title) Class Lv.N` — e.g. `(Channeler) Mage Lv.3`
+
+### Background Tasks & Automation
+- **Dawn Reset (Midnight):** Resets daily hunts, clears temporary conditions, triggers farm growth, and logs dawn announcements.
+- **Noon Events (Noon):** Triggers dynamic world events like Caravan Arrivals or Caelindra's Bard Performances.
+- **Automatic XP:** Non-combat actions (`!rpg action`) and combat wins automatically grant and distribute XP to the player/session.
 
 ---
 
