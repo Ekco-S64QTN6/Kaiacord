@@ -124,22 +124,15 @@ def respawn_monsters(state: dict) -> dict:
 def render_spine_map(state: dict) -> str:
     """Render the spine dungeon floor as a viewport-cropped emoji grid.
 
-    Shows an 11×11 window centered on the player. Named rooms display
-    their label letter when unvisited, and their type emoji when visited.
+    Matches the regular dungeon renderer style:
+    🔴 = player, type emoji = visited room, ░░ = unvisited, wall = empty space.
+    Uses an 11×11 viewport centered on the player.
     """
     size = state["grid_size"]
     visited = set(state["visited"])
     rooms = state["rooms"]
     px, py = state["player_pos"]
 
-    # Letter labels → emoji digits for unvisited rooms
-    LABEL_EMOJI = {
-        "A": "🇦", "B": "🇧", "C": "🇨", "D": "🇩", "E": "🇪",
-        "F": "🇫", "G": "🇬", "H": "🇭", "I": "🇮", "J": "🇯",
-        "K": "🇰", "L": "🇱", "M": "🇲", "N": "🇳",
-    }
-
-    # Viewport: 11×11 centered on player, clamped to grid bounds
     VIEW = 11
     half = VIEW // 2
     vx0 = max(0, min(px - half, size - VIEW))
@@ -149,9 +142,8 @@ def render_spine_map(state: dict) -> str:
 
     lines = []
 
-    # Top edge indicator
     if vy0 > 0:
-        lines.append("  " * (VIEW // 2) + "⬆️")
+        lines.append("　　" * (VIEW // 2) + "⬆️")
 
     for y in range(vy0, vy1):
         row = ""
@@ -160,32 +152,16 @@ def render_spine_map(state: dict) -> str:
             if [x, y] == state["player_pos"]:
                 row += "🔴"
             elif k in visited:
-                rm = rooms.get(k, {})
-                rt = rm.get("type", R_EMPTY)
-                if rm.get("cleared"):
-                    # Show type emoji for cleared rooms (so the map is readable)
-                    if rm.get("is_room"):
-                        row += ROOM_EMOJIS.get(rt, "⬜")
-                    else:
-                        row += "⬜"  # corridor
-                else:
-                    row += ROOM_EMOJIS.get(rt, "⬜")
+                rt = rooms.get(k, {}).get("type", R_EMPTY)
+                row += ROOM_EMOJIS.get(rt, "⬛")
             elif k in rooms:
-                rm = rooms[k]
-                label = rm.get("label")
-                if label and label in LABEL_EMOJI:
-                    row += LABEL_EMOJI[label]
-                elif rm.get("is_room"):
-                    row += "░░"
-                else:
-                    row += "▫️"  # unvisited corridor
+                row += "░░"
             else:
-                row += "⬛"
+                row += "　　"   # full-width space (wall)
         lines.append(row)
 
-    # Bottom edge indicator
     if vy1 < size:
-        lines.append("  " * (VIEW // 2) + "⬇️")
+        lines.append("　　" * (VIEW // 2) + "⬇️")
 
     floor_num = state.get("floor_num", 1)
     lines.insert(0, f"⛏️ **Floor {floor_num}** — {state.get('theme_name', 'The Ironvein Deep')}")
