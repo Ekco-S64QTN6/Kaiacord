@@ -261,7 +261,7 @@ CHA modifier = `(CHA - 10) // 2` (standard TTRPG formula).
 Procedurally generated 5×5 grid, 9-12 rooms. Entered via button at hunting locations.
 
 ### The Spine of the World
-A massive 15-floor mega-dungeon located past Grimstone. Unlike procedural dungeons, the Spine features a fixed, hand-crafted layout with intricate floor connectivity, static encounters, and unique bosses.
+A massive 5-floor mega-dungeon located past Grimstone. Unlike procedural dungeons, the Spine features a fixed, hand-crafted 24x24 layout with intricate floor connectivity, static encounters, dynamic hallway traps, and unique bosses.
 
 ### Room Types
 
