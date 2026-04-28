@@ -1241,6 +1241,17 @@ async def _get_active_view(ctx, msg, uid, uname, is_owner):
         else:
             return DungeonView(ctx, uid, uname, is_owner, d_state)
 
+    from utils.ttrpg.spine_dungeon import load_spine_dungeon
+    s_state = await load_spine_dungeon(uid)
+    if s_state and s_state.get("active"):
+        ac = s_state.get("active_combat")
+        if ac:
+            monster = ac.get("monster", {})
+            m_name = ac.get("boss_name") or monster.get("name", "monster")
+            return DungeonCombatView(ctx, uid, uname, is_owner, m_name)
+        else:
+            return DungeonView(ctx, uid, uname, is_owner, s_state)
+
     return None
 
 

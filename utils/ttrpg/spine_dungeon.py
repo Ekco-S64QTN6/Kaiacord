@@ -2,7 +2,7 @@
 The Ironvein Deep — Static Mega Dungeon beneath the Spine of the World.
 
 Completely separate from the procedural dungeon system in dungeon.py.
-50 floors with persistent state and daily monster respawn.
+77 floors with persistent state and daily monster respawn.
 """
 import secrets
 import json
@@ -51,12 +51,12 @@ with open(_LAYOUT_FILE, "r") as f:
     FLOORS_STR = json.load(f)
     
 FLOORS = {int(k): v for k, v in FLOORS_STR.items()}
-MAX_FLOOR = 50
+MAX_FLOOR = 77
 
-# Loot tier scales with depth: floors 1-10 → tier 3, 11-20 → 4, 21+ → 5
+# Loot tier scales with depth
 def _loot_tier(floor_num):
-    if floor_num <= 10: return 3
-    if floor_num <= 20: return 4
+    if floor_num <= 25: return 3
+    if floor_num <= 50: return 4
     return 5
 
 FLOOR_LOOT_TIER = {f: _loot_tier(f) for f in range(1, MAX_FLOOR + 1)}
@@ -151,7 +151,7 @@ def render_spine_map(state: dict) -> str:
     lines = []
 
     if vy0 > 0:
-        lines.append("　　" * (VIEW // 2) + "⬆️")
+        lines.append("⬛" * (VIEW // 2) + "⬆️")
 
     for y in range(vy0, vy1):
         row = ""
@@ -165,11 +165,11 @@ def render_spine_map(state: dict) -> str:
             elif k in rooms:
                 row += "░░"
             else:
-                row += "　　"   # full-width space (wall)
+                row += "⬛"   # wall
         lines.append(row)
 
     if vy1 < size:
-        lines.append("　　" * (VIEW // 2) + "⬇️")
+        lines.append("⬛" * (VIEW // 2) + "⬇️")
 
     floor_num = state.get("floor_num", 1)
     lines.insert(0, f"⛏️ **Floor {floor_num}** — {state.get('theme_name', 'The Ironvein Deep')}")
