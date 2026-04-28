@@ -72,7 +72,10 @@ async def _dungeon_combat_round(ctx_obj, interaction, uid, uname, is_owner):
         save_func = save_dungeon
 
     if not state or not state.get("active_combat"):
-        await interaction.followup.send("No active combat.", ephemeral=True)
+        try:
+            await interaction.followup.send("No active combat.", ephemeral=True)
+        except discord.errors.NotFound:
+            pass
         return
 
     combat = state["active_combat"]
@@ -317,7 +320,10 @@ async def _dungeon_combat_round(ctx_obj, interaction, uid, uname, is_owner):
 
             embed = discord.Embed(title="⚔️ Victory", description=exchange_text, color=0x2D5A27)
             view = DungeonView(ctx_obj, uid, uname, is_owner, state)
-            await interaction.followup.send(embed=embed, view=view)
+            try:
+                await interaction.followup.send(embed=embed, view=view)
+            except discord.errors.NotFound:
+                await interaction.channel.send(embed=embed, view=view)
 
     elif not res["player_alive"]:
         for _cb in ["embered", "fortified"]:
@@ -340,7 +346,10 @@ async def _dungeon_combat_round(ctx_obj, interaction, uid, uname, is_owner):
             color=0x8B0000
         )
         view = _make_status_view(ctx_obj, None, uid, uname, is_owner)
-        await interaction.followup.send(embed=embed, view=view)
+        try:
+            await interaction.followup.send(embed=embed, view=view)
+        except discord.errors.NotFound:
+            await interaction.channel.send(embed=embed, view=view)
 
         # Broadcast death
         m_name = monster.get("name", monster_key.replace("_", " ").title())
@@ -378,7 +387,10 @@ async def _dungeon_combat_round(ctx_obj, interaction, uid, uname, is_owner):
             color=0xFF4500
         )
         view = DungeonCombatView(ctx_obj, uid, uname, is_owner, name_used)
-        await interaction.followup.send(embed=embed, view=view)
+        try:
+            await interaction.followup.send(embed=embed, view=view)
+        except discord.errors.NotFound:
+            await interaction.channel.send(embed=embed, view=view)
 
 
 async def _handle_dungeon(ctx, msg, send, rest, uid, uname, is_owner):

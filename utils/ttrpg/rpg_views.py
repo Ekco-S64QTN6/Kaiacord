@@ -699,10 +699,17 @@ class RPGFullLocationView(discord.ui.View):
 
         async def cb(interaction: discord.Interaction, _cmd=cmd, _rest=rest_arg):
             if str(interaction.user.id) != self._uid:
-                await interaction.response.send_message(
-                    "```\nthese aren't your buttons.\n```", ephemeral=True)
+                try:
+                    await interaction.response.send_message(
+                        "```\nthese aren't your buttons.\n```", ephemeral=True)
+                except discord.NotFound:
+                    pass
                 return
-            await interaction.response.defer()
+            try:
+                await interaction.response.defer()
+            except discord.NotFound:
+                log_error(f"[rpg btn] {_cmd}: interaction expired (NotFound on defer)")
+                return
             fake = _InteractionMsg(interaction)
             sfn = _make_interaction_send(interaction)
             handler = self._handler_map.get(_cmd)
@@ -713,8 +720,11 @@ class RPGFullLocationView(discord.ui.View):
                 except Exception as e:
                     import traceback
                     log_error(f"[rpg btn] {_cmd} failed: {e}\n{traceback.format_exc()}")
-                    await interaction.followup.send(
-                        f"```\nerror in {_cmd}: {e}\n```", ephemeral=True)
+                    try:
+                        await interaction.followup.send(
+                            f"```\nerror in {_cmd}: {e}\n```", ephemeral=True)
+                    except discord.NotFound:
+                        pass
 
         btn.callback = cb
         self.add_item(btn)
@@ -746,11 +756,18 @@ class RPGCombatView(discord.ui.View):
 
         async def _attack_cb(interaction: discord.Interaction):
             if str(interaction.user.id) != self._uid:
-                await interaction.response.send_message(
-                    "```\nthese aren't your buttons.\n```", ephemeral=True
-                )
+                try:
+                    await interaction.response.send_message(
+                        "```\nthese aren't your buttons.\n```", ephemeral=True
+                    )
+                except discord.NotFound:
+                    pass
                 return
-            await interaction.response.defer()
+            try:
+                await interaction.response.defer()
+            except discord.NotFound:
+                log_error("[rpg button] attack: interaction expired (NotFound on defer)")
+                return
             fake_msg = _InteractionMsg(interaction)
             send_fn = _make_interaction_send(interaction)
             try:
@@ -760,9 +777,12 @@ class RPGCombatView(discord.ui.View):
                 )
             except Exception as e:
                 log_error(f"[rpg button] attack failed: {e}")
-                await interaction.followup.send(
-                    "```\nerror running attack. check logs.\n```", ephemeral=True
-                )
+                try:
+                    await interaction.followup.send(
+                        "```\nerror running attack. check logs.\n```", ephemeral=True
+                    )
+                except discord.NotFound:
+                    pass
 
         atk_btn.callback = _attack_cb
         self.add_item(atk_btn)
@@ -774,11 +794,18 @@ class RPGCombatView(discord.ui.View):
 
         async def _flee_cb(interaction: discord.Interaction):
             if str(interaction.user.id) != self._uid:
-                await interaction.response.send_message(
-                    "```\nthese aren't your buttons.\n```", ephemeral=True
-                )
+                try:
+                    await interaction.response.send_message(
+                        "```\nthese aren't your buttons.\n```", ephemeral=True
+                    )
+                except discord.NotFound:
+                    pass
                 return
-            await interaction.response.defer()
+            try:
+                await interaction.response.defer()
+            except discord.NotFound:
+                log_error("[rpg button] flee: interaction expired (NotFound on defer)")
+                return
             fake_msg = _InteractionMsg(interaction)
             send_fn = _make_interaction_send(interaction)
             try:
@@ -788,9 +815,12 @@ class RPGCombatView(discord.ui.View):
                 )
             except Exception as e:
                 log_error(f"[rpg button] flee failed: {e}")
-                await interaction.followup.send(
-                    "```\nerror running flee. check logs.\n```", ephemeral=True
-                )
+                try:
+                    await interaction.followup.send(
+                        "```\nerror running flee. check logs.\n```", ephemeral=True
+                    )
+                except discord.NotFound:
+                    pass
 
         flee_btn.callback = _flee_cb
         self.add_item(flee_btn)

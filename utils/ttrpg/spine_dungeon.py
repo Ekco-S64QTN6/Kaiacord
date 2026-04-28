@@ -2,7 +2,7 @@
 The Ironvein Deep — Static Mega Dungeon beneath the Spine of the World.
 
 Completely separate from the procedural dungeon system in dungeon.py.
-5 hand-crafted floors with persistent state and daily monster respawn.
+50 floors with persistent state and daily monster respawn.
 """
 import secrets
 import json
@@ -51,9 +51,15 @@ with open(_LAYOUT_FILE, "r") as f:
     FLOORS_STR = json.load(f)
     
 FLOORS = {int(k): v for k, v in FLOORS_STR.items()}
-MAX_FLOOR = 5
+MAX_FLOOR = 50
 
-FLOOR_LOOT_TIER = {1: 2, 2: 3, 3: 4, 4: 4, 5: 5}
+# Loot tier scales with depth: floors 1-10 → tier 3, 11-20 → 4, 21+ → 5
+def _loot_tier(floor_num):
+    if floor_num <= 10: return 3
+    if floor_num <= 20: return 4
+    return 5
+
+FLOOR_LOOT_TIER = {f: _loot_tier(f) for f in range(1, MAX_FLOOR + 1)}
 
 
 # ── State generation ──────────────────────────────────────────────────────────
@@ -85,7 +91,7 @@ def generate_spine_floor(floor_num: int, player_level: int) -> dict:
         "gil_gained":    0,
         "loot_gained":   [],
         "player_level":  player_level,
-        "difficulty":    min(5, floor_num + 1),
+        "difficulty":    5,  # Spine is endgame L15 — always max difficulty
         "location":      "spine_of_the_world",
         "theme_key":     "spine_deep",
         "theme_name":    layout["floor_name"],
