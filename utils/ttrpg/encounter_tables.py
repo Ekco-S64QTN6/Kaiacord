@@ -70,6 +70,13 @@ def random_encounter(location: str, player_level: int = 1) -> str:
     else:                   min_tier, max_tier = "trivial", "easy"
 
     base_table = ENCOUNTER_TABLES.get(location, ENCOUNTER_TABLES["whisperwood_edge"])
+    if isinstance(base_table, dict):
+        # Flatten dictionary for overworld hunts
+        flat_table = []
+        for zone_list in base_table.values():
+            flat_table.extend(zone_list)
+        base_table = flat_table
+        
     table = get_seasonal_encounter_table(location, base_table)
     
     special = get_special_day()

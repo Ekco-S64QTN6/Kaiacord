@@ -5,7 +5,7 @@
 
 ## 1. Executive Summary
 
-The Aethelgard TTRPG is in **A-tier operational health**. Nine phases of development have brought the system to production maturity. Phase 9 addressed location routing bugs (Grimstone NPCs), high-level combat rebalancing (logarithmic ATK scaling, boss cap recalibration), deprecated consumable purge across 10 files + 6 character sheets, and a comprehensive code review that caught an undead names desync bug.
+The Aethelgard TTRPG is in **A-tier operational health**. Eleven phases of development have brought the system to production maturity. Phase 11 delivered the massive Spine Dungeon endgame overhaul: 77-floor expansion with 77 unique stair guardians, 30 new zone-specific monsters, 50 new Dark Souls-style equipment items (two full per-class gear sets with proc effects), progressive environmental lore implicating Elder Elara, and critical bug fixes (Descend button crash, encounter table cleanup).
 
 **All identified bugs have been resolved.** This review identifies **0 active bugs**, **3 low-priority code quality notes**, and **1 content gap** (L8/L10 quests).
 
@@ -43,6 +43,20 @@ The Aethelgard TTRPG is in **A-tier operational health**. Nine phases of develop
 ### All Bugs Resolved ✅
 
 **No active bugs remain.** All issues identified across nine audit phases have been fixed and verified.
+
+### Phase 11: Spine Dungeon Endgame Overhaul (April 29, 2026)
+
+| ID | Fix | Verification |
+|---|---|---|
+| ✅ CONTENT-2 | **77-Floor Spine Dungeon.** Expanded the Spine from 5 to 77 floors. Refactored `build_spine_layouts.py` to generate floors across 5 zone templates (Working Tunnels 1-15, Bone Warrens 16-30, Sunken Forge 31-45, Deep Dark 46-60, Heart of Mountain 61-77). Regenerated `spine_layouts.json`. | 77-floor JSON generated and validated. |
+| ✅ CONTENT-3 | **30 New Spine Normal Monsters.** Added 30 unique non-boss creatures distributed across 5 zones (6 per zone), scaling from easy to deadly tier. Updated `ENCOUNTER_TABLES["spine_of_the_world"]` to include all 30 new monsters alongside the originals. | All 30 keys resolve in MONSTERS, 0 bad encounter refs. Total MONSTERS = 310. |
+| ✅ CONTENT-4 | **77 Unique Stair Guardians.** Defined `STAIR_GUARDIANS` dict in `spine_dungeon.py` mapping each floor (1-77) to a unique deadly/boss-tier monster. Foreman Kregg guards Floor 1, The Mountain Heart guards Floor 77. Intercepted `_descend_cb` in `rpg_views.py` to force guardian combat before allowing descent. Victory tracked via `spine_defeated_guards` on player sheet. | All 77 guardian keys resolve. Descend logic verified. |
+| ✅ CONTENT-5 | **50 New Spine Equipment Items (Two Full Sets).** Created two complete per-class gear sets: Upper Spine (T4, floors 1-40) and Lower Spine (T5, floors 41-77). Each set covers all 5 base classes × 5 gear slots (weapon, armor, headgear, boots, accessory). All weapons have proc effects (Iron Fury, Marrow Snap, Resonance Pulse, Choking Ash, etc.). All items use correct field schema (`attack_bonus`, `damage_die`, `defense_bonus`, etc.). Added to `hard`, `deadly`, and `boss` loot tables. | All 50 items pass `get_equipment()`. All 608 loot table refs resolve. 0 schema violations. |
+| ✅ CONTENT-6 | **Dark Souls Environmental Storytelling.** Implemented dynamic floor-based room descriptions in `build_spine_layouts.py` via `get_dynamic_lore()`. Progressive lore reveals Elder Elara as a Resonance Vessel feeding Oakhaven to the Mountain Heart. Floors 1-20: supply chain hints. Floors 21-40: "Tithe" ledgers. Floors 41-60: Aeridorian "Vessel" plaques. Floors 61-77: full revelation. | Verified in generated `spine_layouts.json`. |
+| ✅ CONTENT-7 | **6 One-Time Lore Item Drops.** Added milestone lore items (`shift_log_page`, `burial_offering`, etc.) to CONSUMABLES. Drops on floors 10/20/30/40/50/60 via `rpg_combat_handler.py` guardian victory logic. Anti-farm check via `spine_boss_loots` on sheet. | Items in registry, drop logic wired. |
+| ✅ CONTENT-8 | **Procedural Dungeon Hard Cap.** Implemented `_filter_to_hard_cap` in `dungeon.py` to exclude `deadly` tier monsters from overworld procedural dungeon generation pools. Deadly+ creatures are now Spine-exclusive. | Filter applied to procedural dungeon logic. |
+| ✅ BUG-R8 | **Descend Button Crash.** `_descend_cb` in `rpg_views.py` tried to subscript `g_monster["hp"]["max"]` when `hp` was still an integer from `get_monster()`. Caused `TypeError` crashing the Descend button. **Fixed:** `raw_hp = g_monster["hp"]; g_monster["hp"] = {"current": raw_hp, "max": raw_hp}`. | Verified syntax. Correct HP dict format matches `rpg_combat_handler.py` line 725 pattern. |
+| ✅ BUG-R9 | **Aeridor Ruins Encounter Table.** Previous edits left `aeridor_ruins` with only 8 entries (was stripped of endgame creatures). Repopulated with 22 appropriate medium/hard tier monsters (dullahan, spectre, mindflayer, clay_golem, spectral_knight, iron_giant, beholder, rakshasa, etc.). | All 22 keys resolve. No deadly+ tier creatures in overworld tables. |
 
 ### Phase 10 Fixes (April 27, 2026)
 

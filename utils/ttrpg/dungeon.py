@@ -620,6 +620,11 @@ SHRINE_ROOM_UNLOCKED  = "An alcove with a single candle. The seal glows faintly 
 SHRINE_ROOM_COMPLETED = "An alcove with a single candle. The seal is dark now — whatever was stored here has been given."
 
 
+def _filter_to_hard_cap(pool: list[str]) -> list[str]:
+    """Remove deadly-tier monsters from procedural dungeon pools."""
+    from utils.ttrpg.monster_registry import MONSTERS
+    return [k for k in pool if MONSTERS.get(k, {}).get("tier", "trivial") != "deadly"]
+
 def _pick_monster(room_type: str, difficulty: int, theme: dict) -> str:
     if room_type == R_BOSS:
         pool = theme["boss_pools"].get(difficulty, theme["boss_pools"].get(1, ["goblin"]))
@@ -628,7 +633,11 @@ def _pick_monster(room_type: str, difficulty: int, theme: dict) -> str:
         pool = theme["pools"].get(low_diff, theme["pools"].get(1, ["goblin"]))
     else:
         pool = theme["pools"].get(difficulty, theme["pools"].get(1, ["goblin"]))
-    return pool[secrets.randbelow(len(pool))]
+    
+    filtered_pool = _filter_to_hard_cap(pool)
+    if not filtered_pool:
+        filtered_pool = ["goblin"]  # fallback
+    return filtered_pool[secrets.randbelow(len(filtered_pool))]
 
 
 # ── Main generator ────────────────────────────────────────────────────────────

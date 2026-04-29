@@ -316,6 +316,32 @@ async def _dungeon_combat_round(ctx_obj, interaction, uid, uname, is_owner):
                             if "complete_dungeon" not in prog:
                                 prog.append("complete_dungeon")
                                 exchange_text += f"\n📜 *Quest Progress: {q['name']}*"
+
+            if state.get("is_spine"):
+                from utils.ttrpg.spine_dungeon import STAIR_GUARDIANS
+                current_floor = state.get("floor_num", 1)
+                guardian_key = STAIR_GUARDIANS.get(current_floor)
+                if guardian_key and monster_key == guardian_key:
+                    if current_floor not in sheet.setdefault("spine_defeated_guards", []):
+                        sheet["spine_defeated_guards"].append(current_floor)
+                    
+                    lore_drops = {
+                        10: "shift_log_page",
+                        20: "burial_offering",
+                        30: "forge_manifest",
+                        40: "deep_fragment",
+                        50: "mountain_shard",
+                        60: "spine_memory"
+                    }
+                    if current_floor in lore_drops:
+                        lore_item = lore_drops[current_floor]
+                        if lore_item not in sheet.setdefault("spine_boss_loots", []):
+                            sheet["spine_boss_loots"].append(lore_item)
+                            sheet.setdefault("inventory", []).append(lore_item)
+                            item_data = find_item(lore_item)
+                            i_name = item_data["name"] if item_data else lore_item
+                            exchange_text += f"\n\n📜 **Special Drop:** {i_name} added to inventory!"
+
                 await save(sheet)
 
             embed = discord.Embed(title="⚔️ Victory", description=exchange_text, color=0x2D5A27)
@@ -465,7 +491,7 @@ async def _handle_dungeon(ctx, msg, send, rest, uid, uname, is_owner):
     else:
         from utils.ttrpg.dungeon import LOCATION_DIFFICULTY_BONUS
         loc_diff_bonus = LOCATION_DIFFICULTY_BONUS.get(loc, 0)
-        difficulty = max(1, min(5, (sheet["level"] - 1) // 3 + 1 + loc_diff_bonus))
+        difficulty = max(1, min(4, (sheet["level"] - 1) // 3 + 1 + loc_diff_bonus))
         dungeon = generate_dungeon(difficulty, player_level=sheet["level"], location=loc)
         await save_dungeon(uid, dungeon)
 

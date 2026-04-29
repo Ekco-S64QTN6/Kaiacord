@@ -1437,11 +1437,37 @@ class DungeonView(discord.ui.View):
                 async def _descend_cb(interaction: discord.Interaction):
                     if str(interaction.user.id) != self._uid: return
                     await interaction.response.defer()
-                    from utils.ttrpg.spine_dungeon import generate_spine_floor, save_spine_dungeon, load_spine_dungeon, MAX_FLOOR, _xy
+                    from utils.ttrpg.spine_dungeon import generate_spine_floor, save_spine_dungeon, load_spine_dungeon, MAX_FLOOR, STAIR_GUARDIANS, _xy
                     current_floor = dungeon.get("floor_num", 1)
                     if current_floor >= MAX_FLOOR:
                         await interaction.followup.send("You have reached the bottom. There is no deeper.", ephemeral=True)
                         return
+                    
+                    # Stair Guardian Check
+                    guardian_key = STAIR_GUARDIANS.get(current_floor)
+                    sheet = await load(self._uid)
+                    defeated_guards = sheet.get("spine_defeated_guards", []) if sheet else []
+                    
+                    if guardian_key and current_floor not in defeated_guards:
+                        # Force into combat with the guardian
+                        g_monster = get_monster(guardian_key)
+                        if not g_monster:
+                            g_monster = get_monster("behemoth") # fallback
+                        
+                        raw_hp = g_monster["hp"]
+                        g_monster["hp"] = {"current": raw_hp, "max": raw_hp}
+                        
+                        dungeon["active_combat"] = {
+                            "monster": g_monster,
+                            "monster_key": guardian_key,
+                            "is_boss": g_monster.get("tier") == "boss",
+                            "room_key": f"{px},{py}"
+                        }
+                        await save_spine_dungeon(self._uid, dungeon)
+                        await interaction.followup.send(f"**A massive presence blocks the stairs.**", ephemeral=True)
+                        await _send_dungeon_room(self._ctx, interaction.channel, self._uid, self._uname, self._is_owner, dungeon)
+                        return
+
                     new_state = await load_spine_dungeon(self._uid, target_floor=current_floor + 1)
                     if not new_state:
                         new_state = generate_spine_floor(current_floor + 1, dungeon.get("player_level", 1))

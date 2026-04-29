@@ -58,7 +58,7 @@ QUESTS = {
         "name": "The Road to Iron",
         "npc": "hooded_figure",
         "description": "The Ironclad Guild has barricaded the Trade Road north to Grimstone. Speak to Elder Elara about the Guild, then seek a way to break the resonance lock at the Aeridor Ruins crystals.",
-        "requirements": {"level": 15},
+        "requirements": {"level": 10},
         "tasks": ["talk_elara", "look_crystals"],
         "rewards": {"xp": 6000, "gil": 2000, "item": "aeridor_shard"},
         "completion_msg": "The resonance lock shatters. The barricade collapses. The road north is open.",
