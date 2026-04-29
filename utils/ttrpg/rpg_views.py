@@ -52,7 +52,7 @@ __all__ = [
     '_make_hunt_status_view',
     '_narrate_combat_summary',
     '_InteractionChannel', '_InteractionMsg', '_make_interaction_send', 
-    'StatChoiceView', 'RPGFullLocationView', 'RPGCombatView', 'BossApproachView', 
+    'StatChoiceView', 'RPGFullLocationView', 'RPGCombatView', 'BossApproachView', 'SpineLiftView',
     'DungeonView', 'DungeonCombatView', 'MailMenuView', 'MailSendView', 'GilModal', 
     'ConsumableQuantityView', 'ConsumablePurchaseModal', 'RenameHouseModal', 
     '_get_active_view', '_make_status_btn', '_make_home_btn', '_make_status_view', 
@@ -1266,13 +1266,14 @@ class BossApproachView(discord.ui.View):
     Gives them the chance to turn back and clear the rest of the dungeon first.
     """
 
-    def __init__(self, ctx_obj, uid: str, uname: str, is_owner: bool, direction: str):
+    def __init__(self, ctx_obj, uid: str, uname: str, is_owner: bool, direction: str, is_spine: bool = False):
         super().__init__(timeout=120)
         self._ctx      = ctx_obj
         self._uid      = uid
         self._uname    = uname
         self._is_owner = is_owner
         self._direction = direction
+        self._is_spine = is_spine
 
     @discord.ui.button(label="⚔️ Press Forward", style=discord.ButtonStyle.danger, row=0)
     async def press_forward(self, interaction: discord.Interaction, button: discord.ui.Button):
@@ -1304,8 +1305,14 @@ class BossApproachView(discord.ui.View):
             await interaction.response.defer()
         except discord.NotFound:
             pass
-        from utils.ttrpg.dungeon import load_dungeon
-        state = await load_dungeon(self._uid)
+        
+        if self._is_spine:
+            from utils.ttrpg.spine_dungeon import load_spine_dungeon
+            state = await load_spine_dungeon(self._uid)
+        else:
+            from utils.ttrpg.dungeon import load_dungeon
+            state = await load_dungeon(self._uid)
+            
         if not state:
             try:
                 await interaction.followup.send("Dungeon state lost.", ephemeral=True)
@@ -1322,8 +1329,63 @@ class BossApproachView(discord.ui.View):
     async def on_timeout(self):
         pass
 
-
-class DungeonView(discord.ui.View):
+class SpineLiftView(discord.ui.View):
+    def __init__(self, ctx_obj, uid, uname, is_owner, sheet, max_floor_defeated):
+        super().__init__(timeout=120)
+        self._ctx = ctx_obj
+        self._uid = uid
+        self._uname = uname
+        self._is_owner = is_owner
+        self._sheet = sheet
+        
+        # Build options for floors: 1, 5, 10, 15... up to highest multiple of 5 <= max_floor_defeated
+        options = [discord.SelectOption(label="Floor 1", description="The Working Tunnels", value="1")]
+        for f in range(5, max_floor_defeated + 1, 5):
+            options.append(discord.SelectOption(label=f"Floor {f}", description="Start from checkpoint", value=str(f)))
+            
+        lift_sel = discord.ui.Select(
+            placeholder="🔽 Select a floor to descend to...",
+            options=options,
+            row=0
+        )
+        
+        async def _lift_cb(interaction: discord.Interaction):
+            if str(interaction.user.id) != self._uid:
+                try: await interaction.response.send_message("Not your lift.", ephemeral=True)
+                except discord.NotFound: pass
+                return
+            await interaction.response.defer()
+            
+            target_floor = int(interaction.data["values"][0])
+            
+            from utils.ttrpg.progression import check_and_reset_hunts, hunts_remaining, get_max_hunts
+            from utils.ttrpg.character_manager import load, save
+            
+            fresh_sheet = await load(self._uid)
+            fresh_sheet = check_and_reset_hunts(fresh_sheet)
+            ENTRY_HUNTS = 2
+            
+            if hunts_remaining(fresh_sheet) < ENTRY_HUNTS:
+                try:
+                    await interaction.followup.send(embed=discord.Embed(
+                        description=f"Entering costs **{ENTRY_HUNTS} hunts**. You have {hunts_remaining(fresh_sheet)}/{get_max_hunts(fresh_sheet)}.",
+                        color=0xcc4444), ephemeral=True)
+                except discord.NotFound: pass
+                return
+                
+            fresh_sheet["hunts_today"] = fresh_sheet.get("hunts_today", 0) + ENTRY_HUNTS
+            await save(fresh_sheet)
+            
+            from utils.ttrpg.spine_dungeon import generate_spine_floor, save_spine_dungeon
+            dungeon = generate_spine_floor(target_floor, fresh_sheet["level"])
+            dungeon["active"] = True
+            await save_spine_dungeon(self._uid, dungeon)
+            
+            from utils.ttrpg.rpg_combat_handler import _send_dungeon_room
+            await _send_dungeon_room(self._ctx, interaction.channel, self._uid, self._uname, self._is_owner, dungeon)
+            
+        lift_sel.callback = _lift_cb
+        self.add_item(lift_sel)
     def __init__(self, ctx_obj, uid, uname, is_owner, dungeon):
         super().__init__(timeout=300)
         self._ctx      = ctx_obj
@@ -2213,7 +2275,7 @@ async def _dungeon_move(ctx_obj, interaction, uid, uname, is_owner, direction):
         )
         embed.set_footer(text="Entering will trigger the boss encounter. The dungeon ends when the boss falls or you fall.")
 
-        view = BossApproachView(ctx_obj, uid, uname, is_owner, direction)
+        view = BossApproachView(ctx_obj, uid, uname, is_owner, direction, is_spine=is_spine)
         await interaction.followup.send(embed=embed, view=view)
         return   # player stays in current room until they choose
     # ─────────────────────────────────────────────────────────────────

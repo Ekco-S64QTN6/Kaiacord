@@ -192,14 +192,14 @@
         "room_name": "Rest Area"
       },
       "9,3": {
-        "type": "empty",
-        "cleared": true,
+        "type": "trap",
+        "cleared": false,
         "monster_key": null,
         "boss_name": null,
-        "description": "A narrow, winding passage.",
+        "description": "You stepped on a loose stone. A trap mechanism clicks in the dark!",
         "is_room": false,
         "label": null,
-        "room_name": null
+        "room_name": "Trapped Passage"
       },
       "4,4": {
         "type": "empty",
@@ -556,7 +556,7 @@
         "cleared": true,
         "monster_key": null,
         "boss_name": null,
-        "description": "Kregg is here. He didn't leave with the others.",
+        "description": "Kregg's old office. Smashed furniture and dried blood.",
         "is_room": true,
         "label": "O",
         "room_name": "Foreman's Office"
@@ -566,7 +566,7 @@
         "cleared": true,
         "monster_key": null,
         "boss_name": null,
-        "description": "Kregg is here. He didn't leave with the others.",
+        "description": "Kregg's old office. Smashed furniture and dried blood.",
         "is_room": true,
         "label": "O",
         "room_name": "Foreman's Office"
@@ -576,7 +576,7 @@
         "cleared": true,
         "monster_key": null,
         "boss_name": null,
-        "description": "Kregg is here. He didn't leave with the others.",
+        "description": "Kregg's old office. Smashed furniture and dried blood.",
         "is_room": true,
         "label": "O",
         "room_name": "Foreman's Office"
@@ -746,17 +746,17 @@
         "cleared": true,
         "monster_key": null,
         "boss_name": null,
-        "description": "Kregg is here. He didn't leave with the others.",
+        "description": "Kregg's old office. Smashed furniture and dried blood.",
         "is_room": true,
         "label": "O",
         "room_name": "Foreman's Office"
       },
       "17,9": {
-        "type": "boss",
+        "type": "guard",
         "cleared": false,
-        "monster_key": "iron_giant_ff",
-        "boss_name": "Foreman Kregg",
-        "description": "Kregg is here. He didn't leave with the others.",
+        "monster_key": null,
+        "boss_name": null,
+        "description": "Kregg's old office. Smashed furniture and dried blood.",
         "is_room": true,
         "label": "O",
         "room_name": "Foreman's Office"
@@ -766,7 +766,7 @@
         "cleared": true,
         "monster_key": null,
         "boss_name": null,
-        "description": "Kregg is here. He didn't leave with the others.",
+        "description": "Kregg's old office. Smashed furniture and dried blood.",
         "is_room": true,
         "label": "O",
         "room_name": "Foreman's Office"
@@ -886,7 +886,7 @@
         "cleared": true,
         "monster_key": null,
         "boss_name": null,
-        "description": "Kregg is here. He didn't leave with the others.",
+        "description": "Kregg's old office. Smashed furniture and dried blood.",
         "is_room": true,
         "label": "O",
         "room_name": "Foreman's Office"
@@ -896,7 +896,7 @@
         "cleared": true,
         "monster_key": null,
         "boss_name": null,
-        "description": "Kregg is here. He didn't leave with the others.",
+        "description": "Kregg's old office. Smashed furniture and dried blood.",
         "is_room": true,
         "label": "O",
         "room_name": "Foreman's Office"
@@ -906,7 +906,7 @@
         "cleared": true,
         "monster_key": null,
         "boss_name": null,
-        "description": "Kregg is here. He didn't leave with the others.",
+        "description": "Kregg's old office. Smashed furniture and dried blood.",
         "is_room": true,
         "label": "O",
         "room_name": "Foreman's Office"
@@ -1964,7 +1964,7 @@
     },
     "stairs_up_key": "8,20",
     "stairs_down_key": "9,5",
-    "boss_key": "17,9",
+    "boss_key": null,
     "grid_size": 24,
     "floor_name": "The Working Tunnels",
     "floor_flavor": "Abandoned mine shafts. Timber supports creak. The lanterns are still lit. A faint scent of Oakhaven herbs lingers where it shouldn't.",
@@ -2203,14 +2203,14 @@
         "room_name": "Tool Closet"
       },
       "7,4": {
-        "type": "empty",
-        "cleared": true,
+        "type": "trap",
+        "cleared": false,
         "monster_key": null,
         "boss_name": null,
-        "description": "A narrow, winding passage.",
+        "description": "You stepped on a loose stone. A trap mechanism clicks in the dark!",
         "is_room": false,
         "label": null,
-        "room_name": null
+        "room_name": "Trapped Passage"
       },
       "8,4": {
         "type": "empty",
@@ -2403,14 +2403,14 @@
         "room_name": "Mushroom Grotto"
       },
       "9,7": {
-        "type": "trap",
-        "cleared": false,
+        "type": "empty",
+        "cleared": true,
         "monster_key": null,
         "boss_name": null,
-        "description": "You stepped on a loose stone. A trap mechanism clicks in the dark!",
+        "description": "A narrow, winding passage.",
         "is_room": false,
         "label": null,
-        "room_name": "Trapped Passage"
+        "room_name": null
       },
       "0,8": {
         "type": "empty",
@@ -2527,7 +2527,7 @@
         "cleared": true,
         "monster_key": null,
         "boss_name": null,
-        "description": "Kregg is here. He didn't leave with the others.",
+        "description": "Kregg's old office. Smashed furniture and dried blood.",
         "is_room": true,
         "label": "O",
         "room_name": "Foreman's Office"
@@ -2537,7 +2537,7 @@
         "cleared": true,
         "monster_key": null,
         "boss_name": null,
-        "description": "Kregg is here. He didn't leave with the others.",
+        "description": "Kregg's old office. Smashed furniture and dried blood.",
         "is_room": true,
         "label": "O",
         "room_name": "Foreman's Office"
@@ -2547,7 +2547,7 @@
         "cleared": true,
         "monster_key": null,
         "boss_name": null,
-        "description": "Kregg is here. He didn't leave with the others.",
+        "description": "Kregg's old office. Smashed furniture and dried blood.",
         "is_room": true,
         "label": "O",
         "room_name": "Foreman's Office"
@@ -2717,17 +2717,17 @@
         "cleared": true,
         "monster_key": null,
         "boss_name": null,
-        "description": "Kregg is here. He didn't leave with the others.",
+        "description": "Kregg's old office. Smashed furniture and dried blood.",
         "is_room": true,
         "label": "O",
         "room_name": "Foreman's Office"
       },
       "17,9": {
-        "type": "boss",
+        "type": "guard",
         "cleared": false,
-        "monster_key": "iron_giant_ff",
-        "boss_name": "Foreman Kregg",
-        "description": "Kregg is here. He didn't leave with the others.",
+        "monster_key": null,
+        "boss_name": null,
+        "description": "Kregg's old office. Smashed furniture and dried blood.",
         "is_room": true,
         "label": "O",
         "room_name": "Foreman's Office"
@@ -2737,7 +2737,7 @@
         "cleared": true,
         "monster_key": null,
         "boss_name": null,
-        "description": "Kregg is here. He didn't leave with the others.",
+        "description": "Kregg's old office. Smashed furniture and dried blood.",
         "is_room": true,
         "label": "O",
         "room_name": "Foreman's Office"
@@ -2857,7 +2857,7 @@
         "cleared": true,
         "monster_key": null,
         "boss_name": null,
-        "description": "Kregg is here. He didn't leave with the others.",
+        "description": "Kregg's old office. Smashed furniture and dried blood.",
         "is_room": true,
         "label": "O",
         "room_name": "Foreman's Office"
@@ -2867,7 +2867,7 @@
         "cleared": true,
         "monster_key": null,
         "boss_name": null,
-        "description": "Kregg is here. He didn't leave with the others.",
+        "description": "Kregg's old office. Smashed furniture and dried blood.",
         "is_room": true,
         "label": "O",
         "room_name": "Foreman's Office"
@@ -2877,20 +2877,20 @@
         "cleared": true,
         "monster_key": null,
         "boss_name": null,
-        "description": "Kregg is here. He didn't leave with the others.",
+        "description": "Kregg's old office. Smashed furniture and dried blood.",
         "is_room": true,
         "label": "O",
         "room_name": "Foreman's Office"
       },
       "9,11": {
-        "type": "trap",
-        "cleared": false,
+        "type": "empty",
+        "cleared": true,
         "monster_key": null,
         "boss_name": null,
-        "description": "You stepped on a loose stone. A trap mechanism clicks in the dark!",
+        "description": "A narrow, winding passage.",
         "is_room": false,
         "label": null,
-        "room_name": "Trapped Passage"
+        "room_name": null
       },
       "8,12": {
         "type": "empty",
@@ -3103,14 +3103,14 @@
         "room_name": "Ore Shaft"
       },
       "7,17": {
-        "type": "empty",
-        "cleared": true,
+        "type": "trap",
+        "cleared": false,
         "monster_key": null,
         "boss_name": null,
-        "description": "A narrow, winding passage.",
+        "description": "You stepped on a loose stone. A trap mechanism clicks in the dark!",
         "is_room": false,
         "label": null,
-        "room_name": null
+        "room_name": "Trapped Passage"
       },
       "8,17": {
         "type": "empty",
@@ -3143,14 +3143,14 @@
         "room_name": "Wide Chamber"
       },
       "11,17": {
-        "type": "trap",
-        "cleared": false,
+        "type": "empty",
+        "cleared": true,
         "monster_key": null,
         "boss_name": null,
-        "description": "You stepped on a loose stone. A trap mechanism clicks in the dark!",
+        "description": "A narrow, winding passage.",
         "is_room": false,
         "label": null,
-        "room_name": "Trapped Passage"
+        "room_name": null
       },
       "12,17": {
         "type": "empty",
@@ -3935,7 +3935,7 @@
     },
     "stairs_up_key": "8,20",
     "stairs_down_key": "9,5",
-    "boss_key": "17,9",
+    "boss_key": null,
     "grid_size": 24,
     "floor_name": "The Working Tunnels",
     "floor_flavor": "Abandoned mine shafts. Timber supports creak. The lanterns are still lit. A faint scent of Oakhaven herbs lingers where it shouldn't.",
@@ -4294,14 +4294,14 @@
         "room_name": "The Descent"
       },
       "11,5": {
-        "type": "empty",
-        "cleared": true,
+        "type": "trap",
+        "cleared": false,
         "monster_key": null,
         "boss_name": null,
-        "description": "A narrow, winding passage.",
+        "description": "You stepped on a loose stone. A trap mechanism clicks in the dark!",
         "is_room": false,
         "label": null,
-        "room_name": null
+        "room_name": "Trapped Passage"
       },
       "12,5": {
         "type": "shrine",
@@ -4498,7 +4498,7 @@
         "cleared": true,
         "monster_key": null,
         "boss_name": null,
-        "description": "Kregg is here. He didn't leave with the others.",
+        "description": "Kregg's old office. Smashed furniture and dried blood.",
         "is_room": true,
         "label": "O",
         "room_name": "Foreman's Office"
@@ -4508,7 +4508,7 @@
         "cleared": true,
         "monster_key": null,
         "boss_name": null,
-        "description": "Kregg is here. He didn't leave with the others.",
+        "description": "Kregg's old office. Smashed furniture and dried blood.",
         "is_room": true,
         "label": "O",
         "room_name": "Foreman's Office"
@@ -4518,7 +4518,7 @@
         "cleared": true,
         "monster_key": null,
         "boss_name": null,
-        "description": "Kregg is here. He didn't leave with the others.",
+        "description": "Kregg's old office. Smashed furniture and dried blood.",
         "is_room": true,
         "label": "O",
         "room_name": "Foreman's Office"
@@ -4688,17 +4688,17 @@
         "cleared": true,
         "monster_key": null,
         "boss_name": null,
-        "description": "Kregg is here. He didn't leave with the others.",
+        "description": "Kregg's old office. Smashed furniture and dried blood.",
         "is_room": true,
         "label": "O",
         "room_name": "Foreman's Office"
       },
       "17,9": {
-        "type": "boss",
+        "type": "guard",
         "cleared": false,
-        "monster_key": "iron_giant_ff",
-        "boss_name": "Foreman Kregg",
-        "description": "Kregg is here. He didn't leave with the others.",
+        "monster_key": null,
+        "boss_name": null,
+        "description": "Kregg's old office. Smashed furniture and dried blood.",
         "is_room": true,
         "label": "O",
         "room_name": "Foreman's Office"
@@ -4708,7 +4708,7 @@
         "cleared": true,
         "monster_key": null,
         "boss_name": null,
-        "description": "Kregg is here. He didn't leave with the others.",
+        "description": "Kregg's old office. Smashed furniture and dried blood.",
         "is_room": true,
         "label": "O",
         "room_name": "Foreman's Office"
@@ -4828,7 +4828,7 @@
         "cleared": true,
         "monster_key": null,
         "boss_name": null,
-        "description": "Kregg is here. He didn't leave with the others.",
+        "description": "Kregg's old office. Smashed furniture and dried blood.",
         "is_room": true,
         "label": "O",
         "room_name": "Foreman's Office"
@@ -4838,7 +4838,7 @@
         "cleared": true,
         "monster_key": null,
         "boss_name": null,
-        "description": "Kregg is here. He didn't leave with the others.",
+        "description": "Kregg's old office. Smashed furniture and dried blood.",
         "is_room": true,
         "label": "O",
         "room_name": "Foreman's Office"
@@ -4848,7 +4848,7 @@
         "cleared": true,
         "monster_key": null,
         "boss_name": null,
-        "description": "Kregg is here. He didn't leave with the others.",
+        "description": "Kregg's old office. Smashed furniture and dried blood.",
         "is_room": true,
         "label": "O",
         "room_name": "Foreman's Office"
@@ -5906,7 +5906,7 @@
     },
     "stairs_up_key": "8,20",
     "stairs_down_key": "9,5",
-    "boss_key": "17,9",
+    "boss_key": null,
     "grid_size": 24,
     "floor_name": "The Working Tunnels",
     "floor_flavor": "Abandoned mine shafts. Timber supports creak. The lanterns are still lit. A faint scent of Oakhaven herbs lingers where it shouldn't.",
@@ -6469,7 +6469,7 @@
         "cleared": true,
         "monster_key": null,
         "boss_name": null,
-        "description": "Kregg is here. He didn't leave with the others.",
+        "description": "Kregg's old office. Smashed furniture and dried blood.",
         "is_room": true,
         "label": "O",
         "room_name": "Foreman's Office"
@@ -6479,7 +6479,7 @@
         "cleared": true,
         "monster_key": null,
         "boss_name": null,
-        "description": "Kregg is here. He didn't leave with the others.",
+        "description": "Kregg's old office. Smashed furniture and dried blood.",
         "is_room": true,
         "label": "O",
         "room_name": "Foreman's Office"
@@ -6489,7 +6489,7 @@
         "cleared": true,
         "monster_key": null,
         "boss_name": null,
-        "description": "Kregg is here. He didn't leave with the others.",
+        "description": "Kregg's old office. Smashed furniture and dried blood.",
         "is_room": true,
         "label": "O",
         "room_name": "Foreman's Office"
@@ -6659,17 +6659,17 @@
         "cleared": true,
         "monster_key": null,
         "boss_name": null,
-        "description": "Kregg is here. He didn't leave with the others.",
+        "description": "Kregg's old office. Smashed furniture and dried blood.",
         "is_room": true,
         "label": "O",
         "room_name": "Foreman's Office"
       },
       "17,9": {
-        "type": "boss",
+        "type": "guard",
         "cleared": false,
-        "monster_key": "iron_giant_ff",
-        "boss_name": "Foreman Kregg",
-        "description": "Kregg is here. He didn't leave with the others.",
+        "monster_key": null,
+        "boss_name": null,
+        "description": "Kregg's old office. Smashed furniture and dried blood.",
         "is_room": true,
         "label": "O",
         "room_name": "Foreman's Office"
@@ -6679,7 +6679,7 @@
         "cleared": true,
         "monster_key": null,
         "boss_name": null,
-        "description": "Kregg is here. He didn't leave with the others.",
+        "description": "Kregg's old office. Smashed furniture and dried blood.",
         "is_room": true,
         "label": "O",
         "room_name": "Foreman's Office"
@@ -6799,7 +6799,7 @@
         "cleared": true,
         "monster_key": null,
         "boss_name": null,
-        "description": "Kregg is here. He didn't leave with the others.",
+        "description": "Kregg's old office. Smashed furniture and dried blood.",
         "is_room": true,
         "label": "O",
         "room_name": "Foreman's Office"
@@ -6809,7 +6809,7 @@
         "cleared": true,
         "monster_key": null,
         "boss_name": null,
-        "description": "Kregg is here. He didn't leave with the others.",
+        "description": "Kregg's old office. Smashed furniture and dried blood.",
         "is_room": true,
         "label": "O",
         "room_name": "Foreman's Office"
@@ -6819,20 +6819,20 @@
         "cleared": true,
         "monster_key": null,
         "boss_name": null,
-        "description": "Kregg is here. He didn't leave with the others.",
+        "description": "Kregg's old office. Smashed furniture and dried blood.",
         "is_room": true,
         "label": "O",
         "room_name": "Foreman's Office"
       },
       "9,11": {
-        "type": "trap",
-        "cleared": false,
+        "type": "empty",
+        "cleared": true,
         "monster_key": null,
         "boss_name": null,
-        "description": "You stepped on a loose stone. A trap mechanism clicks in the dark!",
+        "description": "A narrow, winding passage.",
         "is_room": false,
         "label": null,
-        "room_name": "Trapped Passage"
+        "room_name": null
       },
       "8,12": {
         "type": "empty",
@@ -7877,7 +7877,7 @@
     },
     "stairs_up_key": "8,20",
     "stairs_down_key": "9,5",
-    "boss_key": "17,9",
+    "boss_key": null,
     "grid_size": 24,
     "floor_name": "The Working Tunnels",
     "floor_flavor": "Abandoned mine shafts. Timber supports creak. The lanterns are still lit. A faint scent of Oakhaven herbs lingers where it shouldn't.",
@@ -8440,7 +8440,7 @@
         "cleared": true,
         "monster_key": null,
         "boss_name": null,
-        "description": "Kregg is here. He didn't leave with the others.",
+        "description": "Kregg's old office. Smashed furniture and dried blood.",
         "is_room": true,
         "label": "O",
         "room_name": "Foreman's Office"
@@ -8450,7 +8450,7 @@
         "cleared": true,
         "monster_key": null,
         "boss_name": null,
-        "description": "Kregg is here. He didn't leave with the others.",
+        "description": "Kregg's old office. Smashed furniture and dried blood.",
         "is_room": true,
         "label": "O",
         "room_name": "Foreman's Office"
@@ -8460,7 +8460,7 @@
         "cleared": true,
         "monster_key": null,
         "boss_name": null,
-        "description": "Kregg is here. He didn't leave with the others.",
+        "description": "Kregg's old office. Smashed furniture and dried blood.",
         "is_room": true,
         "label": "O",
         "room_name": "Foreman's Office"
@@ -8496,14 +8496,14 @@
         "room_name": null
       },
       "3,9": {
-        "type": "trap",
-        "cleared": false,
+        "type": "empty",
+        "cleared": true,
         "monster_key": null,
         "boss_name": null,
-        "description": "You stepped on a loose stone. A trap mechanism clicks in the dark!",
+        "description": "A narrow, winding passage.",
         "is_room": false,
         "label": null,
-        "room_name": "Trapped Passage"
+        "room_name": null
       },
       "4,9": {
         "type": "empty",
@@ -8630,17 +8630,17 @@
         "cleared": true,
         "monster_key": null,
         "boss_name": null,
-        "description": "Kregg is here. He didn't leave with the others.",
+        "description": "Kregg's old office. Smashed furniture and dried blood.",
         "is_room": true,
         "label": "O",
         "room_name": "Foreman's Office"
       },
       "17,9": {
-        "type": "boss",
+        "type": "guard",
         "cleared": false,
-        "monster_key": "iron_giant_ff",
-        "boss_name": "Foreman Kregg",
-        "description": "Kregg is here. He didn't leave with the others.",
+        "monster_key": null,
+        "boss_name": null,
+        "description": "Kregg's old office. Smashed furniture and dried blood.",
         "is_room": true,
         "label": "O",
         "room_name": "Foreman's Office"
@@ -8650,7 +8650,7 @@
         "cleared": true,
         "monster_key": null,
         "boss_name": null,
-        "description": "Kregg is here. He didn't leave with the others.",
+        "description": "Kregg's old office. Smashed furniture and dried blood.",
         "is_room": true,
         "label": "O",
         "room_name": "Foreman's Office"
@@ -8770,7 +8770,7 @@
         "cleared": true,
         "monster_key": null,
         "boss_name": null,
-        "description": "Kregg is here. He didn't leave with the others.",
+        "description": "Kregg's old office. Smashed furniture and dried blood.",
         "is_room": true,
         "label": "O",
         "room_name": "Foreman's Office"
@@ -8780,7 +8780,7 @@
         "cleared": true,
         "monster_key": null,
         "boss_name": null,
-        "description": "Kregg is here. He didn't leave with the others.",
+        "description": "Kregg's old office. Smashed furniture and dried blood.",
         "is_room": true,
         "label": "O",
         "room_name": "Foreman's Office"
@@ -8790,7 +8790,7 @@
         "cleared": true,
         "monster_key": null,
         "boss_name": null,
-        "description": "Kregg is here. He didn't leave with the others.",
+        "description": "Kregg's old office. Smashed furniture and dried blood.",
         "is_room": true,
         "label": "O",
         "room_name": "Foreman's Office"
@@ -9056,14 +9056,14 @@
         "room_name": "Wide Chamber"
       },
       "11,17": {
-        "type": "empty",
-        "cleared": true,
+        "type": "trap",
+        "cleared": false,
         "monster_key": null,
         "boss_name": null,
-        "description": "A narrow, winding passage.",
+        "description": "You stepped on a loose stone. A trap mechanism clicks in the dark!",
         "is_room": false,
         "label": null,
-        "room_name": null
+        "room_name": "Trapped Passage"
       },
       "12,17": {
         "type": "empty",
@@ -9848,7 +9848,7 @@
     },
     "stairs_up_key": "8,20",
     "stairs_down_key": "9,5",
-    "boss_key": "17,9",
+    "boss_key": null,
     "grid_size": 24,
     "floor_name": "The Working Tunnels",
     "floor_flavor": "Abandoned mine shafts. Timber supports creak. The lanterns are still lit. A faint scent of Oakhaven herbs lingers where it shouldn't.",
@@ -10411,7 +10411,7 @@
         "cleared": true,
         "monster_key": null,
         "boss_name": null,
-        "description": "Kregg is here. He didn't leave with the others.",
+        "description": "Kregg's old office. Smashed furniture and dried blood.",
         "is_room": true,
         "label": "O",
         "room_name": "Foreman's Office"
@@ -10421,7 +10421,7 @@
         "cleared": true,
         "monster_key": null,
         "boss_name": null,
-        "description": "Kregg is here. He didn't leave with the others.",
+        "description": "Kregg's old office. Smashed furniture and dried blood.",
         "is_room": true,
         "label": "O",
         "room_name": "Foreman's Office"
@@ -10431,7 +10431,7 @@
         "cleared": true,
         "monster_key": null,
         "boss_name": null,
-        "description": "Kregg is here. He didn't leave with the others.",
+        "description": "Kregg's old office. Smashed furniture and dried blood.",
         "is_room": true,
         "label": "O",
         "room_name": "Foreman's Office"
@@ -10457,14 +10457,14 @@
         "room_name": "Side Cavern"
       },
       "2,9": {
-        "type": "empty",
-        "cleared": true,
+        "type": "trap",
+        "cleared": false,
         "monster_key": null,
         "boss_name": null,
-        "description": "A narrow, winding passage.",
+        "description": "You stepped on a loose stone. A trap mechanism clicks in the dark!",
         "is_room": false,
         "label": null,
-        "room_name": null
+        "room_name": "Trapped Passage"
       },
       "3,9": {
         "type": "empty",
@@ -10601,17 +10601,17 @@
         "cleared": true,
         "monster_key": null,
         "boss_name": null,
-        "description": "Kregg is here. He didn't leave with the others.",
+        "description": "Kregg's old office. Smashed furniture and dried blood.",
         "is_room": true,
         "label": "O",
         "room_name": "Foreman's Office"
       },
       "17,9": {
-        "type": "boss",
+        "type": "guard",
         "cleared": false,
-        "monster_key": "iron_giant_ff",
-        "boss_name": "Foreman Kregg",
-        "description": "Kregg is here. He didn't leave with the others.",
+        "monster_key": null,
+        "boss_name": null,
+        "description": "Kregg's old office. Smashed furniture and dried blood.",
         "is_room": true,
         "label": "O",
         "room_name": "Foreman's Office"
@@ -10621,7 +10621,7 @@
         "cleared": true,
         "monster_key": null,
         "boss_name": null,
-        "description": "Kregg is here. He didn't leave with the others.",
+        "description": "Kregg's old office. Smashed furniture and dried blood.",
         "is_room": true,
         "label": "O",
         "room_name": "Foreman's Office"
@@ -10741,7 +10741,7 @@
         "cleared": true,
         "monster_key": null,
         "boss_name": null,
-        "description": "Kregg is here. He didn't leave with the others.",
+        "description": "Kregg's old office. Smashed furniture and dried blood.",
         "is_room": true,
         "label": "O",
         "room_name": "Foreman's Office"
@@ -10751,7 +10751,7 @@
         "cleared": true,
         "monster_key": null,
         "boss_name": null,
-        "description": "Kregg is here. He didn't leave with the others.",
+        "description": "Kregg's old office. Smashed furniture and dried blood.",
         "is_room": true,
         "label": "O",
         "room_name": "Foreman's Office"
@@ -10761,7 +10761,7 @@
         "cleared": true,
         "monster_key": null,
         "boss_name": null,
-        "description": "Kregg is here. He didn't leave with the others.",
+        "description": "Kregg's old office. Smashed furniture and dried blood.",
         "is_room": true,
         "label": "O",
         "room_name": "Foreman's Office"
@@ -11819,7 +11819,7 @@
     },
     "stairs_up_key": "8,20",
     "stairs_down_key": "9,5",
-    "boss_key": "17,9",
+    "boss_key": null,
     "grid_size": 24,
     "floor_name": "The Working Tunnels",
     "floor_flavor": "Abandoned mine shafts. Timber supports creak. The lanterns are still lit. A faint scent of Oakhaven herbs lingers where it shouldn't.",
@@ -12382,7 +12382,7 @@
         "cleared": true,
         "monster_key": null,
         "boss_name": null,
-        "description": "Kregg is here. He didn't leave with the others.",
+        "description": "Kregg's old office. Smashed furniture and dried blood.",
         "is_room": true,
         "label": "O",
         "room_name": "Foreman's Office"
@@ -12392,7 +12392,7 @@
         "cleared": true,
         "monster_key": null,
         "boss_name": null,
-        "description": "Kregg is here. He didn't leave with the others.",
+        "description": "Kregg's old office. Smashed furniture and dried blood.",
         "is_room": true,
         "label": "O",
         "room_name": "Foreman's Office"
@@ -12402,7 +12402,7 @@
         "cleared": true,
         "monster_key": null,
         "boss_name": null,
-        "description": "Kregg is here. He didn't leave with the others.",
+        "description": "Kregg's old office. Smashed furniture and dried blood.",
         "is_room": true,
         "label": "O",
         "room_name": "Foreman's Office"
@@ -12572,17 +12572,17 @@
         "cleared": true,
         "monster_key": null,
         "boss_name": null,
-        "description": "Kregg is here. He didn't leave with the others.",
+        "description": "Kregg's old office. Smashed furniture and dried blood.",
         "is_room": true,
         "label": "O",
         "room_name": "Foreman's Office"
       },
       "17,9": {
-        "type": "boss",
+        "type": "guard",
         "cleared": false,
-        "monster_key": "iron_giant_ff",
-        "boss_name": "Foreman Kregg",
-        "description": "Kregg is here. He didn't leave with the others.",
+        "monster_key": null,
+        "boss_name": null,
+        "description": "Kregg's old office. Smashed furniture and dried blood.",
         "is_room": true,
         "label": "O",
         "room_name": "Foreman's Office"
@@ -12592,7 +12592,7 @@
         "cleared": true,
         "monster_key": null,
         "boss_name": null,
-        "description": "Kregg is here. He didn't leave with the others.",
+        "description": "Kregg's old office. Smashed furniture and dried blood.",
         "is_room": true,
         "label": "O",
         "room_name": "Foreman's Office"
@@ -12712,7 +12712,7 @@
         "cleared": true,
         "monster_key": null,
         "boss_name": null,
-        "description": "Kregg is here. He didn't leave with the others.",
+        "description": "Kregg's old office. Smashed furniture and dried blood.",
         "is_room": true,
         "label": "O",
         "room_name": "Foreman's Office"
@@ -12722,7 +12722,7 @@
         "cleared": true,
         "monster_key": null,
         "boss_name": null,
-        "description": "Kregg is here. He didn't leave with the others.",
+        "description": "Kregg's old office. Smashed furniture and dried blood.",
         "is_room": true,
         "label": "O",
         "room_name": "Foreman's Office"
@@ -12732,7 +12732,7 @@
         "cleared": true,
         "monster_key": null,
         "boss_name": null,
-        "description": "Kregg is here. He didn't leave with the others.",
+        "description": "Kregg's old office. Smashed furniture and dried blood.",
         "is_room": true,
         "label": "O",
         "room_name": "Foreman's Office"
@@ -12838,14 +12838,14 @@
         "room_name": "Central Hub"
       },
       "9,15": {
-        "type": "trap",
-        "cleared": false,
+        "type": "empty",
+        "cleared": true,
         "monster_key": null,
         "boss_name": null,
-        "description": "You stepped on a loose stone. A trap mechanism clicks in the dark!",
+        "description": "A narrow, winding passage.",
         "is_room": false,
         "label": null,
-        "room_name": "Trapped Passage"
+        "room_name": null
       },
       "4,16": {
         "type": "empty",
@@ -13790,7 +13790,7 @@
     },
     "stairs_up_key": "8,20",
     "stairs_down_key": "9,5",
-    "boss_key": "17,9",
+    "boss_key": null,
     "grid_size": 24,
     "floor_name": "The Working Tunnels",
     "floor_flavor": "Abandoned mine shafts. Timber supports creak. The lanterns are still lit. A faint scent of Oakhaven herbs lingers where it shouldn't.",
@@ -14353,7 +14353,7 @@
         "cleared": true,
         "monster_key": null,
         "boss_name": null,
-        "description": "Kregg is here. He didn't leave with the others.",
+        "description": "Kregg's old office. Smashed furniture and dried blood.",
         "is_room": true,
         "label": "O",
         "room_name": "Foreman's Office"
@@ -14363,7 +14363,7 @@
         "cleared": true,
         "monster_key": null,
         "boss_name": null,
-        "description": "Kregg is here. He didn't leave with the others.",
+        "description": "Kregg's old office. Smashed furniture and dried blood.",
         "is_room": true,
         "label": "O",
         "room_name": "Foreman's Office"
@@ -14373,7 +14373,7 @@
         "cleared": true,
         "monster_key": null,
         "boss_name": null,
-        "description": "Kregg is here. He didn't leave with the others.",
+        "description": "Kregg's old office. Smashed furniture and dried blood.",
         "is_room": true,
         "label": "O",
         "room_name": "Foreman's Office"
@@ -14449,14 +14449,14 @@
         "room_name": "Foreman's Stash"
       },
       "7,9": {
-        "type": "trap",
-        "cleared": false,
+        "type": "empty",
+        "cleared": true,
         "monster_key": null,
         "boss_name": null,
-        "description": "You stepped on a loose stone. A trap mechanism clicks in the dark!",
+        "description": "A narrow, winding passage.",
         "is_room": false,
         "label": null,
-        "room_name": "Trapped Passage"
+        "room_name": null
       },
       "8,9": {
         "type": "empty",
@@ -14543,17 +14543,17 @@
         "cleared": true,
         "monster_key": null,
         "boss_name": null,
-        "description": "Kregg is here. He didn't leave with the others.",
+        "description": "Kregg's old office. Smashed furniture and dried blood.",
         "is_room": true,
         "label": "O",
         "room_name": "Foreman's Office"
       },
       "17,9": {
-        "type": "boss",
+        "type": "guard",
         "cleared": false,
-        "monster_key": "iron_giant_ff",
-        "boss_name": "Foreman Kregg",
-        "description": "Kregg is here. He didn't leave with the others.",
+        "monster_key": null,
+        "boss_name": null,
+        "description": "Kregg's old office. Smashed furniture and dried blood.",
         "is_room": true,
         "label": "O",
         "room_name": "Foreman's Office"
@@ -14563,7 +14563,7 @@
         "cleared": true,
         "monster_key": null,
         "boss_name": null,
-        "description": "Kregg is here. He didn't leave with the others.",
+        "description": "Kregg's old office. Smashed furniture and dried blood.",
         "is_room": true,
         "label": "O",
         "room_name": "Foreman's Office"
@@ -14683,7 +14683,7 @@
         "cleared": true,
         "monster_key": null,
         "boss_name": null,
-        "description": "Kregg is here. He didn't leave with the others.",
+        "description": "Kregg's old office. Smashed furniture and dried blood.",
         "is_room": true,
         "label": "O",
         "room_name": "Foreman's Office"
@@ -14693,7 +14693,7 @@
         "cleared": true,
         "monster_key": null,
         "boss_name": null,
-        "description": "Kregg is here. He didn't leave with the others.",
+        "description": "Kregg's old office. Smashed furniture and dried blood.",
         "is_room": true,
         "label": "O",
         "room_name": "Foreman's Office"
@@ -14703,7 +14703,7 @@
         "cleared": true,
         "monster_key": null,
         "boss_name": null,
-        "description": "Kregg is here. He didn't leave with the others.",
+        "description": "Kregg's old office. Smashed furniture and dried blood.",
         "is_room": true,
         "label": "O",
         "room_name": "Foreman's Office"
@@ -14929,14 +14929,14 @@
         "room_name": "Ore Shaft"
       },
       "7,17": {
-        "type": "empty",
-        "cleared": true,
+        "type": "trap",
+        "cleared": false,
         "monster_key": null,
         "boss_name": null,
-        "description": "A narrow, winding passage.",
+        "description": "You stepped on a loose stone. A trap mechanism clicks in the dark!",
         "is_room": false,
         "label": null,
-        "room_name": null
+        "room_name": "Trapped Passage"
       },
       "8,17": {
         "type": "empty",
@@ -15761,7 +15761,7 @@
     },
     "stairs_up_key": "8,20",
     "stairs_down_key": "9,5",
-    "boss_key": "17,9",
+    "boss_key": null,
     "grid_size": 24,
     "floor_name": "The Working Tunnels",
     "floor_flavor": "Abandoned mine shafts. Timber supports creak. The lanterns are still lit. A faint scent of Oakhaven herbs lingers where it shouldn't.",
@@ -15960,14 +15960,14 @@
         "room_name": "Rest Area"
       },
       "9,3": {
-        "type": "empty",
-        "cleared": true,
+        "type": "trap",
+        "cleared": false,
         "monster_key": null,
         "boss_name": null,
-        "description": "A narrow, winding passage.",
+        "description": "You stepped on a loose stone. A trap mechanism clicks in the dark!",
         "is_room": false,
         "label": null,
-        "room_name": null
+        "room_name": "Trapped Passage"
       },
       "4,4": {
         "type": "empty",
@@ -16324,7 +16324,7 @@
         "cleared": true,
         "monster_key": null,
         "boss_name": null,
-        "description": "Kregg is here. He didn't leave with the others.",
+        "description": "Kregg's old office. Smashed furniture and dried blood.",
         "is_room": true,
         "label": "O",
         "room_name": "Foreman's Office"
@@ -16334,7 +16334,7 @@
         "cleared": true,
         "monster_key": null,
         "boss_name": null,
-        "description": "Kregg is here. He didn't leave with the others.",
+        "description": "Kregg's old office. Smashed furniture and dried blood.",
         "is_room": true,
         "label": "O",
         "room_name": "Foreman's Office"
@@ -16344,7 +16344,7 @@
         "cleared": true,
         "monster_key": null,
         "boss_name": null,
-        "description": "Kregg is here. He didn't leave with the others.",
+        "description": "Kregg's old office. Smashed furniture and dried blood.",
         "is_room": true,
         "label": "O",
         "room_name": "Foreman's Office"
@@ -16514,17 +16514,17 @@
         "cleared": true,
         "monster_key": null,
         "boss_name": null,
-        "description": "Kregg is here. He didn't leave with the others.",
+        "description": "Kregg's old office. Smashed furniture and dried blood.",
         "is_room": true,
         "label": "O",
         "room_name": "Foreman's Office"
       },
       "17,9": {
-        "type": "boss",
+        "type": "guard",
         "cleared": false,
-        "monster_key": "iron_giant_ff",
-        "boss_name": "Foreman Kregg",
-        "description": "Kregg is here. He didn't leave with the others.",
+        "monster_key": null,
+        "boss_name": null,
+        "description": "Kregg's old office. Smashed furniture and dried blood.",
         "is_room": true,
         "label": "O",
         "room_name": "Foreman's Office"
@@ -16534,7 +16534,7 @@
         "cleared": true,
         "monster_key": null,
         "boss_name": null,
-        "description": "Kregg is here. He didn't leave with the others.",
+        "description": "Kregg's old office. Smashed furniture and dried blood.",
         "is_room": true,
         "label": "O",
         "room_name": "Foreman's Office"
@@ -16654,7 +16654,7 @@
         "cleared": true,
         "monster_key": null,
         "boss_name": null,
-        "description": "Kregg is here. He didn't leave with the others.",
+        "description": "Kregg's old office. Smashed furniture and dried blood.",
         "is_room": true,
         "label": "O",
         "room_name": "Foreman's Office"
@@ -16664,7 +16664,7 @@
         "cleared": true,
         "monster_key": null,
         "boss_name": null,
-        "description": "Kregg is here. He didn't leave with the others.",
+        "description": "Kregg's old office. Smashed furniture and dried blood.",
         "is_room": true,
         "label": "O",
         "room_name": "Foreman's Office"
@@ -16674,7 +16674,7 @@
         "cleared": true,
         "monster_key": null,
         "boss_name": null,
-        "description": "Kregg is here. He didn't leave with the others.",
+        "description": "Kregg's old office. Smashed furniture and dried blood.",
         "is_room": true,
         "label": "O",
         "room_name": "Foreman's Office"
@@ -17732,7 +17732,7 @@
     },
     "stairs_up_key": "8,20",
     "stairs_down_key": "9,5",
-    "boss_key": "17,9",
+    "boss_key": null,
     "grid_size": 24,
     "floor_name": "The Working Tunnels",
     "floor_flavor": "Abandoned mine shafts. Timber supports creak. The lanterns are still lit. A faint scent of Oakhaven herbs lingers where it shouldn't.",
@@ -18295,7 +18295,7 @@
         "cleared": true,
         "monster_key": null,
         "boss_name": null,
-        "description": "Kregg is here. He didn't leave with the others.",
+        "description": "Kregg's old office. Smashed furniture and dried blood.",
         "is_room": true,
         "label": "O",
         "room_name": "Foreman's Office"
@@ -18305,7 +18305,7 @@
         "cleared": true,
         "monster_key": null,
         "boss_name": null,
-        "description": "Kregg is here. He didn't leave with the others.",
+        "description": "Kregg's old office. Smashed furniture and dried blood.",
         "is_room": true,
         "label": "O",
         "room_name": "Foreman's Office"
@@ -18315,7 +18315,7 @@
         "cleared": true,
         "monster_key": null,
         "boss_name": null,
-        "description": "Kregg is here. He didn't leave with the others.",
+        "description": "Kregg's old office. Smashed furniture and dried blood.",
         "is_room": true,
         "label": "O",
         "room_name": "Foreman's Office"
@@ -18485,17 +18485,17 @@
         "cleared": true,
         "monster_key": null,
         "boss_name": null,
-        "description": "Kregg is here. He didn't leave with the others.",
+        "description": "Kregg's old office. Smashed furniture and dried blood.",
         "is_room": true,
         "label": "O",
         "room_name": "Foreman's Office"
       },
       "17,9": {
-        "type": "boss",
+        "type": "guard",
         "cleared": false,
-        "monster_key": "iron_giant_ff",
-        "boss_name": "Foreman Kregg",
-        "description": "Kregg is here. He didn't leave with the others.",
+        "monster_key": null,
+        "boss_name": null,
+        "description": "Kregg's old office. Smashed furniture and dried blood.",
         "is_room": true,
         "label": "O",
         "room_name": "Foreman's Office"
@@ -18505,7 +18505,7 @@
         "cleared": true,
         "monster_key": null,
         "boss_name": null,
-        "description": "Kregg is here. He didn't leave with the others.",
+        "description": "Kregg's old office. Smashed furniture and dried blood.",
         "is_room": true,
         "label": "O",
         "room_name": "Foreman's Office"
@@ -18625,7 +18625,7 @@
         "cleared": true,
         "monster_key": null,
         "boss_name": null,
-        "description": "Kregg is here. He didn't leave with the others.",
+        "description": "Kregg's old office. Smashed furniture and dried blood.",
         "is_room": true,
         "label": "O",
         "room_name": "Foreman's Office"
@@ -18635,7 +18635,7 @@
         "cleared": true,
         "monster_key": null,
         "boss_name": null,
-        "description": "Kregg is here. He didn't leave with the others.",
+        "description": "Kregg's old office. Smashed furniture and dried blood.",
         "is_room": true,
         "label": "O",
         "room_name": "Foreman's Office"
@@ -18645,7 +18645,7 @@
         "cleared": true,
         "monster_key": null,
         "boss_name": null,
-        "description": "Kregg is here. He didn't leave with the others.",
+        "description": "Kregg's old office. Smashed furniture and dried blood.",
         "is_room": true,
         "label": "O",
         "room_name": "Foreman's Office"
@@ -19703,7 +19703,7 @@
     },
     "stairs_up_key": "8,20",
     "stairs_down_key": "9,5",
-    "boss_key": "17,9",
+    "boss_key": null,
     "grid_size": 24,
     "floor_name": "The Working Tunnels",
     "floor_flavor": "Abandoned mine shafts. Timber supports creak. The lanterns are still lit. A faint scent of Oakhaven herbs lingers where it shouldn't.",
@@ -20322,14 +20322,14 @@
         "room_name": null
       },
       "3,9": {
-        "type": "empty",
-        "cleared": true,
+        "type": "trap",
+        "cleared": false,
         "monster_key": null,
         "boss_name": null,
-        "description": "A narrow, winding passage.",
+        "description": "You stepped on a loose stone. A trap mechanism clicks in the dark!",
         "is_room": false,
         "label": null,
-        "room_name": null
+        "room_name": "Trapped Passage"
       },
       "4,9": {
         "type": "empty",
@@ -20462,10 +20462,10 @@
         "room_name": "Foreman's Office"
       },
       "17,9": {
-        "type": "boss",
+        "type": "guard",
         "cleared": false,
-        "monster_key": "iron_giant_ff",
-        "boss_name": "Foreman Kregg",
+        "monster_key": null,
+        "boss_name": null,
         "description": "A makeshift camp. A journal lies open: 'She said the blue flame meant danger. She lied. It means the mountain is hungry, and she is ringing the dinner bell.'",
         "is_room": true,
         "label": "O",
@@ -20882,14 +20882,14 @@
         "room_name": "Wide Chamber"
       },
       "11,17": {
-        "type": "trap",
-        "cleared": false,
+        "type": "empty",
+        "cleared": true,
         "monster_key": null,
         "boss_name": null,
-        "description": "You stepped on a loose stone. A trap mechanism clicks in the dark!",
+        "description": "A narrow, winding passage.",
         "is_room": false,
         "label": null,
-        "room_name": "Trapped Passage"
+        "room_name": null
       },
       "12,17": {
         "type": "empty",
@@ -21674,7 +21674,7 @@
     },
     "stairs_up_key": "8,20",
     "stairs_down_key": "9,5",
-    "boss_key": "17,9",
+    "boss_key": null,
     "grid_size": 24,
     "floor_name": "The Working Tunnels",
     "floor_flavor": "Abandoned mine shafts. Timber supports creak. The lanterns are still lit. The lanterns here burn with a familiar, unsettling blue tint.",
@@ -22333,14 +22333,14 @@
         "room_name": "Foreman's Stash"
       },
       "7,9": {
-        "type": "trap",
-        "cleared": false,
+        "type": "empty",
+        "cleared": true,
         "monster_key": null,
         "boss_name": null,
-        "description": "You stepped on a loose stone. A trap mechanism clicks in the dark!",
+        "description": "A narrow, winding passage.",
         "is_room": false,
         "label": null,
-        "room_name": "Trapped Passage"
+        "room_name": null
       },
       "8,9": {
         "type": "empty",
@@ -22433,10 +22433,10 @@
         "room_name": "Foreman's Office"
       },
       "17,9": {
-        "type": "boss",
+        "type": "guard",
         "cleared": false,
-        "monster_key": "iron_giant_ff",
-        "boss_name": "Foreman Kregg",
+        "monster_key": null,
+        "boss_name": null,
         "description": "A makeshift camp. A journal lies open: 'She said the blue flame meant danger. She lied. It means the mountain is hungry, and she is ringing the dinner bell.'",
         "is_room": true,
         "label": "O",
@@ -23645,7 +23645,7 @@
     },
     "stairs_up_key": "8,20",
     "stairs_down_key": "9,5",
-    "boss_key": "17,9",
+    "boss_key": null,
     "grid_size": 24,
     "floor_name": "The Working Tunnels",
     "floor_flavor": "Abandoned mine shafts. Timber supports creak. The lanterns are still lit. The lanterns here burn with a familiar, unsettling blue tint.",
@@ -23844,14 +23844,14 @@
         "room_name": "Rest Area"
       },
       "9,3": {
-        "type": "empty",
-        "cleared": true,
+        "type": "trap",
+        "cleared": false,
         "monster_key": null,
         "boss_name": null,
-        "description": "A narrow, winding passage.",
+        "description": "You stepped on a loose stone. A trap mechanism clicks in the dark!",
         "is_room": false,
         "label": null,
-        "room_name": null
+        "room_name": "Trapped Passage"
       },
       "4,4": {
         "type": "empty",
@@ -24304,14 +24304,14 @@
         "room_name": "Foreman's Stash"
       },
       "7,9": {
-        "type": "trap",
-        "cleared": false,
+        "type": "empty",
+        "cleared": true,
         "monster_key": null,
         "boss_name": null,
-        "description": "You stepped on a loose stone. A trap mechanism clicks in the dark!",
+        "description": "A narrow, winding passage.",
         "is_room": false,
         "label": null,
-        "room_name": "Trapped Passage"
+        "room_name": null
       },
       "8,9": {
         "type": "empty",
@@ -24404,10 +24404,10 @@
         "room_name": "Foreman's Office"
       },
       "17,9": {
-        "type": "boss",
+        "type": "guard",
         "cleared": false,
-        "monster_key": "iron_giant_ff",
-        "boss_name": "Foreman Kregg",
+        "monster_key": null,
+        "boss_name": null,
         "description": "A makeshift camp. A journal lies open: 'She said the blue flame meant danger. She lied. It means the mountain is hungry, and she is ringing the dinner bell.'",
         "is_room": true,
         "label": "O",
@@ -24784,14 +24784,14 @@
         "room_name": "Ore Shaft"
       },
       "7,17": {
-        "type": "trap",
-        "cleared": false,
+        "type": "empty",
+        "cleared": true,
         "monster_key": null,
         "boss_name": null,
-        "description": "You stepped on a loose stone. A trap mechanism clicks in the dark!",
+        "description": "A narrow, winding passage.",
         "is_room": false,
         "label": null,
-        "room_name": "Trapped Passage"
+        "room_name": null
       },
       "8,17": {
         "type": "empty",
@@ -25616,7 +25616,7 @@
     },
     "stairs_up_key": "8,20",
     "stairs_down_key": "9,5",
-    "boss_key": "17,9",
+    "boss_key": null,
     "grid_size": 24,
     "floor_name": "The Working Tunnels",
     "floor_flavor": "Abandoned mine shafts. Timber supports creak. The lanterns are still lit. The lanterns here burn with a familiar, unsettling blue tint.",
@@ -26375,10 +26375,10 @@
         "room_name": "Foreman's Office"
       },
       "17,9": {
-        "type": "boss",
+        "type": "guard",
         "cleared": false,
-        "monster_key": "iron_giant_ff",
-        "boss_name": "Foreman Kregg",
+        "monster_key": null,
+        "boss_name": null,
         "description": "A makeshift camp. A journal lies open: 'She said the blue flame meant danger. She lied. It means the mountain is hungry, and she is ringing the dinner bell.'",
         "is_room": true,
         "label": "O",
@@ -27587,7 +27587,7 @@
     },
     "stairs_up_key": "8,20",
     "stairs_down_key": "9,5",
-    "boss_key": "17,9",
+    "boss_key": null,
     "grid_size": 24,
     "floor_name": "The Working Tunnels",
     "floor_flavor": "Abandoned mine shafts. Timber supports creak. The lanterns are still lit. The lanterns here burn with a familiar, unsettling blue tint.",
@@ -28346,10 +28346,10 @@
         "room_name": "Foreman's Office"
       },
       "17,9": {
-        "type": "boss",
+        "type": "guard",
         "cleared": false,
-        "monster_key": "iron_giant_ff",
-        "boss_name": "Foreman Kregg",
+        "monster_key": null,
+        "boss_name": null,
         "description": "A makeshift camp. A journal lies open: 'She said the blue flame meant danger. She lied. It means the mountain is hungry, and she is ringing the dinner bell.'",
         "is_room": true,
         "label": "O",
@@ -29558,7 +29558,7 @@
     },
     "stairs_up_key": "8,20",
     "stairs_down_key": "9,5",
-    "boss_key": "17,9",
+    "boss_key": null,
     "grid_size": 24,
     "floor_name": "The Working Tunnels",
     "floor_flavor": "Abandoned mine shafts. Timber supports creak. The lanterns are still lit. The lanterns here burn with a familiar, unsettling blue tint.",
@@ -29617,14 +29617,14 @@
         "room_name": null
       },
       "16,3": {
-        "type": "empty",
-        "cleared": true,
+        "type": "trap",
+        "cleared": false,
         "monster_key": null,
         "boss_name": null,
-        "description": "A narrow, winding passage.",
+        "description": "You stepped on a loose stone. A trap mechanism clicks in the dark!",
         "is_room": false,
         "label": null,
-        "room_name": null
+        "room_name": "Trapped Passage"
       },
       "12,4": {
         "type": "empty",
@@ -30077,14 +30077,14 @@
         "room_name": "Burial Offerings"
       },
       "11,9": {
-        "type": "trap",
-        "cleared": false,
+        "type": "empty",
+        "cleared": true,
         "monster_key": null,
         "boss_name": null,
-        "description": "You stepped on a loose stone. A trap mechanism clicks in the dark!",
+        "description": "A narrow, winding passage.",
         "is_room": false,
         "label": null,
-        "room_name": "Trapped Passage"
+        "room_name": null
       },
       "12,9": {
         "type": "empty",
@@ -31007,10 +31007,10 @@
         "room_name": "The Unburied's Tomb"
       },
       "1,21": {
-        "type": "boss",
+        "type": "monster",
         "cleared": false,
-        "monster_key": "balor_dd",
-        "boss_name": "The Unburied",
+        "monster_key": null,
+        "boss_name": null,
         "description": "It was buried here. It dug itself out.",
         "is_room": true,
         "label": "R",
@@ -31893,7 +31893,7 @@
     },
     "stairs_up_key": "16,0",
     "stairs_down_key": "9,20",
-    "boss_key": "1,21",
+    "boss_key": null,
     "grid_size": 24,
     "floor_name": "The Bone Warrens",
     "floor_flavor": "Catacombs carved before the mine. The dead did not stay placed. The lanterns here burn with a familiar, unsettling blue tint.",
@@ -31952,14 +31952,14 @@
         "room_name": null
       },
       "16,3": {
-        "type": "trap",
-        "cleared": false,
+        "type": "empty",
+        "cleared": true,
         "monster_key": null,
         "boss_name": null,
-        "description": "You stepped on a loose stone. A trap mechanism clicks in the dark!",
+        "description": "A narrow, winding passage.",
         "is_room": false,
         "label": null,
-        "room_name": "Trapped Passage"
+        "room_name": null
       },
       "12,4": {
         "type": "empty",
@@ -32612,14 +32612,14 @@
         "room_name": null
       },
       "12,11": {
-        "type": "empty",
-        "cleared": true,
+        "type": "trap",
+        "cleared": false,
         "monster_key": null,
         "boss_name": null,
-        "description": "A narrow, winding passage.",
+        "description": "You stepped on a loose stone. A trap mechanism clicks in the dark!",
         "is_room": false,
         "label": null,
-        "room_name": null
+        "room_name": "Trapped Passage"
       },
       "0,12": {
         "type": "antechamber",
@@ -33342,10 +33342,10 @@
         "room_name": "The Unburied's Tomb"
       },
       "1,21": {
-        "type": "boss",
+        "type": "monster",
         "cleared": false,
-        "monster_key": "balor_dd",
-        "boss_name": "The Unburied",
+        "monster_key": null,
+        "boss_name": null,
         "description": "It was buried here. It dug itself out.",
         "is_room": true,
         "label": "R",
@@ -34228,7 +34228,7 @@
     },
     "stairs_up_key": "16,0",
     "stairs_down_key": "9,20",
-    "boss_key": "1,21",
+    "boss_key": null,
     "grid_size": 24,
     "floor_name": "The Bone Warrens",
     "floor_flavor": "Catacombs carved before the mine. The dead did not stay placed. The lanterns here burn with a familiar, unsettling blue tint.",
@@ -34277,14 +34277,14 @@
         "room_name": "Upper Landing"
       },
       "16,2": {
-        "type": "empty",
-        "cleared": true,
+        "type": "trap",
+        "cleared": false,
         "monster_key": null,
         "boss_name": null,
-        "description": "A narrow, winding passage.",
+        "description": "You stepped on a loose stone. A trap mechanism clicks in the dark!",
         "is_room": false,
         "label": null,
-        "room_name": null
+        "room_name": "Trapped Passage"
       },
       "16,3": {
         "type": "empty",
@@ -35677,10 +35677,10 @@
         "room_name": "The Unburied's Tomb"
       },
       "1,21": {
-        "type": "boss",
+        "type": "monster",
         "cleared": false,
-        "monster_key": "balor_dd",
-        "boss_name": "The Unburied",
+        "monster_key": null,
+        "boss_name": null,
         "description": "It was buried here. It dug itself out.",
         "is_room": true,
         "label": "R",
@@ -36563,7 +36563,7 @@
     },
     "stairs_up_key": "16,0",
     "stairs_down_key": "9,20",
-    "boss_key": "1,21",
+    "boss_key": null,
     "grid_size": 24,
     "floor_name": "The Bone Warrens",
     "floor_flavor": "Catacombs carved before the mine. The dead did not stay placed. The lanterns here burn with a familiar, unsettling blue tint.",
@@ -36612,14 +36612,14 @@
         "room_name": "Upper Landing"
       },
       "16,2": {
-        "type": "trap",
-        "cleared": false,
+        "type": "empty",
+        "cleared": true,
         "monster_key": null,
         "boss_name": null,
-        "description": "You stepped on a loose stone. A trap mechanism clicks in the dark!",
+        "description": "A narrow, winding passage.",
         "is_room": false,
         "label": null,
-        "room_name": "Trapped Passage"
+        "room_name": null
       },
       "16,3": {
         "type": "empty",
@@ -37892,14 +37892,14 @@
         "room_name": null
       },
       "9,19": {
-        "type": "trap",
-        "cleared": false,
+        "type": "empty",
+        "cleared": true,
         "monster_key": null,
         "boss_name": null,
-        "description": "You stepped on a loose stone. A trap mechanism clicks in the dark!",
+        "description": "A narrow, winding passage.",
         "is_room": false,
         "label": null,
-        "room_name": "Trapped Passage"
+        "room_name": null
       },
       "0,20": {
         "type": "empty",
@@ -38012,10 +38012,10 @@
         "room_name": "The Unburied's Tomb"
       },
       "1,21": {
-        "type": "boss",
+        "type": "monster",
         "cleared": false,
-        "monster_key": "balor_dd",
-        "boss_name": "The Unburied",
+        "monster_key": null,
+        "boss_name": null,
         "description": "It was buried here. It dug itself out.",
         "is_room": true,
         "label": "R",
@@ -38898,7 +38898,7 @@
     },
     "stairs_up_key": "16,0",
     "stairs_down_key": "9,20",
-    "boss_key": "1,21",
+    "boss_key": null,
     "grid_size": 24,
     "floor_name": "The Bone Warrens",
     "floor_flavor": "Catacombs carved before the mine. The dead did not stay placed. The lanterns here burn with a familiar, unsettling blue tint.",
@@ -39117,14 +39117,14 @@
         "room_name": "Dusty Hall"
       },
       "19,5": {
-        "type": "empty",
-        "cleared": true,
+        "type": "trap",
+        "cleared": false,
         "monster_key": null,
         "boss_name": null,
-        "description": "A narrow, winding passage.",
+        "description": "You stepped on a loose stone. A trap mechanism clicks in the dark!",
         "is_room": false,
         "label": null,
-        "room_name": null
+        "room_name": "Trapped Passage"
       },
       "20,5": {
         "type": "monster",
@@ -40067,14 +40067,14 @@
         "room_name": null
       },
       "3,17": {
-        "type": "trap",
-        "cleared": false,
+        "type": "empty",
+        "cleared": true,
         "monster_key": null,
         "boss_name": null,
-        "description": "You stepped on a loose stone. A trap mechanism clicks in the dark!",
+        "description": "A narrow, winding passage.",
         "is_room": false,
         "label": null,
-        "room_name": "Trapped Passage"
+        "room_name": null
       },
       "4,17": {
         "type": "empty",
@@ -40297,14 +40297,14 @@
         "room_name": "The Deep Stair"
       },
       "11,20": {
-        "type": "empty",
-        "cleared": true,
+        "type": "trap",
+        "cleared": false,
         "monster_key": null,
         "boss_name": null,
-        "description": "A narrow, winding passage.",
+        "description": "You stepped on a loose stone. A trap mechanism clicks in the dark!",
         "is_room": false,
         "label": null,
-        "room_name": null
+        "room_name": "Trapped Passage"
       },
       "12,20": {
         "type": "empty",
@@ -40347,10 +40347,10 @@
         "room_name": "The Unburied's Tomb"
       },
       "1,21": {
-        "type": "boss",
+        "type": "monster",
         "cleared": false,
-        "monster_key": "balor_dd",
-        "boss_name": "The Unburied",
+        "monster_key": null,
+        "boss_name": null,
         "description": "It was buried here. It dug itself out.",
         "is_room": true,
         "label": "R",
@@ -41233,7 +41233,7 @@
     },
     "stairs_up_key": "16,0",
     "stairs_down_key": "9,20",
-    "boss_key": "1,21",
+    "boss_key": null,
     "grid_size": 24,
     "floor_name": "The Bone Warrens",
     "floor_flavor": "Catacombs carved before the mine. The dead did not stay placed. The lanterns here burn with a familiar, unsettling blue tint.",
@@ -41282,14 +41282,14 @@
         "room_name": "Upper Landing"
       },
       "16,2": {
-        "type": "trap",
-        "cleared": false,
+        "type": "empty",
+        "cleared": true,
         "monster_key": null,
         "boss_name": null,
-        "description": "You stepped on a loose stone. A trap mechanism clicks in the dark!",
+        "description": "A narrow, winding passage.",
         "is_room": false,
         "label": null,
-        "room_name": "Trapped Passage"
+        "room_name": null
       },
       "16,3": {
         "type": "empty",
@@ -42682,10 +42682,10 @@
         "room_name": "The Unburied's Tomb"
       },
       "1,21": {
-        "type": "boss",
+        "type": "monster",
         "cleared": false,
-        "monster_key": "balor_dd",
-        "boss_name": "The Unburied",
+        "monster_key": null,
+        "boss_name": null,
         "description": "It was buried here. It dug itself out.",
         "is_room": true,
         "label": "R",
@@ -43568,7 +43568,7 @@
     },
     "stairs_up_key": "16,0",
     "stairs_down_key": "9,20",
-    "boss_key": "1,21",
+    "boss_key": null,
     "grid_size": 24,
     "floor_name": "The Bone Warrens",
     "floor_flavor": "Catacombs carved before the mine. The dead did not stay placed.",
@@ -44267,14 +44267,14 @@
         "room_name": "Echo Chamber"
       },
       "5,11": {
-        "type": "empty",
-        "cleared": true,
+        "type": "trap",
+        "cleared": false,
         "monster_key": null,
         "boss_name": null,
-        "description": "A narrow, winding passage.",
+        "description": "You stepped on a loose stone. A trap mechanism clicks in the dark!",
         "is_room": false,
         "label": null,
-        "room_name": null
+        "room_name": "Trapped Passage"
       },
       "9,11": {
         "type": "empty",
@@ -45017,10 +45017,10 @@
         "room_name": "The Unburied's Tomb"
       },
       "1,21": {
-        "type": "boss",
+        "type": "monster",
         "cleared": false,
-        "monster_key": "balor_dd",
-        "boss_name": "The Unburied",
+        "monster_key": null,
+        "boss_name": null,
         "description": "It was buried here. It dug itself out.",
         "is_room": true,
         "label": "R",
@@ -45903,7 +45903,7 @@
     },
     "stairs_up_key": "16,0",
     "stairs_down_key": "9,20",
-    "boss_key": "1,21",
+    "boss_key": null,
     "grid_size": 24,
     "floor_name": "The Bone Warrens",
     "floor_flavor": "Catacombs carved before the mine. The dead did not stay placed.",
@@ -46942,14 +46942,14 @@
         "room_name": "Defaced Shrine"
       },
       "5,15": {
-        "type": "trap",
-        "cleared": false,
+        "type": "empty",
+        "cleared": true,
         "monster_key": null,
         "boss_name": null,
-        "description": "You stepped on a loose stone. A trap mechanism clicks in the dark!",
+        "description": "A narrow, winding passage.",
         "is_room": false,
         "label": null,
-        "room_name": "Trapped Passage"
+        "room_name": null
       },
       "9,15": {
         "type": "empty",
@@ -47352,10 +47352,10 @@
         "room_name": "The Unburied's Tomb"
       },
       "1,21": {
-        "type": "boss",
+        "type": "monster",
         "cleared": false,
-        "monster_key": "balor_dd",
-        "boss_name": "The Unburied",
+        "monster_key": null,
+        "boss_name": null,
         "description": "It was buried here. It dug itself out.",
         "is_room": true,
         "label": "R",
@@ -48238,7 +48238,7 @@
     },
     "stairs_up_key": "16,0",
     "stairs_down_key": "9,20",
-    "boss_key": "1,21",
+    "boss_key": null,
     "grid_size": 24,
     "floor_name": "The Bone Warrens",
     "floor_flavor": "Catacombs carved before the mine. The dead did not stay placed.",
@@ -48947,14 +48947,14 @@
         "room_name": null
       },
       "9,11": {
-        "type": "empty",
-        "cleared": true,
+        "type": "trap",
+        "cleared": false,
         "monster_key": null,
         "boss_name": null,
-        "description": "A narrow, winding passage.",
+        "description": "You stepped on a loose stone. A trap mechanism clicks in the dark!",
         "is_room": false,
         "label": null,
-        "room_name": null
+        "room_name": "Trapped Passage"
       },
       "12,11": {
         "type": "empty",
@@ -49397,24 +49397,24 @@
         "room_name": "Sealed Alcove"
       },
       "2,17": {
-        "type": "empty",
-        "cleared": true,
+        "type": "trap",
+        "cleared": false,
         "monster_key": null,
         "boss_name": null,
-        "description": "A narrow, winding passage.",
+        "description": "You stepped on a loose stone. A trap mechanism clicks in the dark!",
         "is_room": false,
         "label": null,
-        "room_name": null
+        "room_name": "Trapped Passage"
       },
       "3,17": {
-        "type": "empty",
-        "cleared": true,
+        "type": "trap",
+        "cleared": false,
         "monster_key": null,
         "boss_name": null,
-        "description": "A narrow, winding passage.",
+        "description": "You stepped on a loose stone. A trap mechanism clicks in the dark!",
         "is_room": false,
         "label": null,
-        "room_name": null
+        "room_name": "Trapped Passage"
       },
       "4,17": {
         "type": "empty",
@@ -49637,14 +49637,14 @@
         "room_name": "The Deep Stair"
       },
       "11,20": {
-        "type": "trap",
-        "cleared": false,
+        "type": "empty",
+        "cleared": true,
         "monster_key": null,
         "boss_name": null,
-        "description": "You stepped on a loose stone. A trap mechanism clicks in the dark!",
+        "description": "A narrow, winding passage.",
         "is_room": false,
         "label": null,
-        "room_name": "Trapped Passage"
+        "room_name": null
       },
       "12,20": {
         "type": "empty",
@@ -49687,10 +49687,10 @@
         "room_name": "The Unburied's Tomb"
       },
       "1,21": {
-        "type": "boss",
+        "type": "monster",
         "cleared": false,
-        "monster_key": "balor_dd",
-        "boss_name": "The Unburied",
+        "monster_key": null,
+        "boss_name": null,
         "description": "It was buried here. It dug itself out.",
         "is_room": true,
         "label": "R",
@@ -50573,7 +50573,7 @@
     },
     "stairs_up_key": "16,0",
     "stairs_down_key": "9,20",
-    "boss_key": "1,21",
+    "boss_key": null,
     "grid_size": 24,
     "floor_name": "The Bone Warrens",
     "floor_flavor": "Catacombs carved before the mine. The dead did not stay placed.",
@@ -50752,14 +50752,14 @@
         "room_name": "Crypt Gate"
       },
       "15,5": {
-        "type": "trap",
-        "cleared": false,
+        "type": "empty",
+        "cleared": true,
         "monster_key": null,
         "boss_name": null,
-        "description": "You stepped on a loose stone. A trap mechanism clicks in the dark!",
+        "description": "A narrow, winding passage.",
         "is_room": false,
         "label": null,
-        "room_name": "Trapped Passage"
+        "room_name": null
       },
       "16,5": {
         "type": "empty",
@@ -51172,14 +51172,14 @@
         "room_name": "Echo Chamber"
       },
       "5,10": {
-        "type": "empty",
-        "cleared": true,
+        "type": "trap",
+        "cleared": false,
         "monster_key": null,
         "boss_name": null,
-        "description": "A narrow, winding passage.",
+        "description": "You stepped on a loose stone. A trap mechanism clicks in the dark!",
         "is_room": false,
         "label": null,
-        "room_name": null
+        "room_name": "Trapped Passage"
       },
       "8,10": {
         "type": "empty",
@@ -52022,10 +52022,10 @@
         "room_name": "The Unburied's Tomb"
       },
       "1,21": {
-        "type": "boss",
+        "type": "monster",
         "cleared": false,
-        "monster_key": "balor_dd",
-        "boss_name": "The Unburied",
+        "monster_key": null,
+        "boss_name": null,
         "description": "It was buried here. It dug itself out.",
         "is_room": true,
         "label": "R",
@@ -52908,7 +52908,7 @@
     },
     "stairs_up_key": "16,0",
     "stairs_down_key": "9,20",
-    "boss_key": "1,21",
+    "boss_key": null,
     "grid_size": 24,
     "floor_name": "The Bone Warrens",
     "floor_flavor": "Catacombs carved before the mine. The dead did not stay placed.",
@@ -53087,14 +53087,14 @@
         "room_name": "Crypt Gate"
       },
       "15,5": {
-        "type": "trap",
-        "cleared": false,
+        "type": "empty",
+        "cleared": true,
         "monster_key": null,
         "boss_name": null,
-        "description": "You stepped on a loose stone. A trap mechanism clicks in the dark!",
+        "description": "A narrow, winding passage.",
         "is_room": false,
         "label": null,
-        "room_name": "Trapped Passage"
+        "room_name": null
       },
       "16,5": {
         "type": "empty",
@@ -53467,14 +53467,14 @@
         "room_name": "Ossuary"
       },
       "15,9": {
-        "type": "empty",
-        "cleared": true,
+        "type": "trap",
+        "cleared": false,
         "monster_key": null,
         "boss_name": null,
-        "description": "A narrow, winding passage.",
+        "description": "You stepped on a loose stone. A trap mechanism clicks in the dark!",
         "is_room": false,
         "label": null,
-        "room_name": null
+        "room_name": "Trapped Passage"
       },
       "16,9": {
         "type": "empty",
@@ -53617,14 +53617,14 @@
         "room_name": null
       },
       "9,11": {
-        "type": "empty",
-        "cleared": true,
+        "type": "trap",
+        "cleared": false,
         "monster_key": null,
         "boss_name": null,
-        "description": "A narrow, winding passage.",
+        "description": "You stepped on a loose stone. A trap mechanism clicks in the dark!",
         "is_room": false,
         "label": null,
-        "room_name": null
+        "room_name": "Trapped Passage"
       },
       "12,11": {
         "type": "empty",
@@ -53667,14 +53667,14 @@
         "room_name": null
       },
       "3,12": {
-        "type": "trap",
-        "cleared": false,
+        "type": "empty",
+        "cleared": true,
         "monster_key": null,
         "boss_name": null,
-        "description": "You stepped on a loose stone. A trap mechanism clicks in the dark!",
+        "description": "A narrow, winding passage.",
         "is_room": false,
         "label": null,
-        "room_name": "Trapped Passage"
+        "room_name": null
       },
       "4,12": {
         "type": "empty",
@@ -54067,14 +54067,14 @@
         "room_name": "Sealed Alcove"
       },
       "2,17": {
-        "type": "trap",
-        "cleared": false,
+        "type": "empty",
+        "cleared": true,
         "monster_key": null,
         "boss_name": null,
-        "description": "You stepped on a loose stone. A trap mechanism clicks in the dark!",
+        "description": "A narrow, winding passage.",
         "is_room": false,
         "label": null,
-        "room_name": "Trapped Passage"
+        "room_name": null
       },
       "3,17": {
         "type": "empty",
@@ -54357,10 +54357,10 @@
         "room_name": "The Unburied's Tomb"
       },
       "1,21": {
-        "type": "boss",
+        "type": "monster",
         "cleared": false,
-        "monster_key": "balor_dd",
-        "boss_name": "The Unburied",
+        "monster_key": null,
+        "boss_name": null,
         "description": "It was buried here. It dug itself out.",
         "is_room": true,
         "label": "R",
@@ -55243,7 +55243,7 @@
     },
     "stairs_up_key": "16,0",
     "stairs_down_key": "9,20",
-    "boss_key": "1,21",
+    "boss_key": null,
     "grid_size": 24,
     "floor_name": "The Bone Warrens",
     "floor_flavor": "Catacombs carved before the mine. The dead did not stay placed.",
@@ -55802,14 +55802,14 @@
         "room_name": "Ossuary"
       },
       "15,9": {
-        "type": "empty",
-        "cleared": true,
+        "type": "trap",
+        "cleared": false,
         "monster_key": null,
         "boss_name": null,
-        "description": "A narrow, winding passage.",
+        "description": "You stepped on a loose stone. A trap mechanism clicks in the dark!",
         "is_room": false,
         "label": null,
-        "room_name": null
+        "room_name": "Trapped Passage"
       },
       "16,9": {
         "type": "empty",
@@ -55992,14 +55992,14 @@
         "room_name": "Sealed Door"
       },
       "2,12": {
-        "type": "trap",
-        "cleared": false,
+        "type": "empty",
+        "cleared": true,
         "monster_key": null,
         "boss_name": null,
-        "description": "You stepped on a loose stone. A trap mechanism clicks in the dark!",
+        "description": "A narrow, winding passage.",
         "is_room": false,
         "label": null,
-        "room_name": "Trapped Passage"
+        "room_name": null
       },
       "3,12": {
         "type": "empty",
@@ -56282,14 +56282,14 @@
         "room_name": "Defaced Shrine"
       },
       "5,15": {
-        "type": "empty",
-        "cleared": true,
+        "type": "trap",
+        "cleared": false,
         "monster_key": null,
         "boss_name": null,
-        "description": "A narrow, winding passage.",
+        "description": "You stepped on a loose stone. A trap mechanism clicks in the dark!",
         "is_room": false,
         "label": null,
-        "room_name": null
+        "room_name": "Trapped Passage"
       },
       "9,15": {
         "type": "empty",
@@ -56412,14 +56412,14 @@
         "room_name": null
       },
       "3,17": {
-        "type": "empty",
-        "cleared": true,
+        "type": "trap",
+        "cleared": false,
         "monster_key": null,
         "boss_name": null,
-        "description": "A narrow, winding passage.",
+        "description": "You stepped on a loose stone. A trap mechanism clicks in the dark!",
         "is_room": false,
         "label": null,
-        "room_name": null
+        "room_name": "Trapped Passage"
       },
       "4,17": {
         "type": "empty",
@@ -56692,10 +56692,10 @@
         "room_name": "The Unburied's Tomb"
       },
       "1,21": {
-        "type": "boss",
+        "type": "monster",
         "cleared": false,
-        "monster_key": "balor_dd",
-        "boss_name": "The Unburied",
+        "monster_key": null,
+        "boss_name": null,
         "description": "It was buried here. It dug itself out.",
         "is_room": true,
         "label": "R",
@@ -57578,7 +57578,7 @@
     },
     "stairs_up_key": "16,0",
     "stairs_down_key": "9,20",
-    "boss_key": "1,21",
+    "boss_key": null,
     "grid_size": 24,
     "floor_name": "The Bone Warrens",
     "floor_flavor": "Catacombs carved before the mine. The dead did not stay placed.",
@@ -57757,14 +57757,14 @@
         "room_name": "Crypt Gate"
       },
       "15,5": {
-        "type": "empty",
-        "cleared": true,
+        "type": "trap",
+        "cleared": false,
         "monster_key": null,
         "boss_name": null,
-        "description": "A narrow, winding passage.",
+        "description": "You stepped on a loose stone. A trap mechanism clicks in the dark!",
         "is_room": false,
         "label": null,
-        "room_name": null
+        "room_name": "Trapped Passage"
       },
       "16,5": {
         "type": "empty",
@@ -58337,14 +58337,14 @@
         "room_name": null
       },
       "3,12": {
-        "type": "empty",
-        "cleared": true,
+        "type": "trap",
+        "cleared": false,
         "monster_key": null,
         "boss_name": null,
-        "description": "A narrow, winding passage.",
+        "description": "You stepped on a loose stone. A trap mechanism clicks in the dark!",
         "is_room": false,
         "label": null,
-        "room_name": null
+        "room_name": "Trapped Passage"
       },
       "4,12": {
         "type": "empty",
@@ -59027,10 +59027,10 @@
         "room_name": "The Unburied's Tomb"
       },
       "1,21": {
-        "type": "boss",
+        "type": "monster",
         "cleared": false,
-        "monster_key": "balor_dd",
-        "boss_name": "The Unburied",
+        "monster_key": null,
+        "boss_name": null,
         "description": "It was buried here. It dug itself out.",
         "is_room": true,
         "label": "R",
@@ -59913,7 +59913,7 @@
     },
     "stairs_up_key": "16,0",
     "stairs_down_key": "9,20",
-    "boss_key": "1,21",
+    "boss_key": null,
     "grid_size": 24,
     "floor_name": "The Bone Warrens",
     "floor_flavor": "Catacombs carved before the mine. The dead did not stay placed.",
@@ -60432,14 +60432,14 @@
         "room_name": "Burial Offerings"
       },
       "11,9": {
-        "type": "trap",
-        "cleared": false,
+        "type": "empty",
+        "cleared": true,
         "monster_key": null,
         "boss_name": null,
-        "description": "You stepped on a loose stone. A trap mechanism clicks in the dark!",
+        "description": "A narrow, winding passage.",
         "is_room": false,
         "label": null,
-        "room_name": "Trapped Passage"
+        "room_name": null
       },
       "12,9": {
         "type": "empty",
@@ -60512,14 +60512,14 @@
         "room_name": "Echo Chamber"
       },
       "5,10": {
-        "type": "empty",
-        "cleared": true,
+        "type": "trap",
+        "cleared": false,
         "monster_key": null,
         "boss_name": null,
-        "description": "A narrow, winding passage.",
+        "description": "You stepped on a loose stone. A trap mechanism clicks in the dark!",
         "is_room": false,
         "label": null,
-        "room_name": null
+        "room_name": "Trapped Passage"
       },
       "8,10": {
         "type": "empty",
@@ -60662,14 +60662,14 @@
         "room_name": "Sealed Door"
       },
       "2,12": {
-        "type": "trap",
-        "cleared": false,
+        "type": "empty",
+        "cleared": true,
         "monster_key": null,
         "boss_name": null,
-        "description": "You stepped on a loose stone. A trap mechanism clicks in the dark!",
+        "description": "A narrow, winding passage.",
         "is_room": false,
         "label": null,
-        "room_name": "Trapped Passage"
+        "room_name": null
       },
       "3,12": {
         "type": "empty",
@@ -61362,10 +61362,10 @@
         "room_name": "The Unburied's Tomb"
       },
       "1,21": {
-        "type": "boss",
+        "type": "monster",
         "cleared": false,
-        "monster_key": "balor_dd",
-        "boss_name": "The Unburied",
+        "monster_key": null,
+        "boss_name": null,
         "description": "It was buried here. It dug itself out.",
         "is_room": true,
         "label": "R",
@@ -62248,7 +62248,7 @@
     },
     "stairs_up_key": "16,0",
     "stairs_down_key": "9,20",
-    "boss_key": "1,21",
+    "boss_key": null,
     "grid_size": 24,
     "floor_name": "The Bone Warrens",
     "floor_flavor": "Catacombs carved before the mine. The dead did not stay placed.",
@@ -62767,14 +62767,14 @@
         "room_name": "Burial Offerings"
       },
       "11,9": {
-        "type": "empty",
-        "cleared": true,
+        "type": "trap",
+        "cleared": false,
         "monster_key": null,
         "boss_name": null,
-        "description": "A narrow, winding passage.",
+        "description": "You stepped on a loose stone. A trap mechanism clicks in the dark!",
         "is_room": false,
         "label": null,
-        "room_name": null
+        "room_name": "Trapped Passage"
       },
       "12,9": {
         "type": "empty",
@@ -62847,14 +62847,14 @@
         "room_name": "Echo Chamber"
       },
       "5,10": {
-        "type": "empty",
-        "cleared": true,
+        "type": "trap",
+        "cleared": false,
         "monster_key": null,
         "boss_name": null,
-        "description": "A narrow, winding passage.",
+        "description": "You stepped on a loose stone. A trap mechanism clicks in the dark!",
         "is_room": false,
         "label": null,
-        "room_name": null
+        "room_name": "Trapped Passage"
       },
       "8,10": {
         "type": "empty",
@@ -63007,14 +63007,14 @@
         "room_name": null
       },
       "3,12": {
-        "type": "trap",
-        "cleared": false,
+        "type": "empty",
+        "cleared": true,
         "monster_key": null,
         "boss_name": null,
-        "description": "You stepped on a loose stone. A trap mechanism clicks in the dark!",
+        "description": "A narrow, winding passage.",
         "is_room": false,
         "label": null,
-        "room_name": "Trapped Passage"
+        "room_name": null
       },
       "4,12": {
         "type": "empty",
@@ -63697,10 +63697,10 @@
         "room_name": "The Unburied's Tomb"
       },
       "1,21": {
-        "type": "boss",
+        "type": "monster",
         "cleared": false,
-        "monster_key": "balor_dd",
-        "boss_name": "The Unburied",
+        "monster_key": null,
+        "boss_name": null,
         "description": "It was buried here. It dug itself out.",
         "is_room": true,
         "label": "R",
@@ -64583,7 +64583,7 @@
     },
     "stairs_up_key": "16,0",
     "stairs_down_key": "9,20",
-    "boss_key": "1,21",
+    "boss_key": null,
     "grid_size": 24,
     "floor_name": "The Bone Warrens",
     "floor_flavor": "Catacombs carved before the mine. The dead did not stay placed.",
@@ -65062,14 +65062,14 @@
         "room_name": "Vent Room"
       },
       "11,9": {
-        "type": "empty",
-        "cleared": true,
+        "type": "trap",
+        "cleared": false,
         "monster_key": null,
         "boss_name": null,
-        "description": "A narrow, winding passage.",
+        "description": "You stepped on a loose stone. A trap mechanism clicks in the dark!",
         "is_room": false,
         "label": null,
-        "room_name": null
+        "room_name": "Trapped Passage"
       },
       "12,9": {
         "type": "empty",
@@ -65282,20 +65282,20 @@
         "room_name": null
       },
       "17,11": {
-        "type": "trap",
+        "type": "empty",
+        "cleared": true,
+        "monster_key": null,
+        "boss_name": null,
+        "description": "A narrow, winding passage.",
+        "is_room": false,
+        "label": null,
+        "room_name": null
+      },
+      "0,12": {
+        "type": "guard",
         "cleared": false,
         "monster_key": null,
         "boss_name": null,
-        "description": "You stepped on a loose stone. A trap mechanism clicks in the dark!",
-        "is_room": false,
-        "label": null,
-        "room_name": "Trapped Passage"
-      },
-      "0,12": {
-        "type": "boss",
-        "cleared": false,
-        "monster_key": "red_dragon",
-        "boss_name": "Resonance Warden",
         "description": "It was built to guard this forge. It never stopped.",
         "is_room": true,
         "label": "Q",
@@ -66880,7 +66880,7 @@
     },
     "stairs_up_key": "20,20",
     "stairs_down_key": "17,13",
-    "boss_key": "0,12",
+    "boss_key": null,
     "grid_size": 24,
     "floor_name": "The Sunken Forge",
     "floor_flavor": "An Aeridorian forge buried by time. The fires still burn.",
@@ -67079,14 +67079,14 @@
         "room_name": "Construct Hall"
       },
       "5,6": {
-        "type": "trap",
-        "cleared": false,
+        "type": "empty",
+        "cleared": true,
         "monster_key": null,
         "boss_name": null,
-        "description": "You stepped on a loose stone. A trap mechanism clicks in the dark!",
+        "description": "A narrow, winding passage.",
         "is_room": false,
         "label": null,
-        "room_name": "Trapped Passage"
+        "room_name": null
       },
       "8,6": {
         "type": "empty",
@@ -67559,14 +67559,14 @@
         "room_name": "Smelting Room"
       },
       "5,11": {
-        "type": "empty",
-        "cleared": true,
+        "type": "trap",
+        "cleared": false,
         "monster_key": null,
         "boss_name": null,
-        "description": "A narrow, winding passage.",
+        "description": "You stepped on a loose stone. A trap mechanism clicks in the dark!",
         "is_room": false,
         "label": null,
-        "room_name": null
+        "room_name": "Trapped Passage"
       },
       "12,11": {
         "type": "empty",
@@ -67579,20 +67579,20 @@
         "room_name": null
       },
       "17,11": {
-        "type": "trap",
+        "type": "empty",
+        "cleared": true,
+        "monster_key": null,
+        "boss_name": null,
+        "description": "A narrow, winding passage.",
+        "is_room": false,
+        "label": null,
+        "room_name": null
+      },
+      "0,12": {
+        "type": "guard",
         "cleared": false,
         "monster_key": null,
         "boss_name": null,
-        "description": "You stepped on a loose stone. A trap mechanism clicks in the dark!",
-        "is_room": false,
-        "label": null,
-        "room_name": "Trapped Passage"
-      },
-      "0,12": {
-        "type": "boss",
-        "cleared": false,
-        "monster_key": "red_dragon",
-        "boss_name": "Resonance Warden",
         "description": "It was built to guard this forge. It never stopped.",
         "is_room": true,
         "label": "Q",
@@ -67989,14 +67989,14 @@
         "room_name": "Scrap Pit"
       },
       "5,19": {
-        "type": "trap",
-        "cleared": false,
+        "type": "empty",
+        "cleared": true,
         "monster_key": null,
         "boss_name": null,
-        "description": "You stepped on a loose stone. A trap mechanism clicks in the dark!",
+        "description": "A narrow, winding passage.",
         "is_room": false,
         "label": null,
-        "room_name": "Trapped Passage"
+        "room_name": null
       },
       "4,20": {
         "type": "empty",
@@ -69177,7 +69177,7 @@
     },
     "stairs_up_key": "20,20",
     "stairs_down_key": "17,13",
-    "boss_key": "0,12",
+    "boss_key": null,
     "grid_size": 24,
     "floor_name": "The Sunken Forge",
     "floor_flavor": "An Aeridorian forge buried by time. The fires still burn.",
@@ -69886,10 +69886,10 @@
         "room_name": null
       },
       "0,12": {
-        "type": "boss",
+        "type": "guard",
         "cleared": false,
-        "monster_key": "red_dragon",
-        "boss_name": "Resonance Warden",
+        "monster_key": null,
+        "boss_name": null,
         "description": "It was built to guard this forge. It never stopped.",
         "is_room": true,
         "label": "Q",
@@ -71474,7 +71474,7 @@
     },
     "stairs_up_key": "20,20",
     "stairs_down_key": "17,13",
-    "boss_key": "0,12",
+    "boss_key": null,
     "grid_size": 24,
     "floor_name": "The Sunken Forge",
     "floor_flavor": "An Aeridorian forge buried by time. The fires still burn.",
@@ -72183,10 +72183,10 @@
         "room_name": null
       },
       "0,12": {
-        "type": "boss",
+        "type": "guard",
         "cleared": false,
-        "monster_key": "red_dragon",
-        "boss_name": "Resonance Warden",
+        "monster_key": null,
+        "boss_name": null,
         "description": "It was built to guard this forge. It never stopped.",
         "is_room": true,
         "label": "Q",
@@ -72213,14 +72213,14 @@
         "room_name": null
       },
       "3,12": {
-        "type": "empty",
-        "cleared": true,
+        "type": "trap",
+        "cleared": false,
         "monster_key": null,
         "boss_name": null,
-        "description": "A narrow, winding passage.",
+        "description": "You stepped on a loose stone. A trap mechanism clicks in the dark!",
         "is_room": false,
         "label": null,
-        "room_name": null
+        "room_name": "Trapped Passage"
       },
       "4,12": {
         "type": "empty",
@@ -73771,7 +73771,7 @@
     },
     "stairs_up_key": "20,20",
     "stairs_down_key": "17,13",
-    "boss_key": "0,12",
+    "boss_key": null,
     "grid_size": 24,
     "floor_name": "The Sunken Forge",
     "floor_flavor": "An Aeridorian forge buried by time. The fires still burn.",
@@ -74480,10 +74480,10 @@
         "room_name": null
       },
       "0,12": {
-        "type": "boss",
+        "type": "guard",
         "cleared": false,
-        "monster_key": "red_dragon",
-        "boss_name": "Resonance Warden",
+        "monster_key": null,
+        "boss_name": null,
         "description": "It was built to guard this forge. It never stopped.",
         "is_room": true,
         "label": "Q",
@@ -74510,14 +74510,14 @@
         "room_name": null
       },
       "3,12": {
-        "type": "trap",
-        "cleared": false,
+        "type": "empty",
+        "cleared": true,
         "monster_key": null,
         "boss_name": null,
-        "description": "You stepped on a loose stone. A trap mechanism clicks in the dark!",
+        "description": "A narrow, winding passage.",
         "is_room": false,
         "label": null,
-        "room_name": "Trapped Passage"
+        "room_name": null
       },
       "4,12": {
         "type": "empty",
@@ -74780,14 +74780,14 @@
         "room_name": "Thermal Shaft"
       },
       "5,15": {
-        "type": "empty",
-        "cleared": true,
+        "type": "trap",
+        "cleared": false,
         "monster_key": null,
         "boss_name": null,
-        "description": "A narrow, winding passage.",
+        "description": "You stepped on a loose stone. A trap mechanism clicks in the dark!",
         "is_room": false,
         "label": null,
-        "room_name": null
+        "room_name": "Trapped Passage"
       },
       "4,16": {
         "type": "empty",
@@ -76068,7 +76068,7 @@
     },
     "stairs_up_key": "20,20",
     "stairs_down_key": "17,13",
-    "boss_key": "0,12",
+    "boss_key": null,
     "grid_size": 24,
     "floor_name": "The Sunken Forge",
     "floor_flavor": "An Aeridorian forge buried by time. The fires still burn.",
@@ -76777,10 +76777,10 @@
         "room_name": null
       },
       "0,12": {
-        "type": "boss",
+        "type": "guard",
         "cleared": false,
-        "monster_key": "red_dragon",
-        "boss_name": "Resonance Warden",
+        "monster_key": null,
+        "boss_name": null,
         "description": "It was built to guard this forge. It never stopped.",
         "is_room": true,
         "label": "Q",
@@ -77367,14 +77367,14 @@
         "room_name": "Cooling Room"
       },
       "7,21": {
-        "type": "trap",
-        "cleared": false,
+        "type": "empty",
+        "cleared": true,
         "monster_key": null,
         "boss_name": null,
-        "description": "You stepped on a loose stone. A trap mechanism clicks in the dark!",
+        "description": "A narrow, winding passage.",
         "is_room": false,
         "label": null,
-        "room_name": "Trapped Passage"
+        "room_name": null
       },
       "8,21": {
         "type": "empty",
@@ -78365,7 +78365,7 @@
     },
     "stairs_up_key": "20,20",
     "stairs_down_key": "17,13",
-    "boss_key": "0,12",
+    "boss_key": null,
     "grid_size": 24,
     "floor_name": "The Sunken Forge",
     "floor_flavor": "An Aeridorian forge buried by time. The fires still burn.",
@@ -78524,14 +78524,14 @@
         "room_name": "Pressure Plate"
       },
       "11,5": {
-        "type": "empty",
-        "cleared": true,
+        "type": "trap",
+        "cleared": false,
         "monster_key": null,
         "boss_name": null,
-        "description": "A narrow, winding passage.",
+        "description": "You stepped on a loose stone. A trap mechanism clicks in the dark!",
         "is_room": false,
         "label": null,
-        "room_name": null
+        "room_name": "Trapped Passage"
       },
       "12,5": {
         "type": "empty",
@@ -79074,10 +79074,10 @@
         "room_name": null
       },
       "0,12": {
-        "type": "boss",
+        "type": "guard",
         "cleared": false,
-        "monster_key": "red_dragon",
-        "boss_name": "Resonance Warden",
+        "monster_key": null,
+        "boss_name": null,
         "description": "It was built to guard this forge. It never stopped.",
         "is_room": true,
         "label": "Q",
@@ -80662,7 +80662,7 @@
     },
     "stairs_up_key": "20,20",
     "stairs_down_key": "17,13",
-    "boss_key": "0,12",
+    "boss_key": null,
     "grid_size": 24,
     "floor_name": "The Sunken Forge",
     "floor_flavor": "An Aeridorian forge buried by time. The fires still burn.",
@@ -81371,10 +81371,10 @@
         "room_name": null
       },
       "0,12": {
-        "type": "boss",
+        "type": "guard",
         "cleared": false,
-        "monster_key": "red_dragon",
-        "boss_name": "Resonance Warden",
+        "monster_key": null,
+        "boss_name": null,
         "description": "It was built to guard this forge. It never stopped.",
         "is_room": true,
         "label": "Q",
@@ -82959,7 +82959,7 @@
     },
     "stairs_up_key": "20,20",
     "stairs_down_key": "17,13",
-    "boss_key": "0,12",
+    "boss_key": null,
     "grid_size": 24,
     "floor_name": "The Sunken Forge",
     "floor_flavor": "An Aeridorian forge buried by time. The fires still burn.",
@@ -83438,14 +83438,14 @@
         "room_name": "Vent Room"
       },
       "11,9": {
-        "type": "empty",
-        "cleared": true,
+        "type": "trap",
+        "cleared": false,
         "monster_key": null,
         "boss_name": null,
-        "description": "A narrow, winding passage.",
+        "description": "You stepped on a loose stone. A trap mechanism clicks in the dark!",
         "is_room": false,
         "label": null,
-        "room_name": null
+        "room_name": "Trapped Passage"
       },
       "12,9": {
         "type": "empty",
@@ -83668,10 +83668,10 @@
         "room_name": null
       },
       "0,12": {
-        "type": "boss",
+        "type": "guard",
         "cleared": false,
-        "monster_key": "red_dragon",
-        "boss_name": "Resonance Warden",
+        "monster_key": null,
+        "boss_name": null,
         "description": "It was built to guard this forge. It never stopped.",
         "is_room": true,
         "label": "Q",
@@ -85256,7 +85256,7 @@
     },
     "stairs_up_key": "20,20",
     "stairs_down_key": "17,13",
-    "boss_key": "0,12",
+    "boss_key": null,
     "grid_size": 24,
     "floor_name": "The Sunken Forge",
     "floor_flavor": "An Aeridorian forge buried by time. The fires still burn.",
@@ -85965,10 +85965,10 @@
         "room_name": null
       },
       "0,12": {
-        "type": "boss",
+        "type": "guard",
         "cleared": false,
-        "monster_key": "red_dragon",
-        "boss_name": "Resonance Warden",
+        "monster_key": null,
+        "boss_name": null,
         "description": "It was built to guard this forge. It never stopped.",
         "is_room": true,
         "label": "Q",
@@ -87553,7 +87553,7 @@
     },
     "stairs_up_key": "20,20",
     "stairs_down_key": "17,13",
-    "boss_key": "0,12",
+    "boss_key": null,
     "grid_size": 24,
     "floor_name": "The Sunken Forge",
     "floor_flavor": "An Aeridorian forge buried by time. The fires still burn.",
@@ -87992,14 +87992,14 @@
         "room_name": "Maker's Altar"
       },
       "7,9": {
-        "type": "empty",
-        "cleared": true,
+        "type": "trap",
+        "cleared": false,
         "monster_key": null,
         "boss_name": null,
-        "description": "A narrow, winding passage.",
+        "description": "You stepped on a loose stone. A trap mechanism clicks in the dark!",
         "is_room": false,
         "label": null,
-        "room_name": null
+        "room_name": "Trapped Passage"
       },
       "8,9": {
         "type": "empty",
@@ -88262,10 +88262,10 @@
         "room_name": null
       },
       "0,12": {
-        "type": "boss",
+        "type": "guard",
         "cleared": false,
-        "monster_key": "red_dragon",
-        "boss_name": "Resonance Warden",
+        "monster_key": null,
+        "boss_name": null,
         "description": "It was built to guard this forge. It never stopped.",
         "is_room": true,
         "label": "Q",
@@ -88662,14 +88662,14 @@
         "room_name": "Scrap Pit"
       },
       "5,19": {
-        "type": "empty",
-        "cleared": true,
+        "type": "trap",
+        "cleared": false,
         "monster_key": null,
         "boss_name": null,
-        "description": "A narrow, winding passage.",
+        "description": "You stepped on a loose stone. A trap mechanism clicks in the dark!",
         "is_room": false,
         "label": null,
-        "room_name": null
+        "room_name": "Trapped Passage"
       },
       "4,20": {
         "type": "empty",
@@ -88852,14 +88852,14 @@
         "room_name": "Cooling Room"
       },
       "7,21": {
-        "type": "trap",
-        "cleared": false,
+        "type": "empty",
+        "cleared": true,
         "monster_key": null,
         "boss_name": null,
-        "description": "You stepped on a loose stone. A trap mechanism clicks in the dark!",
+        "description": "A narrow, winding passage.",
         "is_room": false,
         "label": null,
-        "room_name": "Trapped Passage"
+        "room_name": null
       },
       "8,21": {
         "type": "empty",
@@ -89850,7 +89850,7 @@
     },
     "stairs_up_key": "20,20",
     "stairs_down_key": "17,13",
-    "boss_key": "0,12",
+    "boss_key": null,
     "grid_size": 24,
     "floor_name": "The Sunken Forge",
     "floor_flavor": "An Aeridorian forge buried by time. The fires still burn. The heat doesn't warm you; it feels like it's trying to digest you.",
@@ -90009,14 +90009,14 @@
         "room_name": "Pressure Plate"
       },
       "11,5": {
-        "type": "trap",
-        "cleared": false,
+        "type": "empty",
+        "cleared": true,
         "monster_key": null,
         "boss_name": null,
-        "description": "You stepped on a loose stone. A trap mechanism clicks in the dark!",
+        "description": "A narrow, winding passage.",
         "is_room": false,
         "label": null,
-        "room_name": "Trapped Passage"
+        "room_name": null
       },
       "12,5": {
         "type": "empty",
@@ -90289,14 +90289,14 @@
         "room_name": "Maker's Altar"
       },
       "7,9": {
-        "type": "empty",
-        "cleared": true,
+        "type": "trap",
+        "cleared": false,
         "monster_key": null,
         "boss_name": null,
-        "description": "A narrow, winding passage.",
+        "description": "You stepped on a loose stone. A trap mechanism clicks in the dark!",
         "is_room": false,
         "label": null,
-        "room_name": null
+        "room_name": "Trapped Passage"
       },
       "8,9": {
         "type": "empty",
@@ -90559,10 +90559,10 @@
         "room_name": null
       },
       "0,12": {
-        "type": "boss",
+        "type": "guard",
         "cleared": false,
-        "monster_key": "red_dragon",
-        "boss_name": "Resonance Warden",
+        "monster_key": null,
+        "boss_name": null,
         "description": "It was built to guard this forge. It never stopped.",
         "is_room": true,
         "label": "Q",
@@ -90579,14 +90579,14 @@
         "room_name": "Warden's Chamber"
       },
       "2,12": {
-        "type": "empty",
-        "cleared": true,
+        "type": "trap",
+        "cleared": false,
         "monster_key": null,
         "boss_name": null,
-        "description": "A narrow, winding passage.",
+        "description": "You stepped on a loose stone. A trap mechanism clicks in the dark!",
         "is_room": false,
         "label": null,
-        "room_name": null
+        "room_name": "Trapped Passage"
       },
       "3,12": {
         "type": "empty",
@@ -92147,7 +92147,7 @@
     },
     "stairs_up_key": "20,20",
     "stairs_down_key": "17,13",
-    "boss_key": "0,12",
+    "boss_key": null,
     "grid_size": 24,
     "floor_name": "The Sunken Forge",
     "floor_flavor": "An Aeridorian forge buried by time. The fires still burn. The heat doesn't warm you; it feels like it's trying to digest you.",
@@ -92306,14 +92306,14 @@
         "room_name": "Pressure Plate"
       },
       "11,5": {
-        "type": "empty",
-        "cleared": true,
+        "type": "trap",
+        "cleared": false,
         "monster_key": null,
         "boss_name": null,
-        "description": "A narrow, winding passage.",
+        "description": "You stepped on a loose stone. A trap mechanism clicks in the dark!",
         "is_room": false,
         "label": null,
-        "room_name": null
+        "room_name": "Trapped Passage"
       },
       "12,5": {
         "type": "empty",
@@ -92426,14 +92426,14 @@
         "room_name": null
       },
       "9,7": {
-        "type": "empty",
-        "cleared": true,
+        "type": "trap",
+        "cleared": false,
         "monster_key": null,
         "boss_name": null,
-        "description": "A narrow, winding passage.",
+        "description": "You stepped on a loose stone. A trap mechanism clicks in the dark!",
         "is_room": false,
         "label": null,
-        "room_name": null
+        "room_name": "Trapped Passage"
       },
       "4,8": {
         "type": "empty",
@@ -92856,10 +92856,10 @@
         "room_name": null
       },
       "0,12": {
-        "type": "boss",
+        "type": "guard",
         "cleared": false,
-        "monster_key": "red_dragon",
-        "boss_name": "Resonance Warden",
+        "monster_key": null,
+        "boss_name": null,
         "description": "It was built to guard this forge. It never stopped.",
         "is_room": true,
         "label": "Q",
@@ -94444,7 +94444,7 @@
     },
     "stairs_up_key": "20,20",
     "stairs_down_key": "17,13",
-    "boss_key": "0,12",
+    "boss_key": null,
     "grid_size": 24,
     "floor_name": "The Sunken Forge",
     "floor_flavor": "An Aeridorian forge buried by time. The fires still burn. The heat doesn't warm you; it feels like it's trying to digest you.",
@@ -94923,14 +94923,14 @@
         "room_name": "Vent Room"
       },
       "11,9": {
-        "type": "trap",
-        "cleared": false,
+        "type": "empty",
+        "cleared": true,
         "monster_key": null,
         "boss_name": null,
-        "description": "You stepped on a loose stone. A trap mechanism clicks in the dark!",
+        "description": "A narrow, winding passage.",
         "is_room": false,
         "label": null,
-        "room_name": "Trapped Passage"
+        "room_name": null
       },
       "12,9": {
         "type": "empty",
@@ -95133,14 +95133,14 @@
         "room_name": null
       },
       "12,11": {
-        "type": "trap",
-        "cleared": false,
+        "type": "empty",
+        "cleared": true,
         "monster_key": null,
         "boss_name": null,
-        "description": "You stepped on a loose stone. A trap mechanism clicks in the dark!",
+        "description": "A narrow, winding passage.",
         "is_room": false,
         "label": null,
-        "room_name": "Trapped Passage"
+        "room_name": null
       },
       "17,11": {
         "type": "empty",
@@ -95153,10 +95153,10 @@
         "room_name": null
       },
       "0,12": {
-        "type": "boss",
+        "type": "guard",
         "cleared": false,
-        "monster_key": "red_dragon",
-        "boss_name": "Resonance Warden",
+        "monster_key": null,
+        "boss_name": null,
         "description": "It was built to guard this forge. It never stopped.",
         "is_room": true,
         "label": "Q",
@@ -95453,14 +95453,14 @@
         "room_name": "Thermal Shaft"
       },
       "5,15": {
-        "type": "empty",
-        "cleared": true,
+        "type": "trap",
+        "cleared": false,
         "monster_key": null,
         "boss_name": null,
-        "description": "A narrow, winding passage.",
+        "description": "You stepped on a loose stone. A trap mechanism clicks in the dark!",
         "is_room": false,
         "label": null,
-        "room_name": null
+        "room_name": "Trapped Passage"
       },
       "4,16": {
         "type": "empty",
@@ -95823,14 +95823,14 @@
         "room_name": "Golem Bay"
       },
       "15,21": {
-        "type": "empty",
-        "cleared": true,
+        "type": "trap",
+        "cleared": false,
         "monster_key": null,
         "boss_name": null,
-        "description": "A narrow, winding passage.",
+        "description": "You stepped on a loose stone. A trap mechanism clicks in the dark!",
         "is_room": false,
         "label": null,
-        "room_name": null
+        "room_name": "Trapped Passage"
       },
       "16,21": {
         "type": "empty",
@@ -96741,7 +96741,7 @@
     },
     "stairs_up_key": "20,20",
     "stairs_down_key": "17,13",
-    "boss_key": "0,12",
+    "boss_key": null,
     "grid_size": 24,
     "floor_name": "The Sunken Forge",
     "floor_flavor": "An Aeridorian forge buried by time. The fires still burn. The heat doesn't warm you; it feels like it's trying to digest you.",
@@ -96900,14 +96900,14 @@
         "room_name": "Pressure Plate"
       },
       "11,5": {
-        "type": "empty",
-        "cleared": true,
+        "type": "trap",
+        "cleared": false,
         "monster_key": null,
         "boss_name": null,
-        "description": "A narrow, winding passage.",
+        "description": "You stepped on a loose stone. A trap mechanism clicks in the dark!",
         "is_room": false,
         "label": null,
-        "room_name": null
+        "room_name": "Trapped Passage"
       },
       "12,5": {
         "type": "empty",
@@ -97180,14 +97180,14 @@
         "room_name": "Maker's Altar"
       },
       "7,9": {
-        "type": "empty",
-        "cleared": true,
+        "type": "trap",
+        "cleared": false,
         "monster_key": null,
         "boss_name": null,
-        "description": "A narrow, winding passage.",
+        "description": "You stepped on a loose stone. A trap mechanism clicks in the dark!",
         "is_room": false,
         "label": null,
-        "room_name": null
+        "room_name": "Trapped Passage"
       },
       "8,9": {
         "type": "empty",
@@ -97450,10 +97450,10 @@
         "room_name": null
       },
       "0,12": {
-        "type": "boss",
+        "type": "guard",
         "cleared": false,
-        "monster_key": "red_dragon",
-        "boss_name": "Resonance Warden",
+        "monster_key": null,
+        "boss_name": null,
         "description": "It was built to guard this forge. It never stopped.",
         "is_room": true,
         "label": "Q",
@@ -99038,7 +99038,7 @@
     },
     "stairs_up_key": "20,20",
     "stairs_down_key": "17,13",
-    "boss_key": "0,12",
+    "boss_key": null,
     "grid_size": 24,
     "floor_name": "The Sunken Forge",
     "floor_flavor": "An Aeridorian forge buried by time. The fires still burn. The heat doesn't warm you; it feels like it's trying to digest you.",
@@ -99617,14 +99617,14 @@
         "room_name": "Void Pocket"
       },
       "7,9": {
-        "type": "empty",
-        "cleared": true,
+        "type": "trap",
+        "cleared": false,
         "monster_key": null,
         "boss_name": null,
-        "description": "A narrow, winding passage.",
+        "description": "You stepped on a loose stone. A trap mechanism clicks in the dark!",
         "is_room": false,
         "label": null,
-        "room_name": null
+        "room_name": "Trapped Passage"
       },
       "8,9": {
         "type": "empty",
@@ -100107,14 +100107,14 @@
         "room_name": "Echo Chamber"
       },
       "7,13": {
-        "type": "empty",
-        "cleared": true,
+        "type": "trap",
+        "cleared": false,
         "monster_key": null,
         "boss_name": null,
-        "description": "A narrow, winding passage.",
+        "description": "You stepped on a loose stone. A trap mechanism clicks in the dark!",
         "is_room": false,
         "label": null,
-        "room_name": null
+        "room_name": "Trapped Passage"
       },
       "8,13": {
         "type": "empty",
@@ -100627,10 +100627,10 @@
         "room_name": "The Last of the Party"
       },
       "17,17": {
-        "type": "boss",
+        "type": "monster",
         "cleared": false,
-        "monster_key": "tiamat_avatar",
-        "boss_name": "The Last of the Party",
+        "monster_key": null,
+        "boss_name": null,
         "description": "It used to be an adventurer. Now it remembers being one.",
         "is_room": true,
         "label": "S",
@@ -101675,7 +101675,7 @@
     },
     "stairs_up_key": "8,0",
     "stairs_down_key": "12,17",
-    "boss_key": "17,17",
+    "boss_key": null,
     "grid_size": 24,
     "floor_name": "The Deep Dark",
     "floor_flavor": "Beyond the mine. Beyond the forge. Something older. The heat doesn't warm you; it feels like it's trying to digest you.",
@@ -102034,14 +102034,14 @@
         "room_name": "Chasm Bridge"
       },
       "9,7": {
-        "type": "empty",
-        "cleared": true,
+        "type": "trap",
+        "cleared": false,
         "monster_key": null,
         "boss_name": null,
-        "description": "A narrow, winding passage.",
+        "description": "You stepped on a loose stone. A trap mechanism clicks in the dark!",
         "is_room": false,
         "label": null,
-        "room_name": null
+        "room_name": "Trapped Passage"
       },
       "0,8": {
         "type": "empty",
@@ -102294,14 +102294,14 @@
         "room_name": "Eldritch Hive"
       },
       "11,9": {
-        "type": "empty",
-        "cleared": true,
+        "type": "trap",
+        "cleared": false,
         "monster_key": null,
         "boss_name": null,
-        "description": "A narrow, winding passage.",
+        "description": "You stepped on a loose stone. A trap mechanism clicks in the dark!",
         "is_room": false,
         "label": null,
-        "room_name": null
+        "room_name": "Trapped Passage"
       },
       "12,9": {
         "type": "empty",
@@ -102784,14 +102784,14 @@
         "room_name": "Echo Chamber"
       },
       "11,13": {
-        "type": "trap",
-        "cleared": false,
+        "type": "empty",
+        "cleared": true,
         "monster_key": null,
         "boss_name": null,
-        "description": "You stepped on a loose stone. A trap mechanism clicks in the dark!",
+        "description": "A narrow, winding passage.",
         "is_room": false,
         "label": null,
-        "room_name": "Trapped Passage"
+        "room_name": null
       },
       "12,13": {
         "type": "empty",
@@ -102824,14 +102824,14 @@
         "room_name": "Echo Chamber"
       },
       "15,13": {
-        "type": "trap",
-        "cleared": false,
+        "type": "empty",
+        "cleared": true,
         "monster_key": null,
         "boss_name": null,
-        "description": "You stepped on a loose stone. A trap mechanism clicks in the dark!",
+        "description": "A narrow, winding passage.",
         "is_room": false,
         "label": null,
-        "room_name": "Trapped Passage"
+        "room_name": null
       },
       "16,13": {
         "type": "empty",
@@ -103234,14 +103234,14 @@
         "room_name": "Abyssal Drop"
       },
       "14,17": {
-        "type": "trap",
-        "cleared": false,
+        "type": "empty",
+        "cleared": true,
         "monster_key": null,
         "boss_name": null,
-        "description": "You stepped on a loose stone. A trap mechanism clicks in the dark!",
+        "description": "A narrow, winding passage.",
         "is_room": false,
         "label": null,
-        "room_name": "Trapped Passage"
+        "room_name": null
       },
       "15,17": {
         "type": "empty",
@@ -103264,10 +103264,10 @@
         "room_name": "The Last of the Party"
       },
       "17,17": {
-        "type": "boss",
+        "type": "monster",
         "cleared": false,
-        "monster_key": "tiamat_avatar",
-        "boss_name": "The Last of the Party",
+        "monster_key": null,
+        "boss_name": null,
         "description": "It used to be an adventurer. Now it remembers being one.",
         "is_room": true,
         "label": "S",
@@ -104312,7 +104312,7 @@
     },
     "stairs_up_key": "8,0",
     "stairs_down_key": "12,17",
-    "boss_key": "17,17",
+    "boss_key": null,
     "grid_size": 24,
     "floor_name": "The Deep Dark",
     "floor_flavor": "Beyond the mine. Beyond the forge. Something older. The heat doesn't warm you; it feels like it's trying to digest you.",
@@ -104851,14 +104851,14 @@
         "room_name": null
       },
       "3,9": {
-        "type": "trap",
-        "cleared": false,
+        "type": "empty",
+        "cleared": true,
         "monster_key": null,
         "boss_name": null,
-        "description": "You stepped on a loose stone. A trap mechanism clicks in the dark!",
+        "description": "A narrow, winding passage.",
         "is_room": false,
         "label": null,
-        "room_name": "Trapped Passage"
+        "room_name": null
       },
       "4,9": {
         "type": "empty",
@@ -104931,14 +104931,14 @@
         "room_name": "Eldritch Hive"
       },
       "11,9": {
-        "type": "trap",
-        "cleared": false,
+        "type": "empty",
+        "cleared": true,
         "monster_key": null,
         "boss_name": null,
-        "description": "You stepped on a loose stone. A trap mechanism clicks in the dark!",
+        "description": "A narrow, winding passage.",
         "is_room": false,
         "label": null,
-        "room_name": "Trapped Passage"
+        "room_name": null
       },
       "12,9": {
         "type": "empty",
@@ -105901,10 +105901,10 @@
         "room_name": "The Last of the Party"
       },
       "17,17": {
-        "type": "boss",
+        "type": "monster",
         "cleared": false,
-        "monster_key": "tiamat_avatar",
-        "boss_name": "The Last of the Party",
+        "monster_key": null,
+        "boss_name": null,
         "description": "It used to be an adventurer. Now it remembers being one.",
         "is_room": true,
         "label": "S",
@@ -106001,14 +106001,14 @@
         "room_name": "The Last of the Party"
       },
       "9,19": {
-        "type": "trap",
-        "cleared": false,
+        "type": "empty",
+        "cleared": true,
         "monster_key": null,
         "boss_name": null,
-        "description": "You stepped on a loose stone. A trap mechanism clicks in the dark!",
+        "description": "A narrow, winding passage.",
         "is_room": false,
         "label": null,
-        "room_name": "Trapped Passage"
+        "room_name": null
       },
       "8,20": {
         "type": "empty",
@@ -106949,7 +106949,7 @@
     },
     "stairs_up_key": "8,0",
     "stairs_down_key": "12,17",
-    "boss_key": "17,17",
+    "boss_key": null,
     "grid_size": 24,
     "floor_name": "The Deep Dark",
     "floor_flavor": "Beyond the mine. Beyond the forge. Something older. The heat doesn't warm you; it feels like it's trying to digest you.",
@@ -107178,14 +107178,14 @@
         "room_name": "Silent Cavern"
       },
       "11,5": {
-        "type": "trap",
-        "cleared": false,
+        "type": "empty",
+        "cleared": true,
         "monster_key": null,
         "boss_name": null,
-        "description": "You stepped on a loose stone. A trap mechanism clicks in the dark!",
+        "description": "A narrow, winding passage.",
         "is_room": false,
         "label": null,
-        "room_name": "Trapped Passage"
+        "room_name": null
       },
       "12,5": {
         "type": "empty",
@@ -108508,14 +108508,14 @@
         "room_name": "Abyssal Drop"
       },
       "14,17": {
-        "type": "trap",
-        "cleared": false,
+        "type": "empty",
+        "cleared": true,
         "monster_key": null,
         "boss_name": null,
-        "description": "You stepped on a loose stone. A trap mechanism clicks in the dark!",
+        "description": "A narrow, winding passage.",
         "is_room": false,
         "label": null,
-        "room_name": "Trapped Passage"
+        "room_name": null
       },
       "15,17": {
         "type": "empty",
@@ -108538,10 +108538,10 @@
         "room_name": "The Last of the Party"
       },
       "17,17": {
-        "type": "boss",
+        "type": "monster",
         "cleared": false,
-        "monster_key": "tiamat_avatar",
-        "boss_name": "The Last of the Party",
+        "monster_key": null,
+        "boss_name": null,
         "description": "It used to be an adventurer. Now it remembers being one.",
         "is_room": true,
         "label": "S",
@@ -109586,7 +109586,7 @@
     },
     "stairs_up_key": "8,0",
     "stairs_down_key": "12,17",
-    "boss_key": "17,17",
+    "boss_key": null,
     "grid_size": 24,
     "floor_name": "The Deep Dark",
     "floor_flavor": "Beyond the mine. Beyond the forge. Something older. The heat doesn't warm you; it feels like it's trying to digest you.",
@@ -111175,10 +111175,10 @@
         "room_name": "The Last of the Party"
       },
       "17,17": {
-        "type": "boss",
+        "type": "monster",
         "cleared": false,
-        "monster_key": "tiamat_avatar",
-        "boss_name": "The Last of the Party",
+        "monster_key": null,
+        "boss_name": null,
         "description": "It used to be an adventurer. Now it remembers being one.",
         "is_room": true,
         "label": "S",
@@ -112223,7 +112223,7 @@
     },
     "stairs_up_key": "8,0",
     "stairs_down_key": "12,17",
-    "boss_key": "17,17",
+    "boss_key": null,
     "grid_size": 24,
     "floor_name": "The Deep Dark",
     "floor_flavor": "Beyond the mine. Beyond the forge. Something older. The heat doesn't warm you; it feels like it's trying to digest you.",
@@ -112582,14 +112582,14 @@
         "room_name": "Chasm Bridge"
       },
       "9,7": {
-        "type": "empty",
-        "cleared": true,
+        "type": "trap",
+        "cleared": false,
         "monster_key": null,
         "boss_name": null,
-        "description": "A narrow, winding passage.",
+        "description": "You stepped on a loose stone. A trap mechanism clicks in the dark!",
         "is_room": false,
         "label": null,
-        "room_name": null
+        "room_name": "Trapped Passage"
       },
       "0,8": {
         "type": "empty",
@@ -113782,14 +113782,14 @@
         "room_name": "Abyssal Drop"
       },
       "14,17": {
-        "type": "trap",
-        "cleared": false,
+        "type": "empty",
+        "cleared": true,
         "monster_key": null,
         "boss_name": null,
-        "description": "You stepped on a loose stone. A trap mechanism clicks in the dark!",
+        "description": "A narrow, winding passage.",
         "is_room": false,
         "label": null,
-        "room_name": "Trapped Passage"
+        "room_name": null
       },
       "15,17": {
         "type": "empty",
@@ -113812,10 +113812,10 @@
         "room_name": "The Last of the Party"
       },
       "17,17": {
-        "type": "boss",
+        "type": "monster",
         "cleared": false,
-        "monster_key": "tiamat_avatar",
-        "boss_name": "The Last of the Party",
+        "monster_key": null,
+        "boss_name": null,
         "description": "It used to be an adventurer. Now it remembers being one.",
         "is_room": true,
         "label": "S",
@@ -113912,14 +113912,14 @@
         "room_name": "The Last of the Party"
       },
       "9,19": {
-        "type": "empty",
-        "cleared": true,
+        "type": "trap",
+        "cleared": false,
         "monster_key": null,
         "boss_name": null,
-        "description": "A narrow, winding passage.",
+        "description": "You stepped on a loose stone. A trap mechanism clicks in the dark!",
         "is_room": false,
         "label": null,
-        "room_name": null
+        "room_name": "Trapped Passage"
       },
       "8,20": {
         "type": "empty",
@@ -114860,7 +114860,7 @@
     },
     "stairs_up_key": "8,0",
     "stairs_down_key": "12,17",
-    "boss_key": "17,17",
+    "boss_key": null,
     "grid_size": 24,
     "floor_name": "The Deep Dark",
     "floor_flavor": "Beyond the mine. Beyond the forge. Something older.",
@@ -114919,14 +114919,14 @@
         "room_name": null
       },
       "8,3": {
-        "type": "empty",
-        "cleared": true,
+        "type": "trap",
+        "cleared": false,
         "monster_key": null,
         "boss_name": null,
-        "description": "A narrow, winding passage.",
+        "description": "You stepped on a loose stone. A trap mechanism clicks in the dark!",
         "is_room": false,
         "label": null,
-        "room_name": null
+        "room_name": "Trapped Passage"
       },
       "4,4": {
         "type": "empty",
@@ -115089,14 +115089,14 @@
         "room_name": "Silent Cavern"
       },
       "11,5": {
-        "type": "empty",
-        "cleared": true,
+        "type": "trap",
+        "cleared": false,
         "monster_key": null,
         "boss_name": null,
-        "description": "A narrow, winding passage.",
+        "description": "You stepped on a loose stone. A trap mechanism clicks in the dark!",
         "is_room": false,
         "label": null,
-        "room_name": null
+        "room_name": "Trapped Passage"
       },
       "12,5": {
         "type": "empty",
@@ -116239,14 +116239,14 @@
         "room_name": "Dead End"
       },
       "7,16": {
-        "type": "trap",
-        "cleared": false,
+        "type": "empty",
+        "cleared": true,
         "monster_key": null,
         "boss_name": null,
-        "description": "You stepped on a loose stone. A trap mechanism clicks in the dark!",
+        "description": "A narrow, winding passage.",
         "is_room": false,
         "label": null,
-        "room_name": "Trapped Passage"
+        "room_name": null
       },
       "8,16": {
         "type": "empty",
@@ -116449,10 +116449,10 @@
         "room_name": "The Last of the Party"
       },
       "17,17": {
-        "type": "boss",
+        "type": "monster",
         "cleared": false,
-        "monster_key": "tiamat_avatar",
-        "boss_name": "The Last of the Party",
+        "monster_key": null,
+        "boss_name": null,
         "description": "It used to be an adventurer. Now it remembers being one.",
         "is_room": true,
         "label": "S",
@@ -117497,7 +117497,7 @@
     },
     "stairs_up_key": "8,0",
     "stairs_down_key": "12,17",
-    "boss_key": "17,17",
+    "boss_key": null,
     "grid_size": 24,
     "floor_name": "The Deep Dark",
     "floor_flavor": "Beyond the mine. Beyond the forge. Something older.",
@@ -117556,14 +117556,14 @@
         "room_name": null
       },
       "8,3": {
-        "type": "trap",
-        "cleared": false,
+        "type": "empty",
+        "cleared": true,
         "monster_key": null,
         "boss_name": null,
-        "description": "You stepped on a loose stone. A trap mechanism clicks in the dark!",
+        "description": "A narrow, winding passage.",
         "is_room": false,
         "label": null,
-        "room_name": "Trapped Passage"
+        "room_name": null
       },
       "4,4": {
         "type": "empty",
@@ -118116,14 +118116,14 @@
         "room_name": "Eldritch Hive"
       },
       "11,9": {
-        "type": "empty",
-        "cleared": true,
+        "type": "trap",
+        "cleared": false,
         "monster_key": null,
         "boss_name": null,
-        "description": "A narrow, winding passage.",
+        "description": "You stepped on a loose stone. A trap mechanism clicks in the dark!",
         "is_room": false,
         "label": null,
-        "room_name": null
+        "room_name": "Trapped Passage"
       },
       "12,9": {
         "type": "empty",
@@ -119086,10 +119086,10 @@
         "room_name": "The Last of the Party"
       },
       "17,17": {
-        "type": "boss",
+        "type": "monster",
         "cleared": false,
-        "monster_key": "tiamat_avatar",
-        "boss_name": "The Last of the Party",
+        "monster_key": null,
+        "boss_name": null,
         "description": "It used to be an adventurer. Now it remembers being one.",
         "is_room": true,
         "label": "S",
@@ -120134,7 +120134,7 @@
     },
     "stairs_up_key": "8,0",
     "stairs_down_key": "12,17",
-    "boss_key": "17,17",
+    "boss_key": null,
     "grid_size": 24,
     "floor_name": "The Deep Dark",
     "floor_flavor": "Beyond the mine. Beyond the forge. Something older.",
@@ -121723,10 +121723,10 @@
         "room_name": "The Last of the Party"
       },
       "17,17": {
-        "type": "boss",
+        "type": "monster",
         "cleared": false,
-        "monster_key": "tiamat_avatar",
-        "boss_name": "The Last of the Party",
+        "monster_key": null,
+        "boss_name": null,
         "description": "It used to be an adventurer. Now it remembers being one.",
         "is_room": true,
         "label": "S",
@@ -121823,14 +121823,14 @@
         "room_name": "The Last of the Party"
       },
       "9,19": {
-        "type": "empty",
-        "cleared": true,
+        "type": "trap",
+        "cleared": false,
         "monster_key": null,
         "boss_name": null,
-        "description": "A narrow, winding passage.",
+        "description": "You stepped on a loose stone. A trap mechanism clicks in the dark!",
         "is_room": false,
         "label": null,
-        "room_name": null
+        "room_name": "Trapped Passage"
       },
       "8,20": {
         "type": "empty",
@@ -122771,7 +122771,7 @@
     },
     "stairs_up_key": "8,0",
     "stairs_down_key": "12,17",
-    "boss_key": "17,17",
+    "boss_key": null,
     "grid_size": 24,
     "floor_name": "The Deep Dark",
     "floor_flavor": "Beyond the mine. Beyond the forge. Something older.",
@@ -124360,10 +124360,10 @@
         "room_name": "The Last of the Party"
       },
       "17,17": {
-        "type": "boss",
+        "type": "monster",
         "cleared": false,
-        "monster_key": "tiamat_avatar",
-        "boss_name": "The Last of the Party",
+        "monster_key": null,
+        "boss_name": null,
         "description": "It used to be an adventurer. Now it remembers being one.",
         "is_room": true,
         "label": "S",
@@ -125408,7 +125408,7 @@
     },
     "stairs_up_key": "8,0",
     "stairs_down_key": "12,17",
-    "boss_key": "17,17",
+    "boss_key": null,
     "grid_size": 24,
     "floor_name": "The Deep Dark",
     "floor_flavor": "Beyond the mine. Beyond the forge. Something older.",
@@ -125937,16 +125937,6 @@
         "room_name": "Side Tunnel"
       },
       "2,9": {
-        "type": "trap",
-        "cleared": false,
-        "monster_key": null,
-        "boss_name": null,
-        "description": "You stepped on a loose stone. A trap mechanism clicks in the dark!",
-        "is_room": false,
-        "label": null,
-        "room_name": "Trapped Passage"
-      },
-      "3,9": {
         "type": "empty",
         "cleared": true,
         "monster_key": null,
@@ -125955,6 +125945,16 @@
         "is_room": false,
         "label": null,
         "room_name": null
+      },
+      "3,9": {
+        "type": "trap",
+        "cleared": false,
+        "monster_key": null,
+        "boss_name": null,
+        "description": "You stepped on a loose stone. A trap mechanism clicks in the dark!",
+        "is_room": false,
+        "label": null,
+        "room_name": "Trapped Passage"
       },
       "4,9": {
         "type": "empty",
@@ -126997,10 +126997,10 @@
         "room_name": "The Last of the Party"
       },
       "17,17": {
-        "type": "boss",
+        "type": "monster",
         "cleared": false,
-        "monster_key": "tiamat_avatar",
-        "boss_name": "The Last of the Party",
+        "monster_key": null,
+        "boss_name": null,
         "description": "It used to be an adventurer. Now it remembers being one.",
         "is_room": true,
         "label": "S",
@@ -128045,7 +128045,7 @@
     },
     "stairs_up_key": "8,0",
     "stairs_down_key": "12,17",
-    "boss_key": "17,17",
+    "boss_key": null,
     "grid_size": 24,
     "floor_name": "The Deep Dark",
     "floor_flavor": "Beyond the mine. Beyond the forge. Something older.",
@@ -129074,14 +129074,14 @@
         "room_name": "Sealed Gate"
       },
       "3,13": {
-        "type": "empty",
-        "cleared": true,
+        "type": "trap",
+        "cleared": false,
         "monster_key": null,
         "boss_name": null,
-        "description": "A narrow, winding passage.",
+        "description": "You stepped on a loose stone. A trap mechanism clicks in the dark!",
         "is_room": false,
         "label": null,
-        "room_name": null
+        "room_name": "Trapped Passage"
       },
       "4,13": {
         "type": "empty",
@@ -129114,14 +129114,14 @@
         "room_name": "Echo Chamber"
       },
       "7,13": {
-        "type": "trap",
-        "cleared": false,
+        "type": "empty",
+        "cleared": true,
         "monster_key": null,
         "boss_name": null,
-        "description": "You stepped on a loose stone. A trap mechanism clicks in the dark!",
+        "description": "A narrow, winding passage.",
         "is_room": false,
         "label": null,
-        "room_name": "Trapped Passage"
+        "room_name": null
       },
       "8,13": {
         "type": "empty",
@@ -129634,10 +129634,10 @@
         "room_name": "The Last of the Party"
       },
       "17,17": {
-        "type": "boss",
+        "type": "monster",
         "cleared": false,
-        "monster_key": "tiamat_avatar",
-        "boss_name": "The Last of the Party",
+        "monster_key": null,
+        "boss_name": null,
         "description": "It used to be an adventurer. Now it remembers being one.",
         "is_room": true,
         "label": "S",
@@ -130682,7 +130682,7 @@
     },
     "stairs_up_key": "8,0",
     "stairs_down_key": "12,17",
-    "boss_key": "17,17",
+    "boss_key": null,
     "grid_size": 24,
     "floor_name": "The Deep Dark",
     "floor_flavor": "Beyond the mine. Beyond the forge. Something older.",
@@ -131301,14 +131301,14 @@
         "room_name": "Eldritch Hive"
       },
       "11,9": {
-        "type": "empty",
-        "cleared": true,
+        "type": "trap",
+        "cleared": false,
         "monster_key": null,
         "boss_name": null,
-        "description": "A narrow, winding passage.",
+        "description": "You stepped on a loose stone. A trap mechanism clicks in the dark!",
         "is_room": false,
         "label": null,
-        "room_name": null
+        "room_name": "Trapped Passage"
       },
       "12,9": {
         "type": "empty",
@@ -131791,14 +131791,14 @@
         "room_name": "Echo Chamber"
       },
       "11,13": {
-        "type": "empty",
-        "cleared": true,
+        "type": "trap",
+        "cleared": false,
         "monster_key": null,
         "boss_name": null,
-        "description": "A narrow, winding passage.",
+        "description": "You stepped on a loose stone. A trap mechanism clicks in the dark!",
         "is_room": false,
         "label": null,
-        "room_name": null
+        "room_name": "Trapped Passage"
       },
       "12,13": {
         "type": "empty",
@@ -132061,14 +132061,14 @@
         "room_name": "Dead End"
       },
       "7,16": {
-        "type": "empty",
-        "cleared": true,
+        "type": "trap",
+        "cleared": false,
         "monster_key": null,
         "boss_name": null,
-        "description": "A narrow, winding passage.",
+        "description": "You stepped on a loose stone. A trap mechanism clicks in the dark!",
         "is_room": false,
         "label": null,
-        "room_name": null
+        "room_name": "Trapped Passage"
       },
       "8,16": {
         "type": "empty",
@@ -132271,10 +132271,10 @@
         "room_name": "The Last of the Party"
       },
       "17,17": {
-        "type": "boss",
+        "type": "monster",
         "cleared": false,
-        "monster_key": "tiamat_avatar",
-        "boss_name": "The Last of the Party",
+        "monster_key": null,
+        "boss_name": null,
         "description": "It used to be an adventurer. Now it remembers being one.",
         "is_room": true,
         "label": "S",
@@ -132371,14 +132371,14 @@
         "room_name": "The Last of the Party"
       },
       "9,19": {
-        "type": "empty",
-        "cleared": true,
+        "type": "trap",
+        "cleared": false,
         "monster_key": null,
         "boss_name": null,
-        "description": "A narrow, winding passage.",
+        "description": "You stepped on a loose stone. A trap mechanism clicks in the dark!",
         "is_room": false,
         "label": null,
-        "room_name": null
+        "room_name": "Trapped Passage"
       },
       "8,20": {
         "type": "empty",
@@ -133319,7 +133319,7 @@
     },
     "stairs_up_key": "8,0",
     "stairs_down_key": "12,17",
-    "boss_key": "17,17",
+    "boss_key": null,
     "grid_size": 24,
     "floor_name": "The Deep Dark",
     "floor_flavor": "Beyond the mine. Beyond the forge. Something older.",
@@ -134908,10 +134908,10 @@
         "room_name": "The Last of the Party"
       },
       "17,17": {
-        "type": "boss",
+        "type": "monster",
         "cleared": false,
-        "monster_key": "tiamat_avatar",
-        "boss_name": "The Last of the Party",
+        "monster_key": null,
+        "boss_name": null,
         "description": "It used to be an adventurer. Now it remembers being one.",
         "is_room": true,
         "label": "S",
@@ -135956,7 +135956,7 @@
     },
     "stairs_up_key": "8,0",
     "stairs_down_key": "12,17",
-    "boss_key": "17,17",
+    "boss_key": null,
     "grid_size": 24,
     "floor_name": "The Deep Dark",
     "floor_flavor": "Beyond the mine. Beyond the forge. Something older.",
@@ -136145,14 +136145,14 @@
         "room_name": "Thought Eater Den"
       },
       "7,5": {
-        "type": "empty",
-        "cleared": true,
+        "type": "trap",
+        "cleared": false,
         "monster_key": null,
         "boss_name": null,
-        "description": "A narrow, winding passage.",
+        "description": "You stepped on a loose stone. A trap mechanism clicks in the dark!",
         "is_room": false,
         "label": null,
-        "room_name": null
+        "room_name": "Trapped Passage"
       },
       "8,5": {
         "type": "empty",
@@ -136615,14 +136615,14 @@
         "room_name": "The Last Camp"
       },
       "15,9": {
-        "type": "trap",
-        "cleared": false,
+        "type": "empty",
+        "cleared": true,
         "monster_key": null,
         "boss_name": null,
-        "description": "You stepped on a loose stone. A trap mechanism clicks in the dark!",
+        "description": "A narrow, winding passage.",
         "is_room": false,
         "label": null,
-        "room_name": "Trapped Passage"
+        "room_name": null
       },
       "16,9": {
         "type": "empty",
@@ -137545,10 +137545,10 @@
         "room_name": "The Last of the Party"
       },
       "17,17": {
-        "type": "boss",
+        "type": "monster",
         "cleared": false,
-        "monster_key": "tiamat_avatar",
-        "boss_name": "The Last of the Party",
+        "monster_key": null,
+        "boss_name": null,
         "description": "It used to be an adventurer. Now it remembers being one.",
         "is_room": true,
         "label": "S",
@@ -138593,7 +138593,7 @@
     },
     "stairs_up_key": "8,0",
     "stairs_down_key": "12,17",
-    "boss_key": "17,17",
+    "boss_key": null,
     "grid_size": 24,
     "floor_name": "The Deep Dark",
     "floor_flavor": "Beyond the mine. Beyond the forge. Something older.",
@@ -138772,10 +138772,10 @@
         "room_name": "The Architect's Prison"
       },
       "13,1": {
-        "type": "boss",
+        "type": "guard",
         "cleared": false,
-        "monster_key": "omega",
-        "boss_name": "The Bound Architect",
+        "monster_key": null,
+        "boss_name": null,
         "description": "It built the mountain. They buried it inside its own work.",
         "is_room": true,
         "label": "P",
@@ -138872,14 +138872,14 @@
         "room_name": "The Architect's Prison"
       },
       "9,3": {
-        "type": "empty",
-        "cleared": true,
+        "type": "trap",
+        "cleared": false,
         "monster_key": null,
         "boss_name": null,
-        "description": "A narrow, winding passage.",
+        "description": "You stepped on a loose stone. A trap mechanism clicks in the dark!",
         "is_room": false,
         "label": null,
-        "room_name": null
+        "room_name": "Trapped Passage"
       },
       "4,4": {
         "type": "empty",
@@ -140758,7 +140758,7 @@
     },
     "stairs_up_key": "8,20",
     "stairs_down_key": null,
-    "boss_key": "13,1",
+    "boss_key": null,
     "grid_size": 24,
     "floor_name": "The Heart of the Mountain",
     "floor_flavor": "The deepest point. The mountain has a heartbeat. The mountain breathes, and it smells like Oakhaven's well.",
@@ -140937,10 +140937,10 @@
         "room_name": "The Architect's Prison"
       },
       "13,1": {
-        "type": "boss",
+        "type": "guard",
         "cleared": false,
-        "monster_key": "omega",
-        "boss_name": "The Bound Architect",
+        "monster_key": null,
+        "boss_name": null,
         "description": "It built the mountain. They buried it inside its own work.",
         "is_room": true,
         "label": "P",
@@ -141337,14 +141337,14 @@
         "room_name": "Perfect Specimen"
       },
       "9,7": {
-        "type": "trap",
-        "cleared": false,
+        "type": "empty",
+        "cleared": true,
         "monster_key": null,
         "boss_name": null,
-        "description": "You stepped on a loose stone. A trap mechanism clicks in the dark!",
+        "description": "A narrow, winding passage.",
         "is_room": false,
         "label": null,
-        "room_name": "Trapped Passage"
+        "room_name": null
       },
       "4,8": {
         "type": "empty",
@@ -142923,7 +142923,7 @@
     },
     "stairs_up_key": "8,20",
     "stairs_down_key": null,
-    "boss_key": "13,1",
+    "boss_key": null,
     "grid_size": 24,
     "floor_name": "The Heart of the Mountain",
     "floor_flavor": "The deepest point. The mountain has a heartbeat. The mountain breathes, and it smells like Oakhaven's well.",
@@ -143102,10 +143102,10 @@
         "room_name": "The Architect's Prison"
       },
       "13,1": {
-        "type": "boss",
+        "type": "guard",
         "cleared": false,
-        "monster_key": "omega",
-        "boss_name": "The Bound Architect",
+        "monster_key": null,
+        "boss_name": null,
         "description": "It built the mountain. They buried it inside its own work.",
         "is_room": true,
         "label": "P",
@@ -143772,14 +143772,14 @@
         "room_name": "Altar of the Core"
       },
       "9,11": {
-        "type": "trap",
-        "cleared": false,
+        "type": "empty",
+        "cleared": true,
         "monster_key": null,
         "boss_name": null,
-        "description": "You stepped on a loose stone. A trap mechanism clicks in the dark!",
+        "description": "A narrow, winding passage.",
         "is_room": false,
         "label": null,
-        "room_name": "Trapped Passage"
+        "room_name": null
       },
       "4,12": {
         "type": "empty",
@@ -145088,7 +145088,7 @@
     },
     "stairs_up_key": "8,20",
     "stairs_down_key": null,
-    "boss_key": "13,1",
+    "boss_key": null,
     "grid_size": 24,
     "floor_name": "The Heart of the Mountain",
     "floor_flavor": "The deepest point. The mountain has a heartbeat. The mountain breathes, and it smells like Oakhaven's well.",
@@ -145267,10 +145267,10 @@
         "room_name": "The Architect's Prison"
       },
       "13,1": {
-        "type": "boss",
+        "type": "guard",
         "cleared": false,
-        "monster_key": "omega",
-        "boss_name": "The Bound Architect",
+        "monster_key": null,
+        "boss_name": null,
         "description": "It built the mountain. They buried it inside its own work.",
         "is_room": true,
         "label": "P",
@@ -145497,14 +145497,14 @@
         "room_name": "Resonance Node"
       },
       "7,5": {
-        "type": "empty",
-        "cleared": true,
+        "type": "trap",
+        "cleared": false,
         "monster_key": null,
         "boss_name": null,
-        "description": "A narrow, winding passage.",
+        "description": "You stepped on a loose stone. A trap mechanism clicks in the dark!",
         "is_room": false,
         "label": null,
-        "room_name": null
+        "room_name": "Trapped Passage"
       },
       "8,5": {
         "type": "empty",
@@ -147253,7 +147253,7 @@
     },
     "stairs_up_key": "8,20",
     "stairs_down_key": null,
-    "boss_key": "13,1",
+    "boss_key": null,
     "grid_size": 24,
     "floor_name": "The Heart of the Mountain",
     "floor_flavor": "The deepest point. The mountain has a heartbeat. The mountain breathes, and it smells like Oakhaven's well.",
@@ -147432,10 +147432,10 @@
         "room_name": "The Architect's Prison"
       },
       "13,1": {
-        "type": "boss",
+        "type": "guard",
         "cleared": false,
-        "monster_key": "omega",
-        "boss_name": "The Bound Architect",
+        "monster_key": null,
+        "boss_name": null,
         "description": "It built the mountain. They buried it inside its own work.",
         "is_room": true,
         "label": "P",
@@ -148142,14 +148142,14 @@
         "room_name": "Whisper Hall"
       },
       "7,12": {
-        "type": "empty",
-        "cleared": true,
+        "type": "trap",
+        "cleared": false,
         "monster_key": null,
         "boss_name": null,
-        "description": "A narrow, winding passage.",
+        "description": "You stepped on a loose stone. A trap mechanism clicks in the dark!",
         "is_room": false,
         "label": null,
-        "room_name": null
+        "room_name": "Trapped Passage"
       },
       "8,12": {
         "type": "empty",
@@ -148272,14 +148272,14 @@
         "room_name": "Construct Graveyard"
       },
       "11,13": {
-        "type": "empty",
-        "cleared": true,
+        "type": "trap",
+        "cleared": false,
         "monster_key": null,
         "boss_name": null,
-        "description": "A narrow, winding passage.",
+        "description": "You stepped on a loose stone. A trap mechanism clicks in the dark!",
         "is_room": false,
         "label": null,
-        "room_name": null
+        "room_name": "Trapped Passage"
       },
       "12,13": {
         "type": "empty",
@@ -148372,14 +148372,14 @@
         "room_name": "Living Corridor"
       },
       "9,15": {
-        "type": "empty",
-        "cleared": true,
+        "type": "trap",
+        "cleared": false,
         "monster_key": null,
         "boss_name": null,
-        "description": "A narrow, winding passage.",
+        "description": "You stepped on a loose stone. A trap mechanism clicks in the dark!",
         "is_room": false,
         "label": null,
-        "room_name": null
+        "room_name": "Trapped Passage"
       },
       "4,16": {
         "type": "empty",
@@ -149418,7 +149418,7 @@
     },
     "stairs_up_key": "8,20",
     "stairs_down_key": null,
-    "boss_key": "13,1",
+    "boss_key": null,
     "grid_size": 24,
     "floor_name": "The Heart of the Mountain",
     "floor_flavor": "The deepest point. The mountain has a heartbeat. The mountain breathes, and it smells like Oakhaven's well.",
@@ -149597,10 +149597,10 @@
         "room_name": "The Architect's Prison"
       },
       "13,1": {
-        "type": "boss",
+        "type": "guard",
         "cleared": false,
-        "monster_key": "omega",
-        "boss_name": "The Bound Architect",
+        "monster_key": null,
+        "boss_name": null,
         "description": "It built the mountain. They buried it inside its own work.",
         "is_room": true,
         "label": "P",
@@ -150157,14 +150157,14 @@
         "room_name": "The Anteroom"
       },
       "11,9": {
-        "type": "trap",
-        "cleared": false,
+        "type": "empty",
+        "cleared": true,
         "monster_key": null,
         "boss_name": null,
-        "description": "You stepped on a loose stone. A trap mechanism clicks in the dark!",
+        "description": "A narrow, winding passage.",
         "is_room": false,
         "label": null,
-        "room_name": "Trapped Passage"
+        "room_name": null
       },
       "12,9": {
         "type": "shrine",
@@ -150307,14 +150307,14 @@
         "room_name": "Whisper Hall"
       },
       "7,12": {
-        "type": "trap",
-        "cleared": false,
+        "type": "empty",
+        "cleared": true,
         "monster_key": null,
         "boss_name": null,
-        "description": "You stepped on a loose stone. A trap mechanism clicks in the dark!",
+        "description": "A narrow, winding passage.",
         "is_room": false,
         "label": null,
-        "room_name": "Trapped Passage"
+        "room_name": null
       },
       "8,12": {
         "type": "empty",
@@ -151583,7 +151583,7 @@
     },
     "stairs_up_key": "8,20",
     "stairs_down_key": null,
-    "boss_key": "13,1",
+    "boss_key": null,
     "grid_size": 24,
     "floor_name": "The Heart of the Mountain",
     "floor_flavor": "The deepest point. The mountain has a heartbeat. The mountain breathes, and it smells like Oakhaven's well.",
@@ -151762,10 +151762,10 @@
         "room_name": "The Architect's Prison"
       },
       "13,1": {
-        "type": "boss",
+        "type": "guard",
         "cleared": false,
-        "monster_key": "omega",
-        "boss_name": "The Bound Architect",
+        "monster_key": null,
+        "boss_name": null,
         "description": "It built the mountain. They buried it inside its own work.",
         "is_room": true,
         "label": "P",
@@ -152432,14 +152432,14 @@
         "room_name": "Altar of the Core"
       },
       "9,11": {
-        "type": "trap",
-        "cleared": false,
+        "type": "empty",
+        "cleared": true,
         "monster_key": null,
         "boss_name": null,
-        "description": "You stepped on a loose stone. A trap mechanism clicks in the dark!",
+        "description": "A narrow, winding passage.",
         "is_room": false,
         "label": null,
-        "room_name": "Trapped Passage"
+        "room_name": null
       },
       "4,12": {
         "type": "empty",
@@ -152602,14 +152602,14 @@
         "room_name": "Construct Graveyard"
       },
       "11,13": {
-        "type": "empty",
-        "cleared": true,
+        "type": "trap",
+        "cleared": false,
         "monster_key": null,
         "boss_name": null,
-        "description": "A narrow, winding passage.",
+        "description": "You stepped on a loose stone. A trap mechanism clicks in the dark!",
         "is_room": false,
         "label": null,
-        "room_name": null
+        "room_name": "Trapped Passage"
       },
       "12,13": {
         "type": "empty",
@@ -153748,7 +153748,7 @@
     },
     "stairs_up_key": "8,20",
     "stairs_down_key": null,
-    "boss_key": "13,1",
+    "boss_key": null,
     "grid_size": 24,
     "floor_name": "The Heart of the Mountain",
     "floor_flavor": "The deepest point. The mountain has a heartbeat. The mountain breathes, and it smells like Oakhaven's well.",
@@ -153927,10 +153927,10 @@
         "room_name": "The Architect's Prison"
       },
       "13,1": {
-        "type": "boss",
+        "type": "guard",
         "cleared": false,
-        "monster_key": "omega",
-        "boss_name": "The Bound Architect",
+        "monster_key": null,
+        "boss_name": null,
         "description": "It built the mountain. They buried it inside its own work.",
         "is_room": true,
         "label": "P",
@@ -155913,7 +155913,7 @@
     },
     "stairs_up_key": "8,20",
     "stairs_down_key": null,
-    "boss_key": "13,1",
+    "boss_key": null,
     "grid_size": 24,
     "floor_name": "The Heart of the Mountain",
     "floor_flavor": "The deepest point. The mountain has a heartbeat. The mountain breathes, and it smells like Oakhaven's well.",
@@ -156092,10 +156092,10 @@
         "room_name": "The Architect's Prison"
       },
       "13,1": {
-        "type": "boss",
+        "type": "guard",
         "cleared": false,
-        "monster_key": "omega",
-        "boss_name": "The Bound Architect",
+        "monster_key": null,
+        "boss_name": null,
         "description": "It built the mountain. They buried it inside its own work.",
         "is_room": true,
         "label": "P",
@@ -158078,7 +158078,7 @@
     },
     "stairs_up_key": "8,20",
     "stairs_down_key": null,
-    "boss_key": "13,1",
+    "boss_key": null,
     "grid_size": 24,
     "floor_name": "The Heart of the Mountain",
     "floor_flavor": "The deepest point. The mountain has a heartbeat. The mountain breathes, and it smells like Oakhaven's well.",
@@ -158257,10 +158257,10 @@
         "room_name": "The Architect's Prison"
       },
       "13,1": {
-        "type": "boss",
+        "type": "guard",
         "cleared": false,
-        "monster_key": "omega",
-        "boss_name": "The Bound Architect",
+        "monster_key": null,
+        "boss_name": null,
         "description": "It built the mountain. They buried it inside its own work.",
         "is_room": true,
         "label": "P",
@@ -158527,14 +158527,14 @@
         "room_name": "Heart Valve"
       },
       "11,5": {
-        "type": "trap",
-        "cleared": false,
+        "type": "empty",
+        "cleared": true,
         "monster_key": null,
         "boss_name": null,
-        "description": "You stepped on a loose stone. A trap mechanism clicks in the dark!",
+        "description": "A narrow, winding passage.",
         "is_room": false,
         "label": null,
-        "room_name": "Trapped Passage"
+        "room_name": null
       },
       "12,5": {
         "type": "empty",
@@ -159367,14 +159367,14 @@
         "room_name": "Memory Chamber"
       },
       "11,17": {
-        "type": "empty",
-        "cleared": true,
+        "type": "trap",
+        "cleared": false,
         "monster_key": null,
         "boss_name": null,
-        "description": "A narrow, winding passage.",
+        "description": "You stepped on a loose stone. A trap mechanism clicks in the dark!",
         "is_room": false,
         "label": null,
-        "room_name": null
+        "room_name": "Trapped Passage"
       },
       "12,17": {
         "type": "empty",
@@ -160243,7 +160243,7 @@
     },
     "stairs_up_key": "8,20",
     "stairs_down_key": null,
-    "boss_key": "13,1",
+    "boss_key": null,
     "grid_size": 24,
     "floor_name": "The Heart of the Mountain",
     "floor_flavor": "The deepest point. The mountain has a heartbeat. The mountain breathes, and it smells like Oakhaven's well.",
@@ -160422,10 +160422,10 @@
         "room_name": "The Architect's Prison"
       },
       "13,1": {
-        "type": "boss",
+        "type": "guard",
         "cleared": false,
-        "monster_key": "omega",
-        "boss_name": "The Bound Architect",
+        "monster_key": null,
+        "boss_name": null,
         "description": "It built the mountain. They buried it inside its own work.",
         "is_room": true,
         "label": "P",
@@ -160982,14 +160982,14 @@
         "room_name": "The Anteroom"
       },
       "11,9": {
-        "type": "empty",
-        "cleared": true,
+        "type": "trap",
+        "cleared": false,
         "monster_key": null,
         "boss_name": null,
-        "description": "A narrow, winding passage.",
+        "description": "You stepped on a loose stone. A trap mechanism clicks in the dark!",
         "is_room": false,
         "label": null,
-        "room_name": null
+        "room_name": "Trapped Passage"
       },
       "12,9": {
         "type": "shrine",
@@ -162408,7 +162408,7 @@
     },
     "stairs_up_key": "8,20",
     "stairs_down_key": null,
-    "boss_key": "13,1",
+    "boss_key": null,
     "grid_size": 24,
     "floor_name": "The Heart of the Mountain",
     "floor_flavor": "The deepest point. The mountain has a heartbeat.",
@@ -162587,10 +162587,10 @@
         "room_name": "The Architect's Prison"
       },
       "13,1": {
-        "type": "boss",
+        "type": "guard",
         "cleared": false,
-        "monster_key": "omega",
-        "boss_name": "The Bound Architect",
+        "monster_key": null,
+        "boss_name": null,
         "description": "It built the mountain. They buried it inside its own work.",
         "is_room": true,
         "label": "P",
@@ -162817,14 +162817,14 @@
         "room_name": "Resonance Node"
       },
       "7,5": {
-        "type": "trap",
-        "cleared": false,
+        "type": "empty",
+        "cleared": true,
         "monster_key": null,
         "boss_name": null,
-        "description": "You stepped on a loose stone. A trap mechanism clicks in the dark!",
+        "description": "A narrow, winding passage.",
         "is_room": false,
         "label": null,
-        "room_name": "Trapped Passage"
+        "room_name": null
       },
       "8,5": {
         "type": "empty",
@@ -164573,7 +164573,7 @@
     },
     "stairs_up_key": "8,20",
     "stairs_down_key": null,
-    "boss_key": "13,1",
+    "boss_key": null,
     "grid_size": 24,
     "floor_name": "The Heart of the Mountain",
     "floor_flavor": "The deepest point. The mountain has a heartbeat.",
@@ -164752,10 +164752,10 @@
         "room_name": "The Architect's Prison"
       },
       "13,1": {
-        "type": "boss",
+        "type": "guard",
         "cleared": false,
-        "monster_key": "omega",
-        "boss_name": "The Bound Architect",
+        "monster_key": null,
+        "boss_name": null,
         "description": "It built the mountain. They buried it inside its own work.",
         "is_room": true,
         "label": "P",
@@ -165272,14 +165272,14 @@
         "room_name": "Core Fragment"
       },
       "7,9": {
-        "type": "empty",
-        "cleared": true,
+        "type": "trap",
+        "cleared": false,
         "monster_key": null,
         "boss_name": null,
-        "description": "A narrow, winding passage.",
+        "description": "You stepped on a loose stone. A trap mechanism clicks in the dark!",
         "is_room": false,
         "label": null,
-        "room_name": null
+        "room_name": "Trapped Passage"
       },
       "8,9": {
         "type": "empty",
@@ -165822,14 +165822,14 @@
         "room_name": "Sealed Gallery"
       },
       "7,17": {
-        "type": "empty",
-        "cleared": true,
+        "type": "trap",
+        "cleared": false,
         "monster_key": null,
         "boss_name": null,
-        "description": "A narrow, winding passage.",
+        "description": "You stepped on a loose stone. A trap mechanism clicks in the dark!",
         "is_room": false,
         "label": null,
-        "room_name": null
+        "room_name": "Trapped Passage"
       },
       "8,17": {
         "type": "empty",
@@ -166738,7 +166738,7 @@
     },
     "stairs_up_key": "8,20",
     "stairs_down_key": null,
-    "boss_key": "13,1",
+    "boss_key": null,
     "grid_size": 24,
     "floor_name": "The Heart of the Mountain",
     "floor_flavor": "The deepest point. The mountain has a heartbeat.",
@@ -166857,14 +166857,14 @@
         "room_name": null
       },
       "7,1": {
-        "type": "empty",
-        "cleared": true,
+        "type": "trap",
+        "cleared": false,
         "monster_key": null,
         "boss_name": null,
-        "description": "A narrow, winding passage.",
+        "description": "You stepped on a loose stone. A trap mechanism clicks in the dark!",
         "is_room": false,
         "label": null,
-        "room_name": null
+        "room_name": "Trapped Passage"
       },
       "8,1": {
         "type": "empty",
@@ -166917,10 +166917,10 @@
         "room_name": "The Architect's Prison"
       },
       "13,1": {
-        "type": "boss",
+        "type": "guard",
         "cleared": false,
-        "monster_key": "omega",
-        "boss_name": "The Bound Architect",
+        "monster_key": null,
+        "boss_name": null,
         "description": "It built the mountain. They buried it inside its own work.",
         "is_room": true,
         "label": "P",
@@ -168903,7 +168903,7 @@
     },
     "stairs_up_key": "8,20",
     "stairs_down_key": null,
-    "boss_key": "13,1",
+    "boss_key": null,
     "grid_size": 24,
     "floor_name": "The Heart of the Mountain",
     "floor_flavor": "The deepest point. The mountain has a heartbeat.",
@@ -169082,10 +169082,10 @@
         "room_name": "The Architect's Prison"
       },
       "13,1": {
-        "type": "boss",
+        "type": "guard",
         "cleared": false,
-        "monster_key": "omega",
-        "boss_name": "The Bound Architect",
+        "monster_key": null,
+        "boss_name": null,
         "description": "It built the mountain. They buried it inside its own work.",
         "is_room": true,
         "label": "P",
@@ -169602,14 +169602,14 @@
         "room_name": "Core Fragment"
       },
       "7,9": {
-        "type": "empty",
-        "cleared": true,
+        "type": "trap",
+        "cleared": false,
         "monster_key": null,
         "boss_name": null,
-        "description": "A narrow, winding passage.",
+        "description": "You stepped on a loose stone. A trap mechanism clicks in the dark!",
         "is_room": false,
         "label": null,
-        "room_name": null
+        "room_name": "Trapped Passage"
       },
       "8,9": {
         "type": "empty",
@@ -169922,14 +169922,14 @@
         "room_name": "Construct Graveyard"
       },
       "11,13": {
-        "type": "empty",
-        "cleared": true,
+        "type": "trap",
+        "cleared": false,
         "monster_key": null,
         "boss_name": null,
-        "description": "A narrow, winding passage.",
+        "description": "You stepped on a loose stone. A trap mechanism clicks in the dark!",
         "is_room": false,
         "label": null,
-        "room_name": null
+        "room_name": "Trapped Passage"
       },
       "12,13": {
         "type": "empty",
@@ -170322,14 +170322,14 @@
         "room_name": "The Maze of Glass"
       },
       "8,19": {
-        "type": "trap",
-        "cleared": false,
+        "type": "empty",
+        "cleared": true,
         "monster_key": null,
         "boss_name": null,
-        "description": "You stepped on a loose stone. A trap mechanism clicks in the dark!",
+        "description": "A narrow, winding passage.",
         "is_room": false,
         "label": null,
-        "room_name": "Trapped Passage"
+        "room_name": null
       },
       "8,20": {
         "type": "stairs_up",
@@ -171068,7 +171068,7 @@
     },
     "stairs_up_key": "8,20",
     "stairs_down_key": null,
-    "boss_key": "13,1",
+    "boss_key": null,
     "grid_size": 24,
     "floor_name": "The Heart of the Mountain",
     "floor_flavor": "The deepest point. The mountain has a heartbeat.",
@@ -171177,24 +171177,24 @@
         "room_name": "Side Chamber"
       },
       "6,1": {
-        "type": "trap",
-        "cleared": false,
+        "type": "empty",
+        "cleared": true,
         "monster_key": null,
         "boss_name": null,
-        "description": "You stepped on a loose stone. A trap mechanism clicks in the dark!",
+        "description": "A narrow, winding passage.",
         "is_room": false,
         "label": null,
-        "room_name": "Trapped Passage"
+        "room_name": null
       },
       "7,1": {
-        "type": "trap",
-        "cleared": false,
+        "type": "empty",
+        "cleared": true,
         "monster_key": null,
         "boss_name": null,
-        "description": "You stepped on a loose stone. A trap mechanism clicks in the dark!",
+        "description": "A narrow, winding passage.",
         "is_room": false,
         "label": null,
-        "room_name": "Trapped Passage"
+        "room_name": null
       },
       "8,1": {
         "type": "empty",
@@ -171247,10 +171247,10 @@
         "room_name": "The Architect's Prison"
       },
       "13,1": {
-        "type": "boss",
+        "type": "guard",
         "cleared": false,
-        "monster_key": "omega",
-        "boss_name": "The Bound Architect",
+        "monster_key": null,
+        "boss_name": null,
         "description": "It built the mountain. They buried it inside its own work.",
         "is_room": true,
         "label": "P",
@@ -171477,14 +171477,14 @@
         "room_name": "Resonance Node"
       },
       "7,5": {
-        "type": "trap",
-        "cleared": false,
+        "type": "empty",
+        "cleared": true,
         "monster_key": null,
         "boss_name": null,
-        "description": "You stepped on a loose stone. A trap mechanism clicks in the dark!",
+        "description": "A narrow, winding passage.",
         "is_room": false,
         "label": null,
-        "room_name": "Trapped Passage"
+        "room_name": null
       },
       "8,5": {
         "type": "empty",
@@ -173233,7 +173233,7 @@
     },
     "stairs_up_key": "8,20",
     "stairs_down_key": null,
-    "boss_key": "13,1",
+    "boss_key": null,
     "grid_size": 24,
     "floor_name": "The Heart of the Mountain",
     "floor_flavor": "The deepest point. The mountain has a heartbeat.",
@@ -173412,10 +173412,10 @@
         "room_name": "The Architect's Prison"
       },
       "13,1": {
-        "type": "boss",
+        "type": "guard",
         "cleared": false,
-        "monster_key": "omega",
-        "boss_name": "The Bound Architect",
+        "monster_key": null,
+        "boss_name": null,
         "description": "It built the mountain. They buried it inside its own work.",
         "is_room": true,
         "label": "P",
@@ -174082,14 +174082,14 @@
         "room_name": "Altar of the Core"
       },
       "9,11": {
-        "type": "trap",
-        "cleared": false,
+        "type": "empty",
+        "cleared": true,
         "monster_key": null,
         "boss_name": null,
-        "description": "You stepped on a loose stone. A trap mechanism clicks in the dark!",
+        "description": "A narrow, winding passage.",
         "is_room": false,
         "label": null,
-        "room_name": "Trapped Passage"
+        "room_name": null
       },
       "4,12": {
         "type": "empty",
@@ -175398,7 +175398,7 @@
     },
     "stairs_up_key": "8,20",
     "stairs_down_key": null,
-    "boss_key": "13,1",
+    "boss_key": null,
     "grid_size": 24,
     "floor_name": "The Heart of the Mountain",
     "floor_flavor": "The deepest point. The mountain has a heartbeat.",

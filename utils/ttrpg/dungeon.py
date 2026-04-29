@@ -35,17 +35,17 @@ R_BOSS        = "boss"
 R_ANTECHAMBER = "antechamber"
 
 ROOM_EMOJIS = {
-    R_START:       "🏠",
-    R_EMPTY:       "⬛",
-    R_GUARD:       "🛡️",
-    R_MONSTER:     "⚔️",
-    R_TREASURE:    "💰",
-    R_SHRINE:      "✨",
-    R_TRAP:        "⚡",
-    R_BOSS:        "💀",
-    R_ANTECHAMBER: "🌑",
+    R_START:       "⬜",
+    R_EMPTY:       "⬜",
+    R_GUARD:       "🟧",
+    R_MONSTER:     "🟥",
+    R_TREASURE:    "🟨",
+    R_SHRINE:      "🟪",
+    R_TRAP:        "🟫",
+    R_BOSS:        "🟥",
+    R_ANTECHAMBER: "⬜",
     "player":      "🔴",
-    "unknown":     "░░",
+    "unknown":     "🟫",
 }
 
 DIRECTIONS    = {"N": (0, -1), "S": (0, 1), "W": (-1, 0), "E": (1, 0)}
@@ -823,9 +823,9 @@ def render_map(state: dict) -> str:
                 rt = rooms.get(k, {}).get("type", R_EMPTY)
                 row += ROOM_EMOJIS.get(rt, "⬛")
             elif k in rooms:
-                row += "░░"
+                row += "🟫"
             else:
-                row += "　　"   # full-width space for empty grid cells
+                row += "⬛"   # wall
         lines.append(row)
     return "\n".join(lines)
 

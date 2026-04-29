@@ -475,20 +475,34 @@ async def _handle_dungeon(ctx, msg, send, rest, uid, uname, is_owner):
                          f"You have {hunts_remaining(sheet)}/{get_max_hunts(sheet)}."),
             color=0xcc4444))
 
-    sheet["hunts_today"] = sheet.get("hunts_today", 0) + ENTRY_HUNTS
-    await save(sheet)
-
     if loc == "spine_of_the_world":
-        dungeon = await load_spine_dungeon(uid)
-        if not dungeon:
-            dungeon = generate_spine_floor(1, sheet["level"])
-        dungeon["active"] = True
-        await save_spine_dungeon(uid, dungeon)
-        t_emoji = dungeon.get("theme_emoji", "⛏️")
-        t_name = dungeon.get("theme_name", "The Working Tunnels")
-        t_flavor = dungeon.get("theme_flavor", "Active mine workings.")
-        difficulty = dungeon.get("difficulty", 5)
+        max_defeated = max(sheet.get("spine_defeated_guards", [0]))
+        if max_defeated < 5:
+            # No checkpoints unlocked, start at floor 1
+            sheet["hunts_today"] = sheet.get("hunts_today", 0) + ENTRY_HUNTS
+            await save(sheet)
+            dungeon = await load_spine_dungeon(uid)
+            if not dungeon:
+                dungeon = generate_spine_floor(1, sheet["level"])
+            dungeon["active"] = True
+            await save_spine_dungeon(uid, dungeon)
+            t_emoji = dungeon.get("theme_emoji", "⛏️")
+            t_name = dungeon.get("theme_name", "The Working Tunnels")
+            t_flavor = dungeon.get("theme_flavor", "Active mine workings.")
+            difficulty = dungeon.get("difficulty", 5)
+        else:
+            # Checkpoints unlocked, show lift menu
+            from utils.ttrpg.rpg_views import SpineLiftView
+            view = SpineLiftView(ctx, uid, uname, is_owner, sheet, max_defeated)
+            embed = discord.Embed(
+                title="⚙️ The Resonance Lift",
+                description="*The ancient lift shudders. Runes along the frame glow, recognizing the depths you have conquered.*" + torch_line,
+                color=0x4a4a6a
+            )
+            return await msg.channel.send(embed=embed, view=view)
     else:
+        sheet["hunts_today"] = sheet.get("hunts_today", 0) + ENTRY_HUNTS
+        await save(sheet)
         from utils.ttrpg.dungeon import LOCATION_DIFFICULTY_BONUS
         loc_diff_bonus = LOCATION_DIFFICULTY_BONUS.get(loc, 0)
         difficulty = max(1, min(4, (sheet["level"] - 1) // 3 + 1 + loc_diff_bonus))

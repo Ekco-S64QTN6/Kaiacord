@@ -25,11 +25,11 @@ R_STAIRS_UP   = "stairs_up"
 R_STAIRS_DOWN = "stairs_down"
 
 ROOM_EMOJIS = {
-    R_START:       "🏠", R_EMPTY:       "⬜", R_GUARD:       "🛡️",
-    R_MONSTER:     "⚔️", R_TREASURE:    "💰", R_SHRINE:      "✨",
-    R_TRAP:        "⚡", R_BOSS:        "💀", R_ANTECHAMBER: "🌑",
-    R_STAIRS_UP:   "🔼", R_STAIRS_DOWN: "🔽",
-    "player":      "🔴", "unknown":     "░░",
+    R_START:       "⬜", R_EMPTY:       "⬜", R_GUARD:       "🟧",
+    R_MONSTER:     "🟥", R_TREASURE:    "🟨", R_SHRINE:      "🟪",
+    R_TRAP:        "🟫", R_BOSS:        "🟥", R_ANTECHAMBER: "⬜",
+    R_STAIRS_UP:   "🟩", R_STAIRS_DOWN: "🟦",
+    "player":      "🔴", "unknown":     "🟫",
 }
 
 DIRECTIONS   = {"N": (0, -1), "S": (0, 1), "W": (-1, 0), "E": (1, 0)}
@@ -230,9 +230,6 @@ def render_spine_map(state: dict) -> str:
 
     lines = []
 
-    if vy0 > 0:
-        lines.append("⬛" * (VIEW // 2) + "⬆️")
-
     for y in range(vy0, vy1):
         row = ""
         for x in range(vx0, vx1):
@@ -243,13 +240,10 @@ def render_spine_map(state: dict) -> str:
                 rt = rooms.get(k, {}).get("type", R_EMPTY)
                 row += ROOM_EMOJIS.get(rt, "⬛")
             elif k in rooms:
-                row += "░░"
+                row += "🟫"
             else:
                 row += "⬛"   # wall
         lines.append(row)
-
-    if vy1 < size:
-        lines.append("⬛" * (VIEW // 2) + "⬇️")
 
     floor_num = state.get("floor_num", 1)
     lines.insert(0, f"⛏️ **Floor {floor_num}** — {state.get('theme_name', 'The Ironvein Deep')}")
