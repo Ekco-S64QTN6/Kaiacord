@@ -312,7 +312,7 @@ F1M = {
     "L":{"type":"monster","name":"Rest Area","desc":"A makeshift camp. Something took up residence.","monster_key":"bone_devil"},
     "M":{"type":"monster","name":"Side Cavern","desc":"Bones line the floor.","monster_key":"dark_rider"},
     "N":{"type":"monster","name":"Side Cavern","desc":"Dripping water. Claw marks.","monster_key":"iron_golem"},
-    "O":{"type":"guard","name":"Foreman's Office","desc":"Kregg's old office. Smashed furniture and dried blood."}
+    "O":{"type":"guard","name":"Foreman's Office","desc":"Kregg's old office. Smashed furniture and dried blood.","monster_key":"dark_rider"}
 }
 
 F2M = {
@@ -333,7 +333,7 @@ F2M = {
     "O":{"type":"monster","name":"Side Crypt","desc":"Something stirs in the dark.","monster_key":"shadow_lich"},
     "P":{"type":"antechamber","name":"Sealed Door","desc":"The door is warm. Carvings move when you look away."},
     "Q":{"type":"empty","name":"Dusty Hall","desc":"Urns line the walls."},
-    "R":{"type":"monster","name":"The Unburied's Tomb","desc":"It was buried here. It dug itself out."}
+    "R":{"type":"monster","name":"The Unburied's Tomb","desc":"It was buried here. It dug itself out.","monster_key":"bone_devil"}
 }
 
 F3M = {
@@ -353,7 +353,7 @@ F3M = {
     "N":{"type":"empty","name":"Storage Bay","desc":"Empty racks. Whatever was here has been deployed."},
     "O":{"type":"trap","name":"Pressure Plate","desc":"The floor clicks when you step forward."},
     "P":{"type":"monster","name":"Construct Hall","desc":"They march in formation. Still.","monster_key":"iron_golem"},
-    "Q":{"type":"guard","name":"Warden's Chamber","desc":"It was built to guard this forge. It never stopped."}
+    "Q":{"type":"guard","name":"Warden's Chamber","desc":"It was built to guard this forge. It never stopped.","monster_key":"iron_golem"}
 }
 
 F4M = {
@@ -375,7 +375,7 @@ F4M = {
     "P":{"type":"monster","name":"Chasm Edge","desc":"The void stares back.","monster_key":"wyvern"},
     "Q":{"type":"antechamber","name":"Sealed Gate","desc":"Ancient wards flicker across the stone."},
     "R":{"type":"empty","name":"Hollow","desc":"Wind from nowhere."},
-    "S":{"type":"monster","name":"The Last of the Party","desc":"It used to be an adventurer. Now it remembers being one."}
+    "S":{"type":"monster","name":"The Last of the Party","desc":"It used to be an adventurer. Now it remembers being one.","monster_key":"shadow_lich"}
 }
 
 F5M = {
@@ -394,7 +394,7 @@ F5M = {
     "M":{"type":"monster","name":"Perfect Specimen","desc":"Flawless. Pulsating. Aware.","monster_key":"iron_giant_ff"},
     "N":{"type":"antechamber","name":"Final Guardpost","desc":"The elite protectors who never left their station."},
     "O":{"type":"empty","name":"Side Chamber","desc":"Empty. Waiting."},
-    "P":{"type":"guard","name":"The Architect's Prison","desc":"It built the mountain. They buried it inside its own work."}
+    "P":{"type":"guard","name":"The Architect's Prison","desc":"It built the mountain. They buried it inside its own work.","monster_key":"iron_giant_ff"}
 }
 
 

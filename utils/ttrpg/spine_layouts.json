@@ -192,14 +192,14 @@
         "room_name": "Rest Area"
       },
       "9,3": {
-        "type": "trap",
-        "cleared": false,
+        "type": "empty",
+        "cleared": true,
         "monster_key": null,
         "boss_name": null,
-        "description": "You stepped on a loose stone. A trap mechanism clicks in the dark!",
+        "description": "A narrow, winding passage.",
         "is_room": false,
         "label": null,
-        "room_name": "Trapped Passage"
+        "room_name": null
       },
       "4,4": {
         "type": "empty",
@@ -754,7 +754,7 @@
       "17,9": {
         "type": "guard",
         "cleared": false,
-        "monster_key": null,
+        "monster_key": "dark_rider",
         "boss_name": null,
         "description": "Kregg's old office. Smashed furniture and dried blood.",
         "is_room": true,
@@ -2203,14 +2203,14 @@
         "room_name": "Tool Closet"
       },
       "7,4": {
-        "type": "trap",
-        "cleared": false,
+        "type": "empty",
+        "cleared": true,
         "monster_key": null,
         "boss_name": null,
-        "description": "You stepped on a loose stone. A trap mechanism clicks in the dark!",
+        "description": "A narrow, winding passage.",
         "is_room": false,
         "label": null,
-        "room_name": "Trapped Passage"
+        "room_name": null
       },
       "8,4": {
         "type": "empty",
@@ -2725,7 +2725,7 @@
       "17,9": {
         "type": "guard",
         "cleared": false,
-        "monster_key": null,
+        "monster_key": "dark_rider",
         "boss_name": null,
         "description": "Kregg's old office. Smashed furniture and dried blood.",
         "is_room": true,
@@ -3103,14 +3103,14 @@
         "room_name": "Ore Shaft"
       },
       "7,17": {
-        "type": "trap",
-        "cleared": false,
+        "type": "empty",
+        "cleared": true,
         "monster_key": null,
         "boss_name": null,
-        "description": "You stepped on a loose stone. A trap mechanism clicks in the dark!",
+        "description": "A narrow, winding passage.",
         "is_room": false,
         "label": null,
-        "room_name": "Trapped Passage"
+        "room_name": null
       },
       "8,17": {
         "type": "empty",
@@ -4294,14 +4294,14 @@
         "room_name": "The Descent"
       },
       "11,5": {
-        "type": "trap",
-        "cleared": false,
+        "type": "empty",
+        "cleared": true,
         "monster_key": null,
         "boss_name": null,
-        "description": "You stepped on a loose stone. A trap mechanism clicks in the dark!",
+        "description": "A narrow, winding passage.",
         "is_room": false,
         "label": null,
-        "room_name": "Trapped Passage"
+        "room_name": null
       },
       "12,5": {
         "type": "shrine",
@@ -4696,7 +4696,7 @@
       "17,9": {
         "type": "guard",
         "cleared": false,
-        "monster_key": null,
+        "monster_key": "dark_rider",
         "boss_name": null,
         "description": "Kregg's old office. Smashed furniture and dried blood.",
         "is_room": true,
@@ -6667,7 +6667,7 @@
       "17,9": {
         "type": "guard",
         "cleared": false,
-        "monster_key": null,
+        "monster_key": "dark_rider",
         "boss_name": null,
         "description": "Kregg's old office. Smashed furniture and dried blood.",
         "is_room": true,
@@ -8638,7 +8638,7 @@
       "17,9": {
         "type": "guard",
         "cleared": false,
-        "monster_key": null,
+        "monster_key": "dark_rider",
         "boss_name": null,
         "description": "Kregg's old office. Smashed furniture and dried blood.",
         "is_room": true,
@@ -9056,14 +9056,14 @@
         "room_name": "Wide Chamber"
       },
       "11,17": {
-        "type": "trap",
-        "cleared": false,
+        "type": "empty",
+        "cleared": true,
         "monster_key": null,
         "boss_name": null,
-        "description": "You stepped on a loose stone. A trap mechanism clicks in the dark!",
+        "description": "A narrow, winding passage.",
         "is_room": false,
         "label": null,
-        "room_name": "Trapped Passage"
+        "room_name": null
       },
       "12,17": {
         "type": "empty",
@@ -10207,14 +10207,14 @@
         "room_name": "The Descent"
       },
       "11,5": {
-        "type": "empty",
-        "cleared": true,
+        "type": "trap",
+        "cleared": false,
         "monster_key": null,
         "boss_name": null,
-        "description": "A narrow, winding passage.",
+        "description": "You stepped on a loose stone. A trap mechanism clicks in the dark!",
         "is_room": false,
         "label": null,
-        "room_name": null
+        "room_name": "Trapped Passage"
       },
       "12,5": {
         "type": "shrine",
@@ -10457,16 +10457,6 @@
         "room_name": "Side Cavern"
       },
       "2,9": {
-        "type": "trap",
-        "cleared": false,
-        "monster_key": null,
-        "boss_name": null,
-        "description": "You stepped on a loose stone. A trap mechanism clicks in the dark!",
-        "is_room": false,
-        "label": null,
-        "room_name": "Trapped Passage"
-      },
-      "3,9": {
         "type": "empty",
         "cleared": true,
         "monster_key": null,
@@ -10475,6 +10465,16 @@
         "is_room": false,
         "label": null,
         "room_name": null
+      },
+      "3,9": {
+        "type": "trap",
+        "cleared": false,
+        "monster_key": null,
+        "boss_name": null,
+        "description": "You stepped on a loose stone. A trap mechanism clicks in the dark!",
+        "is_room": false,
+        "label": null,
+        "room_name": "Trapped Passage"
       },
       "4,9": {
         "type": "empty",
@@ -10609,7 +10609,7 @@
       "17,9": {
         "type": "guard",
         "cleared": false,
-        "monster_key": null,
+        "monster_key": "dark_rider",
         "boss_name": null,
         "description": "Kregg's old office. Smashed furniture and dried blood.",
         "is_room": true,
@@ -11027,14 +11027,14 @@
         "room_name": "Wide Chamber"
       },
       "11,17": {
-        "type": "empty",
-        "cleared": true,
+        "type": "trap",
+        "cleared": false,
         "monster_key": null,
         "boss_name": null,
-        "description": "A narrow, winding passage.",
+        "description": "You stepped on a loose stone. A trap mechanism clicks in the dark!",
         "is_room": false,
         "label": null,
-        "room_name": null
+        "room_name": "Trapped Passage"
       },
       "12,17": {
         "type": "empty",
@@ -12438,14 +12438,14 @@
         "room_name": null
       },
       "3,9": {
-        "type": "empty",
-        "cleared": true,
+        "type": "trap",
+        "cleared": false,
         "monster_key": null,
         "boss_name": null,
-        "description": "A narrow, winding passage.",
+        "description": "You stepped on a loose stone. A trap mechanism clicks in the dark!",
         "is_room": false,
         "label": null,
-        "room_name": null
+        "room_name": "Trapped Passage"
       },
       "4,9": {
         "type": "empty",
@@ -12478,14 +12478,14 @@
         "room_name": "Foreman's Stash"
       },
       "7,9": {
-        "type": "empty",
-        "cleared": true,
+        "type": "trap",
+        "cleared": false,
         "monster_key": null,
         "boss_name": null,
-        "description": "A narrow, winding passage.",
+        "description": "You stepped on a loose stone. A trap mechanism clicks in the dark!",
         "is_room": false,
         "label": null,
-        "room_name": null
+        "room_name": "Trapped Passage"
       },
       "8,9": {
         "type": "empty",
@@ -12580,7 +12580,7 @@
       "17,9": {
         "type": "guard",
         "cleared": false,
-        "monster_key": null,
+        "monster_key": "dark_rider",
         "boss_name": null,
         "description": "Kregg's old office. Smashed furniture and dried blood.",
         "is_room": true,
@@ -14551,7 +14551,7 @@
       "17,9": {
         "type": "guard",
         "cleared": false,
-        "monster_key": null,
+        "monster_key": "dark_rider",
         "boss_name": null,
         "description": "Kregg's old office. Smashed furniture and dried blood.",
         "is_room": true,
@@ -14929,14 +14929,14 @@
         "room_name": "Ore Shaft"
       },
       "7,17": {
-        "type": "trap",
-        "cleared": false,
+        "type": "empty",
+        "cleared": true,
         "monster_key": null,
         "boss_name": null,
-        "description": "You stepped on a loose stone. A trap mechanism clicks in the dark!",
+        "description": "A narrow, winding passage.",
         "is_room": false,
         "label": null,
-        "room_name": "Trapped Passage"
+        "room_name": null
       },
       "8,17": {
         "type": "empty",
@@ -15960,14 +15960,14 @@
         "room_name": "Rest Area"
       },
       "9,3": {
-        "type": "trap",
-        "cleared": false,
+        "type": "empty",
+        "cleared": true,
         "monster_key": null,
         "boss_name": null,
-        "description": "You stepped on a loose stone. A trap mechanism clicks in the dark!",
+        "description": "A narrow, winding passage.",
         "is_room": false,
         "label": null,
-        "room_name": "Trapped Passage"
+        "room_name": null
       },
       "4,4": {
         "type": "empty",
@@ -16500,14 +16500,14 @@
         "room_name": "Guard Barracks"
       },
       "15,9": {
-        "type": "empty",
-        "cleared": true,
+        "type": "trap",
+        "cleared": false,
         "monster_key": null,
         "boss_name": null,
-        "description": "A narrow, winding passage.",
+        "description": "You stepped on a loose stone. A trap mechanism clicks in the dark!",
         "is_room": false,
         "label": null,
-        "room_name": null
+        "room_name": "Trapped Passage"
       },
       "16,9": {
         "type": "empty",
@@ -16522,7 +16522,7 @@
       "17,9": {
         "type": "guard",
         "cleared": false,
-        "monster_key": null,
+        "monster_key": "dark_rider",
         "boss_name": null,
         "description": "Kregg's old office. Smashed furniture and dried blood.",
         "is_room": true,
@@ -18351,14 +18351,14 @@
         "room_name": null
       },
       "3,9": {
-        "type": "empty",
-        "cleared": true,
+        "type": "trap",
+        "cleared": false,
         "monster_key": null,
         "boss_name": null,
-        "description": "A narrow, winding passage.",
+        "description": "You stepped on a loose stone. A trap mechanism clicks in the dark!",
         "is_room": false,
         "label": null,
-        "room_name": null
+        "room_name": "Trapped Passage"
       },
       "4,9": {
         "type": "empty",
@@ -18493,7 +18493,7 @@
       "17,9": {
         "type": "guard",
         "cleared": false,
-        "monster_key": null,
+        "monster_key": "dark_rider",
         "boss_name": null,
         "description": "Kregg's old office. Smashed furniture and dried blood.",
         "is_room": true,
@@ -20062,14 +20062,14 @@
         "room_name": "The Descent"
       },
       "11,5": {
-        "type": "empty",
-        "cleared": true,
+        "type": "trap",
+        "cleared": false,
         "monster_key": null,
         "boss_name": null,
-        "description": "A narrow, winding passage.",
+        "description": "You stepped on a loose stone. A trap mechanism clicks in the dark!",
         "is_room": false,
         "label": null,
-        "room_name": null
+        "room_name": "Trapped Passage"
       },
       "12,5": {
         "type": "shrine",
@@ -20312,14 +20312,14 @@
         "room_name": "Side Cavern"
       },
       "2,9": {
-        "type": "empty",
-        "cleared": true,
+        "type": "trap",
+        "cleared": false,
         "monster_key": null,
         "boss_name": null,
-        "description": "A narrow, winding passage.",
+        "description": "You stepped on a loose stone. A trap mechanism clicks in the dark!",
         "is_room": false,
         "label": null,
-        "room_name": null
+        "room_name": "Trapped Passage"
       },
       "3,9": {
         "type": "trap",
@@ -20402,14 +20402,14 @@
         "room_name": "Flooded Chamber"
       },
       "11,9": {
-        "type": "empty",
-        "cleared": true,
+        "type": "trap",
+        "cleared": false,
         "monster_key": null,
         "boss_name": null,
-        "description": "A narrow, winding passage.",
+        "description": "You stepped on a loose stone. A trap mechanism clicks in the dark!",
         "is_room": false,
         "label": null,
-        "room_name": null
+        "room_name": "Trapped Passage"
       },
       "12,9": {
         "type": "empty",
@@ -20464,7 +20464,7 @@
       "17,9": {
         "type": "guard",
         "cleared": false,
-        "monster_key": null,
+        "monster_key": "dark_rider",
         "boss_name": null,
         "description": "A makeshift camp. A journal lies open: 'She said the blue flame meant danger. She lied. It means the mountain is hungry, and she is ringing the dinner bell.'",
         "is_room": true,
@@ -20992,14 +20992,14 @@
         "room_name": "Collapsed Tunnel"
       },
       "8,19": {
-        "type": "empty",
-        "cleared": true,
+        "type": "trap",
+        "cleared": false,
         "monster_key": null,
         "boss_name": null,
-        "description": "A narrow, winding passage.",
+        "description": "You stepped on a loose stone. A trap mechanism clicks in the dark!",
         "is_room": false,
         "label": null,
-        "room_name": null
+        "room_name": "Trapped Passage"
       },
       "8,20": {
         "type": "stairs_up",
@@ -21873,14 +21873,14 @@
         "room_name": "Rest Area"
       },
       "9,3": {
-        "type": "empty",
-        "cleared": true,
+        "type": "trap",
+        "cleared": false,
         "monster_key": null,
         "boss_name": null,
-        "description": "A narrow, winding passage.",
+        "description": "You stepped on a loose stone. A trap mechanism clicks in the dark!",
         "is_room": false,
         "label": null,
-        "room_name": null
+        "room_name": "Trapped Passage"
       },
       "4,4": {
         "type": "empty",
@@ -22435,7 +22435,7 @@
       "17,9": {
         "type": "guard",
         "cleared": false,
-        "monster_key": null,
+        "monster_key": "dark_rider",
         "boss_name": null,
         "description": "A makeshift camp. A journal lies open: 'She said the blue flame meant danger. She lied. It means the mountain is hungry, and she is ringing the dinner bell.'",
         "is_room": true,
@@ -22693,14 +22693,14 @@
         "room_name": "Central Hub"
       },
       "9,15": {
-        "type": "empty",
-        "cleared": true,
+        "type": "trap",
+        "cleared": false,
         "monster_key": null,
         "boss_name": null,
-        "description": "A narrow, winding passage.",
+        "description": "You stepped on a loose stone. A trap mechanism clicks in the dark!",
         "is_room": false,
         "label": null,
-        "room_name": null
+        "room_name": "Trapped Passage"
       },
       "4,16": {
         "type": "empty",
@@ -23844,14 +23844,14 @@
         "room_name": "Rest Area"
       },
       "9,3": {
-        "type": "trap",
-        "cleared": false,
+        "type": "empty",
+        "cleared": true,
         "monster_key": null,
         "boss_name": null,
-        "description": "You stepped on a loose stone. A trap mechanism clicks in the dark!",
+        "description": "A narrow, winding passage.",
         "is_room": false,
         "label": null,
-        "room_name": "Trapped Passage"
+        "room_name": null
       },
       "4,4": {
         "type": "empty",
@@ -24406,7 +24406,7 @@
       "17,9": {
         "type": "guard",
         "cleared": false,
-        "monster_key": null,
+        "monster_key": "dark_rider",
         "boss_name": null,
         "description": "A makeshift camp. A journal lies open: 'She said the blue flame meant danger. She lied. It means the mountain is hungry, and she is ringing the dinner bell.'",
         "is_room": true,
@@ -26377,7 +26377,7 @@
       "17,9": {
         "type": "guard",
         "cleared": false,
-        "monster_key": null,
+        "monster_key": "dark_rider",
         "boss_name": null,
         "description": "A makeshift camp. A journal lies open: 'She said the blue flame meant danger. She lied. It means the mountain is hungry, and she is ringing the dinner bell.'",
         "is_room": true,
@@ -28026,14 +28026,14 @@
         "room_name": "Mushroom Grotto"
       },
       "9,7": {
-        "type": "empty",
-        "cleared": true,
+        "type": "trap",
+        "cleared": false,
         "monster_key": null,
         "boss_name": null,
-        "description": "A narrow, winding passage.",
+        "description": "You stepped on a loose stone. A trap mechanism clicks in the dark!",
         "is_room": false,
         "label": null,
-        "room_name": null
+        "room_name": "Trapped Passage"
       },
       "0,8": {
         "type": "empty",
@@ -28348,7 +28348,7 @@
       "17,9": {
         "type": "guard",
         "cleared": false,
-        "monster_key": null,
+        "monster_key": "dark_rider",
         "boss_name": null,
         "description": "A makeshift camp. A journal lies open: 'She said the blue flame meant danger. She lied. It means the mountain is hungry, and she is ringing the dinner bell.'",
         "is_room": true,
@@ -28726,14 +28726,14 @@
         "room_name": "Ore Shaft"
       },
       "7,17": {
-        "type": "empty",
-        "cleared": true,
+        "type": "trap",
+        "cleared": false,
         "monster_key": null,
         "boss_name": null,
-        "description": "A narrow, winding passage.",
+        "description": "You stepped on a loose stone. A trap mechanism clicks in the dark!",
         "is_room": false,
         "label": null,
-        "room_name": null
+        "room_name": "Trapped Passage"
       },
       "8,17": {
         "type": "empty",
@@ -29617,14 +29617,14 @@
         "room_name": null
       },
       "16,3": {
-        "type": "trap",
-        "cleared": false,
+        "type": "empty",
+        "cleared": true,
         "monster_key": null,
         "boss_name": null,
-        "description": "You stepped on a loose stone. A trap mechanism clicks in the dark!",
+        "description": "A narrow, winding passage.",
         "is_room": false,
         "label": null,
-        "room_name": "Trapped Passage"
+        "room_name": null
       },
       "12,4": {
         "type": "empty",
@@ -30317,14 +30317,14 @@
         "room_name": null
       },
       "3,12": {
-        "type": "empty",
-        "cleared": true,
+        "type": "trap",
+        "cleared": false,
         "monster_key": null,
         "boss_name": null,
-        "description": "A narrow, winding passage.",
+        "description": "You stepped on a loose stone. A trap mechanism clicks in the dark!",
         "is_room": false,
         "label": null,
-        "room_name": null
+        "room_name": "Trapped Passage"
       },
       "4,12": {
         "type": "empty",
@@ -30607,14 +30607,14 @@
         "room_name": null
       },
       "9,15": {
-        "type": "empty",
-        "cleared": true,
+        "type": "trap",
+        "cleared": false,
         "monster_key": null,
         "boss_name": null,
-        "description": "A narrow, winding passage.",
+        "description": "You stepped on a loose stone. A trap mechanism clicks in the dark!",
         "is_room": false,
         "label": null,
-        "room_name": null
+        "room_name": "Trapped Passage"
       },
       "0,16": {
         "type": "empty",
@@ -31009,7 +31009,7 @@
       "1,21": {
         "type": "monster",
         "cleared": false,
-        "monster_key": null,
+        "monster_key": "bone_devil",
         "boss_name": null,
         "description": "It was buried here. It dug itself out.",
         "is_room": true,
@@ -32612,14 +32612,14 @@
         "room_name": null
       },
       "12,11": {
-        "type": "trap",
-        "cleared": false,
+        "type": "empty",
+        "cleared": true,
         "monster_key": null,
         "boss_name": null,
-        "description": "You stepped on a loose stone. A trap mechanism clicks in the dark!",
+        "description": "A narrow, winding passage.",
         "is_room": false,
         "label": null,
-        "room_name": "Trapped Passage"
+        "room_name": null
       },
       "0,12": {
         "type": "antechamber",
@@ -32932,14 +32932,14 @@
         "room_name": "Defaced Shrine"
       },
       "5,15": {
-        "type": "empty",
-        "cleared": true,
+        "type": "trap",
+        "cleared": false,
         "monster_key": null,
         "boss_name": null,
-        "description": "A narrow, winding passage.",
+        "description": "You stepped on a loose stone. A trap mechanism clicks in the dark!",
         "is_room": false,
         "label": null,
-        "room_name": null
+        "room_name": "Trapped Passage"
       },
       "9,15": {
         "type": "empty",
@@ -33344,7 +33344,7 @@
       "1,21": {
         "type": "monster",
         "cleared": false,
-        "monster_key": null,
+        "monster_key": "bone_devil",
         "boss_name": null,
         "description": "It was buried here. It dug itself out.",
         "is_room": true,
@@ -34277,14 +34277,14 @@
         "room_name": "Upper Landing"
       },
       "16,2": {
-        "type": "trap",
-        "cleared": false,
+        "type": "empty",
+        "cleared": true,
         "monster_key": null,
         "boss_name": null,
-        "description": "You stepped on a loose stone. A trap mechanism clicks in the dark!",
+        "description": "A narrow, winding passage.",
         "is_room": false,
         "label": null,
-        "room_name": "Trapped Passage"
+        "room_name": null
       },
       "16,3": {
         "type": "empty",
@@ -34927,14 +34927,14 @@
         "room_name": "Echo Chamber"
       },
       "5,11": {
-        "type": "empty",
-        "cleared": true,
+        "type": "trap",
+        "cleared": false,
         "monster_key": null,
         "boss_name": null,
-        "description": "A narrow, winding passage.",
+        "description": "You stepped on a loose stone. A trap mechanism clicks in the dark!",
         "is_room": false,
         "label": null,
-        "room_name": null
+        "room_name": "Trapped Passage"
       },
       "9,11": {
         "type": "empty",
@@ -35679,7 +35679,7 @@
       "1,21": {
         "type": "monster",
         "cleared": false,
-        "monster_key": null,
+        "monster_key": "bone_devil",
         "boss_name": null,
         "description": "It was buried here. It dug itself out.",
         "is_room": true,
@@ -37462,14 +37462,14 @@
         "room_name": "The Grand Hall"
       },
       "7,13": {
-        "type": "empty",
-        "cleared": true,
+        "type": "trap",
+        "cleared": false,
         "monster_key": null,
         "boss_name": null,
-        "description": "A narrow, winding passage.",
+        "description": "You stepped on a loose stone. A trap mechanism clicks in the dark!",
         "is_room": false,
         "label": null,
-        "room_name": null
+        "room_name": "Trapped Passage"
       },
       "8,13": {
         "type": "empty",
@@ -38014,7 +38014,7 @@
       "1,21": {
         "type": "monster",
         "cleared": false,
-        "monster_key": null,
+        "monster_key": "bone_devil",
         "boss_name": null,
         "description": "It was buried here. It dug itself out.",
         "is_room": true,
@@ -39117,14 +39117,14 @@
         "room_name": "Dusty Hall"
       },
       "19,5": {
-        "type": "trap",
-        "cleared": false,
+        "type": "empty",
+        "cleared": true,
         "monster_key": null,
         "boss_name": null,
-        "description": "You stepped on a loose stone. A trap mechanism clicks in the dark!",
+        "description": "A narrow, winding passage.",
         "is_room": false,
         "label": null,
-        "room_name": "Trapped Passage"
+        "room_name": null
       },
       "20,5": {
         "type": "monster",
@@ -40297,14 +40297,14 @@
         "room_name": "The Deep Stair"
       },
       "11,20": {
-        "type": "trap",
-        "cleared": false,
+        "type": "empty",
+        "cleared": true,
         "monster_key": null,
         "boss_name": null,
-        "description": "You stepped on a loose stone. A trap mechanism clicks in the dark!",
+        "description": "A narrow, winding passage.",
         "is_room": false,
         "label": null,
-        "room_name": "Trapped Passage"
+        "room_name": null
       },
       "12,20": {
         "type": "empty",
@@ -40349,7 +40349,7 @@
       "1,21": {
         "type": "monster",
         "cleared": false,
-        "monster_key": null,
+        "monster_key": "bone_devil",
         "boss_name": null,
         "description": "It was buried here. It dug itself out.",
         "is_room": true,
@@ -41832,14 +41832,14 @@
         "room_name": "Echo Chamber"
       },
       "5,10": {
-        "type": "empty",
-        "cleared": true,
+        "type": "trap",
+        "cleared": false,
         "monster_key": null,
         "boss_name": null,
-        "description": "A narrow, winding passage.",
+        "description": "You stepped on a loose stone. A trap mechanism clicks in the dark!",
         "is_room": false,
         "label": null,
-        "room_name": null
+        "room_name": "Trapped Passage"
       },
       "8,10": {
         "type": "empty",
@@ -41952,14 +41952,14 @@
         "room_name": null
       },
       "12,11": {
-        "type": "empty",
-        "cleared": true,
+        "type": "trap",
+        "cleared": false,
         "monster_key": null,
         "boss_name": null,
-        "description": "A narrow, winding passage.",
+        "description": "You stepped on a loose stone. A trap mechanism clicks in the dark!",
         "is_room": false,
         "label": null,
-        "room_name": null
+        "room_name": "Trapped Passage"
       },
       "0,12": {
         "type": "antechamber",
@@ -42632,14 +42632,14 @@
         "room_name": "The Deep Stair"
       },
       "11,20": {
-        "type": "empty",
-        "cleared": true,
+        "type": "trap",
+        "cleared": false,
         "monster_key": null,
         "boss_name": null,
-        "description": "A narrow, winding passage.",
+        "description": "You stepped on a loose stone. A trap mechanism clicks in the dark!",
         "is_room": false,
         "label": null,
-        "room_name": null
+        "room_name": "Trapped Passage"
       },
       "12,20": {
         "type": "empty",
@@ -42684,7 +42684,7 @@
       "1,21": {
         "type": "monster",
         "cleared": false,
-        "monster_key": null,
+        "monster_key": "bone_devil",
         "boss_name": null,
         "description": "It was buried here. It dug itself out.",
         "is_room": true,
@@ -44267,14 +44267,14 @@
         "room_name": "Echo Chamber"
       },
       "5,11": {
-        "type": "trap",
-        "cleared": false,
+        "type": "empty",
+        "cleared": true,
         "monster_key": null,
         "boss_name": null,
-        "description": "You stepped on a loose stone. A trap mechanism clicks in the dark!",
+        "description": "A narrow, winding passage.",
         "is_room": false,
         "label": null,
-        "room_name": "Trapped Passage"
+        "room_name": null
       },
       "9,11": {
         "type": "empty",
@@ -44727,14 +44727,14 @@
         "room_name": "Sealed Alcove"
       },
       "2,17": {
-        "type": "empty",
-        "cleared": true,
+        "type": "trap",
+        "cleared": false,
         "monster_key": null,
         "boss_name": null,
-        "description": "A narrow, winding passage.",
+        "description": "You stepped on a loose stone. A trap mechanism clicks in the dark!",
         "is_room": false,
         "label": null,
-        "room_name": null
+        "room_name": "Trapped Passage"
       },
       "3,17": {
         "type": "empty",
@@ -45019,7 +45019,7 @@
       "1,21": {
         "type": "monster",
         "cleared": false,
-        "monster_key": null,
+        "monster_key": "bone_devil",
         "boss_name": null,
         "description": "It was buried here. It dug itself out.",
         "is_room": true,
@@ -46602,14 +46602,14 @@
         "room_name": "Echo Chamber"
       },
       "5,11": {
-        "type": "empty",
-        "cleared": true,
+        "type": "trap",
+        "cleared": false,
         "monster_key": null,
         "boss_name": null,
-        "description": "A narrow, winding passage.",
+        "description": "You stepped on a loose stone. A trap mechanism clicks in the dark!",
         "is_room": false,
         "label": null,
-        "room_name": null
+        "room_name": "Trapped Passage"
       },
       "9,11": {
         "type": "empty",
@@ -47222,24 +47222,24 @@
         "room_name": "Servant's Crypt"
       },
       "0,19": {
-        "type": "empty",
-        "cleared": true,
+        "type": "trap",
+        "cleared": false,
         "monster_key": null,
         "boss_name": null,
-        "description": "A narrow, winding passage.",
+        "description": "You stepped on a loose stone. A trap mechanism clicks in the dark!",
         "is_room": false,
         "label": null,
-        "room_name": null
+        "room_name": "Trapped Passage"
       },
       "9,19": {
-        "type": "empty",
-        "cleared": true,
+        "type": "trap",
+        "cleared": false,
         "monster_key": null,
         "boss_name": null,
-        "description": "A narrow, winding passage.",
+        "description": "You stepped on a loose stone. A trap mechanism clicks in the dark!",
         "is_room": false,
         "label": null,
-        "room_name": null
+        "room_name": "Trapped Passage"
       },
       "0,20": {
         "type": "empty",
@@ -47354,7 +47354,7 @@
       "1,21": {
         "type": "monster",
         "cleared": false,
-        "monster_key": null,
+        "monster_key": "bone_devil",
         "boss_name": null,
         "description": "It was buried here. It dug itself out.",
         "is_room": true,
@@ -48797,14 +48797,14 @@
         "room_name": "Ossuary"
       },
       "15,9": {
-        "type": "trap",
-        "cleared": false,
+        "type": "empty",
+        "cleared": true,
         "monster_key": null,
         "boss_name": null,
-        "description": "You stepped on a loose stone. A trap mechanism clicks in the dark!",
+        "description": "A narrow, winding passage.",
         "is_room": false,
         "label": null,
-        "room_name": "Trapped Passage"
+        "room_name": null
       },
       "16,9": {
         "type": "empty",
@@ -48947,14 +48947,14 @@
         "room_name": null
       },
       "9,11": {
-        "type": "trap",
-        "cleared": false,
+        "type": "empty",
+        "cleared": true,
         "monster_key": null,
         "boss_name": null,
-        "description": "You stepped on a loose stone. A trap mechanism clicks in the dark!",
+        "description": "A narrow, winding passage.",
         "is_room": false,
         "label": null,
-        "room_name": "Trapped Passage"
+        "room_name": null
       },
       "12,11": {
         "type": "empty",
@@ -49397,24 +49397,24 @@
         "room_name": "Sealed Alcove"
       },
       "2,17": {
-        "type": "trap",
-        "cleared": false,
+        "type": "empty",
+        "cleared": true,
         "monster_key": null,
         "boss_name": null,
-        "description": "You stepped on a loose stone. A trap mechanism clicks in the dark!",
+        "description": "A narrow, winding passage.",
         "is_room": false,
         "label": null,
-        "room_name": "Trapped Passage"
+        "room_name": null
       },
       "3,17": {
-        "type": "trap",
-        "cleared": false,
+        "type": "empty",
+        "cleared": true,
         "monster_key": null,
         "boss_name": null,
-        "description": "You stepped on a loose stone. A trap mechanism clicks in the dark!",
+        "description": "A narrow, winding passage.",
         "is_room": false,
         "label": null,
-        "room_name": "Trapped Passage"
+        "room_name": null
       },
       "4,17": {
         "type": "empty",
@@ -49689,7 +49689,7 @@
       "1,21": {
         "type": "monster",
         "cleared": false,
-        "monster_key": null,
+        "monster_key": "bone_devil",
         "boss_name": null,
         "description": "It was buried here. It dug itself out.",
         "is_room": true,
@@ -51172,14 +51172,14 @@
         "room_name": "Echo Chamber"
       },
       "5,10": {
-        "type": "trap",
-        "cleared": false,
+        "type": "empty",
+        "cleared": true,
         "monster_key": null,
         "boss_name": null,
-        "description": "You stepped on a loose stone. A trap mechanism clicks in the dark!",
+        "description": "A narrow, winding passage.",
         "is_room": false,
         "label": null,
-        "room_name": "Trapped Passage"
+        "room_name": null
       },
       "8,10": {
         "type": "empty",
@@ -51332,14 +51332,14 @@
         "room_name": null
       },
       "3,12": {
-        "type": "empty",
-        "cleared": true,
+        "type": "trap",
+        "cleared": false,
         "monster_key": null,
         "boss_name": null,
-        "description": "A narrow, winding passage.",
+        "description": "You stepped on a loose stone. A trap mechanism clicks in the dark!",
         "is_room": false,
         "label": null,
-        "room_name": null
+        "room_name": "Trapped Passage"
       },
       "4,12": {
         "type": "empty",
@@ -52024,7 +52024,7 @@
       "1,21": {
         "type": "monster",
         "cleared": false,
-        "monster_key": null,
+        "monster_key": "bone_devil",
         "boss_name": null,
         "description": "It was buried here. It dug itself out.",
         "is_room": true,
@@ -53467,14 +53467,14 @@
         "room_name": "Ossuary"
       },
       "15,9": {
-        "type": "trap",
-        "cleared": false,
+        "type": "empty",
+        "cleared": true,
         "monster_key": null,
         "boss_name": null,
-        "description": "You stepped on a loose stone. A trap mechanism clicks in the dark!",
+        "description": "A narrow, winding passage.",
         "is_room": false,
         "label": null,
-        "room_name": "Trapped Passage"
+        "room_name": null
       },
       "16,9": {
         "type": "empty",
@@ -53617,14 +53617,14 @@
         "room_name": null
       },
       "9,11": {
-        "type": "trap",
-        "cleared": false,
+        "type": "empty",
+        "cleared": true,
         "monster_key": null,
         "boss_name": null,
-        "description": "You stepped on a loose stone. A trap mechanism clicks in the dark!",
+        "description": "A narrow, winding passage.",
         "is_room": false,
         "label": null,
-        "room_name": "Trapped Passage"
+        "room_name": null
       },
       "12,11": {
         "type": "empty",
@@ -54359,7 +54359,7 @@
       "1,21": {
         "type": "monster",
         "cleared": false,
-        "monster_key": null,
+        "monster_key": "bone_devil",
         "boss_name": null,
         "description": "It was buried here. It dug itself out.",
         "is_room": true,
@@ -55802,14 +55802,14 @@
         "room_name": "Ossuary"
       },
       "15,9": {
-        "type": "trap",
-        "cleared": false,
+        "type": "empty",
+        "cleared": true,
         "monster_key": null,
         "boss_name": null,
-        "description": "You stepped on a loose stone. A trap mechanism clicks in the dark!",
+        "description": "A narrow, winding passage.",
         "is_room": false,
         "label": null,
-        "room_name": "Trapped Passage"
+        "room_name": null
       },
       "16,9": {
         "type": "empty",
@@ -56282,16 +56282,6 @@
         "room_name": "Defaced Shrine"
       },
       "5,15": {
-        "type": "trap",
-        "cleared": false,
-        "monster_key": null,
-        "boss_name": null,
-        "description": "You stepped on a loose stone. A trap mechanism clicks in the dark!",
-        "is_room": false,
-        "label": null,
-        "room_name": "Trapped Passage"
-      },
-      "9,15": {
         "type": "empty",
         "cleared": true,
         "monster_key": null,
@@ -56300,6 +56290,16 @@
         "is_room": false,
         "label": null,
         "room_name": null
+      },
+      "9,15": {
+        "type": "trap",
+        "cleared": false,
+        "monster_key": null,
+        "boss_name": null,
+        "description": "You stepped on a loose stone. A trap mechanism clicks in the dark!",
+        "is_room": false,
+        "label": null,
+        "room_name": "Trapped Passage"
       },
       "0,16": {
         "type": "empty",
@@ -56412,14 +56412,14 @@
         "room_name": null
       },
       "3,17": {
-        "type": "trap",
-        "cleared": false,
+        "type": "empty",
+        "cleared": true,
         "monster_key": null,
         "boss_name": null,
-        "description": "You stepped on a loose stone. A trap mechanism clicks in the dark!",
+        "description": "A narrow, winding passage.",
         "is_room": false,
         "label": null,
-        "room_name": "Trapped Passage"
+        "room_name": null
       },
       "4,17": {
         "type": "empty",
@@ -56694,7 +56694,7 @@
       "1,21": {
         "type": "monster",
         "cleared": false,
-        "monster_key": null,
+        "monster_key": "bone_devil",
         "boss_name": null,
         "description": "It was buried here. It dug itself out.",
         "is_room": true,
@@ -57757,14 +57757,14 @@
         "room_name": "Crypt Gate"
       },
       "15,5": {
-        "type": "trap",
-        "cleared": false,
+        "type": "empty",
+        "cleared": true,
         "monster_key": null,
         "boss_name": null,
-        "description": "You stepped on a loose stone. A trap mechanism clicks in the dark!",
+        "description": "A narrow, winding passage.",
         "is_room": false,
         "label": null,
-        "room_name": "Trapped Passage"
+        "room_name": null
       },
       "16,5": {
         "type": "empty",
@@ -58277,14 +58277,14 @@
         "room_name": "Echo Chamber"
       },
       "5,11": {
-        "type": "empty",
-        "cleared": true,
+        "type": "trap",
+        "cleared": false,
         "monster_key": null,
         "boss_name": null,
-        "description": "A narrow, winding passage.",
+        "description": "You stepped on a loose stone. A trap mechanism clicks in the dark!",
         "is_room": false,
         "label": null,
-        "room_name": null
+        "room_name": "Trapped Passage"
       },
       "9,11": {
         "type": "empty",
@@ -58337,14 +58337,14 @@
         "room_name": null
       },
       "3,12": {
-        "type": "trap",
-        "cleared": false,
+        "type": "empty",
+        "cleared": true,
         "monster_key": null,
         "boss_name": null,
-        "description": "You stepped on a loose stone. A trap mechanism clicks in the dark!",
+        "description": "A narrow, winding passage.",
         "is_room": false,
         "label": null,
-        "room_name": "Trapped Passage"
+        "room_name": null
       },
       "4,12": {
         "type": "empty",
@@ -59029,7 +59029,7 @@
       "1,21": {
         "type": "monster",
         "cleared": false,
-        "monster_key": null,
+        "monster_key": "bone_devil",
         "boss_name": null,
         "description": "It was buried here. It dug itself out.",
         "is_room": true,
@@ -60512,14 +60512,14 @@
         "room_name": "Echo Chamber"
       },
       "5,10": {
-        "type": "trap",
-        "cleared": false,
+        "type": "empty",
+        "cleared": true,
         "monster_key": null,
         "boss_name": null,
-        "description": "You stepped on a loose stone. A trap mechanism clicks in the dark!",
+        "description": "A narrow, winding passage.",
         "is_room": false,
         "label": null,
-        "room_name": "Trapped Passage"
+        "room_name": null
       },
       "8,10": {
         "type": "empty",
@@ -60952,14 +60952,14 @@
         "room_name": "Defaced Shrine"
       },
       "5,15": {
-        "type": "empty",
-        "cleared": true,
+        "type": "trap",
+        "cleared": false,
         "monster_key": null,
         "boss_name": null,
-        "description": "A narrow, winding passage.",
+        "description": "You stepped on a loose stone. A trap mechanism clicks in the dark!",
         "is_room": false,
         "label": null,
-        "room_name": null
+        "room_name": "Trapped Passage"
       },
       "9,15": {
         "type": "empty",
@@ -61364,7 +61364,7 @@
       "1,21": {
         "type": "monster",
         "cleared": false,
-        "monster_key": null,
+        "monster_key": "bone_devil",
         "boss_name": null,
         "description": "It was buried here. It dug itself out.",
         "is_room": true,
@@ -62767,14 +62767,14 @@
         "room_name": "Burial Offerings"
       },
       "11,9": {
-        "type": "trap",
-        "cleared": false,
+        "type": "empty",
+        "cleared": true,
         "monster_key": null,
         "boss_name": null,
-        "description": "You stepped on a loose stone. A trap mechanism clicks in the dark!",
+        "description": "A narrow, winding passage.",
         "is_room": false,
         "label": null,
-        "room_name": "Trapped Passage"
+        "room_name": null
       },
       "12,9": {
         "type": "empty",
@@ -62847,14 +62847,14 @@
         "room_name": "Echo Chamber"
       },
       "5,10": {
-        "type": "trap",
-        "cleared": false,
+        "type": "empty",
+        "cleared": true,
         "monster_key": null,
         "boss_name": null,
-        "description": "You stepped on a loose stone. A trap mechanism clicks in the dark!",
+        "description": "A narrow, winding passage.",
         "is_room": false,
         "label": null,
-        "room_name": "Trapped Passage"
+        "room_name": null
       },
       "8,10": {
         "type": "empty",
@@ -63699,7 +63699,7 @@
       "1,21": {
         "type": "monster",
         "cleared": false,
-        "monster_key": null,
+        "monster_key": "bone_devil",
         "boss_name": null,
         "description": "It was buried here. It dug itself out.",
         "is_room": true,
@@ -65062,14 +65062,14 @@
         "room_name": "Vent Room"
       },
       "11,9": {
-        "type": "trap",
-        "cleared": false,
+        "type": "empty",
+        "cleared": true,
         "monster_key": null,
         "boss_name": null,
-        "description": "You stepped on a loose stone. A trap mechanism clicks in the dark!",
+        "description": "A narrow, winding passage.",
         "is_room": false,
         "label": null,
-        "room_name": "Trapped Passage"
+        "room_name": null
       },
       "12,9": {
         "type": "empty",
@@ -65294,7 +65294,7 @@
       "0,12": {
         "type": "guard",
         "cleared": false,
-        "monster_key": null,
+        "monster_key": "iron_golem",
         "boss_name": null,
         "description": "It was built to guard this forge. It never stopped.",
         "is_room": true,
@@ -67559,14 +67559,14 @@
         "room_name": "Smelting Room"
       },
       "5,11": {
-        "type": "trap",
-        "cleared": false,
+        "type": "empty",
+        "cleared": true,
         "monster_key": null,
         "boss_name": null,
-        "description": "You stepped on a loose stone. A trap mechanism clicks in the dark!",
+        "description": "A narrow, winding passage.",
         "is_room": false,
         "label": null,
-        "room_name": "Trapped Passage"
+        "room_name": null
       },
       "12,11": {
         "type": "empty",
@@ -67591,7 +67591,7 @@
       "0,12": {
         "type": "guard",
         "cleared": false,
-        "monster_key": null,
+        "monster_key": "iron_golem",
         "boss_name": null,
         "description": "It was built to guard this forge. It never stopped.",
         "is_room": true,
@@ -68259,14 +68259,14 @@
         "room_name": "Golem Bay"
       },
       "15,21": {
-        "type": "empty",
-        "cleared": true,
+        "type": "trap",
+        "cleared": false,
         "monster_key": null,
         "boss_name": null,
-        "description": "A narrow, winding passage.",
+        "description": "You stepped on a loose stone. A trap mechanism clicks in the dark!",
         "is_room": false,
         "label": null,
-        "room_name": null
+        "room_name": "Trapped Passage"
       },
       "16,21": {
         "type": "empty",
@@ -69336,14 +69336,14 @@
         "room_name": "Pressure Plate"
       },
       "11,5": {
-        "type": "empty",
-        "cleared": true,
+        "type": "trap",
+        "cleared": false,
         "monster_key": null,
         "boss_name": null,
-        "description": "A narrow, winding passage.",
+        "description": "You stepped on a loose stone. A trap mechanism clicks in the dark!",
         "is_room": false,
         "label": null,
-        "room_name": null
+        "room_name": "Trapped Passage"
       },
       "12,5": {
         "type": "empty",
@@ -69446,14 +69446,14 @@
         "room_name": "Construct Hall"
       },
       "5,7": {
-        "type": "empty",
-        "cleared": true,
+        "type": "trap",
+        "cleared": false,
         "monster_key": null,
         "boss_name": null,
-        "description": "A narrow, winding passage.",
+        "description": "You stepped on a loose stone. A trap mechanism clicks in the dark!",
         "is_room": false,
         "label": null,
-        "room_name": null
+        "room_name": "Trapped Passage"
       },
       "9,7": {
         "type": "empty",
@@ -69888,7 +69888,7 @@
       "0,12": {
         "type": "guard",
         "cleared": false,
-        "monster_key": null,
+        "monster_key": "iron_golem",
         "boss_name": null,
         "description": "It was built to guard this forge. It never stopped.",
         "is_room": true,
@@ -72185,7 +72185,7 @@
       "0,12": {
         "type": "guard",
         "cleared": false,
-        "monster_key": null,
+        "monster_key": "iron_golem",
         "boss_name": null,
         "description": "It was built to guard this forge. It never stopped.",
         "is_room": true,
@@ -72213,14 +72213,14 @@
         "room_name": null
       },
       "3,12": {
-        "type": "trap",
-        "cleared": false,
+        "type": "empty",
+        "cleared": true,
         "monster_key": null,
         "boss_name": null,
-        "description": "You stepped on a loose stone. A trap mechanism clicks in the dark!",
+        "description": "A narrow, winding passage.",
         "is_room": false,
         "label": null,
-        "room_name": "Trapped Passage"
+        "room_name": null
       },
       "4,12": {
         "type": "empty",
@@ -72813,14 +72813,14 @@
         "room_name": "Heat Vent"
       },
       "11,21": {
-        "type": "empty",
-        "cleared": true,
+        "type": "trap",
+        "cleared": false,
         "monster_key": null,
         "boss_name": null,
-        "description": "A narrow, winding passage.",
+        "description": "You stepped on a loose stone. A trap mechanism clicks in the dark!",
         "is_room": false,
         "label": null,
-        "room_name": null
+        "room_name": "Trapped Passage"
       },
       "12,21": {
         "type": "empty",
@@ -74482,7 +74482,7 @@
       "0,12": {
         "type": "guard",
         "cleared": false,
-        "monster_key": null,
+        "monster_key": "iron_golem",
         "boss_name": null,
         "description": "It was built to guard this forge. It never stopped.",
         "is_room": true,
@@ -74780,14 +74780,14 @@
         "room_name": "Thermal Shaft"
       },
       "5,15": {
-        "type": "trap",
-        "cleared": false,
+        "type": "empty",
+        "cleared": true,
         "monster_key": null,
         "boss_name": null,
-        "description": "You stepped on a loose stone. A trap mechanism clicks in the dark!",
+        "description": "A narrow, winding passage.",
         "is_room": false,
         "label": null,
-        "room_name": "Trapped Passage"
+        "room_name": null
       },
       "4,16": {
         "type": "empty",
@@ -75110,14 +75110,14 @@
         "room_name": "Heat Vent"
       },
       "11,21": {
-        "type": "empty",
-        "cleared": true,
+        "type": "trap",
+        "cleared": false,
         "monster_key": null,
         "boss_name": null,
-        "description": "A narrow, winding passage.",
+        "description": "You stepped on a loose stone. A trap mechanism clicks in the dark!",
         "is_room": false,
         "label": null,
-        "room_name": null
+        "room_name": "Trapped Passage"
       },
       "12,21": {
         "type": "empty",
@@ -76779,7 +76779,7 @@
       "0,12": {
         "type": "guard",
         "cleared": false,
-        "monster_key": null,
+        "monster_key": "iron_golem",
         "boss_name": null,
         "description": "It was built to guard this forge. It never stopped.",
         "is_room": true,
@@ -77177,14 +77177,14 @@
         "room_name": "Scrap Pit"
       },
       "5,19": {
-        "type": "empty",
-        "cleared": true,
+        "type": "trap",
+        "cleared": false,
         "monster_key": null,
         "boss_name": null,
-        "description": "A narrow, winding passage.",
+        "description": "You stepped on a loose stone. A trap mechanism clicks in the dark!",
         "is_room": false,
         "label": null,
-        "room_name": null
+        "room_name": "Trapped Passage"
       },
       "4,20": {
         "type": "empty",
@@ -78524,14 +78524,14 @@
         "room_name": "Pressure Plate"
       },
       "11,5": {
-        "type": "trap",
-        "cleared": false,
+        "type": "empty",
+        "cleared": true,
         "monster_key": null,
         "boss_name": null,
-        "description": "You stepped on a loose stone. A trap mechanism clicks in the dark!",
+        "description": "A narrow, winding passage.",
         "is_room": false,
         "label": null,
-        "room_name": "Trapped Passage"
+        "room_name": null
       },
       "12,5": {
         "type": "empty",
@@ -79044,14 +79044,14 @@
         "room_name": "Smelting Room"
       },
       "5,11": {
-        "type": "empty",
-        "cleared": true,
+        "type": "trap",
+        "cleared": false,
         "monster_key": null,
         "boss_name": null,
-        "description": "A narrow, winding passage.",
+        "description": "You stepped on a loose stone. A trap mechanism clicks in the dark!",
         "is_room": false,
         "label": null,
-        "room_name": null
+        "room_name": "Trapped Passage"
       },
       "12,11": {
         "type": "empty",
@@ -79076,7 +79076,7 @@
       "0,12": {
         "type": "guard",
         "cleared": false,
-        "monster_key": null,
+        "monster_key": "iron_golem",
         "boss_name": null,
         "description": "It was built to guard this forge. It never stopped.",
         "is_room": true,
@@ -81373,7 +81373,7 @@
       "0,12": {
         "type": "guard",
         "cleared": false,
-        "monster_key": null,
+        "monster_key": "iron_golem",
         "boss_name": null,
         "description": "It was built to guard this forge. It never stopped.",
         "is_room": true,
@@ -83438,14 +83438,14 @@
         "room_name": "Vent Room"
       },
       "11,9": {
-        "type": "trap",
-        "cleared": false,
+        "type": "empty",
+        "cleared": true,
         "monster_key": null,
         "boss_name": null,
-        "description": "You stepped on a loose stone. A trap mechanism clicks in the dark!",
+        "description": "A narrow, winding passage.",
         "is_room": false,
         "label": null,
-        "room_name": "Trapped Passage"
+        "room_name": null
       },
       "12,9": {
         "type": "empty",
@@ -83670,7 +83670,7 @@
       "0,12": {
         "type": "guard",
         "cleared": false,
-        "monster_key": null,
+        "monster_key": "iron_golem",
         "boss_name": null,
         "description": "It was built to guard this forge. It never stopped.",
         "is_room": true,
@@ -85967,7 +85967,7 @@
       "0,12": {
         "type": "guard",
         "cleared": false,
-        "monster_key": null,
+        "monster_key": "iron_golem",
         "boss_name": null,
         "description": "It was built to guard this forge. It never stopped.",
         "is_room": true,
@@ -86555,14 +86555,14 @@
         "room_name": "Cooling Room"
       },
       "7,21": {
-        "type": "empty",
-        "cleared": true,
+        "type": "trap",
+        "cleared": false,
         "monster_key": null,
         "boss_name": null,
-        "description": "A narrow, winding passage.",
+        "description": "You stepped on a loose stone. A trap mechanism clicks in the dark!",
         "is_room": false,
         "label": null,
-        "room_name": null
+        "room_name": "Trapped Passage"
       },
       "8,21": {
         "type": "empty",
@@ -87992,14 +87992,14 @@
         "room_name": "Maker's Altar"
       },
       "7,9": {
-        "type": "trap",
-        "cleared": false,
+        "type": "empty",
+        "cleared": true,
         "monster_key": null,
         "boss_name": null,
-        "description": "You stepped on a loose stone. A trap mechanism clicks in the dark!",
+        "description": "A narrow, winding passage.",
         "is_room": false,
         "label": null,
-        "room_name": "Trapped Passage"
+        "room_name": null
       },
       "8,9": {
         "type": "empty",
@@ -88072,14 +88072,14 @@
         "room_name": "Smelting Room"
       },
       "15,9": {
-        "type": "empty",
-        "cleared": true,
+        "type": "trap",
+        "cleared": false,
         "monster_key": null,
         "boss_name": null,
-        "description": "A narrow, winding passage.",
+        "description": "You stepped on a loose stone. A trap mechanism clicks in the dark!",
         "is_room": false,
         "label": null,
-        "room_name": null
+        "room_name": "Trapped Passage"
       },
       "16,9": {
         "type": "empty",
@@ -88264,7 +88264,7 @@
       "0,12": {
         "type": "guard",
         "cleared": false,
-        "monster_key": null,
+        "monster_key": "iron_golem",
         "boss_name": null,
         "description": "It was built to guard this forge. It never stopped.",
         "is_room": true,
@@ -88662,14 +88662,14 @@
         "room_name": "Scrap Pit"
       },
       "5,19": {
-        "type": "trap",
-        "cleared": false,
+        "type": "empty",
+        "cleared": true,
         "monster_key": null,
         "boss_name": null,
-        "description": "You stepped on a loose stone. A trap mechanism clicks in the dark!",
+        "description": "A narrow, winding passage.",
         "is_room": false,
         "label": null,
-        "room_name": "Trapped Passage"
+        "room_name": null
       },
       "4,20": {
         "type": "empty",
@@ -90289,14 +90289,14 @@
         "room_name": "Maker's Altar"
       },
       "7,9": {
-        "type": "trap",
-        "cleared": false,
+        "type": "empty",
+        "cleared": true,
         "monster_key": null,
         "boss_name": null,
-        "description": "You stepped on a loose stone. A trap mechanism clicks in the dark!",
+        "description": "A narrow, winding passage.",
         "is_room": false,
         "label": null,
-        "room_name": "Trapped Passage"
+        "room_name": null
       },
       "8,9": {
         "type": "empty",
@@ -90561,7 +90561,7 @@
       "0,12": {
         "type": "guard",
         "cleared": false,
-        "monster_key": null,
+        "monster_key": "iron_golem",
         "boss_name": null,
         "description": "It was built to guard this forge. It never stopped.",
         "is_room": true,
@@ -90579,14 +90579,14 @@
         "room_name": "Warden's Chamber"
       },
       "2,12": {
-        "type": "trap",
-        "cleared": false,
+        "type": "empty",
+        "cleared": true,
         "monster_key": null,
         "boss_name": null,
-        "description": "You stepped on a loose stone. A trap mechanism clicks in the dark!",
+        "description": "A narrow, winding passage.",
         "is_room": false,
         "label": null,
-        "room_name": "Trapped Passage"
+        "room_name": null
       },
       "3,12": {
         "type": "empty",
@@ -90959,14 +90959,14 @@
         "room_name": "Scrap Pit"
       },
       "5,19": {
-        "type": "empty",
-        "cleared": true,
+        "type": "trap",
+        "cleared": false,
         "monster_key": null,
         "boss_name": null,
-        "description": "A narrow, winding passage.",
+        "description": "You stepped on a loose stone. A trap mechanism clicks in the dark!",
         "is_room": false,
         "label": null,
-        "room_name": null
+        "room_name": "Trapped Passage"
       },
       "4,20": {
         "type": "empty",
@@ -92306,14 +92306,14 @@
         "room_name": "Pressure Plate"
       },
       "11,5": {
-        "type": "trap",
-        "cleared": false,
+        "type": "empty",
+        "cleared": true,
         "monster_key": null,
         "boss_name": null,
-        "description": "You stepped on a loose stone. A trap mechanism clicks in the dark!",
+        "description": "A narrow, winding passage.",
         "is_room": false,
         "label": null,
-        "room_name": "Trapped Passage"
+        "room_name": null
       },
       "12,5": {
         "type": "empty",
@@ -92426,14 +92426,14 @@
         "room_name": null
       },
       "9,7": {
-        "type": "trap",
-        "cleared": false,
+        "type": "empty",
+        "cleared": true,
         "monster_key": null,
         "boss_name": null,
-        "description": "You stepped on a loose stone. A trap mechanism clicks in the dark!",
+        "description": "A narrow, winding passage.",
         "is_room": false,
         "label": null,
-        "room_name": "Trapped Passage"
+        "room_name": null
       },
       "4,8": {
         "type": "empty",
@@ -92858,7 +92858,7 @@
       "0,12": {
         "type": "guard",
         "cleared": false,
-        "monster_key": null,
+        "monster_key": "iron_golem",
         "boss_name": null,
         "description": "It was built to guard this forge. It never stopped.",
         "is_room": true,
@@ -94643,14 +94643,14 @@
         "room_name": "Construct Hall"
       },
       "5,6": {
-        "type": "empty",
-        "cleared": true,
+        "type": "trap",
+        "cleared": false,
         "monster_key": null,
         "boss_name": null,
-        "description": "A narrow, winding passage.",
+        "description": "You stepped on a loose stone. A trap mechanism clicks in the dark!",
         "is_room": false,
         "label": null,
-        "room_name": null
+        "room_name": "Trapped Passage"
       },
       "8,6": {
         "type": "empty",
@@ -95155,7 +95155,7 @@
       "0,12": {
         "type": "guard",
         "cleared": false,
-        "monster_key": null,
+        "monster_key": "iron_golem",
         "boss_name": null,
         "description": "It was built to guard this forge. It never stopped.",
         "is_room": true,
@@ -95173,14 +95173,14 @@
         "room_name": "Warden's Chamber"
       },
       "2,12": {
-        "type": "empty",
-        "cleared": true,
+        "type": "trap",
+        "cleared": false,
         "monster_key": null,
         "boss_name": null,
-        "description": "A narrow, winding passage.",
+        "description": "You stepped on a loose stone. A trap mechanism clicks in the dark!",
         "is_room": false,
         "label": null,
-        "room_name": null
+        "room_name": "Trapped Passage"
       },
       "3,12": {
         "type": "empty",
@@ -95453,14 +95453,14 @@
         "room_name": "Thermal Shaft"
       },
       "5,15": {
-        "type": "trap",
-        "cleared": false,
+        "type": "empty",
+        "cleared": true,
         "monster_key": null,
         "boss_name": null,
-        "description": "You stepped on a loose stone. A trap mechanism clicks in the dark!",
+        "description": "A narrow, winding passage.",
         "is_room": false,
         "label": null,
-        "room_name": "Trapped Passage"
+        "room_name": null
       },
       "4,16": {
         "type": "empty",
@@ -95823,14 +95823,14 @@
         "room_name": "Golem Bay"
       },
       "15,21": {
-        "type": "trap",
-        "cleared": false,
+        "type": "empty",
+        "cleared": true,
         "monster_key": null,
         "boss_name": null,
-        "description": "You stepped on a loose stone. A trap mechanism clicks in the dark!",
+        "description": "A narrow, winding passage.",
         "is_room": false,
         "label": null,
-        "room_name": "Trapped Passage"
+        "room_name": null
       },
       "16,21": {
         "type": "empty",
@@ -96900,14 +96900,14 @@
         "room_name": "Pressure Plate"
       },
       "11,5": {
-        "type": "trap",
-        "cleared": false,
+        "type": "empty",
+        "cleared": true,
         "monster_key": null,
         "boss_name": null,
-        "description": "You stepped on a loose stone. A trap mechanism clicks in the dark!",
+        "description": "A narrow, winding passage.",
         "is_room": false,
         "label": null,
-        "room_name": "Trapped Passage"
+        "room_name": null
       },
       "12,5": {
         "type": "empty",
@@ -97180,14 +97180,14 @@
         "room_name": "Maker's Altar"
       },
       "7,9": {
-        "type": "trap",
-        "cleared": false,
+        "type": "empty",
+        "cleared": true,
         "monster_key": null,
         "boss_name": null,
-        "description": "You stepped on a loose stone. A trap mechanism clicks in the dark!",
+        "description": "A narrow, winding passage.",
         "is_room": false,
         "label": null,
-        "room_name": "Trapped Passage"
+        "room_name": null
       },
       "8,9": {
         "type": "empty",
@@ -97452,7 +97452,7 @@
       "0,12": {
         "type": "guard",
         "cleared": false,
-        "monster_key": null,
+        "monster_key": "iron_golem",
         "boss_name": null,
         "description": "It was built to guard this forge. It never stopped.",
         "is_room": true,
@@ -99617,14 +99617,14 @@
         "room_name": "Void Pocket"
       },
       "7,9": {
-        "type": "trap",
-        "cleared": false,
+        "type": "empty",
+        "cleared": true,
         "monster_key": null,
         "boss_name": null,
-        "description": "You stepped on a loose stone. A trap mechanism clicks in the dark!",
+        "description": "A narrow, winding passage.",
         "is_room": false,
         "label": null,
-        "room_name": "Trapped Passage"
+        "room_name": null
       },
       "8,9": {
         "type": "empty",
@@ -100107,14 +100107,14 @@
         "room_name": "Echo Chamber"
       },
       "7,13": {
-        "type": "trap",
-        "cleared": false,
+        "type": "empty",
+        "cleared": true,
         "monster_key": null,
         "boss_name": null,
-        "description": "You stepped on a loose stone. A trap mechanism clicks in the dark!",
+        "description": "A narrow, winding passage.",
         "is_room": false,
         "label": null,
-        "room_name": "Trapped Passage"
+        "room_name": null
       },
       "8,13": {
         "type": "empty",
@@ -100629,7 +100629,7 @@
       "17,17": {
         "type": "monster",
         "cleared": false,
-        "monster_key": null,
+        "monster_key": "shadow_lich",
         "boss_name": null,
         "description": "It used to be an adventurer. Now it remembers being one.",
         "is_room": true,
@@ -102034,14 +102034,14 @@
         "room_name": "Chasm Bridge"
       },
       "9,7": {
-        "type": "trap",
-        "cleared": false,
+        "type": "empty",
+        "cleared": true,
         "monster_key": null,
         "boss_name": null,
-        "description": "You stepped on a loose stone. A trap mechanism clicks in the dark!",
+        "description": "A narrow, winding passage.",
         "is_room": false,
         "label": null,
-        "room_name": "Trapped Passage"
+        "room_name": null
       },
       "0,8": {
         "type": "empty",
@@ -102294,14 +102294,14 @@
         "room_name": "Eldritch Hive"
       },
       "11,9": {
-        "type": "trap",
-        "cleared": false,
+        "type": "empty",
+        "cleared": true,
         "monster_key": null,
         "boss_name": null,
-        "description": "You stepped on a loose stone. A trap mechanism clicks in the dark!",
+        "description": "A narrow, winding passage.",
         "is_room": false,
         "label": null,
-        "room_name": "Trapped Passage"
+        "room_name": null
       },
       "12,9": {
         "type": "empty",
@@ -102334,14 +102334,14 @@
         "room_name": "The Last Camp"
       },
       "15,9": {
-        "type": "empty",
-        "cleared": true,
+        "type": "trap",
+        "cleared": false,
         "monster_key": null,
         "boss_name": null,
-        "description": "A narrow, winding passage.",
+        "description": "You stepped on a loose stone. A trap mechanism clicks in the dark!",
         "is_room": false,
         "label": null,
-        "room_name": null
+        "room_name": "Trapped Passage"
       },
       "16,9": {
         "type": "empty",
@@ -102824,14 +102824,14 @@
         "room_name": "Echo Chamber"
       },
       "15,13": {
-        "type": "empty",
-        "cleared": true,
+        "type": "trap",
+        "cleared": false,
         "monster_key": null,
         "boss_name": null,
-        "description": "A narrow, winding passage.",
+        "description": "You stepped on a loose stone. A trap mechanism clicks in the dark!",
         "is_room": false,
         "label": null,
-        "room_name": null
+        "room_name": "Trapped Passage"
       },
       "16,13": {
         "type": "empty",
@@ -103054,14 +103054,14 @@
         "room_name": "Dead End"
       },
       "7,16": {
-        "type": "empty",
-        "cleared": true,
+        "type": "trap",
+        "cleared": false,
         "monster_key": null,
         "boss_name": null,
-        "description": "A narrow, winding passage.",
+        "description": "You stepped on a loose stone. A trap mechanism clicks in the dark!",
         "is_room": false,
         "label": null,
-        "room_name": null
+        "room_name": "Trapped Passage"
       },
       "8,16": {
         "type": "empty",
@@ -103266,7 +103266,7 @@
       "17,17": {
         "type": "monster",
         "cleared": false,
-        "monster_key": null,
+        "monster_key": "shadow_lich",
         "boss_name": null,
         "description": "It used to be an adventurer. Now it remembers being one.",
         "is_room": true,
@@ -104371,14 +104371,14 @@
         "room_name": null
       },
       "8,3": {
-        "type": "empty",
-        "cleared": true,
+        "type": "trap",
+        "cleared": false,
         "monster_key": null,
         "boss_name": null,
-        "description": "A narrow, winding passage.",
+        "description": "You stepped on a loose stone. A trap mechanism clicks in the dark!",
         "is_room": false,
         "label": null,
-        "room_name": null
+        "room_name": "Trapped Passage"
       },
       "4,4": {
         "type": "empty",
@@ -105691,14 +105691,14 @@
         "room_name": "Dead End"
       },
       "7,16": {
-        "type": "empty",
-        "cleared": true,
+        "type": "trap",
+        "cleared": false,
         "monster_key": null,
         "boss_name": null,
-        "description": "A narrow, winding passage.",
+        "description": "You stepped on a loose stone. A trap mechanism clicks in the dark!",
         "is_room": false,
         "label": null,
-        "room_name": null
+        "room_name": "Trapped Passage"
       },
       "8,16": {
         "type": "empty",
@@ -105903,7 +105903,7 @@
       "17,17": {
         "type": "monster",
         "cleared": false,
-        "monster_key": null,
+        "monster_key": "shadow_lich",
         "boss_name": null,
         "description": "It used to be an adventurer. Now it remembers being one.",
         "is_room": true,
@@ -106001,14 +106001,14 @@
         "room_name": "The Last of the Party"
       },
       "9,19": {
-        "type": "empty",
-        "cleared": true,
+        "type": "trap",
+        "cleared": false,
         "monster_key": null,
         "boss_name": null,
-        "description": "A narrow, winding passage.",
+        "description": "You stepped on a loose stone. A trap mechanism clicks in the dark!",
         "is_room": false,
         "label": null,
-        "room_name": null
+        "room_name": "Trapped Passage"
       },
       "8,20": {
         "type": "empty",
@@ -108540,7 +108540,7 @@
       "17,17": {
         "type": "monster",
         "cleared": false,
-        "monster_key": null,
+        "monster_key": "shadow_lich",
         "boss_name": null,
         "description": "It used to be an adventurer. Now it remembers being one.",
         "is_room": true,
@@ -111177,7 +111177,7 @@
       "17,17": {
         "type": "monster",
         "cleared": false,
-        "monster_key": null,
+        "monster_key": "shadow_lich",
         "boss_name": null,
         "description": "It used to be an adventurer. Now it remembers being one.",
         "is_room": true,
@@ -112582,14 +112582,14 @@
         "room_name": "Chasm Bridge"
       },
       "9,7": {
-        "type": "trap",
-        "cleared": false,
+        "type": "empty",
+        "cleared": true,
         "monster_key": null,
         "boss_name": null,
-        "description": "You stepped on a loose stone. A trap mechanism clicks in the dark!",
+        "description": "A narrow, winding passage.",
         "is_room": false,
         "label": null,
-        "room_name": "Trapped Passage"
+        "room_name": null
       },
       "0,8": {
         "type": "empty",
@@ -113062,14 +113062,14 @@
         "room_name": "Fossilized Hoard"
       },
       "9,11": {
-        "type": "empty",
-        "cleared": true,
+        "type": "trap",
+        "cleared": false,
         "monster_key": null,
         "boss_name": null,
-        "description": "A narrow, winding passage.",
+        "description": "You stepped on a loose stone. A trap mechanism clicks in the dark!",
         "is_room": false,
         "label": null,
-        "room_name": null
+        "room_name": "Trapped Passage"
       },
       "0,12": {
         "type": "empty",
@@ -113814,7 +113814,7 @@
       "17,17": {
         "type": "monster",
         "cleared": false,
-        "monster_key": null,
+        "monster_key": "shadow_lich",
         "boss_name": null,
         "description": "It used to be an adventurer. Now it remembers being one.",
         "is_room": true,
@@ -113912,14 +113912,14 @@
         "room_name": "The Last of the Party"
       },
       "9,19": {
-        "type": "trap",
-        "cleared": false,
+        "type": "empty",
+        "cleared": true,
         "monster_key": null,
         "boss_name": null,
-        "description": "You stepped on a loose stone. A trap mechanism clicks in the dark!",
+        "description": "A narrow, winding passage.",
         "is_room": false,
         "label": null,
-        "room_name": "Trapped Passage"
+        "room_name": null
       },
       "8,20": {
         "type": "empty",
@@ -114919,14 +114919,14 @@
         "room_name": null
       },
       "8,3": {
-        "type": "trap",
-        "cleared": false,
+        "type": "empty",
+        "cleared": true,
         "monster_key": null,
         "boss_name": null,
-        "description": "You stepped on a loose stone. A trap mechanism clicks in the dark!",
+        "description": "A narrow, winding passage.",
         "is_room": false,
         "label": null,
-        "room_name": "Trapped Passage"
+        "room_name": null
       },
       "4,4": {
         "type": "empty",
@@ -115089,14 +115089,14 @@
         "room_name": "Silent Cavern"
       },
       "11,5": {
-        "type": "trap",
-        "cleared": false,
+        "type": "empty",
+        "cleared": true,
         "monster_key": null,
         "boss_name": null,
-        "description": "You stepped on a loose stone. A trap mechanism clicks in the dark!",
+        "description": "A narrow, winding passage.",
         "is_room": false,
         "label": null,
-        "room_name": "Trapped Passage"
+        "room_name": null
       },
       "12,5": {
         "type": "empty",
@@ -116451,7 +116451,7 @@
       "17,17": {
         "type": "monster",
         "cleared": false,
-        "monster_key": null,
+        "monster_key": "shadow_lich",
         "boss_name": null,
         "description": "It used to be an adventurer. Now it remembers being one.",
         "is_room": true,
@@ -117546,14 +117546,14 @@
         "room_name": "Breach Point"
       },
       "8,2": {
-        "type": "empty",
-        "cleared": true,
+        "type": "trap",
+        "cleared": false,
         "monster_key": null,
         "boss_name": null,
-        "description": "A narrow, winding passage.",
+        "description": "You stepped on a loose stone. A trap mechanism clicks in the dark!",
         "is_room": false,
         "label": null,
-        "room_name": null
+        "room_name": "Trapped Passage"
       },
       "8,3": {
         "type": "empty",
@@ -118116,14 +118116,14 @@
         "room_name": "Eldritch Hive"
       },
       "11,9": {
-        "type": "trap",
-        "cleared": false,
+        "type": "empty",
+        "cleared": true,
         "monster_key": null,
         "boss_name": null,
-        "description": "You stepped on a loose stone. A trap mechanism clicks in the dark!",
+        "description": "A narrow, winding passage.",
         "is_room": false,
         "label": null,
-        "room_name": "Trapped Passage"
+        "room_name": null
       },
       "12,9": {
         "type": "empty",
@@ -118566,14 +118566,14 @@
         "room_name": "Echo Chamber"
       },
       "7,13": {
-        "type": "empty",
-        "cleared": true,
+        "type": "trap",
+        "cleared": false,
         "monster_key": null,
         "boss_name": null,
-        "description": "A narrow, winding passage.",
+        "description": "You stepped on a loose stone. A trap mechanism clicks in the dark!",
         "is_room": false,
         "label": null,
-        "room_name": null
+        "room_name": "Trapped Passage"
       },
       "8,13": {
         "type": "empty",
@@ -119088,7 +119088,7 @@
       "17,17": {
         "type": "monster",
         "cleared": false,
-        "monster_key": null,
+        "monster_key": "shadow_lich",
         "boss_name": null,
         "description": "It used to be an adventurer. Now it remembers being one.",
         "is_room": true,
@@ -121725,7 +121725,7 @@
       "17,17": {
         "type": "monster",
         "cleared": false,
-        "monster_key": null,
+        "monster_key": "shadow_lich",
         "boss_name": null,
         "description": "It used to be an adventurer. Now it remembers being one.",
         "is_room": true,
@@ -121823,14 +121823,14 @@
         "room_name": "The Last of the Party"
       },
       "9,19": {
-        "type": "trap",
-        "cleared": false,
+        "type": "empty",
+        "cleared": true,
         "monster_key": null,
         "boss_name": null,
-        "description": "You stepped on a loose stone. A trap mechanism clicks in the dark!",
+        "description": "A narrow, winding passage.",
         "is_room": false,
         "label": null,
-        "room_name": "Trapped Passage"
+        "room_name": null
       },
       "8,20": {
         "type": "empty",
@@ -124362,7 +124362,7 @@
       "17,17": {
         "type": "monster",
         "cleared": false,
-        "monster_key": null,
+        "monster_key": "shadow_lich",
         "boss_name": null,
         "description": "It used to be an adventurer. Now it remembers being one.",
         "is_room": true,
@@ -125467,14 +125467,14 @@
         "room_name": null
       },
       "8,3": {
-        "type": "empty",
-        "cleared": true,
+        "type": "trap",
+        "cleared": false,
         "monster_key": null,
         "boss_name": null,
-        "description": "A narrow, winding passage.",
+        "description": "You stepped on a loose stone. A trap mechanism clicks in the dark!",
         "is_room": false,
         "label": null,
-        "room_name": null
+        "room_name": "Trapped Passage"
       },
       "4,4": {
         "type": "empty",
@@ -125947,14 +125947,14 @@
         "room_name": null
       },
       "3,9": {
-        "type": "trap",
-        "cleared": false,
+        "type": "empty",
+        "cleared": true,
         "monster_key": null,
         "boss_name": null,
-        "description": "You stepped on a loose stone. A trap mechanism clicks in the dark!",
+        "description": "A narrow, winding passage.",
         "is_room": false,
         "label": null,
-        "room_name": "Trapped Passage"
+        "room_name": null
       },
       "4,9": {
         "type": "empty",
@@ -126999,7 +126999,7 @@
       "17,17": {
         "type": "monster",
         "cleared": false,
-        "monster_key": null,
+        "monster_key": "shadow_lich",
         "boss_name": null,
         "description": "It used to be an adventurer. Now it remembers being one.",
         "is_room": true,
@@ -128574,14 +128574,14 @@
         "room_name": "Side Tunnel"
       },
       "2,9": {
-        "type": "empty",
-        "cleared": true,
+        "type": "trap",
+        "cleared": false,
         "monster_key": null,
         "boss_name": null,
-        "description": "A narrow, winding passage.",
+        "description": "You stepped on a loose stone. A trap mechanism clicks in the dark!",
         "is_room": false,
         "label": null,
-        "room_name": null
+        "room_name": "Trapped Passage"
       },
       "3,9": {
         "type": "empty",
@@ -128664,14 +128664,14 @@
         "room_name": "Eldritch Hive"
       },
       "11,9": {
-        "type": "empty",
-        "cleared": true,
+        "type": "trap",
+        "cleared": false,
         "monster_key": null,
         "boss_name": null,
-        "description": "A narrow, winding passage.",
+        "description": "You stepped on a loose stone. A trap mechanism clicks in the dark!",
         "is_room": false,
         "label": null,
-        "room_name": null
+        "room_name": "Trapped Passage"
       },
       "12,9": {
         "type": "empty",
@@ -129074,14 +129074,14 @@
         "room_name": "Sealed Gate"
       },
       "3,13": {
-        "type": "trap",
-        "cleared": false,
+        "type": "empty",
+        "cleared": true,
         "monster_key": null,
         "boss_name": null,
-        "description": "You stepped on a loose stone. A trap mechanism clicks in the dark!",
+        "description": "A narrow, winding passage.",
         "is_room": false,
         "label": null,
-        "room_name": "Trapped Passage"
+        "room_name": null
       },
       "4,13": {
         "type": "empty",
@@ -129384,14 +129384,14 @@
         "room_name": "Chasm Edge"
       },
       "9,15": {
-        "type": "empty",
-        "cleared": true,
+        "type": "trap",
+        "cleared": false,
         "monster_key": null,
         "boss_name": null,
-        "description": "A narrow, winding passage.",
+        "description": "You stepped on a loose stone. A trap mechanism clicks in the dark!",
         "is_room": false,
         "label": null,
-        "room_name": null
+        "room_name": "Trapped Passage"
       },
       "4,16": {
         "type": "empty",
@@ -129636,7 +129636,7 @@
       "17,17": {
         "type": "monster",
         "cleared": false,
-        "monster_key": null,
+        "monster_key": "shadow_lich",
         "boss_name": null,
         "description": "It used to be an adventurer. Now it remembers being one.",
         "is_room": true,
@@ -131301,14 +131301,14 @@
         "room_name": "Eldritch Hive"
       },
       "11,9": {
-        "type": "trap",
-        "cleared": false,
+        "type": "empty",
+        "cleared": true,
         "monster_key": null,
         "boss_name": null,
-        "description": "You stepped on a loose stone. A trap mechanism clicks in the dark!",
+        "description": "A narrow, winding passage.",
         "is_room": false,
         "label": null,
-        "room_name": "Trapped Passage"
+        "room_name": null
       },
       "12,9": {
         "type": "empty",
@@ -131791,14 +131791,14 @@
         "room_name": "Echo Chamber"
       },
       "11,13": {
-        "type": "trap",
-        "cleared": false,
+        "type": "empty",
+        "cleared": true,
         "monster_key": null,
         "boss_name": null,
-        "description": "You stepped on a loose stone. A trap mechanism clicks in the dark!",
+        "description": "A narrow, winding passage.",
         "is_room": false,
         "label": null,
-        "room_name": "Trapped Passage"
+        "room_name": null
       },
       "12,13": {
         "type": "empty",
@@ -132061,14 +132061,14 @@
         "room_name": "Dead End"
       },
       "7,16": {
-        "type": "trap",
-        "cleared": false,
+        "type": "empty",
+        "cleared": true,
         "monster_key": null,
         "boss_name": null,
-        "description": "You stepped on a loose stone. A trap mechanism clicks in the dark!",
+        "description": "A narrow, winding passage.",
         "is_room": false,
         "label": null,
-        "room_name": "Trapped Passage"
+        "room_name": null
       },
       "8,16": {
         "type": "empty",
@@ -132273,7 +132273,7 @@
       "17,17": {
         "type": "monster",
         "cleared": false,
-        "monster_key": null,
+        "monster_key": "shadow_lich",
         "boss_name": null,
         "description": "It used to be an adventurer. Now it remembers being one.",
         "is_room": true,
@@ -132371,14 +132371,14 @@
         "room_name": "The Last of the Party"
       },
       "9,19": {
-        "type": "trap",
-        "cleared": false,
+        "type": "empty",
+        "cleared": true,
         "monster_key": null,
         "boss_name": null,
-        "description": "You stepped on a loose stone. A trap mechanism clicks in the dark!",
+        "description": "A narrow, winding passage.",
         "is_room": false,
         "label": null,
-        "room_name": "Trapped Passage"
+        "room_name": null
       },
       "8,20": {
         "type": "empty",
@@ -134910,7 +134910,7 @@
       "17,17": {
         "type": "monster",
         "cleared": false,
-        "monster_key": null,
+        "monster_key": "shadow_lich",
         "boss_name": null,
         "description": "It used to be an adventurer. Now it remembers being one.",
         "is_room": true,
@@ -136145,14 +136145,14 @@
         "room_name": "Thought Eater Den"
       },
       "7,5": {
-        "type": "trap",
-        "cleared": false,
+        "type": "empty",
+        "cleared": true,
         "monster_key": null,
         "boss_name": null,
-        "description": "You stepped on a loose stone. A trap mechanism clicks in the dark!",
+        "description": "A narrow, winding passage.",
         "is_room": false,
         "label": null,
-        "room_name": "Trapped Passage"
+        "room_name": null
       },
       "8,5": {
         "type": "empty",
@@ -137295,14 +137295,14 @@
         "room_name": "Chasm Edge"
       },
       "9,15": {
-        "type": "empty",
-        "cleared": true,
+        "type": "trap",
+        "cleared": false,
         "monster_key": null,
         "boss_name": null,
-        "description": "A narrow, winding passage.",
+        "description": "You stepped on a loose stone. A trap mechanism clicks in the dark!",
         "is_room": false,
         "label": null,
-        "room_name": null
+        "room_name": "Trapped Passage"
       },
       "4,16": {
         "type": "empty",
@@ -137525,14 +137525,14 @@
         "room_name": null
       },
       "15,17": {
-        "type": "empty",
-        "cleared": true,
+        "type": "trap",
+        "cleared": false,
         "monster_key": null,
         "boss_name": null,
-        "description": "A narrow, winding passage.",
+        "description": "You stepped on a loose stone. A trap mechanism clicks in the dark!",
         "is_room": false,
         "label": null,
-        "room_name": null
+        "room_name": "Trapped Passage"
       },
       "16,17": {
         "type": "empty",
@@ -137547,7 +137547,7 @@
       "17,17": {
         "type": "monster",
         "cleared": false,
-        "monster_key": null,
+        "monster_key": "shadow_lich",
         "boss_name": null,
         "description": "It used to be an adventurer. Now it remembers being one.",
         "is_room": true,
@@ -138774,7 +138774,7 @@
       "13,1": {
         "type": "guard",
         "cleared": false,
-        "monster_key": null,
+        "monster_key": "iron_giant_ff",
         "boss_name": null,
         "description": "It built the mountain. They buried it inside its own work.",
         "is_room": true,
@@ -138872,14 +138872,14 @@
         "room_name": "The Architect's Prison"
       },
       "9,3": {
-        "type": "trap",
-        "cleared": false,
+        "type": "empty",
+        "cleared": true,
         "monster_key": null,
         "boss_name": null,
-        "description": "You stepped on a loose stone. A trap mechanism clicks in the dark!",
+        "description": "A narrow, winding passage.",
         "is_room": false,
         "label": null,
-        "room_name": "Trapped Passage"
+        "room_name": null
       },
       "4,4": {
         "type": "empty",
@@ -140939,7 +140939,7 @@
       "13,1": {
         "type": "guard",
         "cleared": false,
-        "monster_key": null,
+        "monster_key": "iron_giant_ff",
         "boss_name": null,
         "description": "It built the mountain. They buried it inside its own work.",
         "is_room": true,
@@ -141457,14 +141457,14 @@
         "room_name": "Core Fragment"
       },
       "7,9": {
-        "type": "empty",
-        "cleared": true,
+        "type": "trap",
+        "cleared": false,
         "monster_key": null,
         "boss_name": null,
-        "description": "A narrow, winding passage.",
+        "description": "You stepped on a loose stone. A trap mechanism clicks in the dark!",
         "is_room": false,
         "label": null,
-        "room_name": null
+        "room_name": "Trapped Passage"
       },
       "8,9": {
         "type": "empty",
@@ -142007,14 +142007,14 @@
         "room_name": "Sealed Gallery"
       },
       "7,17": {
-        "type": "empty",
-        "cleared": true,
+        "type": "trap",
+        "cleared": false,
         "monster_key": null,
         "boss_name": null,
-        "description": "A narrow, winding passage.",
+        "description": "You stepped on a loose stone. A trap mechanism clicks in the dark!",
         "is_room": false,
         "label": null,
-        "room_name": null
+        "room_name": "Trapped Passage"
       },
       "8,17": {
         "type": "empty",
@@ -143104,7 +143104,7 @@
       "13,1": {
         "type": "guard",
         "cleared": false,
-        "monster_key": null,
+        "monster_key": "iron_giant_ff",
         "boss_name": null,
         "description": "It built the mountain. They buried it inside its own work.",
         "is_room": true,
@@ -145269,7 +145269,7 @@
       "13,1": {
         "type": "guard",
         "cleared": false,
-        "monster_key": null,
+        "monster_key": "iron_giant_ff",
         "boss_name": null,
         "description": "It built the mountain. They buried it inside its own work.",
         "is_room": true,
@@ -145497,14 +145497,14 @@
         "room_name": "Resonance Node"
       },
       "7,5": {
-        "type": "trap",
-        "cleared": false,
+        "type": "empty",
+        "cleared": true,
         "monster_key": null,
         "boss_name": null,
-        "description": "You stepped on a loose stone. A trap mechanism clicks in the dark!",
+        "description": "A narrow, winding passage.",
         "is_room": false,
         "label": null,
-        "room_name": "Trapped Passage"
+        "room_name": null
       },
       "8,5": {
         "type": "empty",
@@ -145667,14 +145667,14 @@
         "room_name": "Perfect Specimen"
       },
       "9,7": {
-        "type": "empty",
-        "cleared": true,
+        "type": "trap",
+        "cleared": false,
         "monster_key": null,
         "boss_name": null,
-        "description": "A narrow, winding passage.",
+        "description": "You stepped on a loose stone. A trap mechanism clicks in the dark!",
         "is_room": false,
         "label": null,
-        "room_name": null
+        "room_name": "Trapped Passage"
       },
       "4,8": {
         "type": "empty",
@@ -147434,7 +147434,7 @@
       "13,1": {
         "type": "guard",
         "cleared": false,
-        "monster_key": null,
+        "monster_key": "iron_giant_ff",
         "boss_name": null,
         "description": "It built the mountain. They buried it inside its own work.",
         "is_room": true,
@@ -148142,14 +148142,14 @@
         "room_name": "Whisper Hall"
       },
       "7,12": {
-        "type": "trap",
-        "cleared": false,
+        "type": "empty",
+        "cleared": true,
         "monster_key": null,
         "boss_name": null,
-        "description": "You stepped on a loose stone. A trap mechanism clicks in the dark!",
+        "description": "A narrow, winding passage.",
         "is_room": false,
         "label": null,
-        "room_name": "Trapped Passage"
+        "room_name": null
       },
       "8,12": {
         "type": "empty",
@@ -148272,14 +148272,14 @@
         "room_name": "Construct Graveyard"
       },
       "11,13": {
-        "type": "trap",
-        "cleared": false,
+        "type": "empty",
+        "cleared": true,
         "monster_key": null,
         "boss_name": null,
-        "description": "You stepped on a loose stone. A trap mechanism clicks in the dark!",
+        "description": "A narrow, winding passage.",
         "is_room": false,
         "label": null,
-        "room_name": "Trapped Passage"
+        "room_name": null
       },
       "12,13": {
         "type": "empty",
@@ -148372,14 +148372,14 @@
         "room_name": "Living Corridor"
       },
       "9,15": {
-        "type": "trap",
-        "cleared": false,
+        "type": "empty",
+        "cleared": true,
         "monster_key": null,
         "boss_name": null,
-        "description": "You stepped on a loose stone. A trap mechanism clicks in the dark!",
+        "description": "A narrow, winding passage.",
         "is_room": false,
         "label": null,
-        "room_name": "Trapped Passage"
+        "room_name": null
       },
       "4,16": {
         "type": "empty",
@@ -148502,14 +148502,14 @@
         "room_name": "Sealed Gallery"
       },
       "7,17": {
-        "type": "trap",
-        "cleared": false,
+        "type": "empty",
+        "cleared": true,
         "monster_key": null,
         "boss_name": null,
-        "description": "You stepped on a loose stone. A trap mechanism clicks in the dark!",
+        "description": "A narrow, winding passage.",
         "is_room": false,
         "label": null,
-        "room_name": "Trapped Passage"
+        "room_name": null
       },
       "8,17": {
         "type": "empty",
@@ -149599,7 +149599,7 @@
       "13,1": {
         "type": "guard",
         "cleared": false,
-        "monster_key": null,
+        "monster_key": "iron_giant_ff",
         "boss_name": null,
         "description": "It built the mountain. They buried it inside its own work.",
         "is_room": true,
@@ -149867,14 +149867,14 @@
         "room_name": "Heart Valve"
       },
       "11,5": {
-        "type": "empty",
-        "cleared": true,
+        "type": "trap",
+        "cleared": false,
         "monster_key": null,
         "boss_name": null,
-        "description": "A narrow, winding passage.",
+        "description": "You stepped on a loose stone. A trap mechanism clicks in the dark!",
         "is_room": false,
         "label": null,
-        "room_name": null
+        "room_name": "Trapped Passage"
       },
       "12,5": {
         "type": "empty",
@@ -150157,14 +150157,14 @@
         "room_name": "The Anteroom"
       },
       "11,9": {
-        "type": "empty",
-        "cleared": true,
+        "type": "trap",
+        "cleared": false,
         "monster_key": null,
         "boss_name": null,
-        "description": "A narrow, winding passage.",
+        "description": "You stepped on a loose stone. A trap mechanism clicks in the dark!",
         "is_room": false,
         "label": null,
-        "room_name": null
+        "room_name": "Trapped Passage"
       },
       "12,9": {
         "type": "shrine",
@@ -151764,7 +151764,7 @@
       "13,1": {
         "type": "guard",
         "cleared": false,
-        "monster_key": null,
+        "monster_key": "iron_giant_ff",
         "boss_name": null,
         "description": "It built the mountain. They buried it inside its own work.",
         "is_room": true,
@@ -152602,14 +152602,14 @@
         "room_name": "Construct Graveyard"
       },
       "11,13": {
-        "type": "trap",
-        "cleared": false,
+        "type": "empty",
+        "cleared": true,
         "monster_key": null,
         "boss_name": null,
-        "description": "You stepped on a loose stone. A trap mechanism clicks in the dark!",
+        "description": "A narrow, winding passage.",
         "is_room": false,
         "label": null,
-        "room_name": "Trapped Passage"
+        "room_name": null
       },
       "12,13": {
         "type": "empty",
@@ -153929,7 +153929,7 @@
       "13,1": {
         "type": "guard",
         "cleared": false,
-        "monster_key": null,
+        "monster_key": "iron_giant_ff",
         "boss_name": null,
         "description": "It built the mountain. They buried it inside its own work.",
         "is_room": true,
@@ -156094,7 +156094,7 @@
       "13,1": {
         "type": "guard",
         "cleared": false,
-        "monster_key": null,
+        "monster_key": "iron_giant_ff",
         "boss_name": null,
         "description": "It built the mountain. They buried it inside its own work.",
         "is_room": true,
@@ -156802,14 +156802,14 @@
         "room_name": "Whisper Hall"
       },
       "7,12": {
-        "type": "empty",
-        "cleared": true,
+        "type": "trap",
+        "cleared": false,
         "monster_key": null,
         "boss_name": null,
-        "description": "A narrow, winding passage.",
+        "description": "You stepped on a loose stone. A trap mechanism clicks in the dark!",
         "is_room": false,
         "label": null,
-        "room_name": null
+        "room_name": "Trapped Passage"
       },
       "8,12": {
         "type": "empty",
@@ -158259,7 +158259,7 @@
       "13,1": {
         "type": "guard",
         "cleared": false,
-        "monster_key": null,
+        "monster_key": "iron_giant_ff",
         "boss_name": null,
         "description": "It built the mountain. They buried it inside its own work.",
         "is_room": true,
@@ -159367,14 +159367,14 @@
         "room_name": "Memory Chamber"
       },
       "11,17": {
-        "type": "trap",
-        "cleared": false,
+        "type": "empty",
+        "cleared": true,
         "monster_key": null,
         "boss_name": null,
-        "description": "You stepped on a loose stone. A trap mechanism clicks in the dark!",
+        "description": "A narrow, winding passage.",
         "is_room": false,
         "label": null,
-        "room_name": "Trapped Passage"
+        "room_name": null
       },
       "12,17": {
         "type": "empty",
@@ -160424,7 +160424,7 @@
       "13,1": {
         "type": "guard",
         "cleared": false,
-        "monster_key": null,
+        "monster_key": "iron_giant_ff",
         "boss_name": null,
         "description": "It built the mountain. They buried it inside its own work.",
         "is_room": true,
@@ -160652,14 +160652,14 @@
         "room_name": "Resonance Node"
       },
       "7,5": {
-        "type": "empty",
-        "cleared": true,
+        "type": "trap",
+        "cleared": false,
         "monster_key": null,
         "boss_name": null,
-        "description": "A narrow, winding passage.",
+        "description": "You stepped on a loose stone. A trap mechanism clicks in the dark!",
         "is_room": false,
         "label": null,
-        "room_name": null
+        "room_name": "Trapped Passage"
       },
       "8,5": {
         "type": "empty",
@@ -160982,14 +160982,14 @@
         "room_name": "The Anteroom"
       },
       "11,9": {
-        "type": "trap",
-        "cleared": false,
+        "type": "empty",
+        "cleared": true,
         "monster_key": null,
         "boss_name": null,
-        "description": "You stepped on a loose stone. A trap mechanism clicks in the dark!",
+        "description": "A narrow, winding passage.",
         "is_room": false,
         "label": null,
-        "room_name": "Trapped Passage"
+        "room_name": null
       },
       "12,9": {
         "type": "shrine",
@@ -162517,14 +162517,14 @@
         "room_name": "Side Chamber"
       },
       "6,1": {
-        "type": "empty",
-        "cleared": true,
+        "type": "trap",
+        "cleared": false,
         "monster_key": null,
         "boss_name": null,
-        "description": "A narrow, winding passage.",
+        "description": "You stepped on a loose stone. A trap mechanism clicks in the dark!",
         "is_room": false,
         "label": null,
-        "room_name": null
+        "room_name": "Trapped Passage"
       },
       "7,1": {
         "type": "empty",
@@ -162589,7 +162589,7 @@
       "13,1": {
         "type": "guard",
         "cleared": false,
-        "monster_key": null,
+        "monster_key": "iron_giant_ff",
         "boss_name": null,
         "description": "It built the mountain. They buried it inside its own work.",
         "is_room": true,
@@ -163827,14 +163827,14 @@
         "room_name": "The Maze of Glass"
       },
       "8,19": {
-        "type": "empty",
-        "cleared": true,
+        "type": "trap",
+        "cleared": false,
         "monster_key": null,
         "boss_name": null,
-        "description": "A narrow, winding passage.",
+        "description": "You stepped on a loose stone. A trap mechanism clicks in the dark!",
         "is_room": false,
         "label": null,
-        "room_name": null
+        "room_name": "Trapped Passage"
       },
       "8,20": {
         "type": "stairs_up",
@@ -164754,7 +164754,7 @@
       "13,1": {
         "type": "guard",
         "cleared": false,
-        "monster_key": null,
+        "monster_key": "iron_giant_ff",
         "boss_name": null,
         "description": "It built the mountain. They buried it inside its own work.",
         "is_room": true,
@@ -165272,14 +165272,14 @@
         "room_name": "Core Fragment"
       },
       "7,9": {
-        "type": "trap",
-        "cleared": false,
+        "type": "empty",
+        "cleared": true,
         "monster_key": null,
         "boss_name": null,
-        "description": "You stepped on a loose stone. A trap mechanism clicks in the dark!",
+        "description": "A narrow, winding passage.",
         "is_room": false,
         "label": null,
-        "room_name": "Trapped Passage"
+        "room_name": null
       },
       "8,9": {
         "type": "empty",
@@ -165822,14 +165822,14 @@
         "room_name": "Sealed Gallery"
       },
       "7,17": {
-        "type": "trap",
-        "cleared": false,
+        "type": "empty",
+        "cleared": true,
         "monster_key": null,
         "boss_name": null,
-        "description": "You stepped on a loose stone. A trap mechanism clicks in the dark!",
+        "description": "A narrow, winding passage.",
         "is_room": false,
         "label": null,
-        "room_name": "Trapped Passage"
+        "room_name": null
       },
       "8,17": {
         "type": "empty",
@@ -166857,14 +166857,14 @@
         "room_name": null
       },
       "7,1": {
-        "type": "trap",
-        "cleared": false,
+        "type": "empty",
+        "cleared": true,
         "monster_key": null,
         "boss_name": null,
-        "description": "You stepped on a loose stone. A trap mechanism clicks in the dark!",
+        "description": "A narrow, winding passage.",
         "is_room": false,
         "label": null,
-        "room_name": "Trapped Passage"
+        "room_name": null
       },
       "8,1": {
         "type": "empty",
@@ -166919,7 +166919,7 @@
       "13,1": {
         "type": "guard",
         "cleared": false,
-        "monster_key": null,
+        "monster_key": "iron_giant_ff",
         "boss_name": null,
         "description": "It built the mountain. They buried it inside its own work.",
         "is_room": true,
@@ -167477,14 +167477,14 @@
         "room_name": "The Anteroom"
       },
       "11,9": {
-        "type": "empty",
-        "cleared": true,
+        "type": "trap",
+        "cleared": false,
         "monster_key": null,
         "boss_name": null,
-        "description": "A narrow, winding passage.",
+        "description": "You stepped on a loose stone. A trap mechanism clicks in the dark!",
         "is_room": false,
         "label": null,
-        "room_name": null
+        "room_name": "Trapped Passage"
       },
       "12,9": {
         "type": "shrine",
@@ -169084,7 +169084,7 @@
       "13,1": {
         "type": "guard",
         "cleared": false,
-        "monster_key": null,
+        "monster_key": "iron_giant_ff",
         "boss_name": null,
         "description": "It built the mountain. They buried it inside its own work.",
         "is_room": true,
@@ -169602,14 +169602,14 @@
         "room_name": "Core Fragment"
       },
       "7,9": {
-        "type": "trap",
-        "cleared": false,
+        "type": "empty",
+        "cleared": true,
         "monster_key": null,
         "boss_name": null,
-        "description": "You stepped on a loose stone. A trap mechanism clicks in the dark!",
+        "description": "A narrow, winding passage.",
         "is_room": false,
         "label": null,
-        "room_name": "Trapped Passage"
+        "room_name": null
       },
       "8,9": {
         "type": "empty",
@@ -169922,14 +169922,14 @@
         "room_name": "Construct Graveyard"
       },
       "11,13": {
-        "type": "trap",
-        "cleared": false,
+        "type": "empty",
+        "cleared": true,
         "monster_key": null,
         "boss_name": null,
-        "description": "You stepped on a loose stone. A trap mechanism clicks in the dark!",
+        "description": "A narrow, winding passage.",
         "is_room": false,
         "label": null,
-        "room_name": "Trapped Passage"
+        "room_name": null
       },
       "12,13": {
         "type": "empty",
@@ -171249,7 +171249,7 @@
       "13,1": {
         "type": "guard",
         "cleared": false,
-        "monster_key": null,
+        "monster_key": "iron_giant_ff",
         "boss_name": null,
         "description": "It built the mountain. They buried it inside its own work.",
         "is_room": true,
@@ -172187,14 +172187,14 @@
         "room_name": "Living Corridor"
       },
       "9,15": {
-        "type": "empty",
-        "cleared": true,
+        "type": "trap",
+        "cleared": false,
         "monster_key": null,
         "boss_name": null,
-        "description": "A narrow, winding passage.",
+        "description": "You stepped on a loose stone. A trap mechanism clicks in the dark!",
         "is_room": false,
         "label": null,
-        "room_name": null
+        "room_name": "Trapped Passage"
       },
       "4,16": {
         "type": "empty",
@@ -173414,7 +173414,7 @@
       "13,1": {
         "type": "guard",
         "cleared": false,
-        "monster_key": null,
+        "monster_key": "iron_giant_ff",
         "boss_name": null,
         "description": "It built the mountain. They buried it inside its own work.",
         "is_room": true,

@@ -313,7 +313,7 @@ async def load_spine_dungeon(user_id: str, target_floor: int = None) -> Optional
             if container.get("active"):
                 active_fnum = str(container.get("current_floor", 1))
             else:
-                active_fnum = "1"
+                return None
                 
         state = container["floors"].get(active_fnum)
         

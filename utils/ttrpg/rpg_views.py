@@ -1532,6 +1532,10 @@ class DungeonView(discord.ui.View):
                         await _send_dungeon_room(self._ctx, interaction.channel, self._uid, self._uname, self._is_owner, dungeon)
                         return
 
+                    # Deactivate current floor before leaving
+                    dungeon["active"] = False
+                    await save_spine_dungeon(self._uid, dungeon)
+
                     new_state = await load_spine_dungeon(self._uid, target_floor=current_floor + 1)
                     if not new_state:
                         new_state = generate_spine_floor(current_floor + 1, dungeon.get("player_level", 1))
@@ -1548,6 +1552,11 @@ class DungeonView(discord.ui.View):
                     if str(interaction.user.id) != self._uid: return
                     await interaction.response.defer()
                     from utils.ttrpg.spine_dungeon import generate_spine_floor, save_spine_dungeon, load_spine_dungeon, _xy
+                    
+                    # Deactivate current floor before leaving
+                    dungeon["active"] = False
+                    await save_spine_dungeon(self._uid, dungeon)
+                    
                     current_floor = dungeon.get("floor_num", 1)
                     new_state = await load_spine_dungeon(self._uid, target_floor=current_floor - 1)
                     if not new_state:
@@ -2311,7 +2320,7 @@ async def _dungeon_move(ctx_obj, interaction, uid, uname, is_owner, direction):
                 return
 
             # Spawn the monster and store it for interactive combat
-            monster_key = room.get("monster_key", "goblin")
+            monster_key = room.get("monster_key") or "goblin"
             monster = get_monster(monster_key)
             if monster:
                 is_boss = (rt == R_BOSS)
