@@ -1386,6 +1386,8 @@ class SpineLiftView(discord.ui.View):
             
         lift_sel.callback = _lift_cb
         self.add_item(lift_sel)
+
+class DungeonView(discord.ui.View):
     def __init__(self, ctx_obj, uid, uname, is_owner, dungeon):
         super().__init__(timeout=300)
         self._ctx      = ctx_obj
