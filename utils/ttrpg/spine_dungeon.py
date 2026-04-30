@@ -43,7 +43,7 @@ def _xy(k):     return tuple(int(v) for v in k.split(","))
 
 # ── Floor builder ─────────────────────────────────────────────────────────────
 
-import os, json
+
 
 # Load static mega-dungeon layouts
 _LAYOUT_FILE = os.path.join(os.path.dirname(__file__), "spine_layouts.json")
@@ -200,7 +200,7 @@ def respawn_monsters(state: dict) -> dict:
             continue
         if template["type"] in (R_MONSTER, R_GUARD, R_BOSS):
             room["cleared"] = False
-            room["monster_key"] = template["monster_key"]
+            room["monster_key"] = template.get("monster_key")
             room["boss_name"] = template.get("boss_name")
     # Clear active combat on respawn
     state.pop("active_combat", None)
@@ -330,12 +330,7 @@ async def load_spine_dungeon(user_id: str, target_floor: int = None) -> Optional
             if "stairs_down_key" not in state:
                 state["stairs_down_key"] = layout.get("stairs_down_key")
         
-        if target_floor is None and not container.get("active") and active_fnum == "1":
-            from utils.ttrpg.spine_dungeon import _xy
-            if state.get("stairs_up_key"):
-                state["player_pos"] = list(_xy(state["stairs_up_key"]))
-            state["active"] = True
-            
+
         return state
     return await asyncio.to_thread(_load)
 

@@ -303,8 +303,7 @@ def get_consumable_loot(tier: str) -> Optional[str]:
             ("silver_moss", 16), ("dire_root", 14), ("blood_thistle", 14),
             ("honey_sap", 10),
             ("tonberry_knife", 3), ("aeridor_shard", 3),
-            ("ether", 5),
-            ("ether", 11),
+            ("ether", 16),
             ("emerald", 5), ("opal", 4), ("black_pearl", 2), ("fire_opal", 1),
         ],
         "hard": [

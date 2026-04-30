@@ -1330,13 +1330,14 @@ class BossApproachView(discord.ui.View):
         pass
 
 class SpineLiftView(discord.ui.View):
-    def __init__(self, ctx_obj, uid, uname, is_owner, sheet, max_floor_defeated):
+    def __init__(self, ctx_obj, uid, uname, is_owner, sheet, max_floor_defeated, has_lightstone=True):
         super().__init__(timeout=120)
         self._ctx = ctx_obj
         self._uid = uid
         self._uname = uname
         self._is_owner = is_owner
         self._sheet = sheet
+        self._has_lightstone = has_lightstone
         
         # Build options for floors: 1, 5, 10, 15... up to highest multiple of 5 <= max_floor_defeated
         options = [discord.SelectOption(label="Floor 1", description="The Working Tunnels", value="1")]
@@ -1372,6 +1373,10 @@ class SpineLiftView(discord.ui.View):
                         color=0xcc4444), ephemeral=True)
                 except discord.NotFound: pass
                 return
+            
+            # Consume torch on actual entry (lightstone is permanent)
+            if not self._has_lightstone and "torch" in fresh_sheet.get("inventory", []):
+                fresh_sheet["inventory"].remove("torch")
                 
             fresh_sheet["hunts_today"] = fresh_sheet.get("hunts_today", 0) + ENTRY_HUNTS
             await save(fresh_sheet)
@@ -2258,6 +2263,8 @@ async def _dungeon_move(ctx_obj, interaction, uid, uname, is_owner, direction):
         await interaction.followup.send("No active dungeon.", ephemeral=True)
         return
 
+    is_spine = state.get("is_spine", False)
+
     px, py = state["player_pos"]
     dx, dy = DIRECTIONS[direction]
     nx, ny = px + dx, py + dy
@@ -2332,14 +2339,21 @@ async def _dungeon_move(ctx_obj, interaction, uid, uname, is_owner, direction):
                     scale = 1.0 + (diff - 1) * 0.15
                     monster["hp"] = max(5, int(monster["hp"] * scale))
                     monster["attack"] = max(1, int(monster["attack"] * scale))
-                    # Cap non-boss monsters by difficulty to prevent absurd stats.
+                    # Cap non-boss monsters to prevent absurd stats.
                     # Targets ~50-55% hit rate against a well-geared player at
                     # the recommended level for that difficulty tier.
-                    MOB_HP_CAPS = {1: 35, 2: 60, 3: 90, 4: 130, 5: 180}
-                    MOB_ATK_CAPS = {1: 10, 2: 14, 3: 18, 4: 20, 5: 22}
-                    mob_hp_cap = MOB_HP_CAPS.get(diff, 180)
-                    mob_atk_cap = MOB_ATK_CAPS.get(diff, 22)
-                    # For spine dungeon, also enforce a level-based ATK hard cap
+                    if is_spine:
+                        # Spine: progressive floor-based caps so deeper floors
+                        # feel meaningfully harder than early floors.
+                        floor_num = state.get("floor_num", 1)
+                        mob_hp_cap = 80 + (floor_num * 3)     # F1: 83, F40: 200, F77: 311
+                        mob_atk_cap = 12 + (floor_num // 5)   # F1: 12, F40: 20, F77: 27
+                    else:
+                        MOB_HP_CAPS = {1: 35, 2: 60, 3: 90, 4: 130, 5: 180}
+                        MOB_ATK_CAPS = {1: 10, 2: 14, 3: 18, 4: 20, 5: 22}
+                        mob_hp_cap = MOB_HP_CAPS.get(diff, 180)
+                        mob_atk_cap = MOB_ATK_CAPS.get(diff, 22)
+                    # Also enforce a level-based ATK hard cap
                     # (same formula as overworld: DEF_cap - 10)
                     _plvl = state.get("player_level", sheet.get("level", 1))
                     _level_atk_cap = int(_plvl * 1.5 + 2)

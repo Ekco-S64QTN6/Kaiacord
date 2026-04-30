@@ -1,8 +1,107 @@
 #!/usr/bin/env python3
-"""Generate spine_layouts.json — 5 hand-crafted dungeon floors."""
-import json, os, sys
+"""Generate spine_layouts.json — 77 Spine of the World dungeon floors.
+
+Each floor uses one of 5 hand-crafted room templates, but monster_key values
+are randomized per-room from the zone's encounter pool in ENCOUNTER_TABLES.
+This ensures every floor has a unique set of creatures.
+"""
+import json, os, sys, secrets
 
 GRID = 24
+
+# ── Zone encounter pools (floor_num → zone_key mapping) ───────────────────────
+FLOOR_ZONE_MAP = {
+    range(1, 16):  "working_tunnels",
+    range(16, 31): "bone_warrens",
+    range(31, 46): "sunken_forge",
+    range(46, 61): "deep_dark",
+    range(61, 78): "heart_of_mountain",
+}
+
+def _get_zone_key(floor_num: int) -> str:
+    for rng, zone in FLOOR_ZONE_MAP.items():
+        if floor_num in rng:
+            return zone
+    return "working_tunnels"
+
+def _generate_floor_pool(floor_num: int) -> list:
+    """Generate a unique encounter pool for a specific floor.
+    Combines the zone's thematic pool with 15 random monsters from the
+    ENTIRE registry that match the floor's difficulty tier.
+    Returns list of (monster_key, weight) tuples."""
+    try:
+        project_root = os.path.dirname(os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
+        if project_root not in sys.path:
+            sys.path.insert(0, project_root)
+        exec_globals = {}
+        registry_path = os.path.join(project_root, 'utils', 'ttrpg', 'monster_registry.py')
+        exec(open(registry_path).read(), exec_globals)
+        monsters = exec_globals.get('MONSTERS', {})
+        tables = exec_globals.get('ENCOUNTER_TABLES', {})
+
+        # Determine allowed tiers for this floor depth
+        if floor_num <= 10: allowed_tiers = ["easy", "medium"]
+        elif floor_num <= 30: allowed_tiers = ["medium", "hard"]
+        elif floor_num <= 50: allowed_tiers = ["hard", "deadly"]
+        else: allowed_tiers = ["deadly"]
+
+        # Get all valid non-boss monsters from the entire registry matching tier
+        valid_monsters = []
+        for mk, m_data in monsters.items():
+            if m_data.get("tier") in allowed_tiers and not m_data.get("is_boss"):
+                valid_monsters.append(mk)
+
+        # Include the zone's thematic pool to ensure flavor
+        zone_key = _get_zone_key(floor_num)
+        zone_pool = [k for k, w in tables.get('spine_of_the_world', {}).get(zone_key, [])]
+
+        import random
+        random.shuffle(valid_monsters)
+        # Combine the zone pool with 15 random tier-appropriate monsters from anywhere
+        floor_pool_keys = list(set(valid_monsters[:15] + zone_pool))
+
+        # Assign equal weights to all
+        return [(k, 10) for k in floor_pool_keys]
+    except Exception as e:
+        print(f"WARNING: Could not generate floor pool: {e}")
+        return [("goblin", 10)]
+
+def _pick_from_pool(pool: list) -> str:
+    """Weighted random pick from a [(key, weight), ...] pool."""
+    if not pool:
+        return "goblin"  # fallback
+    total = sum(w for _, w in pool)
+    r = secrets.randbelow(total)
+    cum = 0
+    for key, w in pool:
+        cum += w
+        if r < cum:
+            return key
+    return pool[0][0]
+
+def _transform_layout(rooms_list, corrs_list, flip_x, flip_y, transpose, size=GRID):
+    """Apply geometric transformations to create layout variations."""
+    new_rooms = []
+    new_corrs = []
+    for label, rx, ry, rw, rh in rooms_list:
+        if transpose:
+            rx, ry, rw, rh = ry, rx, rh, rw
+        if flip_x:
+            rx = size - rx - rw
+        if flip_y:
+            ry = size - ry - rh
+        new_rooms.append((label, rx, ry, rw, rh))
+        
+    for x1, y1, x2, y2 in corrs_list:
+        if transpose:
+            x1, y1, x2, y2 = y1, x1, y2, x2
+        if flip_x:
+            x1, x2 = size - 1 - x1, size - 1 - x2
+        if flip_y:
+            y1, y2 = size - 1 - y1, size - 1 - y2
+        new_corrs.append((x1, y1, x2, y2))
+        
+    return new_rooms, new_corrs
 
 def place(room_list, corridor_list, size=GRID):
     grid = [['.' for _ in range(size)] for _ in range(size)]
@@ -19,7 +118,10 @@ def place(room_list, corridor_list, size=GRID):
                 if grid[y1][x] == '.': grid[y1][x] = '+'
     return [''.join(row) for row in grid]
 
-def build(lines, meta, name, flavor):
+def build(lines, meta, name, flavor, zone_pool=None):
+    """Build a floor dict from grid lines and room metadata.
+    If zone_pool is provided, combat rooms get a random monster_key from
+    the pool instead of the hardcoded template value."""
     rooms, conns = {}, {}
     room_centers = {}
     for ch, m in meta.items():
@@ -39,7 +141,6 @@ def build(lines, meta, name, flavor):
             if ch == '.': continue
             k = f"{x},{y}"
             if ch == '+':
-                import secrets
                 if secrets.randbelow(100) < 5:
                     rooms[k] = {"type":"trap","cleared":False,"monster_key":None,
                         "boss_name":None,"description":"You stepped on a loose stone. A trap mechanism clicks in the dark!",
@@ -53,9 +154,13 @@ def build(lines, meta, name, flavor):
                 is_center = (x,y) == room_centers.get(ch)
                 if is_center:
                     rt = m["type"]
-                    mk = m.get("monster_key")
                     bn = m.get("boss_name")
                     cl = rt in ("empty","stairs_up","stairs_down")
+                    # Randomize monster_key from zone pool for combat rooms
+                    if rt in ("monster", "guard") and zone_pool:
+                        mk = _pick_from_pool(zone_pool)
+                    else:
+                        mk = m.get("monster_key")
                 else:
                     rt = "empty"
                     mk = None
@@ -298,7 +403,7 @@ F5C = [
 
 
 F1M = {
-    "A":{"type":"stairs_up","name":"Entry Hall","desc":"Daylight filters down the stairwell. The air smells of rust and old timber."},
+    "A":{"type":"stairs_up","name":"Entry Hall","desc":"A cool draft blows from the stairs leading up toward the surface. The air smells of rust and old timber."},
     "B":{"type":"empty","name":"Wide Chamber","desc":"A junction of old mine tunnels."},
     "C":{"type":"monster","name":"Ore Shaft","desc":"Pick marks line the walls. Something skitters in the dark.","monster_key":"manticore"},
     "D":{"type":"empty","name":"Collapsed Tunnel","desc":"The ceiling has caved in here. Dust still settles."},
@@ -403,35 +508,36 @@ def get_dynamic_lore(floor_num, base_meta, base_flav):
     import copy
     meta = copy.deepcopy(base_meta)
     
-    # Let's inject progressive Elara lore into the 'empty' or 'shrine' rooms (usually F, A, J, O)
+    # Let's inject progressive lore into the 'empty' or 'shrine' rooms (usually F, A, J, O)
     flav = base_flav
     
     if 1 <= floor_num <= 10:
-        flav += " A faint scent of Oakhaven herbs lingers where it shouldn't."
+        flav += " A faint scent of dried herbs lingers where it shouldn't."
         if "F" in meta:
-            meta["F"]["desc"] = "A scrap of paper is pinned to the timber: 'Shipment 4 from H. Store received. The Elder paid in full.' Hemlock is supplying the deep."
+            meta["F"]["desc"] = "A scrap of paper is pinned to the timber: 'Shipment 4 received. The payment was sufficient.'"
     elif 11 <= floor_num <= 20:
         flav += " The lanterns here burn with a familiar, unsettling blue tint."
         if "O" in meta:
-            meta["O"]["desc"] = "A makeshift camp. A journal lies open: 'She said the blue flame meant danger. She lied. It means the mountain is hungry, and she is ringing the dinner bell.'"
+            meta["O"]["desc"] = "A makeshift camp. A torn journal page reads: 'The blue flame isn't keeping them away. It's drawing them in. Who lit these?'"
     elif 21 <= floor_num <= 30:
         if "F" in meta:
-            meta["F"]["desc"] = "An old ledger is carved into the bone wall. It lists names. Two missing scouts from Oakhaven are at the bottom, marked as 'Tithe'."
+            meta["F"]["desc"] = "An old ledger is carved into the bone wall. It lists inventory. At the bottom, a disturbing note: 'Two more arrived from the surface. The Tithe is paid.'"
     elif 31 <= floor_num <= 40:
         if "J" in meta:
-            meta["J"]["desc"] = "A shrine identical to the one in Oakhaven, but the flame here is black. A silver hair—just like Elara's—is caught in the stone basin."
+            meta["J"]["desc"] = "A small stone basin rests in the corner, identical to the ones used for prayers above. The ash inside is fresh."
     elif 41 <= floor_num <= 50:
         flav += " The heat doesn't warm you; it feels like it's trying to digest you."
         if "F" in meta:
-            meta["F"]["desc"] = "A rusted plaque bears an Aeridorian inscription: 'The Vessel must be stationed above. The Vessel must maintain the illusion of sanctuary.'"
+            meta["F"]["desc"] = "A rusted plaque bears an Aeridorian inscription: 'The Vessel must remain blind. The sanctuary must be maintained to fatten the flock.'"
     elif 51 <= floor_num <= 60:
         if "O" in meta:
-            meta["O"]["desc"] = "A perfectly preserved room. On the desk is a letter in Elara's handwriting: 'The adventurers suspect nothing. The offering will be sufficient for the Solstice.'"
+            meta["O"]["desc"] = "A perfectly preserved room. On the desk is a ledger detailing supplies purchased from 'H. Store'. A note in elegant handwriting reads: 'The offering will be sufficient for the Solstice.'"
     elif 61 <= floor_num <= 70:
         flav += " The mountain breathes, and it smells like Oakhaven's well."
         if "F" in meta:
-            meta["F"]["desc"] = "A crystalline terminal is active. It shows a map of Oakhaven. Lines of resonance don't flow out from the town; they flow down. Oakhaven is a farm. The town is the crop."
+            meta["F"]["desc"] = "A massive mural. It depicts a village that looks exactly like Oakhaven. Underneath the village, roots of bone drag the townsfolk into a gaping maw. A familiar elder figure stands at the center."
     elif 71 <= floor_num <= 77:
+        flav += " The air is heavy with Resonance. The truth is here."
         if "A" in meta:
             meta["A"]["desc"] = "The stairs descend into a fleshy, pulsing abyss. The walls whisper in Elara's voice: 'Thank you for bringing yourselves to the harvest.'"
 
@@ -446,7 +552,10 @@ def main():
         (F4R, F4C, F4M, "The Deep Dark", "Beyond the mine. Beyond the forge. Something older."),
         (F5R, F5C, F5M, "The Heart of the Mountain", "The deepest point. The mountain has a heartbeat."),
     ]
-    
+
+    # Track creature variety stats
+    zone_creature_counts = {}
+
     for n in range(1, 78):
         if n <= 15:
             rms, corrs, base_m, name, base_f = base_configs[0]
@@ -458,30 +567,60 @@ def main():
             rms, corrs, base_m, name, base_f = base_configs[3]
         else:
             rms, corrs, base_m, name, base_f = base_configs[4]
-            
+
         meta, flav = get_dynamic_lore(n, base_m, base_f)
-        
-        # Now update the boss encounters to the exact stair guardian for this floor
-        from utils.ttrpg.spine_dungeon import STAIR_GUARDIANS
-        guardian = STAIR_GUARDIANS.get(n)
-        
-        # Find which room key holds the stairs_down (usually the boss room precedes it, or the stairs down itself is the boss)
-        # Actually, let's just let the engine handle the guardian combat on descend click as implemented earlier. 
-        # But we can update the 'boss' room in the meta to show the correct monster key if we want.
-        
-        lines = place(rms, corrs)
-        floor = build(lines, meta, name, flav)
-        
+
+        import random
+
+        # ── SCRAMBLE THE LAYOUT GEOMETRY ──
+        # Apply random mirroring and rotation to the room coordinates and corridors
+        # 5 templates * 8 symmetries = 40 unique maze shapes!
+        flip_x = random.choice([True, False])
+        flip_y = random.choice([True, False])
+        transpose = random.choice([True, False])
+        t_rms, t_corrs = _transform_layout(rms, corrs, flip_x, flip_y, transpose)
+
+        # ── SCRAMBLE THE ROOM ASSIGNMENTS ──
+        # By shuffling the values assigned to the layout keys (A, B, C...),
+        # the stairs up, stairs down, and boss rooms will spawn in completely
+        # different geographic locations within the scrambled maze geometry!
+        meta_keys = list(meta.keys())
+        meta_values = list(meta.values())
+        random.shuffle(meta_values)
+        scrambled_meta = {k: v for k, v in zip(meta_keys, meta_values)}
+
+        # Get a dynamically generated pool of monsters for THIS specific floor
+        pool = _generate_floor_pool(n)
+        zone_key = _get_zone_key(n)
+
+        lines = place(t_rms, t_corrs)
+        floor = build(lines, scrambled_meta, name, flav, zone_pool=pool)
+
         floor["floor_num"] = n
-        
+
         # Override stairs down on floor 77
         if n == 77:
             floor["stairs_down_key"] = None
-            
+
         floors[str(n)] = floor
+
+        # Track variety stats
+        monsters_on_floor = set()
+        for k, r in floor["rooms"].items():
+            mk = r.get("monster_key")
+            if mk and r.get("type") in ("monster", "guard"):
+                monsters_on_floor.add(mk)
+        zone_creature_counts.setdefault(zone_key, set()).update(monsters_on_floor)
+
+    # Print variety report
+    print("\n── Creature Variety Report ──")
+    for zone, creatures in zone_creature_counts.items():
+        print(f"  {zone}: {len(creatures)} unique creatures across its floors")
 
     with open("utils/ttrpg/spine_layouts.json", "w") as f:
         json.dump(floors, f, indent=2)
-    print("Wrote spine_layouts.json for 77 floors")
+    print(f"\nWrote spine_layouts.json for 77 floors")
+
+
 if __name__ == "__main__":
     main()

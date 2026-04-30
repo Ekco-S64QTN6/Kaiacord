@@ -460,9 +460,8 @@ async def _handle_dungeon(ctx, msg, send, rest, uid, uname, is_owner):
             color=0x4a4a6a
         ))
 
-    # Consume torch on entry (lightstone is permanent)
+    # Determine torch status but DON'T consume yet — only consume on actual entry
     if not has_lightstone and has_torch:
-        sheet["inventory"].remove("torch")
         torch_line = "\n*Your torch gutters. You have one run before it burns out.*"
     else:
         torch_line = "\n*The lightstone pulses softly. The dark gives way.*"
@@ -479,6 +478,9 @@ async def _handle_dungeon(ctx, msg, send, rest, uid, uname, is_owner):
         max_defeated = max(sheet.get("spine_defeated_guards", [0]))
         if max_defeated < 5:
             # No checkpoints unlocked, start at floor 1
+            # Consume torch NOW (player is committing to entry)
+            if not has_lightstone and has_torch:
+                sheet["inventory"].remove("torch")
             sheet["hunts_today"] = sheet.get("hunts_today", 0) + ENTRY_HUNTS
             await save(sheet)
             dungeon = await load_spine_dungeon(uid)
@@ -491,9 +493,9 @@ async def _handle_dungeon(ctx, msg, send, rest, uid, uname, is_owner):
             t_flavor = dungeon.get("theme_flavor", "Active mine workings.")
             difficulty = dungeon.get("difficulty", 5)
         else:
-            # Checkpoints unlocked, show lift menu
+            # Checkpoints unlocked, show lift menu — torch consumed in callback
             from utils.ttrpg.rpg_views import SpineLiftView
-            view = SpineLiftView(ctx, uid, uname, is_owner, sheet, max_defeated)
+            view = SpineLiftView(ctx, uid, uname, is_owner, sheet, max_defeated, has_lightstone)
             embed = discord.Embed(
                 title="⚙️ The Resonance Lift",
                 description="*The ancient lift shudders. Runes along the frame glow, recognizing the depths you have conquered.*" + torch_line,
@@ -501,6 +503,9 @@ async def _handle_dungeon(ctx, msg, send, rest, uid, uname, is_owner):
             )
             return await msg.channel.send(embed=embed, view=view)
     else:
+        # Consume torch NOW (player is committing to entry)
+        if not has_lightstone and has_torch:
+            sheet["inventory"].remove("torch")
         sheet["hunts_today"] = sheet.get("hunts_today", 0) + ENTRY_HUNTS
         await save(sheet)
         from utils.ttrpg.dungeon import LOCATION_DIFFICULTY_BONUS
