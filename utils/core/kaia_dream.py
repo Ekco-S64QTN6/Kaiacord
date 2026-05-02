@@ -20,6 +20,72 @@ except ImportError:
 
 from utils.infrastructure.logging.kaia_logger import log_info, log_error, log_warning, log_success, log_action, log_debug
 
+# ── Repetitive Pattern Sanitizer ──────────────────────────────────────────
+_SENTENCE_SPLIT_RE = re.compile(r'(?<=[.!?])\s+')
+
+def _sanitize_repetitive_starts(text: str, max_ratio: float = 0.4) -> str:
+    """Detect and fix text where too many sentences start with the same phrase.
+    
+    The LLM tends to fall into "it's..." loops when its own prior output
+    (identity stream, continuity, self-model) is dominated by that pattern.
+    This sanitizer catches any repeated sentence-start pattern, not just "it's".
+    
+    Args:
+        text: The generated text to check.
+        max_ratio: Maximum allowed ratio of sentences starting with the same
+                   2-word prefix. If exceeded, offending sentences get their
+                   leading phrase trimmed to break the monotony.
+    
+    Returns:
+        The sanitized text.
+    """
+    import re as _re
+    sentences = [s.strip() for s in _SENTENCE_SPLIT_RE.split(text) if s.strip()]
+    if len(sentences) < 4:
+        return text  # Too few sentences to have a meaningful pattern
+    
+    # Count 2-word prefixes
+    prefix_counts: dict[str, int] = {}
+    for s in sentences:
+        words = s.split()[:2]
+        if len(words) >= 2:
+            prefix = ' '.join(words).lower().rstrip(',;:')
+            prefix_counts[prefix] = prefix_counts.get(prefix, 0) + 1
+    
+    if not prefix_counts:
+        return text
+    
+    dominant_prefix = max(prefix_counts, key=prefix_counts.get)
+    dominant_count = prefix_counts[dominant_prefix]
+    ratio = dominant_count / len(sentences)
+    
+    if ratio <= max_ratio:
+        return text  # Within acceptable limits
+    
+    log_warning(
+        f"Repetitive start detected: '{dominant_prefix}' in {dominant_count}/{len(sentences)} "
+        f"sentences ({ratio:.0%}). Sanitizing."
+    )
+    
+    # Strategy: For every occurrence after the first, remove the repeated prefix
+    # from the start of the sentence so the underlying thought stands on its own.
+    seen_count = 0
+    fixed_sentences = []
+    for s in sentences:
+        words = s.split()[:2]
+        prefix = ' '.join(words).lower().rstrip(',;:') if len(words) >= 2 else ''
+        if prefix == dominant_prefix:
+            seen_count += 1
+            if seen_count > 1:
+                # Strip the prefix and capitalize what remains
+                remainder = s[len(' '.join(s.split()[:2])):].lstrip(' ,;:\u2014\u2013-')
+                if remainder:
+                    s = remainder[0].lower() + remainder[1:] if len(remainder) > 1 else remainder.lower()
+        fixed_sentences.append(s)
+    
+    return '. '.join(fixed_sentences)
+
+
 class DreamEngine:
     # Growth log path — append-only JSONL ledger for tracking character evolution
     GROWTH_LOG_PATH = Path("memory") / "growth_log.jsonl"
@@ -133,6 +199,7 @@ VOICE AND FORMAT RULES (always apply regardless of dream type):
 4. NO ROLEPLAY: ABSOLUTELY FORBIDDEN. No asterisks. No parentheses for actions.
 5. NO ATMOSPHERE: Do not describe the room, the sounds, the servers.
 6. SPOKEN TEXT ONLY: Output only what you would actually think or say.
+7. SENTENCE VARIETY: Do NOT start multiple sentences with "it's". Vary your sentence openers. If you catch yourself starting more than one sentence with the same phrase, restructure.
 """
 
         try:
@@ -166,7 +233,8 @@ VOICE AND FORMAT RULES (always apply regardless of dream type):
                 task_id=f"dream_{uuid.uuid4().hex[:8]}"
             )
             
-            return response['message']['content'].strip()
+            raw = response['message']['content'].strip()
+            return _sanitize_repetitive_starts(raw)
         except Exception as e:
             log_error(f"In-depth dream reflection generation failed: {type(e).__name__}: {e}")
             return None
@@ -471,7 +539,8 @@ VOICE AND FORMAT RULES (always apply regardless of dream type):
             prompt += (
                 f"Write 2-3 sentences in first person about how your perspective or approach may be subtly "
                 f"shifting. Focus on change, not events. Be specific. Lowercase only. "
-                f"No headers, no labels, no roleplay asterisks."
+                f"No headers, no labels, no roleplay asterisks. "
+                f"CRITICAL: Do NOT start sentences with 'it's'. Vary your sentence openings."
             )
 
             from utils.infrastructure.gpu.gpu_manager import OllamaGPUManager, gpu_memory_manager, GPUTaskPriority
@@ -494,7 +563,7 @@ VOICE AND FORMAT RULES (always apply regardless of dream type):
                 task_id=f"identity_{uuid.uuid4().hex[:8]}"
             )
 
-            identity_text = response['message']['content'].strip()
+            identity_text = _sanitize_repetitive_starts(response['message']['content'].strip())
             if identity_text:
                 identity_path = Path("memory") / "identity_stream.md"
                 identity_path.parent.mkdir(parents=True, exist_ok=True)
@@ -818,6 +887,7 @@ STRICT RULES:
 - end with a single sentence: what you're most curious about right now.
 - no roleplay, no atmosphere, no asterisks
 - use actual usernames from the logs. do not abbreviate, anonymize, or use initials.
+- CRITICAL: vary your sentence structure. do NOT start multiple sentences with "it's" or any other repeated phrase. if you notice a pattern forming, restructure.
 """
 
             # Generate via GPU-guarded LLM call
@@ -852,7 +922,7 @@ STRICT RULES:
                 task_id=f"selfmodel_{uuid.uuid4().hex[:8]}"
             )
 
-            result = response['message']['content'].strip()
+            result = _sanitize_repetitive_starts(response['message']['content'].strip())
 
             if not result or len(result) < 100:
                 log_warning(f"Self-model regen: LLM returned too-short response ({len(result)} chars). Skipping.")
@@ -957,7 +1027,7 @@ TODAY'S CONVERSATIONS:
                 task_id=f"reflect_{uuid.uuid4().hex[:8]}"
             )
             
-            reflection_text = response['message']['content'].strip()
+            reflection_text = _sanitize_repetitive_starts(response['message']['content'].strip())
             if reflection_text:
                 self._update_continuity(new_reflection=reflection_text, source_label="Evening Reflection")
                 log_success("Evening reflection completed and added to continuity.")

@@ -206,12 +206,13 @@ STRICT RULES:
 - end with a single sentence: what you're most curious about right now.
 - no roleplay, no atmosphere, no asterisks
 - use actual usernames from the logs. do not abbreviate, anonymize, or use initials.
+- CRITICAL: vary your sentence structure. do NOT start multiple sentences with "it's" or any other repeated phrase. if you notice a pattern forming, restructure.
 """
 
 def _sanitize_result(text: str) -> str:
-    """Strip ellipses and roleplay artifacts from the generated self-model."""
+    """Strip ellipses, roleplay artifacts, and repetitive starts from the generated self-model."""
     # 1. Remove unicode ellipses and triple-dots (stop the affect at the source)
-    sanitized = text.replace("…", "...").replace("...", " ")
+    sanitized = text.replace("\u2026", "...").replace("...", " ")
     
     # 2. Fix spacing: "word . word" -> "word. word"
     sanitized = re.sub(r"\s+\.", ".", sanitized)
@@ -228,7 +229,39 @@ def _sanitize_result(text: str) -> str:
     for pattern in forbidden:
         sanitized = re.compile(pattern, re.IGNORECASE).sub("", sanitized)
     
-    # 4. Collapse extra whitespace
+    # 4. Repetitive sentence-start sanitization
+    # Split into sentences and check for dominant 2-word prefixes
+    sentences = [s.strip() for s in re.split(r'(?<=[.!?])\s+', sanitized) if s.strip()]
+    if len(sentences) >= 4:
+        prefix_counts: dict[str, int] = {}
+        for s in sentences:
+            words = s.split()[:2]
+            if len(words) >= 2:
+                prefix = ' '.join(words).lower().rstrip(',;:')
+                prefix_counts[prefix] = prefix_counts.get(prefix, 0) + 1
+        
+        if prefix_counts:
+            dominant_prefix = max(prefix_counts, key=prefix_counts.get)
+            dominant_count = prefix_counts[dominant_prefix]
+            ratio = dominant_count / len(sentences)
+            
+            if ratio > 0.4:
+                _warn(f"Repetitive start detected: '{dominant_prefix}' in {dominant_count}/{len(sentences)} sentences. Sanitizing.")
+                seen = 0
+                fixed = []
+                for s in sentences:
+                    words = s.split()[:2]
+                    pfx = ' '.join(words).lower().rstrip(',;:') if len(words) >= 2 else ''
+                    if pfx == dominant_prefix:
+                        seen += 1
+                        if seen > 1:
+                            remainder = s[len(' '.join(s.split()[:2])):].lstrip(' ,;:\u2014\u2013-')
+                            if remainder:
+                                s = remainder[0].lower() + remainder[1:] if len(remainder) > 1 else remainder.lower()
+                    fixed.append(s)
+                sanitized = '. '.join(fixed)
+    
+    # 5. Collapse extra whitespace
     sanitized = re.sub(r"\s+", " ", sanitized)
     
     return sanitized.strip()
