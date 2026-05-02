@@ -368,6 +368,15 @@ async def on_ready():
     bot_state.boot_complete = True
     log_success("[Phase 2] Kaia is ready to respond.")
 
+    # Set initial Discord presence (boot → online)
+    try:
+        await bot.change_presence(
+            status=discord.Status.online,
+            activity=discord.CustomActivity(name="just woke up.")
+        )
+    except Exception as e:
+        log_warning(f"Initial presence set failed: {e}")
+
     # Start maintenance loops (uptime, dashboard refresh, etc.)
     from utils.infrastructure.system.maintenance_tasks import start_maintenance_tasks
     start_maintenance_tasks(ctx)

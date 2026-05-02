@@ -291,6 +291,12 @@ features:
   # Enable conversation snapshot capture (!snapshot)
   snapshots_enabled: true
 
+  # Enable idle quip generation (timer-based broadcasts). Manual !quip still works.
+  idle_quips_enabled: false
+
+  # Enable Discord Presence system (mood-driven status updates)
+  presence_enabled: true
+
 # ============================================================================
 # Audit & Quality Configuration
 # ============================================================================

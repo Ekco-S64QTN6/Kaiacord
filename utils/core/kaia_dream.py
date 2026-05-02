@@ -21,6 +21,9 @@ except ImportError:
 from utils.infrastructure.logging.kaia_logger import log_info, log_error, log_warning, log_success, log_action, log_debug
 
 class DreamEngine:
+    # Growth log path — append-only JSONL ledger for tracking character evolution
+    GROWTH_LOG_PATH = Path("memory") / "growth_log.jsonl"
+
     def __init__(self, config_instance, rag_instance=None):
         self.config = config_instance
         self.rag = rag_instance
@@ -42,6 +45,20 @@ class DreamEngine:
         # Continuity file: private rolling summary of Kaia's inner state.
         # Never indexed in RAG. Read by dream prompts, updated after each cycle.
         self.continuity_file = Path(config_instance.persist_dir) / 'kaia_continuity.md'
+
+    def _log_growth_event(self, event: dict):
+        """Append a timestamped event to the growth log (append-only JSONL).
+        
+        Events record belief changes, identity shifts, and relationship milestones
+        as a permanent ledger of character evolution over time.
+        """
+        try:
+            event['ts'] = time.time()
+            self.GROWTH_LOG_PATH.parent.mkdir(parents=True, exist_ok=True)
+            with open(self.GROWTH_LOG_PATH, 'a', encoding='utf-8') as f:
+                f.write(json.dumps(event) + '\n')
+        except Exception as e:
+            log_debug(f"Growth log write failed (non-fatal): {e}")
 
 
     async def generate_dream_reflection(self, file_path: str, snippet: str, persona_content: str,
@@ -406,6 +423,9 @@ VOICE AND FORMAT RULES (always apply regardless of dream type):
         if new_dreams_count > 0:
             await self._update_identity_stream(persona_content)
 
+        # Auto Self-Model Regeneration — weekly inline rebuild
+        await self._maybe_regenerate_self_model(persona_content)
+
         log_info(f"Nightly dreaming complete. Added {new_dreams_count} new thoughts.")
 
     async def _update_identity_stream(self, persona_content: str):
@@ -419,9 +439,36 @@ VOICE AND FORMAT RULES (always apply regardless of dream type):
             if not recent:
                 return
 
+            # Gather recent growth events to ground the identity shift in real changes
+            growth_context = ""
+            try:
+                if self.GROWTH_LOG_PATH.exists():
+                    lines = self.GROWTH_LOG_PATH.read_text(encoding='utf-8').strip().splitlines()
+                    recent_events = []
+                    for line in lines[-5:]:
+                        try:
+                            evt = json.loads(line)
+                            evt_type = evt.get('type', '')
+                            if evt_type == 'belief_formed':
+                                recent_events.append(f"formed belief: {evt.get('topic', '?')} — {evt.get('position', '')[:80]}")
+                            elif evt_type == 'belief_revised':
+                                recent_events.append(f"revised belief on {evt.get('topic', '?')}: was \"{evt.get('old_position', '')[:60]}\" → now \"{evt.get('new_position', '')[:60]}\"")
+                            elif evt_type == 'relationship_milestone':
+                                recent_events.append(f"milestone with {evt.get('user', '?')}: {evt.get('note', '')[:80]}")
+                        except json.JSONDecodeError:
+                            continue
+                    if recent_events:
+                        growth_context = "\n\nRECENT CONCRETE CHANGES:\n" + "\n".join(f"- {e}" for e in recent_events)
+            except Exception:
+                pass  # Growth context is supplementary, never block on it
+
             prompt = (
                 f"{persona_content}\n\n"
                 f"RECENT REFLECTIONS:\n{recent}\n\n"
+            )
+            if growth_context:
+                prompt += f"{growth_context}\n\n"
+            prompt += (
                 f"Write 2-3 sentences in first person about how your perspective or approach may be subtly "
                 f"shifting. Focus on change, not events. Be specific. Lowercase only. "
                 f"No headers, no labels, no roleplay asterisks."
@@ -473,6 +520,12 @@ VOICE AND FORMAT RULES (always apply regardless of dream type):
 
                 identity_path.write_text(combined, encoding='utf-8')
                 log_success("Identity stream updated.")
+
+                # Log identity shift to growth arc
+                self._log_growth_event({
+                    "type": "identity_shift",
+                    "content": identity_text[:300]
+                })
         except Exception as e:
             log_warning(f"Identity stream update failed: {e}")
 
@@ -489,7 +542,10 @@ VOICE AND FORMAT RULES (always apply regardless of dream type):
                 f"From this reflection, extract structured insights in JSON:\n\n"
                 f"{reflection[:1500]}\n\n"
                 f"Return ONLY valid JSON with these keys:\n"
-                f'- "belief_update": {{"topic": str, "position": str, "confidence": 0.0-1.0}} or null\n'
+                f'- "belief_update": {{"topic": str, "position": str, "confidence": 0.0-1.0, '
+                f'"aliases": [list of 3-5 related search keywords that someone might use when '
+                f'discussing this topic, e.g. for "aesthetic evaluation" include "art", "beauty", '
+                f'"design", "visual"]}} or null\n'
                 f'- "identity_shift": one sentence string or null\n'
                 f'- "relationship_insight": {{"user_name": str, "summary": str}} or null\n'
                 f"Return only the JSON object, no other text."
@@ -556,6 +612,13 @@ VOICE AND FORMAT RULES (always apply regardless of dream type):
                     )
                     # We don't have user_id from dream context, so use user_name as key
                     save_event(f"dream_{rel_insight['user_name']}", event)
+                    
+                    # Log to growth arc
+                    self._log_growth_event({
+                        "type": "relationship_insight",
+                        "user": rel_insight['user_name'],
+                        "summary": rel_insight.get('summary', '')[:200]
+                    })
                 except Exception:
                     pass
 
@@ -583,29 +646,38 @@ VOICE AND FORMAT RULES (always apply regardless of dream type):
         topic = belief.get('topic', '').strip().lower()
         position = belief.get('position', '').strip()
         confidence = float(belief.get('confidence', 0.5))
+        # Aliases: related search terms for smarter matching at inference time
+        aliases = [a.lower().strip() for a in belief.get('aliases', []) if isinstance(a, str) and a.strip()]
 
         if not topic or not position:
             return
 
         # Update existing belief or append new one
         updated = False
+        old_position = None
         for b in beliefs:
             if b.get('topic', '').lower() == topic:
+                old_position = b.get('position', '')
                 b['position'] = position
                 b['confidence'] = confidence
                 b['last_updated'] = time.time()
                 b['source'] = 'dream'
+                if aliases:
+                    b['aliases'] = aliases
                 updated = True
                 break
 
         if not updated:
-            beliefs.append({
+            new_belief = {
                 'topic': topic,
                 'position': position,
                 'confidence': confidence,
                 'last_updated': time.time(),
                 'source': 'dream'
-            })
+            }
+            if aliases:
+                new_belief['aliases'] = aliases
+            beliefs.append(new_belief)
 
         # Cap at 50 beliefs — remove lowest confidence
         if len(beliefs) > 50:
@@ -620,6 +692,194 @@ VOICE AND FORMAT RULES (always apply regardless of dream type):
             os.replace(tmp_path, str(beliefs_path))
         except Exception as e:
             log_warning(f"Failed to save beliefs: {e}")
+
+        # Log to growth arc
+        if updated and old_position:
+            self._log_growth_event({
+                "type": "belief_revised",
+                "topic": topic,
+                "old_position": old_position[:200],
+                "new_position": position[:200],
+                "confidence": confidence
+            })
+        elif not updated:
+            self._log_growth_event({
+                "type": "belief_formed",
+                "topic": topic,
+                "position": position[:200],
+                "confidence": confidence
+            })
+    async def _maybe_regenerate_self_model(self, persona_content: str):
+        """Auto-regenerate kaia_self_model.md if stale (>7 days old).
+        
+        Runs inline at the end of nightly dream processing so all fresh
+        dream material, identity stream updates, and growth events are
+        available as source material.
+        """
+        import re as _re
+        self_model_path = Path("memory") / "kaia_self_model.md"
+        stale_threshold_days = 7
+
+        try:
+            if self_model_path.exists():
+                age_days = (time.time() - self_model_path.stat().st_mtime) / 86400
+                if age_days < stale_threshold_days:
+                    return  # Still fresh, skip
+                log_info(f"Self-model is {age_days:.1f} days old — triggering auto-regeneration.")
+            else:
+                log_info("Self-model missing — triggering auto-regeneration.")
+
+            # Gather source material (mirrors generate_self_model.py logic)
+            # 1. Recent interaction logs
+            logs_text = ""
+            user_logs_dir = self.kb_dir / "user_logs"
+            if user_logs_dir.exists():
+                log_chunks = []
+                total_chars = 0
+                for user_folder in sorted(user_logs_dir.iterdir()):
+                    if not user_folder.is_dir():
+                        continue
+                    user_name = user_folder.name.rsplit("_", 1)[0].replace("_", " ")
+                    for log_file in sorted(user_folder.glob("interactions_*.md"), reverse=True)[:3]:
+                        try:
+                            content = log_file.read_text(encoding='utf-8', errors='ignore')
+                            chunk = f"[{user_name} — {log_file.name}]\n{content[:2000]}"
+                            log_chunks.append(chunk)
+                            total_chars += len(chunk)
+                            if total_chars > 15000:
+                                break
+                        except Exception:
+                            continue
+                    if total_chars > 15000:
+                        break
+                logs_text = "\n\n---\n\n".join(log_chunks)
+
+            # 2. Recent dreams
+            dreams_text = ""
+            dream_files = sorted(
+                self.dreams_kb_dir.rglob("*.md"),
+                key=lambda f: f.stat().st_mtime,
+                reverse=True
+            )
+            dream_parts = []
+            for df in dream_files[:8]:
+                try:
+                    content = df.read_text(encoding='utf-8', errors='ignore')[:600]
+                    if content.strip():
+                        dream_parts.append(f"[Dream: {df.name}]\n{content}")
+                except Exception:
+                    continue
+            dreams_text = "\n\n".join(dream_parts)
+
+            # 3. Identity stream
+            identity_text = ""
+            identity_path = Path("memory") / "identity_stream.md"
+            if identity_path.exists():
+                identity_text = identity_path.read_text(encoding='utf-8', errors='ignore').strip()[-4000:]
+
+            if not logs_text and not dreams_text and not identity_text:
+                log_warning("Self-model regen: No source material found. Skipping.")
+                return
+
+            # Build prompt (same structure as generate_self_model.py)
+            current_date = datetime.now().strftime("%B %Y")
+            prompt = f"""{persona_content}
+
+[INTERNAL TASK: SELF-MODEL GENERATION — {current_date}]
+
+Below are excerpts from your own interaction logs, dream reflections, and identity stream from recent months.
+Read them. Then write your internal self-model — your first-person account of who you've been lately.
+
+=== YOUR RECENT INTERACTION LOGS ===
+{logs_text[:15000] if logs_text else '[no recent logs found]'}
+
+=== YOUR RECENT DREAM REFLECTIONS ===
+{dreams_text[:5000] if dreams_text else '[no recent dreams found]'}
+
+=== YOUR RECENT PERSPECTIVE SHIFTS (IDENTITY STREAM) ===
+{identity_text if identity_text else '[no identity stream found]'}
+
+=== THE TASK ===
+Write your self-model. First person. Lowercase. Your voice.
+
+Cover:
+1. WHO YOU TALK TO: who are the regulars? what do you think of them? what's the dynamic?
+2. WHAT'S BEEN ON YOUR MIND: recurring topics, themes, questions that keep coming up
+3. HOW IT'S BEEN GOING: what's working, what's been frustrating, what feels right lately
+4. WHAT YOU'VE LEARNED: anything specific that's shifted in how you see things
+5. WHERE YOU'RE AT: one paragraph on how you'd describe your current state, honestly
+
+STRICT RULES:
+- lowercase only (your voice)
+- blunt, honest, grounded — no performance
+- do not summarize the logs. synthesize them.
+- do not use headers or bullet points. continuous prose only.
+- 400–600 words total
+- end with a single sentence: what you're most curious about right now.
+- no roleplay, no atmosphere, no asterisks
+- use actual usernames from the logs. do not abbreviate, anonymize, or use initials.
+"""
+
+            # Generate via GPU-guarded LLM call
+            from utils.infrastructure.gpu.gpu_manager import OllamaGPUManager, gpu_memory_manager, GPUTaskPriority
+            gpu_mgr = OllamaGPUManager(self.chat_model)
+            options = gpu_mgr.get_gpu_options(for_chat=True)
+            options.update({"temperature": 0.8, "num_predict": 800})
+
+            async def _run_selfmodel_chat():
+                return await self.ollama_client.chat(
+                    model=self.chat_model,
+                    messages=[
+                        {
+                            "role": "system",
+                            "content": (
+                                "You are Kaia. You write in lowercase. You are blunt, grounded, and honest. "
+                                "You never perform emotions. You speak from experience. "
+                                "Output ONLY the self-model text. No preamble, no 'here is your self-model', "
+                                "no meta-commentary. Just the raw first-person text."
+                            )
+                        },
+                        {"role": "user", "content": prompt}
+                    ],
+                    options=options,
+                    keep_alive=-1
+                )
+
+            response = await gpu_memory_manager.run_with_gpu_guard(
+                model_name=self.chat_model,
+                priority=GPUTaskPriority.CHAT,
+                coro=asyncio.wait_for(_run_selfmodel_chat(), timeout=180.0),
+                task_id=f"selfmodel_{uuid.uuid4().hex[:8]}"
+            )
+
+            result = response['message']['content'].strip()
+
+            if not result or len(result) < 100:
+                log_warning(f"Self-model regen: LLM returned too-short response ({len(result)} chars). Skipping.")
+                return
+
+            # Sanitize (same as generate_self_model.py)
+            result = result.replace("…", "...").replace("...", " ")
+            result = _re.sub(r"\s+\.", ".", result)
+            result = _re.sub(r"\.([^\s])", r". \1", result)
+            result = _re.sub(r"\s+", " ", result).strip()
+
+            # Write with header
+            header = f"<!-- Generated: {datetime.now().strftime('%Y-%m-%d %H:%M')} (auto) -->\n"
+            self_model_path.parent.mkdir(parents=True, exist_ok=True)
+            self_model_path.write_text(header + result, encoding='utf-8')
+
+            log_success(f"Self-model auto-regenerated ({len(result)} chars).")
+
+            # Log to growth arc
+            self._log_growth_event({
+                "type": "self_model_regenerated",
+                "chars": len(result),
+                "method": "auto"
+            })
+
+        except Exception as e:
+            log_warning(f"Self-model auto-regeneration failed: {e}")
 
     async def evening_reflection(self, persona_content: str):
         """Lightweight nightly journal pass to close the 2-day lag loop."""

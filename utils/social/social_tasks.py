@@ -14,6 +14,10 @@ async def idle_quip_task():
     """Generate a random quip if idle for too long"""
     if not ctx or not _on_message:
         return
+
+    # Feature flag — idle quips can be disabled while keeping manual !quip functional
+    if not config.get('features.idle_quips_enabled', False):
+        return
         
     try:
         from utils.social.kaia_social_responder import generate_quip

@@ -20,6 +20,16 @@ class CoreTaskManager:
         self.aethelgard_dawn_task = self._make_aethelgard_dawn_task()
         self.noon_raid_task = self._make_noon_raid_task()
         
+        # Presence system — maps mood floats to visible Discord status
+        self.presence_manager = None
+        self.presence_task = None
+        if ctx.bot and config.get('features.presence_enabled', True):
+            from utils.core.kaia_presence import KaiaPresenceManager, make_presence_task
+            self.presence_manager = KaiaPresenceManager(ctx.bot, ctx.bot_state)
+            self.presence_task = make_presence_task(self.presence_manager)
+            # Store on ctx so other modules (dream engine) can trigger overrides
+            ctx.presence_manager = self.presence_manager
+        
     def _make_news_refresh_task(self):
         @tasks.loop(hours=12)
         async def news_refresh_task():
@@ -74,6 +84,13 @@ class CoreTaskManager:
                 
                 if last_dream != today:
                     log_action("Nightly dream processing starting...")
+                    
+                    # Signal presence: dreaming
+                    pm = getattr(self.ctx, 'presence_manager', None)
+                    if pm:
+                        pm.set_override("dreaming...", duration_seconds=7200)
+                        await pm.update_presence()
+                    
                     try:
                         from utils.social.kaia_social_responder import load_persona_async
                         persona_content = await load_persona_async()
@@ -97,8 +114,17 @@ class CoreTaskManager:
                         
                         self.ctx.bot_state.last_dream_date = today
                         self.ctx.bot_state.save()
+                        
+                        # Signal presence: post-dream
+                        if pm:
+                            pm.set_override("just woke up. processing.", duration_seconds=1800)
+                            await pm.update_presence()
                     except Exception as e:
                         log_error(f"Nightly dream task failed: {e}")
+                    finally:
+                        # Clear dream override after processing (or on failure)
+                        if pm and pm._override_text in ("dreaming...",):
+                            pm.clear_override()
 
         @dream_engine_task.error
         async def dream_engine_error(error):
@@ -506,6 +532,12 @@ class CoreTaskManager:
         self.noon_raid_task.start()
         if self.noon_raid_task.get_task():
             task_registry.register("noon_raid_task", self.noon_raid_task.get_task())
+        
+        # Presence system
+        if self.presence_task:
+            self.presence_task.start()
+            if self.presence_task.get_task():
+                task_registry.register("presence_update_task", self.presence_task.get_task())
             
         log_action("Core background tasks started via CoreTaskManager.")
 
@@ -515,6 +547,8 @@ class CoreTaskManager:
         self.evening_reflection_task.stop()
         self.aethelgard_dawn_task.stop()
         self.noon_raid_task.stop()
+        if self.presence_task:
+            self.presence_task.stop()
 
 # Helper for backward compatibility
 _task_manager = None

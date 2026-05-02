@@ -246,6 +246,14 @@ class MessageProcessor:
         ) or is_social
         
         if not is_mention and not is_social:
+            # Not addressed to Kaia — but she might react with an emoji
+            try:
+                if not hasattr(self, '_reactions'):
+                    from utils.core.kaia_reactions import KaiaReactions
+                    self._reactions = KaiaReactions()
+                await self._reactions.maybe_react(msg)
+            except Exception:
+                pass  # Never let reactions break anything
             return
             
         if is_social: log_debug(f"Social message triggger check passed (is_mention={is_mention})")
@@ -363,6 +371,13 @@ class MessageProcessor:
             return
 
         # 4. Retrieval & Response Generation (Stage 3)
+        # Human-like reading pause — delay before typing indicator to simulate reading
+        import secrets as _secrets
+        _read_time = 0.8 + (len(ctx.sanitized_content) / 200)  # ~1s base + 1s per 200 chars
+        _read_time = min(_read_time, 4.0)  # Cap at 4 seconds
+        _read_time *= (0.7 + _secrets.randbelow(60) / 100)  # ±30% variance
+        await asyncio.sleep(_read_time)
+
         async with ctx.message.channel.typing():
             r_start = time.perf_counter()
             await self._retrieve_and_generate(ctx)
@@ -595,6 +610,19 @@ class MessageProcessor:
                 if time_hint:
                     ctx.system_prompt = ctx.system_prompt + f"\n\n{time_hint}"
 
+                # Open Loop Callback — reference unfinished threads from past conversations
+                rel = self.bot_state.relationships.get(str(ctx.author_id))
+                if rel and time_hint:  # Only inject when user is returning after absence
+                    open_loop = rel.get('last_open_loop', '')
+                    if open_loop:
+                        ctx.system_prompt = ctx.system_prompt + (
+                            f"\n\n[last time, {ctx.author_name} mentioned: \"{open_loop}\". "
+                            f"if it comes up naturally, ask about it. don't force it.]"
+                        )
+                        # Clear after injection — one-shot callback
+                        rel['last_open_loop'] = ''
+                        self.bot_state.save()
+
                 # Relationship summary (Item 2)
                 rel_summary = self.bot_state.get_relationship_summary(ctx.author_id, ctx.author_name)
                 if rel_summary:
@@ -611,24 +639,153 @@ class MessageProcessor:
             log_debug(f"Relationship injection error (non-fatal): {_rel_err}")
 
         # 8c. Beliefs injection — topically relevant persistent opinions (Item 9)
+        # Uses semantic alias expansion for much better matching than raw word-overlap.
         try:
             beliefs_path = os.path.join("memory", "beliefs.json")
             if os.path.exists(beliefs_path):
                 with open(beliefs_path, 'r', encoding='utf-8') as bf:
                     all_beliefs = json.load(bf)
                 if all_beliefs:
-                    query_words = set(ctx.sanitized_content.lower().split())
+                    query_lower = ctx.sanitized_content.lower()
+                    query_words = set(query_lower.split())
+                    # Remove common stop words to reduce false positives
+                    stop_words = {'the', 'a', 'an', 'is', 'are', 'was', 'were', 'do', 'does',
+                                  'did', 'i', 'you', 'we', 'they', 'it', 'to', 'of', 'in',
+                                  'for', 'on', 'with', 'at', 'by', 'and', 'or', 'but', 'not',
+                                  'what', 'how', 'why', 'when', 'where', 'who', 'that', 'this',
+                                  'my', 'your', 'me', 'be', 'have', 'has', 'had', 'about',
+                                  'just', 'like', 'think', 'know', 'really', 'so', 'can'}
+                    query_words -= stop_words
+
                     matching = []
                     for b in all_beliefs:
-                        topic_words = set(b.get('topic', '').lower().split())
+                        topic = b.get('topic', '').lower()
+                        topic_words = set(topic.split()) - stop_words
+
+                        # Check 1: Direct word overlap (original behavior)
                         if query_words & topic_words:
                             conf = b.get('confidence', 0.5)
                             stance_qualifier = '' if conf > 0.7 else ' (uncertain)'
                             matching.append(f"{b['topic']}: {b['position']}{stance_qualifier}")
+                            continue
+
+                        # Check 2: Alias matching (pre-computed during dream extraction)
+                        aliases = set(b.get('aliases', []))
+                        if aliases and (query_words & aliases):
+                            conf = b.get('confidence', 0.5)
+                            stance_qualifier = '' if conf > 0.7 else ' (uncertain)'
+                            matching.append(f"{b['topic']}: {b['position']}{stance_qualifier}")
+                            continue
+
+                        # Check 3: Substring match (topic phrase appears in query)
+                        if len(topic) > 4 and topic in query_lower:
+                            conf = b.get('confidence', 0.5)
+                            stance_qualifier = '' if conf > 0.7 else ' (uncertain)'
+                            matching.append(f"{b['topic']}: {b['position']}{stance_qualifier}")
+
                     if matching:
                         ctx.system_prompt = ctx.system_prompt + f"\n\n[current stances: {'; '.join(matching[:3])}]"
         except Exception:
             pass  # Never let beliefs injection break generation
+
+        # ── BEHAVIORAL MODULATION (ELIZA Effect) ──────────────────────────────
+        # These lightweight prompt injections create the illusion of inner life
+        # by subtly varying Kaia's behavior based on context. No LLM calls.
+
+        # 8d. Time-of-Day Personality Modulation
+        try:
+            _hour = datetime.now().hour
+            if 6 <= _hour < 12:
+                _time_mod = "[time: morning — you're more direct and concise right now. shorter responses.]"
+            elif 12 <= _hour < 18:
+                _time_mod = "[time: afternoon — normal energy. balanced responses.]"
+            elif 18 <= _hour < 24:
+                _time_mod = "[time: evening — slightly more relaxed. willing to go longer on interesting topics.]"
+            else:
+                _time_mod = "[time: late night — you're more reflective and unhurried. willing to sit with harder questions. quieter energy.]"
+            ctx.system_prompt = ctx.system_prompt + f"\n\n{_time_mod}"
+        except Exception:
+            pass
+
+        # 8e. Adaptive Tone Mirroring — match the user's communication style
+        try:
+            _recent_user_msgs = [
+                m['content'] for m in self.bot_state.channel_memory.get(ctx.channel_id, [])
+                if m.get('role') == 'user'
+            ][-5:]  # Last 5 user messages
+            if _recent_user_msgs:
+                _avg_len = sum(len(m) for m in _recent_user_msgs) / len(_recent_user_msgs)
+                if _avg_len < 40:
+                    _mirror = "[style: they write short. match their brevity. don't over-explain.]"
+                elif _avg_len > 250:
+                    _mirror = "[style: they write at length. match their depth. fuller responses welcome.]"
+                else:
+                    _mirror = ""
+                if _mirror:
+                    ctx.system_prompt = ctx.system_prompt + f"\n\n{_mirror}"
+        except Exception:
+            pass
+
+        # 8f. Conversational Fatigue — responses get shorter after long exchanges
+        try:
+            _session_msgs = list(self.bot_state.channel_memory.get(ctx.channel_id, []))
+            _exchange_count = sum(1 for m in _session_msgs if m.get('role') == 'user')
+            if _exchange_count >= 20:
+                ctx.system_prompt = ctx.system_prompt + (
+                    "\n\n[you've been talking for a while. your responses should be getting shorter "
+                    "and more direct. it's okay to give brief answers.]"
+                )
+            elif _exchange_count >= 15:
+                ctx.system_prompt = ctx.system_prompt + (
+                    "\n\n[this has been a longer conversation. slightly shorter responses feel natural right now.]"
+                )
+        except Exception:
+            pass
+
+        # 8g. Opinion Evolution — reference belief changes when relevant
+        try:
+            if matching:  # From beliefs injection (8c)
+                from pathlib import Path as _Path
+                _gl = _Path("memory") / "growth_log.jsonl"
+                if _gl.exists():
+                    _lines = _gl.read_text(encoding='utf-8').strip().splitlines()
+                    for _line in reversed(_lines[-20:]):
+                        try:
+                            _evt = json.loads(_line)
+                            if _evt.get('type') == 'belief_revised':
+                                _topic = _evt.get('topic', '')
+                                # Check if this revised belief is one of the matching ones
+                                if any(_topic.lower() in m.lower() for m in matching):
+                                    ctx.system_prompt = ctx.system_prompt + (
+                                        f"\n\n[your stance on \"{_topic}\" has evolved. "
+                                        f"you previously thought: \"{_evt.get('old_position', '')[:80]}\". "
+                                        f"if natural, you may reference this shift.]"
+                                    )
+                                    break
+                        except json.JSONDecodeError:
+                            continue
+        except Exception:
+            pass
+
+        # 8h. Micro-Mood Expressions — linguistic behavior hints from mood floats
+        try:
+            if self.bot_state:
+                _eng = getattr(self.bot_state, 'kaia_engagement', 0.5)
+                _coh = getattr(self.bot_state, 'kaia_coherence', 0.85)
+                _dfr = getattr(self.bot_state, 'kaia_dream_freshness', 0.5)
+                _mood_hints = []
+                if _eng >= 0.8:
+                    _mood_hints.append("slightly more energetic phrasing")
+                elif _eng <= 0.2:
+                    _mood_hints.append("lower energy, fewer words")
+                if _coh < 0.5:
+                    _mood_hints.append("more hedging ('i think', 'maybe', 'not sure')")
+                if _dfr >= 0.9:
+                    _mood_hints.append("slightly more abstract, willing to be philosophical")
+                if _mood_hints:
+                    ctx.system_prompt = ctx.system_prompt + f"\n\n[mood modifiers: {'; '.join(_mood_hints)}]"
+        except Exception:
+            pass
 
         # System state injection — ground truth hardware/OS facts
         try:
@@ -875,6 +1032,24 @@ class MessageProcessor:
                     text = node.text if hasattr(node, 'text') else str(node)
                     if text and text not in ctx.context_nodes:
                         ctx.context_nodes.append(text)
+
+        # Self-Referential Continuity: detect when RAG retrieves Kaia's own dreams
+        try:
+            _has_dream_context = False
+            for node in ctx.raw_nodes:
+                _meta = node.get('metadata', {}) if isinstance(node, dict) else getattr(node, 'metadata', {})
+                _fp = (_meta.get('file_path', '') or '').lower()
+                if 'kaia_dreams' in _fp or 'dream_' in _fp:
+                    _has_dream_context = True
+                    break
+            if _has_dream_context:
+                ctx.system_prompt = ctx.system_prompt + (
+                    "\n\n[some of your retrieved context is from your own dream reflections. "
+                    "reference these as things you were 'thinking about' or 'something that came to mind', "
+                    "not as documents or files. they are your own thoughts.]"
+                )
+        except Exception:
+            pass
 
     async def _generate_response_stage(self, ctx: MessageContext):
         """Stage 4: Context Optimization and Multi-pass Generation."""
@@ -1307,6 +1482,86 @@ class MessageProcessor:
                         log_debug(f"Relationship event saved: {event_type} for {ctx.author_name}")
                 except Exception as _rel_err:
                     log_debug(f"Relationship update error (non-fatal): {_rel_err}")
+
+                # ── Interaction-Driven Growth ──────────────────────────────────
+                # Lightweight real-time growth triggers — supplements the nightly
+                # dream cycle with immediate responses to significant exchanges.
+                try:
+                    # 1. Interaction Milestone Detector
+                    rel = self.bot_state.relationships.get(str(ctx.author_id))
+                    if rel:
+                        count = rel.get('interaction_count', 0)
+                        milestones = {10, 25, 50, 100, 250, 500}
+                        if count in milestones:
+                            from pathlib import Path
+                            growth_log = Path("memory") / "growth_log.jsonl"
+                            growth_log.parent.mkdir(parents=True, exist_ok=True)
+                            milestone_entry = json.dumps({
+                                "ts": time.time(),
+                                "type": "relationship_milestone",
+                                "user": ctx.author_name,
+                                "milestone": count,
+                                "note": f"{count} exchanges with {ctx.author_name}"
+                            })
+                            with open(growth_log, 'a', encoding='utf-8') as gl:
+                                gl.write(milestone_entry + '\n')
+                            log_info(f"Growth milestone: {count} interactions with {ctx.author_name}")
+
+                    # 2. Significant Exchange Detector
+                    # Flag substantive conversations for the continuity file
+                    is_significant = False
+                    significance_reason = ""
+
+                    # Long substantive exchange
+                    if len(ctx.sanitized_content) > 200 and len(bot_response) > 500:
+                        is_significant = True
+                        significance_reason = "substantive exchange"
+
+                    # Friction or repair events (already detected above)
+                    if event_type in ('friction', 'repair', 'milestone'):
+                        is_significant = True
+                        significance_reason = f"{event_type} event"
+
+                    if is_significant:
+                        # Append a brief note to the continuity file (NOT identity stream)
+                        # This gives the dream engine more material for the next cycle
+                        continuity_path = os.path.join("memory", "rag_storage", "kaia_continuity.md")
+                        if os.path.exists(continuity_path):
+                            note = f"\n[{datetime.now().strftime('%Y-%m-%d %H:%M')}] {significance_reason} with {ctx.author_name}: {ctx.sanitized_content[:100]}"
+                            with open(continuity_path, 'a', encoding='utf-8') as cf:
+                                cf.write(note)
+                            log_debug(f"Continuity note appended: {significance_reason} with {ctx.author_name}")
+                except Exception as _growth_err:
+                    log_debug(f"Growth tracking error (non-fatal): {_growth_err}")
+
+                # ── Open Loop Detection ────────────────────────────────────────
+                # Detect future-intent statements and save them for callback
+                # when the user returns. "I'm going to try X" → next session
+                # Kaia asks "how did X go?"
+                try:
+                    import re as _re_loops
+                    _INTENT_PATTERNS = [
+                        r"(?:i'm |i am |gonna |going to |about to |planning to |want to |trying to )(.{10,80})",
+                        r"(?:i'll |i will |i might |i should )(.{10,80})",
+                        r"(?:wish me luck|here goes|let's see if|fingers crossed)(.{0,80})",
+                    ]
+                    _content_lower = ctx.sanitized_content.lower()
+                    # Only detect in longer messages (skip "i'm fine" type responses)
+                    if len(_content_lower) > 30:
+                        for pattern in _INTENT_PATTERNS:
+                            _match = _re_loops.search(pattern, _content_lower)
+                            if _match:
+                                _loop_text = _match.group(0).strip()[:120]
+                                # Don't overwrite with trivial matches
+                                if len(_loop_text) > 15:
+                                    _rel = self.bot_state.relationships.get(str(ctx.author_id))
+                                    if _rel is not None:
+                                        _rel['last_open_loop'] = _loop_text
+                                        self.bot_state.save()
+                                        log_debug(f"Open loop saved for {ctx.author_name}: {_loop_text[:60]}")
+                                    break
+                except Exception:
+                    pass  # Never let open loop detection break anything
 
                 # ── Generation Quality Logging (Item 11) ──────────────────────
                 try:

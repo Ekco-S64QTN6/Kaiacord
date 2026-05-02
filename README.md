@@ -15,7 +15,7 @@
 
 ---
 
-Kaia is a Discord bot that actually remembers you. She builds a personal knowledge base from your conversations, dreams about them at night, and grounds every response in what actually happened — not what a cloud model guesses.
+Kaia is an autonomous AI agent that actually remembers and evolves. She builds a personal knowledge base from your conversations, dreams about them at night, and develops her own beliefs over time. Her lifelike presence system includes reading pauses, mood-driven Discord statuses, conversational fatigue, and callbacks to past interactions.
 
 She has a persona (blunt, lowercase, technically precise), cross-posts to Bluesky and X, monitors forums, and generates daily news briefs via Gemini. The whole stack runs locally with Ollama.
 
@@ -185,8 +185,12 @@ First message: `@kaia status` in Discord to verify she's running.
 | 💬 | **Local inference** | gemma3:12b via Ollama, 8K context, fully offline |
 | 🧠 | **Persistent memory** | RAG-backed knowledge base, per-user profiles, conversation history |
 | 🌙 | **Dream Engine** | Nightly associative recall — processes daily logs into reflections |
+| 🎭 | **Lifelike presence** | Reading pauses, mood-based Discord status, emoji reactions |
+| 🌱 | **Character growth** | Evolving beliefs, self-model regeneration, interactive milestones |
+| 🕰️ | **Temporal awareness**| Time-of-day personality modulation, conversational fatigue |
+| 💬 | **Deep continuity** | Tone mirroring, open loop callbacks to past unfinished threads |
 | 🔍 | **Hybrid retrieval** | BM25 + vector search with reciprocal rank fusion |
-| 🛡️ | **Hallucination guard** | Adversarial self-check, knowledge boundary enforcement |
+| 🛡️ | **Hallucination guard**| Adversarial self-check, knowledge boundary enforcement |
 | 🔄 | **Self-healing** | 3-pass generation loop with automatic parameter scaling |
 | 📰 | **Daily news** | Auto-generated tech briefs via Gemini API, 14-day retention |
 | 🐦 | **Social media** | Cross-posts to Bluesky and X, replies to mentions |
