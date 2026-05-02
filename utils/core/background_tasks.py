@@ -19,6 +19,7 @@ class CoreTaskManager:
         self.evening_reflection_task = self._make_evening_reflection_task()
         self.aethelgard_dawn_task = self._make_aethelgard_dawn_task()
         self.noon_raid_task = self._make_noon_raid_task()
+        self.afterthought_task = self._make_afterthought_task()
         
         # Presence system — maps mood floats to visible Discord status
         self.presence_manager = None
@@ -58,6 +59,111 @@ class CoreTaskManager:
             log_error(f"CRITICAL: News refresh task died: {error}")
             
         return news_refresh_task
+
+    def _make_afterthought_task(self):
+        @tasks.loop(minutes=3)
+        async def afterthought_task():
+            if shutdown_manager.shutting_down: return
+            if not self.ctx or not self.ctx.bot_state: return
+            
+            # Guard: skip if a user chat is actively generating or if dreaming
+            if getattr(self.ctx.bot_state, 'is_generating', False): return
+            if getattr(self.ctx.bot_state, 'is_generating_image', False): return
+            
+            pending = getattr(self.ctx.bot_state, 'pending_afterthoughts', [])
+            if not pending: return
+
+            now = time.time()
+            to_remove = []
+            to_execute = None
+            
+            for i, p in enumerate(pending):
+                # Only trigger if 10 minutes have passed
+                if now - p['timestamp'] >= 600:
+                    # Check channel activity
+                    chan_id = p['channel_id']
+                    # Use channel memory to see if anyone spoke recently
+                    memory = self.ctx.bot_state.channel_memory.get(chan_id, [])
+                    if memory:
+                        last_msg = memory[-1]
+                        last_ts = float(last_msg.get('timestamp', 0))
+                        # If channel has been silent for 10 mins
+                        if now - last_ts >= 600:
+                            to_execute = p
+                            to_remove.append(i)
+                            break # Only do one at a time
+                        else:
+                            # Someone spoke too recently, discard this afterthought
+                            to_remove.append(i)
+                    else:
+                        to_remove.append(i)
+                elif now - p['timestamp'] >= 3600:
+                    # Older than 1 hour, discard
+                    to_remove.append(i)
+            
+            # Clean up processed/stale
+            for i in reversed(to_remove):
+                pending.pop(i)
+            self.ctx.bot_state.save()
+            
+            if to_execute:
+                try:
+                    channel = self.ctx.bot.get_channel(to_execute['channel_id'])
+                    if not channel: return
+                    
+                    # Ensure it's not a DM
+                    if hasattr(channel, 'guild') and channel.guild is None:
+                        return
+                    
+                    from utils.social.kaia_social_responder import load_persona_async
+                    from utils.infrastructure.gpu.gpu_memory_manager import gpu_memory_manager, GPUTaskPriority
+                    import uuid
+                    
+                    persona = await load_persona_async()
+                    prompt = (
+                        f"You were speaking with {to_execute['user_name']} about: {to_execute['topic']}. "
+                        f"It's been 10 minutes since the conversation ended. Generate a brief, unprompted follow-up "
+                        f"thought or realization about it. Keep it under 2 sentences. "
+                        f"Start naturally, like 'actually, thinking more about what you said...' or 'i just realized...'."
+                    )
+                    
+                    async with channel.typing():
+                        # Variable reading pause just like normal messages
+                        import secrets
+                        await asyncio.sleep(2.0 + secrets.randbelow(3))
+                        
+                        resp = await gpu_memory_manager.run_with_gpu_guard(
+                            model_name=config.chat_model,
+                            priority=GPUTaskPriority.CHAT,
+                            coro=asyncio.wait_for(
+                                self.ctx.ollama_client.chat(
+                                    model=config.chat_model,
+                                    messages=[
+                                        {"role": "system", "content": persona},
+                                        {"role": "user", "content": prompt}
+                                    ],
+                                    options={"temperature": 0.8},
+                                    keep_alive=-1
+                                ),
+                                timeout=45.0
+                            ),
+                            task_id=f"afterthought_{uuid.uuid4().hex[:8]}"
+                        )
+                        
+                        raw = resp["message"]["content"].strip()
+                        if raw:
+                            await channel.send(raw)
+                            log_info(f"Delivered delayed afterthought to {to_execute['user_name']}")
+                except Exception as e:
+                    log_warning(f"Failed to generate afterthought: {e}")
+
+        @afterthought_task.before_loop
+        async def before_afterthought():
+            if getattr(self.ctx, 'bot', None):
+                await self.ctx.bot.wait_until_ready()
+                await asyncio.sleep(15)
+
+        return afterthought_task
 
     def _make_dream_engine_task(self):
         @tasks.loop(hours=1)
@@ -538,6 +644,11 @@ class CoreTaskManager:
             self.presence_task.start()
             if self.presence_task.get_task():
                 task_registry.register("presence_update_task", self.presence_task.get_task())
+                
+        # Afterthought task
+        self.afterthought_task.start()
+        if self.afterthought_task.get_task():
+            task_registry.register("afterthought_task", self.afterthought_task.get_task())
             
         log_action("Core background tasks started via CoreTaskManager.")
 
@@ -547,6 +658,7 @@ class CoreTaskManager:
         self.evening_reflection_task.stop()
         self.aethelgard_dawn_task.stop()
         self.noon_raid_task.stop()
+        self.afterthought_task.stop()
         if self.presence_task:
             self.presence_task.stop()
 

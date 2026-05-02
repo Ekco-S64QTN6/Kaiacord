@@ -787,6 +787,22 @@ class MessageProcessor:
         except Exception:
             pass
 
+        # 8i. "I've Been Reading" Mentions — organic references to recently ingested knowledge
+        try:
+            if self.bot_state and getattr(self.bot_state, 'recent_ingestions', None):
+                _recent = self.bot_state.recent_ingestions[-1]
+                if isinstance(_recent, dict):
+                    _filename = _recent.get('filename', '')
+                    if _filename:
+                        import os as _os
+                        _clean_name = _os.path.splitext(_os.path.basename(_filename))[0].replace('_', ' ').replace('-', ' ')
+                        ctx.system_prompt = ctx.system_prompt + (
+                            f"\n\n[you recently read a document about: \"{_clean_name}\". "
+                            f"if relevant to the conversation, you may reference it naturally, but don't force it.]"
+                        )
+        except Exception:
+            pass
+
         # System state injection — ground truth hardware/OS facts
         try:
             from utils.infrastructure.system.kaia_sysmon import build_system_prompt_block_async
@@ -1523,6 +1539,19 @@ class MessageProcessor:
                         significance_reason = f"{event_type} event"
 
                     if is_significant:
+                        # Queue an afterthought (10% chance)
+                        if getattr(self.bot_state, 'pending_afterthoughts', None) is not None:
+                            import secrets as _sec
+                            if _sec.randbelow(100) < 10:
+                                self.bot_state.pending_afterthoughts.append({
+                                    "channel_id": ctx.channel_id,
+                                    "user_id": ctx.author_id,
+                                    "user_name": ctx.author_name,
+                                    "timestamp": time.time(),
+                                    "topic": significance_reason
+                                })
+                                log_debug(f"Queued afterthought for {ctx.author_name} ({significance_reason})")
+
                         # Append a brief note to the continuity file (NOT identity stream)
                         # This gives the dream engine more material for the next cycle
                         continuity_path = os.path.join("memory", "rag_storage", "kaia_continuity.md")

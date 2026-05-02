@@ -91,6 +91,36 @@ class KaiaPresenceManager:
         """Pick a random item from a pool using secrets for consistency with project standards."""
         return pool[secrets.randbelow(len(pool))]
 
+    def _get_ambient_status(self) -> Optional[str]:
+        """Pull a specific, contextual status from recent growth log events."""
+        try:
+            from pathlib import Path
+            import json
+            growth_log = Path("memory") / "growth_log.jsonl"
+            if not growth_log.exists():
+                return None
+            
+            with open(growth_log, 'r', encoding='utf-8') as f:
+                lines = f.readlines()[-10:]
+            
+            for line in reversed(lines):
+                try:
+                    evt = json.loads(line)
+                    if evt.get('type') in ['belief_formed', 'belief_revised']:
+                        topic = evt.get('topic', '')
+                        if topic:
+                            return f"thinking about {topic.lower()}."
+                    elif evt.get('type') == 'relationship_insight':
+                        user = evt.get('user_name', '')
+                        if user:
+                            return f"thinking about what {user.lower()} said."
+                except json.JSONDecodeError:
+                    continue
+            return None
+        except Exception as e:
+            log_debug(f"Failed to get ambient status: {e}")
+            return None
+
     def get_mood_activity(self) -> tuple[discord.Status, str]:
         """Determine the appropriate status dot and activity text from current mood state.
         
@@ -127,19 +157,25 @@ class KaiaPresenceManager:
             status = discord.Status.online
 
         # 5. Determine activity text
-        if coherence < 0.4:
-            text = self._pick_random(_DEGRADED_TEXTS)
-        elif dream_freshness > 0.9 and engagement < 0.4:
-            # Just dreamed recently but quiet day
-            text = self._pick_random(_POST_DREAM_TEXTS)
-        elif engagement >= 0.7:
-            text = self._pick_random(_ACTIVE_TEXTS)
-        elif engagement <= 0.3:
-            text = self._pick_random(_IDLE_TEXTS)
-        else:
-            # Moderate — mix of idle and active
-            pool = _IDLE_TEXTS + _ACTIVE_TEXTS
-            text = self._pick_random(pool)
+        text = None
+        # 30% chance to use a specific ambient status if not highly active/degraded
+        if coherence >= 0.4 and engagement < 0.8 and secrets.randbelow(100) < 30:
+            text = self._get_ambient_status()
+
+        if not text:
+            if coherence < 0.4:
+                text = self._pick_random(_DEGRADED_TEXTS)
+            elif dream_freshness > 0.9 and engagement < 0.4:
+                # Just dreamed recently but quiet day
+                text = self._pick_random(_POST_DREAM_TEXTS)
+            elif engagement >= 0.7:
+                text = self._pick_random(_ACTIVE_TEXTS)
+            elif engagement <= 0.3:
+                text = self._pick_random(_IDLE_TEXTS)
+            else:
+                # Moderate — mix of idle and active
+                pool = _IDLE_TEXTS + _ACTIVE_TEXTS
+                text = self._pick_random(pool)
 
         return status, text
 

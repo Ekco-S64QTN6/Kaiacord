@@ -67,6 +67,9 @@ class BotState:
         #     "last_open_loop": str (description of last unresolved thread)
         # }
         self.relationships: Dict[str, dict] = {}
+        
+        # Format: [{"channel_id": int, "user_id": int, "user_name": str, "timestamp": float, "topic": str}]
+        self.pending_afterthoughts: list = []
 
         self.load()
 
@@ -91,6 +94,7 @@ class BotState:
                         self.last_dawn_date = state.get('last_dawn_date', "")
                         self.forum_reply_times = state.get('forum_reply_times', {})
                         self.relationships = state.get('relationships', {})
+                        self.pending_afterthoughts = state.get('pending_afterthoughts', [])
                         
                         # boot_complete is TRANSIENT - do not load from disk
                         self.boot_complete = False
@@ -147,6 +151,7 @@ class BotState:
                     'last_dawn_date': self.last_dawn_date,
                     'forum_reply_times': self.forum_reply_times,
                     'relationships': self.relationships,
+                    'pending_afterthoughts': self.pending_afterthoughts,
                     # boot_complete is TRANSIENT - do not save to disk
                     'mentioned_files': list(self.mentioned_files),
                     # Explicitly cast int keys to str for JSON serialisation (JSON keys must be strings).
