@@ -53,7 +53,7 @@ def _generate_floor_pool(floor_num: int) -> list:
 
         # Include the zone's thematic pool to ensure flavor
         zone_key = _get_zone_key(floor_num)
-        zone_pool = [k for k, w in tables.get('spine_of_the_world', {}).get(zone_key, [])]
+        zone_pool = [k for k, w in tables.get('aeridor_ruins', {}).get(zone_key, [])]
 
         import random
         random.shuffle(valid_monsters)

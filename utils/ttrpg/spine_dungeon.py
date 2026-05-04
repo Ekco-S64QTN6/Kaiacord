@@ -172,7 +172,7 @@ def generate_spine_floor(floor_num: int, player_level: int) -> dict:
         "loot_gained":   [],
         "player_level":  player_level,
         "difficulty":    5,  # Spine is endgame L15 — always max difficulty
-        "location":      "spine_of_the_world",
+        "location":      "aeridor_ruins",
         "theme_key":     "spine_deep",
         "theme_name":    layout["floor_name"],
         "theme_emoji":   "⛏️",

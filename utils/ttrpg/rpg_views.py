@@ -417,12 +417,7 @@ LOCATION_COLORS = {
     "whisperwood_deep":  0x2d5a35,   # deep dark green
     "aeridor_ruins":     0x7a6a9a,   # resonance purple
     "trade_road":        0xa08050,   # dust and dirt
-    "grimstone":        0x4a5054,   # dark iron grey
-    "rusty_pick":       0x8b4513,   # smoky wood brown
-    "ironclad_office":  0x60666b,   # polished steel grey
-    "assay_office":     0x756b59,   # tarnished brass
-    "pells_depot":      0x5c4033,   # oiled leather
-    "spine_of_the_world": 0xcad0d3, # freezing high-altitude slate
+    # grimstone locations removed
 }
 
 
@@ -636,22 +631,11 @@ class RPGFullLocationView(discord.ui.View):
             
             sel = discord.ui.Select(placeholder="Visit a plot...", options=options[:25], row=4)
         else:
-            # Separate regions to prevent global menu clutter and spoilers
-            grimstone_region = {"grimstone", "rusty_pick", "ironclad_office", "assay_office", "pells_depot", "spine_of_the_world"}
-            is_grimstone_area = location in grimstone_region
-            
             all_locs = []
             for k in LOCATION_DATA.keys():
                 if k == location:
                     continue
-                # Both regions share the trade_road as a connector
-                if k == "trade_road":
-                    all_locs.append(k)
-                    continue
-                    
-                k_is_grimstone = k in grimstone_region
-                if is_grimstone_area == k_is_grimstone:
-                    all_locs.append(k)
+                all_locs.append(k)
 
             all_locs.sort(key=lambda k: 1 if LOCATION_DATA.get(k, {}).get("hunting") else 0)
             if all_locs:
@@ -2250,7 +2234,7 @@ async def _dungeon_move(ctx_obj, interaction, uid, uname, is_owner, direction):
         return
 
     loc = sheet.get("location", "whisperwood_edge")
-    if loc == "spine_of_the_world":
+    if loc == "aeridor_ruins":
         from utils.ttrpg.spine_dungeon import load_spine_dungeon, save_spine_dungeon
         state = await load_spine_dungeon(uid)
         save_func = save_spine_dungeon
@@ -2528,7 +2512,7 @@ async def _dungeon_combat_flee(ctx_obj, interaction, uid, uname, is_owner):
     if not sheet: return
 
     loc = sheet.get("location", "whisperwood_edge")
-    if loc == "spine_of_the_world":
+    if loc == "aeridor_ruins":
         from utils.ttrpg.spine_dungeon import load_spine_dungeon, save_spine_dungeon
         state = await load_spine_dungeon(uid)
         save_func = save_spine_dungeon
@@ -2624,7 +2608,6 @@ _LOCATION_BUTTONS: dict[str, list] = {
     "trade_road": [
         ("Caravan", "🐪", "go", "caravan", discord.ButtonStyle.blurple, 0),
         ("Hunt", "🗡️", "hunt", "", discord.ButtonStyle.danger, 0),
-        ("North (Grimstone)", "⛏️", "go", "grimstone", discord.ButtonStyle.secondary, 1),
         ("South (Oakhaven)", "🏘️", "go", "oakhaven", discord.ButtonStyle.secondary, 1),
         ("Look", "🔎", "look", "", discord.ButtonStyle.secondary, 1),
     ],
@@ -2655,44 +2638,6 @@ _LOCATION_BUTTONS: dict[str, list] = {
         ("Look", "🔎", "look", "", discord.ButtonStyle.secondary, 0),
         ("Housing", "🏘️", "go", "housing_district", discord.ButtonStyle.secondary, 1),
         ("Town Square", "⛲", "go", "oakhaven", discord.ButtonStyle.secondary, 1),
-    ],
-    "grimstone": [
-        ("Look", "🔎", "look", "", discord.ButtonStyle.secondary, 0),
-        ("Rusty Pick", "🥃", "go", "rusty_pick", discord.ButtonStyle.secondary, 1),
-        ("Guild Office", "🏭", "go", "ironclad_office", discord.ButtonStyle.secondary, 1),
-        ("Assay", "⚖️", "go", "assay_office", discord.ButtonStyle.secondary, 1),
-        ("Depot", "🪢", "go", "pells_depot", discord.ButtonStyle.secondary, 1),
-        ("Spine", "🏔️", "go", "spine_of_the_world", discord.ButtonStyle.secondary, 2),
-    ],
-    "rusty_pick": [
-        ("Rest", "🛏️", "rest", "", discord.ButtonStyle.green, 0),
-        ("Drink", "🥃", "drink", "", discord.ButtonStyle.blurple, 0),
-        ("Talk Marta", "👤", "talk", "marta", discord.ButtonStyle.secondary, 0),
-        ("Talk Rook", "👤", "talk", "rook", discord.ButtonStyle.secondary, 0),
-        ("Look", "🔎", "look", "", discord.ButtonStyle.secondary, 1),
-        ("Town", "⛏️", "go", "grimstone", discord.ButtonStyle.secondary, 1),
-    ],
-    "ironclad_office": [
-        ("Talk Valdric", "👤", "talk", "valdric", discord.ButtonStyle.secondary, 0),
-        ("Look", "🔎", "look", "", discord.ButtonStyle.secondary, 0),
-        ("Town", "⛏️", "go", "grimstone", discord.ButtonStyle.secondary, 0),
-    ],
-    "assay_office": [
-        ("Talk Senna", "👤", "talk", "senna", discord.ButtonStyle.secondary, 0),
-        ("Look", "🔎", "look", "", discord.ButtonStyle.secondary, 0),
-        ("Town", "⛏️", "go", "grimstone", discord.ButtonStyle.secondary, 0),
-    ],
-    "pells_depot": [
-        ("Shop", "🏪", "shop", "", discord.ButtonStyle.blurple, 0),
-        ("Talk Pell", "👤", "talk", "old_pell", discord.ButtonStyle.secondary, 0),
-        ("Look", "🔎", "look", "", discord.ButtonStyle.secondary, 0),
-        ("Town", "⛏️", "go", "grimstone", discord.ButtonStyle.secondary, 0),
-    ],
-    "spine_of_the_world": [
-        ("Hunt", "⚔️", "hunt", "", discord.ButtonStyle.danger, 0),
-        ("Dungeon", "🏚️", "dungeon", "", discord.ButtonStyle.primary, 0),
-        ("Look", "🔎", "look", "", discord.ButtonStyle.secondary, 0),
-        ("Town", "⛏️", "go", "grimstone", discord.ButtonStyle.secondary, 1),
     ],
 }
 

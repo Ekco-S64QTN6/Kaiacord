@@ -11,7 +11,6 @@ EVENT_CHANCE = {
     "whisperwood_deep": 18,
     "aeridor_ruins":    12,
     "trade_road":       15,
-    "spine_of_the_world": 8,
 }
 
 # Quest-boosted encounter tables — keyed by synthetic location strings
@@ -150,14 +149,6 @@ EVENTS = {
         ("injured_silvani",   14), ("moogle_sighting",   12),
         ("chocobo_tracks",    12), ("mognet_delivery",   10),
         ("lost_merchant",     12), ("abandoned_camp",    10),
-    ],
-    "spine_of_the_world": [
-        ("echo_of_aeridor",  30),   # ruins echo here too — the Spine's bones are old
-        ("veiled_elder",     20),   # they go everywhere
-        ("crystal_resonance", 20),  # the Spine is resonance-rich
-        ("injured_silvani",  15),   # Silvani scouts operate in the upper passes
-        ("timid_tonberry",    8),   # it followed you. it always follows.
-        ("ancient_coin",      7),   # Aeridorian coins surface in the stone
     ],
 }
 

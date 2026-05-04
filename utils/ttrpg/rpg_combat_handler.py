@@ -62,7 +62,7 @@ async def _dungeon_combat_round(ctx_obj, interaction, uid, uname, is_owner):
         return
 
     loc = sheet.get("location", "whisperwood_edge")
-    if loc == "spine_of_the_world":
+    if loc == "aeridor_ruins":
         from utils.ttrpg.spine_dungeon import load_spine_dungeon, save_spine_dungeon
         state = await load_spine_dungeon(uid)
         save_func = save_spine_dungeon
@@ -427,7 +427,7 @@ async def _handle_dungeon(ctx, msg, send, rest, uid, uname, is_owner):
     if not sheet: return
     loc = sheet.get("location", "whisperwood_edge")
 
-    if loc == "spine_of_the_world":
+    if loc == "aeridor_ruins":
         existing = await load_spine_dungeon(uid)
         if existing and existing.get("active"):
             await msg.channel.send(embed=discord.Embed(
@@ -474,7 +474,7 @@ async def _handle_dungeon(ctx, msg, send, rest, uid, uname, is_owner):
                          f"You have {hunts_remaining(sheet)}/{get_max_hunts(sheet)}."),
             color=0xcc4444))
 
-    if loc == "spine_of_the_world":
+    if loc == "aeridor_ruins":
         max_defeated = max(sheet.get("spine_defeated_guards", [0]))
         if max_defeated < 5:
             # No checkpoints unlocked, start at floor 1

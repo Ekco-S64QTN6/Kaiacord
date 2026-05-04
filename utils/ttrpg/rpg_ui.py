@@ -68,12 +68,6 @@ LOCATION_ICONS = {
     "whisperwood_deep":  "🌑",
     "aeridor_ruins":     "🏚️",
     "trade_road":        "🛤️",
-    "grimstone":        "⛏️",
-    "rusty_pick":       "🥃",
-    "ironclad_office":  "🏭",
-    "assay_office":     "⚖️",
-    "pells_depot":      "🪢",
-    "spine_of_the_world": "🏔️",
 }
 
 TIER_ICONS = {

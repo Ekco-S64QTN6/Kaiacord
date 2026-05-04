@@ -877,51 +877,6 @@ async def _handle_look(ctx, msg, send, rest, uid, uname, is_owner):
                         )
                         await save(sheet)
                         
-            # Grimstone path quest trigger — crystals at Aeridor Ruins
-            if loc == "aeridor_ruins" and look_target in ("crystals",):
-                active_ids = sheet.get("active_quests", [])
-                if "grimstone_path" in active_ids:
-                    from utils.ttrpg.quest_registry import get_quest
-                    q = get_quest("grimstone_path")
-                    if q:
-                        prog = sheet.setdefault("quest_progress", {}).setdefault("grimstone_path", [])
-                        tasks_done = all(t in prog for t in ["talk_elara"])
-                        if tasks_done and "look_crystals" not in prog:
-                            prog.append("look_crystals")
-                            # Check completion
-                            if all(t in prog for t in q["tasks"]):
-                                xp_reward = q["rewards"].get("xp", 0)
-                                gil_reward = q["rewards"].get("gil", 0)
-                                sheet["xp"] = sheet.get("xp", 0) + xp_reward
-                                sheet["gil"] = sheet.get("gil", 0) + gil_reward
-                                if "item" in q["rewards"]:
-                                    sheet.setdefault("inventory", []).append(q["rewards"]["item"])
-                                sheet["active_quests"].remove("grimstone_path")
-                                sheet.setdefault("completed_quests", []).append("grimstone_path")
-                                await save(sheet)
-                                
-                                leveled, new_level = check_level_up(sheet)
-                                if leveled:
-                                    await save(sheet)
-                                embed.add_field(
-                                    name="⚡ The Lock Shatters",
-                                    value=(
-                                        "The moment your understanding of the three-flame pattern meets the imposed resonance lock, "
-                                        "something releases.\n\n"
-                                        "The crystal lattice flares — once, bright, complete — and goes still.\n\n"
-                                        "*Somewhere on the Trade Road north, a barricade collapses.*\n\n"
-                                        "✅ **Quest Complete: The Road to Iron**\n"
-                                        f"+{xp_reward} XP · +{gil_reward} Gil"
-                                    ),
-                                    inline=False
-                                )
-                                from utils.ttrpg.rpg_social_handler import _log_world_event
-                                await _log_world_event(
-                                    f"⚡ **{sheet['character_name']}** broke the Guild's resonance lock. The road to Grimstone is open."
-                                )
-                            else:
-                                embed.set_footer(text="The lock responds to you. But you don't have everything you need yet.")
-                            await save(sheet)
             return await msg.channel.send(embed=embed)
         else:
             return await msg.channel.send(embed=discord.Embed(
@@ -2076,6 +2031,12 @@ async def _handle_scout(ctx, msg, send, rest, uid, uname, is_owner):
 
     for loc_key, loc_name in HUNTING_LOCATIONS.items():
         base_table = FULL_TABLES.get(loc_key, [])
+        if isinstance(base_table, dict):
+            flat_table = []
+            for zone_list in base_table.values():
+                flat_table.extend(zone_list)
+            base_table = flat_table
+            
         seasonal = seasonal_mods.get(loc_key, [])
         table = base_table + seasonal
 
