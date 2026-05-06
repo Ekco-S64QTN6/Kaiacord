@@ -71,6 +71,9 @@ class BotState:
         # Format: [{"channel_id": int, "user_id": int, "user_name": str, "timestamp": float, "topic": str}]
         self.pending_afterthoughts: list = []
 
+        # Per-channel last-activity timestamps for afterthought silence checks
+        self.channel_last_activity: Dict[int, float] = {}
+
         self.load()
 
     def load(self):
@@ -95,6 +98,13 @@ class BotState:
                         self.forum_reply_times = state.get('forum_reply_times', {})
                         self.relationships = state.get('relationships', {})
                         self.pending_afterthoughts = state.get('pending_afterthoughts', [])
+                        
+                        # Per-channel activity — keys stored as strings in JSON
+                        raw_activity = state.get('channel_last_activity', {})
+                        self.channel_last_activity = {
+                            int(k): float(v) for k, v in raw_activity.items()
+                            if str(k).isdigit()
+                        }
                         
                         # boot_complete is TRANSIENT - do not load from disk
                         self.boot_complete = False
@@ -152,6 +162,7 @@ class BotState:
                     'forum_reply_times': self.forum_reply_times,
                     'relationships': self.relationships,
                     'pending_afterthoughts': self.pending_afterthoughts,
+                    'channel_last_activity': {str(k): v for k, v in self.channel_last_activity.items()},
                     # boot_complete is TRANSIENT - do not save to disk
                     'mentioned_files': list(self.mentioned_files),
                     # Explicitly cast int keys to str for JSON serialisation (JSON keys must be strings).
@@ -197,6 +208,7 @@ class BotState:
     def update_interaction(self, channel_id: int):
         """Update last interaction time and channel"""
         self.last_interaction_time = time.time()
+        self.channel_last_activity[channel_id] = time.time()
         if self.last_active_channel_id != channel_id:
             self.last_active_channel_id = channel_id
             self.save()
@@ -326,12 +338,13 @@ class BotState:
             self.relationships[uid] = rel
 
         rel['interaction_count'] += 1
+        previous_seen = rel.get('last_seen', now)  # snapshot BEFORE overwrite
         rel['last_seen'] = now
 
         # Familiarity: EMA based on interaction frequency.
-        # If user interacts often (< 24h gaps), familiarity rises toward 1.0.
+        # If user interacts often (<24h gaps), familiarity rises toward 1.0.
         # If user is absent for days, it decays toward 0.1.
-        hours_since_last = (now - rel.get('last_seen', now)) / 3600.0
+        hours_since_last = (now - previous_seen) / 3600.0
         if hours_since_last < 24:
             target_fam = min(1.0, 0.6 + rel['interaction_count'] * 0.02)
         else:

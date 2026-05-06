@@ -100,8 +100,18 @@ class KaiaPresenceManager:
             if not growth_log.exists():
                 return None
             
+            # Read only the tail of the file to avoid loading the entire log
             with open(growth_log, 'r', encoding='utf-8') as f:
-                lines = f.readlines()[-10:]
+                try:
+                    f.seek(0, 2)  # Seek to end
+                    size = f.tell()
+                    f.seek(max(0, size - 2048))  # Read last ~2KB
+                    if size > 2048:
+                        f.readline()  # Discard partial first line
+                    lines = f.readlines()[-10:]
+                except Exception:
+                    f.seek(0)
+                    lines = f.readlines()[-10:]
             
             for line in reversed(lines):
                 try:

@@ -78,28 +78,22 @@ class CoreTaskManager:
             to_execute = None
             
             for i, p in enumerate(pending):
-                # Only trigger if 10 minutes have passed
-                if now - p['timestamp'] >= 600:
-                    # Check channel activity
-                    chan_id = p['channel_id']
-                    # Use channel memory to see if anyone spoke recently
-                    memory = self.ctx.bot_state.channel_memory.get(chan_id, [])
-                    if memory:
-                        last_msg = memory[-1]
-                        last_ts = float(last_msg.get('timestamp', 0))
-                        # If channel has been silent for 10 mins
-                        if now - last_ts >= 600:
-                            to_execute = p
-                            to_remove.append(i)
-                            break # Only do one at a time
-                        else:
-                            # Someone spoke too recently, discard this afterthought
-                            to_remove.append(i)
-                    else:
-                        to_remove.append(i)
-                elif now - p['timestamp'] >= 3600:
-                    # Older than 1 hour, discard
+                age = now - p['timestamp']
+                # Discard afterthoughts older than 1 hour (stale)
+                if age >= 3600:
                     to_remove.append(i)
+                    continue
+                # Only trigger if 10 minutes have passed since queuing
+                if age >= 600:
+                    # Check per-channel activity to see if anyone spoke recently
+                    chan_id = p['channel_id']
+                    last_activity = self.ctx.bot_state.channel_last_activity.get(chan_id, 0)
+                    if now - last_activity >= 600:
+                        # Channel has been silent for 10+ minutes — deliver
+                        to_execute = p
+                        to_remove.append(i)
+                        break  # Only do one at a time
+                    # else: channel still active — leave it in the queue for next cycle
             
             # Clean up processed/stale
             for i in reversed(to_remove):
@@ -152,7 +146,8 @@ class CoreTaskManager:
                         
                         raw = resp["message"]["content"].strip()
                         if raw:
-                            await channel.send(raw)
+                            from utils.infrastructure.system.messaging import send_kaia_response
+                            await send_kaia_response(channel, raw)
                             log_info(f"Delivered delayed afterthought to {to_execute['user_name']}")
                 except Exception as e:
                     log_warning(f"Failed to generate afterthought: {e}")

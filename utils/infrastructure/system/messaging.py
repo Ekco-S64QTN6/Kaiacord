@@ -1,8 +1,8 @@
 import asyncio
 from utils.infrastructure.logging.kaia_logger import log_warning
 
-async def send_kaia_response(channel, text, use_code_block=True):
-    """Helper to split long messages and optionally wrap them in Kaia's code block style"""
+async def send_kaia_response(channel, text, use_code_block=False):
+    """Helper to split long messages and optionally wrap them in Kaia's style"""
     if not text:
         log_warning("send_kaia_response called with empty text. Skipping.")
         return

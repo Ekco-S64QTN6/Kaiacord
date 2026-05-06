@@ -40,9 +40,9 @@ Welcome to the Kaiacord documentation! Organized by topic for easy navigation.
 
 ### 📊 [Reports & Planning](reports/README.md)
 - [Reports Index](reports/README.md)
-- [Gemini Engineering Log](reports/current/GEMINI_Report.md)
-- [Claude Code Review](reports/current/Claude_Report.md)
-- [Deferred Planning](reports/planning/)
+- [Master Report](reports/MASTER_REPORT.md)
+- [Claude Code Review](reports/Claude_Report.md)
+- [Roadmap](reports/roadmap.md)
 
 ---
 

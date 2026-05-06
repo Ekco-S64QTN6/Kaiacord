@@ -184,6 +184,31 @@ class MessageProcessor:
                 effective_channel_name = msg.channel.name.lower()
 
             if effective_channel_name in self.config.blacklisted_channels:
+                # ── Passive Observation ───────────────────────────────────
+                # Kaia watches blacklisted channels (e.g. #general) but
+                # never speaks.  She can react with emoji and log messages
+                # to RAG so she learns from the conversation.
+                if not msg.author.bot:
+                    try:
+                        if not hasattr(self, '_reactions'):
+                            from utils.core.kaia_reactions import KaiaReactions
+                            self._reactions = KaiaReactions()
+                        await self._reactions.maybe_react(msg)
+                    except Exception:
+                        pass
+
+                    # Background RAG log — observation only (empty response)
+                    try:
+                        if self.rag:
+                            author_display = msg.author.display_name or msg.author.name
+                            asyncio.create_task(
+                                self.rag.log_user_interaction_async(
+                                    msg.author.id, author_display,
+                                    msg.content, ""
+                                )
+                            )
+                    except Exception:
+                        pass
                 return
                 
             content = getattr(msg, 'content', '').strip().lower()
@@ -222,7 +247,7 @@ class MessageProcessor:
             else:
                 log_info(f"Message from {msg.author.display_name} ignored - still booting")
                 try:
-                    await msg.channel.send("```\nstill waking up. give me a minute.\n```")
+                    await msg.channel.send("still waking up. give me a minute.")
                 except Exception: pass
                 return
 
@@ -244,9 +269,11 @@ class MessageProcessor:
                 or any(r.name.lower() == bot_name for r in getattr(msg, 'role_mentions', []))  # role @Kaia
             )
         ) or is_social
-        
-        if not is_mention and not is_social:
-            # Not addressed to Kaia — but she might react with an emoji
+
+        # ── Emoji Reactions (independent of mention status) ───────────
+        # Kaia can react to ANY message, even ones she's about to reply to.
+        # Rate limits (4/hour, 120s cooldown, 30% gate) prevent overuse.
+        if not msg.author.bot:
             try:
                 if not hasattr(self, '_reactions'):
                     from utils.core.kaia_reactions import KaiaReactions
@@ -254,7 +281,9 @@ class MessageProcessor:
                 await self._reactions.maybe_react(msg)
             except Exception:
                 pass  # Never let reactions break anything
-            return
+        
+        if not is_mention and not is_social:
+            return  # Not addressed to Kaia — no text response
             
         if is_social: log_debug(f"Social message triggger check passed (is_mention={is_mention})")
 
@@ -640,6 +669,7 @@ class MessageProcessor:
 
         # 8c. Beliefs injection — topically relevant persistent opinions (Item 9)
         # Uses semantic alias expansion for much better matching than raw word-overlap.
+        matching = []  # Initialized here so 8g can safely reference it even if 8c throws
         try:
             beliefs_path = os.path.join("memory", "beliefs.json")
             if os.path.exists(beliefs_path):
@@ -748,8 +778,15 @@ class MessageProcessor:
                 from pathlib import Path as _Path
                 _gl = _Path("memory") / "growth_log.jsonl"
                 if _gl.exists():
-                    _lines = _gl.read_text(encoding='utf-8').strip().splitlines()
-                    for _line in reversed(_lines[-20:]):
+                    # Tail-read: only last ~3KB to avoid loading the full file
+                    with open(_gl, 'r', encoding='utf-8') as _gf:
+                        _gf.seek(0, 2)
+                        _sz = _gf.tell()
+                        _gf.seek(max(0, _sz - 3072))
+                        if _sz > 3072:
+                            _gf.readline()  # Discard partial first line
+                        _lines = _gf.readlines()[-20:]
+                    for _line in reversed(_lines):
                         try:
                             _evt = json.loads(_line)
                             if _evt.get('type') == 'belief_revised':
@@ -1441,8 +1478,8 @@ class MessageProcessor:
                     log_warning(f"Style-drift detected ({_ellipsis_frags} ellipsis fragments). "
                                 f"Skipping channel_memory AND RAG log to break feedback loop.")
                 else:
-                    self.bot_state.channel_memory[ctx.channel_id].append({"role": "user", "content": user_msg_with_author})
-                    self.bot_state.channel_memory[ctx.channel_id].append({"role": "assistant", "content": bot_response})
+                    self.bot_state.channel_memory[ctx.channel_id].append({"role": "user", "content": user_msg_with_author, "timestamp": time.time()})
+                    self.bot_state.channel_memory[ctx.channel_id].append({"role": "assistant", "content": bot_response, "timestamp": time.time()})
                 # ----------------------------------------------------
                 
                 # Update personalization and relevance feedback
@@ -1466,6 +1503,7 @@ class MessageProcessor:
                     pass
 
                 # ── Relationship State Update (Items 2, 3, 7) ─────────────────
+                event_type = None  # Initialize before try so growth block can safely read it
                 try:
                     from utils.core.relationship_manager import (
                         estimate_sentiment, detect_event_type,
@@ -1534,7 +1572,7 @@ class MessageProcessor:
                         significance_reason = "substantive exchange"
 
                     # Friction or repair events (already detected above)
-                    if event_type in ('friction', 'repair', 'milestone'):
+                    if event_type and event_type in ('friction', 'repair', 'milestone'):
                         is_significant = True
                         significance_reason = f"{event_type} event"
 
@@ -1548,7 +1586,7 @@ class MessageProcessor:
                                     "user_id": ctx.author_id,
                                     "user_name": ctx.author_name,
                                     "timestamp": time.time(),
-                                    "topic": significance_reason
+                                    "topic": ctx.sanitized_content[:200]
                                 })
                                 log_debug(f"Queued afterthought for {ctx.author_name} ({significance_reason})")
 
