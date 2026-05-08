@@ -1,13 +1,14 @@
 # AGENTS.md
 
 > Instructions for AI coding agents working on this repository.
+> Last updated: May 7, 2026
 
 ## Project Overview
 
-**Kaiacord** is a Discord bot built with `discord.py 2.6.4` and Python 3.11+. It features:
+**Kaiacord** is a Discord bot built with `discord.py 2.6.4` and Python 3.14+. It features:
 
-- **Kaia** — An AI persona powered by Ollama (local LLM) with RAG retrieval via LlamaIndex
-- **Aethelgard TTRPG** — A full turn-based RPG system (combat, classes, equipment, dungeons, housing, farming, pets, alchemy)
+- **Kaia** — An AI persona powered by Ollama (local LLM) with RAG retrieval via LlamaIndex, featuring a full cognitive pipeline (presence, mood, afterthoughts, relationship tracking, belief formation, dream reflections)
+- **Aethelgard TTRPG** — A full turn-based RPG system (combat, classes, equipment, dungeons, housing, farming, pets, alchemy) with a 77-floor mega-dungeon
 - **Fishing minigame** — Rod-based fishing economy
 - **Social integrations** — Bluesky/X posting
 
@@ -69,48 +70,86 @@ Registry files (like `equipment_registry.py`) contain both large data dictionari
 ├── Kaiacord.py              # Bot entry point — DO NOT run or modify without context
 ├── utils/
 │   ├── commands/            # Discord command dispatch
-│   │   ├── rpg_handler.py   # Main TTRPG command router (~2000 lines)
+│   │   ├── rpg_combat_handler.py   # Combat, dungeon, duel commands
+│   │   ├── rpg_core_handler.py     # Movement, calendar, scout, pray, misc
+│   │   ├── rpg_housing_handler.py  # Housing, farming, pets, furniture
+│   │   ├── rpg_shop_handler.py     # Buy/sell/bulk-sell across 3 shops
+│   │   ├── rpg_social_handler.py   # NPC talk, quests, deliver
+│   │   ├── rpg_views.py            # Discord UI views & button factories
 │   │   └── fishing_handler.py
 │   ├── ttrpg/               # Game logic (pure Python)
-│   │   ├── monster_registry.py    # Monster stat blocks + encounter tables
-│   │   ├── equipment_registry.py  # All gear definitions (weapons/armor/etc)
-│   │   ├── combat_engine.py       # Combat resolution
-│   │   ├── class_advancement.py   # Advanced class system
-│   │   ├── dungeon.py             # Procedural dungeon generation
+│   │   ├── monster_registry.py    # 335 monster stat blocks + encounter tables
+│   │   ├── equipment_registry.py  # 383 items across 7 tiers
+│   │   ├── combat_engine.py       # Combat resolution (DEF soft-cap + global cap)
+│   │   ├── class_advancement.py   # 10 advanced classes, proc logic
+│   │   ├── dungeon.py             # Procedural dungeon generation (overworld)
+│   │   ├── spine_dungeon.py       # 77-floor Spine of the World mega-dungeon
+│   │   ├── build_spine_layouts.py # Build script for spine_layouts.json (offline only)
 │   │   ├── shop.py, housing.py, farming.py, pets.py, alchemy.py
-│   │   ├── calendar.py            # Seasons, weather, holidays
+│   │   ├── calendar.py            # Seasons, weather, holidays (13 special days)
 │   │   ├── loot_tables.py         # Drop tables by tier
 │   │   └── dice_engine.py         # Dice rolling
-│   └── core/                # Bot infrastructure, RAG, background tasks
-├── docs/ttrpg/              # Design documents
-│   ├── aethelgard_system.md       # System spec — READ BEFORE MODIFYING COMBAT
-│   ├── aethelgard_lore_bible.md   # World-building canon
-│   └── Aethelgard_TTRPG_Review.md # Balance audit & known issues
+│   ├── core/                # Kaia cognitive pipeline
+│   │   ├── message_processor.py   # Main message pipeline (~1750 lines)
+│   │   ├── background_tasks.py    # Afterthoughts, dawn task, presence loops
+│   │   ├── kaia_dream.py          # Dream engine, belief extraction, identity stream
+│   │   ├── kaia_presence.py       # Discord presence & mood-to-activity mapping
+│   │   ├── kaia_reactions.py      # Non-verbal emoji reaction system
+│   │   ├── kaia_rag_persistence.py # RAG logging, persistence, pre-warming
+│   │   ├── kaia_rag_retriever.py  # BM25/hybrid retrieval
+│   │   ├── relationship_manager.py # Per-user relationship event store
+│   │   └── kaia_intelligence.py   # Context weaving, intent parsing
+│   └── infrastructure/      # Bot infrastructure
+│       ├── system/           # bot_state.py, yaml_config.py, messaging.py
+│       ├── logging/          # kaia_logger.py
+│       ├── gpu/              # GPU memory management for Ollama
+│       └── monitoring/       # Async task registry, sysmon
+├── docs/
+│   ├── ttrpg/                     # TTRPG design documents
+│   │   ├── aethelgard_system.md   # System spec — READ BEFORE MODIFYING COMBAT
+│   │   ├── aethelgard_lore_bible.md # World-building canon
+│   │   └── CLAUDE_REPORT.md       # TTRPG-specific audit (Phase 13, April 2026)
+│   └── reports/                   # Phase reports, roadmaps, process docs
 ├── config/                  # Bot configuration
-├── memory/ttrpg/            # Runtime data (character sheets, sessions) — NEVER COMMIT
-└── knowledge_base/          # RAG knowledge files
+├── memory/                  # Runtime data — NEVER COMMIT
+│   ├── ttrpg/characters/    # Per-user JSON character sheets
+│   ├── relationships/       # Per-user relationship event files
+│   ├── beliefs.json         # Kaia's revisable belief store
+│   ├── bot_state.json       # Interaction tracking, familiarity data
+│   ├── identity_stream.md   # Rolling identity evolution journal
+│   ├── growth_log.jsonl     # Append-only growth event ledger
+│   └── rag_storage/         # RAG indices, continuity file
+└── knowledge_base/          # RAG knowledge files (books, documents, user logs)
 ```
 
 ## Coding Standards
 
 ### Python Style
-- Python 3.11+ features are fine (`match`, `|` union types, etc.)
-- Use `secrets` module for randomness, never `random` (security requirement)
+- Python 3.14+ features are fine (`match`, `|` union types, etc.)
+- Use `secrets` module for security-sensitive randomness (combat rolls, loot drops, token generation). `random` is acceptable for non-security contexts (dream file shuffling, world event variety, layout scrambling in build scripts).
 - Async functions use `asyncio.to_thread()` for file I/O (see `character_manager.py` pattern)
-- Atomic file writes: write to `.tmp`, then `os.replace()` (see `session_manager.py`)
+- Atomic file writes: write to `.tmp`, then `os.replace()` (see `session_manager.py`, `relationship_manager.py`)
 
 ### Registry Files (equipment_registry.py, monster_registry.py)
 - Items are Python dicts, not JSON
 - **Item properties MUST be at 8-space indent** inside their sub-dict. Watch for `"droppable_only": True` at 4-space indent — this is a known recurring bug that silently corrupts data
 - Every monster key used in `ENCOUNTER_TABLES` MUST have a matching entry in `MONSTERS`
-- Shop stock lists (`HEMLOCK_STOCK_*`) are manually maintained — new buyable items need both the item dict AND the stock list updated
-- Equipment stat budgets by tier: See `docs/ttrpg/Aethelgard_TTRPG_Review.md` for current balance targets and stat budgets by tier. Do not add items that exceed these budgets without updating the documentation first.
+- Shop stock lists (`HEMLOCK_STOCK_*`, `PELLS_STOCK_*`) are manually maintained — new buyable items need both the item dict AND the stock list updated
+- Equipment stat budgets by tier: See `docs/ttrpg/CLAUDE_REPORT.md` for current balance targets and stat budgets by tier. Do not add items that exceed these budgets without updating the documentation first.
+
+### Kaia Cognitive Pipeline
+- **All ELIZA behavioral features** (tone mirroring, time-of-day modulation, conversational fatigue, micro-mood, afterthoughts) are lightweight system prompt injections in `message_processor.py`. They do NOT call the LLM — they're pure Python heuristics.
+- **Every behavioral injection is wrapped in `try/except Exception: pass`** to ensure non-critical features never crash the main response path.
+- **Dream reflections, identity stream, and self-model auto-regen** all pass through `_sanitize_repetitive_starts()` to prevent linguistic drift loops.
+- **Relationship events** are stored per-user in `memory/relationships/` with atomic writes and a 100-event cap.
+- **Beliefs** are stored in `memory/beliefs.json` with a 50-belief cap, atomic writes, and revision tracking.
 
 ### Architecture Rules
 - **Python handles all deterministic game state/math.** Never delegate combat resolution, stat calculations, or inventory management to the LLM.
 - **Kaia (the LLM) handles narration only.** She receives combat results and narrates them.
 - **Per-user JSON character sheets** live in `memory/ttrpg/characters/`. Always use `character_manager.load()` / `character_manager.save()` — never read/write files directly.
 - The defense soft-cap in `combat_engine.py` is intentional design. Do not remove or bypass it.
+- The global DEF cap (`level * 1.5 + 12`) is intentional design. Do not remove or bypass it.
 
 ## Do NOT Touch
 
@@ -123,15 +162,20 @@ Registry files (like `equipment_registry.py`) contain both large data dictionari
 ## Commit Conventions
 
 - Commit messages: `[area] Brief description` (e.g., `[ttrpg] Add missing owlbear stat block`)
-- Areas: `ttrpg`, `fishing`, `combat`, `housing`, `alchemy`, `core`, `docs`, `config`
+- Areas: `ttrpg`, `fishing`, `combat`, `housing`, `alchemy`, `core`, `docs`, `config`, `kaia`
 - One logical change per commit — don't mix balance changes with bug fixes
 
-## Known Issues & Open Work
+## Current System Status
 
-See `docs/ttrpg/CLAUDE_REPORT.md` for the full audit. Priority items:
+See `docs/reports/Claude_Report.md` for the latest production audit and `docs/ttrpg/CLAUDE_REPORT.md` for the TTRPG-specific audit.
 
-- High-level DEF scaling is managed by the global cap (`level * 1.5 + 12`) and gear soft-cap — both are intentional design
-- Calendar special day buffs are wired to combat, rest, pray, and offer handlers
-- Furniture bonuses (`home_brewing`, `daily_training`, `home_pray`, `home_scout`) are integrated
-- Seasonal shop stock and farm bonuses are wired
-- Quest content is limited (3 quests, L1–7 range) — more needed for L8–10
+**System health: A-tier. All subsystems operational. Both the TTRPG and Kaia cognitive pipeline are production-stable.**
+
+Key facts:
+- 335 monsters (27 boss-tier), 383 equipment items across 7 tiers
+- 9 quests covering L1–L15 (thin at L8–L10)
+- 10 advanced classes with unique procs and passives
+- 77-floor Spine of the World mega-dungeon with Resonance Lift checkpoints
+- 3 shop locations (Hemlock's, Caravan, Pell's Depot)
+- Full cognitive pipeline: presence, afterthoughts, dreams, beliefs, relationship tracking, tone mirroring
+- Calendar with 13 special days, 4 seasons, deterministic weather — all buffs wired

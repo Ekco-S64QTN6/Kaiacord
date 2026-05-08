@@ -631,6 +631,16 @@ class MessageProcessor:
         except Exception:
             pass  # Never let mood injection break generation
 
+        # 8a2. Inner Monologue injection — private thoughts from recent observations
+        try:
+            monologue = getattr(self.ctx, 'monologue', None)
+            if monologue:
+                monologue_text = monologue.get_injection()
+                if monologue_text:
+                    ctx.system_prompt = ctx.system_prompt + f"\n\n{monologue_text}"
+        except Exception:
+            pass  # Never let monologue injection break generation
+
         # 8b. Relationship context injection — per-user familiarity and history
         try:
             if self.bot_state:
@@ -666,6 +676,20 @@ class MessageProcessor:
                         ctx.system_prompt = ctx.system_prompt + f"\n\n{events_line}"
         except Exception as _rel_err:
             log_debug(f"Relationship injection error (non-fatal): {_rel_err}")
+
+        # 8b2. Episodic Memory Anchor injection — deep associative callbacks
+        try:
+            from utils.core.memory_anchors import find_matching_anchors, format_anchor_injection
+            anchors = find_matching_anchors(
+                message_text=ctx.sanitized_content,
+                user_id=str(ctx.author_id),
+                max_results=1,
+            )
+            if anchors:
+                anchor_line = format_anchor_injection(anchors[0])
+                ctx.system_prompt = ctx.system_prompt + f"\n\n{anchor_line}"
+        except Exception:
+            pass  # Never let anchor injection break generation
 
         # 8c. Beliefs injection — topically relevant persistent opinions (Item 9)
         # Uses semantic alias expansion for much better matching than raw word-overlap.

@@ -74,6 +74,11 @@ class BotState:
         # Per-channel last-activity timestamps for afterthought silence checks
         self.channel_last_activity: Dict[int, float] = {}
 
+        # Proactive initiation tracking — rate-limits unprompted messages
+        self.proactive_last_sent: float = 0.0
+        self.proactive_daily_count: int = 0
+        self.last_proactive_date: str = ""
+
         self.load()
 
     def load(self):
@@ -98,6 +103,9 @@ class BotState:
                         self.forum_reply_times = state.get('forum_reply_times', {})
                         self.relationships = state.get('relationships', {})
                         self.pending_afterthoughts = state.get('pending_afterthoughts', [])
+                        self.proactive_last_sent = float(state.get('proactive_last_sent', 0.0))
+                        self.proactive_daily_count = int(state.get('proactive_daily_count', 0))
+                        self.last_proactive_date = state.get('last_proactive_date', '')
                         
                         # Per-channel activity — keys stored as strings in JSON
                         raw_activity = state.get('channel_last_activity', {})
@@ -163,6 +171,9 @@ class BotState:
                     'relationships': self.relationships,
                     'pending_afterthoughts': self.pending_afterthoughts,
                     'channel_last_activity': {str(k): v for k, v in self.channel_last_activity.items()},
+                    'proactive_last_sent': self.proactive_last_sent,
+                    'proactive_daily_count': self.proactive_daily_count,
+                    'last_proactive_date': self.last_proactive_date,
                     # boot_complete is TRANSIENT - do not save to disk
                     'mentioned_files': list(self.mentioned_files),
                     # Explicitly cast int keys to str for JSON serialisation (JSON keys must be strings).

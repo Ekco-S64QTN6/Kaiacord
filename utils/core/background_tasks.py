@@ -21,6 +21,27 @@ class CoreTaskManager:
         self.noon_raid_task = self._make_noon_raid_task()
         self.afterthought_task = self._make_afterthought_task()
         
+        # Inner Monologue — ephemeral thought buffer, injected into system prompt
+        try:
+            from utils.core.kaia_monologue import InnerMonologue
+            self.monologue = InnerMonologue()
+            ctx.monologue = self.monologue  # Expose to message_processor
+            self.monologue_task = self._make_monologue_task()
+        except Exception as e:
+            log_warning(f"Monologue system init failed (non-fatal): {e}")
+            self.monologue = None
+            self.monologue_task = None
+
+        # Proactive Initiation — Kaia speaks first, rate-limited
+        try:
+            from utils.core.kaia_proactive import ProactiveEngine
+            self.proactive_engine = ProactiveEngine()
+            self.proactive_task = self._make_proactive_task()
+        except Exception as e:
+            log_warning(f"Proactive engine init failed (non-fatal): {e}")
+            self.proactive_engine = None
+            self.proactive_task = None
+
         # Presence system — maps mood floats to visible Discord status
         self.presence_manager = None
         self.presence_task = None
@@ -159,6 +180,101 @@ class CoreTaskManager:
                 await asyncio.sleep(15)
 
         return afterthought_task
+
+    def _make_monologue_task(self):
+        @tasks.loop(minutes=15)
+        async def monologue_task():
+            if shutdown_manager.shutting_down: return
+            if not self.monologue: return
+            if not self.ctx or not self.ctx.bot_state: return
+            if getattr(self.ctx.bot_state, 'is_generating', False): return
+
+            # Only generate when bot is fully booted
+            if not getattr(self.ctx.bot_state, 'boot_complete', False): return
+
+            try:
+                await self.monologue.generate_thought(
+                    channel_memory=self.ctx.bot_state.channel_memory,
+                    bot_state=self.ctx.bot_state,
+                    ollama_client=self.ctx.ollama_client,
+                    chat_model=config.chat_model,
+                )
+            except Exception as e:
+                log_debug(f"Monologue task error (non-fatal): {e}")
+
+        @monologue_task.before_loop
+        async def before_monologue():
+            if getattr(self.ctx, 'bot', None):
+                await self.ctx.bot.wait_until_ready()
+                await asyncio.sleep(60)  # Wait 1 min after boot
+
+        @monologue_task.error
+        async def monologue_error(error):
+            log_debug(f"Monologue task died (non-fatal): {error}")
+
+        return monologue_task
+
+    def _make_proactive_task(self):
+        @tasks.loop(minutes=30)
+        async def proactive_task():
+            if shutdown_manager.shutting_down: return
+            if not self.proactive_engine: return
+            if not self.ctx or not self.ctx.bot_state: return
+            if getattr(self.ctx.bot_state, 'is_generating', False): return
+            if not getattr(self.ctx.bot_state, 'boot_complete', False): return
+
+            try:
+                trigger = await self.proactive_engine.evaluate_triggers(
+                    bot_state=self.ctx.bot_state,
+                    dream_engine=getattr(self.ctx, 'dream_engine', None),
+                )
+
+                if not trigger:
+                    return
+
+                channel = self.ctx.bot.get_channel(trigger.channel_id)
+                if not channel:
+                    return
+
+                # Ensure it's a guild channel, not a DM
+                if hasattr(channel, 'guild') and channel.guild is None:
+                    return
+
+                from utils.social.kaia_social_responder import load_persona_async
+                persona = await load_persona_async()
+
+                message = await self.proactive_engine.generate_opener(
+                    trigger=trigger,
+                    ollama_client=self.ctx.ollama_client,
+                    chat_model=config.chat_model,
+                    persona=persona,
+                )
+
+                if message:
+                    import secrets as _secrets
+                    async with channel.typing():
+                        # Natural reading pause before sending
+                        await asyncio.sleep(2.0 + _secrets.randbelow(4))
+
+                    from utils.infrastructure.system.messaging import send_kaia_response
+                    await send_kaia_response(channel, message)
+                    self.proactive_engine.record_sent(self.ctx.bot_state, trigger)
+                    log_success(f"Proactive message sent ({trigger.trigger_type})")
+
+            except Exception as e:
+                log_warning(f"Proactive task error (non-fatal): {e}")
+
+        @proactive_task.before_loop
+        async def before_proactive():
+            if getattr(self.ctx, 'bot', None):
+                await self.ctx.bot.wait_until_ready()
+                await asyncio.sleep(120)  # Wait 2 min after boot
+
+        @proactive_task.error
+        async def proactive_error(error):
+            log_warning(f"Proactive task died: {error}")
+
+        return proactive_task
 
     def _make_dream_engine_task(self):
         @tasks.loop(hours=1)
@@ -644,7 +760,19 @@ class CoreTaskManager:
         self.afterthought_task.start()
         if self.afterthought_task.get_task():
             task_registry.register("afterthought_task", self.afterthought_task.get_task())
-            
+
+        # Inner Monologue task
+        if self.monologue_task:
+            self.monologue_task.start()
+            if self.monologue_task.get_task():
+                task_registry.register("monologue_task", self.monologue_task.get_task())
+
+        # Proactive Initiation task
+        if self.proactive_task:
+            self.proactive_task.start()
+            if self.proactive_task.get_task():
+                task_registry.register("proactive_task", self.proactive_task.get_task())
+
         log_action("Core background tasks started via CoreTaskManager.")
 
     def stop(self):
@@ -656,6 +784,10 @@ class CoreTaskManager:
         self.afterthought_task.stop()
         if self.presence_task:
             self.presence_task.stop()
+        if self.monologue_task:
+            self.monologue_task.stop()
+        if self.proactive_task:
+            self.proactive_task.stop()
 
 # Helper for backward compatibility
 _task_manager = None

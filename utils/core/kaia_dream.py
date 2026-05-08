@@ -618,6 +618,9 @@ VOICE AND FORMAT RULES (always apply regardless of dream type):
                 f'"design", "visual"]}} or null\n'
                 f'- "identity_shift": one sentence string or null\n'
                 f'- "relationship_insight": {{"user_name": str, "summary": str}} or null\n'
+                f'- "thematic_anchor": {{"theme": short thematic label (e.g. "career_frustration", '
+                f'"ai_ethics", "creative_burnout"), "anchor_text": the concrete memory or statement '
+                f'worth remembering (1 sentence), "user_name": str or null}} or null\n'
                 f"Return only the JSON object, no other text."
             )
 
@@ -689,6 +692,22 @@ VOICE AND FORMAT RULES (always apply regardless of dream type):
                         "user": rel_insight['user_name'],
                         "summary": rel_insight.get('summary', '')[:200]
                     })
+                except Exception:
+                    pass
+
+            # Process thematic anchor (episodic memory anchor for deep callbacks)
+            anchor = insights.get('thematic_anchor')
+            if anchor and isinstance(anchor, dict) and anchor.get('theme'):
+                try:
+                    from utils.core.memory_anchors import save_anchor
+                    anchor_user = anchor.get('user_name')
+                    save_anchor(
+                        user_id=f"dream_{anchor_user}" if anchor_user else None,
+                        theme=anchor['theme'],
+                        anchor_text=anchor.get('anchor_text', '')[:200],
+                        weight=0.7,
+                        user_name=anchor_user,
+                    )
                 except Exception:
                     pass
 
