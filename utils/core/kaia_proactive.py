@@ -130,7 +130,8 @@ class ProactiveEngine:
                         # Check if we already triggered for this absence
                         last_proactive_for = rel.get('last_proactive_checkin', 0)
                         if now - last_proactive_for > 7 * 86400:  # Max once per week per user
-                            user_name = rel.get('display_name', f'user_{user_id}')
+                            # display_name may not exist in older relationship records
+                            user_name = rel.get('display_name') or f'user {user_id[-4:]}'
                             return ProactiveTrigger(
                                 trigger_type="absence",
                                 channel_id=channel_id,
@@ -149,8 +150,12 @@ class ProactiveEngine:
         try:
             recent = getattr(bot_state, 'recent_ingestions', [])
             if recent:
-                # Pick the most recent ingestion
-                latest = recent[-1] if isinstance(recent[-1], str) else str(recent[-1])
+                # recent_ingestions entries are dicts: {filename, snippet, timestamp}
+                latest_entry = recent[-1]
+                if isinstance(latest_entry, dict):
+                    latest = latest_entry.get('filename', str(latest_entry))
+                else:
+                    latest = str(latest_entry)
                 return ProactiveTrigger(
                     trigger_type="knowledge",
                     channel_id=channel_id,

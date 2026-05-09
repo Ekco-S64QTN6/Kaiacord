@@ -93,12 +93,16 @@ Registry files (like `equipment_registry.py`) contain both large data dictionari
 │   │   ├── message_processor.py   # Main message pipeline (~1750 lines)
 │   │   ├── background_tasks.py    # Afterthoughts, dawn task, presence loops
 │   │   ├── kaia_dream.py          # Dream engine, belief extraction, identity stream
-│   │   ├── kaia_presence.py       # Discord presence & mood-to-activity mapping
+│   │   ├── kaia_presence.py       # Discord presence & mood-aware status text
 │   │   ├── kaia_reactions.py      # Non-verbal emoji reaction system
 │   │   ├── kaia_rag_persistence.py # RAG logging, persistence, pre-warming
 │   │   ├── kaia_rag_retriever.py  # BM25/hybrid retrieval
 │   │   ├── relationship_manager.py # Per-user relationship event store
-│   │   └── kaia_intelligence.py   # Context weaving, intent parsing
+│   │   ├── kaia_intelligence.py   # Context weaving, intent parsing
+│   │   ├── kaia_mood.py           # Persistent emotional state (valence/arousal/energy)
+│   │   ├── kaia_monologue.py      # Background inner thought stream
+│   │   ├── kaia_proactive.py      # Autonomous conversation initiation
+│   │   └── memory_anchors.py      # Cross-session episodic memory callbacks
 │   └── infrastructure/      # Bot infrastructure
 │       ├── system/           # bot_state.py, yaml_config.py, messaging.py
 │       ├── logging/          # kaia_logger.py
@@ -138,7 +142,7 @@ Registry files (like `equipment_registry.py`) contain both large data dictionari
 - Equipment stat budgets by tier: See `docs/ttrpg/CLAUDE_REPORT.md` for current balance targets and stat budgets by tier. Do not add items that exceed these budgets without updating the documentation first.
 
 ### Kaia Cognitive Pipeline
-- **All ELIZA behavioral features** (tone mirroring, time-of-day modulation, conversational fatigue, micro-mood, afterthoughts) are lightweight system prompt injections in `message_processor.py`. They do NOT call the LLM — they're pure Python heuristics.
+- **All 26 behavioral features** (tone mirroring, time-of-day, conversational fatigue, relationship stages, mood vector, monologue) are lightweight system prompt injections in `message_processor.py`. They do NOT call the LLM — they're pure Python heuristics.
 - **Every behavioral injection is wrapped in `try/except Exception: pass`** to ensure non-critical features never crash the main response path.
 - **Dream reflections, identity stream, and self-model auto-regen** all pass through `_sanitize_repetitive_starts()` to prevent linguistic drift loops.
 - **Relationship events** are stored per-user in `memory/relationships/` with atomic writes and a 100-event cap.
@@ -177,5 +181,5 @@ Key facts:
 - 10 advanced classes with unique procs and passives
 - 77-floor Spine of the World mega-dungeon with Resonance Lift checkpoints
 - 3 shop locations (Hemlock's, Caravan, Pell's Depot)
-- Full cognitive pipeline: presence, afterthoughts, dreams, beliefs, relationship tracking, tone mirroring
+- Full cognitive pipeline (26 features): emotional arc, monologue, proactive initiation, relationship stages, dreams, beliefs, tone mirroring
 - Calendar with 13 special days, 4 seasons, deterministic weather — all buffs wired

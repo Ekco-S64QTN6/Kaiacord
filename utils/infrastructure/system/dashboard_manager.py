@@ -80,9 +80,13 @@ async def _stats_sync_task(shared_stats, stats_tracker, stats_poller, stop_event
             rag_confidence = 0.0
             rag_nodes = 0
             coherence_ema = 0.85
+            rag_stale = True  # Default to stale until proven fresh
             if rag:
                 rag_confidence = getattr(rag, '_last_retrieval_confidence', 0.0)
                 rag_nodes = getattr(rag, '_last_retrieval_node_count', 0)
+                last_query_time = getattr(rag, '_last_retrieval_time', 0.0)
+                if last_query_time and (time.time() - last_query_time) < 900:  # 15 min
+                    rag_stale = False
             if bot_state:
                 coherence_ema = getattr(bot_state, 'kaia_coherence', 0.85)
 
@@ -110,7 +114,8 @@ async def _stats_sync_task(shared_stats, stats_tracker, stats_poller, stop_event
                 'rag_confidence': rag_confidence,
                 'rag_nodes': rag_nodes,
                 'coherence_ema': coherence_ema,
-                'hallucination_count': h_count
+                'hallucination_count': h_count,
+                'rag_stale': rag_stale,
             })
         except Exception: pass
         await asyncio.sleep(1.0)

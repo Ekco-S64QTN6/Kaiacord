@@ -179,6 +179,16 @@ Connect this fragment to your actual world.
 - Be analytical, but grounded. You've read things. You've had conversations. Connect them.
 """
 
+        # Emotional arc context for dream reflections
+        mood_context = ""
+        try:
+            from utils.core.kaia_mood import emotional_arc
+            mood_summary = emotional_arc.get_summary_for_dream()
+            if mood_summary:
+                mood_context = f"\n{mood_summary}\n"
+        except Exception:
+            pass
+
         dream_instruction = f"""
 [DREAM_TASK]
 You are performing "Dream Mode" processing—a deep, associative cycle where you reflect on archived content.
@@ -186,6 +196,7 @@ You are performing "Dream Mode" processing—a deep, associative cycle where you
 CURRENT DATE: {current_date}
 
 {continuity_block}
+{mood_context}
 {tiered_instructions}
 
 CONTENT SNIPPET:

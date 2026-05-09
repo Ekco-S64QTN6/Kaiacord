@@ -631,6 +631,15 @@ class MessageProcessor:
         except Exception:
             pass  # Never let mood injection break generation
 
+        # 8a. Emotional Arc injection — persistent mood vector
+        try:
+            from utils.core.kaia_mood import emotional_arc
+            arc_line = emotional_arc.get_prompt_injection()
+            if arc_line:
+                ctx.system_prompt = ctx.system_prompt + f"\n\n{arc_line}"
+        except Exception:
+            pass  # Never let arc injection break generation
+
         # 8a2. Inner Monologue injection — private thoughts from recent observations
         try:
             monologue = getattr(self.ctx, 'monologue', None)
@@ -644,6 +653,11 @@ class MessageProcessor:
         # 8b. Relationship context injection — per-user familiarity and history
         try:
             if self.bot_state:
+                # Relationship stage directive
+                stage_line = self.bot_state.get_stage_injection(ctx.author_id, ctx.author_name)
+                if stage_line:
+                    ctx.system_prompt = ctx.system_prompt + f"\n\n{stage_line}"
+
                 # Time-delta reunion hint (Item 3)
                 time_hint = self.bot_state.get_time_delta_hint(ctx.author_id, ctx.author_name)
                 if time_hint:
@@ -712,30 +726,46 @@ class MessageProcessor:
                     query_words -= stop_words
 
                     matching = []
+                    high_conf_stances = []  # For conversational stance (confidence > 0.7)
                     for b in all_beliefs:
                         topic = b.get('topic', '').lower()
                         topic_words = set(topic.split()) - stop_words
+                        conf = b.get('confidence', 0.5)
+                        matched = False
 
                         # Check 1: Direct word overlap (original behavior)
                         if query_words & topic_words:
-                            conf = b.get('confidence', 0.5)
-                            stance_qualifier = '' if conf > 0.7 else ' (uncertain)'
-                            matching.append(f"{b['topic']}: {b['position']}{stance_qualifier}")
-                            continue
+                            matched = True
 
                         # Check 2: Alias matching (pre-computed during dream extraction)
-                        aliases = set(b.get('aliases', []))
-                        if aliases and (query_words & aliases):
-                            conf = b.get('confidence', 0.5)
-                            stance_qualifier = '' if conf > 0.7 else ' (uncertain)'
-                            matching.append(f"{b['topic']}: {b['position']}{stance_qualifier}")
-                            continue
+                        if not matched:
+                            aliases = set(b.get('aliases', []))
+                            if aliases and (query_words & aliases):
+                                matched = True
 
                         # Check 3: Substring match (topic phrase appears in query)
-                        if len(topic) > 4 and topic in query_lower:
-                            conf = b.get('confidence', 0.5)
-                            stance_qualifier = '' if conf > 0.7 else ' (uncertain)'
-                            matching.append(f"{b['topic']}: {b['position']}{stance_qualifier}")
+                        if not matched:
+                            if len(topic) > 4 and topic in query_lower:
+                                matched = True
+
+                        if matched:
+                            if conf > 0.7:
+                                high_conf_stances.append(b)
+                            else:
+                                stance_qualifier = ' (uncertain)'
+                                matching.append(f"{b['topic']}: {b['position']}{stance_qualifier}")
+
+                    # Conversational Stance: high-confidence beliefs get active voice
+                    if high_conf_stances:
+                        stance = high_conf_stances[0]  # Strongest match
+                        ctx.system_prompt = ctx.system_prompt + (
+                            f"\n\n[you have a formed opinion on '{stance['topic']}': "
+                            f"'{stance['position']}'. if it feels natural, express your view — "
+                            f"but don't be preachy. never argue. express, then let it go.]"
+                        )
+                        # Add any remaining high-conf as neutral context
+                        for s in high_conf_stances[1:3]:
+                            matching.append(f"{s['topic']}: {s['position']}")
 
                     if matching:
                         ctx.system_prompt = ctx.system_prompt + f"\n\n[current stances: {'; '.join(matching[:3])}]"
@@ -1535,7 +1565,11 @@ class MessageProcessor:
                     )
                     # Sentiment estimation (keyword-based, no LLM call)
                     valence = estimate_sentiment(ctx.sanitized_content)
-                    self.bot_state.update_relationship(ctx.author_id, valence_sample=valence)
+                    self.bot_state.update_relationship(
+                        ctx.author_id,
+                        valence_sample=valence,
+                        display_name=ctx.author_name,
+                    )
 
                     # Detect notable events and persist them
                     event_type = detect_event_type(ctx.sanitized_content, bot_response)
@@ -1560,6 +1594,16 @@ class MessageProcessor:
                         log_debug(f"Relationship event saved: {event_type} for {ctx.author_name}")
                 except Exception as _rel_err:
                     log_debug(f"Relationship update error (non-fatal): {_rel_err}")
+
+                # ── Emotional Arc Update ───────────────────────────────────────
+                try:
+                    from utils.core.kaia_mood import emotional_arc
+                    emotional_arc.update(
+                        sentiment_score=valence,
+                        message_length=len(ctx.sanitized_content),
+                    )
+                except Exception:
+                    pass  # Never let mood arc break the pipeline
 
                 # ── Interaction-Driven Growth ──────────────────────────────────
                 # Lightweight real-time growth triggers — supplements the nightly

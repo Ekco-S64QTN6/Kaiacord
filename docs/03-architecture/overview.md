@@ -2,7 +2,7 @@
 
 ## Overview
 
-Kaia is a self-hosted Discord AI bot with local inference and RAG-based memory. This document describes the technical architecture after Phase 31 refactors.
+Kaia is a self-hosted Discord AI bot with local inference and RAG-based memory. This document describes the technical architecture after Phase 53 refactors.
 
 ## System Architecture
 
@@ -15,9 +15,10 @@ graph TB
     
     subgraph CL ["Core Logic"]
         RAG["kaia_rag.py (facade)\n+ query / indexer / persistence"]
-        Intel["kaia_intelligence.py (facade)\n+ intent_classifier / context_optimizer"]
+        Intel["kaia_intelligence.py (facade)\n+ classifier / optimizer"]
         Dream[kaia_dream.py]
         MP[message_processor.py]
+        COG["Cognitive Pipeline\nmonologue · mood · proactive · anchors"]
     end
 
     subgraph SOC ["Social Layer"]
@@ -47,8 +48,8 @@ graph TB
 Kaiacord/
 ├── Kaiacord.py              # Minimal Orchestrator (~170 lines)
 ├── utils/                   # Deeply modularized components
-│   ├── core/                # Core AI logic (RAG, Intelligence, Dream, MessageProcessor)
-│   ├── infrastructure/      # System foundations (AppContext, DashboardManager, Config)
+│   ├── core/                # RAG, Intelligence, Dream, Cognitive Pipeline, MessageProcessor
+│   ├── infrastructure/      # AppContext, DashboardManager, Config, Monitoring
 │   ├── social/              # Twitter/X, Bluesky & Social Responder
 │   ├── commands/            # Specialized command handlers
 │   └── news/                # News retrieval & management
@@ -127,6 +128,23 @@ Kaiacord/
 ### 6. Logging System
 
 **Responsibility**: Consolidated, color-coded, and hardened logging across all modules.
+
+---
+
+### 7. Cognitive Pipeline (Phase 53)
+
+**Responsibility**: Autonomous personality systems that create the illusion of inner life.
+
+| Module | Purpose |
+|:-------|:--------|
+| `kaia_mood.py` | Persistent emotional state vector (valence/arousal/social_energy) with 6h decay |
+| `kaia_monologue.py` | Private thought stream from passive channel observation |
+| `kaia_proactive.py` | Autonomous conversation initiation (absence check-ins, knowledge triggers) |
+| `memory_anchors.py` | Dream-extracted thematic anchors for cross-session callbacks |
+| `kaia_presence.py` | Mood-aware Discord status driven by emotional arc + engagement |
+| `bot_state.py` | Relationship stages (stranger→inner_circle) with behavioral gating |
+
+**Design rule**: Every cognitive injection is wrapped in `try/except Exception: pass`. Cognitive failures never block message generation.
 
 ---
 

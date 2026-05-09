@@ -69,9 +69,16 @@ class InnerMonologue:
             for msg in list(messages)[-5:]:
                 role = msg.get("role", "")
                 content = msg.get("content", "")
-                name = msg.get("name", "someone")
                 if role == "user" and content:
-                    recent_messages.append(f"{name}: {content[:120]}")
+                    # channel_memory content is prefixed with author name
+                    # e.g. "Ekco: hey what's up" — extract the name
+                    if ": " in content:
+                        name = content.split(": ", 1)[0]
+                        text = content.split(": ", 1)[1][:120]
+                    else:
+                        name = "someone"
+                        text = content[:120]
+                    recent_messages.append(f"{name}: {text}")
 
         # No new activity — skip
         current_count = len(recent_messages)

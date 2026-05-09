@@ -59,8 +59,8 @@ class DashboardState:
     gpu_util: float = 0.0
     gpu_memory: str = "N/A"
     disk_percent: float = 0.0
-    net_sent_kb: int = 0
-    net_recv_kb: int = 0
+    net_sent_kbs: float = 0.0  # KB/s rate (not cumulative)
+    net_recv_kbs: float = 0.0  # KB/s rate (not cumulative)
     
     # Bot metrics
     uptime_minutes: float = 0.0
@@ -85,6 +85,7 @@ class DashboardState:
     rag_nodes: int = 0
     coherence_ema: float = 0.85
     hallucination_count: int = 0
+    rag_stale: bool = True  # True if last RAG query was >15 min ago
     
     # Timestamp
     snapshot_time: float = field(default_factory=time.time)
@@ -257,6 +258,11 @@ class BtopDashboardV2:
         # For standalone mode (when external sources not provided)
         self._internal_logs: Deque[dict] = deque(maxlen=200)
         self._internal_alerts: Deque[dict] = deque(maxlen=50)
+        
+        # Network rate tracking (Bug 6 fix)
+        self._prev_net_sent: int = 0
+        self._prev_net_recv: int = 0
+        self._prev_net_time: float = 0.0
         
         # Signal handling
         self._original_sigint = None
@@ -466,33 +472,58 @@ class BtopDashboardV2:
                         symbol=alert.get('symbol', '⚠️')
                     ))
         
+        # Compute network rate (KB/s) from cumulative counters
+        now = time.time()
+        net_sent_kbs = 0.0
+        net_recv_kbs = 0.0
+        if self._prev_net_time > 0:
+            elapsed = now - self._prev_net_time
+            if elapsed > 0.1:
+                net_sent_kbs = (net.bytes_sent - self._prev_net_sent) / 1024.0 / elapsed
+                net_recv_kbs = (net.bytes_recv - self._prev_net_recv) / 1024.0 / elapsed
+        self._prev_net_sent = net.bytes_sent
+        self._prev_net_recv = net.bytes_recv
+        self._prev_net_time = now
+
+        # Helper: pick first non-None value from sources
+        def _pick(key, *sources, default=None):
+            for src in sources:
+                if src is not None:
+                    val = src.get(key)
+                    if val is not None:
+                        return val
+            return default
+
+        ss = self.shared_stats  # Shorthand
+
         # Build the immutable state
         return DashboardState(
             cpu_percent=cpu_percent,
             memory_percent=memory.percent,
             memory_used_mb=memory.used / 1024 / 1024,
             memory_total_mb=memory.total / 1024 / 1024,
-            gpu_util=poller_stats.get('gpu_util', 0.0) or (self.shared_stats.get('gpu_util', 0.0) if self.shared_stats else 0.0),
-            gpu_memory=poller_stats.get('gpu_memory', 'N/A') or (self.shared_stats.get('gpu_memory', 'N/A') if self.shared_stats else 'N/A'),
+            gpu_util=_pick('gpu_util', poller_stats, ss, default=0.0),
+            gpu_memory=_pick('gpu_memory', poller_stats, ss, default='N/A'),
             disk_percent=disk.percent,
-            net_sent_kb=net.bytes_sent // 1024,
-            net_recv_kb=net.bytes_recv // 1024,
-            uptime_minutes=poller_stats.get('uptime_minutes', 0.0) or tracker_stats.get('uptime_minutes', 0.0) or (self.shared_stats.get('uptime_minutes', 0.0) if self.shared_stats else 0.0),
-            active_users=tracker_stats.get('active_users_display', "") or str(poller_stats.get('users', "")) or (self.shared_stats.get('active_users_display', "0 (idle)") if self.shared_stats else "0 (idle)"),
-            total_messages=tracker_stats.get('messages', 0) or poller_stats.get('messages', 0) or (self.shared_stats.get('messages', 0) if self.shared_stats else 0),
-            avg_response_time=tracker_stats.get('avg_response_time') or poller_stats.get('avg_response_time') or (self.shared_stats.get('avg_response_time', 0.0) if self.shared_stats else 0.0) or 0.0,
-            ollama_status=poller_stats.get('ollama_status', '🔴 OFFLINE') if not self.shared_stats else self.shared_stats.get('ollama_status', '🔴 OFFLINE'),
-            active_model=poller_stats.get('active_model', 'None') if not self.shared_stats else self.shared_stats.get('active_model', 'None'),
-            ollama_models=tuple(poller_stats.get('ollama_models', []) if not self.shared_stats else self.shared_stats.get('ollama_models', [])),
-            rag_size=poller_stats.get('rag_size', '0 MB') if not self.shared_stats else self.shared_stats.get('rag_size', '0 MB'),
-            kb_size_mb=poller_stats.get('kb_size_mb', 0.0) if not self.shared_stats else self.shared_stats.get('kb_size_mb', 0.0),
-            indexed_files=poller_stats.get('indexed_files', 0) if not self.shared_stats else self.shared_stats.get('indexed_files', 0),
-            dreams_count=poller_stats.get('dreams_count', 0) if not self.shared_stats else self.shared_stats.get('dreams_count', 0),
-            queue_size=tracker_stats.get('queue_size', 0) or (self.shared_stats.get('queue_size', 0) if self.shared_stats else 0),
-            rag_confidence=self.shared_stats.get('rag_confidence', 0.0) if self.shared_stats else 0.0,
-            rag_nodes=self.shared_stats.get('rag_nodes', 0) if self.shared_stats else 0,
-            coherence_ema=self.shared_stats.get('coherence_ema', 0.85) if self.shared_stats else 0.85,
-            hallucination_count=self.shared_stats.get('hallucination_count', 0) if self.shared_stats else 0,
+            net_sent_kbs=max(0.0, net_sent_kbs),
+            net_recv_kbs=max(0.0, net_recv_kbs),
+            uptime_minutes=_pick('uptime_minutes', poller_stats, tracker_stats, ss, default=0.0),
+            active_users=_pick('active_users_display', tracker_stats, ss, default='0 (idle)'),
+            total_messages=_pick('messages', tracker_stats, poller_stats, ss, default=0),
+            avg_response_time=_pick('avg_response_time', tracker_stats, poller_stats, ss, default=0.0),
+            ollama_status=_pick('ollama_status', ss, poller_stats, default='🔴 OFFLINE'),
+            active_model=_pick('active_model', ss, poller_stats, default='None'),
+            ollama_models=tuple(_pick('ollama_models', ss, poller_stats, default=[])),
+            rag_size=_pick('rag_size', ss, poller_stats, default='0 MB'),
+            kb_size_mb=_pick('kb_size_mb', ss, poller_stats, default=0.0),
+            indexed_files=_pick('indexed_files', ss, poller_stats, default=0),
+            dreams_count=_pick('dreams_count', ss, poller_stats, default=0),
+            queue_size=_pick('queue_size', tracker_stats, ss, default=0),
+            rag_confidence=_pick('rag_confidence', ss, default=0.0),
+            rag_nodes=_pick('rag_nodes', ss, default=0),
+            coherence_ema=_pick('coherence_ema', ss, default=0.85),
+            hallucination_count=_pick('hallucination_count', ss, default=0),
+            rag_stale=_pick('rag_stale', ss, default=True),
             log_entries=tuple(log_entries),
             alerts=tuple(alerts[-10:]),  # Limit alerts
             snapshot_time=time.time()
@@ -588,13 +619,22 @@ class BtopDashboardV2:
         return bar
         
     def _get_color_for_value(self, value: float, thresholds: Tuple[float, float] = (50, 80)) -> int:
-        """Get color pair based on value thresholds"""
+        """Get color pair based on value thresholds (low=green, high=red)"""
         if value < thresholds[0]:
             return 3  # Green
         elif value < thresholds[1]:
             return 4  # Yellow
         else:
             return 5  # Red
+
+    def _get_color_inverted(self, value: float, thresholds: Tuple[float, float] = (60, 85)) -> int:
+        """Get color pair with inverted logic (high=green, low=red) for confidence/coherence"""
+        if value >= thresholds[1]:
+            return 3  # Green (high is good)
+        elif value >= thresholds[0]:
+            return 4  # Yellow
+        else:
+            return 5  # Red (low is bad)
             
     def _safe_addstr(self, y: int, x: int, text: str, attr=None):
         """Safely add string, handling screen bounds"""
@@ -646,7 +686,7 @@ class BtopDashboardV2:
         
         # Non-bar metrics: Network, VRAM, etc.
         self._safe_addstr(inner_y + 4, inner_x, "NET ".ljust(label_w), curses.color_pair(1) | curses.A_BOLD)
-        net_str = f"▼ {state.net_recv_kb:6d}K   ▲ {state.net_sent_kb:6d}K"
+        net_str = f"▼ {state.net_recv_kbs:6.1f}K/s ▲ {state.net_sent_kbs:6.1f}K/s"
         self._safe_addstr(inner_y + 4, inner_x + label_w + 1, net_str, curses.color_pair(3))
         
         self._safe_addstr(inner_y + 5, inner_x, "VRAM".ljust(label_w), curses.color_pair(1) | curses.A_BOLD)
@@ -687,7 +727,7 @@ class BtopDashboardV2:
         uptime_str = f"{hours}h {mins}m"
         draw_status_row(1, "Uptime:", uptime_str, 6)
         
-        draw_status_row(2, "Users:", f"{state.active_users} active", 3)
+        draw_status_row(2, "Users:", state.active_users, 3)
         draw_status_row(3, "Msgs:", f"{state.total_messages:,}", 3)
         
         resp_color = self._get_color_for_value(state.avg_response_time * 33, (50, 80))
@@ -718,24 +758,29 @@ class BtopDashboardV2:
         inner_x = pane.x + 2
         inner_width = pane.width - 4
         
-        # Confidence Bar
+        # Staleness indicator
+        stale_suffix = " (stale)" if state.rag_stale else ""
+        stale_attr = curses.A_DIM if state.rag_stale else curses.A_BOLD
+
+        # Confidence Bar (inverted colors: high=green, low=red)
         conf_pct = state.rag_confidence * 100
         bar_width = min(20, inner_width - 15)
         bar = self._draw_progress_bar(conf_pct, bar_width)
-        color = self._get_color_for_value(conf_pct, (60, 85))
+        color = self._get_color_inverted(conf_pct, (60, 85))
         
         self._safe_addstr(inner_y, inner_x, "Confidence:".ljust(12), curses.color_pair(1) | curses.A_BOLD)
         self._safe_addstr(inner_y, inner_x + 12, "[", curses.color_pair(6))
         self._safe_addstr(inner_y, inner_x + 13, bar, curses.color_pair(color))
         self._safe_addstr(inner_y, inner_x + 13 + bar_width, "]", curses.color_pair(6))
-        self._safe_addstr(inner_y, inner_x + 15 + bar_width, f"{state.rag_confidence:.2f}", curses.color_pair(color) | curses.A_BOLD)
+        self._safe_addstr(inner_y, inner_x + 15 + bar_width, f"{state.rag_confidence:.2f}{stale_suffix}", curses.color_pair(color) | stale_attr)
         
         # Stats Row
         self._safe_addstr(inner_y + 1, inner_x, "Retrieved Nodes:".ljust(18), curses.color_pair(1) | curses.A_BOLD)
-        self._safe_addstr(inner_y + 1, inner_x + 18, f"{state.rag_nodes}", curses.color_pair(2) | curses.A_BOLD)
+        self._safe_addstr(inner_y + 1, inner_x + 18, f"{state.rag_nodes}", curses.color_pair(2) | stale_attr)
         
+        # Coherence EMA (inverted colors: high=green, low=red)
         self._safe_addstr(inner_y + 2, inner_x, "Coherence EMA:".ljust(18), curses.color_pair(1) | curses.A_BOLD)
-        coh_color = self._get_color_for_value(state.coherence_ema * 100, (60, 85))
+        coh_color = self._get_color_inverted(state.coherence_ema * 100, (60, 85))
         self._safe_addstr(inner_y + 2, inner_x + 18, f"{state.coherence_ema:.3f}", curses.color_pair(coh_color) | curses.A_BOLD)
         
         # Hallucinations

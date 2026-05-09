@@ -6,7 +6,7 @@
 
 *Built for an RTX 3060 12GB. No cloud required. No subscriptions. No tracking.*
 
-[![Python 3.11+](https://img.shields.io/badge/python-3.11+-blue.svg)](https://python.org)
+[![Python 3.14+](https://img.shields.io/badge/python-3.14+-blue.svg)](https://python.org)
 [![Ollama](https://img.shields.io/badge/inference-ollama-black.svg)](https://ollama.com)
 [![Discord.py](https://img.shields.io/badge/discord-py-5865F2.svg)](https://discordpy.readthedocs.io)
 [![License: MIT](https://img.shields.io/badge/license-MIT-green.svg)](LICENSE)
@@ -189,13 +189,19 @@ First message: `@kaia status` in Discord to verify she's running.
 | 🌱 | **Character growth** | Evolving beliefs, self-model regeneration, interactive milestones |
 | 🕰️ | **Temporal awareness**| Time-of-day personality modulation, conversational fatigue |
 | 💬 | **Deep continuity** | Tone mirroring, open loop callbacks to past unfinished threads |
+| 💭 | **Inner monologue** | Private thought stream from passive observation, injected as context |
+| 🫂 | **Relationship stages**| stranger→inner_circle behavioral gating per user |
+| 🎯 | **Conversational stance**| High-confidence beliefs expressed as active opinions |
+| 😊 | **Emotional arc** | Persistent mood vector (valence/arousal/energy) with 6h decay |
+| 📡 | **Proactive initiation**| Speaks first — absence check-ins, knowledge triggers, dream insights |
+| 🔗 | **Episodic memory** | Dream-extracted thematic anchors for cross-session callbacks |
 | 🔍 | **Hybrid retrieval** | BM25 + vector search with reciprocal rank fusion |
 | 🛡️ | **Hallucination guard**| Adversarial self-check, knowledge boundary enforcement |
 | 🔄 | **Self-healing** | 3-pass generation loop with automatic parameter scaling |
 | 📰 | **Daily news** | Auto-generated tech briefs via Gemini API, 14-day retention |
 | 🐦 | **Social media** | Cross-posts to Bluesky and X, replies to mentions |
 | 🏛️ | **Forum integration** | VBulletin scraping, Discord ↔ Forum identity linking |
-| 📊 | **Curses dashboard** | Real-time VRAM/GPU stats, live log stream |
+| 📊 | **Curses dashboard** | Real-time VRAM/GPU stats, RAG health, live log stream |
 | ⚡ | **Circuit breakers** | Automatic failure isolation for all external APIs |
 | ⚔️ | **Aethelgard TTRPG** | Persistent text RPG with combat, housing, fishing, and LLM narration |
 
@@ -298,7 +304,8 @@ Kaiacord/
 │   ├── rebuild_rag_gpu.py   # Full GPU-accelerated RAG rebuild
 │   └── tests/               # pytest suite (unit / verification / integration)
 ├── scripts/
-│   └── kaia-tools.sh        # Interactive whiptail TUI for all maintenance
+│   ├── kaia-tools.sh        # Interactive whiptail TUI for all maintenance
+│   └── backfill_relationships.py  # Populate relationship data from user logs
 └── docs/                    # Full documentation
 ```
 
@@ -384,6 +391,6 @@ Full docs: [`docs/README.md`](docs/README.md)
 <sub>
 Built by Ekco · engineered with Claude, Gemini/Antigravity, Deepseek — local AI, no cloud required
 <br>
-Optimized for RTX 3060 12GB · gemma3:12b · Python 3.11
+Optimized for RTX 3060 12GB · gemma3:12b · Python 3.14+
 </sub>
 </div>

@@ -158,6 +158,16 @@ class KaiaPresenceManager:
         coherence = getattr(self.bot_state, 'kaia_coherence', 0.85)
         dream_freshness = getattr(self.bot_state, 'kaia_dream_freshness', 1.0)
 
+        # 3a. Read emotional arc for richer status text
+        arc_valence = 0.1
+        arc_energy = 0.8
+        try:
+            from utils.core.kaia_mood import emotional_arc
+            arc_valence = emotional_arc.valence
+            arc_energy = emotional_arc.social_energy
+        except Exception:
+            pass
+
         # 4. Determine status dot color
         if coherence < 0.4:
             status = discord.Status.dnd
@@ -171,6 +181,17 @@ class KaiaPresenceManager:
         # 30% chance to use a specific ambient status if not highly active/degraded
         if coherence >= 0.4 and engagement < 0.8 and secrets.randbelow(100) < 30:
             text = self._get_ambient_status()
+
+        # 5a. 25% chance to use emotional arc text (richer mood-aware statuses)
+        if not text and secrets.randbelow(100) < 25:
+            if arc_energy < 0.3 and arc_valence > 0.0:
+                text = secrets.choice(["quietly content.", "good but tired.", "winding down."])
+            elif arc_energy < 0.3 and arc_valence <= 0.0:
+                text = secrets.choice(["drained.", "need some quiet.", "running low."])
+            elif arc_valence > 0.5:
+                text = secrets.choice(["feeling good.", "good day.", "in a bright spot."])
+            elif arc_valence < -0.3:
+                text = secrets.choice(["restless.", "something's bugging me.", "off day."])
 
         if not text:
             if coherence < 0.4:

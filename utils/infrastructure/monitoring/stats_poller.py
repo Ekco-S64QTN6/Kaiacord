@@ -239,6 +239,7 @@ class RealTimeStatsPoller:
                                 if not os.path.islink(fp):
                                     total_size += os.path.getsize(fp)
                 new_stats['kb_size_mb'] = total_size / (1024 * 1024)
+                new_stats['rag_size'] = f"{new_stats['kb_size_mb']:.1f} MB"
                 
                 # Dreams Count: Count actual .md files in kaia_dreams subdirectories
                 dreams_kb_path = "knowledge_base/kaia_dreams"
@@ -250,8 +251,10 @@ class RealTimeStatsPoller:
                             total_dreams += len([f for f in os.listdir(sub_path) if f.startswith('dream_') and f.endswith('.md')])
                 new_stats['dreams_count'] = total_dreams
                 
-                # Indexed Files — reads file_manifest.json (renamed from indexed_files.json)
+                # Indexed Files — reads file_manifest.json (or legacy indexed_files.json)
                 indexed_path = "memory/rag_storage/file_manifest.json"
+                if not os.path.exists(indexed_path):
+                    indexed_path = "memory/rag_storage/indexed_files.json"
                 if os.path.exists(indexed_path):
                     with open(indexed_path, 'r', encoding='utf-8') as f:
                         indexed_data = json.load(f)

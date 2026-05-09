@@ -328,10 +328,11 @@ class BotState:
 
         return f"[current state: {', '.join(parts)}]"
 
-    def update_relationship(self, user_id: str, valence_sample: float = 0.5):
+    def update_relationship(self, user_id: str, valence_sample: float = 0.5, display_name: str = ""):
         """Update the relationship state for a user after an interaction.
         
         valence_sample: 0.0=very negative, 0.5=neutral, 1.0=very positive.
+        display_name: the user's current Discord display name (stored for proactive features).
         """
         now = time.time()
         uid = str(user_id)
@@ -344,13 +345,18 @@ class BotState:
                 'familiarity': 0.1,
                 'emotional_valence': 0.5,
                 'topic_counts': {},
-                'last_open_loop': ''
+                'last_open_loop': '',
+                'display_name': '',
             }
             self.relationships[uid] = rel
 
         rel['interaction_count'] += 1
         previous_seen = rel.get('last_seen', now)  # snapshot BEFORE overwrite
         rel['last_seen'] = now
+
+        # Store display_name if provided (keeps it current across name changes)
+        if display_name:
+            rel['display_name'] = display_name
 
         # Familiarity: EMA based on interaction frequency.
         # If user interacts often (<24h gaps), familiarity rises toward 1.0.
@@ -389,6 +395,60 @@ class BotState:
             f"[{user_name}: known {months}mo, {rel['interaction_count']} exchanges, "
             f"recent mood {mood_word}, interests: {topics_str}]"
         )
+
+    def get_relationship_stage(self, user_id: str) -> str:
+        """Return the relationship stage name based on interaction count.
+
+        Stages:
+            stranger (0-5), acquaintance (6-25), familiar (26-100),
+            confidant (101-500), inner_circle (500+)
+        """
+        rel = self.relationships.get(str(user_id))
+        if not rel:
+            return "stranger"
+        count = rel.get('interaction_count', 0)
+        if count <= 5:
+            return "stranger"
+        elif count <= 25:
+            return "acquaintance"
+        elif count <= 100:
+            return "familiar"
+        elif count <= 500:
+            return "confidant"
+        else:
+            return "inner_circle"
+
+    def get_stage_injection(self, user_id: str, user_name: str) -> str:
+        """Return a behavioral directive for system prompt based on relationship stage."""
+        stage = self.get_relationship_stage(user_id)
+        rel = self.relationships.get(str(user_id))
+        count = rel.get('interaction_count', 0) if rel else 0
+
+        directives = {
+            "stranger": (
+                f"[relationship: you don't know {user_name} well yet. "
+                f"be polite and welcoming but slightly reserved. shorter responses.]"
+            ),
+            "acquaintance": (
+                f"[relationship: you've talked with {user_name} a few times ({count} exchanges). "
+                f"normal warmth. you can reference past conversations if relevant.]"
+            ),
+            "familiar": (
+                f"[relationship: you know {user_name} well ({count} exchanges). "
+                f"be casual and direct. you're comfortable disagreeing. use inside references.]"
+            ),
+            "confidant": (
+                f"[relationship: {user_name} is someone you trust ({count} exchanges). "
+                f"be blunt and honest. share your real opinions. "
+                f"you can volunteer what's been on your mind.]"
+            ),
+            "inner_circle": (
+                f"[relationship: {user_name} is inner circle ({count} exchanges). "
+                f"full trust. reference your shared history freely. "
+                f"be completely yourself — direct, opinionated, personal.]"
+            ),
+        }
+        return directives.get(stage, "")
 
     def get_time_delta_hint(self, user_id: str, user_name: str) -> str:
         """Returns a time-delta behavioral hint based on absence duration."""
