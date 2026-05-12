@@ -258,7 +258,7 @@ class CoreTaskManager:
 
                     from utils.infrastructure.system.messaging import send_kaia_response
                     await send_kaia_response(channel, message)
-                    self.proactive_engine.record_sent(self.ctx.bot_state, trigger)
+                    self.proactive_engine.record_sent(self.ctx.bot_state, trigger, message)
                     log_success(f"Proactive message sent ({trigger.trigger_type})")
 
             except Exception as e:

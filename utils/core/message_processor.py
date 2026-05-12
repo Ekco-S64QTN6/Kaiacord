@@ -43,6 +43,10 @@ _OBSERVATIONAL_PATTERNS = [
         r"(what|show|tell me)\s+(happened|was said|went on|occurred)\s+(over|in|during|for)?\s*(the\s+)?(past|last)\s+\d+\s*(hour|day|minute|week)",
         r"(recap|summary|overview)\s+(of\s+)?(today'?s?|recent|the\s+last|past)\s+(chat|interactions?|activity|conversations?)",
         r"\brecap\b.{0,40}(past|last)\s+\d+\s*(hour|day|week|hr)",
+        # Channel-scoped recall — "anything from kaia-opolis", "what's going on in general"
+        r"(anything|something).{0,30}(aware of|know about|should know|notable|noteworthy).{0,30}(from|in|on)\s+(#?\w[\w-]+)",
+        r"(what|anything).{0,30}(going on|happening|been said|discussed|talking about).{0,30}(in|on|from)\s+(#?\w[\w-]+)",
+        r"(update|brief|catch).{0,15}(me|us)?.{0,15}(on|from|about)\s+(#?\w[\w-]+)",
     ]
 ]
 
@@ -1247,6 +1251,52 @@ class MessageProcessor:
                 "speak from what you know, hedge where uncertain, do not invent]"
             )
 
+        # Channel-specific grounding: if user asked about specific channels
+        # and no retrieved context actually ORIGINATES from those channels.
+        # NOTE: We check for explicit channel-context markers (e.g. #channel,
+        # [channel: X]) in metadata — NOT just the word itself, since common
+        # words like "general" appear in unrelated logs.
+        _is_channel_recall = False
+        _channel_refs = []
+        try:
+            _channel_refs = re.findall(r'\b(kaia-opolis|general|aethelgard)\b', ctx.sanitized_content.lower())
+            if _channel_refs and ctx.context_nodes:
+                # Check for channel-sourced markers in node metadata/content.
+                # RAG logs currently do NOT include channel metadata, so this
+                # will correctly report all channels as missing.
+                _channel_markers = set()
+                for n in ctx.context_nodes:
+                    _meta = n.get('metadata', {}) if isinstance(n, dict) else getattr(n, 'metadata', {})
+                    _ch = _meta.get('channel_name', '') or _meta.get('channel', '')
+                    if _ch:
+                        _channel_markers.add(_ch.lower())
+                    # Also check for explicit #channel references in content
+                    _content = n.get('content', '') if isinstance(n, dict) else (getattr(n, 'text', '') or str(n))
+                    for ch in _channel_refs:
+                        if f'#{ch}' in _content.lower() or f'[channel: {ch}]' in _content.lower():
+                            _channel_markers.add(ch)
+
+                _missing = [ch for ch in _channel_refs if ch not in _channel_markers]
+                if _missing:
+                    _is_channel_recall = True
+                    rag_block += (
+                        f"\nCHANNEL GROUNDING — HARD RULE.\n"
+                        f"The user asked about channel(s): {', '.join(_missing)}.\n"
+                        f"Your retrieved context contains ZERO data from those channels.\n"
+                        f"You have NO information about what was discussed there.\n"
+                        f"Do NOT generate summaries, themes, or topics for those channels.\n"
+                        f"CORRECT response: 'i don't have clear records from those channels right now. "
+                        f"my logs don't track channel-specific activity yet.'\n"
+                        f"INCORRECT response: 'From kaia-opolis, the primary takeaway is...' (THIS IS FABRICATION)\n"
+                        f"END CHANNEL GROUNDING\n"
+                    )
+        except Exception:
+            pass  # Never let grounding check break generation
+
+        # Store channel recall state on context for post-generation verification
+        ctx._is_channel_recall = _is_channel_recall
+        ctx._channel_refs = _channel_refs
+
         current_time_str = datetime.now().strftime("%A, %B %d, %Y | %I:%M %p")
 
         # Bug 2 Fix: Move time to a metadata block at the end, and stop replacing it inside persona
@@ -1422,6 +1472,38 @@ class MessageProcessor:
                 content = filtered if filtered and filtered.strip() else content
                 
                 if content and content.strip():
+                    # ── Observational Fabrication Guard ──────────────────────
+                    # Hard post-generation check: if this is a channel-recall
+                    # query and the response contains channel-attribution
+                    # patterns ("From kaia-opolis, ..."), the LLM fabricated.
+                    # This is deterministic — no soft prompt can be ignored.
+                    if getattr(ctx, '_is_channel_recall', False) and getattr(ctx, '_channel_refs', []):
+                        _fab_found = False
+                        _content_lower = content.lower()
+                        for _ch in ctx._channel_refs:
+                            # Catch "From kaia-opolis," / "In general," / "Within general,"
+                            # / "kaia-opolis: the primary" etc.
+                            _fab_patterns = [
+                                re.compile(rf'(from|within|in|regarding|about|per)\s+{re.escape(_ch)}\b[,:]', re.IGNORECASE),
+                                re.compile(rf'{re.escape(_ch)}\s*[:,]\s*(the|a|there|primary|notable|key|main)', re.IGNORECASE),
+                            ]
+                            for _fp in _fab_patterns:
+                                if _fp.search(content):
+                                    _fab_found = True
+                                    log_warning(f"[CHANNEL_FAB_GUARD] Fabricated channel attribution for '{_ch}' detected. Blocking.")
+                                    break
+                            if _fab_found:
+                                break
+                        if _fab_found:
+                            log_warning(f"Attempt {attempt + 1}: Channel-recall fabrication detected. Retrying with canned response.")
+                            # Return honest canned response — LLM cannot be trusted here
+                            return (
+                                "i don't have clear records from those channels right now. "
+                                "my logs don't track channel-specific activity yet — "
+                                "i can tell you what i've picked up from our conversations, "
+                                "but i can't give you a reliable summary of what happened in specific channels."
+                            )
+
                     self.bot_state.first_chat_done = True
                     return content
                 else:
@@ -1558,6 +1640,7 @@ class MessageProcessor:
 
                 # ── Relationship State Update (Items 2, 3, 7) ─────────────────
                 event_type = None  # Initialize before try so growth block can safely read it
+                valence = 0.5      # Neutral fallback — overwritten by estimate_sentiment() below
                 try:
                     from utils.core.relationship_manager import (
                         estimate_sentiment, detect_event_type,

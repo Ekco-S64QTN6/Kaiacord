@@ -48,6 +48,11 @@ class EmergencyContaminationFilter:
         r"\b(?i:it[''\u2019]s)\s*[\u2026\.]{2,}\s+(?i:it[''\u2019]s)\b",
         r"\baesthetic\s+overload\b",
         r"recalibrat(e|ing)\s+my\s+filters",
+        # Fabricated channel activity — hallucinated Discord channel summaries
+        r"\bProject\s+Nightingale\b",  # Cyberpunk 2077 lore misattributed as channel activity
+        r"(access\s+logs?|logs?)\s+indicate.{0,30}(contained?\s+discussion|discussion\s+of)",
+        r"(localized\s+network\s+disruptions?\s+affecting\s+data\s+integrity)",
+        r"(increased\s+redundancy\s+measures?\s+in\s+key\s+infrastructure)",
     ]
 
     RETRY_THRESHOLD = 0.5  # If more than 50% lines contaminated, retry

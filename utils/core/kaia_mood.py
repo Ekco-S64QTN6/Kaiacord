@@ -113,8 +113,10 @@ class EmotionalArc:
                     with open(HISTORY_PATH, 'r', encoding='utf-8') as f:
                         lines = f.readlines()
                     if len(lines) > MAX_HISTORY_ENTRIES:
-                        with open(HISTORY_PATH, 'w', encoding='utf-8') as f:
+                        tmp_path = HISTORY_PATH + ".tmp"
+                        with open(tmp_path, 'w', encoding='utf-8') as f:
                             f.writelines(lines[-MAX_HISTORY_ENTRIES:])
+                        os.replace(tmp_path, HISTORY_PATH)
             except Exception:
                 pass
         except Exception as e:

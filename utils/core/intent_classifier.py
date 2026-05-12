@@ -242,6 +242,9 @@ class IntentParser:
                 r"what did (i|we|you|people|everyone) (miss|talk about)",
                 r"catch me up",
                 r"what'?s been said",
+                # Channel-scoped recall — "anything aware of from kaia-opolis"
+                r"(anything|something).{0,20}(aware of|know about|should know).{0,20}(from|in)\s+\w",
+                r"(what|anything).{0,20}(going on|happening|discussed|said).{0,20}(in|from)\s+\w",
             ],
             "SUMMARIZATION": [
                 r"^\s*(kaia\s+)?(summarize|summary of|digest|tl;?dr)\b",
