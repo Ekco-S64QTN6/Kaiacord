@@ -15,9 +15,9 @@
 
 ---
 
-Kaia is an autonomous AI agent that actually remembers and evolves. She builds a personal knowledge base from your conversations, dreams about them at night, and develops her own beliefs over time. Her lifelike presence system includes reading pauses, mood-driven Discord statuses, conversational fatigue, and callbacks to past interactions.
+Kaia is an autonomous AI agent that actually remembers and evolves. She maintains a persistent emotional state that drifts naturally over time, runs a background inner monologue from passive observation, and tracks per-user relationships through staged familiarity levels that evolve from stranger to close friend. She dreams at night — processing the day's conversations into revisable beliefs and an evolving identity journal — and cross-session memory anchors let her recall emotionally significant moments weeks later with natural callbacks. Her 26-feature cognitive pipeline creates a genuine sense of presence: reading pauses, tone mirroring, conversational fatigue, proactive conversation initiation, mood-driven Discord statuses, and autonomous topic exploration.
 
-She has a persona (blunt, lowercase, technically precise), cross-posts to Bluesky and X, monitors forums, and generates daily news briefs via Gemini. The whole stack runs locally with Ollama.
+She also runs **Aethelgard**, a full persistent TTRPG (335 monsters, 433 items, 10 advanced classes, a 77-floor mega-dungeon), generates **fractal flame art** (Electric Sheep-style, CPU-rendered), cross-posts to Bluesky and X, and generates daily news briefs via Gemini. The whole stack runs locally with Ollama — no cloud required.
 
 ---
 
@@ -184,26 +184,26 @@ First message: `@kaia status` in Discord to verify she's running.
 |:--|:--------|:-------|
 | 💬 | **Local inference** | gemma3:12b via Ollama, 8K context, fully offline |
 | 🧠 | **Persistent memory** | RAG-backed knowledge base, per-user profiles, conversation history |
-| 🌙 | **Dream Engine** | Nightly associative recall — processes daily logs into reflections |
-| 🎭 | **Lifelike presence** | Reading pauses, mood-based Discord status, emoji reactions |
-| 🌱 | **Character growth** | Evolving beliefs, self-model regeneration, interactive milestones |
-| 🕰️ | **Temporal awareness**| Time-of-day personality modulation, conversational fatigue |
+| 🌙 | **Dream Engine** | Nightly associative recall — processes daily logs into revisable beliefs and identity evolution |
+| 🎭 | **Lifelike presence** | Reading pauses, mood-based Discord status, emoji reactions, variable response timing |
+| 🌱 | **Character growth** | Evolving beliefs (50-cap), self-model regeneration, identity stream journal |
+| 🕰️ | **Temporal awareness**| Time-of-day personality modulation, conversational fatigue, reunion detection |
 | 💬 | **Deep continuity** | Tone mirroring, open loop callbacks to past unfinished threads |
 | 💭 | **Inner monologue** | Private thought stream from passive observation, injected as context |
-| 🫂 | **Relationship stages**| stranger→inner_circle behavioral gating per user |
+| 🫂 | **Relationship stages**| stranger→inner_circle behavioral gating per user, 100-event relationship history |
 | 🎯 | **Conversational stance**| High-confidence beliefs expressed as active opinions |
 | 😊 | **Emotional arc** | Persistent mood vector (valence/arousal/energy) with 6h decay |
-| 📡 | **Proactive initiation**| Speaks first — absence check-ins, knowledge triggers, dream insights |
-| 🔗 | **Episodic memory** | Dream-extracted thematic anchors for cross-session callbacks |
+| 📡 | **Proactive initiation**| 7-source engine — absence check-ins, beliefs, memories, mood, curiosity, dreams |
+| 🔗 | **Episodic memory** | 50 memory anchors with weight decay for cross-session callbacks |
 | 🔍 | **Hybrid retrieval** | BM25 + vector search with reciprocal rank fusion |
-| 🛡️ | **Hallucination guard**| Adversarial self-check, knowledge boundary enforcement |
+| 🛡️ | **Hallucination guard**| Post-generation fabrication detection with channel-scoped grounding |
 | 🔄 | **Self-healing** | 3-pass generation loop with automatic parameter scaling |
+| 🎨 | **Fractal art** | `!art` — Electric Sheep-style fractal flames, 20 variations, 10 palettes, CPU-rendered |
+| ⚔️ | **Aethelgard TTRPG** | 335 monsters, 433 items, 10 classes, 77-floor mega-dungeon, housing, farming, pets, alchemy |
 | 📰 | **Daily news** | Auto-generated tech briefs via Gemini API, 14-day retention |
 | 🐦 | **Social media** | Cross-posts to Bluesky and X, replies to mentions |
-| 🏛️ | **Forum integration** | VBulletin scraping, Discord ↔ Forum identity linking |
-| 📊 | **Curses dashboard** | Real-time VRAM/GPU stats, RAG health, live log stream |
+| 📊 | **Curses dashboard** | Real-time VRAM/GPU stats, RAG health, cognitive metrics, live log stream |
 | ⚡ | **Circuit breakers** | Automatic failure isolation for all external APIs |
-| ⚔️ | **Aethelgard TTRPG** | Persistent text RPG with combat, housing, fishing, and LLM narration |
 
 ---
 
@@ -211,15 +211,18 @@ First message: `@kaia status` in Discord to verify she's running.
 
 | Command | Description | Who |
 |:--------|:------------|:----|
+| `!art` | Generate a fractal flame artwork with Kaia commentary | All |
+| `!rpg` | Open the Aethelgard TTRPG HUD and play | All |
+| `!fish` | Cast a fishing line (rod-based fishing economy) | All |
 | `!news [category]` | Fetch news briefs (`today`, `technology`, `security`, `hacking`, `politics`, `business`, `science`, `culture`) | All |
 | `!download <url>` | Ingest a URL into the knowledge base | All |
 | `!quip` | Trigger a social media post (10m cooldown) | All |
-| `!rpg` | Open the Aethelgard TTRPG HUD and play | All |
 | `!forum link <uid>` | Link Discord identity to forum profile | All |
-| `!dreams list` | Show recent dream reflections | Admin |
-| `!dreams generate` | Force a dream cycle | Admin |
-| `!cache clear` | Wipe response cache | Admin |
-| `!forum scrape` | Manually scrape configured subforum | Admin |
+| `!dream list` | Show recent dream reflections | Admin |
+| `!dream generate` | Force a dream cycle | Admin |
+| `!memory` | Show Kaia's memory anchors and beliefs | Admin |
+| `!selfmodel` | Regenerate Kaia's self-model | Admin |
+| `!sysmon` | Show system monitoring stats | Admin |
 | `!snapshot` | Save current conversation context | Admin |
 | `!flag` / `!audit` | Flag a response for review | Admin |
 
@@ -285,28 +288,38 @@ Full config reference: [`config/default_config.yaml`](config/default_config.yaml
 
 ```
 Kaiacord/
-├── Kaiacord.py              # Orchestrator (~170 lines)
-├── config/                  # YAML config, persona, entity databases
+├── Kaiacord.py              # Bot entry point
+├── AGENTS.md                # AI agent instructions (read this first)
+├── config/                  # YAML config, persona definitions
 ├── knowledge_base/          # RAG document storage (books, news, user logs)
-├── memory/                  # Persistent state (bot_state.json, rag_storage/)
-├── logs/                    # Consolidated log: kaiacord.log
+├── memory/                  # Runtime state — never committed
+│   ├── ttrpg/characters/    # Per-user JSON character sheets
+│   ├── relationships/       # Per-user relationship event files
+│   ├── art/                 # Generated fractal flame PNGs + JSON sidecars
+│   ├── beliefs.json         # Kaia's revisable belief store (50-cap)
+│   ├── bot_state.json       # Interaction tracking, familiarity, mood
+│   ├── identity_stream.md   # Rolling identity evolution journal
+│   ├── memory_anchors.json  # Episodic memory anchors (50-cap, weight decay)
+│   └── rag_storage/         # RAG indices, BM25 caches
 ├── utils/
-│   ├── core/                # RAG, Intelligence, Dream Engine, MessageProcessor
-│   ├── infrastructure/      # AppContext, Dashboard, Logging, Config, GPU
-│   ├── social/              # Bluesky, X, Social Responders
-│   ├── commands/            # Discord command handlers
-│   └── news/                # News retrieval & management
-├── tools/
-│   ├── maintenance/         # update_kaia_news.py, health_check.py, force_reindex.py
-│   ├── diagnostics/         # RAG index scanning, embedding verification
-│   ├── recovery/            # find_contamination.py, nuclear_reset.py
-│   ├── development/         # generate_user_profiles.py
-│   ├── rebuild_rag_gpu.py   # Full GPU-accelerated RAG rebuild
-│   └── tests/               # pytest suite (unit / verification / integration)
-├── scripts/
-│   ├── kaia-tools.sh        # Interactive whiptail TUI for all maintenance
-│   └── backfill_relationships.py  # Populate relationship data from user logs
-└── docs/                    # Full documentation
+│   ├── core/                # Kaia cognitive pipeline (26 features)
+│   │   ├── message_processor.py  # Main intelligence pipeline (~1900 lines)
+│   │   ├── kaia_dream.py         # Dream engine, belief extraction
+│   │   ├── kaia_art.py           # Fractal flame renderer (CPU-only)
+│   │   ├── kaia_proactive.py     # Autonomous conversation initiation
+│   │   └── ...                   # Mood, monologue, presence, RAG, etc.
+│   ├── ttrpg/               # Aethelgard game logic + RPG command handlers
+│   │   ├── monster_registry.py   # 335 monsters
+│   │   ├── equipment_registry.py # 433 items across 7 tiers
+│   │   ├── combat_engine.py      # Combat resolution
+│   │   ├── spine_dungeon.py      # 77-floor mega-dungeon
+│   │   └── ...                   # Classes, shops, housing, farming, pets
+│   ├── commands/            # Discord command dispatch
+│   └── infrastructure/      # AppContext, Dashboard, Logging, Config, GPU
+├── docs/
+│   ├── ttrpg/               # TTRPG design documents and lore bible
+│   └── reports/             # Phase reports, audits, roadmaps
+└── scripts/                 # Maintenance tools and TUI
 ```
 
 ---
@@ -355,9 +368,9 @@ PYTHONPATH=. pytest tools/tests/verification/ -q
 
 ## Persona
 
-Edit `config/kaia_persona.md` to change her personality. She re-reads it on every restart.
+Edit `knowledge_base/kaia_persona.md` to change her personality. She re-reads it on every restart.
 
-The persona shapes tone, not facts. Memory comes from the knowledge base.
+The persona shapes tone, not facts. Memory comes from the knowledge base. All 26 cognitive features (mood, monologue, relationships, etc.) are pure Python heuristics injected into the system prompt — they do not call the LLM.
 
 ---
 
