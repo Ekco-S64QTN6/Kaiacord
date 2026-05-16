@@ -54,4 +54,4 @@ Log interception is now handled by `unified_logging.py` which provides built-in 
 - **Scrolling Fix**: Implemented alternate screen buffer to prevent terminal history pollution.
 - **Duplicate Logs**: Added a cooldown and counter for repeated log messages.
 - **DateTime Error**: Switched to `time.time()` (float) for robust uptime calculation.
-- **Shutdown Error**: Fixed `kaia_vision` import path to prevent `No module named` errors on exit.
+- **RAG Health**: Fixed inverted color thresholds for RAG health metric display.

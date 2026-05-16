@@ -57,20 +57,20 @@ To enable fully automated daily updates:
    0 9 * * * cd /path/to/Kaiacord && source venv/bin/activate && python tools/maintenance/update_kaia_news.py
    ```
 
-## 5. API Quota
+## 6. API Quota
 - **Free tier**: 20 requests/day per model (may hit limits with backfill enabled)
 - **Paid tier**: Enable billing at https://aistudio.google.com/ for higher limits
 - **Tip**: Skip backfill (default) to conserve quota for today's news only
 
-## 6. Maintenance
+## 7. Maintenance
 The script automatically archives news briefs and summaries older than **14 days** to `knowledge_base/news/archive/` to keep the knowledge base focused.
 
-## 7. Formatting
+## 8. Formatting
 Kaia's news responses are optimized for readability:
 - **No Empty Lines**: Output is compact with no blank lines between sections.
 - **Bullet Points**: News is presented as a numbered list with dates.
 - **Options Footer**: Every news response includes a list of available categories for quick reference.
 
-## 8. Dependencies
+## 9. Dependencies
 - **google-genai**: New Google GenAI SDK with grounding support
 - **ollama**: For local summarization with gemma3:12b

@@ -6,7 +6,7 @@ Get Kaia up and running in 5 minutes.
 
 Before starting, ensure you have:
 - ✅ Linux system
-- ✅ Python 3.9+
+- ✅ Python 3.14+
 - ✅ NVIDIA GPU (8GB+ VRAM)
 - ✅ Discord bot token
 - ✅ 30GB free disk space
@@ -49,9 +49,7 @@ python tools/maintenance/health_check.py
 Expected: All ✅ green checks
 
 ### Test 2: Discord Interaction
-In Discord
-
-:
+In Discord:
 ```
 @kaia status
 ```
@@ -109,13 +107,13 @@ Kaia needs access to message content and server members to function correctly.
 ## Next Steps
 
 ### Learn the Basics
-- **[Basic Usage Guide](../02-user-guide/basic-usage.md)** - Commands and features
-- **[Dashboard Guide](../02-user-guide/dashboard.md)** - Understanding the UI
-- **[Configuration Guide](configuration.md)** - Customization
+- **[Command Reference](../02-user-guide/commands.md)** — All available commands
+- **[Dashboard Guide](../02-user-guide/dashboard.md)** — Understanding the curses UI
 
-### Try Advanced Features
+### Try Features
+- **Art**: `!art` to generate fractal flame artwork
+- **RPG**: `!rpg` to play the Aethelgard TTRPG
 - **News**: `!news technology`
-- **Dreams**: `!dreams` to see recent reflections
 - **Social**: Set up [Bluesky & X](../02-user-guide/social-media.md) cross-posting
 
 ### Customize
@@ -129,13 +127,8 @@ Kaia needs access to message content and server members to function correctly.
 
 | Command | Action |
 |:--------|:-------|
-| `@kaia status` | Check bot health |
 | `@kaia [question]` | Ask anything |
+| `!art` | Generate fractal flame art |
+| `!rpg` | Open the TTRPG HUD |
+| `!fish` | Cast a fishing line |
 | `!news [category]` | Get news briefs |
-| `!dreams` | View recent dream reflections |
-
----
-
-<p align="center">
-  <sub>🎉 All set! Join our community or <a href="../02-user-guide/basic-usage.md">learn more</a>!</sub>
-</p>

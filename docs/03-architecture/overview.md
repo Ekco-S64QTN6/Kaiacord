@@ -148,6 +148,17 @@ Kaiacord/
 
 ---
 
+### 8. TTRPG System (Aethelgard)
+
+**Responsibility**: A full persistent RPG with turn-based combat, 10 classes, and a 77-floor mega-dungeon.
+
+**Features**:
+- Deterministic game math handled entirely by Python; LLM handles narration only.
+- Per-user async locks prevent race conditions during combat or item generation.
+- Full registry system (335 monsters, 447 items) integrated with a procedural dungeon generator.
+
+---
+
 ## Data Flow
 
 ### Message Processing Flow
@@ -202,5 +213,5 @@ Kaia implements a 3-pass self-healing generation loop:
 
 ## References
 
-- [GEMINI Report](../reports/GEMINI_Report.md)
+- [Master Report](../reports/MASTER_REPORT.md)
 - [Claude Report](../reports/Claude_Report.md)

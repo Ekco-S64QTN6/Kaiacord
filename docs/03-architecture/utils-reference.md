@@ -14,38 +14,64 @@ Core utility modules used by Kaiacord.
 | `kaia_intelligence.py` | Intelligence facade — coordinates classification and optimization |
 | `intent_classifier.py` | Dual-mode intent detection (Fast-path Regex + LLM Deep Dive) |
 | `context_optimizer.py` | Dynamic context window management and token budgeting |
-| `context_enricher.py` | Automated content enrichment (URL fetching, attachment scraping) |
-| `kaia_dream.py` | Dream Engine for nightly associative memory processing |
 | `hallucination_detector.py` | Canonical detector for AI structural leaks and fabrications |
 | `message_processor.py` | Modular on_message pipeline with timeout guards and self-healing |
-| `knowledge_boundary.py` | Entity extraction, fuzzy matching, and hallucination prevention boundary |
-| `semantic_cache.py` | Enhanced semantic cache with pollution protection |
 | `response_filter.py` | Hallucination detection, boilerplate filtering, and response cleaning |
+| `sanitizer.py` | Output sanitization |
+
+## Cognitive Pipeline (`utils/core/`)
+
+| Module | Purpose |
+|--------|---------|
+| `kaia_dream.py` | Dream Engine for nightly associative memory processing |
+| `kaia_mood.py` | Persistent emotional state vector (valence/arousal/social_energy) |
+| `kaia_monologue.py` | Private thought stream from passive channel observation |
+| `kaia_proactive.py` | Autonomous conversation initiation engine |
+| `kaia_presence.py` | Mood-aware Discord status driven by emotional arc |
+| `memory_anchors.py` | Dream-extracted thematic anchors for cross-session callbacks |
+| `relationship_manager.py` | Per-user relationship event store and staging |
+| `curiosity_scanner.py` | Unresolved mention detection |
 
 ## Infrastructure (`utils/infrastructure/`)
 
 | Module | Purpose |
 |--------|---------|
 | `system/app_context.py` | **AppContext**: Central container for system singletons and dependencies |
-| `system/dashboard_manager.py` | **Lifecycle Manager**: Run modes, startup, and cleanup |
-| `logging/unified_logging.py` | Centralized logging with color-coded output |
-| `system/yaml_config.py` | Hierarchical configuration management (env → kaia.yaml → default_config.yaml) |
 | `system/bot_state.py` | Persistent state and interaction tracking |
+| `system/yaml_config.py` | Hierarchical configuration management |
+| `system/messaging.py` | Discord message utilities |
 | `system/rate_limiter.py` | Per-user interaction rate limiting |
-| `system/shutdown_manager.py` | Ordered shutdown orchestration (model unload → RAG persist → cleanup) |
-| `monitoring/stats_tracker.py` | Statistics collection and dashboard data |
+| `logging/kaia_logger.py` | Structured logging |
+| `monitoring/btop_dashboard_v2.py` | Live curses monitoring dashboard |
+| `monitoring/async_task_registry.py`| Background task lifecycle tracking |
+| `monitoring/watchdog.py` | Event loop health monitor |
 
 ## GPU & System (`utils/infrastructure/gpu/`)
 
 | Module | Purpose |
 |--------|---------|
-| `gpu_manager.py` | Semaphore-based GPU concurrency guard (replaces legacy model-swapping manager) |
-| `gpu_memory_manager.py` | GPU guard wrapper with ContextVar re-entrancy detection |
+| `gpu_manager.py` | Ollama GPU options |
+| `gpu_memory_manager.py` | GPU task queue with priority scheduling |
 
-## Specialized Handlers
+## Specialized Handlers (`utils/commands/`)
 
-| Folder | Purpose |
+| Module | Purpose |
 |--------|---------|
-| `utils/commands/` | Extracted logic for `!news`, `!dreams`, `!vram`, etc. |
-| `utils/news/` | News retrieval, parsing, and ingestion logic |
-| `utils/social/` | Bluesky, X/Twitter, Social Responder with circuit breakers |
+| `registry.py` | Central command dispatcher |
+| `art_handler.py` | `!art` fractal flame generation |
+| `fishing_handler.py` | Fishing commands |
+| `rpg_handler.py` | RPG command router |
+| `dream_handler.py` | `!dream` commands |
+| `social_handler.py` | Bluesky/X social posting |
+| `sysmon_handler.py` | `!sysmon` monitoring |
+
+## TTRPG (`utils/ttrpg/`)
+
+| Module | Purpose |
+|--------|---------|
+| `combat_engine.py` | Combat resolution (DEF soft-cap + global cap) |
+| `spine_dungeon.py` | 77-floor mega-dungeon generation |
+| `class_advancement.py`| 10 advanced classes and proc logic |
+| `character_manager.py`| Per-user character sheet I/O (async, locked) |
+| `monster_registry.py` | 335 monster stat blocks |
+| `equipment_registry.py`| 447 items across 7 tiers |

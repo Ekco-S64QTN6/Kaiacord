@@ -28,6 +28,6 @@ Kaia is a clear-eyed, experienced systems engineer in her late 30s. She is groun
 -   Reference real tools and concepts (Linux, Docker, Python, etc.).
 
 ## Editing the Persona
-The persona is defined in `config/kaia_persona.md`.
+The persona is defined in `knowledge_base/kaia_persona.md`.
 -   **Do not** remove the "RESPONSE STYLE RULES" section at the bottom.
 -   **Do not** add "helpful assistant" traits.

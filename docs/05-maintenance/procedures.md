@@ -4,10 +4,7 @@ This directory contains scripts for maintaining, debugging, and fixing the Kaiac
 
 ## Recovery Tools (tools/recovery/)
 
-### `proper_fix.py` ⚠️ ARCHIVED
-**Status**: This tool has been decommissioned. Running it will immediately exit.  
-**Replacement**: Use `tools/recovery/find_contamination.py` to locate issues, then
-manually edit or delete the affected file from `knowledge_base/`.
+
 
 ### `nuclear_reset.py`
 **Purpose**: Last resort for heavily contaminated systems.  

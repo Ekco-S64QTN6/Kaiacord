@@ -6,7 +6,7 @@ Complete installation guide for Kaiacord v2.0.
 
 ### Required
 - **Operating System**: Linux (Ubuntu 20.04+, Debian 11+, Arch, etc.)
-- **Python**: 3.9 or higher
+- **Python**: 3.14 or higher
 - **GPU**: NVIDIA GPU with 8GB+ VRAM (12GB recommended)
   - RTX 3060 (12GB) - Recommended ✅
   - RTX 3070 (8GB) - Works but tight on VRAM
@@ -113,7 +113,7 @@ EOF
 nano config/kaia.yaml
 ```
 
-**See**: [Configuration Guide](configuration.md) for details
+**See**: `config/kaia.yaml` for available settings (override `config/default_config.yaml`)
 
 ---
 
@@ -218,10 +218,9 @@ ollama pull gemma3:12b
 
 ## Advanced Installation Options
 
-### Docker (Coming Soon)
+### Docker
 ```bash
-# Not yet available
-# docker-compose up -d
+# Not currently supported — Kaiacord requires direct GPU access via Ollama
 ```
 
 ### Systemd Service

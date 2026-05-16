@@ -6,74 +6,81 @@ All commands are prefixed with `!`. Admin commands are restricted to the project
 
 | Command | Description | Access |
 |:---|:---|:---|
-| `!quip` | Trigger a social media quip. | All (10m cooldown) |
-| `!news [category]` | Fetch news by category. | All |
-| `!download <url>` | Ingest a URL into the knowledge base. | All |
-| `!forum [cmd]` | VBulletin forum management. | Mixed |
-| `!rpg [cmd]` | Play the integrated TTRPG system. | Mixed |
-| `!dreams [cmd]` | Manage Dream Mode processing. | Admin |
-| `!snapshot` | Capture current context for diagnostics. | Admin |
-| `!flag` / `!audit` | Path to response review / auditing. | Admin |
-| `!explain` | Deep-dive into RAG retrieval logic for last response. | Admin |
-| `!cache [cmd]` | System cache management. | Admin |
+| `!art` | Generate a fractal flame artwork with Kaia commentary | All |
+| `!rpg` | Open the Aethelgard TTRPG HUD and play | All |
+| `!fish` | Cast a fishing line (rod-based fishing economy) | All |
+| `!news [category]` | Fetch news by category | All |
+| `!download <url>` | Ingest a URL into the knowledge base | All |
+| `!quip` | Trigger a social media quip (10m cooldown) | All |
+| `!forum [cmd]` | VBulletin forum management | Mixed |
+| `!dream [cmd]` | Dream engine management | Admin |
+| `!memory [cmd]` | Memory and beliefs management | Admin |
+| `!selfmodel` | Regenerate Kaia's self-model | Admin |
+| `!sysmon` | System monitoring dashboard | Admin |
+| `!explain` | Deep-dive into RAG retrieval logic | Admin |
 
 ---
 
 ## User Commands
 
-### 📢 Quip (`!quip`)
-Manually triggers a social media quip — a short post cross-posted to Bluesky and/or X, grounded in Kaia's recent conversation history. 10-minute cooldown for non-owners to prevent spam.
+### 🎨 Art (`!art`)
+Generates a fractal flame artwork using the Electric Sheep algorithm (CPU-rendered, NumPy/SciPy). Kaia provides commentary on each piece. Features 20 variation functions, 10 color palettes, and adaptive density estimation.
+
+### ⚔️ RPG (`!rpg`)
+Opens the Aethelgard TTRPG interface — a full persistent RPG with turn-based combat, 10 advanced classes, a 77-floor mega-dungeon, housing, farming, pets, and alchemy. Python handles all game math; Kaia narrates outcomes.
+
+Key subcommands:
+- `!rpg new <Name> <Class>` — Create a character (Warrior/Ranger/Mage/Rogue/Cleric)
+- `!rpg sheet` — View character sheet
+- `!rpg hunt` — Hunt for monsters in current region
+- `!rpg move <direction>` — Travel the world map
+- `!rpg dungeon enter` — Enter a dungeon
+- `!rpg buy/sell` — Shop interactions
+- `!rpg home/farm/pet` — Estate management
+
+### 🎣 Fish (`!fish`)
+Casts a fishing line using the rod-based fishing economy. Features rod breakage mechanics, bag upgrades, and location-aware regional catch tables.
 
 ### 📰 News (`!news [category]`)
-Fetches news by category from the auto-generated daily briefs. Requires `GEMINI_API_KEY` to be set for brief generation.
+Fetches news by category from auto-generated daily briefs. Requires `GEMINI_API_KEY` for brief generation.
 
 **Categories:** `today`, `technology`, `security`, `hacking`, `politics`, `business`, `science`, `culture`, `general`
 
-- `!news today`: Summary of the day's top stories.
-- `!news technology`: Technology-specific briefing.
-
 ### 📥 Download (`!download <url>`)
-Fetches content from a URL, converts it to Markdown, and saves it to the knowledge base for RAG ingestion. Supports HTML pages, PDFs, and plain text. The destination folder is auto-classified based on content type.
+Fetches content from a URL, converts it to Markdown, and saves it to the knowledge base for RAG ingestion. Supports HTML pages, PDFs, and plain text.
+
+### 📢 Quip (`!quip`)
+Triggers a social media quip — a short post cross-posted to Bluesky and/or X, grounded in Kaia's recent conversation history. 10-minute cooldown for non-owners.
 
 ### 🏟️ Forum (`!forum`)
 Manages VBulletin 3.x integration and Discord ↔ Forum identity linking.
-- `!forum link <forum_uid>`: **User command**. Links your Discord account to your Forum UID for cross-platform profiling.
-- `!forum scrape [pages]`: **Admin command**. Manually scrape the configured subforum.
-- `!forum status`: Connectivity status, session token, recent scrape counts.
-- `!forum allow <thread_id>`: Add a thread to the interaction allowlist.
+- `!forum link <forum_uid>` — **User command**. Links your Discord account to your Forum UID.
+- `!forum scrape [pages]` — **Admin**. Manually scrape the configured subforum.
+- `!forum status` — Connectivity status and recent scrape counts.
 
 ---
 
 ## Admin Commands
 
-### 💤 Dreams (`!dreams`)
-Manages Kaia's autonomous "Dream Mode" — nightly (3–5 AM) processing of daily interaction logs into associative reflections that feed back into RAG.
-- `!dreams list`: Displays the 5 most recent reflections.
-- `!dreams generate`: Forces a dream cycle manually.
-- `!dreams stats`: Total reflections, usage counts, category distribution.
-- `!dreams test [trigger]`: Simulates a blended memory trigger to check prompt construction.
+### 💤 Dream (`!dream`)
+Manages Kaia's autonomous Dream Mode — nightly processing of daily interaction logs into associative reflections.
+- `!dream list` — Recent reflections
+- `!dream generate` — Force a dream cycle
+- `!dream stats` — Reflection counts and category distribution
 
-### ⚡ Cache (`!cache`)
-Manages the response caches.
-- `!cache stats`: Current size of semantic and exact caches.
-- `!cache clear`: Wipes all cached responses. Use when stuck in a stale conversation loop or after persona updates.
+### 🧠 Memory (`!memory`)
+Manages Kaia's persistent memory systems.
+- `!memory beliefs` — View current beliefs (50-cap)
+- `!memory anchors` — View episodic memory anchors (100-cap)
 
----
+### 🪞 Self-Model (`!selfmodel`)
+Regenerates Kaia's self-model — a 30-day synthesis of interaction logs into `kaia_self_model.md`.
 
-## TTRPG Commands
+### 📊 Sysmon (`!sysmon`)
+System monitoring — VRAM usage, response times, active users, and cognitive pipeline metrics.
 
-Kaia includes a fully integrated TTRPG system where Python handles the mechanics (dice, HP tracking) and Kaia narrates the outcomes in character without hallucinating the results.
-
-### 🎲 Gameplay (`!rpg`)
-- `!rpg new <CharName> <Class>`: Create your character (Warrior/Ranger/Mage/Rogue/Cleric).
-- `!rpg sheet [@user]`: View character sheet.
-- `!rpg action <description>`: Perform an action — Kaia will narrate the result based on a background stat check. Action XP is automatically awarded.
-- `!rpg attack <target>`: Attack a target with an automatic to-hit and damage roll.
-- `!rpg check <stat> [dc:<n>]`: Raw stat check vs difficulty.
-- `!rpg roll <dice>`: Roll arbitrary dice (e.g., `d20`, `2d6+3`).
-- `!rpg inventory [add/remove] <item>`: Manage inventory items.
-- `!rpg heal <amount>` / `!rpg damage <amount>`: Modify HP.
-- `!rpg xp <amount> [@user]`: Manual milestone XP allocation for story beats (admin).
+### 🔍 Explain (`!explain`)
+Deep-dive into the RAG retrieval logic for the last response — shows the top 8 sources with scores and audit flags.
 
 ---
 
@@ -81,11 +88,11 @@ Kaia includes a fully integrated TTRPG system where Python handles the mechanics
 
 Kaia responds naturally to specific phrases when mentioned or addressed — no `!` prefix needed.
 
-| Trigger | What it does | Example phrases |
-|:---|:---|:---|
-| **System Status** | Real-time GPU/VRAM health and Ollama status | "status", "stats", "how are you" |
-| **What's New** | Discusses recently ingested documents or news | "what's new?", "what's up?" |
-| **Dream Recall** | Reflections from associative memory | "what did you dream?", "tell me about your dreams" |
+| Trigger | What it does |
+|:---|:---|
+| **Status** | Real-time GPU/VRAM health and Ollama status |
+| **What's new** | Discusses recently ingested documents or news |
+| **Dream recall** | Reflections from associative memory |
 
 ---
 
@@ -93,7 +100,7 @@ Kaia responds naturally to specific phrases when mentioned or addressed — no `
 
 | Role | Commands |
 |:---|:---|
-| **All Users** | `!quip`, `!news`, `!download`, `!forum link`, `!rpg` (most) |
-| **Admin (ekco)** | All of the above, plus `!dreams`, `!cache`, `!forum scrape/status/allow`, `!rpg session/xp` |
+| **All Users** | `!art`, `!rpg`, `!fish`, `!news`, `!download`, `!quip`, `!forum link` |
+| **Admin (ekco)** | All of the above, plus `!dream`, `!memory`, `!selfmodel`, `!sysmon`, `!explain`, `!forum scrape/status` |
 
 Rate limiting applies to all users (configurable via `performance.requests_per_minute` in `kaia.yaml`).
