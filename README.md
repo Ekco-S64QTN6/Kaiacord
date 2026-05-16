@@ -17,7 +17,7 @@
 
 Kaia is an autonomous AI agent that actually remembers and evolves. She maintains a persistent emotional state that drifts naturally over time, runs a background inner monologue from passive observation, and tracks per-user relationships through staged familiarity levels that evolve from stranger to close friend. She dreams at night — processing the day's conversations into revisable beliefs and an evolving identity journal — and cross-session memory anchors let her recall emotionally significant moments weeks later with natural callbacks. Her 26-feature cognitive pipeline creates a genuine sense of presence: reading pauses, tone mirroring, conversational fatigue, proactive conversation initiation, mood-driven Discord statuses, and autonomous topic exploration.
 
-She also runs **Aethelgard**, a full persistent TTRPG (335 monsters, 433 items, 10 advanced classes, a 77-floor mega-dungeon), generates **fractal flame art** (Electric Sheep-style, CPU-rendered), cross-posts to Bluesky and X, and generates daily news briefs via Gemini. The whole stack runs locally with Ollama — no cloud required.
+She also runs **Aethelgard**, a full persistent RPG (335 monsters, 447 items, 10 advanced classes, a 77-floor mega-dungeon), generates **fractal flame art** (Electric Sheep-style, CPU-rendered), cross-posts to Bluesky and X, and generates daily news briefs via Gemini. The whole stack runs locally with Ollama — no cloud required.
 
 ---
 
@@ -199,7 +199,7 @@ First message: `@kaia status` in Discord to verify she's running.
 | 🛡️ | **Hallucination guard**| Post-generation fabrication detection with channel-scoped grounding |
 | 🔄 | **Self-healing** | 3-pass generation loop with automatic parameter scaling |
 | 🎨 | **Fractal art** | `!art` — Electric Sheep-style fractal flames, 20 variations, 10 palettes, CPU-rendered |
-| ⚔️ | **Aethelgard TTRPG** | 335 monsters, 433 items, 10 classes, 77-floor mega-dungeon, housing, farming, pets, alchemy |
+| ⚔️ | **Aethelgard RPG** | 335 monsters, 447 items, 10 classes, 77-floor mega-dungeon, housing, farming, pets, alchemy |
 | 📰 | **Daily news** | Auto-generated tech briefs via Gemini API, 14-day retention |
 | 🐦 | **Social media** | Cross-posts to Bluesky and X, replies to mentions |
 | 📊 | **Curses dashboard** | Real-time VRAM/GPU stats, RAG health, cognitive metrics, live log stream |
@@ -310,7 +310,7 @@ Kaiacord/
 │   │   └── ...                   # Mood, monologue, presence, RAG, etc.
 │   ├── ttrpg/               # Aethelgard game logic + RPG command handlers
 │   │   ├── monster_registry.py   # 335 monsters
-│   │   ├── equipment_registry.py # 433 items across 7 tiers
+│   │   ├── equipment_registry.py # 447 items across 7 tiers
 │   │   ├── combat_engine.py      # Combat resolution
 │   │   ├── spine_dungeon.py      # 77-floor mega-dungeon
 │   │   └── ...                   # Classes, shops, housing, farming, pets

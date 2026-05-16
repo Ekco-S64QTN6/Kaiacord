@@ -201,7 +201,7 @@ Registry files (like `equipment_registry.py`) contain both large data dictionari
 - Every monster key used in `ENCOUNTER_TABLES` MUST have a matching entry in `MONSTERS`
 - Shop stock lists (`HEMLOCK_STOCK_*`, `PELLS_STOCK_*`) are manually maintained — new buyable items need both the item dict AND the stock list updated
 - Equipment stat budgets by tier: See `docs/ttrpg/CLAUDE_REPORT.md` for current balance targets. Do not add items that exceed tier budgets without updating the documentation first
-- Current counts: **335 monsters** (27 boss-tier), **433 active unique equipment items** across 7 tiers
+- Current counts: **335 monsters** (37 boss-tier), **447 active unique equipment items** across 7 tiers
 
 ### Kaia Cognitive Pipeline
 - **All 26 behavioral features** (tone mirroring, time-of-day, conversational fatigue, relationship stages, mood vector, monologue, memory anchors, conversational stance, etc.) are lightweight system prompt injections in `message_processor.py`. They do NOT call the LLM — they're pure Python heuristics.
@@ -242,7 +242,7 @@ See `docs/reports/Claude_Report.md` for the latest production audit and `docs/tt
 **System health: A-tier. All subsystems operational. Both the TTRPG and Kaia cognitive pipeline are production-stable.**
 
 Key facts:
-- 335 monsters (27 boss-tier), 433 active unique equipment items across 7 tiers
+- 335 monsters (37 boss-tier), 447 active unique equipment items across 7 tiers
 - 9 quests covering L1–L15 (thin at L8–L10)
 - 10 advanced classes with unique procs and passives
 - 77-floor Spine of the World mega-dungeon with Resonance Lift checkpoints

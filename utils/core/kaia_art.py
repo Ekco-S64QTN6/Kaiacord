@@ -143,60 +143,8 @@ _VARIATION_MAP = {
 }
 
 # ── Palettes ──────────────────────────────────────────────────────────────────
-# Each maps a float array [0,1] → RGB array (H, W, 3) float [0,1].
-
-def _palette_electric(t):
-    """Deep blue/purple → cyan/white (Electric Sheep vibe)."""
-    r = np.clip(0.1 + 0.6 * t**2 + 0.3 * t**3, 0, 1)
-    g = np.clip(0.05 + 0.4 * t + 0.5 * t**2.5, 0, 1)
-    b = np.clip(0.3 + 0.7 * t**0.6, 0, 1)
-    return np.stack([r, g, b], axis=-1)
-
-def _palette_ember(t):
-    """Black → orange → yellow/white."""
-    r = np.clip(t**0.4, 0, 1)
-    g = np.clip(t**1.5 * 0.85, 0, 1)
-    b = np.clip(t**4.0 * 0.6, 0, 1)
-    return np.stack([r, g, b], axis=-1)
-
-def _palette_acid(t):
-    """Green/lime → yellow."""
-    r = np.clip(0.2 * t + 0.7 * t**2.5, 0, 1)
-    g = np.clip(0.3 + 0.7 * t**0.5, 0, 1)
-    b = np.clip(0.05 + 0.15 * t, 0, 1)
-    return np.stack([r, g, b], axis=-1)
-
-def _palette_void(t):
-    """Red/magenta → purple → dark."""
-    r = np.clip(0.6 * t**0.7 + 0.3 * np.sin(t * np.pi), 0, 1)
-    g = np.clip(0.05 + 0.1 * t**2, 0, 1)
-    b = np.clip(0.3 * t + 0.5 * t**1.8, 0, 1)
-    return np.stack([r, g, b], axis=-1)
-
-def _palette_aurora(t):
-    """Green/teal → pink."""
-    r = np.clip(0.1 + 0.7 * t**2, 0, 1)
-    g = np.clip(0.4 * (1.0 - t**1.5) + 0.3 * t, 0, 1)
-    b = np.clip(0.2 + 0.5 * t**0.8, 0, 1)
-    return np.stack([r, g, b], axis=-1)
-
-def _palette_ghost(t):
-    """Single-hue white-blue, sparse and eerie."""
-    r = np.clip(0.6 * t**1.5, 0, 1)
-    g = np.clip(0.65 * t**1.2, 0, 1)
-    b = np.clip(0.3 + 0.7 * t**0.7, 0, 1)
-    return np.stack([r, g, b], axis=-1)
-
-PALETTES = {
-    'electric': _palette_electric,
-    'ember':    _palette_ember,
-    'acid':     _palette_acid,
-    'void':     _palette_void,
-    'aurora':   _palette_aurora,
-    'ghost':    _palette_ghost,
-}
-
-# ── LUT Palettes (curated color tables for Electric Sheep richness) ─────────
+# All palettes are 256-entry LUTs for rich, multi-hue color like Electric Sheep.
+# Each palette traverses multiple hues rather than being monochrome.
 
 def _build_lut(stops):
     """Build a 256-entry RGB LUT from (position, r, g, b) color stops."""
@@ -216,35 +164,90 @@ def _lut_palette(t, lut):
     indices = np.clip((t * 255).astype(int), 0, 255)
     return lut[indices]
 
+# Electric Sheep-style multi-hue palettes — each traverses 3+ distinct hues
+_LUT_ELECTRIC = _build_lut([
+    (0.0,  0.02, 0.00, 0.10), (0.10, 0.10, 0.02, 0.35),
+    (0.22, 0.30, 0.05, 0.65), (0.35, 0.15, 0.20, 0.85),
+    (0.48, 0.05, 0.50, 0.90), (0.60, 0.10, 0.75, 0.80),
+    (0.72, 0.40, 0.90, 0.60), (0.85, 0.80, 0.95, 0.40),
+    (1.0,  1.00, 0.95, 0.70),
+])
+_LUT_EMBER = _build_lut([
+    (0.0,  0.05, 0.00, 0.00), (0.12, 0.25, 0.02, 0.00),
+    (0.25, 0.55, 0.05, 0.00), (0.38, 0.80, 0.15, 0.02),
+    (0.50, 0.95, 0.35, 0.05), (0.62, 1.00, 0.55, 0.10),
+    (0.75, 1.00, 0.75, 0.20), (0.88, 0.95, 0.85, 0.50),
+    (1.0,  0.90, 0.80, 0.70),
+])
+_LUT_ACID = _build_lut([
+    (0.0,  0.00, 0.05, 0.02), (0.12, 0.00, 0.20, 0.05),
+    (0.25, 0.05, 0.45, 0.10), (0.38, 0.20, 0.70, 0.15),
+    (0.50, 0.50, 0.85, 0.20), (0.62, 0.80, 0.90, 0.30),
+    (0.75, 0.95, 0.80, 0.50), (0.88, 0.90, 0.60, 0.75),
+    (1.0,  0.75, 0.45, 0.90),
+])
+_LUT_VOID = _build_lut([
+    (0.0,  0.05, 0.00, 0.05), (0.12, 0.20, 0.00, 0.15),
+    (0.25, 0.45, 0.02, 0.30), (0.38, 0.65, 0.05, 0.45),
+    (0.50, 0.80, 0.10, 0.55), (0.62, 0.85, 0.25, 0.60),
+    (0.75, 0.75, 0.45, 0.70), (0.88, 0.55, 0.60, 0.85),
+    (1.0,  0.40, 0.70, 0.95),
+])
+_LUT_AURORA = _build_lut([
+    (0.0,  0.00, 0.08, 0.05), (0.12, 0.00, 0.25, 0.15),
+    (0.25, 0.05, 0.50, 0.25), (0.38, 0.15, 0.70, 0.35),
+    (0.50, 0.35, 0.80, 0.45), (0.62, 0.60, 0.75, 0.55),
+    (0.75, 0.80, 0.55, 0.65), (0.88, 0.90, 0.40, 0.80),
+    (1.0,  0.85, 0.50, 0.95),
+])
+_LUT_GHOST = _build_lut([
+    (0.0,  0.02, 0.02, 0.08), (0.12, 0.08, 0.08, 0.25),
+    (0.25, 0.15, 0.15, 0.45), (0.38, 0.25, 0.25, 0.65),
+    (0.50, 0.40, 0.35, 0.80), (0.62, 0.55, 0.50, 0.85),
+    (0.75, 0.70, 0.65, 0.88), (0.88, 0.82, 0.78, 0.90),
+    (1.0,  0.90, 0.88, 0.92),
+])
 _LUT_DEEP_OCEAN = _build_lut([
-    (0.0,  0.00, 0.00, 0.05), (0.15, 0.02, 0.04, 0.25),
-    (0.30, 0.10, 0.08, 0.55), (0.45, 0.05, 0.25, 0.75),
-    (0.60, 0.03, 0.55, 0.85), (0.75, 0.30, 0.75, 0.92),
-    (0.90, 0.80, 0.92, 0.98), (1.0,  1.00, 1.00, 1.00),
+    (0.0,  0.00, 0.00, 0.08), (0.12, 0.02, 0.05, 0.25),
+    (0.25, 0.05, 0.12, 0.50), (0.38, 0.03, 0.30, 0.70),
+    (0.50, 0.05, 0.50, 0.82), (0.62, 0.20, 0.65, 0.88),
+    (0.75, 0.45, 0.78, 0.90), (0.88, 0.70, 0.85, 0.88),
+    (1.0,  0.85, 0.90, 0.85),
 ])
 _LUT_SOLAR_FLARE = _build_lut([
-    (0.0,  0.02, 0.00, 0.00), (0.15, 0.20, 0.02, 0.00),
-    (0.30, 0.55, 0.08, 0.00), (0.45, 0.85, 0.20, 0.02),
-    (0.60, 0.95, 0.50, 0.05), (0.75, 1.00, 0.80, 0.20),
-    (0.90, 1.00, 0.95, 0.60), (1.0,  1.00, 1.00, 0.95),
+    (0.0,  0.05, 0.00, 0.00), (0.10, 0.20, 0.02, 0.00),
+    (0.22, 0.50, 0.08, 0.00), (0.35, 0.80, 0.18, 0.02),
+    (0.48, 0.95, 0.40, 0.05), (0.60, 1.00, 0.60, 0.10),
+    (0.72, 0.95, 0.75, 0.25), (0.85, 0.85, 0.80, 0.55),
+    (1.0,  0.80, 0.70, 0.80),
 ])
 _LUT_BIOLUME = _build_lut([
-    (0.0,  0.00, 0.02, 0.05), (0.12, 0.00, 0.10, 0.15),
-    (0.25, 0.00, 0.35, 0.20), (0.40, 0.05, 0.60, 0.30),
-    (0.55, 0.20, 0.75, 0.50), (0.70, 0.50, 0.55, 0.70),
-    (0.85, 0.80, 0.40, 0.85), (1.0,  0.95, 0.85, 1.00),
+    (0.0,  0.00, 0.05, 0.08), (0.12, 0.00, 0.15, 0.18),
+    (0.25, 0.02, 0.35, 0.25), (0.38, 0.08, 0.55, 0.35),
+    (0.50, 0.25, 0.72, 0.50), (0.62, 0.50, 0.65, 0.65),
+    (0.75, 0.72, 0.50, 0.78), (0.88, 0.88, 0.45, 0.88),
+    (1.0,  0.92, 0.55, 0.95),
 ])
 _LUT_NEBULA = _build_lut([
-    (0.0,  0.02, 0.00, 0.05), (0.15, 0.15, 0.00, 0.25),
-    (0.30, 0.35, 0.02, 0.50), (0.45, 0.55, 0.10, 0.65),
-    (0.55, 0.40, 0.30, 0.80), (0.70, 0.25, 0.55, 0.90),
-    (0.85, 0.60, 0.80, 0.95), (1.0,  0.95, 0.95, 1.00),
+    (0.0,  0.03, 0.00, 0.08), (0.12, 0.12, 0.02, 0.25),
+    (0.25, 0.30, 0.05, 0.50), (0.38, 0.50, 0.12, 0.65),
+    (0.50, 0.42, 0.30, 0.78), (0.62, 0.30, 0.50, 0.85),
+    (0.75, 0.25, 0.68, 0.88), (0.88, 0.55, 0.80, 0.90),
+    (1.0,  0.80, 0.85, 0.88),
 ])
 
-PALETTES['deep_ocean'] = lambda t: _lut_palette(t, _LUT_DEEP_OCEAN)
-PALETTES['solar_flare'] = lambda t: _lut_palette(t, _LUT_SOLAR_FLARE)
-PALETTES['biolume'] = lambda t: _lut_palette(t, _LUT_BIOLUME)
-PALETTES['nebula'] = lambda t: _lut_palette(t, _LUT_NEBULA)
+PALETTES = {
+    'electric':    lambda t: _lut_palette(t, _LUT_ELECTRIC),
+    'ember':       lambda t: _lut_palette(t, _LUT_EMBER),
+    'acid':        lambda t: _lut_palette(t, _LUT_ACID),
+    'void':        lambda t: _lut_palette(t, _LUT_VOID),
+    'aurora':      lambda t: _lut_palette(t, _LUT_AURORA),
+    'ghost':       lambda t: _lut_palette(t, _LUT_GHOST),
+    'deep_ocean':  lambda t: _lut_palette(t, _LUT_DEEP_OCEAN),
+    'solar_flare': lambda t: _lut_palette(t, _LUT_SOLAR_FLARE),
+    'biolume':     lambda t: _lut_palette(t, _LUT_BIOLUME),
+    'nebula':      lambda t: _lut_palette(t, _LUT_NEBULA),
+}
 
 
 class FractalFlameRenderer:
@@ -260,9 +263,9 @@ class FractalFlameRenderer:
 
     INTERNAL_RES = 1440
     OUTPUT_RES = 720
-    N_POINTS = 500_000
+    N_POINTS = 1_000_000
     N_WARMUP = 20
-    N_ITERATIONS = 80
+    N_ITERATIONS = 200
     DENSITY_SIGMA = 1.2
     GAMMA = 2.2
 
@@ -277,6 +280,10 @@ class FractalFlameRenderer:
         Returns:
             (PIL.Image.Image, dict) — the rendered image and its parameter dict.
         """
+        return self._generate_single(seed, palette_name)
+
+    def _generate_single(self, seed=None, palette_name=None):
+        """Internal generation logic for a single attempt."""
         t_start = time.time()
         rng = np.random.default_rng(seed)
         actual_seed = seed if seed is not None else rng.bit_generator.seed_seq.entropy
@@ -291,34 +298,26 @@ class FractalFlameRenderer:
         # Choose symmetry
         symmetry_k = int(rng.choice([1, 1, 3, 4, 5, 6]))
 
-        # Generate transforms (with optional post-transforms)
+        # Generate transforms
         n_transforms = int(rng.integers(2, 5))
-        transforms, weights = self._random_transforms(rng, n_transforms)
+        transforms, weights, color_speed = self._random_transforms(rng, n_transforms)
 
         # Build variation function closures for each transform
         compiled_transforms = []
         for item in transforms:
             affine, var_names, color_i = item[0], item[1], item[2]
-            post_affine = item[3] if len(item) > 3 else None
             var_fns = [_VARIATION_MAP[v] for v in var_names]
-            compiled_transforms.append((affine, var_fns, color_i, post_affine))
-
-        # Final transform (global camera — 30% chance)
-        final_xform = None
-        if rng.random() < 0.3:
-            angle = float(rng.uniform(0, 2 * np.pi))
-            scale = float(rng.uniform(0.8, 1.2))
-            final_xform = (np.cos(angle) * scale, np.sin(angle) * scale)
+            compiled_transforms.append((affine, var_fns, color_i, None))
 
         W = H = self.INTERNAL_RES
 
         # Chaos game
-        histogram, color_acc = self._chaos_game(
-            rng, compiled_transforms, weights, W, H, symmetry_k, final_xform
+        r_acc, g_acc, b_acc, a_acc = self._chaos_game(
+            rng, compiled_transforms, weights, color_speed, W, H, symmetry_k, None, palette_fn
         )
 
         # Render
-        img = self._render(histogram, color_acc, W, H, palette_fn)
+        img = self._render(r_acc, g_acc, b_acc, a_acc, W, H)
 
         render_time = time.time() - t_start
         log_info(f"[art] Fractal flame rendered in {render_time:.1f}s "
@@ -339,9 +338,8 @@ class FractalFlameRenderer:
                 }
                 for item in transforms
             ],
-            "weights": weights.tolist(),
+            "color_speed": round(color_speed, 3),
             "palette": pal_name,
-            "final_transform": {"cos": final_xform[0], "sin": final_xform[1]} if final_xform else None,
             "n_points": self.N_POINTS,
             "n_iterations": self.N_ITERATIONS,
             "density_sigma": self.DENSITY_SIGMA,
@@ -422,38 +420,44 @@ class FractalFlameRenderer:
     # ── Internal Methods ──────────────────────────────────────────────────────
 
     def _random_transforms(self, rng, n_transforms=3):
-        """Generate n random affine transforms + variation assignments + optional post-transforms."""
+        """Generate variations matching true flam3 xml structure."""
         transforms = []
         weights = np.abs(rng.standard_normal(n_transforms))
         weights /= weights.sum()
 
-        for _ in range(n_transforms):
-            # Random affine matrix (keep determinant between 0.3 and 0.9 for convergence)
-            for _attempt in range(100):
-                a, b, c = rng.uniform(-1.5, 1.5, 3)
-                d, e, f = rng.uniform(-1.5, 1.5, 3)
-                det = a * e - b * d
-                if 0.3 < abs(det) < 0.9:
-                    break
+        base_colors = np.linspace(0.05, 0.95, n_transforms)
+        jitter = rng.uniform(-0.08, 0.08, n_transforms)
+        color_values = np.clip(base_colors + jitter, 0, 1)
+
+        for _idx in range(n_transforms):
+            # Enforce strict contraction: scale must be < 1
+            scale_x = float(rng.uniform(0.4, 0.9))
+            scale_y = float(rng.uniform(0.4, 0.9))
+            angle = float(rng.uniform(0, 2 * np.pi))
+            
+            cos_a = np.cos(angle)
+            sin_a = np.sin(angle)
+            
+            a = scale_x * cos_a
+            b = -scale_y * sin_a
+            d = scale_x * sin_a
+            e = scale_y * cos_a
+            
+            c = float(rng.uniform(-1.0, 1.0))
+            f = float(rng.uniform(-1.0, 1.0))
             affine = np.array([a, b, c, d, e, f])
 
-            # Pick 1-3 variations (weighted toward 2)
+            # Pick 1-3 variations
             n_vars = int(rng.choice([1, 2, 2, 3]))
             var_names = list(rng.choice(VARIATIONS, size=n_vars, replace=False))
-            color_i = float(rng.uniform(0, 1))
+            
+            color_i = float(color_values[_idx])
 
-            # Optional post-transform (40% chance) — subtle refinement after variation
-            post_affine = None
-            if rng.random() < 0.4:
-                pa, pb, pc = rng.uniform(-0.5, 0.5, 3)
-                pd, pe, pf = rng.uniform(-0.5, 0.5, 3)
-                post_affine = np.array([pa, pb, pc, pd, pe, pf])
+            transforms.append((affine, var_names, color_i, None))
 
-            transforms.append((affine, var_names, color_i, post_affine))
+        return transforms, weights, rng.uniform(0.1, 0.4)
 
-        return transforms, weights
-
-    def _chaos_game(self, rng, transforms, weights, W, H, symmetry_k, final_xform=None):
+    def _chaos_game(self, rng, transforms, weights, color_speed, W, H, symmetry_k, final_xform=None, palette_fn=None):
         """Run the vectorized chaos game loop with multi-blend, post-transforms, and final transform."""
         N = self.N_POINTS
         x = rng.uniform(-1, 1, N)
@@ -461,8 +465,10 @@ class FractalFlameRenderer:
         c = rng.uniform(0, 1, N)  # color coordinate
 
         total_pixels = H * W
-        hist_flat = np.zeros(total_pixels, dtype=np.float64)
-        color_flat = np.zeros(total_pixels, dtype=np.float64)
+        r_flat = np.zeros(total_pixels, dtype=np.float64)
+        g_flat = np.zeros(total_pixels, dtype=np.float64)
+        b_flat = np.zeros(total_pixels, dtype=np.float64)
+        a_flat = np.zeros(total_pixels, dtype=np.float64)
 
         # Initial bounds — will be fitted adaptively after warmup
         xmin, xmax = -2.0, 2.0
@@ -531,8 +537,8 @@ class FractalFlameRenderer:
                 x[bad] = rng.uniform(-1, 1, bad.sum())
                 y[bad] = rng.uniform(-1, 1, bad.sum())
 
-            # Color blending (vectorized)
-            c = (c + colors[choices]) * 0.5
+            # Color blending (vectorized) with configurable speed for rich gradients
+            c = c * (1.0 - color_speed) + colors[choices] * color_speed
 
             # Skip warmup iterations
             if iteration < self.N_WARMUP:
@@ -540,9 +546,10 @@ class FractalFlameRenderer:
 
             # Apply final transform (global camera) if present
             if final_xform is not None:
-                fc, fs = final_xform
-                fx = fc * x - fs * y
-                fy = fs * x + fc * y
+                fc, fs = final_xform['affine']
+                tx = fc * x - fs * y
+                ty = fs * x + fc * y
+                fx, fy = final_xform['var_fns'][0](tx, ty)
             else:
                 fx, fy = x, y
 
@@ -557,10 +564,10 @@ class FractalFlameRenderer:
                     bounds_fitted = True
                     all_x = np.concatenate(bounds_sample_x)
                     all_y = np.concatenate(bounds_sample_y)
-                    p_lo_x, p_hi_x = np.percentile(all_x, [1, 99])
-                    p_lo_y, p_hi_y = np.percentile(all_y, [1, 99])
-                    pad_x = 0.15 * (p_hi_x - p_lo_x + 1e-10)
-                    pad_y = 0.15 * (p_hi_y - p_lo_y + 1e-10)
+                    p_lo_x, p_hi_x = np.percentile(all_x, [2, 98])
+                    p_lo_y, p_hi_y = np.percentile(all_y, [2, 98])
+                    pad_x = 0.1 * (p_hi_x - p_lo_x + 1e-10)
+                    pad_y = 0.1 * (p_hi_y - p_lo_y + 1e-10)
                     cx_f = (p_lo_x + p_hi_x) / 2
                     cy_f = (p_lo_y + p_hi_y) / 2
                     half = max(p_hi_x - p_lo_x + 2 * pad_x, p_hi_y - p_lo_y + 2 * pad_y) / 2
@@ -574,7 +581,7 @@ class FractalFlameRenderer:
             # Accumulate via bincount
             self._accumulate_points(
                 fx, fy, c, xmin, ymin, x_scale, y_scale,
-                W, H, total_pixels, hist_flat, color_flat
+                W, H, total_pixels, r_flat, g_flat, b_flat, a_flat, palette_fn
             )
 
             # K-fold rotational symmetry
@@ -587,92 +594,68 @@ class FractalFlameRenderer:
                     yr = fx * sin_a + fy * cos_a
                     self._accumulate_points(
                         xr, yr, c, xmin, ymin, x_scale, y_scale,
-                        W, H, total_pixels, hist_flat, color_flat
+                        W, H, total_pixels, r_flat, g_flat, b_flat, a_flat, palette_fn
                     )
 
-        histogram = hist_flat.reshape((H, W))
-        color_acc = color_flat.reshape((H, W))
-        return histogram, color_acc
+        r_acc = r_flat.reshape((H, W))
+        g_acc = g_flat.reshape((H, W))
+        b_acc = b_flat.reshape((H, W))
+        a_acc = a_flat.reshape((H, W))
+        return r_acc, g_acc, b_acc, a_acc
 
     @staticmethod
     def _accumulate_points(x, y, c, xmin, ymin, x_scale, y_scale,
-                           W, H, total_pixels, hist_flat, color_flat):
+                           W, H, total_pixels, r_flat, g_flat, b_flat, a_flat, palette_fn):
         """Accumulate points into histogram using fast np.bincount."""
         px = ((x - xmin) * x_scale).astype(np.intp)
         py = ((y - ymin) * y_scale).astype(np.intp)
         valid = (px >= 0) & (px < W) & (py >= 0) & (py < H)
 
         flat_idx = py[valid] * W + px[valid]
-        hist_flat += np.bincount(flat_idx, minlength=total_pixels).astype(np.float64)
-        color_flat += np.bincount(flat_idx, weights=c[valid], minlength=total_pixels)
+        c_valid = c[valid]
+        
+        # Look up RGB colors from palette for valid points
+        rgb = palette_fn(c_valid)
+        
+        a_flat += np.bincount(flat_idx, minlength=total_pixels).astype(np.float64)
+        r_flat += np.bincount(flat_idx, weights=rgb[:, 0], minlength=total_pixels)
+        g_flat += np.bincount(flat_idx, weights=rgb[:, 1], minlength=total_pixels)
+        b_flat += np.bincount(flat_idx, weights=rgb[:, 2], minlength=total_pixels)
 
-    def _render(self, histogram, color_acc, W, H, palette_fn):
-        """Adaptive density estimation, log-density tone mapping, colorize, gamma, supersample."""
-        # Step 1: Log-density tone mapping
-        log_hist = np.log1p(histogram)
-        log_max = log_hist.max()
-        if log_max == 0:
-            # Empty histogram — generate a fallback
+    def _render(self, r_acc, g_acc, b_acc, alpha_acc, W, H):
+        """Render RGBA buffers to image: flam3 log-density, DE, gamma."""
+        if alpha_acc.max() == 0:
             log_warning("[art] Empty histogram — all points escaped. Producing noise fallback.")
             rng = np.random.default_rng()
             noise = rng.uniform(0, 1, (self.OUTPUT_RES, self.OUTPUT_RES, 3))
             return Image.fromarray((noise * 60).astype(np.uint8))
 
-        alpha = log_hist / log_max
+        # Stack RGB buffers
+        rgb_acc = np.stack([r_acc, g_acc, b_acc], axis=-1)
 
-        # Step 2: Adaptive density estimation (multi-pass, spatially varying blur)
-        # Low-density areas get more blur (reduce noise), high-density areas less (preserve detail)
-        density_norm = alpha  # 0 = empty, 1 = max density
-        sigma_levels = [0.5, 1.0, 1.8, 3.0]
-        alpha_passes = [gaussian_filter(alpha, sigma=s) for s in sigma_levels]
-        color_passes = [gaussian_filter(color_acc, sigma=s) for s in sigma_levels]
+        # Step 1: True Flam3 Tone Mapping (No KDE Blur!)
+        log_alpha = np.log1p(alpha_acc)
+        scale = log_alpha / (alpha_acc + 1e-10)
+        rgb_mapped = rgb_acc * scale[..., np.newaxis]
+        
+        # Step 2: Brightness scaling
+        rgb_mapped_nonzero = rgb_mapped[alpha_acc > 0]
+        if len(rgb_mapped_nonzero) > 100:
+            v_max = np.percentile(rgb_mapped_nonzero, 99.9)
+        else:
+            v_max = rgb_mapped.max()
+            
+        rgb_normalized = rgb_mapped / (v_max + 1e-10)
 
-        # Sigma map: sparse regions → large sigma, dense regions → small sigma
-        sigma_map = 3.0 - 2.5 * density_norm
+        # Step 3: Gamma correction (flam3 standard = 2.2)
+        gamma = self.GAMMA
+        rgb_gamma = np.power(np.clip(rgb_normalized, 0, 1), 1.0 / gamma)
 
-        # Blend passes based on sigma_map (piecewise linear interpolation)
-        alpha_smooth = np.zeros_like(alpha)
-        color_smooth = np.zeros_like(color_acc)
-        n_levels = len(sigma_levels)
-        for i in range(n_levels - 1):
-            lo, hi = sigma_levels[i], sigma_levels[i + 1]
-            weight = np.clip((sigma_map - lo) / (hi - lo + 1e-10), 0, 1)
-            blend = np.where((sigma_map >= lo) & (sigma_map < hi), 1.0, 0.0)
-            if i == 0:
-                blend = np.where(sigma_map < lo, 1.0, blend)
-            if i == n_levels - 2:
-                blend = np.where(sigma_map >= hi, 1.0, blend)
-            alpha_smooth += blend * ((1 - weight) * alpha_passes[i] + weight * alpha_passes[i + 1])
-            color_smooth += blend * ((1 - weight) * color_passes[i] + weight * color_passes[i + 1])
+        # Step 4: Subtle Bloom pass (Electric Sheep glow)
+        bloom = gaussian_filter(rgb_gamma, sigma=3.0, axes=(0, 1))
+        rgb_bloomed = np.clip(rgb_gamma + bloom * 0.15, 0, 1)
 
-        # Step 3: Color coordinate (smoothed)
-        color_coord = np.zeros((H, W), dtype=float)
-        nonzero = histogram > 0
-        color_coord[nonzero] = color_smooth[nonzero] / (log_hist[nonzero] + 1e-10)
-        color_coord = np.clip(color_coord, 0, 1)
-
-        # Step 4: Colorize with vibrancy-preserving blend (flam3-style)
-        # Instead of rgb *= alpha (which kills saturation), blend between
-        # full-palette color and alpha-dimmed color using a vibrancy factor.
-        rgb = palette_fn(color_coord)  # shape (H, W, 3), full brightness
-        vibrancy = 0.45  # 0 = pure alpha multiply, 1 = full palette color
-        # Vibrancy blend: lerp between alpha-dimmed and alpha-pow-dimmed
-        alpha_3d = alpha_smooth[..., np.newaxis]
-        rgb = vibrancy * rgb * np.power(alpha_3d + 1e-10, 0.5) + \
-              (1.0 - vibrancy) * rgb * alpha_3d
-
-        # Step 5: Gamma correction (flam3 uses gamma=4.0, we use 3.2 for balance)
-        gamma = 3.2
-        rgb = np.power(np.clip(rgb, 0, 1), 1.0 / gamma)
-
-        # Step 6: Brightness boost — lift midtones but preserve black background
-        # Only boost pixels that have some structure; pure background stays black
-        rgb = np.clip(rgb, 0, 1)
-        brightness = rgb.max(axis=-1, keepdims=True)
-        boost = np.where(brightness > 0.05, 1.0 + 0.5 * (1.0 - brightness), 1.0)
-        rgb = np.clip(rgb * boost, 0, 1)
-
-        # Step 7: Supersampling downsample
-        img_high = Image.fromarray((np.clip(rgb, 0, 1) * 255).astype(np.uint8))
+        # Step 5: Supersampling downsample
+        img_high = Image.fromarray((rgb_bloomed * 255).astype(np.uint8))
         img_out = img_high.resize((self.OUTPUT_RES, self.OUTPUT_RES), Image.LANCZOS)
         return img_out

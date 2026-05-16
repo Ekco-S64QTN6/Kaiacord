@@ -715,8 +715,10 @@ class MessageProcessor:
         try:
             beliefs_path = os.path.join("memory", "beliefs.json")
             if os.path.exists(beliefs_path):
-                with open(beliefs_path, 'r', encoding='utf-8') as bf:
-                    all_beliefs = json.load(bf)
+                def _read_beliefs():
+                    with open(beliefs_path, 'r', encoding='utf-8') as bf:
+                        return json.load(bf)
+                all_beliefs = await asyncio.to_thread(_read_beliefs)
                 if all_beliefs:
                     query_lower = ctx.sanitized_content.lower()
                     query_words = set(query_lower.split())
@@ -837,13 +839,15 @@ class MessageProcessor:
                 _gl = _Path("memory") / "growth_log.jsonl"
                 if _gl.exists():
                     # Tail-read: only last ~3KB to avoid loading the full file
-                    with open(_gl, 'r', encoding='utf-8') as _gf:
-                        _gf.seek(0, 2)
-                        _sz = _gf.tell()
-                        _gf.seek(max(0, _sz - 3072))
-                        if _sz > 3072:
-                            _gf.readline()  # Discard partial first line
-                        _lines = _gf.readlines()[-20:]
+                    def _tail_read_growth_log():
+                        with open(_gl, 'r', encoding='utf-8') as _gf:
+                            _gf.seek(0, 2)
+                            _sz = _gf.tell()
+                            _gf.seek(max(0, _sz - 3072))
+                            if _sz > 3072:
+                                _gf.readline()  # Discard partial first line
+                            return _gf.readlines()[-20:]
+                    _lines = await asyncio.to_thread(_tail_read_growth_log)
                     for _line in reversed(_lines):
                         try:
                             _evt = json.loads(_line)
@@ -1581,14 +1585,21 @@ class MessageProcessor:
                                 f"Summarize these conversation turns in 3 sentences "
                                 f"preserving key facts, decisions, and emotional tone:\n\n{history_text}"
                             )
-                            resp = await asyncio.wait_for(
-                                self.ollama_client.chat(
-                                    model=self.config.chat_model,
-                                    messages=[{"role": "user", "content": summary_prompt}],
-                                    options={"num_predict": 200, "temperature": 0.3},
-                                    keep_alive=-1
+                            from utils.infrastructure.gpu.gpu_manager import gpu_memory_manager, GPUTaskPriority
+                            import uuid as _uuid_sum
+                            resp = await gpu_memory_manager.run_with_gpu_guard(
+                                model_name=self.config.chat_model,
+                                priority=GPUTaskPriority.CHAT,
+                                coro=asyncio.wait_for(
+                                    self.ollama_client.chat(
+                                        model=self.config.chat_model,
+                                        messages=[{"role": "user", "content": summary_prompt}],
+                                        options={"num_predict": 200, "temperature": 0.3},
+                                        keep_alive=-1
+                                    ),
+                                    timeout=30.0
                                 ),
-                                timeout=30.0
+                                task_id=f"hist_summarize_{_uuid_sum.uuid4().hex[:8]}"
                             )
                             summary = resp["message"]["content"].strip()
                             for _ in range(15):
@@ -1708,8 +1719,19 @@ class MessageProcessor:
                                 "milestone": count,
                                 "note": f"{count} exchanges with {ctx.author_name}"
                             })
-                            with open(growth_log, 'a', encoding='utf-8') as gl:
-                                gl.write(milestone_entry + '\n')
+                            def _write_and_rotate_growth_log():
+                                with open(growth_log, 'a', encoding='utf-8') as gl:
+                                    gl.write(milestone_entry + '\n')
+                                # Rotate: keep last 2000 entries
+                                try:
+                                    with open(growth_log, 'r', encoding='utf-8') as gl:
+                                        lines = gl.readlines()
+                                    if len(lines) > 2000:
+                                        with open(growth_log, 'w', encoding='utf-8') as gl:
+                                            gl.writelines(lines[-2000:])
+                                except Exception:
+                                    pass
+                            await asyncio.to_thread(_write_and_rotate_growth_log)
                             log_info(f"Growth milestone: {count} interactions with {ctx.author_name}")
 
                     # 2. Significant Exchange Detector
@@ -1795,8 +1817,19 @@ class MessageProcessor:
                         "response_time_s": round(response_time, 2),
                     }
                     os.makedirs(os.path.dirname(gen_log_path), exist_ok=True)
-                    with open(gen_log_path, 'a', encoding='utf-8') as glf:
-                        glf.write(json.dumps(log_entry) + '\n')
+                    def _write_and_rotate_gen_log():
+                        with open(gen_log_path, 'a', encoding='utf-8') as glf:
+                            glf.write(json.dumps(log_entry) + '\n')
+                        # Rotate: keep last 5000 entries
+                        try:
+                            with open(gen_log_path, 'r', encoding='utf-8') as glf:
+                                lines = glf.readlines()
+                            if len(lines) > 5000:
+                                with open(gen_log_path, 'w', encoding='utf-8') as glf:
+                                    glf.writelines(lines[-5000:])
+                        except Exception:
+                            pass
+                    await asyncio.to_thread(_write_and_rotate_gen_log)
                 except Exception:
                     pass  # Never let logging break the pipeline
                 
