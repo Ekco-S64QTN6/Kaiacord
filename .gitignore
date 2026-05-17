@@ -55,3 +55,7 @@ cookies.json
 twikit_cookies.json
 x_cookies.json
 *.cookies
+
+# Scraper & API Data
+config/secrets/
+tools/.music_scrape_data/
