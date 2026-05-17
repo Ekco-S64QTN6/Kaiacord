@@ -213,11 +213,11 @@ First message: `@kaia status` in Discord to verify she's running.
 |:--------|:------------|:----|
 | `!art` | Generate a fractal flame artwork with Kaia commentary | All |
 | `!rpg` | Open the Aethelgard TTRPG HUD and play | All |
-| `!fish` | Cast a fishing line (rod-based fishing economy) | All |
 | `!news [category]` | Fetch news briefs (`today`, `technology`, `security`, `hacking`, `politics`, `business`, `science`, `culture`) | All |
 | `!download <url>` | Ingest a URL into the knowledge base | All |
 | `!quip` | Trigger a social media post (10m cooldown) | All |
 | `!forum link <uid>` | Link Discord identity to forum profile | All |
+| `!forum [cmd]` | Other VBulletin forum management commands (e.g. scrape/status) | Admin |
 | `!dream list` | Show recent dream reflections | Admin |
 | `!dream generate` | Force a dream cycle | Admin |
 | `!memory` | Show Kaia's memory anchors and beliefs | Admin |

@@ -106,9 +106,11 @@ RULES:
 1. ONLY include news you found via search - NO invented stories.
 2. Each bullet should be one complete, verified fact.
 3. **SOURCE ATTRIBUTION**: Every single news bullet MUST end with `- *Source Name*` representing where the info was found.
-4. **CATEGORY QUOTES**: Every section (except EXECUTIVE_SUMMARY) must include a "QUOTE:" bullet at the end. The quote MUST be taken from today's news coverage/sources specifically about that topic.
-5. BROADEN SCOPE: Ensure ALL categories above are populated.
-6. Do NOT include a 'SOURCES' or 'REFERENCES' section at the end of the brief.
+4. **CATEGORY QUOTES**: Every section (except EXECUTIVE_SUMMARY) must include a "QUOTE:" bullet at the end. The quote MUST be taken exactly from today's news coverage. **CRITICAL: If you cannot find an exact, verifiable quote in your search results for a category, omit the QUOTE bullet entirely. DO NOT invent one.**
+5. **NO HALLUCINATIONS**: Do not invent exact dollar amounts, casualty counts, dates, or specific names (like CEOs, politicians, hackers, or virus names) unless they appear explicitly in your search results.
+6. **NO FILLER**: If a section has no verified news from your search, write exactly: `No verified developments today.` Do not invent filler or plausible scenarios.
+7. BROADEN SCOPE: Attempt to populate all categories by searching thoroughly.
+8. Do NOT include a 'SOURCES' or 'REFERENCES' section at the end of the brief.
 """
         
         # generativeai SDK: grounding via GoogleSearch tool
@@ -117,7 +119,8 @@ RULES:
                 model=self.model_name,
                 contents=prompt,
                 config=types.GenerateContentConfig(
-                    tools=[{"google_search": {}}]
+                    tools=[{"google_search": {}}],
+                    temperature=0.0
                 )
             )
             
