@@ -11,7 +11,7 @@ models:
   chat: "gemma3:12b"
 
 startup:
-  news_update: false
+  news_update: true
 
 discord:
   whitelisted_channels: "kaia-opolis,aethelgard"
