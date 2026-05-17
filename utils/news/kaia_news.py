@@ -323,10 +323,13 @@ class NewsManager:
             category_lower = "hacker"
         
         # Check if it matches a known category first
-        for cat in self.categories.keys():
-            if cat == category_lower or cat in category_lower or category_lower in cat:
-                matched_cat = cat
-                break
+        if category_lower == 'general':
+            matched_cat = 'general'
+        else:
+            for cat in self.categories.keys():
+                if cat == category_lower or cat in category_lower or category_lower in cat:
+                    matched_cat = cat
+                    break
         
         # If specifically requested a category that doesn't exist, return empty
         if category and not matched_cat:
