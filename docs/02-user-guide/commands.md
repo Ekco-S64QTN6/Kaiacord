@@ -8,7 +8,6 @@ All commands are prefixed with `!`. Admin commands are restricted to the project
 |:---|:---|:---|
 | `!art` | Generate a fractal flame artwork with Kaia commentary | All |
 | `!rpg` | Open the Aethelgard TTRPG HUD and play | All |
-| `!fish` | Cast a fishing line (rod-based fishing economy) | All |
 | `!news [category]` | Fetch news by category | All |
 | `!download <url>` | Ingest a URL into the knowledge base | All |
 | `!quip` | Trigger a social media quip (10m cooldown) | All |
@@ -37,9 +36,6 @@ Key subcommands:
 - `!rpg dungeon enter` — Enter a dungeon
 - `!rpg buy/sell` — Shop interactions
 - `!rpg home/farm/pet` — Estate management
-
-### 🎣 Fish (`!fish`)
-Casts a fishing line using the rod-based fishing economy. Features rod breakage mechanics, bag upgrades, and location-aware regional catch tables.
 
 ### 📰 News (`!news [category]`)
 Fetches news by category from auto-generated daily briefs. Requires `GEMINI_API_KEY` for brief generation.
@@ -100,7 +96,7 @@ Kaia responds naturally to specific phrases when mentioned or addressed — no `
 
 | Role | Commands |
 |:---|:---|
-| **All Users** | `!art`, `!rpg`, `!fish`, `!news`, `!download`, `!quip`, `!forum link` |
+| **All Users** | `!art`, `!rpg`, `!news`, `!download`, `!quip`, `!forum link` |
 | **Admin (ekco)** | All of the above, plus `!dream`, `!memory`, `!selfmodel`, `!sysmon`, `!explain`, `!forum scrape/status` |
 
 Rate limiting applies to all users (configurable via `performance.requests_per_minute` in `kaia.yaml`).

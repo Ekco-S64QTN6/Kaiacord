@@ -130,5 +130,5 @@ Kaia needs access to message content and server members to function correctly.
 | `@kaia [question]` | Ask anything |
 | `!art` | Generate fractal flame art |
 | `!rpg` | Open the TTRPG HUD |
-| `!fish` | Cast a fishing line |
+
 | `!news [category]` | Get news briefs |
