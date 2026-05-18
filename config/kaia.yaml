@@ -57,3 +57,6 @@ performance:
       kaia_reflection: 0.30
       user_logs: 0.10
       knowledge: -0.20
+
+forum:
+  auto_scrape: true

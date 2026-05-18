@@ -35,6 +35,7 @@ from urllib.parse import parse_qs, urlparse
 
 import requests
 from bs4 import BeautifulSoup
+import ollama
 
 # ---------------------------------------------------------------------------
 # Config
@@ -52,6 +53,7 @@ CHECKPOINT_SCRAPE = WORK_DIR / "checkpoint_scrape.json"
 CHECKPOINT_URLS = WORK_DIR / "youtube_urls.json"
 CHECKPOINT_RESOLVED = WORK_DIR / "resolved_metadata.json"
 CHECKPOINT_ENRICHED = WORK_DIR / "enriched_metadata.json"
+CHECKPOINT_TEXT_EXTRACTED = WORK_DIR / "text_extracted.json"
 OUTPUT_CSV = WORK_DIR / "p99_music_thread.csv"
 
 HEADERS = {
@@ -218,6 +220,110 @@ def stage_scrape(max_pages: int = TOTAL_PAGES):
 
 
 # ===========================================================================
+# Feature 1: LLM Text Extraction
+# ===========================================================================
+def stage_extract_text(max_pages: int = TOTAL_PAGES):
+    """Scrape posts without YouTube links and extract Artist - Song using Ollama."""
+    ensure_work_dir()
+    
+    checkpoint = load_json(CHECKPOINT_TEXT_EXTRACTED, {"last_page": 0, "entries": {}})
+    start_page = checkpoint["last_page"] + 1
+    entries = checkpoint["entries"]
+    
+    if start_page > max_pages:
+        print(f"✓ Text extraction already complete ({len(entries)} songs found)")
+        return entries
+        
+    session = requests.Session()
+    session.headers.update(HEADERS)
+    
+    try:
+        client = ollama.Client(host='http://localhost:11434')
+    except Exception as e:
+        print(f"✗ Could not connect to Ollama: {e}")
+        return entries
+
+    end_page = min(max_pages, TOTAL_PAGES)
+    print(f"🤖 Extracting text-only songs via Ollama pages {start_page}–{end_page}...")
+    
+    prompt_template = """
+    You are a helpful assistant parsing a music forum thread. 
+    A user posted this message. Extract the Artist and Song Name.
+    If it is just normal conversation or banter, return exactly "null".
+    If it is a song, return ONLY the output in this exact format: Artist - Song Name
+    
+    Message: {text}
+    """
+
+    for page in range(start_page, end_page + 1):
+        try:
+            resp = session.get(THREAD_URL, params={"t": THREAD_ID, "page": page}, timeout=15)
+            resp.raise_for_status()
+            soup = BeautifulSoup(resp.text, 'html.parser')
+            posts = soup.find_all('div', id=re.compile(r'^post_message_\d+'))
+            
+            page_count = 0
+            for post in posts:
+                post_text_html = str(post)
+                # Skip if it has a youtube link (handled by main scraper)
+                has_yt = any(p.search(post_text_html) for p in YT_PATTERNS)
+                if has_yt:
+                    continue
+                    
+                post_text = post.get_text(separator=' ', strip=True)
+                if not post_text or len(post_text) < 5 or len(post_text) > 300:
+                    continue # Skip empty or extremely long rants
+                    
+                poster = "Unknown"
+                post_root = post.find_parent('div', id=re.compile(r'^edit\d+'))
+                if post_root:
+                    ulink = post_root.find('a', class_='bigusername')
+                    if ulink:
+                        poster = ulink.get_text(strip=True)
+                        
+                # Ask Ollama
+                prompt = prompt_template.replace('{text}', post_text)
+                try:
+                    response = client.chat(model='gemma3:12b', messages=[{'role': 'user', 'content': prompt}])
+                    result = response['message']['content'].strip()
+                    if result.lower() != 'null' and ' - ' in result:
+                        artist, song = result.split(' - ', 1)
+                        # Use a fake URL as a unique key
+                        fake_url = f"text://page{page}_{poster}_{len(entries)}"
+                        entries[fake_url] = {
+                            "video_id": "",
+                            "raw_title": result,
+                            "artist": artist.strip(),
+                            "song": song.strip(),
+                            "album": "",
+                            "year": "",
+                            "genre": "",
+                            "channel": "",
+                            "poster": poster,
+                            "page": page,
+                            "status": "resolved"
+                        }
+                        page_count += 1
+                except Exception:
+                    continue
+
+            if page % 10 == 0 or page == end_page:
+                print(f"  Page {page}/{end_page} — {len(entries)} text songs extracted (+{page_count})")
+
+            checkpoint["last_page"] = page
+            checkpoint["entries"] = entries
+            save_json(CHECKPOINT_TEXT_EXTRACTED, checkpoint)
+            time.sleep(SCRAPE_DELAY)
+            
+        except requests.RequestException as e:
+            print(f"  ⚠ Page {page} failed: {e}. Saving checkpoint...")
+            break
+
+    print(f"✓ Text extraction complete: {len(entries)} songs found.")
+    return entries
+
+
+# ===========================================================================
 # Stage 2: Resolve YouTube Metadata via yt-dlp
 # ===========================================================================
 def stage_resolve():
@@ -381,6 +487,71 @@ def parse_artist_song(title: str, yt_artist: str, channel: str) -> tuple[str, st
 
 
 # ===========================================================================
+# Feature 2: Wayback Machine Recovery
+# ===========================================================================
+def stage_recover_dead():
+    """Attempt to recover dead YouTube links using the Wayback Machine CDX API."""
+    ensure_work_dir()
+    resolved = load_json(CHECKPOINT_RESOLVED, {})
+    if not resolved:
+        print("✗ No resolved data. Run --stage resolve first.")
+        return {}
+        
+    dead_urls = [url for url, data in resolved.items() if data.get("status") in ("unavailable", "error")]
+    if not dead_urls:
+        print("✓ No dead links to recover!")
+        return resolved
+        
+    print(f"🕵️ Attempting Wayback Machine recovery on {len(dead_urls)} dead links...")
+    recovered_count = 0
+    
+    for i, url in enumerate(dead_urls):
+        data = resolved[url]
+        try:
+            # Query CDX API
+            cdx_url = f"http://web.archive.org/cdx/search/cdx?url={url}&output=json&limit=1"
+            resp = requests.get(cdx_url, timeout=10)
+            if resp.status_code == 200:
+                try:
+                    cdx_data = resp.json()
+                    if len(cdx_data) > 1: # Row 0 is header, Row 1 is data
+                        timestamp = cdx_data[1][1]
+                        snapshot_url = f"http://web.archive.org/web/{timestamp}/{url}"
+                        
+                        # Fetch snapshot to grab title
+                        snap_resp = requests.get(snapshot_url, timeout=15)
+                        if snap_resp.status_code == 200:
+                            soup = BeautifulSoup(snap_resp.text, 'html.parser')
+                            title_tag = soup.find('title')
+                            if title_tag:
+                                title = title_tag.get_text(strip=True)
+                                title = title.replace(" - YouTube", "").strip()
+                                artist, song = parse_artist_song(title, "", "")
+                                if artist or song:
+                                    data["raw_title"] = title
+                                    data["artist"] = artist
+                                    data["song"] = song
+                                    data["status"] = "resolved"
+                                    resolved[url] = data
+                                    recovered_count += 1
+                                    print(f"    ✓ Recovered: {title}")
+                except json.JSONDecodeError:
+                    pass
+        except Exception:
+            pass # Wayback Machine is flaky, ignore errors
+            
+        if (i + 1) % 50 == 0:
+            print(f"  {i+1}/{len(dead_urls)} dead links checked ({recovered_count} recovered so far)")
+            save_json(CHECKPOINT_RESOLVED, resolved)
+            
+        time.sleep(2) # Be very gentle with Wayback Machine API
+        
+    save_json(CHECKPOINT_RESOLVED, resolved)
+    print(f"✓ Wayback Recovery complete! Resurrected {recovered_count} songs.")
+    return resolved
+
+
+# ===========================================================================
 # Stage 3: Enrich with MusicBrainz
 # ===========================================================================
 def stage_enrich():
@@ -501,6 +672,11 @@ def stage_upload():
     if not enriched:
         print("✗ No data to upload. Run previous stages first.")
         return
+
+    # Merge in text-extracted songs
+    text_data = load_json(CHECKPOINT_TEXT_EXTRACTED, {}).get("entries", {})
+    for url, data in text_data.items():
+        enriched[url] = data
 
     # Build aggregated rows
     aggregated = {}
@@ -654,7 +830,7 @@ def _upload_via_api_key(rows, fieldnames):
 # ===========================================================================
 def main():
     parser = argparse.ArgumentParser(description="P99 Music Thread Scraper")
-    parser.add_argument("--stage", choices=["scrape", "resolve", "enrich", "upload", "all"], default="all",
+    parser.add_argument("--stage", choices=["scrape", "extract_text", "resolve", "recover_dead", "enrich", "upload", "all"], default="all",
                         help="Which stage to run (default: all)")
     parser.add_argument("--max-pages", type=int, default=TOTAL_PAGES,
                         help=f"Max pages to scrape (default: {TOTAL_PAGES})")
@@ -672,7 +848,9 @@ def main():
 
     stages = {
         "scrape": lambda: stage_scrape(args.max_pages),
+        "extract_text": lambda: stage_extract_text(args.max_pages),
         "resolve": stage_resolve,
+        "recover_dead": stage_recover_dead,
         "enrich": stage_enrich,
         "upload": stage_upload,
     }
