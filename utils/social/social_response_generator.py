@@ -391,21 +391,27 @@ Guidelines:
     ]
     
     try:
-        from utils.infrastructure.gpu.gpu_manager import OllamaGPUManager
+        from utils.infrastructure.gpu.gpu_manager import OllamaGPUManager, gpu_memory_manager, GPUTaskPriority
         gpu_manager = OllamaGPUManager(config.chat_model)
         options = gpu_manager.get_gpu_options(for_chat=True)
         # Higher temperature for threading to encourage creativity/length
         options['temperature'] = 0.8
         options['num_predict'] = 1000 # Ensure enough tokens for a thread
+        import uuid
         
-        response = await asyncio.wait_for(
-            ollama_client.chat(
-                model=config.chat_model,
-                messages=messages,
-                options=options,
-                keep_alive=-1
+        response = await gpu_memory_manager.run_with_gpu_guard(
+            model_name=config.chat_model,
+            priority=GPUTaskPriority.SOCIAL,
+            coro=asyncio.wait_for(
+                ollama_client.chat(
+                    model=config.chat_model,
+                    messages=messages,
+                    options=options,
+                    keep_alive=-1
+                ),
+                timeout=600.0  # 10 minute absolute max for full thread generation
             ),
-            timeout=600.0  # 10 minute absolute max for full thread generation
+            task_id=f"social_thread_{uuid.uuid4().hex[:8]}"
         )
         
         full_text = response['message']['content']

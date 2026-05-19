@@ -755,6 +755,7 @@ class MessageProcessor:
                                 matched = True
 
                         if matched:
+                            b['access_count'] = b.get('access_count', 0) + 1
                             if conf > 0.7:
                                 high_conf_stances.append(b)
                             else:
@@ -775,6 +776,15 @@ class MessageProcessor:
 
                     if matching:
                         ctx.system_prompt = ctx.system_prompt + f"\n\n[current stances: {'; '.join(matching[:3])}]"
+
+                    # Write back to disk to persist updated access counts
+                    if any(b.get('access_count', 0) > 0 for b in all_beliefs):
+                        def _write_beliefs():
+                            tmp_path = beliefs_path + ".tmp"
+                            with open(tmp_path, 'w', encoding='utf-8') as bf:
+                                json.dump(all_beliefs, bf, indent=2)
+                            os.replace(tmp_path, beliefs_path)
+                        await asyncio.to_thread(_write_beliefs)
         except Exception:
             pass  # Never let beliefs injection break generation
 
@@ -1518,10 +1528,81 @@ class MessageProcessor:
                 
         return "The data's a bit scrambled right now. Ask me again later."
 
+    async def _run_consistency_watchdog(self, ctx: MessageContext, response_text: str):
+        """P54-2: Self-Consistency Watchdog.
+        Checks if the generated response logically contradicts Kaia's active strong beliefs
+        or direct preceding messages, logging conflicts for system visibility.
+        """
+        try:
+            contradiction_detected = False
+            reasons = []
+            
+            # 1. Check against active strong beliefs (confidence >= 0.8)
+            beliefs_path = os.path.join("memory", "beliefs.json")
+            if os.path.exists(beliefs_path):
+                def _read_beliefs():
+                    with open(beliefs_path, 'r', encoding='utf-8') as bf:
+                        return json.load(bf)
+                all_beliefs = await asyncio.to_thread(_read_beliefs)
+                
+                resp_lower = response_text.lower()
+                for b in all_beliefs:
+                    if b.get('confidence', 0.5) >= 0.8:
+                        topic = b.get('topic', '').lower()
+                        position = b.get('position', '').lower()
+                        
+                        aliases = [topic] + [a.lower() for a in b.get('aliases', []) if a]
+                        matched_alias = next((a for a in aliases if a in resp_lower), None)
+                        if matched_alias:
+                            pos_positive = any(w in position for w in ["love", "like", "agree", "support", "good", "great", "favor", "pro"])
+                            pos_negative = any(w in position for w in ["hate", "dislike", "disagree", "oppose", "bad", "avoid", "anti"])
+                            
+                            resp_negative = any(w in resp_lower for w in ["don't like", "hate", "disagree", "oppose", "bad", "dislike"])
+                            resp_positive = any(w in resp_lower for w in ["love", "like", "agree", "support", "good", "great"])
+                            
+                            if (pos_positive and resp_negative) or (pos_negative and resp_positive):
+                                contradiction_detected = True
+                                reasons.append(f"Belief conflict on topic '{topic}': Stance='{position}' vs Response polarities")
+            
+            # 2. Check against last 10 messages in channel memory for direct self-contradiction
+            history = list(self.bot_state.channel_memory.get(ctx.channel_id, []))
+            kaia_history = [m for m in history if m.get('role') == 'assistant']
+            if kaia_history:
+                last_msg = kaia_history[-1].get('content', '').lower()
+                resp_lower = response_text.lower()
+                important_verbs = ["think", "believe", "agree", "like", "want", "need", "feel"]
+                for verb in important_verbs:
+                    direct_aff = f"i {verb}"
+                    direct_neg = f"i don't {verb}"
+                    if (direct_aff in last_msg and direct_neg in resp_lower) or (direct_neg in last_msg and direct_aff in resp_lower):
+                        contradiction_detected = True
+                        reasons.append(f"Direct conversational self-contradiction on '{verb}' state")
+
+            if contradiction_detected:
+                log_warning(f"[CONSISTENCY_WATCHDOG] Contradiction detected! Reasons: {reasons}")
+                log_path = os.path.join("memory", "generation_log.jsonl")
+                def _log_to_disk():
+                    with open(log_path, 'a', encoding='utf-8') as lf:
+                        lf.write(json.dumps({
+                            'timestamp': time.time(),
+                            'channel_id': ctx.channel_id,
+                            'author_name': ctx.author_name,
+                            'query': ctx.sanitized_content,
+                            'response': response_text,
+                            'contradiction_flag': True,
+                            'reasons': reasons
+                        }) + "\n")
+                await asyncio.to_thread(_log_to_disk)
+        except Exception as ce:
+            log_debug(f"Self-Consistency Watchdog failed (non-fatal): {ce}")
+
     async def _post_process_and_log(self, ctx: MessageContext):
         """Final cleanups, sending response, and logging."""
         # 1. FINAL OUTPUT FILTER: Strip hallucinated [CURRENT_TIME] or CURRENT_TIME from outgoing text
         ctx.response_text = re.sub(r'\[?CURRENT_TIME\]?:?.*?(?:\n|$)', '', ctx.response_text).strip()
+        
+        # Run Self-Consistency Watchdog (P54-2)
+        await self._run_consistency_watchdog(ctx, ctx.response_text)
         
         # 1b. ELLIPSIS COLLAPSER — last-resort cleanup for style-drifted responses
         # If the response has excessive ellipsis fragments (word… word… word…),

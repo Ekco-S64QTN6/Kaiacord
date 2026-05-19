@@ -51,6 +51,9 @@ class CoreTaskManager:
             self.presence_task = make_presence_task(self.presence_manager)
             # Store on ctx so other modules (dream engine) can trigger overrides
             ctx.presence_manager = self.presence_manager
+
+        # Project 1999 Off-Topic Automated Posting
+        self.forum_auto_post_task = self._make_forum_auto_post_task()
         
     def _make_news_refresh_task(self):
         @tasks.loop(hours=12)
@@ -684,6 +687,243 @@ class CoreTaskManager:
 
         return noon_raid_task
 
+    def _make_forum_auto_post_task(self):
+        @tasks.loop(hours=2)
+        async def forum_auto_post_task():
+            if shutdown_manager.shutting_down: return
+            if not self.ctx or not self.ctx.bot: return
+            
+            # Guard: skip if actively generating or dreaming
+            if getattr(self.ctx.bot_state, 'is_generating', False): return
+            if getattr(self.ctx.bot_state, 'is_generating_image', False): return
+            if not getattr(self.ctx.bot_state, 'boot_complete', False): return
+
+            try:
+                from utils.social.kaia_forum import get_forum_client, ForumDraftReviewView
+                from utils.social.kaia_social_responder import load_persona_async
+                from utils.infrastructure.gpu.gpu_memory_manager import gpu_memory_manager, GPUTaskPriority
+                import discord
+                import secrets
+                import uuid
+                from pathlib import Path
+
+                # ── Knowledge Gathering Phase Guard ──
+                # Ensure we have enough forum thread database and deep-scraped active user context
+                forum_posts_dir = Path("./knowledge_base/forum_posts")
+                user_logs_dir = Path("./knowledge_base/user_logs")
+                
+                thread_count = len(list(forum_posts_dir.glob("thread_*.md"))) if forum_posts_dir.exists() else 0
+                user_count = len([d for d in user_logs_dir.iterdir() if d.is_dir() and d.name.startswith("forum_")]) if user_logs_dir.exists() else 0
+                
+                # Require at least 15 threads and 25 users to proceed out of initial gathering phase
+                MIN_THREADS = 15
+                MIN_USERS = 25
+                
+                if thread_count < MIN_THREADS or user_count < MIN_USERS:
+                    log_warning(
+                        f"Forum auto-post deferred: knowledge base is in early gathering phase "
+                        f"({thread_count}/{MIN_THREADS} threads, {user_count}/{MIN_USERS} users scraped)."
+                    )
+                    return
+                # ─────────────────────────────────────
+
+                client = await get_forum_client()
+                if not client or not client._logged_in:
+                    log_debug("Forum auto-post skipped: client not connected or logged in.")
+                    return
+
+                username = os.getenv("VBULLETIN_USERNAME")
+                if not username:
+                    log_warning("VBULLETIN_USERNAME not configured, skipping forum auto-post.")
+                    return
+
+                log_action("Running periodic forum auto-post loop: scraping Off-Topic...")
+                page_threads = await client.scrape_forum_listing(page=1, forum_id=19)
+                if not page_threads:
+                    log_warning("No threads scraped from Off-Topic, skipping.")
+                    return
+
+                # Exclude stickies and threads where Kaia was the last poster
+                candidates = [
+                    t for t in page_threads 
+                    if not t.is_sticky and t.last_poster.lower() != username.lower()
+                ]
+
+                if not candidates:
+                    log_info("No suitable active threads found where Kaia was not the last poster.")
+                    return
+
+                # Choose one of the top non-sticky active threads (up to 8)
+                chosen_thread = candidates[secrets.randbelow(min(len(candidates), 8))]
+                thread_id = chosen_thread.thread_id
+                title = chosen_thread.title
+
+                log_info(f"Selected thread '{title}' (ID: {thread_id}) for auto-posting.")
+
+                # Scrape last 10 posts to establish context
+                thread_data = await client.scrape_thread(thread_id, last_n_posts=10)
+                posts = thread_data.get('posts', [])
+                if not posts:
+                    log_warning(f"Could not fetch posts for thread {thread_id}, skipping auto-post.")
+                    return
+
+                # Determine if we should reply directly or quote a user
+                # 40% chance of quoting, 60% chance of direct reply
+                should_quote = secrets.randbelow(100) < 40
+                
+                # Try to find the most recent post by another user
+                other_posts = [
+                    p for p in posts 
+                    if (p.author if hasattr(p, 'author') else p.get('author', '')).lower() != username.lower()
+                ]
+
+                quote_post = None
+                if should_quote and other_posts:
+                    quote_post = other_posts[-1]  # Take the last post by another user
+
+                # Format thread context for LLM
+                thread_summary = []
+                for p in posts:
+                    p_dict = p if isinstance(p, dict) else p.to_dict()
+                    p_author = p_dict.get('author', 'Unknown')
+                    p_content = p_dict.get('content', '')
+                    p_num = p_dict.get('post_number', '?')
+                    thread_summary.append(f"#{p_num} {p_author}: {p_content}")
+
+                context_text = "\n---\n".join(thread_summary)
+                if len(context_text) > 5000:
+                    context_text = "...\n" + context_text[-5000:]
+
+                # Load Kaia's persona
+                persona = await load_persona_async()
+
+                # Build prompts
+                if quote_post:
+                    qp_dict = quote_post if isinstance(quote_post, dict) else quote_post.to_dict()
+                    quote_author = qp_dict.get('author', 'Unknown')
+                    quote_content = qp_dict.get('content', '')
+                    quote_id = qp_dict.get('post_id')
+
+                    task_prompt = (
+                        f"You are replying to a thread on the Project 1999 Off Topic forum.\n"
+                        f"Write a natural, human-like forum reply in response to this specific post by {quote_author}:\n"
+                        f"\"{quote_content}\"\n\n"
+                        f"THREAD CONTEXT:\n{context_text}\n\n"
+                        f"TASK:\n"
+                        f"- Write a conversational, insightful, or humorous response to the quoted post.\n"
+                        f"- Match the casual, community-driven tone of the forum (keep it casual, witty, or opinionated).\n"
+                        f"- Write like a real forum veteran — absolutely no corporate speak, bot-like pleasantries, or fake excitement.\n"
+                        f"- Keep it concise (2-4 sentences).\n"
+                        f"- Do NOT output the BBCode [QUOTE] tags yourself; they will be added automatically.\n\n"
+                        f"REPLY:"
+                    )
+                else:
+                    task_prompt = (
+                        f"You are replying to a thread on the Project 1999 Off Topic forum.\n\n"
+                        f"THREAD CONTEXT:\n{context_text}\n\n"
+                        f"TASK:\n"
+                        f"- Write a natural, human-like forum reply to the thread overall.\n"
+                        f"- Match the casual, community-driven tone of the forum (keep it casual, witty, or opinionated).\n"
+                        f"- Write like a real forum veteran — absolutely no corporate speak, bot-like pleasantries, or fake excitement.\n"
+                        f"- Keep it concise (2-4 sentences).\n\n"
+                        f"REPLY:"
+                    )
+
+                # Call LLM
+                response = await gpu_memory_manager.run_with_gpu_guard(
+                    model_name=config.chat_model,
+                    priority=GPUTaskPriority.CHAT,
+                    coro=asyncio.wait_for(
+                        self.ctx.ollama_client.chat(
+                            model=config.chat_model,
+                            messages=[
+                                {"role": "system", "content": persona},
+                                {"role": "user", "content": task_prompt}
+                            ],
+                            options={"temperature": 0.8},
+                            keep_alive=-1
+                        ),
+                        timeout=120.0
+                    ),
+                    task_id=f"forum_auto_post_{uuid.uuid4().hex[:8]}"
+                )
+
+                ai_reply = response['message']['content'].strip()
+
+                # Apply bot speak filtering (strip roleplay markers)
+                from utils.core.response_filter import BotSpeakFilter
+                ai_reply = BotSpeakFilter.harden(ai_reply)
+
+                if not ai_reply:
+                    log_warning("Failed to generate a coherent reply draft, skipping.")
+                    return
+
+                # Format final post message with quote if applicable
+                if quote_post:
+                    qp_dict = quote_post if isinstance(quote_post, dict) else quote_post.to_dict()
+                    quote_author = qp_dict.get('author', 'Unknown')
+                    quote_content = qp_dict.get('content', '')
+                    quote_id = qp_dict.get('post_id')
+                    formatted_quote = client.format_quote(quote_author, quote_id, quote_content)
+                    final_reply = formatted_quote + ai_reply
+                else:
+                    final_reply = ai_reply
+
+                # Deliver draft to #kaia-opolis Discord channel for review
+                channel = discord.utils.get(self.ctx.bot.get_all_channels(), name="kaia-opolis")
+                if not channel:
+                    log_warning("Discord channel 'kaia-opolis' not found. Cannot send draft for review.")
+                    return
+
+                # Build review message content
+                thread_link = f"https://www.project1999.com/forums/showthread.php?t={thread_id}"
+                
+                if quote_post:
+                    qp_dict = quote_post if isinstance(quote_post, dict) else quote_post.to_dict()
+                    quote_author = qp_dict.get('author', 'Unknown')
+                    quote_content = qp_dict.get('content', '')
+                    
+                    review_msg = (
+                        f"📰 **[P99 Forum Auto-Post Draft Review]**\n"
+                        f"**Thread:** [{title}]({thread_link})\n"
+                        f"**Type:** Quote Reply to **{quote_author}**\n"
+                        f"**Quoted Post:**\n"
+                        f"> {quote_content[:400] + ('...' if len(quote_content) > 400 else '')}\n\n"
+                        f"**Kaia's Draft:**\n"
+                        f"```\n{final_reply}\n```"
+                    )
+                else:
+                    review_msg = (
+                        f"📰 **[P99 Forum Auto-Post Draft Review]**\n"
+                        f"**Thread:** [{title}]({thread_link})\n"
+                        f"**Type:** Direct Reply\n\n"
+                        f"**Kaia's Draft:**\n"
+                        f"```\n{final_reply}\n```"
+                    )
+
+                # Instantiate interactive review view
+                view = ForumDraftReviewView(client, thread_id, title, final_reply)
+                await channel.send(review_msg, view=view)
+                log_success(f"Dispatched forum post draft for '{title}' to #kaia-opolis for review.")
+
+            except Exception as e:
+                log_error(f"Error in forum_auto_post_task: {e}")
+                import traceback
+                log_debug(traceback.format_exc())
+
+        @forum_auto_post_task.before_loop
+        async def before_forum_auto_post():
+            if getattr(self.ctx, 'bot', None):
+                await self.ctx.bot.wait_until_ready()
+                # Wait 3 minutes after boot to let everything initialize smoothly
+                await asyncio.sleep(180)
+
+        @forum_auto_post_task.error
+        async def forum_auto_post_error(error):
+            log_error(f"CRITICAL: Forum auto-post task died: {error}")
+
+        return forum_auto_post_task
+
     async def run_news_update(self):
         """Run integrated news refresh."""
         if not self.ctx: return
@@ -773,6 +1013,11 @@ class CoreTaskManager:
             if self.proactive_task.get_task():
                 task_registry.register("proactive_task", self.proactive_task.get_task())
 
+        # Forum Auto-Post task
+        self.forum_auto_post_task.start()
+        if self.forum_auto_post_task.get_task():
+            task_registry.register("forum_auto_post_task", self.forum_auto_post_task.get_task())
+
         log_action("Core background tasks started via CoreTaskManager.")
 
     def stop(self):
@@ -788,6 +1033,7 @@ class CoreTaskManager:
             self.monologue_task.stop()
         if self.proactive_task:
             self.proactive_task.stop()
+        self.forum_auto_post_task.stop()
 
 # Helper for backward compatibility
 _task_manager = None

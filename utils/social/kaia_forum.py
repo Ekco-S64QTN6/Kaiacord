@@ -18,6 +18,7 @@ from datetime import datetime, timedelta
 from pathlib import Path
 from typing import Optional, List, Dict, Any
 from urllib.parse import urljoin, urlparse, parse_qs
+import discord
 
 from bs4 import BeautifulSoup
 
@@ -1493,3 +1494,55 @@ class ForumClient:
             log_debug(f"Failed to resolve YouTube title for {video_id}: {e}")
         
         return None
+
+
+class ForumDraftReviewView(discord.ui.View):
+    """Interactive Discord Moderation View for P99 Forum drafts."""
+    def __init__(self, client, thread_id, title, final_reply):
+        super().__init__(timeout=86400)  # 24-hour timeout
+        self.client = client
+        self.thread_id = thread_id
+        self.title = title
+        self.final_reply = final_reply
+
+    @discord.ui.button(label="✅ Accept & Post", style=discord.ButtonStyle.success)
+    async def accept(self, interaction: discord.Interaction, button: discord.ui.Button):
+        await interaction.response.defer()
+        
+        # Disable all items in the view
+        for item in self.children:
+            item.disabled = True
+            
+        success = await self.client.post_reply(self.thread_id, self.final_reply)
+        
+        if success:
+            await interaction.message.edit(
+                content=f"**[✅ POSTED TO P99 OFF-TOPIC]**\n"
+                        f"**Thread:** {self.title}\n"
+                        f"**Approved by:** {interaction.user.mention}\n\n"
+                        f"```\n{self.final_reply}\n```",
+                view=self
+            )
+            log_success(f"Moderator {interaction.user.name} approved and posted P99 reply to thread {self.thread_id}")
+        else:
+            await interaction.message.edit(
+                content=f"**[❌ FAILED TO POST TO P99 OFF-TOPIC]**\n"
+                        f"Check rate limits or credentials.\n\n"
+                        f"```\n{self.final_reply}\n```",
+                view=self
+            )
+
+    @discord.ui.button(label="❌ Reject", style=discord.ButtonStyle.danger)
+    async def reject(self, interaction: discord.Interaction, button: discord.ui.Button):
+        # Disable all items in the view
+        for item in self.children:
+            item.disabled = True
+            
+        await interaction.response.edit_message(
+            content=f"**[❌ DRAFT REJECTED]**\n"
+                    f"**Thread:** {self.title}\n"
+                    f"**Rejected by:** {interaction.user.mention}\n\n"
+                    f"```\n{self.final_reply}\n```",
+            view=self
+        )
+        log_info(f"Moderator {interaction.user.name} rejected P99 reply draft for thread {self.thread_id}")

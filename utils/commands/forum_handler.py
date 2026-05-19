@@ -441,27 +441,28 @@ async def _handle_reply(ctx, msg, thread_id: int):
                     f"REPLY:"
                 )
 
-            # 6. Generate with LLM
-            from utils.infrastructure.system.yaml_config import config
-            ollama_url = config.get('ollama.host', 'http://localhost:11434')
-            ollama_client = AsyncClient(host=ollama_url)
-
-            from utils.infrastructure.gpu.gpu_manager import OllamaGPUManager
+            from utils.infrastructure.gpu.gpu_manager import OllamaGPUManager, gpu_memory_manager, GPUTaskPriority
             gpu_manager = OllamaGPUManager(config.chat_model)
             options = gpu_manager.get_gpu_options(for_chat=True)
             options['temperature'] = 0.7 if is_tech_thread else 0.8
+            import uuid
 
-            response = await asyncio.wait_for(
-                ollama_client.chat(
-                    model=config.chat_model,
-                    messages=[
-                        {"role": "system", "content": system_prompt},
-                        {"role": "user", "content": task_prompt}
-                    ],
-                    options=options,
-                    keep_alive=-1
+            response = await gpu_memory_manager.run_with_gpu_guard(
+                model_name=config.chat_model,
+                priority=GPUTaskPriority.CHAT,
+                coro=asyncio.wait_for(
+                    ollama_client.chat(
+                        model=config.chat_model,
+                        messages=[
+                            {"role": "system", "content": system_prompt},
+                            {"role": "user", "content": task_prompt}
+                        ],
+                        options=options,
+                        keep_alive=-1
+                    ),
+                    timeout=120.0
                 ),
-                timeout=120.0
+                task_id=f"forum_reply_{uuid.uuid4().hex[:8]}"
             )
 
             ai_reply = response['message']['content'].strip()

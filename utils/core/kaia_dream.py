@@ -127,9 +127,66 @@ class DreamEngine:
         except Exception as e:
             log_debug(f"Growth log write failed (non-fatal): {e}")
 
+    async def _compute_emotional_salience(self, file_path: Path) -> float:
+        """Compute the emotional salience of a file to weight dream triage.
+        
+        Analyzes file text asynchronously to identify emotional keywords,
+        milestones, length, and frequency of emotional deviations.
+        """
+        try:
+            if not file_path.exists():
+                return 0.0
+            
+            # Non-user logs start with a base general salience
+            if "user_logs" not in str(file_path):
+                return 0.5
+                
+            content = await asyncio.to_thread(file_path.read_text, 'utf-8', 'ignore')
+            
+            # Core scoring variables
+            score = 1.0
+            
+            # 1. Message size salience (log size)
+            score += min(2.0, len(content) / 10000.0)
+            
+            # 2. Key emotional and relational indicator terms
+            indicators = {
+                "relationship": 0.6,
+                "milestone": 0.8,
+                "angry": 0.6,
+                "sad": 0.6,
+                "happy": 0.4,
+                "hurt": 0.5,
+                "promise": 0.7,
+                "agree": 0.4,
+                "disagree": 0.5,
+                "sorry": 0.6,
+                "forgive": 0.8,
+                "meaningful": 0.6,
+                "understand": 0.4,
+                "feel": 0.3,
+                "trust": 0.7,
+                "betray": 0.9,
+                "level up": 0.5,
+                "boss": 0.5,
+                "slain": 0.4,
+                "quest completed": 0.6
+            }
+            
+            content_lower = content.lower()
+            for word, weight in indicators.items():
+                count = content_lower.count(word)
+                if count > 0:
+                    score += weight * min(3, count)  # cap repeat count impact
+                    
+            return score
+        except Exception:
+            return 1.0
+
 
     async def generate_dream_reflection(self, file_path: str, snippet: str, persona_content: str,
-                                         source_type: str = 'document') -> Optional[str]:
+                                         source_type: str = 'document',
+                                         consolidation_phase: str = 'rem') -> Optional[str]:
         """Generate an in-depth, multi-paragraph persona-based reflection"""
         
         current_date = datetime.now().strftime('%B %Y')
@@ -179,6 +236,22 @@ Connect this fragment to your actual world.
 - Be analytical, but grounded. You've read things. You've had conversations. Connect them.
 """
 
+        # Add NREM/REM specific consolidation instructions
+        if consolidation_phase == 'nrem':
+            tiered_instructions += """
+NREM PHASE: FACTUAL CONSOLIDATION
+- Focus on absolute clarity, direct facts, and high-fidelity representation of events/relationships.
+- Do not speculate or make abstract, creative analogies. Summarize what actually happened.
+- Evaluate: Does this log challenge or confirm your active beliefs? Be highly logical.
+"""
+        else:
+            tiered_instructions += """
+REM PHASE: ASSOCIATIVE DREAMING
+- Allow your mind to drift into abstract analogies, creative connections, and metaphorical parallels.
+- What other memories does this trigger? Connect the dots in novel, interesting ways.
+- Focus on emotional undercurrents, feeling vectors, and poetic synthesis.
+"""
+
         # Emotional arc context for dream reflections
         mood_context = ""
         try:
@@ -221,7 +294,7 @@ VOICE AND FORMAT RULES (always apply regardless of dream type):
             gpu_mgr = OllamaGPUManager(self.chat_model)
             options = gpu_mgr.get_gpu_options(for_chat=True)
             options.update({
-                "temperature": 0.8,
+                "temperature": 0.3 if consolidation_phase == 'nrem' else 0.9,
                 "num_predict": 1000,
                 "stop": ["User:", "Kaia:"]
             })
@@ -367,8 +440,8 @@ VOICE AND FORMAT RULES (always apply regardless of dream type):
             log_warning("No suitable files found for dreaming.")
             return
 
-        # 2. Select samples with Smart Triage (weight toward recent user logs)
-        sample_files = []
+        # 2. Select samples with Smart Triage (weight toward recent user logs + emotional salience)
+        sample_files_with_salience = []
         
         # A. User Quota (Target ~60% from recent user logs, rest from everything else)
         user_logs = categorized_files.get('user_logs', [])
@@ -387,43 +460,65 @@ VOICE AND FORMAT RULES (always apply regardless of dream type):
             else:
                 older_logs.append(f)
         
+        # Smart Triage: Score emotional salience for all eligible recent logs
+        scored_recent_logs = []
+        for f in recent_logs:
+            salience = await self._compute_emotional_salience(f)
+            # Add small random jitter to prevent deterministic starvation
+            scored_recent_logs.append((f, salience, salience + random.uniform(0.0, 1.5)))
+        
+        # Sort by scored triage value descending
+        scored_recent_logs.sort(key=lambda x: x[2], reverse=True)
+        
         # Fill up to 60% from recent user logs
         max_recent = max(1, int(dreams_per_scan * 0.6))
-        random.shuffle(recent_logs)
-        sample_files.extend(recent_logs[:max_recent])
+        selected_recent = scored_recent_logs[:max_recent]
+        for f, sal, _ in selected_recent:
+            sample_files_with_salience.append((f, sal))
         
-        if recent_logs:
-            log_info(f"Dream triage: {len(recent_logs[:max_recent])} recent user logs selected (of {len(recent_logs)} available)")
+        if selected_recent:
+            log_info(f"Dream triage: {len(selected_recent)} recent user logs selected based on emotional salience (out of {len(recent_logs)} available)")
         
         # B. General Content Quota (Populate rest from books, news, docs, older logs)
-        other_files = list(older_logs)
-        for cat in ['books', 'news', 'documents']:
-            other_files.extend(categorized_files.get(cat, []))
+        other_files = []
+        for f in older_logs:
+            other_files.append((f, 0.6))  # medium-low salience for older logs
             
-        remaining_slots = dreams_per_scan - len(sample_files)
+        for cat in ['books', 'news', 'documents']:
+            for f in categorized_files.get(cat, []):
+                other_files.append((f, 0.5))  # standard general salience
+            
+        remaining_slots = dreams_per_scan - len(sample_files_with_salience)
         
         if remaining_slots > 0 and other_files:
+            # Shuffle older files to ensure variety
             random.shuffle(other_files)
-            sample_files.extend(other_files[:remaining_slots])
+            sample_files_with_salience.extend(other_files[:remaining_slots])
 
         # Shuffle again to mix types in processing order
-        random.shuffle(sample_files)
+        random.shuffle(sample_files_with_salience)
         
         # 3. Phase 1: Concurrent Snippet Extraction (CPU/IO Bound)
-        log_action(f"Extracting snippets for {len(sample_files)} candidate dreams...")
-        extraction_tasks = [self._extract_snippet_async(f) for f in sample_files]
+        log_action(f"Extracting snippets for {len(sample_files_with_salience)} candidate dreams...")
+        extraction_tasks = [self._extract_snippet_async(item[0]) for item in sample_files_with_salience]
         snippets_raw = await asyncio.gather(*extraction_tasks)
         
         # Filter out failures
         work_items = []
         for i, snippet in enumerate(snippets_raw):
             if snippet:
-                work_items.append((sample_files[i], snippet))
+                file_path, salience = sample_files_with_salience[i]
+                work_items.append((file_path, snippet, salience))
                 
         new_dreams_count = 0
         
+        # Sort work_items by salience descending to prioritize factual NREM consolidation on most salient logs
+        work_items_sorted = sorted(work_items, key=lambda x: x[2], reverse=True)
+        n_nrem = max(1, int(len(work_items_sorted) * 0.4)) if work_items_sorted else 0
+        
         # 4. Phase 2: Guarded GPU Generation (Sequential/Guarded)
-        for file_path, snippet in work_items:
+        for idx, (file_path, snippet, salience) in enumerate(work_items_sorted):
+            phase = 'nrem' if idx < n_nrem else 'rem'
             try:
                 # Get a relative path for the source display
                 try:
@@ -446,7 +541,8 @@ VOICE AND FORMAT RULES (always apply regardless of dream type):
                     display_path, 
                     snippet, 
                     persona_content,
-                    source_type=dream_source_type
+                    source_type=dream_source_type,
+                    consolidation_phase=phase
                 )
                 
                 if reflection:
@@ -494,8 +590,8 @@ VOICE AND FORMAT RULES (always apply regardless of dream type):
                         source_label=display_path
                     )
 
-                    # Item 8: Structured extraction pipeline
-                    await self._extract_dream_insights(reflection, display_path)
+                    # Item 8: Structured extraction pipeline (propagates salience score downstream)
+                    await self._extract_dream_insights(reflection, display_path, salience)
             except Exception as e:
                 log_error(f"Failed to process dream for {file_path.name}: {e}")
 
@@ -610,7 +706,7 @@ VOICE AND FORMAT RULES (always apply regardless of dream type):
         except Exception as e:
             log_warning(f"Identity stream update failed: {e}")
 
-    async def _extract_dream_insights(self, reflection: str, source_path: str):
+    async def _extract_dream_insights(self, reflection: str, source_path: str, salience: float = 0.5):
         """Item 8: Extract structured updates from a dream reflection.
         
         Runs a lightweight JSON extraction pass to pull:
@@ -712,12 +808,17 @@ VOICE AND FORMAT RULES (always apply regardless of dream type):
                 try:
                     from utils.core.memory_anchors import save_anchor
                     anchor_user = anchor.get('user_name')
+                    
+                    # Base weight is 0.7, but emotionally salient dreams scale it up to 0.9!
+                    init_weight = min(0.9, 0.6 + (salience / 10.0))
+                    
                     save_anchor(
                         user_id=f"dream_{anchor_user}" if anchor_user else None,
                         theme=anchor['theme'],
                         anchor_text=anchor.get('anchor_text', '')[:200],
-                        weight=0.7,
+                        weight=init_weight,
                         user_name=anchor_user,
+                        salience=salience,
                     )
                 except Exception:
                     pass

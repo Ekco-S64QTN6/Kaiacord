@@ -71,13 +71,33 @@ def _tokenize(text: str) -> set:
 
 
 def _apply_decay(anchors: List[Dict]) -> List[Dict]:
-    """Apply time-based weight decay and prune dead anchors."""
+    """Apply time-based weight decay and prune dead anchors.
+    
+    Salient anchors decay slower to preserve important relational memories.
+    Includes access-reinforcement heuristics (Item 8).
+    """
     now = time.time()
     live = []
     for a in anchors:
         created = a.get('created_at', now)
         age_periods = (now - created) / DECAY_PERIOD
-        decayed_weight = a.get('weight', 0.5) - (DECAY_RATE * age_periods)
+        
+        # Access count reinforcement: each access boosts weight by +0.05 (capped at 1.0)
+        access_count = a.get('access_count', 0)
+        base_weight = min(1.0, a.get('weight', 0.5) + (0.05 * access_count))
+        
+        # Double decay if anchor is older than 30 days and has never been accessed
+        age_seconds = now - created
+        if access_count == 0 and age_seconds > 30 * 86400:
+            decay_rate = DECAY_RATE * 2.0
+        else:
+            decay_rate = DECAY_RATE
+            
+        # Salience-modulated decay multiplier: high salience = slower decay
+        salience = a.get('salience', 0.5)
+        decay_mult = max(0.2, 1.5 - salience)
+        
+        decayed_weight = base_weight - (decay_rate * age_periods * decay_mult)
         if decayed_weight > 0:
             a['effective_weight'] = max(0.05, decayed_weight)
             live.append(a)
@@ -90,6 +110,7 @@ def save_anchor(
     anchor_text: str,
     weight: float = 0.7,
     user_name: Optional[str] = None,
+    salience: float = 0.5,
 ) -> None:
     """Save a new thematic anchor extracted from dream processing.
 
@@ -99,6 +120,7 @@ def save_anchor(
         anchor_text: The concrete memory snippet (e.g., "feeling stuck at work").
         weight: Initial importance weight (0.0-1.0).
         user_name: Human-readable name for prompt injection.
+        salience: Emotional importance factor (0.0-1.0) to modulate decay speed.
     """
     if not theme or not anchor_text:
         return
@@ -111,6 +133,7 @@ def save_anchor(
                 and existing.get('user_id') == user_id):
             existing['anchor_text'] = anchor_text
             existing['weight'] = weight
+            existing['salience'] = salience
             existing['updated_at'] = time.time()
             if user_name:
                 existing['user_name'] = user_name
@@ -125,6 +148,7 @@ def save_anchor(
         'user_id': user_id,
         'user_name': user_name,
         'weight': weight,
+        'salience': salience,
         'created_at': time.time(),
         'updated_at': time.time(),
         'keywords': list(_tokenize(f"{theme} {anchor_text}"))[:20],
@@ -199,7 +223,18 @@ def find_matching_anchors(
     # Sort by score descending
     scored.sort(key=lambda x: x[0], reverse=True)
 
-    return [anchor for _, anchor in scored[:max_results]]
+    results = [anchor for _, anchor in scored[:max_results]]
+    if results:
+        any_updated = False
+        for matched in results:
+            for a in anchors:
+                if a.get('theme') == matched.get('theme') and a.get('user_id') == matched.get('user_id'):
+                    a['access_count'] = a.get('access_count', 0) + 1
+                    any_updated = True
+        if any_updated:
+            _save_anchors(anchors)
+
+    return results
 
 
 def format_anchor_injection(anchor: Dict) -> str:

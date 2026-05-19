@@ -122,6 +122,30 @@ class EmotionalArc:
         except Exception as e:
             log_debug(f"Failed to log mood snapshot: {e}")
 
+    def circadian_energy(self) -> float:
+        """Calculate continuous sinusoidal circadian energy.
+        
+        Peaks at 10 AM (0.9), troughs at 10 PM (0.1). Includes a small,
+        stable daily noise factor of +/-0.1 derived from date hashing.
+        """
+        import hashlib
+        from datetime import datetime, date
+        
+        now = datetime.now()
+        time_fraction = now.hour + now.minute / 60.0
+        
+        # Sinusoidal curve: peaks at time_fraction = 10.0 (10 AM), troughs at 22.0 (10 PM)
+        # Shift curve by -4.0 so that peak math.sin(pi/2) is reached at exactly 10.0
+        curve = math.sin((time_fraction - 4.0) * math.pi / 12.0)
+        base_energy = 0.5 + 0.4 * curve
+        
+        # Stable daily noise to prevent micro-jitter between calls, but vary day-to-day
+        day_str = date.today().isoformat()
+        seed = int(hashlib.md5(day_str.encode('utf-8')).hexdigest(), 16)
+        noise = ((seed % 200) / 1000.0) - 0.1  # range [-0.1, +0.1]
+        
+        return max(0.0, min(1.0, base_energy + noise))
+
     def _apply_decay(self):
         """Decay all dimensions toward baseline based on elapsed time."""
         now = time.time()
@@ -142,9 +166,11 @@ class EmotionalArc:
         # Arousal decays toward baseline
         self._mood.arousal = BASELINE_AROUSAL + (self._mood.arousal - BASELINE_AROUSAL) * decay_factor
 
-        # Social energy regenerates during idle time
+        # Social energy regenerates during idle time — modulated by circadian energy
+        # Higher circadian energy = faster mental stamina recovery
+        ce = self.circadian_energy()
         hours_idle = elapsed / 3600.0
-        regen = hours_idle * ENERGY_REGEN_PER_HOUR
+        regen = hours_idle * ENERGY_REGEN_PER_HOUR * (0.5 + ce) # regenerates faster when biological energy is high
         self._mood.social_energy = min(1.0, self._mood.social_energy + regen)
 
         # Daily counter reset
@@ -158,8 +184,8 @@ class EmotionalArc:
         """Update the emotional state after an interaction.
 
         Args:
-            sentiment_score: 0.0–1.0 from estimate_sentiment() (0.5 = neutral).
-            message_length: length of the user's message (longer = more arousal).
+             sentiment_score: 0.0–1.0 from estimate_sentiment() (0.5 = neutral).
+             message_length: length of the user's message (longer = more arousal).
         """
         self._apply_decay()
 
@@ -180,8 +206,11 @@ class EmotionalArc:
             arousal_delta += 0.08  # Friction is energizing (stressful)
         self._mood.arousal = max(0.0, min(1.0, self._mood.arousal + arousal_delta))
 
-        # Social energy drain
-        self._mood.social_energy = max(0.0, self._mood.social_energy - ENERGY_DRAIN_PER_INTERACTION)
+        # Social energy drain — modulated by circadian energy
+        # Sleepy/fatigued (low circadian energy) causes faster social drainage
+        ce = self.circadian_energy()
+        drain_multiplier = 1.5 - ce  # ranges from 0.5 (full wakefulness stamina) to 1.5 (heavy fatigue)
+        self._mood.social_energy = max(0.0, self._mood.social_energy - ENERGY_DRAIN_PER_INTERACTION * drain_multiplier)
 
         # Track daily count
         self._mood.interaction_count_today += 1
@@ -227,6 +256,19 @@ class EmotionalArc:
         else:
             energy_word = "socially drained"
 
+        # Circadian energy descriptor
+        from datetime import datetime
+        ce = self.circadian_energy()
+        hour = datetime.now().hour
+        if ce > 0.8:
+            circ_word = "waking up/groggy" if hour < 9 else "peak focus energy"
+        elif ce > 0.5:
+            circ_word = "active and steady"
+        elif ce > 0.35:
+            circ_word = "winding down"
+        else:
+            circ_word = "fatigued/sleepy"
+
         # Daily interaction count context
         count = self._mood.interaction_count_today
         if count > 15:
@@ -238,7 +280,7 @@ class EmotionalArc:
         else:
             day_note = ""
 
-        parts = [val_word, aro_word, energy_word]
+        parts = [val_word, aro_word, energy_word, circ_word]
         if day_note:
             parts.append(day_note)
 
