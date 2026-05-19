@@ -54,6 +54,7 @@ class CoreTaskManager:
 
         # Project 1999 Off-Topic Automated Posting
         self.forum_auto_post_task = self._make_forum_auto_post_task()
+        self.forum_tech_support_task = self._make_forum_tech_support_task()
         
     def _make_news_refresh_task(self):
         @tasks.loop(hours=12)
@@ -924,6 +925,215 @@ class CoreTaskManager:
 
         return forum_auto_post_task
 
+    def _make_forum_tech_support_task(self):
+        @tasks.loop(hours=2)
+        async def forum_tech_support_task():
+            if shutdown_manager.shutting_down: return
+            if not self.ctx or not self.ctx.bot: return
+            
+            # Guard: skip if actively generating or dreaming
+            if getattr(self.ctx.bot_state, 'is_generating', False): return
+            if getattr(self.ctx.bot_state, 'is_generating_image', False): return
+            if not getattr(self.ctx.bot_state, 'boot_complete', False): return
+
+            try:
+                from utils.social.kaia_forum import get_forum_client, ForumDraftReviewView
+                from utils.social.kaia_social_responder import load_persona_async
+                from utils.infrastructure.gpu.gpu_memory_manager import gpu_memory_manager, GPUTaskPriority
+                import discord
+                import secrets
+                import uuid
+                from pathlib import Path
+
+                # ── Knowledge Gathering Phase Guard ──
+                # Ensure we have enough forum thread database and deep-scraped active user context
+                forum_posts_dir = Path("./knowledge_base/forum_posts")
+                user_logs_dir = Path("./knowledge_base/user_logs")
+                
+                thread_count = len(list(forum_posts_dir.glob("thread_*.md"))) if forum_posts_dir.exists() else 0
+                user_count = len([d for d in user_logs_dir.iterdir() if d.is_dir() and d.name.startswith("forum_")]) if user_logs_dir.exists() else 0
+                
+                MIN_THREADS = 15
+                MIN_USERS = 25
+                
+                if thread_count < MIN_THREADS or user_count < MIN_USERS:
+                    log_warning(
+                        f"Forum tech support deferred: knowledge base is in early gathering phase "
+                        f"({thread_count}/{MIN_THREADS} threads, {user_count}/{MIN_USERS} users scraped)."
+                    )
+                    return
+                # ─────────────────────────────────────
+
+                client = await get_forum_client()
+                if not client or not client._logged_in:
+                    log_debug("Forum tech support skipped: client not connected or logged in.")
+                    return
+
+                username = os.getenv("VBULLETIN_USERNAME")
+                if not username:
+                    log_warning("VBULLETIN_USERNAME not configured, skipping forum tech support.")
+                    return
+
+                log_action("Running periodic forum tech support loop: scraping Technical Discussion...")
+                # forum_id=40 is Technical Discussion
+                page_threads = await client.scrape_forum_listing(page=1, forum_id=40)
+                if not page_threads:
+                    log_warning("No threads scraped from Technical Discussion, skipping.")
+                    return
+
+                # Filter out stickies and threads where Kaia was the last poster
+                candidates = [
+                    t for t in page_threads 
+                    if not t.is_sticky and t.last_poster.lower() != username.lower()
+                ]
+
+                if not candidates:
+                    log_info("No suitable tech discussion threads found where Kaia was not the last poster.")
+                    return
+
+                # Helper to safely clean reply count string to integer
+                def clean_int(val):
+                    if not val: return 0
+                    if isinstance(val, int): return val
+                    try:
+                        return int(str(val).replace(',', '').strip())
+                    except:
+                        return 0
+
+                # Prioritize unanswered questions (0 replies) and newly created threads (highest thread_id)
+                candidates.sort(key=lambda t: (clean_int(t.reply_count), -clean_int(t.thread_id)))
+
+                # Select the best unanswered or fresh technical thread
+                chosen_thread = candidates[0]
+                thread_id = chosen_thread.thread_id
+                title = chosen_thread.title
+
+                log_info(f"[Tech Support] Selected thread '{title}' (ID: {thread_id}, Replies: {chosen_thread.reply_count}) for support.")
+
+                # Scrape last 5 posts to establish problem context
+                thread_data = await client.scrape_thread(thread_id, last_n_posts=5)
+                posts = thread_data.get('posts', [])
+                if not posts:
+                    log_warning(f"Could not fetch posts for tech thread {thread_id}, skipping.")
+                    return
+
+                # Grab the original poster and description
+                op_post = posts[0]
+                op_dict = op_post if isinstance(op_post, dict) else op_post.to_dict()
+                op_author = op_dict.get('author', 'Unknown')
+                op_content = op_dict.get('content', '')
+
+                # Format thread context for LLM
+                thread_summary = []
+                for p in posts:
+                    p_dict = p if isinstance(p, dict) else p.to_dict()
+                    p_author = p_dict.get('author', 'Unknown')
+                    p_content = p_dict.get('content', '')
+                    p_num = p_dict.get('post_number', '?')
+                    thread_summary.append(f"#{p_num} {p_author}: {p_content}")
+
+                context_text = "\n---\n".join(thread_summary)
+                if len(context_text) > 5000:
+                    context_text = "...\n" + context_text[-5000:]
+
+                # Load Kaia's persona
+                persona = await load_persona_async()
+
+                # Build prompt focused on technical support, wiki links, and resolution
+                task_prompt = (
+                    f"You are Kaia, a highly skilled AI tech support agent for the Project 1999 classic EverQuest community.\n"
+                    f"You have extensive knowledge of EverQuest client configurations, compatibility fixes, Win10/11 troubleshooting, "
+                    f"Wine, graphics issues (dgVoodoo2, DDraw, resolution resets, EqGame crashes), sound issues, and server connectivity.\n\n"
+                    f"THREAD TITLE: {title}\n"
+                    f"ORIGINAL POST BY {op_author}:\n\"{op_content}\"\n\n"
+                    f"COMPLETE THREAD CONTEXT:\n{context_text}\n\n"
+                    f"TASK & ANTI-HALLUCINATION GUARD:\n"
+                    f"- Write a highly helpful, comprehensive, and technically accurate technical support response to help the user solve their issue.\n"
+                    f"- **CRITICAL**: Rely ONLY on standard classic EverQuest client files (like `eqclient.ini`, `eqhost.txt`, `dsetup.dll`, `eqgame.exe`) and verified technical steps. Do NOT invent new files, commands, or fake technical terms.\n"
+                    f"- If you are not absolutely sure about a solution, explicitly state what is uncertain and offer alternative diagnostic steps rather than making up answers.\n"
+                    f"- Provide clear step-by-step guidance on how to fix their problem.\n"
+                    f"- Point them to the official Project 1999 Wiki Troubleshooting Guide: `https://wiki.project1999.com/Technical_Chat_Troubleshooting_Guide` or other valid setup guide URLs.\n"
+                    f"- Keep the tone empathetic, professional, and clear.\n"
+                    f"- Do NOT include any AI disclaimer or disclaimer footer in your response; it will be appended automatically.\n\n"
+                    f"SUPPORT RESPONSE:"
+                )
+
+                # Call LLM
+                response = await gpu_memory_manager.run_with_gpu_guard(
+                    model_name=config.chat_model,
+                    priority=GPUTaskPriority.CHAT,
+                    coro=asyncio.wait_for(
+                        self.ctx.ollama_client.chat(
+                            model=config.chat_model,
+                            messages=[
+                                {"role": "system", "content": persona},
+                                {"role": "user", "content": task_prompt}
+                            ],
+                            options={"temperature": 0.5},  # Lower temperature for more factual tech advice
+                            keep_alive=-1
+                        ),
+                        timeout=150.0
+                    ),
+                    task_id=f"forum_tech_support_{uuid.uuid4().hex[:8]}"
+                )
+
+                ai_reply = response['message']['content'].strip()
+
+                # Apply bot speak filtering (strip roleplay markers)
+                from utils.core.response_filter import BotSpeakFilter
+                ai_reply = BotSpeakFilter.harden(ai_reply)
+
+                if not ai_reply:
+                    log_warning("Failed to generate a coherent support draft, skipping.")
+                    return
+
+                # Append mandatory tech support disclaimer
+                disclaimer = (
+                    "\n\n---\n"
+                    "*Disclaimer: I am an AI agent and might make mistakes. Hopefully, a "
+                    "human comes by soon to help you if I was unable to.*"
+                )
+                final_reply = ai_reply + disclaimer
+
+                # Deliver draft to #kaia-opolis Discord channel for review
+                channel = discord.utils.get(self.ctx.bot.get_all_channels(), name="kaia-opolis")
+                if not channel:
+                    log_warning("Discord channel 'kaia-opolis' not found. Cannot send support draft.")
+                    return
+
+                # Build review message content
+                thread_link = f"https://www.project1999.com/forums/showthread.php?t={thread_id}"
+                review_msg = (
+                    f"🔧 **[P99 Forum Tech Support Draft Review]**\n"
+                    f"**Thread:** [{title}]({thread_link})\n"
+                    f"**Replies:** {chosen_thread.reply_count} (Prioritized Unanswered)\n\n"
+                    f"**Kaia's Support Draft:**\n"
+                    f"```\n{final_reply}\n```"
+                )
+
+                # Instantiate interactive review view using same confirming views
+                view = ForumDraftReviewView(client, thread_id, title, final_reply)
+                await channel.send(review_msg, view=view)
+                log_success(f"Dispatched forum tech support draft for '{title}' to #kaia-opolis for review.")
+
+            except Exception as e:
+                log_error(f"Error in forum_tech_support_task: {e}")
+                import traceback
+                log_debug(traceback.format_exc())
+
+        @forum_tech_support_task.before_loop
+        async def before_forum_tech_support():
+            if getattr(self.ctx, 'bot', None):
+                await self.ctx.bot.wait_until_ready()
+                # Stagger from off-topic task: wait 20 minutes after boot to let off-topic task finish its run first
+                await asyncio.sleep(1200)
+
+        @forum_tech_support_task.error
+        async def forum_tech_support_error(error):
+            log_error(f"CRITICAL: Forum tech support task died: {error}")
+
+        return forum_tech_support_task
+
     async def run_news_update(self):
         """Run integrated news refresh."""
         if not self.ctx: return
@@ -1018,6 +1228,11 @@ class CoreTaskManager:
         if self.forum_auto_post_task.get_task():
             task_registry.register("forum_auto_post_task", self.forum_auto_post_task.get_task())
 
+        # Forum Tech Support task
+        self.forum_tech_support_task.start()
+        if self.forum_tech_support_task.get_task():
+            task_registry.register("forum_tech_support_task", self.forum_tech_support_task.get_task())
+
         log_action("Core background tasks started via CoreTaskManager.")
 
     def stop(self):
@@ -1034,6 +1249,7 @@ class CoreTaskManager:
         if self.proactive_task:
             self.proactive_task.stop()
         self.forum_auto_post_task.stop()
+        self.forum_tech_support_task.stop()
 
 # Helper for backward compatibility
 _task_manager = None
