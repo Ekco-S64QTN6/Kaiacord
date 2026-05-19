@@ -906,6 +906,13 @@ class CoreTaskManager:
                 view = ForumDraftReviewView(client, thread_id, title, final_reply)
                 await channel.send(review_msg, view=view)
                 log_success(f"Dispatched forum post draft for '{title}' to #kaia-opolis for review.")
+                
+                # Increment draft count
+                try:
+                    from utils.infrastructure.monitoring.stats_tracker import stats_tracker
+                    stats_tracker.increment_forum_drafts()
+                except Exception:
+                    pass
 
             except Exception as e:
                 log_error(f"Error in forum_auto_post_task: {e}")
@@ -1115,6 +1122,13 @@ class CoreTaskManager:
                 view = ForumDraftReviewView(client, thread_id, title, final_reply)
                 await channel.send(review_msg, view=view)
                 log_success(f"Dispatched forum tech support draft for '{title}' to #kaia-opolis for review.")
+                
+                # Increment draft count
+                try:
+                    from utils.infrastructure.monitoring.stats_tracker import stats_tracker
+                    stats_tracker.increment_forum_drafts()
+                except Exception:
+                    pass
 
             except Exception as e:
                 log_error(f"Error in forum_tech_support_task: {e}")

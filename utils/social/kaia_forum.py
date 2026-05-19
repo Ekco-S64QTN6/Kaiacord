@@ -1524,6 +1524,13 @@ class ForumDraftReviewView(discord.ui.View):
                 view=self
             )
             log_success(f"Moderator {interaction.user.name} approved and posted P99 reply to thread {self.thread_id}")
+            
+            # Increment approved count on dashboard
+            try:
+                from utils.infrastructure.monitoring.stats_tracker import stats_tracker
+                stats_tracker.increment_forum_approved()
+            except Exception:
+                pass
         else:
             await interaction.message.edit(
                 content=f"**[❌ FAILED TO POST TO P99 OFF-TOPIC]**\n"
@@ -1546,3 +1553,10 @@ class ForumDraftReviewView(discord.ui.View):
             view=self
         )
         log_info(f"Moderator {interaction.user.name} rejected P99 reply draft for thread {self.thread_id}")
+        
+        # Increment rejected count on dashboard
+        try:
+            from utils.infrastructure.monitoring.stats_tracker import stats_tracker
+            stats_tracker.increment_forum_rejected()
+        except Exception:
+            pass

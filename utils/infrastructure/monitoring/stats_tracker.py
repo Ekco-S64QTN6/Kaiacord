@@ -22,6 +22,9 @@ class StatsTracker:
             'uptime_start': time.time(),
             'interactions_by_user': defaultdict(int),
             'interactions_by_hour': defaultdict(int),
+            'forum_drafts': 0,
+            'forum_approved': 0,
+            'forum_rejected': 0,
             'last_update': time.time()
         }
         
@@ -36,6 +39,9 @@ class StatsTracker:
                     saved_stats = json.load(f)
                     self.stats['users'] = saved_stats.get('total_users', 0)
                     self.stats['messages'] = saved_stats.get('total_messages', 0)
+                    self.stats['forum_drafts'] = saved_stats.get('forum_drafts', 0)
+                    self.stats['forum_approved'] = saved_stats.get('forum_approved', 0)
+                    self.stats['forum_rejected'] = saved_stats.get('forum_rejected', 0)
         except Exception as e:
             from utils.infrastructure.logging.kaia_logger import log_error
             log_error(f"Unexpected error in {__name__}: {type(e).__name__}: {e}")
@@ -51,6 +57,9 @@ class StatsTracker:
                 save_data = {
                     'total_users': self.stats['users'],
                     'total_messages': self.stats['messages'],
+                    'forum_drafts': self.stats.get('forum_drafts', 0),
+                    'forum_approved': self.stats.get('forum_approved', 0),
+                    'forum_rejected': self.stats.get('forum_rejected', 0),
                     'last_saved': datetime.now().isoformat()
                 }
             
@@ -68,6 +77,27 @@ class StatsTracker:
         except Exception as e:
             from utils.infrastructure.logging.kaia_logger import log_error
             log_error(f"Background stats save failed: {e}")
+            
+    def increment_forum_drafts(self):
+        """Increment forum drafts count"""
+        with self.lock:
+            self.stats['forum_drafts'] = self.stats.get('forum_drafts', 0) + 1
+            self.stats['last_update'] = time.time()
+        self.save_stats()
+
+    def increment_forum_approved(self):
+        """Increment forum approved count"""
+        with self.lock:
+            self.stats['forum_approved'] = self.stats.get('forum_approved', 0) + 1
+            self.stats['last_update'] = time.time()
+        self.save_stats()
+
+    def increment_forum_rejected(self):
+        """Increment forum rejected count"""
+        with self.lock:
+            self.stats['forum_rejected'] = self.stats.get('forum_rejected', 0) + 1
+            self.stats['last_update'] = time.time()
+        self.save_stats()
     
     def increment_users(self, user_id=None):
         """Increment user count"""

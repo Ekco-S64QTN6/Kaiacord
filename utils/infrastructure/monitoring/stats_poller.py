@@ -30,7 +30,10 @@ class RealTimeStatsPoller:
             'rag_size': "0 MB",
             'kb_size_mb': 0.0,
             'indexed_files': 0,
-            'dreams_count': 0
+            'dreams_count': 0,
+            'beliefs_count': 0,
+            'anchors_count': 0,
+            'relationship_count': 0
         }
         
         self.response_times = deque(maxlen=100)
@@ -259,6 +262,31 @@ class RealTimeStatsPoller:
                     with open(indexed_path, 'r', encoding='utf-8') as f:
                         indexed_data = json.load(f)
                         new_stats['indexed_files'] = len(indexed_data)
+                
+                # Count beliefs
+                beliefs_path = "memory/beliefs.json"
+                if os.path.exists(beliefs_path):
+                    with open(beliefs_path, 'r', encoding='utf-8') as f:
+                        beliefs_data = json.load(f)
+                        new_stats['beliefs_count'] = len(beliefs_data)
+                else:
+                    new_stats['beliefs_count'] = 0
+                    
+                # Count anchors
+                anchors_path = "memory/memory_anchors.json"
+                if os.path.exists(anchors_path):
+                    with open(anchors_path, 'r', encoding='utf-8') as f:
+                        anchors_data = json.load(f)
+                        new_stats['anchors_count'] = len(anchors_data)
+                else:
+                    new_stats['anchors_count'] = 0
+                    
+                # Count relationships
+                rel_dir = "memory/relationships"
+                if os.path.exists(rel_dir):
+                    new_stats['relationship_count'] = len([f for f in os.listdir(rel_dir) if f.endswith('.json')])
+                else:
+                    new_stats['relationship_count'] = 0
                 
                 self.last_file_stats_update = current_time
             except Exception as e:

@@ -87,6 +87,14 @@ class DashboardState:
     hallucination_count: int = 0
     rag_stale: bool = True  # True if last RAG query was >15 min ago
     
+    # Cognition & Forums
+    beliefs_count: int = 0
+    anchors_count: int = 0
+    relationship_count: int = 0
+    forum_drafts: int = 0
+    forum_approved: int = 0
+    forum_rejected: int = 0
+    
     # Timestamp
     snapshot_time: float = field(default_factory=time.time)
 
@@ -140,9 +148,11 @@ class LayoutManager:
         # Logs section: remaining space
         logs_height = content_height - top_height - alerts_height
         
-        # Width splits (Stats needs less width, Status needs more)
-        left_width = int(width * 0.4)
+        # Width splits (Symmetric three-column split on top)
+        left_width = int(width * 0.35)
         right_width = width - left_width
+        middle_width = int(right_width * 0.5)
+        far_right_width = right_width - middle_width
         
         # Define panes
         y = header_height
@@ -154,12 +164,19 @@ class LayoutManager:
             title="SYSTEM STATS", color_pair=1
         )
         
-        # Bot status (top right)
+        # Bot status (top middle)
         status_height = top_height - 6
         self.panes['status'] = Pane(
             y=y, x=left_width,
-            height=status_height, width=right_width,
+            height=status_height, width=middle_width,
             title="BOT STATUS", color_pair=2
+        )
+        
+        # Cognitive Pipeline (top far right)
+        self.panes['cognition'] = Pane(
+            y=y, x=left_width + middle_width,
+            height=status_height, width=far_right_width,
+            title="COGNITIVE PIPELINE", color_pair=6
         )
         
         # RAG Health (middle right)
@@ -524,6 +541,12 @@ class BtopDashboardV2:
             coherence_ema=_pick('coherence_ema', ss, default=0.85),
             hallucination_count=_pick('hallucination_count', ss, default=0),
             rag_stale=_pick('rag_stale', ss, default=True),
+            beliefs_count=_pick('beliefs_count', poller_stats, default=0),
+            anchors_count=_pick('anchors_count', poller_stats, default=0),
+            relationship_count=_pick('relationship_count', poller_stats, default=0),
+            forum_drafts=_pick('forum_drafts', tracker_stats, ss, default=0),
+            forum_approved=_pick('forum_approved', tracker_stats, ss, default=0),
+            forum_rejected=_pick('forum_rejected', tracker_stats, ss, default=0),
             log_entries=tuple(log_entries),
             alerts=tuple(alerts[-10:]),  # Limit alerts
             snapshot_time=time.time()
@@ -733,18 +756,34 @@ class BtopDashboardV2:
         resp_color = self._get_color_for_value(state.avg_response_time * 33, (50, 80))
         draw_status_row(4, "RTime:", f"{state.avg_response_time:.2f}s", resp_color)
         
-        # Kaia Specific Stats & Models
-        self._safe_addstr(inner_y + 0, inner_x + 35, "KB Size:".ljust(9), curses.color_pair(1) | curses.A_BOLD)
-        self._safe_addstr(inner_y + 0, inner_x + 44, f"{state.kb_size_mb:.1f} MB", curses.color_pair(6) | curses.A_BOLD)
+        # Active Model
+        draw_status_row(5, "Model:", state.active_model, 3)
         
-        self._safe_addstr(inner_y + 1, inner_x + 35, "Indexed:".ljust(9), curses.color_pair(1) | curses.A_BOLD)
-        self._safe_addstr(inner_y + 1, inner_x + 44, f"{state.indexed_files:,} files", curses.color_pair(2) | curses.A_BOLD)
+    def _draw_cognition_pane(self, state: DashboardState):
+        """Draw Kaia's cognitive pipeline and forum stats pane"""
+        pane = self.layout.panes.get('cognition')
+        if not pane:
+            return
+            
+        self._draw_box(pane)
         
-        self._safe_addstr(inner_y + 2, inner_x + 35, "Dreams:".ljust(9), curses.color_pair(1) | curses.A_BOLD)
-        self._safe_addstr(inner_y + 2, inner_x + 44, f"{state.dreams_count:,} memories", curses.color_pair(2) | curses.A_BOLD)
+        inner_y = pane.y + 1
+        inner_x = pane.x + 2
         
-        self._safe_addstr(inner_y + 3, inner_x + 35, "Active:".ljust(9), curses.color_pair(1) | curses.A_BOLD)
-        self._safe_addstr(inner_y + 3, inner_x + 44, f"{state.active_model}", curses.color_pair(3) | curses.A_BOLD)
+        def draw_cognition_row(y_offset, label, value, val_color_pair):
+            self._safe_addstr(inner_y + y_offset, inner_x, label.ljust(10), curses.color_pair(1) | curses.A_BOLD)
+            self._safe_addstr(inner_y + y_offset, inner_x + 10, str(value), curses.color_pair(val_color_pair) | curses.A_BOLD)
+
+        # Cognition stats
+        draw_cognition_row(0, "Beliefs:", f"{state.beliefs_count}/50 act", 3 if state.beliefs_count > 0 else 6)
+        draw_cognition_row(1, "Anchors:", f"{state.anchors_count}/50 act", 3 if state.anchors_count > 0 else 6)
+        draw_cognition_row(2, "Affinity:", f"{state.relationship_count} users", 2)
+        draw_cognition_row(3, "Dreams:", f"{state.dreams_count} mems", 2)
+        
+        # Forum stats
+        draw_cognition_row(4, "Drafts:", f"{state.forum_drafts} gen", 6)
+        draw_cognition_row(5, "Approved:", f"{state.forum_approved} post", 3)
+        draw_cognition_row(6, "Rejected:", f"{state.forum_rejected} closed", 5 if state.forum_rejected > 0 else 6)
         
     def _draw_rag_health_pane(self, state: DashboardState):
         """Draw RAG health pane"""
@@ -886,6 +925,7 @@ class BtopDashboardV2:
             # Draw all panes
             self._draw_stats_pane(state)
             self._draw_status_pane(state)
+            self._draw_cognition_pane(state)
             self._draw_rag_health_pane(state)
             self._draw_alerts_pane(state)
             self._draw_logs_pane(state)
