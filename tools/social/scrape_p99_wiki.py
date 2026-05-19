@@ -11,13 +11,24 @@ from utils.infrastructure.logging.kaia_logger import log_info, log_error
 
 WIKI_URLS = [
     "https://wiki.project1999.com/Everquest_Titanium_Installation_Guide",
-    "https://wiki.project1999.com/Tech_Support"
+    "https://wiki.project1999.com/Tech_Support",
+    "https://wiki.project1999.com/Getting_Started",
+    "https://wiki.project1999.com/WinEQ",
+    "https://wiki.project1999.com/Camp_Rules",
+    "https://wiki.project1999.com/Camp_Rules_FAQ",
+    "https://wiki.project1999.com/Install",
+    "https://wiki.project1999.com/Green_UI",
+    "https://wiki.project1999.com/Players:Technical",
+    "https://wiki.project1999.com/Players:Technical/Affinity",
+    "https://wiki.project1999.com/Play_Nice_Policy",
+    "https://wiki.project1999.com/Linux",
+    "https://wiki.project1999.com/Mac",
 ]
 
 def scrape_wiki():
     print("--- Scraping P99 Wiki for Technical Knowledge ---")
     
-    output_dir = Path("./knowledge_base/forum_posts/technical")
+    output_dir = Path("./knowledge_base/wiki")
     output_dir.mkdir(parents=True, exist_ok=True)
     
     session = requests.Session()

@@ -1,43 +1,63 @@
 <div align="center">
 
-# KAIACORD
+# 🌌 KAIACORD
 
-**A self-hosted Discord AI with persistent memory, local inference, and a real personality.**
+### **A Production-Grade, Self-Hosted Discord AI Agent with Cognitive Persistence, Hybrid RAG, and Local Inference**
 
-*Built for an RTX 3060 12GB. No cloud required. No subscriptions. No tracking.*
 
-[![Python 3.14+](https://img.shields.io/badge/python-3.14+-blue.svg)](https://python.org)
-[![Ollama](https://img.shields.io/badge/inference-ollama-black.svg)](https://ollama.com)
-[![Discord.py](https://img.shields.io/badge/discord-py-5865F2.svg)](https://discordpy.readthedocs.io)
-[![License: MIT](https://img.shields.io/badge/license-MIT-green.svg)](LICENSE)
+[![Python 3.14+](https://img.shields.io/badge/Python-3.14%2B-blue.svg?style=flat-square&logo=python)](https://python.org)
+[![Ollama](https://img.shields.io/badge/Inference-Ollama-black.svg?style=flat-square)](https://ollama.com)
+[![Discord.py](https://img.shields.io/badge/Discord-py%202.6.4-5865F2.svg?style=flat-square&logo=discord)](https://discordpy.readthedocs.io)
+[![License: MIT](https://img.shields.io/badge/License-MIT-green.svg?style=flat-square)](LICENSE)
+
+---
+
+**Kaia** is not a simple chatbot; she is an autonomous local AI persona designed to maintain deep conversational continuity, persistent emotional states, and genuine situational awareness. Running entirely on local hardware, she is capable of episodic memory consolidation, nightly dream reflections, belief revisions, and natural, multi-threaded communication.
+
+[Core Architecture](#-core-architecture) • [Cognitive Pipeline](#-the-cognitive-pipeline) • [Aethelgard TTRPG](#-aethelgard-ttrpg-engine) • [Quick Start](#-installation--quick-start) • [GPU Budget](#-gpu-budgeting--performance) • [Folder Map](#-system-topology)
 
 </div>
 
 ---
 
-Kaia is an autonomous AI agent that actually remembers and evolves. She maintains a persistent emotional state that drifts naturally over time, runs a background inner monologue from passive observation, and tracks per-user relationships through staged familiarity levels that evolve from stranger to close friend. She dreams at night — processing the day's conversations into revisable beliefs and an evolving identity journal — and cross-session memory anchors let her recall emotionally significant moments weeks later with natural callbacks. Her 26-feature cognitive pipeline creates a genuine sense of presence: reading pauses, tone mirroring, conversational fatigue, proactive conversation initiation, mood-driven Discord statuses, and autonomous topic exploration.
+## 🧠 The Cognitive Pipeline (26 Core Systems)
 
-She also runs **Aethelgard**, a full persistent RPG (335 monsters, 447 items, 10 advanced classes, a 77-floor mega-dungeon), generates **fractal flame art** (Electric Sheep-style, CPU-rendered), cross-posts to Bluesky and X, and generates daily news briefs via Gemini. The whole stack runs locally with Ollama — no cloud required.
+Kaia’s lifelike presence is managed through a fully deterministic, 26-feature Python cognitive layer that modules the system prompt dynamically based on heuristics—**without incurring VRAM-heavy auxiliary LLM calls**.
+
+```
+                           ┌────────────────────────┐
+                           │      Message Input     │
+                           └───────────┬────────────┘
+                                       │
+                  ┌────────────────────▼────────────────────┐
+                  │ 26-Feature Lightweight Cognitive Filter │
+                  │  (Mood · Stance · History · Relationships)│
+                  └────────────────────┬────────────────────┘
+                                       │
+                  ┌────────────────────▼────────────────────┐
+                  │   System Prompt Customization & RAG     │
+                  └────────────────────┬────────────────────┘
+                                       │
+                           ┌───────────▼────────────┐
+                           │ Local Inference Engine │
+                           └────────────────────────┘
+```
+
+### Key Cognitive Subsystems
+
+*   **🎭 Persistent Emotional Arc**: Tracks mood across a three-dimensional vector (`valence`, `arousal`, `energy`) with natural 6-hour decay, modulating her vocabulary, reaction frequency, and Discord status text.
+*   **🫂 Staged Relationships**: Maintains per-user event logs and tracks familiarity across 5 progression levels (from `stranger` to `inner_circle`), complete with behavioral gating and trust thresholds.
+*   **🌙 Nightly Dream Cycle**: Between 3:00 AM and 5:00 AM, the dream engine runs. It aggregates the day's logs, extracts key assertions, compiles them into a 50-cap revisable belief store (`beliefs.json`), and updates a rolling identity stream journal.
+*   **🕰️ Temporal & Fatigue Awareness**: Dynamic time-of-day conversational adjustments, fatigue multipliers for long threads, and natural reunion detection (acknowledging absences when users return).
+*   **💭 Passive Inner Monologue**: Generates a running background commentary from passive room observation, which is woven directly into active context windows as private intuition.
+*   **📡 Proactive Initiation**: An autonomous 7-source trigger engine (absence, beliefs, dreams, mood, curiosity, memory, silence) that lets Kaia initiate conversations naturally, capped to a lifelike frequency.
+*   **🫂 Memory Anchors**: Captures up to 50 highly weighted cross-session episodic memories with natural exponential decay, enabling organic conversational callbacks to past events weeks later.
 
 ---
 
-## How it works
+## 🏗️ Core Architecture
 
-```
-Message arrives → classify intent → retrieve memory → generate response → validate → send
-```
-
-Three stages, all local:
-
-**1. Classify** — a lightweight CPU model (gemma2:2b) decides what kind of question this is. Fast-path regex for simple cases, full LLM for ambiguous ones.
-
-**2. Retrieve** — hybrid BM25 + vector search across persona, user history, news, dreams, and knowledge docs. Identity-aware: forum and Discord profiles merge into one context.
-
-**3. Generate** — gemma3:12b produces the response in Kaia's voice. A 3-pass self-healing loop catches bad output. Hallucination detection strips fabrications before they reach the user.
-
----
-
-## Processing pipeline
+Kaia implements a highly optimized **Classify-Retrieve-Generate** architecture to keep latency low and local execution deterministic.
 
 ```mermaid
 flowchart TD
@@ -47,363 +67,211 @@ flowchart TD
     CL -- "Fast-path\nhigh confidence" --> SKIP[Skip RAG\nGreeting / Command]
     CL -- "Full path" --> RET
 
-    subgraph RET ["Parallel Retrieval"]
+    subgraph RET ["Parallel Hybrid Retrieval"]
         direction LR
-        P[Persona]
-        U[User history]
-        N[News]
-        D[Dream reflections]
+        P[Persona Context]
+        U[User History]
+        N[News Briefs]
+        D[Dream Reflections & Beliefs]
+        W[Wiki & Troubleshooting KB]
     end
 
     SKIP --> GEN
-    RET --> CTX[Build context]
+    RET --> RRF[Reciprocal Rank Fusion]
+    RRF --> CTX[Build Grounded Context]
     CTX --> GEN
 
-    subgraph GEN ["Self-Healing Generation"]
+    subgraph GEN ["Self-Healing Generation Loop"]
         direction TB
-        G1[Attempt 1] --> HC{Hallucination\ncheck}
-        HC -- pass --> OUT([Response])
-        HC -- fail --> G2[Attempt 2\nscaled params]
+        G1[Attempt 1] --> HC{Hallucination\nGuard}
+        HC -- Pass --> OUT([Response])
+        HC -- Fail --> G2[Attempt 2\nScaled Temp / Top-P]
         G2 --> HC2{Check}
-        HC2 -- pass --> OUT
-        HC2 -- fail --> G3[Attempt 3]
+        HC2 -- Pass --> OUT
+        HC2 -- Fail --> G3[Attempt 3\nFallback Template]
         G3 --> OUT
     end
 ```
 
----
+### 1. Intent Classification (CPU)
+To conserve VRAM, incoming messages are routed through a highly optimized dual-path intent classifier. Common patterns hit fast-path regex matchers, while ambiguous inputs utilize a CPU-pinned lightweight model (`gemma2:2b`) to classify intent without waking the primary generation model.
 
-## Memory & Reflection
+### 2. Hybrid RAG & Reciprocal Rank Fusion
+Kaia searches a structured, offline Markdown knowledge base using combined **BM25 lexical search** and **dense vector embeddings** (via `nomic-embed-text-cpu`). Results are blended using Reciprocal Rank Fusion (RRF) to merge:
+*   Static persona configurations (`kaia_persona.md`)
+*   Daily aggregated news briefs and historical conversation logs
+*   **Vetted Wiki Guides**: The complete Project 1999 Wikipedia articles covering setups, mechanics, and rules (`knowledge_base/wiki/`).
+*   **Synthesized Troubleshooting Indices**: Structured, category-based troubleshooting guides synthesized from 4,500+ technical community reports (`knowledge_base/troubleshooting/`).
 
-Kaia doesn't just retrieve — she reflects. Every night (3–5 AM) the Dream Engine processes the day's conversations into associative summaries that get re-injected into the RAG index.
-
-```mermaid
-flowchart LR
-    subgraph IN ["Input Sources"]
-        DOCS[Documents\n& Books]
-        LOGS[Daily\nInteraction Logs]
-        NEWS[News Briefs]
-    end
-
-    subgraph STORE ["Knowledge Base"]
-        direction TB
-        EMBED[Chunk & Embed]
-        KB[(Vector + BM25\nIndex)]
-        EMBED --> KB
-    end
-
-    subgraph DREAM ["Nightly Dream Cycle\n3–5 AM"]
-        DE[Dream Engine]
-        RF[(Reflections)]
-        DE --> RF
-    end
-
-    IN --> EMBED
-    LOGS --> DE
-    KB --> RAG[Hybrid Retrieval]
-    RF --> RAG
-    RAG --> RESP[Grounded Response]
-    RAG --> POST[Social Post]
-```
+### 3. Self-Healing Generation & Grounding
+*   **3-Pass Generation Loop**: Automatically catches invalid formats or truncated replies, scaling generation parameters (temperature, top-P) dynamically between attempts.
+*   **Hallucination Detector**: Validates final outputs against real channel-scoped facts and RAG context, stripping out ungrounded fabrications or bot-speak roleplay tags before they reach the API.
 
 ---
 
-## Architecture
+## ⚔️ Aethelgard TTRPG Engine
 
-```mermaid
-flowchart TB
-    subgraph EXT ["External"]
-        DC[Discord]
-        BS[Bluesky]
-        XTW[X / Twitter]
-    end
+Built into the bot is a fully deterministic, persistent turn-based RPG. All combat calculations and state transitions are handled mathematically in Python, using the LLM exclusively for dramatic narrations.
 
-    subgraph CORE ["Kaiacord"]
-        direction TB
-        ORCH[Kaiacord.py\nOrchestrator ~170 lines]
-        CTX[AppContext\nDependency hub]
-        DASH[DashboardManager\nBoot · Lifecycle · Shutdown]
-        MP[MessageProcessor\nClassify · Retrieve · Generate]
-    end
-
-    subgraph UTIL ["Utils"]
-        direction LR
-        RAG_F[kaia_rag.py facade\n+ query / indexer / persistence]
-        INTEL[kaia_intelligence.py facade\n+ classifier / optimizer]
-        SOCIAL[Social Responders\nBluesky · X · Discord]
-        INFRA[Infrastructure\nConfig · State · Logging · GPU]
-    end
-
-    DC --> ORCH
-    BS & XTW <--> SOCIAL
-    ORCH --> CTX
-    CTX --> DASH
-    CTX --> MP
-    MP --> RAG_F
-    MP --> INTEL
-    CTX --> INFRA
-    SOCIAL --> CTX
-```
+*   **Mega-Dungeon Progression**: A 77-floor procedural dungeon ("Spine of the World") equipped with Resonance Lift checkpoints and custom floor encounter pools.
+*   **Rich Class Mechanics**: 10 advanced classes featuring distinct progression stats, passive buffs, and unique triggerable combat procs.
+*   **Deep Economy & Customization**: Features an inventory system with 447 balanced equipment items across 7 tiers, complete with housing, procedural farming, pets, and alchemy.
+*   **System Integrity**: Employs a defense soft-cap (`min(10, raw) + max(0, raw-10)//2`) and absolute stat budgeting targets to prevent game state scaling breakages.
 
 ---
 
-## Quick start
+## 🎨 Fractal Art Engine
 
+Kaia features a custom CPU-rendered **Fractal Flame Generator** based on the Electric Sheep algorithm.
+*   **Mathematical Variety**: Supports 20 variation functions, 10 curated color LUT palettes, and adaptive density estimation to keep images crisp.
+*   **Narration**: Accompanies every generated image with artistic and psychological analysis driven by Kaia's persistent emotional vector.
+
+---
+
+## 🚀 Installation & Quick Start
+
+### 1. Prerequisites
+*   **OS**: Linux (Ubuntu/Debian recommended)
+*   **Hardware**: NVIDIA RTX 3060 12GB VRAM (or equivalent/better)
+*   **Software**: Python 3.14+, [Ollama](https://ollama.com)
+
+### 2. Environment Setup
 ```bash
-# 1. Clone and install
+# Clone the repository
 git clone https://github.com/your-repo/Kaiacord.git
 cd Kaiacord
+
+# Initialize and activate virtual environment
+python3.14 -m venv venv
+source venv/bin/activate
+
+# Install required dependencies
 pip install -r requirements.txt
+```
 
-# 2. Pull models
-ollama pull gemma3:12b            # Chat (~8GB VRAM)
-ollama pull gemma2:2b             # Intent classifier (CPU)
-ollama pull nomic-embed-text-cpu  # Embeddings (CPU)
+### 3. Fetch Local Models
+Ensure Ollama is running, then pull the required models:
+```bash
+ollama pull gemma3:12b            # Primary Chat & Narration (Pinned to GPU)
+ollama pull gemma2:2b             # Intent Classifier (Pinned to CPU)
+ollama pull nomic-embed-text-cpu  # Embedding Model (Pinned to CPU)
+```
 
-# 3. Configure
+### 4. Configuration
+Copy the template `.env` and fill in your details:
+```bash
 cp .env.example .env
-# Edit .env — add DISCORD_TOKEN at minimum
+# Edit .env and supply your DISCORD_TOKEN at a minimum.
+```
 
-# 4. Launch
+### 5. Execution Modes
+Kaiacord supports both a stunning real-time curses terminal dashboard and a headless server mode:
+
+```bash
+# Launch with Curses TUI Dashboard (Default)
 python Kaiacord.py
 
-# With TUI dashboard (default)
-python Kaiacord.py
-
-# Without curses UI (log-only mode)
+# Launch in Headless Log-Only Mode (Recommended for systemd/daemons)
 python Kaiacord.py --no-gui
 ```
 
-First message: `@kaia status` in Discord to verify she's running.
+---
+
+## 📊 GPU Budgeting & Performance
+
+Kaia is strictly budgeted to run on a single 12GB consumer graphics card. Classification and embeddings are hard-pinned to CPU to preserve VRAM for the primary LLM context.
+
+| Model | Task | Target Device | VRAM Allocated | Memory Overhead |
+|:------|:-----|:--------------|:--------------:|:----------------|
+| `gemma3:12b` | Chat, Narration & Reasoning | GPU | ~8.2 GB | ~1.2 GB KV Cache |
+| `gemma2:2b` | Real-time Intent Classification | CPU | 0 MB | ~1.6 GB System RAM |
+| `nomic-embed-text-cpu` | High-fidelity RAG Embedding | CPU | 0 MB | ~500 MB System RAM |
+
+> [!TIP]
+> Keep the context window (`max_context_tokens`) around **8,192 tokens** to ensure the RTX 3060 12GB does not hit out-of-memory errors during long conversations.
 
 ---
 
-## Features
-
-| | Feature | Detail |
-|:--|:--------|:-------|
-| 💬 | **Local inference** | gemma3:12b via Ollama, 8K context, fully offline |
-| 🧠 | **Persistent memory** | RAG-backed knowledge base, per-user profiles, conversation history |
-| 🌙 | **Dream Engine** | Nightly associative recall — processes daily logs into revisable beliefs and identity evolution |
-| 🎭 | **Lifelike presence** | Reading pauses, mood-based Discord status, emoji reactions, variable response timing |
-| 🌱 | **Character growth** | Evolving beliefs (50-cap), self-model regeneration, identity stream journal |
-| 🕰️ | **Temporal awareness**| Time-of-day personality modulation, conversational fatigue, reunion detection |
-| 💬 | **Deep continuity** | Tone mirroring, open loop callbacks to past unfinished threads |
-| 💭 | **Inner monologue** | Private thought stream from passive observation, injected as context |
-| 🫂 | **Relationship stages**| stranger→inner_circle behavioral gating per user, 100-event relationship history |
-| 🎯 | **Conversational stance**| High-confidence beliefs expressed as active opinions |
-| 😊 | **Emotional arc** | Persistent mood vector (valence/arousal/energy) with 6h decay |
-| 📡 | **Proactive initiation**| 7-source engine — absence check-ins, beliefs, memories, mood, curiosity, dreams |
-| 🔗 | **Episodic memory** | 50 memory anchors with weight decay for cross-session callbacks |
-| 🔍 | **Hybrid retrieval** | BM25 + vector search with reciprocal rank fusion |
-| 🛡️ | **Hallucination guard**| Post-generation fabrication detection with channel-scoped grounding |
-| 🔄 | **Self-healing** | 3-pass generation loop with automatic parameter scaling |
-| 🎨 | **Fractal art** | `!art` — Electric Sheep-style fractal flames, 20 variations, 10 palettes, CPU-rendered |
-| ⚔️ | **Aethelgard RPG** | 335 monsters, 447 items, 10 classes, 77-floor mega-dungeon, housing, farming, pets, alchemy |
-| 📰 | **Daily news** | Auto-generated tech briefs via Gemini API, 14-day retention |
-| 🐦 | **Social media** | Cross-posts to Bluesky and X, replies to mentions |
-| 📊 | **Curses dashboard** | Real-time VRAM/GPU stats, RAG health, cognitive metrics, live log stream |
-| ⚡ | **Circuit breakers** | Automatic failure isolation for all external APIs |
-
----
-
-## Commands
-
-| Command | Description | Who |
-|:--------|:------------|:----|
-| `!art` | Generate a fractal flame artwork with Kaia commentary | All |
-| `!rpg` | Open the Aethelgard TTRPG HUD and play | All |
-| `!news [category]` | Fetch news briefs (`today`, `technology`, `security`, `hacking`, `politics`, `business`, `science`, `culture`) | All |
-| `!download <url>` | Ingest a URL into the knowledge base | All |
-| `!quip` | Trigger a social media post (10m cooldown) | All |
-| `!forum link <uid>` | Link Discord identity to forum profile | All |
-| `!forum [cmd]` | Other VBulletin forum management commands (e.g. scrape/status) | Admin |
-| `!dream list` | Show recent dream reflections | Admin |
-| `!dream generate` | Force a dream cycle | Admin |
-| `!memory` | Show Kaia's memory anchors and beliefs | Admin |
-| `!selfmodel` | Regenerate Kaia's self-model | Admin |
-| `!sysmon` | Show system monitoring stats | Admin |
-| `!snapshot` | Save current conversation context | Admin |
-| `!flag` / `!audit` | Flag a response for review | Admin |
-
-Kaia also responds naturally (no `!`) to: `status`, `stats`, `what's new`, `how are you`, and direct questions.
-
----
-
-## GPU budget
-
-Kaia manages a single 12GB VRAM budget. Classification and embeddings are hard-pinned to CPU.
-
-| Model | Role | Device | VRAM |
-|:------|:-----|:-------|:----:|
-| `gemma3:12b` | Chat & generation | GPU | ~8 GB |
-| `gemma2:2b` | Intent classification | CPU (`num_gpu: 0`) | 0 |
-| `nomic-embed-text-cpu` | RAG embeddings | CPU (`num_gpu: 0`) | 0 |
-
-Context window: **8,192 tokens** (~1GB KV cache). Configurable in `config/kaia.yaml`.
-
-See: [`docs/03-architecture/gpu-management.md`](docs/03-architecture/gpu-management.md)
-
----
-
-## Configuration
-
-### `.env`
-```env
-DISCORD_TOKEN=your_discord_bot_token
-GEMINI_API_KEY=your_key           # Optional — required for news generation
-BLUESKY_HANDLE=yourbot.bsky.social  # Optional — for social posting
-BLUESKY_APP_PASSWORD=xxxx-xxxx-xxxx-xxxx
-X_USERNAME=YourUsername            # Optional — unofficial API (see security notice)
-X_PASSWORD=YourPassword
-```
-
-### `config/kaia.yaml`
-```yaml
-discord:
-  blacklisted_channels: "general,announcements"
-
-models:
-  chat: "gemma3:12b"
-
-performance:
-  max_memory_messages: 30
-  max_context_tokens: 8192
-  requests_per_minute: 30
-
-bluesky:
-  enabled: false
-  reply_to_mentions: false
-
-x_twitter:
-  enabled: false
-  reply_to_mentions: false
-```
-
-Full config reference: [`config/default_config.yaml`](config/default_config.yaml)
-
----
-
-## Project structure
+## 📂 System Topology
 
 ```
 Kaiacord/
-├── Kaiacord.py              # Bot entry point
-├── AGENTS.md                # AI agent instructions (read this first)
-├── config/                  # YAML config, persona definitions
-├── knowledge_base/          # RAG document storage (books, news, user logs)
-├── memory/                  # Runtime state — never committed
-│   ├── ttrpg/characters/    # Per-user JSON character sheets
-│   ├── relationships/       # Per-user relationship event files
-│   ├── art/                 # Generated fractal flame PNGs + JSON sidecars
-│   ├── beliefs.json         # Kaia's revisable belief store (50-cap)
-│   ├── bot_state.json       # Interaction tracking, familiarity, mood
-│   ├── identity_stream.md   # Rolling identity evolution journal
-│   ├── memory_anchors.json  # Episodic memory anchors (50-cap, weight decay)
-│   └── rag_storage/         # RAG indices, BM25 caches
+├── Kaiacord.py                  # Bot entry point & central orchestrator
+├── AGENTS.md                    # Crucial developer instructions & runtime constraints
+├── config/                      # YAML configuration files & persona definitions
+├── knowledge_base/              # Grounding documents (books, news, scraped logs)
+│   ├── wiki/                    # 13 high-value Project 1999 Wikipedia articles
+│   └── troubleshooting/          # Synthesized, category-based troubleshooting guides
+├── memory/                      # Persistent runtime state (never commit)
+│   ├── ttrpg/characters/        # User characters sheets
+│   ├── relationships/           # trust events & user interactions
+│   ├── beliefs.json             # 50-cap revisable belief store
+│   ├── bot_state.json           # global persistent variables, familiarity, mood
+│   ├── identity_stream.md       # 3000-char capping rolling identity log
+│   └── memory_anchors.json      # episodic callbacks with weight decay
 ├── utils/
-│   ├── core/                # Kaia cognitive pipeline (26 features)
-│   │   ├── message_processor.py  # Main intelligence pipeline (~1900 lines)
-│   │   ├── kaia_dream.py         # Dream engine, belief extraction
-│   │   ├── kaia_art.py           # Fractal flame renderer (CPU-only)
-│   │   ├── kaia_proactive.py     # Autonomous conversation initiation
-│   │   └── ...                   # Mood, monologue, presence, RAG, etc.
-│   ├── ttrpg/               # Aethelgard game logic + RPG command handlers
-│   │   ├── monster_registry.py   # 335 monsters
-│   │   ├── equipment_registry.py # 447 items across 7 tiers
-│   │   ├── combat_engine.py      # Combat resolution
-│   │   ├── spine_dungeon.py      # 77-floor mega-dungeon
-│   │   └── ...                   # Classes, shops, housing, farming, pets
-│   ├── commands/            # Discord command dispatch
-│   └── infrastructure/      # AppContext, Dashboard, Logging, Config, GPU
-├── docs/
-│   ├── ttrpg/               # TTRPG design documents and lore bible
-│   └── reports/             # Phase reports, audits, roadmaps
-└── scripts/                 # Maintenance tools and TUI
+│   ├── core/                    # Core cognitive features (mood, dreams, monologue, RAG)
+│   │   ├── message_processor.py # Primary intelligence flow manager (~1900 lines)
+│   │   ├── kaia_dream.py        # Nightly consolidation engine
+│   │   └── kaia_rag.py          # Vector/Lexical facade & query hub
+│   ├── ttrpg/                   # Aethelgard combat, dungeon & housing state
+│   ├── commands/                # Discord command routers & handlers
+│   └── infrastructure/          # AppContext DI, curses dashboard, logger, GPU pinning
+└── docs/                        # Complete technical and gameplay specs
 ```
 
 ---
 
-## Maintenance
+## 🛠️ Verification & Maintenance
 
-The fastest way to manage everything is the TUI:
+The repository features comprehensive tools to monitor, test, and rebuild the database:
 
+### 1. Interactive Tool Panel
 ```bash
 bash scripts/kaia-tools.sh
 ```
 
-Direct commands:
+### 2. Maintenance Commands
 ```bash
-# Verify environment
+# Verify system integrity & check GPU health
 python tools/maintenance/health_check.py
 
-# Update today's news
-python tools/maintenance/update_kaia_news.py
-
-# Force RAG re-index
+# Force an incremental RAG database re-index
 python tools/maintenance/force_reindex.py
 
-# Full RAG rebuild (GPU — bot must be stopped)
+# Full vector database wipe and rebuild (requires bot shutdown)
 python tools/rebuild_rag_gpu.py --clear
 ```
 
----
-
-## Testing
-
+### 3. Test Suites
 ```bash
-# Health check first
-python tools/maintenance/health_check.py
-
-# Unit tests
+# Execute fast unit tests
 PYTHONPATH=. pytest tools/tests/unit/ -q
 
-# Verification tests
+# Execute system integration tests
 PYTHONPATH=. pytest tools/tests/verification/ -q
 ```
 
-`pytest.ini` at project root handles async automatically. No `@pytest.mark.asyncio` needed.
-
 ---
 
-## Persona
+## 📜 Documentation Index
 
-Edit `knowledge_base/kaia_persona.md` to change her personality. She re-reads it on every restart.
-
-The persona shapes tone, not facts. Memory comes from the knowledge base. All 26 cognitive features (mood, monologue, relationships, etc.) are pure Python heuristics injected into the system prompt — they do not call the LLM.
-
----
-
-## Documentation
-
-Full docs: [`docs/README.md`](docs/README.md)
-
-| Topic | Link |
-|:------|:-----|
-| Quick Start | [`docs/01-getting-started/quick-start.md`](docs/01-getting-started/quick-start.md) |
-| Commands | [`docs/02-user-guide/commands.md`](docs/02-user-guide/commands.md) |
-| Architecture | [`docs/03-architecture/overview.md`](docs/03-architecture/overview.md) |
-| GPU Management | [`docs/03-architecture/gpu-management.md`](docs/03-architecture/gpu-management.md) |
-| RAG System | [`docs/03-architecture/rag-system.md`](docs/03-architecture/rag-system.md) |
-| Social Media Setup | [`docs/02-user-guide/social-media.md`](docs/02-user-guide/social-media.md) |
-| X Security Notice | [`docs/04-security/x-twikit-credentials.md`](docs/04-security/x-twikit-credentials.md) |
-| Testing | [`docs/04-development/testing.md`](docs/04-development/testing.md) |
-| Troubleshooting | [`docs/06-troubleshooting/common-issues.md`](docs/06-troubleshooting/common-issues.md) |
-| Tools Reference | [`tools/README.md`](tools/README.md) |
-| Reports & Planning | [`docs/reports/README.md`](docs/reports/README.md) |
-
----
-
-## License
-
-[MIT](LICENSE)
+| System Category | Reference File |
+|:----------------|:---------------|
+| **Getting Started** | [`docs/01-getting-started/quick-start.md`](docs/01-getting-started/quick-start.md) |
+| **Command Guides** | [`docs/02-user-guide/commands.md`](docs/02-user-guide/commands.md) |
+| **Architecture Spec** | [`docs/03-architecture/overview.md`](docs/03-architecture/overview.md) |
+| **VRAM & GPU Tuning** | [`docs/03-architecture/gpu-management.md`](docs/03-architecture/gpu-management.md) |
+| **RAG Grounding Layer** | [`docs/03-architecture/rag-system.md`](docs/03-architecture/rag-system.md) |
+| **Aethelgard TTRPG Specs**| [`docs/ttrpg/aethelgard_system.md`](docs/ttrpg/aethelgard_system.md) |
+| **Project Status Reports**| [`docs/reports/MASTER_REPORT.md`](docs/reports/MASTER_REPORT.md) |
 
 ---
 
 <div align="center">
 <sub>
-Built by Ekco · engineered with Claude, Gemini/Antigravity, Deepseek — local AI, no cloud required
+Built by Ekco · Developed in collaboration with Claude, Gemini/Antigravity, and Deepseek
 <br>
-Optimized for RTX 3060 12GB · gemma3:12b · Python 3.14+
+Local AI, No Cloud Required.
 </sub>
 </div>

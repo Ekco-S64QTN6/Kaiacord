@@ -1,63 +1,65 @@
-# Kaiacord Documentation
+# 📖 Kaiacord Documentation Portal
 
-Welcome to the Kaiacord documentation! Organized by topic for easy navigation.
-
-## 📖 Documentation Structure
-
-### 🚀 [01 - Getting Started](01-getting-started/)
-- [Installation Guide](01-getting-started/installation.md)
-- [Quick Start](01-getting-started/quick-start.md)
-
-### 📘 [02 - User Guide](02-user-guide/)
-- [Command Reference](02-user-guide/commands.md)
-- [Dashboard](02-user-guide/dashboard.md)
-- [Persona Guidelines](02-user-guide/persona.md)
-- [News System](02-user-guide/news-system.md)
-- [Social Media (Bluesky & X)](02-user-guide/social-media.md)
-- [Forum Integration](02-user-guide/forum-integration.md)
-- [User Profiling](02-user-guide/user-profiling.md)
-
-### 🏗️ [03 - Architecture](03-architecture/)
-- [System Overview](03-architecture/overview.md)
-- [GPU Management (VRAM)](03-architecture/gpu-management.md)
-- [RAG System](03-architecture/rag-system.md)
-- [Intelligence Layer](03-architecture/intelligence-layer.md)
-- [Utils Reference](03-architecture/utils-reference.md)
-
-### 💻 [04 - Development](04-development/)
-- [Testing Guide](04-development/testing.md)
-
-### 🔒 [04 - Security](04-security/)
-- [X/twikit Credentials & Risk Notice](04-security/x-twikit-credentials.md)
-
-### 🔧 [05 - Maintenance](05-maintenance/)
-- [Procedures](05-maintenance/procedures.md)
-- [Fixes History](05-maintenance/fixes-history.md)
-
-### 🛠️ [06 - Troubleshooting](06-troubleshooting/)
-- [Common Issues](06-troubleshooting/common-issues.md)
-
-### 📊 [Reports & Planning](reports/README.md)
-- [Master Report](reports/MASTER_REPORT.md) — Executive overview with current metrics
-- [Claude Report](reports/Claude_Report.md) — Production audit
-- [Phase 1–50 History](reports/Phase_1_50_History.md)
-- [Phase 51–53 Report](reports/Phase_51_53_Report.md)
-- [Roadmap](reports/roadmap.md)
-
-### ⚔️ [TTRPG](ttrpg/)
-- [System Spec](ttrpg/aethelgard_system.md)
-- [Lore Bible](ttrpg/aethelgard_lore_bible.md)
-- [TTRPG Audit](ttrpg/CLAUDE_REPORT.md)
+Welcome to the official **Kaiacord** documentation directory. This portal contains comprehensive design specifications, system architectures, maintenance procedures, and development guides for the local AI persona and the Aethelgard TTRPG engine.
 
 ---
 
-## Quick Links
+## 📂 Documentation Taxonomy
 
-| I want to... | Go to |
-|--------------|-------|
-| Get started | [Quick Start](01-getting-started/quick-start.md) |
-| See all commands | [Command Reference](02-user-guide/commands.md) |
-| Understand the architecture | [System Overview](03-architecture/overview.md) |
-| Fix VRAM issues | [GPU Management](03-architecture/gpu-management.md) |
-| Troubleshoot | [Common Issues](06-troubleshooting/common-issues.md) |
-| See project status | [Master Report](reports/MASTER_REPORT.md) |
+### 🚀 [01 — Getting Started](01-getting-started/)
+*   [Installation Guide](01-getting-started/installation.md) — Step-by-step platform setup.
+*   [Quick Start Spec](01-getting-started/quick-start.md) — Launch procedures, environment tuning, and initialization testing.
+
+### 📘 [02 — User Guide](02-user-guide/)
+*   [Command Reference](02-user-guide/commands.md) — Detailed specifications for all user-facing and administrator-only commands.
+*   [Dashboard Manual](02-user-guide/dashboard.md) — Curses-based real-time terminal UI monitoring dashboard guide.
+*   [Persona & Styling Guidelines](02-user-guide/persona.md) — Guidelines shaping Kaia's tone, character constraints, and vocabulary.
+*   [News Briefs Engine](02-user-guide/news-system.md) — Daily tech briefs generation, retention thresholds, and categorization.
+*   [Social Integrations](02-user-guide/social-media.md) — Multi-platform setup guide for Bluesky and X/Twitter posting.
+*   [Forum Integration](02-user-guide/forum-integration.md) — Deep-scraping and thread-reply architectures.
+*   [User Profiling & Identity](02-user-guide/user-profiling.md) — Multi-platform identity bridging guidelines.
+
+### 🏗️ [03 — Architecture Spec](03-architecture/)
+*   [System Overview](03-architecture/overview.md) — Monolithic overview of the orchestrator and AppContext dependency hub.
+*   [GPU & VRAM Management](03-architecture/gpu-management.md) — VRAM budgeting constraints, KV cache limits, and CPU model pinning.
+*   [Grounding & RAG Subsystem](03-architecture/rag-system.md) — BM25, dense vector search, Reciprocal Rank Fusion, and custom index storage.
+*   [Intelligence & Decision Layer](03-architecture/intelligence-layer.md) — Dual-path intent classification and self-healing LLM loops.
+*   [Utilities Library](03-architecture/utils-reference.md) — Developer reference to standard helpers and modules.
+
+### 💻 [04 — Development & Testing](04-development/)
+*   [Testing Framework](04-development/testing.md) — Async pytest setups, mock engines, and verification suites.
+
+### 🔒 [05 — Security & API Keys](04-security/)
+*   [Twikit Credential Management](04-security/x-twikit-credentials.md) — Local cookie persistence, twikit API handling, and security notices.
+
+### 🔧 [06 — Maintenance Procedures](05-maintenance/)
+*   [Standard Operating Procedures](05-maintenance/procedures.md) — Daily tasks, database optimization, and manual cache invalidations.
+*   [Fixes & Phase History](05-maintenance/fixes-history.md) — Chronological history of software patches and version releases.
+
+### 🛠️ [07 — Technical Troubleshooting](06-troubleshooting/)
+*   [Common Issues & Remedies](06-troubleshooting/common-issues.md) — Setup errors, dependency conflicts, VRAM exceptions, and database lockups.
+
+### 📊 [Reports & System Audits](reports/README.md)
+*   [Master System Status](reports/MASTER_REPORT.md) — Core metrics, system health logs, and current operational reports.
+*   [Claude Production Audit](reports/Claude_Report.md) — Deep architectural audit of software patterns.
+*   [Phase 1–50 Archive](reports/Phase_1_50_History.md) — Archive of historical development records.
+*   [Phase 51–53 Milestones](reports/Phase_51_53_Report.md) — Record of cognitive pipeline implementation phases.
+*   [Strategic Roadmap](reports/roadmap.md) — Future feature specifications and development priorities.
+
+### ⚔️ [Aethelgard TTRPG Specifications](ttrpg/)
+*   [System Specification](ttrpg/aethelgard_system.md) — Complete game rules, combat formulas, class trees, and item structures.
+*   [Lore & World Bible](ttrpg/aethelgard_lore_bible.md) — Canon history and geographic layouts of Aeridor.
+*   [Balance & Audit Report](ttrpg/CLAUDE_REPORT.md) — Strategic balancing sheets and loot table audits.
+
+---
+
+## 🔗 Navigation Quick Links
+
+| Objective | Target Document |
+| :--- | :--- |
+| **I want to deploy Kaiacord** | [🚀 Quick Start Guide](01-getting-started/quick-start.md) |
+| **I need to add/debug a command** | [📘 Command Reference](02-user-guide/commands.md) |
+| **I want to understand the VRAM split** | [🏗️ GPU & VRAM Management](03-architecture/gpu-management.md) |
+| **I need to fix a database exception** | [🛠️ Common Issues & Remedies](06-troubleshooting/common-issues.md) |
+| **I want to verify Aethelgard balance** | [⚔️ TTRPG Balance & Audit Report](ttrpg/CLAUDE_REPORT.md) |
+| **I need to see the latest audit status** | [📊 Master System Status](reports/MASTER_REPORT.md) |

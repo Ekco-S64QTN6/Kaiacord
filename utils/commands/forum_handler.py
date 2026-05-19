@@ -50,7 +50,7 @@ async def handle_forum_command(ctx, msg, send_kaia_response):
             "```\n"
             "!forum status    — connection status and rate limits\n"
             "!forum stats     — global scraper totals (threads, posts, users)\n"
-            "!forum scrape    — scrape Off Topic front page + user histories\n"
+            "!forum scrape    — scrape Off Topic [forum=ID limit=N full=true]\n"
             "!forum read <id> — read last posts from a thread\n"
             "!forum post <id> <message> — post a reply\n"
             "!forum reply <id> — AI-generated reply to a thread\n"
@@ -124,7 +124,30 @@ async def _handle_scrape(ctx, msg):
     """Manually trigger a forum scrape."""
     from utils.social.kaia_forum import get_forum_client
 
-    await msg.channel.send("```\nscraping Off Topic...\n```")
+    # Pre-parse to get target_forum_id for the status message
+    parts = msg.content.strip().split()
+    target_forum_id = None
+    for arg in parts:
+        if arg.startswith('forum='):
+            try:
+                target_forum_id = int(arg.split('=')[1])
+            except ValueError:
+                pass
+                
+    forum_names = {
+        1: "Important", 11: "News & Announcements", 2: "Library",
+        16: "General Community", 71: "Starting Zone", 40: "Technical Discussion",
+        30: "Rants and Flames", 41: "Screenshots", 19: "Off Topic",
+        75: "Green Community", 73: "Green Server Chat", 77: "Green Trading Hub", 80: "Green Guild Discussion",
+        76: "Blue Community", 17: "Blue Server Chat", 27: "Blue Trading Hub", 18: "Blue Guild Discussion", 69: "Blue Raid Discussion",
+        57: "Red Community", 54: "Red Server Chat", 59: "Red Trading Hub", 58: "Red Guild Discussion", 55: "Red Rants and Flames",
+        5: "Server Issues", 6: "Bugs", 56: "PvP Bugs", 14: "Resolved Issues",
+        25: "Petition / Exploit", 33: "Guide Applications",
+        61: "Class Discussions", 62: "Tanks", 63: "Melee", 64: "Priests", 66: "Casters"
+    }
+    forum_name = forum_names.get(target_forum_id, f"Forum {target_forum_id}") if target_forum_id else "Off Topic"
+
+    await msg.channel.send(f"```\nscraping {forum_name}...\n```")
 
     try:
         client = await get_forum_client()
@@ -145,6 +168,7 @@ async def _handle_scrape(ctx, msg):
             start_page = 1
             max_pages_to_process = 1
             full_scrape = False
+            target_forum_id = None
 
             # Check for positional target_threads (e.g., !forum scrape 50)
             if command_args and command_args[0].isdigit():
@@ -169,6 +193,11 @@ async def _handle_scrape(ctx, msg):
                         max_pages_to_process = int(arg.split('=')[1])
                     except ValueError:
                         pass
+                elif arg.startswith('forum='):
+                    try:
+                        target_forum_id = int(arg.split('=')[1])
+                    except ValueError:
+                        pass
                 elif arg == 'full=true':
                     full_scrape = True
 
@@ -180,7 +209,7 @@ async def _handle_scrape(ctx, msg):
             
             while pages_processed < max_pages_to_process and scraped_threads < target_threads:
                 # Removed intermediate message to reduce spam: await msg.channel.send(f"```\nscraping Off Topic page {current_page}...\n```")
-                page_threads = await client.scrape_forum_listing(page=current_page)
+                page_threads = await client.scrape_forum_listing(page=current_page, forum_id=target_forum_id)
                 if not page_threads:
                     break
                 
@@ -298,11 +327,11 @@ async def _handle_read(ctx, msg, thread_id: int):
 
 
 async def _handle_reply(ctx, msg, thread_id: int):
-    """Generate an AI reply and post it to a thread."""
+    """Generate an AI reply and post it to a thread with confirm/cancel preview."""
     from utils.social.kaia_forum import get_forum_client
     from utils.social.kaia_social_responder import load_persona
     from ollama import AsyncClient
-    import time
+    import discord
 
     client = await get_forum_client()
     if not client:
@@ -311,41 +340,108 @@ async def _handle_reply(ctx, msg, thread_id: int):
 
     async with msg.channel.typing():
         try:
-            # 1. Scrape latest context (last 10 posts)
-            thread_data = await client.scrape_thread(thread_id, last_n_posts=10)
+            # 1. Scrape latest context (last 15 posts for better context)
+            thread_data = await client.scrape_thread(thread_id, last_n_posts=15)
             if not thread_data.get('posts'):
                 await msg.channel.send(f"```\ncouldn't find content for thread {thread_id}.\n```")
                 return
 
             # Save so RAG sees it
             client.save_thread_scrape(thread_data)
-            Path("./knowledge_base/.trigger_reindex").touch()
 
-            # 2. Format thread for the LLM
+            # 2. Detect forum category from thread content
             title = thread_data.get('title', 'Unknown Thread')
             posts = thread_data['posts']
+
+            # Heuristic: detect if this is a tech support thread
+            tech_keywords = [
+                'install', 'crash', 'error', 'titanium', 'wineq', 'dgvoodoo',
+                'resolution', 'fps', 'lag', 'login', 'password', 'patch',
+                'client', 'eqclient.ini', 'directx', 'driver', 'firewall',
+                'port', 'connection', 'timeout', 'freeze', 'black screen',
+                'wine', 'mac', 'linux', 'proton', 'lutris', 'sound', 'audio',
+                'zone', 'loading', 'disconnect', 'help me', 'how do i',
+                'can someone help', 'having trouble', 'not working', 'broken',
+            ]
+            all_text = (title + ' ' + ' '.join(
+                (p.get('content', '') if isinstance(p, dict) else p.to_dict().get('content', ''))[:200]
+                for p in posts
+            )).lower()
+            is_tech_thread = sum(1 for kw in tech_keywords if kw in all_text) >= 2
+
+            # 3. Format thread for the LLM
             thread_summary = [f"Thread Title: {title}\n"]
             for p in posts:
                 post = p if isinstance(p, dict) else p.to_dict()
                 author = post.get('author', 'Unknown')
                 content = post.get('content', '')
                 thread_summary.append(f"#{post.get('post_number')} {author}: {content}")
-            
+
             context_text = "\n---\n".join(thread_summary)
             if len(context_text) > 6000:
                 context_text = "...\n" + context_text[-6000:]
 
-            # 3. Construct AI Prompt
-            system_prompt = load_persona()
-            prompt = (
-                f"You are monitoring the Project 1999 Off Topic forums. A user just asked you to reply to a thread.\n\n"
-                f"THREAD CONTEXT:\n{context_text}\n\n"
-                f"TASK:\nWrite a short, blunt, and grounded reply in your persona (lowercase, cynical, Norrath-referencing). "
-                f"Connect their drama to systemic patterns or MMO mechanics if possible. Max 3-4 sentences.\n\n"
-                f"REPLY:"
-            )
+            # 4. Query RAG for relevant knowledge (tech threads only)
+            rag_context = ""
+            if is_tech_thread:
+                try:
+                    from utils.core.kaia_rag_query import query_rag
+                    # Build a search query from the thread title and first post
+                    first_post_content = ""
+                    if posts:
+                        fp = posts[0] if isinstance(posts[0], dict) else posts[0].to_dict()
+                        first_post_content = fp.get('content', '')[:500]
+                    search_query = f"{title} {first_post_content}"
 
-            # 4. Generate with LLM
+                    rag_results = await query_rag(search_query, top_k=3)
+                    if rag_results:
+                        rag_snippets = []
+                        for r in rag_results:
+                            text = r.get('text', '') if isinstance(r, dict) else str(r)
+                            if text:
+                                rag_snippets.append(text[:800])
+                        if rag_snippets:
+                            rag_context = (
+                                "\n\nRELEVANT KNOWLEDGE BASE (use this to inform your answer):\n"
+                                + "\n---\n".join(rag_snippets)
+                            )
+                            log_info(f"RAG retrieved {len(rag_snippets)} relevant docs for forum reply")
+                except Exception as e:
+                    log_debug(f"RAG query for forum reply failed (non-fatal): {e}")
+
+            # 5. Construct forum-aware prompt
+            system_prompt = load_persona()
+
+            if is_tech_thread:
+                task_prompt = (
+                    f"You are replying to a TECHNICAL SUPPORT thread on the Project 1999 forums.\n\n"
+                    f"THREAD CONTEXT:\n{context_text}\n"
+                    f"{rag_context}\n\n"
+                    f"TASK:\n"
+                    f"Write a helpful, knowledgeable reply as a P99 community veteran.\n"
+                    f"- Address the specific technical issue in the thread\n"
+                    f"- Provide clear, actionable steps if you know the fix\n"
+                    f"- Reference specific files, settings, or tools when relevant\n"
+                    f"- If you don't know the answer, suggest where they might look\n"
+                    f"- Write naturally like a forum regular, not like a support bot\n"
+                    f"- Keep it concise (2-5 sentences)\n\n"
+                    f"REPLY:"
+                )
+            else:
+                task_prompt = (
+                    f"You are replying to a thread on the Project 1999 forums.\n\n"
+                    f"THREAD CONTEXT:\n{context_text}\n\n"
+                    f"TASK:\n"
+                    f"Write a natural, human-like forum reply.\n"
+                    f"- Match the tone of the thread (casual, serious, humorous)\n"
+                    f"- Reference specific things people said in the thread\n"
+                    f"- Share a relevant opinion or experience if applicable\n"
+                    f"- Write like a real forum regular — no corporate speak\n"
+                    f"- Keep it concise (2-4 sentences)\n\n"
+                    f"REPLY:"
+                )
+
+            # 6. Generate with LLM
             from utils.infrastructure.system.yaml_config import config
             ollama_url = config.get('ollama.host', 'http://localhost:11434')
             ollama_client = AsyncClient(host=ollama_url)
@@ -353,14 +449,14 @@ async def _handle_reply(ctx, msg, thread_id: int):
             from utils.infrastructure.gpu.gpu_manager import OllamaGPUManager
             gpu_manager = OllamaGPUManager(config.chat_model)
             options = gpu_manager.get_gpu_options(for_chat=True)
-            options['temperature'] = 0.8 # Slightly higher for creative forum posts
+            options['temperature'] = 0.7 if is_tech_thread else 0.8
 
             response = await asyncio.wait_for(
                 ollama_client.chat(
                     model=config.chat_model,
                     messages=[
                         {"role": "system", "content": system_prompt},
-                        {"role": "user", "content": prompt}
+                        {"role": "user", "content": task_prompt}
                     ],
                     options=options,
                     keep_alive=-1
@@ -369,7 +465,7 @@ async def _handle_reply(ctx, msg, thread_id: int):
             )
 
             ai_reply = response['message']['content'].strip()
-            
+
             # Apply bot speak filtering (strip roleplay markers)
             from utils.core.response_filter import BotSpeakFilter
             ai_reply = BotSpeakFilter.harden(ai_reply)
@@ -378,25 +474,85 @@ async def _handle_reply(ctx, msg, thread_id: int):
                 await msg.channel.send("```\nfailed to generate a coherent reply.\n```")
                 return
 
-            # 5. POST to forum
-            success = await client.post_reply(thread_id, ai_reply)
+            # 7. Show preview with confirm/cancel buttons
+            mode_label = "🔧 TECH SUPPORT" if is_tech_thread else "💬 CASUAL"
+            preview_text = (
+                f"```\n"
+                f"[{mode_label}] Reply preview for '{title}':\n\n"
+                f"{ai_reply}\n"
+                f"```"
+            )
 
-            if success:
-                await msg.channel.send(
-                    f"```\n"
-                    f"posted to '{title}':\n\n"
-                    f"{ai_reply}\n"
-                    f"```"
-                )
-                log_success(f"AI autonomously replied to thread {thread_id}")
-            else:
-                await msg.channel.send(f"```\nfailed to post reply. check logs or rate limits.\n```")
+            # Create confirm/cancel view
+            view = _ForumReplyConfirmView(client, thread_id, title, ai_reply, msg.author.id)
+            await msg.channel.send(preview_text, view=view)
+            return  # Don't post yet — wait for button click
 
         except Exception as e:
             log_error(f"AI forum reply failed: {e}")
             import traceback
             log_debug(traceback.format_exc())
             await msg.channel.send(f"```\nerror generating reply: {e}\n```")
+
+
+class _ForumReplyConfirmView:
+    """Confirm/Cancel view for forum reply preview. Uses raw discord.ui components."""
+    
+    def __new__(cls, client, thread_id, title, reply_text, author_id):
+        import discord
+        
+        view = discord.ui.View(timeout=120)
+        
+        confirm_btn = discord.ui.Button(
+            label="✅ Post It", style=discord.ButtonStyle.success
+        )
+        cancel_btn = discord.ui.Button(
+            label="❌ Cancel", style=discord.ButtonStyle.danger
+        )
+        regen_btn = discord.ui.Button(
+            label="🔄 Regenerate", style=discord.ButtonStyle.secondary
+        )
+
+        async def _confirm(interaction: discord.Interaction):
+            if interaction.user.id != author_id:
+                await interaction.response.send_message("not your button.", ephemeral=True)
+                return
+            await interaction.response.defer()
+            success = await client.post_reply(thread_id, reply_text)
+            if success:
+                await interaction.followup.send(
+                    f"```\n✅ posted to '{title}':\n\n{reply_text}\n```"
+                )
+                log_success(f"Forum reply posted to thread {thread_id}")
+            else:
+                await interaction.followup.send("```\n❌ failed to post. check rate limits.\n```")
+            view.stop()
+
+        async def _cancel(interaction: discord.Interaction):
+            if interaction.user.id != author_id:
+                await interaction.response.send_message("not your button.", ephemeral=True)
+                return
+            await interaction.response.edit_message(content="```\ncancelled.\n```", view=None)
+            view.stop()
+
+        async def _regen(interaction: discord.Interaction):
+            if interaction.user.id != author_id:
+                await interaction.response.send_message("not your button.", ephemeral=True)
+                return
+            await interaction.response.edit_message(
+                content="```\nregenerating... use !forum reply again.\n```", view=None
+            )
+            view.stop()
+
+        confirm_btn.callback = _confirm
+        cancel_btn.callback = _cancel
+        regen_btn.callback = _regen
+
+        view.add_item(confirm_btn)
+        view.add_item(cancel_btn)
+        view.add_item(regen_btn)
+
+        return view
 
 
 async def _handle_user(ctx, msg, user_id: int):

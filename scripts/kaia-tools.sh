@@ -434,13 +434,13 @@ PYEOF
             fi
             ;;
         5)
-            run_tool "RAG Index Diagnostics" tools/diag_rag_index.py
+            run_tool "RAG Index Diagnostics" tools/diagnostics/diag_rag_index.py
             ;;
         6)
-            run_tool "Embedding Diagnostics" tools/diagnose_embeddings.py
+            run_tool "Embedding Diagnostics" tools/diagnostics/diagnose_embeddings.py
             ;;
         7)
-            run_tool "Full RAG Debug" tools/diagnose_rag.py
+            run_tool "Full RAG Debug" tools/diagnostics/diagnose_rag.py
             ;;
         b|B) return ;;
         esac
@@ -454,7 +454,7 @@ PYEOF
 menu_knowledge_base() {
     while true; do
         CHOICE=$(whiptail --title "Kaiacord Tools — Knowledge Base" --menu \
-            "Choose an operation:" 20 80 8 \
+            "Choose an operation:" 24 80 10 \
             "1" "Scan KB for issues  (corrupted files, bad nodes)" \
             "2" "Clean OCR artifacts  (fix encoding issues in books/docs)" \
             "3" "Sanitize user logs  (strip internal runtime tags from logs)" \
@@ -463,6 +463,8 @@ menu_knowledge_base() {
             "6" "Rebuild all user profiles  (regenerate from interaction logs)" \
             "7" "Find contamination  (scan for hallucinated content)" \
             "8" "Delete logs for specific date  (targeted contamination removal)" \
+            "9" "Scrape P99 Wiki  (crawls verified wiki articles to KB)" \
+            "10" "Run Support Synthesis  (compile all tech support forum threads)" \
             "b" "← Back" \
             3>&1 1>&2 2>&3) || return
 
@@ -475,32 +477,32 @@ menu_knowledge_base() {
                 --inputbox "Directory to clean (default: knowledge_base):" \
                 8 60 "knowledge_base" 3>&1 1>&2 2>&3) || continue
             [[ -z "$DIR" ]] && DIR="knowledge_base"
-            if [[ ! -f tools/cleanup_kb.py ]]; then
-                fail "tools/cleanup_kb.py not found."
+            if [[ ! -f tools/maintenance/cleanup_kb.py ]]; then
+                fail "tools/maintenance/cleanup_kb.py not found."
                 pause; continue
             fi
             echo
             info "Cleaning OCR artifacts in: $DIR"
             echo "────────────────────────────────────────"
-            $PYTHON tools/cleanup_kb.py "$DIR"
+            $PYTHON tools/maintenance/cleanup_kb.py "$DIR"
             echo "────────────────────────────────────────"
             pause
             ;;
         3)
             echo
-            if [[ ! -f tools/sanitize_logs.py ]]; then
-                fail "tools/sanitize_logs.py not found."
+            if [[ ! -f tools/maintenance/sanitize_logs.py ]]; then
+                fail "tools/maintenance/sanitize_logs.py not found."
                 pause; continue
             fi
             info "Stripping internal runtime tags from user logs..."
             echo "────────────────────────────────────────"
-            $PYTHON tools/sanitize_logs.py
+            $PYTHON tools/maintenance/sanitize_logs.py
             echo "────────────────────────────────────────"
             pause
             ;;
         4)
-            if [[ ! -f tools/kb_cleanse_user_logs.py ]]; then
-                fail "tools/kb_cleanse_user_logs.py not found."
+            if [[ ! -f tools/maintenance/kb_cleanse_user_logs.py ]]; then
+                fail "tools/maintenance/kb_cleanse_user_logs.py not found."
                 pause; continue
             fi
             warn "This uses Ollama (gemma3:12b) to clean each log file. Takes a while."
@@ -511,13 +513,13 @@ menu_knowledge_base() {
                 echo
                 info "Running LLM log cleaner..."
                 echo "────────────────────────────────────────"
-                $PYTHON tools/kb_cleanse_user_logs.py
+                $PYTHON tools/maintenance/kb_cleanse_user_logs.py
                 echo "────────────────────────────────────────"
                 pause
             fi
             ;;
         5)
-            run_tool "Sync Sanitized Logs" tools/sync_sanitized_logs.py
+            run_tool "Sync Sanitized Logs" tools/maintenance/sync_sanitized_logs.py
             ;;
         6)
             run_tool "Rebuild User Profiles" tools/maintenance/generate_user_profiles.py
@@ -543,6 +545,12 @@ menu_knowledge_base() {
                 info "Run RAG → Incremental refresh to clean up the index."
                 pause
             fi
+            ;;
+        9)
+            run_tool "Scrape P99 Wiki" tools/social/scrape_p99_wiki.py
+            ;;
+        10)
+            run_tool "Forum Technical Support Synthesis" tools/social/synthesize_technical_knowledge.py
             ;;
         b|B) return ;;
         esac

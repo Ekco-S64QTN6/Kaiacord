@@ -536,7 +536,7 @@ class RAGIndexerMixin:
         updated_itypes = set()
         deleted_files = [
             p for p in list(self.indexed_files.keys()) 
-            if not os.path.exists(p) or os.path.basename(p) == "kaia_persona.md"
+            if not os.path.exists(p) or os.path.basename(p) == "kaia_persona.md" or "forum_posts" in p.replace('\\', '/')
         ]
         if not deleted_files:
             return updated_itypes
@@ -625,7 +625,7 @@ class RAGIndexerMixin:
         supported_exts = [".pdf", ".txt", ".md", ".docx"]
         
         for root, _, files in os.walk(self.knowledge_base_dir):
-            if "corrupt_files" in root: continue
+            if "corrupt_files" in root or "forum_posts" in root.replace('\\', '/'): continue
             for file in files:
                 ext = os.path.splitext(file)[1].lower()
                 if ext in supported_exts:

@@ -681,7 +681,7 @@ class ForumClient:
             
         return True
 
-    def save_thread_scrape(self, thread_data: Dict[str, Any]) -> bool:
+    def save_thread_scrape(self, thread_data: Dict[str, Any], forum_source: str = "Off Topic") -> bool:
         """
         Save a thread scrape to knowledge_base.
         Returns True if the file was updated (new content), False otherwise.
@@ -706,7 +706,7 @@ class ForumClient:
             f'scraped_at: "{now.isoformat()}"',
             f'page: {thread_data.get("page", 1)}',
             f'post_count: {len(posts)}',
-            'source: "Project 1999 Off Topic"',
+            f'source: "Project 1999 {forum_source}"',
             'document_type: "Forum Thread"',
             "---",
             "",
