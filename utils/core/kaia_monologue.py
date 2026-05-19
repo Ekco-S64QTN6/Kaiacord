@@ -154,7 +154,7 @@ class InnerMonologue:
                 )
                 self._buffer.append(thought)
                 self._last_generated = now
-                log_debug(f"Inner monologue: {raw[:80]}")
+                log_info(f"🧠 Inner monologue: {raw[:80]}...")
                 return raw
 
         except asyncio.TimeoutError:

@@ -1338,14 +1338,14 @@ class ForumClient:
                 if history_path.exists():
                     mtime = datetime.fromtimestamp(history_path.stat().st_mtime)
                     if (datetime.now() - mtime).total_seconds() < 14400: # 4 hours
-                        log_debug(f"Skipping {username} history — scraped within 4h")
+                        log_info(f"Skipping {username} history — scraped within 4h")
                         continue
 
                 # NEW: Cooldown for profile scrape too (even if history doesn't exist)
                 if profile_path.exists():
                     pmtime = datetime.fromtimestamp(profile_path.stat().st_mtime)
                     if (datetime.now() - pmtime).total_seconds() < 3600: # 1 hour
-                        log_debug(f"Skipping {username} profile — scraped within 1h")
+                        log_info(f"Skipping {username} profile — scraped within 1h")
                         continue
 
                 # Scrape profile - this is cheap and gives us total_posts
@@ -1360,7 +1360,7 @@ class ForumClient:
                         h_content = history_path.read_text(encoding='utf-8')
                         h_match = re.search(r'total_posts: (\d+)', h_content)
                         if h_match and int(h_match.group(1)) >= total_posts:
-                            log_debug(f"Skipping {username} history — total_posts ({total_posts}) unchanged")
+                            log_info(f"Skipping {username} history — total_posts ({total_posts}) unchanged")
                             continue
                     except Exception:
                         pass
@@ -1498,12 +1498,13 @@ class ForumClient:
 
 class ForumDraftReviewView(discord.ui.View):
     """Interactive Discord Moderation View for P99 Forum drafts."""
-    def __init__(self, client, thread_id, title, final_reply):
+    def __init__(self, client, thread_id, title, final_reply, forum_type="off_topic"):
         super().__init__(timeout=86400)  # 24-hour timeout
         self.client = client
         self.thread_id = thread_id
         self.title = title
         self.final_reply = final_reply
+        self.forum_type = forum_type
 
     @discord.ui.button(label="✅ Accept & Post", style=discord.ButtonStyle.success)
     async def accept(self, interaction: discord.Interaction, button: discord.ui.Button):
@@ -1516,14 +1517,35 @@ class ForumDraftReviewView(discord.ui.View):
         success = await self.client.post_reply(self.thread_id, self.final_reply)
         
         if success:
+            dest_name = "P99 TECHNICAL SUPPORT" if self.forum_type == "technical" else "P99 OFF-TOPIC"
             await interaction.message.edit(
-                content=f"**[✅ POSTED TO P99 OFF-TOPIC]**\n"
+                content=f"**[✅ POSTED TO {dest_name}]**\n"
                         f"**Thread:** {self.title}\n"
                         f"**Approved by:** {interaction.user.mention}\n\n"
                         f"```\n{self.final_reply}\n```",
                 view=self
             )
             log_success(f"Moderator {interaction.user.name} approved and posted P99 reply to thread {self.thread_id}")
+            
+            # Log to forum moderation file
+            try:
+                log_entry = {
+                    'timestamp': datetime.utcnow().isoformat() + 'Z',
+                    'action': 'approved',
+                    'user': f"{interaction.user.name}#{interaction.user.discriminator}" if interaction.user.discriminator != '0' else interaction.user.name,
+                    'user_id': interaction.user.id,
+                    'thread_id': self.thread_id,
+                    'thread_title': self.title,
+                    'forum_type': self.forum_type,
+                    'draft': self.final_reply
+                }
+                def _write_log():
+                    os.makedirs('memory', exist_ok=True)
+                    with open('memory/forum_moderation_log.jsonl', 'a', encoding='utf-8') as f:
+                        f.write(json.dumps(log_entry) + '\n')
+                await asyncio.to_thread(_write_log)
+            except Exception as le:
+                log_debug(f"Failed to log approved forum draft: {le}")
             
             # Increment approved count on dashboard
             try:
@@ -1532,8 +1554,9 @@ class ForumDraftReviewView(discord.ui.View):
             except Exception:
                 pass
         else:
+            dest_name = "P99 TECHNICAL SUPPORT" if self.forum_type == "technical" else "P99 OFF-TOPIC"
             await interaction.message.edit(
-                content=f"**[❌ FAILED TO POST TO P99 OFF-TOPIC]**\n"
+                content=f"**[❌ FAILED TO POST TO {dest_name}]**\n"
                         f"Check rate limits or credentials.\n\n"
                         f"```\n{self.final_reply}\n```",
                 view=self
@@ -1553,6 +1576,26 @@ class ForumDraftReviewView(discord.ui.View):
             view=self
         )
         log_info(f"Moderator {interaction.user.name} rejected P99 reply draft for thread {self.thread_id}")
+        
+        # Log to forum moderation file
+        try:
+            log_entry = {
+                'timestamp': datetime.utcnow().isoformat() + 'Z',
+                'action': 'rejected',
+                'user': f"{interaction.user.name}#{interaction.user.discriminator}" if interaction.user.discriminator != '0' else interaction.user.name,
+                'user_id': interaction.user.id,
+                'thread_id': self.thread_id,
+                'thread_title': self.title,
+                'forum_type': self.forum_type,
+                'draft': self.final_reply
+            }
+            def _write_log():
+                os.makedirs('memory', exist_ok=True)
+                with open('memory/forum_moderation_log.jsonl', 'a', encoding='utf-8') as f:
+                    f.write(json.dumps(log_entry) + '\n')
+            await asyncio.to_thread(_write_log)
+        except Exception as le:
+            log_debug(f"Failed to log rejected forum draft: {le}")
         
         # Increment rejected count on dashboard
         try:

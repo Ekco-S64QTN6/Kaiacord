@@ -86,6 +86,10 @@ class HallucinationDetector:
             if len(lines) > 500:
                 with open(log_path, 'w', encoding='utf-8') as f:
                     f.writelines(lines[-500:])
+            log_warning(
+                f"⚠️ Hallucination Detector: pattern '{pattern_matched}' detected. "
+                f"Action taken: {action_taken}."
+            )
         except Exception:
             pass  # Never let logging break the main flow
 

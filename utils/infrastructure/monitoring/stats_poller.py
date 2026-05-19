@@ -29,6 +29,7 @@ class RealTimeStatsPoller:
             'rag_documents': 0,
             'rag_size': "0 MB",
             'kb_size_mb': 0.0,
+            'log_size_mb': 0.0,
             'indexed_files': 0,
             'dreams_count': 0,
             'beliefs_count': 0,
@@ -287,6 +288,13 @@ class RealTimeStatsPoller:
                     new_stats['relationship_count'] = len([f for f in os.listdir(rel_dir) if f.endswith('.json')])
                 else:
                     new_stats['relationship_count'] = 0
+                
+                # Log File Size
+                log_path = "logs/kaiacord.log"
+                if os.path.exists(log_path):
+                    new_stats['log_size_mb'] = os.path.getsize(log_path) / (1024 * 1024)
+                else:
+                    new_stats['log_size_mb'] = 0.0
                 
                 self.last_file_stats_update = current_time
             except Exception as e:

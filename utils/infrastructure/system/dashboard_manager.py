@@ -68,13 +68,17 @@ def _count_recent_hallucinations(log_path: str, seconds: int = 86400) -> int:
         pass
     return count
 
-async def _stats_sync_task(shared_stats, stats_tracker, stats_poller, stop_event, bot_state=None, rag=None):
+async def _stats_sync_task(shared_stats, stats_tracker, stats_poller, stop_event, ctx=None):
     """Sync bot stats to shared memory."""
     hallucination_log = "memory/hallucination_log.jsonl"
     while not stop_event.is_set():
         try:
             s = stats_tracker.get_stats()
             p = stats_poller.get_stats()
+            
+            # Resolve rag and bot_state dynamically from ctx
+            rag = getattr(ctx, 'rag', None) if ctx else None
+            bot_state = getattr(ctx, 'bot_state', None) if ctx else None
             
             # Pull RAG metrics
             rag_confidence = 0.0
@@ -105,10 +109,19 @@ async def _stats_sync_task(shared_stats, stats_tracker, stats_poller, stop_event
                 'ollama_models': p.get('ollama_models', []),
                 'rag_size': p.get('rag_size', '0 MB'),
                 'kb_size_mb': p.get('kb_size_mb', 0.0),
+                'log_size_mb': p.get('log_size_mb', 0.0),
                 'indexed_files': p.get('indexed_files', 0),
                 'dreams_count': p.get('dreams_count', 0),
                 'gpu_util': p.get('gpu_util', 0.0),
                 'gpu_memory': p.get('gpu_memory', 'N/A'),
+                
+                # Cognitive & Forum Stats
+                'beliefs_count': p.get('beliefs_count', 0),
+                'anchors_count': p.get('anchors_count', 0),
+                'relationship_count': p.get('relationship_count', 0),
+                'forum_drafts': s.get('forum_drafts', 0),
+                'forum_approved': s.get('forum_approved', 0),
+                'forum_rejected': s.get('forum_rejected', 0),
                 
                 # RAG Health Panel Data
                 'rag_confidence': rag_confidence,
@@ -117,18 +130,23 @@ async def _stats_sync_task(shared_stats, stats_tracker, stats_poller, stop_event
                 'hallucination_count': h_count,
                 'rag_stale': rag_stale,
             })
-        except Exception: pass
+        except Exception as e:
+            try:
+                from utils.infrastructure.logging.kaia_logger import log_debug
+                log_debug(f"Stats sync task error: {e}")
+            except Exception:
+                pass
         await asyncio.sleep(1.0)
 
 def _run_bot_in_thread(shared_stats, stats_tracker, stats_poller, stop_event, 
                        m_cleanup_complete_event, initialize_logic_layer, run_bot_async,
-                       bot_state=None, rag=None):
+                       ctx=None):
     """Isolated bot thread runner."""
     loop = asyncio.new_event_loop()
     asyncio.set_event_loop(loop)
     try:
         # Start stats sync task
-        sync_task = loop.create_task(_stats_sync_task(shared_stats, stats_tracker, stats_poller, stop_event, bot_state, rag))
+        sync_task = loop.create_task(_stats_sync_task(shared_stats, stats_tracker, stats_poller, stop_event, ctx))
         task_registry.register("ui_stats_sync", sync_task)
         
         # Initialize logic layer (e.g., config, state)
@@ -351,7 +369,7 @@ class DashboardManager:
                 target=_run_bot_in_thread, 
                 args=(shared_stats, self.stats_tracker, self.stats_poller, self.stop_event, 
                       m_cleanup_complete_event, initialize_logic_layer, run_bot_async,
-                      self.bot_state, self.ctx.rag),
+                      self.ctx),
                 daemon=True, 
                 name="DiscordBot"
             )

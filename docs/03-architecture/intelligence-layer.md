@@ -52,6 +52,11 @@ Canonical detector for AI structural leaks.
 - **Cleanup**: Strips technical artifacts (e.g., "AI Assistant:", "Think:") and known hallucinated names.
 - **Adversarial Check**: Uses pattern matching to detect if the LLM is fabricating memories and strips contaminated lines.
 
+### 7. Cognitive Pipeline Logging & Monitoring
+To ensure the Btop-Style monitor dashboard displays active pipeline states without cluttering the screen with VRAM/inference logs:
+- **Log Elevation**: Important state transformations (monologues, dreams, belief changes, memory anchors, scraping tasks, proactive initiation triggers, and user emotional arc transitions) bypass standard debug suppression and log at `INFO` or `WARNING` level.
+- **Unified Stats Tracker**: Counters for forum drafts, approvals, and rejections are thread-safely updated and saved to `memory/stats.json`.
+
 ## Interaction Flow
 
 1. **Gatekeeper**: Rate limit and safety check.

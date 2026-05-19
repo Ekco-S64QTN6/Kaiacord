@@ -799,6 +799,7 @@ VOICE AND FORMAT RULES (always apply regardless of dream type):
                         "user": rel_insight['user_name'],
                         "summary": rel_insight.get('summary', '')[:200]
                     })
+                    log_info(f"👥 Relationship insight formed for {rel_insight['user_name']}: {rel_insight.get('summary', '')[:60]}...")
                 except Exception:
                     pass
 
@@ -820,6 +821,7 @@ VOICE AND FORMAT RULES (always apply regardless of dream type):
                         user_name=anchor_user,
                         salience=salience,
                     )
+                    log_info(f"⚓ Memory Anchor formed: theme='{anchor['theme']}' ({anchor_user or 'global'})")
                 except Exception:
                     pass
 
@@ -896,6 +898,7 @@ VOICE AND FORMAT RULES (always apply regardless of dream type):
 
         # Log to growth arc
         if updated and old_position:
+            log_info(f"🧠 Belief Revised: '{topic}' changed from '{old_position[:40]}...' to '{position[:40]}...'")
             self._log_growth_event({
                 "type": "belief_revised",
                 "topic": topic,
@@ -904,12 +907,14 @@ VOICE AND FORMAT RULES (always apply regardless of dream type):
                 "confidence": confidence
             })
         elif not updated:
+            log_info(f"🧠 New Belief Formed: '{topic}' is '{position[:60]}...'")
             self._log_growth_event({
                 "type": "belief_formed",
                 "topic": topic,
                 "position": position[:200],
                 "confidence": confidence
             })
+
     async def _maybe_regenerate_self_model(self, persona_content: str):
         """Auto-regenerate kaia_self_model.md if stale (>7 days old).
         

@@ -72,6 +72,7 @@ class DashboardState:
     ollama_models: Tuple[str, ...] = field(default_factory=tuple)
     rag_size: str = "0 MB"
     kb_size_mb: float = 0.0
+    log_size_mb: float = 0.0
     indexed_files: int = 0
     dreams_count: int = 0
     queue_size: int = 0
@@ -541,12 +542,13 @@ class BtopDashboardV2:
             coherence_ema=_pick('coherence_ema', ss, default=0.85),
             hallucination_count=_pick('hallucination_count', ss, default=0),
             rag_stale=_pick('rag_stale', ss, default=True),
-            beliefs_count=_pick('beliefs_count', poller_stats, default=0),
-            anchors_count=_pick('anchors_count', poller_stats, default=0),
-            relationship_count=_pick('relationship_count', poller_stats, default=0),
-            forum_drafts=_pick('forum_drafts', tracker_stats, ss, default=0),
-            forum_approved=_pick('forum_approved', tracker_stats, ss, default=0),
-            forum_rejected=_pick('forum_rejected', tracker_stats, ss, default=0),
+            beliefs_count=_pick('beliefs_count', ss, poller_stats, default=0),
+            anchors_count=_pick('anchors_count', ss, poller_stats, default=0),
+            relationship_count=_pick('relationship_count', ss, poller_stats, default=0),
+            forum_drafts=_pick('forum_drafts', ss, tracker_stats, default=0),
+            forum_approved=_pick('forum_approved', ss, tracker_stats, default=0),
+            forum_rejected=_pick('forum_rejected', ss, tracker_stats, default=0),
+            log_size_mb=_pick('log_size_mb', ss, poller_stats, default=0.0),
             log_entries=tuple(log_entries),
             alerts=tuple(alerts[-10:]),  # Limit alerts
             snapshot_time=time.time()
@@ -769,21 +771,77 @@ class BtopDashboardV2:
         
         inner_y = pane.y + 1
         inner_x = pane.x + 2
+        col_width = pane.width - 4
         
-        def draw_cognition_row(y_offset, label, value, val_color_pair):
-            self._safe_addstr(inner_y + y_offset, inner_x, label.ljust(10), curses.color_pair(1) | curses.A_BOLD)
-            self._safe_addstr(inner_y + y_offset, inner_x + 10, str(value), curses.color_pair(val_color_pair) | curses.A_BOLD)
+        if col_width >= 22:
+            # Symmetrical two-column layout
+            col2_offset = max(13, col_width // 2 + 1)
+            use_short = col_width < 28
+            
+            # Suffixes and labels configuration
+            if use_short:
+                b_val = f"{state.beliefs_count}/50"
+                a_val = f"{state.anchors_count}/50"
+                aff_val = f"{state.relationship_count}"
+                d_val = f"{state.dreams_count}"
+                dr_val = f"{state.forum_drafts}"
+                ap_val = f"{state.forum_approved}"
+                rj_val = f"{state.forum_rejected}"
+                
+                # short labels
+                l_b, l_a, l_aff, l_d = "Beliefs", "Anchors", "Affinity", "Dreams"
+                l_dr, l_ap, l_rj = "Drafts", "Apprvd", "Reject"
+                val_offset = 8
+            else:
+                b_val = f"{state.beliefs_count}/50 act"
+                a_val = f"{state.anchors_count}/50 act"
+                aff_val = f"{state.relationship_count} users"
+                d_val = f"{state.dreams_count} mems"
+                dr_val = f"{state.forum_drafts} gen"
+                ap_val = f"{state.forum_approved} post"
+                rj_val = f"{state.forum_rejected} closed"
+                
+                # standard labels
+                l_b, l_a, l_aff, l_d = "Beliefs:", "Anchors:", "Affinity:", "Dreams:"
+                l_dr, l_ap, l_rj = "Drafts:", "Approved:", "Rejected:"
+                val_offset = 10
 
-        # Cognition stats
-        draw_cognition_row(0, "Beliefs:", f"{state.beliefs_count}/50 act", 3 if state.beliefs_count > 0 else 6)
-        draw_cognition_row(1, "Anchors:", f"{state.anchors_count}/50 act", 3 if state.anchors_count > 0 else 6)
-        draw_cognition_row(2, "Affinity:", f"{state.relationship_count} users", 2)
-        draw_cognition_row(3, "Dreams:", f"{state.dreams_count} mems", 2)
-        
-        # Forum stats
-        draw_cognition_row(4, "Drafts:", f"{state.forum_drafts} gen", 6)
-        draw_cognition_row(5, "Approved:", f"{state.forum_approved} post", 3)
-        draw_cognition_row(6, "Rejected:", f"{state.forum_rejected} closed", 5 if state.forum_rejected > 0 else 6)
+            # Draw Column 1: Cognition (left side of pane)
+            self._safe_addstr(inner_y, inner_x, l_b.ljust(val_offset), curses.color_pair(1) | curses.A_BOLD)
+            self._safe_addstr(inner_y, inner_x + val_offset, b_val, curses.color_pair(3 if state.beliefs_count > 0 else 6) | curses.A_BOLD)
+            
+            self._safe_addstr(inner_y + 1, inner_x, l_a.ljust(val_offset), curses.color_pair(1) | curses.A_BOLD)
+            self._safe_addstr(inner_y + 1, inner_x + val_offset, a_val, curses.color_pair(3 if state.anchors_count > 0 else 6) | curses.A_BOLD)
+            
+            self._safe_addstr(inner_y + 2, inner_x, l_aff.ljust(val_offset), curses.color_pair(1) | curses.A_BOLD)
+            self._safe_addstr(inner_y + 2, inner_x + val_offset, aff_val, curses.color_pair(2) | curses.A_BOLD)
+            
+            self._safe_addstr(inner_y + 3, inner_x, l_d.ljust(val_offset), curses.color_pair(1) | curses.A_BOLD)
+            self._safe_addstr(inner_y + 3, inner_x + val_offset, d_val, curses.color_pair(2) | curses.A_BOLD)
+
+            # Draw Column 2: Forums (right side of pane)
+            col2_x = inner_x + col2_offset
+            self._safe_addstr(inner_y, col2_x, l_dr.ljust(val_offset), curses.color_pair(1) | curses.A_BOLD)
+            self._safe_addstr(inner_y, col2_x + val_offset, dr_val, curses.color_pair(6) | curses.A_BOLD)
+            
+            self._safe_addstr(inner_y + 1, col2_x, l_ap.ljust(val_offset), curses.color_pair(1) | curses.A_BOLD)
+            self._safe_addstr(inner_y + 1, col2_x + val_offset, ap_val, curses.color_pair(3) | curses.A_BOLD)
+            
+            self._safe_addstr(inner_y + 2, col2_x, l_rj.ljust(val_offset), curses.color_pair(1) | curses.A_BOLD)
+            self._safe_addstr(inner_y + 2, col2_x + val_offset, rj_val, curses.color_pair(5 if state.forum_rejected > 0 else 6) | curses.A_BOLD)
+        else:
+            # Fall back to single column if the width is extremely small
+            def draw_cognition_row(y_offset, label, value, val_color_pair):
+                self._safe_addstr(inner_y + y_offset, inner_x, label.ljust(10), curses.color_pair(1) | curses.A_BOLD)
+                self._safe_addstr(inner_y + y_offset, inner_x + 10, str(value), curses.color_pair(val_color_pair) | curses.A_BOLD)
+
+            draw_cognition_row(0, "Beliefs:", f"{state.beliefs_count}/50", 3 if state.beliefs_count > 0 else 6)
+            draw_cognition_row(1, "Anchors:", f"{state.anchors_count}/50", 3 if state.anchors_count > 0 else 6)
+            draw_cognition_row(2, "Affinity:", f"{state.relationship_count}", 2)
+            draw_cognition_row(3, "Dreams:", f"{state.dreams_count}", 2)
+            draw_cognition_row(4, "Drafts:", f"{state.forum_drafts}", 6)
+            draw_cognition_row(5, "Approved:", f"{state.forum_approved}", 3)
+            draw_cognition_row(6, "Rejected:", f"{state.forum_rejected}", 5 if state.forum_rejected > 0 else 6)
         
     def _draw_rag_health_pane(self, state: DashboardState):
         """Draw RAG health pane"""
@@ -803,7 +861,8 @@ class BtopDashboardV2:
 
         # Confidence Bar (inverted colors: high=green, low=red)
         conf_pct = state.rag_confidence * 100
-        bar_width = min(20, inner_width - 15)
+        max_bar_width = (inner_width // 2 - 17) if inner_width >= 45 else (inner_width - 15)
+        bar_width = max(5, min(20, max_bar_width))
         bar = self._draw_progress_bar(conf_pct, bar_width)
         color = self._get_color_inverted(conf_pct, (60, 85))
         
@@ -826,6 +885,26 @@ class BtopDashboardV2:
         h_color = 3 if state.hallucination_count == 0 else (4 if state.hallucination_count < 3 else 5)
         self._safe_addstr(inner_y + 3, inner_x, "Hallucinations (24h):".ljust(22), curses.color_pair(1) | curses.A_BOLD)
         self._safe_addstr(inner_y + 3, inner_x + 22, f"{state.hallucination_count}", curses.color_pair(h_color) | curses.A_BOLD)
+
+        # Draw Column 2: RAG Index/Log Stats
+        if inner_width >= 45:
+            col2_x = inner_x + max(28, inner_width // 2 + 1)
+            
+            # Row 0: Index Size
+            self._safe_addstr(inner_y, col2_x, "Index Size:".ljust(15), curses.color_pair(1) | curses.A_BOLD)
+            self._safe_addstr(inner_y, col2_x + 15, state.rag_size, curses.color_pair(3) | curses.A_BOLD)
+            
+            # Row 1: Log Size
+            self._safe_addstr(inner_y + 1, col2_x, "Log File Size:".ljust(15), curses.color_pair(1) | curses.A_BOLD)
+            self._safe_addstr(inner_y + 1, col2_x + 15, f"{state.log_size_mb:.1f} MB", curses.color_pair(3) | curses.A_BOLD)
+            
+            # Row 2: Indexed Files
+            self._safe_addstr(inner_y + 2, col2_x, "Indexed Files:".ljust(15), curses.color_pair(1) | curses.A_BOLD)
+            self._safe_addstr(inner_y + 2, col2_x + 15, f"{state.indexed_files}", curses.color_pair(2) | curses.A_BOLD)
+            
+            # Row 3: Dreams Count
+            self._safe_addstr(inner_y + 3, col2_x, "Dreams Count:".ljust(15), curses.color_pair(1) | curses.A_BOLD)
+            self._safe_addstr(inner_y + 3, col2_x + 15, f"{state.dreams_count}", curses.color_pair(2) | curses.A_BOLD)
         
     def _draw_alerts_pane(self, state: DashboardState):
         """Draw alerts pane"""

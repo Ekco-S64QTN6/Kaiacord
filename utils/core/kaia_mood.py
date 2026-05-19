@@ -218,6 +218,10 @@ class EmotionalArc:
 
         self._save()
         self._log_snapshot()
+        log_info(
+            f"🎭 Emotional Arc updated: valence={self._mood.valence:.2f}, "
+            f"arousal={self._mood.arousal:.2f}, energy={self._mood.social_energy:.2f}"
+        )
 
     def get_prompt_injection(self) -> str:
         """Return a mood context line for the system prompt."""

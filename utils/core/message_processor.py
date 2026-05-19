@@ -1842,7 +1842,7 @@ class MessageProcessor:
                                     "timestamp": time.time(),
                                     "topic": ctx.sanitized_content[:200]
                                 })
-                                log_debug(f"Queued afterthought for {ctx.author_name} ({significance_reason})")
+                                log_info(f"Queued afterthought for {ctx.author_name} ({significance_reason})")
 
                         # Append a brief note to the continuity file (NOT identity stream)
                         # This gives the dream engine more material for the next cycle
@@ -1851,7 +1851,7 @@ class MessageProcessor:
                             note = f"\n[{datetime.now().strftime('%Y-%m-%d %H:%M')}] {significance_reason} with {ctx.author_name}: {ctx.sanitized_content[:100]}"
                             with open(continuity_path, 'a', encoding='utf-8') as cf:
                                 cf.write(note)
-                            log_debug(f"Continuity note appended: {significance_reason} with {ctx.author_name}")
+                            log_info(f"Continuity note appended: {significance_reason} with {ctx.author_name}")
                 except Exception as _growth_err:
                     log_debug(f"Growth tracking error (non-fatal): {_growth_err}")
 
@@ -1879,7 +1879,7 @@ class MessageProcessor:
                                     if _rel is not None:
                                         _rel['last_open_loop'] = _loop_text
                                         self.bot_state.save()
-                                        log_debug(f"Open loop saved for {ctx.author_name}: {_loop_text[:60]}")
+                                        log_info(f"Open loop saved for {ctx.author_name}: {_loop_text[:60]}")
                                     break
                 except Exception:
                     pass  # Never let open loop detection break anything

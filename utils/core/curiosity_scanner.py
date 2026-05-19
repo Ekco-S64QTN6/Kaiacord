@@ -16,7 +16,7 @@ import re
 import glob
 import time
 from typing import Optional
-from utils.infrastructure.logging.kaia_logger import log_debug
+from utils.infrastructure.logging.kaia_logger import log_debug, log_info
 
 # Patterns that suggest something unresolved — user expressed intent or pending action
 _UNRESOLVED_PATTERNS = [
@@ -94,7 +94,7 @@ def get_curiosity_prompt(user_id: str, user_name: str, knowledge_base_dir: str,
         f"— if the conversation allows naturally, ask how it went. "
         f"Don't force it. One sentence only.]"
     )
-    log_debug(f"Curiosity injection for {user_name}: '{mention[:60]}...'")
+    log_info(f"🔍 Curiosity Scanner: injected unresolved mention '{mention[:60]}...' for {user_name}")
     return prompt
 
 

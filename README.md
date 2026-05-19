@@ -52,6 +52,8 @@ Kaia’s lifelike presence is managed through a fully deterministic, 26-feature 
 *   **💭 Passive Inner Monologue**: Generates a running background commentary from passive room observation, which is woven directly into active context windows as private intuition.
 *   **📡 Proactive Initiation**: An autonomous 7-source trigger engine (absence, beliefs, dreams, mood, curiosity, memory, silence) that lets Kaia initiate conversations naturally, capped to a lifelike frequency.
 *   **🫂 Memory Anchors**: Captures up to 50 highly weighted cross-session episodic memories with natural exponential decay, enabling organic conversational callbacks to past events weeks later.
+*   **🏟️ Project 1999 Forum Integration**: Periodic scraping loops (6h interval) scanning Off-Topic (Forum 19) and Technical Discussion (Forum 40). Features a Discord moderation queue in `#kaia-opolis` with interactive Accept/Reject buttons, zero-hallucination support answers from RAG, and profile caching to model active users.
+*   **🖥️ Symmetrical Curses Dashboard**: A three-pane terminal TUI (**SYSTEM STATS**, **BOT STATUS**, and **COGNITIVE PIPELINE & FORUMS**) providing real-time CPU/GPU metrics, bot metrics, cognitive stats (beliefs, anchors, affinity), and a live stream of elevated logging events (monologue, dream insights, scans).
 
 ---
 
@@ -216,6 +218,9 @@ Kaiacord/
 │   │   └── kaia_rag.py          # Vector/Lexical facade & query hub
 │   ├── ttrpg/                   # Aethelgard combat, dungeon & housing state
 │   ├── commands/                # Discord command routers & handlers
+│   ├── social/                  # Social responder (Bluesky, Twitter) & P99 Forum Crawler
+│   │   ├── kaia_forum.py        # Project 1999 Forum Client, Scraper & Auto-responder
+│   │   └── forum_tasks.py       # Scraper/Posting periodic task loop handlers
 │   └── infrastructure/          # AppContext DI, curses dashboard, logger, GPU pinning
 └── docs/                        # Complete technical and gameplay specs
 ```
@@ -260,6 +265,8 @@ PYTHONPATH=. pytest tools/tests/verification/ -q
 |:----------------|:---------------|
 | **Getting Started** | [`docs/01-getting-started/quick-start.md`](docs/01-getting-started/quick-start.md) |
 | **Command Guides** | [`docs/02-user-guide/commands.md`](docs/02-user-guide/commands.md) |
+| **Curses Dashboard**| [`docs/02-user-guide/dashboard.md`](docs/02-user-guide/dashboard.md) |
+| **Forum Integration**| [`docs/02-user-guide/forum-integration.md`](docs/02-user-guide/forum-integration.md) |
 | **Architecture Spec** | [`docs/03-architecture/overview.md`](docs/03-architecture/overview.md) |
 | **VRAM & GPU Tuning** | [`docs/03-architecture/gpu-management.md`](docs/03-architecture/gpu-management.md) |
 | **RAG Grounding Layer** | [`docs/03-architecture/rag-system.md`](docs/03-architecture/rag-system.md) |

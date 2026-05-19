@@ -23,6 +23,22 @@ WIKI_URLS = [
     "https://wiki.project1999.com/Play_Nice_Policy",
     "https://wiki.project1999.com/Linux",
     "https://wiki.project1999.com/Mac",
+    "https://wiki.project1999.com/Enchanter",
+    "https://wiki.project1999.com/Resurrection",
+    "https://wiki.project1999.com/Pet_Guide",
+    "https://wiki.project1999.com/Corpse",
+    "https://wiki.project1999.com/Charm",
+    "https://wiki.project1999.com/Game_Mechanics",
+    "https://wiki.project1999.com/Loraen%27s_Enchanter_Guide",
+    "https://wiki.project1999.com/Sesserdrix%27s_All_in_One_Necromancer_Strategy_Guide",
+    "https://wiki.project1999.com/Xornns_Enchanter_Guide",
+    "https://wiki.project1999.com/Charmed_Pet_Gear",
+    "https://wiki.project1999.com/Thrasos%27_Bard_Guide",
+    "https://wiki.project1999.com/J.C._Smith%27s_Cleric_Guide",
+    "https://wiki.project1999.com/Greyweasel%27s_Shaman_Guide",
+    "https://wiki.project1999.com/Guide_to_Canni_Dancing",
+    "https://wiki.project1999.com/Going_Solo_Guide",
+    "https://wiki.project1999.com/Per-Level_Hunting_Guide",
 ]
 
 def scrape_wiki():

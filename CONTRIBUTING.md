@@ -85,7 +85,7 @@ print('BROKEN REFS:', missing) if missing else print('OK')
 [docs] Update balance review with T5 audit
 ```
 
-Areas: `ttrpg`, `combat`, `fishing`, `housing`, `alchemy`, `core`, `docs`, `config`
+Areas: `ttrpg`, `combat`, `fishing`, `housing`, `alchemy`, `core`, `docs`, `config`, `social`
 
 ### 5. Open a PR
 

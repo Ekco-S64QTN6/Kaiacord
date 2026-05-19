@@ -21,14 +21,15 @@ graph TB
         COG["Cognitive Pipeline\nmonologue · mood · proactive · anchors"]
     end
 
-    subgraph SOC ["Social Layer"]
+    subgraph SOC ["Social & Forum Layer"]
         Social["social_responder.py\n+ bluesky / x"]
+        Forum["kaia_forum.py\n+ P99 crawler / moderation views"]
     end
     
     subgraph INF ["Infrastructure"]
         Logging["logging/"]
         System["system/ config, state, context"]
-        Monitoring["monitoring/"]
+        Monitoring["monitoring/\n+ stats_poller / stats_tracker"]
     end
     
     Ctx --> CL
@@ -38,7 +39,7 @@ graph TB
     DM --> Monitoring
     
     INF --> Logs[(logs/kaiacord.log)]
-    CL --> Memory[(memory/)]
+    CL --> Memory[(memory/ - bot_state.json, stats.json)]
     CL --> KB[(knowledge_base/)]
 ```
 
@@ -50,7 +51,7 @@ Kaiacord/
 ├── utils/                   # Deeply modularized components
 │   ├── core/                # RAG, Intelligence, Dream, Cognitive Pipeline, MessageProcessor
 │   ├── infrastructure/      # AppContext, DashboardManager, Config, Monitoring
-│   ├── social/              # Twitter/X, Bluesky & Social Responder
+│   ├── social/              # Twitter/X, Bluesky, Social Responder & Project 1999 Forum Client/Scraper
 │   ├── commands/            # Specialized command handlers
 │   └── news/                # News retrieval & management
 ├── config/                  # Configuration & Bot Persona
@@ -156,6 +157,16 @@ Kaiacord/
 - Deterministic game math handled entirely by Python; LLM handles narration only.
 - Per-user async locks prevent race conditions during combat or item generation.
 - Full registry system (335 monsters, 447 items) integrated with a procedural dungeon generator.
+
+### 9. Project 1999 Forum Client (`utils/social/kaia_forum.py`)
+
+**Responsibility**: Scrapes and interacts with the Project 1999 vBulletin forums.
+
+**Features**:
+- Crawls threads in Forum 19 (Off-Topic) and Forum 40 (Technical Discussion) periodically.
+- Forwards drafts to the Discord moderation queue `#kaia-opolis` with interactive view buttons.
+- Caches forum user post profiles (4h/1h cooldowns) and delta-verifies post count changes before running heavy scraper operations.
+- Enforces strict zero-hallucination support guidelines for Technical Discussion replies.
 
 ---
 

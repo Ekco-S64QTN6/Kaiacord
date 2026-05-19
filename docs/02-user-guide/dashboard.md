@@ -1,57 +1,80 @@
 # 🖥️ Kaia Dashboard (Btop-Style)
 
 ## Overview
-The new dashboard provides a real-time, high-performance terminal interface for monitoring Kaiacord. It is inspired by `btop` and `htop`, featuring a responsive layout, live metrics, and a cyberpunk aesthetic.
+The dashboard provides a real-time, high-performance terminal interface for monitoring Kaiacord. It is inspired by `btop` and `htop`, featuring a responsive layout, live metrics, and a cyberpunk aesthetic.
 
-## ✨ Key Features
+---
 
-### 📊 Real-Time Metrics
-- **System Stats**: CPU, GPU, VRAM, and RAM usage tracking.
-- **Bot Performance**: Response times, active user count, and message queue depth.
-- **RAG Status**: Document count, index size, and cache hit rates.
-- **Uptime**: Accurate uptime tracking (fixed float/datetime issues).
+## ✨ Symmetrical Three-Column Layout
 
-### 🖥️ Terminal Management
-- **Alternate Screen Buffer**: Runs in a separate screen buffer (like `htop`), preserving your shell history upon exit.
-- **Input Handling**: Supports keyboard shortcuts for filtering and control.
-- **Stable Rendering**: No flickering or scrolling artifacts.
-- **Mouse Support**: Disabled to prevent accidental scrolling interference.
+The top half of the interface is split symmetrically into three vertical columns to partition system health, bot statistics, and cognitive/forum pipelines cleanly:
 
-### 📝 Live Logging
-- **Color-Coded Logs**: distinct colors for INFO, WARNING, ERROR, and SUCCESS.
-- **Duplicate Filtering**: Automatically collapses repeated log messages to reduce noise.
-- **Log Filters**: Quickly toggle between ALL, ERROR, WARNING, etc., using keyboard shortcuts.
-- **Auto-Scroll**: Always shows the latest activity.
+### 1. SYSTEM STATS (Left Column, 35% Width)
+Tracks hardware resource utilization:
+- **CPU**: Total processor load percentage.
+- **RAM**: Free and utilized system memory.
+- **GPU**: NVIDIA graphic card utilization.
+- **VRAM**: Free and utilized video memory (critical for Ollama Chat VRAM safety).
+
+### 2. BOT STATUS (Middle Column, 32.5% Width)
+Tracks high-level bot execution metadata:
+- **Ollama Status**: Shows green online (`🟢 ONLINE`) or red offline indicator.
+- **Active Model**: Displays the name of the loaded chat model (e.g., `gemma3:12b`).
+- **Uptime**: Precise, float-based runtime tracking in minutes.
+- **Messages**: Number of processed Discord messages since initialization.
+- **Dreams**: Number of nightly dream summaries processed.
+- **Files**: Total indexed document count across vector stores.
+
+### 3. COGNITIVE PIPELINE & FORUMS (Right Column, 32.5% Width)
+Tracks Kaia's internal cognitive layers and Project 1999 forum stats:
+- **Active Beliefs**: Current belief count loaded from `beliefs.json` (50-cap).
+- **Memory Anchors**: Count of active episodic memory anchors.
+- **Relationships**: Count of active user relationship affinity logs in `memory/relationships/`.
+- **Forum Drafts**: Cumulative forum response drafts created and queued for review.
+- **Approved / Rejected**: Number of drafts approved or rejected via Discord buttons.
+
+---
+
+## 📊 Span Panels & Live Logging
+
+### RAG Health Panel
+Located below the three vertical columns on the right, displaying RAG vector database statuses, cache hit ratios, and search latency.
+
+### 📝 Live Logging (Bottom Half)
+- **High-Visibility Elevation**: While standard `DEBUG` logs are suppressed, elevated operations (inner monologues, dream summaries, belief shifts, scraper stages, proactive checks, and emotional arc updates) are logged as `INFO` or `WARNING` to stream directly to this panel.
+- **Color Coding**: Distinct ANSI color profiles for log levels:
+  - `INFO`: Cyan/White text.
+  - `WARNING`: Yellow text (e.g. hallucination warnings).
+  - `SUCCESS`: Green text.
+  - `ERROR`: Red text.
+- **De-duplication**: Automatically collapses sequential duplicate messages and displays a repeat count to conserve screen space.
+
+---
 
 ## ⌨️ Controls
 
 | Key | Action |
 | :--- | :--- |
-| **Q** | Quit the dashboard (and bot) |
-| **C** | Clear alerts |
-| **R** | Force refresh |
-| **L** | Cycle log filters |
-| **S** | Save current logs to file |
-| **1-6** | Quick filter selection |
+| **Q** | Quit the dashboard (and shut down the bot gracefully) |
+| **C** | Clear warnings and alerts |
+| **R** | Force GUI layout refresh |
+| **L** | Cycle log view filters (ALL -> INFO -> WARNING -> ERROR) |
+| **S** | Export current screen logs to file |
+| **1-6** | Fast-jump log filter selections |
+
+---
 
 ## 🛠️ Technical Implementation
 
-### Curses Dashboard (Primary): `utils/infrastructure/monitoring/btop_dashboard_v2.py`
-The production curses dashboard uses snapshot-based rendering and a pane-based layout. It runs in curses' alternate screen buffer.
+### Curses Interface: `utils/infrastructure/monitoring/btop_dashboard_v2.py`
+Runs inside curses' alternate screen buffer to preserve shell history. Updates are managed thread-safely via curses' window locks.
 
-### ANSI Dashboard (Legacy): `utils/infrastructure/monitoring/btop_dashboard_legacy.py`
-The legacy ANSI fallback is preserved for terminals that don't support curses.
+### Metric Poller: `utils/infrastructure/monitoring/stats_poller.py`
+Runs a background loop fetching system diagnostics. Specifically, a 30-second throttled Custom File Stats task parses:
+- `memory/beliefs.json`
+- `memory/memory_anchors.json`
+- `memory/relationships/` directory
+- `memory/stats.json` (persisted forum stats)
 
-### `utils/infrastructure/monitoring/stats_poller.py` & `utils/infrastructure/monitoring/stats_tracker.py`
-Authoritative sources for GPU metrics and user activity:
-- **Model Status**: Derived from VRAM thresholds (<2GB = idle, 2-6GB = warming, >6GB = loaded).
-- **Active Users**: Counted via a 15-minute sliding window.
-
-### `BtopLoggingPatcher` (Deprecated)
-Log interception is now handled by `unified_logging.py` which provides built-in deduplication.
-
-## 🐛 Recent Fixes
-- **Scrolling Fix**: Implemented alternate screen buffer to prevent terminal history pollution.
-- **Duplicate Logs**: Added a cooldown and counter for repeated log messages.
-- **DateTime Error**: Switched to `time.time()` (float) for robust uptime calculation.
-- **RAG Health**: Fixed inverted color thresholds for RAG health metric display.
+### Stats Tracker: `utils/infrastructure/monitoring/stats_tracker.py`
+Provides thread-safe atomic helpers (`StatsTracker.increment_forum_draft()`, etc.) to count forum actions.

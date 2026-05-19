@@ -11,9 +11,10 @@
 - **Aethelgard TTRPG** — A full turn-based RPG system (combat, 10 advanced classes, equipment, dungeons, housing, farming, pets, alchemy) with a 77-floor mega-dungeon
 - **Fractal Art** — `!art` command generating fractal flames (Electric Sheep algorithm) with Kaia commentary
 - **Fishing minigame** — Rod-based fishing economy
-- **Social integrations** — Bluesky/X posting
+- **Social & Forum integrations** — Bluesky/X posting and Project 1999 Forum Scraper, Auto-posting, and Technical Support review system
+- **Curses Monitoring** — Interactive, real-time cyber-dashboard split symmetrically with live log filtering
 
-Tech stack: `discord.py`, `ollama`, `llama-index`, `fastapi`, `aiohttp`, `PyYAML`, `python-dotenv`, `numpy`, `scipy`, `Pillow`.
+Tech stack: `discord.py`, `ollama`, `llama-index`, `fastapi`, `aiohttp`, `PyYAML`, `python-dotenv`, `numpy`, `scipy`, `Pillow`, `curses`.
 
 ## ⚠️ Critical: Runtime Constraints
 
@@ -144,6 +145,12 @@ Registry files (like `equipment_registry.py`) contain both large data dictionari
 │   │   ├── context_optimizer.py       # Context window management
 │   │   ├── response_filter.py         # Bot-speak cleanup (BotSpeakFilter)
 │   │   └── sanitizer.py               # Output sanitization
+│   ├── social/                  # Social & Forum integrations
+│   │   ├── kaia_forum.py              # P99 forum client & crawler
+│   │   ├── forum_tasks.py             # Periodic forum scheduler tasks
+│   │   ├── kaia_social_responder.py   # Responder dispatch for Bluesky & Twitter
+│   │   ├── social_response_generator.py # LLM response generation for social platforms
+│   │   └── kaia_identities.py         # Identity linking database (Discord ID <-> Forum UID)
 │   └── infrastructure/          # Bot infrastructure
 │       ├── system/
 │       │   ├── bot_state.py           # Global state, relationships, mood persistence
@@ -180,6 +187,7 @@ Registry files (like `equipment_registry.py`) contain both large data dictionari
 │   ├── bot_state.json           # Interaction tracking, familiarity, mood floats
 │   ├── identity_stream.md       # Rolling identity evolution journal (3000-char cap)
 │   ├── growth_log.jsonl         # Append-only growth event ledger
+│   ├── forum_moderation_log.jsonl # Append-only moderation action log for RLHF/fine-tuning
 │   ├── proactive_topics.json    # Proactive initiation diversity log (14-day decay)
 │   ├── memory_anchors.json      # Episodic memory anchors (50-cap, weight decay)
 │   └── rag_storage/             # RAG indices, continuity file, BM25 caches
@@ -212,6 +220,15 @@ Registry files (like `equipment_registry.py`) contain both large data dictionari
 - **Memory anchors** are stored in `memory/memory_anchors.json` with a 50-anchor cap, weight decay, and automatic pruning below 0.1 weight.
 - **Proactive initiation** is rate-limited to 2 messages/day with a 6-hour minimum gap between messages. Topic diversity is tracked in `memory/proactive_topics.json`.
 
+### Project 1999 Forum & Social Operations
+- **Moderation Draft Queue**: All auto-generated posts and tech support replies must be routed to `#kaia-opolis` as drafts with interactive Accept/Reject views first before being submitted to the forum.
+- **Zero-Hallucination Support Policy**: Technical support replies must use strict BM25/hybrid RAG grounding from verified Project 1999 wiki documents (`knowledge_base/wiki/`) and synthesized troubleshooting cheatsheets (`knowledge_base/troubleshooting/`). Hallucination checks must run on the final response, and the mandatory support disclaimer footer must be appended: `"Disclaimer: I am an AI agent and might make mistakes and hopefully a human comes by soon to help you if I was unable to"`.
+- **Capped Scraping & Caching**: Scrapers for off-topic and technical discussion forums must run once per 6 hours, drafting a maximum of 2-3 posts per run. Deep history profile scrapes are limited to 20 post pages and 10 thread pages, cached for 4 hours (history) and 1 hour (profile data) to minimize network operations.
+
+### Logging & Monitor Standards
+- **Live Log Elevation**: Core cognitive actions (monologue generation, dream summaries, belief shifts, episodic anchor formations), scraper operations, and emotional vector changes must use `log_info` or `log_warning` to ensure visibility in the live curses dashboard panel.
+- **Unified Stats Tracking**: All generated forum drafts, approvals, and rejections must be persisted in `memory/stats.json` and thread-safely registered in `StatsTracker` to populate the middle/right dashboard panes.
+
 ### Architecture Rules
 - **Python handles all deterministic game state/math.** Never delegate combat resolution, stat calculations, or inventory management to the LLM.
 - **Kaia (the LLM) handles narration only.** She receives combat results and narrates them. The LLM generates flavor text, not game state.
@@ -232,7 +249,7 @@ Registry files (like `equipment_registry.py`) contain both large data dictionari
 ## Commit Conventions
 
 - Commit messages: `[area] Brief description` (e.g., `[ttrpg] Add missing owlbear stat block`)
-- Areas: `ttrpg`, `fishing`, `combat`, `housing`, `alchemy`, `core`, `docs`, `config`, `kaia`, `art`, `infra`
+- Areas: `ttrpg`, `fishing`, `combat`, `housing`, `alchemy`, `core`, `docs`, `config`, `kaia`, `art`, `infra`, `social`
 - One logical change per commit — don't mix balance changes with bug fixes
 
 ## Current System Status
@@ -250,3 +267,4 @@ Key facts:
 - Full cognitive pipeline (26 features): emotional arc, monologue, proactive initiation, relationship stages, dreams, beliefs, memory anchors, conversational stance, tone mirroring
 - Calendar with 13 special days, 4 seasons, deterministic weather — all buffs wired
 - Fractal flame art system (CPU-only, NumPy/SciPy, 20 variation functions, 10 palettes, adaptive DE)
+- Project 1999 Forum Integration: automated 6h scraping loops, post-moderation review queue, profile caching, and zero-hallucination tech support RAG verification

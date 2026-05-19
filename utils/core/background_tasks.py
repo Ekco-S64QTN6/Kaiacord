@@ -228,12 +228,14 @@ class CoreTaskManager:
             if not getattr(self.ctx.bot_state, 'boot_complete', False): return
 
             try:
+                log_info("Proactive engine evaluating initiation triggers...")
                 trigger = await self.proactive_engine.evaluate_triggers(
                     bot_state=self.ctx.bot_state,
                     dream_engine=getattr(self.ctx, 'dream_engine', None),
                 )
 
                 if not trigger:
+                    log_info("Proactive trigger evaluation: no active triggers.")
                     return
 
                 channel = self.ctx.bot.get_channel(trigger.channel_id)
@@ -730,7 +732,7 @@ class CoreTaskManager:
 
                 client = await get_forum_client()
                 if not client or not client._logged_in:
-                    log_debug("Forum auto-post skipped: client not connected or logged in.")
+                    log_info("Forum auto-post skipped: client not connected or logged in.")
                     return
 
                 username = os.getenv("VBULLETIN_USERNAME")
@@ -743,6 +745,7 @@ class CoreTaskManager:
                 if not page_threads:
                     log_warning("No threads scraped from Off-Topic, skipping.")
                     return
+                log_info(f"Scraped {len(page_threads)} active threads from Project 1999 Off-Topic (Forum 19)")
 
                 # Exclude stickies and threads where Kaia was the last poster
                 candidates = [
@@ -903,7 +906,7 @@ class CoreTaskManager:
                     )
 
                 # Instantiate interactive review view
-                view = ForumDraftReviewView(client, thread_id, title, final_reply)
+                view = ForumDraftReviewView(client, thread_id, title, final_reply, forum_type="off_topic")
                 await channel.send(review_msg, view=view)
                 log_success(f"Dispatched forum post draft for '{title}' to #kaia-opolis for review.")
                 
@@ -973,7 +976,7 @@ class CoreTaskManager:
 
                 client = await get_forum_client()
                 if not client or not client._logged_in:
-                    log_debug("Forum tech support skipped: client not connected or logged in.")
+                    log_info("Forum tech support skipped: client not connected or logged in.")
                     return
 
                 username = os.getenv("VBULLETIN_USERNAME")
@@ -987,6 +990,7 @@ class CoreTaskManager:
                 if not page_threads:
                     log_warning("No threads scraped from Technical Discussion, skipping.")
                     return
+                log_info(f"Scraped {len(page_threads)} active threads from Technical Discussion (Forum 40)")
 
                 # Filter out stickies and threads where Kaia was the last poster
                 candidates = [
@@ -1119,7 +1123,7 @@ class CoreTaskManager:
                 )
 
                 # Instantiate interactive review view using same confirming views
-                view = ForumDraftReviewView(client, thread_id, title, final_reply)
+                view = ForumDraftReviewView(client, thread_id, title, final_reply, forum_type="technical")
                 await channel.send(review_msg, view=view)
                 log_success(f"Dispatched forum tech support draft for '{title}' to #kaia-opolis for review.")
                 
