@@ -381,7 +381,7 @@ dream_mode:
 # ============================================================================
 forum:
   # Main switch to enable/disable forum features
-  enabled: true 
+  enabled: false 
   
   # Whether to automatically scrape the forum for new content (DISABLED by default)
   auto_scrape: false
