@@ -420,7 +420,9 @@ VOICE AND FORMAT RULES (always apply regardless of dream type):
                     combined = combined[-max_chars:].strip()
 
             self.continuity_file.parent.mkdir(parents=True, exist_ok=True)
-            self.continuity_file.write_text(combined, encoding='utf-8')
+            tmp_path = self.continuity_file.with_suffix('.tmp')
+            tmp_path.write_text(combined, encoding='utf-8')
+            os.replace(tmp_path, self.continuity_file)
         except Exception as e:
             log_warning(f"Could not update continuity file: {e}")
 
@@ -695,7 +697,9 @@ VOICE AND FORMAT RULES (always apply regardless of dream type):
                     else:
                         combined = combined[-max_chars:].strip()
 
-                identity_path.write_text(combined, encoding='utf-8')
+                tmp_path = identity_path.with_suffix('.tmp')
+                tmp_path.write_text(combined, encoding='utf-8')
+                os.replace(tmp_path, identity_path)
                 log_success("Identity stream updated.")
 
                 # Log identity shift to growth arc

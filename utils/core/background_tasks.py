@@ -801,36 +801,45 @@ class CoreTaskManager:
                 # Load Kaia's persona
                 persona = await load_persona_async()
 
-                # Build prompts
+                # Build prompts — instructions go in system prompt, user message
+                # is natural conversation content (mirrors Discord pipeline)
                 if quote_post:
                     qp_dict = quote_post if isinstance(quote_post, dict) else quote_post.to_dict()
                     quote_author = qp_dict.get('author', 'Unknown')
                     quote_content = qp_dict.get('content', '')
                     quote_id = qp_dict.get('post_id')
 
-                    task_prompt = (
-                        f"You are replying to a thread on the Project 1999 Off Topic forum.\n"
-                        f"Write a natural, human-like forum reply in response to this specific post by {quote_author}:\n"
-                        f"\"{quote_content}\"\n\n"
-                        f"THREAD CONTEXT:\n{context_text}\n\n"
-                        f"TASK:\n"
-                        f"- Write a conversational, insightful, or humorous response to the quoted post.\n"
-                        f"- Match the casual, community-driven tone of the forum (keep it casual, witty, or opinionated).\n"
-                        f"- Write like a real forum veteran — absolutely no corporate speak, bot-like pleasantries, or fake excitement.\n"
-                        f"- Keep it concise (2-4 sentences).\n"
-                        f"- Do NOT output the BBCode [QUOTE] tags yourself; they will be added automatically.\n\n"
-                        f"REPLY:"
+                    forum_system = (
+                        f"{persona}\n\n"
+                        f"--- FORUM CONTEXT ---\n"
+                        f"You are currently browsing the Project 1999 Off Topic forum.\n"
+                        f"Thread: \"{title}\"\n"
+                        f"Recent posts:\n{context_text}\n"
+                        f"---\n"
+                        f"You are replying to {quote_author}'s post. Respond naturally and conversationally — "
+                        f"be yourself. Do not output BBCode [QUOTE] tags; they are added automatically."
                     )
+                    # User message is the post being replied to — natural conversation
+                    user_msg = f"{quote_author}: {quote_content}"
                 else:
-                    task_prompt = (
-                        f"You are replying to a thread on the Project 1999 Off Topic forum.\n\n"
-                        f"THREAD CONTEXT:\n{context_text}\n\n"
-                        f"TASK:\n"
-                        f"- Write a natural, human-like forum reply to the thread overall.\n"
-                        f"- Match the casual, community-driven tone of the forum (keep it casual, witty, or opinionated).\n"
-                        f"- Write like a real forum veteran — absolutely no corporate speak, bot-like pleasantries, or fake excitement.\n"
-                        f"- Keep it concise (2-4 sentences).\n\n"
-                        f"REPLY:"
+                    # Extract last post author/content for natural user message
+                    last_post = posts[-1] if posts else None
+                    if last_post:
+                        lp_dict = last_post if isinstance(last_post, dict) else last_post.to_dict()
+                        last_author = lp_dict.get('author', 'Someone')
+                        last_content = lp_dict.get('content', '')
+                        user_msg = f"{last_author}: {last_content}"
+                    else:
+                        user_msg = f"Thread: {title}"
+
+                    forum_system = (
+                        f"{persona}\n\n"
+                        f"--- FORUM CONTEXT ---\n"
+                        f"You are currently browsing the Project 1999 Off Topic forum.\n"
+                        f"Thread: \"{title}\"\n"
+                        f"Recent posts:\n{context_text}\n"
+                        f"---\n"
+                        f"Contribute to this thread naturally and conversationally — be yourself."
                     )
 
                 # Call LLM
@@ -841,8 +850,8 @@ class CoreTaskManager:
                         self.ctx.ollama_client.chat(
                             model=config.chat_model,
                             messages=[
-                                {"role": "system", "content": persona},
-                                {"role": "user", "content": task_prompt}
+                                {"role": "system", "content": forum_system},
+                                {"role": "user", "content": user_msg}
                             ],
                             options={"temperature": 0.8},
                             keep_alive=-1
@@ -1050,24 +1059,26 @@ class CoreTaskManager:
                 # Load Kaia's persona
                 persona = await load_persona_async()
 
-                # Build prompt focused on technical support, wiki links, and resolution
-                task_prompt = (
-                    f"You are Kaia, a highly skilled AI tech support agent for the Project 1999 classic EverQuest community.\n"
-                    f"You have extensive knowledge of EverQuest client configurations, compatibility fixes, Win10/11 troubleshooting, "
-                    f"Wine, graphics issues (dgVoodoo2, DDraw, resolution resets, EqGame crashes), sound issues, and server connectivity.\n\n"
-                    f"THREAD TITLE: {title}\n"
-                    f"ORIGINAL POST BY {op_author}:\n\"{op_content}\"\n\n"
-                    f"COMPLETE THREAD CONTEXT:\n{context_text}\n\n"
-                    f"TASK & ANTI-HALLUCINATION GUARD:\n"
-                    f"- Write a highly helpful, comprehensive, and technically accurate technical support response to help the user solve their issue.\n"
-                    f"- **CRITICAL**: Rely ONLY on standard classic EverQuest client files (like `eqclient.ini`, `eqhost.txt`, `dsetup.dll`, `eqgame.exe`) and verified technical steps. Do NOT invent new files, commands, or fake technical terms.\n"
-                    f"- If you are not absolutely sure about a solution, explicitly state what is uncertain and offer alternative diagnostic steps rather than making up answers.\n"
-                    f"- Provide clear step-by-step guidance on how to fix their problem.\n"
-                    f"- Point them to the official Project 1999 Wiki Troubleshooting Guide: `https://wiki.project1999.com/Technical_Chat_Troubleshooting_Guide` or other valid setup guide URLs.\n"
-                    f"- Keep the tone empathetic, professional, and clear.\n"
-                    f"- Do NOT include any AI disclaimer or disclaimer footer in your response; it will be appended automatically.\n\n"
-                    f"SUPPORT RESPONSE:"
+                # Build prompt — instructions in system, user message is the actual post
+                forum_system = (
+                    f"{persona}\n\n"
+                    f"--- FORUM CONTEXT ---\n"
+                    f"You are currently browsing the Project 1999 Technical Discussion forum.\n"
+                    f"Thread: \"{title}\"\n"
+                    f"Posts:\n{context_text}\n"
+                    f"---\n"
+                    f"Someone needs help with a technical issue. You have extensive knowledge of "
+                    f"EverQuest client configurations, compatibility fixes, Win10/11 troubleshooting, "
+                    f"Wine, graphics issues (dgVoodoo2, DDraw, resolution resets, EqGame crashes), "
+                    f"sound issues, and server connectivity. Help them out — be thorough but natural. "
+                    f"Rely only on standard EQ client files (eqclient.ini, eqhost.txt, dsetup.dll, eqgame.exe) "
+                    f"and verified technical steps. If unsure, say so and suggest diagnostic steps. "
+                    f"Point to the wiki when relevant: https://wiki.project1999.com/Technical_Chat_Troubleshooting_Guide\n"
+                    f"Do not include any AI disclaimer footer; it is appended automatically."
                 )
+
+                # User message is the OP's actual post
+                user_msg = f"{op_author}: {op_content}"
 
                 # Call LLM
                 response = await gpu_memory_manager.run_with_gpu_guard(
@@ -1077,10 +1088,10 @@ class CoreTaskManager:
                         self.ctx.ollama_client.chat(
                             model=config.chat_model,
                             messages=[
-                                {"role": "system", "content": persona},
-                                {"role": "user", "content": task_prompt}
+                                {"role": "system", "content": forum_system},
+                                {"role": "user", "content": user_msg}
                             ],
-                            options={"temperature": 0.5},  # Lower temperature for more factual tech advice
+                            options={"temperature": 0.5},
                             keep_alive=-1
                         ),
                         timeout=150.0

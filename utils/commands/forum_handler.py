@@ -409,36 +409,41 @@ async def _handle_reply(ctx, msg, thread_id: int):
                 except Exception as e:
                     log_debug(f"RAG query for forum reply failed (non-fatal): {e}")
 
-            # 5. Construct forum-aware prompt
+            # 5. Construct forum-aware prompt — instructions in system, user msg is conversation
             system_prompt = load_persona()
 
+            # Extract last post for natural user message
+            last_post = posts[-1] if posts else None
+            if last_post:
+                lp = last_post if isinstance(last_post, dict) else last_post.to_dict()
+                last_author = lp.get('author', 'Someone')
+                last_content = lp.get('content', '')
+                user_msg = f"{last_author}: {last_content}"
+            else:
+                user_msg = f"Thread: {title}"
+
             if is_tech_thread:
-                task_prompt = (
-                    f"You are replying to a TECHNICAL SUPPORT thread on the Project 1999 forums.\n\n"
-                    f"THREAD CONTEXT:\n{context_text}\n"
-                    f"{rag_context}\n\n"
-                    f"TASK:\n"
-                    f"Write a helpful, knowledgeable reply as a P99 community veteran.\n"
-                    f"- Address the specific technical issue in the thread\n"
-                    f"- Provide clear, actionable steps if you know the fix\n"
-                    f"- Reference specific files, settings, or tools when relevant\n"
-                    f"- If you don't know the answer, suggest where they might look\n"
-                    f"- Write naturally like a forum regular, not like a support bot\n"
-                    f"- Keep it concise (2-5 sentences)\n\n"
-                    f"REPLY:"
+                forum_system = (
+                    f"{system_prompt}\n\n"
+                    f"--- FORUM CONTEXT ---\n"
+                    f"You are currently browsing the Project 1999 Technical Discussion forum.\n"
+                    f"Thread: \"{title}\"\n"
+                    f"Posts:\n{context_text}\n"
+                    f"{rag_context}\n"
+                    f"---\n"
+                    f"Someone needs help with a technical issue. Help them out — be thorough but natural. "
+                    f"Rely only on standard EQ client files and verified technical steps. "
+                    f"If unsure, say so and suggest diagnostic steps."
                 )
             else:
-                task_prompt = (
-                    f"You are replying to a thread on the Project 1999 forums.\n\n"
-                    f"THREAD CONTEXT:\n{context_text}\n\n"
-                    f"TASK:\n"
-                    f"Write a natural, human-like forum reply.\n"
-                    f"- Match the tone of the thread (casual, serious, humorous)\n"
-                    f"- Reference specific things people said in the thread\n"
-                    f"- Share a relevant opinion or experience if applicable\n"
-                    f"- Write like a real forum regular — no corporate speak\n"
-                    f"- Keep it concise (2-4 sentences)\n\n"
-                    f"REPLY:"
+                forum_system = (
+                    f"{system_prompt}\n\n"
+                    f"--- FORUM CONTEXT ---\n"
+                    f"You are currently browsing the Project 1999 Off Topic forum.\n"
+                    f"Thread: \"{title}\"\n"
+                    f"Recent posts:\n{context_text}\n"
+                    f"---\n"
+                    f"Contribute to this thread naturally and conversationally — be yourself."
                 )
 
             from utils.infrastructure.gpu.gpu_manager import OllamaGPUManager, gpu_memory_manager, GPUTaskPriority
@@ -454,8 +459,8 @@ async def _handle_reply(ctx, msg, thread_id: int):
                     ollama_client.chat(
                         model=config.chat_model,
                         messages=[
-                            {"role": "system", "content": system_prompt},
-                            {"role": "user", "content": task_prompt}
+                            {"role": "system", "content": forum_system},
+                            {"role": "user", "content": user_msg}
                         ],
                         options=options,
                         keep_alive=-1

@@ -80,12 +80,14 @@ class HallucinationDetector:
             os.makedirs("memory", exist_ok=True)
             with open(log_path, 'a', encoding='utf-8') as f:
                 f.write(json.dumps(entry) + '\n')
-            # Rotate: keep last 500 entries only
+            # Rotate: keep last 500 entries only (atomic)
             with open(log_path, 'r', encoding='utf-8') as f:
                 lines = f.readlines()
             if len(lines) > 500:
-                with open(log_path, 'w', encoding='utf-8') as f:
+                tmp_path = log_path + ".tmp"
+                with open(tmp_path, 'w', encoding='utf-8') as f:
                     f.writelines(lines[-500:])
+                os.replace(tmp_path, log_path)
             log_warning(
                 f"⚠️ Hallucination Detector: pattern '{pattern_matched}' detected. "
                 f"Action taken: {action_taken}."

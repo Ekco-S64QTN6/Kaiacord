@@ -225,6 +225,25 @@ Registry files (like `equipment_registry.py`) contain both large data dictionari
 - **Zero-Hallucination Support Policy**: Technical support replies must use strict BM25/hybrid RAG grounding from verified Project 1999 wiki documents (`knowledge_base/wiki/`) and synthesized troubleshooting cheatsheets (`knowledge_base/troubleshooting/`). Hallucination checks must run on the final response, and the mandatory support disclaimer footer must be appended: `"Disclaimer: I am an AI agent and might make mistakes and hopefully a human comes by soon to help you if I was unable to"`.
 - **Capped Scraping & Caching**: Scrapers for off-topic and technical discussion forums must run once per 6 hours, drafting a maximum of 2-3 posts per run. Deep history profile scrapes are limited to 20 post pages and 10 thread pages, cached for 4 hours (history) and 1 hour (profile data) to minimize network operations.
 
+### LLM Call Paths
+
+Kaia utilizes multiple distinct LLM call paths depending on the context. Do not assume all generations pass through the same pipeline.
+
+| Call Path | Entry Point | Context / Pipeline | Key Features / Safety Layers |
+|---|---|---|---|
+| **Discord Chat** | `MessageProcessor.process()` | Full `MessageContext` | 26-feature cognitive pipeline, RAG/memory retrieval, intent classification, 10-layer post-generation safety pipeline (hallucination detection, bot-speak filter, etc.) |
+| **Forum Auto-Post** | `background_tasks.py` -> `_make_forum_auto_post_task()` | System + User message format | Stripped-down LLM call (`ollama_client.chat`), bypasses `MessageProcessor` and cognitive pipeline. Uses `BotSpeakFilter.harden()` post-generation. |
+| **Forum Technical Support** | `background_tasks.py` -> `_make_forum_support_task()` | System + User message format | Stripped-down LLM call, grounded via BM25/hybrid RAG, automatic support disclaimer footer append, bypasses `MessageProcessor`. |
+| **Social Media Responder** | `kaia_social_responder.py` | Direct Ollama call | Bypasses `MessageProcessor`. Specialized social response generation context. |
+| **Dream Engine** | `kaia_dream.py` | Persona + Dream prompt | Bypasses `MessageProcessor`. Dream summary generation and belief extraction. |
+| **Inner Monologue** | `kaia_monologue.py` | Persona + Monologue prompt | Bypasses `MessageProcessor`. Background inner thought generation. |
+
+### Common Agent Mistakes
+
+- **Modifying the Wrong Pipeline**: Do not modify `message_processor.py` for behaviors intended to affect background or automated tasks (forums, social media, dreams) that bypass `MessageProcessor` entirely. Always trace the actual `ollama_client` call path.
+- **Prompt Instruction Stacking**: Avoid solving generation issues by endlessly adding prompt instructions (such as contradictory negative constraints or style rules) on top of each other. This results in instruction overload, leading the LLM to leak/echo instructions in its output. Instead, refine the prompt architecture and split system instructions from user inputs.
+- **Ignoring User Feedback/Corrections**: If the user states a fix did not work, do not blame the bot not restarting or double down on assumptions. Stop and re-verify the active call path and check if the code you modified is actually imported and executed in that path.
+
 ### Logging & Monitor Standards
 - **Live Log Elevation**: Core cognitive actions (monologue generation, dream summaries, belief shifts, episodic anchor formations), scraper operations, and emotional vector changes must use `log_info` or `log_warning` to ensure visibility in the live curses dashboard panel.
 - **Unified Stats Tracking**: All generated forum drafts, approvals, and rejections must be persisted in `memory/stats.json` and thread-safely registered in `StatsTracker` to populate the middle/right dashboard panes.

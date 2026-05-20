@@ -1237,6 +1237,51 @@ class MessageProcessor:
         context_str = optimized['rag']
         optimized_history = optimized.get('history', [])
         
+        is_vbulletin = getattr(ctx.message, 'platform', 'discord') == 'vbulletin'
+        user_msg_content = ctx.sanitized_content
+
+        if is_vbulletin:
+            try:
+                # Extract thread title and thread context
+                title = ""
+                thread_ctx = ""
+                title_m = re.search(r"THREAD TITLE:\s*(.*?)(?:\n\n|\n|$)", ctx.sanitized_content)
+                if title_m:
+                    title = title_m.group(1).strip()
+                ctx_m = re.search(r"THREAD CONTEXT:\s*(.*)", ctx.sanitized_content, re.DOTALL)
+                if ctx_m:
+                    thread_ctx = ctx_m.group(1).strip()
+
+                # Clean forum context block in system prompt
+                forum_context_block = (
+                    f"\n\n--- FORUM THREAD CONTEXT ---\n"
+                    f"Thread Title: {title}\n"
+                    f"Recent posts in this thread (for context):\n"
+                    f"{thread_ctx}\n"
+                    f"----------------------------"
+                )
+                system_prompt += forum_context_block
+
+                # Construct a natural-looking conversation turn for the user message
+                if ctx.parent_context:
+                    user_msg_content = f"{ctx.author_name}: {ctx.parent_context}"
+                else:
+                    # Contributing to thread overall. Try to extract last post.
+                    posts_lines = [line.strip() for line in thread_ctx.split('\n') if line.strip()]
+                    last_post = ""
+                    if posts_lines:
+                        for line in reversed(posts_lines):
+                            if re.match(r"^#\d+", line):
+                                last_post = line
+                                break
+                    if last_post:
+                        natural_post = re.sub(r"^#\d+\s*", "", last_post)
+                        user_msg_content = natural_post
+                    else:
+                        user_msg_content = "System: Start of thread"
+            except Exception as e:
+                log_warning(f"Failed to parse forum context block: {e}")
+        
         # Core Unification: Persona + RAG + History
         rag_block = (
             f"### DATA RETRIEVAL FOR: {ctx.author_name}\n"
@@ -1340,11 +1385,21 @@ class MessageProcessor:
                 "END RECALL CONSTRAINT\n\n"
             )
 
+        instruction = ""
+        if is_vbulletin:
+            instruction = (
+                "\n\n[SYSTEM INSTRUCTION: You are posting on the Project 1999 forum. "
+                "Write a natural, conversational forum post as Kaia, contributing to the thread. "
+                "Write at least 3-4 complete sentences (minimum 30-40 words). Do not include any "
+                "preamble, introduction, or metadata. Start your post directly as Kaia.]"
+            )
+
         full_system_prompt = (
             f"{recap_constraint_block}"
             f"{system_prompt}\n\n"
             f"{rag_block}"
             f"{metadata_block}"
+            f"{instruction}"
         )
 
         # [DEBUG] Trace final prompt assembly
@@ -1377,7 +1432,7 @@ class MessageProcessor:
                 messages.append(turn)
 
         # Re-assert conversation target
-        if ctx.parent_context:
+        if ctx.parent_context and not is_vbulletin:
             label = "[REPLYING_TO_CONTEXT]"
             if ctx.root_context == ctx.parent_context:
                 label = "[THREAD_ROOT_AND_PARENT]"
@@ -1386,7 +1441,10 @@ class MessageProcessor:
             context_reminder = f"{label}\nIgnore recent channel chatter if unrelated. The user is replying DIRECTLY to this message:\n{clipped_parent}"
             messages.append({"role": "system", "content": context_reminder})
 
-        messages.append({"role": "user", "content": f"{ctx.author_name}: {ctx.sanitized_content}"})
+        if is_vbulletin:
+            messages.append({"role": "user", "content": user_msg_content})
+        else:
+            messages.append({"role": "user", "content": f"{ctx.author_name}: {user_msg_content}"})
         
         log_debug(f"DEBUG: Final messages list contains {len(messages)} items (System + {len(optimized_history)} history turns + User).")
         return messages
@@ -1404,12 +1462,28 @@ class MessageProcessor:
         base_temp = self.config.generation_base_temperature
         temp_scaling = self.config.generation_temperature_scaling
         
+        last_failed_short = False
+        best_fallback_response = None
+        best_fallback_words = -1
+
         for attempt in range(max_attempts):
             # Scaled parameters on retry
             current_options = options.copy()
             if attempt > 0:
                 current_options['temperature'] = base_temp + (temp_scaling * attempt)
             
+            attempt_messages = [msg.copy() for msg in messages]
+            if last_failed_short:
+                # Find the last user message and append the length reinforcement directly to its content
+                for i in range(len(attempt_messages) - 1, -1, -1):
+                    if attempt_messages[i]['role'] == 'user':
+                        attempt_messages[i]['content'] += (
+                            "\n\n[System note: Your previous response was too short. You must write a longer, "
+                            "more detailed response of at least 3 sentences and at least 30 words. Do not include "
+                            "any intro, preamble, or metadata.]"
+                        )
+                        break
+
             try:
                 log_action(f"Calling ollama.chat (Attempt {attempt + 1}/{max_attempts})...")
                 
@@ -1422,7 +1496,7 @@ class MessageProcessor:
                         SelfHealingSystem.call_with_fallback(
                             self.ollama_client.chat,
                             model=self.config.chat_model,
-                            messages=messages,
+                            messages=attempt_messages,
                             options=current_options,
                             keep_alive=-1
                         ),
@@ -1486,6 +1560,19 @@ class MessageProcessor:
                 content = filtered if filtered and filtered.strip() else content
                 
                 if content and content.strip():
+                    # VBulletin length constraint check
+                    is_vbulletin = getattr(ctx.message, 'platform', 'discord') == 'vbulletin'
+                    if is_vbulletin:
+                        words = len(content.split())
+                        sentences = len([s for s in re.split(r'[.!?]+', content) if s.strip()])
+                        if words > best_fallback_words:
+                            best_fallback_words = words
+                            best_fallback_response = content
+                        if words < 30 or sentences < 3:
+                            log_warning(f"Attempt {attempt + 1}: Forum response too short ({words} words, {sentences} sentences). Retrying...")
+                            last_failed_short = True
+                            continue
+
                     # ── Observational Fabrication Guard ──────────────────────
                     # Hard post-generation check: if this is a channel-recall
                     # query and the response contains channel-attribution
@@ -1526,6 +1613,11 @@ class MessageProcessor:
             except Exception as e:
                 log_error(f"Attempt {attempt + 1} failed: {e}")
                 
+        is_vbulletin = getattr(ctx.message, 'platform', 'discord') == 'vbulletin'
+        if is_vbulletin and best_fallback_response:
+            log_warning(f"All retry attempts failed to meet length constraints. Falling back to longest reply ({best_fallback_words} words).")
+            return best_fallback_response
+
         return "The data's a bit scrambled right now. Ask me again later."
 
     async def _run_consistency_watchdog(self, ctx: MessageContext, response_text: str):
@@ -1803,13 +1895,15 @@ class MessageProcessor:
                             def _write_and_rotate_growth_log():
                                 with open(growth_log, 'a', encoding='utf-8') as gl:
                                     gl.write(milestone_entry + '\n')
-                                # Rotate: keep last 2000 entries
+                                # Rotate: keep last 2000 entries (atomic)
                                 try:
                                     with open(growth_log, 'r', encoding='utf-8') as gl:
                                         lines = gl.readlines()
                                     if len(lines) > 2000:
-                                        with open(growth_log, 'w', encoding='utf-8') as gl:
+                                        tmp_path = str(growth_log) + ".tmp"
+                                        with open(tmp_path, 'w', encoding='utf-8') as gl:
                                             gl.writelines(lines[-2000:])
+                                        os.replace(tmp_path, str(growth_log))
                                 except Exception:
                                     pass
                             await asyncio.to_thread(_write_and_rotate_growth_log)
@@ -1901,13 +1995,15 @@ class MessageProcessor:
                     def _write_and_rotate_gen_log():
                         with open(gen_log_path, 'a', encoding='utf-8') as glf:
                             glf.write(json.dumps(log_entry) + '\n')
-                        # Rotate: keep last 5000 entries
+                        # Rotate: keep last 5000 entries (atomic)
                         try:
                             with open(gen_log_path, 'r', encoding='utf-8') as glf:
                                 lines = glf.readlines()
                             if len(lines) > 5000:
-                                with open(gen_log_path, 'w', encoding='utf-8') as glf:
+                                tmp_path = gen_log_path + ".tmp"
+                                with open(tmp_path, 'w', encoding='utf-8') as glf:
                                     glf.writelines(lines[-5000:])
+                                os.replace(tmp_path, gen_log_path)
                         except Exception:
                             pass
                     await asyncio.to_thread(_write_and_rotate_gen_log)
