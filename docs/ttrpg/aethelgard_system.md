@@ -28,7 +28,7 @@ utils/ttrpg/
 ├── forest_events.py               ← 20 forest event handlers (Sylvan Sprites, Tonberry, etc.)
 ├── look_targets.py                ← Hardcoded "look at <thing>" flavor text per location
 ├── loot_tables.py                 ← Tier-aware loot drops from monsters and dungeon chests
-├── monster_registry.py            ← Full bestiary: 120+ monsters across 6 tiers
+├── monster_registry.py            ← Full bestiary: 339 monsters across 7 tiers
 ├── npc_registry.py                ← NPC definitions: Elara, Hemlock, Mira, Guard, Maren, Bard
 ├── progression.py                 ← XP thresholds, level-up, daily hunt reset, condition expiry
 ├── quest_registry.py              ← Quest definitions and lookup helpers
@@ -261,7 +261,7 @@ CHA modifier = `(CHA - 10) // 2` (standard TTRPG formula).
 Procedurally generated 5×5 grid, 9-12 rooms. Entered via button at hunting locations.
 
 ### The Spine of the World
-A massive 5-floor mega-dungeon located past Grimstone. Unlike procedural dungeons, the Spine features a fixed, hand-crafted 24x24 layout with intricate floor connectivity, static encounters, dynamic hallway traps, and unique bosses.
+A massive 77-floor mega-dungeon located past Grimstone. Unlike procedural dungeons, the Spine features a fixed, hand-crafted 24x24 layout with intricate floor connectivity, static encounters, dynamic hallway traps, and unique bosses.
 
 ### Room Types
 
@@ -289,18 +289,16 @@ Boss stats scale to player level: `0.45x at L1 → 1.0x at L15`. Dungeon Boss AT
 
 Recipes are discovered by picking up ingredients. Brewed at Sister Maren's Hut.
 
-| Recipe | Ingredients | Result | XP |
-|:--|:--|:--|:--|
-| Health Potion | Blood Thistle + Honey Sap | `potion_standard` (25 HP) | 20 |
-| Hi-Potion | Blood Thistle + Silver Moss | `hi_potion` (20 HP) | 30 |
-| Elixir | Silverleaf + Dire Root | `elixir` (30 HP) | 40 |
-| Antidote | Silver Moss + Dire Root | `antidote` | 25 |
-| Greater Antidote | Silver Moss + Opal | `panacea` | 45 |
-| Phoenix Brew | Silverleaf + Star Ruby | `phoenix_down` (50 HP) | 50 |
-| Experience Tonic | Silverleaf + Emerald | `xp_tonic` (+25% XP) | 35 |
-| Hunter's Draught | Dire Root + Topaz | `hunters_draught` (+1 Hunt) | 30 |
-| Ironbark Tonic | Dire Root + Pearl | `ironbark_tonic` (+2 DEF) | 30 |
-| Firebrew | Blood Thistle + Fire Opal | `firebrew` (+2 ATK) | 35 |
+| Recipe | Ingredients | Result |
+|:--|:--|:--|
+| Health Potion | Blood Thistle + Honey Sap | `potion_standard` (25 HP) |
+| Hi-Potion | Blood Thistle + Silver Moss | `hi_potion` (20 HP) |
+| Elixir | Silverleaf + Dire Root | `elixir` (30 HP) |
+| Phoenix Brew | Silverleaf + Star Ruby | `phoenix_down` (50 HP) |
+| Experience Tonic | Silverleaf + Emerald | `xp_tonic` (+25% XP) |
+| Hunter's Draught | Dire Root + Topaz | `hunters_draught` (+1 Hunt) |
+| Ironbark Tonic | Dire Root + Pearl | `ironbark_tonic` (+2 DEF) |
+| Firebrew | Blood Thistle + Fire Opal | `firebrew` (+2 ATK) |
 
 ---
 
@@ -400,12 +398,15 @@ NPC dialogue is LLM-generated using `build_npc_prompt()` with context: season, t
 |:--|:--|:--|:--|:--|
 | A Stranger in the Mud | Elara | 1 | Talk barkeep, hemlock, elara | 50 XP, 20 Gil |
 | The Darkening Woods | Guard | 3 | Hunt whisperwood_deep, talk guard | 150 XP, 100 Gil, lucky_charm |
-| Sister Maren's Request | Maren | 4 | Kill bandit, talk maren | 200 XP, 50 Gil, potion recipe |
-| The Aeridorian Signal | Valdric | 5 | Find signal in ruins | 300 XP, 100 Gil |
-| The Road to Iron | Elara | 7 | Travel to Grimstone, talk to Pell | 600 XP, 250 Gil |
-| The Final Silence | Valdric | 15 | Delve the Spine of the World | 2000 XP, 1500 Gil |
+| Sister Maren's Request | Maren | 4 | Kill bandit, talk maren | 200 XP, 50 Gil, potion recipe, silverleaf |
+| The Aeridorian Signal | Elara | 5 | Complete dungeon, talk elara | 500 XP, 200 Gil, lightstone |
+| What Sleeps Beneath | Guard | 7 | Kill frost_wolf, kill_owlbear, talk guard | 1200 XP, 350 Gil, ironbark_potion |
+| The Final Silence | Elara | 9 | Pray at shrine, complete dungeon, talk elara | 1500 XP, 500 Gil, amulet_health |
+| The Waking Metal | Elara | 11 | Kill iron_golem, talk elara | 2500 XP, 800 Gil, void_band |
+| The Darkening | Guard | 13 | Kill shadow_lich, talk guard | 3500 XP, 1500 Gil, mox_pearl |
+| The Last Guardian | Elara | 15 | Complete dungeon, talk elara | 5000 XP, 5000 Gil, the_end |
 
-*Note: This is a partial list. There are currently 13+ quests spanning levels 1 through 15.*
+*Note: This is the complete list of 9 quests currently active in the system, spanning levels 1 through 15.*
 
 ---
 

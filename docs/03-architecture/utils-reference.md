@@ -73,5 +73,5 @@ Core utility modules used by Kaiacord.
 | `spine_dungeon.py` | 77-floor mega-dungeon generation |
 | `class_advancement.py`| 10 advanced classes and proc logic |
 | `character_manager.py`| Per-user character sheet I/O (async, locked) |
-| `monster_registry.py` | 335 monster stat blocks |
+| `monster_registry.py` | 339 monster stat blocks |
 | `equipment_registry.py`| 447 items across 7 tiers |

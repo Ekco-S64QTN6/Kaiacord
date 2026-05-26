@@ -14,6 +14,7 @@ from utils.commands.reindex_handler import handle_reindex_command
 from utils.commands.art_handler import handle_art_command
 from utils.commands.sysmon_handler import handle_sysmon_command
 from utils.commands.rpg_handler import handle_rpg_command
+from utils.commands.memory_handler import handle_memory_cmd
 
 async def dispatch_command(ctx, msg, load_persona_async, send_kaia_response):
     """Route commands to the appropriate handler"""
@@ -31,8 +32,12 @@ async def dispatch_command(ctx, msg, load_persona_async, send_kaia_response):
         await handle_quip_command(ctx, msg)
         return True
         
-    if content.startswith("!dreams"):
+    if content.startswith("!dreams") or content.startswith("!dream"):
         await handle_dreams_command(ctx, msg, load_persona_async)
+        return True
+
+    if content.startswith("!memory"):
+        await handle_memory_cmd(ctx, msg, send_kaia_response)
         return True
         
     if content.startswith("!cache"):

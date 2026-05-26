@@ -60,24 +60,19 @@ class CoreTaskManager:
         @tasks.loop(hours=12)
         async def news_refresh_task():
             if shutdown_manager.shutting_down: return
+            
+            # Respect startup.news_update config on first run
+            if news_refresh_task.current_loop == 0:
+                cfg = getattr(self.ctx, 'config', config)
+                if not cfg.startup_news_update:
+                    log_info("Skipping startup news update (startup_news_update is False).")
+                    return
+                    
             try:
                 log_action("Running periodic news refresh...")
-                import os
-                from tools.maintenance.update_kaia_news import KaiaNewsUpdater
-                api_key = os.getenv("GEMINI_API_KEY")
-                if api_key:
-                    updater = KaiaNewsUpdater(api_key)
-                    await asyncio.to_thread(updater.run, skip_backfill=True)
-                    log_success("Periodic news refresh completed.")
-                else:
-                    log_warning("News refresh skipped: GEMINI_API_KEY not set.")
+                await self.run_news_update()
             except Exception as e:
                 log_error(f"News refresh task failed: {e}")
-                
-                error_str = str(e)
-                if "429" in error_str or "RESOURCE_EXHAUSTED" in error_str:
-                    log_error("CRITICAL: Gemini quota exhausted during news refresh. Kaia cannot ingest news today.")
-                    # Removed Discord channel alert to prevent spam loops during quota lockouts
 
         @news_refresh_task.error
         async def news_refresh_error(error):
@@ -1209,10 +1204,10 @@ class CoreTaskManager:
 
     def start(self):
         from utils.infrastructure.monitoring.async_task_registry import task_registry
-        # self.news_refresh_task.start()
+        self.news_refresh_task.start()
         # tasks.loop objects are not asyncio.Task, use get_task()
-        # if self.news_refresh_task.get_task():
-        #     task_registry.register("news_refresh_task", self.news_refresh_task.get_task())
+        if self.news_refresh_task.get_task():
+            task_registry.register("news_refresh_task", self.news_refresh_task.get_task())
         self.dream_engine_task.start()
         if self.dream_engine_task.get_task():
             task_registry.register("dream_engine_task", self.dream_engine_task.get_task())

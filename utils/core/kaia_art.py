@@ -20,37 +20,37 @@ VARIATIONS = [
     'rings', 'waves', 'eyefish', 'bubble', 'curl', 'ngon', 'bent', 'blur',
 ]
 
-def _var_linear(x, y):     return x, y
-def _var_sinusoidal(x, y): return np.sin(x), np.sin(y)
+def _var_linear(x, y, *args):     return x, y
+def _var_sinusoidal(x, y, *args): return np.sin(x), np.sin(y)
 
-def _var_spherical(x, y):
+def _var_spherical(x, y, *args):
     r2 = x**2 + y**2 + 1e-10
     return x / r2, y / r2
 
-def _var_swirl(x, y):
+def _var_swirl(x, y, *args):
     r2 = x**2 + y**2
     return x * np.sin(r2) - y * np.cos(r2), x * np.cos(r2) + y * np.sin(r2)
 
-def _var_horseshoe(x, y):
+def _var_horseshoe(x, y, *args):
     r = np.sqrt(x**2 + y**2) + 1e-10
     return (x - y) * (x + y) / r, 2 * x * y / r
 
-def _var_polar(x, y):
+def _var_polar(x, y, *args):
     r = np.sqrt(x**2 + y**2) + 1e-10
     theta = np.arctan2(y, x)
     return theta / np.pi, r - 1
 
-def _var_spiral(x, y):
+def _var_spiral(x, y, *args):
     r = np.sqrt(x**2 + y**2) + 1e-10
     theta = np.arctan2(y, x)
     return (np.cos(theta) + np.sin(r)) / r, (np.sin(theta) - np.cos(r)) / r
 
-def _var_hyperbolic(x, y):
+def _var_hyperbolic(x, y, *args):
     r = np.sqrt(x**2 + y**2) + 1e-10
     theta = np.arctan2(y, x)
     return np.sin(theta) / r, r * np.cos(theta)
 
-def _var_julia(x, y):
+def _var_julia(x, y, *args):
     """Classic Electric Sheep swirling organic tendrils."""
     r = np.sqrt(np.sqrt(x**2 + y**2) + 1e-10)
     theta = np.arctan2(y, x) * 0.5
@@ -58,25 +58,25 @@ def _var_julia(x, y):
     theta = theta + sign * np.pi * 0.5
     return r * np.cos(theta), r * np.sin(theta)
 
-def _var_disc(x, y):
+def _var_disc(x, y, *args):
     """Disc mapping — circular, mandala-like structures."""
     theta = np.arctan2(y, x) / np.pi
     r = np.pi * np.sqrt(x**2 + y**2)
     return theta * np.sin(r), theta * np.cos(r)
 
-def _var_heart(x, y):
+def _var_heart(x, y, *args):
     """Heart-shaped distortion."""
     r = np.sqrt(x**2 + y**2)
     theta = np.arctan2(y, x)
     return r * np.sin(theta * r), -r * np.cos(theta * r)
 
-def _var_diamond(x, y):
+def _var_diamond(x, y, *args):
     """Diamond/gem-like faceted shapes."""
     r = np.sqrt(x**2 + y**2) + 1e-10
     theta = np.arctan2(y, x)
     return np.sin(theta) * np.cos(r), np.cos(theta) * np.sin(r)
 
-def _var_rings(x, y):
+def _var_rings(x, y, *args):
     """Concentric ring patterns — halos and circles."""
     r = np.sqrt(x**2 + y**2)
     theta = np.arctan2(y, x)
@@ -84,23 +84,23 @@ def _var_rings(x, y):
     rmod = np.fmod(r + c2, 2 * c2) - c2 + r * (1 - c2)
     return rmod * np.cos(theta), rmod * np.sin(theta)
 
-def _var_waves(x, y):
+def _var_waves(x, y, *args):
     """Sine wave distortion — flowing, fabric-like."""
     return x + 0.5 * np.sin(y * 3.0), y + 0.5 * np.sin(x * 3.0)
 
-def _var_eyefish(x, y):
+def _var_eyefish(x, y, *args):
     """Wide-angle fisheye — organic bulging look."""
     r = np.sqrt(x**2 + y**2) + 1e-10
     factor = 2.0 / (r + 1.0)
     return factor * x, factor * y
 
-def _var_bubble(x, y):
+def _var_bubble(x, y, *args):
     """Spherical bubble distortion."""
     r2 = x**2 + y**2 + 1e-10
     factor = 4.0 / (r2 + 4.0)
     return factor * x, factor * y
 
-def _var_curl(x, y):
+def _var_curl(x, y, *args):
     """Smooth flowing curves like smoke."""
     c1, c2 = 0.5, 0.3
     t1 = 1 + c1 * x + c2 * (x**2 - y**2)
@@ -108,7 +108,7 @@ def _var_curl(x, y):
     denom = t1**2 + t2**2 + 1e-10
     return (x * t1 + y * t2) / denom, (y * t1 - x * t2) / denom
 
-def _var_ngon(x, y):
+def _var_ngon(x, y, *args):
     """Polygonal distortion — crystalline structures."""
     r = np.sqrt(x**2 + y**2) + 1e-10
     theta = np.arctan2(y, x)
@@ -119,14 +119,18 @@ def _var_ngon(x, y):
     factor = (np.cos(p / 2) / (np.cos(phi) + 1e-10)) / r
     return factor * x, factor * y
 
-def _var_bent(x, y):
+def _var_bent(x, y, *args):
     """Piecewise distortion — adds asymmetry."""
     return np.where(x >= 0, x, 2 * x), np.where(y >= 0, y, y / 2)
 
-def _var_blur(x, y):
-    """Soft glow fill variation."""
-    r = np.sqrt(np.abs(x * y) + 1e-10)
-    theta = np.arctan2(y, x) * 2
+def _var_blur(x, y, *args):
+    """True stochastic blur variation for soft glow backgrounds."""
+    N = len(x)
+    rng = args[0] if args else None
+    if rng is None:
+        rng = np.random.default_rng()
+    r = rng.uniform(0, 1, N)
+    theta = rng.uniform(0, 2 * np.pi, N)
     return r * np.cos(theta), r * np.sin(theta)
 
 _VARIATION_MAP = {
@@ -263,15 +267,23 @@ class FractalFlameRenderer:
 
     INTERNAL_RES = 1440
     OUTPUT_RES = 720
-    N_POINTS = 1_000_000
+    N_POINTS = 1_500_000
     N_WARMUP = 20
     N_ITERATIONS = 200
     DENSITY_SIGMA = 1.2
     GAMMA = 2.2
+    VIBRANCY = 1.0       # flam3 vibrancy: 1.0 = full color preservation
+    HIGHLIGHT_POWER = 0.5 # flam3 highlight power: controls bright area handling
+
+    MAX_RETRIES = 5
+    MIN_COVERAGE = 0.15  # At least 15% of pixels must have meaningful color
 
     def generate(self, seed=None, palette_name=None):
         """
-        Generate a fractal flame image.
+        Generate a fractal flame image with quality-aware retry.
+
+        Rejects sparse/black flames and retries with new random parameters
+        until coverage meets the minimum threshold (or max retries reached).
 
         Args:
             seed: Random seed for reproducibility. None = random.
@@ -280,7 +292,38 @@ class FractalFlameRenderer:
         Returns:
             (PIL.Image.Image, dict) — the rendered image and its parameter dict.
         """
-        return self._generate_single(seed, palette_name)
+        best_img, best_params, best_coverage = None, None, 0.0
+
+        for attempt in range(self.MAX_RETRIES):
+            # Only honor the user seed on the first attempt
+            attempt_seed = seed if attempt == 0 else None
+            img, params = self._generate_single(attempt_seed, palette_name)
+            coverage = self._measure_coverage(img)
+
+            if coverage > best_coverage:
+                best_img, best_params, best_coverage = img, params, coverage
+
+            if coverage >= self.MIN_COVERAGE:
+                if attempt > 0:
+                    log_info(f"[art] Passed quality gate on attempt {attempt + 1} "
+                             f"(coverage={coverage:.1%})")
+                return img, params
+
+            log_warning(f"[art] Attempt {attempt + 1}/{self.MAX_RETRIES}: "
+                        f"coverage={coverage:.1%} (below {self.MIN_COVERAGE:.0%} threshold), "
+                        f"retrying with new params...")
+
+        log_warning(f"[art] All {self.MAX_RETRIES} attempts below threshold — "
+                    f"returning best (coverage={best_coverage:.1%})")
+        return best_img, best_params
+
+    @staticmethod
+    def _measure_coverage(img):
+        """Measure what fraction of pixels are non-black (brightness > 10/255)."""
+        arr = np.array(img)
+        # Max across RGB channels per pixel
+        brightness = arr.max(axis=-1) if arr.ndim == 3 else arr
+        return float((brightness > 10).sum()) / brightness.size
 
     def _generate_single(self, seed=None, palette_name=None):
         """Internal generation logic for a single attempt."""
@@ -296,7 +339,8 @@ class FractalFlameRenderer:
         palette_fn = PALETTES[pal_name]
 
         # Choose symmetry
-        symmetry_k = int(rng.choice([1, 1, 3, 4, 5, 6]))
+        # Always use rotational symmetry — k=1 produces sparse, uninteresting flames
+        symmetry_k = int(rng.choice([3, 4, 5, 5, 6]))
 
         # Generate transforms
         n_transforms = int(rng.integers(2, 5))
@@ -419,8 +463,15 @@ class FractalFlameRenderer:
 
     # ── Internal Methods ──────────────────────────────────────────────────────
 
+    # Variations that produce dense, space-filling patterns
+    _DENSE_VARIATIONS = {'julia', 'swirl', 'waves', 'blur', 'eyefish', 'curl', 'linear'}
+
     def _random_transforms(self, rng, n_transforms=3):
-        """Generate variations matching true flam3 xml structure."""
+        """Generate variations matching true flam3 xml structure.
+        
+        Ensures at least one transform uses a 'dense' variation to prevent
+        degenerate all-contracting combos that produce sparse black images.
+        """
         transforms = []
         weights = np.abs(rng.standard_normal(n_transforms))
         weights /= weights.sum()
@@ -428,6 +479,10 @@ class FractalFlameRenderer:
         base_colors = np.linspace(0.05, 0.95, n_transforms)
         jitter = rng.uniform(-0.08, 0.08, n_transforms)
         color_values = np.clip(base_colors + jitter, 0, 1)
+
+        # Track which transform will get the forced dense variation
+        dense_target = int(rng.integers(n_transforms))
+        all_var_names = []
 
         for _idx in range(n_transforms):
             # Enforce strict contraction: scale must be < 1
@@ -450,10 +505,34 @@ class FractalFlameRenderer:
             # Pick 1-3 variations
             n_vars = int(rng.choice([1, 2, 2, 3]))
             var_names = list(rng.choice(VARIATIONS, size=n_vars, replace=False))
+            all_var_names.append(var_names)
             
             color_i = float(color_values[_idx])
 
-            transforms.append((affine, var_names, color_i, None))
+            # Optional post-transform: subtle secondary affine after variation
+            post_affine = None
+            if rng.random() < 0.4:
+                ps = float(rng.uniform(0.6, 1.0))  # mild scale
+                pa_angle = float(rng.uniform(0, 2 * np.pi))
+                pa_cos = ps * np.cos(pa_angle)
+                pa_sin = ps * np.sin(pa_angle)
+                pc = float(rng.uniform(-0.3, 0.3))
+                pf = float(rng.uniform(-0.3, 0.3))
+                post_affine = np.array([pa_cos, -pa_sin, pc, pa_sin, pa_cos, pf])
+
+            transforms.append((affine, var_names, color_i, post_affine))
+
+        # Guarantee at least one dense variation across all transforms
+        has_dense = any(
+            set(vn) & self._DENSE_VARIATIONS for vn in all_var_names
+        )
+        if not has_dense:
+            # Inject a dense variation into the target transform
+            dense_var = str(rng.choice(list(self._DENSE_VARIATIONS)))
+            old_affine, old_vars, old_color, old_post = transforms[dense_target]
+            new_vars = old_vars + [dense_var]
+            transforms[dense_target] = (old_affine, new_vars, old_color, old_post)
+            log_debug(f"[art] Injected dense variation '{dense_var}' into transform {dense_target}")
 
         return transforms, weights, rng.uniform(0.1, 0.4)
 
@@ -505,13 +584,13 @@ class FractalFlameRenderer:
                 var_fns = transforms[i][1]  # list of variation functions
                 xi, yi = xa[mask], ya[mask]
                 if len(var_fns) == 1:
-                    vx, vy = var_fns[0](xi, yi)
+                    vx, vy = var_fns[0](xi, yi, rng)
                 else:
                     # Equal-weight blend of all variations for this transform
                     vx = np.zeros(mask.sum())
                     vy = np.zeros(mask.sum())
                     for vfn in var_fns:
-                        fx, fy = vfn(xi, yi)
+                        fx, fy = vfn(xi, yi, rng)
                         vx += fx
                         vy += fy
                     vx /= len(var_fns)
@@ -564,14 +643,17 @@ class FractalFlameRenderer:
                     bounds_fitted = True
                     all_x = np.concatenate(bounds_sample_x)
                     all_y = np.concatenate(bounds_sample_y)
-                    p_lo_x, p_hi_x = np.percentile(all_x, [2, 98])
-                    p_lo_y, p_hi_y = np.percentile(all_y, [2, 98])
-                    pad_x = 0.1 * (p_hi_x - p_lo_x + 1e-10)
-                    pad_y = 0.1 * (p_hi_y - p_lo_y + 1e-10)
+                    # Tight viewport: 5th-95th percentile with 5% padding
+                    # This is the key to filling the canvas — real Electric Sheep
+                    # zooms in tight on the attractor, not loose like [2,98]
+                    p_lo_x, p_hi_x = np.percentile(all_x, [5, 95])
+                    p_lo_y, p_hi_y = np.percentile(all_y, [5, 95])
+                    pad_x = 0.05 * (p_hi_x - p_lo_x + 1e-10)
+                    pad_y = 0.05 * (p_hi_y - p_lo_y + 1e-10)
                     cx_f = (p_lo_x + p_hi_x) / 2
                     cy_f = (p_lo_y + p_hi_y) / 2
                     half = max(p_hi_x - p_lo_x + 2 * pad_x, p_hi_y - p_lo_y + 2 * pad_y) / 2
-                    half = max(half, 0.5)  # minimum viewport size
+                    half = max(half, 0.1)  # minimum viewport size
                     xmin, xmax = cx_f - half, cx_f + half
                     ymin, ymax = cy_f - half, cy_f + half
                     x_scale = W / (xmax - xmin)
@@ -623,7 +705,14 @@ class FractalFlameRenderer:
         b_flat += np.bincount(flat_idx, weights=rgb[:, 2], minlength=total_pixels)
 
     def _render(self, r_acc, g_acc, b_acc, alpha_acc, W, H):
-        """Render RGBA buffers to image: flam3 log-density, DE, gamma."""
+        """Render RGBA buffers to image using true flam3 tone mapping.
+        
+        Implements the actual flam3 rendering pipeline from rect.c/palettes.c:
+        1. Log-density mapping: ls = k1 * log(1 + density * k2) / density
+        2. Vibrancy-based gamma (preserves color saturation)
+        3. Adaptive density estimation (spatial glow for thin strands)
+        4. Subtle background tint (eliminates pure black)
+        """
         if alpha_acc.max() == 0:
             log_warning("[art] Empty histogram — all points escaped. Producing noise fallback.")
             rng = np.random.default_rng()
@@ -631,31 +720,84 @@ class FractalFlameRenderer:
             return Image.fromarray((noise * 60).astype(np.uint8))
 
         # Stack RGB buffers
-        rgb_acc = np.stack([r_acc, g_acc, b_acc], axis=-1)
+        rgb_acc = np.stack([r_acc, g_acc, b_acc], axis=-1)  # (H, W, 3)
 
-        # Step 1: True Flam3 Tone Mapping (No KDE Blur!)
-        log_alpha = np.log1p(alpha_acc)
-        scale = log_alpha / (alpha_acc + 1e-10)
+        # ── Step 1: Flam3 Log-Density Tone Mapping ────────────────────────────
+        # From rect.c line 993: ls = (k1 * log(1.0 + c[3] * k2)) / c[3]
+        # k1 controls brightness, k2 controls contrast/dynamic range.
+        # We use a self-calibrating contrast factor relative to the peak density
+        # to guarantee beautiful dynamic range compression on every render.
+        contrast = 200.0
+        k2 = contrast / (alpha_acc.max() + 1e-10)
+        k1 = 1.0  # brightness factor
+
+        log_alpha = np.log1p(alpha_acc * k2)
+        scale = (k1 * log_alpha) / (alpha_acc + 1e-10)
         rgb_mapped = rgb_acc * scale[..., np.newaxis]
-        
-        # Step 2: Brightness scaling
-        rgb_mapped_nonzero = rgb_mapped[alpha_acc > 0]
-        if len(rgb_mapped_nonzero) > 100:
-            v_max = np.percentile(rgb_mapped_nonzero, 99.9)
+
+        # ── Step 2: Adaptive Density Estimation (DE) ──────────────────────────
+        # Thin strands get wider blur → visible glow. Dense areas stay sharp.
+        nonzero_log = log_alpha[log_alpha > 0]
+        if len(nonzero_log) > 100:
+            density_p90 = np.percentile(nonzero_log, 90)
         else:
-            v_max = rgb_mapped.max()
-            
-        rgb_normalized = rgb_mapped / (v_max + 1e-10)
+            density_p90 = log_alpha.max()
+        density_norm = np.clip(log_alpha / (density_p90 + 1e-10), 0, 1)
 
-        # Step 3: Gamma correction (flam3 standard = 2.2)
+        # Multi-scale DE: wide kernel for sparse areas, narrow for structure
+        wide_blur = gaussian_filter(rgb_mapped, sigma=6.0, axes=(0, 1))
+        narrow_blur = gaussian_filter(rgb_mapped, sigma=1.5, axes=(0, 1))
+        sparse_weight = (1.0 - density_norm)[..., np.newaxis]
+        rgb_de = rgb_mapped + wide_blur * sparse_weight * 0.5 + narrow_blur * 0.2
+
+        # ── Step 3: Flam3 Vibrancy-Based Gamma ────────────────────────────────
+        # From palettes.c: vibrancy blends between per-channel gamma and
+        # alpha-channel gamma. vibrancy=1.0 preserves color saturation.
+        # alpha = pow(density_normalized, 1/gamma)
+        # vibrancy path:   color = vibrancy * alpha * color_normalized
+        # per-channel path: color = (1-vibrancy) * pow(channel, 1/gamma)
         gamma = self.GAMMA
-        rgb_gamma = np.power(np.clip(rgb_normalized, 0, 1), 1.0 / gamma)
+        vibrancy = self.VIBRANCY
+        g_inv = 1.0 / gamma
 
-        # Step 4: Subtle Bloom pass (Electric Sheep glow)
-        bloom = gaussian_filter(rgb_gamma, sigma=3.0, axes=(0, 1))
-        rgb_bloomed = np.clip(rgb_gamma + bloom * 0.15, 0, 1)
+        # Normalize to [0, 1] range
+        v_max_candidates = rgb_de[alpha_acc > 0]
+        if len(v_max_candidates) > 100:
+            v_max = np.percentile(v_max_candidates, 99.5)
+        else:
+            v_max = rgb_de.max()
+        rgb_norm = rgb_de / (v_max + 1e-10)
 
-        # Step 5: Supersampling downsample
-        img_high = Image.fromarray((rgb_bloomed * 255).astype(np.uint8))
+        # Alpha from density (how "opaque" this pixel is)
+        alpha_norm = np.clip(log_alpha / (log_alpha.max() + 1e-10), 0, 1)
+        alpha_gamma = np.power(alpha_norm, g_inv)
+
+        # Vibrancy blend (from flam3 palettes.c line 1206+1215)
+        # vibrancy path: multiply normalized color by alpha_gamma (preserves hue)
+        vib_color = vibrancy * rgb_norm * alpha_gamma[..., np.newaxis]
+        # Per-channel gamma path: apply gamma independently (can wash out)
+        chan_color = (1.0 - vibrancy) * np.power(np.clip(rgb_norm, 0, 1), g_inv)
+        # Blend
+        rgb_gamma = np.clip(vib_color + chan_color, 0, 1)
+
+        # ── Step 4: Bloom (Electric Sheep glow) ──────────────────────────────
+        bloom = gaussian_filter(rgb_gamma, sigma=4.0, axes=(0, 1))
+        rgb_bloomed = np.clip(rgb_gamma + bloom * 0.3, 0, 1)
+
+        # ── Step 5: Background tint ──────────────────────────────────────────
+        # Real Electric Sheep never has pure black backgrounds — there's always
+        # a subtle ambient glow from the DE spreading light everywhere.
+        # Add a very subtle background based on the overall image color.
+        mean_color = rgb_bloomed[alpha_acc > 0].mean(axis=0) if (alpha_acc > 0).any() else np.array([0.1, 0.05, 0.15])
+        bg_tint = mean_color * 0.03  # Very subtle, just kills pure black
+        # Only apply to truly empty pixels to avoid washing out detail
+        empty_mask = (alpha_acc == 0)[..., np.newaxis]
+        # Also fade in the tint for very low-density pixels
+        low_density = (alpha_gamma < 0.05)[..., np.newaxis]
+        rgb_final = rgb_bloomed + bg_tint * empty_mask.astype(float)
+        rgb_final = np.clip(rgb_final, 0, 1)
+
+        # ── Step 6: Supersampling downsample ─────────────────────────────────
+        img_high = Image.fromarray((rgb_final * 255).astype(np.uint8))
         img_out = img_high.resize((self.OUTPUT_RES, self.OUTPUT_RES), Image.LANCZOS)
         return img_out

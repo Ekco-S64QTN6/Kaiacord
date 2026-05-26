@@ -144,7 +144,7 @@ class RealTimeStatsPoller:
             # Prefer api/ps to see what's actually running
             req_ps = urllib.request.Request("http://127.0.0.1:11434/api/ps")
             try:
-                with urllib.request.urlopen(req_ps, timeout=1.0) as response:
+                with urllib.request.urlopen(req_ps, timeout=5.0) as response:
                     data = json.loads(response.read().decode('utf-8'))
                     running_models = data.get('models', [])
                     new_stats['ollama_status'] = "🟢 ONLINE"
@@ -211,6 +211,11 @@ class RealTimeStatsPoller:
                         else:
                             new_stats['active_model'] = "Active (VRAM high)"
             except urllib.error.HTTPError as e:
+                try:
+                    from utils.infrastructure.logging.kaia_logger import log_debug
+                    log_debug(f"Ollama check HTTPError: {e}")
+                except Exception:
+                    pass
                 new_stats['ollama_status'] = f"🟡 ERR {e.code}"
                 if e.code == 500:
                      new_stats['active_model'] = "Loading System RAM"
@@ -218,44 +223,74 @@ class RealTimeStatsPoller:
                 else:
                      new_stats['active_model'] = "Error"
                      new_stats['ollama_models'] = []
+            except Exception as e:
+                try:
+                    from utils.infrastructure.logging.kaia_logger import log_debug
+                    log_debug(f"Ollama check inner exception: {e}", exc_info=True)
+                except Exception:
+                    pass
+                new_stats['ollama_status'] = "🔴 OFFLINE"
+                new_stats['active_model'] = "None"
+                new_stats['ollama_models'] = []
+        except Exception as e:
+            try:
+                from utils.infrastructure.logging.kaia_logger import log_debug
+                log_debug(f"Ollama check outer exception: {e}", exc_info=True)
             except Exception:
-                 new_stats['ollama_status'] = "🔴 OFFLINE"
-                 new_stats['active_model'] = "None"
-                 new_stats['ollama_models'] = []
-        except Exception:
-             new_stats['ollama_status'] = "🔴 OFFLINE"
-             new_stats['active_model'] = "None"
-             new_stats['ollama_models'] = []
+                pass
+            new_stats['ollama_status'] = "🔴 OFFLINE"
+            new_stats['active_model'] = "None"
+            new_stats['ollama_models'] = []
 
         # 4. Custom Kaia File Stats (Throttled to every 30s)
         current_time = time.time()
         if current_time - getattr(self, 'last_file_stats_update', 0) > 30:
+            # KB/RAG Size
             try:
-                # KB Size (knowledge_base + memory/rag_storage)
                 kb_path = "knowledge_base"
                 rag_path = "memory/rag_storage"
                 total_size = 0
                 for path in [kb_path, rag_path]:
-                    if os.path.exists(path):
-                        for dirpath, _, filenames in os.walk(path):
-                            for f in filenames:
-                                fp = os.path.join(dirpath, f)
-                                if not os.path.islink(fp):
-                                    total_size += os.path.getsize(fp)
+                    try:
+                        if os.path.exists(path):
+                            for dirpath, _, filenames in os.walk(path):
+                                for f in filenames:
+                                    fp = os.path.join(dirpath, f)
+                                    try:
+                                        if not os.path.islink(fp):
+                                            total_size += os.path.getsize(fp)
+                                    except (FileNotFoundError, OSError):
+                                        pass
+                    except Exception as e:
+                        try:
+                            from utils.infrastructure.logging.kaia_logger import log_debug
+                            log_debug(f"KB walk error for {path}: {e}")
+                        except Exception:
+                            pass
                 new_stats['kb_size_mb'] = total_size / (1024 * 1024)
                 new_stats['rag_size'] = f"{new_stats['kb_size_mb']:.1f} MB"
-                
-                # Dreams Count: Count actual .md files in kaia_dreams subdirectories
+            except Exception as e:
+                new_stats['kb_size_mb'] = 0.0
+                new_stats['rag_size'] = "0 MB"
+
+            # Dreams Count
+            try:
                 dreams_kb_path = "knowledge_base/kaia_dreams"
                 total_dreams = 0
                 if os.path.exists(dreams_kb_path):
                     for subdir in ['books', 'interactions', 'injected', 'other']:
                         sub_path = os.path.join(dreams_kb_path, subdir)
                         if os.path.exists(sub_path):
-                            total_dreams += len([f for f in os.listdir(sub_path) if f.startswith('dream_') and f.endswith('.md')])
+                            try:
+                                total_dreams += len([f for f in os.listdir(sub_path) if f.startswith('dream_') and f.endswith('.md')])
+                            except (FileNotFoundError, OSError):
+                                pass
                 new_stats['dreams_count'] = total_dreams
-                
-                # Indexed Files — reads file_manifest.json (or legacy indexed_files.json)
+            except Exception:
+                new_stats['dreams_count'] = 0
+
+            # Indexed Files — reads file_manifest.json (or legacy indexed_files.json)
+            try:
                 indexed_path = "memory/rag_storage/file_manifest.json"
                 if not os.path.exists(indexed_path):
                     indexed_path = "memory/rag_storage/indexed_files.json"
@@ -263,8 +298,13 @@ class RealTimeStatsPoller:
                     with open(indexed_path, 'r', encoding='utf-8') as f:
                         indexed_data = json.load(f)
                         new_stats['indexed_files'] = len(indexed_data)
-                
-                # Count beliefs
+                else:
+                    new_stats['indexed_files'] = 0
+            except Exception:
+                new_stats['indexed_files'] = 0
+
+            # Count beliefs
+            try:
                 beliefs_path = "memory/beliefs.json"
                 if os.path.exists(beliefs_path):
                     with open(beliefs_path, 'r', encoding='utf-8') as f:
@@ -272,37 +312,43 @@ class RealTimeStatsPoller:
                         new_stats['beliefs_count'] = len(beliefs_data)
                 else:
                     new_stats['beliefs_count'] = 0
-                    
-                # Count anchors
-                anchors_path = "memory/memory_anchors.json"
+            except Exception:
+                new_stats['beliefs_count'] = 0
+
+            # Count anchors
+            try:
+                anchors_path = "memory/anchors.json"
                 if os.path.exists(anchors_path):
                     with open(anchors_path, 'r', encoding='utf-8') as f:
                         anchors_data = json.load(f)
                         new_stats['anchors_count'] = len(anchors_data)
                 else:
                     new_stats['anchors_count'] = 0
-                    
-                # Count relationships
+            except Exception:
+                new_stats['anchors_count'] = 0
+
+            # Count relationships
+            try:
                 rel_dir = "memory/relationships"
                 if os.path.exists(rel_dir):
                     new_stats['relationship_count'] = len([f for f in os.listdir(rel_dir) if f.endswith('.json')])
                 else:
                     new_stats['relationship_count'] = 0
-                
-                # Log File Size
+            except Exception:
+                new_stats['relationship_count'] = 0
+
+            # Log File Size
+            try:
                 log_path = "logs/kaiacord.log"
                 if os.path.exists(log_path):
                     new_stats['log_size_mb'] = os.path.getsize(log_path) / (1024 * 1024)
                 else:
                     new_stats['log_size_mb'] = 0.0
-                
-                self.last_file_stats_update = current_time
-            except Exception as e:
-                try:
-                    from utils.infrastructure.logging.kaia_logger import log_debug
-                    log_debug(f"File stats error: {e}")
-                except Exception:
-                    pass
+            except Exception:
+                new_stats['log_size_mb'] = 0.0
+
+            # Set self.last_file_stats_update so it is throttled correctly
+            self.last_file_stats_update = current_time
             
         # Always update uptime (calculated from poller start time)
         new_stats['uptime_minutes'] = (time.time() - self.start_time) / 60

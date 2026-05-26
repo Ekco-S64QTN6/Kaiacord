@@ -8,6 +8,7 @@ Knowledge Source Provenance Display
 
 import os
 import time
+import discord
 from datetime import datetime
 from utils.infrastructure.logging.kaia_logger import log_info
 
@@ -16,16 +17,23 @@ async def handle_explain_command(ctx, msg, send_kaia_response):
     """Handle the !explain command — display provenance of last RAG retrieval."""
     rag = ctx.rag
     if not rag:
-        await send_kaia_response(msg.channel, "RAG system not available.")
+        embed = discord.Embed(
+            title="📚  PROVENANCE ERROR",
+            description="RAG retrieval system is currently unavailable.",
+            color=0xcc4444
+        )
+        await msg.channel.send(embed=embed)
         return
 
     results = getattr(rag, '_last_retrieval_results', [])
 
     if not results:
-        await send_kaia_response(
-            msg.channel,
-            "No recent retrieval to explain. Ask me something first."
+        embed = discord.Embed(
+            title="📚  KNOWLEDGE SOURCE PROVENANCE",
+            description="No recent retrieval to explain. Ask me something first.",
+            color=0x5f5caf
         )
+        await msg.channel.send(embed=embed)
         return
 
     # --- Pre-resolve summary values ---
@@ -62,33 +70,34 @@ async def handle_explain_command(ctx, msg, send_kaia_response):
     else:
         sm_status = "inactive"
 
-    # --- Build output ---
+    # --- Build Embed ---
+
+    embed = discord.Embed(
+        title="📚  KNOWLEDGE SOURCE PROVENANCE",
+        description=f"Confidence rating: **{confidence:.2f} ({conf_label})** · Showing top {min(8, len(results))} of {len(results)} nodes.",
+        color=0x10b981
+    )
 
     # Show top 8 sources instead of 5
     top_results = results[:8]
 
-    lines = [
-        f"📚 PROVENANCE  {len(results)} nodes retrieved  |  Confidence: {confidence:.2f} ({conf_label})",
-        f"{'─' * 56}",
-    ]
-
     for i, node in enumerate(top_results, 1):
         metadata = node.get("metadata", {})
         score    = node.get("score", 0.0)
-        label    = node.get("label", "Unknown")
         source_type       = metadata.get("source_type", "unknown")
         retrieval_method  = metadata.get("retrieval_method", "unknown")
         audit_flags       = metadata.get("audit_flags", [])
         file_path         = metadata.get("file_path", "")
         basename          = os.path.basename(file_path) if file_path else "unknown"
 
-        flag_str = f"  ⚑ {', '.join(audit_flags)}" if audit_flags else ""
-        lines.append(f" #{i:<2} {score:.3f} [{retrieval_method.upper():<6}]  {basename}  [{source_type}]{flag_str}")
+        flag_str = f"\n⚑ {', '.join(audit_flags)}" if audit_flags else ""
+        embed.add_field(
+            name=f"#{i}  Score: {score:.3f} ({retrieval_method.upper()})",
+            value=f"📄 `{basename}`\nType: `{source_type}`{flag_str}",
+            inline=True
+        )
 
-    lines += [
-        f"{'─' * 56}",
-        f"Range: {recency_info}  |  Self-model: {sm_status}",
-    ]
+    embed.set_footer(text=f"Range: {recency_info}  ·  Self-model: {sm_status}")
 
-    await send_kaia_response(msg.channel, "\n".join(lines))
+    await msg.channel.send(embed=embed)
     log_info(f"Provenance display shown for {msg.author.name}")

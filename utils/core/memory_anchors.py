@@ -22,7 +22,7 @@ from datetime import datetime
 from utils.infrastructure.logging.kaia_logger import log_debug, log_info, log_warning
 
 ANCHORS_PATH = os.path.join("memory", "anchors.json")
-MAX_ANCHORS = 100
+MAX_ANCHORS = 50
 DECAY_RATE = 0.1        # weight reduction per 30-day period
 DECAY_PERIOD = 30 * 86400  # 30 days in seconds
 MATCH_THRESHOLD = 0.15  # minimum overlap score to trigger injection

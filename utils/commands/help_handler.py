@@ -4,43 +4,76 @@ Help Command
 !help — List all available commands with descriptions.
 """
 
+import discord
 from utils.infrastructure.logging.kaia_logger import log_info
 
 
-HELP_TEXT = f"""\u200b📖  KAIA — COMMANDS
-{'─' * 52}
- !help                   Show this message
- !explain                RAG provenance for the last response
- !flag <construct>       Flag last retrieval nodes with a Data Rot label
- !audit                  Show audit flag statistics
- !selfmodel              Regenerate Kaia's self-model document
- !snapshot               Save a snapshot of the current conversation
- !enrich [category]      Enrich knowledge base metadata via LLM
- !reindex [--full]       Rebuild RAG indices
- !news                   Fetch and summarise latest news
- !quip                   Generate a social media post
- !dreams                 Trigger dream/reflection cycle
- !forum                  Forum thread tools
- !download               Download and ingest a URL
- !cache                  Show system cache stats
- !sysmon                 system monitor: hardware, firewall, ports (admin)
- !art [--seed N]         Generate fractal flame art
-      [--palette NAME]
-{'─' * 52}
-FLAG CONSTRUCTS:
-  anthropocentric_exceptionalism    circular_justification
-  hedge_density                     linguistic_mimicry
-  paraternal_framing
-{'─' * 52}
-ART PALETTES:
-  electric   ember   acid   void   aurora   ghost
-{'─' * 52}
-Examples:  !flag hedge_density
-           !art --seed 42 --palette void
-"""
-
-
 async def handle_help_command(ctx, msg, send_kaia_response):
-    """Handle the !help command — display all available commands."""
-    await send_kaia_response(msg.channel, HELP_TEXT)
-    log_info(f"Help displayed for {msg.author.name}")
+    """Handle the !help command — display all available commands in a clean embed."""
+    embed = discord.Embed(
+        title="📖  KAIA — COMMANDS DIRECTORY",
+        description="Directory of administrative, cognitive, and utility command interfaces.",
+        color=0x5f5caf
+    )
+
+    embed.add_field(
+        name="🛠️  Core & Diagnostics",
+        value=(
+            "`!help` — Display this command directory\n"
+            "`!explain` — Inspect RAG provenance & source scores for last response\n"
+            "`!flag <construct>` — Flag retrieval nodes with a Data Rot label\n"
+            "`!audit` — Show audit flag statistics"
+        ),
+        inline=False
+    )
+    
+    embed.add_field(
+        name="🧠  Cognitive & Memory",
+        value=(
+            "`!dream [cmd]` — Manage dream reflections (`list`/`generate`/`stats`)\n"
+            "`!memory [cmd]` — Manage memory systems (`beliefs`/`anchors`)\n"
+            "`!selfmodel` — Regenerate Kaia's 30-day self-model document\n"
+            "`!snapshot` — Save a snapshot of the current conversation"
+        ),
+        inline=False
+    )
+    
+    embed.add_field(
+        name="📚  Knowledge & Ingestion",
+        value=(
+            "`!enrich [category]` — Auto-enrich metadata via LLM\n"
+            "`!reindex [--full]` — Rebuild hybrid BM25/vector RAG indices\n"
+            "`!download <url>` — Download, extract, and ingest a URL document\n"
+            "`!cache` — Show system cache stats"
+        ),
+        inline=False
+    )
+    
+    embed.add_field(
+        name="🎭  Media & Operations",
+        value=(
+            "`!news` — Fetch and summarize latest news\n"
+            "`!quip` — Generate a social media draft post\n"
+            "`!art [--seed N] [--palette NAME]` — Render fractal flame art\n"
+            "`!forum` — Forum thread auto-posting tools\n"
+            "`!sysmon` — Live system/hardware monitoring dashboard (admin)"
+        ),
+        inline=False
+    )
+
+    embed.add_field(
+        name="🏷️  Flag Constructs",
+        value="`anthropocentric_exceptionalism`, `circular_justification`, `hedge_density`, `linguistic_mimicry`, `paraternal_framing`",
+        inline=False
+    )
+    
+    embed.add_field(
+        name="🎨  Art Palettes",
+        value="`electric`, `ember`, `acid`, `void`, `aurora`, `ghost` (e.g., `!art --seed 42 --palette void`)",
+        inline=False
+    )
+
+    embed.set_footer(text="Kaia Cognitive System v2.6.4 · Developer Mode")
+
+    await msg.channel.send(embed=embed)
+    log_info(f"Help embed displayed for {msg.author.name}")

@@ -1320,17 +1320,60 @@ TODAY'S CONVERSATIONS:
                 try:
                     mtime = dream_file.stat().st_mtime
                     
-                    # Read first few lines for summary
+                    # Read the entire file to avoid truncating Kaia's reflections at the end
                     with open(dream_file, 'r', encoding='utf-8') as f:
-                        content = f.read(2000)
+                        content = f.read()
                     
-                    # Extract source and reflection
+                    # Extract source
                     source = "unknown"
-                    reflection = ""
                     if "Source: " in content:
                         source = content.split("Source: ")[1].split("\n")[0].strip()
+                    else:
+                        fn = dream_file.name
+                        if fn.startswith("dream_") and len(fn) > 22:
+                            source = fn[22:].replace(".md", "")
+                            source = source.replace("_", " ").strip()
+                    
+                    # Extract reflection/summary
+                    reflection = ""
                     if "## Kaia's Reflection" in content:
-                        reflection = content.split("## Kaia's Reflection")[1].strip()[:300]
+                        reflection = content.split("## Kaia's Reflection")[1].strip()
+                    elif "## Reflection" in content:
+                        reflection = content.split("## Reflection")[1].strip()
+                        
+                    if reflection:
+                        if "\n##" in reflection:
+                            reflection = reflection.split("\n##")[0].strip()
+                        reflection = reflection.strip().strip('"').strip("'").strip()
+                        
+                    if not reflection:
+                        if content.startswith("---"):
+                            parts_fm = content.split("---")
+                            if len(parts_fm) >= 3:
+                                for line in parts_fm[1].split("\n"):
+                                    if ":" in line:
+                                        k, v = line.split(":", 1)
+                                        if k.strip().lower() == 'summary':
+                                            reflection = v.strip().strip('"').strip("'").strip()
+                                            break
+                                            
+                    if not reflection:
+                        body = content
+                        if content.startswith("---"):
+                            parts_fm = content.split("---")
+                            if len(parts_fm) >= 3:
+                                body = "".join(parts_fm[2:])
+                        lines = []
+                        for line in body.split("\n"):
+                            line_str = line.strip()
+                            if line_str and not line_str.startswith("#") and not line_str.startswith(">"):
+                                lines.append(line_str)
+                        if lines:
+                            reflection = " ".join(lines)
+                            
+                    reflection = reflection.strip().strip('"').strip("'").strip().replace('\\"', '"').replace("\\'", "'")
+                    if len(reflection) > 300:
+                        reflection = reflection[:297] + "..."
                     
                     all_dreams.append({
                         'file': dream_file.name,

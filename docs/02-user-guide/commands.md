@@ -67,7 +67,7 @@ Manages Kaia's autonomous Dream Mode — nightly processing of daily interaction
 ### 🧠 Memory (`!memory`)
 Manages Kaia's persistent memory systems.
 - `!memory beliefs` — View current beliefs (50-cap)
-- `!memory anchors` — View episodic memory anchors (100-cap)
+- `!memory anchors` — View episodic memory anchors (50-cap)
 
 ### 🪞 Self-Model (`!selfmodel`)
 Regenerates Kaia's self-model — a 30-day synthesis of interaction logs into `kaia_self_model.md`.

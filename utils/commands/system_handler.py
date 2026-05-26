@@ -1,7 +1,7 @@
+import discord
 from utils.infrastructure.logging.kaia_logger import log_action
 
 async def handle_cache_command(ctx, msg):
-    """Reflect that cache is decommissioned."""
     """Handle the !cache command (Admin only)"""
     # Owner exemption - uses configurable owner_ids from config
     is_owner = ctx.config.is_owner(msg.author.name, msg.author.display_name, str(msg.author.id))
@@ -14,7 +14,17 @@ async def handle_cache_command(ctx, msg):
     subcommand = parts[1].lower() if len(parts) > 1 else "stats"
     
     if "clear" in msg.content.lower().split():
-        await msg.channel.send("⚠️ **Semantic Cache is decommissioned.** No data to clear.")
+        embed = discord.Embed(
+            title="⚠️  SEMANTIC CACHE DECOMMISSIONED",
+            description="No data to clear. The cache database is offline.",
+            color=0xeab308
+        )
+        await msg.channel.send(embed=embed)
         return
         
-    await msg.channel.send("⚠️ **Semantic Cache has been permanently disabled.** All responses are now generated in real-time for maximum reliability.")
+    embed = discord.Embed(
+        title="⚠️  SEMANTIC CACHE DECOMMISSIONED",
+        description="Semantic Cache has been permanently disabled.\nAll responses are now generated in real-time for maximum reliability.",
+        color=0xeab308
+    )
+    await msg.channel.send(embed=embed)
