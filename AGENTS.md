@@ -209,7 +209,7 @@ Registry files (like `equipment_registry.py`) contain both large data dictionari
 - Every monster key used in `ENCOUNTER_TABLES` MUST have a matching entry in `MONSTERS`
 - Shop stock lists (`HEMLOCK_STOCK_*`, `PELLS_STOCK_*`) are manually maintained — new buyable items need both the item dict AND the stock list updated
 - Equipment stat budgets by tier: See `docs/ttrpg/CLAUDE_REPORT.md` for current balance targets. Do not add items that exceed tier budgets without updating the documentation first
-- Current counts: **335 monsters** (37 boss-tier), **447 active unique equipment items** across 7 tiers
+- Current counts: **339 monsters** (37 boss-tier), **447 active unique equipment items** across 7 tiers
 
 ### Kaia Cognitive Pipeline
 - **All 26 behavioral features** (tone mirroring, time-of-day, conversational fatigue, relationship stages, mood vector, monologue, memory anchors, conversational stance, etc.) are lightweight system prompt injections in `message_processor.py`. They do NOT call the LLM — they're pure Python heuristics.
@@ -243,6 +243,8 @@ Kaia utilizes multiple distinct LLM call paths depending on the context. Do not 
 - **Modifying the Wrong Pipeline**: Do not modify `message_processor.py` for behaviors intended to affect background or automated tasks (forums, social media, dreams) that bypass `MessageProcessor` entirely. Always trace the actual `ollama_client` call path.
 - **Prompt Instruction Stacking**: Avoid solving generation issues by endlessly adding prompt instructions (such as contradictory negative constraints or style rules) on top of each other. This results in instruction overload, leading the LLM to leak/echo instructions in its output. Instead, refine the prompt architecture and split system instructions from user inputs.
 - **Ignoring User Feedback/Corrections**: If the user states a fix did not work, do not blame the bot not restarting or double down on assumptions. Stop and re-verify the active call path and check if the code you modified is actually imported and executed in that path.
+- **Scope Creep & Instruction Disobedience**: If a prompt states that your output is updating a specific file (e.g. `docs/reports/Claude_Report.md`), do NOT modify any other files in the codebase (such as logic, registries, or configs). Document findings and proposed fixes inside the report as requested, but do not apply them to the codebase unless the user explicitly requests you to execute the fix.
+
 
 ### Logging & Monitor Standards
 - **Live Log Elevation**: Core cognitive actions (monologue generation, dream summaries, belief shifts, episodic anchor formations), scraper operations, and emotional vector changes must use `log_info` or `log_warning` to ensure visibility in the live curses dashboard panel.
@@ -278,7 +280,7 @@ See `docs/reports/Claude_Report.md` for the latest production audit and `docs/tt
 **System health: A-tier. All subsystems operational. Both the TTRPG and Kaia cognitive pipeline are production-stable.**
 
 Key facts:
-- 335 monsters (37 boss-tier), 447 active unique equipment items across 7 tiers
+- 339 monsters (37 boss-tier), 447 active unique equipment items across 7 tiers
 - 9 quests covering L1–L15 (thin at L8–L10)
 - 10 advanced classes with unique procs and passives
 - 77-floor Spine of the World mega-dungeon with Resonance Lift checkpoints

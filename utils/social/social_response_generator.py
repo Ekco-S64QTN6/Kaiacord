@@ -401,7 +401,7 @@ Guidelines:
         
         response = await gpu_memory_manager.run_with_gpu_guard(
             model_name=config.chat_model,
-            priority=GPUTaskPriority.SOCIAL,
+            priority=GPUTaskPriority.CHAT,
             coro=asyncio.wait_for(
                 ollama_client.chat(
                     model=config.chat_model,

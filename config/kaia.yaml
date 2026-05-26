@@ -59,4 +59,4 @@ performance:
       knowledge: -0.20
 
 forum:
-  auto_scrape: true
+  auto_scrape: false

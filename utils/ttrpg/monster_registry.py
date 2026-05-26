@@ -1084,11 +1084,35 @@ MONSTERS = {
         "xp": 500, "gil": 150, "tier": "hard",
         "desc": "A vulture-headed demon of greed. Its screech can stun those who witness its horrific dance.",
     },
+    "dire_wolf": {
+        "name": "Dire Wolf",
+        "hp": 65, "attack": 10, "defense": 12,
+        "xp": 95, "gil": 15, "tier": "hard",
+        "desc": "A wolf the size of a horse. Matted black fur, yellow eyes, and a jaw that can snap bone. Hunts the deep Whisperwood alone. Not the pack animal its smaller cousins are.",
+    },
 
     # ══════════════════════════════════════════════════════
     # TIER: DEADLY  (Level 10+)
     # ══════════════════════════════════════════════════════
 
+    "wraith": {
+        "name": "Wraith",
+        "hp": 120, "attack": 16, "defense": 15,
+        "xp": 400, "gil": 0, "tier": "deadly",
+        "desc": "A shadow given hunger. It passes through walls and armor alike. Cold radiates from it in waves. What it touches, it drains.",
+    },
+    "stone_golem": {
+        "name": "Greater Stone Golem",
+        "hp": 180, "attack": 14, "defense": 18,
+        "xp": 450, "gil": 0, "tier": "deadly",
+        "desc": "An Aeridorian war construct carved from resonance-hardened granite. Twice the size of the common golem. Each fist strike sends shockwaves through the floor.",
+    },
+    "clockwork_guard": {
+        "name": "Clockwork Guard",
+        "hp": 160, "attack": 15, "defense": 16,
+        "xp": 420, "gil": 45, "tier": "deadly",
+        "desc": "An Aeridorian automaton still running on ancient gears and resonance. Its halberd arm never tires. Its patrol route hasn't changed in a thousand years.",
+    },
     "behemoth": {
         "name": "Behemoth",
         "hp": 250, "attack": 17, "defense": 17,
