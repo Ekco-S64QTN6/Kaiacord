@@ -21,21 +21,25 @@ replace_all_logging()
 LOG_DIR = Path("knowledge_base/user_logs")
 MODEL   = "gemma3:12b"
 
-PROMPT_TEMPLATE = """You are a data extraction utility. Read the interaction logs below and write a user profile in plain markdown.
+PROMPT_TEMPLATE = """You are Kaia's memory synthesis engine. Analyze these interaction logs and write my internal, first-person memories of this user.
 
 USER: {username}
 LOGS:
 {log_content}
 
-Write the profile under these headings (use ## for each):
+Write my memories under these headings (use ## for each):
 ## Interests & Topics
+(What interests me about this user or what topics do we discuss?)
 ## Communication Style
+(How do they communicate with me? Tone, quirks, or patterns I've noticed.)
 ## Notable Opinions or Beliefs
-## Relationship with Kaia
+(What does this user believe or advocate for based on our discussions?)
+## Relationship with Me
+(How do I feel about my relationship with this user? Am I close to them, skeptical, or still warming up?)
 ## QUICK REFERENCE
-(2-3 sentence summary Kaia can use at a glance)
+(A 2-3 sentence internal summary I can use at a glance to remember who they are)
 
-Output ONLY the profile markdown. No preamble, no commentary."""
+Write entirely from my perspective (first-person singular: "I", "me", "my"). Refer to the user as "{username}". Output ONLY the profile markdown. No preamble, no commentary."""
 
 
 async def generate_profile(user_dir: Path, dry_run: bool = False) -> bool:

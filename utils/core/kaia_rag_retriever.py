@@ -152,15 +152,20 @@ class HybridRetriever:
 
         # Vector RRF
         for rank, node_with_score in enumerate(vector_nodes):
-            node_id = node_with_score.node.node_id
-            node_map[node_id] = node_with_score.node
-            combined_scores[node_id] = combined_scores.get(node_id, 0) + alpha / (rank + 60)
+            node = node_with_score.node
+            node_id = node.node_id
+            node_map[node_id] = node
+            q_score = node.metadata.get("quality_score", 0.5) if isinstance(node.metadata, dict) else 0.5
+            boost = 1.0 + 0.15 * q_score
+            combined_scores[node_id] = combined_scores.get(node_id, 0) + (alpha / (rank + 60)) * boost
 
         # BM25 RRF
         for rank, (node, _) in enumerate(bm25_results):
             node_id = node.node_id
             node_map[node_id] = node
-            combined_scores[node_id] = combined_scores.get(node_id, 0) + (1 - alpha) / (rank + 60)
+            q_score = node.metadata.get("quality_score", 0.5) if isinstance(node.metadata, dict) else 0.5
+            boost = 1.0 + 0.15 * q_score
+            combined_scores[node_id] = combined_scores.get(node_id, 0) + ((1 - alpha) / (rank + 60)) * boost
 
         # 4. Efficient top_k selection via heapq
         top_items = heapq.nlargest(top_k, combined_scores.items(), key=lambda x: x[1])

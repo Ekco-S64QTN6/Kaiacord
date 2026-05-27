@@ -55,6 +55,7 @@ class CoreTaskManager:
         # Project 1999 Off-Topic Automated Posting
         self.forum_auto_post_task = self._make_forum_auto_post_task()
         self.forum_tech_support_task = self._make_forum_tech_support_task()
+        self.observation_digest_task = self._make_observation_digest_task()
         
     def _make_news_refresh_task(self):
         @tasks.loop(hours=12)
@@ -1192,6 +1193,33 @@ class CoreTaskManager:
             else:
                 log_warning("Integrated news update skipped: GEMINI_API_KEY not set.")
             
+            # Run daily tech news aggregator
+            try:
+                tech_scraper_path = os.path.join(
+                    os.path.dirname(os.path.dirname(os.path.dirname(os.path.abspath(__file__)))),
+                    "tools", "maintenance", "scrape_tech_news.py"
+                )
+                log_action("Running daily tech news aggregator...")
+                tech_process = await asyncio.create_subprocess_exec(
+                    sys.executable, tech_scraper_path,
+                    stdout=asyncio.subprocess.PIPE,
+                    stderr=asyncio.subprocess.PIPE,
+                    env=os.environ.copy()
+                )
+                ts_stdout, ts_stderr = await tech_process.communicate()
+                if tech_process.returncode == 0:
+                    log_success("Daily tech news aggregator completed successfully.")
+                    if ts_stdout:
+                        for line in ts_stdout.decode().splitlines():
+                            if line.strip(): log_debug(f"[TechNews] {line}")
+                else:
+                    log_error(f"Daily tech news aggregator failed with return code {tech_process.returncode}")
+                    if ts_stderr:
+                        for line in ts_stderr.decode().splitlines():
+                            if line.strip(): log_error(f"[TechNews] {line}")
+            except Exception as e:
+                log_error(f"Failed to execute tech news aggregator: {e}")
+            
             from utils.core.rag_executor import run_rag as run_rag_func
             if self.ctx.rag:
                 await run_rag_func(self.ctx.rag.refresh_knowledge_base)
@@ -1201,6 +1229,153 @@ class CoreTaskManager:
             log_success("Integrated news update completed.")
         except Exception as e:
             log_error(f"Failed to run news update: {e}")
+
+    def _make_observation_digest_task(self):
+        @tasks.loop(hours=2)
+        async def observation_digest_task():
+            if shutdown_manager.shutting_down: return
+            if not self.ctx or not self.ctx.ollama_client: return
+            try:
+                log_action("Running periodic passive observation digest task...")
+                from pathlib import Path
+                import json
+                import uuid
+                
+                # 1. Scan today's user logs for passive conversations
+                today_str = datetime.now().strftime("%Y%m%d")
+                user_logs_dir = Path("knowledge_base/user_logs")
+                if not user_logs_dir.exists():
+                    return
+
+                passive_turns = []
+                for user_dir in user_logs_dir.iterdir():
+                    if not user_dir.is_dir():
+                        continue
+                    log_file = user_dir / f"interactions_{today_str}.md"
+                    if log_file.exists():
+                        try:
+                            # Read file content safely
+                            content = await asyncio.to_thread(log_file.read_text, encoding="utf-8", errors="replace")
+                            # Parse passive turns
+                            blocks = content.strip().split('\n\n')
+                            for block in blocks:
+                                lines = [line.strip() for line in block.splitlines() if line.strip()]
+                                if not lines:
+                                    continue
+                                # If any line contains Kaia, it was an active interaction, not passive
+                                if any('] Kaia:' in line for line in lines):
+                                    continue
+                                for line in lines:
+                                    if line.startswith('[') and '] ' in line:
+                                        parts = line.split('] ', 1)
+                                        if len(parts) > 1:
+                                            speaker_content = parts[1]
+                                            if ': ' in speaker_content:
+                                                speaker, msg = speaker_content.split(': ', 1)
+                                                if speaker != 'Kaia':
+                                                    passive_turns.append(f"{speaker}: {msg}")
+                        except Exception as e:
+                            log_debug(f"Error parsing log file {log_file} for observation digest: {e}")
+
+                if len(passive_turns) < 10:
+                    log_info(f"Passive observation digest skipped: only {len(passive_turns)} observed turns accumulated.")
+                    return
+
+                log_action(f"Collected {len(passive_turns)} observed turns. Running digest generation...")
+
+                # Limit content to latest ~40 turns to avoid token limit
+                recent_turns = passive_turns[-40:]
+                joined_messages = "\n".join(recent_turns)
+
+                # Prepare Ollama prompt
+                prompt = (
+                    "You are Kaia. You recently overheard (passively observed) the following conversation "
+                    "between users in the server. You did not participate in it.\n\n"
+                    "CONVERSATION:\n"
+                    f"{joined_messages}\n\n"
+                    "Task: Write a concise 1-2 sentence digest in first person ('I noticed...', 'They were talking about...') "
+                    "summarizing the main themes of this conversation and anything that stood out. "
+                    "Speak in your blunt, dry, slightly weary voice. No markdown formatting, no headers, no intro."
+                )
+
+                # Execute LLM call through GPU memory manager
+                from utils.infrastructure.gpu.gpu_manager import OllamaGPUManager, gpu_memory_manager, GPUTaskPriority
+                gpu_manager = OllamaGPUManager(config.chat_model)
+                opts = gpu_manager.get_gpu_options(for_chat=True)
+                opts["num_predict"] = 150
+                opts["temperature"] = 0.3
+
+                async def _run_digest_chat():
+                    return await self.ctx.ollama_client.chat(
+                        model=config.chat_model,
+                        messages=[{"role": "user", "content": prompt}],
+                        options=opts,
+                        keep_alive=-1
+                    )
+
+                resp = await gpu_memory_manager.run_with_gpu_guard(
+                    model_name=config.chat_model,
+                    priority=GPUTaskPriority.CHAT,
+                    coro=asyncio.wait_for(_run_digest_chat(), timeout=60.0),
+                    task_id=f"obs_digest_{uuid.uuid4().hex[:8]}"
+                )
+                digest_text = resp["message"]["content"].strip().replace("`", "")
+
+                if digest_text:
+                    # Save to memory/observation_digest.json with rolling window
+                    digest_path = Path("memory/observation_digest.json")
+                    digest_path.parent.mkdir(parents=True, exist_ok=True)
+
+                    history = []
+                    if digest_path.exists():
+                        try:
+                            with open(digest_path, "r", encoding="utf-8") as f:
+                                history = json.load(f)
+                        except Exception:
+                            pass
+
+                    # Filter history to keep only last 7 days
+                    cutoff = time.time() - (7 * 86400)
+                    history = [item for item in history if item.get("timestamp", 0) > cutoff]
+
+                    # Append new entry
+                    history.append({
+                        "timestamp": time.time(),
+                        "date": datetime.now().strftime("%Y-%m-%d"),
+                        "theme_digest": digest_text,
+                        "raw_message_count": len(passive_turns)
+                    })
+
+                    # Cap at max 5 entries
+                    history = history[-5:]
+
+                    # Atomic write
+                    tmp_path = digest_path.with_suffix(".tmp")
+                    with open(tmp_path, "w", encoding="utf-8") as f:
+                        json.dump(history, f, indent=4)
+                    os.replace(tmp_path, digest_path)
+
+                    log_success(f"Generated new passive observation digest: '{digest_text}'")
+
+                    # Seed belief updates or growth events if something interesting is noticed
+                    try:
+                        from utils.core.kaia_dream import DreamEngine
+                        de = DreamEngine(config)
+                        de._log_growth_event({
+                            "type": "belief_seed_observed",
+                            "digest": digest_text[:200],
+                            "message_count": len(passive_turns)
+                        })
+                    except Exception as e:
+                        log_debug(f"Failed to log growth event for observation digest: {e}")
+            except Exception as e:
+                log_error(f"Observation digest task failed: {e}")
+
+        @observation_digest_task.error
+        async def observation_digest_error(error):
+            log_error(f"CRITICAL: Observation digest task died: {error}")
+
+        return observation_digest_task
 
     def start(self):
         from utils.infrastructure.monitoring.async_task_registry import task_registry
@@ -1257,6 +1432,11 @@ class CoreTaskManager:
         if self.forum_tech_support_task.get_task():
             task_registry.register("forum_tech_support_task", self.forum_tech_support_task.get_task())
 
+        # Passive Observation Digest task
+        self.observation_digest_task.start()
+        if self.observation_digest_task.get_task():
+            task_registry.register("observation_digest_task", self.observation_digest_task.get_task())
+
         log_action("Core background tasks started via CoreTaskManager.")
 
     def stop(self):
@@ -1274,6 +1454,7 @@ class CoreTaskManager:
             self.proactive_task.stop()
         self.forum_auto_post_task.stop()
         self.forum_tech_support_task.stop()
+        self.observation_digest_task.stop()
 
 # Helper for backward compatibility
 _task_manager = None

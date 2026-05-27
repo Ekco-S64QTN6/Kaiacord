@@ -204,7 +204,11 @@ class RAGPersistenceMixin:
         bot_response = sanitize_log_content(bot_response)
 
         timestamp_str = datetime.now().strftime("%Y-%m-%d %H:%M:%S")
-        interaction_text = f"[{timestamp_str}] {user_name}: {message_content}\n[{timestamp_str}] Kaia: {bot_response}\n\n"
+        # Skip empty Kaia responses (passive observation / reaction-only)
+        if not bot_response.strip():
+            interaction_text = f"[{timestamp_str}] {user_name}: {message_content}\n\n"
+        else:
+            interaction_text = f"[{timestamp_str}] {user_name}: {message_content}\n[{timestamp_str}] Kaia: {bot_response}\n\n"
 
         return {
             "path": interaction_log_path,

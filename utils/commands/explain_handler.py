@@ -80,6 +80,7 @@ async def handle_explain_command(ctx, msg, send_kaia_response):
 
     # Show top 8 sources instead of 5
     top_results = results[:8]
+    node_lines = []
 
     for i, node in enumerate(top_results, 1):
         metadata = node.get("metadata", {})
@@ -90,12 +91,16 @@ async def handle_explain_command(ctx, msg, send_kaia_response):
         file_path         = metadata.get("file_path", "")
         basename          = os.path.basename(file_path) if file_path else "unknown"
 
-        flag_str = f"\n⚑ {', '.join(audit_flags)}" if audit_flags else ""
-        embed.add_field(
-            name=f"#{i}  Score: {score:.3f} ({retrieval_method.upper()})",
-            value=f"📄 `{basename}`\nType: `{source_type}`{flag_str}",
-            inline=True
+        flag_str = f" [⚑ {', '.join(audit_flags)}]" if audit_flags else ""
+        node_lines.append(
+            f"**#{i}** · Score: `{score:.3f}` ({retrieval_method.upper()}) ➜ `{basename}` *(type: {source_type})*{flag_str}"
         )
+
+    embed.add_field(
+        name="Sources & Relevance Scores",
+        value="\n".join(node_lines),
+        inline=False
+    )
 
     embed.set_footer(text=f"Range: {recency_info}  ·  Self-model: {sm_status}")
 

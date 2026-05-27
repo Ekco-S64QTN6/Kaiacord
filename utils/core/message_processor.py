@@ -1358,12 +1358,46 @@ class MessageProcessor:
 
         current_time_str = datetime.now().strftime("%A, %B %d, %Y | %I:%M %p")
 
+        # Cognitive Meta-Commentary (P54-15)
+        digital_metrics = ""
+        try:
+            import json as _json
+            from utils.infrastructure.gpu.gpu_manager import gpu_semaphore
+            vram_queue = len(gpu_semaphore._waiters) if hasattr(gpu_semaphore, '_waiters') and gpu_semaphore._waiters else 0
+            
+            anchors_path = os.path.join("memory", "memory_anchors.json")
+            anchors_count = 0
+            if os.path.exists(anchors_path):
+                with open(anchors_path, "r", encoding="utf-8") as f:
+                    anchors_count = len(_json.load(f))
+                    
+            rel_dir = os.path.join("memory", "relationships")
+            rel_count = 0
+            if os.path.exists(rel_dir):
+                rel_count = len([f for f in os.listdir(rel_dir) if os.path.isfile(os.path.join(rel_dir, f))])
+                
+            est_persona = len(system_prompt) // 4
+            est_rag = len(rag_block) // 4
+            est_hist = sum(len(turn.get('content', '')) for turn in optimized_history) // 4
+            total_est_tokens = est_persona + est_rag + est_hist
+            
+            digital_metrics = (
+                "\n\n[DIGITAL_METRICS]\n"
+                f"Active Memory Anchors: {anchors_count} | "
+                f"Relationship Profiles Loaded: {rel_count} | "
+                f"GPU Task Waiters (VRAM Queue): {vram_queue} | "
+                f"Current Context Allocation: {total_est_tokens} tokens"
+            )
+        except Exception:
+            pass
+
         # Bug 2 Fix: Move time to a metadata block at the end, and stop replacing it inside persona
         # to prevent the LLM from thinking it's a catchphrase it must repeat.
         metadata_block = (
             "\n\n--- METADATA ---\n"
             f"[CURRENT_TIME]: {current_time_str}\n"
             "CRITICAL: Any timestamps in conversation history are outdated. Do not repeat the [CURRENT_TIME] string or your metadata in your response."
+            f"{digital_metrics}"
         )
 
         recap_constraint_block = ""

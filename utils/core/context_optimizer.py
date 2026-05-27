@@ -211,6 +211,7 @@ class ContextOptimizer:
                 type_label = "CONVERSATION HISTORY"
                 if "kaia_dreams" in path: type_label = "INTERNAL REFLECTION (DREAM)"
                 elif is_persona: type_label = "IDENTITY CORE"
+                elif "user_profile" in path: type_label = "USER PROFILE SUMMARY"
                 else:
                     # Add user name and date provenance
                     provenance = []

@@ -477,6 +477,37 @@ class RAGIndexerMixin:
                     if name_match:
                         doc.metadata['user_name'] = name_match.group(1).replace("_", " ")
 
+        # Compute Quality Score (P54-18)
+        quality = 0.5  # default baseline
+        try:
+            score = 0.0
+            # 1. Source density (up to 0.4 points)
+            text_len = len(doc.text)
+            score += min(0.4, (text_len / 1500.0) * 0.4)
+            
+            # Structure cues (up to 0.1 points)
+            if any(marker in doc.text for marker in ["###", "\n- ", "\n* ", "\n> ", "```"]):
+                score += 0.1
+                
+            # 2. Metadata completeness (up to 0.3 points)
+            if doc.metadata.get("user_id") and doc.metadata.get("user_name"):
+                score += 0.2
+            if doc.metadata.get("keywords") or "summary:" in doc.text[:200].lower():
+                score += 0.1
+                
+            # 3. Detailed Kaia response presence (up to 0.2 points)
+            kaia_matches = re.findall(r'\]\s*Kaia:\s*(.+)', doc.text)
+            if kaia_matches:
+                # Check if at least one response is non-trivial (e.g. >15 chars)
+                if any(len(m.strip()) > 15 for m in kaia_matches):
+                    score += 0.2
+            
+            # Clamp quality between 0.1 and 1.0
+            quality = round(max(0.1, min(1.0, score)), 2)
+        except Exception:
+            pass
+        doc.metadata["quality_score"] = quality
+
 
 
     def _populate_indexed_files(self):

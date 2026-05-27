@@ -604,6 +604,9 @@ VOICE AND FORMAT RULES (always apply regardless of dream type):
         # Auto Self-Model Regeneration — weekly inline rebuild
         await self._maybe_regenerate_self_model(persona_content)
 
+        # Profile Staleness Auto-Refresh (P54-17)
+        await self._maybe_refresh_user_profiles()
+
         log_info(f"Nightly dreaming complete. Added {new_dreams_count} new thoughts.")
 
     async def _update_identity_stream(self, persona_content: str):
@@ -918,6 +921,73 @@ VOICE AND FORMAT RULES (always apply regardless of dream type):
                 "position": position[:200],
                 "confidence": confidence
             })
+
+    async def _maybe_refresh_user_profiles(self):
+        """P54-17: Profile Staleness Decay & Auto-Refresh.
+        
+        Evaluates every user profile in the user logs directory.
+        If a profile is older than subsequent logs by 7+ days or subsequent logs exceed 15KB,
+        trigger regeneration of that user's profile.
+        """
+        try:
+            log_info("Starting user profile staleness check...")
+            user_logs_dir = self.kb_dir / "user_logs"
+            if not user_logs_dir.exists():
+                log_info("User logs directory does not exist. Skipping profile staleness check.")
+                return
+
+            refreshed_count = 0
+            for user_dir in user_logs_dir.iterdir():
+                if not user_dir.is_dir():
+                    continue
+
+                profile_path = user_dir / "user_profile.md"
+                profile_exists = profile_path.exists()
+                profile_mtime = profile_path.stat().st_mtime if profile_exists else 0.0
+
+                # Find all interaction log files
+                log_files = list(user_dir.glob("interactions_*.md"))
+                if not log_files:
+                    continue
+
+                # Find logs modified AFTER the profile was last generated/modified
+                new_logs = [lf for lf in log_files if lf.stat().st_mtime > profile_mtime]
+                if not new_logs and profile_exists:
+                    # Profile is up to date with all logs
+                    continue
+
+                # Calculate staleness criteria
+                # 1. Total size of subsequent logs
+                total_new_size = sum(lf.stat().st_size for lf in new_logs)
+                
+                # 2. Time gap: profile age vs oldest new log
+                is_stale = False
+                if not profile_exists:
+                    is_stale = True  # Initial generation needed
+                else:
+                    oldest_new_log_time = min(lf.stat().st_mtime for lf in new_logs)
+                    time_gap_days = (oldest_new_log_time - profile_mtime) / 86400.0
+                    if time_gap_days >= 7.0:
+                        is_stale = True
+                    elif total_new_size >= 15 * 1024:  # 15KB
+                        is_stale = True
+
+                if is_stale:
+                    log_action(f"User profile for {user_dir.name} is stale. Regenerating...")
+                    
+                    # Import and execute the generation function
+                    try:
+                        from tools.maintenance.generate_user_profiles import generate_profile
+                        success = await generate_profile(user_dir)
+                        if success:
+                            refreshed_count += 1
+                            log_success(f"Regenerated user profile for {user_dir.name}")
+                    except Exception as e:
+                        log_error(f"Failed to generate profile for {user_dir.name}: {e}")
+
+            log_info(f"User profile staleness check complete. Refreshed {refreshed_count} profiles.")
+        except Exception as e:
+            log_error(f"Error in user profile staleness decay checker: {e}")
 
     async def _maybe_regenerate_self_model(self, persona_content: str):
         """Auto-regenerate kaia_self_model.md if stale (>7 days old).

@@ -50,6 +50,7 @@ SOURCE_WEIGHTS = {
     "belief_musing": 20,
     "mood_reflection": 15,
     "knowledge": 15,
+    "overheard": 15,
     "dream_echo": 10,
     "anchor_callback": 10,
     "idle_quirk": 5,
@@ -558,6 +559,37 @@ class ProactiveEngine:
             log_debug(f"Idle quirk source failed (non-fatal): {e}")
         return None
 
+    def _get_overheard_digest(self) -> Optional[Tuple[str, str]]:
+        """Retrieve the latest passive observation digest (P54-16)."""
+        try:
+            from pathlib import Path
+            import json
+            digest_path = Path("memory/observation_digest.json")
+            if not digest_path.exists():
+                return None
+            
+            with open(digest_path, "r", encoding="utf-8") as f:
+                history = json.load(f)
+            
+            if not history:
+                return None
+            
+            # Select the latest entry
+            entry = history[-1]
+            digest_text = entry.get("theme_digest", "")
+            if not digest_text:
+                return None
+                
+            context = (
+                f"You overheard some conversation recently: '{digest_text}'. "
+                "Share your thoughts, comments, or reaction to this topic in the chat. "
+                "Keep it dry, slightly sardonic, and brief."
+            )
+            return (context, "overheard")
+        except Exception as e:
+            log_debug(f"Overheard digest source failed (non-fatal): {e}")
+        return None
+
     # ── Source Selection ────────────────────────────────────────────
 
     def _gather_candidate_sources(
@@ -578,6 +610,7 @@ class ProactiveEngine:
             ("dream_echo", self._get_dream_echo),
             ("anchor_callback", self._get_anchor_callback),
             ("idle_quirk", self._get_idle_quirk),
+            ("overheard", self._get_overheard_digest),
         ]
 
         for source_type, fn in source_fns:
