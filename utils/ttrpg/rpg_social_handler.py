@@ -134,14 +134,43 @@ async def _handle_talk(ctx, msg, send, rest, uid, uname, is_owner):
     
     sheet = await load(uid)
     
-    args = rest.strip().split(maxsplit=1)
-    if not args:
-        return await msg.channel.send(embed=discord.Embed(description=f"Talk to who? Known NPCs: {', '.join(NPCS.keys())}", color=0x888888))
+    # Format a curated, player-friendly list of known NPC names for display
+    display_names = []
+    seen_ids = set()
+    preferred_keys = ["elara", "hemlock", "mira", "hooded", "guard", "maren", "caelindra", "merchant", "barnaby", "pip", "gregor"]
+    for pk in preferred_keys:
+        if pk in NPCS:
+            npc_id = NPCS[pk].get("id")
+            if npc_id not in seen_ids:
+                display_names.append(pk)
+                if npc_id:
+                    seen_ids.add(npc_id)
+    for k, v in NPCS.items():
+        npc_id = v.get("id")
+        if npc_id not in seen_ids:
+            display_names.append(k)
+            if npc_id:
+                seen_ids.add(npc_id)
+    known_npcs_str = ", ".join(display_names)
+    
+    rest_clean = rest.strip()
+    # Strip common prepositions to allow "!rpg talk to Mira" or "!rpg talk with Hemlock"
+    if rest_clean.lower().startswith("to "):
+        rest_clean = rest_clean[3:].strip()
+    elif rest_clean.lower().startswith("with "):
+        rest_clean = rest_clean[5:].strip()
+        
+    args = rest_clean.split(maxsplit=1)
+    if not args or not args[0]:
+        return await msg.channel.send(embed=discord.Embed(description=f"Talk to who? Known NPCs: {known_npcs_str}", color=0x888888))
         
     npc_key = args[0].lower()
     npc = get_npc(npc_key)
     if not npc:
-        return await msg.channel.send(embed=discord.Embed(description=f"Nobody by that name. Known NPCs: {', '.join(NPCS.keys())}", color=0xcc4444))
+        return await msg.channel.send(embed=discord.Embed(description=f"Nobody by that name. Known NPCs: {known_npcs_str}", color=0xcc4444))
+        
+    # Resolve aliases to canonical key ID
+    npc_key = npc.get("id", npc_key)
         
     loc = sheet.get("location", "oakhaven") if sheet else "oakhaven"
     if npc["location"] != "any" and npc["location"] != loc:

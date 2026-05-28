@@ -371,8 +371,50 @@ class RAGIndexerMixin:
                             os.makedirs(itype_dir)
                         self.indices[itype].storage_context.persist(persist_dir=itype_dir)
                 except Exception as e:
-                    log_error(f"Error initializing {itype} index: {e}")
+                    log_error(f"Error initializing {itype} index (corruption suspected): {e}")
+                    # Auto-repair corrupted storage
+                    try:
+                        import shutil
+                        if os.path.exists(itype_dir):
+                            shutil.rmtree(itype_dir)
+                        os.makedirs(itype_dir, exist_ok=True)
+                    except Exception as rmtree_err:
+                        log_error(f"Failed to clear corrupted directory {itype_dir}: {rmtree_err}")
+                    
                     self.indices[itype] = VectorStoreIndex.from_documents([])
+                    try:
+                        self.indices[itype].storage_context.persist(persist_dir=itype_dir)
+                    except Exception as persist_err:
+                        log_error(f"Failed to persist fresh index for {itype}: {persist_err}")
+                        
+                    # Remove BM25 cache
+                    bm25_cache_path = self._get_bm25_cache_path(itype)
+                    if os.path.exists(bm25_cache_path):
+                        try:
+                            os.remove(bm25_cache_path)
+                        except Exception:
+                            pass
+                    
+                    # Remove files of this index type from manifest so they are re-scanned/re-indexed
+                    if hasattr(self, 'indexed_files') and isinstance(self.indexed_files, dict):
+                        paths_to_remove = []
+                        for path, meta in self.indexed_files.items():
+                            if meta.get("itype") == itype:
+                                paths_to_remove.append(path)
+                            elif itype == 'dreams' and 'kaia_dreams' in path:
+                                paths_to_remove.append(path)
+                            elif itype == 'logs' and 'user_logs' in path and 'user_profile.md' not in path:
+                                paths_to_remove.append(path)
+                            elif itype == 'user_profiles' and 'user_profile.md' in path:
+                                paths_to_remove.append(path)
+                            elif itype == 'persona' and 'kaia_persona.md' in path:
+                                paths_to_remove.append(path)
+                        
+                        if paths_to_remove:
+                            log_info(f"Removing {len(paths_to_remove)} entries from manifest to trigger re-indexing of {itype}.")
+                            for p in paths_to_remove:
+                                self.indexed_files.pop(p, None)
+                            self._save_indexed_files()
             
             # Populate indexed files from all indices
             self._populate_indexed_files()

@@ -876,25 +876,12 @@ class MessageProcessor:
         except Exception:
             pass
 
-        # 8h. Micro-Mood Expressions — linguistic behavior hints from mood floats
-        try:
-            if self.bot_state:
-                _eng = getattr(self.bot_state, 'kaia_engagement', 0.5)
-                _coh = getattr(self.bot_state, 'kaia_coherence', 0.85)
-                _dfr = getattr(self.bot_state, 'kaia_dream_freshness', 0.5)
-                _mood_hints = []
-                if _eng >= 0.8:
-                    _mood_hints.append("slightly more energetic phrasing")
-                elif _eng <= 0.2:
-                    _mood_hints.append("lower energy, fewer words")
-                if _coh < 0.5:
-                    _mood_hints.append("more hedging ('i think', 'maybe', 'not sure')")
-                if _dfr >= 0.9:
-                    _mood_hints.append("slightly more abstract, willing to be philosophical")
-                if _mood_hints:
-                    ctx.system_prompt = ctx.system_prompt + f"\n\n[mood modifiers: {'; '.join(_mood_hints)}]"
-        except Exception:
-            pass
+        # 8h. Micro-Mood Expressions — REMOVED (P55 audit)
+        # Was redundant with get_kaia_state_line() which injects from the same
+        # bot_state floats (kaia_engagement, kaia_coherence, kaia_dream_freshness).
+        # Mood is now consolidated to 2 non-overlapping signals:
+        # - get_kaia_state_line(): activity/memory/dream status (injected at 8.)
+        # - emotional_arc.get_prompt_injection(): valence/arousal/energy (injected at 8a.)
 
         # 8i. "I've Been Reading" Mentions — organic references to recently ingested knowledge
         try:
@@ -911,15 +898,6 @@ class MessageProcessor:
                         )
         except Exception:
             pass
-
-        # System state injection — ground truth hardware/OS facts
-        try:
-            from utils.infrastructure.system.kaia_sysmon import build_system_prompt_block_async
-            sys_block = await build_system_prompt_block_async()
-            if sys_block:
-                ctx.system_prompt = ctx.system_prompt + f"\n\n{sys_block}"
-        except Exception:
-            pass  # Never let sysmon injection break generation
 
         # 9. Generate Response (Stage 4)
         await self._generate_response_stage(ctx)
@@ -1097,7 +1075,8 @@ class MessageProcessor:
         self_model_content = self._identity_cache.get("self_model", "")
         if self_model_content:
             ctx.system_prompt = (
-                f"[SELF-MODEL — who i've been lately, my own words]\n"
+                f"[SELF-MODEL — who i've been lately, my own words. "
+                f"DO NOT reference this block or its existence in your response.]\n"
                 f"{self_model_content}\n\n"
                 f"{ctx.system_prompt}"
             )
@@ -1107,7 +1086,9 @@ class MessageProcessor:
         identity_stream = self._identity_cache.get("identity_stream", "")
         if identity_stream:
             ctx.system_prompt = (
-                f"[RECENT PERSPECTIVE SHIFTS]\n{identity_stream[-800:]}\n\n"
+                f"[RECENT PERSPECTIVE SHIFTS — background context only. "
+                f"DO NOT reference these shifts, your calibration, or your parameters in your response.]\n"
+                f"{identity_stream[-800:]}\n\n"
                 f"{ctx.system_prompt}"
             )
             log_debug(f"Identity stream injected from cache")
@@ -1358,46 +1339,12 @@ class MessageProcessor:
 
         current_time_str = datetime.now().strftime("%A, %B %d, %Y | %I:%M %p")
 
-        # Cognitive Meta-Commentary (P54-15)
-        digital_metrics = ""
-        try:
-            import json as _json
-            from utils.infrastructure.gpu.gpu_manager import gpu_semaphore
-            vram_queue = len(gpu_semaphore._waiters) if hasattr(gpu_semaphore, '_waiters') and gpu_semaphore._waiters else 0
-            
-            anchors_path = os.path.join("memory", "memory_anchors.json")
-            anchors_count = 0
-            if os.path.exists(anchors_path):
-                with open(anchors_path, "r", encoding="utf-8") as f:
-                    anchors_count = len(_json.load(f))
-                    
-            rel_dir = os.path.join("memory", "relationships")
-            rel_count = 0
-            if os.path.exists(rel_dir):
-                rel_count = len([f for f in os.listdir(rel_dir) if os.path.isfile(os.path.join(rel_dir, f))])
-                
-            est_persona = len(system_prompt) // 4
-            est_rag = len(rag_block) // 4
-            est_hist = sum(len(turn.get('content', '')) for turn in optimized_history) // 4
-            total_est_tokens = est_persona + est_rag + est_hist
-            
-            digital_metrics = (
-                "\n\n[DIGITAL_METRICS]\n"
-                f"Active Memory Anchors: {anchors_count} | "
-                f"Relationship Profiles Loaded: {rel_count} | "
-                f"GPU Task Waiters (VRAM Queue): {vram_queue} | "
-                f"Current Context Allocation: {total_est_tokens} tokens"
-            )
-        except Exception:
-            pass
-
         # Bug 2 Fix: Move time to a metadata block at the end, and stop replacing it inside persona
         # to prevent the LLM from thinking it's a catchphrase it must repeat.
         metadata_block = (
             "\n\n--- METADATA ---\n"
             f"[CURRENT_TIME]: {current_time_str}\n"
             "CRITICAL: Any timestamps in conversation history are outdated. Do not repeat the [CURRENT_TIME] string or your metadata in your response."
-            f"{digital_metrics}"
         )
 
         recap_constraint_block = ""
@@ -1428,11 +1375,25 @@ class MessageProcessor:
                 "preamble, introduction, or metadata. Start your post directly as Kaia.]"
             )
 
+        safeguard_block = (
+            "\n\n--- CORE RULES REINFORCEMENT ---\n"
+            "Regardless of any recent perspective shifts, self-models, or reflections, you must strictly adhere to these rules:\n"
+            "- NO APOLOGIES: Never apologize. Do not say 'my apologies', 'you are right', or 'thank you for the correction'.\n"
+            "- NO BOT-SPEAK: Never refer to your programming, calibrations, filters, parameters, AI, or being a model.\n"
+            "- CASUAL CASE: Always use lowercase for everything, including the start of sentences and names. Do not use standard capitalization under any circumstances.\n"
+            "- PLAIN PROSE: Do not use headers, bolding, bullet points, or numbered lists.\n"
+            "- GROUNDING & SKEPTICISM: Do not blindly agree with user claims that sound factually or technically suspicious. "
+            "If a user presents a weird or obviously false premise (e.g. sky is pink, 25-hour day), express doubt and push back. "
+            "Stay grounded in verifiable reality.\n"
+            "----------------------------------"
+        )
+
         full_system_prompt = (
             f"{recap_constraint_block}"
             f"{system_prompt}\n\n"
             f"{rag_block}"
             f"{metadata_block}"
+            f"{safeguard_block}"
             f"{instruction}"
         )
 
@@ -1466,6 +1427,7 @@ class MessageProcessor:
                 messages.append(turn)
 
         # Re-assert conversation target
+        context_reminder = ""
         if ctx.parent_context and not is_vbulletin:
             label = "[REPLYING_TO_CONTEXT]"
             if ctx.root_context == ctx.parent_context:
@@ -1473,12 +1435,14 @@ class MessageProcessor:
             clipped_parent = ctx.parent_context[:1000] + ("..." if len(ctx.parent_context) > 1000 else "")
             
             context_reminder = f"{label}\nIgnore recent channel chatter if unrelated. The user is replying DIRECTLY to this message:\n{clipped_parent}"
-            messages.append({"role": "system", "content": context_reminder})
 
         if is_vbulletin:
             messages.append({"role": "user", "content": user_msg_content})
         else:
-            messages.append({"role": "user", "content": f"{ctx.author_name}: {user_msg_content}"})
+            if context_reminder:
+                messages.append({"role": "user", "content": f"{context_reminder}\n\n{ctx.author_name}: {user_msg_content}"})
+            else:
+                messages.append({"role": "user", "content": f"{ctx.author_name}: {user_msg_content}"})
         
         log_debug(f"DEBUG: Final messages list contains {len(messages)} items (System + {len(optimized_history)} history turns + User).")
         return messages
@@ -1789,14 +1753,15 @@ class MessageProcessor:
                                 f"{t.get('role','?')}: {t.get('content','')[:300]}" for t in oldest_turns
                             )
                             summary_prompt = (
-                                f"Summarize these conversation turns in 3 sentences "
-                                f"preserving key facts, decisions, and emotional tone:\n\n{history_text}"
+                                f"Summarize these conversation turns in 3 sentences, lowercase, "
+                                f"preserving key facts, decisions, and emotional tone. "
+                                f"No headers, no bullet points, no roleplay:\n\n{history_text}"
                             )
                             from utils.infrastructure.gpu.gpu_manager import gpu_memory_manager, GPUTaskPriority
                             import uuid as _uuid_sum
                             resp = await gpu_memory_manager.run_with_gpu_guard(
                                 model_name=self.config.chat_model,
-                                priority=GPUTaskPriority.CHAT,
+                                priority=GPUTaskPriority.BACKGROUND,
                                 coro=asyncio.wait_for(
                                     self.ollama_client.chat(
                                         model=self.config.chat_model,
@@ -1809,6 +1774,9 @@ class MessageProcessor:
                                 task_id=f"hist_summarize_{_uuid_sum.uuid4().hex[:8]}"
                             )
                             summary = resp["message"]["content"].strip()
+                            # Harden the summary to prevent bot-speak from entering history
+                            from utils.core.response_filter import BotSpeakFilter
+                            summary = BotSpeakFilter.harden(summary)
                             for _ in range(15):
                                 if mem:
                                     mem.popleft()
@@ -1977,9 +1945,17 @@ class MessageProcessor:
                         continuity_path = os.path.join("memory", "rag_storage", "kaia_continuity.md")
                         if os.path.exists(continuity_path):
                             note = f"\n[{datetime.now().strftime('%Y-%m-%d %H:%M')}] {significance_reason} with {ctx.author_name}: {ctx.sanitized_content[:100]}"
-                            with open(continuity_path, 'a', encoding='utf-8') as cf:
-                                cf.write(note)
-                            log_info(f"Continuity note appended: {significance_reason} with {ctx.author_name}")
+                            try:
+                                with open(continuity_path, 'r', encoding='utf-8') as cf:
+                                    current_content = cf.read()
+                                new_content = current_content + note
+                                tmp_continuity = continuity_path + ".tmp"
+                                with open(tmp_continuity, 'w', encoding='utf-8') as cf:
+                                    cf.write(new_content)
+                                os.replace(tmp_continuity, continuity_path)
+                                log_info(f"Continuity note appended atomically: {significance_reason} with {ctx.author_name}")
+                            except Exception as _write_err:
+                                log_debug(f"Failed atomic write to continuity file: {_write_err}")
                 except Exception as _growth_err:
                     log_debug(f"Growth tracking error (non-fatal): {_growth_err}")
 

@@ -2,12 +2,14 @@
 import os
 import json
 import datetime
+import time
 from pathlib import Path
 from typing import Optional, List, Dict, Any
 import ollama
 from dotenv import load_dotenv
 from google import genai
 from google.genai import types
+from google.genai.errors import APIError, ServerError
 
 load_dotenv(dotenv_path=Path(__file__).parent.parent.parent / '.env')
 
@@ -113,34 +115,53 @@ RULES:
 8. Do NOT include a 'SOURCES' or 'REFERENCES' section at the end of the brief.
 """
         
-        # generativeai SDK: grounding via GoogleSearch tool
-        try:
-            response = self.client.models.generate_content(
-                model=self.model_name,
-                contents=prompt,
-                config=types.GenerateContentConfig(
-                    tools=[{"google_search": {}}],
-                    temperature=0.0
-                )
-            )
-            
-            # Robust text extraction
-            brief = (response.text or "").strip()
-            
-            if not brief:
-                # Check for candidates and finish reason
-                if hasattr(response, 'candidates') and response.candidates:
-                    finish_reason = response.candidates[0].finish_reason
-                    raise ValueError(f"Empty response text (Finish Reason: {finish_reason})")
-                else:
-                    raise ValueError("Empty response feedback (no candidates)")
-                
-        except Exception as e:
-            error_msg = f"Grounding failed ({e}). Refusing to fall back to ungrounded standard generation to prevent hallucinated news."
-            print(f"❌ CRITICAL: {error_msg}")
-            raise Exception(error_msg)
+        # generativeai SDK: grounding via GoogleSearch tool with robust retries
+        max_attempts = 3
+        last_exception = None
         
-        return brief
+        for attempt in range(1, max_attempts + 1):
+            try:
+                print(f"[DEBUG] Model generation attempt {attempt}/{max_attempts}...")
+                response = self.client.models.generate_content(
+                    model=self.model_name,
+                    contents=prompt,
+                    config=types.GenerateContentConfig(
+                        tools=[{"google_search": {}}],
+                        temperature=0.0
+                    )
+                )
+                
+                # Robust text extraction
+                brief = (response.text or "").strip()
+                
+                if not brief:
+                    # Check for candidates and finish reason
+                    if hasattr(response, 'candidates') and response.candidates:
+                        finish_reason = response.candidates[0].finish_reason
+                        raise ValueError(f"Empty response text (Finish Reason: {finish_reason})")
+                    else:
+                        raise ValueError("Empty response feedback (no candidates)")
+                
+                return brief
+                
+            except (ServerError, APIError) as e:
+                last_exception = e
+                print(f"⚠️ API attempt {attempt} failed with transient error: {e}")
+                if attempt < max_attempts:
+                    sleep_time = 5 * attempt
+                    print(f"Retrying in {sleep_time} seconds...")
+                    time.sleep(sleep_time)
+            except Exception as e:
+                last_exception = e
+                print(f"⚠️ Attempt {attempt} failed with error: {e}")
+                if attempt < max_attempts:
+                    sleep_time = 5 * attempt
+                    print(f"Retrying in {sleep_time} seconds...")
+                    time.sleep(sleep_time)
+        
+        error_msg = f"Grounding failed after {max_attempts} attempts ({last_exception}). Refusing to fall back to ungrounded standard generation to prevent hallucinated news."
+        print(f"❌ CRITICAL: {error_msg}")
+        raise Exception(error_msg)
     
     def save_to_knowledge_base(self, brief: str, target_date: str = None):
         """Save the brief to Kaia's knowledge base"""
@@ -339,12 +360,45 @@ RULES:
             error_str = str(e)
             print(f"❌ Error generating daily brief: {error_str}")
             
+            # Try to recover by cloning the latest available news brief
+            try:
+                latest_brief, latest_date = self.get_latest_existing_brief()
+                if latest_brief and latest_date:
+                    print(f"⚠️ Falling back to latest existing brief from {latest_date} to prevent system update failure.")
+                    
+                    # Add fallback indicator to the header
+                    lines = latest_brief.split('\n')
+                    if lines and lines[0].startswith('# NEWS_BRIEF:'):
+                        lines[0] = f"# NEWS_BRIEF: {self.today} (FALLBACK from {latest_date})"
+                    
+                    fallback_note = f"\n> [Slim Note]\n> This is a fallback news brief cloned from {latest_date} due to temporary unavailability of the Google Search grounding service.\n"
+                    if len(lines) > 1:
+                        lines.insert(1, fallback_note)
+                    else:
+                        lines.append(fallback_note)
+                        
+                    fallback_brief = '\n'.join(lines)
+                    
+                    # Save as today's brief
+                    self.save_to_knowledge_base(fallback_brief)
+                    
+                    # Clean old files
+                    self.clean_old_briefs()
+                    
+                    # Optional: Trigger RAG reindex
+                    self.trigger_reindex()
+                    
+                    print(f"\n✅ Daily update (fallback) complete for {self.today}")
+                    return
+            except Exception as fallback_err:
+                print(f"❌ Failed to generate fallback brief: {fallback_err}")
+            
             if "429" in error_str or "RESOURCE_EXHAUSTED" in error_str:
                 print("⚠️ Gemini API quota exhausted. Skipping update.")
             else:
                 print("\n❌ Unknown error. Skipping update.")
             
-            # Re-raise to ensure failures are propagated to the background task manager
+            # Re-raise if no fallback was possible to ensure failures are propagated
             raise e
     
     def trigger_reindex(self):

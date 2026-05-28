@@ -103,6 +103,7 @@ class InnerMonologue:
                 "- Be specific — reference what you actually observed\n"
                 "- No roleplay asterisks, no headers, no labels\n"
                 "- Think like a person watching a conversation, not narrating one\n"
+                "- You MUST write in the first person ('i', 'my'). Never refer to yourself or Kaia in the third person ('she', 'her').\n"
                 "Your thought:"
             )
         else:
@@ -114,6 +115,7 @@ class InnerMonologue:
                 "Rules:\n"
                 "- One sentence only, lowercase, no quotes\n"
                 "- No roleplay asterisks, no headers, no labels\n"
+                "- You MUST write in the first person ('i', 'my'). Never refer to yourself or Kaia in the third person ('she', 'her').\n"
                 "Your thought:"
             )
 
@@ -145,6 +147,10 @@ class InnerMonologue:
             raw = raw.strip('"\'')
             if raw.startswith("Kaia:") or raw.startswith("kaia:"):
                 raw = raw[5:].strip()
+
+            # Harden output to enforce persona consistency
+            from utils.core.response_filter import BotSpeakFilter
+            raw = BotSpeakFilter.harden(raw)
 
             if raw and len(raw) > 10:
                 thought = Thought(

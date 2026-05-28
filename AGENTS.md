@@ -173,11 +173,10 @@ Registry files (like `equipment_registry.py`) contain both large data dictionari
 │   │   ├── aethelgard_lore_bible.md   # World-building canon
 │   │   └── CLAUDE_REPORT.md           # TTRPG-specific audit
 │   └── reports/                       # Phase reports, roadmaps, process docs
-│       ├── Claude_Report.md           # Latest production audit
-│       ├── MASTER_REPORT.md           # Historical context (Phase 38–52)
-│       ├── Phase_52_Report.md         # ELIZA effect, presence systems
-│       ├── Phase_53_Report.md         # Cognitive evolution
-│       └── process/                   # Implementation plans, review prompts
+│       ├── master_report.md           # System status, metrics, and roadmap (Phases 55+)
+│       ├── audit_report.md            # Unified production, log, and persona audits
+│       ├── history.md                 # Consolidated development history (Phases 1–54)
+│       └── evolution_proposals.md     # Pending proposals currently under discussion
 ├── config/                      # Bot configuration (YAML)
 ├── memory/                      # Runtime data — NEVER COMMIT
 │   ├── ttrpg/characters/        # Per-user JSON character sheets
@@ -243,7 +242,7 @@ Kaia utilizes multiple distinct LLM call paths depending on the context. Do not 
 - **Modifying the Wrong Pipeline**: Do not modify `message_processor.py` for behaviors intended to affect background or automated tasks (forums, social media, dreams) that bypass `MessageProcessor` entirely. Always trace the actual `ollama_client` call path.
 - **Prompt Instruction Stacking**: Avoid solving generation issues by endlessly adding prompt instructions (such as contradictory negative constraints or style rules) on top of each other. This results in instruction overload, leading the LLM to leak/echo instructions in its output. Instead, refine the prompt architecture and split system instructions from user inputs.
 - **Ignoring User Feedback/Corrections**: If the user states a fix did not work, do not blame the bot not restarting or double down on assumptions. Stop and re-verify the active call path and check if the code you modified is actually imported and executed in that path.
-- **Scope Creep & Instruction Disobedience**: If a prompt states that your output is updating a specific file (e.g. `docs/reports/Claude_Report.md`), do NOT modify any other files in the codebase (such as logic, registries, or configs). Document findings and proposed fixes inside the report as requested, but do not apply them to the codebase unless the user explicitly requests you to execute the fix.
+- **Scope Creep & Instruction Disobedience**: If a prompt states that your output is updating a specific file (e.g. `docs/reports/audit_report.md`), do NOT modify any other files in the codebase (such as logic, registries, or configs). Document findings and proposed fixes inside the report as requested, but do not apply them to the codebase unless the user explicitly requests you to execute the fix.
 
 
 ### Logging & Monitor Standards
@@ -275,7 +274,7 @@ Kaia utilizes multiple distinct LLM call paths depending on the context. Do not 
 
 ## Current System Status
 
-See `docs/reports/Claude_Report.md` for the latest production audit and `docs/ttrpg/CLAUDE_REPORT.md` for the TTRPG-specific audit.
+See `docs/reports/audit_report.md` for the latest production audit and `docs/ttrpg/CLAUDE_REPORT.md` for the TTRPG-specific audit.
 
 **System health: A-tier. All subsystems operational. Both the TTRPG and Kaia cognitive pipeline are production-stable.**
 

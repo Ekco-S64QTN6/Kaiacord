@@ -1,5 +1,6 @@
 NPCS = {
     "elara": {
+        "id": "elara",
         "name": "Elder Elara",
         "location": "oakhaven",
         "description": "A weary woman with silver-streaked hair and careful eyes. "
@@ -20,6 +21,7 @@ NPCS = {
         ],
     },
     "hemlock": {
+        "id": "hemlock",
         "name": "Old Man Hemlock",
         "location": "hemlocks_store",
         "description": "Grizzled, taciturn. Sells everything. Talks too much about "
@@ -38,6 +40,7 @@ NPCS = {
         ],
     },
     "barkeep": {
+        "id": "barkeep",
         "name": "Mira",
         "location": "stone_hearth",
         "description": "The Stone Hearth's barkeep. Heard everything twice. "
@@ -56,6 +59,7 @@ NPCS = {
         ],
     },
     "hooded_figure": {
+        "id": "hooded_figure",
         "name": "The Hooded Figure",
         "location": "stone_hearth",
         "description": "A mysterious man who sits in the same shadowy corner every night. His face is always hidden beneath a deep cowl. He speaks rarely, but when he does, people listen.",
@@ -72,6 +76,7 @@ NPCS = {
         ],
     },
     "guard": {
+        "id": "guard",
         "name": "Watchtower Guard",
         "location": "watchtower",
         "description": "One of two guards posted at the Watchtower. Bored, observant, and considerably more informed than they let on. They've been watching the Whisperwood for years.",
@@ -88,6 +93,7 @@ NPCS = {
         ],
     },
     "maren": {
+        "id": "maren",
         "name": "Sister Maren",
         "location": "herbalists_hut",
         "description": "A quiet woman with hands stained by soil and sap. She lives in a small lean-to behind the shrine, tending to her garden of rare herbs.",
@@ -103,9 +109,8 @@ NPCS = {
             "If you're choosing a path forward — Paladin, Shaman, High Priest — come back and speak to me first. Some paths have aftereffects.",
         ],
     },
-
-    # ── NEW: Bard ──────────────────────────────────────────────────────────────
     "bard": {
+        "id": "bard",
         "name": "Caelindra",
         "location": "stone_hearth",
         "description": "A traveling bard with ink-stained fingers and eyes that miss nothing. "
@@ -124,6 +129,7 @@ NPCS = {
         ],
     },
     "merchant": {
+        "id": "merchant",
         "name": "Traveling Merchant",
         "location": "caravan",
         "description": "A merchant in sun-bleached silks with a sharp eye for profit and a friendly, if brief, manner.",
@@ -137,6 +143,7 @@ NPCS = {
         ],
     },
     "barnaby": {
+        "id": "barnaby",
         "name": "Barnaby",
         "location": "housing_district",
         "description": "A stout man with sawdust permanently in his hair. Sells furniture, decorations, and 'improvements' of dubious necessity with great enthusiasm.",
@@ -152,6 +159,7 @@ NPCS = {
         ],
     },
     "pip": {
+        "id": "pip",
         "name": "Pip",
         "location": "housing_district",
         "description": "A small, quiet person who moves like they're trying not to startle something. Always has at least one animal on or near them.",
@@ -167,6 +175,7 @@ NPCS = {
         ],
     },
     "gregor": {
+        "id": "gregor",
         "name": "Old Gregor",
         "location": "tricklebrook_pond",
         "description": "An old, quiet fisherman who runs the tackle shop. He has fished Tricklebrook for decades and knows things about the ruins he doesn't discuss.",
@@ -181,11 +190,14 @@ NPCS = {
             "Don't pull the line too early. Patience is the only currency here.",
         ],
     },
-
 }
 
-# Add alias
+# Add aliases
 NPCS["caravan"] = NPCS["merchant"]
+NPCS["mira"] = NPCS["barkeep"]
+NPCS["caelindra"] = NPCS["bard"]
+NPCS["hooded"] = NPCS["hooded_figure"]
+NPCS["stranger"] = NPCS["hooded_figure"]
 
 def get_npc(key: str) -> dict | None:
     return NPCS.get(key.lower())

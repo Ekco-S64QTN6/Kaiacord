@@ -215,7 +215,7 @@ class RAGQueryMixin:
 
         return target_itypes, retrieve_count
 
-    async def _execute_hybrid_retrieval(self, itype: str, query: str, retrieve_count: int):
+    async def _execute_hybrid_retrieval(self, itype: str, query: str, retrieve_count: int, _retry_count: int = 0):
         """Perform hybrid (Vector + BM25) retrieval for a specific index type."""
         try:
             index = self.indices[itype]
@@ -252,6 +252,31 @@ class RAGQueryMixin:
                         res.node.metadata["_retrieval_method"] = "vector"
                 return vector_results
         except Exception as e:
+            err_msg = str(e)
+            if ("not found in fetched nodes" in err_msg or "not found in index" in err_msg) and _retry_count < 5:
+                import re
+                match = re.search(r"Node ID ([a-zA-Z0-9\-]+) not found", err_msg)
+                if match:
+                    stale_node_id = match.group(1)
+                    log_warning(f"Detected stale Node ID {stale_node_id} in {itype} index. Repairing automatically...")
+                    try:
+                        with self._data_lock:
+                            self.indices[itype].delete_nodes([stale_node_id])
+                            itype_dir = os.path.join(self.persist_dir, itype)
+                            self.indices[itype].storage_context.persist(persist_dir=itype_dir)
+                            
+                            # Clean BM25 cache since index changed
+                            bm25_cache_path = self._get_bm25_cache_path(itype)
+                            if os.path.exists(bm25_cache_path):
+                                try: os.remove(bm25_cache_path)
+                                except: pass
+                            self.bm25_cache.pop(itype, None)
+                            
+                        log_success(f"Repaired {itype} index by removing stale Node {stale_node_id}. Retrying retrieval...")
+                        return await self._execute_hybrid_retrieval(itype, query, retrieve_count, _retry_count + 1)
+                    except Exception as repair_err:
+                        log_error(f"Failed to repair {itype} index: {repair_err}")
+            
             log_error(f"Retrieval failed for {itype}: {e}")
             return []
 

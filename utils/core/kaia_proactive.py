@@ -828,6 +828,7 @@ class ProactiveEngine:
             f"- You have broad interests — don't default to tech jargon "
             f"unless the topic is explicitly technical\n"
             f"- Be yourself: blunt, dry, grounded\n"
+            f"- You MUST write in the first person ('i', 'my', 'me'). Never refer to yourself or Kaia in the third person ('she', 'her').\n"
             f"Your message:"
         )
 
@@ -861,6 +862,10 @@ class ProactiveEngine:
             raw = raw.strip('"\'')
             if raw.startswith("Kaia:") or raw.startswith("kaia:"):
                 raw = raw[5:].strip()
+
+            # Harden output to enforce persona consistency
+            from utils.core.response_filter import BotSpeakFilter
+            raw = BotSpeakFilter.harden(raw)
 
             if raw and len(raw) > 10:
                 log_info(

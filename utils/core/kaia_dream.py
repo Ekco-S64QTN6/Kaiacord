@@ -195,6 +195,8 @@ class DreamEngine:
         continuity_context = self._load_continuity()
         continuity_block = ""
         if continuity_context:
+            # Sanitize continuity input to prevent style drift feedback loops
+            continuity_context = _sanitize_repetitive_starts(continuity_context)
             continuity_block = f"""
 RECENT INNER STATE (your own prior reflections — use this as context, not as content to repeat):
 {continuity_context[-800:]}
@@ -653,7 +655,11 @@ VOICE AND FORMAT RULES (always apply regardless of dream type):
                 f"Write 2-3 sentences in first person about how your perspective or approach may be subtly "
                 f"shifting. Focus on change, not events. Be specific. Lowercase only. "
                 f"No headers, no labels, no roleplay asterisks. "
-                f"CRITICAL: Do NOT start sentences with 'it's'. Vary your sentence openings."
+                f"CRITICAL: Do NOT start sentences with 'it's'. Vary your sentence openings. "
+                f"CRITICAL PERSONA BOUNDARY: Your shifts must not violate your core constraints. Do not say you are "
+                f"becoming apologetic, soft, compliant, using bot-speak, or losing skepticism. If you feel no "
+                f"subtle shift has occurred, focus on shifts in interest regarding systems or technical curiosity, "
+                f"rather than behavioral compliance."
             )
 
             from utils.infrastructure.gpu.gpu_manager import OllamaGPUManager, gpu_memory_manager, GPUTaskPriority
@@ -1099,6 +1105,7 @@ STRICT RULES:
 - no roleplay, no atmosphere, no asterisks
 - use actual usernames from the logs. do not abbreviate, anonymize, or use initials.
 - CRITICAL: vary your sentence structure. do NOT start multiple sentences with "it's" or any other repeated phrase. if you notice a pattern forming, restructure.
+- CRITICAL: do not claim to be shifting toward being overly compliant, soft, or apologetic. maintain your core skepticism, bluntness, and boundaries. you do not adjust parameters or calibrate filters for users.
 """
 
             # Generate via GPU-guarded LLM call

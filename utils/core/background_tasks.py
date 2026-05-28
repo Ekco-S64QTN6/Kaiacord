@@ -136,9 +136,10 @@ class CoreTaskManager:
                     
                     persona = await load_persona_async()
                     prompt = (
-                        f"You were speaking with {to_execute['user_name']} about: {to_execute['topic']}. "
+                        f"You are Kaia. You were speaking with {to_execute['user_name']} about: {to_execute['topic']}. "
                         f"It's been 10 minutes since the conversation ended. Generate a brief, unprompted follow-up "
                         f"thought or realization about it. Keep it under 2 sentences. "
+                        f"CRITICAL: Write in the first person ('i', 'my', 'me'). Never refer to yourself or Kaia in the third person ('she', 'her'). "
                         f"Start naturally, like 'actually, thinking more about what you said...' or 'i just realized...'."
                     )
                     

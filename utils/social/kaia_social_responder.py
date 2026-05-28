@@ -102,8 +102,13 @@ def load_persona() -> str:
             content = f.read().strip()
             
             # Bug 3 Fix: Strip hard rules from runtime prompt; keep identity/backstory
-            if "## WHO SHE IS" in content:
-                content = "## WHO SHE IS\n" + content.split("## WHO SHE IS", 1)[1].strip()
+            who_she_is_marker = None
+            for marker in ["## WHO SHE IS", "## Who She Is"]:
+                if marker in content:
+                    who_she_is_marker = marker
+                    break
+            if who_she_is_marker:
+                content = "## Who She Is\n" + content.split(who_she_is_marker, 1)[1].strip()
                 
             _persona_cache = content
             _persona_last_load = mtime

@@ -27,6 +27,7 @@ class GPUTaskPriority(Enum):
     CRITICAL = 0
     CHAT = 1
     EMBEDDING = 2
+    BACKGROUND = 3
 
 async def run_with_gpu_guard(model_name: str, coro, task_id: str = None, priority: GPUTaskPriority = GPUTaskPriority.CHAT):
     """

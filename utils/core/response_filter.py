@@ -286,6 +286,9 @@ class BotSpeakFilter:
         # 4. Final Pass: Strip robotic engagement bait
         cleaned = cls.strip_trailing_questions(cleaned)
         
+        # 5. Enforce lowercase on all prose (excluding code, urls, disclaimers)
+        cleaned = cls.smart_lowercase(cleaned)
+        
         # Post-harden guard: If the response was truncated to nonsense (< 3 chars), fail it
         if len(cleaned) < 3:
             log_warning(f"[BAIT_GUARD] Truncated output to < 3 chars, returning empty string to trigger retry. Original: '{text}'")
@@ -348,6 +351,44 @@ class BotSpeakFilter:
                     
         result = "\n".join(clean_lines).strip()
         return result
+
+    @classmethod
+    def smart_lowercase(cls, text: str) -> str:
+        """Force text to lowercase except URLs, code blocks/inline code, and disclaimers."""
+        if not text:
+            return text
+            
+        disclaimer_pattern = re.compile(r'^\s*\*?Disclaimer:.*?\*?$', re.IGNORECASE | re.MULTILINE)
+        url_pattern = re.compile(r'https?://[^\s/$.?#].[^\s]*', re.IGNORECASE)
+        code_pattern = re.compile(r'```.*?```|`.*?`', re.DOTALL)
+        
+        placeholders = []
+        
+        def replace_disclaimer(match):
+            placeholder = f"__disclaimer_placeholder_{len(placeholders)}__"
+            placeholders.append((placeholder, match.group(0)))
+            return placeholder
+            
+        def replace_code(match):
+            placeholder = f"__code_placeholder_{len(placeholders)}__"
+            placeholders.append((placeholder, match.group(0)))
+            return placeholder
+            
+        def replace_url(match):
+            placeholder = f"__url_placeholder_{len(placeholders)}__"
+            placeholders.append((placeholder, match.group(0)))
+            return placeholder
+
+        temp_text = disclaimer_pattern.sub(replace_disclaimer, text)
+        temp_text = code_pattern.sub(replace_code, temp_text)
+        temp_text = url_pattern.sub(replace_url, temp_text)
+        
+        temp_text = temp_text.lower()
+        
+        for placeholder, original in reversed(placeholders):
+            temp_text = temp_text.replace(placeholder, original)
+            
+        return temp_text
 
     @classmethod
     def strip_bot_speak(cls, text: str) -> str:
