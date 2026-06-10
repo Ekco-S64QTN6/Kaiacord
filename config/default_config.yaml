@@ -268,7 +268,7 @@ dashboard:
 # ============================================================================
 features:
   # Enable news system
-  news_enabled: false
+  news_enabled: true
   
   # Enable auto news injection (DISABLED)
   news_auto_trigger: false
@@ -316,7 +316,7 @@ snapshots:
 # ============================================================================
 bluesky:
   # Enable Bluesky integration
-  enabled: false
+  enabled: true
   
   # Cross-post idle quips to Bluesky
   cross_post_quips: false
@@ -358,7 +358,7 @@ dream_mode:
   schedule_end_hour: 5    # 5 AM
   
   # Cache limits
-  max_dreams_cached: 500
+  max_dreams_cached: 1000
   dreams_per_scan: 10
   user_quota: 0.4 # Percentage of dreams dedicated to user logs
   

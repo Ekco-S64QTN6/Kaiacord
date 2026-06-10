@@ -76,6 +76,12 @@ class EmergencyContaminationFilter:
             log_warning(f"[VERACITY GUARD] Too much ellipsis-affect spam (common: {len(affect_spams)}, total: {len(general_ellipses)}). Triggering full retry.")
             return None
 
+        # Check for excessive em-dash usage (style drift from contaminated self-model)
+        em_dash_count = response.count('\u2014')
+        if em_dash_count >= 5:
+            log_warning(f"[VERACITY GUARD] Excessive em dashes ({em_dash_count}). Triggering full retry.")
+            return None
+
         lines = response.split('\n')
         filtered_lines = []
         contaminated_count = 0

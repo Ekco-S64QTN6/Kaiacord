@@ -693,6 +693,9 @@ class CoreTaskManager:
             if shutdown_manager.shutting_down: return
             if not self.ctx or not self.ctx.bot: return
             
+            # Guard: skip if forum posting is disabled in config
+            if not config.get('forum.enabled', False): return
+
             # Guard: skip if actively generating or dreaming
             if getattr(self.ctx.bot_state, 'is_generating', False): return
             if getattr(self.ctx.bot_state, 'is_generating_image', False): return
@@ -720,7 +723,7 @@ class CoreTaskManager:
                 MIN_USERS = 25
                 
                 if thread_count < MIN_THREADS or user_count < MIN_USERS:
-                    log_warning(
+                    log_debug(
                         f"Forum auto-post deferred: knowledge base is in early gathering phase "
                         f"({thread_count}/{MIN_THREADS} threads, {user_count}/{MIN_USERS} users scraped)."
                     )
@@ -947,6 +950,9 @@ class CoreTaskManager:
             if shutdown_manager.shutting_down: return
             if not self.ctx or not self.ctx.bot: return
             
+            # Guard: skip if forum posting is disabled in config
+            if not config.get('forum.enabled', False): return
+
             # Guard: skip if actively generating or dreaming
             if getattr(self.ctx.bot_state, 'is_generating', False): return
             if getattr(self.ctx.bot_state, 'is_generating_image', False): return
@@ -973,7 +979,7 @@ class CoreTaskManager:
                 MIN_USERS = 25
                 
                 if thread_count < MIN_THREADS or user_count < MIN_USERS:
-                    log_warning(
+                    log_debug(
                         f"Forum tech support deferred: knowledge base is in early gathering phase "
                         f"({thread_count}/{MIN_THREADS} threads, {user_count}/{MIN_USERS} users scraped)."
                     )

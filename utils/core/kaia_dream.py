@@ -21,6 +21,48 @@ except ImportError:
 
 from utils.infrastructure.logging.kaia_logger import log_info, log_error, log_warning, log_success, log_action, log_debug
 
+# ── Style Artifact Sanitizer ──────────────────────────────────────────────
+# Strips excessive em dashes, ellipses, and asterisked emphasis from
+# LLM-generated text to prevent style drift feedback loops.
+_EM_DASH = '\u2014'
+_ELLIPSIS_RE = re.compile(r'[\u2026\.]{3,}')
+_ASTERISK_EMPHASIS_RE = re.compile(r'\*([^*]+)\*')
+
+def _sanitize_style_artifacts(text: str) -> str:
+    """Strip excessive em dashes, ellipses, and asterisked emphasis.
+
+    Applied to dream reflections, identity stream entries, continuity
+    updates, and self-model source material before they enter the memory
+    pipeline.  This is the primary defense against the style-drift
+    feedback loop.
+    """
+    if not text:
+        return text
+
+    # 1. Replace em dashes with commas or periods
+    #    "word—word" → "word, word"  (mid-sentence join)
+    #    "word— " → "word. "         (clause-ending pause)
+    result = re.sub(rf'(\w){_EM_DASH}(\w)', r'\1, \2', text)
+    result = re.sub(rf'(\w){_EM_DASH}\s', r'\1. ', result)
+    result = re.sub(rf'\s{_EM_DASH}(\w)', r'. \1', result)
+    result = re.sub(rf'{_EM_DASH}', ', ', result)
+
+    # 2. Collapse ellipses (unicode … and triple dots)
+    result = result.replace('\u2026', '.')
+    result = re.sub(r'\.{2,}', '.', result)
+
+    # 3. Strip single-asterisk emphasis (*word*) — keep the word, drop markers
+    #    Preserves double-asterisk bold (**word**) used in markdown headers.
+    result = re.sub(r'(?<!\*)\*(?!\*)([^*]+?)(?<!\*)\*(?!\*)', r'\1', result)
+
+    # 4. Clean up resulting double punctuation and spacing
+    result = re.sub(r'[,\.]\s*[,\.]', '.', result)
+    result = re.sub(r'\s{2,}', ' ', result)
+    result = result.strip()
+
+    return result
+
+
 # ── Repetitive Pattern Sanitizer ──────────────────────────────────────────
 _SENTENCE_SPLIT_RE = re.compile(r'(?<=[.!?])\s+')
 
@@ -321,7 +363,7 @@ VOICE AND FORMAT RULES (always apply regardless of dream type):
             )
             
             raw = response['message']['content'].strip()
-            return _sanitize_repetitive_starts(raw)
+            return _sanitize_repetitive_starts(_sanitize_style_artifacts(raw))
         except Exception as e:
             log_error(f"In-depth dream reflection generation failed: {type(e).__name__}: {e}")
             return None
@@ -408,7 +450,8 @@ VOICE AND FORMAT RULES (always apply regardless of dream type):
         try:
             existing = self._load_continuity()
             timestamp = datetime.now().strftime('%Y-%m-%d')
-            new_entry = f"\n\n---\n**{timestamp} — {source_label}**\n{new_reflection[:400].strip()}"
+            clean_reflection = _sanitize_style_artifacts(new_reflection)
+            new_entry = f"\n\n---\n**{timestamp} — {source_label}**\n{clean_reflection[:400].strip()}"
             combined = (existing + new_entry).strip()
 
             # Trim to ~3000 chars (approx 500 words) by removing oldest entries from top
@@ -682,7 +725,7 @@ VOICE AND FORMAT RULES (always apply regardless of dream type):
                 task_id=f"identity_{uuid.uuid4().hex[:8]}"
             )
 
-            identity_text = _sanitize_repetitive_starts(response['message']['content'].strip())
+            identity_text = _sanitize_repetitive_starts(_sanitize_style_artifacts(response['message']['content'].strip()))
             if identity_text:
                 identity_path = Path("memory") / "identity_stream.md"
                 identity_path.parent.mkdir(parents=True, exist_ok=True)
@@ -1067,6 +1110,11 @@ VOICE AND FORMAT RULES (always apply regardless of dream type):
                 log_warning("Self-model regen: No source material found. Skipping.")
                 return
 
+            # Sanitize source material to prevent style drift from poisoning the prompt
+            logs_text = _sanitize_style_artifacts(logs_text)
+            dreams_text = _sanitize_style_artifacts(dreams_text)
+            identity_text = _sanitize_style_artifacts(identity_text)
+
             # Build prompt (same structure as generate_self_model.py)
             current_date = datetime.now().strftime("%B %Y")
             prompt = f"""{persona_content}
@@ -1140,14 +1188,15 @@ STRICT RULES:
                 task_id=f"selfmodel_{uuid.uuid4().hex[:8]}"
             )
 
-            result = _sanitize_repetitive_starts(response['message']['content'].strip())
+            result = _sanitize_repetitive_starts(_sanitize_style_artifacts(response['message']['content'].strip()))
 
             if not result or len(result) < 100:
                 log_warning(f"Self-model regen: LLM returned too-short response ({len(result)} chars). Skipping.")
                 return
 
-            # Sanitize (same as generate_self_model.py)
-            result = result.replace("…", "...").replace("...", " ")
+            # Sanitize (same as generate_self_model.py) — em dashes now handled by _sanitize_style_artifacts
+            result = result.replace("…", ".").replace("...", " ")
+            result = result.replace("\u2014", ", ")  # Catch any remaining em dashes
             result = _re.sub(r"\s+\.", ".", result)
             result = _re.sub(r"\.([^\s])", r". \1", result)
             result = _re.sub(r"\s+", " ", result).strip()

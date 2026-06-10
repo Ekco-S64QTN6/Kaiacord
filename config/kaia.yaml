@@ -49,6 +49,7 @@ performance:
   max_consecutive_quips: 5
   idle_quip_timeout_minutes: 160
   url_max_content_length: 8000
+  num_thread: 6
   rag_scoring:
     type_boosts:
       persona: 0.15

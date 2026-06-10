@@ -253,7 +253,7 @@ class RAGQueryMixin:
                 return vector_results
         except Exception as e:
             err_msg = str(e)
-            if ("not found in fetched nodes" in err_msg or "not found in index" in err_msg) and _retry_count < 5:
+            if ("not found in fetched nodes" in err_msg or "not found in index" in err_msg) and _retry_count < 50:
                 import re
                 match = re.search(r"Node ID ([a-zA-Z0-9\-]+) not found", err_msg)
                 if match:
@@ -262,8 +262,6 @@ class RAGQueryMixin:
                     try:
                         with self._data_lock:
                             self.indices[itype].delete_nodes([stale_node_id])
-                            itype_dir = os.path.join(self.persist_dir, itype)
-                            self.indices[itype].storage_context.persist(persist_dir=itype_dir)
                             
                             # Clean BM25 cache since index changed
                             bm25_cache_path = self._get_bm25_cache_path(itype)
@@ -271,8 +269,13 @@ class RAGQueryMixin:
                                 try: os.remove(bm25_cache_path)
                                 except: pass
                             self.bm25_cache.pop(itype, None)
+                            self.persist_needed = True
                             
-                        log_success(f"Repaired {itype} index by removing stale Node {stale_node_id}. Retrying retrieval...")
+                        log_success(f"Repaired {itype} index by removing stale Node {stale_node_id} in-memory. Retrying retrieval...")
+                        
+                        # Defer slow disk persistence to a background thread to prevent query lag
+                        asyncio.create_task(asyncio.to_thread(self.persist, force=True))
+                        
                         return await self._execute_hybrid_retrieval(itype, query, retrieve_count, _retry_count + 1)
                     except Exception as repair_err:
                         log_error(f"Failed to repair {itype} index: {repair_err}")

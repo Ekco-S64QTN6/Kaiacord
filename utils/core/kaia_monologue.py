@@ -14,10 +14,12 @@ Architecture:
 """
 
 import asyncio
+import json
 import time
 import uuid
 from collections import deque
 from dataclasses import dataclass, field
+from pathlib import Path
 from typing import Optional, List
 
 from utils.infrastructure.logging.kaia_logger import log_debug, log_info, log_warning
@@ -33,6 +35,9 @@ class Thought:
 
 class InnerMonologue:
     """Manages Kaia's ephemeral inner thought stream."""
+
+    # Path for persistent monologue logs
+    LOG_PATH = Path("memory") / "monologue_log.jsonl"
 
     # Minimum interval between thought generation attempts
     COOLDOWN_SECONDS = 900  # 15 minutes
@@ -160,6 +165,23 @@ class InnerMonologue:
                 )
                 self._buffer.append(thought)
                 self._last_generated = now
+
+                # Persist thought to monologue log file
+                try:
+                    def _write_log():
+                        self.LOG_PATH.parent.mkdir(parents=True, exist_ok=True)
+                        log_entry = {
+                            "timestamp": time.strftime("%Y-%m-%d %H:%M:%S", time.localtime(now)),
+                            "epoch": now,
+                            "source": thought.source,
+                            "thought": thought.text
+                        }
+                        with open(self.LOG_PATH, "a", encoding="utf-8") as f:
+                            f.write(json.dumps(log_entry) + "\n")
+                    await asyncio.to_thread(_write_log)
+                except Exception as ex:
+                    log_debug(f"Failed to persist inner monologue (non-fatal): {ex}")
+
                 log_info(f"🧠 Inner monologue: {raw[:80]}...")
                 return raw
 

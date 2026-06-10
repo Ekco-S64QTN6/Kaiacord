@@ -19,26 +19,7 @@ class HallucinationDetector:
         r"\b(my|the model's|the ai's)\s+context (window|limits?|optimized?)\b",
         r"\bmy retrieval (system|archives?|nodes?)\b",
         
-        # High-confidence news/biographical fiction patterns
-        r"joint\s+research\s+paper\s+on\s+['\"]?Quantum\s+Consciousness['\"]?",
-        r"co-authored\s+by\s+Steve\s+Jobs",
-        r"In\s+a\s+shocking\s+turn\s+of\s+events",
-        r"Breaking\s+news:?\s+.*?returns\s+to",
-        r"^Reports\s+are\s+coming\s+in\s+that",
-        r"i\s+remember\s+back\s+in\s+\d{4}\s+when\s+i\s+was",
-        
-        # Session-specific high-confidence hallucinations (Tracer Terms)
-        r"\bThe State of Streaming Services\b",
-        r"\bChain of Suspicion\b",
-        r"Tenno\s+Heika",
-        r"Di\s+Shang",
-        r"Cosmic\s+Sociology\s+spell",
-        r"\bDeath\s+Squared\b",
-        r"\bmouse\s+population\s+caloric\s+restriction\b",
-        
-        # Fabricated Claims about Grounding
-        r"\b(there's|i have) a(n actual)? thread (titled|about|named) ['\"]?(.+?)['\"]?\b",
-        r"\b(i remember|my notes mention) a (conversation|outage) (from|last) (.+?)\b",
+
 
         # Admitted Fabrications
         r"\b(my memory is faulty|was a fabrication|mimicking a conversational style|placeholder for a topic)\b",

@@ -1434,7 +1434,13 @@ class MessageProcessor:
                 label = "[THREAD_ROOT_AND_PARENT]"
             clipped_parent = ctx.parent_context[:1000] + ("..." if len(ctx.parent_context) > 1000 else "")
             
-            context_reminder = f"{label}\nIgnore recent channel chatter if unrelated. The user is replying DIRECTLY to this message:\n{clipped_parent}"
+            context_reminder = (
+                f"{label}\n"
+                f"IMPORTANT: You are talking to {ctx.author_name}. Address {ctx.author_name} by name. "
+                f"Do NOT address or greet the author of the quoted message below — they are NOT the current speaker.\n"
+                f"The current user ({ctx.author_name}) is replying to this quoted message:\n"
+                f"{clipped_parent}"
+            )
 
         if is_vbulletin:
             messages.append({"role": "user", "content": user_msg_content})
@@ -1712,6 +1718,24 @@ class MessageProcessor:
             ctx.response_text = re.sub(r'\n{3,}', '\n\n', ctx.response_text)
             ctx.response_text = ctx.response_text.strip()
 
+        # 1c. EM DASH COLLAPSER — prevents em-dash style drift from reaching the user
+        # The LLM picks up excessive em-dash usage from contaminated self-model/identity
+        # context and amplifies it. This collapser normalizes them to standard punctuation.
+        _em_dash_count = ctx.response_text.count('\u2014')
+        if _em_dash_count >= 3:
+            log_warning(f"[EM_DASH_COLLAPSE] Collapsing {_em_dash_count} em dashes in output")
+            # "word—word" → "word, word" (parenthetical/appositive)
+            ctx.response_text = re.sub(r'(\w)\u2014(\w)', r'\1, \2', ctx.response_text)
+            # "word— " or " —word" → period or comma based on position
+            ctx.response_text = re.sub(r'(\w)\u2014\s+', r'\1. ', ctx.response_text)
+            ctx.response_text = re.sub(r'\s+\u2014(\w)', r'. \1', ctx.response_text)
+            # Any remaining standalone em dashes
+            ctx.response_text = re.sub(r'\u2014', ', ', ctx.response_text)
+            # Clean up resulting double punctuation
+            ctx.response_text = re.sub(r'[,\.]\s*[,\.]', '.', ctx.response_text)
+            ctx.response_text = re.sub(r'\s{2,}', ' ', ctx.response_text)
+            ctx.response_text = ctx.response_text.strip()
+
         # 2. SEND RESPONSE
         await self._send_response(channel=ctx.message.channel, text=ctx.response_text)
         
@@ -1789,15 +1813,21 @@ class MessageProcessor:
                 # Add author prefix to user message for history disambiguation
                 user_msg_with_author = f"{ctx.author_name}: {ctx.sanitized_content}"
                 
-                # --- STYLE DRIFT GUARD (Ellipsis Feedback Loop Prevention) ---
-                # Count ALL ellipsis-fragmented phrases, not just "it's…".
+                # --- STYLE DRIFT GUARD (Feedback Loop Prevention) ---
+                # Count ellipsis-fragmented phrases AND excessive em dashes.
                 # If excessive, skip BOTH channel_memory AND RAG disk log to break the loop.
                 _lower_resp = bot_response.lower()
                 _ellipsis_frags = len(re.findall(r"\w+[\u2026\.]{2,}", _lower_resp))
-                _is_style_drifted = _ellipsis_frags >= 4
+                _em_dash_count = bot_response.count('\u2014')
+                _is_style_drifted = _ellipsis_frags >= 4 or _em_dash_count >= 5
 
                 if _is_style_drifted:
-                    log_warning(f"Style-drift detected ({_ellipsis_frags} ellipsis fragments). "
+                    _drift_details = []
+                    if _ellipsis_frags >= 4:
+                        _drift_details.append(f"{_ellipsis_frags} ellipsis fragments")
+                    if _em_dash_count >= 5:
+                        _drift_details.append(f"{_em_dash_count} em dashes")
+                    log_warning(f"Style-drift detected ({', '.join(_drift_details)}). "
                                 f"Skipping channel_memory AND RAG log to break feedback loop.")
                 else:
                     self.bot_state.channel_memory[ctx.channel_id].append({"role": "user", "content": user_msg_with_author, "timestamp": time.time()})

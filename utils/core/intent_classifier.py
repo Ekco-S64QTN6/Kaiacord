@@ -426,15 +426,20 @@ class IntentParser:
 
         except Exception as e:
             err_msg = str(e).lower()
-            if "no json in thinking field" in err_msg:
+            if isinstance(e, TimeoutError):
+                from utils.infrastructure.system.yaml_config import config
+                log_warning(f"Intent Analysis timed out after {config.classification_timeout}s. Falling back to fast-path/default.")
+            elif "no json in thinking field" in err_msg:
                 # Expected fallback case when model ignores /no_think.
                 # Already logged as warning in _analyze_with_llm.
                 pass
             elif "out of memory" in err_msg or "cudamalloc" in err_msg or "terminat" in err_msg:
                 log_error(f"Intent Analysis CRITICAL OOM: {e}. Falling back to fast-path/default.")
             else:
-                log_error(f"Intent Analysis Failed: {e}")
                 import traceback
+                err_display = f"{type(e).__name__}: {e}" if str(e) else type(e).__name__
+                log_error(f"Intent Analysis Failed: {err_display}")
+                log_debug(f"Intent Analysis Traceback:\n{traceback.format_exc()}")
             
             # Fallback Intent
             # If we have a hint from the fast-path regex, use it. Otherwise, default.
@@ -511,11 +516,14 @@ class IntentParser:
             # Ensure the pre-warm call matches the intended device
             options["num_gpu"] = 99 if self.use_gpu_for_classification else 0
             
-            await self.ollama_client.generate(
-                model=self.classification_model,
-                prompt=".",
-                options=options,
-                keep_alive=keep_alive
+            await asyncio.wait_for(
+                self.ollama_client.generate(
+                    model=self.classification_model,
+                    prompt=".",
+                    options=options,
+                    keep_alive=keep_alive
+                ),
+                timeout=180.0
             )
             log_success(f"IntentParser model {self.classification_model} warmed ({'GPU' if self.use_gpu_for_classification else 'CPU'}).")
         except Exception as e:
