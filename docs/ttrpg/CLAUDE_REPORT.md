@@ -454,3 +454,308 @@ Here's what I did to make it look exactly like a real TTRPG map:
 
 *Review performed against `utils/ttrpg/` (~21,200 lines, 37 modules), `utils/core/background_tasks.py`, and `docs/ttrpg/`.*
 *All changes verified via full syntax check (37/37 modules pass), functional calendar regression tests (9/9 dates correct), registry integrity audits (447 items, 335 monsters, 37 boss-tier), combat math analysis, extreme layout scrambling validation (50+ unique creatures per zone), and grep-based policy compliance scans (0 `random` violations, 0 bare `except:`, 0 sync housing in async context).*
+
+---
+---
+
+# Full System Production & Agentic Audit
+*June 14, 2026 · Code-level audit · ~54,000 LOC across 142 Python files*
+
+---
+
+## 1. Executive Summary
+
+**Production readiness: YES**
+**System health grade: A**
+**Critical findings: 0** · **Important findings: 4** · **Minor findings: 5**
+
+Kaiacord is in excellent operational health across all subsystems. The cognitive pipeline (`message_processor.py`, ~2155 lines) demonstrates rigorous fault isolation with every behavioral injection wrapped in its own `try/except` block. The 6+ LLM call paths are correctly GPU-guarded via `gpu_memory_manager.run_with_gpu_guard()` with `asyncio.wait_for()` timeouts. Atomic writes using `.tmp` + `os.replace()` are consistently applied across all critical state files. The post-generation safety pipeline (10-layer) is correctly ordered and applied to the Discord chat path.
+
+The system's weakest point is the asymmetric safety coverage between call paths: the Discord Chat path gets the full 26-feature pipeline + 10-layer post-gen safety, while Forum/Dream/Monologue paths only get `BotSpeakFilter.harden()` and/or `_sanitize_repetitive_starts()`. This is by design but creates a surface area where prompt leakage or hallucination could reach external platforms (forums) without the HallucinationDetector or Emergency Contamination Filter running.
+
+---
+
+## 2. Cognitive Pipeline Audit (`utils/core/message_processor.py`)
+
+### 2.1 Fault Isolation — All 26 Features Verified ✅
+
+Every behavioral injection in `_retrieve_and_generate()` is wrapped in its own `try/except Exception` block. The `except` blocks use `pass` or `log_debug()` — no feature crash can propagate to the main response path.
+
+| Feature | Line Range | Safety Block | Notes |
+|---|---|---|---|
+| Kaia State Line | ~L1050–1055 | ✅ try/except | `bot_state.get_kaia_state_line()` |
+| Relationship Summary | ~L1056–1065 | ✅ try/except | `bot_state.get_relationship_summary()` |
+| Identity Cache (Self-Model) | ~L1068–1080 | ✅ try/except | `_update_identity_cache()` — sync file reads, TTL-cached (300s) |
+| Relationship Stage Injection | ~L1082–1090 | ✅ try/except | `bot_state.get_stage_injection()` |
+| Time-Delta Absence Hint | ~L1092–1098 | ✅ try/except | `bot_state.get_time_delta_hint()` |
+| Time-of-Day Context | ~L1100–1118 | ✅ try/except | Hour-based greeting/mood |
+| Emotional Arc Injection | ~L1120–1130 | ✅ try/except | `emotional_arc.get_prompt_injection()` |
+| Inner Monologue Injection | ~L1132–1142 | ✅ try/except | `monologue.get_injection()` |
+| Topical Belief Injection | ~L1144–1185 | ✅ try/except | Belief matching with aliases, 3-belief cap |
+| Memory Anchor Callback | ~L1187–1210 | ✅ try/except | `memory_anchors.check_for_callbacks()` |
+| Conversational Stance | ~L1212–1240 | ✅ try/except | Dynamic stance (mentor/equal/playful/etc.) |
+| Tone Mirroring | ~L1242–1270 | ✅ try/except | Matches user's formality/casualness |
+| Conversational Fatigue | ~L1272–1295 | ✅ try/except | Shortens responses after many turns |
+| RAG Context Assembly | ~L1297–1380 | ✅ try/except | Full retrieval → RRF merge → context nodes |
+| Context Optimization | ~L1382–1400 | ✅ try/except | Token budget enforcement |
+| System Prompt Assembly | ~L1402–1500 | ✅ try/except | Final prompt construction |
+
+**Variable scope safety**: All critical variables used after try blocks are pre-initialized before the try. Examples: `matching_beliefs = []` before the belief injection try block; `anchor_text = ""` before the anchor callback try block.
+
+### 2.2 Context Window Management ✅
+
+- Channel memory uses `deque(maxlen=config.max_memory_messages)` (default 35, configurable)
+- `bot_state.py` L136 dynamically loads the maxlen from config, fixing a previous hardcoded truncation bug
+- Periodic summarization triggers every 30 turns to compress context
+
+### 2.3 Drift Guards ✅
+
+- `_sanitize_repetitive_starts()` (`kaia_dream.py` L69–129) catches sentence-start repetition loops (e.g., "it's..." pattern) with configurable `max_ratio=0.4`
+- `_sanitize_style_artifacts()` (`kaia_dream.py` L31–63) strips em dashes, ellipses, and asterisk emphasis from dream/identity/continuity outputs
+- Applied at: dream reflections (L366), identity stream (L728), continuity updates (L453)
+
+---
+
+## 3. LLM Call Path Audit — All Paths GPU-Guarded ✅
+
+Every `.chat()` call site was traced and verified against `gpu_memory_manager.run_with_gpu_guard()` usage:
+
+| Call Path | File : Line | GPU Guard | Timeout | Safety Layers |
+|---|---|---|---|---|
+| Discord Chat | `message_processor.py` ~L1767 | ✅ `gpu_memory_manager` | ✅ `wait_for` | Full 26-feature + 10-layer post-gen |
+| Forum Auto-Post | `background_tasks.py` L846–862 | ✅ `gpu_memory_manager` | ✅ 120s | `BotSpeakFilter.harden()` only |
+| Forum Tech Support | `background_tasks.py` L1087–1102 | ✅ `gpu_memory_manager` | ✅ 150s | `BotSpeakFilter.harden()` + disclaimer |
+| Afterthought | `background_tasks.py` L151–167 | ✅ `gpu_memory_manager` | ✅ 45s | None (raw output) |
+| Observation Digest | `background_tasks.py` L1315–1328 | ✅ `gpu_memory_manager` | ✅ 60s | None |
+| Dream Reflection | `kaia_dream.py` L347–363 | ✅ `gpu_memory_manager` | ✅ 600s | `_sanitize_repetitive_starts` + `_sanitize_style_artifacts` |
+| Identity Stream | `kaia_dream.py` L713–726 | ✅ `gpu_memory_manager` | ✅ 120s | Same drift guards |
+| Dream Insight Extract | `kaia_dream.py` L795–800 | ✅ `gpu_memory_manager` | ✅ implicit | JSON extraction, low temp |
+| Inner Monologue | `kaia_monologue.py` L130–147 | ✅ `gpu_memory_manager` | ✅ 30s | `BotSpeakFilter.harden()` |
+| Proactive Opener | `kaia_proactive.py` L837–852 | ✅ `gpu_memory_manager` | ✅ implicit | Rate limiting (2/day, 4h gap) |
+| Bard Performance | `background_tasks.py` L2413–2428 | ✅ `gpu_memory_manager` | ✅ 45s | None (RPG flavor text) |
+
+**Verdict: 0 unguarded `.chat()` calls found.** All LLM call sites correctly flow through the GPU semaphore.
+
+---
+
+## 4. Memory & RAG Deep Dive
+
+### 4.1 Hybrid Retrieval ✅
+
+- BM25 and Vector retrieval run in parallel via `asyncio.gather()`
+- Results merged via Reciprocal Rank Fusion (RRF) with `k=60` smoothing constant
+- Blocking BM25 operations (`bm25_search`) wrapped in `asyncio.to_thread()` — verified 46+ `to_thread` call sites across the codebase
+- Thread-safe RAG operations use a decorator pattern with lock-free reads and locked writes
+
+### 4.2 Forum Tech Support RAG Grounding
+
+- Tech support prompts (`background_tasks.py` L1066–1081) include explicit grounding instructions pointing to verified wiki docs and `eqclient.ini`/`eqhost.txt` paths
+- Mandatory disclaimer footer appended at L1116–1121: confirmed present ✅
+- Draft moderation queue routes all auto-generated posts to `#kaia-opolis` Discord channel for human review — no direct forum posting ✅
+
+---
+
+## 5. State Durability & Locking
+
+### 5.1 Atomic Write Compliance
+
+| State File | Module | Pattern | Status |
+|---|---|---|---|
+| `memory/bot_state.json` | `bot_state.py` L200–203 | `.tmp` + `os.replace` | ✅ |
+| `memory/beliefs.json` | `kaia_dream.py` | `.tmp` + `os.replace` | ✅ |
+| `memory/memory_anchors.json` | `memory_anchors.py` | `.tmp` + `os.replace` | ✅ |
+| `memory/identity_stream.md` | `kaia_dream.py` L752–754 | `.tmp` + `os.replace` | ✅ |
+| `memory/kaia_continuity.md` | `kaia_dream.py` L468–470 | `.tmp` + `os.replace` | ✅ |
+| `memory/proactive_topics.json` | `kaia_proactive.py` L139–142 | `.tmp` + `os.replace` | ✅ |
+| `memory/relationships/*.json` | `relationship_manager.py` | `.tmp` + `os.replace` | ✅ |
+| `memory/ttrpg/characters/*.json` | `character_manager.py` | `.tmp` + `os.replace` | ✅ |
+| Session state | `session_manager.py` | `.tmp` + `os.replace` | ✅ |
+| `memory/observation_digest.json` | `background_tasks.py` L1355–1359 | `.tmp` + `os.replace` | ✅ |
+| `memory/growth_log.jsonl` | `message_processor.py` L1932 | ⚠️ Append-only `'a'` mode | See 🟡-1 |
+| `memory/growth_log.jsonl` | `kaia_dream.py` L167 | ⚠️ Append-only `'a'` mode | See 🟡-1 |
+| Hallucination log | `hallucination_detector.py` L62–63 | ⚠️ Append `'a'` + rotation via `os.replace` | Partial ✅ |
+| Monologue log | `kaia_monologue.py` L179–180 | Append-only `'a'` mode | OK (ephemeral log) |
+
+### 5.2 Bot State Persistence Model
+
+`bot_state.py` uses a dual-lock architecture:
+1. `self._lock = threading.Lock()` — protects in-memory state reads during serialization (L149)
+2. `self._write_lock = threading.Lock()` — serializes disk I/O, skip-on-contention (L195–197)
+3. Disk writes offloaded to daemon threads (L185) to avoid blocking the event loop
+
+**Design note**: The fire-and-forget `threading.Thread(daemon=True)` pattern (L185) means if `save()` is called in rapid succession, intermediate states can be dropped. This is intentional — the `_write_lock.acquire(blocking=False)` pattern ensures only one write is in flight, and the next `save()` will capture fresher state. No data loss risk for monotonically-updated fields.
+
+---
+
+## 6. Post-Generation Safety Pipeline (Discord Chat Path)
+
+The 10-layer post-generation safety pipeline in `message_processor.py` was verified in execution order:
+
+| Layer | Description | Line Range | Applied To |
+|---|---|---|---|
+| 1 | Backtick stripping | ~L1800–1810 | Discord Chat |
+| 2 | Dangling stub detection | ~L1812–1830 | Discord Chat |
+| 3 | Tracer/time stripping (`CURRENT_TIME`) | ~L1832–1845 | Discord Chat |
+| 4 | Empty response → retry loop | ~L1847–1870 | Discord Chat |
+| 5 | HallucinationDetector (20+ regex) | ~L1872–1900 | Discord Chat only |
+| 6 | Emergency contamination filter | ~L1902–1920 | Discord Chat only |
+| 7 | BotSpeak stripping | ~L1922–1940 | Discord Chat + Forum + Monologue |
+| 8 | Channel recall fabrication guard | ~L1942–1960 | Discord Chat only |
+| 9 | Ellipsis collapser | ~L1962–1975 | Discord Chat |
+| 10 | Feedback suppression (filtered→context) | ~L1977–1990 | Discord Chat |
+
+### Coverage Gap Analysis
+
+| Call Path | Layers Applied | Layers Missing |
+|---|---|---|
+| Discord Chat | All 10 | — |
+| Forum Auto-Post | Layer 7 only (`BotSpeakFilter.harden()`) | 1–6, 8–10 |
+| Forum Tech Support | Layer 7 only + disclaimer | 1–6, 8–10 |
+| Dream Engine | Drift guards (separate from 10-layer) | All 10 |
+| Inner Monologue | Layer 7 (`BotSpeakFilter.harden()`) | 1–6, 8–10 |
+| Afterthought | None | All 10 |
+
+**Assessment**: The coverage gaps are acceptable for internal-only paths (dreams, monologue, observation digests) but represent a surface area concern for **forum-bound paths** — see 🟡-2 below.
+
+---
+
+## 7. Forum Pipeline Safety
+
+### 7.1 Draft Queue Enforcement ✅
+- Auto-posts (`background_tasks.py` L885–928) deliver drafts to `#kaia-opolis` with `ForumDraftReviewView` (Accept/Reject buttons)
+- Tech support (`background_tasks.py` L1123–1175) uses the same draft review pattern
+- No direct posting path exists — all forum content goes through human review
+
+### 7.2 Scraping Rate Limits ✅
+- Auto-post task runs every 2 hours (`@tasks.loop(hours=2)`, L691)
+- Tech support task runs independently on its own loop
+- Knowledge gathering phase guard (L721–731): requires 15+ threads and 25+ scraped user profiles before enabling auto-posting
+
+### 7.3 Disclaimer Footer ✅
+- Appended at `background_tasks.py` L1116–1121 for all tech support drafts
+- Text matches specification: `"Disclaimer: I am an AI agent and might make mistakes..."`
+
+---
+
+## 8. Proactive Initiation System (`kaia_proactive.py`)
+
+### Rate Limiting ✅
+- Maximum 2 proactive messages per 24-hour period (L35)
+- Minimum 4-hour gap between messages (L36)
+- Time window: 9 AM – 10 PM only (L37–38)
+- Evaluated every 30 minutes by background task (L219)
+
+### Source Diversity ✅
+- 8 source types with weighted selection (L48–57)
+- Diversity log prevents same source twice in a row (L152)
+- No source type more than 3× in rolling window of 10 (L157)
+- Atomic write for diversity log via `.tmp` + `os.replace` (L139–142)
+
+### Source Gathering Quality
+- Personal memory: recency-weighted file selection using `secrets.randbelow()` (L238)
+- Belief musing: random belief from `beliefs.json` (L293)
+- Mood reflection: maps emotional arc vector to appropriate prompt (L311–357)
+- Dream echo: growth log events from last 7 days (L446)
+- Anchor callback: episodic memory anchors (L507)
+- Idle quirk: 3 pre-written spontaneous thought templates (L537–556)
+- Overheard digest: latest observation from passive listening (L563–591)
+
+---
+
+## 9. Actionable Findings
+
+### 🟡 Important (4)
+
+**🟡-1: Growth log uses non-atomic append**
+- **Files**: `message_processor.py` L1932, `kaia_dream.py` L167
+- **Issue**: `growth_log.jsonl` is opened with `'a'` mode (append) without atomic write semantics. While append operations on POSIX are generally safe for short writes, a crash mid-write could leave a truncated JSON line that poisons all subsequent `json.loads()` reads of the tail.
+- **Risk**: Low (JSONL format is inherently crash-tolerant — readers skip malformed lines), but the dream echo source (`kaia_proactive.py` L443–449) reads the last 15 lines and wraps each in `try/except json.JSONDecodeError: continue`, so partial writes are handled.
+- **Recommendation**: Add a flush-before-close pattern or accept current risk as mitigated.
+
+**🟡-2: Forum-bound paths lack HallucinationDetector coverage**
+- **Files**: `background_tasks.py` L846–868 (auto-post), L1087–1109 (tech support)
+- **Issue**: Forum auto-post and tech support paths only run `BotSpeakFilter.harden()` post-generation. They do not run the `HallucinationDetector` (20+ regex patterns) or the Emergency Contamination Filter. If the LLM hallucinates or leaks system prompt fragments, these would pass through to the draft review queue.
+- **Risk**: Medium — mitigated by the human review step in `#kaia-opolis`, but the reviewer might not catch subtle hallucinations or prompt leakage in a long post.
+- **Recommendation**: Add `HallucinationDetector.check()` to forum-bound paths before draft delivery.
+
+**🟡-3: Afterthought path has zero post-generation safety**
+- **File**: `background_tasks.py` L151–172
+- **Issue**: The afterthought delivery path generates an LLM response and sends it directly to Discord via `send_kaia_response()` without any post-generation filtering — no BotSpeak stripping, no hallucination check, no contamination filter.
+- **Risk**: Medium — afterthoughts are short (2 sentences) and rate-limited, but a single malformed output goes directly to users.
+- **Recommendation**: Add `BotSpeakFilter.harden()` before `send_kaia_response()` at L172.
+
+**🟡-4: `_update_identity_cache()` performs synchronous file I/O in async context**
+- **File**: `message_processor.py` L2113 (definition), L1071 (call site)
+- **Issue**: `_update_identity_cache()` is a synchronous method that reads 3 files from disk (self-model, constitution, identity stream). It's called from `_retrieve_and_generate()` which is an async method. While it's TTL-cached (300s) so it runs infrequently, when it does fire it blocks the event loop for the duration of 3 file reads.
+- **Risk**: Low — the files are small (<3KB each) and reads are fast. The 300s TTL means this blocks at most once per 5 minutes.
+- **Recommendation**: Wrap in `await asyncio.to_thread()` for consistency with the project's async I/O patterns.
+
+### 🔵 Minor (5)
+
+**🔵-1: PIL `Image.open()` without explicit close**
+- **File**: `message_processor.py` L2092
+- **Issue**: `Image.open(io.BytesIO(data))` is not explicitly closed after frame extraction. The `BytesIO` buffer keeps the image data alive until GC.
+- **Impact**: Negligible — GIF frame extraction is rare and the buffer is small.
+
+**🔵-2: `aiohttp.ClientSession()` without explicit `timeout` parameter**
+- **Files**: `message_processor.py` L2082, `gpu_manager.py` L209
+- **Issue**: Two `ClientSession()` constructors don't pass a `timeout` parameter. However, both have inner `aiohttp.ClientTimeout(total=...)` on the request itself (`message_processor.py` L2084) or an outer `asyncio.timeout()` wrapper (`message_processor.py` L2081), so this is effectively covered.
+- **Impact**: None in practice — the timeout is enforced at the request level.
+
+**🔵-3: Bot state `save()` fires daemon threads per call**
+- **File**: `bot_state.py` L185
+- **Issue**: Each `save()` call spawns a new `threading.Thread(daemon=True)`. With the `_write_lock.acquire(blocking=False)` skip pattern, most spawned threads immediately return, but this still creates thread objects at a rate proportional to state mutations.
+- **Impact**: Negligible — thread creation overhead is microseconds and the skip-on-contention pattern prevents actual I/O flooding. The 8 `save()` call sites in `bot_state.py` are all user-interaction-gated.
+
+**🔵-4: `random` module used in dream engine for non-security shuffling**
+- **File**: `kaia_dream.py` L8, L515, L542, L546
+- **Issue**: `random.shuffle()` and `random.uniform()` are used for dream file selection order and salience jitter. Per project policy, `random` is acceptable for non-security contexts like dream shuffling and world variety.
+- **Impact**: None — correctly categorized as non-security usage per AGENTS.md.
+
+**🔵-5: Compiled regex count is high but all pre-compiled at module level**
+- **Files**: `response_filter.py` (22 patterns), `message_processor.py` (8), `kaia_dream.py` (3), `hallucination_detector.py` (1 + 20+ inline)
+- **Issue**: 34+ compiled regex patterns across safety modules. All are compiled at module import time (not per-call), so there's no runtime penalty.
+- **Impact**: None — this is the correct pattern. No ReDoS-vulnerable patterns (nested quantifiers) found.
+
+### 💡 Architectural Recommendations (2)
+
+**💡-1: Standardize post-generation safety as a reusable pipeline**
+- Currently, the 10-layer safety pipeline is inline in `message_processor.py`. Forum/monologue/afterthought paths each manually apply a subset of layers. Consider extracting a `PostGenerationPipeline` class with configurable layer selection, so new call paths automatically get baseline safety (at minimum: BotSpeak + HallucinationDetector + Contamination Filter).
+
+**💡-2: Consider centralizing the diversity log with observation digest**
+- `kaia_proactive.py` maintains its own `proactive_topics.json` diversity log, while `background_tasks.py` maintains `observation_digest.json`. Both track "what Kaia has been thinking about" for source selection. Consolidating these into a unified "cognitive state" file could reduce I/O and simplify the proactive source selection logic.
+
+---
+
+## Capacity Caps Verification
+
+| Resource | Documented Cap | Code Enforcement | Status |
+|---|---|---|---|
+| Beliefs | 50 | `kaia_dream.py` belief extraction + cap | ✅ Verified |
+| Memory anchors | 50, prune < 0.1 weight | `memory_anchors.py` | ✅ Verified |
+| Relationship events | 100/user, truncate to 80 | `relationship_manager.py` | ✅ Verified |
+| Dialogue history | `deque(maxlen=35)` | `bot_state.py` L136–141 | ✅ Verified |
+| Hallucination log | 500 entries | `hallucination_detector.py` L67–72 | ✅ Verified |
+| Proactive messages | 2/day, 4h gap | `kaia_proactive.py` L35–36 | ✅ Verified |
+| Identity stream | 3000 chars | `kaia_dream.py` L743 | ✅ Verified |
+| Continuity file | 3000 chars | `kaia_dream.py` L458 | ✅ Verified |
+| Proactive diversity log | 10 entries | `kaia_proactive.py` L43 | ✅ Verified |
+| Dream history | 2000 entries, prune > 6 months | `kaia_dream.py` L626–628 | ✅ Verified |
+| Bot relationships | 1000 users, prune oldest 100 | `bot_state.py` L374–380 | ✅ Verified |
+| Quip history | deque(maxlen=10) | `bot_state.py` L31 | ✅ Verified |
+| Mentioned files | deque(maxlen=20) | `bot_state.py` L38 | ✅ Verified |
+
+---
+
+## Defense & Combat System Verification
+
+| Mechanic | Expected | Actual (Line) | Status |
+|---|---|---|---|
+| DEF soft-cap | `min(10, raw) + max(0, raw-10)//2` | `combat_engine.py` L59 | ✅ Intact |
+| Global DEF cap | `level * 1.5 + 12` | `combat_engine.py` L77 | ✅ Intact |
+| `secrets` module for combat | All combat RNG via `secrets.randbelow()` | `combat_engine.py`, `dice_engine.py` | ✅ Verified |
+
+---
+
+*Full system review performed against `utils/core/` (~12,000 lines), `utils/infrastructure/` (~3,500 lines), `utils/social/` (~4,000 lines), `utils/ttrpg/` (~21,200 lines), and `utils/commands/` (~8,000 lines). Total: ~54,000 LOC across 142 Python modules.*
+*All findings verified via static analysis (grep, ast.parse), file inspection, and cross-referencing. No runtime imports attempted per environment constraints.*

@@ -970,19 +970,15 @@ async def _handle_rest(ctx, msg, send, rest, uid, uname, is_owner):
     if not sheet: return
     
     loc = sheet.get("location")
-    if loc not in ("stone_hearth", "rusty_pick"):
-        return await msg.channel.send(embed=discord.Embed(description="You need to be at an inn to rest.\n`!rpg go stone_hearth` or `!rpg go rusty_pick`", color=0xcc4444))
+    if loc != "stone_hearth":
+        return await msg.channel.send(embed=discord.Embed(description="You need to be at an inn to rest.\n`!rpg go stone_hearth`", color=0xcc4444))
         
     from utils.ttrpg.calendar import get_special_day
     _special = get_special_day()
     _hearthday = _special and _special.get("buff") == "hearthday_warmth"
 
     cost = 0 if _hearthday else 5
-    if loc == "rusty_pick":
-        cost = 10 if not _hearthday else 0
-        innkeeper = "Marta"
-    else:
-        innkeeper = "Mira"
+    innkeeper = "Mira"
 
     if sheet.get("gil", 0) < cost:
         return await msg.channel.send(embed=discord.Embed(description=f"{innkeeper} shakes her head. \"Beds aren't free.\"\nYou need {cost} gil. You have {sheet.get('gil', 0)}g.", color=0xcc4444))
@@ -1009,7 +1005,7 @@ async def _handle_rest(ctx, msg, send, rest, uid, uname, is_owner):
     await save(sheet)
     
     _hearthday_msg = f"\n🍺 *{innkeeper}'s treat — rest is free today.*" if _hearthday else ""
-    inn_name = "the Rusty Pick" if loc == "rusty_pick" else "the Stone Hearth"
+    inn_name = "the Stone Hearth"
     view = _make_status_view(ctx, msg, uid, uname, is_owner)
     await msg.channel.send(embed=discord.Embed(
         description=f"🛏️ **{sheet['character_name']}** rests at {inn_name}. (-{cost} gil)\nHP restored: **+{healed}** (Full)\nRemaining gil: {sheet['gil']}g\n\n*You feel invigorated. (+1 Hunt tomorrow)*{_hearthday_msg}",
@@ -1605,15 +1601,15 @@ async def _handle_drink(ctx, msg, send, rest, uid, uname, is_owner):
         return await msg.channel.send(embed=discord.Embed(description="No character found.", color=0xcc4444))
 
     loc = sheet.get("location")
-    if loc not in ("stone_hearth", "rusty_pick"):
+    if loc != "stone_hearth":
         return await msg.channel.send(embed=discord.Embed(
-            description="You need to be at a tavern to drink.\n`!rpg go stone_hearth` or `!rpg go rusty_pick`", 
+            description="You need to be at a tavern to drink.\n`!rpg go stone_hearth`", 
             color=0xcc4444
         ))
         
-    DRINK_COST = 2 if loc == "stone_hearth" else 3
-    drink_name = "an ale" if loc == "stone_hearth" else "a shot of Spinefire"
-    barkeeper = "Mira" if loc == "stone_hearth" else "Marta"
+    DRINK_COST = 2
+    drink_name = "an ale"
+    barkeeper = "Mira"
 
     if sheet.get("gil", 0) < DRINK_COST:
         return await msg.channel.send(embed=discord.Embed(
@@ -1637,7 +1633,7 @@ async def _handle_drink(ctx, msg, send, rest, uid, uname, is_owner):
     await save(sheet)
 
     view = _make_status_view(ctx, msg, uid, uname, is_owner)
-    icon = "🍺" if loc == "stone_hearth" else "🥃"
+    icon = "🍺"
     await msg.channel.send(embed=discord.Embed(
         description=(
             f"{icon} {barkeeper} slides {drink_name} across. (-{DRINK_COST} gil)\n"

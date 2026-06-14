@@ -1343,8 +1343,9 @@ class MessageProcessor:
         # to prevent the LLM from thinking it's a catchphrase it must repeat.
         metadata_block = (
             "\n\n--- METADATA ---\n"
+            f"[CURRENT_USER]: {ctx.author_name.lower()}\n"
             f"[CURRENT_TIME]: {current_time_str}\n"
-            "CRITICAL: Any timestamps in conversation history are outdated. Do not repeat the [CURRENT_TIME] string or your metadata in your response."
+            "CRITICAL: Any timestamps in conversation history are outdated. Do not repeat the [CURRENT_TIME] or [CURRENT_USER] strings or your metadata in your response."
         )
 
         recap_constraint_block = ""
@@ -1410,12 +1411,13 @@ class MessageProcessor:
             if isinstance(turn, dict) and 'role' in turn and 'content' in turn:
                 if turn.get('role') == 'system':
                     continue
-                # Scrub [CURRENT_TIME] and resolved date strings from history to prevent mimicry
-                # Handles: [CURRENT_TIME]: ..., CURRENT_TIME: ..., and legacy [CURRENT_TIME]
+                # Scrub [CURRENT_TIME], [CURRENT_USER] and resolved date strings from history to prevent mimicry
+                # Handles: [CURRENT_TIME]: ..., CURRENT_TIME: ..., and legacy [CURRENT_TIME]/[CURRENT_USER]
                 turn = turn.copy()
                 content = turn['content']
-                # Remove any time signatures
+                # Remove any time signatures or user metadata
                 content = re.sub(r'\[?CURRENT_TIME\]?:?.*', '', content)
+                content = re.sub(r'\[?CURRENT_USER\]?:?.*', '', content)
                 # Remove resolved date strings (e.g., Friday, March 06, 2026 | 07:30 PM)
                 content = re.sub(
                     r'(Monday|Tuesday|Wednesday|Thursday|Friday|Saturday|Sunday),\s+'
@@ -1524,9 +1526,10 @@ class MessageProcessor:
                     log_warning(f"Attempt {attempt + 1}: Dangling stub detected after stripping. Retrying...")
                     continue
 
-                # EMERGENCY FILTER: Strip hallucinated [CURRENT_TIME] or time signatures
+                # EMERGENCY FILTER: Strip hallucinated [CURRENT_TIME], [CURRENT_USER] or time signatures
                 # preventing history pollution if the LLM ignores instructions.
                 content = re.sub(r'\[?CURRENT_TIME\]?:?.*', '', content).strip()
+                content = re.sub(r'\[?CURRENT_USER\]?:?.*', '', content).strip()
                 content = re.sub(
                     r'(Monday|Tuesday|Wednesday|Thursday|Friday|Saturday|Sunday),\s+'
                     r'(January|February|March|April|May|June|July|August|September|October|November|December)'
@@ -1696,6 +1699,7 @@ class MessageProcessor:
         """Final cleanups, sending response, and logging."""
         # 1. FINAL OUTPUT FILTER: Strip hallucinated [CURRENT_TIME] or CURRENT_TIME from outgoing text
         ctx.response_text = re.sub(r'\[?CURRENT_TIME\]?:?.*?(?:\n|$)', '', ctx.response_text).strip()
+        ctx.response_text = re.sub(r'\[?CURRENT_USER\]?:?.*?(?:\n|$)', '', ctx.response_text).strip()
         
         # Run Self-Consistency Watchdog (P54-2)
         await self._run_consistency_watchdog(ctx, ctx.response_text)

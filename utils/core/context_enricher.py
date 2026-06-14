@@ -229,13 +229,30 @@ class ContextEnricher:
         results = await asyncio.gather(*tasks, return_exceptions=True)
         
         resolved_texts = []
-        for res in results:
-            if isinstance(res, str) and res:
+        failed_urls = []
+        for url, res in zip(unique_urls, results):
+            if isinstance(res, str) and res.strip():
                 resolved_texts.append(res)
-            elif isinstance(res, Exception):
-                log_debug(f"URL scraping failed: {res}")
+            else:
+                failed_urls.append(url)
+                if isinstance(res, Exception):
+                    log_debug(f"URL scraping failed for {url}: {res}")
+                else:
+                    log_debug(f"URL scraping returned empty/invalid content for {url}")
                 
-        return "\n\n".join(resolved_texts)
+        context_parts = []
+        if resolved_texts:
+            context_parts.append("\n\n".join(resolved_texts))
+        if failed_urls:
+            failed_info = "\n".join(f"- {url}" for url in failed_urls)
+            context_parts.append(
+                f"[SYSTEM WARNING: The following URLs could not be scraped or retrieved:\n{failed_info}\n"
+                "You have NO access to their contents. Do not pretend to have read them, and do not hallucinate "
+                "their details. If the user asks you to summarize or discuss them, politely explain that you "
+                "cannot fetch or access the links (e.g., due to access restrictions, dynamic content, or login walls).]"
+            )
+            
+        return "\n\n".join(context_parts)
 
     async def _scrape_single_url(self, url: str) -> str:
         """Scrape text from a single URL with caching and limits."""
