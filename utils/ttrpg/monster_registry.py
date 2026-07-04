@@ -2545,6 +2545,14 @@ ENCOUNTER_TABLES = {
 }
 
 
+# Apply baseline defense bumps to trivial and easy tiers dynamically
+for _k, _v in MONSTERS.items():
+    if _v.get("tier") == "trivial":
+        _v["defense"] += 2
+    elif _v.get("tier") == "easy":
+        _v["defense"] += 1
+
+
 
 
 # ══════════════════════════════════════════════════════════

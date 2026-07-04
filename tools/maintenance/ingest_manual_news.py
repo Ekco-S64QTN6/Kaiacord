@@ -205,13 +205,32 @@ def generate_summary(full_brief, target_date, summary_path):
     4. Start each category header on its own line immediately followed by its bullets.
     """
     
+    # Resolve chat model dynamically from configuration
+    chat_model = "gemma3:12b"
     try:
+        import sys
+        sys.path.append(os.path.abspath(os.path.join(os.path.dirname(__file__), "..", "..")))
+        from utils.infrastructure.system.yaml_config import config
+        chat_model = config.chat_model
+    except Exception:
+        pass
+
+    try:
+        # Get consistent GPU options to prevent Ollama from reloading/duplicating models
+        try:
+            from utils.infrastructure.gpu.gpu_manager import OllamaGPUManager
+            gpu_manager = OllamaGPUManager(chat_model)
+            options = gpu_manager.get_gpu_options(for_chat=True)
+        except Exception:
+            options = {}
+
         response = ollama.chat(
-            model='gemma3:12b',
+            model=chat_model,
             messages=[
                 {'role': 'system', 'content': 'You extract concise technical bullet points from news briefs.'},
                 {'role': 'user', 'content': summary_prompt}
-            ]
+            ],
+            options=options
         )
         
         summary = response['message']['content']

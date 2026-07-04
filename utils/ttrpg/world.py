@@ -97,6 +97,7 @@ LOCATION_DATA = {
         "exits": ["trade_road"],
         "atmosphere": "bustling, wealthy, temporary. The merchant watches everyone with a keen eye.",
     },
+
     "housing_district": {
         "name": "Oakhaven Housing District",
         "short": "A quiet lane east of the square. Smoke from hearths, the smell of turned earth. People built lives here.",
@@ -154,6 +155,7 @@ def resolve_location(query: str) -> str:
         "pond":             "tricklebrook_pond",
         "fish":             "tricklebrook_pond",
         "tricklebrook":     "tricklebrook_pond",
+
         "spine":            "aeridor_ruins",
         "mountains":        "aeridor_ruins",
     }

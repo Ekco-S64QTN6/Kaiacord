@@ -204,6 +204,10 @@ def _resolve_combat(sheet: dict, monster: dict, atk_mod_global: int = 0, def_mod
 
     attack_mod = atk_mod + weapon_atk + acc_atk + adv_flat_atk + bless_bonus + streak_bonus + luck_bonus + atk_mod_global + pet_combat_bonus + embered_bonus
     
+    # Cap player attack modifier relative to level to prevent near-guaranteed hits at high tiers
+    global_atk_cap = int(sheet.get("level", 1) * 1.15) + 4
+    attack_mod = min(attack_mod, global_atk_cap)
+    
     # --- Initialize Result Variables ---
     player_hit = False
     player_crit = False

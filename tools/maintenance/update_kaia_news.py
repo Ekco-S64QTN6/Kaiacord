@@ -22,6 +22,15 @@ class KaiaNewsUpdater:
         self.knowledge_dir.mkdir(parents=True, exist_ok=True)
         self.today = datetime.datetime.now().strftime("%Y-%m-%d")
         
+        # Resolve chat model dynamically from configuration
+        try:
+            import sys
+            sys.path.append(os.path.abspath(os.path.join(os.path.dirname(__file__), "..", "..")))
+            from utils.infrastructure.system.yaml_config import config
+            self.chat_model = config.chat_model
+        except Exception:
+            self.chat_model = "gemma3:12b"
+        
     def generate_daily_brief(self, target_date: str = None) -> str:
         """Generate news brief using Gemini with Google Search grounding for accuracy"""
         date_to_use = target_date or self.today
@@ -207,12 +216,21 @@ RULES:
         """
         
         try:
+            # Get consistent GPU options to prevent Ollama from reloading/duplicating models
+            try:
+                from utils.infrastructure.gpu.gpu_manager import OllamaGPUManager
+                gpu_manager = OllamaGPUManager(self.chat_model)
+                options = gpu_manager.get_gpu_options(for_chat=True)
+            except Exception:
+                options = {}
+
             response = ollama.chat(
-                model='gemma3:12b',
+                model=self.chat_model,
                 messages=[
                     {'role': 'system', 'content': 'You extract concise technical bullet points from news briefs.'},
                     {'role': 'user', 'content': summary_prompt}
-                ]
+                ],
+                options=options
             )
             
             summary = response['message']['content']

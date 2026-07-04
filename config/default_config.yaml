@@ -13,7 +13,7 @@
 # ============================================================================
 models:
   # Main chat model
-  chat: "gemma3:12b"
+  chat: "gemma4:12b"
   
   # Embedding model for RAG
   # nomic-embed-text-cpu runs CPU-only via num_gpu:0, preserving VRAM for the chat model.

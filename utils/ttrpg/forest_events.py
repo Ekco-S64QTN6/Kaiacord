@@ -28,6 +28,7 @@ def resolve_event(event_key: str, sheet: dict) -> dict:
         "twin_wisps":        _twin_wisps,
         "lost_merchant":     _lost_merchant,
         "ancient_coin":      _ancient_coin,
+        "missing_persons_found": _missing_persons_found,
     }
     handler = handlers.get(event_key, _sylvan_sprites)
     return handler(sheet)
@@ -578,5 +579,35 @@ def _ancient_coin(sheet: dict) -> dict:
         "Half-buried in the mud on the trail: a coin. Not gil. It's too heavy, the metal is dark, "
         "and the face stamped on it belongs to an Aeridorian king who died before Oakhaven was built. "
         "It feels warm to the touch. The player pocketed it."
+    )
+    return r
+
+
+def _missing_persons_found(sheet: dict) -> dict:
+    """Find a missing villager."""
+    r = _base()
+    r["event_key"] = "missing_persons_found"
+    r["title"] = "📋 Missing Person Found"
+    
+    from utils.ttrpg.world_state import load_world_state, save_world_state
+    wstate = load_world_state()
+    name = wstate.get("missing_person_name", "a lost traveler")
+    
+    # End the event in world state
+    wstate["missing_person_loc"] = ""
+    wstate["missing_person_name"] = ""
+    wstate["missing_person_expiry"] = 0
+    save_world_state(wstate)
+    
+    # Award player
+    r["xp"] = 100
+    r["gil"] = 100
+    sheet["reputation"] = sheet.get("reputation", 0) + 10
+    
+    r["outcome"] = f"You found {name} safe and escorted them back. +100 XP, +100 gil, +10 Reputation."
+    r["narration_hook"] = (
+        f"While scouting, you heard a faint call. Huddled under a roots shelter was {name}, "
+        "terrified but alive. You kept watch, shared your rations, and guided them back safely. "
+        "The family wept, Elder Elara nodded in silent approval, and you were rewarded for your valor."
     )
     return r

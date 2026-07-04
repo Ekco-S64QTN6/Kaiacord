@@ -31,8 +31,8 @@ def test_bait_expansion():
         content = f"Interesting point.\n{phrase}"
         result = BotSpeakFilter.strip_bot_speak(content)
         print(f"Testing TRAILING: '{content}' -> '{result}'")
-        assert phrase not in result, f"Failed to strip trailing bait from: {content}"
-        assert "Interesting point." in result, f"Accidentally stripped legitimate content from: {content}"
+        assert phrase.lower() not in result.lower(), f"Failed to strip trailing bait from: {content}"
+        assert "interesting point" in result.lower(), f"Accidentally stripped legitimate content from: {content}"
 
 def test_contamination_filters():
     from utils.core.response_filter import EmergencyContaminationFilter

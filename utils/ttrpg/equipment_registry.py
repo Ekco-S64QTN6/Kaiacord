@@ -1897,13 +1897,7 @@ HEMLOCK_STOCK_BOOTS    = ['worn_boots', 'heavy_boots', 'trackers_boots', 'soft_s
 HEMLOCK_STOCK_ACCESSORIES = ['copper_ring', 'warriors_bracer', 'scouts_bracer', 'scholars_bracelet']
 HEMLOCK_STOCK_CONSUMABLES = ['healing_herb', 'bandage', 'tonic', 'torch']
 
-# What Old Pell sells (Grimstone — hardware & provisions)
-PELLS_STOCK_WEAPONS     = ['rusty_hand_axe', 'iron_flail', 'skinning_knife']
-PELLS_STOCK_ARMOR       = ['leather_armor', 'iron_plating']
-PELLS_STOCK_HEADGEAR    = ['iron_helm', 'worn_cap']
-PELLS_STOCK_BOOTS       = ['heavy_boots', 'worn_boots']
-PELLS_STOCK_ACCESSORIES = ['warriors_bracer']
-PELLS_STOCK_CONSUMABLES = ['torch', 'bandage', 'healing_herb', 'tonic', 'lightstone']
+
 
 CONSUMABLES = {
     "potion_standard": {"name": "Health Potion", "hp_restore": 25, "value": 40, "tier": 2,

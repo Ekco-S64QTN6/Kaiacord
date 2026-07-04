@@ -87,13 +87,25 @@ class HealthCheck:
             if result.returncode == 0:
                 self.check("Ollama Installed", True, "")
                 
-                # Check for required models
-                output = result.stdout
-                required_models = ["gemma3:12b", "gemma2:2b", "nomic-embed-text"]
+                # Read required models from config — no hardcoded model names
+                try:
+                    from utils.infrastructure.system.yaml_config import config
+                    chat_model = config.chat_model
+                    classification_model = config.get('models.classification_model', 'gemma2:2b')
+                    embedding_model = config.get('models.embedding', 'nomic-embed-text-cpu')
+                except Exception:
+                    chat_model = "gemma4:12b"
+                    classification_model = "gemma2:2b"
+                    embedding_model = "nomic-embed-text-cpu"
+
+                output = result.stdout.lower()
+                required_models = [chat_model, classification_model, embedding_model]
                 found_models = []
                 
                 for model in required_models:
-                    if model in output.lower():
+                    # Strip -cpu suffix for matching since ollama list shows base name
+                    check_name = model.replace("-cpu", "")
+                    if check_name.lower() in output:
                         found_models.append(model)
                 
                 if len(found_models) == len(required_models):
@@ -101,7 +113,8 @@ class HealthCheck:
                 else:
                     missing = set(required_models) - set(found_models)
                     self.check("Ollama Models", False, f"Missing: {', '.join(missing)}")
-                    self.warn("Models", "Run: ollama pull gemma3:12b && ollama pull gemma2:2b && ollama pull nomic-embed-text")
+                    pull_cmds = " && ".join(f"ollama pull {m}" for m in missing)
+                    self.warn("Models", f"Run: {pull_cmds}")
             else:
                 self.check("Ollama", False, "Not responding")
                 

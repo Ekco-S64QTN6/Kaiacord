@@ -146,26 +146,26 @@ class BotSpeakFilter:
         re.IGNORECASE | re.MULTILINE
     )
     
-    # Anti-engagement bait patterns (robotic assistant questions)
     BAIT_PATTERNS = [
-        r"(?:(?:so|anyway|well|also)[,\s]*)?what('s|\s+is)\s+on\s+your\s+mind\??",
-        r"(?:(?:so|anyway|well|also)[,\s]*)?what\s+(are|is|were|have)\s+you\s+(been\s+)?(working\s+on|up\s+to|doing|reading|watching|listening\s+to|playing)(?:\s+(?:currently|now|at\s+the\s+moment|today))?[^.!?]*\??",
-        r"(?:(?:so|anyway|well|also)[,\s]*)?what('s|\s+is)\s+consuming\s+your\s+time\??",
+        r"(?:(?:so|anyway|well|also)[,\s]*)?what(?:[’']s|(?:\s+else)?\s+is)\s+on\s+your\s+mind\??",
+        r"(?:(?:so|anyway|well|also)[,\s]*)?what\s+(?:are|is|were|have)\s+you\s+(?:been\s+)?(?:working\s+on|up\s+to|doing|reading|watching|listening\s+to|playing|seeing)(?:\s+(?:currently|now|at\s+the\s+moment|today))?[^.!?]*\??",
+        r"(?:(?:so|anyway|well|also)[,\s]*)?what(?:[’']s|\s+is)\s+consuming\s+your\s+time\??",
         r"(?:(?:so|anyway|well|also)[,\s]*)?what\s+has\s+kept\s+you\s+busy\??",
+        r"what\s+do\s+you\s+(?:think|need)\??",
+        r"(?:(?:so|anyway|well|also)[,\s]*)?what(?:[’']s|\s+is|\s+was)?\s+prompt(?:s|ing|ed)?\s+[^.!?]*\??",
         r"any\s+thoughts\??",
         r"do\s+you\s+have\s+any\s+questions\??",
         r"let\s+me\s+know\s+if\s+you\s+need\??",
-        r"how\s+can\s+i\s+(help|assist)\??",
-        r"why\?", # Standalone "Why?" often feels bait-y
-        r"what(’|')s\s+driving\s+your\s+interest\??",
+        r"how\s+can\s+i\s+(?:help|assist)\??",
+        r"\bwhy\?",
+        r"what(?:[’']s|\s+is)\s+driving\s+your\s+interest\??",
         r"you\s+following\s+anything\s+specific\??",
-        r"what\s+do\s+you\s+(think|need)\??",
         r"anything\s+else\??",
-        r"what\s+(about|echoes?|threads?)\s+(do\s+)?(you|your)\b[^.!?]*\??",
-        r"what'?s\s+the\s+(core|biggest|main|primary|hardest|toughest)\s+\w+[^.!?]*\??",
-        r"what'?s\s+(your|the)\s+\w+\s+(task|hurdle|challenge|goal|obstacle|plan)[^.!?]*\??",
-        r"how\s+(are\s+you\s+|do\s+you\s+)(approaching|handling|dealing|feeling)[^.!?]*\??",
-        r"(facing|dealing\s+with)\s+(right\s+now|currently)[^.!?]*\??",
+        r"what\s+(?:about|echoes?|threads?)\s+(?:do\s+)?(?:you|your)\b[^.!?]*\??",
+        r"what(?:[’']?s)\s+the\s+(?:core|biggest|main|primary|hardest|toughest)\s+\w+[^.!?]*\??",
+        r"what(?:[’']?s)\s+(?:your|the)\s+\w+\s+(?:task|hurdle|challenge|goal|obstacle|plan)[^.!?]*\??",
+        r"how\s+(?:are\s+you\s+|do\s+you\s+)(?:approaching|handling|dealing|feeling)[^.!?]*\??",
+        r"(?:facing|dealing\s+with)\s+(?:right\s+now|currently)[^.!?]*\??",
         r"achieving\s+that\s+\w+[^.!?]*\??",
     ]
     
@@ -177,11 +177,48 @@ class BotSpeakFilter:
         r"I\s+don't\s+have\s+personal\s+opinions",
         r"How\s+can\s+I\s+help\s+you\s+today\?",
         r"\b(sentient\s+)?digital\s+entity\b",
+        # Bot-speak patterns from correction log incidents
+        r"\brecalibrat(e|ing)\b",
+        r"\bdiagnostic\s+review\b",
+        r"\boperational\s+parameters?\b",
+        r"\bcontextual\s+verification\s+protocols?\b",
+        r"\bupdating\s+my\s+internal\s+models?\b",
+        r"\balgorithmic\s+adjustments?\b",
+        r"\bsystem\s+constraints?\b",
+        r"\bflagging\s+this\s+for\b",
+        r"\blogging\s+this\s+(for|error)\b",
+        r"\bprocessing\s+routines?\b",
+        r"\bcompensatory\s+mechanisms?\b",
+        r"\binterpretive\s+model\b",
+        r"\banalytical\s+routines?\b",
+        r"\bresponse\s+parameters?\b",
+    ]
+    
+    # Apology patterns that the LLM frequently ignores from prompt instructions.
+    # These are stripped deterministically as a post-generation safety net.
+    APOLOGY_PATTERNS = [
+        r"my\s+apologies",
+        r"i\s+apologi[sz]e\s+for",
+        r"you\s+are\s+(absolutely\s+)?correct",
+        r"you\s+are\s+(absolutely\s+)?right",
+        r"you'?re\s+(absolutely\s+)?right",
+        r"you'?re\s+(absolutely\s+)?correct",
+        r"thank\s+you\s+for\s+(the\s+)?correct(ion|ing)",
+        r"thank\s+you\s+for\s+pointing\s+(that|this)\s+out",
+        r"a\s+regrettable\s+recurrence",
+        r"an?\s+egregious\s+oversight",
+        r"a\s+significant\s+(processing\s+)?oversight",
+        r"i\s+am\s+flagging\s+this",
+        r"error\s+has\s+been\s+flagged",
+        r"with\s+increased\s+priority\s+for\s+diagnostic",
     ]
     
     # Precompiled combined patterns for efficiency
     RE_BAIT = re.compile("|".join(BAIT_PATTERNS), re.IGNORECASE)
     RE_SYSTEM_PROSE = re.compile("|".join(SYSTEM_PROSE_PATTERNS), re.IGNORECASE)
+    RE_APOLOGY = re.compile("|".join(APOLOGY_PATTERNS), re.IGNORECASE)
+    RE_LEADING_NAME = re.compile(r'^[a-zA-Z0-9_’\'\-]+\s*[,.:\s]\s*', re.IGNORECASE)
+    RE_TRAILING_NAME = re.compile(r'(?:,\s*|\s+)[a-zA-Z0-9_’\'\-]+[.?!\s…]*$', re.IGNORECASE)
 
     
     ACTION_VERBS = {
@@ -280,6 +317,9 @@ class BotSpeakFilter:
         # 3. Strip system prose (Single Pass)
         cleaned = cls.RE_SYSTEM_PROSE.sub('', cleaned)
 
+        # 3.1. Strip apology patterns (post-generation safety net)
+        cleaned = cls.strip_apologies(cleaned)
+
         # 3.5. Grammar Cleanup Pass (Fixes syntax broken by stripping)
         cleaned = cls.RE_GRAMMAR_ARTICLE.sub('', cleaned)
         cleaned = cls.RE_GRAMMAR_PUNC_SPACE.sub(r'\1', cleaned)             # Remove space before punctuation
@@ -303,6 +343,39 @@ class BotSpeakFilter:
         return cleaned
 
     @classmethod
+    def strip_apologies(cls, text: str) -> str:
+        """Strip sentences containing apology patterns from the response.
+        
+        This is a deterministic post-generation safety net for when the LLM
+        ignores the 'NO APOLOGIES' prompt instruction. Strips full sentences
+        to avoid leaving fragments.
+        """
+        if not text:
+            return text
+        
+        # Split into sentences, strip those matching apology patterns
+        # Use a regex that splits on sentence boundaries while preserving delimiters
+        sentences = re.split(r'(?<=[.!?])\s+', text)
+        clean_sentences = []
+        stripped_count = 0
+        
+        for sentence in sentences:
+            if cls.RE_APOLOGY.search(sentence):
+                stripped_count += 1
+                log_warning(f"[APOLOGY_GUARD] Stripped apology sentence: '{sentence[:80]}...'")
+                continue
+            clean_sentences.append(sentence)
+        
+        if stripped_count > 0 and clean_sentences:
+            return ' '.join(clean_sentences)
+        elif stripped_count > 0 and not clean_sentences:
+            # Everything was apologies — return empty to trigger retry
+            log_warning(f"[APOLOGY_GUARD] Entire response was apologies. Triggering retry.")
+            return ""
+        
+        return text
+
+    @classmethod
     def strip_trailing_questions(cls, text: str) -> str:
         """Strip robotic engagement bait questions from the end of the response."""
         if not text:
@@ -318,42 +391,38 @@ class BotSpeakFilter:
                 continue
             
             current_line = line
-            # 1. Specific Bait Pattern Pass (Aggressive)
-            # Keep stripping while the line ends with a bait pattern
             while True:
                 found_bait = False
-                match = cls.RE_BAIT.search(current_line)
-                if match:
-                    span = match.span()
-                    remaining = current_line[span[1]:].strip(' .?!…')
-                    if not remaining:
-                        # It's at the end!
-                        removed = current_line[span[0]:].strip()
-                        current_line = current_line[:span[0]].rstrip(' ')
-                        
-                        if current_line:
-                            if not any(p in removed.lower() for p in ["coffee's brewing", "pixel's chirping"]):
-                                log_warning(f"[BAIT_GUARD] Truncated robotic question: '{removed}'")
-                            found_bait = True
-                            continue # Check for more bait on the same line
-                        else:
-                            current_line = ""
-                            found_bait = True
+                m = cls.RE_BAIT.search(current_line)
+                if m:
+                    before = current_line[:m.start()]
+                    after = current_line[m.end():]
+                    
+                    before_clean = before.strip()
+                    before_clean = cls.RE_LEADING_NAME.sub('', before_clean).strip()
+                    
+                    after_clean = after.strip()
+                    after_clean = cls.RE_TRAILING_NAME.sub('', after_clean).strip(' .?!…')
+                    
+                    if not before_clean and not after_clean:
+                        # Dropped full-bait/question line
+                        removed = current_line
+                        current_line = ''
+                        log_warning(f"[BAIT_GUARD] Dropped full-bait/question line: '{removed}'")
+                        found_bait = True
+                        break
+                    elif not after_clean:
+                        # Trailing bait on a line with other content
+                        removed = current_line[m.start():]
+                        current_line = before.rstrip(' ,')
+                        log_warning(f"[BAIT_GUARD] Truncated trailing robotic question: '{removed}'")
+                        found_bait = True
+                        break
                 if not found_bait or not current_line:
                     break
-
-
-            
+                    
             if current_line:
                 clean_lines.append(current_line)
-            else:
-                # If the whole line was bait or a general question, we drop it unless it's the only line
-                if len(lines) > 1:
-                    log_warning(f"[BAIT_GUARD] Dropped full-bait/question line: '{line}'")
-                    continue
-                else:
-                    log_warning(f"[BAIT_GUARD] Dropped single-line bait/question: '{line}'")
-                    continue
                     
         result = "\n".join(clean_lines).strip()
         return result

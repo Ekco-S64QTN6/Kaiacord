@@ -151,7 +151,7 @@ class RealTimeStatsPoller:
                     
                     # Target models for filtering
                     target_models = [
-                        config.chat_model,          # gemma3:12b
+                        config.chat_model,          # gemma4:12b
                         config.embedding_model,     # nomic-embed-text-cpu  
                         config.get('models.classification_model', 'gemma2:2b')
                     ]

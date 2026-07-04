@@ -25,6 +25,15 @@ class TechNewsScraper:
         self.output_dir.mkdir(parents=True, exist_ok=True)
         self.today = datetime.datetime.now().strftime("%Y-%m-%d")
         
+        # Resolve chat model dynamically from configuration
+        try:
+            import sys
+            sys.path.append(os.path.abspath(os.path.join(os.path.dirname(__file__), "..", "..")))
+            from utils.infrastructure.system.yaml_config import config
+            self.chat_model = config.chat_model
+        except Exception:
+            self.chat_model = "gemma3:12b"
+        
         # High-signal developer and AI keywords
         self.keywords = [
             "llm", "deepseek", "openai", "claude", "gemini", "gemma", "ollama",
@@ -137,13 +146,22 @@ class TechNewsScraper:
         """
         
         try:
-            print("🧠 Generating tech digest summary via gemma3:12b...")
+            print(f"🧠 Generating tech digest summary via {self.chat_model}...")
+            # Get consistent GPU options to prevent Ollama from reloading/duplicating models
+            try:
+                from utils.infrastructure.gpu.gpu_manager import OllamaGPUManager
+                gpu_manager = OllamaGPUManager(self.chat_model)
+                options = gpu_manager.get_gpu_options(for_chat=True)
+            except Exception:
+                options = {}
+
             response = ollama.chat(
-                model='gemma3:12b',
+                model=self.chat_model,
                 messages=[
                     {'role': 'system', 'content': 'You compile brief summaries of technical development digests.'},
                     {'role': 'user', 'content': prompt}
-                ]
+                ],
+                options=options
             )
             summary = response['message']['content'].strip()
             if summary:

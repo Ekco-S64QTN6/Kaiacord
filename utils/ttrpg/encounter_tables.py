@@ -81,6 +81,15 @@ def random_encounter(location: str, player_level: int = 1) -> str:
     special = get_special_day()
     special_mod = special.get("encounter_mod", {}) if special else {}
 
+    # Check for temporary world_state warning flag (e.g. run_night_terror_warning)
+    import time
+    from utils.ttrpg.world_state import load_world_state
+    wstate = load_world_state()
+    wstate_mod = wstate.get("encounter_mod", {})
+    wstate_expiry = wstate.get("encounter_mod_expiry", 0)
+    if wstate_mod and time.time() < wstate_expiry:
+        special_mod = {**special_mod, **wstate_mod}
+
     min_idx = TIER_ORDER.index(min_tier)
     max_idx = TIER_ORDER.index(max_tier)
 
@@ -113,6 +122,9 @@ def random_encounter(location: str, player_level: int = 1) -> str:
 
 def roll_for_event(location: str) -> bool:
     chance = EVENT_CHANCE.get(location, 15)
+    from utils.ttrpg.world_state import load_world_state
+    wstate = load_world_state()
+    chance += int(wstate.get("forest_event_bonus", 0.0) * 100)
     return secrets.randbelow(100) < chance
 
 
@@ -154,6 +166,15 @@ EVENTS = {
 
 
 def random_event(location: str) -> str:
+    import time
+    from utils.ttrpg.world_state import load_world_state
+    wstate = load_world_state()
+    target_loc = wstate.get("missing_person_loc")
+    expiry = wstate.get("missing_person_expiry", 0)
+    if target_loc == location and time.time() < expiry:
+        if secrets.randbelow(10) < 4:
+            return "missing_persons_found"
+
     table = EVENTS.get(location, EVENTS["whisperwood_edge"])
     total = sum(w for _, w in table)
     r = secrets.randbelow(total)

@@ -90,8 +90,6 @@ async def _handle_shop(ctx, msg, send, rest, uid, uname, is_owner):
 
     if loc == "caravan":
         shop_name = "🐪 Corvus Road Trading Co."
-    elif loc == "pells_depot":
-        shop_name = "🪢 Old Pell's Depot"
     else:
         shop_name = "🏪 Hemlock's Store"
     shop_color = LOCATION_COLORS.get(loc, 0x4488cc)
@@ -121,7 +119,7 @@ async def _handle_buy(ctx, msg, send, rest, uid, uname, is_owner):
     
     sheet = await load(uid)
     if not sheet: return
-    if sheet.get("location") not in ("hemlocks_store", "caravan", "pells_depot"):
+    if sheet.get("location") not in ("hemlocks_store", "caravan"):
         return await msg.channel.send(embed=discord.Embed(description="You must be at a merchant location to buy items.", color=0xcc4444))
         
     if not rest.strip():
@@ -176,7 +174,7 @@ async def _handle_sell(ctx, msg, send, rest, uid, uname, is_owner):
     
     sheet = await load(uid)
     if not sheet: return
-    if sheet.get("location") not in ("hemlocks_store", "caravan", "pells_depot"):
+    if sheet.get("location") not in ("hemlocks_store", "caravan"):
         return await msg.channel.send(embed=discord.Embed(description="You must remain at a merchant location to sell items.", color=0xcc4444))
         
     if not rest.strip():
@@ -218,9 +216,9 @@ async def _handle_sell_all_gear(ctx, msg, send, rest, uid, uname, is_owner):
     sheet = await load(uid)
     if not sheet: return
 
-    if sheet.get("location") not in ("hemlocks_store", "caravan", "pells_depot"):
+    if sheet.get("location") not in ("hemlocks_store", "caravan"):
         return await msg.channel.send(embed=discord.Embed(
-            description="You need to be at a merchant to sell.\n`!rpg go hemlocks_store` or `!rpg go pells_depot`",
+            description="You need to be at a merchant to sell.\n`!rpg go hemlocks_store` or `!rpg go caravan`",
             color=0xcc4444
         ))
 
@@ -262,10 +260,10 @@ async def _handle_sell_all_gear(ctx, msg, send, rest, uid, uname, is_owner):
         sold_lines.append(f"• {item['name']} → {sell_price}g")
         buyback_entries.append({"key": item_key, "name": item["name"], "repurchase_price": sell_price})
 
-    merchant_name = "Old Pell" if sheet.get("location") == "pells_depot" else "Hemlock"
+    merchant_name = "The merchant" if sheet.get("location") == "caravan" else "Hemlock"
     if not sold_lines:
         return await msg.channel.send(embed=discord.Embed(
-            description=f"*{merchant_name} peers into your pack.*\n\"{('Nothing in here I need.' if merchant_name == 'Old Pell' else 'Nothing in here worth buying.')}\""  ,
+            description=f"*{merchant_name} peers into your pack.*\n\"Nothing in here worth buying.\"",
             color=0x888888
         ))
 

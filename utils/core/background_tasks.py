@@ -646,14 +646,19 @@ class CoreTaskManager:
                 if channel:
                     import secrets
                     EVENT_POOL = [
-                        (run_village_raid,       35),
-                        (run_oracle_speaks,      12),
-                        (run_moogle_festival,    15),
-                        (run_aeridorian_tremor,  12),
+                        (run_village_raid,       15),  # Reduced from 35 to prevent raid domination
+                        (run_oracle_speaks,      10),
+                        (run_moogle_festival,    12),
+                        (run_aeridorian_tremor,  10),
                         (run_tonberry_procession, 8),
-                        (run_spine_storm,        10),
-                        (run_caravan_arrival,     5),
-                        (run_bard_performance,    3),
+                        (run_spine_storm,         8),
+                        (run_caravan_arrival,     6),
+                        (run_bard_performance,    12), # Boosted from 3 to ensure bard performance fires
+                        (run_construct_incursion, 10),
+                        (run_gil_windfall,       10),
+                        (run_blight_on_the_crops, 8),
+                        (run_pilgrims_arrive,     8),
+                        (run_night_terror_warning, 8),
                     ]
                     total_w = sum(w for _, w in EVENT_POOL)
                     r_val = secrets.randbelow(total_w)
@@ -1480,28 +1485,22 @@ async def run_news_update():
         await _task_manager.run_news_update()
 
 async def run_village_raid(bot_ctx, channel):
-    """Shared raid logic — called by noon task and admin command."""
+    """Shared raid logic — scaled to defenders' level, uses theme pools and real combat engine."""
     import secrets
     import discord
     import asyncio
-    from utils.ttrpg.character_manager import load_all, save
+    import time
+    from utils.ttrpg.character_manager import get_active_town_defenders, save
     from utils.ttrpg.monster_registry import get as get_monster
     from utils.ttrpg.progression import check_level_up, xp_to_next_level
-    from utils.ttrpg.broadcast import log_world_event as _log_world_event
-
-    RAID_POOL = [
-        ("wolf",     30),
-        ("skeleton", 25),
-        ("goblin",   20),
-        ("bandit",   15),
-        ("ghoul",    10),
-    ]
-    TOWN_LOCATIONS = {
-        "oakhaven", "stone_hearth", "hemlocks_store",
-        "shrine", "watchtower", "oakhaven_bank", "herbalists_hut",
-        "housing_district", "tricklebrook_pond"
-    }
-
+    from utils.ttrpg.broadcast import log_world_event as _log_world_event, broadcast_world_event, raid_outcome_flavor
+    from utils.ttrpg.world_state import load_world_state, save_world_state
+    from utils.ttrpg.dungeon import DUNGEON_THEMES
+    from utils.ttrpg.combat_engine import _resolve_combat
+    from utils.ttrpg.housing import load_housing
+    from utils.ttrpg.pets import get_pet_passive
+    
+    # 1. Announce event
     await channel.send(embed=discord.Embed(
         title="🔔 VILLAGE ALARM",
         description=(
@@ -1514,13 +1513,9 @@ async def run_village_raid(bot_ctx, channel):
     ))
     await asyncio.sleep(3)
 
-    all_sheets = await load_all()
-    defenders = [
-        s for s in all_sheets
-        if s.get("location") in TOWN_LOCATIONS
-        and s.get("hp", {}).get("current", 0) > 0
-    ]
-
+    # 2. Get active town defenders
+    defenders = await get_active_town_defenders()
+    
     if not defenders:
         await channel.send(embed=discord.Embed(
             description=(
@@ -1531,115 +1526,229 @@ async def run_village_raid(bot_ctx, channel):
         ))
         return
 
-    num_creatures = secrets.randbelow(2) + 2
-    creatures = []
+    # 3. Select a random theme
+    theme_key = secrets.choice(["undead", "constructs", "beasts", "deepwood", "demons"])
+    theme_data = DUNGEON_THEMES[theme_key]
+    
+    # 4. Compute threat level
+    avg_level = sum(s.get("level", 1) for s in defenders) / len(defenders)
+    max_level = max(s.get("level", 1) for s in defenders)
+    
+    if avg_level >= 13:
+        pool_index = 5
+    elif avg_level >= 9:
+        pool_index = 4
+    elif avg_level >= 6:
+        pool_index = 3
+    elif avg_level >= 3:
+        pool_index = 2
+    else:
+        pool_index = 1
+        
+    normal_pool = theme_data["pools"][pool_index]
+    boss_pool = theme_data["boss_pools"][pool_index]
+    
+    # 5. Build attackers wave
+    num_attackers = min(8, 2 + max_level // 3)
+    has_boss = (max_level >= 9)
+    attackers = []
     total_xp = 0
     total_gil = 0
-
-    for _ in range(num_creatures):
-        total_weight = sum(w for _, w in RAID_POOL)
-        r = secrets.randbelow(total_weight)
-        cumulative = 0
-        chosen_key = RAID_POOL[0][0]
-        for key, weight in RAID_POOL:
-            cumulative += weight
-            if r < cumulative:
-                chosen_key = key
-                break
-        m = get_monster(chosen_key)
-        if m:
-            creatures.append(m)
-            total_xp += m.get("xp", 25)
-            total_gil += m.get("gil", 10)
-
+    
+    for i in range(num_attackers):
+        if i == 0 and has_boss:
+            m_key = secrets.choice(boss_pool)
+        else:
+            m_key = secrets.choice(normal_pool)
+            
+        m_data = get_monster(m_key)
+        if m_data:
+            m_instance = m_data.copy()
+            m_instance["key"] = m_key
+            scale = 1.0 + (avg_level - 1) * 0.05
+            m_instance["hp"] = max(15, int(m_instance["hp"] * scale))
+            m_instance["attack"] = max(3, int(m_instance["attack"] * scale))
+            m_instance["defense"] = max(8, int(m_instance["defense"] * scale))
+            m_instance["hp"] = {"current": m_instance["hp"], "max": m_instance["hp"]}
+            attackers.append(m_instance)
+            total_xp += m_data.get("xp", 25)
+            total_gil += m_data.get("gil", 10)
+            
+    # Rewards scale with overall event size
     total_xp = int(total_xp * 1.5)
     total_gil = int(total_gil * 1.2)
-    creature_names = ", ".join(m["name"] for m in creatures)
+    
+    creature_names = ", ".join(m["name"] for m in attackers)
     defenders_list = "\n".join(
         f"⚔️ **{s['character_name']}** (Lv.{s['level']} {s['class']})"
         for s in defenders
     )
-
+    
     await channel.send(embed=discord.Embed(
-        title="⚔️ Village Defense — Battle Joined",
+        title=f"⚔️ Village Defense — {theme_data['name']} Incursion",
         description=(
             f"**Attacking:** {creature_names}\n"
             f"**Defenders in Oakhaven:**\n{defenders_list}\n\n"
-            "*The battle is joined at the village perimeter...*"
+            f"*{theme_data['flavor']}*"
         ),
         color=0xCC4400
     ))
     await asyncio.sleep(4)
 
-    contributions = []
-    for s in defenders:
-        roll = secrets.randbelow(20) + 1
-        lvl_bonus = s.get("level", 1)
-        contributions.append((s, roll, roll + lvl_bonus))
-    contributions.sort(key=lambda x: x[2], reverse=True)
+    # 6. Resolve combat
+    # Pair defenders with attackers cyclically
+    combat_results = []
+    defeated_monsters_count = 0
+    player_defeated_count = 0
+    
+    wstate = load_world_state()
+    world_atk_mod = wstate.get("atk_mod", 0)
+    world_def_mod = wstate.get("def_mod", 0)
+    
+    for idx, s in enumerate(defenders):
+        attacker = attackers[idx % len(attackers)].copy()
+        
+        # Load pet passive bonuses
+        housing = load_housing(str(s.get("user_id", "")))
+        pet_bonuses = get_pet_passive(housing) if housing else {}
+        
+        # Run up to 3 rounds of combat
+        rounds_log = []
+        won = False
+        escaped = False
+        
+        for r_idx in range(3):
+            if s["hp"]["current"] <= 0 or attacker["hp"]["current"] <= 0:
+                break
+                
+            res = _resolve_combat(
+                s, attacker, 
+                atk_mod_global=world_atk_mod, 
+                def_mod_global=world_def_mod, 
+                pet_bonuses=pet_bonuses
+            )
+            
+            rounds_log.append({
+                "round": r_idx + 1,
+                "player_hit": res.get("player_hit", False),
+                "player_crit": res.get("player_crit", False),
+                "player_fumble": res.get("player_fumble", False),
+                "player_damage": res.get("player_damage", 0),
+                "monster_hit": res.get("monster_hit", False),
+                "monster_damage": res.get("monster_damage", 0),
+                "monster_name": attacker["name"],
+                "monster_desc": attacker.get("desc", ""),
+            })
+            
+            if attacker["hp"]["current"] <= 0:
+                won = True
+                defeated_monsters_count += 1
+                break
+            if s["hp"]["current"] <= 0:
+                player_defeated_count += 1
+                break
+                
+        combat_results.append((s, attacker, rounds_log, won, escaped))
 
-    avg = sum(c[2] for c in contributions) / len(contributions)
-    OUTCOMES_DECISIVE = [
-        "The attackers are routed decisively. The Whisperwood falls silent.",
-        "Clean. The defenders held the perimeter without giving ground. Whatever came out of the wood went back into it.",
-        "Decisive repulsion. The creatures didn't make it past the square's edge.",
-        "Not even close. Oakhaven's defenders broke the assault before it fully formed.",
-    ]
-    OUTCOMES_HARD = [
-        "Hard-fought. The creatures are driven off, but not without cost.",
-        "The line held, barely. The attackers retreat into the treeline.",
-        "A grinding defense. Oakhaven stands, though not without bruises.",
-        "They pushed back. It took everything, but the square is clear.",
-    ]
-    OUTCOMES_RAGGED = [
-        "Ragged but sufficient. Oakhaven holds — for now.",
-        "The creatures pull back, and nobody's sure if it's victory or a pause.",
-        "The defenders held the gate. The margin was uncomfortably thin.",
-        "It's over. The square is quiet. Nobody's celebrating.",
-    ]
-
-    if avg >= 16:
-        outcome = OUTCOMES_DECISIVE[secrets.randbelow(len(OUTCOMES_DECISIVE))]
-        color = 0x2D5A27
-    elif avg >= 11:
-        outcome = OUTCOMES_HARD[secrets.randbelow(len(OUTCOMES_HARD))]
-        color = 0x44aa44
-    else:
-        outcome = OUTCOMES_RAGGED[secrets.randbelow(len(OUTCOMES_RAGGED))]
-        color = 0xf5c842
-
+    # Determine victory
+    # Win if at least half the attackers were defeated
+    defenders_won = (defeated_monsters_count >= len(attackers) / 2)
+    
     xp_each = max(1, total_xp // len(defenders))
     gil_each = max(1, total_gil // len(defenders))
-
+    
+    # 7. Apply Consequences & Rewards
     result_lines = []
     level_ups = []
-    for s, roll, contribution in contributions:
-        s["xp"] = s.get("xp", 0) + xp_each
-        s["gil"] = s.get("gil", 0) + gil_each
+    casualty_count = 0
+    
+    for s, monster, rounds_log, won, escaped in combat_results:
+        if s["hp"]["current"] <= 0:
+            # Player fell
+            casualty_count += 1
+            s["hunt_streak"] = 0
+            xp_loss = int(s["xp"] * 0.10)
+            gil_loss = int(s["gil"] * 0.05)
+            s["xp"] = max(0, s["xp"] - xp_loss)
+            s["gil"] = max(0, s["gil"] - gil_loss)
+            s["hp"]["current"] = 1
+            s["location"] = "shrine"
+            s["deaths"] = s.get("deaths", 0) + 1
+            # Clear temporary conditions
+            for _cb in ["embered", "fortified"]:
+                if _cb in s.get("conditions", []):
+                    s["conditions"].remove(_cb)
+            
+            result_lines.append(f"💀 **{s['character_name']}** blacked out (lost {xp_loss} XP, {gil_loss} gil)")
+            
+            # Log individual death in bestiary voice
+            death_embed = discord.Embed(
+                title=f"💀 {s['character_name']} fell in defense of Oakhaven",
+                description=f"*{monster['name']} left them at the Shrine threshold. Lost {xp_loss} XP and {gil_loss} Gil.*",
+                color=0x8B0000
+            )
+            death_embed.set_footer(text=f"Death #{s['deaths']}")
+            await broadcast_world_event(bot_ctx, death_embed)
+        else:
+            # Player survived
+            if defenders_won:
+                s["xp"] += xp_each
+                s["gil"] += gil_each
+                s["reputation"] = s.get("reputation", 0) + 10
+                result_lines.append(f"⚔️ **{s['character_name']}** survived (received +{xp_each} XP, +{gil_each} gil, +10 Rep)")
+            else:
+                # Defenders lost: reputation penalty
+                s["reputation"] = max(-100, s["reputation"] - 10)
+                result_lines.append(f"⚔️ **{s['character_name']}** survived but withdrew (lost 10 Rep)")
+                
         leveled, new_lvl = check_level_up(s)
         await save(s)
-        result_lines.append(
-            f"⚔️ **{s['character_name']}** — d20({roll})+{s.get('level',1)} = **{contribution}**"
-        )
         if leveled:
             level_ups.append(f"🎉 **{s['character_name']}** reached **Level {new_lvl}!**")
-
+            
+    # Apply global World State updates
+    wstate = load_world_state()
+    now = time.time()
+    
+    if defenders_won:
+        wstate["atk_mod"] = 1
+        wstate["atk_mod_expiry"] = now + 4 * 3600 # +1 ATK for 4 hours
+        wstate["gil_mult"] = 1.2
+        wstate["gil_mult_expiry"] = now + 4 * 3600 # 1.2x gil for 4 hours
+        wstate["event"] = "raid_repelled"
+        wstate["event_desc"] = f"Oakhaven repelled a {theme_data['name']}. Morale is high!"
+    else:
+        wstate["event"] = "raid_breached"
+        wstate["event_desc"] = f"Oakhaven perimeter was breached by a {theme_data['name']}. The town is damaged."
+        
+    save_world_state(wstate)
+    
+    # Broadcast global outcome
+    outcome_desc = raid_outcome_flavor("oakhaven", theme_key, defenders_won, casualty_count)
+    outcome_embed = discord.Embed(
+        title=f"🛡️ Village Defense — {'Victory' if defenders_won else 'Defeat'}",
+        description=outcome_desc,
+        color=0x2D5A27 if defenders_won else 0x8B0000
+    )
+    await broadcast_world_event(bot_ctx, outcome_embed)
+    
+    # Summary of individual results
     result_embed = discord.Embed(
-        title="🛡️ Oakhaven Holds",
-        description=(
-            f"*{outcome}*\n\n"
-            + "\n".join(result_lines)
-            + f"\n\n**Spoils divided equally:** +{xp_each} XP · +{gil_each} Gil each"
-        ),
-        color=color
+        title=f"🛡️ Battle Results — {'Threat Repelled' if defenders_won else 'Breach Occurred'}",
+        description="\n".join(result_lines),
+        color=0x2D5A27 if defenders_won else 0x8B0000
     )
     if level_ups:
         result_embed.add_field(name="\u200b", value="\n".join(level_ups), inline=False)
-
+        
     await channel.send(embed=result_embed)
+    
+    # Narrate combat through Kaia!
+    await _narrate_raid_summary(bot_ctx, channel, defenders, attackers, combat_results, defenders_won)
+    
     await _log_world_event(
-        f"🛡️ **Village Defense:** Oakhaven repelled a raid ({creature_names}). "
-        f"{len(defenders)} defender(s) rewarded."
+        f"🛡️ **Village Defense:** Oakhaven defended against {theme_data['name']} ({creature_names}). "
+        f"Defenders won: {defenders_won}. Casualties: {casualty_count}."
     )
 
 async def run_oracle_speaks(bot_ctx, channel):
@@ -2365,7 +2474,7 @@ async def run_bard_performance(bot_ctx, channel):
     """Noon event: Caelindra performs an LLM-generated ballad about recent world events."""
     import discord, os, json, asyncio
     import uuid as _uuid
-    from utils.infrastructure.logging.kaia_logger import log_action, log_error
+    from utils.infrastructure.logging.kaia_logger import log_action, log_error, log_info
     from utils.infrastructure.system.yaml_config import config
     from utils.ttrpg.character_manager import load_all
     from utils.ttrpg.broadcast import log_world_event as _log_world_event
@@ -2383,7 +2492,7 @@ async def run_bard_performance(bot_ctx, channel):
     # Top adventurers for name-drops
     all_sheets = await load_all()
     top_adventurers = sorted(all_sheets, key=lambda s: s.get("xp", 0), reverse=True)[:4]
-    names = [s["character_name"] for s in top_adventurers]
+    names = [s.get("character_name", s.get("name", "Unknown")) for s in top_adventurers if s]
 
     events_str = "\n".join([f"- {e}" for e in recent_events]) if recent_events else "- A quiet season. The forest waits."
     names_str = ", ".join(names) if names else "the adventurers of Oakhaven"
@@ -2443,4 +2552,1182 @@ async def run_bard_performance(bot_ctx, channel):
 
     await _log_world_event("🎵 **Caelindra the Bard** performed a ballad at the Stone Hearth.")
     log_action("Noon Event: Bard Performance (LLM)")
+    log_info("Noon Event: Bard Performance triggered successfully.")
+
+
+async def _narrate_raid_summary(ctx, channel, defenders, attackers, combat_results, defenders_won):
+    from utils.social.kaia_social_responder import load_persona_async
+    from utils.ttrpg.rpg_prompt_builder import TTRPG_NARRATOR_OVERRIDE
+    from utils.infrastructure.gpu.gpu_manager import OllamaGPUManager, gpu_memory_manager, GPUTaskPriority
+    import uuid as _uuid
+    import discord
+    
+    fight_summaries = []
+    for sheet, monster, rounds_log, won, escaped in combat_results:
+        p_name = sheet["character_name"]
+        m_name = monster["name"]
+        hp_before = sheet["hp"]["current"] + sum(r["monster_damage"] for r in rounds_log)
+        hp_after = sheet["hp"]["current"]
+        
+        p_hits = sum(1 for r in rounds_log if r["player_hit"] and not r["player_fumble"])
+        p_damage = sum(r["player_damage"] for r in rounds_log)
+        m_hits = sum(1 for r in rounds_log if r["monster_hit"])
+        m_damage = sum(r["monster_damage"] for r in rounds_log)
+        
+        status = "Survived"
+        if hp_after <= 0:
+            status = "Defeated (Blacked out, dragged to Shrine)"
+        elif won:
+            status = f"Defeated the {m_name}"
+            
+        fight_summaries.append(
+            f"- {p_name} ({sheet['class']} Lv.{sheet['level']}) fought {m_name}. "
+            f"Rounds: {len(rounds_log)}. "
+            f"{p_name} hit {p_hits} times dealing {p_damage} dmg. "
+            f"{m_name} hit {m_hits} times dealing {m_damage} dmg. "
+            f"Result: {status}. HP: {hp_before} -> {hp_after}."
+        )
+        
+    fights_str = "\n".join(fight_summaries)
+    outcome_str = "SUCCESS — Defenders held Oakhaven!" if defenders_won else "FAILURE — The perimeter was breached and defenders took heavy casualties!"
+    
+    prompt = f"""[TTRPG GROUND TRUTH — VILLAGE RAID SUMMARY — DO NOT CONTRADICT]
+EVENT: Village Raid in Oakhaven
+OUTCOME: {outcome_str}
+
+FIGHT DETAILS:
+{fights_str}
+
+INSTRUCTIONS FOR NARRATION:
+Describe the overall battle at the town perimeter.
+Highlight key moments from the fight details above.
+Keep the tone lowercase, grounded, and specific. No purple prose.
+Speak as Kaia — the GM narrator.
+[END GROUND TRUTH]"""
+
+    persona = await load_persona_async()
+    messages = [
+        {"role": "system", "content": f"{persona}{TTRPG_NARRATOR_OVERRIDE}{prompt}"},
+        {"role": "user",   "content": "Narrate the village raid defense battle."}
+    ]
+    
+    gpu_manager = OllamaGPUManager(config.chat_model)
+    opts = gpu_manager.get_gpu_options(for_chat=True)
+    opts["num_predict"] = 300
+    opts["temperature"] = 0.85
+    
+    async with channel.typing():
+        try:
+            resp = await gpu_memory_manager.run_with_gpu_guard(
+                model_name=config.chat_model,
+                priority=GPUTaskPriority.CHAT,
+                coro=asyncio.wait_for(
+                    ctx.ollama_client.chat(
+                        model=config.chat_model,
+                        messages=messages,
+                        options=opts,
+                        keep_alive=-1
+                    ),
+                    timeout=45.0
+                ),
+                task_id=f"rpg_raid_summary_{_uuid.uuid4().hex[:8]}"
+            )
+            narration = resp["message"]["content"].strip().replace("```", "")
+            if narration:
+                embed = discord.Embed(
+                    title="⚔️ Battle Narration",
+                    description=f"*{narration}*",
+                    color=0x2D5A27 if defenders_won else 0x8B0000
+                )
+                await channel.send(embed=embed)
+        except Exception as e:
+            log_error(f"[rpg raid summary] {e}")
+
+
+async def run_construct_breach(bot_ctx, channel):
+    """Aeridorian construct breach event — combat event at Watchtower/ruins edge."""
+    import secrets
+    import discord
+    import asyncio
+    import time
+    from utils.ttrpg.character_manager import get_active_town_defenders, save
+    from utils.ttrpg.monster_registry import get as get_monster
+    from utils.ttrpg.progression import check_level_up, xp_to_next_level
+    from utils.ttrpg.broadcast import log_world_event as _log_world_event, broadcast_world_event, raid_outcome_flavor
+    from utils.ttrpg.world_state import load_world_state, save_world_state
+    from utils.ttrpg.dungeon import DUNGEON_THEMES
+    from utils.ttrpg.combat_engine import _resolve_combat
+    from utils.ttrpg.housing import load_housing
+    from utils.ttrpg.pets import get_pet_passive
+
+    await channel.send(embed=discord.Embed(
+        title="🔔 WATCHTOWER BEACON LIT",
+        description=(
+            "*The high beacon at the Watchtower flares with a cold blue resonance light.*\n\n"
+            "\"Constructs! They've breached the south wall from the ruins!\"\n\n"
+            "Ancient gears scream in the dirt as stone and steel emerge from the mist."
+        ),
+        color=0x00aaff
+    ))
+    await asyncio.sleep(3)
+
+    LOCS = {"watchtower", "aeridor_ruins", "oakhaven", "housing_district"}
+    defenders = await get_active_town_defenders(town_locations=LOCS)
+    
+    if not defenders:
+        await channel.send(embed=discord.Embed(
+            description=(
+                "*No adventurers were near the ruins edge. The Watchtower automatic defenses fired until they burned out.*\n\n"
+                "The construct breach was repelled by automated shields. The systems are offline."
+            ),
+            color=0x888888
+        ))
+        return
+
+    theme_key = "constructs"
+    theme_data = DUNGEON_THEMES[theme_key]
+    
+    avg_level = sum(s.get("level", 1) for s in defenders) / len(defenders)
+    max_level = max(s.get("level", 1) for s in defenders)
+    
+    if avg_level >= 13:   pool_index = 5
+    elif avg_level >= 9:  pool_index = 4
+    elif avg_level >= 6:  pool_index = 3
+    elif avg_level >= 3:  pool_index = 2
+    else:                 pool_index = 1
+        
+    normal_pool = theme_data["pools"][pool_index]
+    boss_pool = theme_data["boss_pools"][pool_index]
+    
+    num_attackers = min(8, 2 + max_level // 3)
+    has_boss = (max_level >= 9)
+    attackers = []
+    total_xp = 0
+    total_gil = 0
+    
+    for i in range(num_attackers):
+        if i == 0 and has_boss:
+            m_key = secrets.choice(boss_pool)
+        else:
+            m_key = secrets.choice(normal_pool)
+            
+        m_data = get_monster(m_key)
+        if m_data:
+            m_instance = m_data.copy()
+            m_instance["key"] = m_key
+            scale = 1.0 + (avg_level - 1) * 0.05
+            m_instance["hp"] = max(15, int(m_instance["hp"] * scale))
+            m_instance["attack"] = max(3, int(m_instance["attack"] * scale))
+            m_instance["defense"] = max(8, int(m_instance["defense"] * scale))
+            m_instance["hp"] = {"current": m_instance["hp"], "max": m_instance["hp"]}
+            attackers.append(m_instance)
+            total_xp += m_data.get("xp", 25)
+            total_gil += m_data.get("gil", 10)
+            
+    total_xp = int(total_xp * 1.5)
+    total_gil = int(total_gil * 1.2)
+    
+    creature_names = ", ".join(m["name"] for m in attackers)
+    defenders_list = "\n".join(
+        f"⚔️ **{s['character_name']}** (Lv.{s['level']} {s['class']})"
+        for s in defenders
+    )
+    
+    await channel.send(embed=discord.Embed(
+        title=f"⚔️ Watchtower Defense — Construct Breach",
+        description=(
+            f"**Attacking:** {creature_names}\n"
+            f"**Defenders at Watchtower:**\n{defenders_list}\n\n"
+            f"*{theme_data['flavor']}*"
+        ),
+        color=0x00aaff
+    ))
+    await asyncio.sleep(4)
+
+    combat_results = []
+    defeated_monsters_count = 0
+    player_defeated_count = 0
+    
+    wstate = load_world_state()
+    world_atk_mod = wstate.get("atk_mod", 0)
+    world_def_mod = wstate.get("def_mod", 0)
+    
+    for idx, s in enumerate(defenders):
+        attacker = attackers[idx % len(attackers)].copy()
+        housing = load_housing(str(s.get("user_id", "")))
+        pet_bonuses = get_pet_passive(housing) if housing else {}
+        
+        rounds_log = []
+        won = False
+        escaped = False
+        
+        for r_idx in range(3):
+            if s["hp"]["current"] <= 0 or attacker["hp"]["current"] <= 0:
+                break
+            res = _resolve_combat(
+                s, attacker, 
+                atk_mod_global=world_atk_mod, 
+                def_mod_global=world_def_mod, 
+                pet_bonuses=pet_bonuses
+            )
+            rounds_log.append({
+                "round": r_idx + 1,
+                "player_hit": res.get("player_hit", False),
+                "player_crit": res.get("player_crit", False),
+                "player_fumble": res.get("player_fumble", False),
+                "player_damage": res.get("player_damage", 0),
+                "monster_hit": res.get("monster_hit", False),
+                "monster_damage": res.get("monster_damage", 0),
+                "monster_name": attacker["name"],
+                "monster_desc": attacker.get("desc", ""),
+            })
+            if attacker["hp"]["current"] <= 0:
+                won = True
+                defeated_monsters_count += 1
+                break
+            if s["hp"]["current"] <= 0:
+                player_defeated_count += 1
+                break
+                
+        combat_results.append((s, attacker, rounds_log, won, escaped))
+
+    defenders_won = (defeated_monsters_count >= len(attackers) / 2)
+    xp_each = max(1, total_xp // len(defenders))
+    gil_each = max(1, total_gil // len(defenders))
+    
+    result_lines = []
+    level_ups = []
+    casualty_count = 0
+    
+    for s, monster, rounds_log, won, escaped in combat_results:
+        if s["hp"]["current"] <= 0:
+            casualty_count += 1
+            s["hunt_streak"] = 0
+            xp_loss = int(s["xp"] * 0.10)
+            gil_loss = int(s["gil"] * 0.05)
+            s["xp"] = max(0, s["xp"] - xp_loss)
+            s["gil"] = max(0, s["gil"] - gil_loss)
+            s["hp"]["current"] = 1
+            s["location"] = "shrine"
+            s["deaths"] = s.get("deaths", 0) + 1
+            for _cb in ["embered", "fortified"]:
+                if _cb in s.get("conditions", []): s["conditions"].remove(_cb)
+            
+            result_lines.append(f"💀 **{s['character_name']}** blacked out (lost {xp_loss} XP, {gil_loss} gil)")
+            
+            death_embed = discord.Embed(
+                title=f"💀 {s['character_name']} fell during Construct Breach",
+                description=f"*{monster['name']} left them at the Shrine threshold.*",
+                color=0x8B0000
+            )
+            await broadcast_world_event(bot_ctx, death_embed)
+        else:
+            if defenders_won:
+                s["xp"] += xp_each
+                s["gil"] += gil_each
+                s["reputation"] = s.get("reputation", 0) + 10
+                result_lines.append(f"⚔️ **{s['character_name']}** survived (received +{xp_each} XP, +{gil_each} gil, +10 Rep)")
+            else:
+                s["reputation"] = max(-100, s["reputation"] - 10)
+                result_lines.append(f"⚔️ **{s['character_name']}** survived but withdrew (lost 10 Rep)")
+                
+        leveled, new_lvl = check_level_up(s)
+        await save(s)
+        if leveled:
+            level_ups.append(f"🎉 **{s['character_name']}** reached **Level {new_lvl}!**")
+            
+    wstate = load_world_state()
+    now = time.time()
+    
+    if defenders_won:
+        wstate["def_mod"] = 1
+        wstate["def_mod_expiry"] = now + 4 * 3600
+        wstate["event"] = "construct_breach_repelled"
+        wstate["event_desc"] = "Oakhaven repelled a Construct Breach. Shield systems are humming."
+    else:
+        wstate["event"] = "construct_breach_failed"
+        wstate["event_desc"] = "Watchtower perimeter breached by constructs. Resonating feedback lingering."
+        
+    save_world_state(wstate)
+    
+    outcome_desc = raid_outcome_flavor("watchtower", "constructs", defenders_won, casualty_count)
+    outcome_embed = discord.Embed(
+        title=f"🛡️ Watchtower Defense — {'Victory' if defenders_won else 'Defeat'}",
+        description=outcome_desc,
+        color=0x2D5A27 if defenders_won else 0x8B0000
+    )
+    await broadcast_world_event(bot_ctx, outcome_embed)
+    
+    result_embed = discord.Embed(
+        title=f"🛡️ Battle Results — {'Construct Breach Repelled' if defenders_won else 'Watchtower Damaged'}",
+        description="\n".join(result_lines),
+        color=0x2D5A27 if defenders_won else 0x8B0000
+    )
+    if level_ups:
+        result_embed.add_field(name="\u200b", value="\n".join(level_ups), inline=False)
+    await channel.send(embed=result_embed)
+    
+    await _narrate_raid_summary(bot_ctx, channel, defenders, attackers, combat_results, defenders_won)
+    
+    await _log_world_event(
+        f"🛡️ **Construct Breach:** Watchtower defended. "
+        f"Defenders won: {defenders_won}. Casualties: {casualty_count}."
+    )
+    log_action("Noon Event: Construct Breach (Resolved)")
+
+
+async def run_caravan_ambush(bot_ctx, channel):
+    """Caravan ambush event — optional combat if caravan is active."""
+    import secrets
+    import discord
+    import asyncio
+    import time
+    from utils.ttrpg.character_manager import get_active_town_defenders, save
+    from utils.ttrpg.monster_registry import get as get_monster
+    from utils.ttrpg.progression import check_level_up, xp_to_next_level
+    from utils.ttrpg.broadcast import log_world_event as _log_world_event, broadcast_world_event, raid_outcome_flavor
+    from utils.ttrpg.world_state import load_world_state, save_world_state
+    from utils.ttrpg.dungeon import DUNGEON_THEMES
+    from utils.ttrpg.combat_engine import _resolve_combat
+    from utils.ttrpg.housing import load_housing
+    from utils.ttrpg.pets import get_pet_passive
+
+    wstate = load_world_state()
+    if not wstate.get("caravan_active", False):
+        await channel.send(embed=discord.Embed(
+            description="📋 *The Trade Road is quiet today. No active caravans are currently traveling.*",
+            color=0x888888
+        ))
+        return
+
+    await channel.send(embed=discord.Embed(
+        title="🔔 CARAVAN DISTRESS SIGNAL",
+        description=(
+            "*A messenger bird flaps frantically into the Oakhaven square, a bloody note tied to its leg.*\n\n"
+            "**\"Ambush on the Trade Road! The merchant caravan is surrounded by beasts! Help!\"**"
+        ),
+        color=0xff6600
+    ))
+    await asyncio.sleep(3)
+
+    LOCS = {"trade_road", "oakhaven", "watchtower", "stone_hearth"}
+    defenders = await get_active_town_defenders(town_locations=LOCS)
+    
+    if not defenders:
+        wstate["caravan_active"] = False
+        save_world_state(wstate)
+        await channel.send(embed=discord.Embed(
+            description=(
+                "*No adventurers responded in time. The merchant caravan was ransacked by predators.*\n\n"
+                "**The caravan has left Aethelgard early. It is no longer active today.**"
+            ),
+            color=0xcc4444
+        ))
+        await _log_world_event("❌ **Caravan Destroyed** — bandits and beasts ransacked the Trade Road caravan.")
+        return
+
+    theme_key = secrets.choice(["beasts", "demons"])
+    theme_data = DUNGEON_THEMES[theme_key]
+    
+    avg_level = sum(s.get("level", 1) for s in defenders) / len(defenders)
+    max_level = max(s.get("level", 1) for s in defenders)
+    
+    if avg_level >= 13:   pool_index = 5
+    elif avg_level >= 9:  pool_index = 4
+    elif avg_level >= 6:  pool_index = 3
+    elif avg_level >= 3:  pool_index = 2
+    else:                 pool_index = 1
+        
+    normal_pool = theme_data["pools"][pool_index]
+    boss_pool = theme_data["boss_pools"][pool_index]
+    
+    num_attackers = min(8, 2 + max_level // 3)
+    has_boss = (max_level >= 9)
+    attackers = []
+    total_xp = 0
+    total_gil = 0
+    
+    for i in range(num_attackers):
+        if i == 0 and has_boss:
+            m_key = secrets.choice(boss_pool)
+        else:
+            m_key = secrets.choice(normal_pool)
+            
+        m_data = get_monster(m_key)
+        if m_data:
+            m_instance = m_data.copy()
+            m_instance["key"] = m_key
+            scale = 1.0 + (avg_level - 1) * 0.05
+            m_instance["hp"] = max(15, int(m_instance["hp"] * scale))
+            m_instance["attack"] = max(3, int(m_instance["attack"] * scale))
+            m_instance["defense"] = max(8, int(m_instance["defense"] * scale))
+            m_instance["hp"] = {"current": m_instance["hp"], "max": m_instance["hp"]}
+            attackers.append(m_instance)
+            total_xp += m_data.get("xp", 25)
+            total_gil += m_data.get("gil", 10)
+            
+    total_xp = int(total_xp * 1.5)
+    total_gil = int(total_gil * 1.5)
+    
+    creature_names = ", ".join(m["name"] for m in attackers)
+    defenders_list = "\n".join(
+        f"⚔️ **{s['character_name']}** (Lv.{s['level']} {s['class']})"
+        for s in defenders
+    )
+    
+    await channel.send(embed=discord.Embed(
+        title=f"⚔️ Battle on the Trade Road — Rescue Caravan",
+        description=(
+            f"**Attacking:** {creature_names}\n"
+            f"**Rescuers:**\n{defenders_list}\n\n"
+            f"*{theme_data['flavor']}*"
+        ),
+        color=0xff6600
+    ))
+    await asyncio.sleep(4)
+
+    combat_results = []
+    defeated_monsters_count = 0
+    player_defeated_count = 0
+    
+    world_atk_mod = wstate.get("atk_mod", 0)
+    world_def_mod = wstate.get("def_mod", 0)
+    
+    for idx, s in enumerate(defenders):
+        attacker = attackers[idx % len(attackers)].copy()
+        housing = load_housing(str(s.get("user_id", "")))
+        pet_bonuses = get_pet_passive(housing) if housing else {}
+        
+        rounds_log = []
+        won = False
+        escaped = False
+        
+        for r_idx in range(3):
+            if s["hp"]["current"] <= 0 or attacker["hp"]["current"] <= 0:
+                break
+            res = _resolve_combat(
+                s, attacker, 
+                atk_mod_global=world_atk_mod, 
+                def_mod_global=world_def_mod, 
+                pet_bonuses=pet_bonuses
+            )
+            rounds_log.append({
+                "round": r_idx + 1,
+                "player_hit": res.get("player_hit", False),
+                "player_crit": res.get("player_crit", False),
+                "player_fumble": res.get("player_fumble", False),
+                "player_damage": res.get("player_damage", 0),
+                "monster_hit": res.get("monster_hit", False),
+                "monster_damage": res.get("monster_damage", 0),
+                "monster_name": attacker["name"],
+                "monster_desc": attacker.get("desc", ""),
+            })
+            if attacker["hp"]["current"] <= 0:
+                won = True
+                defeated_monsters_count += 1
+                break
+            if s["hp"]["current"] <= 0:
+                player_defeated_count += 1
+                break
+                
+        combat_results.append((s, attacker, rounds_log, won, escaped))
+
+    defenders_won = (defeated_monsters_count >= len(attackers) / 2)
+    xp_each = max(1, total_xp // len(defenders))
+    gil_each = max(1, total_gil // len(defenders))
+    
+    result_lines = []
+    level_ups = []
+    casualty_count = 0
+    
+    for s, monster, rounds_log, won, escaped in combat_results:
+        if s["hp"]["current"] <= 0:
+            casualty_count += 1
+            s["hunt_streak"] = 0
+            xp_loss = int(s["xp"] * 0.10)
+            gil_loss = int(s["gil"] * 0.05)
+            s["xp"] = max(0, s["xp"] - xp_loss)
+            s["gil"] = max(0, s["gil"] - gil_loss)
+            s["hp"]["current"] = 1
+            s["location"] = "shrine"
+            s["deaths"] = s.get("deaths", 0) + 1
+            for _cb in ["embered", "fortified"]:
+                if _cb in s.get("conditions", []): s["conditions"].remove(_cb)
+            
+            result_lines.append(f"💀 **{s['character_name']}** blacked out (lost {xp_loss} XP, {gil_loss} gil)")
+            
+            death_embed = discord.Embed(
+                title=f"💀 {s['character_name']} fell protecting the Caravan",
+                description=f"*{monster['name']} left them at the Shrine threshold.*",
+                color=0x8B0000
+            )
+            await broadcast_world_event(bot_ctx, death_embed)
+        else:
+            if defenders_won:
+                s["xp"] += xp_each
+                s["gil"] += gil_each
+                s["reputation"] = s.get("reputation", 0) + 15
+                result_lines.append(f"⚔️ **{s['character_name']}** survived (received +{xp_each} XP, +{gil_each} gil, +15 Rep)")
+            else:
+                s["reputation"] = max(-100, s["reputation"] - 10)
+                result_lines.append(f"⚔️ **{s['character_name']}** survived but withdrew (lost 10 Rep)")
+                
+        leveled, new_lvl = check_level_up(s)
+        await save(s)
+        if leveled:
+            level_ups.append(f"🎉 **{s['character_name']}** reached **Level {new_lvl}!**")
+            
+    wstate = load_world_state()
+    if defenders_won:
+        wstate["event"] = "caravan_saved"
+        wstate["event_desc"] = "Trade caravan was successfully defended. Stock remains open."
+    else:
+        wstate["caravan_active"] = False
+        wstate["event"] = "caravan_destroyed"
+        wstate["event_desc"] = "Trade caravan was pillaged on the Trade Road. Merchant fled."
+        
+    save_world_state(wstate)
+    
+    outcome_desc = raid_outcome_flavor("trade_road caravan", theme_key, defenders_won, casualty_count)
+    outcome_embed = discord.Embed(
+        title=f"🛡️ Caravan Rescue — {'Victory' if defenders_won else 'Defeat'}",
+        description=outcome_desc,
+        color=0x2D5A27 if defenders_won else 0x8B0000
+    )
+    await broadcast_world_event(bot_ctx, outcome_embed)
+    
+    result_embed = discord.Embed(
+        title=f"🛡️ Battle Results — {'Caravan Rescued' if defenders_won else 'Caravan Ransacked'}",
+        description="\n".join(result_lines),
+        color=0x2D5A27 if defenders_won else 0x8B0000
+    )
+    if level_ups:
+        result_embed.add_field(name="\u200b", value="\n".join(level_ups), inline=False)
+    await channel.send(embed=result_embed)
+    
+    await _narrate_raid_summary(bot_ctx, channel, defenders, attackers, combat_results, defenders_won)
+    
+    await _log_world_event(
+        f"🛡️ **Caravan Ambush:** Trade road defended. "
+        f"Defenders won: {defenders_won}. Casualties: {casualty_count}."
+    )
+    log_action("Noon Event: Caravan Ambush (Resolved)")
+
+
+async def run_market_glut(bot_ctx, channel):
+    """Market Glut / Price event — modifies shop purchase/sell prices for 4 hours."""
+    import secrets
+    import discord
+    import time
+    from utils.ttrpg.world_state import load_world_state, save_world_state
+    from utils.ttrpg.broadcast import log_world_event as _log_world_event, broadcast_world_event
+
+    wstate = load_world_state()
+    now = time.time()
+    
+    is_glut = secrets.randbelow(2) == 0
+    if is_glut:
+        wstate["shop_price_mult"] = 0.8
+        wstate["shop_price_mult_expiry"] = now + 4 * 3600
+        title = "📋 Notice: Market Glut!"
+        desc = (
+            "**Caravan shipments arrived early!**\n\n"
+            "All purchase and sell prices at Hemlock's and the Trade Caravan "
+            "are **discounted by 20%** for the next 4 hours!"
+        )
+        color = 0x27ae60
+        log_text = "📋 **Market Glut** — supply surge discounted shop prices by 20% for 4h."
+    else:
+        wstate["shop_price_mult"] = 1.25
+        wstate["shop_price_mult_expiry"] = now + 4 * 3600
+        title = "📋 Notice: Whisperwood Blockade!"
+        desc = (
+            "**Bandit activity has blocked the western trade passes!**\n\n"
+            "Severe supply shortages have **inflated all shop prices by 25%** "
+            "for the next 4 hours!"
+        )
+        color = 0xd35400
+        log_text = "📋 **Supply Shortage** — trade blockages inflated shop prices by 25% for 4h."
+
+    save_world_state(wstate)
+    
+    embed = discord.Embed(title=title, description=desc, color=color)
+    embed.set_footer(text="Prices are adjusted automatically at checkout.")
+    await channel.send(embed=embed)
+    await broadcast_world_event(bot_ctx, embed)
+    await _log_world_event(log_text)
+    log_action("Noon Event: Market Glut (Configured)")
+
+
+async def run_whisperwood_bloom(bot_ctx, channel):
+    """Whisperwood Bloom event — increases forest events chance for 4 hours."""
+    import discord
+    import time
+    from utils.ttrpg.world_state import load_world_state, save_world_state
+    from utils.ttrpg.broadcast import log_world_event as _log_world_event, broadcast_world_event
+
+    wstate = load_world_state()
+    now = time.time()
+    
+    wstate["forest_event_bonus"] = 0.15
+    wstate["forest_event_bonus_expiry"] = now + 4 * 3600
+    save_world_state(wstate)
+    
+    embed = discord.Embed(
+        title="🌸 Whisperwood Bloom",
+        description=(
+            "*A warm wind blows spores through Oakhaven. The deep trees look vibrant.*\n\n"
+            "The forest is active! Forest event trigger chances on hunts/scouts in the Whisperwood "
+            "are **increased by 15%** for the next 4 hours!"
+        ),
+        color=0xe84393
+    )
+    embed.set_footer(text="Keep your eyes open out there.")
+    await channel.send(embed=embed)
+    await broadcast_world_event(bot_ctx, embed)
+    await _log_world_event("🌸 **Whisperwood Bloom** — forest event chances boosted by +15% for 4h.")
+    log_action("Noon Event: Whisperwood Bloom (Configured)")
+
+
+async def run_shrine_vigil(bot_ctx, channel):
+    """Shrine Vigil event — grants enhanced blessings for 4 hours."""
+    import discord
+    import time
+    from utils.ttrpg.world_state import load_world_state, save_world_state
+    from utils.ttrpg.broadcast import log_world_event as _log_world_event, broadcast_world_event
+
+    wstate = load_world_state()
+    now = time.time()
+    
+    wstate["blessing_window_until"] = now + 4 * 3600
+    save_world_state(wstate)
+    
+    embed = discord.Embed(
+        title="🕯️ Shrine Vigil Active",
+        description=(
+            "*The sacred basins at the Shrine of the Silent Ones glow with intense resonance.*\n\n"
+            "A holy vigil is active! Players who `!rpg pray` or `!rpg offer` at the Shrine within the "
+            "next 4 hours will receive **Morvenna's Ward blessing** (+5 HP restored, and the Blessed buff)!"
+        ),
+        color=0xaaddff
+    )
+    embed.set_footer(text="The Silent Ones are watching Oakhaven.")
+    await channel.send(embed=embed)
+    await broadcast_world_event(bot_ctx, embed)
+    await _log_world_event("🕯️ **Shrine Vigil** — enhanced blessing window active for 4h.")
+    log_action("Noon Event: Shrine Vigil (Configured)")
+
+
+async def run_missing_persons(bot_ctx, channel):
+    """Missing Persons search event — trigger-based quest with forest events resolution."""
+    import secrets
+    import discord
+    import time
+    from utils.ttrpg.world_state import load_world_state, save_world_state
+    from utils.ttrpg.broadcast import log_world_event as _log_world_event, broadcast_world_event
+
+    names = [
+        "Jax (Elara's nephew)", 
+        "Toby (the blacksmith's apprentice)", 
+        "Alice (Maren's sister)", 
+        "Lily (the herbalist's daughter)", 
+        "Gideon (the bank clerk)"
+    ]
+    locs = [
+        ("whisperwood_edge", "Whisperwood Border"),
+        ("whisperwood_deep", "Deep Whisperwood"),
+        ("trade_road", "Trade Road"),
+        ("aeridor_ruins", "Aeridor Ruins")
+    ]
+    
+    chosen_name = secrets.choice(names)
+    chosen_key, chosen_desc = secrets.choice(locs)
+    
+    wstate = load_world_state()
+    now = time.time()
+    
+    wstate["missing_person_name"] = chosen_name
+    wstate["missing_person_loc"] = chosen_key
+    wstate["missing_person_expiry"] = now + 6 * 3600
+    save_world_state(wstate)
+    
+    embed = discord.Embed(
+        title="📋 MISSING PERSON NOTICE",
+        description=(
+            f"**Missing:** {chosen_name}\n"
+            f"**Last Seen Heading Toward:** {chosen_desc}\n\n"
+            f"Elder Elara has posted a distress notice! {chosen_name} went out gathering and hasn't returned.\n"
+            f"Adventurers, **hunt or scout in {chosen_desc}** to search the area and bring them home!"
+        ),
+        color=0xf39c12
+    )
+    embed.set_footer(text="Rewards await whoever guides them safely back.")
+    await channel.send(embed=embed)
+    await broadcast_world_event(bot_ctx, embed)
+    await _log_world_event(f"📋 **Missing Person** — search notice posted for {chosen_name} in {chosen_desc}.")
+    log_action(f"Noon Event: Missing Persons ({chosen_name} in {chosen_desc})")
+
+
+async def run_construct_incursion(bot_ctx, channel):
+    """Noon event: Aeridorian constructs push out from the ruins. Same engine combat as village raid."""
+    import secrets
+    import discord
+    import asyncio
+    import time
+    from utils.ttrpg.character_manager import get_active_town_defenders, save
+    from utils.ttrpg.monster_registry import get as get_monster
+    from utils.ttrpg.progression import check_level_up, xp_to_next_level
+    from utils.ttrpg.broadcast import log_world_event as _log_world_event, broadcast_world_event
+    from utils.ttrpg.world_state import load_world_state, save_world_state
+    from utils.ttrpg.dungeon import DUNGEON_THEMES
+    from utils.ttrpg.combat_engine import _resolve_combat
+    from utils.ttrpg.housing import load_housing
+    from utils.ttrpg.pets import get_pet_passive
+
+    TOWN_LOCATIONS = {
+        "oakhaven", "stone_hearth", "hemlocks_store",
+        "shrine", "watchtower", "oakhaven_bank", "herbalists_hut",
+        "housing_district", "tricklebrook_pond"
+    }
+
+    # 1. Announce event
+    await channel.send(embed=discord.Embed(
+        title="🤖 WATCHTOWER INTRUSION",
+        description=(
+            "*A low metallic hum vibrates through the watchtower walls. From the Aeridor ruins, "
+            "orderly ranks of polished brass and crystal-powered automations march forward.*\n\n"
+            "The watchtower sentries sound the iron gong. **\"Constructs! Heavy frames! To the gates!\"**"
+        ),
+        color=0x4183c4
+    ))
+    await asyncio.sleep(4)
+
+    # 2. Get active town defenders
+    defenders = await get_active_town_defenders()
+
+    if not defenders:
+        await channel.send(embed=discord.Embed(
+            description=(
+                "*No adventurers were in town. The watchtower automatic defenses triggered, "
+                "repelling the constructs at the cost of depleted power arrays.*\n\n"
+                "The brass ranks turned and receded back to the silent ruins."
+            ),
+            color=0x888888
+        ))
+        return
+
+    # 3. Select constructs theme
+    theme_data = DUNGEON_THEMES["constructs"]
+
+    # 4. Compute threat level
+    avg_level = sum(s.get("level", 1) for s in defenders) / len(defenders)
+    max_level = max(s.get("level", 1) for s in defenders)
+
+    if avg_level >= 13:
+        pool_index = 5
+    elif avg_level >= 9:
+        pool_index = 4
+    elif avg_level >= 6:
+        pool_index = 3
+    elif avg_level >= 3:
+        pool_index = 2
+    else:
+        pool_index = 1
+
+    normal_pool = theme_data["pools"][pool_index]
+    boss_pool = theme_data["boss_pools"][pool_index]
+
+    # 5. Build attackers wave
+    num_attackers = min(8, 2 + max_level // 3)
+    has_boss = (max_level >= 9)
+    attackers = []
+    total_xp = 0
+    total_gil = 0
+
+    for i in range(num_attackers):
+        if i == 0 and has_boss:
+            m_key = secrets.choice(boss_pool)
+        else:
+            m_key = secrets.choice(normal_pool)
+
+        m_data = get_monster(m_key)
+        if m_data:
+            m_instance = m_data.copy()
+            m_instance["key"] = m_key
+            scale = 1.0 + (avg_level - 1) * 0.05
+            m_instance["hp"] = max(15, int(m_instance["hp"] * scale))
+            m_instance["attack"] = max(3, int(m_instance["attack"] * scale))
+            m_instance["defense"] = max(8, int(m_instance["defense"] * scale))
+            m_instance["hp"] = {"current": m_instance["hp"], "max": m_instance["hp"]}
+            attackers.append(m_instance)
+            total_xp += m_data.get("xp", 25)
+            total_gil += m_data.get("gil", 10)
+
+    total_xp = int(total_xp * 1.5)
+    total_gil = int(total_gil * 1.2)
+
+    creature_names = ", ".join(m["name"] for m in attackers)
+    defenders_list = "\n".join(
+        f"⚔️ **{s['character_name']}** (Lv.{s['level']} {s['class']})"
+        for s in defenders
+    )
+
+    await channel.send(embed=discord.Embed(
+        title=f"⚔️ Watchtower Defense — Construct Incursion",
+        description=(
+            f"**Attacking:** {creature_names}\n"
+            f"**Defenders in Oakhaven:**\n{defenders_list}\n\n"
+            f"*{theme_data['flavor']}*"
+        ),
+        color=0x4183c4
+    ))
+    await asyncio.sleep(4)
+
+    # 6. Resolve combat
+    combat_results = []
+    defeated_monsters_count = 0
+    player_defeated_count = 0
+
+    wstate = load_world_state()
+    world_atk_mod = wstate.get("atk_mod", 0)
+    world_def_mod = wstate.get("def_mod", 0)
+
+    for idx, s in enumerate(defenders):
+        attacker = attackers[idx % len(attackers)].copy()
+
+        # Load pet passive bonuses
+        housing = load_housing(str(s.get("user_id", "")))
+        pet_bonuses = get_pet_passive(housing) if housing else {}
+
+        # Run up to 3 rounds of combat
+        rounds_log = []
+        won = False
+        escaped = False
+
+        for r_idx in range(3):
+            if s["hp"]["current"] <= 0 or attacker["hp"]["current"] <= 0:
+                break
+
+            res = _resolve_combat(
+                s, attacker,
+                atk_mod_global=world_atk_mod,
+                def_mod_global=world_def_mod,
+                pet_bonuses=pet_bonuses
+            )
+
+            rounds_log.append({
+                "round": r_idx + 1,
+                "player_hit": res.get("player_hit", False),
+                "player_crit": res.get("player_crit", False),
+                "player_fumble": res.get("player_fumble", False),
+                "player_damage": res.get("player_damage", 0),
+                "monster_hit": res.get("monster_hit", False),
+                "monster_damage": res.get("monster_damage", 0),
+                "monster_name": attacker["name"],
+                "monster_desc": attacker.get("desc", ""),
+            })
+
+            if attacker["hp"]["current"] <= 0:
+                won = True
+                defeated_monsters_count += 1
+                break
+            if s["hp"]["current"] <= 0:
+                player_defeated_count += 1
+                break
+
+        combat_results.append((s, attacker, rounds_log, won, escaped))
+
+    # Determine victory
+    defenders_won = (defeated_monsters_count >= len(attackers) / 2)
+
+    xp_each = max(1, total_xp // len(defenders))
+    gil_each = max(1, total_gil // len(defenders))
+
+    # 7. Apply Consequences & Rewards
+    result_lines = []
+    level_ups = []
+    casualty_count = 0
+
+    for s, monster, rounds_log, won, escaped in combat_results:
+        if s["hp"]["current"] <= 0:
+            casualty_count += 1
+            s["hunt_streak"] = 0
+            xp_loss = int(s["xp"] * 0.10)
+            gil_loss = int(s["gil"] * 0.05)
+            s["xp"] = max(0, s["xp"] - xp_loss)
+            s["gil"] = max(0, s["gil"] - gil_loss)
+            s["hp"]["current"] = 1
+            s["location"] = "shrine"
+            s["deaths"] = s.get("deaths", 0) + 1
+            for _cb in ["embered", "fortified"]:
+                if _cb in s.get("conditions", []):
+                    s["conditions"].remove(_cb)
+
+            result_lines.append(f"💀 **{s['character_name']}** fell (lost {xp_loss} XP, {gil_loss} gil)")
+
+            death_embed = discord.Embed(
+                title=f"💀 {s['character_name']} fell to constructs",
+                description=f"*{monster['name']} left them at the Shrine threshold. Lost {xp_loss} XP and {gil_loss} Gil.*",
+                color=0x8B0000
+            )
+            death_embed.set_footer(text=f"Death #{s['deaths']}")
+            await broadcast_world_event(bot_ctx, death_embed)
+        else:
+            if defenders_won:
+                s["xp"] += xp_each
+                s["gil"] += gil_each
+                s["reputation"] = s.get("reputation", 0) + 10
+                result_lines.append(f"⚔️ **{s['character_name']}** survived (received +{xp_each} XP, +{gil_each} gil, +10 Rep)")
+            else:
+                s["reputation"] = max(-100, s["reputation"] - 10)
+                result_lines.append(f"⚔️ **{s['character_name']}** survived but withdrew (lost 10 Rep)")
+
+        leveled, new_lvl = check_level_up(s)
+        await save(s)
+        if leveled:
+            level_ups.append(f"🎉 **{s['character_name']}** reached **Level {new_lvl}!**")
+
+    # Apply global updates
+    wstate = load_world_state()
+    now = time.time()
+
+    if defenders_won:
+        wstate["event"] = "constructs_repelled"
+        wstate["event_desc"] = "Oakhaven watchtowers repelled the construct intrusion."
+        wstate["def_mod"] = 1
+        wstate["def_mod_expiry"] = now + 14400  # 4 hours
+        wstate["xp_mult"] = 1.2
+        wstate["xp_mult_expiry"] = now + 14400  # 4 hours
+    else:
+        wstate["event"] = "constructs_breached"
+        wstate["event_desc"] = "Watchtower defenses breached by Aeridorian automations."
+    save_world_state(wstate)
+
+    # Broadcast global outcome
+    outcome_embed = discord.Embed(
+        title=f"🛡️ Watchtower Defense — {'Victory' if defenders_won else 'Defeat'}",
+        description=f"The brass phalanx was {'broken and scattered' if defenders_won else 'victorious, cracking the gates before retreating'}.\n\n" + "\n".join(result_lines),
+        color=0x2D5A27 if defenders_won else 0x8B0000
+    )
+    await broadcast_world_event(bot_ctx, outcome_embed)
+
+    if level_ups:
+        lvl_embed = discord.Embed(
+            title="🎉 Level Ups!",
+            description="\n".join(level_ups),
+            color=0xffd700
+        )
+        await channel.send(embed=lvl_embed)
+
+    await _log_world_event(f"🤖 **Construct Incursion** — defenders defended Watchtower: {defenders_won}.")
+    log_action("Noon Event: Construct Incursion")
+
+    # Narration via LLM
+    try:
+        await _narrate_raid_summary(bot_ctx, channel, defenders, attackers, combat_results, defenders_won)
+    except Exception as e:
+        log_error(f"[construct noon] Narration failed: {e}")
+
+
+async def run_gil_windfall(bot_ctx, channel):
+    """Noon event: A trade caravan's ledger error or Aeridorian shard price spike grants present players a gil windfall."""
+    import discord
+    import asyncio
+    import secrets
+    from utils.ttrpg.character_manager import load_all, save
+    from utils.ttrpg.broadcast import log_world_event as _log_world_event
+
+    TOWN_LOCATIONS = {
+        "oakhaven", "stone_hearth", "hemlocks_store",
+        "shrine", "watchtower", "oakhaven_bank", "herbalists_hut",
+        "housing_district", "tricklebrook_pond"
+    }
+
+    await channel.send(embed=discord.Embed(
+        title="💰 Trade Windfall",
+        description=(
+            "*The Corvus Road Trading Co. posts a ledger correction outside the bank.*\n\n"
+            "A recalculation of trade taxes or an overnight spike in Aeridorian shard values "
+            "has created an unexpected surplus. Adventurers present in Oakhaven are eligible "
+            "for a direct payout."
+        ),
+        color=0xf1c40f
+    ))
+    await asyncio.sleep(3)
+
+    all_sheets = await load_all()
+    present = [s for s in all_sheets if s.get("location") in TOWN_LOCATIONS]
+
+    if not present:
+        await channel.send(embed=discord.Embed(
+            description="*The Oakhaven bank closed its windows for the day. No active adventurers were in town to collect the trade surplus.*",
+            color=0x888888
+        ))
+        return
+
+    result_lines = []
+    for s in present:
+        # Payout: 150 Gil + 5% of current gold
+        bonus = 150 + int(s.get("gil", 0) * 0.05)
+        s["gil"] = s.get("gil", 0) + bonus
+        await save(s)
+        result_lines.append(f"💰 **{s['character_name']}** received **+{bonus}g**")
+
+    await channel.send(embed=discord.Embed(
+        title="💰 Windfall Payouts Distributed",
+        description="\n".join(result_lines) + "\n\n*Mira refills the mug of the clerk. The bank doors shut.*",
+        color=0xf1c40f
+    ))
+    await _log_world_event("💰 **Trade Windfall** — tax correction surplus distributed to all present in Oakhaven.")
+    log_action("Noon Event: Gil Windfall")
+
+
+async def run_blight_on_the_crops(bot_ctx, channel):
+    """Noon event: Whisperwood blight ruins a crop plot for random house owners."""
+    import discord
+    import asyncio
+    import secrets
+    import random
+    from utils.ttrpg.character_manager import load_all
+    from utils.ttrpg.housing import load_all_housing, save_housing
+    from utils.ttrpg.broadcast import log_world_event as _log_world_event
+
+    await channel.send(embed=discord.Embed(
+        title="🥀 Whisperwood Blight",
+        description=(
+            "*A grey mist creeps out from the forest edge, carrying a sour scent of mold.*\n\n"
+            "Farmers in the Oakhaven housing district notice leaves yellowing and roots softening. "
+            "The sward blight has infected the soil tonight."
+        ),
+        color=0x7f8c8d
+    ))
+    await asyncio.sleep(3)
+
+    all_housing = load_all_housing()
+    farm_owners = [h for h in all_housing if h.get("farming", {}).get("plots")]
+
+    if not farm_owners:
+        await channel.send(embed=discord.Embed(
+            description="*The mist dissipated harmlessly. No active fields or crops were in use in the housing district.*",
+            color=0x888888
+        ))
+        return
+
+    # Select up to 3 random farm owners
+    affected_count = min(3, len(farm_owners))
+    affected_owners = random.sample(farm_owners, affected_count)
+
+    all_sheets = await load_all()
+    uid_to_name = {s.get("user_id"): s.get("character_name", "Unknown") for s in all_sheets if s.get("user_id")}
+
+    result_lines = []
+    for h in affected_owners:
+        plots = h["farming"]["plots"]
+        idx = secrets.randbelow(len(plots))
+        lost_plot = plots.pop(idx)
+        h["farming"]["plots"] = plots
+        save_housing(h)
+
+        uid = str(h.get("user_id", ""))
+        char_name = uid_to_name.get(uid, f"User {uid}")
+        from utils.ttrpg.farming import CROPS
+        crop_data = CROPS.get(lost_plot.get("crop_key"), {})
+        crop_name = crop_data.get("name", "crop")
+        result_lines.append(f"🥀 **{char_name}** lost their plot containing **{crop_name}**")
+
+    await channel.send(embed=discord.Embed(
+        title="🥀 Blight Damage Report",
+        description="\n".join(result_lines) + "\n\n*Maren shakes her head at the shrine replica, praying for better soil.*",
+        color=0x7f8c8d
+    ))
+    await _log_world_event("🥀 **Whisperwood Blight** sours Oakhaven soil. Several crops in the housing district were lost.")
+    log_action("Noon Event: Blight on Crops")
+
+
+async def run_pilgrims_arrive(bot_ctx, channel):
+    """Noon event: Pilgrims arrive at the Shrine, granting a blessing window in world_state."""
+    import discord
+    import asyncio
+    import time
+    from utils.ttrpg.character_manager import load_all, save
+    from utils.ttrpg.broadcast import log_world_event as _log_world_event
+    from utils.ttrpg.world_state import load_world_state, save_world_state
+
+    TOWN_LOCATIONS = {
+        "oakhaven", "stone_hearth", "hemlocks_store",
+        "shrine", "watchtower", "oakhaven_bank", "herbalists_hut",
+        "housing_district", "tricklebrook_pond"
+    }
+
+    await channel.send(embed=discord.Embed(
+        title="🕯️ Procession of Pilgrims",
+        description=(
+            "*A quiet procession enters the eastern gates. Clad in grey wool robes, they carry holy oils "
+            "and Morvenna's relics to the Shrine of the Silent Ones.*\n\n"
+            "Fragrant incense fills the square. The air becomes warm and still."
+        ),
+        color=0x9b59b6
+    ))
+    await asyncio.sleep(3)
+
+    all_sheets = await load_all()
+    present = [s for s in all_sheets if s.get("location") in TOWN_LOCATIONS]
+
+    if not present:
+        await channel.send(embed=discord.Embed(
+            description="*The pilgrims prayed at the empty shrine and proceeded north, leaving a quiet aura in the air.*",
+            color=0x888888
+        ))
+        return
+
+    result_lines = []
+    for s in present:
+        # Restore 10 HP and grant Blessed condition
+        s["hp"]["current"] = min(s["hp"]["max"], s["hp"]["current"] + 10)
+        if "blessed" not in s.setdefault("conditions", []):
+            s["conditions"].append("blessed")
+        await save(s)
+        result_lines.append(f"✨ **{s['character_name']}** was restored (+10 HP, **Blessed**)")
+
+    # Set temporary world_state pilgrim_blessing_until
+    wstate = load_world_state()
+    wstate["pilgrim_blessing_until"] = time.time() + 14400  # 4 hours
+    save_world_state(wstate)
+
+    await channel.send(embed=discord.Embed(
+        title="✨ Pilgrims' Blessing Received",
+        description="\n".join(result_lines) + "\n\n*Morvenna's presence lingers at the Shrine. Praying or offering today yields enhanced protection.*",
+        color=0x9b59b6
+    ))
+    await _log_world_event("🕯️ **Pilgrims Arrive** — Morvenna's relics brought to the Shrine, blessing those present in Oakhaven.")
+    log_action("Noon Event: Pilgrims Arrive")
+
+
+async def run_night_terror_warning(bot_ctx, channel):
+    """Noon event: A warning about dangerous beasts shifting solo hunts to a harder tier."""
+    import discord
+    import time
+    from utils.ttrpg.broadcast import log_world_event as _log_world_event
+    from utils.ttrpg.world_state import load_world_state, save_world_state
+
+    await channel.send(embed=discord.Embed(
+        title="👁️ Night Terror Warning",
+        description=(
+            "**⚠️ WARNING: HIGHER THREAT LEVELS DETECTED TONIGHT**\n\n"
+            "*Watchtower sentries report a massive shadow beast moving through the Whisperwood tree lines.*\n\n"
+            "Elara issues a warning to all hunters: **\"Tonight, the forest is not for the faint of heart. "
+            "Monsters are shifting closer. Be on your guard.\"**"
+        ),
+        color=0x962d2d
+    ))
+
+    # Write a temporary flag into world_state
+    wstate = load_world_state()
+    wstate["encounter_mod"] = {"tier_shift": 1}
+    wstate["encounter_mod_expiry"] = time.time() + 14400  # 4 hours
+    save_world_state(wstate)
+
+    await _log_world_event("👁️ **Night Terror Warning** — watchtowers report shadow beast movement. Solo hunts will encounter higher tier threats for the next 4 hours.")
+    log_action("Noon Event: Night Terror Warning")
+
 

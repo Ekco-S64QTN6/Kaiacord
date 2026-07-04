@@ -90,7 +90,7 @@ python tools/maintenance/health_check.py
 
 Checks:
 - Ollama server status
-- Required models (gemma3:12b, gemma2:2b, nomic-embed-text)
+- Required models (reads from config: gemma4:12b, gemma2:2b, nomic-embed-text)
 - GPU availability and VRAM
 - Knowledge base accessibility
 - Configuration files

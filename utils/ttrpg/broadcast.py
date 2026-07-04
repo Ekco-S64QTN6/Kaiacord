@@ -107,3 +107,22 @@ def _boss_approach_flavor(theme_key: str, boss_name: str) -> str:
         f"*Everything else in this dungeon is still behind you.*"
     )
     return flavors.get(theme_key, default)
+
+
+def raid_outcome_flavor(town_name: str, theme_key: str, defenders_won: bool, casualty_count: int) -> str:
+    """Short, terse lore flavor of the raid result."""
+    t_name = town_name.replace("_", " ").title()
+    if defenders_won:
+        FLAVOR = [
+            f"*The threat from the Whisperwood has been broken. {t_name} stands.*",
+            f"*Decisive defense. The perimeter of {t_name} held under pressure.*",
+            f"*The creatures fell back into the treeline. The gate is secure.*",
+        ]
+        return FLAVOR[secrets.randbelow(len(FLAVOR))]
+    else:
+        FLAVOR = [
+            f"*Oakhaven took a heavy toll. {casualty_count} defender(s) fell at the perimeter.*",
+            f"*The lines crumbled. Scorched stonework and broken barricades remain.*",
+            f"*The gate was breached. The Shrine is filled with wounded.*",
+        ]
+        return FLAVOR[secrets.randbelow(len(FLAVOR))]

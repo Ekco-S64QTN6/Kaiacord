@@ -26,20 +26,6 @@ def get_shop_inventory(location: str = "hemlocks_store") -> tuple[dict, dict, di
         consumables = {k: CONSUMABLES[k] for k in consumable_keys if k in CONSUMABLES}
         return weapons, armor, headgear, boots, accessories, consumables
 
-    if location == "pells_depot":
-        from utils.ttrpg.equipment_registry import (
-            PELLS_STOCK_WEAPONS, PELLS_STOCK_ARMOR,
-            PELLS_STOCK_HEADGEAR, PELLS_STOCK_BOOTS,
-            PELLS_STOCK_ACCESSORIES, PELLS_STOCK_CONSUMABLES,
-        )
-        weapons     = {k: WEAPONS[k]     for k in PELLS_STOCK_WEAPONS     if k in WEAPONS}
-        armor       = {k: ARMOR[k]       for k in PELLS_STOCK_ARMOR       if k in ARMOR}
-        headgear    = {k: HEADGEAR[k]    for k in PELLS_STOCK_HEADGEAR    if k in HEADGEAR}
-        boots       = {k: BOOTS[k]       for k in PELLS_STOCK_BOOTS       if k in BOOTS}
-        accessories = {k: ACCESSORIES[k] for k in PELLS_STOCK_ACCESSORIES if k in ACCESSORIES}
-        consumables = {k: CONSUMABLES[k] for k in PELLS_STOCK_CONSUMABLES if k in CONSUMABLES}
-        return weapons, armor, headgear, boots, accessories, consumables
-
     # Default: Hemlock's Store
     season = get_season()
     seasonal = SEASONAL_SHOP.get(season, {})
@@ -158,6 +144,12 @@ def process_purchase(sheet: dict, item_key: str, quantity: int = 1, reputation: 
     cha_discount = min(0.10, max(0.0, cha_mod * 0.02))
     price_mult -= cha_discount
     
+    # Check world_state for temporary price multiplier (market glut event)
+    from utils.ttrpg.world_state import load_world_state
+    wstate = load_world_state()
+    if wstate.get("shop_price_mult", 1.0) != 1.0:
+        price_mult *= wstate.get("shop_price_mult", 1.0)
+    
     # Apply shop_special calendar override
     from utils.ttrpg.calendar import get_special_day
     special = get_special_day()
@@ -195,6 +187,12 @@ def get_sell_price(item_value: int, reputation: int = 0, cha_mod: int = 0) -> in
     
     cha_bonus = min(0.10, max(0.0, cha_mod * 0.02))
     sell_mult += cha_bonus
+    
+    # Check world_state for temporary price multiplier (market glut event)
+    from utils.ttrpg.world_state import load_world_state
+    wstate = load_world_state()
+    if wstate.get("shop_price_mult", 1.0) != 1.0:
+        sell_mult *= wstate.get("shop_price_mult", 1.0)
     
     return max(1, int(item_value * sell_mult))
 

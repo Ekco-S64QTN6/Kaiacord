@@ -1,4 +1,5 @@
 from utils.infrastructure.logging.kaia_logger import log_info, log_error
+from utils.infrastructure.system.yaml_config import config
 import asyncio
 import ollama
 import sys
@@ -7,8 +8,12 @@ async def nuclear_unload():
     log_info("🚀 Starting Nuclear Unload of all models...")
     client = ollama.AsyncClient(timeout=60)
     
-    # List of models possibly loaded
-    models = ["gemma3:12b", "gemma2:2b", "nomic-embed-text-cpu"]
+    # Read model names from config — no more hardcoded strings
+    models = [
+        config.chat_model,
+        config.get('models.classification_model', 'gemma2:2b'),
+        config.get('models.embedding', 'nomic-embed-text-cpu'),
+    ]
     
     for model in models:
         try:

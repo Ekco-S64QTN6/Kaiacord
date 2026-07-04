@@ -2323,6 +2323,7 @@ async def _dungeon_move(ctx_obj, interaction, uid, uname, is_owner, direction):
                     scale = 1.0 + (diff - 1) * 0.15
                     monster["hp"] = max(5, int(monster["hp"] * scale))
                     monster["attack"] = max(1, int(monster["attack"] * scale))
+                    monster["defense"] = max(1, int(monster["defense"] * scale))
                     # Cap non-boss monsters to prevent absurd stats.
                     # Targets ~50-55% hit rate against a well-geared player at
                     # the recommended level for that difficulty tier.

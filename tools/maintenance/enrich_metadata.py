@@ -23,7 +23,12 @@ sys.path.append(str(Path(__file__).parent.parent.parent))
 from utils.infrastructure.logging.kaia_logger import log_action, log_success, log_error, log_warning, log_info
 
 OLLAMA_HOST = "http://localhost:11434"
-MODEL = "gemma3:12b"
+# Resolve chat model dynamically from configuration
+try:
+    from utils.infrastructure.system.yaml_config import config
+    MODEL = config.chat_model
+except Exception:
+    MODEL = "gemma3:12b"
 TIMEOUT_SECONDS = 150.0
 SLEEP_BETWEEN_CALLS = 1.0
 
@@ -117,14 +122,24 @@ async def generate_metadata(session: aiohttp.ClientSession, category: str, body:
     
     prompt = template['prompt'].replace('{text}', truncated_body)
     
+    # Resolve consistent GPU options
+    try:
+        from utils.infrastructure.gpu.gpu_manager import OllamaGPUManager
+        gpu_manager = OllamaGPUManager(MODEL)
+        opts = gpu_manager.get_gpu_options(for_chat=True)
+        opts["temperature"] = 0.2
+        opts["num_predict"] = 400
+    except Exception:
+        opts = {
+            "temperature": 0.2,
+            "num_predict": 400
+        }
+
     payload = {
         "model": MODEL,
         "prompt": prompt,
         "stream": False,
-        "options": {
-            "temperature": 0.2,
-            "num_predict": 400
-        }
+        "options": opts
     }
     
     try:

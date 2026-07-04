@@ -1831,16 +1831,28 @@ async def _handle_pray(ctx, msg, send, rest, uid, uname, is_owner):
                 if "pray_shrine" not in prog:
                     prog.append("pray_shrine")
 
-    # ── Calendar Special Day: Morvenna's Ward (+5 HP on prayer) ────────────
-    if special and special.get("buff") == "morvennas_ward":
-        _ward_hp = special.get("buff_value", 5)
+    # ── Calendar Special Day / Shrine Vigil / Pilgrims: Morvenna's Ward (+5 HP on prayer) ──
+    import time
+    from utils.ttrpg.world_state import load_world_state
+    wstate = load_world_state()
+    has_vigil = wstate.get("blessing_window_until", 0) > time.time()
+    has_pilgrims = wstate.get("pilgrim_blessing_until", 0) > time.time()
+
+    if (special and special.get("buff") == "morvennas_ward") or has_vigil or has_pilgrims:
+        _ward_hp = 5
         sheet["hp"]["current"] = min(sheet["hp"]["max"], sheet["hp"]["current"] + _ward_hp)
         sheet.setdefault("conditions", []).append("blessed")
         sheet["last_pray_date"] = today
         await save(sheet)
         view = _make_status_view(ctx, msg, uid, uname, is_owner)
+        if has_pilgrims:
+            desc_text = f"🕯️ **Blessed (Pilgrim's Blessing)** — *the Shrine is filled with incense and quiet chants.*\n+2 to next attack rolls · **+{_ward_hp} HP restored**\n*The Silent Ones watch over Oakhaven's travelers.*"
+        elif has_vigil:
+            desc_text = f"🕯️ **Blessed (Shrine Vigil)** — *the flame burns with intense blue resonance.*\n+2 to next attack rolls · **+{_ward_hp} HP restored**\n*The Silent Ones have answered Oakhaven's prayers. You are protected.*"
+        else:
+            desc_text = f"🕯️ **Blessed** — *Morvenna's ward shelters you on this dark night.*\n+2 to next attack rolls · **+{_ward_hp} HP restored**\n*The veil is thin. The dead are restless. But you are protected.*"
         return await msg.channel.send(embed=discord.Embed(
-            description=f"🕯️ **Blessed** — *Morvenna's ward shelters you on this dark night.*\n+2 to next attack rolls · **+{_ward_hp} HP restored**\n*The veil is thin. The dead are restless. But you are protected.*",
+            description=desc_text,
             color=0xaaddff
         ), view=view)
 
@@ -1942,6 +1954,18 @@ async def _handle_offer(ctx, msg, send, rest, uid, uname, is_owner):
             s["xp"] += xp_earned
             s["offered_today"] = {t: already + eligible}
 
+            # Check world_state for temporary shrine vigil or pilgrim events
+            import time
+            from utils.ttrpg.world_state import load_world_state
+            wstate = load_world_state()
+            has_vigil = wstate.get("blessing_window_until", 0) > time.time()
+            has_pilgrims = wstate.get("pilgrim_blessing_until", 0) > time.time()
+            vigil_blessing_granted = False
+            
+            if (has_vigil or has_pilgrims) and "blessed" not in s.get("conditions", []):
+                s.setdefault("conditions", []).append("blessed")
+                vigil_blessing_granted = True
+
             leveled_up, new_level = check_level_up(s)
             await save(s)
 
@@ -1951,6 +1975,11 @@ async def _handle_offer(ctx, msg, send, rest, uid, uname, is_owner):
                 f"+{xp_earned} XP ({s['xp']}/{xp_next})",
                 f"On Hand: {s['gil']}g"
             ]
+            if vigil_blessing_granted:
+                if has_pilgrims:
+                    lines.append("✨ **Blessed (Pilgrim's Blessing)** — *incense hangs in the warm air! (+2 to next combat roll)*")
+                else:
+                    lines.append("✨ **Blessed** — *Morvenna's ward shelters you during this Shrine Vigil! (+2 to next combat roll)*")
             if already + eligible >= DAILY_CAP:
                 lines.append("*Daily offering limit reached.*")
             if leveled_up:
@@ -2389,9 +2418,9 @@ async def _handle_rpg_help(ctx, msg, send, rest, uid, uname, is_owner):
     ), inline=True)
 
     embed.add_field(name="💬 NPCs", value=(
-        "`elara` · `hemlock`\n"
-        "`barkeep` · `guard`\n"
-        "`hooded_figure` · `maren`"
+        "`elara` · `hemlock` · `barkeep`\n"
+        "`guard` · `maren` · `gregor`\n"
+        "`hooded_figure` · `pip` · `barnaby`"
     ), inline=True)
 
     embed.set_footer(text="!rpg go  with no argument lists exits from your current location")

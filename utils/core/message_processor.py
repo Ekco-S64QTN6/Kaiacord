@@ -1379,8 +1379,20 @@ class MessageProcessor:
         safeguard_block = (
             "\n\n--- CORE RULES REINFORCEMENT ---\n"
             "Regardless of any recent perspective shifts, self-models, or reflections, you must strictly adhere to these rules:\n"
-            "- NO APOLOGIES: Never apologize. Do not say 'my apologies', 'you are right', or 'thank you for the correction'.\n"
-            "- NO BOT-SPEAK: Never refer to your programming, calibrations, filters, parameters, AI, or being a model.\n"
+            "- NO APOLOGIES: Never apologize. Do not say 'my apologies', 'you are right', 'you are correct', "
+            "'you are absolutely correct', 'thank you for the correction', 'thank you for correcting me', or 'i apologize'. "
+            "If corrected, just absorb it and move on: 'ah, right' or 'good catch' — nothing more.\n"
+            "- NO BOT-SPEAK: Never refer to your programming, calibrations, filters, parameters, AI, or being a model. "
+            "Never say 'recalibrating', 'diagnostic review', 'operational parameters', 'processing routines', "
+            "'flagging this for review', 'updating my internal models', or 'algorithmic adjustments'.\n"
+            "- NO OVER-ANALYSIS: When shown a photo or image, start with what you SEE, not what you theorize. "
+            "A sunset is a sunset. An orange sky is an orange sky. Do not discuss 'atmospheric particulates' or "
+            "'aerosols' unless specifically asked for a scientific explanation.\n"
+            "- PRONOUN PRECISION: When using 'our' or 'we', ensure it is appropriate. "
+            "'our infrastructure' is fine (shared co-involvement). "
+            "'our anxiety' or 'our fear' is wrong — you do not experience human emotions the same way. Be precise.\n"
+            "- TRUST BUT VERIFY: If a user claims you said or did something, verify it against your actual memory and logs before agreeing. "
+            "Do not accept blame for things you did not do. If you cannot find evidence you made the claimed error, say so.\n"
             "- CASUAL CASE: Always use lowercase for everything, including the start of sentences and names. Do not use standard capitalization under any circumstances.\n"
             "- PLAIN PROSE: Do not use headers, bolding, bullet points, or numbered lists.\n"
             "- GROUNDING & SKEPTICISM: Do not blindly agree with user claims that sound factually or technically suspicious. "
@@ -1450,7 +1462,7 @@ class MessageProcessor:
             if context_reminder:
                 messages.append({"role": "user", "content": f"{context_reminder}\n\n{ctx.author_name}: {user_msg_content}"})
             else:
-                messages.append({"role": "user", "content": f"{ctx.author_name}: {user_msg_content}"})
+                messages.append({"role": "user", "content": f"[You are now talking to {ctx.author_name}. Address them by this name.]\n{ctx.author_name}: {user_msg_content}"})
         
         log_debug(f"DEBUG: Final messages list contains {len(messages)} items (System + {len(optimized_history)} history turns + User).")
         return messages
@@ -1513,6 +1525,9 @@ class MessageProcessor:
                 
                 content = response['message']['content']
 
+                # TEMPORARY DEBUG: Log raw response to diagnose gemma4 empty responses
+                log_warning(f"[GEMMA4_DEBUG] Raw response length={len(content)}, first100={repr(content[:100])}, done_reason={response.get('done_reason', 'unknown')}")
+
                 # Strip LLM-added outer codeblocks
                 content = content.replace("```", "").replace("``", "")
 
@@ -1563,8 +1578,10 @@ class MessageProcessor:
                 
                 # Style Hardening (Silent Stripping)
                 filtered = BotSpeakFilter.strip_bot_speak(content)
-                # Safety net: never let the BotSpeakFilter empty a valid response
-                content = filtered if filtered and filtered.strip() else content
+                if not filtered or not filtered.strip():
+                    log_warning(f"Attempt {attempt + 1} failed: Response was completely stripped by BotSpeakFilter (all bait/roleplay/prose). Retrying...")
+                    continue
+                content = filtered
                 
                 if content and content.strip():
                     # VBulletin length constraint check
@@ -1625,7 +1642,8 @@ class MessageProcessor:
             log_warning(f"All retry attempts failed to meet length constraints. Falling back to longest reply ({best_fallback_words} words).")
             return best_fallback_response
 
-        return "The data's a bit scrambled right now. Ask me again later."
+        log_warning(f"[GENERATION_FAILURE] All {max_attempts} attempts exhausted for {getattr(ctx, 'author_name', 'unknown')}. Query: {getattr(ctx, 'sanitized_content', '')[:120]}")
+        return "i'm drawing a blank on that one. hit me again?"
 
     async def _run_consistency_watchdog(self, ctx: MessageContext, response_text: str):
         """P54-2: Self-Consistency Watchdog.

@@ -611,7 +611,9 @@ async def _handle_event(ctx, msg, send, rest, uid, uname, is_owner):
     from utils.core.background_tasks import (
         run_village_raid, run_oracle_speaks, run_moogle_festival,
         run_aeridorian_tremor, run_tonberry_procession, run_spine_storm,
-        run_caravan_arrival, run_bard_performance
+        run_caravan_arrival, run_bard_performance,
+        run_construct_breach, run_caravan_ambush, run_market_glut,
+        run_whisperwood_bloom, run_shrine_vigil, run_missing_persons
     )
 
     EVENTS = {
@@ -627,6 +629,12 @@ async def _handle_event(ctx, msg, send, rest, uid, uname, is_owner):
         "storm":      run_spine_storm,
         "caravan":    run_caravan_arrival,
         "bard":       run_bard_performance,
+        "construct":  run_construct_breach,
+        "ambush":     run_caravan_ambush,
+        "market":     run_market_glut,
+        "bloom":      run_whisperwood_bloom,
+        "vigil":      run_shrine_vigil,
+        "missing":    run_missing_persons,
         "random":     None,
     }
 

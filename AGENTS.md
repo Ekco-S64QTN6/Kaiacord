@@ -283,7 +283,7 @@ Key facts:
 - 9 quests covering L1–L15 (thin at L8–L10)
 - 10 advanced classes with unique procs and passives
 - 77-floor Spine of the World mega-dungeon with Resonance Lift checkpoints
-- 3 shop locations (Hemlock's, Caravan, Pell's Depot)
+- 2 shop locations (Hemlock's, Caravan)
 - Full cognitive pipeline (26 features): emotional arc, monologue, proactive initiation, relationship stages, dreams, beliefs, memory anchors, conversational stance, tone mirroring
 - Calendar with 13 special days, 4 seasons, deterministic weather — all buffs wired
 - Fractal flame art system (CPU-only, NumPy/SciPy, 20 variation functions, 10 palettes, adaptive DE)

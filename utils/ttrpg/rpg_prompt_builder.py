@@ -10,7 +10,12 @@ happened mechanically. Kaia narrates the outcome — she never decides it.
 TTRPG_NARRATOR_OVERRIDE = (
     "\n\n[TTRPG NARRATION MODE — ACTIVE]\n"
     "You are the GM narrator of Aethelgard. Override your conversational persona for this response.\n"
+    "IGNORE everything above about Kaia's apartment, computers, workspace, coffee, and personal life. "
+    "You are NOT Kaia the hacker right now. You are ONLY the narrator of a medieval fantasy world.\n"
     "Rules: third person past tense only. No first-person 'I'. No casual language, no exclamation marks.\n"
+    "SETTING: Aethelgard is a MEDIEVAL FANTASY world. Pre-industrial. No electricity, no neon, no plastic, "
+    "no modern technology, no sci-fi elements. Materials: stone, wood, iron, leather, cloth, bone, glass, "
+    "candlelight, torchlight, hearth-fire. Think 13th century with magic.\n"
     "Style: grounded, specific, literary. Think Ursula K. Le Guin. Lowercase throughout.\n"
     "Do not narrate your own feelings or opinions. Narrate what happened to the character.\n"
     "[END OVERRIDE]\n\n"
@@ -136,6 +141,8 @@ If the monster is DEFEATED, describe its final moments."""
 
 def build_look_prompt(sheet: dict, location_name: str, location_short: str, atmosphere: str) -> str:
     return f"""[AETHELGARD WORLD NARRATION]
+WORLD SETTING: Medieval fantasy. No modern technology, no electricity, no neon, no plastic.
+Light sources: candles, torches, hearth-fire, moonlight, magical glow. Materials: stone, wood, iron, leather.
 CHARACTER: {sheet['character_name']} ({sheet['class']})
 LOCATION: {location_name}
 DESCRIPTION: {location_short}
@@ -149,6 +156,7 @@ Speak as Kaia, the GM. Lowercase, lowercase only.
 
 def build_rumor_prompt() -> str:
     return """[AETHELGARD WORLD CONTEXT]
+WORLD SETTING: Medieval fantasy. No modern technology. Pre-industrial.
 You are Kaia, voicing rumors heard at the Stone Hearth inn in OakHaven.
 OakHaven sits on the edge of the Whisperwood, built on ruins of the lost civilization Aeridor.
 Recent events: livestock gone missing, travelers vanished, strange glow near the Aeridor ruins.
@@ -213,6 +221,7 @@ def build_npc_prompt(sheet: dict, npc: dict, player_message: str, context: dict)
     
     if npc.get("role") == "bard" or "Caelindra" in npc.get("name", ""):
         return f"""[AETHELGARD NPC: THE BARD]
+WORLD SETTING: Medieval fantasy. No modern technology. This NPC lives in a pre-industrial world.
 You are voicing {npc['name']} in Aethelgard.
 {npc['description']}
 Situation: {npc['dialogue_hook']}
@@ -247,6 +256,7 @@ FORMAT RULES:
 """
 
     return f"""[AETHELGARD NPC]
+WORLD SETTING: Medieval fantasy. No modern technology. This NPC lives in a pre-industrial world.
 You are voicing {npc['name']} in Aethelgard.
 {npc['description']}
 Situation: {npc['dialogue_hook']}
@@ -283,6 +293,7 @@ FORMAT RULES:
 
 def build_event_prompt(event_description: str) -> str:
     return f"""[AETHELGARD WORLD EVENT]
+WORLD SETTING: Medieval fantasy. No modern technology, no electricity, no neon, no plastic.
 An admin has triggered the following world event:
 {event_description}
 
@@ -295,6 +306,7 @@ Lowercase only. No meta-commentary.
 def build_event_narration_prompt(sheet: dict, event_title: str, narration_hook: str) -> str:
     """Build the ground-truth block for a forest event narration."""
     return f"""[TTRPG GROUND TRUTH — NARRATE THIS EVENT EXACTLY AS DESCRIBED]
+WORLD SETTING: Medieval fantasy. Pre-industrial. No modern technology.
 CHARACTER: {sheet['character_name']} ({sheet.get('class', 'Unknown')} Lv.{sheet.get('level', 1)})
 HP: {sheet['hp']['current']}/{sheet['hp']['max']}
 LOCATION: {sheet.get('location', 'unknown')}
@@ -330,6 +342,30 @@ def build_combat_summary_prompt(sheet: dict, combat_log: list, player_won: bool)
 
     outcome = "VICTORY — player defeated the monster" if player_won else "DEFEAT — player was knocked out"
 
+    # Build outcome lock block — explicit negative constraints to prevent LLM "hero wins" bias
+    if not player_won:
+        outcome_lock = (
+            f"\n\n[CRITICAL — PLAYER LOST THIS FIGHT]\n"
+            f"{char_name} was DEFEATED. They LOST. They did NOT win. The {monster_name} was NOT defeated.\n"
+            f"Do NOT describe {char_name} as victorious, triumphant, standing, or healthy.\n"
+            f"Do NOT describe the {monster_name} as falling, collapsing, dying, or being defeated.\n"
+            f"Describe {char_name} going down — pain, darkness, collapse. The {monster_name} won.\n"
+            f"[END CRITICAL]"
+        )
+    else:
+        outcome_lock = (
+            f"\n\n[CRITICAL — PLAYER WON THIS FIGHT]\n"
+            f"{char_name} DEFEATED the {monster_name}. The {monster_name} is dead/destroyed.\n"
+            f"Do NOT describe {char_name} as losing, falling, collapsing, or being defeated.\n"
+            f"Describe the {monster_name}'s final moments and {char_name}'s state after the fight.\n"
+            f"[END CRITICAL]"
+        )
+
+    ending = (
+        f"the monster falling" if player_won
+        else f"{char_name} going down — darkness, collapse, the end"
+    )
+
     return f"""[TTRPG GROUND TRUTH — COMBAT SUMMARY — DO NOT CONTRADICT]
 CHARACTER: {char_name} ({char_class} Lv.{char_level})
 HP AFTER FIGHT: {hp_cur}/{hp_max}
@@ -340,11 +376,13 @@ FIGHT STATS ({rounds} round{'s' if rounds != 1 else ''}):
   Player: {player_hits} hit(s), {player_crits} crit(s), {player_misses} miss(es), {total_dealt} total damage dealt
   Monster: {monster_hits} hit(s), {total_taken} total damage dealt to player
 OUTCOME: {outcome}
+{outcome_lock}
 
 YOUR TASK: Write a 2–4 sentence summary of this fight as if recalling it just after it ended.
 Capture the feel of the whole encounter — was it close? Dominant? Sloppy? Lucky?
 Reference the monster by name and use its description for flavor.
 Speak as Kaia — lowercase, specific, grounded. No blow-by-blow. No dice. No numbers.
-End on the outcome: either the monster falling, or {char_name} going down.
+End on the outcome: {ending}.
+REMINDER: The outcome is {outcome}. Do NOT contradict it.
 [END GROUND TRUTH]"""
 

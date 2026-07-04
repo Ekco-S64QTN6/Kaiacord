@@ -19,7 +19,13 @@ from utils.infrastructure.logging.unified_logging import replace_all_logging
 replace_all_logging()
 
 LOG_DIR = Path("knowledge_base/user_logs")
-MODEL   = "gemma3:12b"
+
+# Resolve chat model dynamically from configuration
+try:
+    from utils.infrastructure.system.yaml_config import config
+    MODEL = config.chat_model
+except Exception:
+    MODEL = "gemma3:12b"
 
 PROMPT_TEMPLATE = """You are Kaia's memory synthesis engine. Analyze these interaction logs and write my internal, first-person memories of this user.
 
@@ -73,11 +79,21 @@ async def generate_profile(user_dir: Path, dry_run: bool = False) -> bool:
         return True
 
     try:
+        # Get consistent GPU options to prevent Ollama from reloading/duplicating models
+        try:
+            from utils.infrastructure.gpu.gpu_manager import OllamaGPUManager
+            gpu_manager = OllamaGPUManager(MODEL)
+            options = gpu_manager.get_gpu_options(for_chat=True)
+            options["temperature"] = 0.3
+            options["num_predict"] = 800
+        except Exception:
+            options = {"temperature": 0.3, "num_predict": 800}
+
         client = _ollama.AsyncClient()
         response = await client.chat(
             model=MODEL,
             messages=[{"role": "user", "content": prompt}],
-            options={"temperature": 0.3, "num_predict": 800}
+            options=options
         )
         profile_text = response["message"]["content"].strip()
 
