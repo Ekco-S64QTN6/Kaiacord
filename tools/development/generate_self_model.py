@@ -45,8 +45,8 @@ KB_USER_LOGS  = Path(_PROJECT_ROOT) / "knowledge_base" / "user_logs"
 KB_DREAMS     = Path(_PROJECT_ROOT) / "knowledge_base" / "kaia_dreams"
 IDENTITY_STREAM = Path(_PROJECT_ROOT) / "memory" / "identity_stream.md"
 
-MAX_LOG_CHARS   = 20_000
-MAX_DREAM_CHARS = 6_000
+MAX_LOG_CHARS   = 10_000
+MAX_DREAM_CHARS = 3_000
 
 
 # ── Source gathering ──────────────────────────────────────────────────────────

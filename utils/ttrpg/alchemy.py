@@ -51,6 +51,42 @@ ALCHEMY_RECIPES = {
         "result": "phoenix_down",
         "description": "The star ruby ignites the silverleaf. It burns without consuming. Life from flames.",
     },
+    "smoke_bomb": {
+        "name": "Smoke Bomb",
+        "ingredients": ["blood_thistle", "topaz"],
+        "result": "smoke_bomb",
+        "description": "A clay sphere filled with soot and ash. Throw to escape combat safely.",
+    },
+    "antidote": {
+        "name": "Antidote",
+        "ingredients": ["silver_moss", "honey_sap"],
+        "result": "antidote",
+        "description": "A sweet, herbal draught that neutralizes venoms.",
+    },
+    "warding_salve": {
+        "name": "Warding Salve",
+        "ingredients": ["dire_root", "pearl"],
+        "result": "warding_salve",
+        "description": "A thick, grey paste that hardens skin against physical blows.",
+    },
+    "frenzy_draught": {
+        "name": "Frenzy Draught",
+        "ingredients": ["blood_thistle", "star_ruby"],
+        "result": "frenzy_draught",
+        "description": "A bubbling crimson liquid that induces combat frenzy.",
+    },
+    "moonwater": {
+        "name": "Moonwater",
+        "ingredients": ["silverleaf", "star_ruby"],
+        "result": "moonwater",
+        "description": "A shimmering water collected under full moonlight. Restores all HP.",
+    },
+    "trap_kit": {
+        "name": "Trap Kit",
+        "ingredients": ["dire_root", "fire_opal"],
+        "result": "trap_kit",
+        "description": "A bundle of springs and blades to lay down traps in dungeons.",
+    },
 }
 
 def get_recipe(key):
@@ -103,6 +139,11 @@ def brew(sheet, recipe_key):
         inv = []
         sheet["inventory"] = inv
         
+    # Net change in inventory: we remove ingredients, then append result
+    net_change = 1 - len(ingredients)
+    if len(inv) + net_change > 50:
+        return False, f"Your inventory is too full to hold the brewed item. Cap: 50 items (currently holding {len(inv)})."
+
     for item in ingredients:
         if item in inv:
             inv.remove(item)
@@ -134,10 +175,15 @@ INGREDIENT_DISCOVERS = {
 # Secondary discoveries — when you already know one recipe from an ingredient,
 # picking up a second ingredient for a DIFFERENT recipe reveals that one too.
 SECONDARY_DISCOVERS = {
-    "blood_thistle": ["hi_potion_brew", "firebrew"],
-    "silver_moss":   ["hi_potion_brew"],
-    "dire_root":     ["elixir_brew", "hunters_draught", "ironbark_tonic"],
-    "silverleaf":    ["xp_tonic", "phoenix_brew"],
+    "blood_thistle": ["hi_potion_brew", "firebrew", "smoke_bomb", "frenzy_draught"],
+    "honey_sap":     ["potion", "antidote"],
+    "silver_moss":   ["hi_potion_brew", "antidote"],
+    "dire_root":     ["elixir_brew", "hunters_draught", "ironbark_tonic", "warding_salve", "trap_kit"],
+    "silverleaf":    ["xp_tonic", "phoenix_brew", "moonwater"],
+    "pearl":         ["ironbark_tonic", "warding_salve"],
+    "topaz":         ["hunters_draught", "smoke_bomb"],
+    "fire_opal":     ["firebrew", "trap_kit"],
+    "star_ruby":     ["phoenix_brew", "frenzy_draught", "moonwater"],
 }
 
 def check_and_discover_recipes(sheet: dict, item_key: str) -> list[str]:

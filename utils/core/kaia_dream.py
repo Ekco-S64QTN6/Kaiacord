@@ -1038,25 +1038,32 @@ VOICE AND FORMAT RULES (always apply regardless of dream type):
         except Exception as e:
             log_error(f"Error in user profile staleness decay checker: {e}")
 
-    async def _maybe_regenerate_self_model(self, persona_content: str):
+    async def _maybe_regenerate_self_model(self, persona_content: str, force: bool = False):
         """Auto-regenerate kaia_self_model.md if stale (>7 days old).
         
         Runs inline at the end of nightly dream processing so all fresh
         dream material, identity stream updates, and growth events are
         available as source material.
+        
+        Args:
+            persona_content: The loaded persona markdown.
+            force: If True, skip the staleness check (used by !selfmodel command).
         """
         import re as _re
         self_model_path = Path("memory") / "kaia_self_model.md"
         stale_threshold_days = 7
 
         try:
-            if self_model_path.exists():
-                age_days = (time.time() - self_model_path.stat().st_mtime) / 86400
-                if age_days < stale_threshold_days:
-                    return  # Still fresh, skip
-                log_info(f"Self-model is {age_days:.1f} days old — triggering auto-regeneration.")
+            if not force:
+                if self_model_path.exists():
+                    age_days = (time.time() - self_model_path.stat().st_mtime) / 86400
+                    if age_days < stale_threshold_days:
+                        return  # Still fresh, skip
+                    log_info(f"Self-model is {age_days:.1f} days old, triggering auto-regeneration.")
+                else:
+                    log_info("Self-model missing, triggering auto-regeneration.")
             else:
-                log_info("Self-model missing — triggering auto-regeneration.")
+                log_info("Self-model regeneration forced by command.")
 
             # Gather source material (mirrors generate_self_model.py logic)
             # 1. Recent interaction logs

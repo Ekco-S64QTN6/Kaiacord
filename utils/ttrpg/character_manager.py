@@ -26,6 +26,20 @@ async def get_user_lock(user_id: str) -> asyncio.Lock:
             _user_locks[user_id] = asyncio.Lock()
         return _user_locks[user_id]
 
+class CappedList(list):
+    def append(self, item):
+        if len(self) < 50:
+            super().append(item)
+    def extend(self, iterable):
+        for item in iterable:
+            if len(self) < 50:
+                super().append(item)
+            else:
+                break
+    def insert(self, index, item):
+        if len(self) < 50:
+            super().insert(index, item)
+
 def _migrate_inventory(sheet: Dict[str, Any]) -> None:
     """Normalize legacy equipment keys to their current registry keys."""
     legacy_map = {
@@ -39,6 +53,10 @@ def _migrate_inventory(sheet: Dict[str, Any]) -> None:
         for i, item in enumerate(sheet["inventory"]):
             if item in legacy_map:
                 sheet["inventory"][i] = legacy_map[item]
+        sheet["inventory"] = CappedList(sheet["inventory"])
+    else:
+        sheet["inventory"] = CappedList()
+        
     if "equipment" in sheet and isinstance(sheet["equipment"], dict):
         for slot, item_data in sheet["equipment"].items():
             if isinstance(item_data, dict) and item_data.get("key") in legacy_map:

@@ -541,11 +541,7 @@ The Silvani are the race with the most in-game presence through events:
 **Lore Implications:**
 - She has been documenting Aeridorian language for seven years. She may be one of the most knowledgeable people in Oakhaven about actual Aeridorian linguistics.
 - The ruins have a sound at midnight — she has personally listened for it.
-- Hemlock says she's wrong about "half the details" in her songs — suggesting she's close enough to truth that the inaccuracies matter.
-- The Hooded Figure listens to her specifically. They have a dynamic.
-- She travels Grimstone–coast — she is an intelligence network in human form.
-
----
+- Hemlock says she's wrong about "half the details" in her songs
 
 ## 11. CURRENT QUESTS — TEXT & HOOKS
 
@@ -574,7 +570,88 @@ The Silvani are the race with the most in-game presence through events:
 **Reward:** 200 XP, 50 Gil, Potion Recipe (unlock)
 **Completion:** *"Sister Maren's eyes light up. 'The Silverleaf! Now I can finish the brew. Bless you.'"*
 
-**Lore Hook:** What brew is she finishing? Silverleaf isn't a coded ingredient — it's mentioned only in this completion text. This implies a specific project Maren is working on that the current recipe system doesn't fully reflect. This is a hook for a future alchemy expansion quest.
+**Lore Hook:** What brew is she finishing? Silverleaf is a rare ingredient mentioned only in this completion text. This implies a specific project Maren is working on that the current recipe system doesn't fully reflect.
+
+### Quest 4: The Aeridorian Signal
+**NPC:** Elder Elara | **Level:** 5
+**Description:** *"Elder Elara has detected a pulse from deep below Oakhaven — Aeridorian constructs are waking up. Clear a dungeon and report back what you find."*
+**Tasks:** Complete a dungeon → Return to Elara
+**Reward:** 500 XP, 200 Gil, Lightstone
+**Completion:** *"Elara listens to your account without expression. 'The constructs are active again. That pulse was not random. Something triggered them.' She pauses. 'Keep the lightstone. You'll need it more than I will.'"*
+
+**Lore Hook:** The first quest that confirms the ancient Aeridorian ruins under Oakhaven are reactivating. The pulse points to a deeper orchestration within the earth.
+
+### Quest 5: What Sleeps Beneath
+**NPC:** Watchtower Guard | **Level:** 7
+**Description:** *"The Watchtower has lost contact with a patrol in the Whisperwood Deep. Something powerful took them. Find and kill the creatures responsible — a Frost Wolf and an Owlbear."*
+**Tasks:** Kill a Frost Wolf → Kill an Owlbear → Return to Guard
+**Reward:** 1200 XP, 350 Gil, Ironbark Tonic
+**Completion:** *"The guard stares at the blood on your gear. 'You found them, didn't you. What was left of them.' A long silence. 'The Watchtower owes you a debt. This doesn't cover it, but it's what we have.'"*
+
+**Lore Hook:** Highlights the growing danger of the Whisperwood Deep. The monsters are not just wild beasts; they are becoming more organized and aggressive, moving closer to the town.
+
+### Quest 6: The Merchant's Gambit
+**NPC:** Old Pell | **Level:** 8
+**Description:** *"Pell needs an escort for a cargo shipment through bandit territory. Defeat a 'Road Bandit' to secure the route."*
+**Tasks:** Defeat a Road Bandit → Return to Pell
+**Reward:** 800 XP, 300 Gil, Standard Potion
+**Completion:** *"Pell grins. 'Cargo arrived safe and sound. Hemlock's going to be pleased. Here's your cut.'"*
+
+**Lore Hook:** Establishes the commercial connection between Grimstone and Oakhaven. The Trade Road is the lifeblood of both towns, but the bandit presence is tightening.
+
+### Quest 7: The Final Silence
+**NPC:** Elder Elara | **Level:** 9
+**Description:** *"The Shrine of the Silent Ones has gone dark. Elder Elara believes the seal is failing. Pray at the Shrine, then seek out a dungeon and defeat its boss to purge the corrupted essence."*
+**Tasks:** Pray at Oakhaven Shrine → Complete a dungeon → Return to Elara
+**Reward:** 1500 XP, 500 Gil, Amulet of Health
+**Completion:** *"Elara is waiting in the square when you return. She doesn't ask what you saw in the dark. 'The seal held. This time.' She presses something cold and heavy into your hand. 'The Silent Ones left this for whoever came back. Not everyone does.'"*
+
+**Lore Hook:** Explores the religious and mystical elements of Aethelgard. The three-flame seal and the Silent Ones' divinity are active forces holding back deep corruption.
+
+### Quest 8: Shadows Over Grimstone
+**NPC:** Valdric | **Level:** 9
+**Description:** *"Rook reports constructs breaching the mine perimeter. Clear a dungeon and report back."*
+**Tasks:** Complete a dungeon → Return to Valdric
+**Reward:** 1000 XP, 400 Gil, Ironbark Tonic
+**Completion:** *"Valdric nods approvingly. 'The constructs collapsed back into the dark. Excellent work, scout.'"*
+
+**Lore Hook:** Shows that the constructs' reactivation is not limited to Oakhaven—it is breaching Grimstone's mines as well. The threat is global.
+
+### Quest 9: The Tithe Collector
+**NPC:** Elder Elara | **Level:** 10
+**Description:** *"A mysterious figure is collecting 'tithes' from travelers. Track and defeat the 'Tithe Collector' in the ruins."*
+**Tasks:** Defeat the Tithe Collector → Return to Elara
+**Reward:** 1400 XP, 600 Gil, Void Band
+**Completion:** *"Elara listens to your report. 'The tithes have ceased. But what they were building remains a dark mystery.'"*
+
+**Lore Hook:** Introduces the Tithe Collector, a boss-level entity that is gathering resources for a mysterious purpose. This hints at the Spine's deeper lore and construction.
+
+### Quest 10: The Waking Metal
+**NPC:** Elder Elara | **Level:** 11
+**Description:** *"An Aeridorian Iron Golem has broken the perimeter of the ruins. Destroy it before it reaches the treeline."*
+**Tasks:** Kill an Iron Golem → Return to Elara
+**Reward:** 2500 XP, 800 Gil, Void Band
+**Completion:** *"Elara inspects the metallic plating you brought back. 'They are learning. Or remembering. I am not sure which is worse.'"*
+
+**Lore Hook:** Highlights the intellectual progression of the constructs. They are no longer mindless automatons; they are adapting and moving proactively.
+
+### Quest 11: The Darkening
+**NPC:** Watchtower Guard | **Level:** 13
+**Description:** *"The Watchtower reports unnatural cold from the Deepwood. A Shadow Lich is massing forces. End it."*
+**Tasks:** Kill a Shadow Lich → Return to Guard
+**Reward:** 3500 XP, 1500 Gil, Mox Pearl
+**Completion:** *"The guard shivers despite the sun. 'We saw the shadows retreat. Oakhaven owes you its life today.'"*
+
+**Lore Hook:** The threat peaks in the overworld. The undead are rising under a Shadow Lich, threatening the survival of Oakhaven.
+
+### Quest 12: The Last Guardian
+**NPC:** Elder Elara | **Level:** 15
+**Description:** *"The heart of the Aeridor Ruins has opened. We cannot wait any longer. Go in. Do not come out until it is quiet."*
+**Tasks:** Complete a dungeon → Return to Elara
+**Reward:** 5000 XP, 5000 Gil, The End
+**Completion:** *"Elder Elara bows her head. 'It is done. The bones of Aeridor can finally rest. And so can we.'"*
+
+**Lore Hook:** The overworld finale. Clearing the ruins and defeating the final guardian grants the ultimate weapon `The End`, signaling the pacification of the overworld ruins.
 
 ---
 
@@ -674,29 +751,45 @@ Only creatures with meaningful lore implications are listed here. See `monster_r
 ### Tonberry / Tonberry King
 - *"Its grudge is older than Oakhaven."*
 - *"You killed enough tonberries that the king noticed. It is very, very slow. You will not be able to run forever."*
-- Implies a civilization or memory that predates human settlement. What are tonberries actually? Small, robed, patient — possibly remnants of something Aeridor made or something Aeridor encountered.
+- Implies a civilization or memory that predates human settlement. What are tonberries actually? Remnants of something Aeridor made or something Aeridor encountered.
 
 ### The Accursed Tree (Exdeath variant)
-*"A massive dead tree at the heart of the deep Whisperwood. It moves. Something is inside it. Something sealed there."*
-This is the Whisperwood's analogue to a dungeon boss — something trapped inside the forest's core. Connected to the Whisperwood as an organism.
+*"A massive dead tree at the heart of the deep Whisperwood. It moves. Something is sealed there."*
+Connected to the Whisperwood as an organism.
 
 ### Heart of the Whisperwood
 *"The Whisperwood is not a forest. It is one organism. This is its center. This is what swallowed Aeridor."*
 The final revelation about the Whisperwood — it has a literal heart, a center, and it is reachable.
 
 ### Elder Elara (Turned)
-*"Something has been inside her for a long time. The weight she carries. The warnings she wouldn't give. Now you know why."*
-The long-game reveal. Elara's guardedness, her knowledge, her rituals — she has been compromised or possessed by something from the ruins for an indeterminate period. The question is whether she knows, whether she's fighting it, or whether she was consumed long ago.
+*"Something has been inside her for a long time. Now you know why."*
+Elara has been compromised or possessed by something from the ruins.
+
+### Titan Golem
+*"A colossal construct guarding the deep Aeridor Ruins. It channels high physical defense and crushing blows."*
+One of the pinnacle boss-tier constructs reactivated in the ruins.
+
+### Void Stalker Prime
+*"A deadly tier beast that hunts in the dark hours of the Whisperwood Deep, phasing in and out of the void."*
+A lethal stalker that embodies the time-of-day danger shifts.
+
+### Gorgon Queen
+*"An ancient overworld boss that commands ruin slimes and petrifies travelers."*
+A major boss-tier threat residing deep inside the Aeridor Ruins.
+
+### Whisperwood Terror
+*"A deadly tier plant horror that has grown from the corruption in the Whisperwood Deep."*
+A manifestation of the Whisperwood's defensive reaction to outsiders.
 
 ### The Hooded Figure
-*"He is not what he appeared to be. He has not appeared to be anything for a very long time."*
-This is the oldest being in Oakhaven — possibly Aeridorian in origin, possibly one of the Veiled who survived, possibly something else entirely. "For a very long time" suggests centuries.
+*"He has not appeared to be anything for a very long time."*
+The oldest being in Oakhaven — possibly Aeridorian in origin.
 
 ### Aeridorian Soldier
-*"A warrior animated by Aeridorian resonance. It still holds formation. It still remembers orders."*
+*"A warrior animated by Aeridorian resonance. It still holds formation."*
 
 ### Aeridorian Guardian
-*"The final defense construct of Aeridor. It has been waiting in the deepest vault for a thousand years. It is fully operational."*
+*"The final defense construct of Aeridor. It has been waiting for a thousand years."*
 
 ### Crystelle
 *"An Aeridorian crystalline construct still running its original directives. Those directives involve harm."*

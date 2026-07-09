@@ -28,7 +28,8 @@ utils/ttrpg/
 ├── forest_events.py               ← 20 forest event handlers (Sylvan Sprites, Tonberry, etc.)
 ├── look_targets.py                ← Hardcoded "look at <thing>" flavor text per location
 ├── loot_tables.py                 ← Tier-aware loot drops from monsters and dungeon chests
-├── monster_registry.py            ← Full bestiary: 339 monsters across 7 tiers
+├── micro_events.py                ← Overworld traveling events, weather discoveries, and streak rewards
+├── monster_registry.py            ← Full bestiary: 365 monsters across 7 tiers
 ├── npc_registry.py                ← NPC definitions: Elara, Hemlock, Mira, Guard, Maren, Bard
 ├── progression.py                 ← XP thresholds, level-up, daily hunt reset, condition expiry
 ├── quest_registry.py              ← Quest definitions and lookup helpers
@@ -185,13 +186,16 @@ Fully automatic. Player never touches dice.
 
 **Attack:** `d20 + class_attack_mod + weapon_bonus vs monster_DEF`
 **Damage:** `weapon_die + class_attack_mod`
-**Player DEF:** `10 + DEX_mod + armor_bonus` (Max `Level * 1.5 + 12`)
+**Player DEF:** `10 + DEX_mod + effective_gear_def` (Max `Level * 1.5 + 12`). Gear DEF is soft-capped: `min(10, raw_gear_def) + max(0, raw_gear_def - 10) // 2`.
 **Monster ATK:** Uses actual monster ATK stat. Overworld scaling uses logarithmic dampening (max 1.35x based on distance).
 **Crit (nat 20):** Damage dice doubled
 **Fumble (nat 1):** Auto-miss
 
 ### Weapon Procs
-Select T3+ weapons possess inherent elemental procs. These trigger independently on standard hits (10% chance) and critical hits (50% chance). They scale in extra damage from 1d4 to 1d8 based on weapon tier, and can trigger simultaneously alongside Class Procs.
+Select T3+ weapons possess inherent elemental procs. These trigger independently on standard hits (10% chance) and critical hits (50% chance). They scale in extra damage from 1d4 to 1d12 based on weapon tier, and can trigger simultaneously alongside Class Procs.
+
+### Inventory Capacity Cap
+Players are subject to a strict inventory size limit of **50 items**. Any purchase, brew, or loot drop that would cause the inventory to exceed 50 is blocked (items dropped in combat are left behind on the ground with an `🎒 [Inventory Full]` message).
 
 ### Player vs Player (Duels)
 Players can challenge each other to non-lethal combat using `!rpg duel @user`. Upon acceptance, the duel resolves automatically until one player is reduced to 1 HP. No XP or Gil is lost.
@@ -261,7 +265,7 @@ CHA modifier = `(CHA - 10) // 2` (standard TTRPG formula).
 Procedurally generated 5×5 grid, 9-12 rooms. Entered via button at hunting locations.
 
 ### The Spine of the World
-A massive 77-floor mega-dungeon located past Grimstone. Unlike procedural dungeons, the Spine features a fixed, hand-crafted 24x24 layout with intricate floor connectivity, static encounters, dynamic hallway traps, and unique bosses.
+A massive 77-floor mega-dungeon located past Grimstone. Unlike procedural dungeons, the Spine features a fixed, hand-crafted 24x24 layout with intricate floor connectivity, static encounters, dynamic hallway traps, and unique bosses. It features checkpoint lifts every 5 floors and progressive floor-based monster scaling (e.g. `mob_hp_cap = 80 + floor_num * 3` and `mob_atk_cap = 12 + floor_num // 5`).
 
 ### Room Types
 
@@ -299,6 +303,12 @@ Recipes are discovered by picking up ingredients. Brewed at Sister Maren's Hut.
 | Hunter's Draught | Dire Root + Topaz | `hunters_draught` (+1 Hunt) |
 | Ironbark Tonic | Dire Root + Pearl | `ironbark_tonic` (+2 DEF) |
 | Firebrew | Blood Thistle + Fire Opal | `firebrew` (+2 ATK) |
+| Antidote | Silver Moss + Honey Sap | `antidote` (Cure poison) |
+| Smoke Bomb | Blood Thistle + Topaz | `smoke_bomb` (Flee combat with 0 XP loss) |
+| Warding Salve | Dire Root + Opal | `warding_salve` (Reduce next hit dmg by 5) |
+| Frenzy Draught | Blood Thistle + Jacinth | `frenzy_draught` (+1 attack, -2 DEF) |
+| Moonwater | Silverleaf + Black Pearl | `moonwater` (Full HP restore) |
+| Trap Kit | Dire Root + Fire Opal + Topaz | `trap_kit` (2d8 damage trap) |
 
 ---
 
@@ -313,14 +323,24 @@ Recipes are discovered by picking up ingredients. Brewed at Sister Maren's Hut.
 | Hi-Potion | 20 | 30g | 3 |
 | Elixir | 30 | 50g | 4 |
 | Phoenix Down | 50 | 80g | 4 |
+| Antidote | — | 25g | 2 |
+| Smoke Bomb | — | 30g | 2 |
+| Warding Salve | — | 45g | 3 |
+| Frenzy Draught | — | 50g | 3 |
+| Moonwater | 150 (Full) | 150g | 4 |
+| Trap Kit | — | 60g | 3 |
 
-### Buff Potions (Crafted)
+### Buff Potions & Utility (Crafted)
 | Item | Effect |
 |:--|:--|
 | Experience Tonic | +25% XP on your next hunt / dungeon kill |
 | Hunter's Draught | Instantly refunds 1 daily hunt upon use |
 | Ironbark Tonic | Grants `Fortified` (+2 DEF for one entire combat encounter) |
 | Firebrew | Grants `Embered` (+2 ATK for one entire combat encounter) |
+| Smoke Bomb | Instantly escape combat safely without XP/Gil loss |
+| Warding Salve | Grants `Warded` (reduces next damage hit by 5) |
+| Frenzy Draught | Grants `Frenzied` (+1 extra attack, -2 DEF for one entire combat encounter) |
+| Trap Kit | Lay down a trap in a dungeon room, dealing 2d8 physical damage to next monster |
 
 ---
 
@@ -332,7 +352,16 @@ Players can purchase a home in the **Housing District** (`!rpg go housing_distri
 Grow crops in your farming plots. Seeds are bought from Hemlock or found. Crops grow over time/interactions, yielding items and cooking ingredients.
 
 ### Pets
-Adopt pets to live in your home. Pets require daily feeding and provide powerful passive bonuses when well-fed (e.g., Oakhaven Cat gives +10% Gil multiplier).
+Adopt pets to live in your home from Pip the Pet Vendor in the Housing District. Pets require daily feeding (paid in gold based on food type) and provide powerful passive bonuses when well-fed:
+- **Oakhaven Cat**: +5% Gil from kills when fed. (Food: Fish, cost 5g)
+- **Chocobo Chick**: +1 hunt per day when fed. (Food: Gysahl Greens, cost 8g)
+- **Tiny Tonberry**: +2 to all combat rolls when fed. (Food: Lantern Oil, cost 15g)
+- **Sylvan Sprite**: Restores 3 HP after every combat when fed. (Food: Honey Sap, cost 5g)
+- **House Moogle**: Delivers one random item per week from Mognet network when fed. (Food: Kupo Nut, cost 20g)
+- **Miniature Construct**: +3 DEF passively while fed. (Food: Aeridor Shard, cost 30g)
+- **Iron Pup**: +1 DEF, and 5% chance to find extra loot chests in dungeons when fed. (Food: Iron Plating, cost 15g)
+- **Tomb Bat**: +10% Gil from dungeon kills when fed. (Food: Blood Thistle, cost 10g)
+- **Wisp Lantern**: +5% XP boost when fed. (Food: Honey Sap, cost 5g)
 
 ### Furniture
 Decorate your house to gain passive bonuses (e.g., Alchemy Workbench enables `!rpg brew` from home, Weapon Rack gives +1 ATK locally, Bed speeds up resting).
@@ -359,6 +388,8 @@ All temporary conditions are cleared on daily reset (midnight). Only `Blessed` a
 | XP Boosted | Experience Tonic | +25% XP on the next combat kill |
 | Fortified | Ironbark Tonic | +2 DEF applied for one entire combat encounter |
 | Embered | Firebrew | +2 ATK applied for one entire combat encounter |
+| Warded | Warding Salve | Reduces next incoming damage hit by 5 |
+| Frenzied | Frenzy Draught | +1 extra attack, but -2 DEF for one entire combat encounter |
 | Sharp Mind | Old Man's Riddle | +2 to next INT check |
 | Battle Focus | Veiled Elder (Warrior) | +1 to STR checks |
 | Forest Sight | Veiled Elder (Ranger) | +1 to DEX checks |
@@ -400,17 +431,20 @@ NPC dialogue is LLM-generated using `build_npc_prompt()` with context: season, t
 | The Darkening Woods | Guard | 3 | Hunt whisperwood_deep, talk guard | 150 XP, 100 Gil, lucky_charm |
 | Sister Maren's Request | Maren | 4 | Kill bandit, talk maren | 200 XP, 50 Gil, potion recipe, silverleaf |
 | The Aeridorian Signal | Elara | 5 | Complete dungeon, talk elara | 500 XP, 200 Gil, lightstone |
-| What Sleeps Beneath | Guard | 7 | Kill frost_wolf, kill_owlbear, talk guard | 1200 XP, 350 Gil, ironbark_potion |
+| What Sleeps Beneath | Guard | 7 | Kill frost_wolf, kill_owlbear, talk guard | 1200 XP, 350 Gil, ironbark_tonic |
+| The Merchant's Gambit | Pell | 8 | Kill bandit, talk Pell | 800 XP, 300 Gil, potion_standard |
+| Shadows Over Grimstone | Valdric | 9 | Complete dungeon, talk Valdric | 1000 XP, 400 Gil, ironbark_tonic |
+| The Tithe Collector | Elara | 10 | Kill tithe collector, talk Elara | 1400 XP, 600 Gil, void_band |
 | The Final Silence | Elara | 9 | Pray at shrine, complete dungeon, talk elara | 1500 XP, 500 Gil, amulet_health |
 | The Waking Metal | Elara | 11 | Kill iron_golem, talk elara | 2500 XP, 800 Gil, void_band |
 | The Darkening | Guard | 13 | Kill shadow_lich, talk guard | 3500 XP, 1500 Gil, mox_pearl |
 | The Last Guardian | Elara | 15 | Complete dungeon, talk elara | 5000 XP, 5000 Gil, the_end |
 
-*Note: This is the complete list of 9 quests currently active in the system, spanning levels 1 through 15.*
+*Note: This is the complete list of 12 quests currently active in the system, spanning levels 1 through 15.*
 
 ---
 
-## Calendar & Seasons
+## Calendar, Seasons & Day/Night Shifts
 
 The in-game calendar tracks seasons and special days with gameplay effects:
 
@@ -422,6 +456,12 @@ The in-game calendar tracks seasons and special days with gameplay effects:
 | Winter | Months 10-12 |
 
 Special days carry unique buffs (see `calendar.py` for full list): XP bonuses, hunt bonuses, attack bonuses, shrine effects, shop discounts, etc.
+
+### Day/Night Mechanics
+Overworld activities change dynamically based on time of day (Day is 6 AM to 6 PM, Night is 6 PM to 6 AM):
+- **Night-time combat modifiers**: Undead encounter spawn rates are doubled.
+- **Tier shift**: 25% chance during night hunts to shift the encounter target up by one tier (e.g. Easy becomes Medium, Hard becomes Deadly), providing higher challenge and better loot.
+- **Morning healing**: Sylvan sprites may restore minor health passively to players exploring in the morning.
 
 ---
 

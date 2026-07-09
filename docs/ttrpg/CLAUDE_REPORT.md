@@ -1,17 +1,17 @@
 # Aethelgard TTRPG — Comprehensive System Review
-*April 30, 2026 · Full codebase audit · ~21,200 lines across 37 modules · Phase 13: Spine Variety Overhaul*
+*July 9, 2026 · Full codebase audit · ~24,500 lines across 40 modules · Phase 14: Balance Hardening & Content Expansion*
 
 ---
 
 ## 1. Executive Summary
 
-The Aethelgard TTRPG is in **A-tier operational health**. Thirteen phases of development have brought the system to production maturity. Phase 13 delivered a comprehensive Spine Dungeon variety overhaul: fixed a critical `NameError` crash in boss encounters, added 25 new zone-exclusive monsters (335 total), expanded encounter pools from 9 to 14 creatures per zone, randomized dungeon room monster assignments from weighted zone pools, implemented floor-based progressive scaling replacing the flat D5 cap, and cleaned up duplicate loot table entries. A rapid hotfix further expanded variety by pulling 15 tier-appropriate random monsters from the ENTIRE bestiary per floor (resulting in 50+ unique creatures per zone) and scrambling the layout nodes so that stairs and boss rooms spawn in completely random geographic locations on every floor.
+The Aethelgard TTRPG is in **S-tier operational health**. Fourteen phases of development have brought the system to production maturity. Phase 14 delivered a comprehensive balance overhaul and content expansion: compressed weapon ATK scaling (capped at +3 ATK max, +3 damage max, T7 procs up to 1d12), compressed armor DEF scaling to a soft-capped target of ~13 effective DEF, capped all gear HP bonuses to +5, removed stat bonuses from head/boots/accessory slots, and capped armor stat bonuses at +1 per stat. Rebalanced all 339 monsters and added 26 new overworld monsters (total bestiary: 365). Fully resolved the mid-game quest gap by adding 3 new quests for L8-10 (total 12 quests). Enforced a strict 50-item inventory cap to eliminate potion stockpiling. Added time-of-day encounter shifts and micro-events. Fixed a key mismatch bug where quests referenced `ironbark_potion` instead of `ironbark_tonic`.
 
-**All identified bugs have been resolved.** This review identifies **0 active bugs**, **3 low-priority code quality notes**, and **1 content gap** (L8/L10 quests).
+**All identified bugs have been resolved.** This review identifies **0 active bugs**, **3 low-priority code quality notes**, and **0 content gaps** (all progression gaps resolved).
 
 **Full Validation Suite — All Passing:**
-- ✅ All 37 modules pass `ast.parse()` syntax check
-- ✅ All 335 monster keys resolve correctly from encounter tables (37 boss-tier)
+- ✅ All 40 modules pass `ast.parse()` syntax check
+- ✅ All 365 monster keys resolve correctly from encounter tables (41 boss-tier)
 - ✅ All loot table item keys exist in equipment registries — no deprecated items in drop tables
 - ✅ `get_equipment()` and `get_caravan_stock()` helper functions intact
 - ✅ Zero `import random` violations — `secrets` module used exclusively for all RNG
@@ -48,7 +48,17 @@ The Aethelgard TTRPG is in **A-tier operational health**. Thirteen phases of dev
 
 ### All Bugs Resolved ✅
 
-**No active bugs remain.** All issues identified across thirteen audit phases have been fixed and verified.
+**No active bugs remain.** All issues identified across fourteen audit phases have been fixed and verified.
+
+### Phase 14: Balance Hardening & Content Expansion (July 9, 2026)
+
+| ID | Fix | Verification |
+|---|---|---|
+| ✅ BUG-Q1 | **Quest Reward Key Mismatch.** `deep_hunt` and `grimstone_shadows` referenced `"ironbark_potion"` (non-existent). **Fixed:** Changed both to `"ironbark_tonic"`. Verified all quest rewards match equipment database. | Cross-reference checks pass with 0 missing item keys. |
+| ✅ BAL-R5 | **Stat and DEF Compression Hardening.** Weapons capped to `+3` ATK max. Armor DEF cap Tier 7 max 8, Headgear/Boots max 3, Accessories max 2. Stat bonuses removed from head/boots/accessories, Armor capped at `+1` per stat. HP bonuses capped at `+5`. Corrected 43 over-budget items. | Registry balance audit script reports 0 issues. |
+| ✅ BAL-R6 | **Monster Stat Recalibration.** Rebalanced all 339 monsters' ATK, DEF, and HP to match player compressed budgets, retaining a 50-65% hit rate. Added 26 new overworld monsters (total bestiary: 365). | Monster registry audit verifies ATK/DEF ranges by tier. |
+| ✅ FEAT-2 | **50-Item Inventory Capacity Cap.** Implemented `CappedList` subclass in `character_manager.py` to transparently enforce 50-item limit. Added overflow validation to `process_purchase` (`shop.py`), `brew_recipe` (`alchemy.py`), and combat drops (`rpg_combat_handler.py`). | Verified limits in purchase/brewing/looting. |
+| ✅ CQ-R8 | **Unused Duplicate variables cleanup.** Cleared duplicate/dead variables (`dex_val`, `dex_mod`, `armor_def`, etc.) from `_resolve_combat` in `combat_engine.py` to prevent drift. | Checked syntax compilation and AST. |
 
 ### Phase 13: Spine Variety Overhaul (April 30, 2026)
 
@@ -146,17 +156,17 @@ The Aethelgard TTRPG is in **A-tier operational health**. Thirteen phases of dev
 
 ### 3.1 Equipment Stat Budgets — Well-Controlled
 
-| Tier | ATK + DMG Budget | Die | Proc | Drop Source |
-|---|---|---|---|---|
-| T1 | 0–1 | d6 | — | Shop + loot |
-| T2 | 4–7 | d8 | — | Shop + loot |
-| T3 | 8–14 | d8/d10 | 1d4–1d6 | Loot only |
-| T4 | 12–15 | d10 | 1d6 | Loot only |
-| T5 | 17–21 | d10/d12 | 1d8 | Boss loot |
-| T6 | 20–21 | d12 | 1d10 | Boss loot (deadly/boss) |
-| T7 | 22–24 | d12 | 1d12 | Boss loot only (weight 1) |
+| Tier | Weapon ATK | Weapon DMG | Die | Proc | Drop Source |
+|---|---|---|---|---|---|
+| T1 | +0 | +0 | d6 | — | Shop + loot |
+| T2 | +1 | +0 | d8 | — | Shop + loot |
+| T3 | +1 | +1 | d8/d10 | 1d4 | Loot only |
+| T4 | +2 | +1 | d10 | 1d6 | Loot only |
+| T5 | +2 | +2 | d10/d12 | 1d8 | Boss loot |
+| T6 | +3 | +2 | d12 | 1d10 | Boss loot (deadly/boss) |
+| T7 | +3 | +3 | d12 | 1d12 | Boss loot only |
 
-Defensive gear DEF ranges: T1(0–3), T2(2–6), T3(6–8), T4(8–10), T5(9–12), T6(8–15), T7(10–18). The gear soft-cap (`min(10, raw) + max(0, raw-10)//2`) correctly prevents DEF stacking from becoming degenerate.
+Defensive gear DEF ranges: Armor max 8, Headgear max 3, Boots max 3, Accessories max 2. Armor stat bonuses capped at +1. The gear soft-cap (`min(10, raw) + max(0, raw-10)//2`) correctly prevents DEF stacking from becoming degenerate.
 
 ### 3.2 Monitoring Notes
 
@@ -169,11 +179,11 @@ Defensive gear DEF ranges: T1(0–3), T2(2–6), T3(6–8), T4(8–10), T5(9–1
 
 ```
 Level  Player ATK (avg)  Player DEF (avg)  Monster HP (tier)        Monster Hit%     Verdict
-1-3    +3 to +5          13-15             10-50 (triv/easy)        55-70%           Balanced — 2-4 rounds
-4-6    +8 to +12         17-20             60-100 (medium)          40-55%           Balanced — gear matters
-7-9    +14 to +18        22-25             80-150 (hard/deadly)     35-50%           Well-tuned — DEF cap helps
-10-12  +18 to +24        25-30             150-400 (boss/deadly)    45-55%           Well-tuned — log scaling active
-13-15  +24 to +28        30-34             300-680 (boss)           50-55%           Challenging — T7 gear is rare
+1-3    +1 to +3          11-13             6-20 (triv/easy)         50-60%           Balanced — 2-4 rounds
+4-6    +4 to +6          14-17             20-100 (medium)          45-55%           Balanced — gear matters
+7-9    +7 to +9          18-20             40-200 (hard/deadly)     50-60%           Well-tuned — DEF cap helps
+10-12  +8 to +10         20-22             80-300 (boss/deadly)     50-60%           Well-tuned — log scaling active
+13-15  +10 to +12        22-25             280-480 (boss)           50-65%           Challenging — T7 gear is rare
 ```
 
 ---
@@ -186,9 +196,9 @@ Level  Player ATK (avg)  Player DEF (avg)  Monster HP (tier)        Monster Hit%
 |---|---|---|
 | `rpg_views.py` | 2,408 | Discord UI views & button factories |
 | `rpg_core_handler.py` | 2,344 | Movement, calendar, scout, pray, NPC, misc commands |
-| `monster_registry.py` | 2,588 | 335 monster stat blocks (37 boss-tier) |
-| `equipment_registry.py` | 2,107 | 447 items across 7 tiers |
-| `rpg_combat_handler.py` | 1,517 | Hunt, attack, dungeon combat, duel |
+| `monster_registry.py` | 468 | 365 monster stat blocks (41 boss-tier) |
+| `equipment_registry.py` | 641 | 447 items across 7 tiers |
+| `rpg_combat_handler.py` | 1,669 | Hunt, attack, dungeon combat, duel |
 | `rpg_housing_handler.py` | 941 | Housing, farming, pets, furniture |
 | `dungeon.py` | 875 | Procedural dungeon generation |
 | `rpg_social_handler.py` | 618 | NPC talk, quests, deliver |
@@ -253,10 +263,10 @@ Only 3 sync `load_housing()` calls remain in the entire codebase, all in **synch
 |---|---|---|---|
 | L1–L4 | 3 | A Stranger in the Mud, The Darkening Woods, Sister Maren's Request | ✅ Good |
 | L5–L7 | 2 | The Aeridorian Signal, What Sleeps Beneath | ✅ Good |
-| L8–L10 | 1 | The Final Silence | 🟡 Thin — L8 and L10 have no dedicated quests |
+| L8–L10 | 4 | The Final Silence, The Merchant's Gambit, Shadows Over Grimstone, The Tithe Collector | ✅ Good |
 | L11–L15 | 3 | The Waking Metal, The Darkening, The Last Guardian | ✅ Good |
 
-**Remaining gap:** The L8–L10 range has only a single quest (L9). Adding 1–2 quests at L8 and L10 would fill the mid-game progression gap. The quest infrastructure in `quest_registry.py` makes this trivial.
+**Remaining gap**: All progression gaps resolved. 12 quests span Level 1 through Level 15.
 
 ### 6.2 System Feature Completeness
 
@@ -268,8 +278,8 @@ Only 3 sync `load_housing()` calls remain in the entire codebase, all in **synch
 | Equipment | ✅ Complete | 447 items across 7 tiers with class restrictions and proc effects |
 | Housing | ✅ Complete | 4 tiers, furniture bonuses, farming, pets, bank access, async I/O everywhere |
 | Farming | ✅ Complete | 5 crop types, seasonal bonuses, watering, furniture yield bonuses |
-| Pets | ✅ Complete | 6 pet types with daily feeding and unique passives |
-| Alchemy | ✅ Complete | 8 recipes (2 deprecated removed), ingredient discovery, brew system |
+| Pets | ✅ Complete | 9 pet types with daily feeding and unique passives |
+| Alchemy | ✅ Complete | 14 recipes, ingredient discovery, brew system |
 | Calendar | ✅ Complete | 13 special days, 4 seasons, deterministic weather, all buffs wired, year-wrap fixed |
 | Forest events | ✅ Complete | 20 unique events with stat-based outcomes and Kaia narration |
 | Shop system | ✅ Complete | Buy/sell/bulk sell, CHA modifier, reputation scaling, buyback. 3 locations (Hemlock's, Caravan, Pell's Depot) |
@@ -282,10 +292,10 @@ Only 3 sync `load_housing()` calls remain in the entire codebase, all in **synch
 
 ### Priority 1 — Content
 
-| # | Task | Files | Effort | Impact |
-|---|---|---|---|---|
-| 1 | **Add 1–2 quests** for the L8 and L10 range to fill the mid-game gap. | `quest_registry.py` | 🟠 1–2h | 🟠 Content — player retention in mid-game |
-| 2 | **Expand Spine zone pools further** — adding 5-10 more creatures per zone (boss variants, rare spawns) would push floor diversity even higher. | `monster_registry.py` | 🟠 1-2h | 🟡 Content depth |
+| # | Task | Files | Effort | Impact | Status |
+|---|---|---|---|---|---|
+| 1 | **Add 1–2 quests** for the L8 and L10 range to fill the mid-game gap. | `quest_registry.py` | 🟠 1–2h | 🟠 Content — player retention in mid-game | ✅ Resolved (Added 3 quests for L8-10) |
+| 2 | **Expand Spine zone pools further** — adding 5-10 more creatures per zone (boss variants, rare spawns) would push floor diversity even higher. | `monster_registry.py` | 🟠 1-2h | 🟡 Content depth | 🟡 Open |
 
 ### Priority 2 — Future Maintainability (No Functional Impact)
 
@@ -744,6 +754,7 @@ The 10-layer post-generation safety pipeline in `message_processor.py` was verif
 | Bot relationships | 1000 users, prune oldest 100 | `bot_state.py` L374–380 | ✅ Verified |
 | Quip history | deque(maxlen=10) | `bot_state.py` L31 | ✅ Verified |
 | Mentioned files | deque(maxlen=20) | `bot_state.py` L38 | ✅ Verified |
+| Inventory Items | 50 | `character_manager.py` CappedList | ✅ Verified |
 
 ---
 
@@ -754,6 +765,10 @@ The 10-layer post-generation safety pipeline in `message_processor.py` was verif
 | DEF soft-cap | `min(10, raw) + max(0, raw-10)//2` | `combat_engine.py` L59 | ✅ Intact |
 | Global DEF cap | `level * 1.5 + 12` | `combat_engine.py` L77 | ✅ Intact |
 | `secrets` module for combat | All combat RNG via `secrets.randbelow()` | `combat_engine.py`, `dice_engine.py` | ✅ Verified |
+| Weapon ATK cap | max +3 ATK (T6-T7) | `equipment_registry.py` | ✅ Hardened |
+| Accessories ATK cap | max +1 ATK (T6-T7) | `equipment_registry.py` | ✅ Hardened |
+| Armor Stat cap | max +1 per stat (all tiers) | `equipment_registry.py` | ✅ Hardened |
+| Gear DEF caps | Armor max 8, Headgear max 3, Boots max 3, Accessories max 2 | `equipment_registry.py` | ✅ Hardened |
 
 ---
 

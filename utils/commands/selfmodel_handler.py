@@ -3,12 +3,14 @@ Self-Model Generation Command
 =============================
 
 !selfmodel — Regenerate the kaia_self_model.md file on demand.
+
+Uses the DreamEngine's inline GPU-guarded self-model generation instead of
+spawning a subprocess, preventing VRAM collisions with the main bot process.
 """
 
 import os
-import asyncio
-import sys
 from utils.infrastructure.logging.kaia_logger import log_info, log_error
+
 
 async def handle_selfmodel_command(ctx, msg, send_kaia_response):
     """Handle the !selfmodel command to trigger self-model regeneration."""
@@ -16,44 +18,47 @@ async def handle_selfmodel_command(ctx, msg, send_kaia_response):
     log_info(f"Self-model regeneration triggered by {msg.author.name}")
 
     try:
-        # Run the generation script as a subprocess
-        script_path = os.path.join("tools", "development", "generate_self_model.py")
-        
-        proc = await asyncio.create_subprocess_exec(
-            sys.executable, script_path,
-            stdout=asyncio.subprocess.PIPE,
-            stderr=asyncio.subprocess.PIPE
-        )
-        
-        stdout, stderr = await proc.communicate()
-        
-        if proc.returncode != 0:
-            error_msg = stderr.decode().strip() or stdout.decode().strip()
-            log_error(f"Self-model generation failed: {error_msg}")
-            await send_kaia_response(msg.channel, f"Failed to regenerate self-model: {error_msg[:200]}")
+        # Get the DreamEngine from the application context
+        dream_engine = getattr(ctx, 'dream_engine', None)
+        if dream_engine is None:
+            log_error("Self-model regen: DreamEngine not available on app context.")
+            await send_kaia_response(msg.channel, "Dream engine isn't initialized yet. Try again in a minute.")
             return
-            
+
+        # Load persona for the generation prompt
+        from utils.social.kaia_social_responder import load_persona_async
+        persona_content = await load_persona_async()
+
+        if not persona_content:
+            log_error("Self-model regen: Could not load persona file.")
+            await send_kaia_response(msg.channel, "Couldn't load persona file. Something's wrong.")
+            return
+
+        # Call the inline GPU-guarded self-model generation with force=True
+        await dream_engine._maybe_regenerate_self_model(persona_content, force=True)
+
         # Read the newly generated model for confirmation
         self_model_path = os.path.join("memory", "kaia_self_model.md")
         if os.path.exists(self_model_path):
             with open(self_model_path, "r", encoding="utf-8") as f:
                 content = f.read().strip()
-                
+
             # Strip the HTML comment header if present
             if content.startswith('<!--'):
-                content = content[content.find('-->')+3:].strip()
-                
+                content = content[content.find('-->') + 3:].strip()
+
             preview = content[:300] + ("..." if len(content) > 300 else "")
+
             # Invalidate the identity cache in message_processor to pick up new model
             if hasattr(ctx, 'message_processor'):
                 ctx.message_processor._identity_cache_time = 0.0
-                
+
             await send_kaia_response(msg.channel, f"Self-model updated successfully.\n\n**Preview:**\n{preview}")
-            log_info("Self-model regenerated successfully (and cache invalidated).")
+            log_info("Self-model regenerated successfully via inline GPU-guarded path (cache invalidated).")
         else:
-            await send_kaia_response(msg.channel, "Self-model script completed, but output file was not found.")
-            log_error("Self-model output file missing after script completion.")
-            
+            await send_kaia_response(msg.channel, "Self-model generation completed, but output file was not found.")
+            log_error("Self-model output file missing after inline generation.")
+
     except Exception as e:
         log_error(f"Error executing self-model generation: {e}")
         await send_kaia_response(msg.channel, f"An error occurred while regenerating the self-model: {e}")

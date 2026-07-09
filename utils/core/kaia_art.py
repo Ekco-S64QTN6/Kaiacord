@@ -267,16 +267,16 @@ class FractalFlameRenderer:
 
     INTERNAL_RES = 1440
     OUTPUT_RES = 720
-    N_POINTS = 1_500_000
+    N_POINTS = 2_000_000
     N_WARMUP = 20
-    N_ITERATIONS = 200
+    N_ITERATIONS = 250
     DENSITY_SIGMA = 1.2
     GAMMA = 2.2
     VIBRANCY = 1.0       # flam3 vibrancy: 1.0 = full color preservation
     HIGHLIGHT_POWER = 0.5 # flam3 highlight power: controls bright area handling
 
-    MAX_RETRIES = 5
-    MIN_COVERAGE = 0.15  # At least 15% of pixels must have meaningful color
+    MAX_RETRIES = 8
+    MIN_COVERAGE = 0.25  # At least 25% of pixels must have meaningful color
 
     def generate(self, seed=None, palette_name=None):
         """
@@ -323,7 +323,7 @@ class FractalFlameRenderer:
         arr = np.array(img)
         # Max across RGB channels per pixel
         brightness = arr.max(axis=-1) if arr.ndim == 3 else arr
-        return float((brightness > 10).sum()) / brightness.size
+        return float((brightness > 20).sum()) / brightness.size
 
     def _generate_single(self, seed=None, palette_name=None):
         """Internal generation logic for a single attempt."""
@@ -780,24 +780,47 @@ class FractalFlameRenderer:
         # Blend
         rgb_gamma = np.clip(vib_color + chan_color, 0, 1)
 
-        # ── Step 4: Bloom (Electric Sheep glow) ──────────────────────────────
-        bloom = gaussian_filter(rgb_gamma, sigma=4.0, axes=(0, 1))
-        rgb_bloomed = np.clip(rgb_gamma + bloom * 0.3, 0, 1)
+        # ── Step 4: Midtone Boost ─────────────────────────────────────────────
+        # Fractal flames produce extreme dynamic range: a few hotspot pixels at
+        # 0.5-1.0 and vast areas at 0.001-0.01. A power curve (gamma < 1)
+        # dramatically lifts the thin structures so bloom has visible values to
+        # spread. pow(0.01, 0.4) ≈ 0.04 vs raw 0.01 — a 4x boost in dim areas
+        # while barely touching bright areas (pow(0.5, 0.4) ≈ 0.76).
+        rgb_boosted = np.power(np.clip(rgb_gamma, 0, 1), 0.4)
 
-        # ── Step 5: Background tint ──────────────────────────────────────────
-        # Real Electric Sheep never has pure black backgrounds — there's always
-        # a subtle ambient glow from the DE spreading light everywhere.
-        # Add a very subtle background based on the overall image color.
+        # ── Step 5: Multi-Scale Bloom (Electric Sheep glow) ──────────────────
+        # Three bloom passes at different scales create the characteristic
+        # ambient glow. Applied AFTER the midtone boost so bloom spreads
+        # meaningful brightness values, not near-zero noise.
+        bloom_fine = gaussian_filter(rgb_boosted, sigma=4.0, axes=(0, 1))
+        bloom_medium = gaussian_filter(rgb_boosted, sigma=20.0, axes=(0, 1))
+        bloom_wide = gaussian_filter(rgb_boosted, sigma=60.0, axes=(0, 1))
+        rgb_bloomed = np.clip(
+            rgb_boosted + bloom_fine * 0.4 + bloom_medium * 0.5 + bloom_wide * 0.3,
+            0, 1
+        )
+
+        # ── Step 6: Background Tint ──────────────────────────────────────────
+        # Add a subtle colored background to empty pixels. The tint is derived
+        # from the flame's own color palette for cohesion.
         mean_color = rgb_bloomed[alpha_acc > 0].mean(axis=0) if (alpha_acc > 0).any() else np.array([0.1, 0.05, 0.15])
-        bg_tint = mean_color * 0.03  # Very subtle, just kills pure black
-        # Only apply to truly empty pixels to avoid washing out detail
+        bg_tint = mean_color * 0.06
+        bg_floor = np.array([0.015, 0.01, 0.025])  # Minimum color floor
+        bg = np.maximum(bg_tint, bg_floor)
         empty_mask = (alpha_acc == 0)[..., np.newaxis]
-        # Also fade in the tint for very low-density pixels
-        low_density = (alpha_gamma < 0.05)[..., np.newaxis]
-        rgb_final = rgb_bloomed + bg_tint * empty_mask.astype(float)
-        rgb_final = np.clip(rgb_final, 0, 1)
+        rgb_tinted = rgb_bloomed + bg * empty_mask.astype(float)
 
-        # ── Step 6: Supersampling downsample ─────────────────────────────────
+        # ── Step 7: Contrast Stretch ─────────────────────────────────────────
+        # Ensure the output uses the full brightness range. Map [p2, p98] → [0, 1]
+        # so dim flames get brightened and clipped highlights stay white.
+        p_lo = np.percentile(rgb_tinted, 2)
+        p_hi = np.percentile(rgb_tinted, 98)
+        if p_hi - p_lo > 0.01:
+            rgb_final = np.clip((rgb_tinted - p_lo) / (p_hi - p_lo), 0, 1)
+        else:
+            rgb_final = np.clip(rgb_tinted, 0, 1)
+
+        # ── Step 8: Supersampling downsample ─────────────────────────────────
         img_high = Image.fromarray((rgb_final * 255).astype(np.uint8))
         img_out = img_high.resize((self.OUTPUT_RES, self.OUTPUT_RES), Image.LANCZOS)
         return img_out

@@ -77,10 +77,14 @@ class EmergencyContaminationFilter:
             return None
 
         # Check for excessive em-dash usage (style drift from contaminated self-model)
+        # Inline sanitize instead of expensive full LLM retry
         em_dash_count = response.count('\u2014')
-        if em_dash_count >= 5:
-            log_warning(f"[VERACITY GUARD] Excessive em dashes ({em_dash_count}). Triggering full retry.")
-            return None
+        if em_dash_count >= 3:
+            response = re.sub(r'(\w)\u2014(\w)', r'\1, \2', response)
+            response = re.sub(r'(\w)\u2014\s', r'\1. ', response)
+            response = re.sub(r'\s\u2014(\w)', r'. \1', response)
+            response = response.replace('\u2014', ', ')
+            log_warning(f"[VERACITY GUARD] Sanitized {em_dash_count} em dashes inline (no retry).")
 
         lines = response.split('\n')
         filtered_lines = []
@@ -212,11 +216,19 @@ class BotSpeakFilter:
         r"error\s+has\s+been\s+flagged",
         r"with\s+increased\s+priority\s+for\s+diagnostic",
     ]
+
+    # Sycophantic compliment patterns that instruction-tuned models default to.
+    # Stripped deterministically as a post-generation safety net.
+    SYCOPHANCY_PATTERNS = [
+        r"(?:that(?:'|\u2019)?s|what)\s+(?:a\s+|an\s+)?(?:really\s+|very\s+|quite\s+|truly\s+)?(?:astute|perceptive|insightful|clever|pertinent|evocative|thoughtful|profound|excellent|great|fantastic|wonderful|brilliant|incisive|sharp|keen|impressive)\b",
+        r"(?:you(?:'|\u2019)?re|you\s+are)\s+(?:really\s+|very\s+|quite\s+)?(?:astute|perceptive|insightful|clever|thoughtful|sharp|keen|right\s+to\s+(?:point|notice|ask|wonder))",
+    ]
     
     # Precompiled combined patterns for efficiency
     RE_BAIT = re.compile("|".join(BAIT_PATTERNS), re.IGNORECASE)
     RE_SYSTEM_PROSE = re.compile("|".join(SYSTEM_PROSE_PATTERNS), re.IGNORECASE)
     RE_APOLOGY = re.compile("|".join(APOLOGY_PATTERNS), re.IGNORECASE)
+    RE_SYCOPHANCY = re.compile("|".join(SYCOPHANCY_PATTERNS), re.IGNORECASE)
     RE_LEADING_NAME = re.compile(r'^[a-zA-Z0-9_’\'\-]+\s*[,.:\s]\s*', re.IGNORECASE)
     RE_TRAILING_NAME = re.compile(r'(?:,\s*|\s+)[a-zA-Z0-9_’\'\-]+[.?!\s…]*$', re.IGNORECASE)
 
@@ -320,6 +332,9 @@ class BotSpeakFilter:
         # 3.1. Strip apology patterns (post-generation safety net)
         cleaned = cls.strip_apologies(cleaned)
 
+        # 3.2. Strip sycophantic compliments (post-generation safety net)
+        cleaned = cls.strip_sycophancy(cleaned)
+
         # 3.5. Grammar Cleanup Pass (Fixes syntax broken by stripping)
         cleaned = cls.RE_GRAMMAR_ARTICLE.sub('', cleaned)
         cleaned = cls.RE_GRAMMAR_PUNC_SPACE.sub(r'\1', cleaned)             # Remove space before punctuation
@@ -371,6 +386,38 @@ class BotSpeakFilter:
         elif stripped_count > 0 and not clean_sentences:
             # Everything was apologies — return empty to trigger retry
             log_warning(f"[APOLOGY_GUARD] Entire response was apologies. Triggering retry.")
+            return ""
+        
+        return text
+
+    @classmethod
+    def strip_sycophancy(cls, text: str) -> str:
+        """Strip sentences containing sycophantic compliment patterns.
+        
+        Deterministic post-generation safety net for when the LLM defaults
+        to generic praise like 'that's astute' or 'you're really insightful'
+        despite persona instructions forbidding it. Strips full sentences
+        to avoid leaving fragments.
+        """
+        if not text:
+            return text
+        
+        sentences = re.split(r'(?<=[.!?])\s+', text)
+        clean_sentences = []
+        stripped_count = 0
+        
+        for sentence in sentences:
+            if cls.RE_SYCOPHANCY.search(sentence):
+                stripped_count += 1
+                log_warning(f"[SYCOPHANCY_GUARD] Stripped compliment sentence: '{sentence[:80]}...'")
+                continue
+            clean_sentences.append(sentence)
+        
+        if stripped_count > 0 and clean_sentences:
+            return ' '.join(clean_sentences)
+        elif stripped_count > 0 and not clean_sentences:
+            # Everything was sycophancy — return empty to trigger retry
+            log_warning(f"[SYCOPHANCY_GUARD] Entire response was sycophancy. Triggering retry.")
             return ""
         
         return text

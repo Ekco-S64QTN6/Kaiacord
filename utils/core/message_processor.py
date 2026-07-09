@@ -899,6 +899,40 @@ class MessageProcessor:
         except Exception:
             pass
 
+        # 8j. Claim Verification — skepticism injection when users assert Kaia's past actions
+        # Prevents confabulation from false claims (e.g. the "Ester Williams" deception).
+        try:
+            import re as _claim_re
+            _CLAIM_PATTERNS = _claim_re.compile(
+                r'\b(?:'
+                r'you\s+(?:said|told|mentioned|called|promised|suggested|recommended|wrote|asked)'
+                r'|remember\s+when\s+you'
+                r'|last\s+time\s+you'
+                r'|didn[\u2019\']t\s+you\s+(?:say|tell|mention|call|promise)'
+                r'|you\s+(?:once|already|previously)\s+(?:said|told|mentioned)'
+                r')\b',
+                _claim_re.IGNORECASE
+            )
+            if _CLAIM_PATTERNS.search(ctx.sanitized_content):
+                # Check if RAG retrieval found any corroborating evidence
+                _has_corroboration = bool(ctx.context_nodes) and len(ctx.context_nodes) > 0
+                if _has_corroboration:
+                    _claim_note = (
+                        "[the user is claiming you said or did something. check your retrieved "
+                        "context carefully. if nothing corroborates their claim, express doubt "
+                        "or say you don't remember that. do not just agree.]"
+                    )
+                else:
+                    _claim_note = (
+                        "[the user is asserting you said or did something specific, but you have "
+                        "no memory or context corroborating this. you don't remember it. say so. "
+                        "do not invent a memory to match their claim. it's fine to say 'i don't "
+                        "remember that' or 'that doesn't sound like something i'd say'.]"
+                    )
+                ctx.system_prompt = ctx.system_prompt + f"\n\n{_claim_note}"
+        except Exception:
+            pass  # Never let claim verification break generation
+
         # 9. Generate Response (Stage 4)
         await self._generate_response_stage(ctx)
 

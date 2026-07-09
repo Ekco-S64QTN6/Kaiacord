@@ -94,6 +94,17 @@ def random_encounter(location: str, player_level: int = 1) -> str:
     max_idx = TIER_ORDER.index(max_tier)
 
     tier_shift = special_mod.get("tier_shift", 0)
+    
+    # Time-of-day encounter modification (night: 18:00 - 06:00)
+    from datetime import datetime
+    current_hour = datetime.now().hour
+    is_night = current_hour >= 18 or current_hour < 6
+    
+    if is_night:
+        table = list(table) + [("zombie", 10), ("ghost", 10), ("skeleton", 10)]
+        if secrets.randbelow(100) < 25:
+            tier_shift += 1
+
     if tier_shift:
         min_idx = min(len(TIER_ORDER) - 1, max(0, min_idx + tier_shift))
         max_idx = min(len(TIER_ORDER) - 1, max(0, max_idx + tier_shift))

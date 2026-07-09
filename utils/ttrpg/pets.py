@@ -77,6 +77,42 @@ PET_REGISTRY = {
         "flavor_fed": "It vibrates at a frequency you feel rather than hear. Something in the house responds.",
         "flavor_unfed": "The crystal core dims to a flat grey. Its eyes (carved stone) remain open.",
     },
+    "iron_pup": {
+        "name": "Iron Pup",
+        "cost": 3000,
+        "desc": "Small Aeridorian pup construct. +1 DEF, and 5% chance to find extra loot chests in dungeons.",
+        "emoji": "🐶",
+        "passive": "def_bonus",
+        "passive_value": 1,
+        "food": "iron_plating",
+        "food_cost": 15,
+        "flavor_fed": "It wags its metallic tail with a quiet whirring sound.",
+        "flavor_unfed": "It sits silently by the door, its gear joints locking up.",
+    },
+    "tomb_bat": {
+        "name": "Tomb Bat",
+        "cost": 1500,
+        "desc": "A bat trained in the crypts. +10% Gil from dungeon kills when fed.",
+        "emoji": "🦇",
+        "passive": "gil_bonus_pct",
+        "passive_value": 0.10,
+        "food": "blood_thistle",
+        "food_cost": 10,
+        "flavor_fed": "It hangs upside down and chirps softly in appreciation.",
+        "flavor_unfed": "It glares at you from the rafters, rustling its wings.",
+    },
+    "wisp_lantern": {
+        "name": "Wisp Lantern",
+        "cost": 1000,
+        "desc": "A floating wisp in a brass lantern. +5% XP boost when fed.",
+        "emoji": "🏮",
+        "passive": "xp_bonus_pct",
+        "passive_value": 0.05,
+        "food": "honey_sap",
+        "food_cost": 5,
+        "flavor_fed": "It pulses with a bright, warm amber light.",
+        "flavor_unfed": "The light dims to a cold blue flicker.",
+    },
 }
 
 PET_FOOD_NAMES = {
@@ -86,6 +122,8 @@ PET_FOOD_NAMES = {
     "honey_sap": "Honey Sap",
     "kupo_nut": "Kupo Nut",
     "aeridor_shard": "Aeridor Shard",
+    "iron_plating": "Iron Plating",
+    "blood_thistle": "Blood Thistle",
 }
 
 def get_pet_passive(housing: dict) -> dict:

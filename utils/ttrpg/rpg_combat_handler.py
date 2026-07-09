@@ -223,10 +223,14 @@ async def _dungeon_combat_round(ctx_obj, interaction, uid, uname, is_owner):
                 gear = get_gear_loot(tier)
                 attempts += 1
             if gear:
-                sheet.setdefault("inventory", []).append(gear)
-                item = find_item(gear)
-                drops.append(f"⚔️ {item['name'] if item else gear}")
-                state.setdefault("loot_gained", []).append(gear)
+                if len(sheet.get("inventory", [])) < 50:
+                    sheet.setdefault("inventory", []).append(gear)
+                    item = find_item(gear)
+                    drops.append(f"⚔️ {item['name'] if item else gear}")
+                    state.setdefault("loot_gained", []).append(gear)
+                else:
+                    item = find_item(gear)
+                    drops.append(f"🎒 **[Inventory Full]** Left behind: {item['name'] if item else gear}")
             # Second gear drop: 40% chance
             if secrets.randbelow(10) < 4:
                 gear2 = get_gear_loot(tier)
@@ -235,17 +239,25 @@ async def _dungeon_combat_round(ctx_obj, interaction, uid, uname, is_owner):
                     gear2 = get_gear_loot(tier)
                     attempts += 1
                 if gear2:
-                    sheet.setdefault("inventory", []).append(gear2)
-                    item = find_item(gear2)
-                    drops.append(f"⚔️ {item['name'] if item else gear2}")
-                    state.setdefault("loot_gained", []).append(gear2)
+                    if len(sheet.get("inventory", [])) < 50:
+                        sheet.setdefault("inventory", []).append(gear2)
+                        item = find_item(gear2)
+                        drops.append(f"⚔️ {item['name'] if item else gear2}")
+                        state.setdefault("loot_gained", []).append(gear2)
+                    else:
+                        item = find_item(gear2)
+                        drops.append(f"🎒 **[Inventory Full]** Left behind: {item['name'] if item else gear2}")
             # Consumable drop: always
             cons = get_consumable_loot(tier)
             if cons:
-                sheet.setdefault("inventory", []).append(cons)
-                item = find_item(cons)
-                drops.append(f"🧪 {item['name'] if item else cons}")
-                state.setdefault("loot_gained", []).append(cons)
+                if len(sheet.get("inventory", [])) < 50:
+                    sheet.setdefault("inventory", []).append(cons)
+                    item = find_item(cons)
+                    drops.append(f"🧪 {item['name'] if item else cons}")
+                    state.setdefault("loot_gained", []).append(cons)
+                else:
+                    item = find_item(cons)
+                    drops.append(f"🎒 **[Inventory Full]** Left behind: {item['name'] if item else cons}")
             if drops:
                 loot_text = f"\n🎁 **Boss drops:**\n" + "\n".join(drops)
             else:
@@ -260,16 +272,24 @@ async def _dungeon_combat_round(ctx_obj, interaction, uid, uname, is_owner):
             if secrets.randbelow(10) < 4:
                 gear = get_gear_loot(tier)
                 if gear:
-                    sheet.setdefault("inventory", []).append(gear)
-                    item = find_item(gear)
-                    drop_lines.append(f"⚔️ {item['name'] if item else gear}")
-                    state.setdefault("loot_gained", []).append(gear)
+                    if len(sheet.get("inventory", [])) < 50:
+                        sheet.setdefault("inventory", []).append(gear)
+                        item = find_item(gear)
+                        drop_lines.append(f"⚔️ {item['name'] if item else gear}")
+                        state.setdefault("loot_gained", []).append(gear)
+                    else:
+                        item = find_item(gear)
+                        drop_lines.append(f"🎒 **[Inventory Full]** Left behind: {item['name'] if item else gear}")
             cons = get_consumable_loot(tier)
             if cons:
-                sheet.setdefault("inventory", []).append(cons)
-                item = find_item(cons)
-                drop_lines.append(f"🧪 {item['name'] if item else cons}")
-                state.setdefault("loot_gained", []).append(cons)
+                if len(sheet.get("inventory", [])) < 50:
+                    sheet.setdefault("inventory", []).append(cons)
+                    item = find_item(cons)
+                    drop_lines.append(f"🧪 {item['name'] if item else cons}")
+                    state.setdefault("loot_gained", []).append(cons)
+                else:
+                    item = find_item(cons)
+                    drop_lines.append(f"🎒 **[Inventory Full]** Left behind: {item['name'] if item else cons}")
             if drop_lines:
                 loot_text = f"\n🎁 " + ", ".join(drop_lines)
 
@@ -981,28 +1001,34 @@ async def _handle_attack(ctx, msg, send, rest, uid, uname, is_owner):
         # Gear roll
         gear_drop = get_gear_loot(monster.get("tier", "medium"))
         if gear_drop:
-            sheet.setdefault("inventory", []).append(gear_drop)
             from utils.ttrpg.shop import find_item as _find_loot
             gear_info = _find_loot(gear_drop)
             gear_display = gear_info["name"] if gear_info else gear_drop
-            loot_lines.append(f"⚔️ {gear_display}")
+            if len(sheet.get("inventory", [])) < 50:
+                sheet.setdefault("inventory", []).append(gear_drop)
+                loot_lines.append(f"⚔️ {gear_display}")
+            else:
+                loot_lines.append(f"🎒 **[Inventory Full]** Left behind: {gear_display}")
 
         # Consumable roll
         consumable_drop = get_consumable_loot(monster.get("tier", "medium"))
         if consumable_drop:
-            sheet.setdefault("inventory", []).append(consumable_drop)
             from utils.ttrpg.shop import find_item as _find_cons
             cons_info = _find_cons(consumable_drop)
             cons_display = cons_info["name"] if cons_info else consumable_drop
-            loot_lines.append(f"🧪 {cons_display}")
-            # Check recipe discovery (triggers on crafting ingredients)
-            from utils.ttrpg.alchemy import check_and_discover_recipes
-            new_recipes = check_and_discover_recipes(sheet, consumable_drop)
-            for rk in new_recipes:
-                from utils.ttrpg.alchemy import get_recipe
-                r = get_recipe(rk)
-                if r:
-                    loot_lines.append(f"📖 **Recipe learned:** {r['name']}! Brew at the Herbalist's Hut.")
+            if len(sheet.get("inventory", [])) < 50:
+                sheet.setdefault("inventory", []).append(consumable_drop)
+                loot_lines.append(f"🧪 {cons_display}")
+                # Check recipe discovery (triggers on crafting ingredients)
+                from utils.ttrpg.alchemy import check_and_discover_recipes
+                new_recipes = check_and_discover_recipes(sheet, consumable_drop)
+                for rk in new_recipes:
+                    from utils.ttrpg.alchemy import get_recipe
+                    r = get_recipe(rk)
+                    if r:
+                        loot_lines.append(f"📖 **Recipe learned:** {r['name']}! Brew at the Herbalist's Hut.")
+            else:
+                loot_lines.append(f"🎒 **[Inventory Full]** Left behind: {cons_display}")
 
         if loot_lines:
             loot_msg = "\n🎁 **Looted:**\n" + "\n".join(loot_lines)

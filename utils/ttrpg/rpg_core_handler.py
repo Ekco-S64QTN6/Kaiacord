@@ -803,6 +803,9 @@ async def _handle_go(ctx, msg, send, rest, uid, uname, is_owner):
 
     # Move player to final destination
     sheet["location"] = target
+    
+    from utils.ttrpg.micro_events import trigger_micro_event
+    event_triggered, event_text = trigger_micro_event(sheet)
     await save(sheet)
 
     # Build arrival embed
@@ -817,6 +820,9 @@ async def _handle_go(ctx, msg, send, rest, uid, uname, is_owner):
         desc = f"*Traveling via {', '.join(via_names)}...*\n\n*{loc_data.get('short', '')}*"
     else:
         desc = f"*{loc_data.get('short', '')}*"
+
+    if event_triggered and event_text:
+        desc = f"{event_text}\n\n{desc}"
 
     embed = discord.Embed(
         title=f"📍 {name}",

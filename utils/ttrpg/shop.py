@@ -164,6 +164,9 @@ def process_purchase(sheet: dict, item_key: str, quantity: int = 1, reputation: 
     if gil < val:
         return False, f"Not enough gil. {quantity}x {item['name']} costs {val}g. You have {gil}g.", sheet
         
+    if len(sheet.get("inventory", [])) + quantity > 50:
+        return False, f"Your inventory is too full. Cannot purchase {quantity}x {item['name']}. Cap: 50 items (currently holding {len(sheet.get('inventory', []))}).", sheet
+
     sheet["gil"] -= val
     
     if "inventory" not in sheet:

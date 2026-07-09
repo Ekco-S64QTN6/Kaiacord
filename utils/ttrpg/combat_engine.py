@@ -103,9 +103,6 @@ def _resolve_combat(sheet: dict, monster: dict, atk_mod_global: int = 0, def_mod
     atk_val = sheet.get("stats", {}).get(atk_stat, 10)
     atk_mod = (atk_val - 10) // 2
 
-    dex_val = sheet.get("stats", {}).get("dex", 10)
-    dex_mod = (dex_val - 10) // 2
-
     def _eq_key(val):
         """Extract the item key whether the slot stores a string or a dict."""
         if not val:
@@ -115,17 +112,11 @@ def _resolve_combat(sheet: dict, monster: dict, atk_mod_global: int = 0, def_mod
     eq = sheet.get("equipment", {})
     weapon    = WEAPONS.get(_eq_key(eq.get("weapon")))       or None
     armor     = ARMOR_DATA.get(_eq_key(eq.get("armor")))     or None
-    head      = HEADGEAR.get(_eq_key(eq.get("head")))        or None
-    boots_eq  = BOOTS.get(_eq_key(eq.get("boots")))          or None
-    accessory = ACCESSORIES.get(_eq_key(eq.get("accessory"))) or None
 
     weapon_atk     = weapon["attack_bonus"]    if weapon    else 0
     weapon_dmg_die = weapon["damage_die"]      if weapon    else 4
     weapon_dmg_bonus = weapon.get("damage_bonus", 0) if weapon else 0
-    armor_def      = armor["defense_bonus"]    if armor     else 0
-    head_def       = head["defense_bonus"]     if head      else 0
-    boots_def      = boots_eq["defense_bonus"] if boots_eq  else 0
-    acc_def        = accessory["defense_bonus"]if accessory else 0
+    accessory = ACCESSORIES.get(_eq_key(eq.get("accessory"))) or None
     acc_atk        = accessory.get("attack_bonus", 0) if accessory else 0
 
     # Apply armor stat bonuses to combat stats
@@ -135,10 +126,6 @@ def _resolve_combat(sheet: dict, monster: dict, atk_mod_global: int = 0, def_mod
         if atk_stat in armor_stats:
             atk_val += armor_stats[atk_stat]
             atk_mod = (atk_val - 10) // 2
-        # DEX bonus affects DEF (computed later below)
-        _armor_dex_bonus = armor_stats.get("dex", 0)
-        dex_val += _armor_dex_bonus
-        dex_mod = (dex_val - 10) // 2
     else:
         pass
 

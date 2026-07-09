@@ -1,6 +1,41 @@
 # Historical Development & Audit Archive
 *Combined historical reports, balance audits, and resolved bugs for Aethelgard TTRPG.*
 
+# Phase 14: Balance Hardening & Content Expansion — July 9, 2026
+*Unified player/monster stat compression, mid-game quest additions, 50-item inventory cap, and overworld/bestiary expansion.*
+
+---
+
+## Key Achievements
+
+### 1. Stat & DEF Compression
+- **Weapon ATK/DMG Caps:** Restructured weapon ATK scaling to cap at +3 ATK max and +3 flat damage max (for Tier 7 weapons). Capped elemental weapon procs at 1d12 (T7).
+- **Defensive Gear Calibration:** standard armor DEF capped at max 8, headgear at max 3, boots at max 3, accessories at max 2.
+- **Stat/HP Bonus Limits:** Removed all stat modifications from headgear, boots, and accessories. Capped armor stat modifiers to a maximum of +1 per stat, and capped gear HP bonuses at +5. Modified 43 items across the database.
+- **Monster Registry Recalibration:** Balanced the stats of all 339 existing monsters to align with compressed player budgets, ensuring healthy hit/miss ratios (~50-65% hit rate).
+
+### 2. Mid-Game Quest Additions
+- Added 3 new quests to fully resolve the Level 8 to Level 10 progression gap:
+  - **The Merchant's Gambit** (Pell, Level 8) - Escort cargo, rewards `potion_standard`.
+  - **Shadows Over Grimstone** (Valdric, Level 9) - Clear dungeon construct breach, rewards `ironbark_tonic`.
+  - **The Tithe Collector** (Elara, Level 10) - Defeat Tithe Collector in ruins, rewards `void_band`.
+
+### 3. Inventory Capacity Cap
+- Implemented a hard limit of **50 items** in a player's inventory using a custom `CappedList` class in character sheets.
+- Overflow protections prevent item generation on purchases (`shop.py`), brewing (`alchemy.py`), or combat looting.
+
+### 4. Overworld & Content Expansion
+- Added **26 new overworld monsters** (total bestiary: 365).
+- Integrated **Day/Night encounter shifts** (undead spawn rates doubled at night, 25% chance to scale hunts up one tier).
+- Added **Overworld travel micro-events** and streak rewards.
+
+### 5. Integrity & Safety Fixes
+- Corrected non-existent quest reward keys (`ironbark_potion` -> `ironbark_tonic` in `deep_hunt` and `grimstone_shadows`).
+- Cleared duplicate/dead variables in `combat_engine.py` DEF checks.
+- Migrated legacy user sheets to comply with the 50-item inventory cap (dropping overflow potions/consumables to keep sheets valid).
+
+---
+
 # Shop Restructure — Action Plan
 *Equipment economy rebalance, droppable-only loot, and Hemlock/Caravan split*
 
