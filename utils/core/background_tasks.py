@@ -251,6 +251,7 @@ class CoreTaskManager:
                     ollama_client=self.ctx.ollama_client,
                     chat_model=config.chat_model,
                     persona=persona,
+                    bot_state=self.ctx.bot_state,
                 )
 
                 if message:

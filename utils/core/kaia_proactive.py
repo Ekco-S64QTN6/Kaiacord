@@ -272,7 +272,7 @@ class ProactiveEngine:
                 f"They said: \"{content[:200]}\". "
                 f"Mention it casually, like it just crossed your mind."
             )
-            return (context, "personal_memory")
+            return (context, "personal_memory", "", display_name)
         except Exception as e:
             log_debug(f"Personal memory source failed (non-fatal): {e}")
         return None
@@ -522,7 +522,7 @@ class ProactiveEngine:
                     f"A memory about '{theme}' surfaced: \"{text[:200]}\". "
                     f"Share the thought like it just came back to you."
                 )
-            return (context, "anchor_callback")
+            return (context, "anchor_callback", "", user_name)
         except Exception as e:
             log_debug(f"Anchor callback source failed (non-fatal): {e}")
         return None
@@ -594,10 +594,10 @@ class ProactiveEngine:
 
     def _gather_candidate_sources(
         self, bot_state,
-    ) -> List[Tuple[str, int, str, str]]:
+    ) -> List[Tuple[str, int, str, str, Optional[str]]]:
         """Collect all viable proactive sources with their weights.
 
-        Returns list of (source_type, weight, context_string, content_id) tuples.
+        Returns list of (source_type, weight, context_string, content_id, target_user) tuples.
         """
         candidates = []
 
@@ -617,25 +617,28 @@ class ProactiveEngine:
             try:
                 result = fn()
                 if result:
-                    # Knowledge source returns 3-tuple with content_id
-                    if len(result) == 3:
+                    content_id = ""
+                    target_user = None
+                    # Unpack based on length dynamically
+                    if len(result) == 4:
+                        context, category, content_id, target_user = result
+                    elif len(result) == 3:
                         context, category, content_id = result
                     else:
                         context, category = result
-                        content_id = ""
                     weight = SOURCE_WEIGHTS.get(source_type, 10)
-                    candidates.append((source_type, weight, context, content_id))
+                    candidates.append((source_type, weight, context, content_id, target_user))
             except Exception:
                 continue
 
         return candidates
 
     def _select_diverse_source(
-        self, candidates: List[Tuple[str, int, str, str]]
-    ) -> Optional[Tuple[str, str, str]]:
+        self, candidates: List[Tuple[str, int, str, str, Optional[str]]]
+    ) -> Optional[Tuple[str, str, str, Optional[str]]]:
         """Pick a source using weighted random, filtered by diversity history.
 
-        Returns (source_type, context_string, content_id) or None.
+        Returns (source_type, context_string, content_id, target_user) or None.
         """
         if not candidates:
             return None
@@ -644,7 +647,7 @@ class ProactiveEngine:
 
         # Filter candidates by diversity constraints
         allowed = [
-            (stype, weight, ctx, cid) for stype, weight, ctx, cid in candidates
+            (stype, weight, ctx, cid, tuser) for stype, weight, ctx, cid, tuser in candidates
             if self._is_source_allowed(stype, history)
         ]
 
@@ -653,8 +656,8 @@ class ProactiveEngine:
         if not allowed:
             last_source = history[-1].get('source', '') if history else ''
             allowed = [
-                (stype, weight, ctx, cid)
-                for stype, weight, ctx, cid in candidates
+                (stype, weight, ctx, cid, tuser)
+                for stype, weight, ctx, cid, tuser in candidates
                 if stype != last_source
             ]
 
@@ -663,20 +666,20 @@ class ProactiveEngine:
             allowed = candidates
 
         # Weighted random selection
-        total_weight = sum(w for _, w, _, _ in allowed)
+        total_weight = sum(w for _, w, _, _, _ in allowed)
         if total_weight <= 0:
             return None
 
         pick = secrets.randbelow(total_weight)
         cumulative = 0
-        for stype, weight, ctx, cid in allowed:
+        for stype, weight, ctx, cid, tuser in allowed:
             cumulative += weight
             if pick < cumulative:
-                return (stype, ctx, cid)
+                return (stype, ctx, cid, tuser)
 
         # Fallback (shouldn't reach here)
-        stype, _, ctx, cid = allowed[-1]
-        return (stype, ctx, cid)
+        stype, _, ctx, cid, tuser = allowed[-1]
+        return (stype, ctx, cid, tuser)
 
     # ── Main Trigger Evaluation ─────────────────────────────────────
 
@@ -715,7 +718,7 @@ class ProactiveEngine:
         if not selection:
             return None
 
-        source_type, context, content_id = selection
+        source_type, context, content_id, target_user = selection
 
         return ProactiveTrigger(
             trigger_type=source_type,
@@ -723,6 +726,7 @@ class ProactiveEngine:
             context=context,
             source_category=source_type,
             content_id=content_id,
+            target_user=target_user,
         )
 
     # ── Message Generation ──────────────────────────────────────────
@@ -733,6 +737,7 @@ class ProactiveEngine:
         ollama_client,
         chat_model: str,
         persona: str,
+        bot_state=None,
     ) -> Optional[str]:
         """Generate a natural conversation opener from a trigger.
 
@@ -755,6 +760,23 @@ class ProactiveEngine:
         else:
             time_flavor = "it's evening"
 
+        # Determine if the target user is the active conversational partner in target channel
+        is_active_user = False
+        active_user_name = None
+        if bot_state and trigger.channel_id:
+            channel_mem = bot_state.channel_memory.get(trigger.channel_id)
+            if channel_mem:
+                for msg in reversed(channel_mem):
+                    if msg.get('role') == 'user':
+                        content = msg.get('content', '')
+                        if ':' in content:
+                            active_user_name = content.split(':', 1)[0].strip()
+                            break
+        
+        if active_user_name and trigger.target_user:
+            if trigger.target_user.lower() in active_user_name.lower() or active_user_name.lower() in trigger.target_user.lower():
+                is_active_user = True
+
         # Source-specific voice guidance
         voice_hints = {
             "absence": (
@@ -765,10 +787,20 @@ class ProactiveEngine:
                 f"without you around. everything good?'"
             ),
             "personal_memory": (
+                f"You're recalling something from a past conversation with {trigger.target_user}, "
+                f"who is the person you are currently talking to. "
+                f"Bring it up like it just crossed your mind, addressing them directly as 'you'. "
+                f"Example tone: 'was just thinking about that thing you said about...'"
+                if is_active_user else
+                f"You're recalling something that {trigger.target_user} said in a past conversation. "
+                f"Since you are speaking in a general channel where {trigger.target_user} is not the main "
+                f"active participant, do NOT address the channel as 'you' or attribute the comment to them. "
+                f"Instead, refer to {trigger.target_user} by name. "
+                f"Example tone: 'was just thinking about that thing {trigger.target_user} said about...'"
+            ) if trigger.target_user else (
                 "You're recalling something from a past conversation. "
                 "Bring it up like it just crossed your mind. "
-                "Example tone: 'was just thinking about that thing "
-                "you said about...'"
+                "Example tone: 'was just thinking about that thing you said about...'"
             ),
             "belief_musing": (
                 "You've been reflecting on a topic and want to share "
@@ -794,6 +826,14 @@ class ProactiveEngine:
                 "Example tone: 'this has been rattling around in my head...'"
             ),
             "anchor_callback": (
+                f"A memory just surfaced about {trigger.target_user} (who you are talking to now). "
+                f"Bring it up casually, addressing them as 'you'. "
+                f"Example tone: 'randomly remembered that conversation we had about...'"
+                if is_active_user else
+                f"A memory just surfaced about {trigger.target_user}. "
+                f"Since they are not the active participant, refer to them by name. "
+                f"Example tone: 'randomly remembered that conversation with {trigger.target_user} about...'"
+            ) if trigger.target_user else (
                 "A memory just surfaced — something someone said or "
                 "something you noticed before. Bring it up casually. "
                 "Example tone: 'randomly remembered that conversation "
