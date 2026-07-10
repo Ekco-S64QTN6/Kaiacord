@@ -647,19 +647,35 @@ class CoreTaskManager:
                 if channel:
                     import secrets
                     EVENT_POOL = [
-                        (run_village_raid,       15),  # Reduced from 35 to prevent raid domination
-                        (run_oracle_speaks,      10),
-                        (run_moogle_festival,    12),
-                        (run_aeridorian_tremor,  10),
-                        (run_tonberry_procession, 8),
-                        (run_spine_storm,         8),
-                        (run_caravan_arrival,     6),
-                        (run_bard_performance,    12), # Boosted from 3 to ensure bard performance fires
-                        (run_construct_incursion, 10),
-                        (run_gil_windfall,       10),
-                        (run_blight_on_the_crops, 8),
-                        (run_pilgrims_arrive,     8),
+                        (run_village_raid,        15),  # Reduced from 35 to prevent raid domination
+                        (run_oracle_speaks,       10),
+                        (run_moogle_festival,     12),
+                        (run_aeridorian_tremor,   10),
+                        (run_tonberry_procession,  8),
+                        (run_spine_storm,          8),
+                        (run_caravan_arrival,      6),
+                        (run_bard_performance,     12), # Boosted from 3 to ensure bard performance fires
+                        (run_construct_incursion,  10),
+                        (run_gil_windfall,        10),
+                        (run_blight_on_the_crops,  8),
+                        (run_pilgrims_arrive,      8),
                         (run_night_terror_warning, 8),
+                        (run_construct_breach,     10),
+                        (run_caravan_ambush,       10),
+                        (run_market_glut,          8),
+                        (run_whisperwood_bloom,    8),
+                        (run_shrine_vigil,         8),
+                        (run_missing_persons,      10),
+                        (run_ironclad_envoys,      8),
+                        (run_silverstream_blackwater, 6),
+                        (run_hooded_figures_vigil,  6),
+                        (run_caelindras_lost_verse, 8),
+                        (run_watchtower_silence,   6),
+                        (run_silvani_antidote_run, 6),
+                        (run_the_coin_hoarder,     8),
+                        (run_boundary_shift,       8),
+                        (run_sealed_wax_jar,       5),
+                        (run_elaras_private_ritual, 5),
                     ]
                     total_w = sum(w for _, w in EVENT_POOL)
                     r_val = secrets.randbelow(total_w)
@@ -3730,5 +3746,465 @@ async def run_night_terror_warning(bot_ctx, channel):
 
     await _log_world_event("👁️ **Night Terror Warning** — watchtowers report shadow beast movement. Solo hunts will encounter higher tier threats for the next 4 hours.")
     log_action("Noon Event: Night Terror Warning")
+
+
+async def run_ironclad_envoys(bot_ctx, channel):
+    """Noon event: Ironclad Guild Envoys Arrive. markup prices for 4 hours."""
+    import discord
+    import time
+    from utils.ttrpg.world_state import load_world_state, save_world_state
+    from utils.ttrpg.broadcast import log_world_event as _log_world_event
+
+    wstate = load_world_state()
+    wstate["shop_price_mult"] = 1.15
+    wstate["shop_price_mult_expiry"] = time.time() + 14400
+    save_world_state(wstate)
+
+    await channel.send(embed=discord.Embed(
+        title="⚙️ Ironclad Guild Envoys Arrive",
+        description=(
+            "**📋 NOTICE: EXPORT SURCHARGE IN EFFECT**\n\n"
+            "*A heavy iron-rimmed wagon halts in the square. Men bearing the seal of the Ironclad Guild "
+            "begin inspecting Pells and Hemlocks inventories.*\n\n"
+            "Due to guild buying pressure and exports, Hemlock's store and Trade Road Caravan prices "
+            "are **inflated by 15%** for the next 4 hours."
+        ),
+        color=0x7f8c8d
+    ))
+    await _log_world_event("⚙️ **Guild Envoys** — Ironclad envoys arrived in Oakhaven; shop prices increased by 15% for 4h.")
+    log_action("Noon Event: Ironclad Guild Envoys")
+
+
+async def run_silverstream_blackwater(bot_ctx, channel):
+    """Noon event: The Silverstream Runs Black."""
+    import discord
+    import time
+    from utils.ttrpg.world_state import load_world_state, save_world_state
+    from utils.ttrpg.broadcast import log_world_event as _log_world_event
+
+    wstate = load_world_state()
+    wstate["fishing_water_tainted"] = True
+    wstate["fishing_water_tainted_expiry"] = time.time() + 14400
+    save_world_state(wstate)
+
+    await channel.send(embed=discord.Embed(
+        title="🌊 The Silverstream Runs Black",
+        description=(
+            "**⚠️ WARNING: RIVER WATER TAINTED**\n\n"
+            "*A dark, viscous fluid has begun to mix with the headwaters of the Silverstream. "
+            "Tricklebrook Pond turns murky, and the fish behave erratically.*\n\n"
+            "Tricklebrook Pond waters are tainted for the next 4 hours. Fishing is dangerous."
+        ),
+        color=0x2c3e50
+    ))
+    await _log_world_event("🌊 **Silverstream Murk** — Silverstream headwaters ran black; Tricklebrook Pond waters are tainted for 4h.")
+    log_action("Noon Event: Silverstream Blackwater")
+
+
+async def run_hooded_figures_vigil(bot_ctx, channel):
+    """Noon event: The Hooded Figure's Vigil."""
+    import discord
+    from utils.ttrpg.character_manager import load_all, save
+    from utils.ttrpg.broadcast import log_world_event as _log_world_event
+
+    await channel.send(embed=discord.Embed(
+        title="🌘 The Hooded Figure's Vigil",
+        description=(
+            "*The cloaked stranger at the Stone Hearth sits unusually still today, staring intensely into the hearth fire.*\n\n"
+            "A heavy silence hangs over the tavern. Those present feel a cold shadow of watchfulness pass over them."
+        ),
+        color=0x2c3e50
+    ))
+
+    all_sheets = await load_all()
+    present = [s for s in all_sheets if s.get("location") == "stone_hearth"]
+
+    if not present:
+        await channel.send(embed=discord.Embed(
+            description="*The tavern was empty. The figure sat alone in the dim light.*",
+            color=0x888888
+        ))
+        return
+
+    result_lines = []
+    for s in present:
+        conds = s.setdefault("conditions", [])
+        if "veiled_watched" not in conds:
+            conds.append("veiled_watched")
+        await save(s)
+        result_lines.append(f"🌘 **{s['character_name']}** — *Veiled Watched (+1 to next roll)*")
+
+    await channel.send(embed=discord.Embed(
+        title="🌘 Marked by the Vigil",
+        description="\n".join(result_lines),
+        color=0x2c3e50
+    ))
+    await _log_world_event("🌘 **Hooded Figure Vigil** — The stranger marked Stone Hearth patrons with a watchful gaze.")
+    log_action("Noon Event: Hooded Figures Vigil")
+
+
+async def run_caelindras_lost_verse(bot_ctx, channel):
+    """Noon event: Caelindra's Lost Verse."""
+    import discord
+    from utils.ttrpg.character_manager import load_all, save
+    from utils.ttrpg.progression import check_level_up
+    from utils.ttrpg.broadcast import log_world_event as _log_world_event
+
+    await channel.send(embed=discord.Embed(
+        title="📜 Caelindra's Lost Verse",
+        description=(
+            "*Caelindra stops her usual ballad. She looks at a page she hasn't read aloud before, "
+            "clears her throat, and recites:*\n\n"
+            "\"Three crowns in the deep stone, two rings in the blue,\n"
+            "The forest remembers what time withdrew.\n"
+            "The gate in the shadow is waiting for you.\"\n\n"
+            "*A quiet shiver passes through the room.*"
+        ),
+        color=0x8e44ad
+    ))
+
+    all_sheets = await load_all()
+    present = [s for s in all_sheets if s.get("location") == "stone_hearth"]
+
+    if not present:
+        return
+
+    result_lines = []
+    level_ups = []
+    for s in present:
+        s["xp"] = s.get("xp", 0) + 15
+        leveled, new_lvl = check_level_up(s)
+        await save(s)
+        result_lines.append(f"📜 **{s['character_name']}** — *Heard the Verse* (+15 XP)")
+        if leveled:
+            level_ups.append(f"🎉 **{s['character_name']}** reached **Level {new_lvl}!**")
+
+    embed = discord.Embed(title="📜 A Quiet Understanding", description="\n".join(result_lines), color=0x8e44ad)
+    if level_ups:
+        embed.add_field(name="\u200b", value="\n".join(level_ups), inline=False)
+    await channel.send(embed=embed)
+    await _log_world_event("📜 **Caelindra's Verse** — The bard recited a lost Aeridorian verse at the Stone Hearth.")
+    log_action("Noon Event: Caelindra's Lost Verse")
+
+
+async def run_watchtower_silence(bot_ctx, channel):
+    """Noon event: The Watchtower's Silence."""
+    import discord
+    import time
+    from utils.ttrpg.world_state import load_world_state, save_world_state
+    from utils.ttrpg.broadcast import log_world_event as _log_world_event
+
+    wstate = load_world_state()
+    wstate["watchtower_bonus"] = True
+    wstate["watchtower_bonus_expiry"] = time.time() + 14400
+    save_world_state(wstate)
+
+    await channel.send(embed=discord.Embed(
+        title="🔭 The Watchtower's Silence",
+        description=(
+            "*The watchtower guards are dead silent today, pacing the battlements in pairs. "
+            "They won't explain why, but they are sharing their spyglass logs with any scout who asks.*\n\n"
+            "Scouts visiting the Watchtower get extra scouting detail for the next 4 hours."
+        ),
+        color=0x2980b9
+    ))
+    await _log_world_event("🔭 **Watchtower Silence** — Sentries are unusually vigilant; scouting reports enhanced for 4h.")
+    log_action("Noon Event: Watchtower Silence")
+
+
+async def run_silvani_antidote_run(bot_ctx, channel):
+    """Noon event: Silvani Antidote Run."""
+    import discord
+    from utils.ttrpg.character_manager import load_all, save
+    from utils.ttrpg.broadcast import log_world_event as _log_world_event
+
+    TOWN_LOCATIONS = {
+        "oakhaven", "stone_hearth", "hemlocks_store",
+        "shrine", "watchtower", "oakhaven_bank", "herbalists_hut",
+        "housing_district", "tricklebrook_pond"
+    }
+
+    await channel.send(embed=discord.Embed(
+        title="🧪 Silvani Supplies Dropped",
+        description=(
+            "*A cloaked Silvani hunter dashes through Oakhaven, dropping canvas bundles onto shop counters "
+            "and tavern tables before vanishing back into the treeline.*\n\n"
+            "Each adventurer present in town receives a free bandage."
+        ),
+        color=0x27ae60
+    ))
+
+    all_sheets = await load_all()
+    present = [s for s in all_sheets if s.get("location") in TOWN_LOCATIONS]
+
+    if not present:
+        await channel.send(embed=discord.Embed(
+            description="*No adventurers were present in town to collect the bundle. The guard stored it.*",
+            color=0x888888
+        ))
+        return
+
+    result_lines = []
+    for s in present:
+        s.setdefault("inventory", []).append("bandage")
+        await save(s)
+        result_lines.append(f"🧪 **{s['character_name']}** — *Acquired: Bandage*")
+
+    await channel.send(embed=discord.Embed(
+        title="🧪 Supplies Distributed",
+        description="\n".join(result_lines),
+        color=0x27ae60
+    ))
+    await _log_world_event("🧪 **Silvani Drop** — A Silvani hunter left emergency bandages for town residents.")
+    log_action("Noon Event: Silvani Antidote Run")
+
+
+async def run_the_coin_hoarder(bot_ctx, channel):
+    """Noon event: The Coin Hoarder scaled combat event."""
+    import secrets
+    import discord
+    import asyncio
+    import time
+    from utils.ttrpg.character_manager import get_active_town_defenders, save, load_all
+    from utils.ttrpg.monster_registry import get as get_monster
+    from utils.ttrpg.progression import check_level_up
+    from utils.ttrpg.broadcast import log_world_event as _log_world_event, broadcast_world_event
+    from utils.ttrpg.world_state import load_world_state, save_world_state
+    from utils.ttrpg.combat_engine import _resolve_combat
+    from utils.ttrpg.housing import load_housing
+    from utils.ttrpg.pets import get_pet_passive
+
+    await channel.send(embed=discord.Embed(
+        title="🕳️ BANK ALARM — THE COIN HOARDER",
+        description=(
+            "*A metallic scratching sound echoes from the bank vaults! A dark, shifting mass of shadow and "
+            "claws—the Coin Hoarder—is clawing through the coin chests.*\n\n"
+            "**\"It's in the vault!\"** the clerk screams. **\"Repel it before it drains our deposits!\"**"
+        ),
+        color=0xd35400
+    ))
+    await asyncio.sleep(3)
+
+    LOCS = {"oakhaven_bank", "oakhaven", "watchtower", "stone_hearth"}
+    defenders = await get_active_town_defenders(town_locations=LOCS)
+    
+    if not defenders:
+        # Penalty: steal bank gil from all active characters
+        all_sheets = await load_all()
+        stolen_details = []
+        for s in all_sheets:
+            bal = s.get("bank_balance", 0)
+            if bal > 0:
+                stolen = min(100, int(bal * 0.05))
+                s["bank_balance"] = max(0, bal - stolen)
+                await save(s)
+                stolen_details.append(f"🏦 **{s['character_name']}**: -{stolen} Gil")
+        
+        desc = "*No adventurers responded. The Coin Hoarder raided the vault and slipped back into the earth.*\n\n"
+        if stolen_details:
+            desc += "**Stolen Bank Balances (5%):**\n" + "\n".join(stolen_details)
+        else:
+            desc += "Fortunately, the vaults were empty."
+            
+        await channel.send(embed=discord.Embed(description=desc, color=0xcc4444))
+        await _log_world_event("❌ **Bank Robbed** — The Coin Hoarder broke into the vaults and stole Gil deposits.")
+        return
+
+    # Combat setup
+    avg_level = sum(s.get("level", 1) for s in defenders) / len(defenders)
+    max_level = max(s.get("level", 1) for s in defenders)
+    
+    # Scale a boss shadow
+    m_key = "shadow_lich" if avg_level >= 10 else "wraith"
+    m_data = get_monster(m_key)
+    
+    attackers = []
+    if m_data:
+        m_instance = m_data.copy()
+        m_instance["key"] = m_key
+        scale = 1.0 + (avg_level - 1) * 0.05
+        m_instance["hp"] = max(20, int(m_instance["hp"] * scale * 1.5))
+        m_instance["attack"] = max(4, int(m_instance["attack"] * scale))
+        m_instance["defense"] = max(9, int(m_instance["defense"] * scale))
+        m_instance["hp"] = {"current": m_instance["hp"], "max": m_instance["hp"]}
+        attackers.append(m_instance)
+        
+    total_xp = 120 + int(avg_level * 10)
+    total_gil = 80 + int(avg_level * 10)
+    
+    creature_names = ", ".join(m["name"] for m in attackers)
+    defenders_list = "\n".join(f"⚔️ **{s['character_name']}** (Lv.{s['level']})" for s in defenders)
+    
+    await channel.send(embed=discord.Embed(
+        title="⚔️ Bank Defense — Battle the Hoarder",
+        description=f"**Attacking:** {creature_names}\n**Defenders:**\n{defenders_list}",
+        color=0xd35400
+    ))
+    await asyncio.sleep(4)
+
+    wstate = load_world_state()
+    world_atk_mod = wstate.get("atk_mod", 0)
+    world_def_mod = wstate.get("def_mod", 0)
+    
+    defeated_monsters_count = 0
+    combat_results = []
+    
+    for idx, s in enumerate(defenders):
+        attacker = attackers[idx % len(attackers)].copy()
+        housing = load_housing(str(s.get("user_id", "")))
+        pet_bonuses = get_pet_passive(housing) if housing else {}
+        
+        won = False
+        rounds_log = []
+        for r_idx in range(3):
+            if s["hp"]["current"] <= 0 or attacker["hp"]["current"] <= 0:
+                break
+            res = _resolve_combat(s, attacker, atk_mod_global=world_atk_mod, def_mod_global=world_def_mod, pet_bonuses=pet_bonuses)
+            if attacker["hp"]["current"] <= 0:
+                won = True
+                defeated_monsters_count += 1
+                break
+        combat_results.append((s, won))
+
+    defenders_won = (defeated_monsters_count > 0)
+    xp_each = max(1, total_xp // len(defenders))
+    gil_each = max(1, total_gil // len(defenders))
+    
+    result_lines = []
+    level_ups = []
+    for s, won in combat_results:
+        if s["hp"]["current"] <= 0:
+            s["xp"] = max(0, s["xp"] - int(s["xp"] * 0.10))
+            s["gil"] = max(0, s["gil"] - int(s["gil"] * 0.05))
+            s["hp"]["current"] = 1
+            s["location"] = "shrine"
+            s["deaths"] = s.get("deaths", 0) + 1
+            await save(s)
+            result_lines.append(f"💀 **{s['character_name']}** blacked out defending the bank.")
+        elif defenders_won:
+            s["xp"] = s.get("xp", 0) + xp_each
+            s["gil"] = s.get("gil", 0) + gil_each
+            leveled, new_lvl = check_level_up(s)
+            await save(s)
+            result_lines.append(f"⚔️ **{s['character_name']}** repelled the hoarder (+{xp_each} XP, +{gil_each}g)")
+            if leveled:
+                level_ups.append(f"🎉 **{s['character_name']}** reached **Level {new_lvl}!**")
+        else:
+            await save(s)
+            result_lines.append(f"🛡️ **{s['character_name']}** survived, but the hoarder escaped.")
+
+    embed = discord.Embed(
+        title="🕳️ Bank Defense Outcome",
+        description="\n".join(result_lines),
+        color=0x27ae60 if defenders_won else 0xcc4444
+    )
+    if level_ups:
+        embed.add_field(name="\u200b", value="\n".join(level_ups), inline=False)
+    await channel.send(embed=embed)
+    await broadcast_world_event(bot_ctx, embed)
+    
+    outcome_txt = "Defenders won" if defenders_won else "Defenders failed"
+    await _log_world_event(f"🛡️ **Bank Defense:** {outcome_txt} against the Coin Hoarder.")
+    log_action("Noon Event: Coin Hoarder")
+
+
+async def run_boundary_shift(bot_ctx, channel):
+    """Noon event: Whisperwood Boundary Shift."""
+    import discord
+    import time
+    from utils.ttrpg.world_state import load_world_state, save_world_state
+    from utils.ttrpg.broadcast import log_world_event as _log_world_event, broadcast_world_event
+
+    wstate = load_world_state()
+    wstate["encounter_mod"] = {"tier_shift": 1}
+    wstate["encounter_mod_expiry"] = time.time() + 14400
+    save_world_state(wstate)
+
+    await channel.send(embed=discord.Embed(
+        title="🍃 Whisperwood Boundary Shift",
+        description=(
+            "**⚠️ WARNING: FOREST BOUNDARY DETECTED CLOSER**\n\n"
+            "*The ancient border stakes are found twelve feet inside the overworld borders this morning. "
+            "The forest edges are creeping, breathing, and pushing closer to Oakhaven.*\n\n"
+            "For the next 4 hours, solo hunts on the Whisperwood Edge encounter higher tier threats."
+        ),
+        color=0x27ae60
+    ))
+    await _log_world_event("🍃 **Boundary Shift** — Whisperwood boundary shifted twelve feet; Edge hunts shifted +1 tier for 4h.")
+    log_action("Noon Event: Boundary Shift")
+
+
+async def run_sealed_wax_jar(bot_ctx, channel):
+    """Noon event: The Sealed Wax Jar."""
+    import discord
+    import time
+    from utils.ttrpg.world_state import load_world_state, save_world_state
+    from utils.ttrpg.broadcast import log_world_event as _log_world_event, broadcast_world_event
+
+    wstate = load_world_state()
+    wstate["special_item_sale"] = {"item": "lucky_charm", "price": 20}
+    wstate["special_item_sale_expiry"] = time.time() + 14400
+    save_world_state(wstate)
+
+    await channel.send(embed=discord.Embed(
+        title="🫙 The Sealed Wax Jar",
+        description=(
+            "**📋 NOTICE: SPECIAL MERCHANDISE OFFER**\n\n"
+            "*Hemlock climbs up his top shelf and takes down a dark jar sealed in thick grey wax. "
+            "He breaks it open, exposing small lucky charms that shine with ancient warding.*\n\n"
+            "Hemlock is selling Lucky Charms for only **20 Gil** (discounted from 40) for the next 4 hours."
+        ),
+        color=0xd35400
+    ))
+    await _log_world_event("🫙 **Sealed Jar** — Hemlock opened the sealed wax jar, offering Lucky Charms at 20 Gil for 4h.")
+    log_action("Noon Event: Sealed Wax Jar")
+
+
+async def run_elaras_private_ritual(bot_ctx, channel):
+    """Noon event: Elara's Private Ritual."""
+    import discord
+    from utils.ttrpg.character_manager import load_all, save
+    from utils.ttrpg.progression import check_level_up
+    from utils.ttrpg.broadcast import log_world_event as _log_world_event
+
+    await channel.send(embed=discord.Embed(
+        title="🌙 Elara's Private Ritual",
+        description=(
+            "*Elder Elara stands before the Shrine flame, murmuring words that carry no echo, "
+            "sprinkling a dark powder over the basins. Sensing your presence, she stops, "
+            "covers the dish, and turns to you with a cold, level stare.*\n\n"
+            "Oakhaven residents witness the quiet ritual and gain minor insight."
+        ),
+        color=0x9b59b6
+    ))
+
+    TOWN_LOCATIONS = {
+        "oakhaven", "stone_hearth", "hemlocks_store",
+        "shrine", "watchtower", "oakhaven_bank", "herbalists_hut",
+        "housing_district", "tricklebrook_pond"
+    }
+
+    all_sheets = await load_all()
+    present = [s for s in all_sheets if s.get("location") in TOWN_LOCATIONS]
+
+    if not present:
+        return
+
+    result_lines = []
+    level_ups = []
+    for s in present:
+        s["xp"] = s.get("xp", 0) + 10
+        leveled, new_lvl = check_level_up(s)
+        await save(s)
+        result_lines.append(f"🌙 **{s['character_name']}** — *Witnessed the Ritual* (+10 XP)")
+        if leveled:
+            level_ups.append(f"🎉 **{s['character_name']}** reached **Level {new_lvl}!**")
+
+    embed = discord.Embed(title="🌙 A Quiet Connection", description="\n".join(result_lines), color=0x9b59b6)
+    if level_ups:
+        embed.add_field(name="\u200b", value="\n".join(level_ups), inline=False)
+    await channel.send(embed=embed)
+    await _log_world_event("🌙 **Elara's Ritual** — Elder Elara performed a private ritual at the Shrine, witnessed by town dwellers.")
+    log_action("Noon Event: Elara's Private Ritual")
 
 

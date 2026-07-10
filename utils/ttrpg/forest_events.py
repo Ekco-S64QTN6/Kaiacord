@@ -29,6 +29,16 @@ def resolve_event(event_key: str, sheet: dict) -> dict:
         "lost_merchant":     _lost_merchant,
         "ancient_coin":      _ancient_coin,
         "missing_persons_found": _missing_persons_found,
+        "blue_flame_echo":   _blue_flame_echo,
+        "strangers_coin":    _strangers_coin,
+        "moved_boundary":    _moved_boundary,
+        "watching_silvani":  _watching_silvani,
+        "early_bloom":       _early_bloom,
+        "wagon_tracks":      _wagon_tracks,
+        "unclaimed_lantern": _unclaimed_lantern,
+        "silent_chorus":     _silent_chorus,
+        "sap_slicked_roots": _sap_slicked_roots,
+        "uninvited_guest":   _uninvited_guest,
     }
     handler = handlers.get(event_key, _sylvan_sprites)
     return handler(sheet)
@@ -610,4 +620,233 @@ def _missing_persons_found(sheet: dict) -> dict:
         "terrified but alive. You kept watch, shared your rations, and guided them back safely. "
         "The family wept, Elder Elara nodded in silent approval, and you were rewarded for your valor."
     )
+    return r
+
+
+def _blue_flame_echo(sheet: dict) -> dict:
+    r = _base()
+    r["event_key"] = "blue_flame_echo"
+    r["title"] = "🔵 The Blue Flame's Echo"
+    wis_mod = (sheet.get("stats", {}).get("wis", 10) - 10) // 2
+    roll = secrets.randbelow(10) + 1 + wis_mod
+    dc = 9
+    if roll >= dc:
+        r["xp"] = 15
+        r["condition_add"] = "sharp_mind"
+        r["outcome"] = "A blue flame flickers, bringing an unsettling clarity to your mind. +15 XP, Sharp Mind (next INT check +2)."
+        r["narration_hook"] = (
+            "A low blue fire flickered briefly on a rotten stump before vanishing. "
+            "A sudden, cold clarity washed over your thoughts, leaving you strangely focused "
+            "but looking over your shoulder."
+        )
+    else:
+        r["xp"] = 5
+        r["hp_change"] = -3
+        r["outcome"] = "The eerie light flares, burning your hand. -3 HP, +5 XP."
+        r["narration_hook"] = (
+            "A pale blue light flared from the roots. It pulsed once, demanding something "
+            "you couldn't understand, and scorched your skin before fading to grey ash."
+        )
+    return r
+
+
+def _strangers_coin(sheet: dict) -> dict:
+    r = _base()
+    r["event_key"] = "strangers_coin"
+    r["title"] = "🎴 A Stranger's Coin"
+    if secrets.randbelow(100) < 15:
+        r["xp"] = 25
+        r["item_add"] = "aeridor_shard"
+        r["outcome"] = "You found a coin that isn't currency at all—it is a crystal fragment. +25 XP, Acquired: Aeridor Crystal Shard."
+        r["narration_hook"] = (
+            "You picked up a coin-shaped object. As you rubbed the grime away, the metal "
+            "dissolved, leaving a tiny humming crystalline fragment in your palm. It is an Aeridorian shard."
+        )
+    else:
+        gil = 15 + secrets.randbelow(21)
+        r["xp"] = 10
+        r["gil"] = gil
+        r["outcome"] = f"You found a coin of strange mint. +10 XP, +{gil} gil."
+        r["narration_hook"] = (
+            f"Tucked between two paving stones was a thick, dark coin of unfamiliar design. "
+            f"It is worth some gil ({gil} gil) to a collector, though its face remains unrecognizable."
+        )
+    return r
+
+
+def _moved_boundary(sheet: dict) -> dict:
+    r = _base()
+    r["event_key"] = "moved_boundary"
+    r["title"] = "🌲 The Moved Boundary"
+    r["xp"] = 20
+    r["outcome"] = "You notice a boundary marker stake shifted twelve feet from its original spot. +20 XP."
+    r["narration_hook"] = (
+        "A boundary marker stake, marked with Elara's seal, stands in a patch of fresh mud. "
+        "The ground beneath it has no tracks—yet it sits precisely twelve feet deeper into the overworld than it did yesterday."
+    )
+    return r
+
+
+def _watching_silvani(sheet: dict) -> dict:
+    r = _base()
+    r["event_key"] = "watching_silvani"
+    r["title"] = "👀 The Watching Silvani"
+    cha_mod = (sheet.get("stats", {}).get("cha", 10) - 10) // 2
+    roll = secrets.randbelow(10) + 1 + cha_mod
+    dc = 8
+    if roll >= dc:
+        gil = 20 + secrets.randbelow(21)
+        r["xp"] = 15
+        r["gil"] = gil
+        r["outcome"] = f"A silent figure observed you from the branch and left a purse. +15 XP, +{gil} gil."
+        r["narration_hook"] = (
+            "A Silvani hunter crouched silently on a high branch. They watched you for a long "
+            "moment, then dropped a leather pouch on the moss below before melting into the green canopy."
+        )
+    else:
+        r["xp"] = 8
+        r["outcome"] = "A silent watcher evaluated you from above, then slipped away. +8 XP."
+        r["narration_hook"] = (
+            "You felt eyes upon you. High up in the branches, a leaf-wrapped figure stood still as stone, "
+            "evaluating your stride. When you blinked, they had vanished without a sound."
+        )
+    return r
+
+
+def _early_bloom(sheet: dict) -> dict:
+    r = _base()
+    r["event_key"] = "early_bloom"
+    r["title"] = "🌱 Early Bloom"
+    r["xp"] = 10
+    r["item_add"] = "silver_moss"
+    r["outcome"] = "You gathered silvermoss blooming ahead of its season. +10 XP, Acquired: Silvermoss."
+    r["narration_hook"] = (
+        "A patch of silvermoss glows softly in the damp soil. It is blooming far too early in the cycle, "
+        "its pale filaments damp and cold. You carefully harvested it."
+    )
+    return r
+
+
+def _wagon_tracks(sheet: dict) -> dict:
+    r = _base()
+    r["event_key"] = "wagon_tracks"
+    r["title"] = "🛒 Wagon Tracks"
+    if secrets.randbelow(2) == 0:
+        gil = 10 + secrets.randbelow(16)
+        r["xp"] = 10
+        r["gil"] = gil
+        r["outcome"] = f"You found lost guild cargo along the tracks. +10 XP, +{gil} gil."
+        r["narration_hook"] = (
+            f"Heavy, deep wagon tracks gouge the Trade Road. Along the edge, you found a dropped "
+            f"Guild lockbox containing {gil} gil."
+        )
+    else:
+        r["xp"] = 10
+        r["condition_add"] = "sharp_mind"
+        r["outcome"] = "You found dropped guild survey notes on the road. +10 XP, Sharp Mind (next INT check +2)."
+        r["narration_hook"] = (
+            "You found a discarded piece of parchment detailing Guild survey points. "
+            "Studying the terrain notes gives you a keen understanding of the local contours."
+        )
+    return r
+
+
+def _unclaimed_lantern(sheet: dict) -> dict:
+    r = _base()
+    r["event_key"] = "unclaimed_lantern"
+    r["title"] = "🏮 The Unclaimed Lantern"
+    dex_mod = (sheet.get("stats", {}).get("dex", 10) - 10) // 2
+    roll = secrets.randbelow(10) + 1 + dex_mod
+    dc = 10
+    if roll >= dc:
+        r["xp"] = 12
+        r["item_add"] = "torch"
+        r["outcome"] = "You successfully salvaged the unclaimed lantern. +12 XP, Acquired: Torch."
+        r["narration_hook"] = (
+            "A small brass lantern burned quietly on a mossy root. You approached with light steps "
+            "and claimed the lantern before the unseen watcher could object."
+        )
+    else:
+        r["xp"] = 5
+        r["hp_change"] = -4
+        r["outcome"] = "You reached for the lantern but triggered a grudge. -4 HP, +5 XP."
+        r["narration_hook"] = (
+            "You reached for the lantern. A cold needle-like prick struck your wrist from the dark, "
+            "forcing you to recoil as a low, dry chuckle faded into the fog."
+        )
+    return r
+
+
+def _silent_chorus(sheet: dict) -> dict:
+    r = _base()
+    r["event_key"] = "silent_chorus"
+    r["title"] = "👂 The Silent Chorus"
+    int_mod = (sheet.get("stats", {}).get("int", 10) - 10) // 2
+    roll = secrets.randbelow(10) + 1 + int_mod
+    dc = 9
+    if roll >= dc:
+        xp = 15 + sheet.get("level", 1) * 3
+        r["xp"] = xp
+        r["outcome"] = f"You tuned in to the frequency of the ruins. +{xp} XP."
+        r["narration_hook"] = (
+            f"For a few heartbeats, the low hum of the stone structures aligned perfectly. "
+            f"You understood the shape of the silence, gaining a flash of deep insight (+{xp} XP)."
+        )
+    else:
+        r["xp"] = 5
+        r["outcome"] = "The humming ruins remained just out of reach. +5 XP."
+        r["narration_hook"] = (
+            "You stopped and strained to hear the rhythm in the ruins. It vibrated your teeth "
+            "but slipped away before you could grasp the pattern."
+        )
+    return r
+
+
+def _sap_slicked_roots(sheet: dict) -> dict:
+    r = _base()
+    r["event_key"] = "sap_slicked_roots"
+    r["title"] = "🍯 Sap-Slicked Roots"
+    r["xp"] = 8
+    r["item_add"] = "honey_sap"
+    if secrets.randbelow(100) < 30:
+        dmg = secrets.randbelow(2) + 1
+        r["hp_change"] = -dmg
+        r["outcome"] = f"You slipped and scraped yourself, but collected honeysap. -{dmg} HP, +8 XP, Acquired: Honey Sap."
+        r["narration_hook"] = (
+            f"You climbed the root structure to harvest honeysap, but the bark was slick. "
+            f"You slipped, scraping your thigh (-{dmg} HP), but held onto the jar."
+        )
+    else:
+        r["outcome"] = "You gathered sweet honeysap from the slick roots. +8 XP, Acquired: Honey Sap."
+        r["narration_hook"] = (
+            "Sticky, amber honeysap oozed from the fissures of the ancient root system. "
+            "You harvested a clean vial without losing your footing."
+        )
+    return r
+
+
+def _uninvited_guest(sheet: dict) -> dict:
+    r = _base()
+    r["event_key"] = "uninvited_guest"
+    r["title"] = "🦇 The Uninvited Guest"
+    wis_mod = (sheet.get("stats", {}).get("wis", 10) - 10) // 2
+    roll = secrets.randbelow(12) + 1 + wis_mod
+    dc = 12
+    if roll >= dc:
+        r["xp"] = 25
+        r["gil"] = 30
+        r["condition_add"] = "wisp_ward"
+        r["outcome"] = "You stood firm under the stalker's gaze. +25 XP, +30 Gil, Wisp Ward condition granted."
+        r["narration_hook"] = (
+            "A distorted shadow crouched over the trail. Instead of fleeing, you met its hollow gaze. "
+            "It shivered, spat a shard of bone and coins onto the dirt, and bounded away, leaving you warded."
+        )
+    else:
+        r["xp"] = 5
+        r["hp_change"] = -6
+        r["outcome"] = "The stalker lashed out from the shadows. -6 HP, +5 XP."
+        r["narration_hook"] = (
+            "A figure of grey rags and sharp claws lunged. You evaded the worst of it, "
+            "but a cold strike tore your cloak (-6 HP) before it vanished into the undergrowth."
+        )
     return r

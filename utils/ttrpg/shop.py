@@ -50,6 +50,18 @@ def get_shop_inventory(location: str = "hemlocks_store") -> tuple[dict, dict, di
             elif k in ACCESSORIES and k not in accessory_keys: accessory_keys.append(k)
             elif k in CONSUMABLES and k not in consumables_keys: consumables_keys.append(k)
 
+    from utils.ttrpg.world_state import load_world_state
+    wstate = load_world_state()
+    special_sale = wstate.get("special_item_sale")
+    if special_sale and isinstance(special_sale, dict):
+        itemk = special_sale.get("item")
+        if itemk:
+            if itemk in WEAPONS and itemk not in weapons_keys: weapons_keys.append(itemk)
+            elif itemk in ARMOR and itemk not in armor_keys: armor_keys.append(itemk)
+            elif itemk in HEADGEAR and itemk not in headgear_keys: headgear_keys.append(itemk)
+            elif itemk in BOOTS and itemk not in boots_keys: boots_keys.append(itemk)
+            elif itemk in ACCESSORIES and itemk not in accessory_keys: accessory_keys.append(itemk)
+            elif itemk in CONSUMABLES and itemk not in consumables_keys: consumables_keys.append(itemk)
 
     weapons_keys.extend(seasonal.get("weapons", []))
     armor_keys.extend(seasonal.get("armor", []))
@@ -73,6 +85,16 @@ def get_shop_inventory(location: str = "hemlocks_store") -> tuple[dict, dict, di
                 if itemk in d:
                     d[itemk] = d[itemk].copy()
                     d[itemk]["value"] = special["shop_special"].get("price", d[itemk]["value"])
+
+    # Overlay special item sale from world state
+    if special_sale and isinstance(special_sale, dict):
+        itemk = special_sale.get("item")
+        price = special_sale.get("price")
+        if itemk:
+            for d in (weapons, armor, headgear, boots, accessories, consumables):
+                if itemk in d:
+                    d[itemk] = d[itemk].copy()
+                    d[itemk]["value"] = price
 
     return weapons, armor, headgear, boots, accessories, consumables
 
@@ -157,6 +179,12 @@ def process_purchase(sheet: dict, item_key: str, quantity: int = 1, reputation: 
     if special and "shop_special" in special and loc == "hemlocks_store":
         if special["shop_special"].get("item") == real_key:
             base_value = special["shop_special"].get("price", base_value)
+
+    # Apply special_item_sale world_state override
+    special_sale = wstate.get("special_item_sale")
+    if special_sale and isinstance(special_sale, dict) and loc == "hemlocks_store":
+        if special_sale.get("item") == real_key:
+            base_value = special_sale.get("price", base_value)
 
     val = int(base_value * quantity * price_mult)
     gil = sheet.get("gil", 0)

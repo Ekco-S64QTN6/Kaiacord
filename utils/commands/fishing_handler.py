@@ -400,6 +400,22 @@ async def _handle_cast(ctx, interaction: discord.Interaction, uid: str, uname: s
         await interaction.followup.send("No character found.", ephemeral=True)
         return
 
+    from utils.ttrpg.world_state import load_world_state
+    wstate = load_world_state()
+    if wstate.get("fishing_water_tainted", False):
+        await interaction.followup.send(
+            embed=discord.Embed(
+                title="🌊 Murky Waters",
+                description=(
+                    "**⚠️ Tricklebrook Pond is tainted!**\n\n"
+                    "The waters run black and foul. The fish are gone or dead in the sludge. "
+                    "You cannot fish until the headwaters clear."
+                ),
+                color=0x2c3e50,
+            )
+        )
+        return
+
     if sheet.get("location") != "tricklebrook_pond":
         await interaction.followup.send(
             embed=discord.Embed(

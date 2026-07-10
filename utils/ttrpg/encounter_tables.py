@@ -150,6 +150,9 @@ EVENTS = {
         ("abandoned_camp",     5), ("dream_walker",       4),
         ("twin_wisps",         4), ("lost_merchant",      4),
         ("ancient_coin",       4),
+        ("blue_flame_echo",    4), ("strangers_coin",     6),
+        ("moved_boundary",     5), ("early_bloom",        6),
+        ("sap_slicked_roots",  8),
     ],
     "whisperwood_deep": [
         ("injured_silvani",   15), ("old_man_riddle",    10),
@@ -160,18 +163,25 @@ EVENTS = {
         ("whisper_in_bark",    8), ("strange_statue",     5),
         ("echo_of_aeridor",    8), ("dream_walker",       5),
         ("twin_wisps",         5), ("cactuar_sighting",   2),
+        ("blue_flame_echo",    4), ("watching_silvani",   5),
+        ("early_bloom",        4), ("unclaimed_lantern",  5),
+        ("uninvited_guest",    3),
     ],
     "aeridor_ruins": [
         ("aeridor_fragment",  20), ("crystal_resonance", 18),
         ("veiled_elder",      14), ("old_man_riddle",    12),
         ("timid_tonberry",    10), ("mognet_delivery",    8),
         ("echo_of_aeridor",   10), ("strange_statue",     8),
+        ("blue_flame_echo",    6), ("unclaimed_lantern",  5),
+        ("silent_chorus",      6), ("uninvited_guest",    4),
     ],
     "trade_road": [
         ("gilded_mushroom",   16), ("old_man_riddle",    14),
         ("injured_silvani",   14), ("moogle_sighting",   12),
         ("chocobo_tracks",    12), ("mognet_delivery",   10),
         ("lost_merchant",     12), ("abandoned_camp",    10),
+        ("strangers_coin",     7), ("wagon_tracks",      6),
+        ("sap_slicked_roots",  8),
     ],
 }
 

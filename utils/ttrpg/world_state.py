@@ -15,6 +15,9 @@ DEFAULT_STATE = {
     "xp_mult": 1.0,
     "gil_mult": 1.0,
     "caravan_active": False,
+    "fishing_water_tainted": False,
+    "watchtower_bonus": False,
+    "special_item_sale": {},
     "last_tick": 0
 }
 _cache = None
@@ -88,6 +91,21 @@ def load_world_state() -> Dict[str, Any]:
             if state.get("encounter_mod_expiry", 0) > 0 and now > state["encounter_mod_expiry"]:
                 state["encounter_mod"] = {}
                 state["encounter_mod_expiry"] = 0
+                modified = True
+            # fishing_water_tainted
+            if state.get("fishing_water_tainted_expiry", 0) > 0 and now > state["fishing_water_tainted_expiry"]:
+                state["fishing_water_tainted"] = False
+                state["fishing_water_tainted_expiry"] = 0
+                modified = True
+            # watchtower_bonus
+            if state.get("watchtower_bonus_expiry", 0) > 0 and now > state["watchtower_bonus_expiry"]:
+                state["watchtower_bonus"] = False
+                state["watchtower_bonus_expiry"] = 0
+                modified = True
+            # special_item_sale
+            if state.get("special_item_sale_expiry", 0) > 0 and now > state["special_item_sale_expiry"]:
+                state["special_item_sale"] = {}
+                state["special_item_sale_expiry"] = 0
                 modified = True
                 
             if modified:

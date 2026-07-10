@@ -216,6 +216,7 @@ def _create_sync(user_id: str, user_name: str, character_name: str,
         "rank": "Novice",
         "reputation": 0,
         "bank_balance": 0,
+        "npc_last_topic": {},
         "created_at": time.time(),
         "last_updated": time.time(),
     }

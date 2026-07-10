@@ -419,12 +419,19 @@ The Silvani are the race with the most in-game presence through events:
 - *"The flame at the Shrine has been burning blue for three nights. It's done that twice before. Neither time was pleasant."*
 - *"The Aeridor constructs are becoming more active. They weren't dormant — they were waiting."*
 - *"Whatever your advanced class becomes, use it carefully. Power without restraint is how we got the ruins in the first place."*
+- *"The Ironclad Guild has been asking about the Trade Road again. I gave them nothing they didn't already have."*
+- *"I don't sleep well anymore. I used to. I could tell you when that stopped, if you asked the right way."*
+- *"Every founder of this town came here to study the ruins. I sometimes wonder if any of them meant to stay this long."*
+- *"The names on the Shrine stones keep growing. I don't always know who adds them."*
+- *"There's a name at the Shrine with no date on it. I know whose it is. I'm not going to tell you."*
 
 **Lore Implications:**
 - She knows significantly more than she tells players. "I'm handling it" re: something from the ruins is alarming.
 - She has a history with the Shrine flame that she hasn't shared.
 - The warning about advanced class power connects directly to the Aeridor collapse (power without restraint).
 - There is a boss in the game: **"Elder Elara (Turned)"** — *"Something has been inside her for a long time. The weight she carries. The warnings she wouldn't give. Now you know why."* This is the long-game reveal: Elara is already compromised by Aeridorian influence or something worse.
+- She actively deflects inquiry about the Ironclad Guild and refuses to clarify who owns the undated name on the Shrine stones.
+- Her doorstep flowers (wilted wildflowers left anonymously) hint at a secret admirer or a hidden, non-verbal connection with a town dweller.
 
 ### Old Man Hemlock
 **Location:** Hemlock's General Store
@@ -441,12 +448,19 @@ The Silvani are the race with the most in-game presence through events:
 - *"The ones who ask about the deep ruins never come back the same."*
 - *"You want good armor? Check the dungeon. What Hemlock stocks is comfortable. What the ruins hold is built to survive."*
 - *"The bard's been filling people's heads with songs again. Lovely voice. Wrong about half the details."*
+- *"That jar on the top shelf isn't for sale. It's not decoration either."*
+- *"Every Aeridor shard I buy goes somewhere. Somewhere isn't 'the drawer.' That's all you get."*
+- *"The clock keeps better time than it should for its age. I didn't build it. I didn't buy it either, come to think of it."*
+- *"Caelindra asked me once what a 'resonance depot' was. I told her the truth and she didn't believe me. Smart girl."*
+- *"Guild men don't shop here much. When they do, they only ask questions. Never buy anything. Tells you something."*
 
 **Lore Implications:**
 - His knowledge of Aeridor ("resonance depot") is deeper than a general store owner should have. He may be descended from the founding scholars.
 - He *buys* Aeridor shards deliberately and won't explain. He has a use for them.
 - The extra rope the guards ordered — what do they need rope for in the ruins that they'd request more of it?
 - "The seal in wax on the top shelf" — this is a planted mystery, never explained.
+- He knows the clock's mysterious origin and timekeeping qualities, hinting at Aeridorian self-winding mechanism design.
+- He confirmed the "resonance depot" concept to Caelindra, creating a direct lore-continuity link.
 
 ### Mira (The Barkeep)
 **Location:** The Stone Hearth
@@ -463,11 +477,20 @@ The Silvani are the race with the most in-game presence through events:
 - *"Three adventurers went into the ruins last week. Two came back. The one who didn't was the strongest of them."*
 - *"There are stories about what the Shrine flame means when it changes color. I don't repeat them. Bad for business."*
 - *"You look like you've been through something. Sit. First one's on me."*
+- *"Ironclad men in here three nights running now. Fourth night, I stop pretending not to notice."*
+- *"The Hooded Figure's chair was empty on the Long Night. Fire burned blue that whole evening. I didn't ask why. You don't ask that man things."*
+- *"Someone left flowers at Elara's door again. Second time this year. She never says who."*
+- *"A traveler through here said the Silverstream's running black up near Riverbend. Nobody's gone to look. I don't blame them."*
+- *"Caelindra's songs used to be about harvests and heroes. Now they're about things in the dark. She says it's just the times."*
+- *"I've poured for men who came back from the ruins wrong. Not hurt. Wrong. You learn to tell the difference."*
+- *"The Silvani don't drink here. Never have. One stood in the doorway once, just looking. Didn't come in."*
+- *"Three went into the ruins last week. Two came back. The one who didn't was the strongest of the three. Sit with that a while."*
 
 **Lore Implications:**
 - She knows the Shrine flame color-change stories and actively suppresses them. She's protecting the town's emotional state.
-- The Silverstream running black is a significant environmental event that nobody has investigated.
-- Someone left flowers at Elara's door anonymously — possible Silvani contact, possible Hooded Figure, possible something else.
+- She notices the Guild's constant patrols and the Silvani's silent watchfulness at the tavern door.
+- She has observed the "wrongness" of adventurers returning from the ruins (mental dissociation/contamination).
+- She links the black headwaters of the Silverstream at Riverbend to the general decay of Tricklebrook Pond.
 
 ### The Hooded Figure
 **Location:** The Stone Hearth (same corner, every night)
@@ -483,12 +506,22 @@ The Silvani are the race with the most in-game presence through events:
 - *"The three flames on the seal. Fire, stone, silence. You've seen it. Whether you know what it means is a different question."*
 - *"The dungeon shrine rooms respond to those who've listened at the Oakhaven flame. Not everyone can hear it."*
 - *"Your choice of path matters. The Aeridor records tracked class designations. Some of those records are still active."*
+- *"You've been to the Shrine. I can tell. Something about the way you don't quite look at fire anymore."*
+- *"Caelindra collects our words like they're coins. She doesn't know which ones are still true."*
+- *"The Guild thinks the road is theirs. The road remembers whose it actually was."*
+- *[He turns a coin over in his fingers without looking at it. He doesn't offer to show you.]*
+- *"Elara measures the boundary because she thinks measuring it will make it stop moving."*
+- *"The tonberries were here before the mine was a mine. Before Oakhaven was anything at all."*
+- *"Ask Mira about the flowers at Elara's door. Don't ask her who told me she knows about them."*
+- *[He is quiet for a long moment.] "Some names don't get carved because they're still being decided."*
 
 **Lore Implications:**
 - He knows the three-flame seal and its dungeon applications explicitly — he may have planted the shrine rooms himself.
 - "Aeridor didn't fall. It was absorbed." — This is the most accurate description of what happened. The Whisperwood ate it.
 - There is a boss: **"The Hooded Figure"** — *"The man from the corner of the Stone Hearth. He is not what he appeared to be. He has not appeared to be anything for a very long time."* This confirms he is not human and has been operating for an extremely long time.
 - He never tips the bard. Always listens. (Mira's observation — the bard is knowingly collecting information he wants.)
+- He carries unique coins stamped with the triple-spiral glyph, which players carrying Aeridor shards recognize as a signature physical seal key rather than currency.
+- He knows that Elara is trying to calculate/contain the Whisperwood's expansion and knows who is leaving the flowers at her door.
 
 ### Watchtower Guard
 **Location:** The Watchtower
@@ -504,11 +537,16 @@ The Silvani are the race with the most in-game presence through events:
 - *"We've started double-watching at dawn. Something comes out of the ruins before sunrise. We don't talk about what it looks like."*
 - *"The dungeon entrance opened up near the east wall three months ago. Before you ask: no, we haven't gone in. We're guards, not adventurers."*
 - *"Lost two good scouts to the ruins this season. One of them had twenty years of experience. Didn't help."*
+- *"We doubled the dawn watch. Whatever it is, it comes out the same hour, near enough. We don't talk about the shape of it."*
+- *"Hemlock keeps asking about road conditions like he's expecting something specific. We don't ask him what."*
+- *"The dungeon entrance by the east wall hasn't changed in three months. We check. We don't go in."*
+- *"Lost a scout with twenty years in her. Didn't matter how long she'd done this. That's the part that stays with you."*
 
 **Lore Implications:**
 - Something exits the ruins before dawn consistently. The guards have seen it and collectively agreed not to describe it.
 - Hemlock is asking the guard about the Trade Road specifically — there's coordination between them.
 - "Don't go east. Not today." — Implies the guard has information about timing, cycles, or schedules of whatever comes from the ruins.
+- The guards keep watch over the iron-threaded rope in the tower, hinting at a secret expedition prep.
 
 ### Sister Maren
 **Location:** Herbalist's Hut (behind the Shrine)
@@ -524,12 +562,17 @@ The Silvani are the race with the most in-game presence through events:
 - *"Blood thistle mixed with honey sap. Basic restorative. The Aeridorian archives called it a 'combat tincture.' Different name, same principle."*
 - *"Healers and warriors aren't different callings. Both keep people alive. One just does it more directly."*
 - *"If you're choosing a path forward — Paladin, Shaman, High Priest — come back and speak to me first. Some paths have aftereffects."*
+- *"There's a root that used to grow in the ruins. Hasn't shown up in years. I don't know if it died out or moved."*
+- *"The margin notes in my ledger aren't mine. Older hand. Shakier. I've never asked whose."*
+- *"The Aeridorian archives called basic restoratives 'combat tinctures.' Different name. Same purpose. Some things don't change."*
+- *"Silverleaf isn't a common find. When I finish this brew, you'll understand why I've been so patient about it."*
 
 **Lore Implications:**
 - She knows Aeridorian archive terminology ("combat tincture") — she has access to or has read Aeridorian texts.
 - "A root that only grows in the ruins. I haven't seen it in years." — The ruins have changed enough to alter what grows there. Something changed.
 - Her notes have another person's handwriting in the margins (older, shakier hand). She's working from inherited research.
 - "Some paths have aftereffects" re: class advancement — she knows mechanically dangerous outcomes of Resonance-adjacent powers.
+- She is patient with Silverleaf brewing, hinting at highly potent alchemical elixirs from old templates.
 
 ### Caelindra (The Bard)
 **Location:** The Stone Hearth
@@ -545,11 +588,91 @@ The Silvani are the race with the most in-game presence through events:
 - *"The ruins have a sound at midnight. Not loud. But it's there if you're quiet enough to hear it."*
 - *"I've been collecting Aeridorian phrases for seven years. Half of them describe things that don't exist anymore. The other half... I'm not certain."*
 - *"Ask me for a song. I'll make it about you. You might not like what I notice."*
+- *"Seven years collecting Aeridorian phrases. Half describe things that are gone. The other half I'm still afraid to translate properly."*
+- *"The ruins hum at midnight. Low. Almost a chord. I've tried to write it down. I can't."*
+- *"The Hooded Figure never once asked me for a song. He just listens. I've started wondering if he already knows how they end."*
+- *"I asked Hemlock what 'resonance depot' meant once. He told me straight. I wish he hadn't."*
+- *"Every song about Oakhaven ends up sadder than I meant it to be. I don't think that's me."*
+- *"There's a phrase I found — three words, repeated in a circle. I've heard the same circle in a dream I didn't ask for."*
+- *"I travel between here and the coast. What I hear on that road, I keep. Some of it isn't for singing."*
+- *"Ask me for a ballad sometime with your name in it. Fair warning — I notice more than people want noticed."*
 
 **Lore Implications:**
-- She has been documenting Aeridorian language for seven years. She may be one of the most knowledgeable people in Oakhaven about actual Aeridorian linguistics.
+- She has been documenting Aeridorian language for seven years. She may be one of the most vocabulary-rich people in Oakhaven regarding Aeridorian linguistics.
 - The ruins have a sound at midnight — she has personally listened for it.
-- Hemlock says she's wrong about "half the details" in her songs
+- Hemlock says she's wrong about "half the details" in her songs.
+- She has dreamed about the same "three words in a circle" phrase that is inscribed on the Shrine altar, suggesting a subconscious link to the Silent Ones.
+
+### Traveling Merchant
+**Location:** Trade Road (Caravan)
+**Role:** Traveling merchant
+**Voice/Manner:** Sharp eye for profit, friendly but brief. Sand-bleached silks.
+**What He Says:**
+- *"The road north? It's quiet lately. Too quiet. Even the bandits are hiding. Something's moved into the Aeridor Ruins, and it isn't friendly."*
+- *"Everything I sell is Tier III. You won't find this level of craftsmanship in a muddy village like Oakhaven. Pick one piece and use it well."*
+- *"We've traded from the Crystal Peaks to the Southern Sea. Aethelgard is... different. The air tastes like old magic and fresh blood."*
+- *"One gear item per person. No exceptions. I've got a schedule to keep and a dozen towns waiting for a taste of the masterworks."*
+- *"The Whisperwood's gone quiet on the northern stretch of road. Quiet's worse than loud, in my experience."*
+- *"I've traded from the Crystal Peaks to the southern sea. Aethelgard tastes like old magic and something recently spilled."*
+- *"One gear item per customer. Not negotiable. I've a schedule and eleven towns waiting on what's left in this wagon."*
+**Lore Implications:**
+- Bandits and wildlife are actively avoiding the Trade Road, indicating a rising threat inside the Aeridor Ruins.
+- Aethelgard is viewed as an unusually hostile and magically heavy land compared to the rest of the continent (the Crystal Peaks/southern sea).
+
+### Barnaby
+**Location:** Housing District
+**Role:** Woodworker, furniture builder
+**Voice/Manner:** Stout man with sawdust permanently in his hair. Enthusiastic, always sanding something.
+**What He Says:**
+- *"The alchemy bench? Best investment you'll make. Maren charges for the use of her table, you know. She's too polite to say it but she does."*
+- *"Oak from the Whisperwood edge. I don't take from the deep. The deep keeps its wood."*
+- *"A throne? You want a throne. Everyone says they don't want a throne. Then they see it."*
+- *"I made Elder Elara a chair once. She sat in it once. Never came back. I consider it my greatest work."*
+- *"The Aeridorian tapestry — found that pattern in the ruins. Don't ask how I survived. I have some questions about that myself."*
+- *"Stone throne's for the keep only. You want to know what it feels like to sit in it before you buy? Can't. That's part of the deal."*
+- *"Built Elara a chair once. She sat in it exactly once. I still don't know what she saw sitting in it."*
+- *"The Aeridorian tapestry pattern — I found it in the ruins. Don't ask how I got out. I have questions about that myself, some nights."*
+- *"Oak from the Whisperwood edge only. I don't take from the deep parts. The deep keeps its own wood, and I'd rather it kept keeping it."*
+**Lore Implications:**
+- The deep parts of the Whisperwood have a protective consciousness over their wood.
+- Barnaby escaped from the ruins after recovering an Aeridorian tapestry pattern, though he has blank spots in his memory regarding how.
+
+### Pip
+**Location:** Housing District
+**Role:** Pet vendor, caretaker
+**Voice/Manner:** Small, quiet. Surrounded by animals and moogles.
+**What He Says:**
+- *"The tonberry? It's docile. I promise. It just holds the knife because that's what tonberries do."*
+- *"Feed them every day. I can't stress this enough. Every day."*
+- *"The construct isn't a pet. But it stays. So."*
+- *"The chocobo chick will imprint on you. That's permanent. Think about whether you want that responsibility."*
+- *"Moogle's been with me six years. Delivers letters I didn't ask it to. Brings back things I didn't send. I've stopped questioning it."*
+- *"The sprite came from the Whisperwood edge. It followed me home. The Whisperwood let it, I think. I don't know what that means."*
+- *"The moogle's been delivering letters I never asked it to send. I've stopped questioning where they go."*
+- *"Sprite followed me home from the Whisperwood edge. The forest let it. I don't know what that says about either of us."*
+- *"Feed them every day. Every single day. I've seen what happens when people don't, and I don't like discussing it."*
+**Lore Implications:**
+- Moogles operate independently of Pip, delivering letters autonomously.
+- Whisperwood sprites willingly follow Oakhaven dwellers, implying a strange curiosity or watchfulness from the forest.
+
+### Old Gregor
+**Location:** Tricklebrook Pond
+**Role:** Fisherman, tackle merchant
+**Voice/Manner:** Quiet, focused on the water. Does not look away from his bobber.
+**What He Says:**
+- *"The fish know when you are desperate. That's why you aren't catching anything."*
+- *"I've seen things come out of the ruins at midnight. I don't fish here at midnight anymore."*
+- *"The Pale King broke my line forty years ago. I'm still waiting for him to come back."*
+- *"Best bait is whatever they're biting. Worst bait is whatever you brought."*
+- *"Thornax doesn't answer prayers. He answers behavior. Prove you belong, and the forest opens."*
+- *"Don't pull the line too early. Patience is the only currency here."*
+- *"Thornax doesn't answer prayers. He answers behavior. The pond's the same — it doesn't care what you want, only what you do."*
+- *"I don't fish at midnight. Haven't in years. Something about the way the water moves after dark near the deep pool."*
+- *"The Pale King's still down there somewhere. Forty years and I'm still not sure if I want to catch him or just confirm he's real."*
+**Lore Implications:**
+- The water at Tricklebrook Pond exhibits unnatural movement after midnight.
+- Gregor is seeking the Pale King (legendary fish) to prove the entity's existence rather than just catch it.
+- Thornax (Balance) is actively worshiped by Gregor as a deity of behavioral cause-and-effect.
 
 ## 11. CURRENT QUESTS — TEXT & HOOKS
 
@@ -575,7 +698,7 @@ The Silvani are the race with the most in-game presence through events:
 **NPC:** Sister Maren | **Level:** 4
 **Description:** *"Sister Maren needs rare herbs found only near the Trade Road. Defeat a 'Road Bandit' to recover her stolen supplies."*
 **Tasks:** Kill a Road Bandit → Return to Maren
-**Reward:** 200 XP, 50 Gil, Potion Recipe (unlock)
+**Reward:** 200 XP, 50 Gil, Potion Recipe (unlock), Silverleaf
 **Completion:** *"Sister Maren's eyes light up. 'The Silverleaf! Now I can finish the brew. Bless you.'"*
 
 **Lore Hook:** What brew is she finishing? Silverleaf is a rare ingredient mentioned only in this completion text. This implies a specific project Maren is working on that the current recipe system doesn't fully reflect.

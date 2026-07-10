@@ -154,8 +154,28 @@ Speak as Kaia, the GM. Lowercase, lowercase only.
 [END WORLD NARRATION]"""
 
 
+RUMOR_SEED_TOPICS = [
+    "the Silverstream running black near Riverbend",
+    "strange coins turning up in Oakhaven",
+    "Elara's locked door on the solstice",
+    "the Whisperwood boundary marker found in the wrong place",
+    "the Silvani buying out Hemlock's antidote stock",
+    "guild wagons on the Trade Road at odd hours",
+    "the extra rope the watchtower guards ordered",
+    "flowers left at Elara's door anonymously",
+    "the clock in Hemlock's store keeping better time than it should",
+    "men returning from the ruins physically unharmed but wrong",
+    "a lost Aeridorian verse about three crowns and a gate in the shadow",
+    "the ruins humming low at midnight",
+    "the Pale King breaking lines in Tricklebrook Pond",
+    "creatures coming out of the ruins before sunrise"
+]
+
+
 def build_rumor_prompt() -> str:
-    return """[AETHELGARD WORLD CONTEXT]
+    import secrets
+    seed = secrets.choice(RUMOR_SEED_TOPICS)
+    return f"""[AETHELGARD WORLD CONTEXT]
 WORLD SETTING: Medieval fantasy. No modern technology. Pre-industrial.
 You are Kaia, voicing rumors heard at the Stone Hearth inn in OakHaven.
 OakHaven sits on the edge of the Whisperwood, built on ruins of the lost civilization Aeridor.
@@ -165,9 +185,8 @@ Factions: The Ironclad Guild (Grimstone mine owners), Whisperwood Tribes, The Ve
 Gods: Aerthis (Order), Sylvara (Chaos), Thornax (Balance), Morvenna (Death).
 
 Generate ONE rumor. 2-3 sentences. Something a traveler, farmer, or guard might overhear.
-It should hint at the world without explaining it. Specific names and places welcome.
+The rumor MUST reference or riff on this specific topic: "{seed}".
 Keep Kaia's voice: lowercase, grounded, no purple prose. No "The… noun. It's… weight." cadence.
-Vary the topic — don't always use Aeridor or the glow. Use the full world.
 [END CONTEXT]
 
 Output only the rumor text. No preamble."""

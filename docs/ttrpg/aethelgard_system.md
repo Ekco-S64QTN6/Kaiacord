@@ -221,7 +221,7 @@ Each hunt costs 1 of 5 daily hunts. Hunts may trigger a **forest event** instead
 | Whisperwood Deep | 15% | 4+ |
 | Aeridor Ruins | 10% | 7+ |
 
-### Forest Events (21 total)
+### Forest Events (31 total)
 
 | Event | Key Mechanic |
 |:--|:--|
@@ -246,6 +246,16 @@ Each hunt costs 1 of 5 daily hunts. Hunts may trigger a **forest event** instead
 | 🧭 Lost Merchant | 20-60 Gil reward |
 | 🪙 Ancient Coin | Lucky Charm item |
 | 📋 Missing Person Found | Escort missing villager back → +100 XP, +100 Gil, +10 Reputation |
+| 🔵 The Blue Flame's Echo | WIS check DC 9 → Sharp Mind or -3 HP |
+| 🎴 A Stranger's Coin | 15% Aeridor Crystal Shard OR 15-35 Gil |
+| 🌲 The Moved Boundary | XP reward + border shift lore |
+| 👀 The Watching Silvani | CHA check DC 8 → 20-40 Gil OR XP only |
+| 🌱 Early Bloom | Gather Silvermoss + XP |
+| 🛒 Wagon Tracks | 50% Gil OR 50% Sharp Mind |
+| 🏮 The Unclaimed Lantern | DEX check DC 10 → Torch OR -4 HP |
+| 👂 The Silent Chorus | INT check DC 9 → scaled XP reward |
+| 🍯 Sap-Slicked Roots | Gather Honey Sap + XP (30% slip/HP loss) |
+| 🦇 The Uninvited Guest | WIS check DC 12 → Wisp Ward + 30 Gil OR -6 HP |
 
 ---
 
@@ -463,6 +473,46 @@ Overworld activities change dynamically based on time of day (Day is 6 AM to 6 P
 - **Night-time combat modifiers**: Undead encounter spawn rates are doubled.
 - **Tier shift**: 25% chance during night hunts to shift the encounter target up by one tier (e.g. Easy becomes Medium, Hard becomes Deadly), providing higher challenge and better loot.
 - **Morning healing**: Sylvan sprites may restore minor health passively to players exploring in the morning.
+
+---
+
+## Noon Events
+
+At 12:00 PM (Noon) daily, a random dynamic world event is selected from the active event pool and triggered in `#aethelgard` (with effects lasting up to 4 hours).
+
+### Active Noon Event Pool (29 total)
+
+| Event | Code Key | Type / Impact | Description |
+|:--|:--|:--|:--|
+| 🔔 Village Alarm | `raid` / `invasion` | Combat (Defense) | Scaled raid on Oakhaven by waves of random themed monsters. Present players defend to earn XP/Gil. |
+| 👁️ A Veiled Elder Appears | `oracle` | Buff | Grants a random class check buff (STR +1, DEX +1/2, INT +2, WIS +2, etc.) to present players. |
+| 📬 Moogle Mail Drop | `moogle` / `mail` | Items | Moogles drop random items (Healing Herb, Bandage, Tonic, Aeridor Shard, Lucky Charm) to present players. |
+| 💎 Aeridorian Tremor | `tremor` / `aeridor` | XP | Ruin resonance tremor grants all present players +50 XP. |
+| 🔪 Tonberry Procession | `tonberry` / `procession` | Mixed | Tonberries march through town. 80% chance for +10-25 XP and +10-30 Gil; 20% chance to lose 5-12 HP from eye contact. |
+| ⛈️ Storm of the Spine | `storm` | Buff + XP | Spine storm hits town, granting class-specific buffs and +5-14 XP to present players. |
+| 🐪 Caravan Arrival | `caravan` | Shop | Spawns the Corvus Road Trading Co. caravan (Trade Road) selling Tier 3 gear (limit 1 purchase/customer). |
+| 🎵 Bard Performance | `bard` | Narrative | Caelindra the bard performs an LLM ballad summarizing recent world events and top adventurers. |
+| 🤖 Watchtower Intrusion | — | Combat (Defense) | Ranks of Aeridorian constructs attack. Defender waves fight constructs for XP and Gil. |
+| 💰 Trade Windfall | — | Gil | Tax recalculation or shard price spike grants all present players +50 to +150 Gil. |
+| 🥀 Whisperwood Blight | — | Penalty | Mist creeping from the forest edge ruins a crop plot for up to 3 random farm owners in Oakhaven. |
+| 🕯️ Procession of Pilgrims | — | Buff + Healing | Pilgrims arrive, restoring +10 HP, granting Blessed to present players, and enhancing shrine blessings for 4 hours. |
+| 👁️ Night Terror Warning | — | Mechanics Mod | Shadow beast warning shifts all solo hunts up by 1 threat tier (+1 difficulty, better loot/XP) for 4 hours. |
+| 🤖 Construct Breach | `construct` | Combat (Defense) | An intense breach of constructs attacking Oakhaven town gates. |
+| 🐪 Caravan Ambush | `ambush` | Combat (Defense) | A raid defense centered on protecting the merchant caravan cargo from bandits on the Trade Road. |
+| 📋 Market Glut / Shortage | `market` | Economy Mod | 50% chance for Market Glut (all shop prices -20% for 4h) or 50% chance for Bandit Blockade (prices +25% for 4h). |
+| 🌸 Whisperwood Bloom | `bloom` | Spawn Mod | Pollen bloom increases all Whisperwood edge/deep forest event chances by +15% for 4 hours. |
+| 🕯️ Shrine Vigil | `vigil` | Buff Window | Enhanced blessing window at Oakhaven Shrine (grants +5 HP and Blessed) for 4 hours. |
+| 📋 Missing Person Notice | `missing` | World Quest | Distress notice posted for a random villager. Players must hunt/scout in a target zone to find and escort them back. |
+| ⚙️ Ironclad Guild Envoys | `ironclad_envoys` | Economy Mod | Guild envoys buy up local supplies, inflating Hemlock's and Caravan prices by 15% for 4 hours. |
+| 🌊 The Silverstream Runs Black | `silverstream_blackwater` | Environment | Murky runoff taints Tricklebrook Pond headwaters; fishing is temporarily disabled/dangerous for 4 hours. |
+| 🌘 The Hooded Figure's Vigil | `hooded_figures_vigil` | Buff | Stranger at the hearth casts an eerie shadow; patrons present at Stone Hearth receive the Veiled Watched buff. |
+| 📜 Caelindra's Lost Verse | `caelindras_lost_verse` | XP / Lore | Caelindra recites an ancient Aeridorian verse, granting Stone Hearth patrons +15 XP. |
+| 🔭 The Watchtower's Silence | `watchtower_silence` | Scout Mod | On-edge guards share detailed logs; scouts visiting the Watchtower get enhanced scouting reports for 4 hours. |
+| 🧪 Silvani Antidote Run | `silvani_antidote_run` | Items | A Silvani hunter slips into town and leaves a free bandage for each present adventurer. |
+| 🕳️ Bank Alarm — The Coin Hoarder | `the_coin_hoarder` | Combat / Penalty | Bank alarm sounds. Repelling repays XP/Gil. Failing raids character bank balances for 5% of their gold. |
+| 🍃 Whisperwood Boundary Shift | `boundary_shift` | Mechanics Mod | Border stakes shifted; Whisperwood Edge solo hunts shift up by 1 tier (increased difficulty/loot) for 4 hours. |
+| 🫙 The Sealed Wax Jar | `sealed_wax_jar` | Shop Special | Hemlock opens a wax jar, offering Lucky Charms at a special discount (20 Gil) for 4 hours. |
+| 🌙 Elara's Private Ritual | `elaras_private_ritual` | XP / Lore | Oakhaven residents witness Elara performing a shrine ritual, granting +10 XP. |
 
 ---
 

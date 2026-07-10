@@ -3,6 +3,23 @@ Hardcoded look-at targets per location — `!rpg look at <thing>`
 Provides immersive flavor text when players inspect specific objects at locations.
 """
 
+def _coins_look(sheet: dict) -> str:
+    inv = sheet.get("inventory", []) if sheet else []
+    has_shard = "aeridor_shard" in inv or "symbol_of_the_silent_ones" in inv or any("shard" in k or "coin" in k for k in inv)
+    if has_shard:
+        return (
+            "🪙 **The Coins**\n\n"
+            "You examine the corner table where the Hooded Figure sits. "
+            "The coin he pays with bears the same triple-spiral glyph as the Aeridorian shards you carry. "
+            "It is not guild currency. It is a key, pressed flat and stamped with silence."
+        )
+    else:
+        return (
+            "🪙 **The Coins**\n\n"
+            "If you look closely at the corner table where the Hooded Figure sits, you notice faint ring marks in the wood. "
+            "But you haven't seen the unusual currency he pays with up close — unless you carry a strange artifact from the ruins yourself."
+        )
+
 LOCATION_LOOK_TARGETS = {
     "shrine": {
         "flame": (
@@ -118,6 +135,7 @@ LOCATION_LOOK_TARGETS = {
             "The tuning pegs are different woods — replacements over years.\n\n"
             "The sound it makes is out of proportion to how tired it looks."
         ),
+        "coins": _coins_look,
     },
     "hemlocks_store": {
         "shelves": (
@@ -235,6 +253,12 @@ LOCATION_LOOK_TARGETS = {
             "*In Aeridorian tradition, coins left at water sources were offerings to resonance pathways beneath the earth.*\n"
             "Whether this person knew that is unclear."
         ),
+        "flowers": (
+            "🌸 **The Flowers**\n\n"
+            "A small bundle of wildflowers lies quietly on Elara's doorstep. "
+            "They are slightly wilted, showing no sign of who left them or when. "
+            "A faint, sweet scent still clings to the petals, contrasting with the heavy stone of the threshold."
+        ),
     },
     "herbalists_hut": {
         "herbs": (
@@ -281,6 +305,13 @@ LOCATION_LOOK_TARGETS = {
             "🏡 **The Plots**\n\n"
             "Small staked-out areas. Each has a sign with a name. Some are ornate, some are just charcoal on a plank.\n"
             "People are building things here. Persistent things."
+        ),
+    },
+    "watchtower": {
+        "rope": (
+            "🪢 **The Extra Rope**\n\n"
+            "A heavy coil of iron-threaded rope sits in the corner of the watchtower deck. "
+            "It looks brand new and holds an unusual weight, though the sentries won't explain what they plan to lash with it."
         ),
     },
 

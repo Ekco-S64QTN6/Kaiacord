@@ -864,6 +864,8 @@ async def _handle_look(ctx, msg, send, rest, uid, uname, is_owner):
                     result = loc_targets[key]
                     break
         if result:
+            if callable(result):
+                result = result(sheet)
             embed = discord.Embed(description=result, color=LOCATION_COLORS.get(loc, 0x888888))
             
             # Secret puzzle trigger

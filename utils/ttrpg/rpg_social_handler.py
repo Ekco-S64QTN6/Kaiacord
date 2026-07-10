@@ -204,18 +204,60 @@ async def _handle_talk(ctx, msg, send, rest, uid, uname, is_owner):
             
     topic = ""
     if npc_key == "bard" or npc.get("role") == "bard":
+        # Build candidates: recent events topic + static topics
         import os, json
         path = os.path.join("memory", "ttrpg", "world_events.json")
+        recent_events_topic = "An ancient tale of Aeridor's fall."
         try:
             with open(path, 'r', encoding='utf-8') as f:
                 events = json.load(f)
-            recent = events[-5:] if events else ["The world has been quiet lately."]
-            topic = "Recent Events: " + " | ".join(recent)
+            if events:
+                recent = events[-5:]
+                recent_events_topic = "Recent Events: " + " | ".join(recent)
+            else:
+                recent_events_topic = "The world has been quiet lately."
         except Exception:
-            topic = "An ancient tale of Aeridor's fall."
-    elif "topics" in npc and npc["topics"]:
+            pass
+
+        candidates = [recent_events_topic]
+        if "topics" in npc and npc["topics"]:
+            candidates.extend(npc["topics"])
+
+        # Prevent immediate repetition
+        last_topic = ""
+        if sheet:
+            last_topic_dict = sheet.setdefault("npc_last_topic", {})
+            last_topic = last_topic_dict.get(npc_key, "")
+
+        filtered = [t for t in candidates if t != last_topic]
+        if not filtered:
+            filtered = candidates
+
         import secrets
-        topic = secrets.choice(npc["topics"])
+        topic = secrets.choice(filtered)
+
+        if sheet:
+            sheet.setdefault("npc_last_topic", {})[npc_key] = topic
+            await save(sheet)
+    elif "topics" in npc and npc["topics"]:
+        pool = npc["topics"]
+        
+        # Prevent immediate repetition
+        last_topic = ""
+        if sheet:
+            last_topic_dict = sheet.setdefault("npc_last_topic", {})
+            last_topic = last_topic_dict.get(npc_key, "")
+
+        filtered = [t for t in pool if t != last_topic]
+        if not filtered:
+            filtered = pool
+
+        import secrets
+        topic = secrets.choice(filtered)
+
+        if sheet:
+            sheet.setdefault("npc_last_topic", {})[npc_key] = topic
+            await save(sheet)
         
     # Quest Integration
     from utils.ttrpg.quest_registry import get_npc_quests, get_quest
