@@ -49,7 +49,7 @@ Welcome to the official **Kaiacord** documentation directory. This portal contai
 ### ⚔️ [Aethelgard TTRPG Specifications](ttrpg/)
 *   [System Specification](ttrpg/aethelgard_system.md) — Complete game rules, combat formulas, class trees, and item structures.
 *   [Lore & World Bible](ttrpg/aethelgard_lore_bible.md) — Canon history and geographic layouts of Aeridor.
-*   [Balance & Audit Report](ttrpg/CLAUDE_REPORT.md) — Strategic balancing sheets and loot table audits.
+*   [Balance & Audit Report](ttrpg/ttrpg_report.md) — Strategic balancing sheets and loot table audits.
 
 ---
 
@@ -61,5 +61,5 @@ Welcome to the official **Kaiacord** documentation directory. This portal contai
 | **I need to add/debug a command** | [📘 Command Reference](02-user-guide/commands.md) |
 | **I want to understand the VRAM split** | [🏗️ GPU & VRAM Management](03-architecture/gpu-management.md) |
 | **I need to fix a database exception** | [🛠️ Common Issues & Remedies](06-troubleshooting/common-issues.md) |
-| **I want to verify Aethelgard balance** | [⚔️ TTRPG Balance & Audit Report](ttrpg/CLAUDE_REPORT.md) |
+| **I want to verify Aethelgard balance** | [⚔️ TTRPG Balance & Audit Report](ttrpg/ttrpg_report.md) |
 | **I need to see the latest audit status** | [📊 Master System Status](reports/MASTER_REPORT.md) |

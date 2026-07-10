@@ -171,7 +171,7 @@ Registry files (like `equipment_registry.py`) contain both large data dictionari
 │   ├── ttrpg/                         # TTRPG design documents
 │   │   ├── aethelgard_system.md       # System spec — READ BEFORE MODIFYING COMBAT
 │   │   ├── aethelgard_lore_bible.md   # World-building canon
-│   │   └── CLAUDE_REPORT.md           # TTRPG-specific audit
+│   │   └── ttrpg_report.md            # TTRPG-specific audit
 │   └── reports/                       # Phase reports, roadmaps, process docs
 │       ├── master_report.md           # System status, metrics, and roadmap (Phases 55+)
 │       ├── audit_report.md            # Unified production, log, and persona audits
@@ -207,7 +207,7 @@ Registry files (like `equipment_registry.py`) contain both large data dictionari
 - **Item properties MUST be at 8-space indent** inside their sub-dict. Watch for `"droppable_only": True` at 4-space indent — this is a known recurring bug that silently corrupts data by associating the property with the wrong parent dict
 - Every monster key used in `ENCOUNTER_TABLES` MUST have a matching entry in `MONSTERS`
 - Shop stock lists (`HEMLOCK_STOCK_*`, `PELLS_STOCK_*`) are manually maintained — new buyable items need both the item dict AND the stock list updated
-- Equipment stat budgets by tier: See `docs/ttrpg/CLAUDE_REPORT.md` for current balance targets. Do not add items that exceed tier budgets without updating the documentation first
+- Equipment stat budgets by tier: See `docs/ttrpg/ttrpg_report.md` for current balance targets. Do not add items that exceed tier budgets without updating the documentation first
 - Current counts: **339 monsters** (37 boss-tier), **447 active unique equipment items** across 7 tiers
 
 ### Kaia Cognitive Pipeline
@@ -274,13 +274,13 @@ Kaia utilizes multiple distinct LLM call paths depending on the context. Do not 
 
 ## Current System Status
 
-See `docs/reports/audit_report.md` for the latest production audit and `docs/ttrpg/CLAUDE_REPORT.md` for the TTRPG-specific audit.
+See `docs/reports/audit_report.md` for the latest production audit and `docs/ttrpg/ttrpg_report.md` for the TTRPG-specific audit.
 
 **System health: A-tier. All subsystems operational. Both the TTRPG and Kaia cognitive pipeline are production-stable.**
 
 Key facts:
 - 339 monsters (37 boss-tier), 447 active unique equipment items across 7 tiers
-- 9 quests covering L1–L15 (thin at L8–L10)
+- 12 quests covering L1–L15 (all progression gaps resolved)
 - 10 advanced classes with unique procs and passives
 - 77-floor Spine of the World mega-dungeon with Resonance Lift checkpoints
 - 2 shop locations (Hemlock's, Caravan)

@@ -953,7 +953,7 @@ class ProactiveEngine:
             entry = {
                 "timestamp": now,
                 "source": trigger.source_category or trigger.trigger_type,
-                "summary": message[:100] if message else "",
+                "summary": message if message else "",
             }
             # Track specific content ID for dedup (e.g. ingestion filename)
             if trigger.content_id:

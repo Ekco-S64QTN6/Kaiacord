@@ -25,7 +25,7 @@ utils/ttrpg/
 ├── dungeon.py                     ← Procedural 5×5 maze gen, room types, boss pools, map render
 ├── encounter_tables.py            ← Per-location monster encounter weights and event chances
 ├── equipment_registry.py          ← WEAPONS, ARMOR, CONSUMABLES, HEADGEAR, BOOTS, ACCESSORIES
-├── forest_events.py               ← 20 forest event handlers (Sylvan Sprites, Tonberry, etc.)
+├── forest_events.py               ← 21 forest event handlers (Sylvan Sprites, Tonberry, etc.)
 ├── look_targets.py                ← Hardcoded "look at <thing>" flavor text per location
 ├── loot_tables.py                 ← Tier-aware loot drops from monsters and dungeon chests
 ├── micro_events.py                ← Overworld traveling events, weather discoveries, and streak rewards
@@ -221,7 +221,7 @@ Each hunt costs 1 of 5 daily hunts. Hunts may trigger a **forest event** instead
 | Whisperwood Deep | 15% | 4+ |
 | Aeridor Ruins | 10% | 7+ |
 
-### Forest Events (20 total)
+### Forest Events (21 total)
 
 | Event | Key Mechanic |
 |:--|:--|
@@ -245,6 +245,7 @@ Each hunt costs 1 of 5 daily hunts. Hunts may trigger a **forest event** instead
 | 🕯️ Twin Wisps | Follow both/one/neither → reward/penalty/ward |
 | 🧭 Lost Merchant | 20-60 Gil reward |
 | 🪙 Ancient Coin | Lucky Charm item |
+| 📋 Missing Person Found | Escort missing villager back → +100 XP, +100 Gil, +10 Reputation |
 
 ---
 

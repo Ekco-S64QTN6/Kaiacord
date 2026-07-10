@@ -414,12 +414,12 @@ While recent overhauls solved the critical and highest priority bugs, the follow
 - **Furniture Buffs:** All 9 furniture bonuses are now fully wired and operational (as of April 2026).
 - **Moogle Tracking:** Mognet Delivery now uses timestamp-based tracking (`last_moogle_delivery`) and is operational.
 
-*(Note: See `CLAUDE_REPORT.md` for the most current system status and bug inventory.)*
+*(Note: See `ttrpg_report.md` for the most current system status and bug inventory.)*
 
 
 ---
 
-# Old Resolved Bugs (from April 11 CLAUDE_REPORT)
+# Old Resolved Bugs (from April 11 ttrpg_report)
 
 ### ✅ RESOLVED — Fixed in Prior Sessions
 
