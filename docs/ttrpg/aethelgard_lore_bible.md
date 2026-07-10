@@ -307,6 +307,10 @@ From NPC dialogue and calendar events:
 - The Lost Merchant event implies the road is easy to lose in fog or after dark
 
 ### Grimstone
+> [!IMPORTANT]
+> **IMPLEMENTATION STATUS: LORE ONLY (UNIMPLEMENTED)**
+> Grimstone is not a travelable or accessible overworld location in the active TTRPG. Its sub-locations (The Rusty Pick, Ironclad Guild Office, Assay Office, Pell's Depot, and the Tunnels) and associated NPCs (Marta, Rook, Valdric, Senna, Old Pell) are currently **lore-only** and do not exist in the active codebase. Quests referencing these characters (e.g., *The Merchant's Gambit*, *Shadows Over Grimstone*) are currently inactive. Do not generate commands, actions, or travel paths targeting Grimstone or its NPCs.
+
 **Atmosphere:** Heavy, utilitarian, oppressive. Controlled by the Ironclad Guild.
 *"A mining town built into the Spine's rock face. Grey stone, narrow streets, coal dust, and the smell of iron. The hammers never fully stop."*
 - Located 3 days north of Oakhaven via the Trade Road.
@@ -322,6 +326,10 @@ From NPC dialogue and calendar events:
 - **The Tunnels:** Three active, lit, guarded levels. The **Restricted Level (Level Four)** is sealed with new ironwork over an ancient door bearing Aeridorian script. A party went missing there recently.
 
 ### The Spine of the World
+> [!IMPORTANT]
+> **IMPLEMENTATION STATUS: LORE ONLY OVERWORLD / MEGA-DUNGEON ONLY**
+> The overworld location of the Spine of the World is not travelable via standard overworld navigation. However, the **77-floor Spine of the World mega-dungeon** exists in the codebase as a procedural dungeon system accessed via Oakhaven dungeon entry. Do not write travel paths or overworld navigation options targeting the Spine of the World as an overworld zone.
+
 **Atmosphere:** Cold, vast, alien. Wind that cuts. Rock that hums.
 *"Mountain passes and deep cave systems above the treeline. Stone that hasn't seen sun in centuries. The things that live here are old, patient, and enormous."*
 - A massive mountain range bisecting the continent.

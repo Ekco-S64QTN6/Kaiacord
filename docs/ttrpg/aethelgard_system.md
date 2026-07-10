@@ -141,22 +141,22 @@ All navigation is button-driven. Players use the HUD buttons or `!rpg go <locati
 
 ### Location Map
 ```
-                  [Spine of the World]
+                  [Spine Mega-Dungeon (Dungeon-only)]
                          |
-                   [Grimstone]
+                    [Grimstone (Lore-only)]
                          |
-             [Trade Road] ──── [Aeridor Ruins]
-            /            \
-       [Caravan]    [Tricklebrook Pond]
+              [Trade Road] ──── [Aeridor Ruins]
+             /            \
+        [Caravan]    [Tricklebrook Pond]
                          |
-                   [OAKHAVEN] ──── [Housing District]
-                  /    |    \
-         [Stone  ] [Hemlock's] [Shrine →  Maren's Hut]
-          Hearth]  [Store]
+                    [OAKHAVEN] ──── [Housing District]
+                   /    |    \
+          [Stone  ] [Hemlock's] [Shrine →  Maren's Hut]
+           Hearth]  [Store]
                          |
-                 [Whisperwood Edge]  ← lvl 1+
+                  [Whisperwood Edge]  ← lvl 1+
                          |
-             [Whisperwood Deep]  ← lvl 4+
+              [Whisperwood Deep]  ← lvl 4+
 ```
 
 ### Location Services
@@ -172,9 +172,9 @@ All navigation is button-driven. Players use the HUD buttons or `!rpg go <locati
 | **Bank** | Deposit, withdraw (protects Gil from blackout loss) |
 | **Housing District** | Buy a home, `!rpg home` (Farming, Pets, Decorate) |
 | **Tricklebrook Pond** | `!rpg fish`, `!rpg fish_shop` (Buy bait/poles) |
-| **Grimstone** | Look, travel to Spine, talk to NPCs |
-| **The Rusty Pick** | Rest (7g), drink (+4 temp HP, 3g), rumor |
-| **Pell's Depot** | Shop, buy, sell, talk Pell |
+| **Grimstone (Lore-only)** | Unimplemented overworld location |
+| **The Rusty Pick (Lore-only)** | Unimplemented inn (Lore-only) |
+| **Pell's Depot (Lore-only)** | Unimplemented store (Lore-only) |
 | **Caravan** | Only present during certain noon events. |
 | **Hunting zones** | Hunt (1 of 5 daily hunts), look |
 
@@ -414,11 +414,11 @@ All temporary conditions are cleared on daily reset (midnight). Only `Blessed` a
 | Watchtower Guard | Watchtower | Scout info, quest giver |
 | Sister Maren | Herbalist's Hut | Alchemy, herbalism quests |
 | Caelindra | Stone Hearth | Bard, sings world events at noon |
-| Marta | The Rusty Pick (Grimstone) | Innkeeper |
-| Old Pell | Pell's Depot (Grimstone) | Merchant, hardware supplies |
-| Rook | Grimstone | Town guard / watcher |
-| Valdric | Grimstone | Mercenary, quest giver |
-| Senna | Grimstone | Local resident |
+| Marta | The Rusty Pick (Lore-only) | Innkeeper (Lore-only) |
+| Old Pell | Pell's Depot (Lore-only) | Merchant (Lore-only) |
+| Rook | Grimstone (Lore-only) | Town guard / watcher (Lore-only) |
+| Valdric | Grimstone (Lore-only) | Mercenary, quest giver (Lore-only) |
+| Senna | Grimstone (Lore-only) | Local resident (Lore-only) |
 
 NPC dialogue is LLM-generated using `build_npc_prompt()` with context: season, time of day, CHA modifier, active quest status, and NPC-specific topics.
 
@@ -433,15 +433,15 @@ NPC dialogue is LLM-generated using `build_npc_prompt()` with context: season, t
 | Sister Maren's Request | Maren | 4 | Kill bandit, talk maren | 200 XP, 50 Gil, potion recipe, silverleaf |
 | The Aeridorian Signal | Elara | 5 | Complete dungeon, talk elara | 500 XP, 200 Gil, lightstone |
 | What Sleeps Beneath | Guard | 7 | Kill frost_wolf, kill_owlbear, talk guard | 1200 XP, 350 Gil, ironbark_tonic |
-| The Merchant's Gambit | Pell | 8 | Kill bandit, talk Pell | 800 XP, 300 Gil, potion_standard |
-| Shadows Over Grimstone | Valdric | 9 | Complete dungeon, talk Valdric | 1000 XP, 400 Gil, ironbark_tonic |
+| The Merchant's Gambit (Lore-only) | Pell | 8 | Kill bandit, talk Pell | 800 XP, 300 Gil, potion_standard |
+| Shadows Over Grimstone (Lore-only) | Valdric | 9 | Complete dungeon, talk Valdric | 1000 XP, 400 Gil, ironbark_tonic |
 | The Tithe Collector | Elara | 10 | Kill tithe collector, talk Elara | 1400 XP, 600 Gil, void_band |
 | The Final Silence | Elara | 9 | Pray at shrine, complete dungeon, talk elara | 1500 XP, 500 Gil, amulet_health |
 | The Waking Metal | Elara | 11 | Kill iron_golem, talk elara | 2500 XP, 800 Gil, void_band |
 | The Darkening | Guard | 13 | Kill shadow_lich, talk guard | 3500 XP, 1500 Gil, mox_pearl |
 | The Last Guardian | Elara | 15 | Complete dungeon, talk elara | 5000 XP, 5000 Gil, the_end |
 
-*Note: This is the complete list of 12 quests currently active in the system, spanning levels 1 through 15.*
+*Note: This is the complete list of 12 quests in the database. Note that the 2 Grimstone-based quests (The Merchant's Gambit, Shadows Over Grimstone) are currently lore-only/inactive as Grimstone is unimplemented.*
 
 ---
 
