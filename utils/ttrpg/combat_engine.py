@@ -9,9 +9,9 @@ TIER_DAMAGE = {
     "trivial": (1, 4),
     "easy":    (1, 6),
     "medium":  (2, 6),
-    "hard":    (3, 6),
-    "boss":    (4, 6),
-    "deadly":  (5, 6),
+    "hard":    (2, 6),
+    "boss":    (3, 6),
+    "deadly":  (3, 6),
 }
 
 

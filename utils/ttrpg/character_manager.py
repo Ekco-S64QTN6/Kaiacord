@@ -15,6 +15,8 @@ _lock = threading.Lock()  # Protects internal file I/O
 _user_locks: Dict[str, asyncio.Lock] = {} # Protects read-modify-write per user
 _global_lock = asyncio.Lock()  # Protects access to the _user_locks dict
 
+INVENTORY_LIMIT = 100
+
 def _path(user_id: str) -> str:
     os.makedirs(CHARACTERS_DIR, exist_ok=True)
     return os.path.join(CHARACTERS_DIR, f"{user_id}.json")
@@ -25,20 +27,6 @@ async def get_user_lock(user_id: str) -> asyncio.Lock:
         if user_id not in _user_locks:
             _user_locks[user_id] = asyncio.Lock()
         return _user_locks[user_id]
-
-class CappedList(list):
-    def append(self, item):
-        if len(self) < 50:
-            super().append(item)
-    def extend(self, iterable):
-        for item in iterable:
-            if len(self) < 50:
-                super().append(item)
-            else:
-                break
-    def insert(self, index, item):
-        if len(self) < 50:
-            super().insert(index, item)
 
 def _migrate_inventory(sheet: Dict[str, Any]) -> None:
     """Normalize legacy equipment keys to their current registry keys."""
@@ -53,9 +41,9 @@ def _migrate_inventory(sheet: Dict[str, Any]) -> None:
         for i, item in enumerate(sheet["inventory"]):
             if item in legacy_map:
                 sheet["inventory"][i] = legacy_map[item]
-        sheet["inventory"] = CappedList(sheet["inventory"])
+        sheet["inventory"] = list(sheet["inventory"])
     else:
-        sheet["inventory"] = CappedList()
+        sheet["inventory"] = list()
         
     if "equipment" in sheet and isinstance(sheet["equipment"], dict):
         for slot, item_data in sheet["equipment"].items():

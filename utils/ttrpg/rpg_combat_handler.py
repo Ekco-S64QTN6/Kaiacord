@@ -205,6 +205,7 @@ async def _dungeon_combat_round(ctx_obj, interaction, uid, uname, is_owner):
 
         # Loot — split gear and consumable pools
         from utils.ttrpg.loot_tables import get_gear_loot, get_consumable_loot
+        from utils.ttrpg.character_manager import INVENTORY_LIMIT
         level = sheet.get("level", 1)
         if is_boss:
             _boss_tier_map = {1: "easy", 2: "easy", 3: "medium", 4: "medium",
@@ -223,7 +224,7 @@ async def _dungeon_combat_round(ctx_obj, interaction, uid, uname, is_owner):
                 gear = get_gear_loot(tier)
                 attempts += 1
             if gear:
-                if len(sheet.get("inventory", [])) < 50:
+                if len(set(sheet.get("inventory", [])) | {gear}) <= INVENTORY_LIMIT:
                     sheet.setdefault("inventory", []).append(gear)
                     item = find_item(gear)
                     drops.append(f"⚔️ {item['name'] if item else gear}")
@@ -239,7 +240,7 @@ async def _dungeon_combat_round(ctx_obj, interaction, uid, uname, is_owner):
                     gear2 = get_gear_loot(tier)
                     attempts += 1
                 if gear2:
-                    if len(sheet.get("inventory", [])) < 50:
+                    if len(set(sheet.get("inventory", [])) | {gear2}) <= INVENTORY_LIMIT:
                         sheet.setdefault("inventory", []).append(gear2)
                         item = find_item(gear2)
                         drops.append(f"⚔️ {item['name'] if item else gear2}")
@@ -250,7 +251,7 @@ async def _dungeon_combat_round(ctx_obj, interaction, uid, uname, is_owner):
             # Consumable drop: always
             cons = get_consumable_loot(tier)
             if cons:
-                if len(sheet.get("inventory", [])) < 50:
+                if len(set(sheet.get("inventory", [])) | {cons}) <= INVENTORY_LIMIT:
                     sheet.setdefault("inventory", []).append(cons)
                     item = find_item(cons)
                     drops.append(f"🧪 {item['name'] if item else cons}")
@@ -272,7 +273,7 @@ async def _dungeon_combat_round(ctx_obj, interaction, uid, uname, is_owner):
             if secrets.randbelow(10) < 4:
                 gear = get_gear_loot(tier)
                 if gear:
-                    if len(sheet.get("inventory", [])) < 50:
+                    if len(set(sheet.get("inventory", [])) | {gear}) <= INVENTORY_LIMIT:
                         sheet.setdefault("inventory", []).append(gear)
                         item = find_item(gear)
                         drop_lines.append(f"⚔️ {item['name'] if item else gear}")
@@ -282,7 +283,7 @@ async def _dungeon_combat_round(ctx_obj, interaction, uid, uname, is_owner):
                         drop_lines.append(f"🎒 **[Inventory Full]** Left behind: {item['name'] if item else gear}")
             cons = get_consumable_loot(tier)
             if cons:
-                if len(sheet.get("inventory", [])) < 50:
+                if len(set(sheet.get("inventory", [])) | {cons}) <= INVENTORY_LIMIT:
                     sheet.setdefault("inventory", []).append(cons)
                     item = find_item(cons)
                     drop_lines.append(f"🧪 {item['name'] if item else cons}")
@@ -749,6 +750,8 @@ async def _handle_hunt(ctx, msg, send, rest, uid, uname, is_owner):
         quest_location_override = "whisperwood_deep_hunt"
     elif "aeridor_remnant" in active_quests and loc == "aeridor_ruins":
         quest_location_override = "aeridor_ruins_remnant"
+    elif "tithe_collector" in active_quests and loc == "aeridor_ruins":
+        quest_location_override = "aeridor_ruins_tithe"
     elif "shadow_incursion" in active_quests and loc == "whisperwood_deep":
         quest_location_override = "whisperwood_deep_shadow"
 
@@ -1000,11 +1003,12 @@ async def _handle_attack(ctx, msg, send, rest, uid, uname, is_owner):
 
         # Gear roll
         gear_drop = get_gear_loot(monster.get("tier", "medium"))
+        from utils.ttrpg.character_manager import INVENTORY_LIMIT
         if gear_drop:
             from utils.ttrpg.shop import find_item as _find_loot
             gear_info = _find_loot(gear_drop)
             gear_display = gear_info["name"] if gear_info else gear_drop
-            if len(sheet.get("inventory", [])) < 50:
+            if len(set(sheet.get("inventory", [])) | {gear_drop}) <= INVENTORY_LIMIT:
                 sheet.setdefault("inventory", []).append(gear_drop)
                 loot_lines.append(f"⚔️ {gear_display}")
             else:
@@ -1016,7 +1020,7 @@ async def _handle_attack(ctx, msg, send, rest, uid, uname, is_owner):
             from utils.ttrpg.shop import find_item as _find_cons
             cons_info = _find_cons(consumable_drop)
             cons_display = cons_info["name"] if cons_info else consumable_drop
-            if len(sheet.get("inventory", [])) < 50:
+            if len(set(sheet.get("inventory", [])) | {consumable_drop}) <= INVENTORY_LIMIT:
                 sheet.setdefault("inventory", []).append(consumable_drop)
                 loot_lines.append(f"🧪 {cons_display}")
                 # Check recipe discovery (triggers on crafting ingredients)

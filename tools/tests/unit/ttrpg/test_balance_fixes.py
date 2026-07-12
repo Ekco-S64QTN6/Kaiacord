@@ -49,16 +49,16 @@ def test_tier_scaled_monster_combat():
     # Deadly Monster
     monster = {"name": "Lich", "attack": 10, "defense": 20, "tier": "deadly", "hp": {"current": 100, "max": 100}}
     # Deadly hit mod = +14
-    # Deadly damage = 5d6 + attack//2 (5)
+    # Deadly damage = 3d6 + attack//2 (5)
     
-    # Sequence: 1.PlayerHit 2.MonsterHit 3..7 Dmg
+    # Sequence: 1.PlayerHit 2.MonsterHit 3..5 Dmg
     with patch("secrets.randbelow", side_effect=[0, 15, 0, 0, 0, 0, 0, 0, 0, 0, 0]):
         # Player: d20(1) fumble
         # Monster: d20(16) + 14 = 30 (HIT vs 10)
-        # Damage: 5 * d6(1) + 5 = 10
+        # Damage: 3 * d6(1) + 5 = 8
         res = _resolve_combat(sheet, monster)
         assert res["monster_hit"] is True
-        assert res["monster_damage"] == 10
+        assert res["monster_damage"] == 8
 
 def test_encounter_table_registry():
     """Verify encounter tables pull from the full registry and filter correctly."""
@@ -90,6 +90,6 @@ def test_forest_event_reachability():
 
 def test_equipment_def_reductions():
     """Verify secondary slot defense values have been reduced."""
-    assert HEADGEAR["void_helm"]["defense_bonus"] == 3
-    assert BOOTS["void_striders"]["defense_bonus"] == 3
-    assert ACCESSORIES["void_band"]["defense_bonus"] == 2
+    assert HEADGEAR["void_helm"]["defense_bonus"] == 2
+    assert BOOTS["void_striders"]["defense_bonus"] == 2
+    assert ACCESSORIES["void_band"]["defense_bonus"] == 1

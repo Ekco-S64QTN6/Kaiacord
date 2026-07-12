@@ -140,9 +140,16 @@ def brew(sheet, recipe_key):
         sheet["inventory"] = inv
         
     # Net change in inventory: we remove ingredients, then append result
-    net_change = 1 - len(ingredients)
-    if len(inv) + net_change > 50:
-        return False, f"Your inventory is too full to hold the brewed item. Cap: 50 items (currently holding {len(inv)})."
+    inv_copy = list(inv)
+    for item in ingredients:
+        if item in inv_copy:
+            inv_copy.remove(item)
+    inv_copy.append(recipe["result"])
+    
+    from utils.ttrpg.character_manager import INVENTORY_LIMIT
+    current_unique = set(inv_copy)
+    if len(current_unique) > INVENTORY_LIMIT:
+        return False, f"Your inventory has too many unique item types. Cap: {INVENTORY_LIMIT} unique types (brewing this would make it {len(current_unique)})."
 
     for item in ingredients:
         if item in inv:

@@ -192,8 +192,10 @@ def process_purchase(sheet: dict, item_key: str, quantity: int = 1, reputation: 
     if gil < val:
         return False, f"Not enough gil. {quantity}x {item['name']} costs {val}g. You have {gil}g.", sheet
         
-    if len(sheet.get("inventory", [])) + quantity > 50:
-        return False, f"Your inventory is too full. Cannot purchase {quantity}x {item['name']}. Cap: 50 items (currently holding {len(sheet.get('inventory', []))}).", sheet
+    from utils.ttrpg.character_manager import INVENTORY_LIMIT
+    current_unique = set(sheet.get("inventory", []))
+    if len(current_unique | {real_key}) > INVENTORY_LIMIT:
+        return False, f"Your inventory has too many unique item types. Cannot purchase {quantity}x {item['name']}. Cap: {INVENTORY_LIMIT} unique types (currently holding {len(current_unique)}).", sheet
 
     sheet["gil"] -= val
     

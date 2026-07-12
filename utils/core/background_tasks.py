@@ -647,35 +647,34 @@ class CoreTaskManager:
                 if channel:
                     import secrets
                     EVENT_POOL = [
-                        (run_village_raid,        15),  # Reduced from 35 to prevent raid domination
+                        (run_village_raid,        10),
                         (run_oracle_speaks,       10),
-                        (run_moogle_festival,     12),
+                        (run_moogle_festival,     10),
                         (run_aeridorian_tremor,   10),
-                        (run_tonberry_procession,  8),
-                        (run_spine_storm,          8),
-                        (run_caravan_arrival,      6),
-                        (run_bard_performance,     12), # Boosted from 3 to ensure bard performance fires
-                        (run_construct_incursion,  10),
-                        (run_gil_windfall,        10),
-                        (run_blight_on_the_crops,  8),
-                        (run_pilgrims_arrive,      8),
-                        (run_night_terror_warning, 8),
-                        (run_construct_breach,     10),
-                        (run_caravan_ambush,       10),
-                        (run_market_glut,          8),
-                        (run_whisperwood_bloom,    8),
-                        (run_shrine_vigil,         8),
-                        (run_missing_persons,      10),
-                        (run_ironclad_envoys,      8),
-                        (run_silverstream_blackwater, 6),
-                        (run_hooded_figures_vigil,  6),
-                        (run_caelindras_lost_verse, 8),
-                        (run_watchtower_silence,   6),
-                        (run_silvani_antidote_run, 6),
-                        (run_the_coin_hoarder,     8),
-                        (run_boundary_shift,       8),
-                        (run_sealed_wax_jar,       5),
-                        (run_elaras_private_ritual, 5),
+                        (run_tonberry_procession, 10),
+                        (run_spine_storm,         10),
+                        (run_caravan_arrival,     10),
+                        (run_bard_performance,    10),
+                        (run_construct_incursion, 10),
+                        (run_blight_on_the_crops, 10),
+                        (run_pilgrims_arrive,     10),
+                        (run_night_terror_warning, 10),
+                        (run_construct_breach,    10),
+                        (run_caravan_ambush,      10),
+                        (run_market_glut,         10),
+                        (run_whisperwood_bloom,   10),
+                        (run_shrine_vigil,        10),
+                        (run_missing_persons,     10),
+                        (run_ironclad_envoys,     10),
+                        (run_silverstream_blackwater, 10),
+                        (run_hooded_figures_vigil, 10),
+                        (run_caelindras_lost_verse, 10),
+                        (run_watchtower_silence,  10),
+                        (run_silvani_antidote_run, 10),
+                        (run_the_coin_hoarder,    10),
+                        (run_boundary_shift,      10),
+                        (run_sealed_wax_jar,      10),
+                        (run_elaras_private_ritual, 10),
                     ]
                     total_w = sum(w for _, w in EVENT_POOL)
                     r_val = secrets.randbelow(total_w)
@@ -3546,57 +3545,7 @@ async def run_construct_incursion(bot_ctx, channel):
         log_error(f"[construct noon] Narration failed: {e}")
 
 
-async def run_gil_windfall(bot_ctx, channel):
-    """Noon event: A trade caravan's ledger error or Aeridorian shard price spike grants present players a gil windfall."""
-    import discord
-    import asyncio
-    import secrets
-    from utils.ttrpg.character_manager import load_all, save
-    from utils.ttrpg.broadcast import log_world_event as _log_world_event
 
-    TOWN_LOCATIONS = {
-        "oakhaven", "stone_hearth", "hemlocks_store",
-        "shrine", "watchtower", "oakhaven_bank", "herbalists_hut",
-        "housing_district", "tricklebrook_pond"
-    }
-
-    await channel.send(embed=discord.Embed(
-        title="💰 Trade Windfall",
-        description=(
-            "*The Corvus Road Trading Co. posts a ledger correction outside the bank.*\n\n"
-            "A recalculation of trade taxes or an overnight spike in Aeridorian shard values "
-            "has created an unexpected surplus. Adventurers present in Oakhaven are eligible "
-            "for a direct payout."
-        ),
-        color=0xf1c40f
-    ))
-    await asyncio.sleep(3)
-
-    all_sheets = await load_all()
-    present = [s for s in all_sheets if s.get("location") in TOWN_LOCATIONS]
-
-    if not present:
-        await channel.send(embed=discord.Embed(
-            description="*The Oakhaven bank closed its windows for the day. No active adventurers were in town to collect the trade surplus.*",
-            color=0x888888
-        ))
-        return
-
-    result_lines = []
-    for s in present:
-        # Payout: 150 Gil + 5% of current gold
-        bonus = 150 + int(s.get("gil", 0) * 0.05)
-        s["gil"] = s.get("gil", 0) + bonus
-        await save(s)
-        result_lines.append(f"💰 **{s['character_name']}** received **+{bonus}g**")
-
-    await channel.send(embed=discord.Embed(
-        title="💰 Windfall Payouts Distributed",
-        description="\n".join(result_lines) + "\n\n*Mira refills the mug of the clerk. The bank doors shut.*",
-        color=0xf1c40f
-    ))
-    await _log_world_event("💰 **Trade Windfall** — tax correction surplus distributed to all present in Oakhaven.")
-    log_action("Noon Event: Gil Windfall")
 
 
 async def run_blight_on_the_crops(bot_ctx, channel):

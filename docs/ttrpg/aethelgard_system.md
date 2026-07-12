@@ -480,7 +480,7 @@ Overworld activities change dynamically based on time of day (Day is 6 AM to 6 P
 
 At 12:00 PM (Noon) daily, a random dynamic world event is selected from the active event pool and triggered in `#aethelgard` (with effects lasting up to 4 hours).
 
-### Active Noon Event Pool (29 total)
+### Active Noon Event Pool (28 total)
 
 | Event | Code Key | Type / Impact | Description |
 |:--|:--|:--|:--|
@@ -493,7 +493,6 @@ At 12:00 PM (Noon) daily, a random dynamic world event is selected from the acti
 | 🐪 Caravan Arrival | `caravan` | Shop | Spawns the Corvus Road Trading Co. caravan (Trade Road) selling Tier 3 gear (limit 1 purchase/customer). |
 | 🎵 Bard Performance | `bard` | Narrative | Caelindra the bard performs an LLM ballad summarizing recent world events and top adventurers. |
 | 🤖 Watchtower Intrusion | — | Combat (Defense) | Ranks of Aeridorian constructs attack. Defender waves fight constructs for XP and Gil. |
-| 💰 Trade Windfall | — | Gil | Tax recalculation or shard price spike grants all present players +50 to +150 Gil. |
 | 🥀 Whisperwood Blight | — | Penalty | Mist creeping from the forest edge ruins a crop plot for up to 3 random farm owners in Oakhaven. |
 | 🕯️ Procession of Pilgrims | — | Buff + Healing | Pilgrims arrive, restoring +10 HP, granting Blessed to present players, and enhancing shrine blessings for 4 hours. |
 | 👁️ Night Terror Warning | — | Mechanics Mod | Shadow beast warning shifts all solo hunts up by 1 threat tier (+1 difficulty, better loot/XP) for 4 hours. |

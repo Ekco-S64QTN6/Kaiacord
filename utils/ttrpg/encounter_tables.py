@@ -36,6 +36,12 @@ QUEST_ENCOUNTER_OVERRIDES = {
         ("clockwork_guard", 15),
         ("basilisk",         5),
     ],
+    "aeridor_ruins_tithe": [
+        ("tithe_collector", 70),   # heavily boosted for tithe collector quest
+        ("tunnel_crawler",  10),
+        ("cave_troll",      10),
+        ("stone_construct", 10),
+    ],
     "whisperwood_deep_shadow": [
         ("shadow_lich",  50),   # heavily boosted for shadow incursion
         ("lich",         25),

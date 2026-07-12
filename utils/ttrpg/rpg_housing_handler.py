@@ -96,6 +96,17 @@ async def _handle_seed_shop(ctx, msg, send, rest, uid, uname, is_owner):
         if not s:
             return
         cost = CROPS[chosen]["seed_cost"]
+        from utils.ttrpg.character_manager import INVENTORY_LIMIT
+        current_unique = set(s.get("inventory", []))
+        if len(current_unique | {chosen}) > INVENTORY_LIMIT:
+            await interaction.followup.send(
+                embed=discord.Embed(
+                    description=f"Your inventory has too many unique item types. Cannot purchase seeds. Cap: {INVENTORY_LIMIT} unique types (currently holding {len(current_unique)}).",
+                    color=0xcc4444
+                ),
+                ephemeral=True
+            )
+            return
         if s["gil"] < cost:
             await interaction.followup.send(
                 embed=discord.Embed(
@@ -587,6 +598,14 @@ async def _handle_harvest_crops(ctx, msg, send, rest, uid, uname, is_owner):
     sheet = await load(uid)
     housing = load_housing(uid)
     if not sheet or not housing: return
+
+    from utils.ttrpg.character_manager import INVENTORY_LIMIT
+    current_unique = set(sheet.get("inventory", []))
+    if len(current_unique) >= INVENTORY_LIMIT:
+        return await send(msg.channel, embed=discord.Embed(
+            description=f"❌ **Your inventory has too many unique item types.** Cannot harvest crops. Cap: {INVENTORY_LIMIT} unique types (currently holding {len(current_unique)}). Please sell or bank items first.",
+            color=0xcc4444
+        ))
 
     bonuses = get_home_bonuses(housing)
     yield_bonus = bonuses.get("farm_yield", 0)
