@@ -40,9 +40,9 @@ import ollama
 # ---------------------------------------------------------------------------
 # Config
 # ---------------------------------------------------------------------------
-THREAD_URL = "https://project1999.com/forums/showthread.php"
+THREAD_URL = "https://www.project1999.com/forums/showthread.php"
 THREAD_ID = 17745
-TOTAL_PAGES = 752
+TOTAL_PAGES = 772
 SCRAPE_DELAY = 1.0        # seconds between page fetches (be polite)
 YTDLP_DELAY = 0.5         # seconds between yt-dlp calls
 MB_DELAY = 1.1             # MusicBrainz rate limit: 1 req/sec
@@ -54,6 +54,7 @@ CHECKPOINT_URLS = WORK_DIR / "youtube_urls.json"
 CHECKPOINT_RESOLVED = WORK_DIR / "resolved_metadata.json"
 CHECKPOINT_ENRICHED = WORK_DIR / "enriched_metadata.json"
 CHECKPOINT_TEXT_EXTRACTED = WORK_DIR / "text_extracted.json"
+CHECKPOINT_WAYBACK_TRIED = WORK_DIR / "wayback_tried.json"
 OUTPUT_CSV = WORK_DIR / "p99_music_thread.csv"
 
 HEADERS = {
@@ -501,11 +502,29 @@ def stage_recover_dead():
     if not dead_urls:
         print("✓ No dead links to recover!")
         return resolved
+
+    # Load or initialize the wayback tried checkpoint
+    wayback_tried = load_json(CHECKPOINT_WAYBACK_TRIED, [])
+    if not wayback_tried:
+        # If the file does not exist, we treat all currently resolved dead_urls as already tried
+        # to avoid re-checking the existing 1000+ dead links.
+        wayback_tried = dead_urls.copy()
+        save_json(CHECKPOINT_WAYBACK_TRIED, wayback_tried)
+        print(f"✓ Initialized {len(wayback_tried)} existing dead links as already tried by Wayback Machine.")
+        return resolved
+
+    # Filter out dead urls that have already been tried
+    tried_set = set(wayback_tried)
+    to_check = [url for url in dead_urls if url not in tried_set]
+    
+    if not to_check:
+        print("✓ All dead links have already been tried for Wayback Machine recovery.")
+        return resolved
         
-    print(f"🕵️ Attempting Wayback Machine recovery on {len(dead_urls)} dead links...")
+    print(f"🕵️ Attempting Wayback Machine recovery on {len(to_check)} new dead links...")
     recovered_count = 0
     
-    for i, url in enumerate(dead_urls):
+    for i, url in enumerate(to_check):
         data = resolved[url]
         try:
             # Query CDX API
@@ -540,13 +559,17 @@ def stage_recover_dead():
         except Exception:
             pass # Wayback Machine is flaky, ignore errors
             
-        if (i + 1) % 50 == 0:
-            print(f"  {i+1}/{len(dead_urls)} dead links checked ({recovered_count} recovered so far)")
+        wayback_tried.append(url)
+        
+        if (i + 1) % 50 == 0 or (i + 1) == len(to_check):
+            print(f"  {i+1}/{len(to_check)} dead links checked ({recovered_count} recovered so far)")
             save_json(CHECKPOINT_RESOLVED, resolved)
+            save_json(CHECKPOINT_WAYBACK_TRIED, wayback_tried)
             
         time.sleep(2) # Be very gentle with Wayback Machine API
         
     save_json(CHECKPOINT_RESOLVED, resolved)
+    save_json(CHECKPOINT_WAYBACK_TRIED, wayback_tried)
     print(f"✓ Wayback Recovery complete! Resurrected {recovered_count} songs.")
     return resolved
 
