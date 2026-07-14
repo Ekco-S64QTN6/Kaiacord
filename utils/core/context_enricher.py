@@ -121,6 +121,50 @@ class ContextEnricher:
                 # Resolve any <@ID> mentions in the replied-to message's content
                 # so Kaia sees "@Ekco" not "<@177011971818782721>"
                 resolved_content = await self.resolve_mentions(target_msg.content, target_msg)
+                
+                # If target message was sent by the bot, determine whom the bot was addressing
+                if target_msg.author.id == self.bot.user.id:
+                    recipient_name = None
+                    
+                    # 1. Try to find the message in channel_memory to identify who the bot was responding to
+                    try:
+                        from utils.infrastructure.system.bot_state import bot_state
+                        channel_mem = list(bot_state.channel_memory.get(msg.channel.id, []))
+                        for idx, turn in enumerate(channel_mem):
+                            if (turn.get('role') == 'assistant' and 
+                                turn.get('content', '').strip().lower() == target_msg.content.strip().lower()):
+                                if idx > 0 and channel_mem[idx-1].get('role') == 'user':
+                                    prev_content = channel_mem[idx-1].get('content', '')
+                                    if ':' in prev_content:
+                                        recipient_name = prev_content.split(':', 1)[0].strip()
+                                        break
+                    except Exception as e:
+                        log_warning(f"Error lookup in channel_memory for reply recipient: {e}")
+                        
+                    # 2. Fallback: Parse recipient from start of the bot message content (e.g., "username, ")
+                    if not recipient_name:
+                        content_str = target_msg.content.strip()
+                        if ',' in content_str:
+                            first_part = content_str.split(',', 1)[0].strip()
+                            words = first_part.split()
+                            if 0 < len(words) <= 3:
+                                clean_part = re.sub(r'[^\w\s\-\[\]]', '', first_part).strip()
+                                if clean_part and not any(w in clean_part.lower() for w in ['actually', 'i', 'we', 'the', 'she', 'he', 'they', 'you', 'it']):
+                                    recipient_name = clean_part
+
+                    # 3. Fallback 2: Query channel history for the preceding non-bot message
+                    if not recipient_name:
+                        try:
+                            async for prev_msg in msg.channel.history(limit=5, before=target_msg):
+                                if prev_msg.author.id != self.bot.user.id and not prev_msg.author.bot:
+                                    recipient_name = prev_msg.author.display_name
+                                    break
+                        except Exception as e:
+                            log_debug(f"Failed to query channel history for preceding message: {e}")
+
+                    if recipient_name:
+                        author = f"{author} (replying to {recipient_name})"
+
                 return f"{author}: {resolved_content}"
         except Exception as e:
             log_debug(f"Failed to resolve reply: {e}")

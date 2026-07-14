@@ -478,7 +478,7 @@ Overworld activities change dynamically based on time of day (Day is 6 AM to 6 P
 
 ## Noon Events
 
-At 12:00 PM (Noon) daily, a random dynamic world event is selected from the active event pool and triggered in `#aethelgard` (with effects lasting up to 4 hours).
+At 12:00 PM (Noon) daily, a random dynamic world event is selected from the active event pool and triggered in `#aethelgard` (with temporal effects persisting until the next noon event).
 
 ### Active Noon Event Pool (28 total)
 
@@ -494,23 +494,23 @@ At 12:00 PM (Noon) daily, a random dynamic world event is selected from the acti
 | 🎵 Bard Performance | `bard` | Narrative | Caelindra the bard performs an LLM ballad summarizing recent world events and top adventurers. |
 | 🤖 Watchtower Intrusion | — | Combat (Defense) | Ranks of Aeridorian constructs attack. Defender waves fight constructs for XP and Gil. |
 | 🥀 Whisperwood Blight | — | Penalty | Mist creeping from the forest edge ruins a crop plot for up to 3 random farm owners in Oakhaven. |
-| 🕯️ Procession of Pilgrims | — | Buff + Healing | Pilgrims arrive, restoring +10 HP, granting Blessed to present players, and enhancing shrine blessings for 4 hours. |
-| 👁️ Night Terror Warning | — | Mechanics Mod | Shadow beast warning shifts all solo hunts up by 1 threat tier (+1 difficulty, better loot/XP) for 4 hours. |
+| 🕯️ Procession of Pilgrims | — | Buff + Healing | Pilgrims arrive, restoring +10 HP, granting Blessed to present players, and enhancing shrine blessings until the next noon event. |
+| 👁️ Night Terror Warning | — | Mechanics Mod | Shadow beast warning shifts all solo hunts up by 1 threat tier (+1 difficulty, better loot/XP) until the next noon event. |
 | 🤖 Construct Breach | `construct` | Combat (Defense) | An intense breach of constructs attacking Oakhaven town gates. |
 | 🐪 Caravan Ambush | `ambush` | Combat (Defense) | A raid defense centered on protecting the merchant caravan cargo from bandits on the Trade Road. |
-| 📋 Market Glut / Shortage | `market` | Economy Mod | 50% chance for Market Glut (all shop prices -20% for 4h) or 50% chance for Bandit Blockade (prices +25% for 4h). |
-| 🌸 Whisperwood Bloom | `bloom` | Spawn Mod | Pollen bloom increases all Whisperwood edge/deep forest event chances by +15% for 4 hours. |
-| 🕯️ Shrine Vigil | `vigil` | Buff Window | Enhanced blessing window at Oakhaven Shrine (grants +5 HP and Blessed) for 4 hours. |
+| 📋 Market Glut / Shortage | `market` | Economy Mod | 50% chance for Market Glut (all shop prices -20% until the next noon event) or 50% chance for Bandit Blockade (prices +25% until the next noon event). |
+| 🌸 Whisperwood Bloom | `bloom` | Spawn Mod | Pollen bloom increases all Whisperwood edge/deep forest event chances by +15% until the next noon event. |
+| 🕯️ Shrine Vigil | `vigil` | Buff Window | Enhanced blessing window at Oakhaven Shrine (grants +5 HP and Blessed) until the next noon event. |
 | 📋 Missing Person Notice | `missing` | World Quest | Distress notice posted for a random villager. Players must hunt/scout in a target zone to find and escort them back. |
-| ⚙️ Ironclad Guild Envoys | `ironclad_envoys` | Economy Mod | Guild envoys buy up local supplies, inflating Hemlock's and Caravan prices by 15% for 4 hours. |
-| 🌊 The Silverstream Runs Black | `silverstream_blackwater` | Environment | Murky runoff taints Tricklebrook Pond headwaters; fishing is temporarily disabled/dangerous for 4 hours. |
+| ⚙️ Ironclad Guild Envoys | `ironclad_envoys` | Economy Mod | Guild envoys buy up local supplies, inflating Hemlock's and Caravan prices by 15% until the next noon event. |
+| 🌊 The Silverstream Runs Black | `silverstream_blackwater` | Environment | Murky runoff taints Tricklebrook Pond headwaters; fishing is temporarily disabled/dangerous until the next noon event. |
 | 🌘 The Hooded Figure's Vigil | `hooded_figures_vigil` | Buff | Stranger at the hearth casts an eerie shadow; patrons present at Stone Hearth receive the Veiled Watched buff. |
 | 📜 Caelindra's Lost Verse | `caelindras_lost_verse` | XP / Lore | Caelindra recites an ancient Aeridorian verse, granting Stone Hearth patrons +15 XP. |
-| 🔭 The Watchtower's Silence | `watchtower_silence` | Scout Mod | On-edge guards share detailed logs; scouts visiting the Watchtower get enhanced scouting reports for 4 hours. |
+| 🔭 The Watchtower's Silence | `watchtower_silence` | Scout Mod | On-edge guards share detailed logs; scouts visiting the Watchtower get enhanced scouting reports until the next noon event. |
 | 🧪 Silvani Antidote Run | `silvani_antidote_run` | Items | A Silvani hunter slips into town and leaves a free bandage for each present adventurer. |
 | 🕳️ Bank Alarm — The Coin Hoarder | `the_coin_hoarder` | Combat / Penalty | Bank alarm sounds. Repelling repays XP/Gil. Failing raids character bank balances for 5% of their gold. |
-| 🍃 Whisperwood Boundary Shift | `boundary_shift` | Mechanics Mod | Border stakes shifted; Whisperwood Edge solo hunts shift up by 1 tier (increased difficulty/loot) for 4 hours. |
-| 🫙 The Sealed Wax Jar | `sealed_wax_jar` | Shop Special | Hemlock opens a wax jar, offering Lucky Charms at a special discount (20 Gil) for 4 hours. |
+| 🍃 Whisperwood Boundary Shift | `boundary_shift` | Mechanics Mod | Border stakes shifted; Whisperwood Edge solo hunts shift up by 1 tier (increased difficulty/loot) until the next noon event. |
+| 🫙 The Sealed Wax Jar | `sealed_wax_jar` | Shop Special | Hemlock opens a wax jar, offering Lucky Charms at a special discount (20 Gil) until the next noon event. |
 | 🌙 Elara's Private Ritual | `elaras_private_ritual` | XP / Lore | Oakhaven residents witness Elara performing a shrine ritual, granting +10 XP. |
 
 ---

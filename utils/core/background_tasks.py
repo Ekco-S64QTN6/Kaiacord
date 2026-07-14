@@ -170,6 +170,21 @@ class CoreTaskManager:
                         if raw:
                             from utils.infrastructure.system.messaging import send_kaia_response
                             await send_kaia_response(channel, raw)
+                            
+                            # Append to channel memory
+                            try:
+                                if channel.id not in self.ctx.bot_state.channel_memory:
+                                    from collections import deque
+                                    self.ctx.bot_state.channel_memory[channel.id] = deque(maxlen=config.max_memory_messages)
+                                self.ctx.bot_state.channel_memory[channel.id].append({
+                                    "role": "assistant",
+                                    "content": raw,
+                                    "timestamp": time.time()
+                                })
+                                self.ctx.bot_state.save()
+                            except Exception as mem_err:
+                                log_warning(f"Failed to append afterthought to channel memory: {mem_err}")
+                                
                             log_info(f"Delivered delayed afterthought to {to_execute['user_name']}")
                 except Exception as e:
                     log_warning(f"Failed to generate afterthought: {e}")
@@ -262,6 +277,21 @@ class CoreTaskManager:
 
                     from utils.infrastructure.system.messaging import send_kaia_response
                     await send_kaia_response(channel, message)
+                    
+                    # Append to channel memory
+                    try:
+                        if channel.id not in self.ctx.bot_state.channel_memory:
+                            from collections import deque
+                            self.ctx.bot_state.channel_memory[channel.id] = deque(maxlen=config.max_memory_messages)
+                        self.ctx.bot_state.channel_memory[channel.id].append({
+                            "role": "assistant",
+                            "content": message,
+                            "timestamp": time.time()
+                        })
+                        self.ctx.bot_state.save()
+                    except Exception as mem_err:
+                        log_warning(f"Failed to append proactive opener to channel memory: {mem_err}")
+                        
                     self.proactive_engine.record_sent(self.ctx.bot_state, trigger, message)
                     log_success(f"Proactive message sent ({trigger.trigger_type})")
 
@@ -1728,9 +1758,9 @@ async def run_village_raid(bot_ctx, channel):
     
     if defenders_won:
         wstate["atk_mod"] = 1
-        wstate["atk_mod_expiry"] = now + 4 * 3600 # +1 ATK for 4 hours
+        wstate["atk_mod_expiry"] = now + 24 * 3600 # +1 ATK until next noon event
         wstate["gil_mult"] = 1.2
-        wstate["gil_mult_expiry"] = now + 4 * 3600 # 1.2x gil for 4 hours
+        wstate["gil_mult_expiry"] = now + 24 * 3600 # 1.2x gil until next noon event
         wstate["event"] = "raid_repelled"
         wstate["event_desc"] = f"Oakhaven repelled a {theme_data['name']}. Morale is high!"
     else:
@@ -2857,7 +2887,7 @@ async def run_construct_breach(bot_ctx, channel):
     
     if defenders_won:
         wstate["def_mod"] = 1
-        wstate["def_mod_expiry"] = now + 4 * 3600
+        wstate["def_mod_expiry"] = now + 24 * 3600
         wstate["event"] = "construct_breach_repelled"
         wstate["event_desc"] = "Oakhaven repelled a Construct Breach. Shield systems are humming."
     else:
@@ -3144,26 +3174,26 @@ async def run_market_glut(bot_ctx, channel):
     is_glut = secrets.randbelow(2) == 0
     if is_glut:
         wstate["shop_price_mult"] = 0.8
-        wstate["shop_price_mult_expiry"] = now + 4 * 3600
+        wstate["shop_price_mult_expiry"] = now + 24 * 3600
         title = "📋 Notice: Market Glut!"
         desc = (
             "**Caravan shipments arrived early!**\n\n"
             "All purchase and sell prices at Hemlock's and the Trade Caravan "
-            "are **discounted by 20%** for the next 4 hours!"
+            "are **discounted by 20%** until the next noon event!"
         )
         color = 0x27ae60
-        log_text = "📋 **Market Glut** — supply surge discounted shop prices by 20% for 4h."
+        log_text = "📋 **Market Glut** — supply surge discounted shop prices by 20% until the next noon event."
     else:
         wstate["shop_price_mult"] = 1.25
-        wstate["shop_price_mult_expiry"] = now + 4 * 3600
+        wstate["shop_price_mult_expiry"] = now + 24 * 3600
         title = "📋 Notice: Whisperwood Blockade!"
         desc = (
             "**Bandit activity has blocked the western trade passes!**\n\n"
             "Severe supply shortages have **inflated all shop prices by 25%** "
-            "for the next 4 hours!"
+            "until the next noon event!"
         )
         color = 0xd35400
-        log_text = "📋 **Supply Shortage** — trade blockages inflated shop prices by 25% for 4h."
+        log_text = "📋 **Supply Shortage** — trade blockages inflated shop prices by 25% until the next noon event."
 
     save_world_state(wstate)
     
@@ -3186,7 +3216,7 @@ async def run_whisperwood_bloom(bot_ctx, channel):
     now = time.time()
     
     wstate["forest_event_bonus"] = 0.15
-    wstate["forest_event_bonus_expiry"] = now + 4 * 3600
+    wstate["forest_event_bonus_expiry"] = now + 24 * 3600
     save_world_state(wstate)
     
     embed = discord.Embed(
@@ -3194,14 +3224,14 @@ async def run_whisperwood_bloom(bot_ctx, channel):
         description=(
             "*A warm wind blows spores through Oakhaven. The deep trees look vibrant.*\n\n"
             "The forest is active! Forest event trigger chances on hunts/scouts in the Whisperwood "
-            "are **increased by 15%** for the next 4 hours!"
+            "are **increased by 15%** until the next noon event!"
         ),
         color=0xe84393
     )
     embed.set_footer(text="Keep your eyes open out there.")
     await channel.send(embed=embed)
     await broadcast_world_event(bot_ctx, embed)
-    await _log_world_event("🌸 **Whisperwood Bloom** — forest event chances boosted by +15% for 4h.")
+    await _log_world_event("🌸 **Whisperwood Bloom** — forest event chances boosted by +15% until the next noon event.")
     log_action("Noon Event: Whisperwood Bloom (Configured)")
 
 
@@ -3215,22 +3245,22 @@ async def run_shrine_vigil(bot_ctx, channel):
     wstate = load_world_state()
     now = time.time()
     
-    wstate["blessing_window_until"] = now + 4 * 3600
+    wstate["blessing_window_until"] = now + 24 * 3600
     save_world_state(wstate)
     
     embed = discord.Embed(
         title="🕯️ Shrine Vigil Active",
         description=(
             "*The sacred basins at the Shrine of the Silent Ones glow with intense resonance.*\n\n"
-            "A holy vigil is active! Players who `!rpg pray` or `!rpg offer` at the Shrine within the "
-            "next 4 hours will receive **Morvenna's Ward blessing** (+5 HP restored, and the Blessed buff)!"
+            "A holy vigil is active! Players who `!rpg pray` or `!rpg offer` at the Shrine until the "
+            "next noon event will receive **Morvenna's Ward blessing** (+5 HP restored, and the Blessed buff)!"
         ),
         color=0xaaddff
     )
     embed.set_footer(text="The Silent Ones are watching Oakhaven.")
     await channel.send(embed=embed)
     await broadcast_world_event(bot_ctx, embed)
-    await _log_world_event("🕯️ **Shrine Vigil** — enhanced blessing window active for 4h.")
+    await _log_world_event("🕯️ **Shrine Vigil** — enhanced blessing window active until the next noon event.")
     log_action("Noon Event: Shrine Vigil (Configured)")
 
 
@@ -3264,7 +3294,7 @@ async def run_missing_persons(bot_ctx, channel):
     
     wstate["missing_person_name"] = chosen_name
     wstate["missing_person_loc"] = chosen_key
-    wstate["missing_person_expiry"] = now + 6 * 3600
+    wstate["missing_person_expiry"] = now + 24 * 3600
     save_world_state(wstate)
     
     embed = discord.Embed(
@@ -3511,9 +3541,9 @@ async def run_construct_incursion(bot_ctx, channel):
         wstate["event"] = "constructs_repelled"
         wstate["event_desc"] = "Oakhaven watchtowers repelled the construct intrusion."
         wstate["def_mod"] = 1
-        wstate["def_mod_expiry"] = now + 14400  # 4 hours
+        wstate["def_mod_expiry"] = now + 24 * 3600  # 24 hours
         wstate["xp_mult"] = 1.2
-        wstate["xp_mult_expiry"] = now + 14400  # 4 hours
+        wstate["xp_mult_expiry"] = now + 24 * 3600  # 24 hours
     else:
         wstate["event"] = "constructs_breached"
         wstate["event_desc"] = "Watchtower defenses breached by Aeridorian automations."
@@ -3657,7 +3687,7 @@ async def run_pilgrims_arrive(bot_ctx, channel):
 
     # Set temporary world_state pilgrim_blessing_until
     wstate = load_world_state()
-    wstate["pilgrim_blessing_until"] = time.time() + 14400  # 4 hours
+    wstate["pilgrim_blessing_until"] = time.time() + 24 * 3600  # 24 hours
     save_world_state(wstate)
 
     await channel.send(embed=discord.Embed(
@@ -3690,10 +3720,10 @@ async def run_night_terror_warning(bot_ctx, channel):
     # Write a temporary flag into world_state
     wstate = load_world_state()
     wstate["encounter_mod"] = {"tier_shift": 1}
-    wstate["encounter_mod_expiry"] = time.time() + 14400  # 4 hours
+    wstate["encounter_mod_expiry"] = time.time() + 24 * 3600  # 24 hours
     save_world_state(wstate)
 
-    await _log_world_event("👁️ **Night Terror Warning** — watchtowers report shadow beast movement. Solo hunts will encounter higher tier threats for the next 4 hours.")
+    await _log_world_event("👁️ **Night Terror Warning** — watchtowers report shadow beast movement. Solo hunts will encounter higher tier threats until the next noon event.")
     log_action("Noon Event: Night Terror Warning")
 
 
@@ -3706,7 +3736,7 @@ async def run_ironclad_envoys(bot_ctx, channel):
 
     wstate = load_world_state()
     wstate["shop_price_mult"] = 1.15
-    wstate["shop_price_mult_expiry"] = time.time() + 14400
+    wstate["shop_price_mult_expiry"] = time.time() + 24 * 3600
     save_world_state(wstate)
 
     await channel.send(embed=discord.Embed(
@@ -3716,11 +3746,11 @@ async def run_ironclad_envoys(bot_ctx, channel):
             "*A heavy iron-rimmed wagon halts in the square. Men bearing the seal of the Ironclad Guild "
             "begin inspecting Pells and Hemlocks inventories.*\n\n"
             "Due to guild buying pressure and exports, Hemlock's store and Trade Road Caravan prices "
-            "are **inflated by 15%** for the next 4 hours."
+            "are **inflated by 15%** until the next noon event."
         ),
         color=0x7f8c8d
     ))
-    await _log_world_event("⚙️ **Guild Envoys** — Ironclad envoys arrived in Oakhaven; shop prices increased by 15% for 4h.")
+    await _log_world_event("⚙️ **Guild Envoys** — Ironclad envoys arrived in Oakhaven; shop prices increased by 15% until the next noon event.")
     log_action("Noon Event: Ironclad Guild Envoys")
 
 
@@ -3733,7 +3763,7 @@ async def run_silverstream_blackwater(bot_ctx, channel):
 
     wstate = load_world_state()
     wstate["fishing_water_tainted"] = True
-    wstate["fishing_water_tainted_expiry"] = time.time() + 14400
+    wstate["fishing_water_tainted_expiry"] = time.time() + 24 * 3600
     save_world_state(wstate)
 
     await channel.send(embed=discord.Embed(
@@ -3742,11 +3772,11 @@ async def run_silverstream_blackwater(bot_ctx, channel):
             "**⚠️ WARNING: RIVER WATER TAINTED**\n\n"
             "*A dark, viscous fluid has begun to mix with the headwaters of the Silverstream. "
             "Tricklebrook Pond turns murky, and the fish behave erratically.*\n\n"
-            "Tricklebrook Pond waters are tainted for the next 4 hours. Fishing is dangerous."
+            "Tricklebrook Pond waters are tainted until the next noon event. Fishing is dangerous."
         ),
         color=0x2c3e50
     ))
-    await _log_world_event("🌊 **Silverstream Murk** — Silverstream headwaters ran black; Tricklebrook Pond waters are tainted for 4h.")
+    await _log_world_event("🌊 **Silverstream Murk** — Silverstream headwaters ran black; Tricklebrook Pond waters are tainted until the next noon event.")
     log_action("Noon Event: Silverstream Blackwater")
 
 
@@ -3845,7 +3875,7 @@ async def run_watchtower_silence(bot_ctx, channel):
 
     wstate = load_world_state()
     wstate["watchtower_bonus"] = True
-    wstate["watchtower_bonus_expiry"] = time.time() + 14400
+    wstate["watchtower_bonus_expiry"] = time.time() + 24 * 3600
     save_world_state(wstate)
 
     await channel.send(embed=discord.Embed(
@@ -3853,11 +3883,11 @@ async def run_watchtower_silence(bot_ctx, channel):
         description=(
             "*The watchtower guards are dead silent today, pacing the battlements in pairs. "
             "They won't explain why, but they are sharing their spyglass logs with any scout who asks.*\n\n"
-            "Scouts visiting the Watchtower get extra scouting detail for the next 4 hours."
+            "Scouts visiting the Watchtower get extra scouting detail until the next noon event."
         ),
         color=0x2980b9
     ))
-    await _log_world_event("🔭 **Watchtower Silence** — Sentries are unusually vigilant; scouting reports enhanced for 4h.")
+    await _log_world_event("🔭 **Watchtower Silence** — Sentries are unusually vigilant; scouting reports enhanced until the next noon event.")
     log_action("Noon Event: Watchtower Silence")
 
 
@@ -4066,7 +4096,7 @@ async def run_boundary_shift(bot_ctx, channel):
 
     wstate = load_world_state()
     wstate["encounter_mod"] = {"tier_shift": 1}
-    wstate["encounter_mod_expiry"] = time.time() + 14400
+    wstate["encounter_mod_expiry"] = time.time() + 24 * 3600
     save_world_state(wstate)
 
     await channel.send(embed=discord.Embed(
@@ -4075,11 +4105,11 @@ async def run_boundary_shift(bot_ctx, channel):
             "**⚠️ WARNING: FOREST BOUNDARY DETECTED CLOSER**\n\n"
             "*The ancient border stakes are found twelve feet inside the overworld borders this morning. "
             "The forest edges are creeping, breathing, and pushing closer to Oakhaven.*\n\n"
-            "For the next 4 hours, solo hunts on the Whisperwood Edge encounter higher tier threats."
+            "Until the next noon event, solo hunts on the Whisperwood Edge encounter higher tier threats."
         ),
         color=0x27ae60
     ))
-    await _log_world_event("🍃 **Boundary Shift** — Whisperwood boundary shifted twelve feet; Edge hunts shifted +1 tier for 4h.")
+    await _log_world_event("🍃 **Boundary Shift** — Whisperwood boundary shifted twelve feet; Edge hunts shifted +1 tier until the next noon event.")
     log_action("Noon Event: Boundary Shift")
 
 
@@ -4092,7 +4122,7 @@ async def run_sealed_wax_jar(bot_ctx, channel):
 
     wstate = load_world_state()
     wstate["special_item_sale"] = {"item": "lucky_charm", "price": 20}
-    wstate["special_item_sale_expiry"] = time.time() + 14400
+    wstate["special_item_sale_expiry"] = time.time() + 24 * 3600
     save_world_state(wstate)
 
     await channel.send(embed=discord.Embed(
@@ -4101,11 +4131,11 @@ async def run_sealed_wax_jar(bot_ctx, channel):
             "**📋 NOTICE: SPECIAL MERCHANDISE OFFER**\n\n"
             "*Hemlock climbs up his top shelf and takes down a dark jar sealed in thick grey wax. "
             "He breaks it open, exposing small lucky charms that shine with ancient warding.*\n\n"
-            "Hemlock is selling Lucky Charms for only **20 Gil** (discounted from 40) for the next 4 hours."
+            "Hemlock is selling Lucky Charms for only **20 Gil** (discounted from 40) until the next noon event."
         ),
         color=0xd35400
     ))
-    await _log_world_event("🫙 **Sealed Jar** — Hemlock opened the sealed wax jar, offering Lucky Charms at 20 Gil for 4h.")
+    await _log_world_event("🫙 **Sealed Jar** — Hemlock opened the sealed wax jar, offering Lucky Charms at 20 Gil until the next noon event.")
     log_action("Noon Event: Sealed Wax Jar")
 
 
