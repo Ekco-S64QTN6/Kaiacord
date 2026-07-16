@@ -1543,6 +1543,11 @@ class ForumDraftReviewView(discord.ui.View):
                     os.makedirs('memory', exist_ok=True)
                     with open('memory/forum_moderation_log.jsonl', 'a', encoding='utf-8') as f:
                         f.write(json.dumps(log_entry) + '\n')
+                        f.flush()
+                        try:
+                            os.fsync(f.fileno())
+                        except OSError:
+                            pass
                 await asyncio.to_thread(_write_log)
             except Exception as le:
                 log_debug(f"Failed to log approved forum draft: {le}")
@@ -1593,6 +1598,11 @@ class ForumDraftReviewView(discord.ui.View):
                 os.makedirs('memory', exist_ok=True)
                 with open('memory/forum_moderation_log.jsonl', 'a', encoding='utf-8') as f:
                     f.write(json.dumps(log_entry) + '\n')
+                    f.flush()
+                    try:
+                        os.fsync(f.fileno())
+                    except OSError:
+                        pass
             await asyncio.to_thread(_write_log)
         except Exception as le:
             log_debug(f"Failed to log rejected forum draft: {le}")

@@ -12,6 +12,7 @@ import json
 import time
 import threading
 import traceback
+from concurrent.futures import ThreadPoolExecutor
 from typing import Dict, Deque, Optional
 from collections import deque
 from utils.infrastructure.logging.kaia_logger import log_info, log_warning
@@ -23,6 +24,7 @@ class BotState:
         self.state_file = state_file
         self._lock = threading.Lock()
         self._write_lock = threading.Lock()  # Prevents concurrent _persist_to_disk writes
+        self._executor = ThreadPoolExecutor(max_workers=1, thread_name_prefix='bot_state_writer')
         self.channel_memory: Dict[int, Deque[Dict[str, str]]] = {}
         self.last_interaction_time: float = time.time()
         self.last_active_channel_id: Optional[int] = None
@@ -181,8 +183,8 @@ class BotState:
                     'saved_at': time.time()
                 }
                 
-                # Offload the actual I/O to a background thread to prevent loop stalls
-                threading.Thread(target=self._persist_to_disk, args=(state,), daemon=True).start()
+                # Offload the actual I/O to a reusable background thread to prevent loop stalls
+                self._executor.submit(self._persist_to_disk, state)
         except Exception as e:
             log_warning(f"Failed to initiate bot state save: {e}")
 

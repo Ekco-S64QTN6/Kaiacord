@@ -168,8 +168,33 @@ class CoreTaskManager:
                         
                         raw = resp["message"]["content"].strip()
                         if raw:
-                            from utils.infrastructure.system.messaging import send_kaia_response
-                            await send_kaia_response(channel, raw)
+                            # Strip codeblocks
+                            raw = raw.replace("```", "").replace("``", "")
+                            
+                            # Apply BotSpeak Filter
+                            from utils.core.response_filter import BotSpeakFilter
+                            raw = BotSpeakFilter.harden(raw)
+                            
+                            # Clean up ellipsis / em dashes if drifted
+                            import re as _re
+                            _frag_count = len(_re.findall(r'\w+[\u2026\.]{2,}', raw))
+                            if _frag_count >= 3:
+                                raw = _re.sub(r'(\w)[\u2026\.]{2,}\s+', r'\1. ', raw)
+                                raw = _re.sub(r'(\w)[\u2026\.]{2,}$', r'\1.', raw, flags=_re.MULTILINE)
+                                raw = _re.sub(r'^\s*[\u2026\.]{2,}\s*$', '', raw, flags=_re.MULTILINE)
+                                raw = _re.sub(r'\.{2,}', '.', raw)
+                            
+                            _em_dash_count = raw.count('\u2014')
+                            if _em_dash_count >= 3:
+                                raw = _re.sub(r'(\w)\u2014(\w)', r'\1, \2', raw)
+                                raw = _re.sub(r'(\w)\u2014\s+', r'\1. ', raw)
+                                raw = _re.sub(r'\s+\u2014(\w)', r'. \1', raw)
+                                
+                            raw = _re.sub(r'\n{3,}', '\n\n', raw).strip()
+                            
+                            if raw:
+                                from utils.infrastructure.system.messaging import send_kaia_response
+                                await send_kaia_response(channel, raw)
                             
                             # Append to channel memory
                             try:
@@ -914,8 +939,11 @@ class CoreTaskManager:
 
                 ai_reply = response['message']['content'].strip()
 
-                # Apply bot speak filtering (strip roleplay markers)
-                from utils.core.response_filter import BotSpeakFilter
+                # Apply safety filters: Hallucination, Contamination, and BotSpeak
+                from utils.core.hallucination_detector import HallucinationDetector
+                from utils.core.response_filter import EmergencyContaminationFilter, BotSpeakFilter
+                ai_reply = HallucinationDetector.clean_response(ai_reply)
+                ai_reply = EmergencyContaminationFilter.filter_response(ai_reply)
                 ai_reply = BotSpeakFilter.harden(ai_reply)
 
                 if not ai_reply:
@@ -1110,6 +1138,26 @@ class CoreTaskManager:
                 if len(context_text) > 5000:
                     context_text = "...\n" + context_text[-5000:]
 
+                # Query RAG using thread title and OP content for grounding (Zero-Hallucination Policy)
+                rag_context = ""
+                try:
+                    query_str = f"{title} {op_content}"[:500]
+                    nodes = await self.ctx.rag.retrieve(
+                        query=query_str,
+                        top_k=3,
+                        category="technical"
+                    )
+                    if nodes:
+                        rag_nodes_text = []
+                        for idx, node in enumerate(nodes):
+                            content = node.get("content", "")
+                            meta = node.get("metadata", {})
+                            source = meta.get("file_name", meta.get("file_path", "unknown"))
+                            rag_nodes_text.append(f"[Document {idx+1} (Source: {source})]\n{content}")
+                        rag_context = "\n\n".join(rag_nodes_text)
+                except Exception as rag_err:
+                    log_warning(f"[Tech Support] RAG retrieval failed: {rag_err}")
+
                 # Load Kaia's persona
                 persona = await load_persona_async()
 
@@ -1130,6 +1178,16 @@ class CoreTaskManager:
                     f"Point to the wiki when relevant: https://wiki.project1999.com/Technical_Chat_Troubleshooting_Guide\n"
                     f"Do not include any AI disclaimer footer; it is appended automatically."
                 )
+
+                if rag_context:
+                    forum_system += (
+                        f"\n\n--- RAG KNOWLEDGE (VERIFIED TECHNICAL DOCUMENTS) ---\n"
+                        f"{rag_context}\n"
+                        f"----------------------------------------------------\n"
+                        f"CRITICAL GROUNDING: You must prioritize the technical solutions, files, and variables "
+                        f"from the RAG KNOWLEDGE block above. Do not invent setup steps, configuration flags, or "
+                        f"procedures that contradict these documents."
+                    )
 
                 # User message is the OP's actual post
                 user_msg = f"{op_author}: {op_content}"
@@ -1155,8 +1213,11 @@ class CoreTaskManager:
 
                 ai_reply = response['message']['content'].strip()
 
-                # Apply bot speak filtering (strip roleplay markers)
-                from utils.core.response_filter import BotSpeakFilter
+                # Apply safety filters: Hallucination, Contamination, and BotSpeak
+                from utils.core.hallucination_detector import HallucinationDetector
+                from utils.core.response_filter import EmergencyContaminationFilter, BotSpeakFilter
+                ai_reply = HallucinationDetector.clean_response(ai_reply)
+                ai_reply = EmergencyContaminationFilter.filter_response(ai_reply)
                 ai_reply = BotSpeakFilter.harden(ai_reply)
 
                 if not ai_reply:

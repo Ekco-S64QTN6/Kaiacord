@@ -206,7 +206,7 @@ class OllamaGPUManager:
 
             log_info(f"🔄 Unloading {len(running_models)} models from VRAM: {', '.join(running_models)}")
             import aiohttp
-            async with aiohttp.ClientSession() as session:
+            async with aiohttp.ClientSession(timeout=aiohttp.ClientTimeout(total=10.0)) as session:
                 for model in running_models:
                     try:
                         # Direct HTTP POST guarantees the keep_alive=0 request is dispatched 

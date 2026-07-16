@@ -166,6 +166,11 @@ class DreamEngine:
             self.GROWTH_LOG_PATH.parent.mkdir(parents=True, exist_ok=True)
             with open(self.GROWTH_LOG_PATH, 'a', encoding='utf-8') as f:
                 f.write(json.dumps(event) + '\n')
+                f.flush()
+                try:
+                    os.fsync(f.fileno())
+                except OSError:
+                    pass
         except Exception as e:
             log_debug(f"Growth log write failed (non-fatal): {e}")
 

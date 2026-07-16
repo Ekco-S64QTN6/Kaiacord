@@ -54,7 +54,10 @@ def _var_julia(x, y, *args):
     """Classic Electric Sheep swirling organic tendrils."""
     r = np.sqrt(np.sqrt(x**2 + y**2) + 1e-10)
     theta = np.arctan2(y, x) * 0.5
-    sign = np.where((x * 1000).astype(np.intp) % 2 == 0, 1.0, -1.0)
+    rng = args[0] if args else None
+    if rng is None:
+        rng = np.random.default_rng()
+    sign = rng.choice([-1.0, 1.0], size=len(x))
     theta = theta + sign * np.pi * 0.5
     return r * np.cos(theta), r * np.sin(theta)
 
@@ -267,15 +270,15 @@ class FractalFlameRenderer:
 
     INTERNAL_RES = 1440
     OUTPUT_RES = 720
-    N_POINTS = 2_000_000
-    N_WARMUP = 20
-    N_ITERATIONS = 250
+    N_POINTS = 200_000
+    N_WARMUP = 50
+    N_ITERATIONS = 80
     DENSITY_SIGMA = 1.2
     GAMMA = 2.2
-    VIBRANCY = 1.0       # flam3 vibrancy: 1.0 = full color preservation
+    VIBRANCY = 0.95       # flam3 vibrancy: 1.0 = full color preservation
     HIGHLIGHT_POWER = 0.5 # flam3 highlight power: controls bright area handling
 
-    MAX_RETRIES = 8
+    MAX_RETRIES = 3
     MIN_COVERAGE = 0.25  # At least 25% of pixels must have meaningful color
 
     def generate(self, seed=None, palette_name=None):
@@ -549,15 +552,6 @@ class FractalFlameRenderer:
         b_flat = np.zeros(total_pixels, dtype=np.float64)
         a_flat = np.zeros(total_pixels, dtype=np.float64)
 
-        # Initial bounds — will be fitted adaptively after warmup
-        xmin, xmax = -2.0, 2.0
-        ymin, ymax = -2.0, 2.0
-        x_scale = W / (xmax - xmin)
-        y_scale = H / (ymax - ymin)
-        bounds_fitted = False
-        bounds_sample_x = []
-        bounds_sample_y = []
-
         n_transforms = len(transforms)
 
         # Precompute affine matrices as stacked arrays for vectorized lookup
@@ -565,28 +559,24 @@ class FractalFlameRenderer:
         colors = np.array([t[2] for t in transforms])   # shape (n_transforms,)
         post_affines = [t[3] for t in transforms]  # list of arrays or None
 
-        for iteration in range(self.N_WARMUP + self.N_ITERATIONS):
-            # Choose transform for each point (single rng call)
+        # 1. Warmup loop (without accumulation)
+        for iteration in range(self.N_WARMUP):
             choices = rng.choice(n_transforms, size=N, p=weights)
-
-            # Vectorized affine: lookup the 6 coefficients for each point's chosen transform
-            af = affines[choices]  # shape (N, 6)
+            af = affines[choices]
             xa = af[:, 0] * x + af[:, 1] * y + af[:, 2]
             ya = af[:, 3] * x + af[:, 4] * y + af[:, 5]
 
-            # Apply variations per-transform with true multi-blend
             new_x = np.empty_like(xa)
             new_y = np.empty_like(ya)
             for i in range(n_transforms):
                 mask = choices == i
                 if not mask.any():
                     continue
-                var_fns = transforms[i][1]  # list of variation functions
+                var_fns = transforms[i][1]
                 xi, yi = xa[mask], ya[mask]
                 if len(var_fns) == 1:
                     vx, vy = var_fns[0](xi, yi, rng)
                 else:
-                    # Equal-weight blend of all variations for this transform
                     vx = np.zeros(mask.sum())
                     vy = np.zeros(mask.sum())
                     for vfn in var_fns:
@@ -595,35 +585,94 @@ class FractalFlameRenderer:
                         vy += fy
                     vx /= len(var_fns)
                     vy /= len(var_fns)
-                # Apply post-transform if present
                 pa = post_affines[i]
                 if pa is not None:
-                    px = pa[0] * vx + pa[1] * vy + pa[2]
-                    py = pa[3] * vx + pa[4] * vy + pa[5]
-                    vx, vy = px, py
+                    vx, vy = pa[0] * vx + pa[1] * vy + pa[2], pa[3] * vx + pa[4] * vy + pa[5]
                 new_x[mask] = vx
                 new_y[mask] = vy
 
             x = new_x
             y = new_y
 
-            # Clamp runaway coordinates (prevent variation escape)
             np.clip(x, -1e4, 1e4, out=x)
             np.clip(y, -1e4, 1e4, out=y)
-            # Replace any NaN/inf with random re-seed
             bad = ~(np.isfinite(x) & np.isfinite(y))
             if bad.any():
                 x[bad] = rng.uniform(-1, 1, bad.sum())
                 y[bad] = rng.uniform(-1, 1, bad.sum())
 
-            # Color blending (vectorized) with configurable speed for rich gradients
+        # 2. Viewport bounds fitting from warmed-up points
+        if final_xform is not None:
+            fc, fs = final_xform['affine']
+            tx = fc * x - fs * y
+            ty = fs * x + fc * y
+            fx, fy = final_xform['var_fns'][0](tx, ty)
+        else:
+            fx, fy = x, y
+
+        finite = np.isfinite(fx) & np.isfinite(fy)
+        if not finite.any():
+            xmin, xmax = -2.0, 2.0
+            ymin, ymax = -2.0, 2.0
+        else:
+            p_lo_x, p_hi_x = np.percentile(fx[finite], [5, 95])
+            p_lo_y, p_hi_y = np.percentile(fy[finite], [5, 95])
+            pad_x = 0.05 * (p_hi_x - p_lo_x + 1e-10)
+            pad_y = 0.05 * (p_hi_y - p_lo_y + 1e-10)
+            cx_f = (p_lo_x + p_hi_x) / 2
+            cy_f = (p_lo_y + p_hi_y) / 2
+            half = max(p_hi_x - p_lo_x + 2 * pad_x, p_hi_y - p_lo_y + 2 * pad_y) / 2
+            half = max(half, 0.1)
+            xmin, xmax = cx_f - half, cx_f + half
+            ymin, ymax = cy_f - half, cy_f + half
+
+        x_scale = W / (xmax - xmin)
+        y_scale = H / (ymax - ymin)
+
+        # 3. Accumulation loop
+        for iteration in range(self.N_ITERATIONS):
+            choices = rng.choice(n_transforms, size=N, p=weights)
+            af = affines[choices]
+            xa = af[:, 0] * x + af[:, 1] * y + af[:, 2]
+            ya = af[:, 3] * x + af[:, 4] * y + af[:, 5]
+
+            new_x = np.empty_like(xa)
+            new_y = np.empty_like(ya)
+            for i in range(n_transforms):
+                mask = choices == i
+                if not mask.any():
+                    continue
+                var_fns = transforms[i][1]
+                xi, yi = xa[mask], ya[mask]
+                if len(var_fns) == 1:
+                    vx, vy = var_fns[0](xi, yi, rng)
+                else:
+                    vx = np.zeros(mask.sum())
+                    vy = np.zeros(mask.sum())
+                    for vfn in var_fns:
+                        fx, fy = vfn(xi, yi, rng)
+                        vx += fx
+                        vy += fy
+                    vx /= len(var_fns)
+                    vy /= len(var_fns)
+                pa = post_affines[i]
+                if pa is not None:
+                    vx, vy = pa[0] * vx + pa[1] * vy + pa[2], pa[3] * vx + pa[4] * vy + pa[5]
+                new_x[mask] = vx
+                new_y[mask] = vy
+
+            x = new_x
+            y = new_y
+
+            np.clip(x, -1e4, 1e4, out=x)
+            np.clip(y, -1e4, 1e4, out=y)
+            bad = ~(np.isfinite(x) & np.isfinite(y))
+            if bad.any():
+                x[bad] = rng.uniform(-1, 1, bad.sum())
+                y[bad] = rng.uniform(-1, 1, bad.sum())
+
             c = c * (1.0 - color_speed) + colors[choices] * color_speed
 
-            # Skip warmup iterations
-            if iteration < self.N_WARMUP:
-                continue
-
-            # Apply final transform (global camera) if present
             if final_xform is not None:
                 fc, fs = final_xform['affine']
                 tx = fc * x - fs * y
@@ -632,41 +681,11 @@ class FractalFlameRenderer:
             else:
                 fx, fy = x, y
 
-            # Adaptive bounds fitting — collect samples across first 5 post-warmup iterations
-            if not bounds_fitted:
-                # Subsample to keep memory reasonable
-                finite = np.isfinite(fx) & np.isfinite(fy)
-                sample_idx = finite & (np.arange(N) % 10 == 0)  # every 10th point
-                bounds_sample_x.append(fx[sample_idx].copy())
-                bounds_sample_y.append(fy[sample_idx].copy())
-                if len(bounds_sample_x) >= 5:
-                    bounds_fitted = True
-                    all_x = np.concatenate(bounds_sample_x)
-                    all_y = np.concatenate(bounds_sample_y)
-                    # Tight viewport: 5th-95th percentile with 5% padding
-                    # This is the key to filling the canvas — real Electric Sheep
-                    # zooms in tight on the attractor, not loose like [2,98]
-                    p_lo_x, p_hi_x = np.percentile(all_x, [5, 95])
-                    p_lo_y, p_hi_y = np.percentile(all_y, [5, 95])
-                    pad_x = 0.05 * (p_hi_x - p_lo_x + 1e-10)
-                    pad_y = 0.05 * (p_hi_y - p_lo_y + 1e-10)
-                    cx_f = (p_lo_x + p_hi_x) / 2
-                    cy_f = (p_lo_y + p_hi_y) / 2
-                    half = max(p_hi_x - p_lo_x + 2 * pad_x, p_hi_y - p_lo_y + 2 * pad_y) / 2
-                    half = max(half, 0.1)  # minimum viewport size
-                    xmin, xmax = cx_f - half, cx_f + half
-                    ymin, ymax = cy_f - half, cy_f + half
-                    x_scale = W / (xmax - xmin)
-                    y_scale = H / (ymax - ymin)
-                    del bounds_sample_x, bounds_sample_y  # free memory
-
-            # Accumulate via bincount
             self._accumulate_points(
                 fx, fy, c, xmin, ymin, x_scale, y_scale,
                 W, H, total_pixels, r_flat, g_flat, b_flat, a_flat, palette_fn
             )
 
-            # K-fold rotational symmetry
             if symmetry_k > 1:
                 angle_step = (2 * np.pi) / symmetry_k
                 for s in range(1, symmetry_k):
@@ -705,122 +724,96 @@ class FractalFlameRenderer:
         b_flat += np.bincount(flat_idx, weights=rgb[:, 2], minlength=total_pixels)
 
     def _render(self, r_acc, g_acc, b_acc, alpha_acc, W, H):
-        """Render RGBA buffers to image using true flam3 tone mapping.
-        
-        Implements the actual flam3 rendering pipeline from rect.c/palettes.c:
-        1. Log-density mapping: ls = k1 * log(1 + density * k2) / density
-        2. Vibrancy-based gamma (preserves color saturation)
-        3. Adaptive density estimation (spatial glow for thin strands)
-        4. Subtle background tint (eliminates pure black)
-        """
-        if alpha_acc.max() == 0:
+        # ── Step 0: Downsample first to 720x720 (Supersampling Box Filter) ──
+        if W == 1440 and H == 1440:
+            r_acc = (r_acc[0::2, 0::2] + r_acc[1::2, 0::2] + r_acc[0::2, 1::2] + r_acc[1::2, 1::2]) / 4.0
+            g_acc = (g_acc[0::2, 0::2] + g_acc[1::2, 0::2] + g_acc[0::2, 1::2] + g_acc[1::2, 1::2]) / 4.0
+            b_acc = (b_acc[0::2, 0::2] + b_acc[1::2, 0::2] + b_acc[0::2, 1::2] + b_acc[1::2, 1::2]) / 4.0
+            alpha_acc = (alpha_acc[0::2, 0::2] + alpha_acc[1::2, 0::2] + alpha_acc[0::2, 1::2] + alpha_acc[1::2, 1::2]) / 4.0
+            W, H = 720, 720
+
+        alpha_max = alpha_acc.max()
+        if alpha_max == 0:
             log_warning("[art] Empty histogram — all points escaped. Producing noise fallback.")
             rng = np.random.default_rng()
             noise = rng.uniform(0, 1, (self.OUTPUT_RES, self.OUTPUT_RES, 3))
             return Image.fromarray((noise * 60).astype(np.uint8))
 
-        # Stack RGB buffers
         rgb_acc = np.stack([r_acc, g_acc, b_acc], axis=-1)  # (H, W, 3)
 
-        # ── Step 1: Flam3 Log-Density Tone Mapping ────────────────────────────
-        # From rect.c line 993: ls = (k1 * log(1.0 + c[3] * k2)) / c[3]
-        # k1 controls brightness, k2 controls contrast/dynamic range.
-        # We use a self-calibrating contrast factor relative to the peak density
-        # to guarantee beautiful dynamic range compression on every render.
-        contrast = 200.0
-        k2 = contrast / (alpha_acc.max() + 1e-10)
-        k1 = 1.0  # brightness factor
+        # ── Step 1: Normalized Log-Density Mapping ────────────────────────────
+        contrast = 500.0
+        log_alpha = np.log1p(alpha_acc * contrast)
+        log_alpha_max = np.log1p(alpha_max * contrast)
+        density_norm = log_alpha / (log_alpha_max + 1e-10)
 
-        log_alpha = np.log1p(alpha_acc * k2)
-        scale = (k1 * log_alpha) / (alpha_acc + 1e-10)
-        rgb_mapped = rgb_acc * scale[..., np.newaxis]
+        alpha_mask = alpha_acc > 0
+        rgb_average = np.zeros_like(rgb_acc)
+        rgb_average[alpha_mask] = rgb_acc[alpha_mask] / alpha_acc[alpha_mask][..., np.newaxis]
+        rgb_mapped = rgb_average * density_norm[..., np.newaxis]
 
         # ── Step 2: Adaptive Density Estimation (DE) ──────────────────────────
-        # Thin strands get wider blur → visible glow. Dense areas stay sharp.
-        nonzero_log = log_alpha[log_alpha > 0]
-        if len(nonzero_log) > 100:
-            density_p90 = np.percentile(nonzero_log, 90)
-        else:
-            density_p90 = log_alpha.max()
-        density_norm = np.clip(log_alpha / (density_p90 + 1e-10), 0, 1)
-
-        # Multi-scale DE: wide kernel for sparse areas, narrow for structure
-        wide_blur = gaussian_filter(rgb_mapped, sigma=6.0, axes=(0, 1))
-        narrow_blur = gaussian_filter(rgb_mapped, sigma=1.5, axes=(0, 1))
+        # Sigmas scaled down by 2 since we downsampled to 720x720
+        wide_blur = gaussian_filter(rgb_mapped, sigma=3.0, axes=(0, 1))
+        narrow_blur = gaussian_filter(rgb_mapped, sigma=0.75, axes=(0, 1))
         sparse_weight = (1.0 - density_norm)[..., np.newaxis]
-        rgb_de = rgb_mapped + wide_blur * sparse_weight * 0.5 + narrow_blur * 0.2
+        rgb_de = rgb_mapped + wide_blur * sparse_weight * 0.6 + narrow_blur * 0.2
 
-        # ── Step 3: Flam3 Vibrancy-Based Gamma ────────────────────────────────
-        # From palettes.c: vibrancy blends between per-channel gamma and
-        # alpha-channel gamma. vibrancy=1.0 preserves color saturation.
-        # alpha = pow(density_normalized, 1/gamma)
-        # vibrancy path:   color = vibrancy * alpha * color_normalized
-        # per-channel path: color = (1-vibrancy) * pow(channel, 1/gamma)
-        gamma = self.GAMMA
-        vibrancy = self.VIBRANCY
-        g_inv = 1.0 / gamma
-
-        # Normalize to [0, 1] range
-        v_max_candidates = rgb_de[alpha_acc > 0]
+        # ── Step 3: Normalization (Auto-Exposure) ─────────────────────────────
+        v_max_candidates = rgb_de[alpha_mask]
         if len(v_max_candidates) > 100:
             v_max = np.percentile(v_max_candidates, 99.5)
         else:
             v_max = rgb_de.max()
-        rgb_norm = rgb_de / (v_max + 1e-10)
+        rgb_norm = np.clip(rgb_de / (v_max + 1e-10), 0, 1)
 
-        # Alpha from density (how "opaque" this pixel is)
-        alpha_norm = np.clip(log_alpha / (log_alpha.max() + 1e-10), 0, 1)
-        alpha_gamma = np.power(alpha_norm, g_inv)
+        # ── Step 4: Vibrancy-Based Gamma ──────────────────────────────────────
+        gamma = self.GAMMA
+        vibrancy = self.VIBRANCY
+        g_inv = 1.0 / gamma
 
-        # Vibrancy blend (from flam3 palettes.c line 1206+1215)
-        # vibrancy path: multiply normalized color by alpha_gamma (preserves hue)
+        alpha_gamma = np.power(density_norm, g_inv)
         vib_color = vibrancy * rgb_norm * alpha_gamma[..., np.newaxis]
-        # Per-channel gamma path: apply gamma independently (can wash out)
-        chan_color = (1.0 - vibrancy) * np.power(np.clip(rgb_norm, 0, 1), g_inv)
-        # Blend
+        chan_color = (1.0 - vibrancy) * np.power(rgb_norm, g_inv)
         rgb_gamma = np.clip(vib_color + chan_color, 0, 1)
 
-        # ── Step 4: Midtone Boost ─────────────────────────────────────────────
-        # Fractal flames produce extreme dynamic range: a few hotspot pixels at
-        # 0.5-1.0 and vast areas at 0.001-0.01. A power curve (gamma < 1)
-        # dramatically lifts the thin structures so bloom has visible values to
-        # spread. pow(0.01, 0.4) ≈ 0.04 vs raw 0.01 — a 4x boost in dim areas
-        # while barely touching bright areas (pow(0.5, 0.4) ≈ 0.76).
-        rgb_boosted = np.power(np.clip(rgb_gamma, 0, 1), 0.4)
+        # ── Step 5: Midtone Boost ─────────────────────────────────────────────
+        # Since rgb_gamma is already correctly gamma-corrected, we do not need to wash it out.
+        rgb_boosted = rgb_gamma
 
-        # ── Step 5: Multi-Scale Bloom (Electric Sheep glow) ──────────────────
-        # Three bloom passes at different scales create the characteristic
-        # ambient glow. Applied AFTER the midtone boost so bloom spreads
-        # meaningful brightness values, not near-zero noise.
-        bloom_fine = gaussian_filter(rgb_boosted, sigma=4.0, axes=(0, 1))
-        bloom_medium = gaussian_filter(rgb_boosted, sigma=20.0, axes=(0, 1))
-        bloom_wide = gaussian_filter(rgb_boosted, sigma=60.0, axes=(0, 1))
+        # ── Step 6: Multi-Scale Bloom (Electric Sheep glow) ──────────────────
+        # Sigmas scaled down by 2, weights scaled down to prevent washout
+        bloom_fine = gaussian_filter(rgb_boosted, sigma=2.0, axes=(0, 1))
+        bloom_medium = gaussian_filter(rgb_boosted, sigma=10.0, axes=(0, 1))
+        bloom_wide = gaussian_filter(rgb_boosted, sigma=30.0, axes=(0, 1))
         rgb_bloomed = np.clip(
-            rgb_boosted + bloom_fine * 0.4 + bloom_medium * 0.5 + bloom_wide * 0.3,
+            rgb_boosted + bloom_fine * 0.15 + bloom_medium * 0.20 + bloom_wide * 0.10,
             0, 1
         )
 
-        # ── Step 6: Background Tint ──────────────────────────────────────────
-        # Add a subtle colored background to empty pixels. The tint is derived
-        # from the flame's own color palette for cohesion.
-        mean_color = rgb_bloomed[alpha_acc > 0].mean(axis=0) if (alpha_acc > 0).any() else np.array([0.1, 0.05, 0.15])
+        # ── Step 7: Vignetted Background Tint (Ambient dark glow) ─────────────
+        mean_color = rgb_bloomed[alpha_mask].mean(axis=0) if alpha_mask.any() else np.array([0.1, 0.05, 0.15])
         bg_tint = mean_color * 0.06
-        bg_floor = np.array([0.015, 0.01, 0.025])  # Minimum color floor
+        bg_floor = np.array([0.015, 0.01, 0.025])
         bg = np.maximum(bg_tint, bg_floor)
-        empty_mask = (alpha_acc == 0)[..., np.newaxis]
-        rgb_tinted = rgb_bloomed + bg * empty_mask.astype(float)
 
-        # ── Step 7: Contrast Stretch ─────────────────────────────────────────
-        # Ensure the output uses the full brightness range. Map [p2, p98] → [0, 1]
-        # so dim flames get brightened and clipped highlights stay white.
-        p_lo = np.percentile(rgb_tinted, 2)
-        p_hi = np.percentile(rgb_tinted, 98)
+        Y, X = np.ogrid[:H, :W]
+        center_y, center_x = H / 2.0, W / 2.0
+        dist_from_center = np.sqrt((X - center_x)**2 + (Y - center_y)**2)
+        max_dist = np.sqrt(center_x**2 + center_y**2)
+        vignette = 1.0 - np.clip(dist_from_center / max_dist, 0, 1) * 0.4
+        bg_vignette = bg * vignette[..., np.newaxis]
+
+        # Blend smooth transition based on density
+        blend_factor = np.clip(density_norm * 2.0, 0, 1)[..., np.newaxis]
+        rgb_tinted = rgb_bloomed * blend_factor + bg_vignette * (1.0 - blend_factor)
+
+        # ── Step 8: Contrast Stretch ─────────────────────────────────────────
+        p_lo = np.percentile(rgb_tinted, 1)
+        p_hi = np.percentile(rgb_tinted, 99)
         if p_hi - p_lo > 0.01:
             rgb_final = np.clip((rgb_tinted - p_lo) / (p_hi - p_lo), 0, 1)
         else:
             rgb_final = np.clip(rgb_tinted, 0, 1)
 
-        # ── Step 8: Supersampling downsample ─────────────────────────────────
-        img_high = Image.fromarray((rgb_final * 255).astype(np.uint8))
-        img_out = img_high.resize((self.OUTPUT_RES, self.OUTPUT_RES), Image.LANCZOS)
-        return img_out
+        return Image.fromarray((rgb_final * 255).astype(np.uint8))

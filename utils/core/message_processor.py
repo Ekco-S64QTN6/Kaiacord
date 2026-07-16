@@ -1102,7 +1102,7 @@ class MessageProcessor:
         # that we cache with a TTL to avoid redundant I/O.
         now = time.time()
         if self._identity_cache_time + self._IDENTITY_CACHE_TTL < now or not self._identity_cache:
-            self._update_identity_cache()
+            await asyncio.to_thread(self._update_identity_cache)
             self._identity_cache_time = now
 
         # Inject self-model FIRST (prepends — will be second after constitution prepends on top)
@@ -1986,6 +1986,11 @@ class MessageProcessor:
                             def _write_and_rotate_growth_log():
                                 with open(growth_log, 'a', encoding='utf-8') as gl:
                                     gl.write(milestone_entry + '\n')
+                                    gl.flush()
+                                    try:
+                                        os.fsync(gl.fileno())
+                                    except OSError:
+                                        pass
                                 # Rotate: keep last 2000 entries (atomic)
                                 try:
                                     with open(growth_log, 'r', encoding='utf-8') as gl:
@@ -2134,8 +2139,8 @@ class MessageProcessor:
         timeout_seconds = self.config.url_fetch_timeout
         try:
             async with asyncio.timeout(timeout_seconds + 2.0): # Outer safety
-                async with aiohttp.ClientSession() as session:
-                    async with session.get(url, timeout=aiohttp.ClientTimeout(total=timeout_seconds)) as resp:
+                async with aiohttp.ClientSession(timeout=aiohttp.ClientTimeout(total=timeout_seconds)) as session:
+                    async with session.get(url) as resp:
                         if resp.status == 200:
                             data = await resp.read()
 
@@ -2144,12 +2149,12 @@ class MessageProcessor:
                                 try:
                                     from PIL import Image
                                     import io
-                                    gif = Image.open(io.BytesIO(data))
-                                    gif.seek(0)  # first frame
-                                    frame = gif.convert("RGBA")
-                                    buf = io.BytesIO()
-                                    frame.save(buf, format="PNG")
-                                    data = buf.getvalue()
+                                    with Image.open(io.BytesIO(data)) as gif:
+                                        gif.seek(0)  # first frame
+                                        frame = gif.convert("RGBA")
+                                        buf = io.BytesIO()
+                                        frame.save(buf, format="PNG")
+                                        data = buf.getvalue()
                                     log_info("GIF detected — extracted first frame as PNG for vision processing.")
                                 except Exception as gif_err:
                                     log_warning(f"GIF frame extraction failed: {gif_err}. Skipping attachment.")
