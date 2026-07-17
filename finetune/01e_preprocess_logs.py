@@ -342,14 +342,8 @@ async def process_file(
 
     # Apply rewrites into cleaned_turns
     if rewrite_map:
-        kaia_idx = 0
-        for j, turn in enumerate(turns):
-            if turn["role"] == "kaia":
-                if kaia_idx in rewrite_map:
-                    # Find the matching line in cleaned_turns and replace
-                    # (simple approach: rebuild from turns with rewrites)
-                    pass
-                kaia_idx += 1
+        for idx, rewritten_content in rewrite_map.items():
+            cleaned_turns[idx] = "Kaia: " + rewritten_content
 
     if apply:
         # Backup original

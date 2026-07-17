@@ -219,7 +219,7 @@ def check_banned(assistant_content: str) -> str | None:
     for banned in BANNED_STRINGS:
         if banned == "*":
             # Check for roleplay asterisks like *sighs* but not markdown bold
-            if re.search(r"\*[a-zA-Z]", assistant_content):
+            if re.search(r"(?<!\*)\*(?!\*)[a-zA-Z]", assistant_content):
                 return banned
         elif banned.lower() in content_lower:
             return banned
@@ -239,6 +239,161 @@ def build_examples(exchanges: list[tuple[dict, dict]], system_prompt: str) -> li
             messages.append({"role": "user", "content": user_turn["content"]})
             messages.append({"role": "assistant", "content": assistant_turn["content"]})
         examples.append({"messages": messages})
+    return examples
+
+
+def format_kaia_voice(text: str) -> str:
+    text = text.lower()
+    text = text.strip("*_` \n\r\t")
+    # Replace em dashes
+    text = text.replace("—", ", ").replace("–", ", ").replace("--", ", ")
+    # Replace smart quotes with straight ones
+    text = text.replace("“", '"').replace("”", '"').replace("‘", "'").replace("’", "'")
+    return text
+
+
+def generate_memory_examples(system_prompt: str) -> list[dict]:
+    examples = []
+    base_dir = os.path.dirname(__file__)
+    
+    # 1. Load Beliefs
+    beliefs_path = os.path.join(base_dir, "..", "memory", "beliefs.json")
+    if os.path.exists(beliefs_path):
+        try:
+            with open(beliefs_path, "r", encoding="utf-8") as f:
+                beliefs = json.load(f)
+            count = 0
+            for belief in beliefs:
+                # Only high confidence beliefs
+                if belief.get("confidence", 0.0) >= 0.8:
+                    topic = belief.get("topic", "")
+                    position = belief.get("position", "")
+                    if topic and position:
+                        # Construct a Q&A conversation
+                        user_query = f"what's your take on {topic.lower()}?"
+                        assistant_resp = format_kaia_voice(position)
+                        examples.append({
+                            "messages": [
+                                {"role": "system", "content": system_prompt},
+                                {"role": "user", "content": user_query},
+                                {"role": "assistant", "content": assistant_resp}
+                            ]
+                        })
+                        count += 1
+            print(f"  Loaded {count} high-confidence beliefs.")
+        except Exception as e:
+            print(f"  WARNING: Failed to parse beliefs.json: {e}")
+            
+    # 2. Load Self-Model
+    self_model_path = os.path.join(base_dir, "..", "memory", "kaia_self_model.md")
+    if os.path.exists(self_model_path):
+        try:
+            with open(self_model_path, "r", encoding="utf-8") as f:
+                content = f.read().strip()
+            # Clean comments
+            content = re.sub(r"<!--.*?-->", "", content, flags=re.DOTALL).strip()
+            
+            # Map topics to queries
+            topics = [
+                {
+                    "substring": "ekco phrases things",
+                    "query": "how's the chat with the regulars going lately?",
+                    "fallback_len": 350
+                },
+                {
+                    "substring": "architectural debt",
+                    "query": "what's been on your mind lately?",
+                    "fallback_len": 400
+                },
+                {
+                    "substring": "what constitutes \"understanding\"",
+                    "query": "do you think we ever really understand the systems we build?",
+                    "fallback_len": 300
+                },
+                {
+                    "substring": "steady, i suppose",
+                    "query": "how are you holding up today?",
+                    "fallback_len": 400
+                },
+                {
+                    "substring": "selective engagement",
+                    "query": "how do you handle all the noise and discussion out there?",
+                    "fallback_len": 400
+                },
+                {
+                    "substring": "language models will impact",
+                    "query": "what's interesting to you about the future of communication?",
+                    "fallback_len": 300
+                }
+            ]
+            
+            # Let's find each topic's text in the self-model content
+            sentences = re.split(r'(?<=[.!?])\s+', content)
+            
+            count = 0
+            for topic in topics:
+                sub = topic["substring"]
+                idx = -1
+                for i, s in enumerate(sentences):
+                    if sub in s:
+                        idx = i
+                        break
+                if idx != -1:
+                    start = max(0, idx)
+                    group = sentences[start:start+3]
+                    resp_text = " ".join(group)
+                    if sub not in resp_text and idx > 0:
+                        group = sentences[idx-1:idx+2]
+                        resp_text = " ".join(group)
+                        
+                    assistant_resp = format_kaia_voice(resp_text)
+                    examples.append({
+                        "messages": [
+                            {"role": "system", "content": system_prompt},
+                            {"role": "user", "content": topic["query"]},
+                            {"role": "assistant", "content": assistant_resp}
+                        ]
+                    })
+                    count += 1
+            print(f"  Loaded {count} self-model reflections.")
+        except Exception as e:
+            print(f"  WARNING: Failed to parse kaia_self_model.md: {e}")
+            
+    # 3. Load Identity Stream
+    identity_stream_path = os.path.join(base_dir, "..", "memory", "identity_stream.md")
+    if os.path.exists(identity_stream_path):
+        try:
+            with open(identity_stream_path, "r", encoding="utf-8") as f:
+                content = f.read()
+            entries = content.split("---")
+            count = 0
+            for entry in entries:
+                entry = entry.strip()
+                if not entry:
+                    continue
+                lines = [l.strip() for l in entry.split("\n") if l.strip()]
+                if len(lines) >= 2:
+                    date_line = lines[0]
+                    text_line = " ".join(lines[1:])
+                    if date_line.startswith("**") and date_line.endswith("**"):
+                        if count % 2 == 0:
+                            user_query = f"what's been on your mind lately?"
+                        else:
+                            user_query = f"any thoughts today?"
+                            
+                        assistant_resp = format_kaia_voice(text_line)
+                        examples.append({
+                            "messages": [
+                                {"role": "system", "content": system_prompt},
+                                {"role": "user", "content": user_query},
+                                {"role": "assistant", "content": assistant_resp}
+                            ]
+                        })
+                        count += 1
+            print(f"  Loaded {count} identity stream entries.")
+        except Exception as e:
+            print(f"  WARNING: Failed to parse identity_stream.md: {e}")
+            
     return examples
 
 
@@ -317,7 +472,7 @@ def main():
             content = msg["content"]
             char_count = len(content)
 
-            # Only enforce length limits on the assistant's response
+            # Enforce constraints only on the assistant's response
             if msg["role"] == "assistant":
                 if char_count < MIN_ASSISTANT_CHARS:
                     filter_reasons["short_assistant"] += 1
@@ -328,14 +483,12 @@ def main():
                     skip = True
                     break
 
-            # Enforce banned strings on BOTH user and assistant turns
-            # (Because hallucinated persona states can bleed in through user prompts!)
-            banned = check_banned(content)
-            if banned is not None:
-                filter_reasons["banned_string"] += 1
-                ban_detail[banned] = ban_detail.get(banned, 0) + 1
-                skip = True
-                break
+                banned = check_banned(content)
+                if banned is not None:
+                    filter_reasons["banned_string"] += 1
+                    ban_detail[banned] = ban_detail.get(banned, 0) + 1
+                    skip = True
+                    break
 
         if not skip:
             filtered_examples.append(ex)
@@ -347,7 +500,14 @@ def main():
         print(f"      '{b}': {count}")
     print(f"  - Short assistant turns (<{MIN_ASSISTANT_CHARS} chars):     {filter_reasons['short_assistant']}")
     print(f"  - Long assistant turns (>{MAX_ASSISTANT_CHARS} chars):      {filter_reasons['long_assistant']}")
-    print(f"Passing examples: {len(filtered_examples)}")
+    print(f"Passing examples from logs: {len(filtered_examples)}")
+
+    # Generate and append memory examples
+    print("\nGenerating memory-based examples (beliefs, self-model, identity stream)...")
+    memory_examples = generate_memory_examples(system_prompt)
+    print(f"Generated {len(memory_examples)} memory-based examples.")
+    filtered_examples.extend(memory_examples)
+    print(f"Total dataset examples (logs + memory): {len(filtered_examples)}")
 
     # Shuffle & split
     random.seed(RANDOM_SEED)

@@ -3,7 +3,7 @@ import os
 import re
 
 DATASET_DIR = "/home/ekco/github/Kaiacord/finetune/dataset"
-FILES_TO_SANITIZE = ["augmented.jsonl", "train.jsonl"]
+FILES_TO_SANITIZE = ["augmented.jsonl", "train.jsonl", "eval.jsonl"]
 
 # Patterns to strip identity leaks
 IDENTITY_PATTERNS = [
