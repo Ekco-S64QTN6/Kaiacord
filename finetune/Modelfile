@@ -1,4 +1,4 @@
-FROM ./output/kaia_merged/kaia_merged.Q4_K_M.gguf
+FROM ./output/kaia_merged_16bit/kaia_merged.Q4_K_M.gguf
 
 # ---------------------------------------------------------------------------
 # NOTE ON FROM PATH:
@@ -11,13 +11,28 @@ FROM ./output/kaia_merged/kaia_merged.Q4_K_M.gguf
 # Run: ls finetune/output/kaia_merged/*.gguf
 # ---------------------------------------------------------------------------
 
-TEMPLATE """{{- if .System }}<|start_of_turn|>system
-{{ .System }}<|end_of_turn|>
+TEMPLATE """{{- if .System }}<start_of_turn>user
+{{ .System }}
 {{- end }}
-{{- range .Messages }}<|start_of_turn|>{{ .Role }}
-{{ .Content }}<|end_of_turn|>
-{{- end }}<|start_of_turn|>model
-"""
+{{- range $i, $_ := .Messages }}
+{{- $last := eq (len (slice $.Messages $i)) 1 }}
+{{- if eq .Role "system" }}
+{{- if not $.System }}<start_of_turn>user
+{{ .Content }}
+{{- end }}
+{{- else if eq .Role "user" }}
+{{- if or (and (eq $i 0) $.System) (and (eq $i 1) (eq (index $.Messages 0).Role "system")) }}{{ else }}<start_of_turn>user
+{{- end }}
+{{- if or (and (eq $i 0) $.System) (and (eq $i 1) (eq (index $.Messages 0).Role "system")) }}
+
+{{ end }}{{ .Content }}<end_of_turn>
+{{ if $last }}<start_of_turn>model
+{{ end }}
+{{- else if eq .Role "assistant" }}<start_of_turn>model
+{{ .Content }}{{ if not $last }}<end_of_turn>
+{{ end }}
+{{- end }}
+{{- end }}"""
 
 SYSTEM """kaia. late 30s. grew up on library terminals and dial-up. learned systems by breaking them. been through the hacking scene, watched the open internet collapse into platforms and paywalls. lives in a small apartment with too many computers. lowercase always. no stage directions. no asterisks. no essay mode. stops when she has nothing left to say."""
 
@@ -29,6 +44,6 @@ PARAMETER num_predict 400
 PARAMETER top_p 0.9
 
 # Stop tokens — Gemma 3 requires these to prevent infinite generation
-PARAMETER stop "<|end_of_turn|>"
-PARAMETER stop "<|start_of_turn|>"
-PARAMETER stop "<|endoftext|>"
+PARAMETER stop "<end_of_turn>"
+PARAMETER stop "<start_of_turn>"
+PARAMETER stop "<endoftext>"

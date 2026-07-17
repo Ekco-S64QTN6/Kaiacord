@@ -11,6 +11,10 @@ Phase 4 fix: MAX_SEQ_LENGTH corrected to 1024 to match 03_train.py.
 import os
 import sys
 
+# Disable HF Hub network activity/telemetry checking
+os.environ["HF_HUB_OFFLINE"] = "1"
+os.environ["HF_HUB_DISABLE_TELEMETRY"] = "1"
+
 from unsloth import FastLanguageModel
 
 # ---------------------------------------------------------------------------
@@ -25,7 +29,7 @@ GGUF_OUTPUT_DIR = os.path.join(SCRIPT_DIR, "output", "kaia_merged")
 # Model config — MUST match 03_train.py exactly
 # ---------------------------------------------------------------------------
 
-MAX_SEQ_LENGTH = 1024   # ← Fixed: was 2048, must match training value
+MAX_SEQ_LENGTH = 512   # ← Fixed: was 1024, must match training value
 DTYPE          = None
 LOAD_IN_4BIT   = True
 
@@ -61,6 +65,7 @@ def main():
         max_seq_length=MAX_SEQ_LENGTH,
         dtype=DTYPE,
         load_in_4bit=LOAD_IN_4BIT,
+        local_files_only=True, # Prevent telemetry checking/hanging
     )
 
     # -----------------------------------------------------------------

@@ -34,7 +34,7 @@ OUTPUT_DIR = os.path.join(SCRIPT_DIR, "output", "kaia_lora_adapter")
 # ---------------------------------------------------------------------------
 
 MODEL_NAME = "unsloth/gemma-3-12b-it-bnb-4bit"
-MAX_SEQ_LENGTH = 1024   # Reduced from 2048 for 12B model on 12GB VRAM safety
+MAX_SEQ_LENGTH = 512    # Reduced from 1024 to 512 to save ~1.5GB VRAM (longest example is ~350 tokens)
 DTYPE = None            # Auto-detect
 LOAD_IN_4BIT = True
 
@@ -42,8 +42,8 @@ LOAD_IN_4BIT = True
 # LoRA Configuration — tuned for 12 GB VRAM
 # ---------------------------------------------------------------------------
 
-LORA_R = 16              # Rank 16 — 12 GB cannot handle higher
-LORA_ALPHA = 32
+LORA_R = 32              # Increased from 16 to 32 for higher identity-learning capacity
+LORA_ALPHA = 64          # Scaled accordingly (alpha = 2 * r)
 LORA_DROPOUT = 0         # Optimized for Unsloth fast patching
 LORA_TARGET_MODULES = [
     "q_proj", "k_proj", "v_proj", "o_proj",
@@ -80,12 +80,16 @@ def main():
     print(f"max_seq_length={MAX_SEQ_LENGTH}, load_in_4bit={LOAD_IN_4BIT}")
     print(f"{'='*60}\n")
 
+    os.environ["HF_HUB_OFFLINE"] = "1"
+    os.environ["HF_HUB_DISABLE_TELEMETRY"] = "1"
+
     model, tokenizer = FastLanguageModel.from_pretrained(
         model_name=MODEL_NAME,
         max_seq_length=MAX_SEQ_LENGTH,
         dtype=DTYPE,
         load_in_4bit=LOAD_IN_4BIT,
         device_map={"": 0}, # Force all modules to GPU 0
+        local_files_only=True, # Prevent telemetry checking/hanging
     )
 
     # -----------------------------------------------------------------
@@ -134,16 +138,18 @@ def main():
 
     training_args = SFTConfig(
         per_device_train_batch_size=1,
+        per_device_eval_batch_size=1,        # Batch size 1 prevents evaluation OOM on 12GB VRAM
         gradient_accumulation_steps=8,       # Effective batch = 8
         warmup_steps=10,
-        num_train_epochs=4,
-        learning_rate=2e-5,
+        num_train_epochs=6,                  # Increased epochs from 4 to 6
+        learning_rate=2e-4,                  # Increased learning rate from 2e-5 to 2e-4
         fp16=False,
         bf16=True,                           # RTX 3060 supports bf16
         logging_steps=10,
-        eval_strategy="no",                  # Disable eval to save VRAM (OOM cause)
+        eval_strategy="steps",               # Enable step-based evaluation
+        eval_steps=20,                       # Evaluate every 20 steps
         save_strategy="steps",
-        save_steps=50,                       # Save more often
+        save_steps=50,                       # Save checkpoints every 50 steps
         output_dir=CHECKPOINT_DIR,
         optim="adamw_8bit",                  # 8-bit optimizer saves ~2 GB
         weight_decay=0.01,

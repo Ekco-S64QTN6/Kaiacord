@@ -236,22 +236,36 @@ def parse_log_turns(text: str) -> list[dict]:
       {"role": "user"|"kaia"|"other", "content": str, "raw": str}
     Preserves non-turn lines as "other" so we can reconstruct the file.
     """
-    turns    = []
+    raw_turns = []
     current_role  = None
     current_lines = []
     current_raw   = []
 
     def flush():
         if current_role is not None:
-            turns.append({
+            raw_turns.append({
                 "role":    current_role,
                 "content": "\n".join(current_lines).strip(),
                 "raw":     "\n".join(current_raw),
             })
 
+    timestamp_pattern = re.compile(r"^\[\d{4}-\d{2}-\d{2} \d{2}:\d{2}:\d{2}\]\s+([^:]+):\s*(.*)$")
+
     for line in text.split("\n"):
         stripped = line.strip()
-        if stripped.startswith("User:"):
+        
+        m = timestamp_pattern.match(stripped)
+        if m:
+            flush()
+            name = m.group(1).strip()
+            content = m.group(2).strip()
+            if name.lower() == "kaia":
+                current_role = "kaia"
+            else:
+                current_role = "user"
+            current_lines = [content]
+            current_raw = [line]
+        elif stripped.startswith("User:"):
             flush()
             current_role  = "user"
             current_lines = [stripped[len("User:"):].strip()]
@@ -266,10 +280,24 @@ def parse_log_turns(text: str) -> list[dict]:
                 current_lines.append(line.rstrip())
                 current_raw.append(line)
             else:
-                turns.append({"role": "other", "content": line, "raw": line})
+                raw_turns.append({"role": "other", "content": line, "raw": line})
 
     flush()
+
+    # Merge consecutive turns of the same role
+    turns = []
+    for turn in raw_turns:
+        if turn["role"] == "other":
+            turns.append(turn)
+            continue
+        if turns and turns[-1]["role"] == turn["role"]:
+            turns[-1]["content"] += "\n" + turn["content"]
+            turns[-1]["raw"] += "\n" + turn["raw"]
+        else:
+            turns.append(turn)
+
     return turns
+
 
 
 async def process_file(
