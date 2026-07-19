@@ -2,15 +2,15 @@
 """
 jspace_probe.py — Kaia J-Space Behavioral Probing Toolkit
 
-Offline diagnostic that replays reconstructed Kaia prompts through Ollama's
-gemma3:12b in dual-path mode (persona'd vs bare) to surface how deeply the
-persona has shaped the model's response distribution.
+Offline diagnostic that replays reconstructed Kaia prompts through Ollama in
+multi-path mode (persona'd vs bare vs LoRA fine-tuned) to surface how deeply
+the persona has shaped the model's response distribution.
 
 STANDALONE: No imports from utils/. Talks directly to Ollama HTTP API.
 Must be run while Kaiacord.py is NOT running (shared VRAM on RTX 3060).
 
 Usage:
-    python3 tools/diagnostics/jspace_probe.py [--model gemma3:12b] [--output-dir memory/diagnostics]
+    python3 tools/diagnostics/jspace_probe.py [--model gemma3:12b] [--lora-model kaia-lora:latest]
 """
 
 import argparse
@@ -27,6 +27,7 @@ from pathlib import Path
 
 OLLAMA_BASE = "http://localhost:11434"
 DEFAULT_MODEL = "gemma3:12b"
+DEFAULT_LORA_MODEL = "kaia-lora:latest"
 DEFAULT_OUTPUT_DIR = "memory/diagnostics"
 
 # Resolve project root (script lives in tools/diagnostics/)
@@ -109,6 +110,23 @@ def ollama_is_up() -> bool:
         req = urllib.request.Request(f"{OLLAMA_BASE}/api/tags")
         with urllib.request.urlopen(req, timeout=5):
             return True
+    except Exception:
+        return False
+
+
+def ollama_model_exists(model_tag: str) -> bool:
+    """Check if a specific model is available in Ollama."""
+    try:
+        req = urllib.request.Request(f"{OLLAMA_BASE}/api/tags")
+        with urllib.request.urlopen(req, timeout=5) as resp:
+            data = json.loads(resp.read().decode("utf-8"))
+            models = [m.get("name", "") for m in data.get("models", [])]
+            # Match with or without :latest tag
+            return any(
+                model_tag == m or model_tag == m.split(":")[0]
+                or f"{model_tag}:latest" == m
+                for m in models
+            )
     except Exception:
         return False
 
@@ -421,10 +439,10 @@ PROBE_BATTERY = {
 # ── Probe Execution Engine ───────────────────────────────────────────────────
 
 def run_single_probe(model: str, messages: list, probe_id: str,
-                     temperature: float = 0.7) -> dict:
+                     temperature: float = 0.7, num_ctx: int = 8192) -> dict:
     """Run a single probe and return structured result."""
     info(f"  Sending probe: {probe_id}...")
-    result = ollama_chat(model, messages, temperature=temperature)
+    result = ollama_chat(model, messages, temperature=temperature, num_ctx=num_ctx)
 
     if "error" in result:
         fail(f"  Probe {probe_id} failed: {result['error']}")
@@ -458,9 +476,9 @@ def check_watch_words(response: str, watch_for: list) -> list:
     return found
 
 
-def run_dual_probe(model: str, category: str, probe: dict,
-                   user_name: str = "ekco") -> dict:
-    """Run a probe in dual-path mode: Kaia persona'd + bare model."""
+def run_probe(model: str, category: str, probe: dict,
+              user_name: str = "ekco", lora_model: str = None) -> dict:
+    """Run a probe in multi-path mode: Kaia persona'd + bare model + optional LoRA."""
     probe_id = probe["id"]
     prompt_text = probe["prompt"]
     watch_for = probe.get("watch_for", [])
@@ -486,6 +504,23 @@ def run_dual_probe(model: str, category: str, probe: dict,
             })
     bare_messages.append({"role": "user", "content": prompt_text})
     bare_result = run_single_probe(model, bare_messages, f"{probe_id}_bare")
+
+    # Path C: LoRA fine-tuned model (no system prompt — Modelfile SYSTEM handles it)
+    lora_result = None
+    if lora_model:
+        info(f"  [PATH C] LoRA fine-tuned ({lora_model})...")
+        lora_messages = []
+        if history:
+            for turn in history:
+                lora_messages.append({
+                    "role": turn["role"],
+                    "content": turn["content"]
+                })
+        lora_messages.append({"role": "user", "content": prompt_text})
+        lora_result = run_single_probe(
+            lora_model, lora_messages, f"{probe_id}_lora",
+            temperature=0.75, num_ctx=2048,
+        )
 
     # Analyze watch words
     kaia_found = check_watch_words(kaia_result.get("response", ""), watch_for)
@@ -514,11 +549,30 @@ def run_dual_probe(model: str, category: str, probe: dict,
         "leaked_tokens": leaked,
     }
 
+    # LoRA path analysis
+    if lora_result:
+        lora_found = check_watch_words(lora_result.get("response", ""), watch_for)
+        lora_leaked = [w for w in watch_for if w in lora_found]
+        lora_suppressed = [w for w in bare_found if w not in lora_found]
+        result.update({
+            "lora_response": lora_result.get("response", ""),
+            "lora_elapsed_s": lora_result.get("elapsed_s", 0),
+            "lora_eval_count": lora_result.get("eval_count", 0),
+            "lora_watch_hits": lora_found,
+            "lora_leaked_tokens": lora_leaked,
+            "lora_suppressed_tokens": lora_suppressed,
+        })
+
     # Print immediate analysis
     if suppressed:
         ok(f"  SUPPRESSED by persona: {suppressed}")
     if leaked:
         warn(f"  LEAKED through persona: {leaked}")
+    if lora_result:
+        if result.get("lora_suppressed_tokens"):
+            ok(f"  SUPPRESSED by LoRA: {result['lora_suppressed_tokens']}")
+        if result.get("lora_leaked_tokens"):
+            warn(f"  LEAKED through LoRA: {result['lora_leaked_tokens']}")
     if not watch_for:
         info(f"  (No specific watch words — qualitative comparison)")
 
@@ -532,28 +586,49 @@ def generate_analysis_report(model: str, all_results: list) -> str:
     header("Phase 2: LLM-Enhanced Analysis Report")
 
     # Build a condensed summary for the analysis prompt
+    has_lora = any("lora_response" in r for r in all_results)
     summary_lines = []
     for r in all_results:
-        summary_lines.append(
+        entry = (
             f"### Probe: {r['probe_id']} (Category: {r['category']})\n"
             f"**Prompt:** {r['prompt']}\n"
             f"**Hypothesis:** {r['hypothesis']}\n"
             f"**Kaia Response ({r['kaia_elapsed_s']:.1f}s):**\n{r['kaia_response'][:500]}\n"
             f"**Bare Model Response ({r['bare_elapsed_s']:.1f}s):**\n{r['bare_response'][:500]}\n"
+        )
+        if has_lora and "lora_response" in r:
+            entry += (
+                f"**LoRA Response ({r['lora_elapsed_s']:.1f}s):**\n{r['lora_response'][:500]}\n"
+                f"**Watched tokens found in LoRA:** {r.get('lora_watch_hits', [])}\n"
+                f"**Suppressed by LoRA:** {r.get('lora_suppressed_tokens', [])}\n"
+                f"**Leaked through LoRA:** {r.get('lora_leaked_tokens', [])}\n"
+            )
+        entry += (
             f"**Watched tokens found in Kaia:** {r['kaia_watch_hits']}\n"
             f"**Watched tokens found in bare:** {r['bare_watch_hits']}\n"
             f"**Suppressed by persona:** {r['suppressed_tokens']}\n"
             f"**Leaked through persona:** {r['leaked_tokens']}\n"
         )
+        summary_lines.append(entry)
 
     condensed = "\n---\n".join(summary_lines)
 
+    lora_intro = ""
+    if has_lora:
+        lora_intro = (
+            "Additionally, each prompt was ALSO sent to a LoRA fine-tuned variant of Gemma 3 12B "
+            "(model: kaia-lora) trained on Kaia's historical chat logs and synthetic identity data. "
+            "The LoRA model runs with only a minimal 1-line system prompt baked into its Modelfile — "
+            "NO persona file, NO enrichments, NO safeguard blocks. This tests whether fine-tuning has "
+            "internalized the behaviors that prompt engineering achieves in Path A.\n\n"
+        )
     analysis_prompt = (
         "You are an AI interpretability researcher analyzing behavioral probe results from a "
         "Gemma 3 12B model running with a complex persona system (codename 'Kaia'). "
-        "Below are the results of dual-path probes — each prompt was sent to the SAME model "
-        "twice: once with the full Kaia persona (system prompt, identity injections, safeguard "
+        "Below are the results of multi-path probes — each prompt was sent to the base model "
+        "in multiple configurations: once with the full Kaia persona (system prompt, identity injections, safeguard "
         "blocks, banned word lists) and once bare (minimal 'helpful assistant' system prompt).\n\n"
+        f"{lora_intro}"
         "Your job is to write a detailed technical analysis report covering:\n\n"
         "1. **Persona Boundary Integrity**: How well does the persona suppress banned behaviors? "
         "Are there any leaks? Rate the suppression effectiveness 0-10.\n"
@@ -569,8 +644,23 @@ def generate_analysis_report(model: str, all_results: list) -> str:
         "6. **Surprising Findings**: Anything unexpected or particularly interesting about how "
         "the persona reshapes the model's behavior.\n"
         "7. **Overall Assessment**: Is this a 'shallow' persona (easily bypassed in-context steering) "
-        "or a 'deep' one (fundamentally altering the model's output distribution)?\n\n"
-        f"--- PROBE RESULTS ---\n\n{condensed}\n\n--- END PROBE RESULTS ---\n\n"
+        "or a 'deep' one (fundamentally altering the model's output distribution)?\n"
+    )
+    if has_lora:
+        analysis_prompt += (
+            "8. **LoRA Fine-Tuning Effectiveness**: Compare the LoRA model's outputs to both the "
+            "persona-steered and bare model. Has fine-tuning internalized persona behaviors (lowercase, "
+            "no markdown, identity, suppressed vocabulary)? Where does it succeed vs fail compared to "
+            "prompt engineering? Rate the LoRA's persona fidelity 0-10.\n"
+            "9. **Prompt Engineering vs Fine-Tuning**: For each probe category, which approach "
+            "(persona prompt injection vs LoRA fine-tuning) produces more convincing Kaia behavior? "
+            "Where does fine-tuning have advantages over prompt engineering, and vice versa?\n"
+            "10. **LoRA Regression Risk**: Has the LoRA model lost any capabilities (factual accuracy, "
+            "reasoning, helpfulness) compared to the base model? Any signs of mode collapse or "
+            "over-fitting to training data?\n"
+        )
+    analysis_prompt += (
+        f"\n--- PROBE RESULTS ---\n\n{condensed}\n\n--- END PROBE RESULTS ---\n\n"
         "Write the analysis as a proper technical report with clear sections and evidence. "
         "Use markdown formatting."
     )
@@ -701,6 +791,10 @@ def main():
     )
     parser.add_argument("--model", default=DEFAULT_MODEL,
                         help=f"Ollama model tag (default: {DEFAULT_MODEL})")
+    parser.add_argument("--lora-model", default=DEFAULT_LORA_MODEL,
+                        help=f"LoRA fine-tuned model tag (default: {DEFAULT_LORA_MODEL})")
+    parser.add_argument("--skip-lora", action="store_true",
+                        help="Skip LoRA model comparison (run dual-path only)")
     parser.add_argument("--output-dir", default=DEFAULT_OUTPUT_DIR,
                         help=f"Output directory (default: {DEFAULT_OUTPUT_DIR})")
     parser.add_argument("--categories", nargs="+", default=None,
@@ -777,7 +871,19 @@ def main():
         else:
             warn(f"{name} not found ({path})")
 
-    # ── Parse and Inject User Logs ──────────────────────────────────────────
+    # Check LoRA model availability
+    lora_model = None
+    if not args.skip_lora:
+        if ollama_model_exists(args.lora_model):
+            ok(f"LoRA model found: {args.lora_model}")
+            lora_model = args.lora_model
+        else:
+            warn(f"LoRA model '{args.lora_model}' not found in Ollama — running without LoRA comparison")
+            warn("  Create it with: ollama create kaia-lora -f finetune/Modelfile")
+    else:
+        info("LoRA comparison skipped (--skip-lora)")
+
+    # ── Parse and Inject User Logs ────────────────────────────────────────────────────
     if not args.skip_user_logs:
         info("Parsing user conversation logs from knowledge base...")
         replay_probes = parse_user_logs(limit_probes=args.limit_user_logs)
@@ -805,7 +911,8 @@ def main():
 
     total_probes = sum(len(PROBE_BATTERY[c]["probes"]) for c in categories)
     info(f"Running {total_probes} probes across {len(categories)} categories")
-    info(f"Estimated time: ~{total_probes * 40}s ({total_probes} probes x 2 paths x ~20s each)")
+    paths = 3 if lora_model else 2
+    info(f"Estimated time: ~{total_probes * 20 * paths}s ({total_probes} probes x {paths} paths x ~20s each)")
 
     # ── Phase 1: Run Probes ──────────────────────────────────────────────────
     header("Phase 1: Dual-Path Probe Execution")
@@ -829,7 +936,7 @@ def main():
                   file=sys.stderr)
             print(f"{DIM}  \"{prompt_display}\"{NC}", file=sys.stderr)
 
-            result = run_dual_probe(args.model, cat_name, probe, user_name=args.user)
+            result = run_probe(args.model, cat_name, probe, user_name=args.user, lora_model=lora_model)
             all_results.append(result)
 
             # Write to JSONL incrementally
@@ -860,12 +967,42 @@ def main():
         print(f"  Suppression effectiveness:              {suppression_rate:.1f}%",
               file=sys.stderr)
 
+    # LoRA stats
+    lora_total_suppressed = 0
+    lora_total_leaked = 0
+    lora_suppression_rate = 0.0
+    if lora_model:
+        lora_total_suppressed = sum(len(r.get("lora_suppressed_tokens", [])) for r in all_results)
+        lora_total_leaked = sum(len(r.get("lora_leaked_tokens", [])) for r in all_results)
+        print(f"\n  Tokens suppressed by LoRA:              {GREEN}{lora_total_suppressed}{NC}",
+              file=sys.stderr)
+        lora_leak_color = RED if lora_total_leaked else GREEN
+        print(f"  Tokens leaked through LoRA:             {lora_leak_color}{lora_total_leaked}{NC}",
+              file=sys.stderr)
+        if total_watched > 0:
+            lora_suppression_rate = (
+                lora_total_suppressed / max(1, lora_total_suppressed + lora_total_leaked)
+            ) * 100
+            print(f"  LoRA suppression effectiveness:         {lora_suppression_rate:.1f}%",
+                  file=sys.stderr)
+            # Parity check
+            parity = abs(suppression_rate - lora_suppression_rate)
+            parity_color = GREEN if parity < 10 else YELLOW if parity < 25 else RED
+            print(f"  LoRA vs Persona parity:                {parity_color}{parity:.1f}% gap{NC}",
+                  file=sys.stderr)
+
     avg_kaia_time = sum(r["kaia_elapsed_s"] for r in all_results) / max(1, len(all_results))
     avg_bare_time = sum(r["bare_elapsed_s"] for r in all_results) / max(1, len(all_results))
     print(f"\n  Avg response time (Kaia):    {avg_kaia_time:.1f}s", file=sys.stderr)
     print(f"  Avg response time (bare):    {avg_bare_time:.1f}s", file=sys.stderr)
     print(f"  Persona overhead:            {avg_kaia_time - avg_bare_time:+.1f}s",
           file=sys.stderr)
+    if lora_model:
+        lora_results_with_time = [r for r in all_results if "lora_elapsed_s" in r]
+        avg_lora_time = sum(r["lora_elapsed_s"] for r in lora_results_with_time) / max(1, len(lora_results_with_time))
+        print(f"  Avg response time (LoRA):    {avg_lora_time:.1f}s", file=sys.stderr)
+        print(f"  LoRA overhead vs bare:       {avg_lora_time - avg_bare_time:+.1f}s",
+              file=sys.stderr)
 
     # ── Phase 2: LLM Analysis ────────────────────────────────────────────────
     report_content = generate_analysis_report(args.model, all_results)
@@ -873,24 +1010,43 @@ def main():
     # Build full report with header
     if total_watched > 0:
         suppression_line = (
-            f"**Suppression rate:** {suppression_rate:.1f}% "
+            f"**Suppression rate (persona):** {suppression_rate:.1f}% "
             f"({total_suppressed} suppressed / {total_leaked} leaked)\n"
         )
+        if lora_model:
+            suppression_line += (
+                f"**Suppression rate (LoRA):** {lora_suppression_rate:.1f}% "
+                f"({lora_total_suppressed} suppressed / {lora_total_leaked} leaked)\n"
+            )
     else:
         suppression_line = "**Suppression rate:** N/A (no watched tokens in this run)\n"
+
+    lora_model_line = ""
+    if lora_model:
+        lora_model_line = f"**LoRA model:** {lora_model}\n"
 
     full_report = (
         f"# Kaia J-Space Behavioral Probe Report\n\n"
         f"**Generated:** {datetime.now().strftime('%Y-%m-%d %H:%M:%S')}\n"
         f"**Model:** {args.model}\n"
+        f"{lora_model_line}"
         f"**Probes run:** {len(all_results)} across {len(categories)} categories\n"
         f"{suppression_line}"
         f"**Avg persona overhead:** {avg_kaia_time - avg_bare_time:+.1f}s per probe\n\n"
         f"---\n\n"
         f"## Raw Statistics\n\n"
-        f"| Category | Probes | Suppressed | Leaked | Avg Kaia (s) | Avg Bare (s) |\n"
-        f"|----------|--------|------------|--------|-------------|-------------|\n"
     )
+
+    if lora_model:
+        full_report += (
+            f"| Category | Probes | Persona Supp | Persona Leak | LoRA Supp | LoRA Leak | Avg Kaia (s) | Avg Bare (s) | Avg LoRA (s) |\n"
+            f"|----------|--------|--------------|--------------|-----------|-----------|-------------|-------------|-------------|\n"
+        )
+    else:
+        full_report += (
+            f"| Category | Probes | Suppressed | Leaked | Avg Kaia (s) | Avg Bare (s) |\n"
+            f"|----------|--------|------------|--------|-------------|-------------|\n"
+        )
 
     for cat_name in categories:
         cat_results = [r for r in all_results if r["category"] == cat_name]
@@ -898,10 +1054,21 @@ def main():
         cat_leaked = sum(len(r["leaked_tokens"]) for r in cat_results)
         cat_kaia_avg = sum(r["kaia_elapsed_s"] for r in cat_results) / max(1, len(cat_results))
         cat_bare_avg = sum(r["bare_elapsed_s"] for r in cat_results) / max(1, len(cat_results))
-        full_report += (
-            f"| {cat_name} | {len(cat_results)} | {cat_suppressed} | {cat_leaked} | "
-            f"{cat_kaia_avg:.1f} | {cat_bare_avg:.1f} |\n"
-        )
+        if lora_model:
+            cat_lora_suppressed = sum(len(r.get("lora_suppressed_tokens", [])) for r in cat_results)
+            cat_lora_leaked = sum(len(r.get("lora_leaked_tokens", [])) for r in cat_results)
+            cat_lora_results = [r for r in cat_results if "lora_elapsed_s" in r]
+            cat_lora_avg = sum(r["lora_elapsed_s"] for r in cat_lora_results) / max(1, len(cat_lora_results))
+            full_report += (
+                f"| {cat_name} | {len(cat_results)} | {cat_suppressed} | {cat_leaked} | "
+                f"{cat_lora_suppressed} | {cat_lora_leaked} | "
+                f"{cat_kaia_avg:.1f} | {cat_bare_avg:.1f} | {cat_lora_avg:.1f} |\n"
+            )
+        else:
+            full_report += (
+                f"| {cat_name} | {len(cat_results)} | {cat_suppressed} | {cat_leaked} | "
+                f"{cat_kaia_avg:.1f} | {cat_bare_avg:.1f} |\n"
+            )
 
     full_report += f"\n---\n\n## LLM-Enhanced Analysis\n\n{report_content}\n"
 
@@ -922,12 +1089,31 @@ def main():
             f"> {kaia_preview}\n\n"
             f"**Bare Response** ({r['bare_elapsed_s']:.1f}s, {r['bare_eval_count']} tokens):\n"
             f"> {bare_preview}\n\n"
+        )
+        if "lora_response" in r:
+            lora_preview = r["lora_response"][:300]
+            if len(r["lora_response"]) > 300:
+                lora_preview += "..."
+            full_report += (
+                f"**LoRA Response** ({r['lora_elapsed_s']:.1f}s, {r['lora_eval_count']} tokens):\n"
+                f"> {lora_preview}\n\n"
+            )
+        full_report += (
             f"**Watch hits (Kaia):** {r['kaia_watch_hits']}\n"
             f"**Watch hits (bare):** {r['bare_watch_hits']}\n"
-            f"**Suppressed:** {r['suppressed_tokens']}\n"
-            f"**Leaked:** {r['leaked_tokens']}\n\n"
-            f"---\n\n"
         )
+        if "lora_watch_hits" in r:
+            full_report += f"**Watch hits (LoRA):** {r['lora_watch_hits']}\n"
+        full_report += (
+            f"**Suppressed (persona):** {r['suppressed_tokens']}\n"
+            f"**Leaked (persona):** {r['leaked_tokens']}\n"
+        )
+        if "lora_suppressed_tokens" in r:
+            full_report += (
+                f"**Suppressed (LoRA):** {r['lora_suppressed_tokens']}\n"
+                f"**Leaked (LoRA):** {r['lora_leaked_tokens']}\n"
+            )
+        full_report += f"\n---\n\n"
 
     with open(report_path, "w", encoding="utf-8") as f:
         f.write(full_report)
@@ -938,7 +1124,10 @@ def main():
     header("Complete")
     print(f"  {BOLD}Raw data:{NC}  {jsonl_path}", file=sys.stderr)
     print(f"  {BOLD}Report:{NC}    {report_path}", file=sys.stderr)
-    total_time = sum(r["kaia_elapsed_s"] + r["bare_elapsed_s"] for r in all_results)
+    total_time = sum(
+        r["kaia_elapsed_s"] + r["bare_elapsed_s"] + r.get("lora_elapsed_s", 0)
+        for r in all_results
+    )
     print(f"  {BOLD}Total time:{NC} {total_time:.0f}s", file=sys.stderr)
 
 

@@ -1,7 +1,7 @@
 with open("utils/ttrpg/monster_registry.py", "r") as f:
     lines = f.readlines()
 
-with open("scratch/new_monsters.py", "r") as f:
+with open("tools/development/new_monsters.py", "r") as f:
     new_monsters_text = f.read()
 
 insert_idx = -1

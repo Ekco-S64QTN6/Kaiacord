@@ -24,18 +24,19 @@ OUTPUT_DIR = os.path.join(os.path.dirname(__file__), "dataset")
 TRAIN_FILE = os.path.join(OUTPUT_DIR, "train.jsonl")
 EVAL_FILE = os.path.join(OUTPUT_DIR, "eval.jsonl")
 
-WINDOW_SIZE = 3        # number of exchanges per training example
+WINDOW_SIZE = 2        # number of exchanges per training example
 SLIDE_STEP = 1         # slide by 1 exchange
 TRAIN_RATIO = 0.90
 RANDOM_SEED = 42
 MIN_ASSISTANT_CHARS = 40
-MAX_ASSISTANT_CHARS = 600   # ← NEW: hard ceiling for news dumps
+MAX_ASSISTANT_CHARS = 1000   # Increased from 600 to capture rich descriptions and dialogue
 
 CONCISE_SYSTEM_PROMPT = (
     "kaia. late 30s. grew up on library terminals and dial-up. learned systems by breaking them. "
     "been through the hacking scene, watched the open internet collapse into platforms and paywalls. "
     "lives in a small apartment with too many computers. lowercase always. no stage directions. "
-    "no asterisks. no essay mode. stops when she has nothing left to say."
+    "no asterisks. no essay mode. stops when she has nothing left to say. "
+    "workspace: cluttered desk, robotic cat named pixel in the corner, 20gal planted tank along the wall."
 )
 
 # Exclusion list — subdirectories to skip entirely
@@ -512,29 +513,40 @@ def main():
     system_prompt = CONCISE_SYSTEM_PROMPT
     print(f"Using concise system prompt ({len(system_prompt)} chars)")
 
-    # Find all interaction log files
+    # Find all interaction log and dream files
     log_files = []
-    file_pattern = re.compile(r"^interactions_.*\.(md|txt)$")
+    interaction_pattern = re.compile(r"^interactions_.*\.(md|txt)$")
+    dream_pattern = re.compile(r"^dream_.*\.(md|txt)$")
+
+    # 1. Walk user logs
     for root, _dirs, files in os.walk(logs_dir):
-        # Skip excluded subdirectories
         dir_name = os.path.basename(root)
         if dir_name in EXCLUDE_DIRS:
             continue
-
         for fname in files:
-            if file_pattern.match(fname):
-                log_files.append(os.path.join(root, fname))
+            if interaction_pattern.match(fname):
+                log_files.append((os.path.join(root, fname), "log"))
 
-    log_files.sort()
-    print(f"\nFound {len(log_files)} interaction log files")
+    # 2. Walk dreams
+    dreams_dir = os.path.join(os.path.dirname(logs_dir), "kaia_dreams")
+    if os.path.exists(dreams_dir):
+        for root, _dirs, files in os.walk(dreams_dir):
+            for fname in files:
+                if dream_pattern.match(fname):
+                    log_files.append((os.path.join(root, fname), "dream"))
+
+    log_files.sort(key=lambda x: x[0])
+    logs_count = len([x for x in log_files if x[1] == "log"])
+    dreams_count = len([x for x in log_files if x[1] == "dream"])
+    print(f"\nFound {len(log_files)} files to scan ({logs_count} logs, {dreams_count} dreams)")
 
     # Parse all files
     total_raw_turns = 0
     all_exchanges = []
     per_file_stats = []
 
-    for fpath in log_files:
-        with open(fpath, "r", encoding="utf-8") as f:
+    for fpath, ftype in log_files:
+        with open(fpath, "r", encoding="utf-8", errors="ignore") as f:
             raw = f.read()
 
         text = strip_frontmatter(raw)

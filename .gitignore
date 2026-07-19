@@ -59,3 +59,15 @@ x_cookies.json
 # Scraper & API Data
 config/secrets/
 tools/.music_scrape_data/
+
+# IDE and AI Tooling configs
+.vscode/
+.agent/
+.agents/
+
+# Testing & Scratch/Temporary files
+test_storage/
+scratch/
+debug_68k.txt
+logs/
+.pytest_cache/

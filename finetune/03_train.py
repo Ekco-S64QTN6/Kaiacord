@@ -80,7 +80,6 @@ def main():
     print(f"max_seq_length={MAX_SEQ_LENGTH}, load_in_4bit={LOAD_IN_4BIT}")
     print(f"{'='*60}\n")
 
-    os.environ["HF_HUB_OFFLINE"] = "1"
     os.environ["HF_HUB_DISABLE_TELEMETRY"] = "1"
 
     model, tokenizer = FastLanguageModel.from_pretrained(
@@ -89,7 +88,7 @@ def main():
         dtype=DTYPE,
         load_in_4bit=LOAD_IN_4BIT,
         device_map={"": 0}, # Force all modules to GPU 0
-        local_files_only=True, # Prevent telemetry checking/hanging
+        local_files_only=False, # Allow downloading missing weight files
     )
 
     # -----------------------------------------------------------------
