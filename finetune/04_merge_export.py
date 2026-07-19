@@ -12,7 +12,7 @@ import os
 import sys
 
 # Disable HF Hub network activity/telemetry checking
-os.environ["HF_HUB_OFFLINE"] = "1"
+# os.environ["HF_HUB_OFFLINE"] = "1"
 os.environ["HF_HUB_DISABLE_TELEMETRY"] = "1"
 
 from unsloth import FastLanguageModel
@@ -65,22 +65,65 @@ def main():
         max_seq_length=MAX_SEQ_LENGTH,
         dtype=DTYPE,
         load_in_4bit=LOAD_IN_4BIT,
-        local_files_only=True, # Prevent telemetry checking/hanging
+        local_files_only=False, # Allow checking/downloading base weights if needed
     )
 
     # -----------------------------------------------------------------
-    # 2. Export to GGUF (q4_k_m — fits in 12GB VRAM with room to spare)
+    # 2. Merge model weights and save to 16-bit format
     # -----------------------------------------------------------------
-    print(f"\nMerging and exporting to GGUF (q4_k_m)...")
-    print(f"Output directory: {GGUF_OUTPUT_DIR}\n")
-
-    os.makedirs(GGUF_OUTPUT_DIR, exist_ok=True)
-
-    model.save_pretrained_gguf(
-        GGUF_OUTPUT_DIR,
+    merged_16bit_dir = os.path.join(SCRIPT_DIR, "output", "kaia_merged_16bit")
+    print(f"\nMerging and saving to 16-bit format...")
+    print(f"Output directory: {merged_16bit_dir}\n")
+    os.makedirs(merged_16bit_dir, exist_ok=True)
+    
+    model.save_pretrained_merged(
+        merged_16bit_dir,
         tokenizer,
-        quantization_method="q4_k_m",
+        save_method="merged_16bit",
     )
+
+    # -----------------------------------------------------------------
+    # 3. Convert to GGUF using local llama.cpp script
+    # -----------------------------------------------------------------
+    import subprocess
+    os.makedirs(GGUF_OUTPUT_DIR, exist_ok=True)
+    f16_gguf_path = os.path.join(GGUF_OUTPUT_DIR, "unsloth.F16.gguf")
+    q4_gguf_path = os.path.join(GGUF_OUTPUT_DIR, "kaia_merged.Q4_K_M.gguf")
+    
+    print(f"\nConverting to GGUF F16 format...")
+    convert_script = os.path.join(SCRIPT_DIR, "llama.cpp", "convert_hf_to_gguf.py")
+    
+    convert_cmd = [
+        sys.executable, convert_script,
+        merged_16bit_dir,
+        "--outtype", "f16",
+        "--outfile", f16_gguf_path
+    ]
+    print(f"Running: {' '.join(convert_cmd)}")
+    subprocess.run(convert_cmd, check=True)
+    
+    # -----------------------------------------------------------------
+    # 4. Quantize to Q4_K_M using compiled llama-quantize
+    # -----------------------------------------------------------------
+    print(f"\nQuantizing to Q4_K_M...")
+    quantize_bin = os.path.join(SCRIPT_DIR, "llama.cpp", "build", "bin", "llama-quantize")
+    if not os.path.exists(quantize_bin):
+        # Fallback to tools directory
+        quantize_bin = os.path.join(SCRIPT_DIR, "llama.cpp", "build", "tools", "quantize", "llama-quantize")
+        
+    quantize_cmd = [
+        quantize_bin,
+        f16_gguf_path,
+        q4_gguf_path,
+        "Q4_K_M"
+    ]
+    print(f"Running: {' '.join(quantize_cmd)}")
+    subprocess.run(quantize_cmd, check=True)
+    
+    # Clean up large temp F16 GGUF file
+    if os.path.exists(f16_gguf_path):
+        print(f"\nCleaning up temporary F16 GGUF file: {f16_gguf_path}")
+        os.remove(f16_gguf_path)
 
     # -----------------------------------------------------------------
     # 3. Report + Modelfile instructions

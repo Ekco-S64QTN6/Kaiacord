@@ -1,4 +1,4 @@
-FROM ./output/kaia_merged_16bit/kaia_merged.Q4_K_M.gguf
+FROM ./output/kaia_merged/kaia_merged.Q4_K_M.gguf
 
 # ---------------------------------------------------------------------------
 # NOTE ON FROM PATH:
