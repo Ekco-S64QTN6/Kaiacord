@@ -211,6 +211,14 @@ Kaiacord/
 │   ├── bot_state.json           # global persistent variables, familiarity, mood
 │   ├── identity_stream.md       # 3000-char capping rolling identity log
 │   └── memory_anchors.json      # episodic callbacks with weight decay
+├── finetune/                    # LoRA Fine-Tuning & Model Compilation (Gemma 3 12B)
+│   ├── 01e_preprocess_logs.py   # Speaker turn aggregation and sequence grouping
+│   ├── 03_train.py              # LoRA adapter training script (optimized for 12GB GPU)
+│   ├── 04_merge_export.py       # Combines base weights and outputs Q4_K_M GGUF
+│   └── Modelfile                # Ollama persona setup and inference configuration
+├── tools/                       # Utility scripts and offline diagnostic suites
+│   ├── diagnostics/             # Probing tools (jspace_probe.py for behavioral audits)
+│   └── maintenance/             # Health check and re-indexing controls
 ├── utils/
 │   ├── core/                    # Core cognitive features (mood, dreams, monologue, RAG)
 │   │   ├── message_processor.py # Primary intelligence flow manager (~1900 lines)
@@ -236,7 +244,7 @@ The repository features comprehensive tools to monitor, test, and rebuild the da
 bash scripts/kaia-tools.sh
 ```
 
-### 2. Maintenance Commands
+### 2. Maintenance & Operations Commands
 ```bash
 # Verify system integrity & check GPU health
 python tools/maintenance/health_check.py
@@ -248,7 +256,24 @@ python tools/maintenance/force_reindex.py
 python tools/rebuild_rag_gpu.py --clear
 ```
 
-### 3. Test Suites
+### 3. J-Space Behavioral Probing
+Verify persona boundary enforcement, apology suppression, and RAG grounding:
+```bash
+# Run full static probe battery and log replay audits
+./scripts/run_jspace_probe.sh full
+
+# Run static probes only (skip real-user log replay)
+./scripts/run_jspace_probe.sh static-only
+```
+
+### 4. LoRA Fine-Tuning Pipeline
+Train, merge, compile, and validate a custom model under 12GB VRAM constraints:
+```bash
+# Run the entire SFT, merge, export, and Ollama validation pipeline
+./scripts/run_finetune.sh
+```
+
+### 5. Test Suites
 ```bash
 # Execute fast unit tests
 PYTHONPATH=. pytest tools/tests/unit/ -q
@@ -272,6 +297,8 @@ PYTHONPATH=. pytest tools/tests/verification/ -q
 | **RAG Grounding Layer** | [`docs/03-architecture/rag-system.md`](docs/03-architecture/rag-system.md) |
 | **Aethelgard TTRPG Specs**| [`docs/ttrpg/aethelgard_system.md`](docs/ttrpg/aethelgard_system.md) |
 | **Project Status Reports**| [`docs/reports/MASTER_REPORT.md`](docs/reports/MASTER_REPORT.md) |
+| **Jacobian Space Report** | [`docs/reports/Jspace.md`](docs/reports/Jspace.md) |
+| **LoRA Fine-Tuning** | [`docs/reports/LoRA.md`](docs/reports/LoRA.md) |
 
 ---
 

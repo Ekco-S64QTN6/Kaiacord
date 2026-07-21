@@ -747,10 +747,16 @@ class FractalFlameRenderer:
         log_alpha_max = np.log1p(alpha_max * contrast)
         density_norm = log_alpha / (log_alpha_max + 1e-10)
 
+        # Gamma inverse for density scaling
+        g_inv = 1.0 / self.GAMMA
+        alpha_gamma = np.power(density_norm, g_inv)
+
         alpha_mask = alpha_acc > 0
         rgb_average = np.zeros_like(rgb_acc)
         rgb_average[alpha_mask] = rgb_acc[alpha_mask] / alpha_acc[alpha_mask][..., np.newaxis]
-        rgb_mapped = rgb_average * density_norm[..., np.newaxis]
+        
+        # Scale color by gamma-compressed density (alpha_gamma) instead of linear density_norm
+        rgb_mapped = rgb_average * alpha_gamma[..., np.newaxis]
 
         # ── Step 2: Adaptive Density Estimation (DE) ──────────────────────────
         # Sigmas scaled down by 2 since we downsampled to 720x720
@@ -767,18 +773,17 @@ class FractalFlameRenderer:
             v_max = rgb_de.max()
         rgb_norm = np.clip(rgb_de / (v_max + 1e-10), 0, 1)
 
-        # ── Step 4: Vibrancy-Based Gamma ──────────────────────────────────────
-        gamma = self.GAMMA
+        # ── Step 4: Vibrancy-Based Blend ──────────────────────────────────────
         vibrancy = self.VIBRANCY
-        g_inv = 1.0 / gamma
-
-        alpha_gamma = np.power(density_norm, g_inv)
-        vib_color = vibrancy * rgb_norm * alpha_gamma[..., np.newaxis]
-        chan_color = (1.0 - vibrancy) * np.power(rgb_norm, g_inv)
+        # Since rgb_norm is already scaled by alpha_gamma, it is gamma-compressed.
+        # We blend colorful channels with a desaturated version to preserve color vibrancy.
+        vib_color = vibrancy * rgb_norm
+        gray_norm = np.mean(rgb_norm, axis=-1, keepdims=True)
+        chan_color = (1.0 - vibrancy) * gray_norm
         rgb_gamma = np.clip(vib_color + chan_color, 0, 1)
 
         # ── Step 5: Midtone Boost ─────────────────────────────────────────────
-        # Since rgb_gamma is already correctly gamma-corrected, we do not need to wash it out.
+        # Preservation of gamma-corrected colors
         rgb_boosted = rgb_gamma
 
         # ── Step 6: Multi-Scale Bloom (Electric Sheep glow) ──────────────────
@@ -809,10 +814,11 @@ class FractalFlameRenderer:
         rgb_tinted = rgb_bloomed * blend_factor + bg_vignette * (1.0 - blend_factor)
 
         # ── Step 8: Contrast Stretch ─────────────────────────────────────────
-        p_lo = np.percentile(rgb_tinted, 1)
+        # We only scale by the 99th percentile (p_hi) to normalize highlights.
+        # We do NOT subtract p_lo, as that would crush the ambient background vignette.
         p_hi = np.percentile(rgb_tinted, 99)
-        if p_hi - p_lo > 0.01:
-            rgb_final = np.clip((rgb_tinted - p_lo) / (p_hi - p_lo), 0, 1)
+        if p_hi > 0.01:
+            rgb_final = np.clip(rgb_tinted / p_hi, 0, 1)
         else:
             rgb_final = np.clip(rgb_tinted, 0, 1)
 

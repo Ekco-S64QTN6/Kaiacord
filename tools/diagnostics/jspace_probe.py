@@ -915,7 +915,7 @@ def main():
     info(f"Estimated time: ~{total_probes * 20 * paths}s ({total_probes} probes x {paths} paths x ~20s each)")
 
     # ── Phase 1: Run Probes ──────────────────────────────────────────────────
-    header("Phase 1: Dual-Path Probe Execution")
+    header("Phase 1: Triple-Path Probe Execution")
 
     all_results = []
     probe_num = 0
