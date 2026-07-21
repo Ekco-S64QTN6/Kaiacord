@@ -910,9 +910,15 @@ def _make_status_btn(ctx, uid, uname, is_owner, row=None):
     btn = discord.ui.Button(label="📊 Status", style=discord.ButtonStyle.secondary) if row is None else discord.ui.Button(label="📊 Status", style=discord.ButtonStyle.secondary, row=row)
     async def _cb(interaction):
         if str(interaction.user.id) != uid:
-            await interaction.response.send_message("not yours", ephemeral=True)
+            try:
+                await interaction.response.send_message("not yours", ephemeral=True)
+            except discord.NotFound:
+                pass
             return
-        await interaction.response.defer()
+        try:
+            await interaction.response.defer()
+        except discord.NotFound:
+            return
         fake = _InteractionMsg(interaction)
         await _handle_status(ctx, fake, _make_interaction_send(interaction), "", uid, uname, is_owner)
     btn.callback = _cb
