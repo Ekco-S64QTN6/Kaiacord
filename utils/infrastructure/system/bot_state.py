@@ -81,6 +81,10 @@ class BotState:
         self.proactive_daily_count: int = 0
         self.last_proactive_date: str = ""
 
+        # Phase 55: P54-4 Anticipatory Context Priming & P54-5 Theory of Mind Lite
+        self.user_states: Dict[str, dict] = {}  # {user_id: {"apparent_mood": str, "energy": str, "likely_intent": str, "updated_at": float}}
+        self._dossier_primed_users: Dict[str, float] = {}  # {user_id: last_seen_timestamp_when_primed}
+
         self.load()
 
     def load(self):
@@ -472,6 +476,162 @@ class BotState:
                 f"Check open loops if relevant.]"
             )
         return ""  # Seamless continuation
+
+    def get_user_dossier(self, user_id: str, user_name: str) -> str:
+        """P54-4: Anticipatory Context Priming.
+        
+        Compiles a ~200-token returning summary for familiar users returning
+        after an absence of > 2 hours. One-shot per session absence.
+        """
+        uid = str(user_id)
+        rel = self.relationships.get(uid)
+        if not rel or not rel.get('last_seen'):
+            return ""
+
+        # Only trigger for familiar or higher relationship stages
+        stage = self.get_relationship_stage(uid)
+        if stage not in ('familiar', 'confidant', 'inner_circle'):
+            return ""
+
+        now = time.time()
+        last_seen = rel['last_seen']
+        delta_hours = (now - last_seen) / 3600.0
+
+        if delta_hours <= 2.0:
+            return ""
+
+        # Deduplication check: verify if we already primed for this last_seen timestamp
+        if self._dossier_primed_users.get(uid) == last_seen:
+            return ""
+
+        # Mark as primed for this last_seen timestamp
+        self._dossier_primed_users[uid] = last_seen
+
+        # Gather top 3 recent topics
+        top_topics = []
+        try:
+            from utils.core.relationship_manager import load_events
+            events = load_events(uid)
+            if events:
+                events.sort(key=lambda e: getattr(e, 'timestamp', 0), reverse=True)
+                seen = set()
+                for ev in events:
+                    for t in getattr(ev, 'topics', []):
+                        t_clean = t.strip().lower()
+                        if t_clean and t_clean not in seen:
+                            seen.add(t_clean)
+                            top_topics.append(t_clean)
+                        if len(top_topics) >= 3:
+                            break
+                    if len(top_topics) >= 3:
+                        break
+        except Exception:
+            pass
+
+        if not top_topics and rel.get('topic_counts'):
+            top_topics = list(rel['topic_counts'].keys())[:3]
+
+        # Gather last open loop
+        open_loop = rel.get('last_open_loop', '').strip()
+
+        # Gather top 2 memory anchors by weight for this user
+        top_anchors = []
+        try:
+            from utils.core.memory_anchors import _load_anchors
+            all_anchors = _load_anchors()
+            user_anchors = [a for a in all_anchors if str(a.get('user_id')) == uid]
+            user_anchors.sort(key=lambda a: a.get('weight', 0.5), reverse=True)
+            for a in user_anchors[:2]:
+                theme = a.get('theme', '')
+                text = a.get('anchor_text', '')
+                if theme and text:
+                    top_anchors.append(f"{theme}: \"{text}\"")
+        except Exception:
+            pass
+
+        parts = [f"[returning dossier for {user_name} (absent {int(delta_hours)}h):"]
+        if top_topics:
+            parts.append(f"recent topics: {', '.join(top_topics)};")
+        if open_loop:
+            parts.append(f"last open loop: \"{open_loop}\";")
+        if top_anchors:
+            parts.append(f"memory anchors: {'; '.join(top_anchors)};")
+        parts.append("use naturally if relevant]")
+
+        return " ".join(parts)
+
+    def update_user_state(self, user_id: str, message_text: str) -> dict:
+        """P54-5: Theory of Mind Lite (User State Modeling).
+        
+        Updates session-bound user state (apparent_mood, energy, likely_intent)
+        via lightweight heuristics and metrics. State decays after 2 hours.
+        """
+        uid = str(user_id)
+        now = time.time()
+        text = message_text.strip()
+        lower_text = text.lower()
+
+        # Check existing state and apply 2h decay if inactive
+        current_state = self.user_states.get(uid)
+        if current_state and (now - current_state.get('updated_at', 0) > 7200):
+            current_state = None
+
+        # 1. Energy level heuristic
+        excl_count = text.count('!')
+        caps_count = sum(1 for c in text if c.isupper())
+        caps_ratio = caps_count / max(len(text), 1)
+
+        if excl_count >= 2 or caps_ratio > 0.5:
+            energy = "high"
+        elif len(text) < 15 and not excl_count and any(w in lower_text for w in ["meh", "bored", "tired", "sleepy", "whatever"]):
+            energy = "low"
+        else:
+            energy = "moderate"
+
+        # 2. Apparent Mood heuristic
+        if any(w in lower_text for w in ["ugh", "sigh", "dammit", "annoyed", "wrong", "broke", "error", "hate", "stuck", "fail", "broken", "angry"]):
+            mood = "frustrated"
+        elif any(w in lower_text for w in ["lol", "lmao", "haha", "yay", "great", "awesome", "nice", "love", "thanks", "cool", "good", "happy"]):
+            mood = "upbeat"
+        elif any(w in lower_text for w in ["tired", "exhausted", "sleepy", "late", "bored", "goodnight", "meh"]):
+            mood = "tired"
+        elif any(w in lower_text for w in ["wondering", "curious", "think", "maybe", "perplexed", "why", "how"]):
+            mood = "thoughtful"
+        else:
+            mood = "neutral"
+
+        # 3. Likely Intent heuristic
+        if "```" in text or any(w in lower_text for w in ["traceback", "def", "error", "issue", "bug", "exception"]):
+            intent = "troubleshooting"
+        elif "?" in text or any(lower_text.startswith(w) for w in ["how", "what", "why", "where", "can you", "who", "is it"]):
+            intent = "asking_questions"
+        elif any(lower_text.startswith(w) for w in ["hi", "hello", "hey", "yo", "good morning", "good evening"]):
+            intent = "greeting"
+        elif any(w in lower_text for w in ["thanks", "thank you", "good job", "nice work"]):
+            intent = "giving_feedback"
+        else:
+            intent = "casual_chat"
+
+        state = {
+            "apparent_mood": mood,
+            "energy": energy,
+            "likely_intent": intent,
+            "updated_at": now,
+        }
+        self.user_states[uid] = state
+        return state
+
+    def get_user_state_read(self, user_id: str, user_name: str) -> str:
+        """P54-5: Theory of Mind Lite read for system prompt injection."""
+        uid = str(user_id)
+        state = self.user_states.get(uid)
+        if not state or (time.time() - state.get('updated_at', 0) > 7200):
+            return ""
+
+        return (
+            f"[your read on {user_name}: seems {state['apparent_mood']}, "
+            f"energy {state['energy']}, likely intent: {state['likely_intent']}]"
+        )
 
     @property
     def boot_complete(self) -> bool:

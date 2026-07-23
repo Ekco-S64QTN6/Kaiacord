@@ -20,9 +20,9 @@
 
 ---
 
-## 🧠 The Cognitive Pipeline (26 Core Systems)
+## 🧠 The Cognitive Pipeline (28 Core Systems)
 
-Kaia’s lifelike presence is managed through a fully deterministic, 26-feature Python cognitive layer that modules the system prompt dynamically based on heuristics—**without incurring VRAM-heavy auxiliary LLM calls**.
+Kaia’s lifelike presence is managed through a fully deterministic, 28-feature Python cognitive layer that modules the system prompt dynamically based on heuristics—**without incurring VRAM-heavy auxiliary LLM calls**.
 
 ```
                            ┌────────────────────────┐
@@ -30,7 +30,7 @@ Kaia’s lifelike presence is managed through a fully deterministic, 26-feature 
                            └───────────┬────────────┘
                                        │
                   ┌────────────────────▼────────────────────┐
-                  │ 26-Feature Lightweight Cognitive Filter │
+                  │ 28-Feature Lightweight Cognitive Filter │
                   │  (Mood · Stance · History · Relationships)│
                   └────────────────────┬────────────────────┘
                                        │
@@ -51,6 +51,7 @@ Kaia’s lifelike presence is managed through a fully deterministic, 26-feature 
 *   **🕰️ Temporal & Fatigue Awareness**: Dynamic time-of-day conversational adjustments, fatigue multipliers for long threads, and natural reunion detection (acknowledging absences when users return).
 *   **💭 Passive Inner Monologue**: Generates a running background commentary from passive room observation, which is woven directly into active context windows as private intuition.
 *   **📡 Proactive Initiation**: An autonomous 7-source trigger engine (absence, beliefs, dreams, mood, curiosity, memory, silence) that lets Kaia initiate conversations naturally, capped to a lifelike frequency.
+*   **Gamified Memory Analytics (`!scores`)**: Ranks user affinity bonds, active beliefs, memory anchor salience, coherence ratings, and operational telemetry via interactive Discord Embed category dropdowns (`!scores`, `!stats`, `!leaderboard`).
 *   **🫂 Memory Anchors**: Captures up to 50 highly weighted cross-session episodic memories with natural exponential decay, enabling organic conversational callbacks to past events weeks later.
 *   **🏟️ Project 1999 Forum Integration**: Periodic scraping loops (6h interval) scanning Off-Topic (Forum 19) and Technical Discussion (Forum 40). Features a Discord moderation queue in `#kaia-opolis` with interactive Accept/Reject buttons, zero-hallucination support answers from RAG, and profile caching to model active users.
 *   **🖥️ Symmetrical Curses Dashboard**: A three-pane terminal TUI (**SYSTEM STATS**, **BOT STATUS**, and **COGNITIVE PIPELINE & FORUMS**) providing real-time CPU/GPU metrics, bot metrics, cognitive stats (beliefs, anchors, affinity), and a live stream of elevated logging events (monologue, dream insights, scans).
@@ -117,7 +118,7 @@ Built into the bot is a fully deterministic, persistent turn-based RPG. All comb
 
 *   **Mega-Dungeon Progression**: A 77-floor procedural dungeon ("Spine of the World") equipped with Resonance Lift checkpoints and custom floor encounter pools.
 *   **Rich Class Mechanics**: 10 advanced classes featuring distinct progression stats, passive buffs, and unique triggerable combat procs.
-*   **Deep Economy & Customization**: Features an inventory system with 447 balanced equipment items across 7 tiers, complete with housing, procedural farming, pets, and alchemy.
+*   **Deep Economy & Customization**: Features an inventory system with 452 balanced equipment items across 7 tiers, complete with housing, procedural farming, pets, and alchemy.
 *   **System Integrity**: Employs a defense soft-cap (`min(10, raw) + max(0, raw-10)//2`) and absolute stat budgeting targets to prevent game state scaling breakages.
 
 ---
@@ -221,11 +222,12 @@ Kaiacord/
 │   └── maintenance/             # Health check and re-indexing controls
 ├── utils/
 │   ├── core/                    # Core cognitive features (mood, dreams, monologue, RAG)
-│   │   ├── message_processor.py # Primary intelligence flow manager (~1900 lines)
+│   │   ├── message_processor.py # Primary intelligence flow manager (~2166 lines)
+│   │   ├── safety_pipeline.py   # Post-generation 10-layer safety pipeline & dogtag replay
 │   │   ├── kaia_dream.py        # Nightly consolidation engine
 │   │   └── kaia_rag.py          # Vector/Lexical facade & query hub
 │   ├── ttrpg/                   # Aethelgard combat, dungeon & housing state
-│   ├── commands/                # Discord command routers & handlers
+│   ├── commands/                # Discord command routers & handlers (scores_handler.py, etc.)
 │   ├── social/                  # Social responder (Bluesky, Twitter) & P99 Forum Crawler
 │   │   ├── kaia_forum.py        # Project 1999 Forum Client, Scraper & Auto-responder
 │   │   └── forum_tasks.py       # Scraper/Posting periodic task loop handlers

@@ -3,15 +3,22 @@ from pathlib import Path
 
 
 async def handle_forum_command(ctx, msg, send_kaia_response):
-    """Handle the !forum command (Admin only)."""
-    is_owner = ctx.config.is_owner(msg.author.name, msg.author.display_name, str(msg.author.id))
+    """Handle the !forum command (Admin only, except link)."""
+    parts = msg.content.strip().split(None, 2)
+    subcommand = parts[1].lower() if len(parts) > 1 else "status"
 
+    if subcommand == "link":
+        user_id = int(parts[2]) if len(parts) > 2 and parts[2].isdigit() else None
+        if not user_id:
+            await msg.channel.send("```\nusage: !forum link <forum_id>\n```")
+            return
+        await _handle_link(ctx, msg, user_id)
+        return
+
+    is_owner = ctx.config.is_owner(msg.author.name, msg.author.display_name, str(msg.author.id))
     if not is_owner:
         await msg.channel.send("```\nrestricted.\n```")
         return
-
-    parts = msg.content.strip().split(None, 2)
-    subcommand = parts[1].lower() if len(parts) > 1 else "status"
 
     if subcommand == "status":
         await _handle_status(ctx, msg)
@@ -31,12 +38,6 @@ async def handle_forum_command(ctx, msg, send_kaia_response):
             await msg.channel.send("```\nusage: !forum user <user_id>\n```")
             return
         await _handle_user(ctx, msg, user_id)
-    elif subcommand == "link":
-        user_id = int(parts[2]) if len(parts) > 2 and parts[2].isdigit() else None
-        if not user_id:
-            await msg.channel.send("```\nusage: !forum link <forum_id>\n```")
-            return
-        await _handle_link(ctx, msg, user_id)
     elif subcommand == "post":
         await _handle_post(ctx, msg, parts)
     elif subcommand == "reply":

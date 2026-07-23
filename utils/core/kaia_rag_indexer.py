@@ -650,8 +650,12 @@ class RAGIndexerMixin:
         try:
             if not os.path.exists(self.persist_dir):
                 os.makedirs(self.persist_dir)
-            with open(self.state_file, 'w', encoding='utf-8') as f:
+            tmp_path = self.state_file + ".tmp"
+            with open(tmp_path, 'w', encoding='utf-8') as f:
                 json.dump(self.indexed_files, f, indent=4)
+                f.flush()
+                os.fsync(f.fileno())
+            os.replace(tmp_path, self.state_file)
             log_debug(f"Saved {len(self.indexed_files)} entries to {self.state_file}")
         except Exception as e:
             log_error(f"Failed to save indexed files state: {e}")

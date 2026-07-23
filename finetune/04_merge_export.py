@@ -65,7 +65,7 @@ def main():
         max_seq_length=MAX_SEQ_LENGTH,
         dtype=DTYPE,
         load_in_4bit=LOAD_IN_4BIT,
-        local_files_only=False, # Allow checking/downloading base weights if needed
+        local_files_only=True, # Prevent telemetry/hangs by forcing local weights
     )
 
     # -----------------------------------------------------------------

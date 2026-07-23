@@ -30,6 +30,7 @@ async def handle_help_command(ctx, msg, send_kaia_response):
     embed.add_field(
         name="🧠  Cognitive & Memory",
         value=(
+            "`!scores` — Interactive leaderboards & memory analytics (`!leaderboard`, `!stats`)\n"
             "`!dream [cmd]` — Manage dream reflections (`list`/`generate`/`stats`)\n"
             "`!memory [cmd]` — Manage memory systems (`beliefs`/`anchors`)\n"
             "`!selfmodel` — Regenerate Kaia's 30-day self-model document\n"

@@ -17,6 +17,11 @@ async def handle_snapshot_command(ctx, msg, send_kaia_response):
     """Handle the !snapshot command — distill current conversation into a persistent RAG node."""
     from utils.infrastructure.system.yaml_config import config
 
+    is_owner = config.is_owner(msg.author.name, msg.author.display_name, str(msg.author.id))
+    if not is_owner:
+        await msg.channel.send("```\nyou aren't my architect. restricted.\n```")
+        return
+
     if not config.get('features.snapshots_enabled', True):
         await send_kaia_response(msg.channel, "Snapshots are currently disabled.")
         return

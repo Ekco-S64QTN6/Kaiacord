@@ -1,13 +1,13 @@
 # AGENTS.md
 
 > Instructions for AI coding agents working on this repository.
-> Last updated: May 14, 2026
+> Last updated: July 23, 2026
 
 ## Project Overview
 
 **Kaiacord** is a Discord bot built with `discord.py 2.6.4` and Python 3.14+. It features:
 
-- **Kaia** — An AI persona powered by Ollama (local LLM, `gemma3:12b`) with RAG retrieval via LlamaIndex, featuring a 26-feature cognitive pipeline (presence, mood, afterthoughts, inner monologue, proactive initiation, relationship tracking, belief formation, dream reflections, memory anchors, conversational stance)
+- **Kaia** — An AI persona powered by Ollama (local LLM, `gemma3:12b`) with RAG retrieval via LlamaIndex, featuring a 28-feature cognitive pipeline (presence, mood, afterthoughts, inner monologue, proactive initiation, relationship tracking, belief formation, dream reflections, memory anchors, conversational stance, anticipatory context priming, theory of mind)
 - **Aethelgard TTRPG** — A full turn-based RPG system (combat, 10 advanced classes, equipment, dungeons, housing, farming, pets, alchemy) with a 77-floor mega-dungeon
 - **Fractal Art** — `!art` command generating fractal flames (Electric Sheep algorithm) with Kaia commentary
 - **Fishing minigame** — Rod-based fishing economy
@@ -28,11 +28,11 @@ The import chain touches Discord client initialization, async event loops, and b
 python3 -c "import ast; ast.parse(open('utils/ttrpg/monster_registry.py').read())"
 
 # Data-only files can be exec'd in isolation (no cross-imports)
-python3 -c "exec(open('utils/ttrpg/monster_registry.py').read()); print(len(MONSTERS))"
+timeout 10 python3 -c "exec(open('utils/ttrpg/monster_registry.py').read()); print(len(MONSTERS))"
 
-# ALWAYS wrap in timeout as a safety net — if you accidentally exec a file
-# with cross-imports, this prevents an infinite hang
-timeout 10 python3 -c "..."
+# Unit & Integration tests via virtualenv python (SAFE — uses isolated test environment)
+venv/bin/python3 -m pytest tools/tests/unit/ -v
+venv/bin/python3 -m pytest tools/tests/integration/ -v
 ```
 
 ### What does NOT work:
@@ -40,7 +40,7 @@ timeout 10 python3 -c "..."
 # ❌ HANGS FOREVER — do not attempt
 python3 -c "from utils.ttrpg.combat_engine import ..."
 python3 -c "from utils.core.message_processor import ..."
-python3 -m pytest
+python3 -m pytest  # (system python without virtualenv paths will hang/fail)
 python3 Kaiacord.py
 ```
 
@@ -96,8 +96,8 @@ Registry files (like `equipment_registry.py`) contain both large data dictionari
 │   │   ├── system_handler.py          # System/admin commands
 │   │   └── sysmon_handler.py          # !sysmon monitoring
 │   ├── ttrpg/                   # Game logic + RPG command handlers
-│   │   ├── monster_registry.py        # 335 monster stat blocks
-│   │   ├── equipment_registry.py      # 433 items across 7 tiers
+│   │   ├── monster_registry.py        # 365 monster stat blocks
+│   │   ├── equipment_registry.py      # 452 items across 7 tiers
 │   │   ├── combat_engine.py           # Combat resolution (DEF soft-cap + global cap)
 │   │   ├── class_advancement.py       # 10 advanced classes, proc logic
 │   │   ├── dungeon.py                 # Procedural dungeon generation (overworld)
@@ -109,7 +109,7 @@ Registry files (like `equipment_registry.py`) contain both large data dictionari
 │   │   ├── progression.py             # XP, leveling, stat growth
 │   │   ├── shop.py                    # Buy/sell logic across 3 shops
 │   │   ├── housing.py, farming.py, pets.py, alchemy.py, furniture.py
-│   │   ├── quest_registry.py          # 9 quests (L1–L15)
+│   │   ├── quest_registry.py          # 12 quests (L1–L15)
 │   │   ├── npc_registry.py            # NPC definitions
 │   │   ├── calendar.py                # Seasons, weather, holidays (13 special days)
 │   │   ├── loot_tables.py             # Drop tables by tier
@@ -123,7 +123,7 @@ Registry files (like `equipment_registry.py`) contain both large data dictionari
 │   │   ├── rpg_views.py               # Discord UI views & button factories
 │   │   └── rpg_prompt_builder.py      # LLM narration prompt construction
 │   ├── core/                    # Kaia cognitive pipeline
-│   │   ├── message_processor.py       # Main intelligence pipeline (~1900 lines)
+│   │   ├── message_processor.py       # Main intelligence pipeline (~2250 lines)
 │   │   ├── background_tasks.py        # Afterthoughts, dawn task, presence loops
 │   │   ├── kaia_dream.py              # Dream engine, belief extraction, identity stream
 │   │   ├── kaia_art.py                # Fractal flame renderer (CPU-only, NumPy/SciPy)
@@ -208,10 +208,10 @@ Registry files (like `equipment_registry.py`) contain both large data dictionari
 - Every monster key used in `ENCOUNTER_TABLES` MUST have a matching entry in `MONSTERS`
 - Shop stock lists (`HEMLOCK_STOCK_*`, `PELLS_STOCK_*`) are manually maintained — new buyable items need both the item dict AND the stock list updated
 - Equipment stat budgets by tier: See `docs/ttrpg/ttrpg_report.md` for current balance targets. Do not add items that exceed tier budgets without updating the documentation first
-- Current counts: **365 monsters** (37 boss-tier), **452 active unique equipment items** across 7 tiers
+- Current counts: **365 monsters** (41 boss-tier), **452 active unique equipment items** across 7 tiers
 
 ### Kaia Cognitive Pipeline
-- **All 26 behavioral features** (tone mirroring, time-of-day, conversational fatigue, relationship stages, mood vector, monologue, memory anchors, conversational stance, etc.) are lightweight system prompt injections in `message_processor.py`. They do NOT call the LLM — they're pure Python heuristics.
+- **All 28 behavioral features** (tone mirroring, time-of-day, conversational fatigue, relationship stages, mood vector, monologue, memory anchors, conversational stance, anticipatory context priming, theory of mind, etc.) are lightweight system prompt injections in `message_processor.py`. They do NOT call the LLM — they're pure Python heuristics.
 - **Every behavioral injection is wrapped in `try/except Exception: pass`** to ensure non-critical features never crash the main response path. This is mandatory for all new injections.
 - **Dream reflections, identity stream, and self-model auto-regen** all pass through `_sanitize_repetitive_starts()` to prevent linguistic drift loops.
 - **Relationship events** are stored per-user in `memory/relationships/` with atomic writes and a 100-event cap.
@@ -230,7 +230,7 @@ Kaia utilizes multiple distinct LLM call paths depending on the context. Do not 
 
 | Call Path | Entry Point | Context / Pipeline | Key Features / Safety Layers |
 |---|---|---|---|
-| **Discord Chat** | `MessageProcessor.process()` | Full `MessageContext` | 26-feature cognitive pipeline, RAG/memory retrieval, intent classification, 10-layer post-generation safety pipeline (hallucination detection, bot-speak filter, etc.) |
+| **Discord Chat** | `MessageProcessor.process()` | Full `MessageContext` | 28-feature cognitive pipeline, RAG/memory retrieval, intent classification, 10-layer post-generation safety pipeline (hallucination detection, bot-speak filter, etc.) |
 | **Forum Auto-Post** | `background_tasks.py` -> `_make_forum_auto_post_task()` | System + User message format | Stripped-down LLM call (`ollama_client.chat`), bypasses `MessageProcessor` and cognitive pipeline. Uses `BotSpeakFilter.harden()` post-generation. |
 | **Forum Technical Support** | `background_tasks.py` -> `_make_forum_support_task()` | System + User message format | Stripped-down LLM call, grounded via BM25/hybrid RAG, automatic support disclaimer footer append, bypasses `MessageProcessor`. |
 | **Social Media Responder** | `kaia_social_responder.py` | Direct Ollama call | Bypasses `MessageProcessor`. Specialized social response generation context. |
@@ -276,15 +276,15 @@ Kaia utilizes multiple distinct LLM call paths depending on the context. Do not 
 
 See `docs/reports/audit_report.md` for the latest production audit and `docs/ttrpg/ttrpg_report.md` for the TTRPG-specific audit.
 
-**System health: A-tier. All subsystems operational. Both the TTRPG and Kaia cognitive pipeline are production-stable.**
+**System health: S-tier. All subsystems operational. Both the TTRPG and Kaia cognitive pipeline are production-stable.**
 
 Key facts:
-- 365 monsters (37 boss-tier), 452 active unique equipment items across 7 tiers
+- 365 monsters (41 boss-tier), 452 active unique equipment items across 7 tiers
 - 12 quests covering L1–L15 (all progression gaps resolved)
 - 10 advanced classes with unique procs and passives
 - 77-floor Spine of the World mega-dungeon with Resonance Lift checkpoints
 - 2 shop locations (Hemlock's, Caravan)
-- Full cognitive pipeline (26 features): emotional arc, monologue, proactive initiation, relationship stages, dreams, beliefs, memory anchors, conversational stance, tone mirroring
+- Full cognitive pipeline (28 features): emotional arc, monologue, proactive initiation, relationship stages, dreams, beliefs, memory anchors, conversational stance, tone mirroring, anticipatory context priming, theory of mind
 - Calendar with 13 special days, 4 seasons, deterministic weather — all buffs wired
 - Fractal flame art system (CPU-only, NumPy/SciPy, 20 variation functions, 10 palettes, adaptive DE)
 - Project 1999 Forum Integration: automated 6h scraping loops, post-moderation review queue, profile caching, and zero-hallucination tech support RAG verification

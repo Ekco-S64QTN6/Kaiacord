@@ -14,6 +14,11 @@ from utils.infrastructure.logging.kaia_logger import log_info, log_error
 
 async def handle_selfmodel_command(ctx, msg, send_kaia_response):
     """Handle the !selfmodel command to trigger self-model regeneration."""
+    is_owner = ctx.config.is_owner(msg.author.name, msg.author.display_name, str(msg.author.id))
+    if not is_owner:
+        await msg.channel.send("```\nyou aren't my architect. restricted.\n```")
+        return
+
     await send_kaia_response(msg.channel, "Reflecting on recent memories... Regenerating self-model. This may take a moment.")
     log_info(f"Self-model regeneration triggered by {msg.author.name}")
 

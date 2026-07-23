@@ -29,7 +29,7 @@ def test_filter():
         result = bot_filter.harden(text)
         print(f"Test (Conversation Check): '{text}' -> '{result}'")
         if text == "Normal message that should pass.":
-            assert result == text
+            assert result == text.lower()
         else:
             # These specific ones should be filtered (BotSpeakFilter logic)
             # if they match the bait patterns

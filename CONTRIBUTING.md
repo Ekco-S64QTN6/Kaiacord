@@ -24,6 +24,10 @@ python3 -c "import ast; ast.parse(open('path/to/file.py').read())"
 # Validate data-only files (monster_registry, equipment_registry, pets, farming, furniture)
 timeout 10 python3 -c "exec(open('utils/ttrpg/monster_registry.py').read()); print(len(MONSTERS))"
 
+# Run unit & integration tests safely via virtualenv python
+venv/bin/python3 -m pytest tools/tests/unit/ -v
+venv/bin/python3 -m pytest tools/tests/integration/ -v
+
 # Grep for broken references
 grep -rn "some_key" utils/ttrpg/
 ```
@@ -33,7 +37,7 @@ grep -rn "some_key" utils/ttrpg/
 ```bash
 # ❌ These all hang forever due to Discord client initialization
 python3 -c "from utils.ttrpg.combat_engine import ..."
-python3 -m pytest
+python3 -c "from utils.core.message_processor import ..."
 python3 Kaiacord.py
 ```
 

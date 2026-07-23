@@ -126,6 +126,15 @@ async def handle_audit_command(ctx, msg, send_kaia_response):
     """Handle the !audit command — display audit flag statistics."""
     from utils.infrastructure.system.yaml_config import config
 
+    if not config.is_owner(msg.author.name, user_id=str(msg.author.id)):
+        embed = discord.Embed(
+            title="📊  RESTRICTED COMMAND",
+            description="Only the owner can view audit statistics.",
+            color=0xcc4444
+        )
+        await msg.channel.send(embed=embed)
+        return
+
     if not config.get('features.audit_flags_enabled', True):
         embed = discord.Embed(
             title="📊  AUDIT FLAGS DISABLED",

@@ -144,10 +144,14 @@ class KaiaRAG(RAGIndexerMixin, RAGPersistenceMixin, RAGQueryMixin):
         self._bot_user_id = None # Set by Discord bot on startup
         self._initialized = False
 
-        # Audit flag system: caches from the most recent retrieve() call
-        self._last_retrieval_node_ids = []   # Node IDs from the last retrieval
-        self._last_retrieval_results = []    # Full scored results from the last retrieval
-
+        # Context-isolated RAG state storage (🔴-1)
+        self._channel_retrieval_results = {}
+        self._channel_retrieval_node_ids = {}
+        self._channel_retrieval_confidence = {}
+        self._channel_retrieval_node_count = {}
+        self._channel_retrieval_time = {}
+        self._channel_state_lock = threading.Lock()
+        self._last_active_channel = "global"
 
     async def initialize_async(self):
         """Asynchronously initialize hierarchical indices."""
@@ -263,9 +267,95 @@ class KaiaRAG(RAGIndexerMixin, RAGPersistenceMixin, RAGQueryMixin):
             "index_size": size_str,
             "last_refresh": datetime.now()
         }
+    def _get_channel_key(self) -> str:
+        from utils.core.message_processor import current_channel_id_var
+        try:
+            channel_id = current_channel_id_var.get()
+            if channel_id:
+                return str(channel_id)
+        except Exception:
+            pass
+        return "global"
 
+    @property
+    def _last_retrieval_results(self) -> List[Any]:
+        key = self._get_channel_key()
+        with self._channel_state_lock:
+            if key == "global" and self._last_active_channel in self._channel_retrieval_results:
+                return self._channel_retrieval_results[self._last_active_channel]
+            return self._channel_retrieval_results.get(key, [])
 
+    @_last_retrieval_results.setter
+    def _last_retrieval_results(self, val: List[Any]):
+        key = self._get_channel_key()
+        with self._channel_state_lock:
+            if key != "global":
+                self._last_active_channel = key
+            self._channel_retrieval_results[key] = val
 
+    @property
+    def _last_retrieval_node_ids(self) -> List[str]:
+        key = self._get_channel_key()
+        with self._channel_state_lock:
+            if key == "global" and self._last_active_channel in self._channel_retrieval_node_ids:
+                return self._channel_retrieval_node_ids[self._last_active_channel]
+            return self._channel_retrieval_node_ids.get(key, [])
+
+    @_last_retrieval_node_ids.setter
+    def _last_retrieval_node_ids(self, val: List[str]):
+        key = self._get_channel_key()
+        with self._channel_state_lock:
+            if key != "global":
+                self._last_active_channel = key
+            self._channel_retrieval_node_ids[key] = val
+
+    @property
+    def _last_retrieval_confidence(self) -> float:
+        key = self._get_channel_key()
+        with self._channel_state_lock:
+            if key == "global" and self._last_active_channel in self._channel_retrieval_confidence:
+                return self._channel_retrieval_confidence[self._last_active_channel]
+            return self._channel_retrieval_confidence.get(key, 0.0)
+
+    @_last_retrieval_confidence.setter
+    def _last_retrieval_confidence(self, val: float):
+        key = self._get_channel_key()
+        with self._channel_state_lock:
+            if key != "global":
+                self._last_active_channel = key
+            self._channel_retrieval_confidence[key] = val
+
+    @property
+    def _last_retrieval_node_count(self) -> int:
+        key = self._get_channel_key()
+        with self._channel_state_lock:
+            if key == "global" and self._last_active_channel in self._channel_retrieval_node_count:
+                return self._channel_retrieval_node_count[self._last_active_channel]
+            return self._channel_retrieval_node_count.get(key, 0)
+
+    @_last_retrieval_node_count.setter
+    def _last_retrieval_node_count(self, val: int):
+        key = self._get_channel_key()
+        with self._channel_state_lock:
+            if key != "global":
+                self._last_active_channel = key
+            self._channel_retrieval_node_count[key] = val
+
+    @property
+    def _last_retrieval_time(self) -> float:
+        key = self._get_channel_key()
+        with self._channel_state_lock:
+            if key == "global" and self._last_active_channel in self._channel_retrieval_time:
+                return self._channel_retrieval_time[self._last_active_channel]
+            return self._channel_retrieval_time.get(key, 0.0)
+
+    @_last_retrieval_time.setter
+    def _last_retrieval_time(self, val: float):
+        key = self._get_channel_key()
+        with self._channel_state_lock:
+            if key != "global":
+                self._last_active_channel = key
+            self._channel_retrieval_time[key] = val
 
 
 if __name__ == "__main__":

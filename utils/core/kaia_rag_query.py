@@ -546,6 +546,7 @@ class RAGQueryMixin:
         # Reset per-call retrieval metrics
         self._last_retrieval_confidence = 0.0
         self._last_retrieval_node_count = 0
+        self._last_retrieval_time = time.time()
             
         try:
             query_lower = query.lower()

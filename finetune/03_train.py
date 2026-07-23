@@ -88,7 +88,7 @@ def main():
         dtype=DTYPE,
         load_in_4bit=LOAD_IN_4BIT,
         device_map={"": 0}, # Force all modules to GPU 0
-        local_files_only=False, # Allow downloading missing weight files
+        local_files_only=True, # Prevent telemetry/hangs by forcing local weights
     )
 
     # -----------------------------------------------------------------

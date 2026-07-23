@@ -102,7 +102,32 @@ async def _download_and_convert(url: str, username: str, user_id: str) -> dict:
     }
     
     async with aiohttp.ClientSession(timeout=timeout, headers=headers) as session:
-        async with session.get(url, allow_redirects=True) as response:
+        # Prevent SSRF redirect bypass (🔴-2)
+        max_redirects = 5
+        current_url = url
+        response = None
+        for redirect_count in range(max_redirects + 1):
+            resp = await session.get(current_url, allow_redirects=False)
+            if resp.status in (301, 302, 303, 307, 308):
+                redirect_target = resp.headers.get('Location')
+                if not redirect_target:
+                    response = resp
+                    break
+                from urllib.parse import urljoin
+                redirect_target = urljoin(current_url, redirect_target)
+                if not is_safe_url(redirect_target):
+                    resp.close()
+                    raise DownloadError("ssrf block: redirecting to unsafe address")
+                current_url = redirect_target
+                resp.close()
+                if redirect_count == max_redirects:
+                    raise DownloadError("too many redirects")
+                continue
+            else:
+                response = resp
+                break
+        
+        async with response:
             if response.status != 200:
                 raise DownloadError(f"server returned {response.status}")
             
@@ -138,6 +163,7 @@ async def _download_and_convert(url: str, username: str, user_id: str) -> dict:
                     raise DownloadError("file too large (exceeded 10MB during download).")
             
             raw_bytes = bytes(raw_data)
+
 
     # Convert based on type
     if file_type == 'html':

@@ -323,7 +323,33 @@ class ContextEnricher:
         
         try:
             async with aiohttp.ClientSession(timeout=timeout, headers=headers) as session:
-                async with session.get(url, allow_redirects=True) as response:
+                max_redirects = 5
+                current_url = url
+                response = None
+                for redirect_count in range(max_redirects + 1):
+                    resp = await session.get(current_url, allow_redirects=False)
+                    if resp.status in (301, 302, 303, 307, 308):
+                        redirect_target = resp.headers.get('Location')
+                        if not redirect_target:
+                            response = resp
+                            break
+                        from urllib.parse import urljoin
+                        redirect_target = urljoin(current_url, redirect_target)
+                        if not is_safe_url(redirect_target):
+                            resp.close()
+                            log_debug(f"URL {redirect_target} blocked by SSRF redirect safety guard")
+                            return ""
+                        current_url = redirect_target
+                        resp.close()
+                        if redirect_count == max_redirects:
+                            log_debug(f"URL {url} exceeded max redirect depth")
+                            return ""
+                        continue
+                    else:
+                        response = resp
+                        break
+                
+                async with response:
                     if response.status != 200:
                         log_debug(f"URL {url} returned status {response.status}")
                         return ""
@@ -366,6 +392,7 @@ class ContextEnricher:
                     self._url_cache[url] = (now, final_result)
                     
                     return final_result
+
                     
         except asyncio.TimeoutError:
             log_warning(f"URL fetch timed out: {url}")

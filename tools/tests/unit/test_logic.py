@@ -1,7 +1,7 @@
 def get_home_bonuses(housing):
     return {"home_brewing": 1}
 
-def test_logic(loc, _housing):
+def execute_logic_check(loc, _housing):
     LOCATION_DATA = {} # empty initially
     _has_alchemy_table = _housing and get_home_bonuses(_housing).get("home_brewing")
     print(f"Testing loc={loc}, _housing={_housing}")
@@ -12,5 +12,5 @@ def test_logic(loc, _housing):
     else:
         print("  RESULT: SUCCESS!")
 
-test_logic("housing_district", {"home": "yes"})
-test_logic("oakhaven", {"home": "yes"})
+execute_logic_check("housing_district", {"home": "yes"})
+execute_logic_check("oakhaven", {"home": "yes"})

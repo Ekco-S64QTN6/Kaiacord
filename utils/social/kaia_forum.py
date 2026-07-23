@@ -16,6 +16,9 @@ import asyncio
 import aiohttp
 from datetime import datetime, timedelta
 from pathlib import Path
+import threading
+
+_moderation_log_lock = threading.Lock()
 from typing import Optional, List, Dict, Any
 from urllib.parse import urljoin, urlparse, parse_qs
 import discord
@@ -1541,13 +1544,14 @@ class ForumDraftReviewView(discord.ui.View):
                 }
                 def _write_log():
                     os.makedirs('memory', exist_ok=True)
-                    with open('memory/forum_moderation_log.jsonl', 'a', encoding='utf-8') as f:
-                        f.write(json.dumps(log_entry) + '\n')
-                        f.flush()
-                        try:
-                            os.fsync(f.fileno())
-                        except OSError:
-                            pass
+                    with _moderation_log_lock:
+                        with open('memory/forum_moderation_log.jsonl', 'a', encoding='utf-8') as f:
+                            f.write(json.dumps(log_entry) + '\n')
+                            f.flush()
+                            try:
+                                os.fsync(f.fileno())
+                            except OSError:
+                                pass
                 await asyncio.to_thread(_write_log)
             except Exception as le:
                 log_debug(f"Failed to log approved forum draft: {le}")
@@ -1596,13 +1600,14 @@ class ForumDraftReviewView(discord.ui.View):
             }
             def _write_log():
                 os.makedirs('memory', exist_ok=True)
-                with open('memory/forum_moderation_log.jsonl', 'a', encoding='utf-8') as f:
-                    f.write(json.dumps(log_entry) + '\n')
-                    f.flush()
-                    try:
-                        os.fsync(f.fileno())
-                    except OSError:
-                        pass
+                with _moderation_log_lock:
+                    with open('memory/forum_moderation_log.jsonl', 'a', encoding='utf-8') as f:
+                        f.write(json.dumps(log_entry) + '\n')
+                        f.flush()
+                        try:
+                            os.fsync(f.fileno())
+                        except OSError:
+                            pass
             await asyncio.to_thread(_write_log)
         except Exception as le:
             log_debug(f"Failed to log rejected forum draft: {le}")

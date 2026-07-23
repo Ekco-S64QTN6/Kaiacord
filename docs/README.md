@@ -39,12 +39,16 @@ Welcome to the official **Kaiacord** documentation directory. This portal contai
 ### 🛠️ [07 — Technical Troubleshooting](06-troubleshooting/)
 *   [Common Issues & Remedies](06-troubleshooting/common-issues.md) — Setup errors, dependency conflicts, VRAM exceptions, and database lockups.
 
-### 📊 [Reports & System Audits](reports/README.md)
-*   [Master System Status](reports/MASTER_REPORT.md) — Core metrics, system health logs, and current operational reports.
-*   [Claude Production Audit](reports/Claude_Report.md) — Deep architectural audit of software patterns.
-*   [Phase 1–50 Archive](reports/Phase_1_50_History.md) — Archive of historical development records.
-*   [Phase 51–53 Milestones](reports/Phase_51_53_Report.md) — Record of cognitive pipeline implementation phases.
-*   [Strategic Roadmap](reports/roadmap.md) — Future feature specifications and development priorities.
+### 📊 [Reports & System Audits](reports/)
+*   [Master System Status & Roadmap](reports/master_report.md) — Core metrics, system health logs, strategic roadmap, and current operational reports.
+*   [Unified Production Audit](reports/audit_report.md) — Deep architectural audit: cognitive pipeline, GPU semaphore, state durability, and safety pipeline verification.
+*   [Development History](reports/history.md) — Chronological development history from Phase 1 through Phase 55+.
+*   [Evolution Proposals](reports/evolution_proposals.md) — Pending cognitive pipeline proposals under discussion.
+*   [Fractal Art Report](reports/art_report.md) — Electric Sheep fractal flame renderer design and benchmarks.
+*   [Jacobian Space Report](reports/Jspace.md) — Persona boundary enforcement analysis and behavioral probing.
+*   [LoRA Fine-Tuning Report](reports/LoRA.md) — LoRA adapter training pipeline and hyperparameter audit.
+*   [DeepSeek Report Verification](reports/Deepseek_report.md) — External DeepSeek assessment audit (verified as hallucinated Linux systemctl paths).
+*   [Coding Agent Review Prompt](reports/coding_agent_reviewprompt.md) — Reusable audit prompt template.
 
 ### ⚔️ [Aethelgard TTRPG Specifications](ttrpg/)
 *   [System Specification](ttrpg/aethelgard_system.md) — Complete game rules, combat formulas, class trees, and item structures.
@@ -62,4 +66,4 @@ Welcome to the official **Kaiacord** documentation directory. This portal contai
 | **I want to understand the VRAM split** | [🏗️ GPU & VRAM Management](03-architecture/gpu-management.md) |
 | **I need to fix a database exception** | [🛠️ Common Issues & Remedies](06-troubleshooting/common-issues.md) |
 | **I want to verify Aethelgard balance** | [⚔️ TTRPG Balance & Audit Report](ttrpg/ttrpg_report.md) |
-| **I need to see the latest audit status** | [📊 Master System Status](reports/MASTER_REPORT.md) |
+| **I need to see the latest audit status** | [📊 Unified Production Audit](reports/audit_report.md) |

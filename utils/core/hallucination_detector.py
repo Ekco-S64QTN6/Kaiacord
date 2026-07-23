@@ -1,6 +1,9 @@
 import re
 import json
 from typing import Optional
+import threading
+
+_hallucination_log_lock = threading.Lock()
 from utils.infrastructure.logging.kaia_logger import log_warning
 
 class HallucinationDetector:
@@ -59,16 +62,17 @@ class HallucinationDetector:
         }
         try:
             os.makedirs("memory", exist_ok=True)
-            with open(log_path, 'a', encoding='utf-8') as f:
-                f.write(json.dumps(entry) + '\n')
-            # Rotate: keep last 500 entries only (atomic)
-            with open(log_path, 'r', encoding='utf-8') as f:
-                lines = f.readlines()
-            if len(lines) > 500:
-                tmp_path = log_path + ".tmp"
-                with open(tmp_path, 'w', encoding='utf-8') as f:
-                    f.writelines(lines[-500:])
-                os.replace(tmp_path, log_path)
+            with _hallucination_log_lock:
+                with open(log_path, 'a', encoding='utf-8') as f:
+                    f.write(json.dumps(entry) + '\n')
+                # Rotate: keep last 500 entries only (atomic)
+                with open(log_path, 'r', encoding='utf-8') as f:
+                    lines = f.readlines()
+                if len(lines) > 500:
+                    tmp_path = log_path + ".tmp"
+                    with open(tmp_path, 'w', encoding='utf-8') as f:
+                        f.writelines(lines[-500:])
+                    os.replace(tmp_path, log_path)
             log_warning(
                 f"⚠️ Hallucination Detector: pattern '{pattern_matched}' detected. "
                 f"Action taken: {action_taken}."

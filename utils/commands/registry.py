@@ -15,10 +15,15 @@ from utils.commands.art_handler import handle_art_command
 from utils.commands.sysmon_handler import handle_sysmon_command
 from utils.commands.rpg_handler import handle_rpg_command
 from utils.commands.memory_handler import handle_memory_cmd
+from utils.commands.scores_handler import handle_scores_command
 
 async def dispatch_command(ctx, msg, load_persona_async, send_kaia_response):
     """Route commands to the appropriate handler"""
     content = msg.content.strip()
+
+    if content.startswith("!scores") or content.startswith("!score") or content.startswith("!leaderboard") or content.startswith("!halloffame") or content.startswith("!stats"):
+        await handle_scores_command(ctx, msg)
+        return True
     
     if content.startswith("!help"):
         await handle_help_command(ctx, msg, send_kaia_response)
