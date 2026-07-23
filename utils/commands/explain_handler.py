@@ -14,7 +14,12 @@ from utils.infrastructure.logging.kaia_logger import log_info
 
 
 async def handle_explain_command(ctx, msg, send_kaia_response):
-    """Handle the !explain command — display provenance of last RAG retrieval."""
+    """Handle the !explain command — display provenance of last RAG retrieval (Admin only)."""
+    is_owner = ctx.config.is_owner(msg.author.name, msg.author.display_name, str(msg.author.id))
+    if not is_owner:
+        await msg.channel.send("```\nyou aren't my architect. restricted.\n```")
+        return
+
     rag = ctx.rag
     if not rag:
         embed = discord.Embed(

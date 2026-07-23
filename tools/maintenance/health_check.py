@@ -94,7 +94,7 @@ class HealthCheck:
                     classification_model = config.get('models.classification_model', 'gemma2:2b')
                     embedding_model = config.get('models.embedding', 'nomic-embed-text-cpu')
                 except Exception:
-                    chat_model = "gemma4:12b"
+                    chat_model = "gemma3:12b"
                     classification_model = "gemma2:2b"
                     embedding_model = "nomic-embed-text-cpu"
 

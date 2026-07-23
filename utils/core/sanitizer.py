@@ -23,3 +23,40 @@ def sanitize_prompt(prompt: str, max_length: int = 2000) -> str:
         prompt = prompt[:max_length] + "..."
     
     return prompt.strip()
+
+
+def is_safe_url(url: str) -> bool:
+    """
+    Validate that a URL uses http/https and does not resolve to private,
+    loopback, link-local, or cloud metadata IP addresses (SSRF prevention).
+    """
+    import socket
+    import ipaddress
+    from urllib.parse import urlparse
+
+    try:
+        parsed = urlparse(url)
+        if parsed.scheme not in ('http', 'https'):
+            return False
+        hostname = parsed.hostname
+        if not hostname:
+            return False
+
+        hostname_lower = hostname.lower()
+        if hostname_lower in ('localhost', 'localhost.localdomain', '169.254.169.254', 'metadata.google.internal'):
+            return False
+
+        addr_info = socket.getaddrinfo(hostname, None, socket.AF_UNSPEC, socket.SOCK_STREAM)
+        if not addr_info:
+            return False
+
+        for _, _, _, _, sockaddr in addr_info:
+            ip_str = sockaddr[0]
+            ip = ipaddress.ip_address(ip_str)
+            if ip.is_private or ip.is_loopback or ip.is_link_local or ip.is_reserved or ip.is_multicast:
+                return False
+
+        return True
+    except Exception:
+        return False
+

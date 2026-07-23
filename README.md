@@ -296,9 +296,11 @@ PYTHONPATH=. pytest tools/tests/verification/ -q
 | **VRAM & GPU Tuning** | [`docs/03-architecture/gpu-management.md`](docs/03-architecture/gpu-management.md) |
 | **RAG Grounding Layer** | [`docs/03-architecture/rag-system.md`](docs/03-architecture/rag-system.md) |
 | **Aethelgard TTRPG Specs**| [`docs/ttrpg/aethelgard_system.md`](docs/ttrpg/aethelgard_system.md) |
-| **Project Status Reports**| [`docs/reports/MASTER_REPORT.md`](docs/reports/MASTER_REPORT.md) |
+| **Project Status Reports**| [`docs/reports/master_report.md`](docs/reports/master_report.md) |
+| **Unified Systems Audit** | [`docs/reports/audit_report.md`](docs/reports/audit_report.md) |
 | **Jacobian Space Report** | [`docs/reports/Jspace.md`](docs/reports/Jspace.md) |
-| **LoRA Fine-Tuning** | [`docs/reports/LoRA.md`](docs/reports/LoRA.md) |
+| **LoRA Fine-Tuning**      | [`docs/reports/LoRA.md`](docs/reports/LoRA.md) |
+| **Review Prompt Directive**| [`docs/reports/coding_agent_reviewprompt.md`](docs/reports/coding_agent_reviewprompt.md) |
 
 ---
 

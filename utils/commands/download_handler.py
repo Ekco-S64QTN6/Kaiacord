@@ -7,6 +7,7 @@ from pathlib import Path
 from urllib.parse import urlparse, unquote
 
 from utils.infrastructure.logging.kaia_logger import log_action, log_error, log_warning, log_debug
+from utils.core.sanitizer import is_safe_url
 
 # Max download size: 10MB
 MAX_DOWNLOAD_BYTES = 10 * 1024 * 1024
@@ -43,7 +44,7 @@ async def handle_download_command(ctx, msg, send_kaia_response):
     if url.startswith('<') and url.endswith('>'):
         url = url[1:-1]
     
-    # Validate URL
+    # Validate URL & SSRF Check
     try:
         parsed = urlparse(url)
         if parsed.scheme not in ('http', 'https'):
@@ -51,6 +52,9 @@ async def handle_download_command(ctx, msg, send_kaia_response):
             return
         if not parsed.netloc:
             await msg.channel.send("```\nthat doesn't look like a valid url.\n```")
+            return
+        if not is_safe_url(url):
+            await msg.channel.send("```\naccess denied: internal/private IP targets are restricted.\n```")
             return
     except Exception:
         await msg.channel.send("```\ncouldn't parse that url.\n```")

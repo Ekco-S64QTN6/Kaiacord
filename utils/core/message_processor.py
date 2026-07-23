@@ -1562,8 +1562,8 @@ class MessageProcessor:
                 
                 content = response['message']['content']
 
-                # TEMPORARY DEBUG: Log raw response to diagnose gemma4 empty responses
-                log_warning(f"[GEMMA4_DEBUG] Raw response length={len(content)}, first100={repr(content[:100])}, done_reason={response.get('done_reason', 'unknown')}")
+                # TEMPORARY DEBUG: Log raw response to diagnose gemma3 empty responses
+                log_warning(f"[GEMMA3_DEBUG] Raw response length={len(content)}, first100={repr(content[:100])}, done_reason={response.get('done_reason', 'unknown')}")
 
                 # Strip LLM-added outer codeblocks
                 content = content.replace("```", "").replace("``", "")
@@ -1830,6 +1830,7 @@ class MessageProcessor:
                     cooldown_key = f"_summarize_cd_{ctx.channel_id}"
                     last_summarize = getattr(self, cooldown_key, 0.0)
                     if time.time() - last_summarize > 300:
+                        setattr(self, cooldown_key, time.time())
                         try:
                             oldest_turns = list(mem)[:15]
                             history_text = "\n".join(
@@ -1864,7 +1865,6 @@ class MessageProcessor:
                                 if mem:
                                     mem.popleft()
                             mem.appendleft({"role": "system", "content": f"[summary of earlier conversation: {summary}]"})
-                            setattr(self, cooldown_key, time.time())
                             log_debug(f"History summarization completed for channel {ctx.channel_id}")
                         except Exception as e:
                             log_warning(f"History summarization failed: {e}")

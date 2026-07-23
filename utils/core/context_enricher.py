@@ -6,6 +6,7 @@ from bs4 import BeautifulSoup
 from typing import List, Optional
 from utils.infrastructure.logging.kaia_logger import log_info, log_debug, log_warning
 from utils.infrastructure.system.yaml_config import config
+from utils.core.sanitizer import is_safe_url
 
 class ContextEnricher:
     """
@@ -302,7 +303,12 @@ class ContextEnricher:
         """Scrape text from a single URL with caching and limits."""
         now = asyncio.get_running_loop().time()
         
-        # 1. Check Cache
+        # 1. SSRF Guard Check
+        if not is_safe_url(url):
+            log_debug(f"URL {url} blocked by SSRF safety guard (private/loopback/metadata IP)")
+            return ""
+
+        # 2. Check Cache
         if url in self._url_cache:
             timestamp, cached_text = self._url_cache[url]
             if now - timestamp < self._cache_ttl:

@@ -253,7 +253,7 @@ class YAMLConfig:
     
     @property
     def chat_model(self) -> str:
-        return self.get_path('models.chat', 'gemma4:12b')
+        return self.get_path('models.chat', 'gemma3:12b')
     
     @property
     def embedding_model(self) -> str:
