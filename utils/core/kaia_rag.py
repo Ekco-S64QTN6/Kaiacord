@@ -313,9 +313,13 @@ class KaiaRAG(RAGIndexerMixin, RAGPersistenceMixin, RAGQueryMixin):
     def _last_retrieval_confidence(self) -> float:
         key = self._get_channel_key()
         with self._channel_state_lock:
-            if key == "global" and self._last_active_channel in self._channel_retrieval_confidence:
+            if key in self._channel_retrieval_confidence:
+                return self._channel_retrieval_confidence[key]
+            if self._last_active_channel in self._channel_retrieval_confidence:
                 return self._channel_retrieval_confidence[self._last_active_channel]
-            return self._channel_retrieval_confidence.get(key, 0.0)
+            if self._channel_retrieval_confidence:
+                return list(self._channel_retrieval_confidence.values())[-1]
+            return 0.0
 
     @_last_retrieval_confidence.setter
     def _last_retrieval_confidence(self, val: float):
@@ -329,9 +333,13 @@ class KaiaRAG(RAGIndexerMixin, RAGPersistenceMixin, RAGQueryMixin):
     def _last_retrieval_node_count(self) -> int:
         key = self._get_channel_key()
         with self._channel_state_lock:
-            if key == "global" and self._last_active_channel in self._channel_retrieval_node_count:
+            if key in self._channel_retrieval_node_count:
+                return self._channel_retrieval_node_count[key]
+            if self._last_active_channel in self._channel_retrieval_node_count:
                 return self._channel_retrieval_node_count[self._last_active_channel]
-            return self._channel_retrieval_node_count.get(key, 0)
+            if self._channel_retrieval_node_count:
+                return list(self._channel_retrieval_node_count.values())[-1]
+            return 0
 
     @_last_retrieval_node_count.setter
     def _last_retrieval_node_count(self, val: int):
@@ -345,9 +353,13 @@ class KaiaRAG(RAGIndexerMixin, RAGPersistenceMixin, RAGQueryMixin):
     def _last_retrieval_time(self) -> float:
         key = self._get_channel_key()
         with self._channel_state_lock:
-            if key == "global" and self._last_active_channel in self._channel_retrieval_time:
+            if key in self._channel_retrieval_time:
+                return self._channel_retrieval_time[key]
+            if self._last_active_channel in self._channel_retrieval_time:
                 return self._channel_retrieval_time[self._last_active_channel]
-            return self._channel_retrieval_time.get(key, 0.0)
+            if self._channel_retrieval_time:
+                return list(self._channel_retrieval_time.values())[-1]
+            return 0.0
 
     @_last_retrieval_time.setter
     def _last_retrieval_time(self, val: float):

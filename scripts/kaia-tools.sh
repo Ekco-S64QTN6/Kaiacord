@@ -98,7 +98,6 @@ menu_ollama() {
             fi
             echo
             info "Flushing all models from VRAM..."
-            # Use Ollama HTTP API to unload each running model
             MODELS=$(ollama ps 2>/dev/null | tail -n +2 | awk '{print $1}' | grep -v "^$") || true
             if [[ -z "$MODELS" ]]; then
                 ok "No models currently loaded."
@@ -184,20 +183,14 @@ menu_system() {
             "6"  "Stop bot" \
             "7"  "Restart bot  (stop + start)" \
             "8"  "Ollama server management →" \
-            "9"  "Clear channel memory  (wipe bot_state.json - fixes ellipsis/style lock)" \
+            "9"  "Clear channel memory  (wipe bot_state.json - fixes style lock)" \
             "10" "Delete today's poisoned logs  (fixes contaminated RAG after bad session)" \
             "b"  "← Back" \
             3>&1 1>&2 2>&3) || return
 
         case "$CHOICE" in
         1)
-            echo
-            info "Running health check..."
-            echo "────────────────────────────────────────"
-            $PYTHON tools/maintenance/health_check.py 2>/dev/null || \
-                warn "health_check.py not found at tools/maintenance/health_check.py"
-            echo "────────────────────────────────────────"
-            pause
+            run_tool "Health Check" tools/maintenance/health_check.py
             ;;
         2)
             echo
@@ -239,15 +232,12 @@ menu_system() {
             info "Starting Kaiacord.py..."
             mkdir -p logs
             if [[ "$MODE" == "2" ]]; then
-                # No-GUI: safe to background since it doesn't need a TTY
                 nohup $PYTHON Kaiacord.py --no-gui > logs/kaiacord_startup.log 2>&1 &
                 ok "Started (PID $!). Tailing logs/kaiacord_startup.log for 10s..."
                 sleep 10
                 tail -20 logs/kaiacord_startup.log 2>/dev/null || true
                 pause
             else
-                # Curses TUI: needs a real terminal — exec replaces this shell
-                # so the bot inherits the TTY. kaia-tools exits when the bot does.
                 info "Launching curses dashboard (this menu will close)..."
                 sleep 1
                 exec $PYTHON Kaiacord.py
@@ -341,14 +331,13 @@ menu_rag() {
     while true; do
         CHOICE=$(whiptail --title "Kaiacord Tools — RAG Management" --menu \
             "$(status_line)\n\nChoose an operation:" \
-            22 80 8 \
-            "1" "Incremental refresh  (pick up new/edited files, bot can be running)" \
-            "2" "Remove specific file  (delete nodes for one file, then re-index it)" \
-            "3" "Full rebuild — CPU  (clear manifest + reindex all, bot can be running)" \
-            "4" "Full rebuild — GPU  (faster, BOT MUST BE STOPPED)" \
-            "5" "Diagnose index  (show node counts per index type)" \
-            "6" "Diagnose embeddings  (verify embedding pipeline)" \
-            "7" "Full RAG debug  (hybrid retriever deep-dive)" \
+            22 80 7 \
+            "1" "Incremental refresh  (signal live bot via .trigger_reindex)" \
+            "2" "Re-index specific file  (targeted file update)" \
+            "3" "Full RAG rebuild  (clear storage & reindex all files)" \
+            "4" "Index & manifest health  (document counts & file integrity)" \
+            "5" "Embedding pipeline diagnostics" \
+            "6" "Full RAG deep-dive debug" \
             "b" "← Back" \
             3>&1 1>&2 2>&3) || return
 
@@ -357,89 +346,32 @@ menu_rag() {
             echo
             info "Triggering incremental RAG refresh..."
             echo "────────────────────────────────────────"
-            $PYTHON tools/maintenance/force_reindex.py || warn "force_reindex.py failed."
+            $PYTHON tools/maintenance/reindex_rag.py --trigger || warn "reindex_rag.py failed."
             echo "────────────────────────────────────────"
             pause
             ;;
         2)
-            FILE=$(whiptail --title "Remove File from RAG" \
-                --inputbox "Enter path relative to project root:\n(e.g. knowledge_base/user_logs/Ekco_177.../interactions_20260209.txt)" \
+            FILE=$(whiptail --title "Re-index Specific File" \
+                --inputbox "Enter path relative to project root:\n(e.g. knowledge_base/user_logs/Ekco_177.../interactions_20260209.md)" \
                 10 72 3>&1 1>&2 2>&3) || continue
             [[ -z "$FILE" ]] && { warn "No file entered."; pause; continue; }
             [[ ! -f "$FILE" ]] && { warn "File not found: $FILE"; pause; continue; }
-            if confirm "Remove '$FILE' from RAG index and re-index?\n\nThis removes the nodes then triggers re-index."; then
-                echo
-                $PYTHON tools/maintenance/force_reindex.py "$FILE"
-                pause
+            if confirm "Re-index '$FILE' now?"; then
+                run_tool "Re-index File" tools/maintenance/reindex_rag.py "$FILE"
             fi
             ;;
         3)
-            if confirm "Full CPU rebuild.\n\nThis clears the manifest and reindexes all files.\nThe bot can keep running (embeddings are CPU-only).\nContinue?"; then
-                echo
-                info "Starting full CPU rebuild..."
-                echo "────────────────────────────────────────"
-                # Use rebuild_rag_gpu.py without GPU override, or inline Python
-                if [[ -f tools/rebuild_rag_cpu.py ]]; then
-                    $PYTHON tools/rebuild_rag_cpu.py --clear
-                else
-                    $PYTHON - <<'PYEOF'
-import asyncio, sys, os
-sys.path.insert(0, os.getcwd())
-from utils.infrastructure.logging.unified_logging import replace_all_logging
-replace_all_logging()
-from utils.core.kaia_rag import KaiaRAG
-import shutil
-
-persist_dir = "./memory/rag_storage"
-print(f"Clearing {persist_dir}...")
-if os.path.exists(persist_dir):
-    shutil.rmtree(persist_dir)
-os.makedirs(persist_dir, exist_ok=True)
-print("Storage cleared. Starting rebuild (CPU)...")
-
-async def main():
-    rag = KaiaRAG()
-    await rag.initialize_async()
-    print("Running knowledge base refresh...")
-    await rag.refresh_knowledge_base()
-    print("Full rebuild complete.")
-
-asyncio.run(main())
-PYEOF
-                fi
-                echo "────────────────────────────────────────"
-                pause
+            if confirm "Full RAG Rebuild.\n\nThis clears memory/rag_storage and reindexes all documents.\nContinue?"; then
+                run_tool "Full RAG Rebuild" tools/maintenance/reindex_rag.py --clear
             fi
             ;;
         4)
-            if bot_running; then
-                fail "Bot is RUNNING. Stop it first (System menu → Stop bot)."
-                pause; continue
-            fi
-            if ! ollama_running; then
-                warn "Ollama is not running. Start it first."
-                pause; continue
-            fi
-            if [[ ! -f tools/rebuild_rag_gpu.py ]]; then
-                fail "tools/rebuild_rag_gpu.py not found."
-                pause; continue
-            fi
-            if confirm "GPU-accelerated full rebuild.\n\nBot MUST be stopped. Will wipe and rebuild all RAG storage.\nContinue?"; then
-                echo
-                info "Starting GPU rebuild..."
-                echo "────────────────────────────────────────"
-                $PYTHON tools/rebuild_rag_gpu.py --clear
-                echo "────────────────────────────────────────"
-                pause
-            fi
+            run_tool "Indexing Health Check" tools/diagnostics/check_indexing_health.py
             ;;
         5)
-            run_tool "RAG Index Diagnostics" tools/diagnostics/diag_rag_index.py
-            ;;
-        6)
             run_tool "Embedding Diagnostics" tools/diagnostics/diagnose_embeddings.py
             ;;
-        7)
+        6)
             run_tool "Full RAG Debug" tools/diagnostics/diagnose_rag.py
             ;;
         b|B) return ;;
@@ -477,45 +409,18 @@ menu_knowledge_base() {
                 --inputbox "Directory to clean (default: knowledge_base):" \
                 8 60 "knowledge_base" 3>&1 1>&2 2>&3) || continue
             [[ -z "$DIR" ]] && DIR="knowledge_base"
-            if [[ ! -f tools/maintenance/cleanup_kb.py ]]; then
-                fail "tools/maintenance/cleanup_kb.py not found."
-                pause; continue
-            fi
-            echo
-            info "Cleaning OCR artifacts in: $DIR"
-            echo "────────────────────────────────────────"
-            $PYTHON tools/maintenance/cleanup_kb.py "$DIR"
-            echo "────────────────────────────────────────"
-            pause
+            run_tool "Clean KB Artifacts" tools/maintenance/cleanup_kb.py "$DIR"
             ;;
         3)
-            echo
-            if [[ ! -f tools/maintenance/sanitize_logs.py ]]; then
-                fail "tools/maintenance/sanitize_logs.py not found."
-                pause; continue
-            fi
-            info "Stripping internal runtime tags from user logs..."
-            echo "────────────────────────────────────────"
-            $PYTHON tools/maintenance/sanitize_logs.py
-            echo "────────────────────────────────────────"
-            pause
+            run_tool "Sanitize User Logs" tools/maintenance/sanitize_logs.py
             ;;
         4)
-            if [[ ! -f tools/maintenance/kb_cleanse_user_logs.py ]]; then
-                fail "tools/maintenance/kb_cleanse_user_logs.py not found."
-                pause; continue
-            fi
             warn "This uses Ollama (gemma3:12b) to clean each log file. Takes a while."
             if bot_running; then
                 warn "Bot is running — this will compete with active inference."
             fi
             if confirm "Run LLM-powered log cleaning on all user logs?\n\nFiles edited in-place. Make sure git is clean first."; then
-                echo
-                info "Running LLM log cleaner..."
-                echo "────────────────────────────────────────"
-                $PYTHON tools/maintenance/kb_cleanse_user_logs.py
-                echo "────────────────────────────────────────"
-                pause
+                run_tool "LLM Log Cleaner" tools/maintenance/kb_cleanse_user_logs.py
             fi
             ;;
         5)
@@ -525,7 +430,7 @@ menu_knowledge_base() {
             run_tool "Rebuild User Profiles" tools/maintenance/generate_user_profiles.py
             ;;
         7)
-            run_tool "Find Contamination (scan only)" tools/recovery/find_contamination.py
+            run_tool "Find Contamination (scan only)" tools/maintenance/clean_hallucinations.py --dry-run
             ;;
         8)
             DATE=$(whiptail --title "Delete Logs by Date" \
@@ -574,14 +479,7 @@ menu_news() {
         case "$CHOICE" in
         1) run_tool "Update Today's News" tools/maintenance/update_kaia_news.py ;;
         2) run_tool "Update News with Backfill" tools/maintenance/update_kaia_news.py --backfill ;;
-        3)
-            if [[ -f tools/maintenance/ingest_manual_news.py ]]; then
-                run_tool "Ingest Manual News Brief" tools/maintenance/ingest_manual_news.py
-            else
-                fail "tools/maintenance/ingest_manual_news.py not found."
-                pause
-            fi
-            ;;
+        3) run_tool "Ingest Manual News Brief" tools/maintenance/ingest_manual_news.py ;;
         b|B) return ;;
         esac
     done
@@ -600,20 +498,20 @@ menu_recovery() {
             "2" "Surgical fix — dry run  (preview hallucination removal)" \
             "3" "Surgical fix — APPLY  (targeted hallucination removal)" \
             "4" "Flush poisoned session  (delete today's logs + clear channel memory)" \
-            "5" "☢  NUCLEAR RESET  (wipe profiles, cache, ALL logs — last resort)" \
+            "5" "Clear RAG storage & rebuild  (re-index all knowledge base documents)" \
             "b" "← Back" \
             3>&1 1>&2 2>&3) || return
 
         case "$CHOICE" in
         1)
-            run_tool "Find Contamination (scan only)" tools/recovery/find_contamination.py
+            run_tool "Find Contamination (scan only)" tools/maintenance/clean_hallucinations.py --dry-run
             ;;
         2)
-            run_tool "Surgical Fix (dry-run)" tools/recovery/proper_fix.py --dry-run
+            run_tool "Surgical Fix (dry-run)" tools/maintenance/clean_hallucinations.py --dry-run
             ;;
         3)
             if confirm "Apply surgical hallucination fix?\n\nFiles are modified in-place. Run dry-run first to preview."; then
-                run_tool "Surgical Fix (APPLY)" tools/recovery/proper_fix.py
+                run_tool "Surgical Fix (APPLY)" tools/maintenance/clean_hallucinations.py
             fi
             ;;
         4)
@@ -641,20 +539,8 @@ menu_recovery() {
             fi
             ;;
         5)
-            if [[ ! -f tools/recovery/nuclear_reset.py ]]; then
-                fail "tools/recovery/nuclear_reset.py not found."
-                pause; continue
-            fi
-            if confirm "⚠️  NUCLEAR RESET\n\nPurges ALL user profiles, semantic cache, and logs.\nThis CANNOT be undone. Are you absolutely sure?"; then
-                if confirm "Last chance. Really run nuclear reset?\n\nType YES in the next dialog to confirm."; then
-                    echo
-                    info "Running nuclear reset..."
-                    echo "────────────────────────────────────────"
-                    # Pass CONFIRM_NUCLEAR env var so the script skips its own interactive prompt
-                    CONFIRM_NUCLEAR=TRUE $PYTHON tools/recovery/nuclear_reset.py
-                    echo "────────────────────────────────────────"
-                    pause
-                fi
+            if confirm "⚠️  RAG STORAGE REBUILD\n\nWipes memory/rag_storage and rebuilds vector & BM25 indices.\nContinue?"; then
+                run_tool "Full RAG Rebuild" tools/maintenance/reindex_rag.py --clear
             fi
             ;;
         b|B) return ;;
@@ -676,7 +562,7 @@ main_menu() {
             "3" "RAG Management  (reindex, rebuild, diagnose)" \
             "4" "Knowledge Base  (clean, sanitize, profiles)" \
             "5" "News" \
-            "6" "Recovery ⚠️  (contamination, surgical fix, nuclear reset)" \
+            "6" "Recovery ⚠️  (contamination, surgical fix, RAG reset)" \
             "q" "Quit" \
             3>&1 1>&2 2>&3) || break
 

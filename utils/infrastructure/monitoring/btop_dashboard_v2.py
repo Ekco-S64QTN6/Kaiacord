@@ -780,8 +780,8 @@ class BtopDashboardV2:
             
             # Suffixes and labels configuration
             if use_short:
-                b_val = f"{state.beliefs_count}/50"
-                a_val = f"{state.anchors_count}/50"
+                b_val = f"{state.beliefs_count}/100"
+                a_val = f"{state.anchors_count}/100"
                 aff_val = f"{state.relationship_count}"
                 d_val = f"{state.dreams_count}"
                 dr_val = f"{state.forum_drafts}"
@@ -793,8 +793,8 @@ class BtopDashboardV2:
                 l_dr, l_ap, l_rj = "Drafts", "Apprvd", "Reject"
                 val_offset = 8
             else:
-                b_val = f"{state.beliefs_count}/50 act"
-                a_val = f"{state.anchors_count}/50 act"
+                b_val = f"{state.beliefs_count}/100 act"
+                a_val = f"{state.anchors_count}/100 act"
                 aff_val = f"{state.relationship_count} users"
                 d_val = f"{state.dreams_count} mems"
                 dr_val = f"{state.forum_drafts} gen"
@@ -835,8 +835,8 @@ class BtopDashboardV2:
                 self._safe_addstr(inner_y + y_offset, inner_x, label.ljust(10), curses.color_pair(1) | curses.A_BOLD)
                 self._safe_addstr(inner_y + y_offset, inner_x + 10, str(value), curses.color_pair(val_color_pair) | curses.A_BOLD)
 
-            draw_cognition_row(0, "Beliefs:", f"{state.beliefs_count}/50", 3 if state.beliefs_count > 0 else 6)
-            draw_cognition_row(1, "Anchors:", f"{state.anchors_count}/50", 3 if state.anchors_count > 0 else 6)
+            draw_cognition_row(0, "Beliefs:", f"{state.beliefs_count}/100", 3 if state.beliefs_count > 0 else 6)
+            draw_cognition_row(1, "Anchors:", f"{state.anchors_count}/100", 3 if state.anchors_count > 0 else 6)
             draw_cognition_row(2, "Affinity:", f"{state.relationship_count}", 2)
             draw_cognition_row(3, "Dreams:", f"{state.dreams_count}", 2)
             draw_cognition_row(4, "Drafts:", f"{state.forum_drafts}", 6)

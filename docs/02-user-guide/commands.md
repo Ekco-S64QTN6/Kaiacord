@@ -6,6 +6,7 @@ All commands are prefixed with `!`. Admin commands are restricted to the project
 
 | Command | Description | Access |
 |:---|:---|:---|
+| `!scores` | Gamified memory analytics & affinity leaderboards | All |
 | `!art` | Generate a fractal flame artwork with Kaia commentary | All |
 | `!rpg` | Open the Aethelgard TTRPG HUD and play | All |
 | `!news [category]` | Fetch news by category | All |
@@ -21,6 +22,12 @@ All commands are prefixed with `!`. Admin commands are restricted to the project
 ---
 
 ## User Commands
+
+### 🏆 Gamified Memory Analytics & Affinity (`!scores` / `!score` / `!stats`)
+Displays Kaia's gamified memory analytics, affinity bond scores, active beliefs, episodic memory anchors, and emotional vector telemetry via an interactive Discord Embed with category selection dropdowns:
+- **Kaia's Inner Circle**: Ranks user affinity bonds, familiarity stages, interaction milestones, and relationship stats.
+- **Beliefs & Memory Anchors**: Displays memory capacity overview (100 active beliefs / 100 memory anchors), most salient beliefs with recall counts, and top episodic anchor callbacks.
+- **System Telemetry**: Displays emotional vector (`valence`, `arousal`, `energy`), RAG retrieval confidence, forum activity, and operational statistics.
 
 ### 🎨 Art (`!art`)
 Generates a fractal flame artwork using the Electric Sheep algorithm (CPU-rendered, NumPy/SciPy). Kaia provides commentary on each piece. Features 20 variation functions, 10 color palettes, and adaptive density estimation.

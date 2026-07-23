@@ -182,13 +182,13 @@ Registry files (like `equipment_registry.py`) contain both large data dictionari
 │   ├── ttrpg/characters/        # Per-user JSON character sheets
 │   ├── relationships/           # Per-user relationship event files
 │   ├── art/                     # Generated fractal flame PNGs + JSON sidecars
-│   ├── beliefs.json             # Kaia's revisable belief store (50-cap)
+│   ├── beliefs.json             # Kaia's revisable belief store (100-cap)
 │   ├── bot_state.json           # Interaction tracking, familiarity, mood floats
 │   ├── identity_stream.md       # Rolling identity evolution journal (3000-char cap)
 │   ├── growth_log.jsonl         # Append-only growth event ledger
 │   ├── forum_moderation_log.jsonl # Append-only moderation action log for RLHF/fine-tuning
 │   ├── proactive_topics.json    # Proactive initiation diversity log (14-day decay)
-│   ├── memory_anchors.json      # Episodic memory anchors (50-cap, weight decay)
+│   ├── memory_anchors.json      # Episodic memory anchors (100-cap, weight decay)
 │   └── rag_storage/             # RAG indices, continuity file, BM25 caches
 └── knowledge_base/              # RAG knowledge files (books, documents, user logs)
 ```
@@ -215,8 +215,8 @@ Registry files (like `equipment_registry.py`) contain both large data dictionari
 - **Every behavioral injection is wrapped in `try/except Exception: pass`** to ensure non-critical features never crash the main response path. This is mandatory for all new injections.
 - **Dream reflections, identity stream, and self-model auto-regen** all pass through `_sanitize_repetitive_starts()` to prevent linguistic drift loops.
 - **Relationship events** are stored per-user in `memory/relationships/` with atomic writes and a 100-event cap.
-- **Beliefs** are stored in `memory/beliefs.json` with a 50-belief cap, atomic writes, and revision tracking.
-- **Memory anchors** are stored in `memory/memory_anchors.json` with a 50-anchor cap, weight decay, and automatic pruning below 0.1 weight.
+- **Beliefs** are stored in `memory/beliefs.json` with a 100-belief cap, atomic writes, and revision tracking.
+- **Memory anchors** are stored in `memory/anchors.json` with a 100-anchor cap, weight decay, and automatic pruning below 0.1 weight.
 - **Proactive initiation** is rate-limited to 2 messages/day with a 6-hour minimum gap between messages. Topic diversity is tracked in `memory/proactive_topics.json`.
 
 ### Project 1999 Forum & Social Operations

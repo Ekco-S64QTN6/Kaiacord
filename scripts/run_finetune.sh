@@ -12,6 +12,13 @@ set -e
 SCRIPT_DIR="$(cd "$(dirname "$0")" && pwd)"
 cd "$SCRIPT_DIR/.."
 
+VENV="$SCRIPT_DIR/../venv/bin/python3"
+if [[ -f "$VENV" ]]; then
+    PYTHON="$VENV"
+else
+    PYTHON="python3"
+fi
+
 echo ""
 echo "============================================="
 echo "  Kaia LoRA Fine-Tune Pipeline — Phase 4"
@@ -23,7 +30,7 @@ echo ""
 # ---------------------------------------------------------------------------
 echo ">>> Pre-flight: Dataset audit"
 echo "---------------------------------------------"
-python finetune/01d_scan_length_outliers.py
+$PYTHON finetune/01d_scan_length_outliers.py
 echo ""
 echo ">>> Dataset clean — proceeding"
 echo ""
@@ -33,7 +40,7 @@ echo ""
 # ---------------------------------------------------------------------------
 echo ">>> Step 1/4: Hardware & dependency validation"
 echo "---------------------------------------------"
-python finetune/02_check_hardware.py
+$PYTHON finetune/02_check_hardware.py
 echo ""
 echo ">>> Hardware check PASSED — proceeding to training"
 echo ""
@@ -43,7 +50,7 @@ echo ""
 # ---------------------------------------------------------------------------
 echo ">>> Step 2/4: LoRA fine-tuning"
 echo "---------------------------------------------"
-python finetune/03_train.py
+$PYTHON finetune/03_train.py
 echo ""
 echo ">>> Training COMPLETE — proceeding to merge & export"
 echo ""
@@ -53,7 +60,7 @@ echo ""
 # ---------------------------------------------------------------------------
 echo ">>> Step 3/4: Merging adapter & exporting GGUF"
 echo "---------------------------------------------"
-python finetune/04_merge_export.py
+$PYTHON finetune/04_merge_export.py
 echo ""
 echo ">>> GGUF export COMPLETE"
 echo ""
@@ -71,7 +78,7 @@ echo "---------------------------------------------"
 ollama rm kaia-lora 2>/dev/null || true
 ollama create kaia-lora -f finetune/Modelfile
 echo ""
-python3 -u finetune/05b_test_ollama.py
+$PYTHON -u finetune/05b_test_ollama.py
 echo ""
 echo "============================================="
 echo "  Pipeline complete!"

@@ -1,308 +1,69 @@
-# Tools Directory
+# Kaiacord Tools Directory
 
-Maintenance, diagnostic, and recovery utilities for Kaiacord v2.0.
+Production maintenance, diagnostic, development, simulation, and test automation suite for Kaiacord.
 
-## Quick Reference
+---
 
-| Tool | Category | Purpose |
-|:-----|:---------|:--------|
-| `update_kaia_news.py` | Maintenance | Update daily news briefs |
-| `health_check.py` | Maintenance | System health validation |
-| `nuclear_reset.py` | Recovery | **Complete system purge** ⚠️ |
-| `find_contamination.py` | Recovery | Find hallucinated content |
-| `find_contamination.py` | Recovery | Find hallucinated content |
-| `scan_knowledge_base.py` | Diagnostics | Scan knowledge base |
-| `diag_rag_index.py` | Diagnostics | RAG index diagnostics |
-| `diagnose_embeddings.py` | Diagnostics | Embedding pipeline diagnostics |
-| `diagnose_rag.py` | Diagnostics | Full RAG system diagnostics |
-| `generate_user_profiles.py` | Development | Generate user profiles |
-| `cleanup_kb.py` | Utilities | Knowledge base cleanup |
-| `sanitize_logs.py` | Utilities | Strip runtime tags from user logs |
-| `kb_cleanse_user_logs.py` | Utilities | LLM-powered log content cleanup |
-| `sync_sanitized_logs.py` | Utilities | Sync manual log edits to RAG |
-| `rebuild_rag_cpu.py` | Utilities | Full RAG rebuild (CPU) |
-| `rebuild_rag_gpu.py` | Utilities | Full RAG rebuild (GPU) |
-| `ingest_manual_news.py` | Maintenance | Manual ingestion of news briefs |
-
-## Structure
+## 📁 Directory Structure
 
 ```
 tools/
-├── maintenance/     # Regular maintenance scripts
-├── diagnostics/     # Debugging and diagnostics
-├── recovery/        # Emergency recovery tools ⚠️
-├── social/          # X/Bluesky auth & cookie tools
-├── development/     # Development tools
-├── tests/           # Test suite
-│   ├── unit/        # Component unit tests
-│   ├── integration/ # End-to-end flow tests
-│   └── verification/# Logic verification & smoke tests
-├── rebuild_rag_cpu.py # Full RAG rebuild (CPU)
-├── rebuild_rag_gpu.py # Full RAG rebuild (GPU)
-└── legacy/          # Historical tools (preserved)
+├── maintenance/     # Production maintenance, health validation & KB cleaner tools
+├── diagnostics/     # RAG index diagnostics, knowledge base & model probes
+├── development/     # World build generators (Spine layouts), self-model & profile utilities
+├── social/          # Project 1999 Forum scrapers, wiki indexers & social cookie managers
+├── simulation/      # Aethelgard TTRPG game balance simulation & audit tools
+└── tests/           # Automated test suite (unit & integration)
+    ├── unit/        # Isolated unit tests for core & TTRPG subsystems
+    └── integration/ # End-to-end integration & boot verification
 ```
 
 ---
 
-## Core Utilities (`tools/`)
+## 🛠️ Key Utilities & Execution Guide
 
-### cleanup_kb.py
-**Knowledge base cleanup**
-```bash
-python tools/cleanup_kb.py
-```
-Clears Out-of-vocabulary and OCR artifacts.
+### 1. System Health & Maintenance (`tools/maintenance/`)
 
-### sanitize_logs.py / kb_cleanse_user_logs.py
-**User log sanitization**
-```bash
-python tools/sanitize_logs.py
-python tools/kb_cleanse_user_logs.py
-```
-Strips injection tags or uses Ollama to denoise and reformat user logs.
+| Script | Purpose | Execution |
+|:-------|:--------|:----------|
+| `health_check.py` | Validates Ollama models, GPU VRAM, RAG indices, and config | `python3 tools/maintenance/health_check.py` |
+| `reindex_rag.py` | Rebuilds BM25 and vector RAG indices | `python3 tools/maintenance/reindex_rag.py` |
+| `update_kaia_news.py` | Fetches, synthesizes, and indexes daily news briefs | `python3 tools/maintenance/update_kaia_news.py` |
+| `generate_user_profiles.py` | Synthesizes episodic user profile summaries | `python3 tools/maintenance/generate_user_profiles.py` |
+| `clean_hallucinations.py` | Cleans hallucinated logs and sanitizes memory streams | `python3 tools/maintenance/clean_hallucinations.py` |
+| `enrich_metadata.py` | Auto-enriches document metadata using LLM tagging | `python3 tools/maintenance/enrich_metadata.py` |
 
-### diag_rag_index.py / diagnose_embeddings.py / diagnose_rag.py
-**RAG Pipeline Diagnostics**
-Detailed checks and counts for the Knowledge Base and Embeddings.
+### 2. Diagnostics (`tools/diagnostics/`)
 
----
+| Script | Purpose | Execution |
+|:-------|:--------|:----------|
+| `diagnose_rag.py` | Deep diagnostic of RAG document retrieval & node scoring | `python3 tools/diagnostics/diagnose_rag.py` |
+| `check_indexing_health.py` | Validates document manifest integrity and file counts | `python3 tools/diagnostics/check_indexing_health.py` |
+| `check_gemini_models.py` | Queries active Gemini API endpoint models and quotas | `python3 tools/diagnostics/check_gemini_models.py` |
 
-## Maintenance Tools (`tools/maintenance/`)
+### 3. Development Utilities (`tools/development/`)
 
-### update_kaia_news.py
-**Update daily news briefs**
+| Script | Purpose | Execution |
+|:-------|:--------|:----------|
+| `generate_spine_layouts.py` | Pre-computes 77-floor Spine of the World mega-dungeon layouts | `python3 tools/development/generate_spine_layouts.py` |
+| `generate_self_model.py` | Auto-regenerates Kaia's 30-day identity self-model document | `python3 tools/development/generate_self_model.py` |
+| `profile_imports.py` | Analyzes module import performance & boot latency | `python3 tools/development/profile_imports.py` |
 
-```bash
-python tools/maintenance/update_kaia_news.py
+### 4. Social & Forum Integrations (`tools/social/`)
 
-# With specific category
-python tools/maintenance/update_kaia_news.py --category technology
-```
+| Script | Purpose | Execution |
+|:-------|:--------|:----------|
+| `scrape_p99_wiki.py` | Crawls & indexes Project 1999 Wiki knowledge base | `python3 tools/social/scrape_p99_wiki.py` |
+| `scrape_technical_discussion.py` | Scrapes P99 technical discussion forums for troubleshooting | `python3 tools/social/scrape_technical_discussion.py` |
+| `synthesize_technical_knowledge.py` | Synthesizes tech support troubleshooting cheatsheets | `python3 tools/social/synthesize_technical_knowledge.py` |
+| `export_x_cookies.py` | Export and format headless browser cookies for X social post dispatch | `python3 tools/social/export_x_cookies.py` |
 
-Generates daily news briefs for RAG system. Requires `GEMINI_API_KEY` in `.env`.
-
-### health_check.py
-**System health validation**
-
-```bash
-python tools/maintenance/health_check.py
-```
-
-Checks:
-- Ollama server status
-- Required models (reads from config: gemma3:12b, gemma2:2b, nomic-embed-text)
-- GPU availability and VRAM
-- Knowledge base accessibility
-- Configuration files
-
----
-
-## Diagnostics Tools (`tools/diagnostics/`)
-
-### scan_knowledge_base.py
-**Scan knowledge base for issues**
+### 5. Automated Test Suite (`tools/tests/`)
 
 ```bash
-python tools/diagnostics/scan_knowledge_base.py
+# Run unit test suite (Safe for live environment)
+venv/bin/python3 -m pytest tools/tests/unit/ -v
+
+# Run integration test suite
+venv/bin/python3 -m pytest tools/tests/integration/ -v
 ```
-
-Scans knowledge base for:
-- Corrupted files
-- Missing embeddings
-- Indexing issues
-
-### force_reindex.py
-**Force RAG re-indexing**
-
-```bash
-python tools/maintenance/force_reindex.py
-```
-
-Forces an incremental or selective re-index of the knowledge base.
-
----
-
-## Recovery Tools (`tools/recovery/`) ⚠️
-
-> **Warning**: These tools modify or delete data. Use with caution!
-
-### nuclear_reset.py
-**Complete system purge**
-
-```bash
-python tools/recovery/nuclear_reset.py
-
-# Dry run (preview only)
-python tools/recovery/nuclear_reset.py --dry-run
-```
-
-**What it does**:
-- Purges ALL user profiles
-- Clears semantic cache
-- Removes interaction logs
-- Resets hallucination data
-- Cleans corrupted files
-
-**When to use**: Persistent hallucinations, corrupted data, fresh start
-
-### find_contamination.py
-**Find hallucinated content**
-
-```bash
-python tools/recovery/find_contamination.py
-
-# Scan specific directory
-python tools/recovery/find_contamination.py --dir knowledge_base/user_logs
-```
-
-Scans knowledge base and user logs for known hallucination patterns.
-
-
-### rebuild_rag_cpu.py
-**Full RAG rebuild (CPU)**
-
-```bash
-python tools/rebuild_rag_cpu.py --clear
-```
-
-Performs a full rebuild of the RAG indices using CPU-based embedding. Complement to the GPU version.
-
-### ingest_manual_news.py
-**Manual news ingestion**
-
-```bash
-python tools/maintenance/ingest_manual_news.py path/to/brief.md
-```
-
-Manually ingest a news brief into the RAG system for immediate indexing.
-
-### generate_user_profiles.py
-**Generate user profiles**
-
-```bash
-python tools/maintenance/generate_user_profiles.py
-```
-
-Rebuilds user interaction profiles from logs.
-
----
-
-
----
-
-## Migration Tools (`tools/migration/`)
-
-Tools for migrating between versions are in `tools/maintenance/migrate_config.py`.
-
----
-
-## Legacy Tools (`tools/legacy/`)
-
-Historical tools preserved for reference. Not actively maintained.
-
----
-
-## Tests (`tools/tests/`)
-
-All tests are consolidated under `tools/tests/` with the following layout:
-
-```bash
-# Run all tests
-python -m pytest tools/tests/ -q
-
-# Run by category
-python -m pytest tools/tests/unit/ -q
-python -m pytest tools/tests/integration/ -q
-
-# Health check
-python tools/maintenance/health_check.py
-```
-
-| Directory | Contents |
-|:----------|:---------|
-| `unit/` | Component tests (RAG, intelligence, filters, social, config) |
-| `integration/` | Full flow tests (chat, core pipeline, RAG integration) |
-| `verification/` | Logic verification, smoke tests, benchmarks |
-| `archive/` | Historical tests (preserved for reference) |
-
-> **Note**: 18 tests in `tools/tests/` have pre-existing failures unrelated to recent development.
-> These are tracked but not blocking. Run `pytest -q 2>&1 | tail -30` to see current status.
-
----
-
-## Usage Pattern
-
-### Routine Maintenance
-```bash
-# Daily news update
-python tools/maintenance/update_kaia_news.py
-
-# Health check
-python tools/maintenance/health_check.py
-```
-
-### Troubleshooting
-```bash
-# Check for hallucinations
-python tools/recovery/find_contamination.py
-
-# Scan knowledge base
-python tools/diagnostics/scan_knowledge_base.py
-```
-
-### Recovery
-```bash
-# 1. Find issues
-python tools/recovery/find_contamination.py
-
-# 2. Targeted fix
-- **[find_contamination.py](file:///home/ekco/github/Kaiacord/tools/recovery/find_contamination.py)**: Use this to locate issues, then manually edit files.
-
-# 3. If still issues, nuclear option
-python tools/recovery/nuclear_reset.py --dry-run  # Preview
-python tools/recovery/nuclear_reset.py             # Execute
-```
-
----
-
-## Adding `--help` to Tools
-
-All tools should support `--help`. Example:
-
-```python
-#!/usr/bin/env python3
-"""
-Tool description here.
-"""
-import argparse
-
-def main():
-    parser = argparse.ArgumentParser(description="Tool description")
-    parser.add_argument("--dry-run", action="store_true", help="Preview changes")
-    args = parser.parse_args()
-    
-    # Tool logic here
-    
-if __name__ == "__main__":
-    main()
-```
-
----
-
-## Safety Best Practices
-
-1. **Always dry-run first**: Use `--dry-run` when available
-2. **Backup before recovery**: Copy `storage/` and `knowledge_base/` before using recovery tools
-3. **Read the code**: Understand what a tool does before running it
-4. **Start small**: Try targeted fixes before nuclear options
-
----
-
-## Tool Development Guidelines
-
-When creating new tools:
-- Add `--help` support
-- Add `--dry-run` for destructive operations
-- Use color-coded logging (from `utils/unified_logging.py`)
-- Handle errors gracefully
-- Document in this README

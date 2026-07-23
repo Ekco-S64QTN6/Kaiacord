@@ -101,6 +101,14 @@ esac
 # Append extra arguments
 ARGS+=("${EXTRA_ARGS[@]}")
 
+# Select Python executable
+VENV="$PROJECT_ROOT/venv/bin/python3"
+if [[ -f "$VENV" ]]; then
+    PYTHON="$VENV"
+else
+    PYTHON="python3"
+fi
+
 # Run probe
 echo "=========================================================="
 echo " Starting Kaia J-Space Behavioral Probe"
@@ -109,4 +117,4 @@ echo " Model:      $MODEL"
 echo "=========================================================="
 echo ""
 
-python3 "$PROBE_SCRIPT" "${ARGS[@]}"
+$PYTHON "$PROBE_SCRIPT" "${ARGS[@]}"

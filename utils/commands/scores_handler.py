@@ -280,29 +280,32 @@ def _build_cognitive_embed(mind: Dict[str, Any]) -> discord.Embed:
     )
     
     # Active Stores Field
-    b_pct = mind['beliefs_count'] / 50.0
-    a_pct = mind['anchors_count'] / 50.0
+    b_pct = mind['beliefs_count'] / 100.0
+    a_pct = mind['anchors_count'] / 100.0
     b_bar = _tech_bar(b_pct, 1.0, length=10)
     a_bar = _tech_bar(a_pct, 1.0, length=10)
 
     stores_info = (
-        f"• **Active Beliefs Capacity**: `{mind['beliefs_count']} / 50` ({int(b_pct*100)}%)\n"
+        f"• **Active Beliefs Capacity**: `{mind['beliefs_count']} / 100` ({int(b_pct*100)}%)\n"
         f"  └ `{b_bar}`\n"
-        f"• **Episodic Memory Anchors**: `{mind['anchors_count']} / 50` ({int(a_pct*100)}%)\n"
+        f"• **Episodic Memory Anchors**: `{mind['anchors_count']} / 100` ({int(a_pct*100)}%)\n"
         f"  └ `{a_bar}`\n"
         f"• **Proactive Topic Diversity**: `{mind['proactive_topics_count']} Topics Logged`\n"
         f"• **Total Growth Ledger Events**: `{mind['total_growth_events']} Ledger Records`"
     )
     embed.add_field(name="📦 Memory Capacity Overview", value=stores_info, inline=False)
 
-    # Top Beliefs
     top_beliefs = mind.get('top_beliefs', [])
     if top_beliefs:
         b_lines = []
         for i, b in enumerate(top_beliefs):
-            stmt = b.get('statement') or b.get('belief') or "N/A"
+            topic = b.get('topic', 'General').title()
+            stmt = b.get('position') or b.get('statement') or b.get('belief') or "N/A"
+            if len(stmt) > 90:
+                stmt = stmt[:87] + "..."
             acc = b.get('access_count', 0)
-            b_lines.append(f"`#{i+1}` *\"{stmt[:85]}\"*\n  └ 🔄 `{acc} Recalls`")
+            conf = int(b.get('confidence', 0.9) * 100)
+            b_lines.append(f"`#{i+1}` **{topic}**\n  └ *\"{stmt}\"*\n  └ 🔄 `{acc} Recalls`  ·  `{conf}% Confidence`")
         embed.add_field(name="💡 Most Salient Beliefs", value="\n\n".join(b_lines), inline=False)
 
     embed.add_field(name="⚓ Top Memory Anchor Theme", value=f"`{mind['top_anchor_theme']}`", inline=False)

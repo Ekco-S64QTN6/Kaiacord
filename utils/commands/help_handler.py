@@ -12,8 +12,8 @@ async def handle_help_command(ctx, msg, send_kaia_response):
     """Handle the !help command — display all available commands in a clean embed."""
     embed = discord.Embed(
         title="📖  KAIA — COMMANDS DIRECTORY",
-        description="Directory of administrative, cognitive, and utility command interfaces.",
-        color=0x5f5caf
+        description="Directory of administrative, cognitive, operational, and gaming command interfaces.",
+        color=0x5F5CAF
     )
 
     embed.add_field(
@@ -49,6 +49,18 @@ async def handle_help_command(ctx, msg, send_kaia_response):
         ),
         inline=False
     )
+
+    embed.add_field(
+        name="⚔️  Aethelgard TTRPG & Fishing",
+        value=(
+            "`!rpg` — Turn-based RPG system status board & command menu\n"
+            "`!rpg help` — Display full TTRPG command & class guide\n"
+            "`!rpg leaderboard` — View global adventurer rankings (`!rpg lb`)\n"
+            "`!rpg hunt` / `!rpg go <dir>` — Battle monsters & navigate overworld\n"
+            "`!rpg fish` / `!rpg fish_shop` / `!rpg sell_catch` — Rod-based fishing economy"
+        ),
+        inline=False
+    )
     
     embed.add_field(
         name="🎭  Media & Operations",
@@ -56,7 +68,7 @@ async def handle_help_command(ctx, msg, send_kaia_response):
             "`!news` — Fetch and summarize latest news\n"
             "`!quip` — Generate a social media draft post\n"
             "`!art [--seed N] [--palette NAME]` — Render fractal flame art\n"
-            "`!forum` — Forum thread auto-posting tools\n"
+            "`!forum` — Forum thread auto-posting & moderation tools\n"
             "`!sysmon` — Live system/hardware monitoring dashboard (admin)"
         ),
         inline=False
@@ -70,7 +82,7 @@ async def handle_help_command(ctx, msg, send_kaia_response):
     
     embed.add_field(
         name="🎨  Art Palettes",
-        value="`electric`, `ember`, `acid`, `void`, `aurora`, `ghost` (e.g., `!art --seed 42 --palette void`)",
+        value="`electric`, `ember`, `acid`, `void`, `aurora`, `ghost`, `deep_ocean`, `solar_flare`, `biolume`, `nebula` (e.g., `!art --palette void`)",
         inline=False
     )
 

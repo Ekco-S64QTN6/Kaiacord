@@ -39,7 +39,14 @@ class RealTimeStatsPoller:
         
         self.response_times = deque(maxlen=100)
         self.start_time = time.time()
+        self.last_file_stats_update = 0
         self.lock = threading.Lock()
+        
+        # Initial synchronous populate so default stats are never 0
+        try:
+            self._update_all_stats()
+        except Exception:
+            pass
         
     def start(self):
         """Start the polling thread"""
@@ -242,9 +249,9 @@ class RealTimeStatsPoller:
             new_stats['active_model'] = "None"
             new_stats['ollama_models'] = []
 
-        # 4. Custom Kaia File Stats (Throttled to every 30s)
+        # 4. Custom Kaia File Stats (Throttled to every 5s)
         current_time = time.time()
-        if current_time - getattr(self, 'last_file_stats_update', 0) > 30:
+        if current_time - getattr(self, 'last_file_stats_update', 0) > 5:
             # KB/RAG Size
             try:
                 kb_path = "knowledge_base"

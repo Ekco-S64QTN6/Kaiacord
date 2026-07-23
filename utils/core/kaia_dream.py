@@ -943,10 +943,10 @@ VOICE AND FORMAT RULES (always apply regardless of dream type):
                 new_belief['aliases'] = aliases
             beliefs.append(new_belief)
 
-        # Cap at 50 beliefs — remove lowest confidence
-        if len(beliefs) > 50:
+        # Cap at 100 beliefs — remove lowest confidence
+        if len(beliefs) > 100:
             beliefs.sort(key=lambda b: b.get('confidence', 0), reverse=True)
-            beliefs = beliefs[:40]
+            beliefs = beliefs[:90]
 
         # Atomic write
         tmp_path = str(beliefs_path) + ".tmp"

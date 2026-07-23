@@ -47,12 +47,12 @@ Kaia’s lifelike presence is managed through a fully deterministic, 28-feature 
 
 *   **🎭 Persistent Emotional Arc**: Tracks mood across a three-dimensional vector (`valence`, `arousal`, `energy`) with natural 6-hour decay, modulating her vocabulary, reaction frequency, and Discord status text.
 *   **🫂 Staged Relationships**: Maintains per-user event logs and tracks familiarity across 5 progression levels (from `stranger` to `inner_circle`), complete with behavioral gating and trust thresholds.
-*   **🌙 Nightly Dream Cycle**: Between 3:00 AM and 5:00 AM, the dream engine runs. It aggregates the day's logs, extracts key assertions, compiles them into a 50-cap revisable belief store (`beliefs.json`), and updates a rolling identity stream journal.
+*   **🌙 Nightly Dream Cycle**: Between 3:00 AM and 5:00 AM, the dream engine runs. It aggregates the day's logs, extracts key assertions, compiles them into a 100-cap revisable belief store (`beliefs.json`), and updates a rolling identity stream journal.
 *   **🕰️ Temporal & Fatigue Awareness**: Dynamic time-of-day conversational adjustments, fatigue multipliers for long threads, and natural reunion detection (acknowledging absences when users return).
 *   **💭 Passive Inner Monologue**: Generates a running background commentary from passive room observation, which is woven directly into active context windows as private intuition.
 *   **📡 Proactive Initiation**: An autonomous 7-source trigger engine (absence, beliefs, dreams, mood, curiosity, memory, silence) that lets Kaia initiate conversations naturally, capped to a lifelike frequency.
 *   **Gamified Memory Analytics (`!scores`)**: Ranks user affinity bonds, active beliefs, memory anchor salience, coherence ratings, and operational telemetry via interactive Discord Embed category dropdowns (`!scores`, `!stats`, `!leaderboard`).
-*   **🫂 Memory Anchors**: Captures up to 50 highly weighted cross-session episodic memories with natural exponential decay, enabling organic conversational callbacks to past events weeks later.
+*   **🫂 Memory Anchors**: Captures up to 100 highly weighted cross-session episodic memories with natural exponential decay, enabling organic conversational callbacks to past events weeks later.
 *   **🏟️ Project 1999 Forum Integration**: Periodic scraping loops (6h interval) scanning Off-Topic (Forum 19) and Technical Discussion (Forum 40). Features a Discord moderation queue in `#kaia-opolis` with interactive Accept/Reject buttons, zero-hallucination support answers from RAG, and profile caching to model active users.
 *   **🖥️ Symmetrical Curses Dashboard**: A three-pane terminal TUI (**SYSTEM STATS**, **BOT STATUS**, and **COGNITIVE PIPELINE & FORUMS**) providing real-time CPU/GPU metrics, bot metrics, cognitive stats (beliefs, anchors, affinity), and a live stream of elevated logging events (monologue, dream insights, scans).
 
@@ -207,19 +207,22 @@ Kaiacord/
 │   └── troubleshooting/          # Synthesized, category-based troubleshooting guides
 ├── memory/                      # Persistent runtime state (never commit)
 │   ├── ttrpg/characters/        # User characters sheets
-│   ├── relationships/           # trust events & user interactions
-│   ├── beliefs.json             # 50-cap revisable belief store
+│   ├── relationships/           # trust events & user interactions (100-cap)
+│   ├── beliefs.json             # 100-cap revisable belief store
 │   ├── bot_state.json           # global persistent variables, familiarity, mood
 │   ├── identity_stream.md       # 3000-char capping rolling identity log
-│   └── memory_anchors.json      # episodic callbacks with weight decay
+│   └── anchors.json             # 100-cap episodic callbacks with weight decay
 ├── finetune/                    # LoRA Fine-Tuning & Model Compilation (Gemma 3 12B)
 │   ├── 01e_preprocess_logs.py   # Speaker turn aggregation and sequence grouping
 │   ├── 03_train.py              # LoRA adapter training script (optimized for 12GB GPU)
 │   ├── 04_merge_export.py       # Combines base weights and outputs Q4_K_M GGUF
 │   └── Modelfile                # Ollama persona setup and inference configuration
-├── tools/                       # Utility scripts and offline diagnostic suites
-│   ├── diagnostics/             # Probing tools (jspace_probe.py for behavioral audits)
-│   └── maintenance/             # Health check and re-indexing controls
+├── tools/                       # Refactored diagnostic & maintenance suite
+│   ├── maintenance/             # Health check, reindexing, log cleaner & profiling tools
+│   ├── diagnostics/             # Indexing health, RAG deep-dive & Gemini model probes
+│   ├── development/             # Spine layout generator, self-model & profile utilities
+│   ├── social/                  # P99 Wiki scrapers, technical knowledge synthesizers & cookie tools
+│   └── simulation/              # Aethelgard TTRPG combat balance simulation & audit tools
 ├── utils/
 │   ├── core/                    # Core cognitive features (mood, dreams, monologue, RAG)
 │   │   ├── message_processor.py # Primary intelligence flow manager (~2166 lines)
@@ -249,13 +252,13 @@ bash scripts/kaia-tools.sh
 ### 2. Maintenance & Operations Commands
 ```bash
 # Verify system integrity & check GPU health
-python tools/maintenance/health_check.py
+venv/bin/python3 tools/maintenance/health_check.py
 
-# Force an incremental RAG database re-index
-python tools/maintenance/force_reindex.py
+# Trigger incremental RAG re-index (live bot)
+venv/bin/python3 tools/maintenance/reindex_rag.py --trigger
 
-# Full vector database wipe and rebuild (requires bot shutdown)
-python tools/rebuild_rag_gpu.py --clear
+# Full vector database wipe and rebuild
+venv/bin/python3 tools/maintenance/reindex_rag.py --clear
 ```
 
 ### 3. J-Space Behavioral Probing
@@ -277,11 +280,11 @@ Train, merge, compile, and validate a custom model under 12GB VRAM constraints:
 
 ### 5. Test Suites
 ```bash
-# Execute fast unit tests
-PYTHONPATH=. pytest tools/tests/unit/ -q
+# Execute unit test suite (122 tests)
+venv/bin/python3 -m pytest tools/tests/unit/ -v
 
-# Execute system integration tests
-PYTHONPATH=. pytest tools/tests/verification/ -q
+# Execute integration test suite
+venv/bin/python3 -m pytest tools/tests/integration/ -v
 ```
 
 ---
