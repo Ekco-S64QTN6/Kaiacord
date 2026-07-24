@@ -147,9 +147,16 @@ from utils.infrastructure.system.external_mention import process_external_mentio
 # PHASE 3 — background: CPU models + RAG + tasks
 # ─────────────────────────────────────────────
 
+_ready_done = False
+
 @bot.event
 async def on_ready():
+    global _ready_done
     log_info(f"Discord gateway connected as {bot.user}.")
+    if _ready_done:
+        log_info("on_ready re-fired (gateway reconnect) — skipping re-init.")
+        return
+    _ready_done = True
     # Object graph is already built (synchronous Phase 0). No waiting needed.
     bot_state.boot_complete_time = time.time()
 
