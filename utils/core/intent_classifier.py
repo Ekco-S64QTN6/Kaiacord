@@ -172,10 +172,24 @@ class IntentParser:
         self.classification_model = config.get('models.classification_model', 'gemma2:2b')
         self.use_gpu_for_classification = config.get('models.classification_on_gpu', False)
         
+        # DEFENSIVE GUARD: Ensure config values are real types, not MagicMock objects
+        # from test contamination (see: test_intent_fix.py sys.modules poisoning incident)
+        if not isinstance(self.classification_model, str):
+            log_warning(f"[IntentParser] classification_model is {type(self.classification_model).__name__}, falling back to 'gemma2:2b'")
+            self.classification_model = 'gemma2:2b'
+        if not isinstance(self.use_gpu_for_classification, bool):
+            self.use_gpu_for_classification = False
+        
         # [MEMORY OPTIMIZATION]: Intent analysis only needs the current query and 
         # minimal context. 
         # We cap this to the value in config (default 2048).
         classification_ctx = config.classification_context_tokens
+        if not isinstance(classification_ctx, int):
+            classification_ctx = 2048
+        
+        _num_thread = config.num_thread
+        if not isinstance(_num_thread, int):
+            _num_thread = 6
         
         # Get base options
         if self.use_gpu_for_classification:
@@ -185,7 +199,7 @@ class IntentParser:
             # CPU-only options
             self.classification_options = {
                 "num_gpu": 0,
-                "num_thread": config.num_thread, # Utilize Ryzen 5 9600X cores
+                "num_thread": _num_thread, # Utilize Ryzen 5 9600X cores
                 "num_ctx": classification_ctx,
                 "num_predict": 256,
                 "temperature": 0.1,
