@@ -189,7 +189,52 @@ def _resolve_combat(sheet: dict, monster: dict, atk_mod_global: int = 0, def_mod
     if embered_bonus:
         status_logs.append(f"🔥 *Firebrew burns through your veins (+2 ATK).*")
 
-    attack_mod = atk_mod + weapon_atk + acc_atk + adv_flat_atk + bless_bonus + streak_bonus + luck_bonus + atk_mod_global + pet_combat_bonus + embered_bonus
+    # Event and Oracle Buff Conditions (single-combat consumption)
+    consumed_conditions = []
+    oracle_atk_bonus = 0
+    if "battle_focus" in conditions:
+        oracle_atk_bonus += 1
+        consumed_conditions.append("battle_focus")
+        status_logs.append("⚔️ *Battle Focus sharpens your blow (+1 ATK).*")
+    if "forest_sight" in conditions:
+        oracle_atk_bonus += 1
+        consumed_conditions.append("forest_sight")
+        status_logs.append("🏹 *Forest Sight guides your distance (+1 ATK).*")
+    if "shadow_step" in conditions:
+        oracle_atk_bonus += 2
+        consumed_conditions.append("shadow_step")
+        status_logs.append("🌘 *Shadow Step gives superior flanking (+2 ATK).*")
+    if "sharp_mind" in conditions:
+        oracle_atk_bonus += 1
+        consumed_conditions.append("sharp_mind")
+        status_logs.append("🧠 *Sharp Mind clarifies your focus (+1 ATK).*")
+    if "veiled_blessing" in conditions:
+        oracle_atk_bonus += 1
+        consumed_conditions.append("veiled_blessing")
+        status_logs.append("✨ *Veiled Blessing guides your strike (+1 ATK).*")
+    if "veiled_watched" in conditions:
+        oracle_atk_bonus += 1
+        consumed_conditions.append("veiled_watched")
+        status_logs.append("👁️ *The Veiled Gaze steadies your blade (+1 ATK).*")
+
+    oracle_dmg_bonus = 0
+    if "resonance_link" in conditions:
+        oracle_dmg_bonus += 2
+        consumed_conditions.append("resonance_link")
+        status_logs.append("💎 *Resonance Link amplifies force (+2 DMG).*")
+    if "divine_clarity" in conditions:
+        oracle_dmg_bonus += 2
+        consumed_conditions.append("divine_clarity")
+        status_logs.append("🕊️ *Divine Clarity empowers your strike (+2 DMG).*")
+
+    # Clean consumed conditions from sheet
+    if consumed_conditions and "conditions" in sheet:
+        sheet["conditions"] = [c for c in sheet["conditions"] if c not in consumed_conditions]
+
+    attack_mod = (
+        atk_mod + weapon_atk + acc_atk + adv_flat_atk + bless_bonus + streak_bonus +
+        luck_bonus + atk_mod_global + pet_combat_bonus + embered_bonus + oracle_atk_bonus
+    )
     
     # Cap player attack modifier relative to level to prevent near-guaranteed hits at high tiers
     global_atk_cap = int(sheet.get("level", 1) * 1.15) + 4
@@ -240,7 +285,7 @@ def _resolve_combat(sheet: dict, monster: dict, atk_mod_global: int = 0, def_mod
             if adv_class == "Wizard": adv_bonus_flat = 3
             if adv_class == "Shadowblade" and player_crit: adv_bonus_flat = 4
             
-            total_dmg_bonus = atk_mod + warrior_dmg_bonus + adv_bonus_flat + weapon_dmg_bonus
+            total_dmg_bonus = atk_mod + warrior_dmg_bonus + adv_bonus_flat + weapon_dmg_bonus + oracle_dmg_bonus
             
             player_damage = max(1, sum(dmg_rolls) + total_dmg_bonus)
                     

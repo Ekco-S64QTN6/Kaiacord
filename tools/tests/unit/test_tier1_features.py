@@ -139,6 +139,22 @@ class TestProvenanceFormatting:
         assert len(preview) == 103
         assert preview.endswith("...")
 
+    def test_user_logs_folder_extraction(self):
+        """Verify that user_logs folders are correctly extracted from file paths."""
+        file_path = "/home/user/knowledge_base/user_logs/Ekco_177011971818782721/user_profile.md"
+        norm_path = os.path.normpath(file_path)
+        parts = norm_path.split(os.sep)
+        user_folder = ""
+        if "user_logs" in parts:
+            ul_idx = parts.index("user_logs")
+            if ul_idx + 1 < len(parts):
+                raw_folder = parts[ul_idx + 1]
+                if "_" in raw_folder:
+                    user_folder = raw_folder.split("_")[0]
+                else:
+                    user_folder = raw_folder
+        assert user_folder == "Ekco"
+
 
 
 

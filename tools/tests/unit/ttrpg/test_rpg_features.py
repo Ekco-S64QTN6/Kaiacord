@@ -76,5 +76,37 @@ def test_duel_non_lethal():
     with patch("secrets.randbelow", side_effect=[15, 10, 5, 2, 1, 1, 1, 1, 1, 1]): # Hit, 10 dmg, Miss, Miss
         res = _resolve_combat(sheet, opponent, is_duel=True)
         assert res["monster"]["hp"]["current"] == 1 # Stopped at 1
-        # Check if the yield message is anywhere in exchanges
-        pass
+
+
+@pytest.mark.asyncio
+async def test_dynamic_event_location_buttons():
+    """Test that event buttons dynamically show/hide based on world state flags."""
+    from utils.ttrpg.rpg_views import RPGFullLocationView
+
+    # Mock App Context & Discord Message
+    mock_ctx = MagicMock()
+    mock_msg = MagicMock()
+
+    # 1. Tricklebrook Pond: INACTIVE vs ACTIVE
+    with patch("utils.ttrpg.world_state.load_world_state", return_value={"fishing_water_tainted": False, "blockade_active": False}):
+        view_inactive = RPGFullLocationView(mock_ctx, mock_msg, "123", "User", False, "tricklebrook_pond")
+        labels_inactive = [btn.label for btn in view_inactive.children if hasattr(btn, "label")]
+        assert "Purify Waters" not in labels_inactive
+
+    with patch("utils.ttrpg.world_state.load_world_state", return_value={"fishing_water_tainted": True, "blockade_active": False}):
+        view_active = RPGFullLocationView(mock_ctx, mock_msg, "123", "User", False, "tricklebrook_pond")
+        labels_active = [btn.label for btn in view_active.children if hasattr(btn, "label")]
+        assert "Purify Waters" in labels_active
+
+    # 2. Trade Road: INACTIVE vs ACTIVE
+    with patch("utils.ttrpg.world_state.load_world_state", return_value={"fishing_water_tainted": False, "blockade_active": False}):
+        view_inactive_tr = RPGFullLocationView(mock_ctx, mock_msg, "123", "User", False, "trade_road")
+        labels_inactive_tr = [btn.label for btn in view_inactive_tr.children if hasattr(btn, "label")]
+        assert "Raid Blockade" not in labels_inactive_tr
+        assert "Rob Bandits" not in labels_inactive_tr
+
+    with patch("utils.ttrpg.world_state.load_world_state", return_value={"fishing_water_tainted": False, "blockade_active": True}):
+        view_active_tr = RPGFullLocationView(mock_ctx, mock_msg, "123", "User", False, "trade_road")
+        labels_active_tr = [btn.label for btn in view_active_tr.children if hasattr(btn, "label")]
+        assert "Raid Blockade" in labels_active_tr
+        assert "Rob Bandits" in labels_active_tr

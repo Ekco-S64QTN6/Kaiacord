@@ -1597,8 +1597,107 @@ async def _handle_use(ctx, msg, send, rest, uid, uname, is_owner):
             await msg.channel.send(embed=discord.Embed(description=f"Used **{item['name']}**. 🛡️ Your skin hardens like bark. (+2 DEF until next combat)", color=0x44aa44), view=view)
         else:
             await msg.channel.send(embed=discord.Embed(description=f"You're already toughened by ironbark.", color=0xcc4444))
+    elif item_key == "stolen_trade_crate":
+        sheet["inventory"].remove(item_key)
+        crate_gil = secrets.randbelow(101) + 50  # 50-150 gil
+        sheet["gil"] = sheet.get("gil", 0) + crate_gil
+        extra_items = ["bandage", "healing_herb", "lucky_charm", "aeridor_shard", "ironbark_tonic"]
+        bonus_item = secrets.choice(extra_items)
+        sheet["inventory"].append(bonus_item)
+        bonus_name = find_item(bonus_item).get("name", bonus_item.replace("_", " ").title())
+        await save(sheet)
+        await msg.channel.send(embed=discord.Embed(
+            title="📦 Stolen Trade Crate Opened",
+            description=(
+                f"You pry open the iron-banded trade crate!\n\n"
+                f"💰 **Found:** +{crate_gil} Gil\n"
+                f"🎁 **Bonus Item:** **{bonus_name}**"
+            ),
+            color=0x27ae60
+        ))
     else:
         await msg.channel.send(embed=discord.Embed(description=f"**{item['name']}** can't be used. Try selling it: `!rpg sell {item_key}`", color=0xcc4444))
+
+
+async def _handle_purify(ctx, msg, send, rest, uid, uname, is_owner):
+    """Purify Tricklebrook Pond when fishing waters are tainted."""
+    sheet = await load(uid)
+    if not sheet: return
+
+    from utils.ttrpg.world_state import load_world_state, save_world_state
+    wstate = load_world_state()
+
+    loc = sheet.get("location", "oakhaven")
+    if loc != "tricklebrook_pond":
+        return await msg.channel.send(embed=discord.Embed(
+            description="You must be at **Tricklebrook Pond** to purify the waters.\n`!rpg go tricklebrook_pond`",
+            color=0xcc4444
+        ))
+
+    if not wstate.get("fishing_water_tainted", False):
+        return await msg.channel.send(embed=discord.Embed(
+            description="🌊 *The waters of Tricklebrook Pond are already clear and peaceful.*",
+            color=0x3a8fc1
+        ))
+
+    # Check for reagent: aeridor_shard, tonic, healing_herb
+    inv = sheet.get("inventory", [])
+    used_item = None
+    for candidate in ["aeridor_shard", "tonic", "healing_herb"]:
+        if candidate in inv:
+            used_item = candidate
+            break
+
+    if not used_item:
+        return await msg.channel.send(embed=discord.Embed(
+            title="🧪 Purification Reagent Needed",
+            description=(
+                "You need a cleansing reagent to neutralize the dark sludge.\n\n"
+                "**Accepted items:**\n"
+                "• `aeridor_shard` (Aeridor Crystal Shard)\n"
+                "• `tonic` (Tonic)\n"
+                "• `healing_herb` (Healing Herb)"
+            ),
+            color=0xcc4444
+        ))
+
+    inv.remove(used_item)
+    wstate["fishing_water_tainted"] = False
+    wstate["fishing_water_tainted_expiry"] = 0
+    save_world_state(wstate)
+
+    sheet["xp"] = sheet.get("xp", 0) + 50
+    sheet["reputation"] = sheet.get("reputation", 0) + 15
+    from utils.ttrpg.progression import check_level_up
+    leveled, new_lvl = check_level_up(sheet)
+    await save(sheet)
+
+    item_name = find_item(used_item).get("name", used_item.replace("_", " ").title())
+    desc = (
+        f"**{sheet['character_name']}** crushed a **{item_name}** into the pond headwaters!\n\n"
+        f"A shimmering wave of resonance washes through the reeds. The oily black sludge dissolves, "
+        f"and the Silverstream runs pure again!\n\n"
+        f"✨ **Rewards:** +50 XP, +15 Town Reputation"
+    )
+    if leveled:
+        desc += f"\n🎉 **Level Up!** You reached **Level {new_lvl}!**"
+
+    embed = discord.Embed(
+        title="🌊 Tricklebrook Pond Purified!",
+        description=desc,
+        color=0x2ecc71
+    )
+    await msg.channel.send(embed=embed)
+    
+    from utils.ttrpg.broadcast import log_world_event as _log_world_event, broadcast_world_event
+    await _log_world_event(f"🌊 **Pond Purified:** {sheet['character_name']} cleansed Tricklebrook Pond using {item_name}.")
+    
+    broadcast_embed = discord.Embed(
+        title="🌊 Waters Cleansed — Tricklebrook Pond",
+        description=f"*{sheet['character_name']} neutralized the dark sludge at Tricklebrook Pond! Fishing waters are restored.*",
+        color=0x2ecc71
+    )
+    await broadcast_world_event(ctx, broadcast_embed)
 
 
 async def _handle_drink(ctx, msg, send, rest, uid, uname, is_owner):
@@ -2035,8 +2134,12 @@ async def _handle_scout(ctx, msg, send, rest, uid, uname, is_owner):
             color=0x888888
         ))
 
+    from utils.ttrpg.world_state import load_world_state
+    wstate = load_world_state()
+    has_watchtower_bonus = bool(wstate.get("watchtower_bonus"))
+
     today = date.today().strftime("%Y-%m-%d")
-    if sheet.get("last_scout_date") == today:
+    if sheet.get("last_scout_date") == today and not has_watchtower_bonus:
         return await msg.channel.send(embed=discord.Embed(
             description="🗼 *The guards shrug. You've already had your look today.*\nCome back tomorrow.",
             color=0x888888
@@ -2078,10 +2181,11 @@ async def _handle_scout(ctx, msg, send, rest, uid, uname, is_owner):
 
         total_weight = sum(w for _, w in table)
 
-        # Roll 3 distinct random sightings, weighted
+        # Roll distinct random sightings, weighted (3 if watchtower bonus, else 2)
+        spotted_limit = 3 if has_watchtower_bonus else 2
         spotted_keys = []
         attempts = 0
-        while len(spotted_keys) < 3 and attempts < 20:
+        while len(spotted_keys) < spotted_limit and attempts < 20:
             attempts += 1
             r = secrets.randbelow(total_weight)
             cum = 0
@@ -2102,7 +2206,7 @@ async def _handle_scout(ctx, msg, send, rest, uid, uname, is_owner):
         dominant_pct = int(tier_weights[dominant_tier] / total_weight * 100)
         danger = DANGER_ICONS.get(dominant_tier, "⚪")
 
-        spotted_names = [MONSTERS[k]["name"] for k in spotted_keys[:2] if k in MONSTERS]
+        spotted_names = [MONSTERS[k]["name"] for k in spotted_keys[:spotted_limit] if k in MONSTERS]
         seasonal_note = f"  *(+ {season} spawns)*" if seasonal else ""
 
         # XP range hint
@@ -2115,9 +2219,13 @@ async def _handle_scout(ctx, msg, send, rest, uid, uname, is_owner):
             f"   Spotted: *{', '.join(spotted_names) if spotted_names else 'nothing visible'}*"
         )
 
+    if has_watchtower_bonus:
+        lines.append("\n🔭 **The Watchtower's Silence:** *The sentries share their precision spyglass logs. Extra monster detail revealed.*")
+
     # Weather encounter note
     if effect and effect.get("type") == "encounter_mod":
         lines.append(f"\n⚠️ *{weather['name']} effect: {effect['desc']}*")
+
 
     # Randomized guard commentary
     GUARD_COMMENTS = [

@@ -6,8 +6,7 @@ import pytest
 from unittest.mock import MagicMock, patch, AsyncMock
 from unittest import mock
 
-# Mock ContextEnricher to avoid bs4 dependency in test environment
-sys.modules['utils.core.context_enricher'] = mock.MagicMock()
+
 
 @patch('utils.core.message_processor.log_info')
 @patch('utils.core.message_processor.log_debug')

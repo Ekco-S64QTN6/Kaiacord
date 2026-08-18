@@ -471,9 +471,14 @@ async def _handle_farm_view(ctx, msg, send, rest, uid, uname, is_owner):
             stage = get_crop_stage(p)
             watered = "💧" if p.get("watered_today") else "🌵 needs water"
             ready = " ✅" if is_harvestable(p) else ""
+            status_tag = ""
+            if p.get("blighted"):
+                status_tag = "\n🥀 **BLIGHTED** *(Use `!rpg farm treat`)*"
+            elif p.get("blight_hardened"):
+                status_tag = "\n🛡️ *Blight-Hardened (+1 Yield)*"
             embed.add_field(
                 name=f"Plot {i+1}: {c_data.get('name', 'Unknown')}{ready}",
-                value=f"{stage}\n{watered} ({p.get('watered_count',0)} waters)",
+                value=f"{stage}\n{watered} ({p.get('watered_count',0)} waters){status_tag}",
                 inline=True
             )
         else:
@@ -519,8 +524,89 @@ async def _handle_farm_view(ctx, msg, send, rest, uid, uname, is_owner):
     water_btn.callback = _water_cb
     view.add_item(water_btn)
 
+    # If user has blighted plots, show treat button
+    if any(p.get("blighted") for p in plots):
+        treat_btn = discord.ui.Button(label="🌿 Treat Blight", style=discord.ButtonStyle.green, row=1)
+        async def _treat_cb(interaction):
+            if str(interaction.user.id) != uid: return
+            await interaction.response.defer()
+            fake = _InteractionMsg(interaction)
+            await _handle_farm_treat(ctx, fake, _make_interaction_send(interaction), "", uid, uname, is_owner)
+        treat_btn.callback = _treat_cb
+        view.add_item(treat_btn)
+
     view.add_item(_make_home_btn(ctx, uid, uname, is_owner, "🏠 Back", "my_home", 1))
     await msg.channel.send(embed=embed, view=view)
+
+
+async def _handle_farm_treat(ctx, msg, send, rest, uid, uname, is_owner):
+    """Treat blighted crop plots with herbal medicine."""
+    sheet = await load(uid)
+    from utils.ttrpg.housing import load_housing, save_housing
+    housing = load_housing(uid)
+    if not sheet or not housing: return
+
+    plots = housing.get("farming", {}).get("plots", [])
+    blighted_plots = [p for p in plots if p.get("blighted")]
+
+    if not blighted_plots:
+        return await send(msg.channel, embed=discord.Embed(
+            description="🌿 *None of your farm plots are infected with blight.*",
+            color=0x44aa44
+        ))
+
+    # Check for herbal medicine: healing_herb, tonic, bandage
+    inv = sheet.get("inventory", [])
+    used_item = None
+    for candidate in ["healing_herb", "tonic", "bandage"]:
+        if candidate in inv:
+            used_item = candidate
+            break
+
+    if not used_item:
+        return await send(msg.channel, embed=discord.Embed(
+            title="🌿 Herbal Treatment Needed",
+            description=(
+                "You need an herbal medicine to cleanse the sward blight from your crops.\n\n"
+                "**Accepted remedies:**\n"
+                "• `healing_herb` (Healing Herb)\n"
+                "• `tonic` (Tonic)\n"
+                "• `bandage` (Bandage)"
+            ),
+            color=0xcc4444
+        ))
+
+    inv.remove(used_item)
+    for p in blighted_plots:
+        p["blighted"] = False
+        p["blight_hardened"] = True
+
+    housing["farming"]["plots"] = plots
+    save_housing(housing)
+
+    sheet["xp"] = sheet.get("xp", 0) + 25
+    from utils.ttrpg.progression import check_level_up
+    leveled, new_lvl = check_level_up(sheet)
+    await save(sheet)
+
+    from utils.ttrpg.shop import find_item
+    item_data = find_item(used_item)
+    item_name = item_data.get("name", used_item.replace("_", " ").title()) if item_data else used_item.title()
+
+    desc = (
+        f"**{sheet['character_name']}** applied a soothing salve of **{item_name}** to the blighted soil!\n\n"
+        f"The yellowed mold recedes and the root systems strengthen! Your treated crops are now **Blight-Hardened** (+1 harvest yield bonus).\n\n"
+        f"✨ **Cured:** {len(blighted_plots)} plot(s) · **Reward:** +25 XP"
+    )
+    if leveled:
+        desc += f"\n🎉 **Level Up!** Reached **Level {new_lvl}!**"
+
+    await msg.channel.send(embed=discord.Embed(
+        title="🌿 Soil Blight Cleansed!",
+        description=desc,
+        color=0x2ecc71
+    ))
+    await _handle_farm_view(ctx, msg, send, rest, uid, uname, is_owner)
 
 
 async def _handle_plant_crop(ctx, msg, send, rest, uid, uname, is_owner):
@@ -532,9 +618,30 @@ async def _handle_plant_crop(ctx, msg, send, rest, uid, uname, is_owner):
     housing = load_housing(uid)
     if not sheet or not housing: return
 
-    crop_key = rest.strip()
+    crop_input = rest.strip().lower().replace(" ", "_")
+    SEED_ALIASES = {
+        "blood_thistle": "blood_thistle_seed",
+        "blood_thistle_seed": "blood_thistle_seed",
+        "honey_sap": "honey_sap_seed",
+        "honey_sap_seed": "honey_sap_seed",
+        "honey_sap_cutting": "honey_sap_seed",
+        "silver_moss": "silver_moss_spore",
+        "silver_moss_spore": "silver_moss_spore",
+        "silvermoss": "silver_moss_spore",
+        "silvermoss_spore": "silver_moss_spore",
+        "dire_root": "dire_root_bulb",
+        "dire_root_bulb": "dire_root_bulb",
+        "gilded_mushroom": "gilded_mushroom_spore",
+        "gilded_mushroom_spore": "gilded_mushroom_spore",
+        "gilded_spore": "gilded_mushroom_spore",
+        "spirit_bloom": "spirit_bloom_seed",
+        "spirit_bloom_seed": "spirit_bloom_seed",
+    }
+    crop_key = SEED_ALIASES.get(crop_input, crop_input)
     if crop_key not in CROPS or crop_key not in sheet.get("inventory", []):
-        return await send(msg.channel, f"You don't have any {crop_key.replace('_',' ')}.")
+        display_name = crop_input.replace('_', ' ')
+        return await send(msg.channel, f"You don't have any {display_name} seeds in your inventory.")
+
 
     tier_data = get_tier_data(housing["tier"])
     max_plots = tier_data["farming_plots"]
@@ -617,7 +724,8 @@ async def _handle_harvest_crops(ctx, msg, send, rest, uid, uname, is_owner):
 
     for p in plots:
         if is_harvestable(p):
-            item_key, qty = harvest_crop(p, season, yield_bonus)
+            extra_hardened = 1 if p.get("blight_hardened") else 0
+            item_key, qty = harvest_crop(p, season, yield_bonus + extra_hardened)
             sheet["inventory"].extend([item_key] * qty)
             harvested.append(f"{qty}x {item_key.replace('_',' ')}")
         else:

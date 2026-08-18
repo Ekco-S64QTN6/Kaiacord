@@ -244,10 +244,15 @@ class IntentParser:
                 r"\b(why is it slow|latency|lag|responsive|hang|lockup)\b"
             ],
             "RECAP_QUERY": [
-                r"recap\b.*\b\d+\s*(hours?|days?|minutes?)",
-                r"what happened.{0,15}\blast\s+\d+\s*(hours?|days?)",
-                r"elaborate on the (past|last) \d+ (hours?|days?)",
-                r"summarize (recent|the last|today'?s?)?\s*(interactions?|conversations?|chat|activity)",
+                r"recap\b.*\b\d+\s*(hours?|days?|minutes?|hrs?)",
+                r"what happened.{0,15}\blast\s+\d+\s*(hours?|days?|hrs?)",
+                r"elaborate on the (past|last) \d+ (hours?|days?|hrs?)",
+                r"\b(summary|overview|recap|rundown|digest)\s+(of\s+)?(the\s+)?(past|last)\s+\d+\s*(hours?|days?|minutes?|hrs?|weeks?)\b",
+                r"\b(summary|overview|recap|rundown)\s+(of\s+)?(all\s+)?(user\s+)?(interactions?|conversations?|chat|activity|messages?|chatter)\b",
+                r"\b(can|could|would)\s+(i|you)\s+(get|give|have)\s+(me\s+)?(a\s+)?(summary|recap|overview|rundown)\b",
+                r"\b(summarize|recap)\b.*?\b(past|last)\s+\d+\s*(hours?|days?|minutes?|hrs?|weeks?)\b",
+                r"\b(past|last)\s+\d+\s*(hours?|days?|hrs?)\s+(of\s+)?(chat|chatter|messages?|activity|interactions?|conversations?)\b",
+                r"summarize (all\s+)?(user\s+)?(recent|the last|today'?s?|past)?\s*(interactions?|conversations?|chat|activity|messages?|chatter)",
                 r"what have you been (doing|up to)",
                 r"recall the last \d+",
                 r"\b(get|give)\s+(me\s+)?a\s+recap\b",
@@ -256,7 +261,8 @@ class IntentParser:
                 r"what did (i|we|you|people|everyone) (miss|talk about)",
                 r"catch me up",
                 r"what'?s been said",
-                # Channel-scoped recall — "anything aware of from kaia-opolis"
+                # Channel-scoped recall — "anything aware of from kaia-opolis", "summary of #general chatter"
+                r"\b(summary|recap|overview)\s+of\s+(#?\w[\w-]*|\<#\d+\>).*(chatter|chat|messages?|conversations?|activity)\b",
                 r"(anything|something).{0,20}(aware of|know about|should know).{0,20}(from|in)\s+\w",
                 r"(what|anything).{0,20}(going on|happening|discussed|said).{0,20}(in|from)\s+\w",
             ],

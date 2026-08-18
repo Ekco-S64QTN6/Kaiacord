@@ -503,6 +503,7 @@ CONSUMABLES = {
     "deep_fragment":       {"name": "Deep Fragment",          "value": 400, "description": "Crystallized void. Elara won't touch it. Hemlock will buy it without asking questions."},
     "mountain_shard":      {"name": "Mountain Shard",        "value": 500, "description": "The mountain is aware you took this. It is not pleased but it does not pursue small grievances."},
     "spine_memory":        {"name": "Spine Memory",           "value": 0,   "description": "A compressed memory of the Aeridorian collapse, from the mountain's perspective. It is not flattering to anyone."},
+    "stolen_trade_crate":  {"name": "Stolen Trade Crate",     "value": 75,  "description": "A heavy wooden crate recovered from the Whisperwood Blockade. Contains seized goods and coins."},
 }
 
 def get_equipment(key: str) -> dict | None:

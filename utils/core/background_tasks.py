@@ -135,8 +135,45 @@ class CoreTaskManager:
                     import uuid
                     
                     persona = await load_persona_async()
+
+                    # ── Cognitive Enrichment (mirrors proactive pipeline) ──
+                    system_prompt = persona
+
+                    # Emotional arc injection
+                    try:
+                        from utils.core.kaia_mood import emotional_arc
+                        arc_line = emotional_arc.get_prompt_injection()
+                        if arc_line:
+                            system_prompt += f"\n\n{arc_line}"
+                    except Exception:
+                        pass
+
+                    # Channel memory context — what was recently discussed
+                    try:
+                        chan_id = to_execute['channel_id']
+                        channel_mem = self.ctx.bot_state.channel_memory.get(chan_id)
+                        if channel_mem:
+                            recent = list(channel_mem)[-5:]
+                            if recent:
+                                lines = []
+                                for msg in recent:
+                                    role = msg.get('role', '')
+                                    content = msg.get('content', '')[:200]
+                                    if role == 'assistant':
+                                        lines.append(f"  Kaia: {content}")
+                                    elif role == 'user':
+                                        lines.append(f"  {content}")
+                                if lines:
+                                    system_prompt += (
+                                        "\n\n[recent conversation in this channel:\n"
+                                        + "\n".join(lines)
+                                        + "\n]"
+                                    )
+                    except Exception:
+                        pass
+
                     prompt = (
-                        f"You are Kaia. You were speaking with {to_execute['user_name']} about: {to_execute['topic']}. "
+                        f"You were speaking with {to_execute['user_name']} about: {to_execute['topic']}. "
                         f"It's been 10 minutes since the conversation ended. Generate a brief, unprompted follow-up "
                         f"thought or realization about it. Keep it under 2 sentences. "
                         f"CRITICAL: Write in the first person ('i', 'my', 'me'). Never refer to yourself or Kaia in the third person ('she', 'her'). "
@@ -155,10 +192,10 @@ class CoreTaskManager:
                                 self.ctx.ollama_client.chat(
                                     model=config.chat_model,
                                     messages=[
-                                        {"role": "system", "content": persona},
+                                        {"role": "system", "content": system_prompt},
                                         {"role": "user", "content": prompt}
                                     ],
-                                    options={"temperature": 0.8},
+                                    options={"temperature": 0.75},
                                     keep_alive=-1
                                 ),
                                 timeout=45.0
@@ -171,26 +208,28 @@ class CoreTaskManager:
                             # Strip codeblocks
                             raw = raw.replace("```", "").replace("``", "")
                             
-                            # Apply BotSpeak Filter
+                            # Full post-generation safety pipeline
+                            # 1. Contamination filter
+                            try:
+                                from utils.core.response_filter import EmergencyContaminationFilter
+                                filtered = EmergencyContaminationFilter.filter_response(raw)
+                                if filtered is None:
+                                    log_warning("Afterthought failed contamination filter. Discarding.")
+                                    return
+                                raw = filtered
+                            except Exception:
+                                pass
+
+                            # 2. BotSpeak hardening
                             from utils.core.response_filter import BotSpeakFilter
                             raw = BotSpeakFilter.harden(raw)
-                            
-                            # Clean up ellipsis / em dashes if drifted
-                            import re as _re
-                            _frag_count = len(_re.findall(r'\w+[\u2026\.]{2,}', raw))
-                            if _frag_count >= 3:
-                                raw = _re.sub(r'(\w)[\u2026\.]{2,}\s+', r'\1. ', raw)
-                                raw = _re.sub(r'(\w)[\u2026\.]{2,}$', r'\1.', raw, flags=_re.MULTILINE)
-                                raw = _re.sub(r'^\s*[\u2026\.]{2,}\s*$', '', raw, flags=_re.MULTILINE)
-                                raw = _re.sub(r'\.{2,}', '.', raw)
-                            
-                            _em_dash_count = raw.count('\u2014')
-                            if _em_dash_count >= 3:
-                                raw = _re.sub(r'(\w)\u2014(\w)', r'\1, \2', raw)
-                                raw = _re.sub(r'(\w)\u2014\s+', r'\1. ', raw)
-                                raw = _re.sub(r'\s+\u2014(\w)', r'. \1', raw)
-                                
-                            raw = _re.sub(r'\n{3,}', '\n\n', raw).strip()
+
+                            # 3. Style collapsers (ellipsis/em-dash drift)
+                            try:
+                                from utils.core.safety_pipeline import PostGenerationSafetyPipeline
+                                raw = PostGenerationSafetyPipeline.apply_style_collapsers(raw)
+                            except Exception:
+                                pass
                             
                             if raw:
                                 from utils.infrastructure.system.messaging import send_kaia_response
@@ -1655,8 +1694,10 @@ async def run_village_raid(bot_ctx, channel):
     normal_pool = theme_data["pools"][pool_index]
     boss_pool = theme_data["boss_pools"][pool_index]
     
-    # 5. Build attackers wave
-    num_attackers = min(8, 2 + max_level // 3)
+    # 5. Build attackers wave — scaled to active defender count
+    num_attackers = min(8, max(2, len(defenders)))
+    if len(defenders) >= 3:
+        num_attackers = min(8, len(defenders) + 1)
     has_boss = (max_level >= 9)
     attackers = []
     total_xp = 0
@@ -1758,8 +1799,8 @@ async def run_village_raid(bot_ctx, channel):
         combat_results.append((s, attacker, rounds_log, won, escaped))
 
     # Determine victory
-    # Win if at least half the attackers were defeated
-    defenders_won = (defeated_monsters_count >= len(attackers) / 2)
+    # Win if at least half the attackers were defeated or if all defenders stood their ground and defeated at least one
+    defenders_won = (defeated_monsters_count >= (len(attackers) + 1) // 2) or (player_defeated_count == 0 and defeated_monsters_count > 0)
     
     xp_each = max(1, total_xp // len(defenders))
     gil_each = max(1, total_gil // len(defenders))
@@ -1802,11 +1843,12 @@ async def run_village_raid(bot_ctx, channel):
                 s["xp"] += xp_each
                 s["gil"] += gil_each
                 s["reputation"] = s.get("reputation", 0) + 10
-                result_lines.append(f"⚔️ **{s['character_name']}** survived (received +{xp_each} XP, +{gil_each} gil, +10 Rep)")
+                result_lines.append(f"⚔️ **{s['character_name']}** held the line (received +{xp_each} XP, +{gil_each} gil, +10 Rep)")
             else:
-                # Defenders lost: reputation penalty
-                s["reputation"] = max(-100, s["reputation"] - 10)
-                result_lines.append(f"⚔️ **{s['character_name']}** survived but withdrew (lost 10 Rep)")
+                # Defenders held out against overwhelming odds — no rep penalty for fighting
+                consolation_xp = max(1, xp_each // 2)
+                s["xp"] += consolation_xp
+                result_lines.append(f"⚔️ **{s['character_name']}** fought valiantly to cover the perimeter (+{consolation_xp} XP)")
                 
         leveled, new_lvl = check_level_up(s)
         await save(s)
@@ -2696,18 +2738,21 @@ async def _narrate_raid_summary(ctx, channel, defenders, attackers, combat_resul
         )
         
     fights_str = "\n".join(fight_summaries)
+    attacker_names = ", ".join(m["name"] for m in attackers)
     outcome_str = "SUCCESS — Defenders held Oakhaven!" if defenders_won else "FAILURE — The perimeter was breached and defenders took heavy casualties!"
     
     prompt = f"""[TTRPG GROUND TRUTH — VILLAGE RAID SUMMARY — DO NOT CONTRADICT]
 EVENT: Village Raid in Oakhaven
 OUTCOME: {outcome_str}
+ATTACKING CREATURES: {attacker_names}
 
 FIGHT DETAILS:
 {fights_str}
 
 INSTRUCTIONS FOR NARRATION:
-Describe the overall battle at the town perimeter.
+Describe the battle at the town perimeter specifically involving the ATTACKING CREATURES listed above ({attacker_names}).
 Highlight key moments from the fight details above.
+[CRITICAL] Do NOT invent unrelated enemies (e.g. goblins, gnolls) unless they are in the attacking list above.
 Keep the tone lowercase, grounded, and specific. No purple prose.
 Speak as Kaia — the GM narrator.
 [END GROUND TRUTH]"""
@@ -3234,6 +3279,7 @@ async def run_market_glut(bot_ctx, channel):
     
     is_glut = secrets.randbelow(2) == 0
     if is_glut:
+        wstate["blockade_active"] = False
         wstate["shop_price_mult"] = 0.8
         wstate["shop_price_mult_expiry"] = now + 24 * 3600
         title = "📋 Notice: Market Glut!"
@@ -3245,13 +3291,15 @@ async def run_market_glut(bot_ctx, channel):
         color = 0x27ae60
         log_text = "📋 **Market Glut** — supply surge discounted shop prices by 20% until the next noon event."
     else:
+        wstate["blockade_active"] = True
         wstate["shop_price_mult"] = 1.25
         wstate["shop_price_mult_expiry"] = now + 24 * 3600
         title = "📋 Notice: Whisperwood Blockade!"
         desc = (
             "**Bandit activity has blocked the western trade passes!**\n\n"
             "Severe supply shortages have **inflated all shop prices by 25%** "
-            "until the next noon event!"
+            "until the next noon event!\n\n"
+            "⚔️ *Adventurers can assault the bandit camp (`!rpg raid blockade`) or sneak into their cache (`!rpg rob bandits`) on the Trade Road to break the blockade!*"
         )
         color = 0xd35400
         log_text = "📋 **Supply Shortage** — trade blockages inflated shop prices by 25% until the next noon event."
@@ -3261,7 +3309,6 @@ async def run_market_glut(bot_ctx, channel):
     embed = discord.Embed(title=title, description=desc, color=color)
     embed.set_footer(text="Prices are adjusted automatically at checkout.")
     await channel.send(embed=embed)
-    await broadcast_world_event(bot_ctx, embed)
     await _log_world_event(log_text)
     log_action("Noon Event: Market Glut (Configured)")
 
@@ -3291,7 +3338,6 @@ async def run_whisperwood_bloom(bot_ctx, channel):
     )
     embed.set_footer(text="Keep your eyes open out there.")
     await channel.send(embed=embed)
-    await broadcast_world_event(bot_ctx, embed)
     await _log_world_event("🌸 **Whisperwood Bloom** — forest event chances boosted by +15% until the next noon event.")
     log_action("Noon Event: Whisperwood Bloom (Configured)")
 
@@ -3320,7 +3366,6 @@ async def run_shrine_vigil(bot_ctx, channel):
     )
     embed.set_footer(text="The Silent Ones are watching Oakhaven.")
     await channel.send(embed=embed)
-    await broadcast_world_event(bot_ctx, embed)
     await _log_world_event("🕯️ **Shrine Vigil** — enhanced blessing window active until the next noon event.")
     log_action("Noon Event: Shrine Vigil (Configured)")
 
@@ -3352,7 +3397,6 @@ async def run_missing_persons(bot_ctx, channel):
     
     wstate = load_world_state()
     now = time.time()
-    
     wstate["missing_person_name"] = chosen_name
     wstate["missing_person_loc"] = chosen_key
     wstate["missing_person_expiry"] = now + 24 * 3600
@@ -3370,8 +3414,7 @@ async def run_missing_persons(bot_ctx, channel):
     )
     embed.set_footer(text="Rewards await whoever guides them safely back.")
     await channel.send(embed=embed)
-    await broadcast_world_event(bot_ctx, embed)
-    await _log_world_event(f"📋 **Missing Person** — search notice posted for {chosen_name} in {chosen_desc}.")
+    await _log_world_event(f"🔍 **Missing Persons:** {chosen_name} went missing in {chosen_desc}. Search the location on hunts.")
     log_action(f"Noon Event: Missing Persons ({chosen_name} in {chosen_desc})")
 
 
@@ -3444,13 +3487,15 @@ async def run_construct_incursion(bot_ctx, channel):
     normal_pool = theme_data["pools"][pool_index]
     boss_pool = theme_data["boss_pools"][pool_index]
 
-    # 5. Build attackers wave
-    num_attackers = min(8, 2 + max_level // 3)
+    # 5. Build attackers wave — scaled to active defender count
+    num_attackers = min(8, max(2, len(defenders)))
+    if len(defenders) >= 3:
+        num_attackers = min(8, len(defenders) + 1)
     has_boss = (max_level >= 9)
     attackers = []
     total_xp = 0
     total_gil = 0
-
+    
     for i in range(num_attackers):
         if i == 0 and has_boss:
             m_key = secrets.choice(boss_pool)
@@ -3584,10 +3629,11 @@ async def run_construct_incursion(bot_ctx, channel):
                 s["xp"] += xp_each
                 s["gil"] += gil_each
                 s["reputation"] = s.get("reputation", 0) + 10
-                result_lines.append(f"⚔️ **{s['character_name']}** survived (received +{xp_each} XP, +{gil_each} gil, +10 Rep)")
+                result_lines.append(f"⚔️ **{s['character_name']}** held the watchtower (received +{xp_each} XP, +{gil_each} gil, +10 Rep)")
             else:
-                s["reputation"] = max(-100, s["reputation"] - 10)
-                result_lines.append(f"⚔️ **{s['character_name']}** survived but withdrew (lost 10 Rep)")
+                consolation_xp = max(1, xp_each // 2)
+                s["xp"] += consolation_xp
+                result_lines.append(f"⚔️ **{s['character_name']}** fought valiantly to hold the gate (+{consolation_xp} XP)")
 
         leveled, new_lvl = check_level_up(s)
         await save(s)
@@ -3681,20 +3727,20 @@ async def run_blight_on_the_crops(bot_ctx, channel):
     for h in affected_owners:
         plots = h["farming"]["plots"]
         idx = secrets.randbelow(len(plots))
-        lost_plot = plots.pop(idx)
+        plots[idx]["blighted"] = True
         h["farming"]["plots"] = plots
         save_housing(h)
 
         uid = str(h.get("user_id", ""))
         char_name = uid_to_name.get(uid, f"User {uid}")
         from utils.ttrpg.farming import CROPS
-        crop_data = CROPS.get(lost_plot.get("crop_key"), {})
+        crop_data = CROPS.get(plots[idx].get("crop_key"), {})
         crop_name = crop_data.get("name", "crop")
-        result_lines.append(f"🥀 **{char_name}** lost their plot containing **{crop_name}**")
+        result_lines.append(f"🥀 **{char_name}**'s plot of **{crop_name}** has been infected with blight!")
 
     await channel.send(embed=discord.Embed(
-        title="🥀 Blight Damage Report",
-        description="\n".join(result_lines) + "\n\n*Maren shakes her head at the shrine replica, praying for better soil.*",
+        title="🥀 Blight Infection Report",
+        description="\n".join(result_lines) + "\n\n*Affected homeowners must treat their soil with herbal medicine (`!rpg farm treat`) using a healing herb or tonic to save the harvest!*",
         color=0x7f8c8d
     ))
     await _log_world_event("🥀 **Whisperwood Blight** sours Oakhaven soil. Several crops in the housing district were lost.")
@@ -4141,7 +4187,6 @@ async def run_the_coin_hoarder(bot_ctx, channel):
     if level_ups:
         embed.add_field(name="\u200b", value="\n".join(level_ups), inline=False)
     await channel.send(embed=embed)
-    await broadcast_world_event(bot_ctx, embed)
     
     outcome_txt = "Defenders won" if defenders_won else "Defenders failed"
     await _log_world_event(f"🛡️ **Bank Defense:** {outcome_txt} against the Coin Hoarder.")

@@ -2,10 +2,11 @@ import re
 
 def sanitize_prompt(prompt: str, max_length: int = 2000) -> str:
     """Remove potential prompt injection attempts and limit length."""
-    # Defensive: resolve any remaining raw Discord mention tokens (<@ID> / <@!ID>)
+    # Defensive: resolve any remaining raw Discord mention tokens (<@ID> / <@!ID> / <#ID>)
     # These should have been resolved by context_enricher, but this catches any
     # that slip through from embed text, linked message content, or URL scrapes.
     prompt = re.sub(r'<@!?(\d+)>', r'@user_\1', prompt)
+    prompt = re.sub(r'<#(\d+)>', r'#channel_\1', prompt)
 
     # Remove obvious system prompt markers
     prompt = re.sub(r'^\s*system\s*:', '', prompt, flags=re.IGNORECASE)

@@ -124,6 +124,11 @@ async def handle_rpg_command(ctx, msg, send_kaia_response):
         "rename_house":   hou._handle_rename_house,
         "home_training":  hou._handle_home_training,
         "seed_shop":      hou._handle_seed_shop,
+        "purify":         cor._handle_purify,
+        "raid":           com._handle_raid_blockade,
+        "rob":            com._handle_rob_bandits,
+        "farm_treat":     hou._handle_farm_treat,
+        "treat":          hou._handle_farm_treat,
     }
     async def _auto_send(channel, text, use_code_block=None):
         if use_code_block is None:

@@ -48,7 +48,30 @@ The Aethelgard TTRPG is in **S-tier operational health**. Fourteen phases of dev
 
 ### All Bugs Resolved ✅
 
-**No active bugs remain.** All issues identified across fourteen audit phases have been fixed and verified.
+**No active bugs remain.** All issues identified across sixteen audit phases have been fixed and verified.
+
+### Phase 16: Noon Events Mechanical Overhaul & Dynamic UI Buttons (August 17, 2026)
+
+| ID | Fix | Verification |
+|---|---|---|
+| ✅ FEAT-6 | **Condition Engine Consumption.** 8 noon event conditions (`battle_focus`, `forest_sight`, `shadow_step`, `sharp_mind`, `veiled_blessing`, `veiled_watched`, `resonance_link`, `divine_clarity`) were dormant. **Fixed:** Evaluated in `combat_engine.py` (+ATK/+DMG) and cleanly consumed/removed on single-combat victory. | Unit test verified in `test_rpg_features.py`. |
+| ✅ FEAT-7 | **Dangerous Tainted Waters Fishing & Purification.** Replaced hard lockout in `fishing_handler.py` with 40% Aberrant catches (Voidfin Carp, Blackwater Eel, Sludge Catfish @ 2x value), 30% monster hooks, 20% toxic snags, and 10% sunken artifacts. Implemented `!rpg purify` in `rpg_core_handler.py` to cleanse Tricklebrook Pond using herbal/crystal reagents. | Tested via `fishing_handler.py` and `rpg_core_handler.py`. |
+| ✅ FEAT-8 | **Whisperwood Blockade Counter-Play & Contraband.** Added `bandit_captain` to `monster_registry.py` and `stolen_trade_crate` to `equipment_registry.py`. Implemented `!rpg raid blockade` and `!rpg rob bandits` in `rpg_combat_handler.py` allowing players to assault the camp or use Rogue/DEX stealth to steal Gil and break shop price inflation. | Tested in `rpg_combat_handler.py`. |
+| ✅ FEAT-9 | **Crop Blight Non-Destructive Remediation.** Modified `run_blight_on_the_crops` in `background_tasks.py` to set `blighted = True` on plots instead of deleting them. Added `!rpg farm treat` in `rpg_housing_handler.py` using `healing_herb`/`tonic`/`bandage` to cure plots and grant the **Blight-Hardened** (+1 harvest yield) property. | Tested in `rpg_housing_handler.py`. |
+| ✅ FEAT-10 | **Dynamic Event UI Action Button Show/Hide Visibility.** Wired `RPGFullLocationView` in `rpg_views.py` to dynamically inspect `world_state.json` flags. Event buttons (🧪 *Purify Waters*, ⚔️ *Raid Blockade*, 🗡️ *Rob Bandits*, 🌿 *Treat Blight*) only appear when their respective events are active, and are completely hidden/invisible when inactive. | Unit test `test_dynamic_event_location_buttons` passed. |
+
+### Phase 15: Live Incursion Mechanics, Noon Event De-duplication & Bug Fixes (August 15, 2026)
+
+| ID | Fix | Verification |
+|---|---|---|
+| ✅ BUG-R19 | **Village Raid & Incursion Wave Scaling.** Attacking monster wave size was static and overwhelmed small parties (7 tier-5/boss monsters vs 1-2 players). **Fixed:** Scaled `num_attackers = min(8, max(2, len(defenders)))` (up to `len(defenders) + 1` for 3+ defenders). Victory condition rebalanced to `defeated >= (len(attackers)+1)//2` or clean stand without blackout. | Tested with 1, 2, and 4+ defenders. |
+| ✅ BUG-R20 | **Town Defender 48-Hour Drafting.** `get_active_town_defenders()` used 6-hour window and bypassed fallback if a single player was active. **Fixed:** Window expanded to 48 hours and drafts all living characters present in town during testing. | Verified in `character_manager.py`. |
+| ✅ BUG-R21 | **Unfair Incursion Reputation Penalty.** Surviving defenders who stepped up lost 10 Rep on breach. **Fixed:** Eliminated Rep loss for defenders; awarded consolation XP for answering the alarm. | Verified in `background_tasks.py`. |
+| ✅ BUG-R22 | **Raid Narration Hallucinations.** `_narrate_raid_summary()` lacked enemy theme grounding, prompting generic monsters (goblins/gnolls) during Undead Crypts raids. **Fixed:** Injected explicit `ATTACKING CREATURES` list and `[CRITICAL]` negative constraints. | Prompt inspection verified. |
+| ✅ BUG-R23 | **Noon Events Double Broadcast.** 5 noon event functions called both `channel.send()` and `broadcast_world_event()` to `#aethelgard`. **Fixed:** Removed redundant `broadcast_world_event()` calls. | Single-send verified in `background_tasks.py`. |
+| ✅ BAL-R7 | **Spine Floor 13 Sand Worm (`antlion`) Retuning.** `antlion` had under-tuned stats (70 HP, 10 ATK, 10 DEF). **Fixed:** Raised to 90 HP, 11 ATK, 11 DEF matching deadly/boss tier curve. | Tested via `monster_registry.py`. |
+| ✅ FEAT-4 | **Watchtower Silence World State Wiring.** `watchtower_bonus` in `world_state` was set by event but never read. **Fixed:** Wired into `_handle_scout()` to allow unlimited daily scouting and 3 distinct spotted sightings with extra spyglass logs. | Verified in `rpg_core_handler.py`. |
+| ✅ FEAT-5 | **Farming Seed Alias Matching.** `!rpg plant` required exact key matching (`blood_thistle_seed`). **Fixed:** Added `SEED_ALIASES` in `_handle_plant_crop()` supporting plain names (`blood_thistle`, `silvermoss`, etc.). | Tested in `rpg_housing_handler.py`. |
 
 ### Phase 14: Balance Hardening & Content Expansion (July 9, 2026)
 

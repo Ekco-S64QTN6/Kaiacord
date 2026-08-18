@@ -401,6 +401,22 @@ async def handle_fish_shop_command(*args, **kwargs):
     from utils.commands.fishing_handler import handle_fish_shop_command as _f
     return await _f(*args, **kwargs)
 
+async def _handle_purify(*args, **kwargs):
+    from utils.ttrpg.rpg_core_handler import _handle_purify as _f
+    return await _f(*args, **kwargs)
+
+async def _handle_raid_blockade(*args, **kwargs):
+    from utils.ttrpg.rpg_combat_handler import _handle_raid_blockade as _f
+    return await _f(*args, **kwargs)
+
+async def _handle_rob_bandits(*args, **kwargs):
+    from utils.ttrpg.rpg_combat_handler import _handle_rob_bandits as _f
+    return await _f(*args, **kwargs)
+
+async def _handle_farm_treat(*args, **kwargs):
+    from utils.ttrpg.rpg_housing_handler import _handle_farm_treat as _f
+    return await _f(*args, **kwargs)
+
 LOCATION_COLORS = {
     "housing_district":  0x8b7355,   # warm earthy brown — home soil
     "tricklebrook_pond": 0x3a8fc1,   # deep pond blue
@@ -592,11 +608,28 @@ class RPGFullLocationView(discord.ui.View):
             "fish":           handle_fish_command,
             "fish_shop":      handle_fish_shop_command,
             "sell_all_gear":  _handle_sell_all_gear,
+            "purify":         _handle_purify,
+            "raid":           _handle_raid_blockade,
+            "rob":            _handle_rob_bandits,
+            "farm_treat":     _handle_farm_treat,
         }
 
         # ── Location action buttons ───────────────────────────────────
         for label, emoji, cmd, rest_arg, style, row in _LOCATION_BUTTONS.get(location, []):
             self._add_btn(label, emoji, cmd, rest_arg, style, row)
+
+        # ── Dynamic Active Noon Event Buttons (Row 2) ─────────────────
+        from utils.ttrpg.world_state import load_world_state
+        wstate = load_world_state()
+
+        # 1. Tricklebrook Pond: Purify Waters (ONLY if fishing_water_tainted is active!)
+        if location == "tricklebrook_pond" and wstate.get("fishing_water_tainted", False):
+            self._add_btn("Purify Waters", "🧪", "purify", "", discord.ButtonStyle.success, 2)
+
+        # 2. Trade Road & Whisperwood Edge: Raid Blockade & Rob Bandits (ONLY if blockade_active is active!)
+        if location in ("trade_road", "whisperwood_edge") and wstate.get("blockade_active", False):
+            self._add_btn("Raid Blockade", "⚔️", "raid", "blockade", discord.ButtonStyle.danger, 2)
+            self._add_btn("Rob Bandits", "🗡️", "rob", "bandits", discord.ButtonStyle.primary, 2)
 
         # ── Always-present row 3 (moved up from 4) ────────────────────
         self._add_btn("Status", "📊", "status_board", "", discord.ButtonStyle.secondary, 3)

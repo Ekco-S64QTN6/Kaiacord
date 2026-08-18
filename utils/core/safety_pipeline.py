@@ -158,9 +158,12 @@ class PostGenerationSafetyPipeline:
         if is_channel_recall and channel_refs:
             fab_found = False
             for ch in channel_refs:
+                ch_clean = ch.lstrip('#')
                 fab_patterns = [
-                    re.compile(rf'(from|within|in|regarding|about|per)\s+{re.escape(ch)}\b[,:]', re.IGNORECASE),
-                    re.compile(rf'{re.escape(ch)}\s*[:,]\s*(the|a|there|primary|notable|key|main)', re.IGNORECASE),
+                    re.compile(rf'(from|within|in|regarding|about|per)\s+#?{re.escape(ch_clean)}\b[,:]', re.IGNORECASE),
+                    re.compile(rf'#?{re.escape(ch_clean)}\s*[:,]\s*(the|a|there|primary|notable|key|main)', re.IGNORECASE),
+                    re.compile(rf'channel\s+#?{re.escape(ch_clean)}\b\s*:', re.IGNORECASE),
+                    re.compile(rf'#{re.escape(ch_clean)}\s*:', re.IGNORECASE),
                 ]
                 for fp in fab_patterns:
                     if fp.search(content):

@@ -1,7 +1,7 @@
 # AGENTS.md
 
 > Instructions for AI coding agents working on this repository.
-> Last updated: July 23, 2026
+> Last updated: August 15, 2026
 
 ## Project Overview
 
@@ -124,6 +124,7 @@ Registry files (like `equipment_registry.py`) contain both large data dictionari
 │   │   └── rpg_prompt_builder.py      # LLM narration prompt construction
 │   ├── core/                    # Kaia cognitive pipeline
 │   │   ├── message_processor.py       # Main intelligence pipeline (~2250 lines)
+│   │   ├── timezone_helper.py         # 4-clock Newsroom Wall timezone engine (12-hour format, IANA DST/leap-year safety)
 │   │   ├── background_tasks.py        # Afterthoughts, dawn task, presence loops
 │   │   ├── kaia_dream.py              # Dream engine, belief extraction, identity stream
 │   │   ├── kaia_art.py                # Fractal flame renderer (CPU-only, NumPy/SciPy)
@@ -131,7 +132,7 @@ Registry files (like `equipment_registry.py`) contain both large data dictionari
 │   │   ├── kaia_reactions.py          # Non-verbal emoji reaction system
 │   │   ├── kaia_mood.py               # Persistent emotional state (valence/arousal/energy)
 │   │   ├── kaia_monologue.py          # Background inner thought stream
-│   │   ├── kaia_proactive.py          # Autonomous conversation initiation (7-source engine)
+│   │   ├── kaia_proactive.py          # Autonomous conversation initiation (9-source engine)
 │   │   ├── memory_anchors.py          # Cross-session episodic memory callbacks
 │   │   ├── relationship_manager.py    # Per-user relationship event store
 │   │   ├── kaia_intelligence.py       # Context weaving, intent parsing
@@ -208,7 +209,7 @@ Registry files (like `equipment_registry.py`) contain both large data dictionari
 - Every monster key used in `ENCOUNTER_TABLES` MUST have a matching entry in `MONSTERS`
 - Shop stock lists (`HEMLOCK_STOCK_*`, `PELLS_STOCK_*`) are manually maintained — new buyable items need both the item dict AND the stock list updated
 - Equipment stat budgets by tier: See `docs/ttrpg/ttrpg_report.md` for current balance targets. Do not add items that exceed tier budgets without updating the documentation first
-- Current counts: **365 monsters** (41 boss-tier), **452 active unique equipment items** across 7 tiers
+- Current counts: **366 monsters** (41 boss-tier), **453 active unique equipment items** across 7 tiers, **253 unique fish**
 
 ### Kaia Cognitive Pipeline
 - **All 28 behavioral features** (tone mirroring, time-of-day, conversational fatigue, relationship stages, mood vector, monologue, memory anchors, conversational stance, anticipatory context priming, theory of mind, etc.) are lightweight system prompt injections in `message_processor.py`. They do NOT call the LLM — they're pure Python heuristics.
@@ -217,7 +218,7 @@ Registry files (like `equipment_registry.py`) contain both large data dictionari
 - **Relationship events** are stored per-user in `memory/relationships/` with atomic writes and a 100-event cap.
 - **Beliefs** are stored in `memory/beliefs.json` with a 100-belief cap, atomic writes, and revision tracking.
 - **Memory anchors** are stored in `memory/anchors.json` with a 100-anchor cap, weight decay, and automatic pruning below 0.1 weight.
-- **Proactive initiation** is rate-limited to 2 messages/day with a 6-hour minimum gap between messages. Topic diversity is tracked in `memory/proactive_topics.json`.
+- **Proactive initiation** is rate-limited to 2 messages/day with a 4-hour minimum gap between messages. Topic diversity is tracked in `memory/proactive_topics.json`.
 
 ### Project 1999 Forum & Social Operations
 - **Moderation Draft Queue**: All auto-generated posts and tech support replies must be routed to `#kaia-opolis` as drafts with interactive Accept/Reject views first before being submitted to the forum.
@@ -231,6 +232,8 @@ Kaia utilizes multiple distinct LLM call paths depending on the context. Do not 
 | Call Path | Entry Point | Context / Pipeline | Key Features / Safety Layers |
 |---|---|---|---|
 | **Discord Chat** | `MessageProcessor.process()` | Full `MessageContext` | 28-feature cognitive pipeline, RAG/memory retrieval, intent classification, 10-layer post-generation safety pipeline (hallucination detection, bot-speak filter, etc.) |
+| **Proactive Opener** | `kaia_proactive.py` → `generate_opener()` | System + User message format | Enriched with selective cognitive injections (emotional arc, channel memory, relationship, beliefs, identity stream). Uses `BotSpeakFilter.harden()` + `EmergencyContaminationFilter` + `PostGenerationSafetyPipeline.apply_style_collapsers()`. |
+| **Afterthought** | `background_tasks.py` → afterthought task | System + User message format | Enriched with emotional arc + channel memory context. Full 3-stage post-generation safety pipeline. |
 | **Forum Auto-Post** | `background_tasks.py` -> `_make_forum_auto_post_task()` | System + User message format | Stripped-down LLM call (`ollama_client.chat`), bypasses `MessageProcessor` and cognitive pipeline. Uses `BotSpeakFilter.harden()` post-generation. |
 | **Forum Technical Support** | `background_tasks.py` -> `_make_forum_support_task()` | System + User message format | Stripped-down LLM call, grounded via BM25/hybrid RAG, automatic support disclaimer footer append, bypasses `MessageProcessor`. |
 | **Social Media Responder** | `kaia_social_responder.py` | Direct Ollama call | Bypasses `MessageProcessor`. Specialized social response generation context. |
@@ -279,12 +282,13 @@ See `docs/reports/audit_report.md` for the latest production audit and `docs/ttr
 **System health: S-tier. All subsystems operational. Both the TTRPG and Kaia cognitive pipeline are production-stable.**
 
 Key facts:
-- 365 monsters (41 boss-tier), 452 active unique equipment items across 7 tiers
+- 366 monsters (41 boss-tier), 453 active unique equipment items across 7 tiers, 253 unique fish
 - 12 quests covering L1–L15 (all progression gaps resolved)
 - 10 advanced classes with unique procs and passives
 - 77-floor Spine of the World mega-dungeon with Resonance Lift checkpoints
 - 2 shop locations (Hemlock's, Caravan)
 - Full cognitive pipeline (28 features): emotional arc, monologue, proactive initiation, relationship stages, dreams, beliefs, memory anchors, conversational stance, tone mirroring, anticipatory context priming, theory of mind
+- Dynamic Noon Events: 28 noon events with interactive mechanics (Dangerous Tainted Waters fishing & purification, Whisperwood Blockade counter-raids & rogue infiltration, crop blight treatments, dynamic UI action buttons)
 - Calendar with 13 special days, 4 seasons, deterministic weather — all buffs wired
 - Fractal flame art system (CPU-only, NumPy/SciPy, 20 variation functions, 10 palettes, adaptive DE)
 - Project 1999 Forum Integration: automated 6h scraping loops, post-moderation review queue, profile caching, and zero-hallucination tech support RAG verification

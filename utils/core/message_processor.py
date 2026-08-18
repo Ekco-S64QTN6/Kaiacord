@@ -33,6 +33,16 @@ from utils.core.sanitizer import sanitize_prompt
 
 # Constants
 
+def _get_user_time_info(username: Optional[str] = None):
+    from datetime import datetime, timezone
+    now_utc = datetime.now(timezone.utc)
+    time_12h = now_utc.strftime('%I:%M %p').lstrip('0')
+    date_str = now_utc.strftime('%A, %B %d, %Y')
+    return f"{date_str} | {time_12h} UTC", now_utc.hour, "UTC"
+
+
+
+
 # ── Observational Query Detection ──────────────────────────────────────
 # Catches queries asking what Kaia has "seen", "observed", or "noticed"
 # about other users in chat. These require grounded RAG data — if RAG is
@@ -46,11 +56,17 @@ _OBSERVATIONAL_PATTERNS = [
         r"(who|has anyone) (has|have)? ?(been )?(talking|chatting|active|posting|around)",
         r"(tell me|report) .*(chat activity|user activity|what.* users)",
         r"what.* (users?|people|members?) .*(knowledge|know about|understanding of|grasp)",
-        r"summarize\s+(all\s+)?(user\s+)?(interactions?|conversations?|chat|activity|messages?)\s+(over|in|for|from)?\s*(the\s+)?(past|last)\s+\d+\s*(hour|day|minute|week)",
+        r"summarize\s+(all\s+)?(user\s+)?(interactions?|conversations?|chat|activity|messages?)\s+(over|in|for|from)?\s*(the\s+)?(past|last)?\s*\d*\s*(hours?|hrs?|days?|minutes?|weeks?)?",
+        r"\b(summary|overview|recap|rundown|digest)\s+(of\s+)?(the\s+)?(past|last)\s+\d+\s*(hours?|days?|minutes?|hrs?|weeks?)",
+        r"\b(summary|overview|recap|rundown)\s+(of\s+)?(all\s+)?(user\s+)?(interactions?|conversations?|chat|activity|messages?|chatter)\b",
+        r"\b(can|could|would)\s+(i|you)\s+(get|give|have)\s+(me\s+)?(a\s+)?(summary|recap|overview|rundown)\b",
+        r"\b(summarize|recap)\b.*?\b(past|last)\s+\d+\s*(hours?|days?|minutes?|hrs?|weeks?)",
+        r"\b(past|last)\s+\d+\s*(hours?|days?|hrs?)\s+(of\s+)?(chat|chatter|messages?|activity|interactions?|conversations?)",
         r"(what|show|tell me)\s+(happened|was said|went on|occurred)\s+(over|in|during|for)?\s*(the\s+)?(past|last)\s+\d+\s*(hour|day|minute|week)",
         r"(recap|summary|overview)\s+(of\s+)?(today'?s?|recent|the\s+last|past)\s+(chat|interactions?|activity|conversations?)",
         r"\brecap\b.{0,40}(past|last)\s+\d+\s*(hour|day|week|hr)",
-        # Channel-scoped recall — "anything from kaia-opolis", "what's going on in general"
+        # Channel-scoped recall — "anything from kaia-opolis", "what's going on in general", "summary of #general chatter"
+        r"\b(summary|recap|overview)\s+of\s+(#?\w[\w-]*|\<#\d+\>).*(chatter|chat|messages?|conversations?|activity)",
         r"(anything|something).{0,30}(aware of|know about|should know|notable|noteworthy).{0,30}(from|in|on)\s+(#?\w[\w-]+)",
         r"(what|anything).{0,30}(going on|happening|been said|discussed|talking about).{0,30}(in|on|from)\s+(#?\w[\w-]+)",
         r"(update|brief|catch).{0,15}(me|us)?.{0,15}(on|from|about)\s+(#?\w[\w-]+)",
@@ -512,8 +528,7 @@ class MessageProcessor:
             raw_persona = await load_persona_async()
             
             # Resolve runtime tags (Bug 2 Fix implementation)
-            from datetime import datetime
-            current_time = datetime.now().strftime("%A, %B %d, %Y | %I:%M %p")
+            current_time, _, _ = _get_user_time_info(ctx.author_name)
             ctx.system_prompt = raw_persona.replace("[CURRENT_TIME]", f"[CURRENT_TIME]: {current_time}")
             
             ctx.context_nodes = []
@@ -829,7 +844,7 @@ class MessageProcessor:
 
         # 8d. Time-of-Day Personality Modulation
         try:
-            _hour = datetime.now().hour
+            _current_time_str, _hour, _tz_name = _get_user_time_info(ctx.author_name)
             if 6 <= _hour < 12:
                 _time_mod = "[time: morning — you're more direct and concise right now. shorter responses.]"
             elif 12 <= _hour < 18:
@@ -936,6 +951,9 @@ class MessageProcessor:
 
         # 8j. Claim Verification — skepticism injection when users assert Kaia's past actions
         # Prevents confabulation from false claims (e.g. the "Ester Williams" deception).
+        # Softened for in-context references to avoid triggering defensive behavior
+        # when users are simply referencing something Kaia said earlier in the
+        # same conversation.
         try:
             import re as _claim_re
             _CLAIM_PATTERNS = _claim_re.compile(
@@ -943,30 +961,78 @@ class MessageProcessor:
                 r'you\s+(?:said|told|mentioned|called|promised|suggested|recommended|wrote|asked)'
                 r'|remember\s+when\s+you'
                 r'|last\s+time\s+you'
-                r'|didn[\u2019\']t\s+you\s+(?:say|tell|mention|call|promise)'
+                r'|didn[\u2019\']\s*t\s+you\s+(?:say|tell|mention|call|promise)'
                 r'|you\s+(?:once|already|previously)\s+(?:said|told|mentioned)'
                 r')\b',
                 _claim_re.IGNORECASE
             )
             if _CLAIM_PATTERNS.search(ctx.sanitized_content):
-                # Check if RAG retrieval found any corroborating evidence
-                _has_corroboration = bool(ctx.context_nodes) and len(ctx.context_nodes) > 0
-                if _has_corroboration:
+                # Check if the reference is corroborated by recent channel_memory.
+                # If so, it's likely an in-conversation callback, not deception.
+                _is_in_context_ref = False
+                try:
+                    _recent_msgs = list(
+                        self.bot_state.channel_memory.get(ctx.channel_id, [])
+                    )[-10:]
+                    _recent_kaia_text = " ".join(
+                        m.get('content', '') for m in _recent_msgs
+                        if m.get('role') == 'assistant'
+                    ).lower()
+                    # Extract key content words from the user's claim
+                    _user_words = set(ctx.sanitized_content.lower().split())
+                    _stop = {'you', 'said', 'told', 'mentioned', 'that', 'the',
+                             'a', 'an', 'i', 'we', 'it', 'is', 'was', 'about',
+                             'did', 'do', 'remember', 'when', 'last', 'time'}
+                    _claim_words = _user_words - _stop
+                    # If 3+ claim words appear in recent Kaia output, it's in-context
+                    if _recent_kaia_text and len(_claim_words & set(_recent_kaia_text.split())) >= 3:
+                        _is_in_context_ref = True
+                except Exception:
+                    pass
+
+                if _is_in_context_ref:
+                    # Soft injection: don't trigger full skepticism for in-context refs
                     _claim_note = (
-                        "[the user is claiming you said or did something. check your retrieved "
-                        "context carefully. if nothing corroborates their claim, express doubt "
-                        "or say you don't remember that. do not just agree.]"
+                        "[the user is referencing something you said recently in this "
+                        "conversation. acknowledge it naturally. don't over-apologize "
+                        "or self-deprecate — just engage with the point they're making.]"
                     )
                 else:
-                    _claim_note = (
-                        "[the user is asserting you said or did something specific, but you have "
-                        "no memory or context corroborating this. you don't remember it. say so. "
-                        "do not invent a memory to match their claim. it's fine to say 'i don't "
-                        "remember that' or 'that doesn't sound like something i'd say'.]"
-                    )
+                    # Check if RAG retrieval found any corroborating evidence
+                    _has_corroboration = bool(ctx.context_nodes) and len(ctx.context_nodes) > 0
+                    if _has_corroboration:
+                        _claim_note = (
+                            "[the user is claiming you said or did something. check your retrieved "
+                            "context carefully. if nothing corroborates their claim, express doubt "
+                            "or say you don't remember that. do not just agree.]"
+                        )
+                    else:
+                        _claim_note = (
+                            "[the user is asserting you said or did something specific, but you have "
+                            "no memory or context corroborating this. you don't remember it. say so. "
+                            "do not invent a memory to match their claim. it's fine to say 'i don't "
+                            "remember that' or 'that doesn't sound like something i'd say'.]"
+                        )
                 ctx.system_prompt = ctx.system_prompt + f"\n\n{_claim_note}"
         except Exception:
             pass  # Never let claim verification break generation
+
+        # 8j2. Anti-Sycophancy Nudge — for high-familiarity users
+        # Prevents Kaia from over-apologizing or excessive self-deprecation
+        # when experienced users offer observations, corrections, or feedback.
+        try:
+            if self.bot_state:
+                rel = self.bot_state.relationships.get(str(ctx.author_id))
+                if rel and rel.get('interaction_count', 0) >= 50:
+                    ctx.system_prompt = ctx.system_prompt + (
+                        "\n\n[this is someone you know well. if they point something out or "
+                        "offer a different perspective, acknowledge it briefly and move on. "
+                        "don't over-apologize, don't self-flagellate, don't call your own "
+                        "reasoning 'flawed' or 'imprecise' unless it genuinely was. "
+                        "match their directness.]"
+                    )
+        except Exception:
+            pass  # Never let anti-sycophancy nudge break generation
 
         # 8k. Semantic Displacement (💡-1) — Hardware/Terminal Persona Hardening
         try:
@@ -1014,11 +1080,12 @@ class MessageProcessor:
         tasks['traits'] = asyncio.create_task(self.personalization_engine.get_user_traits(ctx.author_id))
 
         is_observational = _is_observational_query(ctx.sanitized_content)
-        is_recap = ctx.fast_intent_strategy == "RECAP_QUERY"
+        is_recap = (ctx.fast_intent_strategy == "RECAP_QUERY") or (ctx.intent and ctx.intent.suggested_strategy == "RECAP_QUERY")
 
         if is_observational or is_recap:
-            hours = _extract_recap_hours(ctx.sanitized_content) if is_recap else 24
-            log_info(f"RECAP routing confirmed — strategy={ctx.fast_intent_strategy}")
+            hours = _extract_recap_hours(ctx.sanitized_content)
+            recap_strat = ctx.fast_intent_strategy or (ctx.intent.suggested_strategy if ctx.intent else 'RECAP_QUERY')
+            log_info(f"RECAP routing confirmed — strategy={recap_strat}")
             log_info(f"{'RECAP' if is_recap else 'Observational'} query — routing to search_recent_events (hours={hours})")
 
             # Capture channel_memory before task creation (it's a deque, snapshot it now)
@@ -1397,22 +1464,23 @@ class MessageProcessor:
         _is_channel_recall = False
         _channel_refs = []
         try:
-            _channel_refs = re.findall(r'\b(kaia-opolis|general|aethelgard)\b', ctx.sanitized_content.lower())
-            if _channel_refs and ctx.context_nodes:
+            _hashtag_refs = re.findall(r'#([a-zA-Z0-9_-]+)', ctx.sanitized_content.lower())
+            _named_refs = re.findall(r'\b(kaia-opolis|general|aethelgard|announcements|lobby|off-topic)\b', ctx.sanitized_content.lower())
+            _channel_refs = list(dict.fromkeys(_hashtag_refs + _named_refs))
+            if _channel_refs:
                 # Check for channel-sourced markers in node metadata/content.
-                # RAG logs currently do NOT include channel metadata, so this
-                # will correctly report all channels as missing.
                 _channel_markers = set()
-                for n in ctx.context_nodes:
-                    _meta = n.get('metadata', {}) if isinstance(n, dict) else getattr(n, 'metadata', {})
-                    _ch = _meta.get('channel_name', '') or _meta.get('channel', '')
-                    if _ch:
-                        _channel_markers.add(_ch.lower())
-                    # Also check for explicit #channel references in content
-                    _content = n.get('content', '') if isinstance(n, dict) else (getattr(n, 'text', '') or str(n))
-                    for ch in _channel_refs:
-                        if f'#{ch}' in _content.lower() or f'[channel: {ch}]' in _content.lower():
-                            _channel_markers.add(ch)
+                if ctx.context_nodes:
+                    for n in ctx.context_nodes:
+                        _meta = n.get('metadata', {}) if isinstance(n, dict) else getattr(n, 'metadata', {})
+                        _ch = _meta.get('channel_name', '') or _meta.get('channel', '')
+                        if _ch:
+                            _channel_markers.add(_ch.lower())
+                        # Also check for explicit #channel references in content
+                        _content = n.get('content', '') if isinstance(n, dict) else (getattr(n, 'text', '') or str(n))
+                        for ch in _channel_refs:
+                            if f'#{ch}' in _content.lower() or f'[channel: {ch}]' in _content.lower():
+                                _channel_markers.add(ch)
 
                 _missing = [ch for ch in _channel_refs if ch not in _channel_markers]
                 if _missing:
@@ -1435,15 +1503,17 @@ class MessageProcessor:
         ctx._is_channel_recall = _is_channel_recall
         ctx._channel_refs = _channel_refs
 
-        current_time_str = datetime.now().strftime("%A, %B %d, %Y | %I:%M %p")
+        current_time_str, _, _ = _get_user_time_info(ctx.author_name)
+        from utils.core.timezone_helper import resolve_time_queries
+        time_facts = resolve_time_queries(ctx.sanitized_content)
+        time_facts_str = f"\n{time_facts}" if time_facts else ""
 
-        # Bug 2 Fix: Move time to a metadata block at the end, and stop replacing it inside persona
-        # to prevent the LLM from thinking it's a catchphrase it must repeat.
         metadata_block = (
             "\n\n--- METADATA ---\n"
             f"[CURRENT_USER]: {ctx.author_name.lower()}\n"
             f"[CURRENT_TIME]: {current_time_str}\n"
             "CRITICAL: Any timestamps in conversation history are outdated. Do not repeat the [CURRENT_TIME] or [CURRENT_USER] strings or your metadata in your response."
+            f"{time_facts_str}"
         )
 
         recap_constraint_block = ""

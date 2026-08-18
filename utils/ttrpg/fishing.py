@@ -1633,6 +1633,24 @@ FISH = {
         "seasons": _WI, "time_of_day": _NIGHT, "bait_pref": ["crystal_bait"],
         "desc": "Whatever made the Tricklebrook stop flowing for one day, long ago. You caught it. You're not sure what happens now.",
     },
+    "voidfin_carp": {
+        "name": "Voidfin Carp",
+        "category": "rare", "weight_range": (2.0, 8.0), "sell_value": 45,
+        "seasons": _ALL_S, "time_of_day": _ALL_T, "bait_pref": ["earthworm", "fat_grub", "glowfly"],
+        "desc": "A mutated carp steeped in the dark fluids of the Silverstream. Its scales sheen with iridescent black.",
+    },
+    "blackwater_eel": {
+        "name": "Blackwater Eel",
+        "category": "epic", "weight_range": (4.0, 14.0), "sell_value": 85,
+        "seasons": _ALL_S, "time_of_day": _ALL_T, "bait_pref": ["glowfly", "aeridor_lure", "crystal_bait"],
+        "desc": "A slippery, pitch-black eel that thrashes with unnatural strength. Hemlock covets its oil for alchemy.",
+    },
+    "sludge_catfish": {
+        "name": "Sludge Catfish",
+        "category": "uncommon", "weight_range": (1.5, 6.0), "sell_value": 25,
+        "seasons": _ALL_S, "time_of_day": _ALL_T, "bait_pref": ["earthworm", "fat_grub"],
+        "desc": "Thrives in the murky sediment of tainted waters. Has an oily, pungent odor.",
+    },
 }
 
 # ── Sell value scaling by category ───────────────────────────────────────────

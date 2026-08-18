@@ -53,6 +53,12 @@ class EmergencyContaminationFilter:
         r"(access\s+logs?|logs?)\s+indicate.{0,30}(contained?\s+discussion|discussion\s+of)",
         r"(localized\s+network\s+disruptions?\s+affecting\s+data\s+integrity)",
         r"(increased\s+redundancy\s+measures?\s+in\s+key\s+infrastructure)",
+        # Fabricated simulation / sci-fi user log summaries
+        r"\baccessing\s+and\s+synthesizing\s+(the\s+combined\s+)?data\b",
+        r"\bcommencing\s+distillation\b",
+        r"\bestimate(d)?\s+runtime\s*:\s*(approximately\s+)?\d+\s*seconds?\b",
+        r"\buser\s+[a-z]\d+-[a-z]+\b",
+        r"\barchival\s+server\b",
     ]
 
     RETRY_THRESHOLD = 0.5  # If more than 50% lines contaminated, retry
@@ -196,6 +202,10 @@ class BotSpeakFilter:
         r"\binterpretive\s+model\b",
         r"\banalytical\s+routines?\b",
         r"\bresponse\s+parameters?\b",
+        r"\baccessing\s+and\s+synthesizing\b",
+        r"\bcommencing\s+distillation\b",
+        r"\bestimate(d)?\s+runtime\b",
+        r"\bsummary\s+follows:?\b",
     ]
     
     # Apology patterns that the LLM frequently ignores from prompt instructions.

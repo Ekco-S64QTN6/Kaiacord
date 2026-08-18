@@ -15,6 +15,7 @@ DEFAULT_STATE = {
     "xp_mult": 1.0,
     "gil_mult": 1.0,
     "caravan_active": False,
+    "blockade_active": False,
     "fishing_water_tainted": False,
     "watchtower_bonus": False,
     "special_item_sale": {},
@@ -72,6 +73,7 @@ def load_world_state() -> Dict[str, Any]:
             # shop_price_mult
             if state.get("shop_price_mult_expiry", 0) > 0 and now > state["shop_price_mult_expiry"]:
                 state["shop_price_mult"] = 1.0
+                state["blockade_active"] = False
                 state["shop_price_mult_expiry"] = 0
                 modified = True
             # forest_event_bonus

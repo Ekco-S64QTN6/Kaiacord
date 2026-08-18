@@ -65,43 +65,74 @@ class ContextEnricher:
         return content
 
     async def resolve_mentions(self, content: str, msg: discord.Message) -> str:
-        """Resolve <@ID> and <@!ID> mentions to display names."""
+        """Resolve <@ID> and <@!ID> user mentions and <#ID> channel mentions to readable names."""
         mention_pattern = re.compile(r'<@!?(\d+)>')
         matches = mention_pattern.findall(content)
         
-        if not matches:
-            return content
-            
         resolved_content = content
-        for user_id_str in set(matches):
-            user_id = int(user_id_str)
-            display_name = None
-            
-            # 1. Check message mentions (fastest)
-            if msg.mentions:
-                for m in msg.mentions:
-                    if m.id == user_id:
-                        display_name = m.display_name
-                        break
-            
-            # 2. Check guild cache
-            if not display_name and msg.guild:
-                member = msg.guild.get_member(user_id)
-                if member:
-                    display_name = member.display_name
-            
-            # 3. Fetch from API (slowest, fallback)
-            if not display_name:
-                try:
-                    user = await self.bot.fetch_user(user_id)
-                    display_name = user.display_name if user else f"user_{user_id}"
-                except Exception:
-                    display_name = f"user_{user_id}"
-            
-            if display_name:
-                resolved_content = resolved_content.replace(f"<@{user_id_str}>", f"@{display_name}")
-                resolved_content = resolved_content.replace(f"<@!{user_id_str}>", f"@{display_name}")
+        if matches:
+            for user_id_str in set(matches):
+                user_id = int(user_id_str)
+                display_name = None
                 
+                # 1. Check message mentions (fastest)
+                if msg.mentions:
+                    for m in msg.mentions:
+                        if m.id == user_id:
+                            display_name = m.display_name
+                            break
+                
+                # 2. Check guild cache
+                if not display_name and msg.guild:
+                    member = msg.guild.get_member(user_id)
+                    if member:
+                        display_name = member.display_name
+                
+                # 3. Fetch from API (slowest, fallback)
+                if not display_name:
+                    try:
+                        user = await self.bot.fetch_user(user_id)
+                        display_name = user.display_name if user else f"user_{user_id}"
+                    except Exception:
+                        display_name = f"user_{user_id}"
+                
+                if display_name:
+                    resolved_content = resolved_content.replace(f"<@{user_id_str}>", f"@{display_name}")
+                    resolved_content = resolved_content.replace(f"<@!{user_id_str}>", f"@{display_name}")
+
+        # Resolve <#ID> channel mentions
+        channel_mention_pattern = re.compile(r'<#(\d+)>')
+        channel_matches = channel_mention_pattern.findall(resolved_content)
+        if channel_matches:
+            for ch_id_str in set(channel_matches):
+                ch_id = int(ch_id_str)
+                ch_name = None
+                
+                # 1. Check guild cache
+                if msg.guild:
+                    ch_obj = msg.guild.get_channel(ch_id)
+                    if ch_obj:
+                        ch_name = ch_obj.name
+                
+                # 2. Check bot cache
+                if not ch_name and self.bot:
+                    ch_obj = self.bot.get_channel(ch_id)
+                    if ch_obj:
+                        ch_name = ch_obj.name
+                
+                # 3. Fetch from API (fallback)
+                if not ch_name and self.bot:
+                    try:
+                        ch_obj = await self.bot.fetch_channel(ch_id)
+                        ch_name = ch_obj.name if ch_obj else None
+                    except Exception:
+                        ch_name = None
+                
+                if ch_name:
+                    resolved_content = resolved_content.replace(f"<#{ch_id_str}>", f"#{ch_name}")
+                else:
+                    resolved_content = resolved_content.replace(f"<#{ch_id_str}>", f"#channel_{ch_id_str}")
+                    
         return resolved_content
 
     async def resolve_replies(self, msg: discord.Message) -> str:

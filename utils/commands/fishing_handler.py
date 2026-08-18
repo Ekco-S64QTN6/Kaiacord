@@ -402,19 +402,7 @@ async def _handle_cast(ctx, interaction: discord.Interaction, uid: str, uname: s
 
     from utils.ttrpg.world_state import load_world_state
     wstate = load_world_state()
-    if wstate.get("fishing_water_tainted", False):
-        await interaction.followup.send(
-            embed=discord.Embed(
-                title="🌊 Murky Waters",
-                description=(
-                    "**⚠️ Tricklebrook Pond is tainted!**\n\n"
-                    "The waters run black and foul. The fish are gone or dead in the sludge. "
-                    "You cannot fish until the headwaters clear."
-                ),
-                color=0x2c3e50,
-            )
-        )
-        return
+    is_tainted_waters = bool(wstate.get("fishing_water_tainted", False))
 
     if sheet.get("location") != "tricklebrook_pond":
         await interaction.followup.send(
@@ -496,10 +484,15 @@ async def _handle_cast(ctx, interaction: discord.Interaction, uid: str, uname: s
         f"*The surface of Tricklebrook reflects the sky. Your {bait_name} breaks the mirror.*",
         f"*A gentle breeze ripples the water as your line sinks into the abyss.*",
     ]
+    if is_tainted_waters:
+        CAST_LINES.extend([
+            f"*{uname} casts into the pitch-black sludge. The murky water swirls with an oily violet sheen...*",
+            f"*The {bait_name} breaks through a crust of dark film into the tainted depths. Something violent stirs.*",
+        ])
     cast_embed = discord.Embed(
-        title=f"🎣 Casting — {pole_name}",
+        title=f"🎣 Casting — {pole_name}" + (" (⚠️ Tainted Waters)" if is_tainted_waters else ""),
         description=CAST_LINES[secrets.randbelow(len(CAST_LINES))],
-        color=POND_COLOR,
+        color=0x2c3e50 if is_tainted_waters else POND_COLOR,
     )
     cast_embed.set_footer(text=f"Bait: {bait_name} · Pole: {pole_name}")
     try:
@@ -529,45 +522,138 @@ async def _handle_cast(ctx, interaction: discord.Interaction, uid: str, uname: s
     time_of_day = get_time_of_day(hour)
     conditions = sheet.get("conditions", [])
 
-    try:
-        fish_key, fish_data, fish_weight = roll_catch(bait_key, pole_key, season, time_of_day, conditions)
-    except ValueError:
-        # Miss
-        MISS_LINES = [
-            "*Something touched the bait. Something changed its mind.*\n\nNo catch.",
-            "*The line moved. Just once. Then nothing.*",
-            "*You felt it. You definitely felt it. But the line came back empty.*",
-            "*A ripple. Gone. The pond doesn't explain itself.*",
-            "*Whatever it was, it wasn't hungry enough.*",
-            f"*You pull the line. Half the {bait_name} is gone. Clever little bastard.*",
-            "*A shadow passes under the water, investigates your hook, and slowly swims away.*",
-            "*You blink, and the bobber is still perfectly placed. You swear it dipped for a second.*",
-            "*Nothing. Not even a nibble. Maybe the Whisperwood is too loud today.*",
-            "*You pull your hook up. A clump of wet pondweed is attached to it.*",
-            "*A small silver fish swims up, nudges your hook, and darts away in sheer disinterest.*",
-            "*Gregor sighs faintly nearby. You probably moved too much.*",
-        ]
-        miss_embed = discord.Embed(
-            description=MISS_LINES[secrets.randbelow(len(MISS_LINES))],
-            color=0x888888,
-        )
-        sheet = await load(uid)
-        if sheet:
-            # Consume bait on miss
+    if is_tainted_waters:
+        # Dynamic Tainted Waters Risk/Reward Resolution
+        roll_tainted = secrets.randbelow(100) + 1
+        if roll_tainted <= 40:
+            # 40% Aberrant Catch (sells for 2x normal price!)
+            fish_key = secrets.choice(["voidfin_carp", "blackwater_eel", "sludge_catfish"])
+            fish_data = FISH[fish_key]
+            fish_weight = round(secrets.uniform(*fish_data["weight_range"]), 2)
+        elif roll_tainted <= 70:
+            # 30% Monster Hook!
+            from utils.ttrpg.session_manager import load as load_session, save as save_session
+            from utils.ttrpg.monster_registry import get as get_monster
+            chan_id = str(interaction.channel.id)
+            s = await load_session(chan_id)
+            if not s:
+                s = {"channel_id": chan_id, "active": True, "monsters": [], "combat_active": False, "created_at": datetime.now().timestamp()}
+
+            m_key = secrets.choice(["blood_slime", "cave_crawler", "shadow_hound"]) if sheet.get("level", 1) <= 5 else secrets.choice(["wraith", "shadow_dancer", "blood_slime"])
+            m_data = get_monster(m_key)
+            if m_data:
+                m_inst = m_data.copy()
+                m_inst["key"] = m_key
+                m_inst["hp"] = {"current": m_inst["hp"], "max": m_inst["hp"]}
+                m_inst["id"] = f"{m_key}_{secrets.token_hex(2)}"
+                m_inst["aggro_uid"] = uid
+                s["monsters"].append(m_inst)
+                s["combat_active"] = True
+                await save_session(s)
+
+            # Consume bait
             fishing_stats = sheet.setdefault("fishing_stats", {})
-            if "bait_count" in fishing_stats:
-                old_bait = fishing_stats.get("bait", "earthworm")
-                fishing_stats.setdefault("bait_stock", {})[old_bait] = fishing_stats.pop("bait_count", 0)
             bait_stock = fishing_stats.get("bait_stock", {})
             if bait_stock.get(bait_key, 0) > 0:
                 bait_stock[bait_key] -= 1
-            fishing_stats["bait_stock"] = bait_stock
             await save(sheet)
+
+            monster_embed = discord.Embed(
+                title="⚠️ MONSTER HOOKED FROM THE BLACKWATER!",
+                description=(
+                    f"The line jerks violently! Instead of a fish, a thrashing **{m_data['name']}** breaks the surface and attacks!\n\n"
+                    f"*{m_data['desc']}*\n\n"
+                    f"⚔️ **Combat initiated!** Use `!rpg attack` to defend yourself!"
+                ),
+                color=0x8b0000
+            )
+            fake_msg = _InteractionMsg(interaction)
+            from utils.ttrpg.rpg_views import RPGCombatView
+            cview = RPGCombatView(ctx, fake_msg, uid, uname, is_owner, m_key)
+            await interaction.followup.send(embed=monster_embed, view=cview)
+            return
+        elif roll_tainted <= 90:
+            # 20% Toxic Snag
+            sheet["hp"]["current"] = max(1, sheet["hp"]["current"] - 3)
+            conds = sheet.setdefault("conditions", [])
+            if "poisoned" not in conds:
+                conds.append("poisoned")
+            fishing_stats = sheet.setdefault("fishing_stats", {})
+            bait_stock = fishing_stats.get("bait_stock", {})
+            if bait_stock.get(bait_key, 0) > 0:
+                bait_stock[bait_key] -= 1
+            await save(sheet)
+            snag_embed = discord.Embed(
+                title="☣️ Toxic Snag!",
+                description=(
+                    "Your hook snags on a bubbling pocket of bile! The line snaps back, splashing black sludge across your face.\n\n"
+                    "💥 **-3 HP**\n"
+                    "🟢 **Inflicted:** `poisoned` (2 damage per combat round)"
+                ),
+                color=0x2c3e50
+            )
             view = FishingMenuView(ctx, uid, uname, is_owner, sheet)
+            await interaction.followup.send(embed=snag_embed, view=view)
+            return
         else:
-            view = discord.ui.View()
-        await interaction.followup.send(embed=miss_embed, view=view)
-        return
+            # 10% Sunken Artifact
+            sheet.setdefault("inventory", []).append("aeridor_shard")
+            fishing_stats = sheet.setdefault("fishing_stats", {})
+            bait_stock = fishing_stats.get("bait_stock", {})
+            if bait_stock.get(bait_key, 0) > 0:
+                bait_stock[bait_key] -= 1
+            await save(sheet)
+            treasure_embed = discord.Embed(
+                title="💎 Sunken Artifact Dredged!",
+                description=(
+                    "Your hook dredges up something heavy from the disturbed creek bed!\n\n"
+                    "✨ **Acquired:** **Aeridor Crystal Shard** (Can be used to `!rpg purify` the pond!)"
+                ),
+                color=0x9b59b6
+            )
+            view = FishingMenuView(ctx, uid, uname, is_owner, sheet)
+            await interaction.followup.send(embed=treasure_embed, view=view)
+            return
+    else:
+        try:
+            fish_key, fish_data, fish_weight = roll_catch(bait_key, pole_key, season, time_of_day, conditions)
+        except ValueError:
+            # Miss
+            MISS_LINES = [
+                "*Something touched the bait. Something changed its mind.*\n\nNo catch.",
+                "*The line moved. Just once. Then nothing.*",
+                "*You felt it. You definitely felt it. But the line came back empty.*",
+                "*A ripple. Gone. The pond doesn't explain itself.*",
+                "*Whatever it was, it wasn't hungry enough.*",
+                f"*You pull the line. Half the {bait_name} is gone. Clever little bastard.*",
+                "*A shadow passes under the water, investigates your hook, and slowly swims away.*",
+                "*You blink, and the bobber is still perfectly placed. You swear it dipped for a second.*",
+                "*Nothing. Not even a nibble. Maybe the Whisperwood is too loud today.*",
+                "*You pull your hook up. A clump of wet pondweed is attached to it.*",
+                "*A small silver fish swims up, nudges your hook, and darts away in sheer disinterest.*",
+                "*Gregor sighs faintly nearby. You probably moved too much.*",
+            ]
+            miss_embed = discord.Embed(
+                description=MISS_LINES[secrets.randbelow(len(MISS_LINES))],
+                color=0x888888,
+            )
+            sheet = await load(uid)
+            if sheet:
+                # Consume bait on miss
+                fishing_stats = sheet.setdefault("fishing_stats", {})
+                if "bait_count" in fishing_stats:
+                    old_bait = fishing_stats.get("bait", "earthworm")
+                    fishing_stats.setdefault("bait_stock", {})[old_bait] = fishing_stats.pop("bait_count", 0)
+                bait_stock = fishing_stats.get("bait_stock", {})
+                if bait_stock.get(bait_key, 0) > 0:
+                    bait_stock[bait_key] -= 1
+                fishing_stats["bait_stock"] = bait_stock
+                await save(sheet)
+                view = FishingMenuView(ctx, uid, uname, is_owner, sheet)
+            else:
+                view = discord.ui.View()
+            await interaction.followup.send(embed=miss_embed, view=view)
+            return
 
     # Something bit — show bite alert and reel view
     cha_mod = (sheet.get("stats", {}).get("cha", 10) - 10) // 2

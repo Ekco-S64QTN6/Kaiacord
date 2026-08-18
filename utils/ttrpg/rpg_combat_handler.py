@@ -1034,6 +1034,26 @@ async def _handle_attack(ctx, msg, send, rest, uid, uname, is_owner):
             else:
                 loot_lines.append(f"🎒 **[Inventory Full]** Left behind: {cons_display}")
 
+        # Blockade Raid Victory check
+        if monster.get("key") == "bandit_captain" or monster.get("is_blockade_raid"):
+            from utils.ttrpg.world_state import load_world_state, save_world_state
+            _ws = load_world_state()
+            _ws["blockade_active"] = False
+            _ws["shop_price_mult"] = 1.0
+            _ws["shop_price_mult_expiry"] = 0
+            save_world_state(_ws)
+            if len(set(sheet.get("inventory", [])) | {"stolen_trade_crate"}) <= INVENTORY_LIMIT:
+                sheet.setdefault("inventory", []).append("stolen_trade_crate")
+                loot_lines.append("📦 **Stolen Trade Crate** (`!rpg use stolen_trade_crate`)")
+            await _log_world_event(f"⚔️ **Blockade Broken:** {sheet['character_name']} defeated the Bandit Captain and liberated the Trade Road!")
+            _raid_embed = discord.Embed(
+                title="⚔️ Trade Road Liberated!",
+                description=f"*{sheet['character_name']} vanquished the **Bandit Captain**! The Whisperwood Blockade has broken, and shop prices are restored.*",
+                color=0x27ae60
+            )
+            _raid_embed.set_footer(text=f"+{xp_gain} XP · +{gil_gain} Gil")
+            await _broadcast_world_event(ctx, _raid_embed)
+
         if loot_lines:
             loot_msg = "\n🎁 **Looted:**\n" + "\n".join(loot_lines)
             
@@ -1669,4 +1689,160 @@ async def _dungeon_complete(ctx_obj, interaction, uid, uname, is_owner,
     )
     dungeon_embed.set_footer(text=f"+{xp} XP · +{gil} Gil · {len(loot)} item(s)")
     await _broadcast_world_event(ctx_obj, dungeon_embed)
+
+
+async def _handle_raid_blockade(ctx, msg, send, rest, uid, uname, is_owner):
+    """Assault the Bandit Blockade to eliminate price inflation and loot stolen crates."""
+    sheet = await load(uid)
+    if not sheet: return
+
+    from utils.ttrpg.world_state import load_world_state
+    wstate = load_world_state()
+
+    loc = sheet.get("location", "oakhaven")
+    if loc not in ("trade_road", "whisperwood_edge"):
+        return await msg.channel.send(embed=discord.Embed(
+            description="The bandit barricades are set along the **Trade Road** or **Whisperwood Edge**.\n`!rpg go trade_road`",
+            color=0xcc4444
+        ))
+
+    if not wstate.get("blockade_active", False):
+        return await msg.channel.send(embed=discord.Embed(
+            description="🛡️ *The trade routes are currently clear. There is no active blockade to raid.*",
+            color=0x3a8fc1
+        ))
+
+    if sheet["hp"]["current"] <= 0:
+        return await msg.channel.send(embed=discord.Embed(
+            description="You are too wounded to lead an assault on the blockade. Rest first.",
+            color=0xcc4444
+        ))
+
+    # Spawn Bandit Captain boss fight into session
+    chan_id = str(msg.channel.id)
+    s = await load_session(chan_id)
+    if not s:
+        s = {"channel_id": chan_id, "active": True, "monsters": [], "combat_active": False, "created_at": time.time()}
+
+    from utils.ttrpg.monster_registry import get as get_monster
+    m_data = get_monster("bandit_captain")
+    if not m_data:
+        m_data = {"name": "Bandit Captain", "hp": 85, "attack": 9, "defense": 10, "xp": 320, "gil": 150, "tier": "hard", "desc": "The ruthless commander of the Trade Road blockade."}
+
+    monster_instance = m_data.copy()
+    monster_instance["key"] = "bandit_captain"
+    monster_instance["hp"] = {"current": monster_instance["hp"], "max": monster_instance["hp"]}
+    monster_instance["id"] = f"bandit_captain_{secrets.token_hex(2)}"
+    monster_instance["aggro_uid"] = uid
+    monster_instance["is_blockade_raid"] = True
+    
+    s["monsters"].append(monster_instance)
+    s["combat_active"] = True
+    await save_session(s)
+
+    embed = discord.Embed(
+        title="⚔️ RAID ON THE WHISPERWOOD BLOCKADE!",
+        description=(
+            f"**{sheet['character_name']}** storms the fortified barricade!\n\n"
+            f"*{m_data['desc']}*\n\n"
+            f"Defeat the **Bandit Captain** to break the blockade, restore shop prices, and recover stolen trade crates!"
+        ),
+        color=0xd35400
+    )
+    embed.add_field(name="❤️ Boss HP", value=str(monster_instance['hp']['max']), inline=True)
+    embed.add_field(name="🗡️ ATK", value=str(monster_instance.get('attack', 0)), inline=True)
+    embed.add_field(name="🛡️ DEF", value=str(monster_instance.get('defense', 0)), inline=True)
+    embed.set_footer(text="Use !rpg attack to strike!")
+    
+    from utils.ttrpg.rpg_views import RPGCombatView
+    cview = RPGCombatView(ctx, msg, uid, uname, is_owner, "bandit_captain")
+    await msg.channel.send(embed=embed, view=cview)
+
+
+async def _handle_rob_bandits(ctx, msg, send, rest, uid, uname, is_owner):
+    """Infiltrate the bandit camp to steal contraband and undermine the blockade."""
+    sheet = await load(uid)
+    if not sheet: return
+
+    from utils.ttrpg.world_state import load_world_state, save_world_state
+    wstate = load_world_state()
+
+    loc = sheet.get("location", "oakhaven")
+    if loc not in ("trade_road", "whisperwood_edge"):
+        return await msg.channel.send(embed=discord.Embed(
+            description="The bandit supply cache is hidden along the **Trade Road** or **Whisperwood Edge**.\n`!rpg go trade_road`",
+            color=0xcc4444
+        ))
+
+    if not wstate.get("blockade_active", False):
+        return await msg.channel.send(embed=discord.Embed(
+            description="🗡️ *There are no active bandit supply camps to rob.*",
+            color=0x888888
+        ))
+
+    if sheet["hp"]["current"] <= 5:
+        return await msg.channel.send(embed=discord.Embed(
+            description="You are too badly injured to attempt stealth infiltration.",
+            color=0xcc4444
+        ))
+
+    # Stealth DEX check: d20 + DEX mod. Rogue / Shadowblade gets +3 advantage bonus
+    dex = sheet.get("stats", {}).get("dex", 10)
+    dex_mod = (dex - 10) // 2
+    char_class = sheet.get("class", "")
+    adv_class = sheet.get("advanced_class", "")
+    class_bonus = 3 if (char_class == "Rogue" or adv_class in ("Shadowblade", "Ranger")) else 0
+    roll = (secrets.randbelow(20) + 1) + dex_mod + class_bonus
+
+    if roll >= 12:
+        # Success! Steal 80-120 Gil + 1 Stolen Trade Crate + ease inflation
+        stolen_gil = secrets.randbelow(41) + 80  # 80-120
+        sheet["gil"] = sheet.get("gil", 0) + stolen_gil
+        sheet.setdefault("inventory", []).append("stolen_trade_crate")
+        sheet["xp"] = sheet.get("xp", 0) + 35
+
+        # Ease shop price inflation
+        current_mult = wstate.get("shop_price_mult", 1.25)
+        wstate["shop_price_mult"] = max(1.0, round(current_mult - 0.10, 2))
+        if wstate["shop_price_mult"] <= 1.0:
+            wstate["blockade_active"] = False
+        save_world_state(wstate)
+
+        from utils.ttrpg.progression import check_level_up
+        leveled, new_lvl = check_level_up(sheet)
+        await save(sheet)
+
+        desc = (
+            f"🗡️ **Stealth Infiltration Successful!** (Roll: {roll} vs DC 12)\n\n"
+            f"**{sheet['character_name']}** slipped past the bandit sentries and raided their contraband tent!\n\n"
+            f"💰 **Looted:** +{stolen_gil} Gil\n"
+            f"📦 **Recovered:** 1x **Stolen Trade Crate** (`!rpg use stolen_trade_crate`)\n"
+            f"📉 **Trade Route Relieved:** Shop price markup lowered to **{int(round((wstate['shop_price_mult']-1.0)*100))}%**\n"
+            f"✨ **Reward:** +35 XP"
+        )
+        if leveled:
+            desc += f"\n🎉 **Level Up!** Reached **Level {new_lvl}!**"
+
+        await msg.channel.send(embed=discord.Embed(
+            title="🗡️ Bandit Cache Robbed!",
+            description=desc,
+            color=0x2ecc71
+        ))
+    else:
+        # Detected!
+        dmg = secrets.randbelow(6) + 5  # 5-10 dmg
+        sheet["hp"]["current"] = max(1, sheet["hp"]["current"] - dmg)
+        await save(sheet)
+
+        desc = (
+            f"🚨 **Spotted by Sentries!** (Roll: {roll} vs DC 12)\n\n"
+            f"A tripwire snaps! Crossbow bolts fly from the brush as **{sheet['character_name']}** scrambles back into the shadows!\n\n"
+            f"💥 **Damage:** -{dmg} HP ({sheet['hp']['current']}/{sheet['hp']['max']})\n"
+            f"*You barely escaped before the guards encircled you.*"
+        )
+        await msg.channel.send(embed=discord.Embed(
+            title="⚠️ Infiltration Failed!",
+            description=desc,
+            color=0xcc4444
+        ))
 

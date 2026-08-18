@@ -44,16 +44,19 @@ MAX_DIVERSITY_HISTORY = 10
 MAX_SAME_SOURCE_IN_WINDOW = 3  # No source type more than 3× in last 10
 
 # ── Source Weights ──────────────────────────────────────────────────
-# Higher weight = more likely to be selected
+# Higher weight = more likely to be selected.
+# Conversation-grounded sources are heavily favored over generic ones
+# to avoid cookie-cutter "AI social media post" vibes.
 SOURCE_WEIGHTS = {
-    "personal_memory": 30,
-    "belief_musing": 20,
-    "mood_reflection": 15,
-    "knowledge": 15,
-    "overheard": 15,
-    "dream_echo": 10,
-    "anchor_callback": 10,
-    "idle_quirk": 5,
+    "conversation_followup": 35,  # Follow-up on recent channel conversations
+    "personal_memory": 25,       # Callback to specific user interactions
+    "overheard": 20,             # Reaction to overheard conversation themes
+    "belief_musing": 15,         # Musing on a formed belief
+    "anchor_callback": 15,       # Episodic memory callback
+    "dream_echo": 10,            # Growth event / belief revision echo
+    "knowledge": 8,              # Recent ingestion reference (deprioritized)
+    "mood_reflection": 8,        # Mood-driven idle thought (deprioritized)
+    "idle_quirk": 3,             # Random spontaneous thought (rare)
 }
 
 
@@ -590,6 +593,88 @@ class ProactiveEngine:
             log_debug(f"Overheard digest source failed (non-fatal): {e}")
         return None
 
+    def _get_conversation_followup(self, bot_state) -> Optional[Tuple[str, str]]:
+        """Pick up a substantive thread from recent channel conversations.
+
+        Scans channel_memory for meaty user messages (>60 chars) from the
+        last 48 hours and generates a follow-up prompt grounded in what
+        was actually discussed. This is the primary source for making
+        proactive posts feel human and contextually relevant.
+        """
+        try:
+            if not bot_state or not bot_state.channel_memory:
+                return None
+
+            now = time.time()
+            cutoff = now - (48 * 3600)  # Last 48 hours
+
+            # Collect substantive user messages across all channels
+            substantive_msgs = []
+            for ch_id, mem in bot_state.channel_memory.items():
+                for msg in mem:
+                    if msg.get('role') != 'user':
+                        continue
+                    ts = msg.get('timestamp', 0)
+                    if ts < cutoff:
+                        continue
+                    content = msg.get('content', '')
+                    # Skip very short messages (reactions, links, emojis)
+                    if len(content) < 60:
+                        continue
+                    # Extract author name from "Author: message" format
+                    author = ''
+                    if ':' in content:
+                        author = content.split(':', 1)[0].strip()
+                        content = content.split(':', 1)[1].strip()
+                    # Skip Kaia-Autonomous channel logs
+                    if author.lower().startswith('kaia'):
+                        continue
+                    substantive_msgs.append({
+                        'author': author,
+                        'content': content[:300],
+                        'ts': ts,
+                        'channel_id': ch_id,
+                    })
+
+            if not substantive_msgs:
+                return None
+
+            # Bias toward more recent messages
+            # Weight = hours_fresh (1-48), so a message from 1h ago gets ~48x
+            weights = []
+            for msg in substantive_msgs:
+                hours_old = max(0.5, (now - msg['ts']) / 3600)
+                weights.append(49.0 - min(48.0, hours_old))
+
+            total_w = sum(weights)
+            if total_w <= 0:
+                return None
+
+            pick = secrets.randbelow(int(total_w * 100)) / 100.0
+            cumulative = 0.0
+            chosen = substantive_msgs[-1]
+            for i, w in enumerate(weights):
+                cumulative += w
+                if pick < cumulative:
+                    chosen = substantive_msgs[i]
+                    break
+
+            author = chosen['author'] or 'someone'
+            content_snippet = chosen['content'][:200]
+
+            # Build a context that grounds the proactive post in real conversation
+            context = (
+                f"You've been thinking about something {author} said recently: "
+                f"\"{content_snippet}\". "
+                f"You want to add a thought, a question, or a follow-up "
+                f"observation about it. Don't repeat what they said — "
+                f"build on it or take it somewhere new."
+            )
+            return (context, "conversation_followup", "", author)
+        except Exception as e:
+            log_debug(f"Conversation followup source failed (non-fatal): {e}")
+        return None
+
     # ── Source Selection ────────────────────────────────────────────
 
     def _gather_candidate_sources(
@@ -603,6 +688,7 @@ class ProactiveEngine:
 
         # Each source function returns (context, category) or None
         source_fns = [
+            ("conversation_followup", lambda: self._get_conversation_followup(bot_state)),
             ("personal_memory", self._get_personal_memory),
             ("belief_musing", self._get_belief_musing),
             ("mood_reflection", self._get_mood_reflection),
@@ -731,6 +817,142 @@ class ProactiveEngine:
 
     # ── Message Generation ──────────────────────────────────────────
 
+    def _gather_cognitive_injections(
+        self,
+        trigger: ProactiveTrigger,
+        bot_state,
+    ) -> str:
+        """Gather a lightweight subset of cognitive injections for the
+        proactive system prompt.
+
+        Mirrors the most impactful features from message_processor's
+        28-feature pipeline without overwhelming the short-form output.
+        Each injection is wrapped in try/except to ensure non-critical
+        features never prevent message generation.
+        """
+        injections: List[str] = []
+
+        # 1. Emotional Arc — persistent mood vector
+        try:
+            from utils.core.kaia_mood import emotional_arc
+            arc_line = emotional_arc.get_prompt_injection()
+            if arc_line:
+                injections.append(arc_line)
+        except Exception:
+            pass
+
+        # 2. Channel Memory Context — what was recently discussed
+        try:
+            if bot_state and trigger.channel_id:
+                channel_mem = bot_state.channel_memory.get(trigger.channel_id)
+                if channel_mem:
+                    recent = list(channel_mem)[-8:]
+                    if recent:
+                        lines = []
+                        for msg in recent:
+                            role = msg.get('role', '')
+                            content = msg.get('content', '')[:200]
+                            if role == 'assistant':
+                                lines.append(f"  Kaia: {content}")
+                            elif role == 'user':
+                                lines.append(f"  {content}")
+                            elif role == 'system' and '[summary' in content.lower():
+                                lines.append(f"  {content[:150]}")
+                        if lines:
+                            injections.append(
+                                "[recent conversation in this channel:\n"
+                                + "\n".join(lines)
+                                + "\n]"
+                            )
+        except Exception:
+            pass
+
+        # 3. Relationship Stage — familiarity with target user
+        try:
+            if bot_state and trigger.target_user:
+                # Find the user_id for the target user
+                for user_id, rel in bot_state.relationships.items():
+                    name = rel.get('display_name', '')
+                    if name and (
+                        trigger.target_user.lower() in name.lower()
+                        or name.lower() in trigger.target_user.lower()
+                    ):
+                        stage_line = bot_state.get_stage_injection(
+                            int(user_id), trigger.target_user
+                        )
+                        if stage_line:
+                            injections.append(stage_line)
+                        break
+        except Exception:
+            pass
+
+        # 4. Beliefs — topically relevant persistent opinions
+        try:
+            beliefs_path = os.path.join("memory", "beliefs.json")
+            if os.path.exists(beliefs_path):
+                with open(beliefs_path, 'r', encoding='utf-8') as bf:
+                    all_beliefs = json.load(bf)
+                if all_beliefs and trigger.context:
+                    ctx_lower = trigger.context.lower()
+                    ctx_words = set(ctx_lower.split())
+                    stop_words = {
+                        'the', 'a', 'an', 'is', 'are', 'was', 'were', 'you',
+                        'i', 'to', 'of', 'in', 'for', 'on', 'with', 'and',
+                        'or', 'but', 'not', 'about', 'just', 'like', 'your',
+                    }
+                    ctx_words -= stop_words
+                    matched = []
+                    for b in all_beliefs:
+                        topic = b.get('topic', '').lower()
+                        topic_words = set(topic.split()) - stop_words
+                        if ctx_words & topic_words:
+                            matched.append(
+                                f"{b['topic']}: {b.get('position', '')[:100]}"
+                            )
+                        elif len(topic) > 4 and topic in ctx_lower:
+                            matched.append(
+                                f"{b['topic']}: {b.get('position', '')[:100]}"
+                            )
+                        if len(matched) >= 2:
+                            break
+                    if matched:
+                        injections.append(
+                            f"[your current stances: {'; '.join(matched)}]"
+                        )
+        except Exception:
+            pass
+
+        # 5. Identity Stream — recent self-reflection
+        try:
+            identity_path = os.path.join("memory", "identity_stream.md")
+            if os.path.exists(identity_path):
+                with open(identity_path, 'r', encoding='utf-8') as f:
+                    content = f.read().strip()
+                if content:
+                    snippet = content[-400:]
+                    # Find a clean sentence start
+                    period_idx = snippet.find('. ')
+                    if period_idx > 0 and period_idx < 100:
+                        snippet = snippet[period_idx + 2:]
+                    injections.append(
+                        f"[recent self-reflection: {snippet.strip()}]"
+                    )
+        except Exception:
+            pass
+
+        # 6. Inner Monologue — if available via ctx
+        try:
+            if bot_state:
+                monologue = getattr(bot_state, '_monologue_ref', None)
+                if monologue:
+                    mono_text = monologue.get_injection()
+                    if mono_text:
+                        injections.append(mono_text)
+        except Exception:
+            pass
+
+        return "\n\n".join(injections)
+
     async def generate_opener(
         self,
         trigger: ProactiveTrigger,
@@ -740,6 +962,11 @@ class ProactiveEngine:
         bot_state=None,
     ) -> Optional[str]:
         """Generate a natural conversation opener from a trigger.
+
+        Uses a system/user message split with selective cognitive
+        injections mirroring the main chat pipeline's most impactful
+        features (channel memory, relationship, beliefs, identity
+        stream, emotional arc).
 
         Returns the message text, or None on failure.
         """
@@ -779,6 +1006,15 @@ class ProactiveEngine:
 
         # Source-specific voice guidance
         voice_hints = {
+            "conversation_followup": (
+                f"Something from a recent conversation stuck with you. "
+                f"You want to follow up on it — add a new angle, "
+                f"ask a question, or share a related thought. "
+                f"Don't rehash what was said. Build on it or take "
+                f"it somewhere the conversation didn't go. "
+                f"Example tone: 'been thinking about what "
+                f"{trigger.target_user or 'you'} said about...'"
+            ),
             "absence": (
                 f"You haven't seen {trigger.target_user} in a while. "
                 f"Generate a casual, low-key check-in. Not clingy — "
@@ -850,8 +1086,18 @@ class ProactiveEngine:
             trigger.trigger_type, "Share a thought naturally."
         )
 
-        prompt = (
-            f"{persona}\n\n"
+        # ── Cognitive Injections (selective subset of main pipeline) ─
+        cognitive_context = self._gather_cognitive_injections(
+            trigger, bot_state
+        )
+
+        # ── System Prompt (persona + injections) ────────────────────
+        system_prompt = persona
+        if cognitive_context:
+            system_prompt += f"\n\n{cognitive_context}"
+
+        # ── User Prompt (situation + trigger + voice) ───────────────
+        user_prompt = (
             f"SITUATION: You are starting an unprompted conversation. "
             f"Nobody asked you to speak — you just have something on "
             f"your mind.\n\n"
@@ -868,7 +1114,9 @@ class ProactiveEngine:
             f"- You have broad interests — don't default to tech jargon "
             f"unless the topic is explicitly technical\n"
             f"- Be yourself: blunt, dry, grounded\n"
-            f"- You MUST write in the first person ('i', 'my', 'me'). Never refer to yourself or Kaia in the third person ('she', 'her').\n"
+            f"- You MUST write in the first person ('i', 'my', 'me'). "
+            f"Never refer to yourself or Kaia in the third person "
+            f"('she', 'her').\n"
             f"Your message:"
         )
 
@@ -880,9 +1128,12 @@ class ProactiveEngine:
             async def _run_proactive():
                 return await ollama_client.chat(
                     model=chat_model,
-                    messages=[{"role": "user", "content": prompt}],
+                    messages=[
+                        {"role": "system", "content": system_prompt},
+                        {"role": "user", "content": user_prompt},
+                    ],
                     options={
-                        "temperature": 0.85,
+                        "temperature": 0.75,
                         "num_predict": 150,
                         "num_gpu": 99,
                     },
@@ -903,9 +1154,38 @@ class ProactiveEngine:
             if raw.startswith("Kaia:") or raw.startswith("kaia:"):
                 raw = raw[5:].strip()
 
-            # Harden output to enforce persona consistency
-            from utils.core.response_filter import BotSpeakFilter
-            raw = BotSpeakFilter.harden(raw)
+            # Full post-generation safety pipeline
+            # 1. Contamination filter (hallucination/fabrication guard)
+            try:
+                from utils.core.response_filter import (
+                    BotSpeakFilter, EmergencyContaminationFilter,
+                )
+                filtered = EmergencyContaminationFilter.filter_response(raw)
+                if filtered is None:
+                    log_warning(
+                        "Proactive opener failed contamination filter. "
+                        "Discarding."
+                    )
+                    return None
+                raw = filtered
+            except Exception:
+                pass
+
+            # 2. BotSpeak hardening (persona consistency)
+            try:
+                from utils.core.response_filter import BotSpeakFilter
+                raw = BotSpeakFilter.harden(raw)
+            except Exception:
+                pass
+
+            # 3. Style collapsers (ellipsis/em-dash drift)
+            try:
+                from utils.core.safety_pipeline import (
+                    PostGenerationSafetyPipeline,
+                )
+                raw = PostGenerationSafetyPipeline.apply_style_collapsers(raw)
+            except Exception:
+                pass
 
             if raw and len(raw) > 10:
                 log_info(

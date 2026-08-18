@@ -303,7 +303,7 @@ def format_sheet(sheet: Dict[str, Any]) -> str:
     )
 
 
-async def get_active_town_defenders(town_locations=None, within_hours=6):
+async def get_active_town_defenders(town_locations=None, within_hours=48):
     """Return character sheets for players plausibly present/active for a town event."""
     import time
     if town_locations is None:
@@ -316,7 +316,7 @@ async def get_active_town_defenders(town_locations=None, within_hours=6):
     now = time.time()
     cutoff = now - within_hours * 3600
     
-    # First pass: active within window and alive
+    # Active within 48h window and alive in town
     defenders = [
         s for s in sheets
         if s.get("location") in town_locations
@@ -324,12 +324,15 @@ async def get_active_town_defenders(town_locations=None, within_hours=6):
         and s.get("last_updated", 0) >= cutoff
     ]
     
-    # Fallback: anyone in town who is alive
-    if not defenders:
-        defenders = [
+    # If fewer than 2 or to support small testing group, draft all living characters in town
+    if len(defenders) < len(sheets):
+        all_town = [
             s for s in sheets
-            if s.get("location") in town_locations
+            if s.get("location", "oakhaven") in town_locations
             and s.get("hp", {}).get("current", 0) > 0
         ]
+        if all_town:
+            defenders = all_town
         
     return defenders
+

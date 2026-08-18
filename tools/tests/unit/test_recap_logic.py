@@ -17,18 +17,90 @@ def test_extract_recap_hours():
     assert _extract_recap_hours("3 hr recap") == 3
     assert _extract_recap_hours("no time mentioned") == 24
     assert _extract_recap_hours("last 1 day") == 24
+    assert _extract_recap_hours("Kaia can I get a summary of the past 24 hours of <#1462239450691145924> and <#1013809281994338398> chatter") == 24
+    assert _extract_recap_hours("Kaia can you give me a summary of user interactions over the past 12 hours") == 12
+    assert _extract_recap_hours("past 18 hrs of chatter") == 18
 
 def test_is_observational_query_recap_match():
-    # Verify that some recap queries DO match observational patterns
-    # (recap|summary|overview)\s+(of\s+)?(today'?s?|recent|the\s+last|past)\s+(chat|interactions?|activity|conversations?)
+    # Verify that recap queries and user summary queries match observational patterns
     assert _is_observational_query("recap of past interactions") == True
     assert _is_observational_query("summary of today's chat") == True
+    assert _is_observational_query("Kaia can I get a summary of the past 24 hours of <#1462239450691145924> and <#1013809281994338398> chatter") == True
+    assert _is_observational_query("Kaia can you give me a summary of user interactions over the past 12 hours") == True
+    assert _is_observational_query("can I get a summary of the past 24 hours of #general and #kaia-opolis chatter") == True
+
+def test_intent_parser_fast_parse_recap():
+    from utils.core.intent_classifier import IntentParser
+    ip = IntentParser()
+    
+    intent1 = ip.fast_parse("Kaia can I get a summary of the past 24 hours of <#1462239450691145924> and <#1013809281994338398> chatter")
+    assert intent1 is not None
+    assert intent1.suggested_strategy == "RECAP_QUERY"
+
+    intent2 = ip.fast_parse("Kaia can you give me a summary of user interactions over the past 12 hours")
+    assert intent2 is not None
+    assert intent2.suggested_strategy == "RECAP_QUERY"
+
+    intent3 = ip.fast_parse("summary of #general chatter over the last 6 hours")
+    assert intent3 is not None
+    assert intent3.suggested_strategy == "RECAP_QUERY"
+
+def test_context_enricher_resolve_channel_mentions():
+    from utils.core.context_enricher import ContextEnricher
+    import asyncio
+    
+    class DummyChannel:
+        name = "kaia-opolis"
+
+    bot_mock = MagicMock()
+    bot_mock.get_channel.return_value = DummyChannel()
+    
+    async def _dummy_fetch(ch_id):
+        return DummyChannel()
+        
+    bot_mock.fetch_channel = _dummy_fetch
+    
+    async def _dummy_fetch_user(user_id):
+        return None
+    bot_mock.fetch_user = _dummy_fetch_user
+    
+    enricher = ContextEnricher(bot_mock)
+    msg_mock = MagicMock()
+    msg_mock.guild = None
+    msg_mock.mentions = []
+    
+    raw_text = "Kaia can I get a summary of the past 24 hours of <#1462239450691145924> and <#1013809281994338398> chatter"
+    resolved = asyncio.run(enricher.resolve_mentions(raw_text, msg_mock))
+    assert "<#" not in resolved
+    assert "#kaia-opolis" in resolved
+
+def test_safety_pipeline_channel_recall_fabrication_guard():
+    from utils.core.safety_pipeline import PostGenerationSafetyPipeline
+    
+    fake_output = (
+        "summary follows:\n\n"
+        "channel #1462239450691145924 :\n"
+        "the dominant theme revolved around persistent issues with resource allocation for a distributed rendering farm.\n"
+        "channel #1013809281994338398 :\n"
+        "the conversation largely centered on starkind's cognitive architecture."
+    )
+    
+    cleaned, reason = PostGenerationSafetyPipeline.process_attempt(
+        content=fake_output,
+        attempt=1,
+        query="summary of past 24 hours",
+        is_channel_recall=True,
+        channel_refs=["1462239450691145924", "1013809281994338398"]
+    )
+    
+    assert cleaned is not None
+    assert "i don't have clear records from those channels right now" in cleaned
 
 @patch('utils.core.message_processor.log_info')
 @patch('utils.core.message_processor.asyncio.create_task')
 @patch('utils.core.message_processor.load_persona_async')
-@pytest.mark.asyncio
-async def test_setup_retrieval_tasks_recap_routing(mock_load_persona, mock_create_task, mock_log_info):
+def test_setup_retrieval_tasks_recap_routing(mock_load_persona, mock_create_task, mock_log_info):
+    import asyncio
     from utils.core.message_processor import MessageProcessor
     from utils.core.message_context import MessageContext
     
@@ -72,7 +144,7 @@ async def test_setup_retrieval_tasks_recap_routing(mock_load_persona, mock_creat
     message_ctx.fast_intent_strategy = "RECAP_QUERY"
     message_ctx.category = "general"
     
-    await processor._setup_retrieval_tasks(message_ctx)
+    asyncio.run(processor._setup_retrieval_tasks(message_ctx))
     
     # Check log_info for correct routing and hour extraction
     log_calls = [call.args[0] for call in mock_log_info.call_args_list]

@@ -87,6 +87,10 @@ async def handle_explain_command(ctx, msg, send_kaia_response):
     top_results = results[:8]
     node_lines = []
 
+    # Build lines with ANSI coloring
+    ESC = "\u001b"
+    RESET = f"{ESC}[0m"
+
     for i, node in enumerate(top_results, 1):
         metadata = node.get("metadata", {})
         score    = node.get("score", 0.0)
@@ -96,14 +100,77 @@ async def handle_explain_command(ctx, msg, send_kaia_response):
         file_path         = metadata.get("file_path", "")
         basename          = os.path.basename(file_path) if file_path else "unknown"
 
-        flag_str = f" [⚑ {', '.join(audit_flags)}]" if audit_flags else ""
-        node_lines.append(
-            f"**#{i}** · Score: `{score:.3f}` ({retrieval_method.upper()}) ➜ `{basename}` *(type: {source_type})*{flag_str}"
-        )
+        # Determine relative path from knowledge_base for all folders
+        display_path = basename
+        is_user_log = False
+        parsed_username = ""
+        is_profile = False
+
+        if file_path:
+            norm_path = os.path.normpath(file_path)
+            parts = norm_path.split(os.sep)
+            if "knowledge_base" in parts:
+                try:
+                    kb_idx = parts.index("knowledge_base")
+                    rel_parts = parts[kb_idx + 1:]
+                    if rel_parts:
+                        if len(rel_parts) >= 2 and rel_parts[0] == "user_logs":
+                            is_user_log = True
+                            user_folder = rel_parts[1]
+                            if "_" in user_folder:
+                                parsed_username = user_folder.split("_")[0]
+                            else:
+                                parsed_username = user_folder
+                            if "user_profile.md" in basename:
+                                is_profile = True
+                        display_path = "/".join(rel_parts)
+                except ValueError:
+                    pass
+            elif "user_logs" in parts:
+                try:
+                    ul_idx = parts.index("user_logs")
+                    rel_parts = parts[ul_idx:]
+                    if len(rel_parts) >= 2:
+                        is_user_log = True
+                        user_folder = rel_parts[1]
+                        if "_" in user_folder:
+                            parsed_username = user_folder.split("_")[0]
+                        else:
+                            parsed_username = user_folder
+                        if "user_profile.md" in basename:
+                            is_profile = True
+                        display_path = "/".join(rel_parts)
+                except ValueError:
+                    pass
+
+        # Select method color
+        method_upper = retrieval_method.upper()
+        if method_upper == "HYBRID":
+            method_color = f"{ESC}[1;35m" # Bold Magenta
+        elif method_upper == "VECTOR":
+            method_color = f"{ESC}[1;36m" # Bold Cyan
+        elif method_upper == "BM25":
+            method_color = f"{ESC}[1;34m" # Bold Blue
+        else:
+            method_color = f"{ESC}[1;37m" # Bold White
+
+        # Format display name/path
+        if is_user_log:
+            log_type = "profile" if is_profile else "log"
+            path_str = f"{ESC}[1;32m- {parsed_username} - [{log_type}]{RESET}"
+        elif display_path == "unknown":
+            path_str = f"{ESC}[1;31munknown{RESET}"
+        else:
+            path_str = f"{ESC}[0;37m{display_path}{RESET}"
+
+        flag_str = f" {ESC}[1;31m[⚑ {', '.join(audit_flags)}]{RESET}" if audit_flags else ""
+
+        line = f"{ESC}[1;37m#{i}{RESET} · {ESC}[1;33m{score:.3f}{RESET} {method_color}({method_upper}){RESET} -> {path_str}{flag_str}"
+        node_lines.append(line)
 
     embed.add_field(
         name="Sources & Relevance Scores",
-        value="\n".join(node_lines),
+        value="```ansi\n" + "\n".join(node_lines) + "\n```",
         inline=False
     )
 
