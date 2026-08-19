@@ -2,7 +2,7 @@
 
 # 🌌 KAIACORD
 
-### **A Production-Grade, Self-Hosted Discord AI Agent with Cognitive Persistence, Hybrid RAG, and Local Inference**
+### **Self-Hosted Discord AI Agent with Cognitive Persistence, Hybrid RAG, and Local Inference**
 
 
 [![Python 3.14+](https://img.shields.io/badge/Python-3.14%2B-blue.svg?style=flat-square&logo=python)](https://python.org)
