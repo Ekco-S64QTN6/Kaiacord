@@ -1,35 +1,28 @@
 # Testing Guide for Kaia
 
-As of Phase 12 (Test Suite Modernization), Kaia's entire test suite has been updated to use `pytest` and automatically handles asynchronous code via `pytest-asyncio`.
+Kaia's test suite uses `pytest` and handles asynchronous code via `pytest-asyncio`.
 
 ## Running the Test Suite
 
-The test suite is broken into component-level unit tests and end-to-end integration/verification tests. 
+The test suite is broken into isolated component-level unit tests and integration tests.
 
-Since the project uses absolute imports starting from the root directory (e.g., `from utils.core.message_processor`), you **must** run `pytest` with the `PYTHONPATH` set to the project root.
+Run tests using the project virtual environment:
 
-### The Quick Command
+### The Quick Commands
 
-To run the entire suite (unit + verification):
+1. **Unit Tests** (Fast, isolated component tests — 143 tests):
 ```bash
-PYTHONPATH=. pytest tools/tests/
+venv/bin/python3 -m pytest tools/tests/unit/ -v
 ```
 
-### Specific Categories
-
-1. **Unit Tests** (Fast, isolated component tests):
+2. **Integration Tests** (Sanity checks and end-to-end flows):
 ```bash
-PYTHONPATH=. pytest tools/tests/unit/ -q
-```
-
-2. **Verification Tests** (Slower, integration-level sanity checks):
-```bash
-PYTHONPATH=. pytest tools/tests/verification/ -q
+venv/bin/python3 -m pytest tools/tests/integration/ -v
 ```
 
 3. **Running a Specific Test**:
 ```bash
-PYTHONPATH=. pytest tools/tests/unit/test_yaml_config.py -v
+venv/bin/python3 -m pytest tools/tests/unit/test_phase61_fixes.py -v
 ```
 
 ---
@@ -37,19 +30,21 @@ PYTHONPATH=. pytest tools/tests/unit/test_yaml_config.py -v
 ## Test Infrastructure
 
 ### `pytest.ini`
-The root directory contains a `pytest.ini` file that automatically configures the test runner to handle `async def` testing natively via `asyncio_mode = auto`. You no longer need to strictly decorate every test with `@pytest.mark.asyncio`.
+The root directory contains a `pytest.ini` file that automatically configures the test runner to handle `async def` testing natively via `asyncio_mode = auto`.
 
 ### Directory Structure
 
 ```text
 tools/tests/
-├── unit/                 # Isolated component logic (No network, heavy mocking)
-│   ├── test_imports.py      # Validates the modular `utils/` structure loads cleanly
-│   ├── test_yaml_config.py  # Tests configuration merging and parsing
-│   ├── test_intelligence.py # Persona anchoring, context shaping
-│   └── test_repetition.py   # Hallucination guard and repetitive loop detection
-└── verification/         # Integration checks (DB states, end-to-end flows)
-    └── verify_kb_logic.py   # Verifies Regex boundary false-negatives
+├── unit/                 # Isolated component logic (No network, mocked Ollama/Discord)
+│   ├── test_imports.py         # Validates modular imports
+│   ├── test_yaml_config.py     # Tests configuration merging and parsing
+│   ├── test_phase61_fixes.py   # Timezone, chunking guard, KB grounding
+│   ├── test_combat_engine.py   # TTRPG combat formulas & defense soft-caps
+│   └── ...
+└── integration/          # Integration checks & end-to-end flows
+    ├── test_rag_boot.py        # RAG boot and index hydration
+    └── ...
 ```
 
 ---

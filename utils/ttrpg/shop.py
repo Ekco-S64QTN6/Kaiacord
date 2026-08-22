@@ -56,12 +56,15 @@ def get_shop_inventory(location: str = "hemlocks_store") -> tuple[dict, dict, di
     if special_sale and isinstance(special_sale, dict):
         itemk = special_sale.get("item")
         if itemk:
+            from utils.infrastructure.logging.kaia_logger import log_info
+            log_info(f"[shop] special_item_sale active: injecting '{itemk}' into shop inventory")
             if itemk in WEAPONS and itemk not in weapons_keys: weapons_keys.append(itemk)
             elif itemk in ARMOR and itemk not in armor_keys: armor_keys.append(itemk)
             elif itemk in HEADGEAR and itemk not in headgear_keys: headgear_keys.append(itemk)
             elif itemk in BOOTS and itemk not in boots_keys: boots_keys.append(itemk)
             elif itemk in ACCESSORIES and itemk not in accessory_keys: accessory_keys.append(itemk)
             elif itemk in CONSUMABLES and itemk not in consumables_keys: consumables_keys.append(itemk)
+
 
     weapons_keys.extend(seasonal.get("weapons", []))
     armor_keys.extend(seasonal.get("armor", []))

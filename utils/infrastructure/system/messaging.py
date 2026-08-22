@@ -1,44 +1,95 @@
 import asyncio
-from utils.infrastructure.logging.kaia_logger import log_warning
+from typing import List
+from utils.infrastructure.logging.kaia_logger import log_warning, log_error
+
+
+def _split_text_into_safe_chunks(text: str, limit: int) -> List[str]:
+    """
+    Split text into chunks guaranteed to be <= limit characters each.
+    Splits by newlines where possible, then words, then hard char slices.
+    """
+    if not text:
+        return []
+    
+    if len(text) <= limit:
+        return [text]
+
+    chunks: List[str] = []
+    lines = text.split('\n')
+    current_chunk = ""
+
+    for line in lines:
+        # If single line itself exceeds limit, split it by words or characters
+        if len(line) > limit:
+            if current_chunk.strip():
+                chunks.append(current_chunk.strip())
+                current_chunk = ""
+            
+            # Sub-split long line
+            words = line.split(' ')
+            sub_chunk = ""
+            for word in words:
+                if len(word) > limit:
+                    if sub_chunk.strip():
+                        chunks.append(sub_chunk.strip())
+                        sub_chunk = ""
+                    for i in range(0, len(word), limit):
+                        slice_str = word[i:i+limit]
+                        if slice_str:
+                            chunks.append(slice_str)
+                elif len(sub_chunk) + len(word) + 1 > limit:
+                    if sub_chunk.strip():
+                        chunks.append(sub_chunk.strip())
+                    sub_chunk = word + ' '
+                else:
+                    sub_chunk += word + ' '
+            if sub_chunk.strip():
+                chunks.append(sub_chunk.strip())
+            continue
+
+        if len(current_chunk) + len(line) + 1 > limit:
+            if current_chunk.strip():
+                chunks.append(current_chunk.strip())
+            current_chunk = line + '\n'
+        else:
+            current_chunk += line + '\n'
+
+    if current_chunk.strip():
+        chunks.append(current_chunk.strip())
+
+    return [c for c in chunks if c.strip()]
+
 
 async def send_kaia_response(channel, text, use_code_block=False):
     """Helper to split long messages and optionally wrap them in Kaia's style"""
-    if not text:
+    if not text or not str(text).strip():
         log_warning("send_kaia_response called with empty text. Skipping.")
         return
         
+    text_clean = str(text).strip()
+    
     # Discord limit is 2000. 
     # Use 1980 for code blocks to leave room for ```\n and \n```
     # Use 1990 for plain text for a small safety margin.
     limit = 1980 if use_code_block else 1990
     
-    if len(text) <= limit:
-        if use_code_block:
-            await channel.send(f"```\n{text.strip()}\n```")
-        else:
-            await channel.send(text.strip())
+    chunks = _split_text_into_safe_chunks(text_clean, limit)
+    if not chunks:
         return
 
-    # Split into chunks
-    chunks = []
-    current_chunk = ""
-    
-    for line in text.split('\n'):
-        if len(current_chunk) + len(line) + 1 > limit:
-            chunks.append(current_chunk.strip())
-            current_chunk = line + '\n'
-        else:
-            current_chunk += line + '\n'
-            
-    if current_chunk:
-        chunks.append(current_chunk.strip())
-        
     for chunk in chunks:
-        if not chunk: continue
-        if use_code_block:
-            await channel.send(f"```\n{chunk}\n```")
-        else:
-            await channel.send(chunk)
+        if not chunk:
+            continue
+        try:
+            if use_code_block:
+                payload = f"```\n{chunk}\n```"
+                if len(payload) > 2000:
+                    payload = f"```\n{chunk[:1980]}\n```"
+                await channel.send(payload)
+            else:
+                await channel.send(chunk[:1990])
+        except Exception as e:
+            log_error(f"Failed to send Discord message payload (len={len(chunk)}): {e}")
         await asyncio.sleep(0.5) # Prevent rate limiting
 
 # ─────────────────────────────────────────────

@@ -42,19 +42,28 @@ def test_resolve_time_queries():
 
 def test_get_user_time_info_integration():
     time_str, hour, tz_name = _get_user_time_info("ekco")
-    assert tz_name == "UTC"
-    assert "UTC" in time_str
+    assert tz_name in ["CDT", "CST"]
+    assert 0 <= hour <= 23
 
-    fallback_str, _, fallback_tz = _get_user_time_info(None)
-    assert fallback_tz == "UTC"
-    assert "UTC" in fallback_str
+    fallback_str, fallback_hour, fallback_tz = _get_user_time_info(None)
+    assert fallback_tz in ["CDT", "CST"]
+    assert 0 <= fallback_hour <= 23
 
 
 def test_newsroom_wall_clocks():
-    query = "what time is it Kaia"
-    facts = resolve_time_queries(query)
-    assert "Chicago / US Central (Texas)" in facts
-    assert "London / UK" in facts
-    assert "Sydney / Australia" in facts
-    assert "UTC (Universal Base Time)" in facts
-    assert "12-Hour Format" in facts
+    for query in [
+        "what time is it Kaia",
+        "what's the time",
+        "what is the time",
+        "what time do you have",
+        "what time is it right now",
+        "do you know what time it is",
+        "got the time",
+    ]:
+        facts = resolve_time_queries(query)
+        assert "[DETERMINISTIC_TIME_FACTS]" in facts, f"Failed for query: {query}"
+        assert "Chicago / US Central (Texas)" in facts
+        assert "London / UK" in facts
+        assert "Sydney / Australia" in facts
+        assert "UTC (Universal Base Time)" in facts
+        assert "12-Hour Format" in facts

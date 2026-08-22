@@ -118,7 +118,7 @@ Built into the bot is a fully deterministic, persistent turn-based RPG. All comb
 
 *   **Mega-Dungeon Progression**: A 77-floor procedural dungeon ("Spine of the World") equipped with Resonance Lift checkpoints and custom floor encounter pools.
 *   **Rich Class Mechanics**: 10 advanced classes featuring distinct progression stats, passive buffs, and unique triggerable combat procs.
-*   **Deep Economy & Customization**: Features an inventory system with 452 balanced equipment items across 7 tiers, complete with housing, procedural farming, pets, and alchemy.
+*   **Deep Economy & Customization**: Features an inventory system with 453 balanced equipment items across 7 tiers, complete with housing, procedural farming, pets, and alchemy.
 *   **System Integrity**: Employs a defense soft-cap (`min(10, raw) + max(0, raw-10)//2`) and absolute stat budgeting targets to prevent game state scaling breakages.
 
 ---
@@ -280,7 +280,7 @@ Train, merge, compile, and validate a custom model under 12GB VRAM constraints:
 
 ### 5. Test Suites
 ```bash
-# Execute unit test suite (122 tests)
+# Execute unit test suite (143 tests)
 venv/bin/python3 -m pytest tools/tests/unit/ -v
 
 # Execute integration test suite

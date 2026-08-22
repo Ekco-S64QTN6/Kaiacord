@@ -155,6 +155,47 @@ class TestProvenanceFormatting:
                     user_folder = raw_folder
         assert user_folder == "Ekco"
 
+    def test_explain_command_field_limit(self):
+        """Ensure explain command embed field value does not exceed Discord's 1024 char limit."""
+        import asyncio
+        from unittest.mock import AsyncMock, MagicMock
+        from utils.commands.explain_handler import handle_explain_command
+
+        ctx = MagicMock()
+        ctx.config.is_owner.return_value = True
+        
+        # Mock 15 nodes with extremely long file paths and multiple audit flags
+        nodes = []
+        for i in range(15):
+            nodes.append({
+                "score": 0.954,
+                "metadata": {
+                    "source_type": "general_knowledge",
+                    "retrieval_method": "hybrid",
+                    "audit_flags": ["circular_justification", "contradictory_premise"],
+                    "file_path": f"/home/user/knowledge_base/books/very_long_directory_name/dream_20260203_001422_phillip_k_dick_do_androids_dream_of_electric_sheep_long_version_{i}.md"
+                }
+            })
+        ctx.rag._last_retrieval_results = nodes
+        ctx.rag._last_retrieval_confidence = 0.88
+
+        msg = AsyncMock()
+        msg.author.name = "Ekco"
+        msg.author.display_name = "Ekco"
+        msg.author.id = 12345
+        msg.channel.send = AsyncMock()
+
+        asyncio.run(handle_explain_command(ctx, msg, AsyncMock()))
+
+        assert msg.channel.send.called
+        sent_embed = msg.channel.send.call_args[1].get("embed")
+        assert sent_embed is not None
+        assert len(sent_embed.fields) > 0
+        field_val = sent_embed.fields[0].value
+        assert len(field_val) <= 1024
+        assert len(field_val) > 0
+
+
 
 
 

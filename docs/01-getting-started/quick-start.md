@@ -128,6 +128,7 @@ Kaia needs access to message content and server members to function correctly.
 | Command | Action |
 |:--------|:-------|
 | `@kaia [question]` | Ask anything |
+| `!scores` | Gamified memory analytics & affinity leaderboards |
 | `!art` | Generate fractal flame art |
 | `!rpg` | Open the TTRPG HUD |
 | `!news [category]` | Get news briefs |

@@ -11,6 +11,7 @@ class MessageContext:
     sanitized_content: str
     is_social: bool = False
     is_mention: bool = False
+    is_dm: bool = False
     category: str = "GENERAL"
     root_context: Optional[str] = None
     parent_context: Optional[str] = None

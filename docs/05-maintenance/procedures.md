@@ -1,68 +1,63 @@
 # Maintenance Tools Documentation
 
-This directory contains scripts for maintaining, debugging, and fixing the Kaiacord system.
+This directory documents scripts for maintaining, diagnosing, and repairing the Kaiacord system.
 
-## Recovery Tools (tools/recovery/)
-
-
-
-### `nuclear_reset.py`
-**Purpose**: Last resort for heavily contaminated systems.  
-**Usage**: `python tools/recovery/nuclear_reset.py`
-
-### `find_contamination.py`
-**Purpose**: Scans logs for potential hallucinations.  
-**Usage**: `python tools/recovery/find_contamination.py`
-
----
-
-## Maintenance & Diagnostics
-
-### `update_kaia_news.py`
-**Purpose**: Fetches and summarizes daily tech news.  
-**Usage**: `python tools/maintenance/update_kaia_news.py`
-
-### `generate_user_profiles.py`
-**Purpose**: Generates/regenerates user profile summaries from interaction logs.  
-**Usage**: `python tools/maintenance/generate_user_profiles.py`
-
-### `scan_knowledge_base.py`
-**Purpose**: Scans knowledge base for issues or corrupted files.  
-**Usage**: `python tools/diagnostics/scan_knowledge_base.py`
-
-### `force_reindex.py`
-**Purpose**: Force a re-indexing of the knowledge base.  
-**Usage**: `python tools/maintenance/force_reindex.py [optional_file_path]`
-
-### `rebuild_rag_gpu.py`
-**Purpose**: Full GPU-accelerated RAG index rebuild.  
-**Usage**: `python tools/rebuild_rag_gpu.py --clear`
-
-### `ingest_manual_news.py`
-**Purpose**: Manually ingest a news brief into the RAG system.  
-**Usage**: `python tools/maintenance/ingest_manual_news.py path/to/brief.md`
+## Maintenance Tools (`tools/maintenance/`)
 
 ### `health_check.py`
-**Purpose**: Comprehensive system validation.
-**Usage**: `python tools/maintenance/health_check.py`
+**Purpose**: Comprehensive system validation (Ollama status, model availability, GPU detection, config validation).  
+**Usage**: `venv/bin/python3 tools/maintenance/health_check.py`
+
+### `reindex_rag.py`
+**Purpose**: Manages knowledge base indexing. Supports live incremental indexing or full database wipe and rebuild.  
+**Usage**:
+```bash
+# Trigger incremental re-index while bot is running
+venv/bin/python3 tools/maintenance/reindex_rag.py --trigger
+
+# Full vector database wipe and rebuild
+venv/bin/python3 tools/maintenance/reindex_rag.py --clear
+```
+
+### `clean_hallucinations.py` & `cleanup_kb.py`
+**Purpose**: Scans and cleanses transcripts and knowledge documents of hallucinated artifacts, biological backstories, and bot-speak.  
+**Usage**: `venv/bin/python3 tools/maintenance/cleanup_kb.py`
+
+### `generate_user_profiles.py`
+**Purpose**: Synthesizes user interaction logs into structured profiles in `knowledge_base/user_profiles/`.  
+**Usage**: `venv/bin/python3 tools/maintenance/generate_user_profiles.py`
+
+### `update_kaia_news.py`
+**Purpose**: Fetches grounded daily tech news briefs via Gemini API and creates summaries.  
+**Usage**: `venv/bin/python3 tools/maintenance/update_kaia_news.py`
+
+### `ingest_manual_news.py`
+**Purpose**: Manually ingests an external news brief into the RAG system.  
+**Usage**: `venv/bin/python3 tools/maintenance/ingest_manual_news.py path/to/brief.md`
 
 ---
 
-## Archived Tools (tools/legacy/)
-One-time fix scripts and deprecated tools are stored in `tools/legacy/`. These are kept for reference but should not be used in normal operation.
+## Diagnostics & Probes (`tools/diagnostics/`)
+
+### `check_indexing_health.py`
+**Purpose**: Checks RAG index integrity, BM25 hydration, and document counts.  
+**Usage**: `venv/bin/python3 tools/diagnostics/check_indexing_health.py`
+
+### `diagnose_rag.py`
+**Purpose**: Diagnostic tool to test RRF scoring and query retrieval for specific prompts.  
+**Usage**: `venv/bin/python3 tools/diagnostics/diagnose_rag.py`
+
+### `scan_knowledge_base.py`
+**Purpose**: Scans knowledge base for corrupted markdown, formatting anomalies, or encoding issues.  
+**Usage**: `venv/bin/python3 tools/diagnostics/scan_knowledge_base.py`
+
+### `jspace_probe.py`
+**Purpose**: Jacobian space behavioral probe harness to verify persona boundaries, apology suppression, and RAG grounding.  
+**Usage**: `./scripts/run_jspace_probe.sh full`
 
 ---
 
 ## Operational Notes
-
-### Log Deduplication
-The `unified_logging.py` system implements a 60-second deduplication window for `DEBUG`-level maintenance messages (containing "refresh", "watcher", or "maintenance"). This prevents log spam during idle periods.
-
-### Idle Log Behavior
-During idle:
-- **RAG refresh**: Logs "No new documents to index." at `DEBUG` level.
-- **Memory audit**: Logs only if RSS changes by ≥50MB or cache size changes. Otherwise, logs at `DEBUG`.
-- **Cold state persistence**: Only logs if the state hash changes.
 
 ### Terminal UI Notes
 | Status | Condition |

@@ -1,11 +1,11 @@
 # Aethelgard TTRPG — Comprehensive System Review
-*July 9, 2026 · Full codebase audit · ~24,500 lines across 40 modules · Phase 14: Balance Hardening & Content Expansion*
+*August 20, 2026 · Full codebase audit · ~24,500 lines across 40 modules · Phase 17: Alchemy Recipe Dedup, Silverleaf Loot Fix & Shop Price Display*
 
 ---
 
 ## 1. Executive Summary
 
-The Aethelgard TTRPG is in **S-tier operational health**. Fourteen phases of development have brought the system to production maturity. Phase 14 delivered a comprehensive balance overhaul and content expansion: compressed weapon ATK scaling (capped at +3 ATK max, +3 damage max, T7 procs up to 1d12), compressed armor DEF scaling to a soft-capped target of ~13 effective DEF, capped all gear HP bonuses to +5, removed stat bonuses from head/boots/accessory slots, and capped armor stat bonuses at +1 per stat. Rebalanced all 339 monsters and added 26 new overworld monsters (total bestiary: 365). Fully resolved the mid-game quest gap by adding 3 new quests for L8-10 (total 12 quests). Added 10 new Forest Events (total 31 events) and 10 new Noon Events (total 29 events). Enforced a strict 100-item inventory cap to eliminate potion stockpiling. Added time-of-day encounter shifts and micro-events. Fixed a key mismatch bug where quests referenced `ironbark_potion` instead of `ironbark_tonic`.
+The Aethelgard TTRPG is in **S-tier operational health**. Seventeen phases of development have brought the system to production maturity. Phase 17 resolved a critical loot table gap where Silverleaf (tier 3 herb, ingredient for 4 alchemy recipes) was completely absent from all drop tables — the only source was a one-time quest reward, making Elixir, XP Tonic, Phoenix Brew, and Moonwater permanently unbrewable. Also fixed two pairs of duplicate alchemy recipe ingredients (phoenix_brew/moonwater, ironbark_tonic/warding_salve) and a shop UI bug where noon event sale prices were invisible in dropdown menus. Added diagnostic logging to the Sealed Wax Jar event to catch world state persistence failures.
 
 **All identified bugs have been resolved.** This review identifies **0 active bugs**, **3 low-priority code quality notes**, and **0 content gaps** (all progression gaps resolved).
 
@@ -48,7 +48,16 @@ The Aethelgard TTRPG is in **S-tier operational health**. Fourteen phases of dev
 
 ### All Bugs Resolved ✅
 
-**No active bugs remain.** All issues identified across sixteen audit phases have been fixed and verified.
+**No active bugs remain.** All issues identified across seventeen audit phases have been fixed and verified.
+
+### Phase 17: Alchemy Recipe Dedup, Silverleaf Loot Fix & Shop Price Display (August 20, 2026)
+
+| ID | Fix | Verification |
+|---|---|---|
+| ✅ BUG-R24 | **Silverleaf Missing From All Loot Tables.** Silverleaf (tier 3, 200g) was completely absent from `get_consumable_loot()` — the only source was a one-time quest reward from Sister Maren, making 4 alchemy recipes permanently unbrewable after use. **Fixed:** Added silverleaf to medium (weight 6), hard (weight 10), deadly (weight 8), and boss (weight 6) tiers. | `loot_tables.py` verified via `ast.parse()`. Grep confirms 4 tier entries. |
+| ✅ BUG-R25 | **Duplicate Alchemy Recipe Ingredients.** Two pairs of recipes shared identical ingredients: `phoenix_brew` and `moonwater` (both silverleaf + star_ruby), `ironbark_tonic` and `warding_salve` (both dire_root + pearl). **Fixed:** Changed moonwater to silverleaf + black_pearl, warding_salve to silver_moss + pearl. Updated `INGREDIENT_DISCOVERS` and `SECONDARY_DISCOVERS`. | All 14 recipes verified unique. All 11 primary + 10 secondary discovery maps validated. |
+| ✅ BUG-R26 | **Shop Dropdown Price Bug for Noon Event Sales.** `_ui_price()` in `rpg_views.py` only checked `get_special_day()` calendar specials — noon event `special_item_sale` discounts (e.g., Lucky Charm at 20g during Sealed Wax Jar) were invisible in dropdown select menus. **Fixed:** Added world state `special_item_sale` lookup to `_ui_price()`. | Syntax verified. |
+| ✅ DIAG-1 | **Sealed Wax Jar Persistence Diagnostics.** Added post-save verification logging to `run_sealed_wax_jar` and injection logging to `get_shop_inventory`. Will log `✅ verified` or `❌ PERSISTENCE FAILURE` on the curses dashboard when the event fires. | Syntax verified. |
 
 ### Phase 16: Noon Events Mechanical Overhaul & Dynamic UI Buttons (August 17, 2026)
 
@@ -487,6 +496,6 @@ Here's what I did to make it look exactly like a real TTRPG map:
 ---
 
 *Review performed against `utils/ttrpg/` (~21,200 lines, 37 modules), `utils/core/background_tasks.py`, and `docs/ttrpg/`.*
-*All changes verified via full syntax check (37/37 modules pass), functional calendar regression tests (9/9 dates correct), registry integrity audits (447 items, 335 monsters, 37 boss-tier), combat math analysis, extreme layout scrambling validation (50+ unique creatures per zone), and grep-based policy compliance scans (0 `random` violations, 0 bare `except:`, 0 sync housing in async context).*
+*All changes verified via full syntax check (37/37 modules pass), unit tests (135 passed, 2 skipped), alchemy recipe uniqueness check (14 unique recipes, 11 primary + 10 secondary discoveries validated), registry integrity audits (453 items, 366 monsters, 41 boss-tier), combat math analysis, and grep-based policy compliance scans (0 `random` violations, 0 bare `except:`, 0 sync housing in async context).*
 
 ---

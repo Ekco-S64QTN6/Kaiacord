@@ -28,37 +28,95 @@ NEWSROOM_WALL_CLOCKS: List[Tuple[str, str]] = [
 LOCATION_TIMEZONE_MAP: Dict[str, Tuple[str, str]] = {
     "texas": ("America/Chicago", "Texas, USA"),
     "tx": ("America/Chicago", "Texas, USA"),
+    "chicago": ("America/Chicago", "Chicago, USA"),
+    "central": ("America/Chicago", "US Central Time"),
+    "cst": ("America/Chicago", "US Central Time"),
+    "cdt": ("America/Chicago", "US Central Time"),
     "london": ("Europe/London", "London, UK"),
     "uk": ("Europe/London", "United Kingdom"),
     "england": ("Europe/London", "England"),
     "britain": ("Europe/London", "Great Britain"),
+    "bst": ("Europe/London", "British Summer Time"),
+    "gmt": ("UTC", "Greenwich Mean Time"),
     "sydney": ("Australia/Sydney", "Sydney, Australia"),
     "australia": ("Australia/Sydney", "Australia (Sydney)"),
     "aussie": ("Australia/Sydney", "Australia (Sydney)"),
+    "aest": ("Australia/Sydney", "Australian Eastern Time"),
+    "aedt": ("Australia/Sydney", "Australian Eastern Time"),
+    "melbourne": ("Australia/Melbourne", "Melbourne, Australia"),
+    "brisbane": ("Australia/Brisbane", "Brisbane, Australia"),
+    "perth": ("Australia/Perth", "Perth, Australia"),
     "tokyo": ("Asia/Tokyo", "Tokyo, Japan"),
     "japan": ("Asia/Tokyo", "Japan"),
+    "jst": ("Asia/Tokyo", "Japan Standard Time"),
     "new york": ("America/New_York", "New York, USA"),
     "nyc": ("America/New_York", "New York City, USA"),
     "ny": ("America/New_York", "New York, USA"),
+    "est": ("America/New_York", "US Eastern Time"),
+    "edt": ("America/New_York", "US Eastern Time"),
+    "eastern": ("America/New_York", "US Eastern Time"),
     "los angeles": ("America/Los_Angeles", "Los Angeles, USA"),
     "la": ("America/Los_Angeles", "Los Angeles, USA"),
     "california": ("America/Los_Angeles", "California, USA"),
     "ca": ("America/Los_Angeles", "California, USA"),
-    "chicago": ("America/Chicago", "Chicago, USA"),
+    "pst": ("America/Los_Angeles", "US Pacific Time"),
+    "pdt": ("America/Los_Angeles", "US Pacific Time"),
+    "pacific": ("America/Los_Angeles", "US Pacific Time"),
+    "san francisco": ("America/Los_Angeles", "San Francisco, USA"),
+    "seattle": ("America/Los_Angeles", "Seattle, USA"),
+    "denver": ("America/Denver", "Denver, USA"),
+    "colorado": ("America/Denver", "Colorado, USA"),
+    "mountain": ("America/Denver", "US Mountain Time"),
+    "mst": ("America/Denver", "US Mountain Time"),
+    "mdt": ("America/Denver", "US Mountain Time"),
     "paris": ("Europe/Paris", "Paris, France"),
     "france": ("Europe/Paris", "France"),
     "berlin": ("Europe/Berlin", "Berlin, Germany"),
     "germany": ("Europe/Berlin", "Germany"),
+    "amsterdam": ("Europe/Amsterdam", "Amsterdam, Netherlands"),
+    "netherlands": ("Europe/Amsterdam", "Netherlands"),
+    "rome": ("Europe/Rome", "Rome, Italy"),
+    "italy": ("Europe/Rome", "Italy"),
+    "madrid": ("Europe/Madrid", "Madrid, Spain"),
+    "spain": ("Europe/Madrid", "Spain"),
+    "dublin": ("Europe/Dublin", "Dublin, Ireland"),
+    "ireland": ("Europe/Dublin", "Ireland"),
+    "toronto": ("America/Toronto", "Toronto, Canada"),
+    "canada": ("America/Toronto", "Canada (Eastern)"),
+    "vancouver": ("America/Vancouver", "Vancouver, Canada"),
+    "auckland": ("Pacific/Auckland", "Auckland, New Zealand"),
+    "new zealand": ("Pacific/Auckland", "New Zealand"),
+    "nz": ("Pacific/Auckland", "New Zealand"),
+    "singapore": ("Asia/Singapore", "Singapore"),
+    "hong kong": ("Asia/Hong_Kong", "Hong Kong"),
+    "hk": ("Asia/Hong_Kong", "Hong Kong"),
+    "seoul": ("Asia/Seoul", "Seoul, South Korea"),
+    "korea": ("Asia/Seoul", "South Korea"),
+    "honolulu": ("Pacific/Honolulu", "Honolulu, Hawaii"),
+    "hawaii": ("Pacific/Honolulu", "Hawaii, USA"),
     "utc": ("UTC", "Coordinated Universal Time"),
-    "gmt": ("UTC", "Greenwich Mean Time"),
 }
 
 _TIME_QUERY_PATTERNS = [
-    re.compile(r"what\s+time\s+is\s+it", re.IGNORECASE),
+    re.compile(r"what('s|\s+is)\s+the\s+time", re.IGNORECASE),
+    re.compile(r"what\s+time\s+(is\s+it|it\s+is|do\s+you\s+have|is\s+it\s+for\s+you|is\s+it\s+right\s+now|right\s+now|got|are\s+you)", re.IGNORECASE),
+    re.compile(r"what\s+time\s+(is\s+it|it\s+is)", re.IGNORECASE),
+    re.compile(r"(tell\s+me|give\s+me|check)\s+the\s+time", re.IGNORECASE),
+    re.compile(r"\bgot\s+the\s+time\b", re.IGNORECASE),
+    re.compile(r"\b(do\s+you\s+)?(know|have)\s+(what\s+time\s+it\s+is|the\s+time)\b", re.IGNORECASE),
+    re.compile(r"\btime\s+check\b", re.IGNORECASE),
     re.compile(r"current\s+time", re.IGNORECASE),
     re.compile(r"time\s+in\s+([a-zA-Z\s_]+)", re.IGNORECASE),
     re.compile(r"time\s+for\s+([a-zA-Z\s_]+)", re.IGNORECASE),
     re.compile(r"what\s+time\s+does\s+([a-zA-Z\s_]+)\s+have", re.IGNORECASE),
+    re.compile(r"\bwhat\s+time\b", re.IGNORECASE),
+    re.compile(r"\bwhat\s+day\s+(is\s+it|is\s+today)\b", re.IGNORECASE),
+    re.compile(r"\bwhat\s+is\s+today'?s\s+date\b", re.IGNORECASE),
+    re.compile(r"\bwhat\s+(is\s+the\s+date|date\s+is\s+it)\b", re.IGNORECASE),
+    re.compile(r"\btoday'?s\s+date\b", re.IGNORECASE),
+    re.compile(r"\bcurrent\s+date\b", re.IGNORECASE),
+    re.compile(r"\b(local|server|current)\s+time\b", re.IGNORECASE),
+    re.compile(r"\btime\s+at\s+your\s+(location|end)\b", re.IGNORECASE),
 ]
 
 
@@ -83,6 +141,20 @@ def calculate_location_time(tz_name: str) -> Tuple[str, int, str]:
         time_12h = now_utc.strftime('%I:%M %p').lstrip('0')
         date_str = now_utc.strftime('%A, %B %d, %Y')
         return f"{date_str} | {time_12h} UTC", now_utc.hour, "UTC"
+
+
+def get_newsroom_wall_clock_block() -> str:
+    """
+    Produce the universal 4-clock Newsroom Wall block for injection into metadata on every message turn.
+    """
+    facts: List[str] = []
+    for tz_name, label in NEWSROOM_WALL_CLOCKS:
+        time_str, _, _ = calculate_location_time(tz_name)
+        facts.append(f"- {label}: {time_str}")
+    return (
+        "[GLOBAL_WALL_CLOCKS (12-Hour Verified Real-Time)]:\n" +
+        "\n".join(facts)
+    )
 
 
 def resolve_time_queries(text: str) -> str:
@@ -122,3 +194,4 @@ def resolve_time_queries(text: str) -> str:
         "CRITICAL INSTRUCTION: Respond using 12-hour time format (e.g. 8:10 PM). Use these exact computed real-time values when stating current times."
     )
     return fact_block
+

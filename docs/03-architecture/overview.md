@@ -132,18 +132,20 @@ Kaiacord/
 
 ---
 
-### 7. Cognitive Pipeline (Phase 53)
+### 7. Cognitive Pipeline (28 Features)
 
 **Responsibility**: Autonomous personality systems that create the illusion of inner life.
 
 | Module | Purpose |
 |:-------|:--------|
-| `kaia_mood.py` | Persistent emotional state vector (valence/arousal/social_energy) with 6h decay |
+| `kaia_mood.py` | Persistent emotional state vector (valence/arousal/energy) with 6h decay |
 | `kaia_monologue.py` | Private thought stream from passive channel observation |
-| `kaia_proactive.py` | Autonomous conversation initiation (absence check-ins, knowledge triggers) |
-| `memory_anchors.py` | Dream-extracted thematic anchors for cross-session callbacks |
+| `kaia_proactive.py` | Autonomous conversation initiation (7-source trigger engine) |
+| `memory_anchors.py` | Dream-extracted thematic anchors (100-cap) for cross-session callbacks |
 | `kaia_presence.py` | Mood-aware Discord status driven by emotional arc + engagement |
-| `bot_state.py` | Relationship stages (stranger→inner_circle) with behavioral gating |
+| `bot_state.py` | Relationship stages (stranger→inner_circle), 100-cap beliefs, user dossiers |
+| `timezone_helper.py` | 4-clock Newsroom Wall timezone engine (12-hour format, IANA DST/leap-year safety) |
+| `curiosity_scanner.py` | Unresolved mention detection and follow-up generation |
 
 **Design rule**: Every cognitive injection is wrapped in `try/except Exception: pass`. Cognitive failures never block message generation.
 
@@ -156,7 +158,7 @@ Kaiacord/
 **Features**:
 - Deterministic game math handled entirely by Python; LLM handles narration only.
 - Per-user async locks prevent race conditions during combat or item generation.
-- Full registry system (339 monsters, 447 items) integrated with a procedural dungeon generator.
+- Full registry system (366 monsters with 41 bosses, 453 equipment items across 7 tiers, 253 fish species) integrated with procedural dungeon generation.
 
 ### 9. Project 1999 Forum Client (`utils/social/kaia_forum.py`)
 
@@ -224,5 +226,5 @@ Kaia implements a 3-pass self-healing generation loop:
 
 ## References
 
-- [Master Report](../reports/MASTER_REPORT.md)
-- [Claude Report](../reports/Claude_Report.md)
+- [Master Report](../reports/master_report.md)
+- [Unified Production Audit](../reports/audit_report.md)

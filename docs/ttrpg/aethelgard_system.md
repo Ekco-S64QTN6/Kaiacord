@@ -316,8 +316,8 @@ Recipes are discovered by picking up ingredients. Brewed at Sister Maren's Hut.
 | Firebrew | Blood Thistle + Fire Opal | `firebrew` (+2 ATK) |
 | Antidote | Silver Moss + Honey Sap | `antidote` (Cure poison) |
 | Smoke Bomb | Blood Thistle + Topaz | `smoke_bomb` (Flee combat with 0 XP loss) |
-| Warding Salve | Dire Root + Opal | `warding_salve` (Reduce next hit dmg by 5) |
-| Frenzy Draught | Blood Thistle + Jacinth | `frenzy_draught` (+1 attack, -2 DEF) |
+| Warding Salve | Silver Moss + Pearl | `warding_salve` (Reduce next hit dmg by 5) |
+| Frenzy Draught | Blood Thistle + Star Ruby | `frenzy_draught` (+1 attack, -2 DEF) |
 | Moonwater | Silverleaf + Black Pearl | `moonwater` (Full HP restore) |
 | Trap Kit | Dire Root + Fire Opal + Topaz | `trap_kit` (2d8 damage trap) |
 

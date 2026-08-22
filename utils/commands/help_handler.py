@@ -68,7 +68,7 @@ async def handle_help_command(ctx, msg, send_kaia_response):
             "`!news` — Fetch and summarize latest news\n"
             "`!quip` — Generate a social media draft post\n"
             "`!art [--seed N] [--palette NAME]` — Render fractal flame art\n"
-            "`!forum` — Forum thread auto-posting & moderation tools\n"
+            "`!forum` — Forum auto-posting & moderation (`!forum link <uid>`)\n"
             "`!sysmon` — Live system/hardware monitoring dashboard (admin)"
         ),
         inline=False

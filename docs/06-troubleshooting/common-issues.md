@@ -165,22 +165,20 @@ python Kaiacord.py
 
 ## 🔴 Hallucinated Responses
 
-**Symptom**: Kaia mentions "Juanita", "Deane", or fictional anecdotes
+**Symptom**: Kaia mentions fictional anecdotes, hallucinated tools, or phantom files.
 
-**Cause**: Contaminated knowledge base or cache
+**Cause**: Contaminated knowledge base or historical user logs.
 
 **Solution**:
 ```bash
-# 1. Find contamination
-python tools/recovery/find_contamination.py
+# 1. Scan and clean hallucinated patterns from transcripts
+venv/bin/python3 tools/maintenance/clean_hallucinations.py
 
-# 2. Manually inspect and edit or remove the affected file in knowledge_base/
-# Then trigger a reindex:
-python tools/maintenance/force_reindex.py
+# 2. Run KB cleanup and normalization
+venv/bin/python3 tools/maintenance/cleanup_kb.py
 
-# 3. If persistent, nuclear option:
-python tools/recovery/nuclear_reset.py --dry-run  # Preview
-python tools/recovery/nuclear_reset.py             # Execute
+# 3. Trigger a RAG re-index
+venv/bin/python3 tools/maintenance/reindex_rag.py --trigger
 ```
 
 ---
@@ -199,9 +197,9 @@ nvidia-smi
 # Should see GPU at 90%+ during chat
 # If CPU-only, check Ollama GPU settings
 
-# Reduce context window in config/kaia.yaml:
+# Reduce context window in config/kaia.yaml if needed:
 performance:
-  max_memory_messages: 20  # Down from 30
+  max_context_tokens: 4096
 ```
 
 ---
@@ -217,8 +215,11 @@ performance:
 # Check knowledge base
 ls knowledge_base/
 
+# Check indexing health
+venv/bin/python3 tools/diagnostics/check_indexing_health.py
+
 # Force re-index
-python tools/diagnostics/trigger_rag_refresh.py
+venv/bin/python3 tools/maintenance/reindex_rag.py --trigger
 
 # Check RAG logs
 grep "RAG" logs/kaiacord.log
@@ -246,18 +247,12 @@ grep "online" logs/kaiacord.log
 
 ---
 
-## Emergency Reset
+## Full Knowledge Base Rebuild
 
-If all else fails:
+If index caches or embeddings need a complete reset:
 ```bash
-# Complete reset (DESTRUCTIVE!)
-python tools/recovery/nuclear_reset.py
-
-# This will:
-# - Clear all caches
-# - Delete user profiles
-# - Remove logs
-# - Reset to defaults
+# Full clean rebuild of the vector database
+venv/bin/python3 tools/maintenance/reindex_rag.py --clear
 ```
 
 ---

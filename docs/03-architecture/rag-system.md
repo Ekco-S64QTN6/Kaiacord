@@ -51,10 +51,12 @@ When a user queries Kaia, the system performs a hybrid search:
 
 | Index Type | Source Path | Purpose |
 |:-----------|:------------|:--------|
-| `persona` | `config/kaia_persona.md` | Tone, rules, and core identity |
+| `persona` | `knowledge_base/kaia_persona.md` | Tone, rules, and core identity |
 | `user_profiles` | `knowledge_base/user_profiles/` | Summarized facts about specific users |
 | `user_logs` | `knowledge_base/user_logs/` | Raw conversation history |
 | `knowledge` | `knowledge_base/general/` | Manual uploads and scraped URLs |
+| `wiki` | `knowledge_base/wiki/` | Verified Project 1999 Wikipedia articles |
+| `troubleshooting` | `knowledge_base/troubleshooting/` | Synthesized community technical support guides |
 | `news` | `knowledge_base/news/` | Daily tech briefs |
 | `dreams` | `knowledge_base/reflections/` | Nightly associative summaries |
 

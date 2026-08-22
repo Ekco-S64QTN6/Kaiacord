@@ -161,6 +161,8 @@ async def handle_explain_command(ctx, msg, send_kaia_response):
         elif display_path == "unknown":
             path_str = f"{ESC}[1;31munknown{RESET}"
         else:
+            if len(display_path) > 38:
+                display_path = display_path[:18] + "…" + display_path[-19:]
             path_str = f"{ESC}[0;37m{display_path}{RESET}"
 
         flag_str = f" {ESC}[1;31m[⚑ {', '.join(audit_flags)}]{RESET}" if audit_flags else ""
@@ -168,9 +170,20 @@ async def handle_explain_command(ctx, msg, send_kaia_response):
         line = f"{ESC}[1;37m#{i}{RESET} · {ESC}[1;33m{score:.3f}{RESET} {method_color}({method_upper}){RESET} -> {path_str}{flag_str}"
         node_lines.append(line)
 
+    # Ensure field value stays safely within Discord's 1024-character limit
+    valid_lines = []
+    current_chars = len("```ansi\n\n```")
+    for line in node_lines:
+        if current_chars + len(line) + 1 > 1000:
+            break
+        valid_lines.append(line)
+        current_chars += len(line) + 1
+
+    embed.description = f"Confidence rating: **{confidence:.2f} ({conf_label})** · Showing top {len(valid_lines)} of {len(results)} nodes."
+
     embed.add_field(
         name="Sources & Relevance Scores",
-        value="```ansi\n" + "\n".join(node_lines) + "\n```",
+        value="```ansi\n" + "\n".join(valid_lines) + "\n```" if valid_lines else "```\nNo sources available\n```",
         inline=False
     )
 

@@ -27,8 +27,8 @@ Tracks high-level bot execution metadata:
 
 ### 3. COGNITIVE PIPELINE & FORUMS (Right Column, 32.5% Width)
 Tracks Kaia's internal cognitive layers and Project 1999 forum stats:
-- **Active Beliefs**: Current belief count loaded from `beliefs.json` (50-cap).
-- **Memory Anchors**: Count of active episodic memory anchors.
+- **Active Beliefs**: Current belief count loaded from `beliefs.json` (100-cap).
+- **Memory Anchors**: Count of active episodic memory anchors (100-cap).
 - **Relationships**: Count of active user relationship affinity logs in `memory/relationships/`.
 - **Forum Drafts**: Cumulative forum response drafts created and queued for review.
 - **Approved / Rejected**: Number of drafts approved or rejected via Discord buttons.

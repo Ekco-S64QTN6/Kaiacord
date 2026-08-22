@@ -72,7 +72,7 @@ async def handle_memory_cmd(ctx, msg, send_kaia_response):
 
         embed = discord.Embed(
             title="🧠  KAIA'S ACTIVE BELIEFS",
-            description=f"Active belief-state vectors extracted from daily reflections (Total: {len(beliefs)} / 50 cap).",
+            description=f"Active belief-state vectors extracted from daily reflections (Total: {len(beliefs)} / 100 cap).",
             color=0x3b82f6
         )
 
@@ -113,7 +113,7 @@ async def handle_memory_cmd(ctx, msg, send_kaia_response):
 
         embed = discord.Embed(
             title="⚓  KAIA'S EPISODIC MEMORY ANCHORS",
-            description=f"Episodic memory anchors tracked across conversation loops (Total: {len(anchors)} / 50 cap).",
+            description=f"Episodic memory anchors tracked across conversation loops (Total: {len(anchors)} / 100 cap).",
             color=0x8b5cf6
         )
 
@@ -152,8 +152,8 @@ async def handle_memory_cmd(ctx, msg, send_kaia_response):
         embed.add_field(
             name="Usage",
             value=(
-                "`!memory beliefs` — View active revisable beliefs (50-cap)\n"
-                "`!memory anchors` — View episodic memory anchors (50-cap)"
+                "`!memory beliefs` — View active revisable beliefs (100-cap)\n"
+                "`!memory anchors` — View episodic memory anchors (100-cap)"
             ),
             inline=False
         )

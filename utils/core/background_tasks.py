@@ -4231,6 +4231,15 @@ async def run_sealed_wax_jar(bot_ctx, channel):
     wstate["special_item_sale_expiry"] = time.time() + 24 * 3600
     save_world_state(wstate)
 
+    # Post-save verification — catch persistence failures immediately
+    verify = load_world_state()
+    sale_data = verify.get("special_item_sale", {})
+    sale_expiry = verify.get("special_item_sale_expiry", 0)
+    if sale_data.get("item") == "lucky_charm" and sale_expiry > 0:
+        log_info(f"[sealed-wax-jar] ✅ World state verified: special_item_sale={sale_data}, expiry={sale_expiry:.0f}")
+    else:
+        log_warning(f"[sealed-wax-jar] ❌ PERSISTENCE FAILURE: special_item_sale={sale_data}, expiry={sale_expiry}, full_keys={sorted(verify.keys())}")
+
     await channel.send(embed=discord.Embed(
         title="🫙 The Sealed Wax Jar",
         description=(

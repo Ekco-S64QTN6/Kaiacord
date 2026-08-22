@@ -65,7 +65,7 @@ ALCHEMY_RECIPES = {
     },
     "warding_salve": {
         "name": "Warding Salve",
-        "ingredients": ["dire_root", "pearl"],
+        "ingredients": ["silver_moss", "pearl"],
         "result": "warding_salve",
         "description": "A thick, grey paste that hardens skin against physical blows.",
     },
@@ -77,7 +77,7 @@ ALCHEMY_RECIPES = {
     },
     "moonwater": {
         "name": "Moonwater",
-        "ingredients": ["silverleaf", "star_ruby"],
+        "ingredients": ["silverleaf", "black_pearl"],
         "result": "moonwater",
         "description": "A shimmering water collected under full moonlight. Restores all HP.",
     },
@@ -177,6 +177,7 @@ INGREDIENT_DISCOVERS = {
     "pearl":         "ironbark_tonic",
     "fire_opal":     "firebrew",
     "star_ruby":     "phoenix_brew",
+    "black_pearl":   "moonwater",
 }
 
 # Secondary discoveries — when you already know one recipe from an ingredient,
@@ -184,13 +185,14 @@ INGREDIENT_DISCOVERS = {
 SECONDARY_DISCOVERS = {
     "blood_thistle": ["hi_potion_brew", "firebrew", "smoke_bomb", "frenzy_draught"],
     "honey_sap":     ["potion", "antidote"],
-    "silver_moss":   ["hi_potion_brew", "antidote"],
-    "dire_root":     ["elixir_brew", "hunters_draught", "ironbark_tonic", "warding_salve", "trap_kit"],
+    "silver_moss":   ["hi_potion_brew", "antidote", "warding_salve"],
+    "dire_root":     ["elixir_brew", "hunters_draught", "ironbark_tonic", "trap_kit"],
     "silverleaf":    ["xp_tonic", "phoenix_brew", "moonwater"],
     "pearl":         ["ironbark_tonic", "warding_salve"],
     "topaz":         ["hunters_draught", "smoke_bomb"],
     "fire_opal":     ["firebrew", "trap_kit"],
-    "star_ruby":     ["phoenix_brew", "frenzy_draught", "moonwater"],
+    "star_ruby":     ["phoenix_brew", "frenzy_draught"],
+    "black_pearl":   ["moonwater"],
 }
 
 def check_and_discover_recipes(sheet: dict, item_key: str) -> list[str]:

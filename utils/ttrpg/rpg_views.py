@@ -978,10 +978,18 @@ async def _make_shop_view(ctx, msg, uid, uname, is_owner, items, sheet=None):
     sheet = sheet or await load(uid)
     loc = sheet.get("location", "hemlocks_store") if sheet else "hemlocks_store"
 
+    from utils.ttrpg.world_state import load_world_state
+    _wstate = load_world_state()
+    _special_sale = _wstate.get("special_item_sale")
+
     def _ui_price(item_key, base_value):
         if special and "shop_special" in special and loc == "hemlocks_store":
             if special["shop_special"].get("item") == item_key:
                 return special["shop_special"].get("price", base_value)
+        # Noon event special_item_sale override
+        if _special_sale and isinstance(_special_sale, dict) and loc == "hemlocks_store":
+            if _special_sale.get("item") == item_key:
+                return _special_sale.get("price", base_value)
         return base_value
 
     # ── Separate items into gear vs consumables ───────────────────────────────

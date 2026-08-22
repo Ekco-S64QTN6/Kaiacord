@@ -27,4 +27,4 @@ Profiles are stored in the user's log directory and indexed by the RAG system.
 - **Contextual Awareness**: Profile data tailors responses to the user's known preferences.
 
 ## 5. Maintenance
-Profiles are regenerated periodically or can be triggered manually via `generate_user_profiles.py`.
+Profiles are regenerated periodically or can be triggered manually via `tools/maintenance/generate_user_profiles.py`.

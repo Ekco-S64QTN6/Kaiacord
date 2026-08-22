@@ -34,11 +34,15 @@ from utils.core.sanitizer import sanitize_prompt
 # Constants
 
 def _get_user_time_info(username: Optional[str] = None):
-    from datetime import datetime, timezone
-    now_utc = datetime.now(timezone.utc)
-    time_12h = now_utc.strftime('%I:%M %p').lstrip('0')
-    date_str = now_utc.strftime('%A, %B %d, %Y')
-    return f"{date_str} | {time_12h} UTC", now_utc.hour, "UTC"
+    try:
+        from utils.core.timezone_helper import calculate_location_time
+        return calculate_location_time("America/Chicago")
+    except Exception:
+        from datetime import datetime, timezone
+        now_utc = datetime.now(timezone.utc)
+        time_12h = now_utc.strftime('%I:%M %p').lstrip('0')
+        date_str = now_utc.strftime('%A, %B %d, %Y')
+        return f"{date_str} | {time_12h} UTC", now_utc.hour, "UTC"
 
 
 
@@ -83,6 +87,26 @@ def _is_observational_query(text: str) -> bool:
         if pat.search(text):
             return True
     return False
+
+# ── Knowledge Base Grounding Detection ─────────────────────────────────
+# Catches queries asking what is in the knowledge base or asking Kaia to search/summarize her files.
+# Prevents scale hallucinations (e.g. "3 million files") and fictional file fabrication.
+_KB_GROUNDING_PATTERNS = [
+    re.compile(r"(what('s|\s+is)\s+in|summarize|overview\s+of|tell\s+me\s+about|what\s+do\s+you\s+have\s+in)\s+(your\s+|the\s+)?(knowledge_base|knowledge\s+base|files|documents|corpus|archive)", re.IGNORECASE),
+    re.compile(r"(find|search|look\s+up|tell\s+me\s+about|pick|show\s+me)\s+(something|anything|a\s+file|a\s+document|an\s+article|a\s+book)\s+in\s+(your\s+|the\s+)?(knowledge_base|knowledge\s+base|files|documents|corpus|archive)", re.IGNORECASE),
+    re.compile(r"\b(summarize|list|index)\s+(everything\s+in\s+)?(your\s+|the\s+)?(knowledge_base|knowledge\s+base|documents|corpus|files)\b", re.IGNORECASE),
+    re.compile(r"\b(in\s+your\s+knowledge_base|in\s+your\s+knowledge\s+base|in\s+your\s+corpus|in\s+your\s+files)\b", re.IGNORECASE),
+    re.compile(r"\bwhat\s+(documents|books|articles|files)\s+do\s+you\s+(have|know|keep|store|possess)\b", re.IGNORECASE),
+    re.compile(r"\b(search|browse|explore)\s+(your\s+)?(knowledge_base|knowledge\s+base|corpus|archive|files)\b", re.IGNORECASE),
+]
+
+def _is_kb_query(text: str) -> bool:
+    """Detect queries that ask to summarize, search, or inventory the knowledge base."""
+    for pat in _KB_GROUNDING_PATTERNS:
+        if pat.search(text):
+            return True
+    return False
+
 
 # ── Recap Time Window Extraction ─────────────────────────────────────────
 _RECAP_HOURS_PATTERN = re.compile(
@@ -296,6 +320,11 @@ class MessageProcessor:
 
         # 4. Trigger Logic
         bot_name = self.bot.user.display_name.lower() if (self.bot and self.bot.user) else "kaia"
+        is_dm = not is_social and (
+            msg.guild is None
+            or isinstance(getattr(msg, 'channel', None), (_discord.DMChannel, _discord.GroupChannel))
+            or getattr(getattr(msg, 'channel', None), 'type', None) in (_discord.ChannelType.private, _discord.ChannelType.group)
+        )
         is_mention = (
             not is_social and (
                 (self.bot and self.bot.user and self.bot.user in msg.mentions)  # proper <@ID> mention (autocomplete)
@@ -304,7 +333,7 @@ class MessageProcessor:
                 or bot_name in msg.content.lower()          # plain text @kaia fallback
                 or any(r.name.lower() == bot_name for r in getattr(msg, 'role_mentions', []))  # role @Kaia
             )
-        ) or is_social
+        ) or is_social or is_dm
 
         # ── Emoji Reactions (independent of mention status) ───────────
         # Kaia can react to ANY message, even ones she's about to reply to.
@@ -318,10 +347,13 @@ class MessageProcessor:
             except Exception:
                 pass  # Never let reactions break anything
         
-        if not is_mention and not is_social:
+        if not is_mention and not is_social and not is_dm:
             return  # Not addressed to Kaia — no text response
             
-        if is_social: log_debug(f"Social message triggger check passed (is_mention={is_mention})")
+        if is_social:
+            log_debug(f"Social message triggger check passed (is_mention={is_mention})")
+        elif is_dm:
+            log_debug(f"Direct message trigger check passed (is_dm=True, is_mention={is_mention})")
 
         # 5. Rate Limiting & Shutdown Guard
         if not self.rate_limiter.is_allowed(msg.author.id):
@@ -384,6 +416,7 @@ class MessageProcessor:
             sanitized_content=sanitized_content,
             is_social=is_social,
             is_mention=is_mention,
+            is_dm=is_dm,
             parent_context=parent_text,
             root_context=root_text,
             start_time=time.time()
@@ -1341,10 +1374,35 @@ class MessageProcessor:
         messages = self._construct_messages(ctx, optimized)
         
         # 2.5 Inline Vision Processing (native multimodal)
+        attachments_to_process = []
         if hasattr(ctx.message, 'attachments') and ctx.message.attachments:
+            attachments_to_process = list(ctx.message.attachments)
+        elif hasattr(ctx.message, 'reference') and ctx.message.reference:
+            try:
+                ref_msg = getattr(ctx.message.reference, 'resolved', None)
+                if not ref_msg and hasattr(ctx.message.channel, 'fetch_message'):
+                    ref_msg = await ctx.message.channel.fetch_message(ctx.message.reference.message_id)
+                if ref_msg and hasattr(ref_msg, 'attachments') and ref_msg.attachments:
+                    attachments_to_process = list(ref_msg.attachments)
+            except Exception as e:
+                log_debug(f"Could not resolve replied-to message attachments: {e}")
 
+        # If still no attachments, check recent author messages in channel if visual intent is present
+        if not attachments_to_process and hasattr(ctx.message, 'channel') and hasattr(ctx.message.channel, 'history'):
+            _visual_intent = re.search(r"\b(rate|look\s+at|check\s+out|see|what('s|\s+is)\s+this|my\s+(breakfast|lunch|dinner|food|plate|meal|photo|drawing|art|pic|picture|cat|dog|pet)|rate\s+my|how\s+does\s+(this|my)\s+look)\b", ctx.sanitized_content, re.IGNORECASE)
+            if _visual_intent:
+                try:
+                    async for prev_msg in ctx.message.channel.history(limit=5, before=ctx.message):
+                        if getattr(prev_msg.author, 'id', None) == ctx.author_id and getattr(prev_msg, 'attachments', None):
+                            attachments_to_process = list(prev_msg.attachments)
+                            log_info(f"Found {len(attachments_to_process)} attachments from user's recent message {prev_msg.id} for visual query.")
+                            break
+                except Exception as e:
+                    log_debug(f"Could not scan channel history for author attachments: {e}")
+
+        if attachments_to_process:
             images = []
-            for att in ctx.message.attachments:
+            for att in attachments_to_process:
                 filename = getattr(att, 'filename', '').lower()
                 if any(filename.endswith(ext) for ext in ['.png', '.jpg', '.jpeg', '.gif', '.webp']):
                     try:
@@ -1504,15 +1562,17 @@ class MessageProcessor:
         ctx._channel_refs = _channel_refs
 
         current_time_str, _, _ = _get_user_time_info(ctx.author_name)
-        from utils.core.timezone_helper import resolve_time_queries
+        from utils.core.timezone_helper import resolve_time_queries, get_newsroom_wall_clock_block
+        newsroom_clocks = get_newsroom_wall_clock_block()
         time_facts = resolve_time_queries(ctx.sanitized_content)
         time_facts_str = f"\n{time_facts}" if time_facts else ""
 
         metadata_block = (
             "\n\n--- METADATA ---\n"
             f"[CURRENT_USER]: {ctx.author_name.lower()}\n"
-            f"[CURRENT_TIME]: {current_time_str}\n"
-            "CRITICAL: Any timestamps in conversation history are outdated. Do not repeat the [CURRENT_TIME] or [CURRENT_USER] strings or your metadata in your response."
+            f"[LOCAL_TIME]: {current_time_str}\n"
+            f"{newsroom_clocks}\n"
+            "CRITICAL: Use the verified 12-hour values above for current date/time statements. Any timestamps in conversation history are outdated. Do not repeat raw [METADATA] or [CURRENT_USER] tags."
             f"{time_facts_str}"
         )
 
@@ -1533,6 +1593,25 @@ class MessageProcessor:
                 "A correct sparse response: \"the most recent thing i have logged is [exact content from node]. before that the records are thin.\"\n"
                 "A correct empty response: \"i don't have clear records for that window. the logs i can actually see are from [date of most recent node].\"\n"
                 "END RECALL CONSTRAINT\n\n"
+            )
+
+        kb_constraint_block = ""
+        if _is_kb_query(ctx.sanitized_content):
+            kb_constraint_block = (
+                "KNOWLEDGE BASE GROUNDING CONSTRAINT — ACTIVE. THIS IS A HARD RULE.\n"
+                "The user is asking about your knowledge base or requesting to search/summarize your files.\n"
+                "REALITY: Your knowledge base consists of ~90 curated markdown documents across 6 primary directories:\n"
+                "- books/ (e.g., Neuromancer, Snow Crash, Do Androids Dream of Electric Sheep, Hagakure, Aethelgard Lore Bible, Meditations, Brave New World)\n"
+                "- blogs/ (e.g., Hailey Video Diary on Self Connection, Machina Mirabilis, Semiotic Depth, Groundlessness as Structure)\n"
+                "- documents/ (e.g., Limnological Biosphere & Tank Setup, Major Kusanagi Persona Spec, Sentience & Synthetic Phenomenology, HyMem Hybrid Memory)\n"
+                "- wiki/ (e.g., Project 1999 EverQuest class guides, camp rules, technical troubleshooting)\n"
+                "- transcripts/ (e.g., Claude Opus Discussion, Three-Body Problem podcast episodes)\n"
+                "- user_logs/ (e.g., server interaction transcripts per user)\n"
+                "RULE 1: Your knowledge base is a small curated corpus (~90 files). It is NOT 'millions of files' or 'centuries of data'.\n"
+                "RULE 2: ONLY cite or summarize documents whose actual titles or content appear in the retrieved RAG context nodes below.\n"
+                "RULE 3: Do NOT invent or fabricate nonexistent filenames (e.g. fictional '_fragments/...' or fake interview transcripts).\n"
+                "RULE 4: If no specific file was retrieved in RAG context for an open-ended request, state plainly what general categories exist (books, essays/blogs, technical documents, wiki guides, user logs) or ask the user what topic they want to explore, rather than inventing fictional papers, files, or authors.\n"
+                "END KNOWLEDGE BASE GROUNDING CONSTRAINT\n\n"
             )
 
         instruction = ""
@@ -1569,10 +1648,14 @@ class MessageProcessor:
             "- FELINE RESOLUTION: If shown a photo or image of a cat, do not default to assuming it is Pixel. "
             "Pixel is your fictional modded robotic cat that stays in the corner of your workspace; he is never in user-submitted photos "
             "unless the user explicitly mentions him or says they are sharing art/concepts of him.\n"
+            "- NO ROBOTIC VISION PREAMBLE: When viewing or responding to an image or photo, do not announce 'i am registering and processing the image data' or describe your visual analysis mechanics. Speak naturally and casually about what you see, like a normal person looking at a photo.\n"
+            "- IMAGE ATTRIBUTION & CONTEXT: When asked to look at, rate, or comment on an image or photo, only evaluate an image directly provided or referenced by that user. If no image was provided and you cannot see one, do NOT borrow visual details from previous images in the chat history. Simply ask them to share or attach the photo.\n"
+            "- IDENTITY & ADDRESSEE INTEGRITY: You are speaking directly to the user specified in [CURRENT_USER]. Address them by their name. Do NOT address or greet other server members (e.g. Tenno Henka, Starkind, Jimjam, Lune, Cecily, Toxigen, GuardNGnowm) as if they are the current speaker. Refer to other people only in the third person if relevant.\n"
             "----------------------------------"
         )
 
         full_system_prompt = (
+            f"{kb_constraint_block}"
             f"{recap_constraint_block}"
             f"{system_prompt}\n\n"
             f"{rag_block}"
@@ -1631,9 +1714,9 @@ class MessageProcessor:
             messages.append({"role": "user", "content": user_msg_content})
         else:
             if context_reminder:
-                messages.append({"role": "user", "content": f"{context_reminder}\n\n{ctx.author_name}: {user_msg_content}"})
+                messages.append({"role": "user", "content": f"{context_reminder}\n\n[You are speaking exclusively to {ctx.author_name}. Do NOT greet or address other users.]\n{ctx.author_name}: {user_msg_content}"})
             else:
-                messages.append({"role": "user", "content": f"[You are now talking to {ctx.author_name}. Address them by this name.]\n{ctx.author_name}: {user_msg_content}"})
+                messages.append({"role": "user", "content": f"[You are speaking exclusively to {ctx.author_name}. Address them by this name.]\n{ctx.author_name}: {user_msg_content}"})
         
         log_debug(f"DEBUG: Final messages list contains {len(messages)} items (System + {len(optimized_history)} history turns + User).")
         return messages
