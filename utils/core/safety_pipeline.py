@@ -85,6 +85,9 @@ class PostGenerationSafetyPipeline:
             r'\s+\d{1,2},\s+\d{4}\s+\|.*',
             '', text
         ).strip()
+        # Step 1.5: Thought/Monologue JSON Leak Scrubber
+        # Catches raw inner monologue bleed like {"thought": "i wonder if..."}
+        text = re.sub(r'\{?\s*"thought"\s*:\s*"[^"]*"\s*\}?', '', text).strip()
         return text
 
     @classmethod

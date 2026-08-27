@@ -181,13 +181,30 @@ async def handle_explain_command(ctx, msg, send_kaia_response):
 
     embed.description = f"Confidence rating: **{confidence:.2f} ({conf_label})** · Showing top {len(valid_lines)} of {len(results)} nodes."
 
+    # Build field value with hard safety cap to prevent Discord 50035 overflow
+    if valid_lines:
+        field_value = "```ansi\n" + "\n".join(valid_lines) + "\n```"
+    else:
+        field_value = "```\nNo sources available\n```"
+
+    # Absolute hard cap — ANSI escape codes are invisible but counted by Discord API
+    if len(field_value) > 1020:
+        field_value = field_value[:1017] + "```"
+
     embed.add_field(
         name="Sources & Relevance Scores",
-        value="```ansi\n" + "\n".join(valid_lines) + "\n```" if valid_lines else "```\nNo sources available\n```",
+        value=field_value,
         inline=False
     )
 
     embed.set_footer(text=f"Range: {recency_info}  ·  Self-model: {sm_status}")
 
-    await msg.channel.send(embed=embed)
+    try:
+        await msg.channel.send(embed=embed)
+    except discord.HTTPException as e:
+        # Fallback: send plain text summary if Discord rejects the embed
+        log_info(f"Embed send failed ({e.status}/{e.code}), falling back to plain text.")
+        fallback_lines = [f"#{i+1} · {r.get('score', 0):.3f} — {os.path.basename(r.get('metadata', {}).get('file_path', 'unknown'))}"
+                          for i, r in enumerate(results[:8])]
+        await msg.channel.send(f"**📚 PROVENANCE** (plain text fallback)\nConfidence: {confidence:.2f} ({conf_label})\n" + "\n".join(fallback_lines))
     log_info(f"Provenance display shown for {msg.author.name}")

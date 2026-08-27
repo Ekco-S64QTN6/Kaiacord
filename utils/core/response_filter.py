@@ -336,8 +336,8 @@ class BotSpeakFilter:
             cleaned = cls.RE_DOUBLE_NEWLINES.sub('\n\n', cleaned)
             cleaned = cleaned.strip()
         
-        # 3. Strip system prose (Single Pass)
-        cleaned = cls.RE_SYSTEM_PROSE.sub('', cleaned)
+        # 3. Strip system prose — sentence-level removal (prevents verb-drop grammar breaks)
+        cleaned = cls.strip_system_prose(cleaned)
 
         # 3.1. Strip apology patterns (post-generation safety net)
         cleaned = cls.strip_apologies(cleaned)
@@ -428,6 +428,38 @@ class BotSpeakFilter:
         elif stripped_count > 0 and not clean_sentences:
             # Everything was sycophancy — return empty to trigger retry
             log_warning(f"[SYCOPHANCY_GUARD] Entire response was sycophancy. Triggering retry.")
+            return ""
+        
+        return text
+
+    @classmethod
+    def strip_system_prose(cls, text: str) -> str:
+        """Strip sentences containing system prose / bot-speak patterns.
+        
+        Uses sentence-level removal (same approach as strip_apologies and
+        strip_sycophancy) rather than substring deletion. This prevents
+        the verb-drop artifact where removing a single word like
+        'recalibrating' from 'i am recalibrating my protocols' leaves
+        the broken stub 'i am my protocols'.
+        """
+        if not text:
+            return text
+        
+        sentences = re.split(r'(?<=[.!?])\s+', text)
+        clean_sentences = []
+        stripped_count = 0
+        
+        for sentence in sentences:
+            if cls.RE_SYSTEM_PROSE.search(sentence):
+                stripped_count += 1
+                log_warning(f"[BOTSPEAK_GUARD] Stripped system prose sentence: '{sentence[:80]}...'")
+                continue
+            clean_sentences.append(sentence)
+        
+        if stripped_count > 0 and clean_sentences:
+            return ' '.join(clean_sentences)
+        elif stripped_count > 0 and not clean_sentences:
+            log_warning(f"[BOTSPEAK_GUARD] Entire response was system prose. Triggering retry.")
             return ""
         
         return text

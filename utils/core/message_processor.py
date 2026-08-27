@@ -98,6 +98,11 @@ _KB_GROUNDING_PATTERNS = [
     re.compile(r"\b(in\s+your\s+knowledge_base|in\s+your\s+knowledge\s+base|in\s+your\s+corpus|in\s+your\s+files)\b", re.IGNORECASE),
     re.compile(r"\bwhat\s+(documents|books|articles|files)\s+do\s+you\s+(have|know|keep|store|possess)\b", re.IGNORECASE),
     re.compile(r"\b(search|browse|explore)\s+(your\s+)?(knowledge_base|knowledge\s+base|corpus|archive|files)\b", re.IGNORECASE),
+    # Conversational follow-ups that bypass the above patterns (P62 — Aug 22 grounding leak)
+    re.compile(r"\b(what|any|list|do you have)\s+(\w+\s+)?(\.rtf|\.pdf|\.md|\.txt|rtf|pdf)\s+(files?|documents?)\b", re.IGNORECASE),
+    re.compile(r"\b(do you have|are there)\s+(any\s+)?(\.rtf|\.pdf|rtf|pdf)\b", re.IGNORECASE),
+    re.compile(r"\bcurated\s+documents?\b", re.IGNORECASE),
+    re.compile(r"\blist\s+(all\s+)?(your\s+)?(files|documents)\b", re.IGNORECASE),
 ]
 
 def _is_kb_query(text: str) -> bool:
@@ -1062,7 +1067,10 @@ class MessageProcessor:
                         "offer a different perspective, acknowledge it briefly and move on. "
                         "don't over-apologize, don't self-flagellate, don't call your own "
                         "reasoning 'flawed' or 'imprecise' unless it genuinely was. "
-                        "match their directness.]"
+                        "match their directness. if they compliment you or say something "
+                        "kind, accept it graciously — a simple 'thank you' or warm "
+                        "acknowledgment is appropriate. do not dismiss, deflect, or "
+                        "analyze their compliment as 'positive reinforcement'.]"
                     )
         except Exception:
             pass  # Never let anti-sycophancy nudge break generation
@@ -1157,6 +1165,25 @@ class MessageProcessor:
                         })
 
                 combined_results = memory_nodes + (rag_results or [])
+
+                # P62-9: All-injection grounding warning
+                # If every result is a session injection (zero real KB documents),
+                # inject a warning so the LLM knows it has no grounding material.
+                real_docs = [r for r in combined_results
+                             if r.get("metadata", {}).get("retrieval_method") != "injection"]
+                if not real_docs and memory_nodes:
+                    log_info(f"RECAP: All {len(combined_results)} results are session injections — zero KB documents. Injecting grounding warning.")
+                    combined_results.append({
+                        "content": (
+                            "[System Warning: No knowledge base documents were retrieved for this query. "
+                            "All context comes from live session memory only. Do not fabricate file contents, "
+                            "document summaries, or knowledge base entries. If asked about a specific file or "
+                            "dream, state honestly that you cannot locate it in your current retrieval.]"
+                        ),
+                        "metadata": {"source_type": "system_warning", "file_path": "system", "retrieval_method": "system_warning"},
+                        "label": "Grounding Warning",
+                        "score": 1.0,
+                    })
                 if not combined_results:
                     log_info("RECAP: Both channel memory and RAG results empty — injecting unavailable cache warning header (💡-2)")
                     combined_results = [{
@@ -1354,6 +1381,41 @@ class MessageProcessor:
                 )
         except Exception:
             pass
+
+        # P62-8: Open-ended factual hallucination caveat
+        # When RAG retrieves no real KB documents and the query looks open-ended/factual,
+        # inject a caveat telling Kaia to hedge unverified claims.
+        try:
+            _open_ended_patterns = [
+                r"tell\s+me\s+something\s+interesting",
+                r"tell\s+me\s+(a\s+)?fact",
+                r"tell\s+me\s+something\s+(cool|fun|weird|random|new)",
+                r"give\s+me\s+(a\s+)?fun\s+fact",
+                r"did\s+you\s+know",
+                r"share\s+something\s+interesting",
+            ]
+            _is_open_ended = any(re.search(p, ctx.sanitized_content, re.IGNORECASE) for p in _open_ended_patterns)
+            if _is_open_ended:
+                # Check if RAG returned any real (non-injection) documents
+                _has_real_docs = False
+                for node in ctx.raw_nodes:
+                    _meta = node.get('metadata', {}) if isinstance(node, dict) else getattr(node, 'metadata', {})
+                    if _meta.get('retrieval_method') not in ('injection', 'system_warning', None):
+                        _has_real_docs = True
+                        break
+                if not _has_real_docs:
+                    ctx.system_prompt = ctx.system_prompt + (
+                        "\n\n[you have no verified source material for this topic. "
+                        "if you share a factual claim, be honest about uncertainty: "
+                        "use phrases like 'i believe', 'if i recall correctly', or "
+                        "'i'm not certain but'. do not present unverified claims as "
+                        "established fact. it is better to share something genuinely "
+                        "interesting from your actual knowledge base or recent conversations "
+                        "than to fabricate a plausible-sounding scientific claim.]"
+                    )
+                    log_info("P62-8: Open-ended query with no real RAG docs — injected hallucination caveat.")
+        except Exception:
+            pass  # Never let hallucination caveat break generation
 
     async def _generate_response_stage(self, ctx: MessageContext):
         """Stage 4: Context Optimization and Multi-pass Generation."""
