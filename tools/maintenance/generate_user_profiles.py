@@ -45,7 +45,12 @@ Write my memories under these headings (use ## for each):
 ## QUICK REFERENCE
 (A 2-3 sentence internal summary I can use at a glance to remember who they are)
 
-Write entirely from my perspective (first-person singular: "I", "me", "my"). Refer to the user as "{username}". Output ONLY the profile markdown. No preamble, no commentary."""
+Write entirely from my perspective (first-person singular: "I", "me", "my"). Refer to the user as "{username}". 
+GROUNDING RULES:
+- Do NOT attribute my own persona traits, background, or possessions (such as my vintage-modded robotic cat Pixel, my 20-gallon planted tank, or my workspace) to the user. Pixel is MY robotic cat, not the user's.
+- Real users have their own pets (e.g., Ekco has a real tuxedo cat named Lucky; Starkind has real cats named Nala and Marley).
+
+Output ONLY the profile markdown. No preamble, no commentary."""
 
 
 async def generate_profile(user_dir: Path, dry_run: bool = False) -> bool:

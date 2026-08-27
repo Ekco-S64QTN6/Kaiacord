@@ -417,9 +417,10 @@ class RAGQueryMixin:
                     if node_user_id not in relevant_ids: continue
                 # For general/casual queries: allow all users' logs (boosted below)
                 
-            # Fix 3: Add a casual query hard cap on general_knowledge
+            # Soft dampening for general knowledge on casual queries (allows highly relevant knowledge to surface instead of blanket suppression)
+            casual_knowledge_factor = 1.0
             if is_casual and source_type == 'general_knowledge' and not routing.get('is_entity_query'):
-                continue  # Books have no business in casual chitchat
+                casual_knowledge_factor = 0.75
 
             # Fix 3: rely solely on yaml_config for type_boosts — no inline fallback with stale keys
             boost_key = 'knowledge' if source_type == 'general_knowledge' else source_type
@@ -430,24 +431,24 @@ class RAGQueryMixin:
             if routing.get("is_kaia_query") and basename_lower == "kaia_persona.md":
                 persona_file_bonus = 0.60
 
-            final_score = base_score + path_boost + type_boost + persona_file_bonus
+            final_score = (base_score + path_boost + type_boost + persona_file_bonus) * casual_knowledge_factor
 
-            # Penalize literary prose documents for non-synthesis queries
+            # Soft dampening for literary prose documents for non-synthesis queries (avoid total erasure)
             if source_type == 'general_knowledge' and not routing.get('is_entity_query') and not routing.get('is_news_query'):
                 fname_lower = os.path.basename(file_path).lower()
                 LITERARY_MARKERS = ('neuromancer', 'gibson', 'dickens', 'novel', 'fiction')
                 if any(m in fname_lower for m in LITERARY_MARKERS):
-                    final_score *= 0.4  # Heavy deweight — literary style bleeds into generation
+                    final_score *= 0.75  # Soft dampening — allows literature to surface when relevant
 
             # Apply recency decay (only affects user_logs, news, dreams)
             final_score *= _recency_decay(file_path, source_type, metadata)
 
-            # Fix 1 (Scoring): Same-user boost for logs
+            # Balanced same-user boost for logs (0.15 instead of 0.30 to avoid drowning out curated documentation)
             if source_type == 'user_logs':
                 if node_user_id in relevant_ids:
-                    final_score += 0.30  # Strong boost for current user's own logs
+                    final_score += 0.15  # Moderate boost for current user's own logs
                 else:
-                    final_score += 0.10  # Weaker boost — still preferred over fiction
+                    final_score += 0.05  # Weaker boost for other users' logs
 
             # Fix 2: user_logs recency is already handled by _recency_decay above
             if source_type == 'user_logs':

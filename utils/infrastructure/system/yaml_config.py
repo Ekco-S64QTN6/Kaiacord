@@ -515,8 +515,8 @@ class YAMLConfig:
             'persona': 0.40,
             'user_profile': 0.20,
             'dream': 0.10,
-            'user_logs': 0.25,
-            'knowledge': -0.20
+            'user_logs': 0.10,
+            'knowledge': 0.15
         })
 
     @property
