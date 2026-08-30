@@ -508,7 +508,7 @@ At 12:00 PM (Noon) daily, a random dynamic world event is selected from the acti
 | 📜 Caelindra's Lost Verse | `caelindras_lost_verse` | XP / Lore | Caelindra recites an ancient Aeridorian verse, granting Stone Hearth patrons +15 XP. |
 | 🔭 The Watchtower's Silence | `watchtower_silence` | Scout Mod | On-edge guards share detailed logs; scouts visiting the Watchtower get enhanced scouting reports until the next noon event. |
 | 🧪 Silvani Antidote Run | `silvani_antidote_run` | Items | A Silvani hunter slips into town and leaves a free bandage for each present adventurer. |
-| 🕳️ Bank Alarm — The Coin Hoarder | `the_coin_hoarder` | Combat / Penalty | Bank alarm sounds. Repelling repays XP/Gil. Failing raids character bank balances for 5% of their gold. |
+| 🕳️ Bank Alarm — Vault Breach | `iron_magpies_heist` | Combat / Penalty | Bank alarm sounds as an Iron Magpies master thief (Darek Shadow-Bound, Garrett the Vault-Creeper, or Felix "Ghost-Hand" Pryce) breaches the vault. Town defenders pool damage against the boss. Repelling the operative secures the vaults and awards XP/Gil; failing or ignoring the heist results in 5% of all active bank balances stolen as an uncapped Gil sink. |
 | 🍃 Whisperwood Boundary Shift | `boundary_shift` | Mechanics Mod | Border stakes shifted; Whisperwood Edge solo hunts shift up by 1 tier (increased difficulty/loot) until the next noon event. |
 | 🫙 The Sealed Wax Jar | `sealed_wax_jar` | Shop Special | Hemlock opens a wax jar, offering Lucky Charms at a special discount (20 Gil) until the next noon event. |
 | 🌙 Elara's Private Ritual | `elaras_private_ritual` | XP / Lore | Oakhaven residents witness Elara performing a shrine ritual, granting +10 XP. |

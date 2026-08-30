@@ -281,6 +281,11 @@ From NPC dialogue and calendar events:
 **Atmosphere:** Secure, formal, smells of old paper and copper.
 *"A sturdy stone building near the square. A heavy wooden box with a complex lock sits behind the counter."*
 - Protects Gil from blackout losses
+- **Target of The Iron Magpies:** A notorious syndicate of vaultbreakers and shadow thieves who target Oakhaven's deposits during noon heist events.
+  - **Darek Shadow-Bound:** Master infiltrator draped in midnight silk, wielding poisoned stilettos.
+  - **Garrett the Vault-Creeper:** Ceiling-crawling lockpicker equipped with skeleton keys and smoke bombs.
+  - **Felix "Ghost-Hand" Pryce:** Phantom cutpurse who moves soundlessly through vault shadows with enchanted picks.
+- If an Iron Magpie operative successfully breaches the vault and escapes, 5% of all active bank deposits are siphoned into their guild coffers as an uncapped economy sink.
 
 ### Edge of the Whisperwood
 **Atmosphere:** Where Oakhaven's certainty ends. Light filters strange. Birds too loud.

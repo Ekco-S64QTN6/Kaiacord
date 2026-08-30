@@ -1,17 +1,17 @@
 # Aethelgard TTRPG — Comprehensive System Review
-*August 20, 2026 · Full codebase audit · ~24,500 lines across 40 modules · Phase 17: Alchemy Recipe Dedup, Silverleaf Loot Fix & Shop Price Display*
+*August 29, 2026 · Full codebase audit · ~24,500 lines across 40 modules · Phase 18: Iron Magpies Bank Heist Overhaul, Group Boss Pooled Combat & Town Defender Scope Audit*
 
 ---
 
 ## 1. Executive Summary
 
-The Aethelgard TTRPG is in **S-tier operational health**. Seventeen phases of development have brought the system to production maturity. Phase 17 resolved a critical loot table gap where Silverleaf (tier 3 herb, ingredient for 4 alchemy recipes) was completely absent from all drop tables — the only source was a one-time quest reward, making Elixir, XP Tonic, Phoenix Brew, and Moonwater permanently unbrewable. Also fixed two pairs of duplicate alchemy recipe ingredients (phoenix_brew/moonwater, ironbark_tonic/warding_salve) and a shop UI bug where noon event sale prices were invisible in dropdown menus. Added diagnostic logging to the Sealed Wax Jar event to catch world state persistence failures.
+The Aethelgard TTRPG is in **S-tier operational health**. Eighteen phases of development have brought the system to production maturity. Phase 18 overhauled the Bank Alarm noon event into a multi-character heist defense featuring **The Iron Magpies** thief guild (rotating between *Darek Shadow-Bound*, *Garrett the Vault-Creeper*, and *Felix "Ghost-Hand" Pryce*). Fixed an event scope bug where players in valid town locations (like Hemlock's shop, shrine, or housing district) were excluded from town events, unified town defense polling across all events, replaced separate clone battles with a true single-boss pooled damage system tuned for ~60–75% defender success, and removed arbitrary theft caps so unsuccessful heists act as true 5% economy Gil sinks.
 
 **All identified bugs have been resolved.** This review identifies **0 active bugs**, **3 low-priority code quality notes**, and **0 content gaps** (all progression gaps resolved).
 
 **Full Validation Suite — All Passing:**
 - ✅ All 40 modules pass `ast.parse()` syntax check
-- ✅ All 365 monster keys resolve correctly from encounter tables (41 boss-tier)
+- ✅ All 367 monster keys resolve correctly from encounter tables (43 boss-tier)
 - ✅ All loot table item keys exist in equipment registries — no deprecated items in drop tables
 - ✅ `get_equipment()` and `get_caravan_stock()` helper functions intact
 - ✅ Zero `import random` violations — `secrets` module used exclusively for all RNG
@@ -48,7 +48,14 @@ The Aethelgard TTRPG is in **S-tier operational health**. Seventeen phases of de
 
 ### All Bugs Resolved ✅
 
-**No active bugs remain.** All issues identified across seventeen audit phases have been fixed and verified.
+**No active bugs remain.** All issues identified across eighteen audit phases have been fixed and verified.
+
+### Phase 18: Iron Magpies Bank Heist Overhaul, Group Boss Pooled Combat & Town Defender Scope Audit (August 29, 2026)
+
+| ID | Fix | Verification |
+|---|---|---|
+| ✅ BUG-R27 | **Restricted Town Defender Location Whitelists.** Several noon events (`run_the_coin_hoarder`, `run_construct_breach`, `run_caravan_ambush`) passed arbitrary hardcoded subsets of town locations (`LOCS`), causing players stationed at Hemlock's shop, the Shrine, or Housing District to be omitted from defending town events. **Fixed:** All town events now query default `get_active_town_defenders()`, encompassing all in-town locations while excluding wild/hunting zones. | Verified across `background_tasks.py` and `character_manager.py`. |
+| ✅ FEAT-7 | **The Iron Magpies Bank Heist & Pooled Group Combat.** Replaced generic shadow/lich substitutions with three distinct named Iron Magpie operatives (`darek_shadow_bound`, `garrett_vault_creeper`, `felix_ghost_hand`). Replaced independent clone combat with a unified group combat loop where all defender strikes pool directly into the single boss HP pool (tuned for ~60–75% defender success). Removed arbitrary theft caps so failed/undefended heists act as true 5% economy Gil sinks. | Unit tests pass; `monster_registry.py` and `background_tasks.py` verified. |
 
 ### Phase 17: Alchemy Recipe Dedup, Silverleaf Loot Fix & Shop Price Display (August 20, 2026)
 

@@ -765,7 +765,7 @@ class CoreTaskManager:
                         (run_caelindras_lost_verse, 10),
                         (run_watchtower_silence,  10),
                         (run_silvani_antidote_run, 10),
-                        (run_the_coin_hoarder,    10),
+                        (run_iron_magpies_heist,  10),
                         (run_boundary_shift,      10),
                         (run_sealed_wax_jar,      10),
                         (run_elaras_private_ritual, 10),
@@ -2823,8 +2823,7 @@ async def run_construct_breach(bot_ctx, channel):
     ))
     await asyncio.sleep(3)
 
-    LOCS = {"watchtower", "aeridor_ruins", "oakhaven", "housing_district"}
-    defenders = await get_active_town_defenders(town_locations=LOCS)
+    defenders = await get_active_town_defenders()
     
     if not defenders:
         await channel.send(embed=discord.Embed(
@@ -3062,8 +3061,7 @@ async def run_caravan_ambush(bot_ctx, channel):
     ))
     await asyncio.sleep(3)
 
-    LOCS = {"trade_road", "oakhaven", "watchtower", "stone_hearth"}
-    defenders = await get_active_town_defenders(town_locations=LOCS)
+    defenders = await get_active_town_defenders()
     
     if not defenders:
         wstate["caravan_active"] = False
@@ -4045,8 +4043,8 @@ async def run_silvani_antidote_run(bot_ctx, channel):
     log_action("Noon Event: Silvani Antidote Run")
 
 
-async def run_the_coin_hoarder(bot_ctx, channel):
-    """Noon event: The Coin Hoarder scaled combat event."""
+async def run_iron_magpies_heist(bot_ctx, channel):
+    """Noon event: The Iron Magpies Bank Heist scaled combat event."""
     import secrets
     import discord
     import asyncio
@@ -4060,70 +4058,97 @@ async def run_the_coin_hoarder(bot_ctx, channel):
     from utils.ttrpg.housing import load_housing
     from utils.ttrpg.pets import get_pet_passive
 
+    THIEVES = [
+        {
+            "key": "darek_shadow_bound",
+            "name": "Darek Shadow-Bound",
+            "title": "Master Infiltrator",
+            "desc": "A legendary vault infiltrator and master thief of the Iron Magpies clad in muffled midnight silk, armed with poisoned stilettos and bulging sacks of stolen Gil.",
+            "intro": "A hooded figure clad in muffled midnight silk—**Darek Shadow-Bound**—is prying open the reinforced deposit lockboxes!",
+        },
+        {
+            "key": "garrett_vault_creeper",
+            "name": "Garrett the Vault-Creeper",
+            "title": "Guild Lockpicker",
+            "desc": "A wiry, ceiling-crawling lockpicker from the Iron Magpies, draped in dark oilskin and bristling with skeleton keys and smoke bombs.",
+            "intro": "A wiry figure clinging to the vault ceiling—**Garrett the Vault-Creeper**—is dropping smoke bombs and stuffing enchanted lockboxes into a sack!",
+        },
+        {
+            "key": "felix_ghost_hand",
+            "name": 'Felix "Ghost-Hand" Pryce',
+            "title": "Phantom Cutpurse",
+            "desc": 'The infamous phantom cutpurse of the Iron Magpies, moving soundlessly through vault shadows with enchanted picks and twin concealed daggers.',
+            "intro": 'A soundless shadow flickers between the safety deposit vaults—**Felix "Ghost-Hand" Pryce**—slipping gilded coins into an extradimensional pouch!',
+        },
+    ]
+    thief = secrets.choice(THIEVES)
+
     await channel.send(embed=discord.Embed(
-        title="🕳️ BANK ALARM — THE COIN HOARDER",
+        title="🕳️ BANK ALARM — VAULT BREACH",
         description=(
-            "*A metallic scratching sound echoes from the bank vaults! A dark, shifting mass of shadow and "
-            "claws—the Coin Hoarder—is clawing through the coin chests.*\n\n"
-            "**\"It's in the vault!\"** the clerk screams. **\"Repel it before it drains our deposits!\"**"
+            f"*A metallic scratching and clinking echoes from the bank vaults! {thief['intro']}*\n\n"
+            f"**\"The Iron Magpies have breached the vault!\"** the clerk screams. **\"Stop {thief['name']} before our deposits are emptied!\"**"
         ),
         color=0xd35400
     ))
     await asyncio.sleep(3)
 
-    LOCS = {"oakhaven_bank", "oakhaven", "watchtower", "stone_hearth"}
-    defenders = await get_active_town_defenders(town_locations=LOCS)
+    defenders = await get_active_town_defenders()
     
     if not defenders:
-        # Penalty: steal bank gil from all active characters
+        # Penalty: steal 5% of bank gil from all active characters (true percentage sink)
         all_sheets = await load_all()
         stolen_details = []
         for s in all_sheets:
             bal = s.get("bank_balance", 0)
             if bal > 0:
-                stolen = min(100, int(bal * 0.05))
+                stolen = max(1, int(bal * 0.05))
                 s["bank_balance"] = max(0, bal - stolen)
                 await save(s)
                 stolen_details.append(f"🏦 **{s['character_name']}**: -{stolen} Gil")
         
-        desc = "*No adventurers responded. The Coin Hoarder raided the vault and slipped back into the earth.*\n\n"
+        desc = f"*No adventurers responded to the alarm. {thief['name']} of the Iron Magpies cleaned out the vault and vanished into the shadows.*\n\n"
         if stolen_details:
-            desc += "**Stolen Bank Balances (5%):**\n" + "\n".join(stolen_details)
+            desc += "**Stolen Bank Balances (5% Heist Loss):**\n" + "\n".join(stolen_details)
         else:
             desc += "Fortunately, the vaults were empty."
             
         await channel.send(embed=discord.Embed(description=desc, color=0xcc4444))
-        await _log_world_event("❌ **Bank Robbed** — The Coin Hoarder broke into the vaults and stole Gil deposits.")
+        await _log_world_event(f"❌ **Bank Robbed** — {thief['name']} of the Iron Magpies broke into the vaults and stole Gil deposits.")
+        log_action(f"Noon Event: Iron Magpies Bank Heist ({thief['name']} - Undefended)")
         return
 
     # Combat setup
     avg_level = sum(s.get("level", 1) for s in defenders) / len(defenders)
     max_level = max(s.get("level", 1) for s in defenders)
     
-    # Scale a boss shadow
-    m_key = "shadow_lich" if avg_level >= 10 else "wraith"
-    m_data = get_monster(m_key)
-    
-    attackers = []
-    if m_data:
-        m_instance = m_data.copy()
-        m_instance["key"] = m_key
-        scale = 1.0 + (avg_level - 1) * 0.05
-        m_instance["hp"] = max(20, int(m_instance["hp"] * scale * 1.5))
-        m_instance["attack"] = max(4, int(m_instance["attack"] * scale))
-        m_instance["defense"] = max(9, int(m_instance["defense"] * scale))
-        m_instance["hp"] = {"current": m_instance["hp"], "max": m_instance["hp"]}
-        attackers.append(m_instance)
+    # Scale boss stats: tuned for ~60-75% defender success rate with pooled group combat
+    scale = 1.0 + (avg_level - 1) * 0.04
+    party_scale = 1.0 + (len(defenders) - 1) * 0.40
+    boss_hp = max(35, int(45 * scale * party_scale))
+    boss_atk = max(4, min(13, int(6 + avg_level * 0.35)))
+    boss_def = max(6, min(10, int(6 + avg_level * 0.20)))
+
+    boss = {
+        "key": thief["key"],
+        "name": thief["name"],
+        "hp": {"current": boss_hp, "max": boss_hp},
+        "attack": boss_atk,
+        "defense": boss_def,
+        "xp": 600,
+        "gil": 350,
+        "tier": "boss",
+        "desc": thief["desc"]
+    }
         
-    total_xp = 120 + int(avg_level * 10)
-    total_gil = 80 + int(avg_level * 10)
+    total_xp = 160 + int(avg_level * 16) * len(defenders)
+    total_gil = 110 + int(avg_level * 12) * len(defenders)
     
-    creature_names = ", ".join(m["name"] for m in attackers)
-    defenders_list = "\n".join(f"⚔️ **{s['character_name']}** (Lv.{s['level']})" for s in defenders)
+    defenders_list = "\n".join(f"⚔️ **{s['character_name']}** (Lv.{s['level']} {s.get('class', 'Adventurer')})" for s in defenders)
     
     await channel.send(embed=discord.Embed(
-        title="⚔️ Bank Defense — Battle the Hoarder",
-        description=f"**Attacking:** {creature_names}\n**Defenders:**\n{defenders_list}",
+        title="⚔️ Bank Defense — Repel the Iron Magpies",
+        description=f"**Attacking:** {boss['name']} ({thief['title']})\n**Defenders:**\n{defenders_list}",
         color=0xd35400
     ))
     await asyncio.sleep(4)
@@ -4132,52 +4157,79 @@ async def run_the_coin_hoarder(bot_ctx, channel):
     world_atk_mod = wstate.get("atk_mod", 0)
     world_def_mod = wstate.get("def_mod", 0)
     
-    defeated_monsters_count = 0
-    combat_results = []
-    
-    for idx, s in enumerate(defenders):
-        attacker = attackers[idx % len(attackers)].copy()
-        housing = load_housing(str(s.get("user_id", "")))
-        pet_bonuses = get_pet_passive(housing) if housing else {}
-        
-        won = False
-        rounds_log = []
-        for r_idx in range(3):
-            if s["hp"]["current"] <= 0 or attacker["hp"]["current"] <= 0:
+    # ── Pooled Party Combat (All defenders focus single thief entity) ──
+    max_rounds = 5
+    for round_num in range(max_rounds):
+        if boss["hp"]["current"] <= 0:
+            break
+        living_defenders = [s for s in defenders if s.get("hp", {}).get("current", 0) > 0]
+        if not living_defenders:
+            break
+        for s in living_defenders:
+            if boss["hp"]["current"] <= 0:
                 break
-            res = _resolve_combat(s, attacker, atk_mod_global=world_atk_mod, def_mod_global=world_def_mod, pet_bonuses=pet_bonuses)
-            if attacker["hp"]["current"] <= 0:
-                won = True
-                defeated_monsters_count += 1
-                break
-        combat_results.append((s, won))
+            housing = load_housing(str(s.get("user_id", "")))
+            pet_bonuses = get_pet_passive(housing) if housing else {}
+            _resolve_combat(
+                s, boss,
+                atk_mod_global=world_atk_mod,
+                def_mod_global=world_def_mod,
+                pet_bonuses=pet_bonuses
+            )
 
-    defenders_won = (defeated_monsters_count > 0)
-    xp_each = max(1, total_xp // len(defenders))
-    gil_each = max(1, total_gil // len(defenders))
+    defenders_won = (boss["hp"]["current"] <= 0)
+    xp_each = max(10, total_xp // len(defenders))
+    gil_each = max(10, total_gil // len(defenders))
     
     result_lines = []
     level_ups = []
-    for s, won in combat_results:
-        if s["hp"]["current"] <= 0:
-            s["xp"] = max(0, s["xp"] - int(s["xp"] * 0.10))
-            s["gil"] = max(0, s["gil"] - int(s["gil"] * 0.05))
-            s["hp"]["current"] = 1
-            s["location"] = "shrine"
-            s["deaths"] = s.get("deaths", 0) + 1
-            await save(s)
-            result_lines.append(f"💀 **{s['character_name']}** blacked out defending the bank.")
-        elif defenders_won:
-            s["xp"] = s.get("xp", 0) + xp_each
-            s["gil"] = s.get("gil", 0) + gil_each
-            leveled, new_lvl = check_level_up(s)
-            await save(s)
-            result_lines.append(f"⚔️ **{s['character_name']}** repelled the hoarder (+{xp_each} XP, +{gil_each}g)")
-            if leveled:
-                level_ups.append(f"🎉 **{s['character_name']}** reached **Level {new_lvl}!**")
-        else:
-            await save(s)
-            result_lines.append(f"🛡️ **{s['character_name']}** survived, but the hoarder escaped.")
+    
+    if defenders_won:
+        for s in defenders:
+            if s["hp"]["current"] <= 0:
+                s["hp"]["current"] = 1
+                s["location"] = "shrine"
+                s["deaths"] = s.get("deaths", 0) + 1
+                s["xp"] = s.get("xp", 0) + xp_each // 2
+                s["gil"] = s.get("gil", 0) + gil_each // 2
+                leveled, new_lvl = check_level_up(s)
+                await save(s)
+                result_lines.append(f"💀 **{s['character_name']}** was knocked out, but the team prevailed! (+{xp_each // 2} XP, +{gil_each // 2}g)")
+                if leveled:
+                    level_ups.append(f"🎉 **{s['character_name']}** reached **Level {new_lvl}!**")
+            else:
+                s["xp"] = s.get("xp", 0) + xp_each
+                s["gil"] = s.get("gil", 0) + gil_each
+                leveled, new_lvl = check_level_up(s)
+                await save(s)
+                result_lines.append(f"⚔️ **{s['character_name']}** helped subdue {thief['name']} and secured the vaults! (+{xp_each} XP, +{gil_each}g)")
+                if leveled:
+                    level_ups.append(f"🎉 **{s['character_name']}** reached **Level {new_lvl}!**")
+    else:
+        # Theft loss penalty if defenders lose / time runs out: 5% of bank balances stolen (uncapped sink)
+        all_sheets = await load_all()
+        stolen_details = []
+        for s_other in all_sheets:
+            bal = s_other.get("bank_balance", 0)
+            if bal > 0:
+                stolen = max(1, int(bal * 0.05))
+                s_other["bank_balance"] = max(0, bal - stolen)
+                await save(s_other)
+                stolen_details.append(f"🏦 **{s_other['character_name']}**: -{stolen} Gil")
+        for s in defenders:
+            if s["hp"]["current"] <= 0:
+                s["xp"] = max(0, s["xp"] - int(s["xp"] * 0.10))
+                s["gil"] = max(0, s["gil"] - int(s["gil"] * 0.05))
+                s["hp"]["current"] = 1
+                s["location"] = "shrine"
+                s["deaths"] = s.get("deaths", 0) + 1
+                await save(s)
+                result_lines.append(f"💀 **{s['character_name']}** was knocked out defending the bank.")
+            else:
+                await save(s)
+                result_lines.append(f"🛡️ **{s['character_name']}** survived, but {thief['name']} overpowered the defense and escaped with the loot.")
+        if stolen_details:
+            result_lines.append("\n**Stolen Bank Balances (5% Vault Heist Loss):**\n" + "\n".join(stolen_details))
 
     embed = discord.Embed(
         title="🕳️ Bank Defense Outcome",
@@ -4188,9 +4240,12 @@ async def run_the_coin_hoarder(bot_ctx, channel):
         embed.add_field(name="\u200b", value="\n".join(level_ups), inline=False)
     await channel.send(embed=embed)
     
-    outcome_txt = "Defenders won" if defenders_won else "Defenders failed"
-    await _log_world_event(f"🛡️ **Bank Defense:** {outcome_txt} against the Coin Hoarder.")
-    log_action("Noon Event: Coin Hoarder")
+    outcome_txt = f"Bank Secured — {thief['name']} subdued" if defenders_won else f"{thief['name']} escaped with vault loot"
+    await _log_world_event(f"🛡️ **Bank Defense:** {outcome_txt}.")
+    log_action(f"Noon Event: Iron Magpies Bank Heist ({thief['name']} - {'Won' if defenders_won else 'Lost'})")
+
+
+run_the_coin_hoarder = run_iron_magpies_heist
 
 
 async def run_boundary_shift(bot_ctx, channel):

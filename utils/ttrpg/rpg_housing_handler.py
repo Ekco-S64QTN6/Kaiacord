@@ -217,6 +217,10 @@ async def _handle_my_home(ctx, msg, send, rest, uid, uname, is_owner):
     sheet = await load(uid)
     if not sheet: return
 
+    if sheet.get("location") != "housing_district":
+        sheet["location"] = "housing_district"
+        await save(sheet)
+
     housing = load_housing(uid)
 
     # ── No house yet — offer purchase ────────────────────────────────────────
@@ -349,9 +353,14 @@ async def _handle_my_home(ctx, msg, send, rest, uid, uname, is_owner):
         view.add_item(_make_home_btn(ctx, uid, uname, is_owner, "🐾 Adopt Pet", "pet_shop", 1))
 
     view.add_item(_make_home_btn(ctx, uid, uname, is_owner, "🪑 Decorate", "furniture_shop", 1))
+    if get_next_tier(housing["tier"]):
+        view.add_item(_make_home_btn(ctx, uid, uname, is_owner, "⬆️ Upgrade", "upgrade_house", 1))
 
-    # Row 2: Conditional actions + upgrade
+    # Row 2: Conditional actions (max 5 buttons)
     bonuses = get_home_bonuses(housing)
+    if bonuses.get("home_scout"):
+        view.add_item(_make_home_btn(ctx, uid, uname, is_owner, "🗼 Scout", "scout", 2,
+                                      style=discord.ButtonStyle.blurple))
     if bonuses.get("home_brewing"):
         view.add_item(_make_home_btn(ctx, uid, uname, is_owner, "⚗️ Brew", "brew", 2,
                                       style=discord.ButtonStyle.blurple))
@@ -364,8 +373,6 @@ async def _handle_my_home(ctx, msg, send, rest, uid, uname, is_owner):
     if bonuses.get("home_bank"):
         view.add_item(_make_home_btn(ctx, uid, uname, is_owner, "🏦 Bank", "bank", 2,
                                       style=discord.ButtonStyle.blurple))
-    if get_next_tier(housing["tier"]):
-        view.add_item(_make_home_btn(ctx, uid, uname, is_owner, "⬆️ Upgrade", "upgrade_house", 2))
 
     # Row 3: Utility
     ren_btn = discord.ui.Button(label="🏷️ Rename", style=discord.ButtonStyle.secondary, row=3)

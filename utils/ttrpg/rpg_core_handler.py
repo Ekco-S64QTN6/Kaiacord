@@ -2118,11 +2118,14 @@ async def _handle_scout(ctx, msg, send, rest, uid, uname, is_owner):
     from utils.ttrpg.furniture import get_home_bonuses
     housing = await load_housing_async(uid)
     bonuses = get_home_bonuses(housing) if housing else {}
-    has_home_scout = sheet.get("location") == "housing_district" and bonuses.get("home_scout")
+    has_war_map = bool(bonuses.get("home_scout"))
+    is_at_home = sheet.get("location") == "housing_district"
+    is_at_tower = sheet.get("location") == "watchtower"
 
-    if sheet.get("location") != "watchtower" and not has_home_scout:
+    # Allow scouting if at watchtower OR if player owns the Tactical War Map
+    if not is_at_tower and not has_war_map:
         return await msg.channel.send(embed=discord.Embed(
-            description="You need to be at the Watchtower to scout.\n`!rpg go watchtower`",
+            description="You need to be at the Watchtower to scout, or own a Tactical War Map at home.\n`!rpg go watchtower` or `!rpg go housing_district`",
             color=0xcc4444
         ))
 
@@ -2139,14 +2142,38 @@ async def _handle_scout(ctx, msg, send, rest, uid, uname, is_owner):
     has_watchtower_bonus = bool(wstate.get("watchtower_bonus"))
 
     today = date.today().strftime("%Y-%m-%d")
-    if sheet.get("last_scout_date") == today and not has_watchtower_bonus:
-        return await msg.channel.send(embed=discord.Embed(
-            description="🗼 *The guards shrug. You've already had your look today.*\nCome back tomorrow.",
-            color=0x888888
-        ))
+    # Daily reset for scout counters
+    if sheet.get("scout_date") != today and sheet.get("last_scout_date") != today:
+        sheet["scout_date"] = today
+        sheet["last_scout_date"] = today
+        sheet["tower_scouts_today"] = 0
+        sheet["home_scouts_today"] = 0
+        sheet["scouted_spawns"] = {}
 
+    tower_scouts = sheet.get("tower_scouts_today", 0)
+    home_scouts = sheet.get("home_scouts_today", 0)
+
+    # Determine whether using home map or watchtower
+    if is_at_home or (has_war_map and not is_at_tower):
+        if home_scouts >= 2:
+            return await msg.channel.send(embed=discord.Embed(
+                description="📌 *You've already studied your Tactical War Map twice today.* (2/2 home checks used)\nCome back tomorrow after dawn or visit the Watchtower (`!rpg go watchtower`).",
+                color=0x888888
+            ))
+        sheet["home_scouts_today"] = home_scouts + 1
+        scout_source_type = "home"
+    else:
+        if tower_scouts >= 1 and not has_watchtower_bonus:
+            return await msg.channel.send(embed=discord.Embed(
+                description="🗼 *The sentries nod. You've already had your look from the Watchtower today.* (1/1 tower checks used)\nCome back tomorrow or consult your Tactical War Map from home.",
+                color=0x888888
+            ))
+        sheet["tower_scouts_today"] = tower_scouts + 1
+        scout_source_type = "tower"
+
+    sheet["scout_date"] = today
     sheet["last_scout_date"] = today
-    await save(sheet)
+    scouted_spawns = {}
 
     HUNTING_LOCATIONS = {
         "whisperwood_edge": "Edge of the Whisperwood",
@@ -2196,6 +2223,8 @@ async def _handle_scout(ctx, msg, send, rest, uid, uname, is_owner):
                         spotted_keys.append(mk)
                     break
 
+        scouted_spawns[loc_key] = list(spotted_keys[:spotted_limit])
+
         # Tier distribution
         tier_weights: dict[str, int] = {}
         for mk, w in table:
@@ -2218,6 +2247,9 @@ async def _handle_scout(ctx, msg, send, rest, uid, uname, is_owner):
             f"   Mostly *{dominant_tier}* ({dominant_pct}%){xp_hint}\n"
             f"   Spotted: *{', '.join(spotted_names) if spotted_names else 'nothing visible'}*"
         )
+
+    sheet["scouted_spawns"] = scouted_spawns
+    await save(sheet)
 
     if has_watchtower_bonus:
         lines.append("\n🔭 **The Watchtower's Silence:** *The sentries share their precision spyglass logs. Extra monster detail revealed.*")
@@ -2246,7 +2278,11 @@ async def _handle_scout(ctx, msg, send, rest, uid, uname, is_owner):
         description="\n".join(lines),
         color=0x8888aa
     )
-    embed.set_footer(text=f"Scout intel refreshes daily at dawn · Today: {weather['name']}")
+    if scout_source_type == "home":
+        footer_text = f"📌 Tactical War Map ({sheet['home_scouts_today']}/2 home checks used) · Today: {weather['name']}"
+    else:
+        footer_text = f"🗼 Watchtower Intel ({sheet['tower_scouts_today']}/1 tower check used) · Today: {weather['name']}"
+    embed.set_footer(text=footer_text)
     view = _make_status_view(ctx, msg, uid, uname, is_owner)
     await msg.channel.send(embed=embed, view=view)
 

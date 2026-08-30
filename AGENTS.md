@@ -1,7 +1,7 @@
 # AGENTS.md
 
 > Instructions for AI coding agents working on this repository.
-> Last updated: August 15, 2026
+> Last updated: August 29, 2026 (Phase 63 Verified)
 
 ## Project Overview
 
@@ -219,6 +219,11 @@ Registry files (like `equipment_registry.py`) contain both large data dictionari
 - **Beliefs** are stored in `memory/beliefs.json` with a 100-belief cap, atomic writes, and revision tracking.
 - **Memory anchors** are stored in `memory/anchors.json` with a 100-anchor cap, weight decay, and automatic pruning below 0.1 weight.
 - **Proactive initiation** is rate-limited to 2 messages/day with a 4-hour minimum gap between messages. Topic diversity is tracked in `memory/proactive_topics.json`.
+- **Multimodal Pet Grounding**: Ekco's pet **Lucky** is a living biological tuxedo cat; Starkind's pets **Nala** and **Marley** are living biological cats. Kaia's pet **Pixel** is a vintage-modded robotic cat in virtual persona space. NEVER use synthetic hardware jargon (*"sensor readings"*, *"thermal equilibrium"*, *"battery swap"*) for real biological pets.
+- **Acronym Definition**: "Kaia Artificial Intelligence Agent" (recursive).
+- **Unattached Image Guard**: If user asks about an image but no attachment exists, state that no image is visible.
+- **Quote Provenance Constraint**: If asked for quote sources and no verified RAG document exists, state source is unverified.
+- **Epistemic Stance & Anti-Sycophancy**: Defend baseline self-model and beliefs under user challenge. Graciously accept genuine compliments.
 
 ### Project 1999 Forum & Social Operations
 - **Moderation Draft Queue**: All auto-generated posts and tech support replies must be routed to `#kaia-opolis` as drafts with interactive Accept/Reject views first before being submitted to the forum.
@@ -231,7 +236,7 @@ Kaia utilizes multiple distinct LLM call paths depending on the context. Do not 
 
 | Call Path | Entry Point | Context / Pipeline | Key Features / Safety Layers |
 |---|---|---|---|
-| **Discord Chat** | `MessageProcessor.process()` | Full `MessageContext` | 28-feature cognitive pipeline, RAG/memory retrieval, intent classification, 10-layer post-generation safety pipeline (hallucination detection, bot-speak filter, etc.) |
+| **Discord Chat** | `MessageProcessor.process()` | Full `MessageContext` | 28-feature cognitive pipeline, RAG/memory retrieval, intent classification, 11-layer post-generation safety pipeline (hallucination detection, bot-speak filter, dogtag replay, etc.) |
 | **Proactive Opener** | `kaia_proactive.py` → `generate_opener()` | System + User message format | Enriched with selective cognitive injections (emotional arc, channel memory, relationship, beliefs, identity stream). Uses `BotSpeakFilter.harden()` + `EmergencyContaminationFilter` + `PostGenerationSafetyPipeline.apply_style_collapsers()`. |
 | **Afterthought** | `background_tasks.py` → afterthought task | System + User message format | Enriched with emotional arc + channel memory context. Full 3-stage post-generation safety pipeline. |
 | **Forum Auto-Post** | `background_tasks.py` -> `_make_forum_auto_post_task()` | System + User message format | Stripped-down LLM call (`ollama_client.chat`), bypasses `MessageProcessor` and cognitive pipeline. Uses `BotSpeakFilter.harden()` post-generation. |

@@ -108,6 +108,7 @@ async def handle_rpg_command(ctx, msg, send_kaia_response):
         "advance":   cor._handle_advance,
         "bard_song": soc._handle_bard_song,
         "sheet":     cor._handle_sheet,
+        "home":           hou._handle_my_home,
         "my_home":        hou._handle_my_home,
         "buy_house":      hou._handle_buy_house,
         "upgrade_house":  hou._handle_upgrade_house,

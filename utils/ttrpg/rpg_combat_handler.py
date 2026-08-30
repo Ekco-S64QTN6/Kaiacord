@@ -755,8 +755,18 @@ async def _handle_hunt(ctx, msg, send, rest, uid, uname, is_owner):
     elif "shadow_incursion" in active_quests and loc == "whisperwood_deep":
         quest_location_override = "whisperwood_deep_shadow"
 
+    from datetime import date
+    today_str = date.today().strftime("%Y-%m-%d")
+
     for _ in range(num_to_spawn):
-        m_key = random_encounter(quest_location_override or loc, sheet.get("level", 1))
+        # Consume pre-scouted monster from scout report if available for this zone and valid today
+        is_scout_valid = (sheet.get("scout_date") == today_str or sheet.get("last_scout_date") == today_str)
+        scouted_queue = sheet.get("scouted_spawns", {}).get(loc, []) if is_scout_valid else []
+        if scouted_queue and not quest_location_override:
+            m_key = scouted_queue.pop(0)
+            await save(sheet)
+        else:
+            m_key = random_encounter(quest_location_override or loc, sheet.get("level", 1))
         m_data = get_monster(m_key)
         if not m_data: continue
         

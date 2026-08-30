@@ -2037,6 +2037,7 @@ def _make_home_btn(ctx, uid, uname, is_owner, label, cmd, row, style=discord.But
             "brew": _handle_brew,
             "pray": _handle_pray,
             "bank": _handle_bank,
+            "scout": _handle_scout,
         }
         handler = handler_map.get(cmd)
         if handler:

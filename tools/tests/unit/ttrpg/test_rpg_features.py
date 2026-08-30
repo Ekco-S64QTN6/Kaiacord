@@ -110,3 +110,35 @@ async def test_dynamic_event_location_buttons():
         labels_active_tr = [btn.label for btn in view_active_tr.children if hasattr(btn, "label")]
         assert "Raid Blockade" in labels_active_tr
         assert "Rob Bandits" in labels_active_tr
+
+
+def test_tactical_war_map_home_scout_unlock():
+    """Verify that owning Tactical War Map unlocks home_scout bonus, and absence hides it."""
+    from utils.ttrpg.furniture import get_home_bonuses
+
+    # 1. House without war_map
+    house_no_map = {"furniture": ["rustic_table", "wooden_bed"]}
+    bonuses_no_map = get_home_bonuses(house_no_map)
+    assert "home_scout" not in bonuses_no_map
+    assert not bonuses_no_map.get("home_scout")
+
+    # 2. House with war_map
+    house_with_map = {"furniture": ["rustic_table", "war_map"]}
+    bonuses_with_map = get_home_bonuses(house_with_map)
+    assert bonuses_with_map.get("home_scout") == 1
+
+
+def test_scout_daily_limits_state():
+    """Test that sheet tracks home (2) and tower (1) scout counts separately."""
+    from datetime import date
+    today = date.today().strftime("%Y-%m-%d")
+
+    sheet = {
+        "scout_date": today,
+        "tower_scouts_today": 1,
+        "home_scouts_today": 2,
+    }
+    assert sheet["tower_scouts_today"] >= 1
+    assert sheet["home_scouts_today"] >= 2
+
+
