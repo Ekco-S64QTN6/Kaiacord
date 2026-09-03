@@ -444,6 +444,24 @@ class DashboardManager:
             except Exception:
                 pass
             
+            # Explicitly kill any child processes remaining (manager server, dashboard UI, IPC workers)
+            try:
+                current_process = psutil.Process()
+                children = current_process.children(recursive=True)
+                for child in children:
+                    try:
+                        child.terminate()
+                    except Exception:
+                        pass
+                _, still_alive = psutil.wait_procs(children, timeout=1.5)
+                for child in still_alive:
+                    try:
+                        child.kill()
+                    except Exception:
+                        pass
+            except Exception:
+                pass
+            
             # ALWAYS kill orphaned Ollama runners (synchronous, no IPC needed)
             try:
                 from utils.infrastructure.gpu.clear_gpu_memory import kill_orphaned_runners
@@ -465,11 +483,8 @@ class DashboardManager:
             sys.__stdout__.write("\n[SUCCESS] Kaia has entered hibernation.\n")
             sys.__stdout__.flush()
             
-            # EMERGENCY FALLBACK: If we're still alive 3 seconds after saying we're done, force it.
-            # This handles cases where lingering threads or multiprocessing Manager won't die.
-            time.sleep(3.0)
-            if threading.active_count() > 1:
-                shutdown_manager.force_exit(0)
+            # Direct clean force exit - avoids lingering threads or unjoined multiprocessing server
+            shutdown_manager.force_exit(0)
 
     async def run_simple_mode(self, initialize_logic_layer, run_bot_async):
         """Run in simple ANSI mode."""
@@ -502,7 +517,5 @@ class DashboardManager:
             sys.__stdout__.write("\n[SUCCESS] Kaia has entered hibernation.\n")
             sys.__stdout__.flush()
             
-            # EMERGENCY FALLBACK: If we're still alive 3 seconds after saying we're done, force it.
-            time.sleep(3.0)
-            if threading.active_count() > 1:
-                shutdown_manager.force_exit(0)
+            # Direct clean force exit
+            shutdown_manager.force_exit(0)
