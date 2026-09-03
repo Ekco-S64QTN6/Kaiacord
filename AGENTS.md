@@ -1,7 +1,7 @@
 # AGENTS.md
 
 > Instructions for AI coding agents working on this repository.
-> Last updated: August 29, 2026 (Phase 63 Verified)
+> Last updated: September 1, 2026 (Phase 64 Verified)
 
 ## Project Overview
 
@@ -209,7 +209,7 @@ Registry files (like `equipment_registry.py`) contain both large data dictionari
 - Every monster key used in `ENCOUNTER_TABLES` MUST have a matching entry in `MONSTERS`
 - Shop stock lists (`HEMLOCK_STOCK_*`, `PELLS_STOCK_*`) are manually maintained — new buyable items need both the item dict AND the stock list updated
 - Equipment stat budgets by tier: See `docs/ttrpg/ttrpg_report.md` for current balance targets. Do not add items that exceed tier budgets without updating the documentation first
-- Current counts: **366 monsters** (41 boss-tier), **453 active unique equipment items** across 7 tiers, **253 unique fish**
+- Current counts: **369 monsters** (44 boss-tier), **453 active unique equipment items** across 7 tiers, **253 unique fish**, **12 quests**
 
 ### Kaia Cognitive Pipeline
 - **All 28 behavioral features** (tone mirroring, time-of-day, conversational fatigue, relationship stages, mood vector, monologue, memory anchors, conversational stance, anticipatory context priming, theory of mind, etc.) are lightweight system prompt injections in `message_processor.py`. They do NOT call the LLM — they're pure Python heuristics.

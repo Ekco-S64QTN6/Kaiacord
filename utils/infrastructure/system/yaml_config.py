@@ -560,12 +560,17 @@ class YAMLConfig:
     @property
     def generation_base_temperature(self) -> float:
         """Base temperature for generation"""
-        return self.get_path('generation.base_temperature', 0.8)
+        return self.get_path('generation.base_temperature', 0.7)
+    
+    @property
+    def generation_rag_temperature(self) -> float:
+        """Grounded temperature for RAG retrieval and document summarization"""
+        return self.get_path('generation.rag_temperature', 0.35)
     
     @property
     def generation_temperature_scaling(self) -> float:
         """Temperature increment per retry attempt"""
-        return self.get_path('generation.temperature_scaling', 0.15)
+        return self.get_path('generation.temperature_scaling', 0.05)
     
     @property
     def generation_fallback_num_predict(self) -> int:

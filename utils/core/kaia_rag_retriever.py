@@ -91,7 +91,7 @@ class SimpleBM25Retriever:
         
         def _build_bm25():
             # Process in thread to avoid blocking event loop
-            tokenized = [self._tokenize(get_node_text(node)) for node in self.nodes]
+            tokenized = [self._tokenize_node(node) for node in self.nodes]
             bm25 = BM25Okapi(tokenized) if tokenized else None
             return tokenized, bm25
 
@@ -102,15 +102,24 @@ class SimpleBM25Retriever:
 
     def _tokenize(self, text: str) -> List[str]:
         tokens = re.sub(r"[^\w\s]", " ", text.lower()).split()
-        return [t for t in tokens if t not in self.CONVERSATIONAL_STOPWORDS and len(t) > 2]
+        return [t for t in tokens if t not in self.CONVERSATIONAL_STOPWORDS and len(t) >= 2]
+
+    def _tokenize_node(self, node) -> List[str]:
+        from utils.core.rag_utils import get_node_text, get_node_metadata
+        text = get_node_text(node)
+        meta = get_node_metadata(node)
+        fp = meta.get('file_path', '') if isinstance(meta, dict) else ''
+        fn = os.path.splitext(os.path.basename(fp))[0].replace('-', ' ').replace('_', ' ') if fp else ''
+        title = meta.get('title', '') if isinstance(meta, dict) else ''
+        combined = f"{fn} {title} {text}" if (fn or title) else text
+        return self._tokenize(combined)
 
     def retrieve(self, query: str, top_k: int = 10):
         """Retrieve top_k nodes using BM25, building synchronously if not yet initialized."""
         if self.bm25 is None:
             with self._lock:
                 if self.bm25 is None:
-                    from utils.core.rag_utils import get_node_text
-                    tokenized = [self._tokenize(get_node_text(node)) for node in self.nodes]
+                    tokenized = [self._tokenize_node(node) for node in self.nodes]
                     self._tokenized_docs = tokenized
                     self.bm25 = BM25Okapi(tokenized) if tokenized else None
 

@@ -61,3 +61,8 @@ performance:
 
 forum:
   auto_scrape: false
+
+generation:
+  base_temperature: 0.7
+  rag_temperature: 0.35
+  temperature_scaling: 0.05

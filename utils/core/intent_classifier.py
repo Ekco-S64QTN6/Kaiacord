@@ -268,7 +268,9 @@ class IntentParser:
             ],
             "SUMMARIZATION": [
                 r"^\s*(kaia\s+)?(summarize|summary of|digest|tl;?dr)\b",
-                r"\b(give me a summary|brief on|overview of)\b"
+                r"\b(give me a summary|brief on|overview of|breakdown of|tell me about the (?:file|article|doc|paper|whitepaper)|what does .*? say)\b",
+                r"\b(can you|please|could you)\s+(summarize|give a summary|break down|explain the file)\b",
+                r"\b(tell me about|what is in)\s+[\w\-]+?\.(?:md|txt|pdf|docx|json|yaml)\b",
             ],
             "SYNTHESIS_SCAN": [
                 r"\b(headlines|current events|happening today|latest on)\b",
@@ -399,10 +401,10 @@ class IntentParser:
                 "  \"temporal_focus\": \"present_immediate\",\n"
                 "  \"relational_context\": \"general\",\n"
                 "  \"confidence\": 0.0 to 1.0,\n"
-                "  \"suggested_strategy\": \"PRECISE_RECALL|DIAGNOSTIC_DEEP_DIVE|DREAM_RECALL|CREATIVE_ASSOCIATION|RELATIONAL_MIRROR|SYNTHESIS_SCAN|EXPLORATORY_DIALOGUE\"\n"
+                "  \"suggested_strategy\": \"PRECISE_RECALL|DIAGNOSTIC_DEEP_DIVE|DREAM_RECALL|CREATIVE_ASSOCIATION|RELATIONAL_MIRROR|SYNTHESIS_SCAN|EXPLORATORY_DIALOGUE|SUMMARIZATION\"\n"
                 "}\n\n"
                 "suggested_strategy must be one of: PRECISE_RECALL|DIAGNOSTIC_DEEP_DIVE|DREAM_RECALL|"
-                "CREATIVE_ASSOCIATION|RELATIONAL_MIRROR|SYNTHESIS_SCAN|EXPLORATORY_DIALOGUE\n"
+                "CREATIVE_ASSOCIATION|RELATIONAL_MIRROR|SYNTHESIS_SCAN|EXPLORATORY_DIALOGUE|SUMMARIZATION\n"
                 f"{hint_str}"
                 f"CONTEXT: {ctx_str[:200]}\n"
                 f"QUERY: \"{query}\"\n/no_think\nJSON:"

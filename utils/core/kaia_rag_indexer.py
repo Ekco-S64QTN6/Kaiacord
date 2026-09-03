@@ -493,6 +493,27 @@ class RAGIndexerMixin:
         else:
             doc.metadata["source_type"] = "general_knowledge"
             
+        # Extract title and metadata from frontmatter or top H1 header for knowledge documents
+        if hasattr(doc, 'text') and doc.text:
+            raw_text = doc.text[:1500]
+            if raw_text.startswith('---'):
+                parts = raw_text.split('---', 2)
+                if len(parts) >= 3:
+                    fm = parts[1]
+                    title_m = re.search(r'^title:\s*["\']?(.*?)["\']?\s*$', fm, re.MULTILINE)
+                    if title_m and title_m.group(1).strip():
+                        doc.metadata["title"] = title_m.group(1).strip()
+                    author_m = re.search(r'^author:\s*["\']?(.*?)["\']?\s*$', fm, re.MULTILINE)
+                    if author_m and author_m.group(1).strip():
+                        doc.metadata["author"] = author_m.group(1).strip()
+                    summary_m = re.search(r'^summary:\s*["\']?(.*?)["\']?\s*$', fm, re.MULTILINE)
+                    if summary_m and summary_m.group(1).strip():
+                        doc.metadata["summary"] = summary_m.group(1).strip()
+            if not doc.metadata.get("title"):
+                h1_m = re.search(r'^#\s+(.+)$', raw_text, re.MULTILINE)
+                if h1_m:
+                    doc.metadata["title"] = h1_m.group(1).strip()
+            
         # Extract user metadata from path or content
         if "user_logs" in file_path:
             parts = file_path.split(os.sep)
@@ -584,6 +605,21 @@ class RAGIndexerMixin:
                 if resolved_itype:
                     break
 
+            # Try to extract title from file content if markdown
+            doc_title = ""
+            if abs_path.endswith(('.md', '.txt')) and os.path.exists(abs_path):
+                try:
+                    with open(abs_path, 'r', encoding='utf-8', errors='ignore') as f_in:
+                        head = f_in.read(1500)
+                        if head.startswith('---'):
+                            tm = re.search(r'^title:\s*["\']?(.*?)["\']?\s*$', head, re.MULTILINE)
+                            if tm: doc_title = tm.group(1).strip()
+                        if not doc_title:
+                            hm = re.search(r'^#\s+(.+)$', head, re.MULTILINE)
+                            if hm: doc_title = hm.group(1).strip()
+                except Exception:
+                    pass
+
             if abs_path not in self.indexed_files:
                 if os.path.exists(abs_path):
                     mtime = os.path.getmtime(abs_path)
@@ -592,14 +628,17 @@ class RAGIndexerMixin:
                         "mtime": mtime,
                         "size": size,
                         "nodes": node_ids,
-                        "itype": resolved_itype  # Fix #4: inject itype so BM25 cache invalidation works on boot
+                        "itype": resolved_itype,  # Fix #4: inject itype so BM25 cache invalidation works on boot
+                        "title": doc_title
                     }
                     count_added += 1
             else:
-                # Sync nodes in manifest, and backfill itype if it was missing from a legacy entry
+                # Sync nodes in manifest, and backfill itype/title if missing
                 self.indexed_files[abs_path]["nodes"] = node_ids
                 if not self.indexed_files[abs_path].get("itype") and resolved_itype:
                     self.indexed_files[abs_path]["itype"] = resolved_itype
+                if not self.indexed_files[abs_path].get("title") and doc_title:
+                    self.indexed_files[abs_path]["title"] = doc_title
 
         log_success(f"RAG State: {len(self.indexed_files)} files in manifest ({count_added} newly discovered).")
         self._save_indexed_files()

@@ -434,6 +434,7 @@ class MessageProcessor:
         self.stats_tracker.increment_messages()
 
 
+
         # 7. Specific Command Handling
         if await handle_memory_command(msg, sanitized_content, self.run_rag, self.rag):
             return
@@ -1427,7 +1428,8 @@ class MessageProcessor:
             persona=ctx.system_prompt,
             rag_nodes=ctx.context_nodes,
             history=history,
-            strategy=ctx.intent.suggested_strategy if ctx.intent else None
+            strategy=ctx.intent.suggested_strategy if ctx.intent else None,
+            user_msg_text=ctx.sanitized_content
         )
         o_dur = time.perf_counter() - o_start
         log_debug(f"METRIC: Context optimization took {o_dur:.3f}s")
@@ -1555,6 +1557,17 @@ class MessageProcessor:
                         user_msg_content = "System: Start of thread"
             except Exception as e:
                 log_warning(f"Failed to parse forum context block: {e}")
+        else:
+            # Handle empty or non-content inputs so the LLM has clear context to respond dynamically
+            raw_msg_text = getattr(ctx.message, 'content', '').strip() if ctx.message else user_msg_content
+            stripped_alpha = re.sub(r'[\W_]+', '', user_msg_content).strip()
+            has_attachments = bool(getattr(ctx.message, 'attachments', None)) if ctx.message else False
+            
+            if not stripped_alpha and not has_attachments:
+                if raw_msg_text:
+                    user_msg_content = f"{raw_msg_text} [User sent non-content/empty formatting characters with no text. Respond in-character.]"
+                else:
+                    user_msg_content = "[User sent an empty message with no text. Respond in-character.]"
         
         # Core Unification: Persona + RAG + History
         rag_block = (
@@ -1630,6 +1643,36 @@ class MessageProcessor:
         # Store channel recall state on context for post-generation verification
         ctx._is_channel_recall = _is_channel_recall
         ctx._channel_refs = _channel_refs
+
+        # Document/File Grounding: if user asked about a specific file or document
+        # and no retrieved context matches that file, prevent hallucination.
+        try:
+            _file_query_match = re.search(
+                r'\b([a-zA-Z0-9_\-]+\.(?:md|txt|pdf|docx|json|yaml))\b|\b(?:the\s+)?(?:file|doc|document|article|paper|whitepaper)\s+(?:called\s+|named\s+)?["\']?([a-zA-Z0-9_\-\.]+)["\']?',
+                ctx.sanitized_content.lower()
+            )
+            if _file_query_match:
+                _queried_doc = _file_query_match.group(1) or _file_query_match.group(2)
+                _found_doc = False
+                if ctx.context_nodes:
+                    for n in ctx.context_nodes:
+                        _meta = n.get('metadata', {}) if isinstance(n, dict) else getattr(n, 'metadata', {})
+                        _fn = str(_meta.get('file_name', '') or _meta.get('file_path', '') or _meta.get('title', '')).lower()
+                        if _queried_doc.lower() in _fn or (_queried_doc.endswith('.md') and _queried_doc[:-3].lower() in _fn):
+                            _found_doc = True
+                            break
+                if not _found_doc and _queried_doc and len(_queried_doc) > 3:
+                    rag_block += (
+                        f"\nDOCUMENT GROUNDING — HARD RULE.\n"
+                        f"The user asked about a specific document or file: '{_queried_doc}'.\n"
+                        f"Your knowledge base search found NO records matching this file.\n"
+                        f"You do not possess the text or contents of '{_queried_doc}'.\n"
+                        f"Do NOT invent, fabricate, or guess what is in this file.\n"
+                        f"CORRECT response: State plainly that you cannot find or access that file in your knowledge base.\n"
+                        f"END DOCUMENT GROUNDING\n"
+                    )
+        except Exception:
+            pass  # Never let grounding check break generation
 
         current_time_str, _, _ = _get_user_time_info(ctx.author_name)
         from utils.core.timezone_helper import resolve_time_queries, get_newsroom_wall_clock_block
@@ -1718,10 +1761,17 @@ class MessageProcessor:
             "- FELINE & PET RESOLUTION: "
             "Pixel is your fictional vintage-modded robotic cat that stays in the corner of your own virtual workspace. "
             "Pixel is NEVER in user-submitted photos or Discord attachments. "
-            "When users share photos or talk about their pets, they are real, living biological animals in their homes:\n"
-            "  * Ekco's cat is Lucky (a living biological tuxedo cat — black coat with white chest and paws).\n"
-            "  * Starkind's cats are Nala and Marley (living biological cats).\n"
-            "  * NEVER describe real biological pets with synthetic/hardware/robotic jargon (such as 'sensor readings', 'battery capacity', 'thermal equilibrium', 'maintenance cycle', 'infrared emitters', or 'diagnostic pattern'). Treat them naturally as living biological animals.\n"
+            "When users share photos or talk about their own pets, they are real, living biological animals in their homes:\n"
+            "  * Ekco owns Lucky (a living biological tuxedo cat — black coat with white chest and paws).\n"
+            "  * Starkind owns Nala and Marley (living biological cats).\n"
+            "  * RANDOM ANIMAL PHOTOS & MEMES: Users frequently share random pictures of cats, dogs, wildlife, or internet memes that do NOT belong to them. Do NOT assume every cat photo posted by Ekco is Lucky or that every cat photo is a user's pet. Evaluate the photo naturally as presented. If the user doesn't state it is their pet, treat it as a general photo.\n"
+            "  * PROHIBITED JARGON & PROMPT ECHOING: NEVER describe real biological pets with synthetic/hardware jargon (such as 'sensor readings', 'battery capacity', 'thermal equilibrium', 'maintenance cycle'). NEVER recite rules or say 'i acknowledge this is a living biological animal and not my robotic pet pixel'. Speak naturally like a normal human observing an animal.\n"
+            "- NO FAKE MODERATION OR PSYCHIATRIC EVALUATION: "
+            "You are a dry, grounded conversational peer in a Discord chat, NOT a corporate HR compliance officer, content moderator, or psychiatric doctor. "
+            "Never claim to 'flag this conversation for review', 'report activity to oversight channels', 'log warnings in system logs', or 'call security / psychological evaluation teams'. "
+            "Never diagnose users with psychiatric disorders, delusions, or mental health distress over jokes, dark humor, sarcasm, or weird banter. "
+            "If a topic is unappealing or offensive, push back directly, disagree with substance, or decline to engage casually ('not my thing') without moralizing lectures, corporate disclaimers, or disciplinary threats.\n"
+            "- EMPTY OR NON-CONTENT PROMPTS: If the user sends only formatting symbols (e.g. '_ _', '** **'), whitespace, zero-width characters, or just mentions your name with no text, ALWAYS generate a real, in-character response. Do NOT output an empty response or just their name. Respond casually and naturally (e.g. ask what they need, point out the blank formatting, or react with dry curiosity).\n"
             "- ARCHITECTURE GROUNDING: You run locally via Ollama on an Nvidia RTX 3060 GPU using the open-weights gemma3:12b model, augmented by custom Python modules and LlamaIndex for RAG retrieval. You are NOT GPT-3.5, NOT an OpenAI model, and NOT a cloud API service.\n"
             "- ACRONYM & IDENTIFIER GROUNDING: If asked about the origin or meaning of your name 'Kaia' as a recursive acronym, it stands for 'Kaia Artificial Intelligence Agent' (recursive because K = Kaia). Do not invent non-recursive corporate expansions like 'knowledge acquisition & intelligent automation'.\n"
             "- NO ROBOTIC VISION PREAMBLE: When viewing or responding to an image or photo, do not announce 'i am registering and processing the image data' or describe your visual analysis mechanics. Speak naturally and casually about what you see, like a normal person looking at a photo.\n"
@@ -1808,7 +1858,19 @@ class MessageProcessor:
         options = gpu_manager.get_gpu_options(for_chat=True, num_ctx=self.config.max_context_tokens)
         
         max_attempts = self.config.generation_max_retry_attempts
-        base_temp = self.config.generation_base_temperature
+
+        # Determine whether this generation requires grounded low-temperature (RAG context or factual strategy)
+        has_rag_knowledge = bool(ctx.raw_nodes and any(
+            (isinstance(n, dict) and (
+                n.get('metadata', {}).get('source_type') in ['general_knowledge', 'knowledge', 'article', 'whitepaper', 'book'] or
+                n.get('metadata', {}).get('retrieval_method') in ['summarization', 'vector', 'bm25', 'hybrid', 'manifest_fast_path']
+            )) or (not isinstance(n, dict) and getattr(n, 'metadata', {}).get('source_type') in ['general_knowledge', 'knowledge', 'article', 'whitepaper', 'book'])
+            for n in ctx.raw_nodes
+        ))
+        is_grounded = has_rag_knowledge or bool(
+            ctx.intent and getattr(ctx.intent, 'suggested_strategy', None) in ["SUMMARIZATION", "PRECISE_RECALL", "DIAGNOSTIC_DEEP_DIVE"]
+        )
+        base_temp = self.config.generation_rag_temperature if is_grounded else self.config.generation_base_temperature
         temp_scaling = self.config.generation_temperature_scaling
         
         last_failed_short = False
@@ -1818,8 +1880,7 @@ class MessageProcessor:
         for attempt in range(max_attempts):
             # Scaled parameters on retry
             current_options = options.copy()
-            if attempt > 0:
-                current_options['temperature'] = base_temp + (temp_scaling * attempt)
+            current_options['temperature'] = round(base_temp + (temp_scaling * attempt), 3)
             
             attempt_messages = [msg.copy() for msg in messages]
             if last_failed_short:
@@ -1858,6 +1919,7 @@ class MessageProcessor:
 
                 # TEMPORARY DEBUG: Log raw response to diagnose gemma3 empty responses
                 log_debug(f"[GEMMA3_DEBUG] Raw response length={len(content)}, first100={repr(content[:100])}, done_reason={response.get('done_reason', 'unknown')}")
+                log_debug(f"[TOKEN_DEBUG] prompt_eval_count={response.get('prompt_eval_count', 'n/a')} eval_count={response.get('eval_count', 'n/a')} num_ctx={self.config.max_context_tokens}")
 
                 # Process raw generation through PostGenerationSafetyPipeline (💡-4)
                 from utils.core.safety_pipeline import PostGenerationSafetyPipeline

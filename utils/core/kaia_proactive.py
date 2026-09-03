@@ -1136,6 +1136,7 @@ class ProactiveEngine:
                         "temperature": 0.75,
                         "num_predict": 150,
                         "num_gpu": 99,
+                        "num_ctx": 16384,
                     },
                     keep_alive=-1,
                 )

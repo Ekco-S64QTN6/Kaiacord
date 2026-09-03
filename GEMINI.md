@@ -1,14 +1,14 @@
 # GEMINI.md — Kaiacord Project Instructions & Developer Directives
 
 > **Canonical Developer & Agent Directive for Kaiacord**
-> **Last Updated:** August 29, 2026 (Phase 63 Verified)
+> **Last Updated:** September 1, 2026 (Phase 64 Verified)
 
 ## 1. Project Overview & Architecture
 **Kaiacord** is an autonomous, self-hosted Discord bot (`discord.py 2.6.4`, Python 3.14+) running on local hardware (RTX 3060 12GB) with Ollama (`gemma3:12b` on GPU, `gemma2:2b` & `nomic-embed-text-cpu` on CPU).
 
 Subsystems:
 - **Kaia**: Autonomous AI persona with 28-feature cognitive pipeline in `message_processor.py`, 11-layer safety pipeline in `safety_pipeline.py`, 4-clock Newsroom Wall (`timezone_helper.py`), and RAG memory retrieval (BM25 + vector).
-- **Aethelgard TTRPG**: Full turn-based RPG (366 monsters with 41 bosses, 453 items across 7 tiers, 253 fish, 12 quests, 10 advanced classes, 77-floor Spine mega-dungeon).
+- **Aethelgard TTRPG**: Full turn-based RPG (369 monsters with 44 bosses, 453 items across 7 tiers, 253 fish, 12 quests, 10 advanced classes, 77-floor Spine mega-dungeon).
 - **Fractal Art**: Electric Sheep fractal flame generator (NumPy/SciPy CPU-only, 20 variations, 10 palettes).
 - **Social & Forum**: Project 1999 Forum client/scraper, Discord `#kaia-opolis` moderation review queue, zero-hallucination support answers, Bluesky/X cross-posting.
 - **Monitoring**: Live curses 3-column TUI dashboard (`btop_dashboard_v2.py`).

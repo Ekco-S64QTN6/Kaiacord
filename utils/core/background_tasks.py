@@ -195,7 +195,7 @@ class CoreTaskManager:
                                         {"role": "system", "content": system_prompt},
                                         {"role": "user", "content": prompt}
                                     ],
-                                    options={"temperature": 0.75},
+                                    options={"temperature": 0.75, "num_ctx": config.max_context_tokens, "num_gpu": 99},
                                     keep_alive=-1
                                 ),
                                 timeout=45.0
@@ -968,7 +968,7 @@ class CoreTaskManager:
                                 {"role": "system", "content": forum_system},
                                 {"role": "user", "content": user_msg}
                             ],
-                            options={"temperature": 0.8},
+                            options={"temperature": 0.8, "num_ctx": config.max_context_tokens, "num_gpu": 99},
                             keep_alive=-1
                         ),
                         timeout=120.0
@@ -1242,7 +1242,7 @@ class CoreTaskManager:
                                 {"role": "system", "content": forum_system},
                                 {"role": "user", "content": user_msg}
                             ],
-                            options={"temperature": 0.5},
+                            options={"temperature": 0.5, "num_ctx": config.max_context_tokens, "num_gpu": 99},
                             keep_alive=-1
                         ),
                         timeout=150.0

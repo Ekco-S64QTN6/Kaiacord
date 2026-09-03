@@ -48,11 +48,18 @@ class RAGQueryMixin:
     # Pre-compiled filename reference patterns for the fast path in retrieve().
     # Hoisted to class level to avoid list reconstruction on every call.
     _FILENAME_REF_PATTERNS = [
-        re.compile(r'(?:file\s+(?:called|named|is)\s+)([\w\-\.]+)'),
-        re.compile(r'(?:check|read|look at|review|open)\s+(?:the\s+)?(?:file\s+)?([\w\-\.]{10,})'),
-        re.compile(r'(?:called|named)\s+([\w\-\.]{10,})'),
-        re.compile(r'([\w\-]{10,}\.(?:md|txt|pdf|docx))'),
-        re.compile(r'\b((?:aquarium|setup|research|migration|report)\s+(?:research|setup|for|doc|file)?)\s*(?:for\s+kaia)?\b', re.IGNORECASE),
+        # Explicit file mentions: "the file X", "file called X", "article named X"
+        re.compile(r'\b(?:the\s+)?(?:file|doc|document|article|whitepaper|paper)\s+(?:called\s+|named\s+|is\s+|labeled\s+)?["\']?([\w\-\.]{4,})["\']?', re.IGNORECASE),
+        # Action cues: "summarize/check/read/explain/review/look at/tell me about the file X"
+        re.compile(r'(?:summarize|summary\s+of|tell\s+me\s+about|what\s+is\s+in|what\s+does\s+.*?\s+say|explain|review|check|read|look\s+at|open|breakdown\s+of|browse)\s+(?:the\s+)?(?:file\s+|doc\s+|document\s+|article\s+|paper\s+|whitepaper\s+)?(?:called\s+|named\s+)?["\']?([\w\-\.]{4,})["\']?', re.IGNORECASE),
+        # Explicit filename with standard extension (.md, .txt, .pdf, .docx, .json, .yaml)
+        re.compile(r'\b([\w\-]{4,}\.(?:md|txt|pdf|docx|json|yaml|yml))\b', re.IGNORECASE),
+        # Date-prefixed slugs: "2026-09-01_apollo-ai-labor-market-impact"
+        re.compile(r'\b(\d{4}-\d{2}-\d{2}[-_][\w\-]{4,})\b', re.IGNORECASE),
+        # Multi-hyphenated or multi-underscore slugs: "the-rise-and-fall-of-agent-civilizations"
+        re.compile(r'\b([a-zA-Z0-9]+(?:[-_][a-zA-Z0-9]+){2,})\b'),
+        # Specific named research documents
+        re.compile(r'\b((?:aquarium|setup|research|migration|report|apollo|backsliding|agent-civilizations|agent\s+civilizations)\s+(?:research|setup|for|doc|file|whitepaper|article|report)?)\s*(?:for\s+kaia)?\b', re.IGNORECASE),
     ]
 
     def _route_retrieval_strategy(self, category: str, query_lower: str, intent: Optional[Intent]) -> Dict[str, Any]:
@@ -65,6 +72,16 @@ class RAGQueryMixin:
         is_entity_query = (category == "entity")
         is_news_query = (category == "news")
         is_casual = (category == "casual" or category == "greeting" or len(query_lower.split()) <= 4)
+
+        # Detect explicit document/file review or summarization requests
+        is_doc_query = False
+        for pat in self._FILENAME_REF_PATTERNS:
+            if pat.search(query_lower):
+                is_doc_query = True
+                break
+
+        if is_doc_query and (strategy in [None, "EXPLORATORY_DIALOGUE", "PRECISE_RECALL", "CREATIVE_ASSOCIATION"] or any(w in query_lower for w in ["summarize", "summary", "overview", "breakdown", "what is in", "what does", "about", "read", "check"])):
+            strategy = "SUMMARIZATION"
 
         if strategy == "PRECISE_RECALL":
             if any(x in query_lower for x in ["who", "what", "kaia", "yourself"]):
@@ -92,59 +109,80 @@ class RAGQueryMixin:
         }
 
     def _get_summarization_nodes(self, query_lower: str) -> List[Dict[str, Any]]:
-        """Identify a target file for summarization and retrieve its full content."""
+        """Identify a target file for summarization and retrieve its content."""
         # Guard: if the query is very long, it's conversational text, not a file reference.
-        # Short-circuit immediately to prevent spurious document matches.
-        if len(query_lower.split()) > 30:
+        if len(query_lower.split()) > 35:
             log_debug("_get_summarization_nodes: query too long for file reference — skipping")
             return []
 
         target_file_path = None
         best_match_score = 0
         
-        # Strip all reference phrasing so only the filename tokens remain
+        # Strip all reference phrasing so only filename/title tokens remain
         query_cleaned = query_lower
-        for _strip in ["summarize", "summary of", "check the file called", "check the file named",
-                       "check the file", "kaia check", "look at the file", "read the file",
-                       "the file called", "the file named", "called", "named", "file"]:
+        for _strip in [
+            "summarize", "summary of", "check the file called", "check the file named",
+            "check the file", "kaia check", "look at the file", "read the file",
+            "the file called", "the file named", "called", "named", "file", "doc",
+            "document", "article", "whitepaper", "paper", "tell me about", "what is in",
+            "what does", "say", "explain", "review", "can you", "please", "give me a",
+            "overview of", "breakdown of"
+        ]:
             query_cleaned = query_cleaned.replace(_strip, " ")
         query_cleaned = re.sub(r'\s+', ' ', query_cleaned).strip()
         query_cleaned = re.sub(r"'s\b", "", query_cleaned)
-        stopwords = {"the", "a", "an", "of", "and", "or", "to", "in", "is", "for", "with", "on", "at", "by", "from", "you", "have", "kaia"}
-        query_tokens = set(re.findall(r'\w+', query_cleaned)) - stopwords
         
-        # Strip possessives from query tokens before matching
-        stripped_query_tokens = {re.sub(r"'s$", "", t) for t in query_tokens}
-
-        # Use fuzzy prefix matching — "solarsong" matches "solarsongs"
+        stopwords = {
+            "the", "a", "an", "of", "and", "or", "to", "in", "is", "for", "with",
+            "on", "at", "by", "from", "you", "have", "kaia", "about", "what", "how"
+        }
+        raw_query_tokens = set(re.findall(r'\w+', query_cleaned)) - stopwords
+        # Separate word tokens from numeric tokens (e.g. date numbers)
+        query_words = {re.sub(r"'s$", "", t) for t in raw_query_tokens if not t.isdigit()}
+        
         def _tokens_match(qt, ft):
             return qt == ft or ft.startswith(qt) or qt.startswith(ft)
 
-        for path in self.indexed_files:
+        for path, meta in self.indexed_files.items():
             fname = os.path.basename(path).lower()
             fname_no_ext = os.path.splitext(fname)[0]
-            fname_tokens = set(re.findall(r'\w+', fname_no_ext)) - stopwords
+            # Strip date prefix from filename to get semantic slug
+            clean_slug = re.sub(r'^\d{4}[-_]\d{2}[-_]\d{2}[-_]', '', fname_no_ext)
             
-            if not fname_tokens: continue
+            # 1. Exact or substring match on filename, clean slug, or metadata title
+            doc_title = (meta.get("title", "") if isinstance(meta, dict) else "").lower()
+            if query_cleaned:
+                if (query_cleaned in fname or fname in query_cleaned or
+                    query_cleaned in fname_no_ext or fname_no_ext in query_cleaned or
+                    (clean_slug and (query_cleaned in clean_slug or clean_slug in query_cleaned))):
+                    score = 1.0
+                    if score > best_match_score:
+                        best_match_score = score
+                        target_file_path = path
+                        continue
+                if doc_title and (query_cleaned in doc_title or doc_title in query_cleaned):
+                    score = 1.0
+                    if score > best_match_score:
+                        best_match_score = score
+                        target_file_path = path
+                        continue
             
-            if query_cleaned and (query_cleaned in fname or fname_no_ext in query_cleaned):
-                score = 1.0
-                if score > best_match_score:
-                    best_match_score = score
-                    target_file_path = path
-                    continue
-            
+            # 2. Token overlap matching
+            fname_words = {w for w in re.findall(r'\w+', clean_slug) if not w.isdigit()} - stopwords
+            if not fname_words:
+                fname_words = {w for w in re.findall(r'\w+', fname_no_ext) if not w.isdigit()} - stopwords
+            if not fname_words:
+                continue
+
             common_tokens = {
-                qt for qt in stripped_query_tokens
-                for ft in fname_tokens
+                qt for qt in query_words
+                for ft in fname_words
                 if _tokens_match(qt, ft)
             }
             if len(common_tokens) >= 2 or (len(common_tokens) >= 1 and any(len(t) >= 8 for t in common_tokens)):
-                fname_coverage = len(common_tokens) / len(fname_tokens)
-                
-                # A single long distinctive token is enough to identify a specific file
+                fname_coverage = len(common_tokens) / len(fname_words)
                 long_common = {t for t in common_tokens if len(t) >= 8}
-                qualifies = (len(common_tokens) >= 2 and fname_coverage > 0.5) or \
+                qualifies = (len(common_tokens) >= 2 and fname_coverage > 0.4) or \
                             (len(long_common) >= 1 and fname_coverage > 0.15)
                 
                 if qualifies:
@@ -158,27 +196,75 @@ class RAGQueryMixin:
 
         log_action(f"Summarization target identified: {target_file_path}")
         from utils.core.rag_utils import get_node_text, get_node_metadata
-        for itype, index in self.indices.items():
-            all_docs = list(index.storage_context.docstore.docs.values())
-            file_nodes = [
-                n for n in all_docs 
-                if n.metadata.get('file_path') == target_file_path or 
-                   os.path.abspath(n.metadata.get('file_path', '')) == os.path.abspath(target_file_path)
-            ]
-            if file_nodes:
-                file_nodes.sort(key=lambda x: x.metadata.get('chunk_index', 0))
-                result_nodes = []
-                for node in file_nodes:
-                    meta = get_node_metadata(node)
-                    meta["retrieval_method"] = "summarization"
-                    result_nodes.append({
-                        "content": get_node_text(node),
-                        "metadata": meta,
-                        "label": f"Full Content: {os.path.basename(target_file_path)}",
-                        "score": 1.0
-                    })
-                return result_nodes
-        return []
+        
+        # Fast direct lookup via indexed_files manifest
+        target_meta = self.indexed_files.get(target_file_path, {})
+        target_itype = target_meta.get("itype") if isinstance(target_meta, dict) else None
+        node_ids = target_meta.get("nodes", []) if isinstance(target_meta, dict) else []
+        
+        file_nodes = []
+        if target_itype and target_itype in self.indices and node_ids:
+            docstore = self.indices[target_itype].storage_context.docstore
+            for nid in node_ids:
+                try:
+                    node = docstore.get_document(nid)
+                    if node:
+                        file_nodes.append(node)
+                except Exception:
+                    pass
+
+        # Fallback: scan indices if direct lookup produced no nodes
+        if not file_nodes:
+            for itype, index in self.indices.items():
+                all_docs = list(index.storage_context.docstore.docs.values())
+                matching = [
+                    n for n in all_docs 
+                    if n.metadata.get('file_path') == target_file_path or 
+                       os.path.abspath(n.metadata.get('file_path', '')) == os.path.abspath(target_file_path)
+                ]
+                if matching:
+                    file_nodes = matching
+                    break
+
+        if not file_nodes:
+            return []
+
+        file_nodes.sort(key=lambda x: x.metadata.get('chunk_index', 0))
+
+        # Smart chunk budgeting for large documents (>16 chunks)
+        # Keeps initial executive overview, query-relevant middle chunks, and final conclusions
+        selected_nodes = file_nodes
+        if len(file_nodes) > 16:
+            head_nodes = file_nodes[:8]
+            tail_nodes = file_nodes[-4:]
+            
+            # Find query-relevant middle chunks if specific query terms exist
+            middle_candidates = file_nodes[8:-4]
+            selected_middle = []
+            if query_words and middle_candidates:
+                def _node_relevance(n):
+                    txt = get_node_text(n).lower()
+                    return sum(1 for w in query_words if w in txt)
+                middle_candidates_scored = sorted(middle_candidates, key=_node_relevance, reverse=True)
+                selected_middle = [n for n in middle_candidates_scored[:4] if _node_relevance(n) > 0]
+            if not selected_middle:
+                selected_middle = middle_candidates[:4]
+                
+            combined = {n.node_id: n for n in (head_nodes + selected_middle + tail_nodes)}
+            selected_nodes = sorted(combined.values(), key=lambda x: x.metadata.get('chunk_index', 0))
+
+        result_nodes = []
+        for node in selected_nodes:
+            meta = get_node_metadata(node)
+            meta["retrieval_method"] = "summarization"
+            result_nodes.append({
+                "content": get_node_text(node),
+                "metadata": meta,
+                "label": f"Full Content: {os.path.basename(target_file_path)}",
+                "score": 1.0
+            })
+        return result_nodes
+
 
 
     def _target_indices(self, routing: Dict[str, Any], base_top_k: int) -> Tuple[List[str], int]:
@@ -618,13 +704,17 @@ class RAGQueryMixin:
                 _best_overlap = set()
                 for _mpath in self.indexed_files:
                     _fname = os.path.splitext(os.path.basename(_mpath))[0].lower()
-                    _fname_words = set(re.findall(r'\w+', _fname)) - _FAST_PATH_FNAME_STOPS
+                    # Strip date prefix from filename before tokenizing so dates don't dilute score
+                    _fname_clean = re.sub(r'^\d{4}[-_]\d{2}[-_]\d{2}[-_]', '', _fname)
+                    _fname_words = {w for w in re.findall(r'\w+', _fname_clean) if not w.isdigit()} - _FAST_PATH_FNAME_STOPS
+                    if not _fname_words:
+                        _fname_words = {w for w in re.findall(r'\w+', _fname) if not w.isdigit()} - _FAST_PATH_FNAME_STOPS
                     if not _fname_words:
                         continue
                     _overlap = _query_words & _fname_words
-                    # Require at least one distinctive word (>= 6 chars) to avoid
+                    # Require at least one distinctive word (>= 5 chars) to avoid
                     # spurious matches on short common words like "work", "does".
-                    _has_distinctive = any(len(w) >= 6 for w in _overlap)
+                    _has_distinctive = any(len(w) >= 5 for w in _overlap)
                     _score = len(_overlap) / len(_fname_words)
                     if (len(_overlap) >= 2 and _has_distinctive
                             and _score >= 0.3 and _score > _best_score):

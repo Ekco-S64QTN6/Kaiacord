@@ -166,12 +166,13 @@ async def _download_and_convert(url: str, username: str, user_id: str) -> dict:
 
 
     # Convert based on type
+    meta_info = {}
     if file_type == 'html':
-        title, markdown_body = await asyncio.to_thread(_convert_html, raw_bytes, url)
+        title, markdown_body, meta_info = await asyncio.to_thread(_convert_html, raw_bytes, url)
     elif file_type == 'pdf':
-        title, markdown_body = await asyncio.to_thread(_convert_pdf, raw_bytes, url)
+        title, markdown_body, meta_info = await asyncio.to_thread(_convert_pdf, raw_bytes, url)
     elif file_type == 'text':
-        title, markdown_body = await asyncio.to_thread(_convert_text, raw_bytes, url)
+        title, markdown_body, meta_info = await asyncio.to_thread(_convert_text, raw_bytes, url)
     else:
         raise DownloadError(f"unhandled type: {file_type}")
     
@@ -183,17 +184,47 @@ async def _download_and_convert(url: str, username: str, user_id: str) -> dict:
     # Build metadata frontmatter
     now = datetime.now()
     date_str = now.strftime('%Y-%m-%d')
-    frontmatter = (
-        f"---\n"
-        f"title: \"\"\n"
-        f"summary: \"\"\n"
-        f"keywords: []\n"
-        f"document_type: article\n"
-        f"date: {date_str}\n"
-        f"source_url: \"{url}\"\n"
-        f"---\n\n"
-    )
+    clean_title = _escape_yaml(title or "")
+    clean_author = _escape_yaml(meta_info.get('author', ''))
+    clean_summary = _escape_yaml(meta_info.get('summary', ''))
+    keywords = meta_info.get('keywords', [])
+    if isinstance(keywords, str):
+        keywords = [k.strip() for k in keywords.split(',') if k.strip()]
+
+    fm_lines = [
+        "---",
+        f'title: "{clean_title}"',
+    ]
+    if clean_author:
+        fm_lines.append(f'author: "{clean_author}"')
+    if clean_summary:
+        fm_lines.append(f'summary: "{clean_summary}"')
+    else:
+        fm_lines.append('summary: ""')
     
+    if keywords:
+        fm_lines.append("keywords:")
+        for kw in keywords[:10]:
+            fm_lines.append(f'  - "{_escape_yaml(kw)}"')
+    else:
+        fm_lines.append("keywords: []")
+        
+    doc_type = "article"
+    if file_type == "pdf":
+        doc_type = "whitepaper" if any(w in clean_title.lower() for w in ["whitepaper", "report", "study"]) else "document"
+        
+    fm_lines.extend([
+        f'document_type: {doc_type}',
+        f'date: {date_str}',
+        f'source_url: "{url}"',
+        "---\n\n"
+    ])
+    frontmatter = "\n".join(fm_lines)
+    
+    # Ensure title heading exists at top of body for strong RAG chunk weighting
+    if title and not markdown_body.strip().startswith('#'):
+        markdown_body = f"# {title}\n\n{markdown_body}"
+
     full_content = frontmatter + markdown_body
     
     # Determine target folder
@@ -222,7 +253,7 @@ async def _download_and_convert(url: str, username: str, user_id: str) -> dict:
 
 
 def _convert_html(raw_bytes: bytes, url: str) -> tuple:
-    """Convert HTML to markdown. Returns (title, markdown_body)."""
+    """Convert HTML to markdown. Returns (title, markdown_body, meta)."""
     from bs4 import BeautifulSoup
     from markdownify import markdownify as md
     
@@ -234,9 +265,30 @@ def _convert_html(raw_bytes: bytes, url: str) -> tuple:
     
     soup = BeautifulSoup(html_text, 'html.parser')
     
+    # Extract metadata before stripping tags
+    meta = {}
+    meta_desc = soup.find('meta', attrs={'name': 'description'}) or soup.find('meta', attrs={'property': 'og:description'})
+    if meta_desc and meta_desc.get('content'):
+        meta['summary'] = meta_desc['content'].strip()
+        
+    meta_author = (
+        soup.find('meta', attrs={'name': 'author'}) or 
+        soup.find('meta', attrs={'property': 'article:author'}) or 
+        soup.find('meta', attrs={'name': 'twitter:creator'})
+    )
+    if meta_author and meta_author.get('content'):
+        meta['author'] = meta_author['content'].strip()
+        
+    meta_kw = soup.find('meta', attrs={'name': 'keywords'})
+    if meta_kw and meta_kw.get('content'):
+        meta['keywords'] = [k.strip() for k in meta_kw['content'].split(',') if k.strip()]
+    
     # Extract title
     title = ''
-    if soup.title and soup.title.string:
+    og_title = soup.find('meta', attrs={'property': 'og:title'})
+    if og_title and og_title.get('content'):
+        title = og_title['content'].strip()
+    if not title and soup.title and soup.title.string:
         title = soup.title.string.strip()
     if not title:
         h1 = soup.find('h1')
@@ -266,20 +318,26 @@ def _convert_html(raw_bytes: bytes, url: str) -> tuple:
     markdown_body = re.sub(r'\n{3,}', '\n\n', markdown_body)
     markdown_body = markdown_body.strip()
     
-    return title, markdown_body
+    return title, markdown_body, meta
 
 
 def _convert_pdf(raw_bytes: bytes, url: str) -> tuple:
-    """Convert PDF to markdown. Returns (title, markdown_body)."""
+    """Convert PDF to markdown. Returns (title, markdown_body, meta)."""
     import io
     from pypdf import PdfReader
     
     reader = PdfReader(io.BytesIO(raw_bytes))
+    meta = {}
     
     # Extract title from metadata or first page
     title = ''
-    if reader.metadata and reader.metadata.title:
-        title = reader.metadata.title.strip()
+    if reader.metadata:
+        if reader.metadata.title:
+            title = reader.metadata.title.strip()
+        if reader.metadata.author:
+            meta['author'] = reader.metadata.author.strip()
+        if reader.metadata.subject:
+            meta['summary'] = reader.metadata.subject.strip()
     
     pages_text = []
     for i, page in enumerate(reader.pages):
@@ -288,20 +346,23 @@ def _convert_pdf(raw_bytes: bytes, url: str) -> tuple:
             pages_text.append(f"## Page {i + 1}\n\n{text.strip()}")
     
     if not title and pages_text:
-        # Use first line of first page as title
-        first_line = pages_text[0].split('\n')[2] if len(pages_text[0].split('\n')) > 2 else ''
-        title = first_line[:100].strip() if first_line else _title_from_url(url)
+        # Search for first substantial heading line in first page
+        first_page_lines = [line.strip() for line in pages_text[0].split('\n') if line.strip() and not line.startswith('## Page')]
+        for candidate in first_page_lines:
+            if len(candidate) > 4 and not candidate.isdigit():
+                title = candidate[:120].strip()
+                break
     
     if not title:
         title = _title_from_url(url)
     
     markdown_body = '\n\n'.join(pages_text)
     
-    return title, markdown_body
+    return title, markdown_body, meta
 
 
 def _convert_text(raw_bytes: bytes, url: str) -> tuple:
-    """Convert plain text to markdown. Returns (title, markdown_body)."""
+    """Convert plain text to markdown. Returns (title, markdown_body, meta)."""
     try:
         text = raw_bytes.decode('utf-8')
     except UnicodeDecodeError:
@@ -318,14 +379,7 @@ def _convert_text(raw_bytes: bytes, url: str) -> tuple:
     if not title:
         title = _title_from_url(url)
     
-    # If it's already markdown, keep it. Otherwise wrap it.
-    ext = Path(urlparse(url).path).suffix.lower()
-    if ext in ('.md', '.markdown'):
-        markdown_body = text
-    else:
-        markdown_body = text
-    
-    return title, markdown_body
+    return title, text, {}
 
 
 def _clean_markdown(text: str) -> str:
@@ -453,12 +507,15 @@ def _make_filename(title: str, dt: datetime) -> str:
 def _title_from_url(url: str) -> str:
     """Extract a readable title from a URL path."""
     path = urlparse(url).path
-    # Get last path segment
-    segment = path.rstrip('/').split('/')[-1] if path else ''
-    if segment:
-        # Remove extension, replace separators
-        segment = Path(segment).stem
+    segments = [s for s in path.rstrip('/').split('/') if s]
+    if segments:
+        segment = Path(segments[-1]).stem
         segment = segment.replace('-', ' ').replace('_', ' ')
+        # If segment is just digits or too short (e.g. "1.pdf" from versioned download), prepend previous segment
+        if (len(segment.strip()) <= 2 or segment.strip().isdigit()) and len(segments) > 1:
+            prev = Path(segments[-2]).stem.replace('-', ' ').replace('_', ' ')
+            if len(prev.strip()) > 2:
+                segment = f"{prev} {segment}".strip()
         return segment.title()
     
     # Fall back to domain

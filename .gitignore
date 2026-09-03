@@ -64,6 +64,12 @@ tools/.music_scrape_data/
 .vscode/
 .agent/
 .agents/
+.antigravity/
+.antigravityignore
+
+# Internal Reports & Roadmaps
+docs/reports/
+
 
 # Testing & Scratch/Temporary files
 test_storage/

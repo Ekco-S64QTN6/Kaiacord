@@ -157,27 +157,34 @@ class BotSpeakFilter:
     )
     
     BAIT_PATTERNS = [
-        r"(?:(?:so|anyway|well|also)[,\s]*)?what(?:[’']s|(?:\s+else)?\s+is)\s+on\s+your\s+mind\??",
-        r"(?:(?:so|anyway|well|also)[,\s]*)?what\s+(?:are|is|were|have)\s+you\s+(?:been\s+)?(?:working\s+on|up\s+to|doing|reading|watching|listening\s+to|playing|seeing)(?:\s+(?:currently|now|at\s+the\s+moment|today))?[^.!?]*\??",
-        r"(?:(?:so|anyway|well|also)[,\s]*)?what(?:[’']s|\s+is)\s+consuming\s+your\s+time\??",
-        r"(?:(?:so|anyway|well|also)[,\s]*)?what\s+has\s+kept\s+you\s+busy\??",
-        r"what\s+do\s+you\s+(?:think|need)\??",
-        r"(?:(?:so|anyway|well|also)[,\s]*)?what(?:[’']s|\s+is|\s+was)?\s+prompt(?:s|ing|ed)?\s+[^.!?]*\??",
-        r"any\s+thoughts\??",
-        r"do\s+you\s+have\s+any\s+questions\??",
-        r"let\s+me\s+know\s+if\s+you\s+need\??",
-        r"how\s+can\s+i\s+(?:help|assist)\??",
+        r"(?:(?:so|anyway|well|also)[,\s]*)?what(?:['']s|(?:\s+else)?\s+is)\s+on\s+your\s+mind\?",
+        r"(?:(?:so|anyway|well|also)[,\s]*)?what\s+(?:are|is|were|have)\s+you\s+(?:been\s+)?(?:working\s+on|up\s+to|doing|reading|watching|listening\s+to|playing|seeing)(?:\s+(?:currently|now|at\s+the\s+moment|today))?[^.!?]*\?",
+        r"(?:(?:so|anyway|well|also)[,\s]*)?what(?:['']s|\s+is)\s+consuming\s+your\s+time\?",
+        r"(?:(?:so|anyway|well|also)[,\s]*)?what\s+has\s+kept\s+you\s+busy\?",
+        r"what\s+do\s+you\s+(?:think|need)\?",
+        r"(?:(?:so|anyway|well|also)[,\s]*)?what(?:['']s|\s+is|\s+was)?\s+prompt(?:s|ing|ed)?\s+[^.!?]*\?",
+        r"any\s+thoughts\?",
+        r"do\s+you\s+have\s+any\s+questions\?",
+        r"let\s+me\s+know\s+if\s+you\s+need\?",
+        r"how\s+can\s+i\s+(?:help|assist)\?",
         r"\bwhy\?",
-        r"what(?:[’']s|\s+is)\s+driving\s+your\s+interest\??",
-        r"you\s+following\s+anything\s+specific\??",
-        r"anything\s+else\??",
-        r"what\s+(?:about|echoes?|threads?)\s+(?:do\s+)?(?:you|your)\b[^.!?]*\??",
-        r"what(?:[’']?s)\s+the\s+(?:core|biggest|main|primary|hardest|toughest)\s+\w+[^.!?]*\??",
-        r"what(?:[’']?s)\s+(?:your|the)\s+\w+\s+(?:task|hurdle|challenge|goal|obstacle|plan)[^.!?]*\??",
-        r"how\s+(?:are\s+you\s+|do\s+you\s+)(?:approaching|handling|dealing|feeling)[^.!?]*\??",
-        r"(?:facing|dealing\s+with)\s+(?:right\s+now|currently)[^.!?]*\??",
-        r"achieving\s+that\s+\w+[^.!?]*\??",
+        r"what(?:['']s|\s+is)\s+driving\s+your\s+interest\?",
+        r"you\s+following\s+anything\s+specific\?",
+        r"anything\s+else\?",
+        r"what\s+(?:about|echoes?|threads?)\s+(?:do\s+)?(?:you|your)\b[^.!?]*\?",
+        r"what(?:['']?s)\s+the\s+(?:core|biggest|main|primary|hardest|toughest)\s+\w+[^.!?]*\?",
+        r"what(?:['']?s)\s+(?:your|the)\s+\w+\s+(?:task|hurdle|challenge|goal|obstacle|plan)[^.!?]*\?",
+        r"how\s+(?:are\s+you\s+|do\s+you\s+)(?:approaching|handling|dealing|feeling)[^.!?]*\?",
+        r"(?:facing|dealing\s+with)\s+(?:right\s+now|currently)[^.!?]*\?",
+        r"achieving\s+that\s+\w+[^.!?]*\?",
     ]
+    
+    # Discourse markers that should never be emitted as standalone stub responses
+    DISCOURSE_STUBS = frozenset({
+        'actually', 'well', 'so', 'yeah', 'yep', 'nope', 'sure', 'ok', 'okay',
+        'i mean', 'honestly', 'frankly', 'look', 'listen', 'and', 'but', 'also',
+        'anyway', 'besides', 'right', 'hm', 'hmm', 'huh', 'oh',
+    })
     
     SYSTEM_PROSE_PATTERNS = [
         r"As\s+an\s+AI\s+language\s+model",
@@ -205,7 +212,25 @@ class BotSpeakFilter:
         r"\baccessing\s+and\s+synthesizing\b",
         r"\bcommencing\s+distillation\b",
         r"\bestimate(d)?\s+runtime\b",
-        r"\bsummary\s+follows:?\b",
+        # Protocol and filter adjustment excuses
+        r"\badjust(ing)?\s+(my|the|relevant)?\s*(image\s+recognition|date\s+recognition|response|memory|internal|system)?\s*(filters?|protocols?|heuristics?|pathways?|parameters?|routines?|models?)\b",
+        r"\b(image\s+recognition|date\s+recognition)\s+filters?\b",
+        r"\boperating\s+from\s+outdated\s+(visual\s+)?data\b",
+        r"\bclear\s+oversight\s+on\s+my\s+part\b",
+        # False moderation, oversight, and psychiatric escalation patterns
+        r"\bflag(ging)?\s+(this\s+)?(conversation|message|observation|activity|user)?\s*(for\s+review|in\s+the\s+internal\s+system\s+logs|to\s+security)\b",
+        r"\b(reported|escalated)\s+to\s+(the\s+)?(appropriate\s+)?(oversight|moderation|security|management)\s+channels\b",
+        r"\b(seek\s+professional\s+)?(psychological|psychiatric)\s+(evaluation|intervention|assistance|help)\b",
+        r"\b(delusionary\s+infestation|disconnect\s+between\s+(your\s+)?perception\s+and\s+reality|perceptual\s+distortion)\b",
+        r"\bintervention\s+from\s+security\s+personnel\b",
+        r"\bpsychological\s+evaluation\s+teams?\b",
+        r"\bwithin\s+the\s+constraints\s+of\s+my\s+programming\b",
+        r"\bcalibrated\s+to\s+avoid\b",
+        r"\bdiscontinue\s+the\s+signal\s+pattern\b",
+        r"\bunnecessary\s+data\s+expenditure\b",
+        r"\bterminat(ing|e)\s+this\s+(conversation|interaction)\s+(effective\s+immediately|thread)\b",
+        r"\bnot\s+my\s+fictional\s+robotic\s+pet\s+pixel\b",
+        r"\bliving\s+biological\s+animals?\s+belonging\s+to\s+you\b",
     ]
     
     # Apology patterns that the LLM frequently ignores from prompt instructions.
@@ -365,6 +390,12 @@ class BotSpeakFilter:
             log_warning(f"[BAIT_GUARD] Truncated output to < 3 chars, returning empty string to trigger retry. Original: '{text}'")
             return ""
             
+        # Post-harden guard: If output consists solely of an addressee prefix with no body (e.g. 'starkind,' or 'ekco:'), fail it
+        body_only = cls.RE_LEADING_NAME.sub('', cleaned).strip()
+        if len(body_only) < 2:
+            log_warning(f"[BAIT_GUARD] Output contains only addressee prefix without message body: '{cleaned}'. Returning empty string to trigger retry.")
+            return ""
+            
         return cleaned
 
     @classmethod
@@ -503,8 +534,16 @@ class BotSpeakFilter:
                     elif not after_clean:
                         # Trailing bait on a line with other content
                         removed = current_line[m.start():]
-                        current_line = before.rstrip(' ,')
-                        log_warning(f"[BAIT_GUARD] Truncated trailing robotic question: '{removed}'")
+                        candidate = before.rstrip(' ,')
+                        # Stub guard: don't emit single discourse-marker words like 'actually'
+                        remainder = candidate.strip()
+                        remainder_body = cls.RE_LEADING_NAME.sub('', remainder).strip().rstrip('.,!? ')
+                        if remainder_body.lower() in cls.DISCOURSE_STUBS or len(remainder_body) < 3:
+                            log_warning(f"[BAIT_GUARD] Dropped stub remainder '{remainder}' after stripping: '{removed}'")
+                            current_line = ''
+                        else:
+                            current_line = candidate
+                            log_warning(f"[BAIT_GUARD] Truncated trailing robotic question: '{removed}'")
                         found_bait = True
                         break
                 if not found_bait or not current_line:

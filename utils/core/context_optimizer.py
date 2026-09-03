@@ -96,7 +96,7 @@ class ContextOptimizer:
         )
         self._history_header = "\n[CONVERSATION_HISTORY]\n"
         
-    def optimize_context(self, category, persona, rag_nodes, history, strategy=None):
+    def optimize_context(self, category, persona, rag_nodes, history, strategy=None, user_msg_text=""):
         """
         Optimize context by treating the persona as a non-negotiable anchor.
         PERSONA IS NEVER TRUNCATED.
@@ -111,50 +111,46 @@ class ContextOptimizer:
         persona_snippet = (persona[:150] + "...") if len(persona) > 150 else persona
         log_debug(f"DEBUG: optimize_context received persona (len={len(persona)}): {persona_snippet}")
 
-        # 2. Persona is non-negotiable - calculate its actual cost first
-        optimized_persona = persona 
-        persona_tokens = len(persona.split()) * self.token_multiplier
-        
-        # 3. Reserve tokens for system reinforcement (configurable)
-        system_reserve = self.system_reserve
-        
-        # 4. Calculate remaining budget for RAG and History
-        remaining_budget = effective_max_tokens - persona_tokens - system_reserve
-        
-        # 5. Handle emergency budget depletion
-        if remaining_budget < (self.min_rag_tokens + self.min_history_tokens):
-            # Persona is massive. Give RAG and History absolute minimums.
-            # We might exceed budget slightly, but content integrity (Persona) is priority.
-            log_warning(f"Persona is massive ({persona_tokens:.0f} tokens). RAG/History prioritized at minimums.")
-            rag_budget = self.min_rag_tokens
-            history_budget = self.min_history_tokens
+        # 2. Persona is non-negotiable - calculate its actual token cost
+        current_tokens = self._estimate_tokens(persona)
+
+        # 3. Reserve headroom for:
+        #    a) Ollama generation response (max_response_tokens, default 2048)
+        #    b) System overhead added in _construct_messages (safeguard_block + metadata_block + constraints)
+        #       represented accurately by self.system_reserve
+        #    c) Current user message tokens
+        from utils.infrastructure.system.yaml_config import config as _cfg
+        response_reserve = getattr(_cfg, 'max_response_tokens', 2048)
+        user_msg_tokens = self._estimate_tokens(user_msg_text) if user_msg_text else 250
+        fixed_overhead = self.system_reserve + response_reserve + user_msg_tokens
+
+        # 4. Calculate available budget for RAG and History combined
+        remaining_budget = max(effective_max_tokens - current_tokens - fixed_overhead, 0)
+
+        # 5. Allocate remainder based on model ratios
+        model_ratios = self.ratios.get(self.model_name, self.ratios['default']).copy()
+        if strategy == "SUMMARIZATION":
+            rag_weight = 0.95
+            hist_weight = 0.05
         else:
-            # Allocate remainder based on model ratios
-            model_ratios = self.ratios.get(self.model_name, self.ratios['default']).copy()
+            rag_weight = model_ratios['rag']
+            hist_weight = model_ratios['history']
             
-            # Rebalance weights for RAG and History only
-            if strategy == "SUMMARIZATION":
-                # For summarization, we want almost ALL RAG. History is irrelevant.
-                rag_weight = 0.95
-                hist_weight = 0.05
-            else:
-                rag_weight = model_ratios['rag']
-                hist_weight = model_ratios['history']
-                
-            total_weight = rag_weight + hist_weight
-            
-            rag_budget = int((rag_weight / total_weight) * remaining_budget)
-            history_budget = int((hist_weight / total_weight) * remaining_budget)
-            
-            # Ensure minimums
+        total_weight = rag_weight + hist_weight
+        
+        rag_budget = int((rag_weight / total_weight) * remaining_budget)
+        history_budget = remaining_budget - rag_budget
+        
+        # Ensure safe minimums when remaining budget allows
+        if remaining_budget >= (self.min_rag_tokens + self.min_history_tokens):
             rag_budget = max(rag_budget, self.min_rag_tokens)
             history_budget = max(history_budget, self.min_history_tokens)
-
-        token_budget = {
-            'persona': int(persona_tokens),
-            'rag': rag_budget,
-            'history': history_budget
-        }
+        elif remaining_budget > 0:
+            rag_budget = max(int(remaining_budget * 0.5), 256)
+            history_budget = max(remaining_budget - rag_budget, 256)
+        else:
+            rag_budget = 256
+            history_budget = 256
         
         # Group and label RAG nodes by source type for structural attribution
         history_nodes = []
@@ -244,15 +240,7 @@ class ContextOptimizer:
                 
 
         # Construct final RAG text with structural grouping
-        # 1. Start with Persona (Anchor)
-        current_tokens = self._estimate_tokens(persona)
-        
-        # 2. Append Categorized RAG Nodes (Incremental assembly)
         rag_str = ""
-        
-        # Allocation: RAG gets up to 45% of remaining budget
-        remaining = self.max_tokens - current_tokens - 1000 # Leave buffer
-        rag_budget = int(remaining * 0.45)
         rag_current = 0
         
         def _fit_nodes(nodes, budget_remaining):
@@ -272,7 +260,6 @@ class ContextOptimizer:
                     break
             return fitted, used
         
-        # Assemble with structural group headers for source attribution
         sections = []
         
         if news_nodes:
@@ -297,21 +284,18 @@ class ContextOptimizer:
             rag_str = self._rag_header + "\n\n".join(sections)
             current_tokens += rag_current
 
-        # 3. Append History (Pruned list to preserve role metadata)
+        # 4. Append History (Pruned list to preserve role metadata)
         optimized_history = []
         if history:
-            history_budget = self.max_tokens - current_tokens - self.system_reserve
+            history_budget = max(effective_max_tokens - current_tokens - fixed_overhead, self.min_history_tokens)
             hist_current = 0
             
-            # Add latest first, but keep chronological order in final output
             for turn in reversed(history):
-                # Turn is a dict {'role': ..., 'content': ...}
                 if not isinstance(turn, dict):
                     continue
                     
                 t_count = self._estimate_tokens(turn.get('content', ''))
                 if hist_current + t_count <= history_budget:
-                    # Strip stale time-anchored status responses from history
                     if turn.get('role') == 'assistant' and TIME_ANCHOR_PATTERN.search(turn.get('content', '')):
                         continue
                     optimized_history.insert(0, turn.copy())
@@ -325,7 +309,7 @@ class ContextOptimizer:
         return {
             'persona': persona,
             'rag': rag_str,
-            'history': optimized_history # Now returning a list
+            'history': optimized_history
         }
         
     def _estimate_tokens(self, text) -> int:
