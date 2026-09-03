@@ -529,7 +529,6 @@ class RAGIndexerMixin:
         # Check if this dream is derived from user interaction logs
             if "interactions" in file_path or "interactions" in doc.text[:200]:
                 # Extract from content header: Source: user_logs/Name_ID/interactions_YYYYMMDD.txt
-                import re
                 # Look for the last set of digits in the user_logs path fragment
                 # Example: user_logs/Ekco_177011971818782721/interactions...
                 match = re.search(r'user_logs/[^/]+?_(\d{15,20})', doc.text[:500])
