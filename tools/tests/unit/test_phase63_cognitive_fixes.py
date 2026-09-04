@@ -58,3 +58,54 @@ def test_prompt_echo_not_my_robotic_cat_stripped():
     result = BotSpeakFilter.harden(input_text)
     assert "robotic pet pixel" not in result
     assert "two cats on the bed" in result
+
+
+def test_message_context_default_pipeline_attributes():
+    """Verify MessageContext initializes all pipeline attributes safely to avoid AttributeErrors."""
+    from unittest.mock import MagicMock
+    from utils.core.message_context import MessageContext
+
+    mock_msg = MagicMock()
+    ctx = MessageContext(message=mock_msg, sanitized_content="hello")
+    assert ctx.raw_nodes == []
+    assert ctx.context_nodes == []
+    assert ctx.system_prompt == ""
+    assert ctx.user_traits == {}
+    assert ctx.knowledge_boundary_check == {}
+    assert ctx.classification_task is None
+    assert ctx._is_channel_recall is False
+    assert ctx._channel_refs is None
+
+
+def test_bm25_retriever_tokenize_node_imports():
+    """Verify SimpleBM25Retriever._tokenize_node safely handles file paths without NameErrors."""
+    from utils.core.kaia_rag_retriever import SimpleBM25Retriever
+
+    retriever = SimpleBM25Retriever(nodes=[])
+    node = {
+        "text": "aquarium tank setup and maintenance",
+        "metadata": {
+            "file_path": "/path/to/Kaia - Limnological Biosphere.md",
+            "title": "Limnological Biosphere"
+        }
+    }
+
+    tokens = retriever._tokenize_node(node)
+    assert "aquarium" in tokens
+    assert "limnological" in tokens
+    assert "biosphere" in tokens
+
+
+def test_module_global_imports_exist():
+    """Verify standard modules are properly imported in modules that use them."""
+    import utils.commands.forum_handler as fh
+    import utils.social.kaia_forum as kf
+    import utils.core.kaia_rag_retriever as krr
+    import utils.social.kaia_social_responder as ksr
+
+    assert hasattr(fh, 'asyncio')
+    assert hasattr(kf, 'traceback')
+    assert hasattr(krr, 'os')
+    assert hasattr(ksr, 'get_x_client') or 'get_x_client' in ksr.check_and_reply_mentions.__code__.co_names
+
+

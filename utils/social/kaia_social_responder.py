@@ -368,6 +368,7 @@ async def check_and_reply_mentions(on_message_func):
             parent_text = None
             root_text = None
             try:
+                from utils.social.kaia_twitter import get_x_client
                 client = await get_x_client()
                 if client:
                     if mention['parent_id']:
@@ -399,8 +400,6 @@ async def check_and_reply_mentions(on_message_func):
 
 async def mock_external_mention(on_message_func, content: str, author_name: str, author_id: Any, platform: str, parent_text: Optional[str] = None, root_text: Optional[str] = None):
     import uuid
-    from contextlib import asynccontextmanager
-    from typing import Optional
     from utils.infrastructure.system.messaging import MockMessage, MockUser, MockChannel
 
     log_info(f"Mocking {platform} message from {author_name}...")

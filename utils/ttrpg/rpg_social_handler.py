@@ -233,7 +233,6 @@ async def _handle_talk(ctx, msg, send, rest, uid, uname, is_owner):
         if not filtered:
             filtered = candidates
 
-        import secrets
         topic = secrets.choice(filtered)
 
         if sheet:
@@ -252,7 +251,6 @@ async def _handle_talk(ctx, msg, send, rest, uid, uname, is_owner):
         if not filtered:
             filtered = pool
 
-        import secrets
         topic = secrets.choice(filtered)
 
         if sheet:

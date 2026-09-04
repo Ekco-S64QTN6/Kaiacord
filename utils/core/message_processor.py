@@ -454,7 +454,7 @@ class MessageProcessor:
             author_name = getattr(msg.author, 'name', 'Unknown')
             log_action(f"TOTAL processing for {author_name}: {duration:.2f}s")
         except asyncio.CancelledError:
-            log_warning(f"Generation task for {msg.author.name} was cancelled (likely bot shutdown).")
+            log_warning(f"Generation task for {getattr(msg.author, 'name', 'Unknown')} was cancelled (likely bot shutdown).")
         except Exception as e:
             import traceback
             error_trace = traceback.format_exc()
@@ -571,6 +571,7 @@ class MessageProcessor:
             ctx.system_prompt = raw_persona.replace("[CURRENT_TIME]", f"[CURRENT_TIME]: {current_time}")
             
             ctx.context_nodes = []
+            ctx.raw_nodes = []
             
             # Proceed straight to generation
             await self._generate_response_stage(ctx)
@@ -1457,7 +1458,7 @@ class MessageProcessor:
             if _visual_intent:
                 try:
                     async for prev_msg in ctx.message.channel.history(limit=5, before=ctx.message):
-                        if getattr(prev_msg.author, 'id', None) == ctx.author_id and getattr(prev_msg, 'attachments', None):
+                        if str(getattr(prev_msg.author, 'id', '')) == str(ctx.author_id) and getattr(prev_msg, 'attachments', None):
                             attachments_to_process = list(prev_msg.attachments)
                             log_info(f"Found {len(attachments_to_process)} attachments from user's recent message {prev_msg.id} for visual query.")
                             break
@@ -1860,12 +1861,13 @@ class MessageProcessor:
         max_attempts = self.config.generation_max_retry_attempts
 
         # Determine whether this generation requires grounded low-temperature (RAG context or factual strategy)
-        has_rag_knowledge = bool(ctx.raw_nodes and any(
+        raw_nodes = getattr(ctx, 'raw_nodes', None) or []
+        has_rag_knowledge = bool(raw_nodes and any(
             (isinstance(n, dict) and (
                 n.get('metadata', {}).get('source_type') in ['general_knowledge', 'knowledge', 'article', 'whitepaper', 'book'] or
                 n.get('metadata', {}).get('retrieval_method') in ['summarization', 'vector', 'bm25', 'hybrid', 'manifest_fast_path']
             )) or (not isinstance(n, dict) and getattr(n, 'metadata', {}).get('source_type') in ['general_knowledge', 'knowledge', 'article', 'whitepaper', 'book'])
-            for n in ctx.raw_nodes
+            for n in raw_nodes
         ))
         is_grounded = has_rag_knowledge or bool(
             ctx.intent and getattr(ctx.intent, 'suggested_strategy', None) in ["SUMMARIZATION", "PRECISE_RECALL", "DIAGNOSTIC_DEEP_DIVE"]

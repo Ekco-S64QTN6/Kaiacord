@@ -12,6 +12,7 @@ Contains:
 - thread_safe_rag_operation: Decorator for thread-safe RAG operations
 """
 
+import os
 import re
 import asyncio
 import heapq

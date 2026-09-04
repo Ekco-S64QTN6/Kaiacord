@@ -14,6 +14,7 @@ import re
 import json
 import asyncio
 import aiohttp
+import traceback
 from datetime import datetime, timedelta
 from pathlib import Path
 import threading

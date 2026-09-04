@@ -25,6 +25,14 @@ class MessageContext:
     status_context: str = ""
     retrieval_confidence: float = 0.0   # 0.0–1.0 avg score of retrieved nodes; 0 = nothing found
     retrieval_node_count: int = 0       # How many nodes passed the threshold
+    raw_nodes: List[Any] = field(default_factory=list)
+    context_nodes: List[Any] = field(default_factory=list)
+    system_prompt: str = ""
+    user_traits: Dict[str, Any] = field(default_factory=dict)
+    knowledge_boundary_check: Dict[str, Any] = field(default_factory=dict)
+    classification_task: Optional[Any] = None
+    _is_channel_recall: bool = False
+    _channel_refs: Optional[List[str]] = None
     
     # Timing & Performance
     start_time: float = field(default_factory=time.time)
@@ -35,15 +43,17 @@ class MessageContext:
     
     @property
     def author_id(self) -> str:
-        return str(self.message.author.id) if self.message.author else "0"
+        author = getattr(self.message, 'author', None) if self.message else None
+        return str(getattr(author, 'id', '0')) if author else "0"
         
     @property
     def author_name(self) -> str:
-        author = self.message.author
+        author = getattr(self.message, 'author', None) if self.message else None
         if not author:
             return "unknown"
         return getattr(author, 'display_name', getattr(author, 'name', 'unknown')) or "unknown"
         
     @property
     def channel_id(self) -> int:
-        return self.message.channel.id if self.message.channel else 0
+        channel = getattr(self.message, 'channel', None) if self.message else None
+        return getattr(channel, 'id', 0) if channel else 0

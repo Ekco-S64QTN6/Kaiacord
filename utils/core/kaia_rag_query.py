@@ -250,7 +250,7 @@ class RAGQueryMixin:
             if not selected_middle:
                 selected_middle = middle_candidates[:4]
                 
-            combined = {n.node_id: n for n in (head_nodes + selected_middle + tail_nodes)}
+            combined = {getattr(n, 'node_id', getattr(n, 'id_', str(idx))): n for idx, n in enumerate(head_nodes + selected_middle + tail_nodes)}
             selected_nodes = sorted(combined.values(), key=lambda x: x.metadata.get('chunk_index', 0))
 
         result_nodes = []
