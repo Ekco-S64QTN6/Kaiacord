@@ -3,6 +3,13 @@ import ollama
 import subprocess
 import time
 
+import pytest
+
+
+@pytest.mark.gpu
+@pytest.mark.ollama
+@pytest.mark.slow
+@pytest.mark.asyncio
 async def test_gemma3():
     client = ollama.AsyncClient()
     print("Testing gemma3:12b with num_gpu: -1 and num_ctx: 8192...")

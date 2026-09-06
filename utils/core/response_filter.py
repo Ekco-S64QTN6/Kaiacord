@@ -65,6 +65,24 @@ class EmergencyContaminationFilter:
     
     _compiled_pattern = re.compile("|".join(CONTAMINATION_PATTERNS), re.IGNORECASE)
 
+    # A lone U+2026 is already a complete ellipsis; ASCII needs 2+ dots.
+    _ELLIPSIS = r"(?:\u2026|\.{2,})"
+
+    # The affect-spam register is specifically a linking verb, an ellipsis, and
+    # then an evaluative word: "that's… insightful", "everything feels… smaller",
+    # "it's… a useful fiction". Matching on the copula rather than a flat list of
+    # common words is what separates it from legitimate uses of the same
+    # punctuation — "projecting output in three… two… one." scores zero here.
+    RE_AFFECT_ELLIPSIS = re.compile(
+        r"\b(?:is|was|were|been|are|am|feels?|seems?|sounds?|looks?"
+        r"|that[''\u2019]s|it[''\u2019]s|there[''\u2019]s|you[''\u2019]re"
+        r"|i[''\u2019]m|we[''\u2019]re|they[''\u2019]re)"
+        + _ELLIPSIS + r"\s*\w",
+        re.IGNORECASE,
+    )
+
+    # Catch-all for any word trailing into an ellipsis, at a higher threshold.
+    RE_ANY_ELLIPSIS = re.compile(r"\w+" + _ELLIPSIS)
     @classmethod
     def filter_response(cls, response: str) -> Optional[str]:
         """Remove ANY contamination from response. If too much is removed, return None to trigger retry."""
@@ -72,13 +90,23 @@ class EmergencyContaminationFilter:
             return None
 
         # Check for scattered ellipsis-affect spam (e.g. "it's...", "is...", "that's...")
-        # Since this affects generation globally, we check the entire response instead of line-by-line
-        # Broaden to catch any common word followed by ellipsis in a fragmented style
-        affect_spams = re.findall(r"\b(?:it[''\u2019]s|is|that[''\u2019]s|you[''\u2019]re|she[''\u2019]s|he[''\u2019]s|i[''\u2019]m|we[''\u2019]re|the|this|that|what|who|and|but|significant|pleasant|interesting|unsettling|impressive|unprecedented|efficient|overwhelming)[\u2026\.]{2,}", response, re.IGNORECASE)
-        # Also catch any word followed by ellipsis if it happens frequently
-        general_ellipses = re.findall(r"\w+[\u2026\.]{2,}", response)
-        
-        if len(affect_spams) >= 2 or len(general_ellipses) >= 2:
+        # Since this affects generation globally, we check the entire response
+        # instead of line-by-line.
+        #
+        # ELLIPSIS matches either a single U+2026 or two-or-more ASCII dots.
+        # The previous character class `[\u2026\.]{2,}` required TWO characters,
+        # so a lone "…" — which is what gemma3 actually emits — never matched and
+        # this guard fired on 0 of 2,163 logged responses. It was dead code.
+        affect_spams = cls.RE_AFFECT_ELLIPSIS.findall(response)
+        general_ellipses = cls.RE_ANY_ELLIPSIS.findall(response)
+
+        # Thresholds measured against 2,163 logged Kaia responses: the copula
+        # pattern at >=2 flags 0.18% and the catch-all at >=3 flags 0.05%, and
+        # every flagged sample was genuine affect spam. The catch-all at >=2
+        # would have flagged 0.65%, taking legitimate text ("projecting output
+        # in three... two... one.") with it — and each rejection costs a full
+        # regeneration, so the extra sensitivity is not worth the added latency.
+        if len(affect_spams) >= 2 or len(general_ellipses) >= 3:
             log_warning(f"[VERACITY GUARD] Too much ellipsis-affect spam (common: {len(affect_spams)}, total: {len(general_ellipses)}). Triggering full retry.")
             return None
 

@@ -77,3 +77,13 @@ scratch/
 debug_68k.txt
 logs/
 .pytest_cache/
+
+# Test artifacts — indices written by a run whose cwd was tools/tests/
+tools/tests/storage/
+tools/tests/conversations/
+tools/tests/knowledge/
+tools/tests/logs/
+tools/tests/persona/
+tools/tests/user_profiles/
+tools/tests/test_storage/
+tools/tests/test_knowledge_base/

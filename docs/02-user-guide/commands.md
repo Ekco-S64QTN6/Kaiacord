@@ -11,9 +11,9 @@ All commands are prefixed with `!`. Admin commands are restricted to the project
 | `!rpg` | Open the Aethelgard TTRPG HUD and play | All |
 | `!help` | Display interactive command and feature guide | All |
 | `!news [category]` | Fetch news by category | All |
-| `!download <url>` | Ingest a URL into the knowledge base | All |
+| `!download <url>` | Ingest a URL into the knowledge base | Admin |
 | `!quip` | Trigger a social media quip (10m cooldown) | All |
-| `!flag <reason>` | Flag the previous message for audit/review | All |
+| `!flag <reason>` | Flag the previous message for audit/review | Admin |
 | `!forum [cmd]` | VBulletin forum management | Mixed |
 | `!dream [cmd]` | Dream engine management | Admin |
 | `!memory [cmd]` | Memory and beliefs management (100-cap) | Admin |
@@ -130,7 +130,7 @@ Kaia responds naturally to specific phrases when mentioned or addressed — no `
 
 | Role | Commands |
 |:---|:---|
-| **All Users** | `!scores`, `!art`, `!rpg`, `!help`, `!news`, `!download`, `!quip`, `!explain`, `!forum link` |
+| **All Users** | `!scores`, `!art`, `!rpg`, `!help`, `!news`, `!quip`, `!forum link` |
 | **Admin (Owner)** | All of the above, plus `!dream`, `!memory`, `!flag`, `!audit`, `!reindex`, `!enrich`, `!cache`, `!snapshot`, `!selfmodel`, `!sysmon`, `!forum (status/stats/scrape/read/post/reply/user)` |
 
 Rate limiting applies to all users (configurable via `performance.requests_per_minute` in `kaia.yaml`).

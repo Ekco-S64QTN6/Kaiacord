@@ -1,121 +1,87 @@
-# Tests Directory
-
-Organized test suite for Kaiacord v2.0.
-
-## Structure
+# Tests
 
 ```
-tests/
-├── unit/           # Fast, isolated unit tests
-├── integration/    # End-to-end integration tests
-├── verification/   # System verification scripts
-├── archive/        # Deprecated/broken tests
-└── conftest.py     # Shared pytest fixtures
+tools/tests/
+├── unit/           # Fast, isolated tests — no network, no Ollama, no GPU
+├── integration/    # More than one subsystem together
+├── verification/   # Manual diagnostics, run by hand (not collected by pytest)
+├── archive/        # One-off scripts from past debugging, kept for reference
+└── conftest.py     # Shared fixtures
 ```
 
-## Running Tests
+Configuration lives in `pytest.ini` at the repo root: `testpaths`, marker
+declarations, `--strict-markers`, and the asyncio loop scope.
 
-### All Tests
+## Running
+
 ```bash
-pytest tests/ -v
+pytest                                        # everything
+pytest -m "not ollama and not gpu and not slow"   # no external services
+pytest tools/tests/unit -q                    # just the fast ones
+pytest tools/tests/unit/test_response_filters.py::test_harden_is_idempotent
 ```
 
-### By Category
-```bash
-# Unit tests (fast)
-pytest tests/unit/ -v
+## Markers
 
-# Integration tests (slower, E2E)
-pytest tests/integration/ -v
+| Marker | Meaning |
+|---|---|
+| `slow` | Takes more than a couple of seconds |
+| `gpu` | Needs a GPU and a loaded model |
+| `ollama` | Needs a running Ollama daemon |
+| `network` | Reaches the public internet |
+| `integration` | Exercises more than one subsystem |
 
-# Verification scripts (system checks)
-python tests/verification/verify_chat_gpu.py
-python tests/verification/verify_image_gen.py
+`--strict-markers` is on: an undeclared marker is an error, not a silent
+no-op. Add new ones to `pytest.ini`.
+
+## Suite hygiene
+
+`unit/test_suite_hygiene.py` enforces properties of the suite itself. The
+September 2026 audit found that **24 of 51 collected test files contained no
+`assert` at all** — they passed by not raising — and several exercised a
+private copy of the implementation rather than the real one
+(`test_rate_limiter.py` defined its own `RateLimiter`; `test_phase7_filters.py`
+defined a `ResponseStyleHarden` class that exists nowhere in the codebase).
+
+The checks:
+
+- **Every collected file asserts something.** Smoke tests whose only job is
+  "this runs against a real service without raising" go in
+  `ASSERTLESS_ALLOWLIST` with a one-line reason. That list is a backlog to
+  shrink, not a permanent exemption.
+- **No hardcoded home directories.** Nine files contained `/home/<user>/...`,
+  so the suite ran on exactly one machine. `/home/user/...` inside synthetic
+  fixture data is fine — it is a path shape, never opened.
+- **No module-level execution.** `verification/test_vram.py` called
+  `asyncio.run(main())` at import, which pytest runs during *collection* — so
+  every suite run unloaded and reloaded `gemma3:12b`, evicting the production
+  model from VRAM. Guard scripts with `if __name__ == "__main__":`.
+- **No writes into `memory/`.** Four tests persisted artifacts into the live
+  memory directory. Use `tmp_path` or `monkeypatch`.
+
+## Writing a test
+
+Assert on behaviour, against the real implementation:
+
+```python
+from utils.infrastructure.system.rate_limiter import RateLimiter
+
+def test_blocks_past_the_limit():
+    rl = RateLimiter(requests_per_minute=3)
+    for _ in range(3):
+        rl.is_allowed(1)
+    assert rl.is_allowed(1) is False
 ```
 
-### Specific Test
-```bash
-pytest tests/unit/test_yaml_config.py -v
-pytest tests/unit/test_stats_helpers.py::test_stats_helpers -v
-```
-
-## Test Categories
-
-### Unit Tests (`tests/unit/`)
-Fast, isolated tests for individual components:
-- `test_stats_helpers.py` - Stats poller helpers
-- `test_logging_bridge.py` - Logging bridge
-- `test_yaml_config.py` - YAML configuration (10 tests)
-- `test_rate_limiter.py` - Rate limiting
-- `test_news_manager.py` - News manager
-- `test_intelligence.py` - Query classification
-- `test_hallucination_patterns.py` - Hallucination detection
-- `test_async_task_registry.py` - Async task management
-
-### Integration Tests (`tests/integration/`)
-End-to-end tests for complete workflows:
-- `test_integration.py` - Comprehensive E2E tests (7 test classes)
-- `test_chat_flow.py` - Chat conversation flows
-- `test_core.py` - Core bot functionality
-- `test_rag.py` - RAG retrieval system
-
-### Verification Scripts (`tests/verification/`)
-System validation and health checks:
-- `verify_chat_gpu.py` - Chat model GPU loading
-- `verify_image_gen.py` - Image generation
-- `verify_vision_fix.py` - Vision system
-- `verify_vram_fix.py` - VRAM management
-- `verify_logging_final.py` - Logging system
-- `verify_persona_fixes.py` - Persona compliance
-- `verify_quip_logic.py` - Quip system
-- `verify_shutdown_fixes.py` - Shutdown process
+Anything touching the filesystem takes `tmp_path`. Anything needing a service
+carries the matching marker. If an expectation is right but the code does not
+meet it yet, use `pytest.mark.xfail(strict=True, reason=...)` — that keeps the
+expectation visible and fails loudly if the behaviour is ever fixed, which
+deleting the test would not.
 
 ## Fixtures
 
-See `conftest.py` for shared pytest fixtures:
-- `temp_dir` - Temporary directory
-- `mock_ollama_client` - Mocked Ollama client
-- `mock_discord_message` - Mocked Discord message
-- `mock_torch` - Mocked PyTorch for GPU tests
-- And more...
-
-## Coverage
-
-Current test coverage:
-- **Unit tests**: 12/12 passing ✅
-- **Integration tests**: 7 test classes created
-- **Verification**: 8 system check scripts
-
-## Adding New Tests
-
-### Unit Test Template
-```python
-# tests/unit/test_my_feature.py
-import pytest
-
-def test_my_feature():
-    """Test description"""
-    # Arrange
-    # Act
-    # Assert
-    assert True
-```
-
-### Integration Test Template
-```python
-# tests/integration/test_my_flow.py
-import pytest
-
-@pytest.mark.asyncio
-async def test_my_flow(mock_ollama_client):
-    """Test E2E flow"""
-    # Test complete workflow
-    assert True
-```
-
-## Notes
-
-- Unit tests should be fast (<1s each)
-- Integration tests may be slower (mocking recommended)
-- Verification scripts are for manual system checks
-- Archived tests in `archive/` are kept for reference
+See `conftest.py`: `temp_dir`, `mock_config`, `mock_ollama_client`,
+`mock_discord_message`, `mock_bot_state`, `mock_torch`, and others. `mock_config`
+points at `tmp_path`; it previously used relative paths that resolved against
+the caller's working directory and left index artifacts in the test tree.

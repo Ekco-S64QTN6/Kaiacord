@@ -11,12 +11,15 @@ from utils.core.kaia_rag import KaiaRAG
 from llama_index.core.schema import Document
 
 @pytest.mark.asyncio
-async def test_bm25():
+async def test_bm25(tmp_path):
     avail = psutil.virtual_memory().available / 1024**3
     print(f"Available memory: {avail}GB")
-    
+
     rag = KaiaRAG()
-    rag.persist_dir = "./memory/test_rag_storage"
+    # Persist under pytest's tmp_path, never memory/. The previous
+    # "./memory/test_rag_storage" left a stale index inside the production
+    # memory directory and let one run's artifacts leak into the next.
+    rag.persist_dir = str(tmp_path / "rag_storage")
     os.makedirs(rag.persist_dir, exist_ok=True)
     
     rag._initialize_indices()

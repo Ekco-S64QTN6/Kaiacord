@@ -1,9 +1,12 @@
 import asyncio
+import json
+import re
 import time
 import sys
 import os
 from dataclasses import dataclass, field
 from datetime import datetime
+from pathlib import Path
 from discord.ext import tasks
 from utils.infrastructure.logging.kaia_logger import log_action, log_success, log_error, log_info, log_warning, log_debug
 from utils.infrastructure.system.bot_state import bot_state
@@ -294,6 +297,72 @@ class CoreTaskManager:
 
         return monologue_task
 
+    async def _dispatch_proactive(self, trigger) -> bool:
+        """Render a proactive trigger into a message and send it to chat.
+
+        Shared by the periodic proactive loop and the observation-digest
+        broadcast so both go through the same channel validation, typing
+        delay, channel-memory append and diversity/rate bookkeeping.
+        Returns True if a message actually reached the channel.
+        """
+        if not self.ctx or not self.ctx.bot or not self.proactive_engine:
+            return False
+
+        channel = self.ctx.bot.get_channel(trigger.channel_id)
+        if not channel:
+            return False
+
+        # Ensure it's a guild channel, not a DM
+        if hasattr(channel, 'guild') and channel.guild is None:
+            return False
+
+        from utils.social.kaia_social_responder import load_persona_async
+        persona = await load_persona_async()
+
+        message = await self.proactive_engine.generate_opener(
+            trigger=trigger,
+            ollama_client=self.ctx.ollama_client,
+            chat_model=config.chat_model,
+            persona=persona,
+            bot_state=self.ctx.bot_state,
+        )
+
+        if not message:
+            return False
+
+        import secrets as _secrets
+        async with channel.typing():
+            # Natural reading pause before sending
+            await asyncio.sleep(2.0 + _secrets.randbelow(4))
+
+        from utils.infrastructure.system.messaging import send_kaia_response
+        await send_kaia_response(channel, message)
+
+        # Append to channel memory
+        try:
+            if channel.id not in self.ctx.bot_state.channel_memory:
+                from collections import deque
+                self.ctx.bot_state.channel_memory[channel.id] = deque(maxlen=config.max_memory_messages)
+            self.ctx.bot_state.channel_memory[channel.id].append({
+                "role": "assistant",
+                "content": message,
+                "timestamp": time.time()
+            })
+            self.ctx.bot_state.save()
+        except Exception as mem_err:
+            log_warning(f"Failed to append proactive opener to channel memory: {mem_err}")
+
+        self.proactive_engine.record_sent(self.ctx.bot_state, trigger, message)
+
+        # Flag the source digest as aired so it is never re-offered.
+        try:
+            from utils.core.kaia_proactive import mark_digest_broadcast
+            mark_digest_broadcast(trigger.content_id)
+        except Exception:
+            pass
+
+        return True
+
     def _make_proactive_task(self):
         @tasks.loop(minutes=30)
         async def proactive_task():
@@ -314,49 +383,8 @@ class CoreTaskManager:
                     log_info("Proactive trigger evaluation: no active triggers.")
                     return
 
-                channel = self.ctx.bot.get_channel(trigger.channel_id)
-                if not channel:
-                    return
-
-                # Ensure it's a guild channel, not a DM
-                if hasattr(channel, 'guild') and channel.guild is None:
-                    return
-
-                from utils.social.kaia_social_responder import load_persona_async
-                persona = await load_persona_async()
-
-                message = await self.proactive_engine.generate_opener(
-                    trigger=trigger,
-                    ollama_client=self.ctx.ollama_client,
-                    chat_model=config.chat_model,
-                    persona=persona,
-                    bot_state=self.ctx.bot_state,
-                )
-
-                if message:
-                    import secrets as _secrets
-                    async with channel.typing():
-                        # Natural reading pause before sending
-                        await asyncio.sleep(2.0 + _secrets.randbelow(4))
-
-                    from utils.infrastructure.system.messaging import send_kaia_response
-                    await send_kaia_response(channel, message)
-                    
-                    # Append to channel memory
-                    try:
-                        if channel.id not in self.ctx.bot_state.channel_memory:
-                            from collections import deque
-                            self.ctx.bot_state.channel_memory[channel.id] = deque(maxlen=config.max_memory_messages)
-                        self.ctx.bot_state.channel_memory[channel.id].append({
-                            "role": "assistant",
-                            "content": message,
-                            "timestamp": time.time()
-                        })
-                        self.ctx.bot_state.save()
-                    except Exception as mem_err:
-                        log_warning(f"Failed to append proactive opener to channel memory: {mem_err}")
-                        
-                    self.proactive_engine.record_sent(self.ctx.bot_state, trigger, message)
+                sent = await self._dispatch_proactive(trigger)
+                if sent:
                     log_success(f"Proactive message sent ({trigger.trigger_type})")
 
             except Exception as e:
@@ -1388,17 +1416,89 @@ class CoreTaskManager:
         except Exception as e:
             log_error(f"Failed to run news update: {e}")
 
+    # ── Observation Digest ──────────────────────────────────────────
+    # The digest is driven by how much NEW conversation Kaia has actually
+    # overheard, not by the wall clock. The previous 2-hour loop re-read the
+    # whole day's log and re-summarised the same trailing 40 turns each time,
+    # so consecutive entries could differ by 2 messages (81 -> 83) and say
+    # substantially the same thing. Now a high-water mark records the newest
+    # turn already folded into a digest, and a run only happens once enough
+    # unseen turns have accumulated past it.
+
+    #: Passive turns that must accumulate past the watermark before digesting.
+    OBS_DIGEST_MIN_NEW_TURNS = 25
+    #: Upper bound on turns fed to the model in one digest (token guard).
+    OBS_DIGEST_MAX_TURNS = 60
+    #: Digests are checked this often; the threshold decides if one runs.
+    OBS_DIGEST_POLL_MINUTES = 20
+
+    _TURN_LINE = re.compile(
+        r'^\[(?P<ts>\d{4}-\d{2}-\d{2} \d{2}:\d{2}:\d{2})\]\s+'
+        r'(?P<speaker>[^:]+):\s+(?P<msg>.*)$'
+    )
+
+    @classmethod
+    def _parse_passive_turns(cls, content: str):
+        """Extract timestamped non-Kaia turns from one interaction log.
+
+        A block containing any Kaia line was an active interaction, not
+        something overheard, so the whole block is skipped.
+        Returns a list of (timestamp_str, "speaker: message") tuples.
+        """
+        turns = []
+        for block in content.strip().split('\n\n'):
+            lines = [line.strip() for line in block.splitlines() if line.strip()]
+            if not lines:
+                continue
+            if any('] Kaia:' in line for line in lines):
+                continue
+            for line in lines:
+                m = cls._TURN_LINE.match(line)
+                if not m:
+                    continue
+                speaker = m.group('speaker').strip()
+                if speaker == 'Kaia':
+                    continue
+                turns.append((m.group('ts'), f"{speaker}: {m.group('msg')}"))
+        return turns
+
+    @staticmethod
+    def _load_digest_watermark():
+        """Newest turn timestamp already covered by a stored digest.
+
+        Read from the digest history itself so there is one file to reason
+        about. Returns "" when there is no usable watermark, in which case
+        the caller falls back to digesting only the current day's tail.
+        """
+        try:
+            digest_path = Path("memory/observation_digest.json")
+            if not digest_path.exists():
+                return ""
+            with open(digest_path, "r", encoding="utf-8") as f:
+                history = json.load(f)
+            marks = [
+                e.get("watermark", "") for e in history
+                if isinstance(e, dict) and e.get("watermark")
+            ]
+            return max(marks) if marks else ""
+        except Exception:
+            return ""
+
     def _make_observation_digest_task(self):
-        @tasks.loop(hours=2)
+        @tasks.loop(minutes=self.OBS_DIGEST_POLL_MINUTES)
         async def observation_digest_task():
             if shutdown_manager.shutting_down: return
             if not self.ctx or not self.ctx.ollama_client: return
             try:
-                log_action("Running periodic passive observation digest task...")
-                from pathlib import Path
-                import json
                 import uuid
-                
+
+                min_new = int(config.get(
+                    "observation.min_new_turns", self.OBS_DIGEST_MIN_NEW_TURNS
+                ))
+                max_turns = int(config.get(
+                    "observation.max_turns_per_digest", self.OBS_DIGEST_MAX_TURNS
+                ))
+
                 # 1. Scan today's user logs for passive conversations
                 today_str = datetime.now().strftime("%Y%m%d")
                 user_logs_dir = Path("knowledge_base/user_logs")
@@ -1406,44 +1506,45 @@ class CoreTaskManager:
                     return
 
                 passive_turns = []
-                for user_dir in user_logs_dir.iterdir():
+                for user_dir in sorted(user_logs_dir.iterdir()):
                     if not user_dir.is_dir():
                         continue
                     log_file = user_dir / f"interactions_{today_str}.md"
-                    if log_file.exists():
-                        try:
-                            # Read file content safely
-                            content = await asyncio.to_thread(log_file.read_text, encoding="utf-8", errors="replace")
-                            # Parse passive turns
-                            blocks = content.strip().split('\n\n')
-                            for block in blocks:
-                                lines = [line.strip() for line in block.splitlines() if line.strip()]
-                                if not lines:
-                                    continue
-                                # If any line contains Kaia, it was an active interaction, not passive
-                                if any('] Kaia:' in line for line in lines):
-                                    continue
-                                for line in lines:
-                                    if line.startswith('[') and '] ' in line:
-                                        parts = line.split('] ', 1)
-                                        if len(parts) > 1:
-                                            speaker_content = parts[1]
-                                            if ': ' in speaker_content:
-                                                speaker, msg = speaker_content.split(': ', 1)
-                                                if speaker != 'Kaia':
-                                                    passive_turns.append(f"{speaker}: {msg}")
-                        except Exception as e:
-                            log_debug(f"Error parsing log file {log_file} for observation digest: {e}")
+                    if not log_file.exists():
+                        continue
+                    try:
+                        content = await asyncio.to_thread(
+                            log_file.read_text, encoding="utf-8", errors="replace"
+                        )
+                        passive_turns.extend(self._parse_passive_turns(content))
+                    except Exception as e:
+                        log_debug(f"Error parsing log file {log_file} for observation digest: {e}")
 
-                if len(passive_turns) < 10:
-                    log_info(f"Passive observation digest skipped: only {len(passive_turns)} observed turns accumulated.")
+                if not passive_turns:
                     return
 
-                log_action(f"Collected {len(passive_turns)} observed turns. Running digest generation...")
+                # 2. Keep only what arrived after the last digest's watermark.
+                #    Chronological sort matters: turns come from several
+                #    per-user files, so file order is not time order.
+                passive_turns.sort(key=lambda t: t[0])
+                watermark = self._load_digest_watermark()
+                new_turns = [t for t in passive_turns if t[0] > watermark] if watermark else passive_turns
 
-                # Limit content to latest ~40 turns to avoid token limit
-                recent_turns = passive_turns[-40:]
-                joined_messages = "\n".join(recent_turns)
+                if len(new_turns) < min_new:
+                    log_debug(
+                        f"Observation digest holding: {len(new_turns)}/{min_new} "
+                        f"new observed turns since {watermark or 'start of day'}."
+                    )
+                    return
+
+                log_action(
+                    f"Observation digest triggered by {len(new_turns)} new observed "
+                    f"turns ({len(passive_turns)} total today). Generating..."
+                )
+
+                window = new_turns[-max_turns:]
+                new_watermark = window[-1][0]
+                joined_messages = "\n".join(text for _, text in window)
 
                 # Prepare Ollama prompt
                 prompt = (
@@ -1479,53 +1580,69 @@ class CoreTaskManager:
                 )
                 digest_text = resp["message"]["content"].strip().replace("`", "")
 
-                if digest_text:
-                    # Save to memory/observation_digest.json with rolling window
-                    digest_path = Path("memory/observation_digest.json")
-                    digest_path.parent.mkdir(parents=True, exist_ok=True)
+                if not digest_text:
+                    return
 
-                    history = []
-                    if digest_path.exists():
-                        try:
-                            with open(digest_path, "r", encoding="utf-8") as f:
-                                history = json.load(f)
-                        except Exception:
-                            pass
+                # Save to memory/observation_digest.json with rolling window
+                digest_path = Path("memory/observation_digest.json")
+                digest_path.parent.mkdir(parents=True, exist_ok=True)
 
-                    # Filter history to keep only last 7 days
-                    cutoff = time.time() - (7 * 86400)
-                    history = [item for item in history if item.get("timestamp", 0) > cutoff]
-
-                    # Append new entry
-                    history.append({
-                        "timestamp": time.time(),
-                        "date": datetime.now().strftime("%Y-%m-%d"),
-                        "theme_digest": digest_text,
-                        "raw_message_count": len(passive_turns)
-                    })
-
-                    # Cap at max 5 entries
-                    history = history[-5:]
-
-                    # Atomic write
-                    tmp_path = digest_path.with_suffix(".tmp")
-                    with open(tmp_path, "w", encoding="utf-8") as f:
-                        json.dump(history, f, indent=4)
-                    os.replace(tmp_path, digest_path)
-
-                    log_success(f"Generated new passive observation digest: '{digest_text}'")
-
-                    # Seed belief updates or growth events if something interesting is noticed
+                history = []
+                if digest_path.exists():
                     try:
-                        from utils.core.kaia_dream import DreamEngine
-                        de = DreamEngine(config)
-                        de._log_growth_event({
-                            "type": "belief_seed_observed",
-                            "digest": digest_text[:200],
-                            "message_count": len(passive_turns)
-                        })
-                    except Exception as e:
-                        log_debug(f"Failed to log growth event for observation digest: {e}")
+                        with open(digest_path, "r", encoding="utf-8") as f:
+                            history = json.load(f)
+                    except Exception:
+                        pass
+
+                # Filter history to keep only last 7 days
+                cutoff = time.time() - (7 * 86400)
+                history = [item for item in history if item.get("timestamp", 0) > cutoff]
+
+                entry_ts = time.time()
+                history.append({
+                    "timestamp": entry_ts,
+                    "date": datetime.now().strftime("%Y-%m-%d"),
+                    "theme_digest": digest_text,
+                    # Turns actually summarised here, not the running daily
+                    # total — that conflation is what made 81 and 83 look
+                    # like two near-identical digests of the same material.
+                    "new_turns": len(new_turns),
+                    "summarized_turns": len(window),
+                    "total_observed_today": len(passive_turns),
+                    "watermark": new_watermark,
+                    "broadcast": False,
+                })
+
+                # Cap at max 5 entries
+                history = history[-5:]
+
+                # Atomic write
+                tmp_path = digest_path.with_suffix(".tmp")
+                with open(tmp_path, "w", encoding="utf-8") as f:
+                    json.dump(history, f, indent=4)
+                os.replace(tmp_path, digest_path)
+
+                log_success(f"Generated new passive observation digest: '{digest_text}'")
+
+                # Seed belief updates or growth events if something interesting is noticed
+                try:
+                    from utils.core.kaia_dream import DreamEngine
+                    de = DreamEngine(config)
+                    de._log_growth_event({
+                        "type": "belief_seed_observed",
+                        "digest": digest_text[:200],
+                        "message_count": len(new_turns)
+                    })
+                except Exception as e:
+                    log_debug(f"Failed to log growth event for observation digest: {e}")
+
+                # 3. Say it out loud. Previously the digest only ever reached
+                #    chat if the proactive lottery happened to pick the
+                #    "overheard" source (weight 20 of ~139, capped at 2
+                #    proactives/day), so most digests were written and never
+                #    spoken.
+                await self._broadcast_observation_digest(digest_text, entry_ts)
             except Exception as e:
                 log_error(f"Observation digest task failed: {e}")
 
@@ -1534,6 +1651,76 @@ class CoreTaskManager:
             log_error(f"CRITICAL: Observation digest task died: {error}")
 
         return observation_digest_task
+
+    async def _broadcast_observation_digest(self, digest_text: str, entry_ts: float) -> bool:
+        """Air a freshly generated digest in the most active channel.
+
+        Runs on its own budget rather than the general proactive allowance so
+        a digest is not crowded out by the other eight proactive sources, but
+        still respects quiet hours, a minimum gap, and a daily cap.
+        """
+        if not config.get("observation.broadcast_digest", True):
+            return False
+        if not self.proactive_engine or not self.ctx or not self.ctx.bot_state:
+            return False
+        if getattr(self.ctx.bot_state, 'is_generating', False):
+            return False
+        if not getattr(self.ctx.bot_state, 'boot_complete', False):
+            return False
+
+        try:
+            if not self.proactive_engine.is_within_hours():
+                log_debug("Observation digest broadcast skipped: outside active hours.")
+                return False
+
+            max_per_day = int(config.get("observation.max_broadcasts_per_day", 3))
+            min_gap = float(config.get("observation.broadcast_min_interval_minutes", 120)) * 60.0
+
+            now = time.time()
+            today = datetime.now().strftime('%Y-%m-%d')
+            if getattr(self.ctx.bot_state, 'digest_broadcast_date', '') != today:
+                self.ctx.bot_state.digest_broadcast_date = today
+                self.ctx.bot_state.digest_broadcast_count = 0
+
+            if getattr(self.ctx.bot_state, 'digest_broadcast_count', 0) >= max_per_day:
+                log_debug("Observation digest broadcast skipped: daily cap reached.")
+                return False
+            last_sent = getattr(self.ctx.bot_state, 'digest_broadcast_last_sent', 0.0)
+            if now - last_sent < min_gap:
+                log_debug("Observation digest broadcast skipped: inside minimum interval.")
+                return False
+
+            channel_id = self.proactive_engine._find_active_channel(self.ctx.bot_state)
+            if not channel_id:
+                log_debug("Observation digest broadcast skipped: no recently active channel.")
+                return False
+
+            from utils.core.kaia_proactive import ProactiveTrigger, build_digest_content_id
+            trigger = ProactiveTrigger(
+                trigger_type="overheard",
+                channel_id=channel_id,
+                context=(
+                    f"You overheard some conversation recently: '{digest_text}'. "
+                    "Share your thoughts, comments, or reaction to this topic in the chat. "
+                    "Keep it dry, slightly sardonic, and brief."
+                ),
+                source_category="overheard",
+                content_id=build_digest_content_id(entry_ts),
+            )
+
+            sent = await self._dispatch_proactive(trigger)
+            if sent:
+                self.ctx.bot_state.digest_broadcast_count = (
+                    getattr(self.ctx.bot_state, 'digest_broadcast_count', 0) + 1
+                )
+                self.ctx.bot_state.digest_broadcast_last_sent = now
+                self.ctx.bot_state.digest_broadcast_date = today
+                self.ctx.bot_state.save()
+                log_success("Observation digest broadcast to chat.")
+            return sent
+        except Exception as e:
+            log_warning(f"Observation digest broadcast failed (non-fatal): {e}")
+            return False
 
     def start(self):
         from utils.infrastructure.monitoring.async_task_registry import task_registry

@@ -132,6 +132,11 @@ def _sanitize_repetitive_starts(text: str, max_ratio: float = 0.4) -> str:
 class DreamEngine:
     # Growth log path — append-only JSONL ledger for tracking character evolution
     GROWTH_LOG_PATH = Path("memory") / "growth_log.jsonl"
+    # Rotation bounds for the growth log. The size gate keeps the common
+    # append path to a single stat() call; the entry cap matches the
+    # milestone rotation in message_processor so both agree on the tail.
+    GROWTH_LOG_MAX_BYTES = 600_000
+    GROWTH_LOG_MAX_ENTRIES = 2000
 
     def __init__(self, config_instance, rag_instance=None):
         self.config = config_instance
@@ -171,6 +176,23 @@ class DreamEngine:
                     os.fsync(f.fileno())
                 except OSError:
                     pass
+
+            # Size-gated rotation, mirroring kaia_mood._log_snapshot.
+            # This is the log's main writer (dreams, beliefs, digests), but the
+            # only rotation used to live in message_processor's relationship
+            # milestone branch, which fires at 10/25/50/100/250/500 exchanges —
+            # so in practice the file grew unbounded between rare milestones.
+            try:
+                if self.GROWTH_LOG_PATH.stat().st_size > self.GROWTH_LOG_MAX_BYTES:
+                    with open(self.GROWTH_LOG_PATH, 'r', encoding='utf-8') as f:
+                        lines = f.readlines()
+                    if len(lines) > self.GROWTH_LOG_MAX_ENTRIES:
+                        tmp_path = str(self.GROWTH_LOG_PATH) + ".tmp"
+                        with open(tmp_path, 'w', encoding='utf-8') as f:
+                            f.writelines(lines[-self.GROWTH_LOG_MAX_ENTRIES:])
+                        os.replace(tmp_path, str(self.GROWTH_LOG_PATH))
+            except Exception:
+                pass
         except Exception as e:
             log_debug(f"Growth log write failed (non-fatal): {e}")
 
@@ -843,24 +865,38 @@ VOICE AND FORMAT RULES (always apply regardless of dream type):
             rel_insight = insights.get('relationship_insight')
             if rel_insight and isinstance(rel_insight, dict) and rel_insight.get('user_name'):
                 try:
-                    from utils.core.relationship_manager import save_event, RelationshipEvent
-                    event = RelationshipEvent(
-                        timestamp=time.time(),
-                        event_type='positive',
-                        summary=rel_insight.get('summary', '')[:200],
-                        emotional_weight=0.5,
-                        topics=[]
+                    from utils.core.relationship_manager import (
+                        save_event, RelationshipEvent, resolve_user_id,
                     )
-                    # We don't have user_id from dream context, so use user_name as key
-                    save_event(f"dream_{rel_insight['user_name']}", event)
-                    
-                    # Log to growth arc
-                    self._log_growth_event({
-                        "type": "relationship_insight",
-                        "user": rel_insight['user_name'],
-                        "summary": rel_insight.get('summary', '')[:200]
-                    })
-                    log_info(f"👥 Relationship insight formed for {rel_insight['user_name']}: {rel_insight.get('summary', '')[:60]}...")
+                    # Dreams only carry a name. Resolve it to the real Discord
+                    # id so the insight lands on the record the rest of the
+                    # pipeline reads. The previous "dream_{name}" key produced
+                    # write-only files, and — because reflections also name
+                    # characters from ingested books — 90 of them were for
+                    # people who do not exist. An unresolvable name is dropped.
+                    rel_user_id = resolve_user_id(rel_insight.get('user_name'))
+                    if not rel_user_id:
+                        log_debug(
+                            "Dream relationship insight skipped: "
+                            f"'{rel_insight.get('user_name')}' is not a known user."
+                        )
+                    else:
+                        event = RelationshipEvent(
+                            timestamp=time.time(),
+                            event_type='positive',
+                            summary=rel_insight.get('summary', '')[:200],
+                            emotional_weight=0.5,
+                            topics=[]
+                        )
+                        save_event(rel_user_id, event)
+
+                        # Log to growth arc
+                        self._log_growth_event({
+                            "type": "relationship_insight",
+                            "user": rel_insight['user_name'],
+                            "summary": rel_insight.get('summary', '')[:200]
+                        })
+                        log_info(f"👥 Relationship insight formed for {rel_insight['user_name']}: {rel_insight.get('summary', '')[:60]}...")
                 except Exception:
                     pass
 
@@ -869,13 +905,20 @@ VOICE AND FORMAT RULES (always apply regardless of dream type):
             if anchor and isinstance(anchor, dict) and anchor.get('theme'):
                 try:
                     from utils.core.memory_anchors import save_anchor
+                    from utils.core.relationship_manager import resolve_user_id
                     anchor_user = anchor.get('user_name')
-                    
+                    # Same resolution as above. An anchor keyed "dream_Case"
+                    # can never match the `anchor['user_id'] == str(user_id)`
+                    # boost in retrieve_anchors, so an unresolved name is
+                    # stored as a global anchor (user_id=None) instead — still
+                    # retrievable, just not user-boosted.
+                    anchor_user_id = resolve_user_id(anchor_user)
+
                     # Base weight is 0.7, but emotionally salient dreams scale it up to 0.9!
                     init_weight = min(0.9, 0.6 + (salience / 10.0))
-                    
+
                     save_anchor(
-                        user_id=f"dream_{anchor_user}" if anchor_user else None,
+                        user_id=anchor_user_id,
                         theme=anchor['theme'],
                         anchor_text=anchor.get('anchor_text', '')[:200],
                         weight=init_weight,
@@ -943,10 +986,32 @@ VOICE AND FORMAT RULES (always apply regardless of dream type):
                 new_belief['aliases'] = aliases
             beliefs.append(new_belief)
 
-        # Cap at 100 beliefs — remove lowest confidence
+        # Cap at 100 beliefs.
+        #
+        # Eviction used to sort on confidence alone, which is recency-hostile:
+        # a belief formed minutes ago starts around 0.7-0.8 and would be dropped
+        # in favour of a two-week-old 0.95 that nothing has referenced since.
+        # It also permanently reordered the file and discarded ten at a time.
+        # Score instead on confidence reinforced by use and decayed by age,
+        # mirroring the anchor decay in memory_anchors.py, and evict only the
+        # single weakest entry so a burst of new beliefs cannot wipe a block.
         if len(beliefs) > 100:
-            beliefs.sort(key=lambda b: b.get('confidence', 0), reverse=True)
-            beliefs = beliefs[:90]
+            now = time.time()
+
+            def _retention_score(b):
+                conf = float(b.get('confidence', 0.5) or 0.5)
+                accesses = int(b.get('access_count', 0) or 0)
+                age_days = max(0.0, (now - float(b.get('last_updated', now) or now)) / 86400.0)
+                # +0.05 per recall (capped), -0.01 per day untouched (capped),
+                # so an unused belief takes ~a month to fall a full band.
+                return conf + min(0.25, 0.05 * accesses) - min(0.30, 0.01 * age_days)
+
+            weakest = min(range(len(beliefs)), key=lambda i: _retention_score(beliefs[i]))
+            evicted = beliefs.pop(weakest)
+            log_info(
+                f"🧠 Belief evicted (store at cap): '{evicted.get('topic', '?')[:40]}' "
+                f"conf={evicted.get('confidence')} accesses={evicted.get('access_count', 0)}"
+            )
 
         # Atomic write
         tmp_path = str(beliefs_path) + ".tmp"

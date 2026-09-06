@@ -31,7 +31,18 @@ NEWS_DOMAINS = ['reuters.com', 'apnews.com', 'bbc.com', 'cnn.com', 'arstechnica.
 
 
 async def handle_download_command(ctx, msg, send_kaia_response):
-    """Handle the !download <url> command — download a document and add it to the knowledge base."""
+    """Handle the !download <url> command — download a document and add it to the knowledge base.
+
+    Owner-only. This writes into the RAG corpus and then calls
+    `_trigger_reindex()`, so leaving it open both allowed any user to poison
+    the knowledge base with arbitrary web content — which is subsequently
+    retrieved and presented as grounded fact — and handed them the reindex
+    that `!reindex` itself gates behind an owner check.
+    """
+    if not ctx.config.is_owner(msg.author.name, msg.author.display_name, str(msg.author.id)):
+        await msg.channel.send("```\nrestricted. admins only.\n```")
+        return
+
     parts = msg.content.strip().split(None, 1)
     
     if len(parts) < 2 or not parts[1].strip():

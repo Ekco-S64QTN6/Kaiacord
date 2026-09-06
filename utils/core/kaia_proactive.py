@@ -60,6 +60,51 @@ SOURCE_WEIGHTS = {
 }
 
 
+def build_digest_content_id(timestamp) -> str:
+    """Stable dedup key for an observation-digest entry.
+
+    Shared by the proactive engine and the digest broadcast in
+    background_tasks so both write and check the same identifier.
+    """
+    try:
+        return f"obs_digest:{float(timestamp):.0f}"
+    except (TypeError, ValueError):
+        return ""
+
+
+def mark_digest_broadcast(content_id: str) -> None:
+    """Flag the observation-digest entry behind `content_id` as aired.
+
+    Best-effort and atomic: the diversity log is still the authoritative
+    dedup record, this just makes the digest file self-describing.
+    """
+    if not content_id or not content_id.startswith("obs_digest:"):
+        return
+    try:
+        digest_path = os.path.join("memory", "observation_digest.json")
+        if not os.path.exists(digest_path):
+            return
+        with open(digest_path, "r", encoding="utf-8") as f:
+            history = json.load(f)
+        changed = False
+        for entry in history:
+            if not isinstance(entry, dict):
+                continue
+            if build_digest_content_id(entry.get("timestamp", 0)) == content_id:
+                if not entry.get("broadcast"):
+                    entry["broadcast"] = True
+                    changed = True
+                break
+        if not changed:
+            return
+        tmp = digest_path + ".tmp"
+        with open(tmp, "w", encoding="utf-8") as f:
+            json.dump(history, f, indent=4)
+        os.replace(tmp, digest_path)
+    except Exception as e:
+        log_debug(f"Marking digest as broadcast failed (non-fatal): {e}")
+
+
 @dataclass
 class ProactiveTrigger:
     """A resolved trigger that should produce a proactive message."""
@@ -83,6 +128,28 @@ class ProactiveEngine:
         """Check if current time is within the allowed proactive window."""
         hour = datetime.now().hour
         return QUIET_HOUR_START <= hour < QUIET_HOUR_END
+
+    def is_within_hours(self) -> bool:
+        """Public alias so out-of-band senders (e.g. the observation digest
+        broadcast) honour the same quiet-hours window as the proactive loop."""
+        return self._is_within_hours()
+
+    def was_content_broadcast(self, content_id: str) -> bool:
+        """True if a proactive message carrying this content_id was already sent.
+
+        The diversity log is the single source of truth for what has actually
+        reached chat, so both the random proactive path and the direct
+        observation-digest broadcast can dedupe against the same record.
+        """
+        if not content_id:
+            return False
+        try:
+            return any(
+                h.get("content_id") == content_id
+                for h in self._load_diversity_log()
+            )
+        except Exception:
+            return False
 
     def _is_rate_limited(self, bot_state) -> bool:
         """Check if we've exceeded daily or interval limits."""
@@ -562,33 +629,51 @@ class ProactiveEngine:
             log_debug(f"Idle quirk source failed (non-fatal): {e}")
         return None
 
-    def _get_overheard_digest(self) -> Optional[Tuple[str, str]]:
-        """Retrieve the latest passive observation digest (P54-16)."""
+    # Digests older than this are no longer worth reacting to out loud —
+    # the conversation they summarise has moved on.
+    OVERHEARD_MAX_AGE_SECONDS = 6 * 3600
+
+    def _get_overheard_digest(self) -> Optional[Tuple[str, str, str]]:
+        """Retrieve the newest un-broadcast passive observation digest (P54-16).
+
+        Walks newest-first and returns the first digest that is both fresh and
+        has not already reached chat. Without the dedup the engine re-offered
+        history[-1] on every evaluation, so a single digest could be aired
+        several times while newer ones were never spoken.
+        """
         try:
             from pathlib import Path
             import json
             digest_path = Path("memory/observation_digest.json")
             if not digest_path.exists():
                 return None
-            
+
             with open(digest_path, "r", encoding="utf-8") as f:
                 history = json.load(f)
-            
+
             if not history:
                 return None
-            
-            # Select the latest entry
-            entry = history[-1]
-            digest_text = entry.get("theme_digest", "")
-            if not digest_text:
-                return None
-                
-            context = (
-                f"You overheard some conversation recently: '{digest_text}'. "
-                "Share your thoughts, comments, or reaction to this topic in the chat. "
-                "Keep it dry, slightly sardonic, and brief."
-            )
-            return (context, "overheard")
+
+            now = time.time()
+            for entry in reversed(history):
+                if not isinstance(entry, dict):
+                    continue
+                digest_text = (entry.get("theme_digest") or "").strip()
+                if not digest_text:
+                    continue
+                ts = entry.get("timestamp", 0)
+                if ts and now - ts > self.OVERHEARD_MAX_AGE_SECONDS:
+                    break  # older entries are only staler
+                content_id = build_digest_content_id(ts)
+                if entry.get("broadcast") or self.was_content_broadcast(content_id):
+                    continue
+
+                context = (
+                    f"You overheard some conversation recently: '{digest_text}'. "
+                    "Share your thoughts, comments, or reaction to this topic in the chat. "
+                    "Keep it dry, slightly sardonic, and brief."
+                )
+                return (context, "overheard", content_id)
         except Exception as e:
             log_debug(f"Overheard digest source failed (non-fatal): {e}")
         return None

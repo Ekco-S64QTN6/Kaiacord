@@ -89,17 +89,24 @@ def temp_storage(temp_dir):
 # ============================================================================
 
 @pytest.fixture
-def mock_config():
-    """Mock configuration object"""
+def mock_config(tmp_path):
+    """Mock configuration object.
+
+    Paths point into pytest's tmp_path. They used to be relative strings
+    ("./test_storage", "./test_knowledge_base"), which resolve against the
+    *current working directory* — so a run started from tools/tests/ left
+    committed index artifacts in the test tree, and a run started from the
+    repo root left them beside the real ones.
+    """
     from utils.infrastructure.system.yaml_config import YAMLConfig as Config
-    
+
     config = Config()
     config.discord_token = "test_token_12345678901234567890"
-    config.knowledge_base_dir = "./test_knowledge_base"
-    config.persist_dir = "./test_storage"
+    config.knowledge_base_dir = str(tmp_path / "knowledge_base")
+    config.persist_dir = str(tmp_path / "storage")
     config.max_memory_messages = 10
     config.rag_top_k = 3
-    
+
     return config
 
 

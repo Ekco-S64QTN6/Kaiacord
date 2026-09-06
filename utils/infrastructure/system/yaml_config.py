@@ -605,21 +605,46 @@ class YAMLConfig:
     
     def is_owner(self, author_name: str, display_name: str = None, user_id: str = None) -> bool:
         """Check if a user is an owner/admin.
-        
-        Uses exact matching with trailing-period normalization for Discord
-        username compatibility (e.g., 'ekco.' matches 'ekco').
+
+        Matches on the numeric Discord user id (authoritative) or the account
+        username, with trailing-period normalization for Discord username
+        compatibility (e.g., 'ekco.' matches 'ekco').
+
+        `display_name` is deliberately NOT part of the decision. A server
+        nickname is chosen by the member, is not unique, and can be changed at
+        will — matching on it meant any user who set their nickname to the
+        owner's name was granted admin over `!reindex --full` (wipes and
+        re-embeds the entire RAG index), `!enrich`, `!memory`, `!forum`,
+        `!snapshot`, `!selfmodel`, `!sysmon` and `!dream generate`. The
+        parameter is kept because fourteen call sites pass it positionally,
+        and is used only to log the mismatch.
         """
         owner_list = self.owner_ids
         # Normalize: strip trailing periods (Discord adds them to some usernames)
         normalized_owners = {o.rstrip('.') for o in owner_list}
-        
-        checks = [author_name.lower().rstrip('.')]
-        if display_name:
-            checks.append(display_name.lower().rstrip('.'))
+
+        checks = [str(author_name or '').lower().rstrip('.')]
         if user_id:
             checks.append(str(user_id).lower())
-        
-        return any(c in normalized_owners for c in checks)
+
+        if any(c in normalized_owners for c in checks if c):
+            return True
+
+        # Not an owner. If the nickname alone would have matched, that is
+        # either a name collision or an impersonation attempt — surface it.
+        if display_name:
+            nickname = str(display_name).lower().rstrip('.')
+            if nickname in normalized_owners:
+                try:
+                    from utils.infrastructure.logging.kaia_logger import log_warning
+                    log_warning(
+                        f"Owner check denied: user '{author_name}' (id={user_id}) has the "
+                        f"display name '{display_name}', which matches a configured owner. "
+                        "Authorization requires the account username or user id."
+                    )
+                except Exception:
+                    pass
+        return False
 
     def reload(self):
         """Reload configuration from files"""

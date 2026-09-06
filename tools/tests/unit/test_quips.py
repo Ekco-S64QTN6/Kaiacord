@@ -1,6 +1,7 @@
 import os
 import sys
 import asyncio
+import tempfile
 import time
 from pathlib import Path
 
@@ -28,6 +29,13 @@ import ollama
 if os.environ.get("KAIACORD_TEST_MODE") == "1":
     pytest.skip("Skipping Ollama test in CI", allow_module_level=True)
 
+# Smoke-test transcript. Kept out of memory/ so a failed or interrupted run
+# cannot leave test artifacts in the production memory directory.
+SMOKE_LOG_PATH = os.path.join(
+    tempfile.gettempdir(), "kaiacord_quip_smoke_test.log"
+)
+
+
 async def run_smoke_test():
     log_info("Starting Quip Smoke Test...")
     
@@ -46,7 +54,7 @@ async def run_smoke_test():
             clean_content = content.replace("```\n", "").replace("\n```", "")
             char_count = len(clean_content)
             print(f"[DISCORD] ({char_count} chars) {content}")
-            with open("memory/quip_smoke_test.log", "a") as f:
+            with open(SMOKE_LOG_PATH, "a") as f:
                 f.write(f"{time.strftime('%Y-%m-%d %H:%M:%S')} - ({char_count} chars) {content}\n")
 
     class MockGuild:
@@ -66,8 +74,8 @@ async def run_smoke_test():
     bot_state.last_active_channel_id = 123 # Force mock channel
     
     # Clear previous log
-    if os.path.exists("memory/quip_smoke_test.log"):
-        os.remove("memory/quip_smoke_test.log")
+    if os.path.exists(SMOKE_LOG_PATH):
+        os.remove(SMOKE_LOG_PATH)
 
     log_info("Generating 10 quips...")
     
@@ -98,7 +106,7 @@ async def run_smoke_test():
         # Small delay to prevent Ollama overload
         await asyncio.sleep(1)
 
-    log_success("Smoke test complete. Check memory/quip_smoke_test.log")
+    log_success(f"Smoke test complete. Check {SMOKE_LOG_PATH}")
 
 if __name__ == "__main__":
     asyncio.run(run_smoke_test())

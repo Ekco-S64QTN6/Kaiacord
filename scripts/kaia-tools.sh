@@ -1,17 +1,23 @@
 #!/usr/bin/env bash
 # kaia-tools.sh — Kaiacord maintenance TUI
-# Run from the Kaiacord project root: bash scripts/kaia-tools.sh
-# Requires: whiptail (standard on Ubuntu/Debian)
+# Runs from anywhere; it locates the project root from its own path.
+# Requires: whiptail  (Debian/Ubuntu: whiptail · Arch: libnewt · Fedora: newt)
 
 set -uo pipefail
 
 # ── Locate project root ──────────────────────────────────────────────────────
-SCRIPT_DIR="$(cd "$(dirname "$0")" && pwd)"
-cd "$SCRIPT_DIR/.."
+SCRIPT_DIR="$(cd "$(dirname "$0")" && pwd)" || exit 1
+PROJECT_ROOT="$(cd "$SCRIPT_DIR/.." && pwd)" || exit 1
+# Every tool path below is relative to the root, so a failed cd would run them
+# against the wrong tree. -e is not set, so check it explicitly.
+cd "$PROJECT_ROOT" || { echo "Cannot enter project root: $PROJECT_ROOT" >&2; exit 1; }
 
-VENV="$SCRIPT_DIR/../venv/bin/python"
-PYTHON="${VENV:-python3}"
-if [[ ! -f "$VENV" ]]; then
+VENV="$PROJECT_ROOT/venv/bin/python"
+# `${VENV:-python3}` was a no-op here — VENV is a constructed path string and so
+# is never empty. The existence check is what actually picks the interpreter.
+if [[ -x "$VENV" ]]; then
+    PYTHON="$VENV"
+else
     PYTHON="python3"
 fi
 
@@ -59,9 +65,30 @@ run_tool() {
     fi
     info "Running: $label"
     echo "────────────────────────────────────────"
-    $PYTHON "$tool_path" "$@" || true
+    local rc=0
+    "$PYTHON" "$tool_path" "$@" || rc=$?
     echo "────────────────────────────────────────"
+    # `|| true` used to swallow the status here, so a failed reindex, a missing
+    # dependency and a clean run were indistinguishable to the operator.
+    if (( rc == 0 )); then
+        ok "$label completed."
+    else
+        fail "$label exited with status $rc. See the output above."
+    fi
     pause
+    return $rc
+}
+
+# Destructive index operations must not run against a live bot: it holds the
+# index open, so wiping memory/rag_storage underneath it corrupts both the
+# on-disk store and the in-process copy.
+confirm_offline_rebuild() {
+    if bot_running; then
+        whiptail --title "Bot is running" --yesno \
+            "Kaia is currently RUNNING.\n\nRebuilding the index while she holds it open can corrupt memory/rag_storage.\n\nStop the bot first (System & Bot Control).\n\nProceed anyway?" \
+            14 70 --defaultno || return 1
+    fi
+    confirm "$1"
 }
 
 # ═══════════════════════════════════════════════════════════════════════════════
@@ -367,7 +394,7 @@ menu_rag() {
             fi
             ;;
         3)
-            if confirm "Full RAG Rebuild.\n\nThis clears memory/rag_storage and reindexes all documents.\nContinue?"; then
+            if confirm_offline_rebuild "Full RAG Rebuild.\n\nThis clears memory/rag_storage and reindexes all documents.\nContinue?"; then
                 run_tool "Full RAG Rebuild" tools/maintenance/reindex_rag.py --clear
             fi
             ;;
@@ -548,7 +575,7 @@ menu_recovery() {
             fi
             ;;
         5)
-            if confirm "⚠️  RAG STORAGE REBUILD\n\nWipes memory/rag_storage and rebuilds vector & BM25 indices.\nContinue?"; then
+            if confirm_offline_rebuild "⚠️  RAG STORAGE REBUILD\n\nWipes memory/rag_storage and rebuilds vector & BM25 indices.\nContinue?"; then
                 run_tool "Full RAG Rebuild" tools/maintenance/reindex_rag.py --clear
             fi
             ;;
@@ -590,7 +617,14 @@ main_menu() {
 # ── Dependency check ──────────────────────────────────────────────────────────
 if ! command -v whiptail &>/dev/null; then
     fail "whiptail is required but not installed."
-    info "Install it with:  sudo apt install whiptail"
+    # The package name differs per distro, and the previous message only ever
+    # gave the Debian one.
+    if   command -v pacman  &>/dev/null; then info "Install it with:  sudo pacman -S libnewt"
+    elif command -v apt-get &>/dev/null; then info "Install it with:  sudo apt install whiptail"
+    elif command -v dnf     &>/dev/null; then info "Install it with:  sudo dnf install newt"
+    elif command -v zypper  &>/dev/null; then info "Install it with:  sudo zypper install newt"
+    else info "Install the 'newt' / 'whiptail' package for your distribution."
+    fi
     exit 1
 fi
 

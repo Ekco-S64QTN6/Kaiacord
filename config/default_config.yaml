@@ -237,9 +237,15 @@ discord:
   # Ignored users (comma-separated names or IDs)
   ignored_users: ""
   
-  # Owner/Admin users who bypass cooldowns and can use admin commands
-  # Comma-separated usernames or Discord user IDs
-  owner_ids: "ekco"
+  # Owner/Admin users who bypass cooldowns and can use admin commands.
+  # Comma-separated account usernames or Discord user IDs.
+  #
+  # Server nicknames (display names) are NOT accepted — a member picks their
+  # own nickname, so matching on it let anyone grant themselves admin by
+  # renaming. Prefer the numeric user id: it is the only identifier a member
+  # cannot change. The id below is Ekco's, kept alongside the username so a
+  # username change cannot lock the operator out of admin commands.
+  owner_ids: "ekco,177011971818782721"
 
 # ============================================================================
 # Logging Configuration
@@ -272,6 +278,31 @@ dashboard:
   
   # Fallback to ANSI if curses fails
   ansi_fallback: true
+
+# ============================================================================
+# Passive Observation Digest
+# ============================================================================
+# Kaia periodically summarises conversation she overheard but did not take part
+# in. The digest is triggered by how much NEW material has accumulated, not by
+# the clock — a fixed 2-hour loop re-summarised the same trailing window and
+# produced near-duplicate entries whenever the channel was quiet.
+observation:
+  # New observed turns that must accumulate past the last digest's watermark
+  # before another digest is generated. Raise it for quieter servers.
+  min_new_turns: 25
+
+  # Hard cap on turns fed to the model in one digest (token guard).
+  max_turns_per_digest: 60
+
+  # Say the digest out loud instead of only writing it to
+  # memory/observation_digest.json. Set false to keep it background-only.
+  broadcast_digest: true
+
+  # Broadcast budget. Independent of the general proactive allowance so a
+  # digest is not crowded out by the other proactive sources, but still
+  # bounded. Quiet hours from the proactive engine always apply.
+  max_broadcasts_per_day: 3
+  broadcast_min_interval_minutes: 120
 
 # ============================================================================
 # Feature Flags

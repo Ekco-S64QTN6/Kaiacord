@@ -3,7 +3,9 @@ import ollama
 import subprocess
 import time
 
-async def test_value(val):
+async def probe_num_gpu(val):
+    """Manual VRAM probe. Named without a "test_" prefix so pytest does not
+    collect it as a test and then fail looking for a "val" fixture."""
     print(f"\n--- Testing num_gpu: {val} ---")
     client = ollama.AsyncClient()
     
@@ -48,6 +50,10 @@ async def test_value(val):
 async def main():
     # Try: Auto (None), forced GPU (-1), Phase 14 bypass (99), Safe mid-range (32)
     for v in [None, -1, 99, 32, 1]:
-        await test_value(v)
+        await probe_num_gpu(v)
 
-asyncio.run(main())
+if __name__ == "__main__":
+    # Guarded: this probe unloads and reloads gemma3:12b. Without the guard it
+    # ran during pytest *collection*, evicting the production model from VRAM
+    # every time the suite was run.
+    asyncio.run(main())

@@ -7,12 +7,15 @@
 #   - Validation uses 05b_test_ollama.py (live Ollama test, not the stub)
 #   - 01b_augment_data.py is intentionally NOT called (would overwrite clean dataset)
 
-set -e
+# -u catches an unset variable instead of expanding it to the empty string;
+# -o pipefail makes a failure anywhere in a pipeline fail the step.
+set -euo pipefail
 
-SCRIPT_DIR="$(cd "$(dirname "$0")" && pwd)"
-cd "$SCRIPT_DIR/.."
+SCRIPT_DIR="$(cd "$(dirname "$0")" && pwd)" || exit 1
+PROJECT_ROOT="$(cd "$SCRIPT_DIR/.." && pwd)" || exit 1
+cd "$PROJECT_ROOT" || { echo "Cannot enter project root: $PROJECT_ROOT" >&2; exit 1; }
 
-VENV="$SCRIPT_DIR/../venv/bin/python3"
+VENV="$PROJECT_ROOT/venv/bin/python3"
 if [[ -f "$VENV" ]]; then
     PYTHON="$VENV"
 else

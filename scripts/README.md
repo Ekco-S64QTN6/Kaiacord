@@ -8,9 +8,9 @@ Executive shell automation, interactive TUI, and pipeline execution wrappers for
 
 | Script | Type | Purpose | Execution |
 |:-------|:-----|:--------|:----------|
-| [kaia-tools.sh](../scripts/kaia-tools.sh) | Interactive TUI | Terminal interface for system monitoring, Ollama server control, RAG reindexing, and knowledge base maintenance | `bash scripts/kaia-tools.sh` |
-| [run_finetune.sh](../scripts/run_finetune.sh) | Pipeline | 4-step LoRA fine-tuning automation (hardware audit, training, adapter merge, Ollama GGUF export & validation) | `./scripts/run_finetune.sh` |
-| [run_jspace_probe.sh](../scripts/run_jspace_probe.sh) | Diagnostic Wrapper | Executes offline J-Space behavioral probe batteries and user log replays | `./scripts/run_jspace_probe.sh full` |
+| [kaia-tools.sh](kaia-tools.sh) | Interactive TUI | Terminal interface for system monitoring, Ollama server control, RAG reindexing, and knowledge base maintenance | `./scripts/kaia-tools.sh` |
+| [run_finetune.sh](run_finetune.sh) | Pipeline | 4-step LoRA fine-tuning automation (hardware audit, training, adapter merge, Ollama GGUF export & validation) | `./scripts/run_finetune.sh` |
+| [run_jspace_probe.sh](run_jspace_probe.sh) | Diagnostic Wrapper | Executes offline J-Space behavioral probe batteries and user log replays | `./scripts/run_jspace_probe.sh full` |
 
 ---
 
@@ -23,10 +23,19 @@ The primary operational control menu for Kaiacord administrators. Provides menu-
 - **RAG Operations:** Incremental reindexing (`.trigger_reindex`), single-file reindexing, and full storage rebuilds (`reindex_rag.py --clear`).
 - **Knowledge Base Utilities:** OCR artifact cleaning, log sanitization, user profile generation, and Project 1999 forum support synthesis.
 
-**Prerequisites:**
+**Prerequisites:** `whiptail`. The package name differs by distribution —
+the script detects your package manager and prints the right command if it is
+missing.
+
 ```bash
-sudo apt install whiptail
+sudo pacman -S libnewt      # Arch
+sudo apt install whiptail   # Debian / Ubuntu
+sudo dnf install newt       # Fedora
 ```
+
+Destructive index rebuilds check whether Kaia is running first and require a
+second confirmation if she is: wiping `memory/rag_storage` while the bot holds
+it open corrupts both the on-disk store and the in-process copy.
 
 ### 2. `run_finetune.sh` — LoRA Fine-Tuning Automation
 Orchestrates the 4-phase LLM fine-tuning pipeline:

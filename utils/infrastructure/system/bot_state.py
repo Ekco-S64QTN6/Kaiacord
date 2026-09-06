@@ -81,6 +81,13 @@ class BotState:
         self.proactive_daily_count: int = 0
         self.last_proactive_date: str = ""
 
+        # Observation-digest broadcasts — tracked separately from the general
+        # proactive budget so airing what Kaia overheard does not consume the
+        # allowance the other proactive sources share.
+        self.digest_broadcast_last_sent: float = 0.0
+        self.digest_broadcast_count: int = 0
+        self.digest_broadcast_date: str = ""
+
         # Phase 55: P54-4 Anticipatory Context Priming & P54-5 Theory of Mind Lite
         self.user_states: Dict[str, dict] = {}  # {user_id: {"apparent_mood": str, "energy": str, "likely_intent": str, "updated_at": float}}
         self._dossier_primed_users: Dict[str, float] = {}  # {user_id: last_seen_timestamp_when_primed}
@@ -112,6 +119,9 @@ class BotState:
                         self.proactive_last_sent = float(state.get('proactive_last_sent', 0.0))
                         self.proactive_daily_count = int(state.get('proactive_daily_count', 0))
                         self.last_proactive_date = state.get('last_proactive_date', '')
+                        self.digest_broadcast_last_sent = float(state.get('digest_broadcast_last_sent', 0.0))
+                        self.digest_broadcast_count = int(state.get('digest_broadcast_count', 0))
+                        self.digest_broadcast_date = state.get('digest_broadcast_date', '')
                         
                         # Per-channel activity — keys stored as strings in JSON
                         raw_activity = state.get('channel_last_activity', {})
@@ -180,6 +190,9 @@ class BotState:
                     'proactive_last_sent': self.proactive_last_sent,
                     'proactive_daily_count': self.proactive_daily_count,
                     'last_proactive_date': self.last_proactive_date,
+                    'digest_broadcast_last_sent': self.digest_broadcast_last_sent,
+                    'digest_broadcast_count': self.digest_broadcast_count,
+                    'digest_broadcast_date': self.digest_broadcast_date,
                     # boot_complete is TRANSIENT - do not save to disk
                     'mentioned_files': list(self.mentioned_files),
                     # Explicitly cast int keys to str for JSON serialisation (JSON keys must be strings).
