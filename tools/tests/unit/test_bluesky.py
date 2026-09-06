@@ -20,18 +20,40 @@ class TestBlueskyModule:
             assert is_bluesky_configured() is False
     
     def test_is_bluesky_configured_with_env(self):
-        """Test that configured Bluesky returns True"""
+        """Test that configured Bluesky returns True.
+
+        is_bluesky_configured() checks BOTH credentials and the bluesky.enabled flag, so
+        this test pins the flag on rather than inheriting the deployment config. The live
+        config has Bluesky disabled (the account was deleted in Sept 2026); that is a
+        deployment choice and must not decide whether credential detection is covered.
+        """
         with patch.dict('os.environ', {
             'DISCORD_TOKEN': 'dummy',
             'BLUESKY_HANDLE': 'test.bsky.social',
             'BLUESKY_APP_PASSWORD': 'test-password'
-        }):
+        }), patch.object(type(config), 'bluesky_enabled', property(lambda self: True)):
             from utils.social.kaia_bluesky import is_bluesky_configured
             # Need to reimport to pick up env change
             import importlib
             import utils.social.kaia_bluesky as bsky_module
             importlib.reload(bsky_module)
             assert bsky_module.is_bluesky_configured() is True
+
+    def test_is_bluesky_configured_respects_disabled_flag(self):
+        """Credentials alone are not enough: the enabled flag gates the integration.
+
+        Regression guard for the Sept 2026 shutdown — with the account deleted, leaving
+        credentials in .env must not be enough to bring the integration back to life.
+        """
+        with patch.dict('os.environ', {
+            'DISCORD_TOKEN': 'dummy',
+            'BLUESKY_HANDLE': 'test.bsky.social',
+            'BLUESKY_APP_PASSWORD': 'test-password'
+        }), patch.object(type(config), 'bluesky_enabled', property(lambda self: False)):
+            import importlib
+            import utils.social.kaia_bluesky as bsky_module
+            importlib.reload(bsky_module)
+            assert bsky_module.is_bluesky_configured() is False
     
     @pytest.mark.asyncio
     async def test_post_to_bluesky_without_client(self):

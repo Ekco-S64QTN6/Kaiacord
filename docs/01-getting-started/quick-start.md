@@ -6,7 +6,7 @@ Get Kaia up and running in 5 minutes.
 
 Before starting, ensure you have:
 - ✅ Linux system
-- ✅ Python 3.14+
+- ✅ Python 3.12+
 - ✅ NVIDIA GPU (8GB+ VRAM)
 - ✅ Discord bot token
 - ✅ 30GB free disk space

@@ -23,7 +23,10 @@ Kaia is optimized for continuous presence on a single 12GB GPU. Unlike previous 
 - **Embedding Model** (`nomic-embed-text-cpu`): Runs on CPU via `ollama_additional_kwargs: {"num_gpu": 0}`. Zero VRAM usage.
 
 ### 2. Context Window Optimization
-- **Default Window**: 8192 tokens (config-driven via `config.max_context_tokens`).
+- **Default Window**: 16,384 tokens (`performance.max_context_tokens`).
+  The per-turn budget subtracts `system_reserve_tokens` and `max_response_tokens` before
+  splitting the remainder between RAG and history, so anything added to the system prompt
+  comes directly out of retrieval headroom.
 - **VRAM Impact**: Approximately 0.6GB of KV cache on top of the model weights.
 - **Budget**: 7GB (gemma3:12b) + 0.6GB (KV cache) + 0.5GB (system overhead) = ~8.1GB total.
 - **Headroom**: ~4GB remains for OS, display buffers, and transient allocations.

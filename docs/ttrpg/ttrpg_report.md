@@ -11,7 +11,7 @@ The Aethelgard TTRPG is in **S-tier operational health**. Eighteen phases of dev
 
 **Full Validation Suite — All Passing:**
 - ✅ All 40 modules pass `ast.parse()` syntax check
-- ✅ All 367 monster keys resolve correctly from encounter tables (43 boss-tier)
+- ✅ All monster keys resolve correctly from encounter tables (369 monsters, 44 boss-tier)
 - ✅ All loot table item keys exist in equipment registries — no deprecated items in drop tables
 - ✅ `get_equipment()` and `get_caravan_stock()` helper functions intact
 - ✅ Zero `import random` violations — `secrets` module used exclusively for all RNG
@@ -236,8 +236,8 @@ Level  Player ATK (avg)  Player DEF (avg)  Monster HP (tier)        Monster Hit%
 |---|---|---|
 | `rpg_views.py` | 2,408 | Discord UI views & button factories |
 | `rpg_core_handler.py` | 2,344 | Movement, calendar, scout, pray, NPC, misc commands |
-| `monster_registry.py` | 468 | 365 monster stat blocks (41 boss-tier) |
-| `equipment_registry.py` | 641 | 447 items across 7 tiers |
+| `monster_registry.py` | 468 | Monster stat blocks (369 / 44 boss-tier at time of writing) |
+| `equipment_registry.py` | 641 | 453 items across 7 tiers (395 gear + 58 consumables) |
 | `rpg_combat_handler.py` | 1,669 | Hunt, attack, dungeon combat, duel |
 | `rpg_housing_handler.py` | 941 | Housing, farming, pets, furniture |
 | `dungeon.py` | 875 | Procedural dungeon generation |
@@ -315,7 +315,7 @@ Only 3 sync `load_housing()` calls remain in the entire codebase, all in **synch
 | Combat engine | ✅ Complete | DEF soft-cap, global cap, class procs, weapon procs, monster ATK-based to-hit, fully async housing I/O |
 | Dungeon system | ✅ Complete | MST generation, 5 difficulty tiers, themed monster pools, boss scaling to L15. Spine: 70 unique creatures across 77 floors with floor-based progressive scaling. |
 | Class advancement | ✅ Complete | 10 advanced classes with unique passives, procs, and titles through L15 |
-| Equipment | ✅ Complete | 447 items across 7 tiers with class restrictions and proc effects |
+| Equipment | ✅ Complete | 453 items across 7 tiers with class restrictions and proc effects |
 | Housing | ✅ Complete | 4 tiers, furniture bonuses, farming, pets, bank access, async I/O everywhere |
 | Farming | ✅ Complete | 5 crop types, seasonal bonuses, watering, furniture yield bonuses |
 | Pets | ✅ Complete | 9 pet types with daily feeding and unique passives |
@@ -350,12 +350,25 @@ Only 3 sync `load_housing()` calls remain in the entire codebase, all in **synch
 
 ## 8. System Health Scorecard
 
+> **Counts below drift between phases.** Verify rather than trust:
+> ```bash
+> timeout 10 venv/bin/python3 -c "
+> exec(open('utils/ttrpg/monster_registry.py').read())
+> import collections; t=collections.Counter(m['tier'] for m in MONSTERS.values())
+> print('monsters', len(MONSTERS), '| bosses', t['boss'])"
+> timeout 10 venv/bin/python3 -c "
+> exec(open('utils/ttrpg/equipment_registry.py').read())
+> print('items', sum(len(d) for d in (WEAPONS,ARMOR,HEADGEAR,BOOTS,ACCESSORIES))+len(CONSUMABLES))"
+> ```
+> At time of writing: **369 monsters (44 boss-tier)**, **453 items**, **12 quests**.
+
+
 | Area | Grade | Notes |
 |---|---|---|
 | **Architecture** | A | Clean handler decomposition. Deterministic game math / LLM narration split enforced. |
-| **Data Integrity** | A | All 335 monsters, 447 items, 9 quests cross-validated. No orphan keys. No deprecated items in active paths. |
+| **Data Integrity** | A | All 369 monsters, 453 items, 12 quests cross-validated. No orphan keys. No deprecated items in active paths. |
 | **Combat Balance** | A | Power curve well-controlled L1–L15. Logarithmic ATK scaling prevents impossible-to-dodge hits. Boss caps ensure ~50-55% hit rate at all levels. Spine uses floor-based progressive scaling. |
-| **Content Depth** | A | 335 monsters (37 boss-tier, 50+ unique Spine dungeon creatures per zone), 447 equipment items, 20 forest events, 9 quests, 10 classes. Thin at L8–L10 quests. |
+| **Content Depth** | A | 369 monsters (44 boss-tier, 50+ unique Spine dungeon creatures per zone), 453 equipment items, 20 forest events, 9 quests, 10 classes. Thin at L8–L10 quests. |
 | **Feature Completeness** | A | Calendar/seasonal data fully wired. All subsystems operational. 3 shop locations active. |
 | **Code Quality** | A | Zero `random` violations. Zero bare `except:`. All async handlers use non-blocking I/O. Consistent patterns throughout. |
 | **Performance** | A | No bottlenecks. All housing I/O non-blocking. Pre-computed lookups. Background thread caching. |
@@ -503,6 +516,6 @@ Here's what I did to make it look exactly like a real TTRPG map:
 ---
 
 *Review performed against `utils/ttrpg/` (~21,200 lines, 37 modules), `utils/core/background_tasks.py`, and `docs/ttrpg/`.*
-*All changes verified via full syntax check (37/37 modules pass), unit tests (135 passed, 2 skipped), alchemy recipe uniqueness check (14 unique recipes, 11 primary + 10 secondary discoveries validated), registry integrity audits (453 items, 366 monsters, 41 boss-tier), combat math analysis, and grep-based policy compliance scans (0 `random` violations, 0 bare `except:`, 0 sync housing in async context).*
+*All changes verified via full syntax check (37/37 modules pass), unit tests (182 passed, 3 skipped as of Sept 2026), alchemy recipe uniqueness check (14 unique recipes, 11 primary + 10 secondary discoveries validated), registry integrity audits (453 items, 369 monsters, 44 boss-tier), combat math analysis, and grep-based policy compliance scans (0 `random` violations, 0 bare `except:`, 0 sync housing in async context).*
 
 ---

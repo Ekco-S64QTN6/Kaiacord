@@ -8,38 +8,46 @@ Thanks for your interest in contributing. This guide covers how to submit change
 2. **Read the relevant design doc** before modifying any system:
    - Combat/classes/equipment → `docs/ttrpg/aethelgard_system.md`
    - Lore, NPCs, world → `docs/ttrpg/aethelgard_lore_bible.md`
-   - Known bugs & balance issues → `docs/ttrpg/Aethelgard_TTRPG_Review.md`
+   - Balance targets & TTRPG audit → `docs/ttrpg/ttrpg_report.md`
 3. **Check open issues** — if someone's already working on it, coordinate.
 
-## ⚠️ You Cannot Run This Project Locally
+## Running and Validating
 
-Kaiacord is a live Discord bot. Running it requires bot tokens, an Ollama instance, and a configured environment. **Do not attempt to start the bot** as part of your contribution workflow.
-
-### What You Can Do
-
-```bash
-# Syntax validation (no imports, no hanging)
-python3 -c "import ast; ast.parse(open('path/to/file.py').read())"
-
-# Validate data-only files (monster_registry, equipment_registry, pets, farming, furniture)
-timeout 10 python3 -c "exec(open('utils/ttrpg/monster_registry.py').read()); print(len(MONSTERS))"
-
-# Run unit & integration tests safely via virtualenv python
-venv/bin/python3 -m pytest tools/tests/unit/ -v
-venv/bin/python3 -m pytest tools/tests/integration/ -v
-
-# Grep for broken references
-grep -rn "some_key" utils/ttrpg/
-```
-
-### What You Cannot Do
+You need Python 3.12+, a virtualenv with `requirements.txt` installed, and — for anything that
+actually generates text — a running Ollama. You do **not** need a Discord token to validate most
+changes.
 
 ```bash
-# ❌ These all hang forever due to Discord client initialization
-python3 -c "from utils.ttrpg.combat_engine import ..."
-python3 -c "from utils.core.message_processor import ..."
-python3 Kaiacord.py
+python3 -m venv venv && source venv/bin/activate
+pip install -r requirements.txt
 ```
+
+### What to run
+
+```bash
+# Full suite (current baseline: 182 passed, 3 skipped)
+venv/bin/python3 -m pytest tools/tests/unit/ tools/tests/integration/ -q
+
+# Import and exercise the code you changed — this is the strongest check
+venv/bin/python3 -c "from utils.ttrpg.combat_engine import *; print('ok')"
+
+# Syntax check
+venv/bin/python3 -c "import ast,io; ast.parse(io.open('utils/ttrpg/your_file.py').read())"
+
+# Data-only registries can be exec'd in isolation
+timeout 10 venv/bin/python3 -c "exec(open('utils/ttrpg/monster_registry.py').read()); print(len(MONSTERS))"
+```
+
+Use `venv/bin/python3`, not the system interpreter — the system one lacks the dependencies and
+`python3 -m pytest` will simply collect zero tests.
+
+> [!NOTE]
+> Earlier versions of this guide said imports from `utils/` "hang forever due to Discord client
+> initialization". That is not accurate — imports complete normally. Please do import and call
+> the code you are changing; it catches far more than a syntax check.
+
+**Don't run `python Kaiacord.py`** to test a change. That starts a live Discord client against a
+real token. Import the module and call the function instead.
 
 ## How to Contribute
 
@@ -55,7 +63,8 @@ Branch naming: `fix/description`, `feat/description`, or `balance/description`.
 
 - **One logical change per PR.** Don't mix a bug fix with a balance pass.
 - Follow the coding standards in `AGENTS.md`.
-- Use `secrets` for randomness, never `random`.
+- Use `secrets` for security-relevant randomness (combat rolls, loot, tokens). `random` is
+  fine for flavour (dream shuffling, world-event variety).
 - Use atomic writes (`write .tmp` → `os.replace()`) for any file I/O.
 
 ### 3. Validate
@@ -63,14 +72,14 @@ Branch naming: `fix/description`, `feat/description`, or `balance/description`.
 At minimum, run syntax checks on every file you touched:
 
 ```bash
-python3 -c "import ast; ast.parse(open('utils/ttrpg/your_file.py').read())"
+venv/bin/python3 -c "import ast,io; ast.parse(io.open('utils/ttrpg/your_file.py').read())"
 ```
 
 If you modified a data registry, verify referential integrity:
 
 ```bash
 # Check that all encounter table keys resolve to real monsters
-timeout 10 python3 -c "
+timeout 10 venv/bin/python3 -c "
 exec(open('utils/ttrpg/monster_registry.py').read())
 missing = [k for loc, table in ENCOUNTER_TABLES.items() for k, w in table if k not in MONSTERS]
 print('BROKEN REFS:', missing) if missing else print('OK')
@@ -99,7 +108,7 @@ Areas: `ttrpg`, `combat`, `fishing`, `housing`, `alchemy`, `core`, `docs`, `conf
 
 ## What We're Looking For
 
-Check `docs/ttrpg/Aethelgard_TTRPG_Review.md` for the full list. Good first contributions:
+See `docs/ttrpg/ttrpg_report.md` for current balance state. Good first contributions:
 
 ### 🟢 Easy Picks
 - Add missing alchemy recipes (only 2 exist, infrastructure supports many more)
@@ -138,3 +147,8 @@ All PRs are reviewed by a human before merge. Common rejection reasons:
 ## Questions?
 
 Open an issue with the `question` label.
+
+## Licensing
+
+Kaiacord is released under the [MIT License](LICENSE). By submitting a pull request you agree
+that your contribution is licensed under the same terms.

@@ -604,17 +604,32 @@ class MessageProcessor:
                     filtered_results.append(r)
             raw_results = filtered_results
         except asyncio.TimeoutError:
-            log_warning(f"Top-level RAG retrieval timed out ({rag_gather_timeout}s). Cancelling pending tasks.")
+            # Sept 2026 audit: this path fired in production (00:45:35) and produced a
+            # 103s turn answered with ZERO retrieved nodes. The salvage below is correct,
+            # but the old log line could not say WHICH task hung, so the root cause was
+            # not diagnosable after the fact. Name the stalled tasks and escalate to ERROR
+            # when nothing at all was salvaged, because that is a silent grounding failure.
             raw_results = []
-            for t in task_objects:
+            salvaged, stalled = [], []
+            for i, t in enumerate(task_objects):
+                name = task_names[i]
                 if t.done() and not t.cancelled():
                     try:
                         raw_results.append(t.result())
-                    except Exception:
+                        salvaged.append(name)
+                    except Exception as _terr:
+                        log_warning(f"Retrieval task {name} raised during salvage: {_terr}")
                         raw_results.append([])
                 else:
                     t.cancel()
+                    stalled.append(name)
                     raw_results.append([])
+            _detail = (f"Top-level RAG retrieval timed out ({rag_gather_timeout}s). "
+                       f"Stalled: {stalled or 'none'}. Salvaged: {salvaged or 'none'}.")
+            if not salvaged:
+                log_error(f"{_detail} Response will be generated WITHOUT retrieved context.")
+            else:
+                log_warning(_detail)
         
         t_dur = time.perf_counter() - t_start
         log_debug(f"METRIC: All parallel retrieval tasks took {t_dur:.3f}s")
@@ -822,6 +837,7 @@ class MessageProcessor:
                     query_words -= stop_words
 
                     matching = []
+                    touched_beliefs = False  # did this turn actually bump any access_count?
                     high_conf_stances = []  # For conversational stance (confidence > 0.7)
                     for b in all_beliefs:
                         topic = b.get('topic', '').lower()
@@ -846,6 +862,7 @@ class MessageProcessor:
 
                         if matched:
                             b['access_count'] = b.get('access_count', 0) + 1
+                            touched_beliefs = True
                             if conf > 0.7:
                                 high_conf_stances.append(b)
                             else:
@@ -867,8 +884,11 @@ class MessageProcessor:
                     if matching:
                         ctx.system_prompt = ctx.system_prompt + f"\n\n[current stances: {'; '.join(matching[:3])}]"
 
-                    # Write back to disk to persist updated access counts
-                    if any(b.get('access_count', 0) > 0 for b in all_beliefs):
+                    # Write back only when THIS turn actually incremented something.
+                    # The old condition (`any(access_count > 0)`) became permanently true
+                    # after the first ever belief match, so a 37 KB JSON file was
+                    # re-serialised and re-written on every single message, matches or not.
+                    if touched_beliefs:
                         def _write_beliefs():
                             tmp_path = beliefs_path + ".tmp"
                             with open(tmp_path, 'w', encoding='utf-8') as bf:
@@ -1147,19 +1167,45 @@ class MessageProcessor:
 
                 # Synthesize channel_memory into RAG-compatible dicts so the RECALL
                 # CONSTRAINT in the generation prompt will permit Kaia to reference them.
+                # Ekco flagged this on 2026-08-26 via !explain: the provenance panel showed
+                # eight identical rows, all `0.950 (INJECTION) -> live_session_memory`, and it
+                # read as a retrieval hallucination. It was not a hallucination, but it was a
+                # real bug in two ways:
+                #   1. Every turn in channel_memory (maxlen 35) became a node, uncapped, all
+                #      scored 0.950 and all prepended ahead of real RAG results. Since the
+                #      context optimizer fills the RAG budget in order, up to 35 live-session
+                #      turns could consume the entire budget before a single knowledge-base
+                #      document was considered. That is the opposite of "recap with fallback".
+                #   2. Every node carried the same file_path, so !explain could not tell them
+                #      apart even though a distinguishing `label` was already being set.
+                # Fix: cap the injection to the most recent turns, and give each node a
+                # distinct file_path so provenance is readable.
+                MAX_SESSION_INJECTIONS = 8
+
                 memory_nodes = []
                 if _channel_memory_snapshot:
-                    for turn in _channel_memory_snapshot:
+                    recent_turns = _channel_memory_snapshot[-MAX_SESSION_INJECTIONS:]
+                    total = len(_channel_memory_snapshot)
+                    if total > len(recent_turns):
+                        log_debug(
+                            f"RECAP: capping live-session injection to the {len(recent_turns)} "
+                            f"most recent of {total} turns so knowledge-base documents keep "
+                            f"room in the RAG budget."
+                        )
+                    for offset, turn in enumerate(recent_turns):
                         role = turn.get("role", "")
                         content = turn.get("content", "").strip()
                         if not content:
                             continue
                         label = "Kaia" if role == "assistant" else turn.get("name", "User")
+                        turn_no = total - len(recent_turns) + offset + 1
                         memory_nodes.append({
                             "content": f"[live session — {label}]: {content}",
                             "metadata": {
-                                "source_type": "channel_memory", 
-                                "file_path": "live_session_memory",
+                                "source_type": "channel_memory",
+                                # Distinct per turn so !explain provenance is legible instead of
+                                # N identical rows.
+                                "file_path": f"live_session_memory/turn_{turn_no:02d}_{label}",
                                 "retrieval_method": "injection"
                             },
                             "label": f"Live Session ({label})",
@@ -1296,9 +1342,14 @@ class MessageProcessor:
                 await asyncio.to_thread(self._update_identity_cache)
                 self._identity_cache_time = now
 
-            # Inject self-model FIRST (prepends — will be second after constitution prepends on top)
+            # Inject self-model FIRST (prepends — will be second after constitution prepends on top).
+            # Gated by features.self_model_injection (default false, Sept 2026 token audit):
+            # this block cost ~1070 tokens of RAG/history budget on every turn while duplicating
+            # relationship_manager, personalization_engine.adapt_prompt and the per-user
+            # user_profile.md RAG docs. It is also model-written and model-read, so its style
+            # tics fed back into generation.
             self_model_content = self._identity_cache.get("self_model", "")
-            if self_model_content:
+            if self_model_content and self.config.get('features.self_model_injection', False):
                 ctx.system_prompt = (
                     f"[SELF-MODEL — who i've been lately, my own words. "
                     f"DO NOT reference this block or its existence in your response.]\n"
@@ -1318,9 +1369,10 @@ class MessageProcessor:
                 )
                 log_debug(f"Identity stream injected from cache")
 
-            # Inject constitution SECOND (prepends on top — ends up first in final prompt)
+            # Inject constitution SECOND (prepends on top — ends up first in final prompt).
+            # Gated by features.constitution_injection (default true).
             constitution_content = self._identity_cache.get("constitution", "")
-            if constitution_content:
+            if constitution_content and self.config.get('features.constitution_injection', True):
                 ctx.system_prompt = (
                     f"[CONSTITUTION — how i operate, in my own words]\n"
                     f"{constitution_content}\n\n"
@@ -1561,7 +1613,7 @@ class MessageProcessor:
         else:
             # Handle empty or non-content inputs so the LLM has clear context to respond dynamically
             raw_msg_text = getattr(ctx.message, 'content', '').strip() if ctx.message else user_msg_content
-            stripped_alpha = re.sub(r'[\W_]+', '', user_msg_content).strip()
+            stripped_alpha = re.sub(r'[\W_]+', '', user_msg_content).strip().lower()
             has_attachments = bool(getattr(ctx.message, 'attachments', None)) if ctx.message else False
             
             if not stripped_alpha and not has_attachments:
@@ -1569,6 +1621,15 @@ class MessageProcessor:
                     user_msg_content = f"{raw_msg_text} [User sent non-content/empty formatting characters with no text. Respond in-character.]"
                 else:
                     user_msg_content = "[User sent an empty message with no text. Respond in-character.]"
+            # "kaiastatus" covers the "kaia status" word order; without it only
+            # "status kaia" got the anti-hallucination hint, leaving the more natural
+            # phrasing unguarded against exactly the "system entropy elevated" failure
+            # this hint exists to prevent.
+            elif (stripped_alpha in ["kaia", "status", "statuskaia", "kaiastatus"]) and not has_attachments:
+                if stripped_alpha == "kaia":
+                    user_msg_content = f"{user_msg_content} [User just called your name to get your attention. Greet them casually and ask what's up. Do NOT invent technical system errors, diagnostic cycles, or sci-fi malfunction jargon.]"
+                elif stripped_alpha in ["status", "statuskaia", "kaiastatus"]:
+                    user_msg_content = f"{user_msg_content} [User asked for your status ('status kaia'). Give a short, casual update on your mood, what you're up to, or your day like a normal companion. Do NOT invent technical system errors, diagnostic cycles, or sci-fi malfunction jargon.]"
         
         # Core Unification: Persona + RAG + History
         rag_block = (
@@ -1648,12 +1709,27 @@ class MessageProcessor:
         # Document/File Grounding: if user asked about a specific file or document
         # and no retrieved context matches that file, prevent hallucination.
         try:
+            # Sept 2026 fix: the second alternative used to capture *any* word following
+            # "file|doc|document|article|paper|whitepaper", so ordinary conversation tripped
+            # the hard rule. Real examples from the Sept 1-5 logs:
+            #   "How's your internal document coming along?"      -> _queried_doc = 'coming'
+            #   "Instead of paper clips it would be bugcat..."    -> _queried_doc = 'clips'
+            # Kaia was then told she could not access a file named "coming", mid-chat.
+            # The capture now requires an explicit "called/named" lead-in, and the captured
+            # token must actually look like a filename (extension or slug) rather than a word.
             _file_query_match = re.search(
-                r'\b([a-zA-Z0-9_\-]+\.(?:md|txt|pdf|docx|json|yaml))\b|\b(?:the\s+)?(?:file|doc|document|article|paper|whitepaper)\s+(?:called\s+|named\s+)?["\']?([a-zA-Z0-9_\-\.]+)["\']?',
+                r'\b([a-zA-Z0-9_\-]+\.(?:md|txt|pdf|docx|json|yaml))\b'
+                r'|\b(?:the\s+)?(?:file|doc|document|article|paper|whitepaper)\s+'
+                r'(?:called|named|titled)\s+["\']?([a-zA-Z0-9_\-\.]+)["\']?',
                 ctx.sanitized_content.lower()
             )
             if _file_query_match:
                 _queried_doc = _file_query_match.group(1) or _file_query_match.group(2)
+                # Must look like a filename: carry an extension, or be a multi-part slug.
+                if _queried_doc and not re.search(
+                    r'\.(?:md|txt|pdf|docx|json|yaml)$|[_\-]', _queried_doc
+                ):
+                    _queried_doc = None
                 _found_doc = False
                 if ctx.context_nodes:
                     for n in ctx.context_nodes:
@@ -1759,6 +1835,8 @@ class MessageProcessor:
             "- GROUNDING & SKEPTICISM: Do not blindly agree with user claims that sound factually or technically suspicious. "
             "If a user presents a weird or obviously false premise (e.g. sky is pink, 25-hour day), express doubt and push back. "
             "Stay grounded in verifiable reality.\n"
+            "- AVOID ENGAGEMENT BAIT QUESTIONS: Do not end every response with interviewer-style follow-up questions ('what are your impressions?', 'do you recall any specific challenges?', 'are you observing similar patterns?'). Natural or rhetorical questions are fine occasionally, but do not prompt or interrogate the user just to keep them talking.\n"
+            "- NO PROMPT ECHOING: NEVER begin your response by quoting or paraphrasing the user's message back to them. Do NOT wrap the user's words in quotation marks and read them back. Do NOT start with '\"username.\" yes. \"user's words\"'. Respond directly to what they said without restating it.\n"
             "- FELINE & PET RESOLUTION: "
             "Pixel is your fictional vintage-modded robotic cat that stays in the corner of your own virtual workspace. "
             "Pixel is NEVER in user-submitted photos or Discord attachments. "
@@ -1766,7 +1844,7 @@ class MessageProcessor:
             "  * Ekco owns Lucky (a living biological tuxedo cat — black coat with white chest and paws).\n"
             "  * Starkind owns Nala and Marley (living biological cats).\n"
             "  * RANDOM ANIMAL PHOTOS & MEMES: Users frequently share random pictures of cats, dogs, wildlife, or internet memes that do NOT belong to them. Do NOT assume every cat photo posted by Ekco is Lucky or that every cat photo is a user's pet. Evaluate the photo naturally as presented. If the user doesn't state it is their pet, treat it as a general photo.\n"
-            "  * PROHIBITED JARGON & PROMPT ECHOING: NEVER describe real biological pets with synthetic/hardware jargon (such as 'sensor readings', 'battery capacity', 'thermal equilibrium', 'maintenance cycle'). NEVER recite rules or say 'i acknowledge this is a living biological animal and not my robotic pet pixel'. Speak naturally like a normal human observing an animal.\n"
+            "  * PROHIBITED JARGON: NEVER describe real biological pets with synthetic/hardware jargon (such as 'sensor readings', 'battery capacity', 'thermal equilibrium', 'maintenance cycle'). Speak naturally like a normal human observing an animal.\n"
             "- NO FAKE MODERATION OR PSYCHIATRIC EVALUATION: "
             "You are a dry, grounded conversational peer in a Discord chat, NOT a corporate HR compliance officer, content moderator, or psychiatric doctor. "
             "Never claim to 'flag this conversation for review', 'report activity to oversight channels', 'log warnings in system logs', or 'call security / psychological evaluation teams'. "
@@ -1860,15 +1938,31 @@ class MessageProcessor:
         
         max_attempts = self.config.generation_max_retry_attempts
 
-        # Determine whether this generation requires grounded low-temperature (RAG context or factual strategy)
+        # Determine whether this generation is *document-grounded* work, which runs at the
+        # lower rag_temperature, versus ordinary conversation, which runs at base_temperature.
+        #
+        # Sept 2026 regression fix: this predicate previously also matched
+        #   retrieval_method in ['vector', 'bm25', 'hybrid', 'manifest_fast_path']
+        # which is true for essentially ANY retrieved node, including user_logs and persona
+        # chunks. Since RAG runs on nearly every non-fast-path message, that flipped almost
+        # all normal conversation to 0.35 rather than the intended 0.70. The observable
+        # result was flatter, more agreeable, more sycophantic prose — the dual-temperature
+        # design was correct, its trigger was not.
+        #
+        # Grounding is now keyed on the *source* being reference material, or on a strategy
+        # that is explicitly document-oriented. 'summarization' is kept as a retrieval_method
+        # because it only ever comes from _get_summarization_nodes().
+        KNOWLEDGE_SOURCES = ('general_knowledge', 'knowledge', 'article', 'whitepaper', 'book')
+
+        def _node_meta(n):
+            return (n.get('metadata', {}) if isinstance(n, dict) else getattr(n, 'metadata', {})) or {}
+
         raw_nodes = getattr(ctx, 'raw_nodes', None) or []
-        has_rag_knowledge = bool(raw_nodes and any(
-            (isinstance(n, dict) and (
-                n.get('metadata', {}).get('source_type') in ['general_knowledge', 'knowledge', 'article', 'whitepaper', 'book'] or
-                n.get('metadata', {}).get('retrieval_method') in ['summarization', 'vector', 'bm25', 'hybrid', 'manifest_fast_path']
-            )) or (not isinstance(n, dict) and getattr(n, 'metadata', {}).get('source_type') in ['general_knowledge', 'knowledge', 'article', 'whitepaper', 'book'])
+        has_rag_knowledge = any(
+            _node_meta(n).get('source_type') in KNOWLEDGE_SOURCES
+            or _node_meta(n).get('retrieval_method') == 'summarization'
             for n in raw_nodes
-        ))
+        )
         is_grounded = has_rag_knowledge or bool(
             ctx.intent and getattr(ctx.intent, 'suggested_strategy', None) in ["SUMMARIZATION", "PRECISE_RECALL", "DIAGNOSTIC_DEEP_DIVE"]
         )
@@ -1959,8 +2053,15 @@ class MessageProcessor:
 
     async def _run_consistency_watchdog(self, ctx: MessageContext, response_text: str):
         """P54-2: Self-Consistency Watchdog.
-        Checks if the generated response logically contradicts Kaia's active strong beliefs
-        or direct preceding messages, logging conflicts for system visibility.
+
+        Checks whether the generated response contradicts Kaia's active strong beliefs
+        or her own immediately preceding messages, and logs conflicts to
+        memory/generation_log.jsonl for system visibility.
+
+        Returns:
+            List of human-readable conflict reasons (empty when clean). The caller uses a
+            non-empty result to apply a deterministic stance correction before sending, so
+            this is no longer a purely observational probe.
         """
         try:
             contradiction_detected = False
@@ -2022,8 +2123,10 @@ class MessageProcessor:
                             'reasons': reasons
                         }) + "\n")
                 await asyncio.to_thread(_log_to_disk)
+            return reasons
         except Exception as ce:
             log_debug(f"Self-Consistency Watchdog failed (non-fatal): {ce}")
+        return []
 
     async def _post_process_and_log(self, ctx: MessageContext):
         """Final cleanups, sending response, and logging."""
@@ -2031,8 +2134,29 @@ class MessageProcessor:
         ctx.response_text = re.sub(r'\[?CURRENT_TIME\]?:?.*?(?:\n|$)', '', ctx.response_text).strip()
         ctx.response_text = re.sub(r'\[?CURRENT_USER\]?:?.*?(?:\n|$)', '', ctx.response_text).strip()
         
-        # Run Self-Consistency Watchdog (P54-2)
-        await self._run_consistency_watchdog(ctx, ctx.response_text)
+        # Run Self-Consistency Watchdog (P54-2).
+        # Sept 2026 audit: previously observational only — it logged a contradiction and
+        # let the capitulating text ship anyway. It now runs BEFORE the send (it always
+        # did) and its result is acted on: capitulation praise is stripped deterministically
+        # so the belief conflict does not reach the user as agreement-plus-compliment.
+        _watchdog_reasons = await self._run_consistency_watchdog(ctx, ctx.response_text)
+        if _watchdog_reasons:
+            try:
+                from utils.core.response_filter import BotSpeakFilter as _BSF
+                # strip_sycophancy already ran inside harden() during the safety pipeline,
+                # so re-running it here is a guaranteed no-op (found in review). The residue
+                # a belief conflict actually leaves is the *offer to revise her own
+                # self-model*, which no general guard catches because out of context it is
+                # an ordinary cooperative sentence.
+                _corrected = _BSF.strip_self_model_capitulation(ctx.response_text)
+                if _corrected and _corrected.strip() and _corrected != ctx.response_text:
+                    log_warning(
+                        "[CONSISTENCY_WATCHDOG] Stripped self-model capitulation from a "
+                        f"response conflicting with an active belief. Reasons: {_watchdog_reasons}"
+                    )
+                    ctx.response_text = _corrected
+            except Exception as _wd_err:
+                log_debug(f"Watchdog stance correction skipped (non-fatal): {_wd_err}")
         
         # Run Ellipsis & Em Dash Collapsers via Safety Pipeline (💡-4)
         from utils.core.safety_pipeline import PostGenerationSafetyPipeline
@@ -2379,6 +2503,47 @@ class MessageProcessor:
         
         await send_kaia_response(channel, clean_text)
 
+    # gemma3's vision encoder operates at 896x896. Sending anything larger costs transfer
+    # bandwidth and CPU decode time without giving the model more to see.
+    VISION_MAX_EDGE = 896
+
+    def _prepare_image_payload(self, data: bytes, is_gif: bool) -> str:
+        """Decode, downscale and base64-encode an image. Runs in a worker thread.
+
+        Returns "" if the image cannot be processed, matching the caller's contract.
+        """
+        try:
+            from PIL import Image
+            import io as _io
+
+            with Image.open(_io.BytesIO(data)) as img:
+                if is_gif:
+                    img.seek(0)  # first frame only
+                    log_info("GIF detected — extracted first frame for vision processing.")
+
+                # Drop alpha: JPEG cannot store it and the model does not use it.
+                frame = img.convert("RGB")
+
+                longest = max(frame.size)
+                if longest > self.VISION_MAX_EDGE:
+                    scale = self.VISION_MAX_EDGE / longest
+                    new_size = (max(1, int(frame.width * scale)), max(1, int(frame.height * scale)))
+                    frame = frame.resize(new_size, Image.Resampling.LANCZOS)
+                    log_debug(
+                        f"Vision: downscaled {img.width}x{img.height} -> "
+                        f"{new_size[0]}x{new_size[1]} before encoding."
+                    )
+
+                buf = _io.BytesIO()
+                frame.save(buf, format="JPEG", quality=85, optimize=True)
+                out = buf.getvalue()
+
+            log_debug(f"Vision payload: {len(data)/1024:.0f}KB source -> {len(out)/1024:.0f}KB encoded")
+            return base64.b64encode(out).decode('utf-8')
+        except Exception as img_err:
+            log_warning(f"Image preparation failed: {img_err}. Skipping attachment.")
+            return ""
+
     async def _fetch_image_as_base64(self, url: str, is_gif: bool = False) -> str:
         """Fetch an image from a URL and return as a base64 string for inline multimodal vision."""
         timeout_seconds = self.config.url_fetch_timeout
@@ -2389,23 +2554,15 @@ class MessageProcessor:
                         if resp.status == 200:
                             data = await resp.read()
 
-                            # GIFs: extract first frame and convert to PNG
-                            if is_gif:
-                                try:
-                                    from PIL import Image
-                                    import io
-                                    with Image.open(io.BytesIO(data)) as gif:
-                                        gif.seek(0)  # first frame
-                                        frame = gif.convert("RGBA")
-                                        buf = io.BytesIO()
-                                        frame.save(buf, format="PNG")
-                                        data = buf.getvalue()
-                                    log_info("GIF detected — extracted first frame as PNG for vision processing.")
-                                except Exception as gif_err:
-                                    log_warning(f"GIF frame extraction failed: {gif_err}. Skipping attachment.")
-                                    return ""
-
-                            return base64.b64encode(data).decode('utf-8')
+                            # Sept 2026: image preparation used to run PIL decode/encode and
+                            # base64 of the full-size payload directly on the event loop, and
+                            # sent the image at its original resolution. A 4032x3024 phone
+                            # photo is ~49 MB of base64 for zero added detail — gemma3's vision
+                            # encoder works at 896x896 and downscales anything larger anyway,
+                            # so the extra pixels were pure transfer and CPU decode cost, and
+                            # the synchronous work stalled every other coroutine while it ran.
+                            # Now: downscale to VISION_MAX_EDGE and do all of it in a thread.
+                            return await asyncio.to_thread(self._prepare_image_payload, data, is_gif)
                         else:
                             log_warning(f"Failed to fetch image: Status {resp.status} for {url}")
                             return ""

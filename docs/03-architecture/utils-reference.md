@@ -105,7 +105,7 @@ Core utility modules used by Kaiacord.
 | `spine_dungeon.py` | 77-floor Spine of the World mega-dungeon generation |
 | `class_advancement.py`| 10 advanced classes, stat scaling, and proc logic |
 | `character_manager.py`| Per-user character sheet I/O (async, locked) |
-| `monster_registry.py` | 366 monster stat blocks (41 boss-tier) |
+| `monster_registry.py` | Monster stat blocks (369 / 44 boss-tier at time of writing — verify with `exec()` + `len(MONSTERS)`) |
 | `equipment_registry.py`| 453 items across 7 tiers |
 | `fishing.py` & `fishing_engine.py` | 253 fish species, rods, bait, and fishing economy |
 | `shop.py` | Merchant inventory and pricing (Hemlock, Pell's, Caravan) |

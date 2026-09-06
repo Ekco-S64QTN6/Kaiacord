@@ -126,14 +126,21 @@ generation:
   # Grounded temperature for RAG retrieval and document summarization
   rag_temperature: 0.35
   
-  # Temperature increment per retry attempt
-  temperature_scaling: 0.05
+  # Temperature increment per retry attempt.
+  # A retry only happens when a guard REJECTED the previous output, so the retry needs to
+  # actually diverge. At 0.05 attempt 3 was only base+0.10, which reproduced near-identical
+  # text and burned a second inference for nothing. Restored to 0.15 (pre-2977554 value).
+  temperature_scaling: 0.15
   
   # Fallback num_predict on context reduction
   fallback_num_predict: 512
 
-  # Maximum number of tokens to generate in a response
-  max_response_tokens: 2048
+  # Maximum number of tokens to generate in a response.
+  # Measured over 352 real generations (Sept 2026): p50=70, p90=163, p99=265, max=852.
+  # Nothing has ever exceeded 1024. This value is *reserved* out of the context window on
+  # every turn, so 2048 was spending ~1200 tokens of RAG/history budget on headroom that
+  # is never used. Raise it only if responses actually start hitting the ceiling.
+  max_response_tokens: 1024
 
 # ============================================================================
 # Timeouts Configuration
@@ -270,6 +277,22 @@ dashboard:
 # Feature Flags
 # ============================================================================
 features:
+  # --- Identity injection (Sept 2026 token audit) ---
+  # Kaia's character comes from knowledge_base/kaia_persona.md, which is injected on every
+  # turn and never truncated. These two blocks are *additional* prepends on top of it.
+  #
+  # self_model_injection: memory/kaia_self_model.md (~1070 tokens/turn). Disabled by default.
+  #   Its per-user observations duplicate three channels that are already injected and are
+  #   better grounded: relationship_manager.format_for_injection(), personalization_engine
+  #   .adapt_prompt(user_traits), and the per-user user_profile.md docs in RAG (which carry
+  #   the highest type boost, 0.20). It is also auto-written by the model and then re-read
+  #   by the model, so its stylistic tics feed back into generation.
+  self_model_injection: false
+  #
+  # constitution_injection: memory/kaia_constitution.md (~2500 tokens/turn). Left ON, since
+  # it states operating principles the persona file does not. Turn it off to reclaim the
+  # largest single block of per-turn budget if RAG recall needs the room.
+  constitution_injection: true
   # Enable news system
   news_enabled: true
   

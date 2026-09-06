@@ -29,7 +29,7 @@ utils/ttrpg/
 ├── look_targets.py                ← Hardcoded "look at <thing>" flavor text per location
 ├── loot_tables.py                 ← Tier-aware loot drops from monsters and dungeon chests
 ├── micro_events.py                ← Overworld traveling events, weather discoveries, and streak rewards
-├── monster_registry.py            ← Full bestiary: 365 monsters across 7 tiers
+├── monster_registry.py            ← Full bestiary: 369 monsters across 7 tiers (44 boss-tier)
 ├── npc_registry.py                ← NPC definitions: Elara, Hemlock, Mira, Guard, Maren, Bard
 ├── progression.py                 ← XP thresholds, level-up, daily hunt reset, condition expiry
 ├── quest_registry.py              ← Quest definitions and lookup helpers

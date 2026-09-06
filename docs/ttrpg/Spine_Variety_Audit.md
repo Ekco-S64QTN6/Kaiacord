@@ -25,7 +25,7 @@ The Aethelgard TTRPG is in **strong operational health overall**, but the Spine 
 | Field | Detail |
 |---|---|
 | **Severity** | 🔴 Critical — crashes the game |
-| **File** | [rpg_views.py](file:///home/ekco/github/Kaiacord/utils/ttrpg/rpg_views.py#L2294) |
+| **File** | [rpg_views.py](../../utils/ttrpg/rpg_views.py#L2294) |
 | **Line** | 2294 |
 | **Description** | `BossApproachView(ctx_obj, uid, uname, is_owner, direction, is_spine=is_spine)` — the variable `is_spine` is never defined in `_dungeon_move()`. The `state` dict is loaded but never queried for `is_spine`. |
 | **Trigger** | Any player approaching an uncleared boss room in **any** dungeon (Spine or overworld procedural). The `warn_key` check at line 2280 fires, then line 2294 crashes with `NameError`. |
@@ -37,7 +37,7 @@ The Aethelgard TTRPG is in **strong operational health overall**, but the Spine 
 | Field | Detail |
 |---|---|
 | **Severity** | 🟡 Major — content degradation, not a crash |
-| **File** | [build_spine_layouts.py](file:///home/ekco/github/Kaiacord/utils/ttrpg/build_spine_layouts.py) |
+| **File** | [build_spine_layouts.py](../../utils/ttrpg/build_spine_layouts.py) |
 | **Description** | The 5 floor templates (`F1M` through `F5M`) hardcode `monster_key` values like `"hydra"`, `"iron_golem"`, `"dark_rider"`. Since all 77 floors reuse these 5 templates (floors 1-15 all use F1M, 16-30 all use F2M, etc.), the same 3-4 creatures repeat on every floor within a zone. |
 | **Data** | Only **16 unique monster keys** across all **663 combat rooms** in 77 floors. `iron_golem` appears in **90 rooms**. Meanwhile, the `ENCOUNTER_TABLES["spine_of_the_world"]` has **45 unique creatures** in 5 zone-specific pools — but they're never used for dungeon rooms. |
 | **Fix** | Modify `build_spine_layouts.py` to **randomly assign `monster_key` from the zone's encounter pool** instead of hardcoding from the template. Each floor should draw from its zone's pool in `ENCOUNTER_TABLES["spine_of_the_world"]`. See Proposed Changes below. |
@@ -47,12 +47,12 @@ The Aethelgard TTRPG is in **strong operational health overall**, but the Spine 
 | Field | Detail |
 |---|---|
 | **Severity** | 🟢 Trivial — cosmetic |
-| **File** | [loot_tables.py](file:///home/ekco/github/Kaiacord/utils/ttrpg/loot_tables.py#L306-L307) |
+| **File** | [loot_tables.py](../../utils/ttrpg/loot_tables.py#L306-L307) |
 | **Lines** | 306-307 |
 | **Description** | Two separate `("ether", 5)` and `("ether", 11)` tuples in the medium consumable tier. Functionally correct (combined weight = 16) but untidy. Should be merged to `("ether", 16)`. |
 
 ### Previously identified, still present:
-- **CQ-R2**: Dead `bone_shield_passive` — referenced in [combat_engine.py](file:///home/ekco/github/Kaiacord/utils/ttrpg/combat_engine.py#L54) lines 54/154 and [rpg_core_handler.py](file:///home/ekco/github/Kaiacord/utils/ttrpg/rpg_core_handler.py#L420-L421) lines 420-421. No advanced class defines this bonus. Always evaluates to 0.
+- **CQ-R2**: Dead `bone_shield_passive` — referenced in [combat_engine.py](../../utils/ttrpg/combat_engine.py#L54) lines 54/154 and [rpg_core_handler.py](../../utils/ttrpg/rpg_core_handler.py#L420-L421) lines 420-421. No advanced class defines this bonus. Always evaluates to 0.
 
 ---
 
@@ -156,7 +156,7 @@ The `ENCOUNTER_TABLES["spine_of_the_world"]` already has 45 creatures in 5 perfe
 
 ### Fix 1: BUG-R18 — Define `is_spine` in `_dungeon_move`
 
-#### [MODIFY] [rpg_views.py](file:///home/ekco/github/Kaiacord/utils/ttrpg/rpg_views.py#L2262)
+#### [MODIFY] [rpg_views.py](../../utils/ttrpg/rpg_views.py#L2262)
 
 Add `is_spine = state.get("is_spine", False)` after the state is loaded (around line 2262), before the boss warning block.
 
@@ -164,7 +164,7 @@ Add `is_spine = state.get("is_spine", False)` after the state is loaded (around 
 
 ### Fix 2: Dynamic monster assignment in `build_spine_layouts.py`
 
-#### [MODIFY] [build_spine_layouts.py](file:///home/ekco/github/Kaiacord/utils/ttrpg/build_spine_layouts.py)
+#### [MODIFY] [build_spine_layouts.py](../../utils/ttrpg/build_spine_layouts.py)
 
 Instead of using the hardcoded `monster_key` from template metadata, the `build()` function should randomly select from the appropriate zone's encounter pool for each combat room. The zone is determined by floor number.
 
@@ -174,7 +174,7 @@ Instead of using the hardcoded `monster_key` from template metadata, the `build(
 3. In the `build()` function, for any room with type `monster` or `guard`, replace the template's `monster_key` with a random pick from the zone pool
 4. Regenerate `spine_layouts.json`
 
-#### [REGENERATE] [spine_layouts.json](file:///home/ekco/github/Kaiacord/utils/ttrpg/spine_layouts.json)
+#### [REGENERATE] [spine_layouts.json](../../utils/ttrpg/spine_layouts.json)
 
 After modifying the builder, regenerate the 4MB JSON file. Each of the ~663 combat rooms will now have a random monster from its zone's 9-creature pool instead of repeating the same hardcoded monster.
 
@@ -182,7 +182,7 @@ After modifying the builder, regenerate the 4MB JSON file. Each of the ~663 comb
 
 ### Enhancement 3: Expand zone pools to 15+ creatures each
 
-#### [MODIFY] [monster_registry.py](file:///home/ekco/github/Kaiacord/utils/ttrpg/monster_registry.py#L2256)
+#### [MODIFY] [monster_registry.py](../../utils/ttrpg/monster_registry.py#L2256)
 
 Expand each zone pool from 9 to 15+ creatures by incorporating thematically appropriate existing monsters from the broader bestiary, plus adding ~20 new Spine-exclusive creatures. The goal is that a player traversing 15 floors of a zone encounters a different creature in almost every room.
 
@@ -208,7 +208,7 @@ Expand each zone pool from 9 to 15+ creatures by incorporating thematically appr
 
 ### Enhancement 4: Floor-based scaling for Spine mobs (optional)
 
-#### [MODIFY] [rpg_views.py](file:///home/ekco/github/Kaiacord/utils/ttrpg/rpg_views.py#L2343)
+#### [MODIFY] [rpg_views.py](../../utils/ttrpg/rpg_views.py#L2343)
 
 Replace the flat D5 caps in `_dungeon_move` with floor-aware scaling when `state.get("is_spine")`:
 

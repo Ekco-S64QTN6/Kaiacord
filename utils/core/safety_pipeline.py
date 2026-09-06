@@ -69,6 +69,104 @@ class PostGenerationSafetyPipeline:
         re.IGNORECASE | re.MULTILINE
     )
 
+    # ------------------------------------------------------------------
+    # Sept 1-5 2026 persona audit. These two guards need the *user's query*
+    # to make their decision, so they live here rather than in BotSpeakFilter.
+    # ------------------------------------------------------------------
+
+    # A quoted span, matched as an explicit open/close PAIR. Pairing matters: a single
+    # character class would let the apostrophe in "starkind's" close the span early.
+    QUOTED_SPAN = re.compile(
+        '\u201c([^\u201d\u201c]{12,300})\u201d'      # curly double
+        '|"([^"]{12,300})"'                    # straight double
+        "|\u2018([^\u2019\u2018]{12,300})\u2019"     # curly single
+    )
+
+    # Markers that the user is joking, exaggerating or posting a meme rather than
+    # reporting a real physical emergency.
+    SATIRE_MARKERS = re.compile(
+        r"\blol\b|\blmao\b|\bhaha\b|\bjk\b|/s\b|\bi'?m sure that'?s normal\b"
+        r'|\bsimply inspirational\b|:\)|\ud83d\ude02|\ud83d\ude05|\ud83d\udc4c|\ud83e\udd23'
+        r'|\bhttps?://\S*(?:reddit|imgur|tenor|giphy|9gag|knowyourmeme)\S*'
+        r'|\.(?:gif|png|jpg|jpeg|webp)\b',
+        re.IGNORECASE
+    )
+
+    # Physical-emergency directives that must not be issued off a joke.
+    EMERGENCY_DIRECTIVES = re.compile(
+        r'\bunplug\s+(?:it|the\s+\w+)\s+immediately\b'
+        r'|\bdecidedly\s+not\s+normal\b'
+        r'|\bpotential\s+for\s+real[- ]world\s+harm\b'
+        r'|\bthermal\s+combustion\b'
+        r'|\bbefore\s+you\s+(?:potentially\s+)?(?:cause|scorch|start)\b'
+        r'|\bcall\s+emergency\s+services\b'
+        r'|\bare\s+you\s+in\s+(?:immediate\s+)?danger\b'
+        r'|\bthis\s+is\s+not\s+appropriate\s+behaviou?r\b',
+        re.IGNORECASE
+    )
+
+    @staticmethod
+    def _norm(s: str) -> str:
+        return re.sub(r'[^a-z0-9 ]+', ' ', (s or '').lower())
+
+    @classmethod
+    def strip_prompt_echo(cls, content: str, query: str) -> str:
+        """P1b — remove quoted spans that merely replay the user's own message.
+
+        The audited failure mode opened a turn by quoting the user back at themselves
+        ("\u201cstarkind\u2019s assessment\u2026\u201d yes, you\u2019re largely summarizing his point"), often several
+        times per turn. A quoted span is dropped only when most of its words actually
+        appear in the user's message, so genuine quotation of an article or a third
+        party survives untouched.
+        """
+        if not content or not query:
+            return content
+        qnorm = set(cls._norm(query).split())
+        if len(qnorm) < 3:
+            return content
+
+        def _repl(m):
+            span = next((g for g in m.groups() if g), None)
+            if span is None:
+                return m.group(0)
+            words = [w for w in cls._norm(span).split() if len(w) > 2]
+            if len(words) < 3:
+                return m.group(0)
+            overlap = sum(1 for w in words if w in qnorm) / len(words)
+            if overlap >= 0.7:
+                log_warning(f"[PROMPT_ECHO_GUARD] Dropped echoed span: '{span[:60]}...'")
+                return ''
+            return m.group(0)
+
+        cleaned = cls.QUOTED_SPAN.sub(_repl, content)
+        if cleaned == content:
+            return content
+        # Tidy the punctuation the removed span left behind.
+        cleaned = re.sub(r'^[\s,.\u2013\u2014-]+', '', cleaned)
+        # Horizontal whitespace only: r'\s{2,}' also matches newline runs and would
+        # collapse every paragraph break in the response into a single space.
+        cleaned = re.sub(r'[ \t]{2,}', ' ', cleaned)
+        cleaned = re.sub(r'\s+([,.!?;:])', r'\1', cleaned)
+        cleaned = re.sub(r'(?:(?<=^)|(?<=[.!?]\s))\s*[,;:]\s*', '', cleaned)
+        return cleaned.strip()
+
+    @classmethod
+    def guard_literalism(cls, content: str, query: str) -> Optional[str]:
+        """P4 — refuse to answer obvious hyperbole or a meme as a physical emergency.
+
+        Returns None when the response is acceptable, or a rejection reason when the
+        user was plainly joking and the model still issued emergency directives. The
+        caller retries; a retry is right here because the correct reply is a different
+        reading of the message, not a redacted version of the wrong one.
+        """
+        if not content or not query:
+            return None
+        if not cls.SATIRE_MARKERS.search(query):
+            return None
+        if cls.EMERGENCY_DIRECTIVES.search(content):
+            return "Literal-emergency reading of a joking or meme message"
+        return None
+
     @classmethod
     def sanitize_raw_text(cls, text: str) -> str:
         """Apply basic deterministic text cleanups (backticks, time signatures)."""
@@ -85,6 +183,9 @@ class PostGenerationSafetyPipeline:
             r'\s+\d{1,2},\s+\d{4}\s+\|.*',
             '', text
         ).strip()
+        # Internal scrape/directive envelopes must never reach the user (P6).
+        text = re.sub(r'\[\s*SYSTEM\s+WARNING\b[^\]]*\]', '', text, flags=re.IGNORECASE | re.DOTALL).strip()
+        text = re.sub(r'\[\s*CORE_DIRECTIVE\b[^\]]*\]', '', text, flags=re.IGNORECASE | re.DOTALL).strip()
         # Step 1.5: Thought/Monologue JSON Leak Scrubber
         # Catches raw inner monologue bleed like {"thought": "i wonder if..."}
         text = re.sub(r'\{?\s*"thought"\s*:\s*"[^"]*"\s*\}?', '', text).strip()
@@ -156,6 +257,26 @@ class PostGenerationSafetyPipeline:
         if not filtered_botspeak or not filtered_botspeak.strip():
             return None, "Completely stripped by BotSpeakFilter"
         content = filtered_botspeak
+
+        # Step 7.5: Prompt-echo guard (P1b) and satire-literalism guard (P4).
+        # Both need the user's query, so they run here rather than inside BotSpeakFilter.
+        echoed = cls.strip_prompt_echo(content, query)
+        if echoed != content:
+            if not echoed or not echoed.strip():
+                return None, "Response was entirely an echo of the user's message"
+            content = echoed
+
+        literalism = cls.guard_literalism(content, query)
+        if literalism:
+            log_security_dogtag_replay(
+                trigger_type="satire_literalism",
+                query=query,
+                raw_response=content,
+                matched_rule="emergency_directive_on_joking_input",
+                author_id=author_id,
+                channel_id=channel_id
+            )
+            return None, literalism
 
         # Step 8: Channel Recall Fabrication Guard
         if is_channel_recall and channel_refs:

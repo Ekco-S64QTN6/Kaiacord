@@ -8,9 +8,9 @@ Executive shell automation, interactive TUI, and pipeline execution wrappers for
 
 | Script | Type | Purpose | Execution |
 |:-------|:-----|:--------|:----------|
-| [kaia-tools.sh](file:///home/ekco/github/Kaiacord/scripts/kaia-tools.sh) | Interactive TUI | Terminal interface for system monitoring, Ollama server control, RAG reindexing, and knowledge base maintenance | `bash scripts/kaia-tools.sh` |
-| [run_finetune.sh](file:///home/ekco/github/Kaiacord/scripts/run_finetune.sh) | Pipeline | 4-step LoRA fine-tuning automation (hardware audit, training, adapter merge, Ollama GGUF export & validation) | `./scripts/run_finetune.sh` |
-| [run_jspace_probe.sh](file:///home/ekco/github/Kaiacord/scripts/run_jspace_probe.sh) | Diagnostic Wrapper | Executes offline J-Space behavioral probe batteries and user log replays | `./scripts/run_jspace_probe.sh full` |
+| [kaia-tools.sh](../scripts/kaia-tools.sh) | Interactive TUI | Terminal interface for system monitoring, Ollama server control, RAG reindexing, and knowledge base maintenance | `bash scripts/kaia-tools.sh` |
+| [run_finetune.sh](../scripts/run_finetune.sh) | Pipeline | 4-step LoRA fine-tuning automation (hardware audit, training, adapter merge, Ollama GGUF export & validation) | `./scripts/run_finetune.sh` |
+| [run_jspace_probe.sh](../scripts/run_jspace_probe.sh) | Diagnostic Wrapper | Executes offline J-Space behavioral probe batteries and user log replays | `./scripts/run_jspace_probe.sh full` |
 
 ---
 

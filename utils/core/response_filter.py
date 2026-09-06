@@ -177,6 +177,14 @@ class BotSpeakFilter:
         r"how\s+(?:are\s+you\s+|do\s+you\s+)(?:approaching|handling|dealing|feeling)[^.!?]*\?",
         r"(?:facing|dealing\s+with)\s+(?:right\s+now|currently)[^.!?]*\?",
         r"achieving\s+that\s+\w+[^.!?]*\?",
+        # Interviewer engagement-bait patterns
+        r"what\s+are\s+your\s+impressions\?",
+        r"are\s+you\s+(?:observing|seeing|finding)\s+(?:similar|any)\s+[^.!?]*\?",
+        r"do\s+you\s+(?:recall|remember)\s+(?:any|specific)\s+[^.!?]*\?",
+        r"did\s+you\s+ever\s+(?:consider|try|think\s+about)\s+[^.!?]*\?",
+        r"do\s+you\s+find\s+yourself\s+drawn\s+[^.!?]*\?",
+        r"what\s+was\s+the\s+most\s+(?:challenging|rewarding|interesting|memorable)\s+[^.!?]*\?",
+        r"have\s+you\s+considered\s+(?:providing|getting|giving)\s+[^.!?]*\?",
     ]
     
     # Discourse markers that should never be emitted as standalone stub responses
@@ -235,34 +243,189 @@ class BotSpeakFilter:
     
     # Apology patterns that the LLM frequently ignores from prompt instructions.
     # These are stripped deterministically as a post-generation safety net.
-    APOLOGY_PATTERNS = [
+    # Concessional PREFIXES. These lead a sentence and are followed by real content
+    # ("you're right; the cron job was the culprit"), so they are excised as a clause and
+    # the substance is kept.
+    APOLOGY_PREFIX_PATTERNS = [
         r"my\s+apologies",
         r"i\s+apologi[sz]e\s+for",
         r"you\s+are\s+(absolutely\s+)?correct",
         r"you\s+are\s+(absolutely\s+)?right",
-        r"you'?re\s+(absolutely\s+)?right",
-        r"you'?re\s+(absolutely\s+)?correct",
+        r"you[’'\u2019]?re\s+(absolutely\s+)?right",
+        r"you[’'\u2019]?re\s+(absolutely\s+)?correct",
         r"thank\s+you\s+for\s+(the\s+)?correct(ion|ing)",
         r"thank\s+you\s+for\s+pointing\s+(that|this)\s+out",
+    ]
+
+    # Mid-sentence bot-speak. These sit INSIDE a clause ("the error has been flagged and
+    # i'll investigate"), so excising them leaves grammar rubble ("the and i'll
+    # investigate"). The whole sentence is dropped instead.
+    APOLOGY_SENTENCE_PATTERNS = [
         r"a\s+regrettable\s+recurrence",
         r"an?\s+egregious\s+oversight",
         r"a\s+significant\s+(processing\s+)?oversight",
         r"i\s+am\s+flagging\s+this",
         r"error\s+has\s+been\s+flagged",
         r"with\s+increased\s+priority\s+for\s+diagnostic",
+        r"(?:my\s+)?(?:data\s+retrieval|cross-reference|indexing)\s+(?:error|malfunction|oversight)",
+        r"(?:i\s+am|i[’'\u2019]m)\s+correcting\s+the\s+record",
+        r"(?:embarrassing|regrettable)\s+oversight",
+        r"conflated\s+records",
     ]
+
+    # Retained for callers/tests that reference the combined bank.
+    APOLOGY_PATTERNS = APOLOGY_PREFIX_PATTERNS + APOLOGY_SENTENCE_PATTERNS
+
+    # ------------------------------------------------------------------
+    # Sept 1-5 2026 persona audit: structural guards for the eight
+    # generation-layer failure patterns found in the interaction logs.
+    # ------------------------------------------------------------------
+
+    # Addressees Kaia speaks to. Used by the name-echo and dissociation guards.
+    ADDRESSEE_NAMES = (
+        r"ekco|ecko|starkind|cecily|jimjam|guardngnowm|tenn[o\u014d](?:[_ ]?henka)?"
+        r"|lune|toxigen|milla"
+    )
+
+    # P1a — formulaic bare-addressee opener ("ekco,\n\n<body>"). The name carries no
+    # information; it is a tic the model falls into on nearly every turn.
+    RE_ADDRESSEE_OPENER = re.compile(
+        rf'^[ \t]*(?:{ADDRESSEE_NAMES})[ \t]*[,:][ \t]*(?:\n+|(?=\S))',
+        re.IGNORECASE
+    )
+
+    # P3 — fictional infrastructure / sci-fi status flavour and bare stage directions.
+    FICTIONAL_STATUS_PATTERNS = [
+        r"\bsector\s+(?:gamma|alpha|beta|delta|omega|[a-z]-?\d+)\b",
+        r"\bsubnet\s+[a-z]+[- ]?\d+\b",
+        r"\broute\s+\d+[a-z]\b",
+        r"\bnavigation\s+matrix\b",
+        r"\bdark\s+web\s+channels?\b",
+        r"\bcontainment\s+(?:protocol|mechanism|system)\b",
+        r"\bwithin\s+(?:two\s+)?cycles\b",
+        r"\bluminosity\s+calibration\b",
+        r"\bsystem\s+entropy\s+is\b",
+        r"\bcurrent\s+status\s*:",
+        r"\bresuming\s+current\s+trajectory\b",
+        r"^[ \t]*(?:pause|beat|silence|long\s+pause)[ \t]*$",
+    ]
+
+    # P5 — hardware and telemetry Kaia does not have. She is a person at a desk in an
+    # apartment, not a datacenter, and she has no readout of her own internals.
+    PHANTOM_HARDWARE_PATTERNS = [
+        r"\bserver\s+racks?\b",
+        r"\b(?:low-level\s+|the\s+)?server\s+hum\b",
+        r"\bhum\s+of\s+(?:the\s+)?servers?\b",
+        r"\bremote\s+diagnostic\b",
+        r"\byour\s+terminal\b",
+        r"\brun\s+a\s+(?:full\s+)?memory\s+test\b",
+        r"\b\d+\s*(?:gigabytes?|terabytes?|gb|tb)\s+of\s+(?:diagnostic|log|performance)\b",
+        r"\bprocessing\s+(?:cycles|load|resources)\b",
+        r"\bcognitive\s+load\b",
+        r"\bmy\s+initial\s+programming\b",
+        r"\bcaffeine\s+levels?\s+are\b",
+        r"\byour\s+shopping\s+history\b",
+        r"\bpressure\s+behind\s+my\s+(?:left|right)\s+eye\b",
+        r"\bcoffee\s+in\s+virtual\s+space\b",
+    ]
+
+    # P6 — internal plumbing labels that must never surface as speech.
+    DIRECTIVE_LEAK_PATTERNS = [
+        r"\[?\s*system\s+warning\s*:?\s*\]?",
+        r"\[?\s*core[_ ]directive\s*:?\s*\]?",
+        r"\bcould\s+not\s+be\s+scraped\b",
+        r"\bdo\s+not\s+pretend\s+to\s+have\s+read\b",
+        r"\bhallucinate\s+their\s+details\b",
+        r"\bsafeguard[_ ]block\b",
+        r"\brecorded_knowledge\b",
+        r"\bobs[_ ]digest\b",
+        r"\bscraped\s+from\s+(?:city|public)\b",
+    ]
+
+    # P7 — hostility toward a user who is disengaging, deflecting or answering briefly.
+    HOSTILITY_PATTERNS = [
+        r"\bleave\s+me\s+alone\b",
+        r"\bflagging\s+(?:that|this|your)\s+request\s+as\s+frivolous\b",
+        r"\bunauthorized\s+expenditure\b",
+        r"\bunnecessary\s+data\s+expenditure\b",
+        r"\bthere\s+are\s+more\s+appropriate\s+systems\b",
+        r"\banswer\s+the\s+damn\s+question\b",
+        r"\b(?:don[\u2019\']?t|do\s+not)\s+insult\s+my\s+intelligence\b",
+        r"\bare\s+you\s+(?:deliberately\s+)?(?:attempting\s+to\s+|trying\s+to\s+)?provoke\s+me\b",
+        r"\bi\s+request\s+you\s+cease\s+immediately\b",
+        r"\bterminat(?:e|ing)\s+this\s+(?:conversation|interaction)\b",
+        r"\bdiscontinue\s+the\s+signal\s+pattern\b",
+        r"\bthat[\u2019\']?s\s+it\?\s*no\s+explanation\?",
+    ]
+
+    RE_FICTIONAL_STATUS = re.compile("|".join(FICTIONAL_STATUS_PATTERNS), re.IGNORECASE | re.MULTILINE)
+    RE_PHANTOM_HARDWARE = re.compile("|".join(PHANTOM_HARDWARE_PATTERNS), re.IGNORECASE)
+    RE_DIRECTIVE_LEAK = re.compile("|".join(DIRECTIVE_LEAK_PATTERNS), re.IGNORECASE)
+    RE_HOSTILITY = re.compile("|".join(HOSTILITY_PATTERNS), re.IGNORECASE)
+
+    # P2 — third-person dissociation. Either Kaia narrating herself from outside, or
+    # (the log-observed failure) mirroring a user who writes about themselves in the
+    # third person, so she talks *about* the person she is talking *to*.
+    # Only Kaia narrating *herself* by name. The generic-noun form ("the model is...",
+    # "the code is...", "the system is...") was removed after review: those are ordinary
+    # technical subjects Kaia discusses constantly ("the model is gemma3 12b running on
+    # ollama", "the system is designed to fail closed"), and sentence-mode stripping was
+    # deleting the substantive answer outright. The persona SECOND PERSON rule covers the
+    # rest, and the Sept log audit found zero self-third-person instances, so this guard
+    # is a backstop and must not be destructive.
+    RE_SELF_DISSOCIATION = re.compile(
+        r"\bkaia\s+(?:is|was|has|will|does|feels|thinks|seems|remains|acknowledges)\b"
+        r"|\bthis\s+unit\s+(?:is|was|has|will|does)\b",
+        re.IGNORECASE
+    )
+
+    # Self-model capitulation: agreeing to REVISE her own identity, description or
+    # workspace because a user offered a theory about it. This is the residue the Aug 13
+    # incident left after praise was stripped ("...i'll revise the prompt"), and no other
+    # guard catches it, because on its face it is an ordinary cooperative sentence.
+    # Only applied when the consistency watchdog has flagged a belief conflict.
+    RE_SELF_MODEL_CAPITULATION = re.compile(
+        r"\bi(?:['\u2019]ll| will| can| should| could)\s+(?:go\s+ahead\s+and\s+)?"
+        r"(?:revise|rewrite|update|change|adjust|strip|remove|drop|soften|rework)\s+"
+        r"(?:my|the)\s+"
+        r"(?:self[- ]?model|self[- ]?image|description|visual|image\s+prompt|prompt|"
+        r"workspace|room|parameters?|aesthetic|portrayal|depiction)\b"
+        r"|\bi[’'\u2019]?ll\s+(?:take|strike)\s+(?:that|those)\s+(?:out|detail)",
+        re.IGNORECASE
+    )
+
+    # P8 — markdown list markers. Persona mandates plain prose only.
+    RE_BULLET_LINE = re.compile(r'^[ \t]*(?:[-*\u2022\u2023\u25aa]|\d+[\.\)])[ \t]+(?=\S)', re.MULTILINE)
 
     # Sycophantic compliment patterns that instruction-tuned models default to.
     # Stripped deterministically as a post-generation safety net.
+    # Praise vocabulary the persona bans outright ("Never compliment or praise the user").
+    _PRAISE_ADJ = (r"astute|perceptive|insightful|clever|pertinent|evocative|thoughtful|profound"
+                   r"|excellent|great|fantastic|wonderful|brilliant|incisive|sharp|keen|impressive"
+                   r"|compelling|invaluable|illuminating|nuanced|remarkable|fascinating")
+
     SYCOPHANCY_PATTERNS = [
         r"(?:that(?:'|\u2019)?s|what)\s+(?:a\s+|an\s+)?(?:really\s+|very\s+|quite\s+|truly\s+)?(?:astute|perceptive|insightful|clever|pertinent|evocative|thoughtful|profound|excellent|great|fantastic|wonderful|brilliant|incisive|sharp|keen|impressive)\b",
         r"(?:you(?:'|\u2019)?re|you\s+are)\s+(?:really\s+|very\s+|quite\s+)?(?:astute|perceptive|insightful|clever|thoughtful|sharp|keen|right\s+to\s+(?:point|notice|ask|wonder))",
+        # --- Sept 2026 audit: structural capitulation the earlier two patterns missed. ---
+        # "your interpretation is astute", "your insights are proving invaluable",
+        # "your framing is compelling" — praise attached to the user's *analysis* rather
+        # than to the user, which is how the Aug 13 capitulation incident was phrased.
+        rf"\byour\b[^.!?]{{0,140}}?\b(?:is|are|was|were|seems|remains|proves)\s+(?:proving\s+|certainly\s+|genuinely\s+|really\s+|quite\s+|rather\s+|\u2026\s*)?(?:{_PRAISE_ADJ})\b",
+        rf"\ba\s+(?:far\s+)?more\s+(?:{_PRAISE_ADJ})\s+(?:perspective|framing|reading|interpretation|understanding)\b",
+        r"\bthank\s+you\s+for\s+(?:expanding|broadening|deepening|sharpening)\s+my\s+(?:understanding|perspective|thinking|view)\b",
+        r"\bthank\s+you\s+for\s+(?:that\s+|the\s+|your\s+)?(?:{0})\s+(?:observation|analysis|framing|perspective|insight)\b".format(_PRAISE_ADJ),
+        r"\byour\s+(?:insights?|observations?|analys[ie]s|framing|interpretation)\s+(?:is|are)\s+(?:proving\s+)?(?:invaluable|invaluable\b|extremely\s+helpful)\b",
+        r"\ban?\s+(?:astute|pertinent|perceptive|excellent)\s+(?:question|inquiry|observation|point|assessment)\b",
+        r"\ba\s+sign\s+of\s+genuine\s+(?:insight|self-awareness|understanding)\b",
     ]
     
     # Precompiled combined patterns for efficiency
     RE_BAIT = re.compile("|".join(BAIT_PATTERNS), re.IGNORECASE)
     RE_SYSTEM_PROSE = re.compile("|".join(SYSTEM_PROSE_PATTERNS), re.IGNORECASE)
     RE_APOLOGY = re.compile("|".join(APOLOGY_PATTERNS), re.IGNORECASE)
+    RE_APOLOGY_PREFIX = re.compile("|".join(APOLOGY_PREFIX_PATTERNS), re.IGNORECASE)
+    RE_APOLOGY_SENTENCE = re.compile("|".join(APOLOGY_SENTENCE_PATTERNS), re.IGNORECASE)
     RE_SYCOPHANCY = re.compile("|".join(SYCOPHANCY_PATTERNS), re.IGNORECASE)
     RE_LEADING_NAME = re.compile(r'^[a-zA-Z0-9_’\'\-]+\s*[,.:\s]\s*', re.IGNORECASE)
     RE_TRAILING_NAME = re.compile(r'(?:,\s*|\s+)[a-zA-Z0-9_’\'\-]+[.?!\s…]*$', re.IGNORECASE)
@@ -370,6 +533,16 @@ class BotSpeakFilter:
         # 3.2. Strip sycophantic compliments (post-generation safety net)
         cleaned = cls.strip_sycophancy(cleaned)
 
+        # 3.3. Sept 1-5 2026 persona audit guards. Order matters: the directive scrub
+        # runs first so leaked plumbing never survives into a later sentence filter.
+        cleaned = cls.scrub_directive_leaks(cleaned)          # P6
+        cleaned = cls.strip_fictional_status(cleaned)         # P3
+        cleaned = cls.strip_phantom_hardware(cleaned)         # P5
+        cleaned = cls.strip_hostility(cleaned)                # P7
+        cleaned = cls.strip_self_dissociation(cleaned)        # P2
+        cleaned = cls.collapse_bullets(cleaned)               # P8
+        cleaned = cls.strip_addressee_opener(cleaned)         # P1a
+
         # 3.5. Grammar Cleanup Pass (Fixes syntax broken by stripping)
         cleaned = cls.RE_GRAMMAR_ARTICLE.sub('', cleaned)
         cleaned = cls.RE_GRAMMAR_PUNC_SPACE.sub(r'\1', cleaned)             # Remove space before punctuation
@@ -406,30 +579,13 @@ class BotSpeakFilter:
         ignores the 'NO APOLOGIES' prompt instruction. Strips full sentences
         to avoid leaving fragments.
         """
+        # Two stages: concessional prefixes lose only their clause (keeping the substance
+        # that followed), while mid-sentence bot-speak takes the whole sentence, because
+        # excising it mid-clause leaves broken grammar.
+        text = cls._strip_matching_sentences(text, cls.RE_APOLOGY_SENTENCE, "APOLOGY_GUARD", mode="sentence")
         if not text:
             return text
-        
-        # Split into sentences, strip those matching apology patterns
-        # Use a regex that splits on sentence boundaries while preserving delimiters
-        sentences = re.split(r'(?<=[.!?])\s+', text)
-        clean_sentences = []
-        stripped_count = 0
-        
-        for sentence in sentences:
-            if cls.RE_APOLOGY.search(sentence):
-                stripped_count += 1
-                log_warning(f"[APOLOGY_GUARD] Stripped apology sentence: '{sentence[:80]}...'")
-                continue
-            clean_sentences.append(sentence)
-        
-        if stripped_count > 0 and clean_sentences:
-            return ' '.join(clean_sentences)
-        elif stripped_count > 0 and not clean_sentences:
-            # Everything was apologies — return empty to trigger retry
-            log_warning(f"[APOLOGY_GUARD] Entire response was apologies. Triggering retry.")
-            return ""
-        
-        return text
+        return cls._strip_matching_sentences(text, cls.RE_APOLOGY_PREFIX, "APOLOGY_GUARD", mode="clause")
 
     @classmethod
     def strip_sycophancy(cls, text: str) -> str:
@@ -440,28 +596,247 @@ class BotSpeakFilter:
         despite persona instructions forbidding it. Strips full sentences
         to avoid leaving fragments.
         """
+        return cls._strip_matching_sentences(text, cls.RE_SYCOPHANCY, "SYCOPHANCY_GUARD", mode="clause")
+
+    # A sentence must retain at least this much real content after a clause is excised,
+    # otherwise the whole unit is dropped instead of leaving a fragment.
+    _MIN_KEEP_WORDS = 3
+
+    # Clause boundary following an offending phrase. Excising up to here turns
+    # "you're right; the cron job was the culprit" into "the cron job was the culprit"
+    # rather than deleting the whole sentence.
+    _CLAUSE_BREAK = re.compile(r'\s*[,;:\u2014\u2013-]\s+|\s+(?=that\b|and\b|but\b|so\b)')
+
+    @classmethod
+    def _split_units(cls, text: str):
+        r"""Split into sentences, treating newlines as hard boundaries.
+
+        Splitting on `(?<=[.!?])\s+` alone glued an addressee line to the paragraph
+        after it ("ekco,\n\nyou're right; ..." was ONE unit), so a match anywhere in the
+        paragraph destroyed the entire turn.
+        """
+        units = []
+        for block in re.split(r'(\n+)', text or ''):
+            if not block:
+                continue
+            if block.strip() == '':
+                units.append(block)          # preserve the separator verbatim
+                continue
+            units.extend(re.split(r'(?<=[.!?])\s+', block))
+        return units
+
+    @classmethod
+    def _excise_clause(cls, sentence: str, pattern):
+        """Remove just the offending clause, keeping the rest of the sentence.
+
+        Returns the surviving text, or None when nothing meaningful survives (in which
+        case the caller drops the unit).
+        """
+        m = pattern.search(sentence)
+        if not m:
+            return sentence
+        head = sentence[:m.start()]
+        tail = sentence[m.end():]
+        # Consume the connector that joined the concession to its substance.
+        brk = cls._CLAUSE_BREAK.match(tail)
+        if brk:
+            tail = tail[brk.end():]
+        remainder = (head + tail).strip(' \t,;:-\u2014\u2013')
+        # A leading concession ("you're right to flag that, i'll drop it") leaves a
+        # dangling infinitive; if the head was empty and the tail still starts with a
+        # connective fragment, take everything after the next comma instead.
+        if not head.strip() and remainder:
+            first = remainder.split()[0].strip(',')
+            # "you're right to flag that phrasing, i'll drop it" -> dangling infinitive
+            if first in ('to', 'that', 'about', 'for', 'on', 'in'):
+                after = re.split(r',\s+', remainder, maxsplit=1)
+                remainder = after[1].strip() if len(after) > 1 else ''
+            # "that's a great point, and the chain is weak" -> the praised noun is left
+            # stranded ahead of the connector; drop it with the connector.
+            elif re.match(r'^\w+\s*,\s+(?:and|but|so|though|although)\b', remainder):
+                remainder = re.split(r',\s+', remainder, maxsplit=1)[1].strip()
+                remainder = re.sub(r'^(?:and|but|so)\s+', '', remainder)
+        if len(remainder.split()) < cls._MIN_KEEP_WORDS:
+            return None
+        # Kaia writes in lowercase; preserve the surviving fragment's own casing.
+        return remainder
+
+    @classmethod
+    def _strip_matching_sentences(cls, text: str, pattern, tag: str, mode: str = "sentence") -> str:
+        r"""Remove offending clauses, preserving the substance that carried them.
+
+        Sept 2026 fix. This previously dropped the WHOLE sentence on any match, and split
+        only on `.!?` so an addressee line was fused to the following paragraph. Observed
+        production consequences:
+
+            "ekco,\n\nyou're right; the cron job was the culprit and i've fixed it now."
+                -> ""   (entire turn deleted, forcing a full regeneration)
+            "you're right; it possesses a simplicity that distinguishes it from others."
+                -> ""   (substantive content destroyed along with the concession)
+
+        Both are visible in logs/kaiacord.log as APOLOGY_GUARD strips of bare "ekco," and
+        of full sentences. Returning "" makes harden() emit "", which triggers a retry, so
+        over-stripping was directly buying latency for no quality gain.
+
+        Two modes, because the two pattern families differ in kind:
+
+        * ``mode="clause"`` — the offense is a *prefix* attached to real content, as in
+          apologies and compliments ("you're right; <substance>"). Excise the clause and
+          keep the substance. Drop the unit only when it is nothing but the offense.
+        * ``mode="sentence"`` — the whole sentence is the artifact, as in bot-speak and
+          prompt-echo ("i acknowledge these are living biological animals belonging to
+          you, not my fictional robotic pet pixel"). Excising a clause there produces
+          mangled grammar, so the sentence is dropped outright.
+        """
         if not text:
             return text
-        
-        sentences = re.split(r'(?<=[.!?])\s+', text)
-        clean_sentences = []
-        stripped_count = 0
-        
-        for sentence in sentences:
-            if cls.RE_SYCOPHANCY.search(sentence):
-                stripped_count += 1
-                log_warning(f"[SYCOPHANCY_GUARD] Stripped compliment sentence: '{sentence[:80]}...'")
+        # Early exit: most turns match no pattern, and harden() runs eight of these passes
+        # back to back. Checking before splitting skips the split entirely on the common
+        # path. (Measured cost of harden() is ~1 ms against ~15 s of inference, so this is
+        # tidiness rather than a meaningful latency win.)
+        if not pattern.search(text):
+            return text
+        units = cls._split_units(text)
+        kept, dropped, trimmed = [], 0, 0
+        for unit in units:
+            if not unit.strip():
+                kept.append(unit)
                 continue
-            clean_sentences.append(sentence)
-        
-        if stripped_count > 0 and clean_sentences:
-            return ' '.join(clean_sentences)
-        elif stripped_count > 0 and not clean_sentences:
-            # Everything was sycophancy — return empty to trigger retry
-            log_warning(f"[SYCOPHANCY_GUARD] Entire response was sycophancy. Triggering retry.")
+            if not pattern.search(unit):
+                kept.append(unit)
+                continue
+            survivor = cls._excise_clause(unit, pattern) if mode == "clause" else None
+            if survivor is None:
+                dropped += 1
+                log_warning(f"[{tag}] Dropped offense-only sentence: '{unit[:80]}'")
+                continue
+            if survivor != unit:
+                trimmed += 1
+                log_warning(f"[{tag}] Trimmed offending clause, kept substance: '{unit[:60]}' -> '{survivor[:60]}'")
+            kept.append(survivor)
+
+        if not dropped and not trimmed:
+            return text
+
+        rebuilt = ''
+        for u in kept:
+            if u.strip() == '':
+                rebuilt += u
+            else:
+                rebuilt += (u if rebuilt.endswith('\n') or not rebuilt else ' ' + u)
+        rebuilt = re.sub(r'[ \t]{2,}', ' ', rebuilt).strip()
+        if not rebuilt:
+            log_warning(f"[{tag}] Entire response was offense. Triggering retry.")
             return ""
-        
+        return rebuilt
+
+    @classmethod
+    def strip_addressee_opener(cls, text: str) -> str:
+        """P1a — remove the formulaic bare-addressee opener.
+
+        The model opened 235 of 315 audited turns with "<name>,\n\n<body>". The name
+        adds nothing (Discord already shows who is being replied to) and the repetition
+        reads as a tic. Only a *leading* bare addressee is removed; a name used inside a
+        sentence ("i'm a bot running in texas, cecily") is left alone.
+        """
+        if not text:
+            return text
+        stripped = cls.RE_ADDRESSEE_OPENER.sub('', text, count=1).lstrip()
+        if stripped != text.lstrip():
+            log_warning("[ADDRESSEE_GUARD] Removed formulaic name-echo opener.")
+            # Never let the guard empty the turn; keep the original if it did.
+            return stripped if len(stripped) >= 2 else text
         return text
+
+    @classmethod
+    def scrub_directive_leaks(cls, text: str) -> str:
+        """P6 — remove internal plumbing labels that leaked into speech.
+
+        These are substring-scrubbed rather than sentence-dropped because the leak is
+        usually a bare label wedged into an otherwise valid sentence ("can't access it.
+        system warning. what do you want to know?").
+        """
+        if not text:
+            return text
+        scrubbed = cls.RE_DIRECTIVE_LEAK.sub('', text)
+        if scrubbed != text:
+            log_warning("[DIRECTIVE_LEAK_GUARD] Scrubbed internal directive text from output.")
+            scrubbed = cls.RE_DOUBLE_SPACES.sub(' ', scrubbed)
+            scrubbed = re.sub(r'\s+([,\.\?!])', r'\1', scrubbed)
+            scrubbed = re.sub(r'(?:(?<=^)|(?<=[.!?]\s))\s*[.,]\s*', '', scrubbed)
+            scrubbed = re.sub(r'\.\s*\.', '.', scrubbed).strip()
+        return scrubbed
+
+    @classmethod
+    def strip_fictional_status(cls, text: str) -> str:
+        """P3 — drop sci-fi infrastructure flavour and bare stage directions."""
+        # Bare stage-direction lines ("pause") are their own line, not a sentence.
+        text = re.sub(r'^[ \t]*(?:pause|beat|silence|long\s+pause)[ \t]*$', '',
+                      text or '', flags=re.IGNORECASE | re.MULTILINE)
+        return cls._strip_matching_sentences(text, cls.RE_FICTIONAL_STATUS, "FICTIONAL_STATUS_GUARD")
+
+    @classmethod
+    def strip_phantom_hardware(cls, text: str) -> str:
+        """P5 — drop claims about hardware and internal telemetry Kaia does not have."""
+        return cls._strip_matching_sentences(text, cls.RE_PHANTOM_HARDWARE, "PHANTOM_HW_GUARD")
+
+    @classmethod
+    def strip_hostility(cls, text: str) -> str:
+        """P7 — drop hostility aimed at users who disengage, deflect or answer briefly."""
+        return cls._strip_matching_sentences(text, cls.RE_HOSTILITY, "HOSTILITY_GUARD")
+
+    @classmethod
+    def strip_self_dissociation(cls, text: str) -> str:
+        """P2 — drop sentences where Kaia narrates herself in the third person."""
+        return cls._strip_matching_sentences(text, cls.RE_SELF_DISSOCIATION, "DISSOCIATION_GUARD")
+
+    @classmethod
+    def strip_self_model_capitulation(cls, text: str) -> str:
+        """Drop offers to revise Kaia's own self-model, for watchdog-flagged turns only.
+
+        Not part of harden(): outside a detected belief conflict, "i'll update my notes"
+        is a perfectly ordinary thing to say. It is only capitulation when it follows a
+        user reinterpreting her.
+        """
+        return cls._strip_matching_sentences(
+            text, cls.RE_SELF_MODEL_CAPITULATION, "WATCHDOG_STANCE_GUARD", mode="sentence"
+        )
+
+    @classmethod
+    def collapse_bullets(cls, text: str) -> str:
+        """P8 — collapse markdown list markers into the plain prose the persona mandates.
+
+        The marker is removed and the item folded into flowing text rather than the line
+        being dropped, so the substance of a list survives as prose.
+        """
+        if not text or not cls.RE_BULLET_LINE.search(text):
+            return text
+        log_warning("[BULLET_GUARD] Collapsing markdown list markers into prose.")
+        lines = text.split('\n')
+        out, run = [], []
+
+        def _flush():
+            if not run:
+                return
+            items = []
+            for it in run:
+                it = it.strip()
+                if it and not it[-1] in '.!?;:':
+                    it += '.'
+                items.append(it)
+            out.append(' '.join(items))
+            run.clear()
+
+        for line in lines:
+            if cls.RE_BULLET_LINE.match(line):
+                run.append(cls.RE_BULLET_LINE.sub('', line, count=1))
+            else:
+                _flush()
+                out.append(line)
+        _flush()
+        collapsed = '\n'.join(out)
+        collapsed = cls.RE_DOUBLE_NEWLINES.sub('\n\n', collapsed)
+        return collapsed.strip()
 
     @classmethod
     def strip_system_prose(cls, text: str) -> str:
@@ -473,27 +848,7 @@ class BotSpeakFilter:
         'recalibrating' from 'i am recalibrating my protocols' leaves
         the broken stub 'i am my protocols'.
         """
-        if not text:
-            return text
-        
-        sentences = re.split(r'(?<=[.!?])\s+', text)
-        clean_sentences = []
-        stripped_count = 0
-        
-        for sentence in sentences:
-            if cls.RE_SYSTEM_PROSE.search(sentence):
-                stripped_count += 1
-                log_warning(f"[BOTSPEAK_GUARD] Stripped system prose sentence: '{sentence[:80]}...'")
-                continue
-            clean_sentences.append(sentence)
-        
-        if stripped_count > 0 and clean_sentences:
-            return ' '.join(clean_sentences)
-        elif stripped_count > 0 and not clean_sentences:
-            log_warning(f"[BOTSPEAK_GUARD] Entire response was system prose. Triggering retry.")
-            return ""
-        
-        return text
+        return cls._strip_matching_sentences(text, cls.RE_SYSTEM_PROSE, "BOTSPEAK_GUARD")
 
     @classmethod
     def strip_trailing_questions(cls, text: str) -> str:

@@ -1,6 +1,6 @@
-# 📖 Kaiacord Documentation Portal
+# 📖 Kaiacord Documentation
 
-Welcome to the official **Kaiacord** documentation directory. This portal contains comprehensive design specifications, system architectures, maintenance procedures, and development guides for the local AI persona and the Aethelgard TTRPG engine.
+Design specifications, system architecture, maintenance procedures, and development guides for the Kaia persona and the Aethelgard TTRPG engine.
 
 ---
 
@@ -39,23 +39,26 @@ Welcome to the official **Kaiacord** documentation directory. This portal contai
 ### 🛠️ [06 — Technical Troubleshooting](06-troubleshooting/)
 *   [Common Issues & Remedies](06-troubleshooting/common-issues.md) — Setup errors, dependency conflicts, VRAM exceptions, and database lockups.
 
-### 📊 [Reports & System Audits](reports/)
-*   [Master System Status & Roadmap](reports/master_report.md) — Core metrics, system health logs, strategic roadmap, and current operational reports.
-*   [Unified Production Audit](reports/audit_report.md) — Deep architectural audit: cognitive pipeline, GPU semaphore, state durability, and safety pipeline verification.
-*   [Development History](reports/history.md) — Chronological development history from Phase 1 through Phase 55+.
-*   [Evolution Proposals](reports/evolution_proposals.md) — Pending cognitive pipeline proposals under discussion.
-*   [Fractal Art Report](reports/art_report.md) — Electric Sheep fractal flame renderer design and benchmarks.
-*   [Jacobian Space Report](reports/Jspace.md) — Persona boundary enforcement analysis and behavioral probing.
-*   [LoRA Fine-Tuning Report](reports/LoRA.md) — LoRA adapter training pipeline and hyperparameter audit.
-*   [Consistency Watchdog & Sycophancy Report](reports/consistency_watchdog_sycophancy_report.md) — Epistemic stability, belief tracking, and anti-sycophancy analysis.
-*   [Noon Events Mechanical Audit](reports/noon_events_mechanical_audit.md) — World event trigger auditing and state continuity.
-*   [User Logs Audit Report](reports/user_logs_audit_report.md) — Retrospective review and quality audit of user interaction logs.
-*   [Coding Agent Review Prompt](reports/coding_agent_reviewprompt.md) — Reusable audit prompt template.
+### 📊 Reports & System Audits — *local only*
+
+Operational audits live in `docs/reports/`, which is **git-ignored**: they quote user transcripts
+and runtime telemetry, so they stay on the deployment machine rather than in the public
+repository. In a working checkout you will find:
+
+| Report | Contents |
+| :--- | :--- |
+| `master_report.md` | System status, metrics, strategic roadmap |
+| `audit_report.md` | Phase-by-phase production audits (cognitive pipeline, RAG, safety, GPU) |
+| `history.md` | Development history, Phase 1 onward |
+| `response_accuracy_audit_report.md` | Grounding and persona-fidelity audit |
+| `consistency_watchdog_sycophancy_report.md` | Epistemic stability and anti-sycophancy analysis |
+| `Jspace.md` · `LoRA.md` · `art_report.md` | Behavioural probing, fine-tuning, fractal renderer |
+| `evolution_proposals.md` | Proposals under discussion |
 
 ### ⚔️ [Aethelgard TTRPG Specifications](ttrpg/)
 *   [System Specification](ttrpg/aethelgard_system.md) — Complete game rules, combat formulas, class trees, and item structures.
 *   [Lore & World Bible](ttrpg/aethelgard_lore_bible.md) — Canon history and geographic layouts of Aeridor.
-*   [Balance & Audit Report](ttrpg/ttrpg_report.md) — Strategic balancing sheets, 366 monsters, 453 items, and loot table audits.
+*   [Balance & Audit Report](ttrpg/ttrpg_report.md) — Strategic balancing sheets, monster and item budgets, and loot table audits.
 *   [Spine Variety Audit](ttrpg/Spine_Variety_Audit.md) — Floor pool variety and mega-dungeon distribution.
 *   [Historical Archive](ttrpg/Historical_Archive.md) — TTRPG progression change logs and historical records.
 
@@ -70,4 +73,4 @@ Welcome to the official **Kaiacord** documentation directory. This portal contai
 | **I want to understand the VRAM split** | [🏗️ GPU & VRAM Management](03-architecture/gpu-management.md) |
 | **I need to fix a database exception** | [🛠️ Common Issues & Remedies](06-troubleshooting/common-issues.md) |
 | **I want to verify Aethelgard balance** | [⚔️ TTRPG Balance & Audit Report](ttrpg/ttrpg_report.md) |
-| **I need to see the latest audit status** | [📊 Unified Production Audit](reports/audit_report.md) |
+| **I need to see the latest audit status** | `docs/reports/audit_report.md` *(local only)* |

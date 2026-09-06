@@ -19,7 +19,7 @@ class UnifiedLogger:
         self.last_message_time = 0
         self.duplicate_window = 0.05  # 50ms window
         self.dashboard_mode = False
-        self.log_file = "logs/kaiacord.log"
+        self.log_file = self._resolve_log_file()
         self._ensure_log_dir()
         
         # Non-blocking Queue Setup (Bounded to 1000 to prevent memory pressure)
@@ -47,6 +47,26 @@ class UnifiedLogger:
         # Start background worker
         self._worker_thread.start()
         
+    @staticmethod
+    def _resolve_log_file():
+        """Pick the log destination.
+
+        Sept 2026 audit: the test suite was writing into logs/kaiacord.log, the same file
+        used as production telemetry. Mock objects from the suite (e.g. a MagicMock `cid`
+        in the Bluesky path, `test-model` GPU traces) then read back as production ERRORs
+        and cost real time to rule out during log review. Test runs are redirected to a
+        separate file so the production log stays a truthful incident record.
+
+        Precedence: explicit KAIACORD_LOG_FILE override, then pytest detection, then the
+        production default.
+        """
+        override = os.getenv("KAIACORD_LOG_FILE")
+        if override:
+            return override
+        if os.getenv("PYTEST_CURRENT_TEST") or "pytest" in sys.modules:
+            return "logs/kaiacord.test.log"
+        return "logs/kaiacord.log"
+
     def _ensure_log_dir(self):
         """Ensure the logs directory exists"""
         os.makedirs(os.path.dirname(self.log_file), exist_ok=True)

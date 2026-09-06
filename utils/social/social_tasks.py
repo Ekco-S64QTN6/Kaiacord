@@ -42,6 +42,11 @@ async def social_mention_task():
     if not _on_message:
         return
 
+    # Defensive: the task is not started when both platforms are off, but a runtime
+    # config reload could flip the flags without restarting the loop.
+    if not (config.bluesky_enabled or config.x_enabled):
+        return
+
     try:
         from utils.social.kaia_social_responder import check_and_reply_mentions
         await check_and_reply_mentions(_on_message)
@@ -62,9 +67,17 @@ def start_social_tasks(app_ctx, on_message):
     quip_task = idle_quip_task.start()
     task_registry.register("idle_quip_task", quip_task)
     
-    mention_task = social_mention_task.start()
-    social_mention_task.change_interval(minutes=config.get('social.poll_interval_minutes', 3))
-    task_registry.register("social_mention_task", mention_task)
+    # Only run the social mention poller if at least one platform is actually enabled.
+    # Sept 2026: with Bluesky and X both off, this loop still woke every
+    # `social.poll_interval_minutes` (set to 1) to call check_and_reply_mentions(), which
+    # then no-opped on the per-platform flags. Cheap per tick, but it is a scheduled task
+    # and a network-capable code path kept alive for two dead integrations.
+    if config.bluesky_enabled or config.x_enabled:
+        mention_task = social_mention_task.start()
+        social_mention_task.change_interval(minutes=config.get('social.poll_interval_minutes', 3))
+        task_registry.register("social_mention_task", mention_task)
+    else:
+        log_action("Social mention polling disabled — no social platform is enabled.")
     
     # Start forum background tasks
     from utils.social.forum_tasks import start_forum_tasks
@@ -74,7 +87,8 @@ def start_social_tasks(app_ctx, on_message):
 
 def stop_social_tasks():
     idle_quip_task.stop()
-    social_mention_task.stop()
+    if social_mention_task.is_running():
+        social_mention_task.stop()
     
     from utils.social.forum_tasks import stop_forum_tasks
     stop_forum_tasks()

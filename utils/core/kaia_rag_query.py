@@ -75,10 +75,19 @@ class RAGQueryMixin:
 
         # Detect explicit document/file review or summarization requests
         is_doc_query = False
-        for pat in self._FILENAME_REF_PATTERNS:
-            if pat.search(query_lower):
-                is_doc_query = True
-                break
+        is_code_or_log = (
+            "```" in query_lower or
+            "traceback" in query_lower or
+            "calling ollama" in query_lower or
+            "action:" in query_lower or
+            "error:" in query_lower or
+            "log_info" in query_lower
+        )
+        if not is_code_or_log:
+            for pat in self._FILENAME_REF_PATTERNS:
+                if pat.search(query_lower):
+                    is_doc_query = True
+                    break
 
         if is_doc_query and (strategy in [None, "EXPLORATORY_DIALOGUE", "PRECISE_RECALL", "CREATIVE_ASSOCIATION"] or any(w in query_lower for w in ["summarize", "summary", "overview", "breakdown", "what is in", "what does", "about", "read", "check"])):
             strategy = "SUMMARIZATION"
@@ -108,88 +117,103 @@ class RAGQueryMixin:
             "is_followup_query": (not intent and len(query_lower.split()) <= 6 and not is_kaia_query and not is_social_identity and not is_dream_query)
         }
 
-    def _get_summarization_nodes(self, query_lower: str) -> List[Dict[str, Any]]:
+    def _get_summarization_nodes(self, query_lower: str, target_path: Optional[str] = None) -> List[Dict[str, Any]]:
         """Identify a target file for summarization and retrieve its content."""
-        # Guard: if the query is very long, it's conversational text, not a file reference.
-        if len(query_lower.split()) > 35:
-            log_debug("_get_summarization_nodes: query too long for file reference — skipping")
-            return []
-
-        target_file_path = None
-        best_match_score = 0
-        
-        # Strip all reference phrasing so only filename/title tokens remain
-        query_cleaned = query_lower
-        for _strip in [
-            "summarize", "summary of", "check the file called", "check the file named",
-            "check the file", "kaia check", "look at the file", "read the file",
-            "the file called", "the file named", "called", "named", "file", "doc",
-            "document", "article", "whitepaper", "paper", "tell me about", "what is in",
-            "what does", "say", "explain", "review", "can you", "please", "give me a",
-            "overview of", "breakdown of"
-        ]:
-            query_cleaned = query_cleaned.replace(_strip, " ")
-        query_cleaned = re.sub(r'\s+', ' ', query_cleaned).strip()
-        query_cleaned = re.sub(r"'s\b", "", query_cleaned)
-        
+        # Stopword set and query token set are needed on BOTH branches below: the fast
+        # path skips filename matching entirely but still feeds query_words into the
+        # relevance scoring for middle-chunk selection further down. Bind them up front
+        # so query_words can never be referenced before assignment.
         stopwords = {
             "the", "a", "an", "of", "and", "or", "to", "in", "is", "for", "with",
             "on", "at", "by", "from", "you", "have", "kaia", "about", "what", "how"
         }
-        raw_query_tokens = set(re.findall(r'\w+', query_cleaned)) - stopwords
-        # Separate word tokens from numeric tokens (e.g. date numbers)
-        query_words = {re.sub(r"'s$", "", t) for t in raw_query_tokens if not t.isdigit()}
-        
-        def _tokens_match(qt, ft):
-            return qt == ft or ft.startswith(qt) or qt.startswith(ft)
+        query_words = {
+            re.sub(r"'s$", "", t)
+            for t in (set(re.findall(r'\w+', query_lower)) - stopwords)
+            if not t.isdigit()
+        }
 
-        for path, meta in self.indexed_files.items():
-            fname = os.path.basename(path).lower()
-            fname_no_ext = os.path.splitext(fname)[0]
-            # Strip date prefix from filename to get semantic slug
-            clean_slug = re.sub(r'^\d{4}[-_]\d{2}[-_]\d{2}[-_]', '', fname_no_ext)
-            
-            # 1. Exact or substring match on filename, clean slug, or metadata title
-            doc_title = (meta.get("title", "") if isinstance(meta, dict) else "").lower()
-            if query_cleaned:
-                if (query_cleaned in fname or fname in query_cleaned or
-                    query_cleaned in fname_no_ext or fname_no_ext in query_cleaned or
-                    (clean_slug and (query_cleaned in clean_slug or clean_slug in query_cleaned))):
-                    score = 1.0
-                    if score > best_match_score:
-                        best_match_score = score
-                        target_file_path = path
-                        continue
-                if doc_title and (query_cleaned in doc_title or doc_title in query_cleaned):
-                    score = 1.0
-                    if score > best_match_score:
-                        best_match_score = score
-                        target_file_path = path
-                        continue
-            
-            # 2. Token overlap matching
-            fname_words = {w for w in re.findall(r'\w+', clean_slug) if not w.isdigit()} - stopwords
-            if not fname_words:
-                fname_words = {w for w in re.findall(r'\w+', fname_no_ext) if not w.isdigit()} - stopwords
-            if not fname_words:
-                continue
+        # Fast path if explicit target_path was already resolved by caller
+        if target_path and target_path in self.indexed_files:
+            target_file_path = target_path
+            best_match_score = 100.0
+        else:
+            # Guard: if the query is very long, it's conversational text, not a file reference.
+            if len(query_lower.split()) > 35:
+                log_debug("_get_summarization_nodes: query too long for file reference — skipping")
+                return []
 
-            common_tokens = {
-                qt for qt in query_words
-                for ft in fname_words
-                if _tokens_match(qt, ft)
-            }
-            if len(common_tokens) >= 2 or (len(common_tokens) >= 1 and any(len(t) >= 8 for t in common_tokens)):
-                fname_coverage = len(common_tokens) / len(fname_words)
-                long_common = {t for t in common_tokens if len(t) >= 8}
-                qualifies = (len(common_tokens) >= 2 and fname_coverage > 0.4) or \
-                            (len(long_common) >= 1 and fname_coverage > 0.15)
+            target_file_path = None
+            best_match_score = 0
+            
+            # Strip all reference phrasing and bot name so only filename/title tokens remain
+            query_cleaned = query_lower
+            for _strip in [
+                "summarize", "summary of", "check the file called", "check the file named",
+                "check the file", "kaia check", "look at the file", "read the file",
+                "the file called", "the file named", "called", "named", "file", "doc",
+                "document", "article", "whitepaper", "paper", "tell me about", "what is in",
+                "what does", "say", "explain", "review", "can you", "please", "give me a",
+                "overview of", "breakdown of"
+            ]:
+                query_cleaned = query_cleaned.replace(_strip, " ")
+            query_cleaned = re.sub(r'\bkaia\b', ' ', query_cleaned, flags=re.IGNORECASE)
+            query_cleaned = re.sub(r'\s+', ' ', query_cleaned).strip()
+            query_cleaned = re.sub(r"'s\b", "", query_cleaned)
+            
+            # Refine the pre-bound token set using the phrase-stripped query, which is a
+            # better signal for filename matching than the raw query.
+            raw_query_tokens = set(re.findall(r'\w+', query_cleaned)) - stopwords
+            query_words = {re.sub(r"'s$", "", t) for t in raw_query_tokens if not t.isdigit()}
+            
+            def _tokens_match(qt, ft):
+                return qt == ft or ft.startswith(qt) or qt.startswith(ft)
+
+            for path, meta in self.indexed_files.items():
+                fname = os.path.basename(path).lower()
+                fname_no_ext = os.path.splitext(fname)[0]
+                clean_slug = re.sub(r'^\d{4}[-_]\d{2}[-_]\d{2}[-_]', '', fname_no_ext)
+                doc_title = (meta.get("title", "") if isinstance(meta, dict) else "").lower()
+
+                score = 0.0
+                # 1. Hierarchical exact and substring matches (highest priority)
+                if query_cleaned:
+                    if fname == query_cleaned or fname_no_ext == query_cleaned:
+                        score = 100.0 + len(fname_no_ext)
+                    elif fname in query_cleaned or fname_no_ext in query_cleaned:
+                        score = 80.0 + len(fname_no_ext)
+                    elif clean_slug and clean_slug == query_cleaned:
+                        score = 60.0 + len(clean_slug)
+                    elif clean_slug and clean_slug in query_cleaned:
+                        score = 40.0 + len(clean_slug)
+                    elif doc_title:
+                        if doc_title == query_cleaned:
+                            score = 50.0 + len(doc_title)
+                        elif len(doc_title) >= 4 and re.search(rf'\b{re.escape(doc_title)}\b', query_cleaned):
+                            score = 20.0 + len(doc_title)
                 
-                if qualifies:
-                    score = fname_coverage + (0.3 if long_common else 0)
-                    if score > best_match_score:
-                        best_match_score = score
-                        target_file_path = path
+                # 2. Token overlap matching (fallback if no direct filename or title match)
+                if score < 20.0:
+                    fname_words = {w for w in re.findall(r'\w+', clean_slug) if not w.isdigit()} - stopwords
+                    if not fname_words:
+                        fname_words = {w for w in re.findall(r'\w+', fname_no_ext) if not w.isdigit()} - stopwords
+                    if fname_words:
+                        common_tokens = {
+                            qt for qt in query_words
+                            for ft in fname_words
+                            if _tokens_match(qt, ft)
+                        }
+                        if len(common_tokens) >= 2 or (len(common_tokens) >= 1 and any(len(t) >= 8 for t in common_tokens)):
+                            fname_coverage = len(common_tokens) / len(fname_words)
+                            long_common = {t for t in common_tokens if len(t) >= 8}
+                            qualifies = (len(common_tokens) >= 2 and fname_coverage > 0.4) or \
+                                        (len(long_common) >= 1 and fname_coverage > 0.15)
+                            if qualifies:
+                                score = fname_coverage + (0.3 if long_common else 0)
+
+                if score > best_match_score:
+                    best_match_score = score
+                    target_file_path = path
 
         if not target_file_path:
             return []
@@ -695,7 +719,13 @@ class RAGQueryMixin:
                 routing.get("strategy") in (
                     "SOCIAL_GREETING", "RELATIONAL_MIRROR",
                     "DREAM_RECALL", "RECAP_QUERY",
-                )
+                ) or
+                "```" in query_lower or
+                "traceback" in query_lower or
+                "error:" in query_lower or
+                "calling ollama" in query_lower or
+                "action:" in query_lower or
+                "log_info" in query_lower
             )
             _query_words = set(re.findall(r'\w+', query_lower)) - _FAST_PATH_QUERY_STOPS
             if len(_query_words) >= 2 and not _skip_fast_path:
@@ -725,7 +755,8 @@ class RAGQueryMixin:
                     log_info(f"[manifest fast path] matched '{_best_path}' with words {_best_overlap}")
                     log_debug(f"Manifest title fast path: '{_best_path}'")
                     _fname_results = self._get_summarization_nodes(
-                        os.path.splitext(os.path.basename(_best_path))[0].lower()
+                        os.path.splitext(os.path.basename(_best_path))[0].lower(),
+                        target_path=_best_path,
                     )
                     if _fname_results:
                         self._last_retrieval_results = _fname_results
@@ -735,24 +766,25 @@ class RAGQueryMixin:
                         log_success(f"Manifest title fast path resolved {len(_fname_results)} nodes")
                         return _fname_results
 
-            # Filename-reference fast path — runs regardless of routing strategy.
+            # Filename-reference fast path — runs regardless of routing strategy, but skipped on raw logs/code.
             # Catches: "check the file called X", "the file named X", "look at X.md",
             # "kaia check X", explicit filename pastes with dashes/underscores.
-            for _pat in self._FILENAME_REF_PATTERNS:
-                _match = _pat.search(query_lower)
-                if _match:
-                    _hint = _match.group(1).strip()
-                    if len(_hint) >= 6:  # Ignore short accidental matches
-                        log_debug(f"Filename-reference fast path triggered: '{_hint}'")
-                        _fname_results = self._get_summarization_nodes(_hint)
-                        if _fname_results:
-                            self._last_retrieval_results = _fname_results
-                            self._last_retrieval_node_ids = []
-                            self._last_retrieval_confidence = 1.0
-                            self._last_retrieval_node_count = len(_fname_results)
-                            log_success(f"Filename fast path resolved {len(_fname_results)} nodes for '{_hint}'")
-                            return _fname_results
-                    break
+            if not _skip_fast_path:
+                for _pat in self._FILENAME_REF_PATTERNS:
+                    _match = _pat.search(query_lower)
+                    if _match:
+                        _hint = _match.group(1).strip()
+                        if len(_hint) >= 6:  # Ignore short accidental matches
+                            log_debug(f"Filename-reference fast path triggered: '{_hint}'")
+                            _fname_results = self._get_summarization_nodes(_hint)
+                            if _fname_results:
+                                self._last_retrieval_results = _fname_results
+                                self._last_retrieval_node_ids = []
+                                self._last_retrieval_confidence = 1.0
+                                self._last_retrieval_node_count = len(_fname_results)
+                                log_success(f"Filename fast path resolved {len(_fname_results)} nodes for '{_hint}'")
+                                return _fname_results
+                        break
             
             # Update user cache
             if time.time() - self._last_user_scan > self._user_scan_interval:

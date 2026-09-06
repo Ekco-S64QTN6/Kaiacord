@@ -158,7 +158,7 @@ Kaiacord/
 **Features**:
 - Deterministic game math handled entirely by Python; LLM handles narration only.
 - Per-user async locks prevent race conditions during combat or item generation.
-- Full registry system (366 monsters with 41 bosses, 453 equipment items across 7 tiers, 253 fish species) integrated with procedural dungeon generation.
+- Full registry system (369 monsters with 44 bosses, 453 equipment items across 7 tiers, 253 fish species) integrated with procedural dungeon generation.
 
 ### 9. Project 1999 Forum Client (`utils/social/kaia_forum.py`)
 

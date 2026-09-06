@@ -20,15 +20,19 @@ discord:
     #- "Thorondor_470028550951403531"
     #- "470028550951403531"
 
+# Bluesky: DISABLED — the @kaiakuroshi.bsky.social account was deleted (Sept 2026).
+# Leaving this on produced repeated login attempts, fetch timeouts and circuit-breaker
+# trips in logs/kaiacord.log for an account that no longer exists.
 bluesky:
-  enabled: true
-  cross_post_quips: true
-  reply_to_mentions: true
+  enabled: false
+  cross_post_quips: false
+  reply_to_mentions: false
 
 social:
   poll_interval_minutes: 1
   admin_handles: ["ekco-thewizard.bsky.social", "michaelschellhorn.link"]
 
+# X/Twitter: DISABLED — unused.
 x_twitter:
   enabled: false
   cross_post_quips: false
@@ -63,6 +67,8 @@ forum:
   auto_scrape: false
 
 generation:
+  # base_temperature applies to ordinary conversation; rag_temperature only to
+  # document-grounded work (see is_grounded in message_processor.py).
   base_temperature: 0.7
   rag_temperature: 0.35
-  temperature_scaling: 0.05
+  temperature_scaling: 0.15

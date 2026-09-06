@@ -282,16 +282,22 @@ menu_system() {
             ;;
         9)
             echo
-            warn "This wipes the in-memory channel history persisted to disk."
-            warn "Kaia will lose conversation context from this session."
-            if confirm "Clear channel memory (memory/bot_state.json)?\n\nFixes style lock-in / ellipsis contamination.\nBot must be stopped or will reload state on next persist."; then
+            warn "This wipes in-memory channel history (channel_memory) persisted to disk."
+            warn "Kaia will lose conversation context from this session, but relationships are preserved."
+            if confirm "Clear channel memory?\n\nFixes style lock-in / ellipsis contamination.\nPreserves user relationships, familiarity, and system stats.\nBot must be stopped or will reload state on next persist."; then
                 if bot_running; then
                     warn "Bot is running — state may be re-written on next persist cycle."
                 fi
                 if [[ -f memory/bot_state.json ]]; then
                     cp memory/bot_state.json memory/bot_state.json.bak
-                    echo '{}' > memory/bot_state.json
-                    ok "bot_state.json cleared (backup: memory/bot_state.json.bak)"
+                    # Gate the success message on the rewrite actually succeeding. Corrupt
+                    # JSON is the exact condition people open this menu to fix, and json.load
+                    # raising there left the file untouched while reporting success.
+                    if python3 -c "import json, os; p='memory/bot_state.json'; d=json.load(open(p)) if os.path.exists(p) else {}; d['channel_memory']={}; open(p+'.tmp','w').write(json.dumps(d, indent=2)); os.replace(p+'.tmp', p)"; then
+                        ok "channel_memory cleared in bot_state.json (relationships preserved; backup: memory/bot_state.json.bak)"
+                    else
+                        warn "Failed to rewrite bot_state.json (corrupt JSON?). File left unchanged; backup at memory/bot_state.json.bak"
+                    fi
                 else
                     warn "memory/bot_state.json not found."
                 fi
@@ -531,8 +537,11 @@ menu_recovery() {
 
                 if [[ -f memory/bot_state.json ]]; then
                     cp memory/bot_state.json memory/bot_state.json.bak
-                    echo '{}' > memory/bot_state.json
-                    ok "Channel memory cleared (backup: memory/bot_state.json.bak)"
+                    if python3 -c "import json, os; p='memory/bot_state.json'; d=json.load(open(p)) if os.path.exists(p) else {}; d['channel_memory']={}; open(p+'.tmp','w').write(json.dumps(d, indent=2)); os.replace(p+'.tmp', p)"; then
+                        ok "Channel memory cleared (relationships preserved; backup: memory/bot_state.json.bak)"
+                    else
+                        warn "Failed to rewrite bot_state.json (corrupt JSON?). File left unchanged; backup at memory/bot_state.json.bak"
+                    fi
                 fi
                 info "Run RAG → Incremental refresh after restarting the bot."
                 pause

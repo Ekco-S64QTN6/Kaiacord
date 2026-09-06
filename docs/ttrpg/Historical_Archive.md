@@ -72,7 +72,7 @@
 
 ```bash
 # From project root
-python scripts/restructure_equipment.py \
+python scripts/restructure_equipment.py (removed — historical reference) \
     utils/ttrpg/equipment_registry.py \
     utils/ttrpg/equipment_registry.py
 ```
