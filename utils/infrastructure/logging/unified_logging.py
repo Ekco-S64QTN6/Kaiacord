@@ -8,6 +8,12 @@ import logging.handlers
 from datetime import datetime
 from collections import OrderedDict, deque
 
+from utils.infrastructure.logging.log_sanitize import (
+    compact as _compact,
+    RepeatAggregator,
+)
+
+
 class UnifiedLogger:
     """Single source of truth for all logging (Thread-safe, Non-blocking)"""
     def __init__(self):
@@ -43,6 +49,7 @@ class UnifiedLogger:
         # Initialize file handler but don't use it directly in the main thread
         self._file_handler = self._create_file_handler()
         self.debug_dedup = {}  # (message_hash): timestamp
+        self._repeats = RepeatAggregator()
         
         # Start background worker
         self._worker_thread.start()
@@ -143,14 +150,39 @@ class UnifiedLogger:
 
         if not self._should_log(message, log_type):
             return
-            
+
         # Suppression: Silence the PyNaCl warning (voice not supported)
         if "PyNaCl is not installed" in message:
             return
-            
+
         if self._is_debug_duplicate(message, log_type):
             return
-            
+
+        # Compact oversized payloads before anything else touches the message.
+        # A 30,498-line production log carried 6,080 untimestamped lines —
+        # 19.9% — that were continuations of dumped documents (the constitution
+        # appeared in full 771 times). Tracebacks are exempt; see log_sanitize.
+        message = _compact(message)
+
+        # Collapse consecutive repeats of the same message shape. The existing
+        # duplicate check hashes the exact string, so a varying count defeats
+        # it: "Pre-chunking large document (N chars)" ran 1,056 times, once in
+        # an unbroken run of 574.
+        emit, run_summary = self._repeats.feed(message)
+        if run_summary:
+            self._emit(run_summary, log_type, source)
+        if not emit:
+            return
+
+
+        return self._emit(message, log_type, source)
+
+    def _emit(self, message, log_type, source):
+        """Build the entry and hand it to the background worker.
+
+        Split out of log() so the repeat-run summary can be emitted without
+        re-entering the suppression and compaction checks that produced it.
+        """
         # Prepare timestamp
         try:
             # Check if datetime is still available
@@ -160,7 +192,7 @@ class UnifiedLogger:
         except (AttributeError, NameError, TypeError, ImportError):
             # Interpreter is likely finalizing
             return
-        
+
         # Create clean log entry (single timestamp)
         log_entry = {
             'timestamp': timestamp,
@@ -169,21 +201,21 @@ class UnifiedLogger:
             'source': source or 'system',
             'raw_time': time.time()
         }
-        
+
         # Add to buffers (memory operations are fast)
         # Skip DEBUG for memory buffers to prevent UI clutter/pressure
         if log_type != "DEBUG":
             with self.lock:
                 self.dashboard_buffer.append(log_entry)
                 self.console_buffer.append(log_entry)
-        
+
         # ENQUEUE for background worker (Thread-safe, Non-blocking)
         try:
             self.log_queue.put_nowait(log_entry)
         except queue.Full:
             # Drop logs if queue is full to prioritize event loop health
             pass
-            
+
         return log_entry
 
     def _log_worker(self):

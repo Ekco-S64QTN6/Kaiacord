@@ -88,6 +88,13 @@ async def handle_art_command(ctx, msg, send_kaia_response):
             except Exception: pass
         return
 
+    # Making something discharges the creative need (roadmap 55-4).
+    try:
+        from utils.core.kaia_desires import desire_engine
+        desire_engine.observe_creation()
+    except Exception:
+        pass
+
     # ── Save to disk ──────────────────────────────────────────────────────────
     ART_DIR.mkdir(parents=True, exist_ok=True)
     file_id = uuid.uuid4().hex[:12]

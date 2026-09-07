@@ -30,6 +30,9 @@ knowledge_base/*
 !knowledge_base/kaia_persona.md
 !knowledge_base/*/
 knowledge_base/*/*
+# The ingress staging area is part of the documented ingest flow, so its
+# README ships even though its contents (user submissions) never do.
+!knowledge_base/_ingress/README.md
 
 # Fine-tuning
 finetune/*

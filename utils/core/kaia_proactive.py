@@ -762,6 +762,15 @@ class ProactiveEngine:
 
     # ── Source Selection ────────────────────────────────────────────
 
+    @staticmethod
+    def _desire_multiplier(source_type: str) -> float:
+        """How much Kaia currently wants what this source offers (0.5x-1.8x)."""
+        try:
+            from utils.core.kaia_desires import desire_engine
+            return desire_engine.source_multiplier(source_type)
+        except Exception:
+            return 1.0
+
     def _gather_candidate_sources(
         self, bot_state,
     ) -> List[Tuple[str, int, str, str, Optional[str]]]:
@@ -798,7 +807,11 @@ class ProactiveEngine:
                     else:
                         context, category = result
                     weight = SOURCE_WEIGHTS.get(source_type, 10)
-                    candidates.append((source_type, weight, context, content_id, target_user))
+                    # Scale by how badly the need this source serves is unmet.
+                    # A multiplier reshapes the configured weights rather than
+                    # replacing them, so the diversity rules still apply.
+                    weight = int(round(weight * self._desire_multiplier(source_type)))
+                    candidates.append((source_type, max(1, weight), context, content_id, target_user))
             except Exception:
                 continue
 
@@ -868,6 +881,22 @@ class ProactiveEngine:
 
         if self._is_rate_limited(bot_state):
             return None
+
+        # Desire gate (roadmap 55-4). The rate limiter says whether she *may*
+        # speak; this says whether she wants to. Without it the engine
+        # initiated purely because a timer elapsed, which is what the roadmap
+        # marks as "proactive engine, but not needs-driven".
+        try:
+            from utils.core.kaia_desires import desire_engine
+            if not desire_engine.wants_to_initiate():
+                log_debug(
+                    f"Proactive: nothing pressing (pressure="
+                    f"{desire_engine.pressure():.2f} < "
+                    f"{desire_engine.INITIATE_THRESHOLD})"
+                )
+                return None
+        except Exception as e:
+            log_debug(f"Desire gate unavailable, proceeding (non-fatal): {e}")
 
         channel_id = self._find_active_channel(bot_state)
         if not channel_id:

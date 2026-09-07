@@ -17,6 +17,7 @@ _growth_log_lock = threading.Lock()
 _gen_log_lock = threading.Lock()
 
 
+from utils.infrastructure.logging.log_sanitize import summarize_payload
 from utils.infrastructure.logging.kaia_logger import log_info, log_debug, log_warning, log_error, log_action, log_success
 from utils.core.message_context import MessageContext
 from utils.core.response_filter import HallucinationDetector, BotSpeakFilter
@@ -734,6 +735,17 @@ class MessageProcessor:
         except Exception:
             pass  # Never let arc injection break generation
 
+        # 8a1. Desire injection (roadmap 55-4) — what she is currently short of.
+        # Emitted only when a need is genuinely pressing; a running commentary
+        # on four floats every turn would be noise and cost budget.
+        try:
+            from utils.core.kaia_desires import desire_engine
+            desire_line = desire_engine.get_prompt_injection()
+            if desire_line:
+                ctx.system_prompt = ctx.system_prompt + f"\n\n{desire_line}"
+        except Exception:
+            pass  # Never let desire injection break generation
+
         # 8a2. Inner Monologue injection — private thoughts from recent observations
         try:
             monologue = getattr(self.ctx, 'monologue', None)
@@ -1315,7 +1327,7 @@ class MessageProcessor:
             raw_persona = ""
             
         ctx.system_prompt = str(raw_persona)
-        log_debug(f"PERSONA LOADED: {len(ctx.system_prompt)} chars | preview: {ctx.system_prompt[:100]}")
+        log_debug(summarize_payload("persona loaded", ctx.system_prompt))
 
         ctx.raw_nodes = results.get('rag', [])
         
@@ -1870,9 +1882,9 @@ class MessageProcessor:
             f"{instruction}"
         )
 
-        # [DEBUG] Trace final prompt assembly
-        f_snippet = (full_system_prompt[:200] + "...") if len(full_system_prompt) > 200 else full_system_prompt
-        log_debug(f"DEBUG: Assembled system prompt (total len={len(full_system_prompt)}): {f_snippet}")
+        # Size only — the 200-char slice spilled ten lines of the constitution
+        # into the log on every single message.
+        log_debug(summarize_payload("assembled system prompt", full_system_prompt))
 
         messages = [
             {"role": "system", "content": full_system_prompt}
@@ -1924,7 +1936,7 @@ class MessageProcessor:
             else:
                 messages.append({"role": "user", "content": f"[You are speaking exclusively to {ctx.author_name}. Address them by this name.]\n{ctx.author_name}: {user_msg_content}"})
         
-        log_debug(f"DEBUG: Final messages list contains {len(messages)} items (System + {len(optimized_history)} history turns + User).")
+        log_debug(f"Final messages list contains {len(messages)} items (System + {len(optimized_history)} history turns + User).")
         return messages
 
     async def _call_ollama_with_retries(self, ctx: MessageContext, messages: List[Dict[str, str]]) -> str:
@@ -2329,6 +2341,19 @@ class MessageProcessor:
                     )
                 except Exception:
                     pass  # Never let mood arc break the pipeline
+
+                # ── Desire Update (roadmap 55-4) ───────────────────────────────
+                # An exchange discharges the social need, and a substantive or
+                # document-grounded one also discharges the intellectual need.
+                # Without this the needs vector would only ever rise.
+                try:
+                    from utils.core.kaia_desires import desire_engine
+                    desire_engine.observe_exchange(
+                        grounded=bool(getattr(ctx, "is_grounded", False)),
+                        length=len(bot_response or ""),
+                    )
+                except Exception:
+                    pass  # Never let desire tracking break the pipeline
 
                 # ── Interaction-Driven Growth ──────────────────────────────────
                 # Lightweight real-time growth triggers — supplements the nightly

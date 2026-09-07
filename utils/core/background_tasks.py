@@ -59,6 +59,7 @@ class CoreTaskManager:
         self.forum_auto_post_task = self._make_forum_auto_post_task()
         self.forum_tech_support_task = self._make_forum_tech_support_task()
         self.observation_digest_task = self._make_observation_digest_task()
+        self.ingress_task = self._make_ingress_task()
         
     def _make_news_refresh_task(self):
         @tasks.loop(hours=12)
@@ -1432,6 +1433,9 @@ class CoreTaskManager:
     #: Digests are checked this often; the threshold decides if one runs.
     OBS_DIGEST_POLL_MINUTES = 20
 
+    #: How often staged !download submissions are cleaned and filed.
+    INGRESS_POLL_MINUTES = 60
+
     _TURN_LINE = re.compile(
         r'^\[(?P<ts>\d{4}-\d{2}-\d{2} \d{2}:\d{2}:\d{2})\]\s+'
         r'(?P<speaker>[^:]+):\s+(?P<msg>.*)$'
@@ -1483,6 +1487,58 @@ class CoreTaskManager:
             return max(marks) if marks else ""
         except Exception:
             return ""
+
+    def _make_ingress_task(self):
+        """Process documents staged in knowledge_base/_ingress/ by !download.
+
+        Runs the same normalisation the ebook converter uses, writes Kaia's
+        frontmatter with provenance, files each document into the corpus and
+        requests one reindex for the batch. Staged files are inert until this
+        runs — _ingress is skipped by the RAG indexer.
+        """
+        @tasks.loop(minutes=self.INGRESS_POLL_MINUTES)
+        async def ingress_task():
+            if shutdown_manager.shutting_down:
+                return
+            try:
+                ingress_dir = Path("knowledge_base/_ingress")
+                if not ingress_dir.exists():
+                    return
+                pending = [p for p in ingress_dir.glob("*.md") if p.name != "README.md"]
+                if not pending:
+                    return
+
+                log_action(f"Processing {len(pending)} staged document(s) from _ingress...")
+
+                def _run():
+                    import subprocess
+                    return subprocess.run(
+                        [sys.executable, "tools/maintenance/process_ingress.py", "--quiet"],
+                        capture_output=True, text=True, timeout=600,
+                    )
+
+                result = await asyncio.to_thread(_run)
+                summary = (result.stdout or "").strip().splitlines()
+                if summary:
+                    log_success(f"[ingress] {summary[-1]}")
+                if result.returncode != 0:
+                    err = (result.stderr or "").strip().splitlines()
+                    for line in err[-5:]:
+                        log_warning(f"[ingress] {line}")
+            except Exception as e:
+                log_error(f"Ingress processing task failed: {e}")
+
+        @ingress_task.before_loop
+        async def before_ingress():
+            if getattr(self.ctx, 'bot', None):
+                await self.ctx.bot.wait_until_ready()
+                await asyncio.sleep(180)  # let boot settle before touching the KB
+
+        @ingress_task.error
+        async def ingress_error(error):
+            log_error(f"CRITICAL: Ingress task died: {error}")
+
+        return ingress_task
 
     def _make_observation_digest_task(self):
         @tasks.loop(minutes=self.OBS_DIGEST_POLL_MINUTES)
@@ -1781,6 +1837,9 @@ class CoreTaskManager:
         self.observation_digest_task.start()
         if self.observation_digest_task.get_task():
             task_registry.register("observation_digest_task", self.observation_digest_task.get_task())
+        self.ingress_task.start()
+        if self.ingress_task.get_task():
+            task_registry.register("ingress_task", self.ingress_task.get_task())
 
         log_action("Core background tasks started via CoreTaskManager.")
 
@@ -1800,6 +1859,7 @@ class CoreTaskManager:
         self.forum_auto_post_task.stop()
         self.forum_tech_support_task.stop()
         self.observation_digest_task.stop()
+        self.ingress_task.stop()
 
 # Helper for backward compatibility
 _task_manager = None

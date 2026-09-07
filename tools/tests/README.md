@@ -59,6 +59,19 @@ The checks:
 - **No writes into `memory/`.** Four tests persisted artifacts into the live
   memory directory. Use `tmp_path` or `monkeypatch`.
 
+## Notable suites
+
+| File | Covers |
+|---|---|
+| `test_suite_hygiene.py` | Invariants of the suite itself (see above) |
+| `test_command_registry.py` | `!` command routing, `!help` rendering, admin gating |
+| `test_fractal_flame.py` | `!art` tone mapping, quality gate, accumulator |
+| `test_desire_engine.py` | Needs vector driving proactive initiation |
+| `test_reactions_and_logging.py` | Emoji selection and log payload compaction |
+| `test_memory_layer_regressions.py` | Observation digest, belief and relationship eviction |
+| `test_response_filters.py` | Post-generation filter behaviour |
+| `test_phase69_filter_regressions.py` | Specific over-stripping incidents |
+
 ## Writing a test
 
 Assert on behaviour, against the real implementation:

@@ -740,7 +740,17 @@ class RAGIndexerMixin:
         supported_exts = [".pdf", ".txt", ".md", ".docx"]
         
         for root, _, files in os.walk(self.knowledge_base_dir):
-            if "corrupt_files" in root or "forum_posts" in root.replace('\\', '/'): continue
+            norm_root = root.replace('\\', '/')
+            # _ingress holds raw user-submitted downloads that have not been
+            # normalised or given metadata yet. Indexing them would put
+            # unvetted web content into retrieval, where it is presented as
+            # grounded fact; process_ingress.py moves them into the corpus
+            # proper once cleaned.
+            if ("corrupt_files" in root
+                    or "forum_posts" in norm_root
+                    or "/_ingress" in norm_root
+                    or norm_root.endswith("/_ingress")):
+                continue
             for file in files:
                 ext = os.path.splitext(file)[1].lower()
                 if ext in supported_exts:

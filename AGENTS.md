@@ -28,7 +28,8 @@ Use the virtualenv interpreter. It has the project's dependencies; the system in
 not.
 
 ```bash
-venv/bin/python3 -m pytest tools/tests/unit/ tools/tests/integration/ -q
+venv/bin/python3 -m pytest -q                       # whole suite; pytest.ini sets testpaths
+venv/bin/python3 -m pytest -q -m "not ollama and not gpu and not slow"   # no external services
 venv/bin/python3 -c "from utils.core.message_processor import MessageProcessor"
 venv/bin/python3 -c "import ast, io; ast.parse(io.open('utils/core/message_processor.py').read())"
 ```
@@ -228,13 +229,22 @@ editing.
 - When auditing the log, **separate production runs from test runs first**. Segment by the
   "Unified logging system initialized" boot marker and discard segments containing `MagicMock`,
   `test-model`, or `(case test)`.
+- **Never interpolate a document into a log message.** `UnifiedLogger.log()` compacts multi-line
+  payloads, but the right fix is at the call site: use
+  `log_sanitize.summarize_payload("label", text)`, which reports size instead of content. A
+  150-character slice is not a workaround — it lands mid-document and carries its newlines, which
+  is how the constitution came to appear in full 771 times in one log.
+- Tracebacks are deliberately exempt from compaction; their line structure is the information.
+  Pass them through as-is.
+- Consecutive repeats of the same message *shape* are collapsed with a suppressed-count tally, so
+  a varying number in the text no longer defeats deduplication.
 
 ---
 
 ## 9. Knowledge Base
 
-- Ingest with `tools/maintenance/ebook_to_kb_md.py` (EPUB/PDF/TXT/HTML) or the
-  `knowledge_base/epub-to-md.sh` picker. Never drop raw `pandoc` output into the tree — it
+- Ingest with `tools/maintenance/ebook_to_kb_md.py` (EPUB/PDF/TXT/HTML), reachable from
+  `kaia-tools.sh` → Documents & Ingestion. Never drop raw `pandoc` output into the tree — it
   carries fenced divs, empty anchors, style spans, and Calibre frontmatter that degrade
   retrieval.
 - Naming: `books/` uses `Book - <Title> by <Author>.md`; `documents/` uses `<Topic> - <Title>.md`.
@@ -245,6 +255,14 @@ editing.
 - **Do not fabricate chapter headings.** Several books have no chapter markers in their text; a
   heading at a guessed position attaches a chapter name to the wrong passage and retrieves worse
   than no heading at all.
+- `knowledge_base/_ingress/` is a **staging area**, excluded from RAG indexing. `!download` writes
+  there with a `.meta.json` sidecar; `tools/maintenance/process_ingress.py` (hourly, and from
+  `kaia-tools.sh` → Documents & Ingestion) normalises, adds frontmatter and provenance, and files
+  each document into an allow-listed folder. Do not index `_ingress` — that exclusion is what
+  makes it safe for `!download` to be open to every user.
+- Maintenance tools that write across the corpus must default to a dry run and require `--apply`.
+  `enrich_kb_metadata.py` had no argument parsing at all, so probing it with `--help` rewrote
+  frontmatter on 124 files.
 
 ---
 

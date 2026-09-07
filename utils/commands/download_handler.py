@@ -1,3 +1,4 @@
+import json
 import re
 import os
 import asyncio
@@ -31,18 +32,18 @@ NEWS_DOMAINS = ['reuters.com', 'apnews.com', 'bbc.com', 'cnn.com', 'arstechnica.
 
 
 async def handle_download_command(ctx, msg, send_kaia_response):
-    """Handle the !download <url> command — download a document and add it to the knowledge base.
+    """Handle the !download <url> command — stage a document for the knowledge base.
 
-    Owner-only. This writes into the RAG corpus and then calls
-    `_trigger_reindex()`, so leaving it open both allowed any user to poison
-    the knowledge base with arbitrary web content — which is subsequently
-    retrieved and presented as grounded fact — and handed them the reindex
-    that `!reindex` itself gates behind an owner check.
+    Open to everyone. Downloads land in `knowledge_base/_ingress/`, which is
+    excluded from RAG indexing, so nothing a user submits is retrievable until
+    `tools/maintenance/process_ingress.py` has normalised it, given it
+    frontmatter and provenance, and filed it. That runs hourly and on demand.
+
+    This replaces an owner-only gate: restricting the command stopped the
+    corpus poisoning but also stopped users contributing anything, which was
+    the point of the command. Staging addresses the same risk without the
+    lockout, and no longer hands a caller the reindex that `!reindex` gates.
     """
-    if not ctx.config.is_owner(msg.author.name, msg.author.display_name, str(msg.author.id)):
-        await msg.channel.send("```\nrestricted. admins only.\n```")
-        return
-
     parts = msg.content.strip().split(None, 1)
     
     if len(parts) < 2 or not parts[1].strip():
@@ -83,20 +84,21 @@ async def handle_download_command(ctx, msg, send_kaia_response):
             await msg.channel.send("```\nsomething went wrong during the download. check the url and try again.\n```")
             return
 
-    # Trigger RAG reindex
-    _trigger_reindex()
-    
-    # Send confirmation
+    # No reindex from here. The document is staged outside the indexed tree;
+    # process_ingress.py requests a single reindex once it has filed a batch.
     await msg.channel.send(
         f"```\n"
-        f"downloaded and saved.\n"
+        f"staged for the knowledge base.\n"
         f"  file: {result['filename']}\n"
-        f"  folder: {result['folder']}\n"
         f"  words: ~{result['word_count']}\n"
         f"  type: {result['content_type']}\n"
+        f"  destination: knowledge_base/{result['folder']}\n"
+        f"\n"
+        f"it gets cleaned up and filed on the next ingest pass (hourly).\n"
         f"```"
     )
-    log_action(f"Downloaded {url} -> {result['filepath']} ({result['word_count']} words) by {msg.author.display_name}")
+    log_action(f"Staged {url} -> {result['filepath']} ({result['word_count']} words) "
+               f"by {msg.author.display_name}")
 
 
 class DownloadError(Exception):
@@ -236,23 +238,36 @@ async def _download_and_convert(url: str, username: str, user_id: str) -> dict:
     if title and not markdown_body.strip().startswith('#'):
         markdown_body = f"# {title}\n\n{markdown_body}"
 
-    full_content = frontmatter + markdown_body
-    
-    # Determine target folder
+    # The folder the document is *destined* for; process_ingress.py validates
+    # it against an allow-list before acting on it.
     folder = _classify_folder(url, title, file_type, len(markdown_body.split()))
-    
-    # Build filename
     filename = _make_filename(title, now)
-    
-    # Save
-    target_dir = Path("./knowledge_base") / folder
-    target_dir.mkdir(parents=True, exist_ok=True)
-    filepath = target_dir / filename
-    
-    filepath.write_text(full_content, encoding='utf-8')
-    
+
+    # Stage in _ingress rather than writing into the corpus. That directory is
+    # skipped by the RAG indexer, so the document is inert until processed.
+    ingress_dir = Path("./knowledge_base/_ingress")
+    ingress_dir.mkdir(parents=True, exist_ok=True)
+    filepath = ingress_dir / filename
+
+    filepath.write_text(markdown_body, encoding='utf-8')
+
+    # Sidecar carries everything the processor needs plus provenance, so the
+    # finished document can say who submitted it and from where.
+    sidecar = {
+        'title': title,
+        'source_url': url,
+        'submitted_by': username,
+        'submitted_by_id': user_id,
+        'submitted_at': now.isoformat(),
+        'folder': folder,
+        'content_type': file_type,
+    }
+    filepath.with_suffix('.meta.json').write_text(
+        json.dumps(sidecar, indent=2), encoding='utf-8'
+    )
+
     word_count = len(markdown_body.split())
-    
+
     return {
         'filename': filename,
         'folder': folder,
@@ -260,6 +275,7 @@ async def _download_and_convert(url: str, username: str, user_id: str) -> dict:
         'word_count': word_count,
         'content_type': file_type,
         'title': title,
+        'staged': True,
     }
 
 

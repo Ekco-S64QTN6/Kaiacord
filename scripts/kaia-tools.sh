@@ -32,6 +32,42 @@ info() { echo -e "${CYAN}→  $*${NC}"; }
 
 pause() { echo; read -rp "  Press ENTER to return to menu..." _; }
 
+# ── Layout ────────────────────────────────────────────────────────────────────
+# whiptail sizes its frame with wcwidth(), which disagrees with what a terminal
+# actually draws for some characters. U+26A0 U+FE0F ("warning sign" + variation
+# selector) measures 1 column but renders as 2, so every occurrence pushed the
+# right border one column past the frame and broke the box. Menu strings are now
+# limited to characters whose wcwidth matches their rendered width: ASCII plus a
+# few single-width BMP glyphs (em dash, arrows, middle dot) and the full-width
+# status circles, all of which newt measures correctly.
+#
+# Box dimensions are derived from the terminal instead of being hardcoded to 80,
+# so long entries are not clipped on a narrow window.
+term_cols() { tput cols 2>/dev/null || echo 80; }
+term_rows() { tput lines 2>/dev/null || echo 24; }
+
+# menu_width <length-of-longest-entry-text>
+menu_width() {
+    local content=$1 cols want max
+    cols=$(term_cols)
+    want=$(( content + 14 ))        # tag column + frame + padding
+    max=$(( cols - 4 ))
+    (( want > max )) && want=$max
+    (( want < 60 )) && want=60
+    echo "$want"
+}
+
+# menu_height <number-of-entries>
+menu_height() {
+    local entries=$1 rows want max
+    rows=$(term_rows)
+    want=$(( entries + 9 ))         # title, prompt, padding, frame
+    max=$(( rows - 2 ))
+    (( want > max )) && want=$max
+    (( want < 12 )) && want=12
+    echo "$want"
+}
+
 # ── Helpers ───────────────────────────────────────────────────────────────────
 bot_running() {
     pgrep -f "Kaiacord.py" > /dev/null 2>&1
@@ -39,6 +75,13 @@ bot_running() {
 
 ollama_running() {
     pgrep -x "ollama" > /dev/null 2>&1 || systemctl is-active --quiet ollama 2>/dev/null
+}
+
+# Shown on the main menu so staged documents do not sit unnoticed.
+ingress_hint() {
+    local n
+    n=$(find knowledge_base/_ingress -maxdepth 1 -name "*.md" ! -name "README.md" 2>/dev/null | wc -l)
+    (( n > 0 )) && printf '  |  %s doc(s) awaiting ingest' "$n"
 }
 
 status_line() {
@@ -99,7 +142,7 @@ menu_ollama() {
     while true; do
         CHOICE=$(whiptail --title "Kaiacord Tools — Ollama Server" --menu \
             "$(status_line)\n\nOllama management:" \
-            18 80 7 \
+            "$(menu_height 7)" "$(menu_width 66)" 7 \
             "1" "Show loaded models  (ollama ps)" \
             "2" "Flush all models from VRAM  (unload everything)" \
             "3" "Restart Ollama service  (systemctl restart ollama)" \
@@ -201,7 +244,7 @@ menu_system() {
     while true; do
         CHOICE=$(whiptail --title "Kaiacord Tools — System & Bot Control" --menu \
             "$(status_line)\n\nChoose an operation:" \
-            22 80 10 \
+            "$(menu_height 10)" "$(menu_width 66)" 10 \
             "1"  "Full health check  (Ollama, models, GPU, KB, config)" \
             "2"  "View live logs  (tail kaiacord.log)" \
             "3"  "View startup log  (last bot start output)" \
@@ -364,7 +407,7 @@ menu_rag() {
     while true; do
         CHOICE=$(whiptail --title "Kaiacord Tools — RAG Management" --menu \
             "$(status_line)\n\nChoose an operation:" \
-            22 80 7 \
+            "$(menu_height 7)" "$(menu_width 66)" 7 \
             "1" "Incremental refresh  (signal live bot via .trigger_reindex)" \
             "2" "Re-index specific file  (targeted file update)" \
             "3" "Full RAG rebuild  (clear storage & reindex all files)" \
@@ -419,7 +462,7 @@ menu_rag() {
 menu_knowledge_base() {
     while true; do
         CHOICE=$(whiptail --title "Kaiacord Tools — Knowledge Base" --menu \
-            "Choose an operation:" 24 80 10 \
+            "Choose an operation:" "$(menu_height 10)" "$(menu_width 66)" 10 \
             "1" "Scan KB for issues  (corrupted files, bad nodes)" \
             "2" "Clean OCR artifacts  (fix encoding issues in books/docs)" \
             "3" "Sanitize user logs  (strip internal runtime tags from logs)" \
@@ -499,10 +542,101 @@ menu_knowledge_base() {
 # NEWS
 # ═══════════════════════════════════════════════════════════════════════════════
 
+menu_documents() {
+    while true; do
+        local staged
+        staged=$(find knowledge_base/_ingress -maxdepth 1 -name "*.md" ! -name "README.md" 2>/dev/null | wc -l)
+        local errors
+        errors=$(find knowledge_base/_ingress -maxdepth 1 -name "*.error" 2>/dev/null | wc -l)
+
+        CHOICE=$(whiptail --title "Kaiacord Tools — Documents & Ingestion" --menu \
+            "Staged from !download: ${staged}   Failed: ${errors}\n\nChoose an operation:" \
+            "$(menu_height 8)" "$(menu_width 62)" 8 \
+            "1" "Process ingress now  (clean + file staged !download docs)" \
+            "2" "Preview ingress  (dry run, nothing written)" \
+            "3" "Convert ebook/PDF to KB markdown  (epub, pdf, txt, html)" \
+            "4" "Repair book structure  (chapters, page numbers)" \
+            "5" "Enrich metadata  (frontmatter for logs & forum posts)" \
+            "6" "List staged documents" \
+            "7" "Clear failed ingress markers" \
+            "b" "← Back" \
+            3>&1 1>&2 2>&3) || return
+
+        case "$CHOICE" in
+        1)
+            run_tool "Process Ingress" tools/maintenance/process_ingress.py
+            ;;
+        2)
+            run_tool "Preview Ingress" tools/maintenance/process_ingress.py --dry-run
+            ;;
+        3)
+            SRC=$(whiptail --title "Convert to KB Markdown" \
+                --inputbox "Path to an .epub / .pdf / .txt / .html file, or a directory:\n\n(tab completion is not available here — paste a full path)" \
+                12 72 "$HOME/" 3>&1 1>&2 2>&3) || continue
+            [[ -z "$SRC" ]] && { warn "Nothing entered."; pause; continue; }
+            if [[ ! -e "$SRC" ]]; then warn "Not found: $SRC"; pause; continue; fi
+            DEST=$(whiptail --title "Convert to KB Markdown" \
+                --inputbox "Destination folder under knowledge_base/:" \
+                9 60 "books" 3>&1 1>&2 2>&3) || continue
+            [[ -z "$DEST" ]] && DEST="books"
+            mkdir -p "knowledge_base/$DEST"
+            if [[ -d "$SRC" ]]; then
+                mapfile -t FILES < <(find "$SRC" -maxdepth 1 -type f \
+                    \( -iname "*.epub" -o -iname "*.pdf" -o -iname "*.txt" -o -iname "*.html" \) )
+                if (( ${#FILES[@]} == 0 )); then warn "No convertible files in $SRC"; pause; continue; fi
+                info "Converting ${#FILES[@]} file(s)..."
+                run_tool "Convert to KB Markdown" tools/maintenance/ebook_to_kb_md.py \
+                    --outdir "knowledge_base/$DEST" "${FILES[@]}"
+            else
+                run_tool "Convert to KB Markdown" tools/maintenance/ebook_to_kb_md.py \
+                    --outdir "knowledge_base/$DEST" "$SRC"
+            fi
+            info "Run RAG → Incremental refresh to index the new documents."
+            pause
+            ;;
+        4)
+            if confirm "Repair chapter structure and strip page numbers in knowledge_base/books?\n\nA dry run is shown first."; then
+                run_tool "Repair Book Structure (preview)" tools/maintenance/repair_kb_book_structure.py
+                if confirm "Apply those repairs?"; then
+                    run_tool "Repair Book Structure (apply)" tools/maintenance/repair_kb_book_structure.py --apply
+                fi
+            fi
+            ;;
+        5)
+            run_tool "Enrich Metadata (preview)" tools/maintenance/enrich_kb_metadata.py
+            if confirm "Apply the frontmatter changes listed above?"; then
+                run_tool "Enrich Metadata (apply)" tools/maintenance/enrich_kb_metadata.py --apply
+            fi
+            ;;
+        6)
+            echo
+            if (( staged == 0 && errors == 0 )); then
+                info "Ingress is empty. Documents arrive here via !download in Discord."
+            else
+                info "knowledge_base/_ingress/"
+                ls -lh knowledge_base/_ingress/ | grep -v "^total\|README.md"
+            fi
+            pause
+            ;;
+        7)
+            if (( errors == 0 )); then
+                info "No failed markers to clear."
+                pause
+            elif confirm "Delete ${errors} .error marker(s)?\n\nThe documents themselves stay staged and will be retried."; then
+                find knowledge_base/_ingress -maxdepth 1 -name "*.error" -delete
+                ok "Cleared."
+                pause
+            fi
+            ;;
+        b|B) return ;;
+        esac
+    done
+}
+
 menu_news() {
     while true; do
         CHOICE=$(whiptail --title "Kaiacord Tools — News" --menu \
-            "Choose an operation:" 14 80 4 \
+            "Choose an operation:" "$(menu_height 4)" "$(menu_width 66)" 4 \
             "1" "Update today's news  (requires GEMINI_API_KEY)" \
             "2" "Update with backfill  (fill missing days, uses more API quota)" \
             "3" "Ingest manual news brief  (paste-in or file-based)" \
@@ -524,9 +658,9 @@ menu_news() {
 
 menu_recovery() {
     while true; do
-        CHOICE=$(whiptail --title "Kaiacord Tools — Recovery ⚠️" --menu \
+        CHOICE=$(whiptail --title "Kaiacord Tools — Recovery  (!)" --menu \
             "WARNING: These tools modify or delete data.\n\nChoose an operation:" \
-            18 80 5 \
+            "$(menu_height 5)" "$(menu_width 66)" 5 \
             "1" "Find contamination  (scan only, no changes)" \
             "2" "Surgical fix — dry run  (preview hallucination removal)" \
             "3" "Surgical fix — APPLY  (targeted hallucination removal)" \
@@ -575,7 +709,7 @@ menu_recovery() {
             fi
             ;;
         5)
-            if confirm_offline_rebuild "⚠️  RAG STORAGE REBUILD\n\nWipes memory/rag_storage and rebuilds vector & BM25 indices.\nContinue?"; then
+            if confirm_offline_rebuild "(!)  RAG STORAGE REBUILD\n\nWipes memory/rag_storage and rebuilds vector & BM25 indices.\nContinue?"; then
                 run_tool "Full RAG Rebuild" tools/maintenance/reindex_rag.py --clear
             fi
             ;;
@@ -591,14 +725,15 @@ menu_recovery() {
 main_menu() {
     while true; do
         CHOICE=$(whiptail --title "Kaiacord Maintenance Tools" \
-            --menu "$(status_line)\n\nWhat do you need?" \
-            20 80 7 \
+            --menu "$(status_line)$(ingress_hint)\n\nWhat do you need?" \
+            "$(menu_height 8)" "$(menu_width 58)" 8 \
             "1" "System & Bot Control  (start/stop/restart, logs, memory)" \
             "2" "Ollama Server  (restart, flush VRAM, model status)" \
             "3" "RAG Management  (reindex, rebuild, diagnose)" \
             "4" "Knowledge Base  (clean, sanitize, profiles)" \
-            "5" "News" \
-            "6" "Recovery ⚠️  (contamination, surgical fix, RAG reset)" \
+            "5" "Documents & Ingestion  (convert books, file !download)" \
+            "6" "News" \
+            "7" "Recovery (!)  (contamination, surgical fix, RAG reset)" \
             "q" "Quit" \
             3>&1 1>&2 2>&3) || break
 
@@ -607,8 +742,9 @@ main_menu() {
         2) menu_ollama ;;
         3) menu_rag ;;
         4) menu_knowledge_base ;;
-        5) menu_news ;;
-        6) menu_recovery ;;
+        5) menu_documents ;;
+        6) menu_news ;;
+        7) menu_recovery ;;
         q|Q) break ;;
         esac
     done

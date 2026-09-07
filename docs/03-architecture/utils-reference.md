@@ -22,7 +22,7 @@ Core utility modules used by Kaiacord.
 | `timezone_helper.py` | 4-clock Newsroom Wall timezone engine (12-hour AM/PM format, IANA safety) |
 | `background_tasks.py` | Afterthoughts, dawn tasks, presence loops, and forum scheduling |
 | `kaia_art.py` | Fractal flame renderer (CPU-only, NumPy/SciPy) |
-| `kaia_reactions.py` | Non-verbal emoji reaction system |
+| `kaia_reactions.py` | Non-verbal emoji reactions — 48 emoji across 10 mood-biased pools |
 
 ## Cognitive Pipeline (`utils/core/`)
 
@@ -30,8 +30,9 @@ Core utility modules used by Kaiacord.
 |--------|---------|
 | `kaia_dream.py` | Dream Engine for nightly associative memory processing |
 | `kaia_mood.py` | Persistent emotional state vector (valence/arousal/energy) with 6h decay |
+| `kaia_desires.py` | Needs vector (social/intellectual/creative/rest) driving whether she initiates |
 | `kaia_monologue.py` | Private thought stream from passive channel observation |
-| `kaia_proactive.py` | Autonomous conversation initiation (7-source trigger engine) |
+| `kaia_proactive.py` | Autonomous conversation initiation (9-source trigger engine, gated by `kaia_desires`) |
 | `kaia_presence.py` | Mood-aware Discord status driven by emotional arc |
 | `memory_anchors.py` | Dream-extracted thematic anchors (100-cap) for cross-session callbacks |
 | `relationship_manager.py` | Per-user relationship event store and staging (100-event cap) |
@@ -82,7 +83,7 @@ Core utility modules used by Kaiacord.
 | `reindex_handler.py` | `!reindex` background knowledge refresh |
 | `sysmon_handler.py` | `!sysmon` monitoring |
 | `explain_handler.py` | `!explain` RAG retrieval diagnostics |
-| `download_handler.py` | `!download` URL ingestion |
+| `download_handler.py` | `!download` — stages URLs into `knowledge_base/_ingress/` |
 | `system_handler.py` | `!cache` and system administration commands |
 
 ## Social & Forum Layer (`utils/social/`)

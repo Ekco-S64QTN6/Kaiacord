@@ -4,6 +4,7 @@ Pure NumPy/SciPy implementation. CPU-only (GPU reserved for Ollama).
 Based on the Draves/Reckase algorithm (flam3.com/flame_draves.pdf).
 """
 import time
+import zlib
 import numpy as np
 from PIL import Image
 from scipy.ndimage import gaussian_filter
@@ -385,6 +386,59 @@ class FractalFlameRenderer:
                     f"occupancy={best_stats['occupancy']:.1%})")
         return self._generate_single(best_seed, palette_name)
 
+    # Roadmap 57-4, visual self-expression: palette follows mood rather than
+    # being drawn uniformly. Warm/high-valence states pull toward ember and
+    # solar_flare, low-valence toward void and deep_ocean, high arousal toward
+    # electric and acid. It is a bias, not a rule — the remaining palettes stay
+    # reachable so output does not become monotonous.
+    MOOD_PALETTES = {
+        "bright": ("solar_flare", "ember", "aurora", "acid"),
+        "dark": ("void", "deep_ocean", "ghost", "nebula"),
+        "charged": ("electric", "acid", "solar_flare"),
+        "calm": ("biolume", "aurora", "deep_ocean", "ghost"),
+    }
+
+    def _mood_palette(self, rng) -> str:
+        """Pick a palette biased by Kaia's current emotional state.
+
+        Stream-neutral by construction. The base draw is made from the seeded
+        generator exactly as before, so the flame *geometry* for a given seed is
+        unchanged; the mood substitution then runs on a separate generator
+        derived from that draw. Consuming a different number of draws here
+        would shift every downstream parameter and silently change what a seed
+        renders.
+        """
+        all_names = list(PALETTES.keys())
+        base = str(rng.choice(all_names))       # the one and only main-stream draw
+
+        try:
+            from utils.core.kaia_mood import emotional_arc
+            valence = float(emotional_arc.valence)
+            arousal = float(emotional_arc.arousal)
+        except Exception:
+            return base
+
+        if arousal > 0.7:
+            bucket = "charged"
+        elif valence > 0.25:
+            bucket = "bright"
+        elif valence < -0.15:
+            bucket = "dark"
+        else:
+            bucket = "calm"
+
+        preferred = [p for p in self.MOOD_PALETTES[bucket] if p in PALETTES]
+        if not preferred or base in preferred:
+            return base
+
+        # Separate generator: deterministic for a given (base draw, mood), and
+        # it cannot perturb the main stream. crc32 rather than hash() — the
+        # latter is salted per process, so the same seed would render a
+        # different palette after every restart.
+        side = np.random.default_rng(zlib.crc32(f"{base}:{bucket}".encode()))
+        # 70/30 so her state shows without collapsing the range.
+        return str(side.choice(preferred)) if side.random() < 0.7 else base
+
     def _build_system(self, seed, palette_name):
         """Draw a complete flame system from a seed.
 
@@ -398,7 +452,7 @@ class FractalFlameRenderer:
         if palette_name and palette_name in PALETTES:
             pal_name = palette_name
         else:
-            pal_name = str(rng.choice(list(PALETTES.keys())))
+            pal_name = self._mood_palette(rng)
 
         # Always use rotational symmetry — k=1 produces sparse, uninteresting flames
         symmetry_k = int(rng.choice([3, 4, 5, 5, 6]))

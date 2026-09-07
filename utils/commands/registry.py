@@ -117,9 +117,12 @@ COMMANDS = (
     Command("reindex", handle_reindex_command, GROUP_KNOWLEDGE, extra=RESPONDER,
             owner_only=True, usage="!reindex [--full]",
             summary="Rebuild hybrid BM25/vector RAG indices"),
+    # Open to everyone: downloads are staged in knowledge_base/_ingress/, which
+    # the RAG indexer skips, so nothing is retrievable until process_ingress.py
+    # has cleaned and filed it.
     Command("download", handle_download_command, GROUP_KNOWLEDGE, extra=RESPONDER,
-            owner_only=True, usage="!download <url>",
-            summary="Download, extract and ingest a URL document"),
+            usage="!download <url>",
+            summary="Submit a URL for the knowledge base (filed on the next hourly pass)"),
     Command("cache", handle_cache_command, GROUP_KNOWLEDGE,
             owner_only=True,
             summary="Show system cache stats"),

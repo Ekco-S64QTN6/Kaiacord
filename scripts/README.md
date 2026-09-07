@@ -22,6 +22,9 @@ The primary operational control menu for Kaiacord administrators. Provides menu-
 - **Ollama Management:** Unload model VRAM, systemctl restart/stop/start, and journalctl log inspection.
 - **RAG Operations:** Incremental reindexing (`.trigger_reindex`), single-file reindexing, and full storage rebuilds (`reindex_rag.py --clear`).
 - **Knowledge Base Utilities:** OCR artifact cleaning, log sanitization, user profile generation, and Project 1999 forum support synthesis.
+- **Documents & Ingestion:** process documents staged by `!download`, convert EPUB/PDF/TXT/HTML
+  to knowledge-base Markdown (`ebook_to_kb_md.py`), repair chapter structure in already-converted
+  books, and enrich frontmatter. The main menu shows a count of documents awaiting ingest.
 
 **Prerequisites:** `whiptail`. The package name differs by distribution —
 the script detects your package manager and prints the right command if it is

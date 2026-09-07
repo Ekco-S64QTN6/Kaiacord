@@ -23,6 +23,7 @@ from collections import OrderedDict
 from dataclasses import dataclass, field
 from typing import List, Optional, Dict
 
+from utils.infrastructure.logging.log_sanitize import summarize_payload
 from utils.infrastructure.logging.kaia_logger import (
     log_info, log_action, log_success, log_error, log_warning, log_debug
 )
@@ -107,9 +108,10 @@ class ContextOptimizer:
             effective_max_tokens = self.summarization_tokens # Boost for full transcript processing (Safe for 12GB VRAM)
             log_info(f"Summarization strategy detected. Boosting context window to {effective_max_tokens} tokens.")
 
-        # [DEBUG] Track persona presence and size
-        persona_snippet = (persona[:150] + "...") if len(persona) > 150 else persona
-        log_debug(f"DEBUG: optimize_context received persona (len={len(persona)}): {persona_snippet}")
+        # Size only. Interpolating a 150-char slice of the persona still spilled
+        # the injected constitution across six log lines per message, because
+        # the slice lands mid-document and carries its newlines.
+        log_debug(summarize_payload("optimize_context persona", persona))
 
         # 2. Persona is non-negotiable - calculate its actual token cost
         current_tokens = self._estimate_tokens(persona)

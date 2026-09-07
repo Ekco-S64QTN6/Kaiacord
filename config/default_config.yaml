@@ -372,8 +372,12 @@ snapshots:
 # Bluesky Configuration
 # ============================================================================
 bluesky:
-  # Enable Bluesky integration
-  enabled: true
+  # Enable Bluesky integration.
+  # Default off: the account this was built against was deleted, and with it on
+  # the poster fails every cycle ("1 validation error for Main") and eventually
+  # trips the circuit breaker. config/kaia.yaml already overrides this to false;
+  # the default matched the old reality, so a fresh install turned it back on.
+  enabled: false
   
   # Cross-post idle quips to Bluesky
   cross_post_quips: false

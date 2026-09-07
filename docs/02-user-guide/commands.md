@@ -11,7 +11,7 @@ All commands are prefixed with `!`. Admin commands are restricted to the project
 | `!rpg` | Open the Aethelgard TTRPG HUD and play | All |
 | `!help` | Display interactive command and feature guide | All |
 | `!news [category]` | Fetch news by category | All |
-| `!download <url>` | Ingest a URL into the knowledge base | Admin |
+| `!download <url>` | Submit a URL for the knowledge base (staged, filed hourly) | All |
 | `!quip` | Trigger a social media quip (10m cooldown) | All |
 | `!flag <reason>` | Flag the previous message for audit/review | Admin |
 | `!forum [cmd]` | VBulletin forum management | Mixed |
@@ -58,7 +58,18 @@ Fetches news by category from auto-generated daily briefs. Requires `GEMINI_API_
 **Categories:** `today`, `technology`, `security`, `hacking`, `politics`, `business`, `science`, `culture`, `general`
 
 ### 📥 Download (`!download <url>`)
-Fetches content from a URL, converts it to Markdown, and saves it to the knowledge base for RAG ingestion. Supports HTML pages, PDFs, and plain text.
+Fetches content from a URL, converts it to Markdown, and **stages** it in
+`knowledge_base/_ingress/`. Supports HTML pages, PDFs, and plain text.
+
+Staged documents are **not** retrievable yet — that directory is excluded from RAG
+indexing. An hourly pass (`tools/maintenance/process_ingress.py`, also on demand from
+`kaia-tools.sh` → Documents & Ingestion) normalises the text, derives a title, summary
+and keywords, records who submitted it and from where, files it into the right
+knowledge-base folder, and triggers a single reindex for the batch.
+
+That staging step is what lets the command stay open to everyone: unvetted web content
+cannot reach retrieval, where it would be presented as grounded fact. A document that
+fails processing stays in `_ingress/` with a `.error` sidecar rather than being dropped.
 
 ### 📢 Quip (`!quip`)
 Triggers a social media quip — a short post cross-posted to Bluesky and/or X, grounded in Kaia's recent conversation history. 10-minute cooldown for non-owners.

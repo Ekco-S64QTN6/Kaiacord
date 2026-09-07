@@ -1,8 +1,24 @@
-import os
-import yaml
-import re
+"""Normalise frontmatter on forum posts and user logs.
 
-KB_DIR = "/home/ekco/github/Kaiacord/knowledge_base"
+Writes in place across the whole knowledge base, so it requires an explicit
+--apply. It previously had no argument parsing at all: any invocation ran it,
+including `--help`, which rewrote frontmatter on 124 files before anyone could
+read what the tool did.
+"""
+import argparse
+import os
+import re
+import sys
+
+import yaml
+
+# Resolved from this file rather than hardcoded to one developer's home.
+KB_DIR = os.path.join(
+    os.path.dirname(os.path.dirname(os.path.dirname(os.path.abspath(__file__)))),
+    "knowledge_base",
+)
+
+DRY_RUN = True
 
 def enrich_file(filepath, category):
     with open(filepath, 'r') as f:
@@ -70,6 +86,9 @@ def enrich_file(filepath, category):
     if modified or not has_frontmatter:
         new_header = yaml.dump(data, sort_keys=False).strip()
         new_content = "---\n" + new_header + "\n---\n" + body
+        if DRY_RUN:
+            print(f"Would update frontmatter: {filepath}")
+            return
         with open(filepath, 'w') as f:
             f.write(new_content)
         print(f"Updated/Added frontmatter for {filepath}")
@@ -86,4 +105,12 @@ def main():
                 enrich_file(os.path.join(root, f), "user_logs")
 
 if __name__ == "__main__":
+    ap = argparse.ArgumentParser(description=__doc__,
+                                 formatter_class=argparse.RawDescriptionHelpFormatter)
+    ap.add_argument("--apply", action="store_true",
+                    help="write changes (default: report only)")
+    args = ap.parse_args()
+    DRY_RUN = not args.apply
+    if DRY_RUN:
+        print("DRY RUN — no files will be written. Re-run with --apply.\n")
     main()

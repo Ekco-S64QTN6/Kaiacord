@@ -317,8 +317,15 @@ class BotSpeakFilter:
 
     # P1a — formulaic bare-addressee opener ("ekco,\n\n<body>"). The name carries no
     # information; it is a tic the model falls into on nearly every turn.
+    #
+    # The separator class was [,:] — comma or colon only. Measured across 250
+    # turns from Sept 4-6 the model had moved to a full stop ("starkind. ..."),
+    # 39 uses against 19 comma, so the dominant form went unmatched and 22.4% of
+    # turns still opened with a bare name. Adding '.' is safe because
+    # ADDRESSEE_NAMES is an explicit allowlist: an ordinary sentence opening
+    # "yes." or "right." cannot match it.
     RE_ADDRESSEE_OPENER = re.compile(
-        rf'^[ \t]*(?:{ADDRESSEE_NAMES})[ \t]*[,:][ \t]*(?:\n+|(?=\S))',
+        rf'^[ \t]*(?:{ADDRESSEE_NAMES})[ \t]*[.,:][ \t]*(?:\n+|(?=\S))',
         re.IGNORECASE
     )
 
