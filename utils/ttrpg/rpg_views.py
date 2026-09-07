@@ -1,3 +1,4 @@
+from utils.ttrpg.narration import finish_cleanly
 import asyncio
 import time
 import uuid as _uuid
@@ -982,15 +983,25 @@ async def _make_shop_view(ctx, msg, uid, uname, is_owner, items, sheet=None):
     _wstate = load_world_state()
     _special_sale = _wstate.get("special_item_sale")
 
+    # Reputation and CHA affect what the player is actually charged, so the
+    # label has to know them — the sell side already does this below.
+    _ui_cha_mod = (sheet.get("stats", {}).get("cha", 10) - 10) // 2 if sheet else 0
+    _ui_reputation = sheet.get("reputation", 0) if sheet else 0
+
     def _ui_price(item_key, base_value):
-        if special and "shop_special" in special and loc == "hemlocks_store":
-            if special["shop_special"].get("item") == item_key:
-                return special["shop_special"].get("price", base_value)
-        # Noon event special_item_sale override
-        if _special_sale and isinstance(_special_sale, dict) and loc == "hemlocks_store":
-            if _special_sale.get("item") == item_key:
-                return _special_sale.get("price", base_value)
-        return base_value
+        """Price shown in the dropdown — must match what checkout charges.
+
+        This used to apply only the calendar and sale overrides, ignoring
+        reputation, the CHA discount (up to 10%) and the market-glut
+        multiplier, so the label disagreed with the charge. Both sides now go
+        through shop.get_buy_price.
+        """
+        from utils.ttrpg.shop import get_buy_price, find_item
+        item = find_item(item_key)
+        if not item:
+            return base_value
+        return get_buy_price(item, loc,
+                             reputation=_ui_reputation, cha_mod=_ui_cha_mod)
 
     # ── Separate items into gear vs consumables ───────────────────────────────
     items_sorted = sorted(items, key=lambda k: (find_item(k) or {}).get("name", k))
@@ -2237,7 +2248,7 @@ async def _narrate_combat_summary(ctx, channel, uid, uname, sheet, combat_log: l
                 ),
                 task_id=f"rpg_combat_summary_{_uuid.uuid4().hex[:8]}"
             )
-            narration = resp["message"]["content"].strip().replace("```", "")
+            narration = finish_cleanly(resp["message"]["content"].strip().replace("```", ""))
             if narration:
                 embed = discord.Embed(
                     description=f"*{narration}*",

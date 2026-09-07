@@ -72,7 +72,7 @@ Runs inside curses' alternate screen buffer to preserve shell history. Updates a
 ### Metric Poller: `utils/infrastructure/monitoring/stats_poller.py`
 Runs a background loop fetching system diagnostics. Specifically, a 30-second throttled Custom File Stats task parses:
 - `memory/beliefs.json`
-- `memory/memory_anchors.json`
+- `memory/anchors.json`
 - `memory/relationships/` directory
 - `memory/stats.json` (persisted forum stats)
 

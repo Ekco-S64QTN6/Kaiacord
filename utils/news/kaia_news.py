@@ -1,5 +1,6 @@
 import asyncio
 import json
+import os
 import threading
 from datetime import datetime, timedelta
 from typing import List, Dict, Any
@@ -386,8 +387,13 @@ class NewsRetrievalEnhancer:
             # Convert sets to lists for JSON serialization
             serializable_cache = {user_id: list(news_ids) for user_id, news_ids in self.mentioned_news_cache.items()}
             self.memory_path.parent.mkdir(parents=True, exist_ok=True)
-            with open(self.memory_path, 'w') as f:
+            # Atomic: a partial write here leaves unparseable JSON, and
+            # load_mentioned_news() swallows the error and starts from an empty
+            # cache — so every article already mentioned would be offered again.
+            tmp_path = self.memory_path.with_suffix('.tmp')
+            with open(tmp_path, 'w') as f:
                 json.dump(serializable_cache, f)
+            os.replace(tmp_path, self.memory_path)
         except Exception as e:
             log_warning(f"Error saving mentioned news: {e}")
 

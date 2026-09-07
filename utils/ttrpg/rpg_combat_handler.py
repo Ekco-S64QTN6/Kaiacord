@@ -1,5 +1,6 @@
 PENDING_DUELS = {}
 
+from utils.ttrpg.narration import finish_cleanly
 import asyncio
 import time
 import uuid as _uuid
@@ -1623,7 +1624,7 @@ async def _apply_and_narrate_event(ctx, msg, send, sheet, result, uname):
                     ),
                     task_id=f"rpg_event_{_uuid.uuid4().hex[:8]}"
                 )
-                narration = resp["message"]["content"].strip().replace("```", "")
+                narration = finish_cleanly(resp["message"]["content"].strip().replace("```", ""))
                 if narration:
                     embed = discord.Embed(
                         description=f"*{narration}*",

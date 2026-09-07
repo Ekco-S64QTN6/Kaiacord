@@ -1,3 +1,4 @@
+from utils.ttrpg.narration import finish_cleanly
 import asyncio
 import json
 import re
@@ -207,7 +208,7 @@ class CoreTaskManager:
                             task_id=f"afterthought_{uuid.uuid4().hex[:8]}"
                         )
                         
-                        raw = resp["message"]["content"].strip()
+                        raw = finish_cleanly(resp["message"]["content"].strip())
                         if raw:
                             # Strip codeblocks
                             raw = raw.replace("```", "").replace("``", "")
@@ -262,6 +263,14 @@ class CoreTaskManager:
             if getattr(self.ctx, 'bot', None):
                 await self.ctx.bot.wait_until_ready()
                 await asyncio.sleep(15)
+
+        @afterthought_task.error
+        async def afterthought_error(error):
+            # The other eleven task loops have one of these. Without it,
+            # discord.py swallows an escaped exception and the loop stops for
+            # good — the feature would simply stop happening, with nothing in
+            # the log to say why.
+            log_error(f"CRITICAL: Afterthought task died: {error}")
 
         return afterthought_task
 
@@ -1167,7 +1176,10 @@ class CoreTaskManager:
                     if isinstance(val, int): return val
                     try:
                         return int(str(val).replace(',', '').strip())
-                    except:
+                    except (ValueError, TypeError):
+                        # Not `except:` — a bare clause also catches
+                        # KeyboardInterrupt and SystemExit, so an interrupt
+                        # during shutdown would be swallowed and turned into 0.
                         return 0
 
                 # Prioritize unanswered questions (0 replies) and newly created threads (highest thread_id)
@@ -1634,7 +1646,7 @@ class CoreTaskManager:
                     coro=asyncio.wait_for(_run_digest_chat(), timeout=60.0),
                     task_id=f"obs_digest_{uuid.uuid4().hex[:8]}"
                 )
-                digest_text = resp["message"]["content"].strip().replace("`", "")
+                digest_text = finish_cleanly(resp["message"]["content"].strip().replace("`", ""))
 
                 if not digest_text:
                     return
@@ -2237,13 +2249,18 @@ async def run_moogle_festival(bot_ctx, channel):
                 return key, name
         return DROP_POOL[0][0], DROP_POOL[0][1]
 
+    # The copy used to be framed as mail ("Moogle Mail Drop", "Packages
+    # Delivered"), which sent players to the pub mailbox to find nothing —
+    # the items go straight into the pack. Reworded so the framing matches
+    # what the code does.
     await channel.send(embed=discord.Embed(
-        title="📬 Moogle Mail Drop",
+        title="🪶 Moogle Hand-Delivery",
         description=(
             "*The sound of bells. Then more bells.*\n\n"
             "Seventeen moogles appear over the rooftops of Oakhaven simultaneously, "
             "each carrying an overstuffed satchel. They descend with tremendous ceremony "
-            "and no explanation.\n\n*\"Kupo!\"*"
+            "and no explanation, and begin pressing parcels directly into the hands of "
+            "everyone in town.\n\n*\"Kupo!\"*"
         ),
         color=0xf4a460
     ))
@@ -2264,14 +2281,16 @@ async def run_moogle_festival(bot_ctx, channel):
         key, name = roll_drop()
         s.setdefault("inventory", []).append(key)
         await save(s)
-        result_lines.append(f"📦 **{s['character_name']}** received **{name}**")
+        result_lines.append(f"🎒 **{s['character_name']}** — **{name}** added to pack")
 
     await channel.send(embed=discord.Embed(
-        title="📦 Packages Delivered",
-        description="\n".join(result_lines) + "\n\n*The moogles left without waiting for thanks.*",
+        title="🎒 Straight Into Your Pack",
+        description="\n".join(result_lines)
+        + "\n\n*The moogles left without waiting for thanks.*"
+        + "\n\nNo mailbox involved — check `!rpg inventory`.",
         color=0xf4a460
     ))
-    await _log_world_event("📬 **Moogle Mail Drop** — packages delivered to all present in Oakhaven.")
+    await _log_world_event("🪶 **Moogle Hand-Delivery** — parcels pressed into the hands of everyone present in Oakhaven.")
 
 async def run_aeridorian_tremor(bot_ctx, channel):
     import discord, secrets
@@ -2932,7 +2951,7 @@ async def run_bard_performance(bot_ctx, channel):
             ),
             task_id=f"bard_noon_{_uuid.uuid4().hex[:8]}"
         )
-        raw = resp["message"]["content"].strip().replace("```", "")
+        raw = finish_cleanly(resp["message"]["content"].strip().replace("```", ""))
         if raw:
             song_text = raw
     except Exception as e:
@@ -3010,9 +3029,16 @@ Speak as Kaia — the GM narrator.
         {"role": "user",   "content": "Narrate the village raid defense battle."}
     ]
     
+    from utils.ttrpg.narration import (
+        finish_cleanly, fit_embed_description, raid_token_budget,
+    )
+
     gpu_manager = OllamaGPUManager(config.chat_model)
     opts = gpu_manager.get_gpu_options(for_chat=True)
-    opts["num_predict"] = 300
+    # The prompt asks for a beat per defender, so a fixed budget runs out as
+    # the party grows: a six-defender raid was cut mid-word at "the defenders
+    # of o". Scale it with the cast.
+    opts["num_predict"] = raid_token_budget(len(combat_results))
     opts["temperature"] = 0.85
     
     async with channel.typing():
@@ -3032,6 +3058,9 @@ Speak as Kaia — the GM narrator.
                 task_id=f"rpg_raid_summary_{_uuid.uuid4().hex[:8]}"
             )
             narration = resp["message"]["content"].strip().replace("```", "")
+            # Trim back to the last complete sentence if the model was cut off,
+            # then clamp to Discord's embed limit (the asterisks add two chars).
+            narration = fit_embed_description(finish_cleanly(narration))
             if narration:
                 embed = discord.Embed(
                     title="⚔️ Battle Narration",

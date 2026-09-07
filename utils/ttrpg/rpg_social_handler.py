@@ -1,3 +1,4 @@
+from utils.ttrpg.narration import finish_cleanly
 import asyncio
 import time
 import uuid as _uuid
@@ -111,7 +112,7 @@ async def _handle_bard_song(ctx, msg, send, rest, uid, uname, is_owner):
                 ),
                 task_id=f"bard_song_{_uuid.uuid4().hex[:8]}"
             )
-            raw = resp["message"]["content"].strip().replace("```", "")
+            raw = finish_cleanly(resp["message"]["content"].strip().replace("```", ""))
             if raw:
                 song_text = raw
         except Exception as e:
@@ -399,7 +400,7 @@ async def _handle_talk(ctx, msg, send, rest, uid, uname, is_owner):
                 ),
                 task_id=f"rpg_talk_{_uuid.uuid4().hex[:8]}"
             )
-            dialogue = resp["message"]["content"].strip().replace("```", "")
+            dialogue = finish_cleanly(resp["message"]["content"].strip().replace("```", ""))
             if dialogue: 
                 embed = discord.Embed(
                     title=f"🗣️ {npc['name']}",
@@ -724,7 +725,7 @@ async def _handle_event(ctx, msg, send, rest, uid, uname, is_owner):
                 ),
                 task_id=f"rpg_event_{_uuid.uuid4().hex[:8]}"
             )
-            narr = resp["message"]["content"].strip().replace("```", "")
+            narr = finish_cleanly(resp["message"]["content"].strip().replace("```", ""))
             if narr: await send(msg.channel, f"🌍 **WORLD EVENT**\n*{narr}*")
         except Exception as e:
             log_error(f"[rpg event] {e}")

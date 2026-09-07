@@ -1,3 +1,4 @@
+from utils.ttrpg.narration import finish_cleanly
 import asyncio
 import time
 import uuid as _uuid
@@ -923,7 +924,7 @@ async def _handle_look(ctx, msg, send, rest, uid, uname, is_owner):
                 ),
                 task_id=f"rpg_look_{_uuid.uuid4().hex[:8]}"
             )
-            narration = resp["message"]["content"].strip().replace("```", "")
+            narration = finish_cleanly(resp["message"]["content"].strip().replace("```", ""))
             if narration: 
                 # Create narration embed
                 embed = discord.Embed(
@@ -1052,7 +1053,7 @@ async def _handle_rumor(ctx, msg, send, rest, uid, uname, is_owner):
                 ),
                 task_id=f"rpg_rumor_{_uuid.uuid4().hex[:8]}"
             )
-            rumor = resp["message"]["content"].strip().replace("```", "")
+            rumor = finish_cleanly(resp["message"]["content"].strip().replace("```", ""))
             if rumor:
                 embed = discord.Embed(
                     title="🗣️ Rumor Heard",

@@ -140,6 +140,53 @@ def find_item(item_key: str) -> dict | None:
 
     return None
 
+def get_buy_price(item: dict, loc: str = "hemlocks_store", reputation: int = 0,
+                  cha_mod: int = 0, quantity: int = 1) -> int:
+    """The price a player will actually be charged for `item`.
+
+    Extracted from process_purchase so the shop UI can label a dropdown with
+    the same figure the checkout charges. The UI previously computed its own
+    price that applied only the calendar and sale overrides — it ignored
+    reputation, the CHA discount (up to 10%) and the market-glut multiplier, so
+    the label disagreed with the charge for any character with a CHA modifier
+    or during a glut event. Flagged in noon_events_mechanical_audit.md Phase A
+    and unfixed until now; a single shared function is what stops it recurring.
+    """
+    from utils.ttrpg.world_state import load_world_state
+    from utils.ttrpg.calendar import get_special_day
+
+    real_key = item["key"]
+
+    # Reputation modifier
+    price_mult = 1.0
+    if reputation >= 100: price_mult = 0.8  # 20% discount
+    elif reputation >= 50:  price_mult = 0.9  # 10% discount
+    elif reputation < -20:  price_mult = 1.1  # 10% markup
+    # CHA discount: each +1 CHA mod = 2% discount (max 10%)
+    cha_discount = min(0.10, max(0.0, cha_mod * 0.02))
+    price_mult -= cha_discount
+
+    # Temporary price multiplier (market glut event)
+    wstate = load_world_state()
+    if wstate.get("shop_price_mult", 1.0) != 1.0:
+        price_mult *= wstate.get("shop_price_mult", 1.0)
+
+    # Calendar shop_special override
+    special = get_special_day()
+    base_value = item["value"]
+    if special and "shop_special" in special and loc == "hemlocks_store":
+        if special["shop_special"].get("item") == real_key:
+            base_value = special["shop_special"].get("price", base_value)
+
+    # special_item_sale world_state override
+    special_sale = wstate.get("special_item_sale")
+    if special_sale and isinstance(special_sale, dict) and loc == "hemlocks_store":
+        if special_sale.get("item") == real_key:
+            base_value = special_sale.get("price", base_value)
+
+    return int(base_value * quantity * price_mult)
+
+
 def process_purchase(sheet: dict, item_key: str, quantity: int = 1, reputation: int = 0, cha_mod: int = 0) -> tuple[bool, str, dict]:
     """Processes a purchase. Returns (Success, Message, Updated Sheet)"""
     loc = sheet.get("location", "hemlocks_store")
@@ -159,37 +206,8 @@ def process_purchase(sheet: dict, item_key: str, quantity: int = 1, reputation: 
             sheet.setdefault("flags", {})["caravan_gear_bought"] = True
     
     real_key = item["key"]
-    
-    # Reputation modifier
-    price_mult = 1.0
-    if reputation >= 100: price_mult = 0.8  # 20% discount
-    elif reputation >= 50:  price_mult = 0.9  # 10% discount
-    elif reputation < -20:  price_mult = 1.1  # 10% markup
-    # CHA discount: each +1 CHA mod = 2% discount (max 10%)
-    cha_discount = min(0.10, max(0.0, cha_mod * 0.02))
-    price_mult -= cha_discount
-    
-    # Check world_state for temporary price multiplier (market glut event)
-    from utils.ttrpg.world_state import load_world_state
-    wstate = load_world_state()
-    if wstate.get("shop_price_mult", 1.0) != 1.0:
-        price_mult *= wstate.get("shop_price_mult", 1.0)
-    
-    # Apply shop_special calendar override
-    from utils.ttrpg.calendar import get_special_day
-    special = get_special_day()
-    base_value = item["value"]
-    if special and "shop_special" in special and loc == "hemlocks_store":
-        if special["shop_special"].get("item") == real_key:
-            base_value = special["shop_special"].get("price", base_value)
 
-    # Apply special_item_sale world_state override
-    special_sale = wstate.get("special_item_sale")
-    if special_sale and isinstance(special_sale, dict) and loc == "hemlocks_store":
-        if special_sale.get("item") == real_key:
-            base_value = special_sale.get("price", base_value)
-
-    val = int(base_value * quantity * price_mult)
+    val = get_buy_price(item, loc, reputation=reputation, cha_mod=cha_mod, quantity=quantity)
     gil = sheet.get("gil", 0)
     
     if gil < val:

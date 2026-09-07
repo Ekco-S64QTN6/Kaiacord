@@ -44,13 +44,36 @@ class ModelWarmPool:
         log_action(f"Adding {model_name} to keep-alive pool...")
         self.pool[model_name] = {'last_used': time.time()}
         
-        # Initial warm
+        # Initial warm.
+        #
+        # This loads a model into VRAM and pins it there (keep_alive=-1), so it
+        # must go through the GPU guard like every other model load — otherwise
+        # it can collide with an in-flight chat. It also needs a timeout: the
+        # bare `except Exception: pass` below would swallow a hang completely.
+        #
+        # for_chat is False so a CPU-only model (the gemma2:2b classifier) is
+        # not forced onto the GPU by the warm-up. get_gpu_options(for_chat=True)
+        # returns num_gpu: 99 regardless of the model.
         try:
-            from utils.infrastructure.gpu.gpu_manager import OllamaGPUManager
+            from utils.infrastructure.gpu.gpu_manager import (
+                OllamaGPUManager, gpu_memory_manager, GPUTaskPriority,
+            )
             gpu_mgr = OllamaGPUManager(model_name)
-            options = gpu_mgr.get_gpu_options(for_chat=True)
-            await self.ollama_client.generate(model=model_name, prompt=".", options=options, keep_alive=-1)
-        except Exception: pass
+            options = gpu_mgr.get_gpu_options(for_chat=False)
+
+            async def _warm():
+                return await self.ollama_client.generate(
+                    model=model_name, prompt=".", options=options, keep_alive=-1
+                )
+
+            await gpu_memory_manager.run_with_gpu_guard(
+                model_name=model_name,
+                priority=GPUTaskPriority.BACKGROUND,
+                coro=asyncio.wait_for(_warm(), timeout=120.0),
+                task_id=f"warm_{model_name.replace(':', '_')}",
+            )
+        except Exception as e:
+            log_warning(f"[ModelWarmPool] Warm-up of {model_name} failed: {e}")
 
         if not self._scheduler_task or self._scheduler_task.done():
             self._scheduler_task = asyncio.create_task(self._scheduler_loop())
