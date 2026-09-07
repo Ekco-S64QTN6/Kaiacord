@@ -31,11 +31,23 @@ echo ""
 # ---------------------------------------------------------------------------
 # Pre-flight: scan dataset for length outliers before burning GPU time
 # ---------------------------------------------------------------------------
-echo ">>> Pre-flight: Dataset audit"
+echo ">>> Pre-flight 1/2: Dataset audit"
 echo "---------------------------------------------"
 $PYTHON finetune/01d_scan_length_outliers.py
 echo ""
-echo ">>> Dataset clean — proceeding"
+
+# ---------------------------------------------------------------------------
+# Pre-flight 2: verify the targets are what the runtime would actually emit.
+#
+# Training on unfiltered logs teaches the model to produce exactly what its own
+# filters then strip — the opposite of the goal. This is a report-only check;
+# run `01f_clean_targets.py --apply --with-corrections --strict` to fix.
+# ---------------------------------------------------------------------------
+echo ">>> Pre-flight 2/2: Target quality vs the live filter stack"
+echo "---------------------------------------------"
+$PYTHON finetune/01f_clean_targets.py
+echo ""
+echo ">>> Dataset audited — proceeding"
 echo ""
 
 # ---------------------------------------------------------------------------
@@ -82,6 +94,13 @@ ollama rm kaia-lora 2>/dev/null || true
 ollama create kaia-lora -f finetune/Modelfile
 echo ""
 $PYTHON -u finetune/05b_test_ollama.py
+echo ""
+echo ">>> Persona evaluation — does the fine-tune need the guardrails less?"
+echo "---------------------------------------------"
+# The measurement that matters: how often would the live filter stack have to
+# remove real content? A fine-tune that has internalised the persona scores
+# lower than the base model. 05b prints samples to read; this counts.
+$PYTHON -u finetune/05c_evaluate_persona.py --models kaia-lora gemma3:12b
 echo ""
 echo "============================================="
 echo "  Pipeline complete!"

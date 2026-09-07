@@ -90,3 +90,10 @@ tools/tests/persona/
 tools/tests/user_profiles/
 tools/tests/test_storage/
 tools/tests/test_knowledge_base/
+
+# Telemetry written by the test suite (see telemetry_paths.py). Production
+# counterparts are already ignored; these are listed so a new one cannot be
+# committed by accident.
+memory/*.test.json
+memory/*.test.jsonl
+logs/*.test.log

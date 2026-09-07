@@ -2,15 +2,21 @@
 Shared logic for processing mentions from external platforms (Bluesky, Forum, etc.)
 This module is isolated from the main bot object graph to prevent circular imports.
 """
+import zlib
 from typing import Any
 from utils.infrastructure.logging.kaia_logger import log_warning
 
 async def process_external_mention(
-    ctx: Any, content: str, author_name: str, author_id: Any, platform: str
+    ctx: Any, content: str, author_name: str, author_id: Any, platform: str,
+    conversation_key: Any = None,
 ):
     """
     Process mentions from external platforms.
     Constructs a MockMessage and routes it to the message processor.
+
+    `conversation_key` distinguishes separate conversations on one platform —
+    a forum thread id, say — so that each keeps its own channel memory instead
+    of every thread on the site sharing one history.
     """
     from utils.infrastructure.system.messaging import MockMessage, MockUser, MockChannel
     
@@ -21,8 +27,12 @@ async def process_external_mention(
         display_name=author_name
     )
     
-    # Create a compatible mock channel/context
-    mock_channel = MockChannel(id=hash(platform) % 10**10)
+    # Stable across restarts. `hash()` on a str is salted per process
+    # (PYTHONHASHSEED), so this channel id — which keys channel memory — used to
+    # change on every boot, quietly discarding the conversation history for
+    # every external platform each time the bot restarted.
+    key = f"{platform}:{conversation_key}" if conversation_key is not None else platform
+    mock_channel = MockChannel(id=zlib.crc32(key.encode("utf-8")) % 10**10)
     
     # Construct the mock message
     mock_msg = MockMessage(
@@ -32,9 +42,15 @@ async def process_external_mention(
         platform=platform
     )
     
-    if ctx.message_processor:
-        # Directly process via the modular processor
-        return await ctx.message_processor.process(mock_msg)
-    else:
+    if not ctx.message_processor:
         log_warning(f"External mention from {platform} received but processor not ready.")
         return None
+
+    # The processor delivers by calling channel.send(), and returns None. Callers
+    # here have no channel to deliver to — they need the text back to post it
+    # themselves — so read it off the mock channel. Without this the forum
+    # auto-reply path received None from every call and could never post.
+    await ctx.message_processor.process(mock_msg)
+    if not mock_channel.sent_messages:
+        return None
+    return "\n".join(m for m in mock_channel.sent_messages if m).strip() or None

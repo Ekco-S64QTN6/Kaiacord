@@ -64,7 +64,9 @@ performance:
       knowledge: 0.15
 
 forum:
-  auto_scrape: false
+  enabled: true
+  auto_scrape: true
+  tech_support_enabled: false
 
 generation:
   # base_temperature applies to ordinary conversation; rag_temperature only to

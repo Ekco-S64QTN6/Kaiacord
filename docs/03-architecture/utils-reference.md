@@ -84,6 +84,7 @@ Core utility modules used by Kaiacord.
 | `sysmon_handler.py` | `!sysmon` monitoring |
 | `explain_handler.py` | `!explain` RAG retrieval diagnostics |
 | `download_handler.py` | `!download` — stages URLs into `knowledge_base/_ingress/` |
+| `youtube_handler.py` | `!youtube` — stages video transcripts into `knowledge_base/_ingress/` |
 | `system_handler.py` | `!cache` and system administration commands |
 
 ## Social & Forum Layer (`utils/social/`)

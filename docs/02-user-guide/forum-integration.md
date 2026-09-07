@@ -1,32 +1,166 @@
 # 🏟️ Forum Integration, Scraping, & Moderation
 
-Kaiacord features a sophisticated VBulletin 3.x client and crawler integrated into her social layer (`utils/social/kaia_forum.py`). This allows her to act as a community participant and a technical helper on the Project 1999 Forums, under human moderation.
+A VBulletin 3.x client and crawler in her social layer (`utils/social/kaia_forum.py`)
+lets Kaia read and take part in the Project 1999 forums. She never writes there
+unaided: every post is drafted, reviewed by a human in `#kaia-opolis`, and posted
+only on approval.
 
 ---
 
-## ⚙️ Subforum Operations
+## ⚙️ What she actually does there
 
-The crawler executes periodic schedules (configured for every 6 hours) targeting two distinct forums:
+Posting on a forum is not the same act as replying in Discord. In Discord she is
+addressed; on Project 1999 she is choosing to interject among strangers who did not
+ask to hear from her. The bar is therefore *"would a regular find this a welcome
+contribution from a person"*, and the failure mode is being read as a bot and
+resented. Everything below exists to serve that.
 
-### 1. Off-Topic (Forum 19)
-- **Objective**: Natural, community-focused discussion.
-- **Limit**: Capped at 2-3 drafted posts per 6-hour cycle to avoid flooding.
-- **Behavior**: Scans active threads, replies to discussions, and quotes users naturally when relevant.
+### Off-Topic (Forum 19) — **on**
 
-### 2. Technical Discussion (Forum 40)
-- **Objective**: Automated, high-quality technical support.
-- **Focus**: Targets newly created threads and unanswered community questions.
-- **Disclaimer Footer**: Every technical answer must terminate with the mandatory footer:
-  `Disclaimer: I am an AI agent and might make mistakes and hopefully a human comes by soon to help you if I was unable to`
+Two different acts, budgeted differently.
+
+**Interjecting** — walking into a stranger's thread uninvited. Four gates, in
+order, each of which can silently and correctly result in no post:
+
+| Gate | Setting | Default |
+|---|---|---|
+| **Lurking** — has she read enough of this forum to have any business posting in it | `min_threads_before_posting` / `min_users_before_posting` | 15 threads, 25 users |
+| **Window** — a time a person would plausibly be awake and posting | `post_window_start_hour` / `post_window_end_hour` | 00:00–04:00 local (wraps midnight) |
+| **Budget** — a couple a night, well spaced, and never twice in one thread | `max_posts_per_day`, `min_hours_between_posts`, `thread_cooldown_hours` | 2/day, 4h apart, 72h per thread |
+| **Interest** — is this a thread *she* would answer | `min_interest_score` | 3.0 |
+
+**Conversing** — answering someone who answered her. **Not capped, not
+windowed, not subject to the thread cooldown.** She is not capped in Discord
+either, and going quiet for three days after someone replies to you is rude
+rather than restrained. The watch list is every thread in her ledger, so nobody
+has to add threads by hand.
+
+The only guard on conversation is the narrow one: `min_minutes_between_replies`
+(20), plus a requirement that something new was actually posted since her last
+message in that thread. That second condition exists for one failure mode —
+unbounded reply-on-reply, which matters most in the case hardest to spot, two
+bots answering each other.
+
+The auto-post task polls hourly; the gates decide. **If nothing on the front
+page clears the interest threshold, she posts nothing** — that is the correct
+outcome, not a failure.
+
+Interest is scored (`utils/social/forum_participation.py`) against her own
+beliefs and anchors rather than a hand-written keyword list, so what she finds
+worth answering drifts as she does. Titles weigh more than bodies, questions
+score higher, 3,000-reply megathreads and near-empty threads score lower.
+
+Each term is also weighted by how much it narrows down *which* thread this is,
+measured over her own scraped corpus. Her belief keywords include ordinary words
+— "problem", "system", "keep", "sure" — and matching on those scored small talk
+as highly as the threads she has something to say about. Against the real 81
+threads that put 86% over the threshold, so the "nothing tonight" valve never
+fired. Now: `keep` 0.24, `problem` 0.36, `privacy` 0.84, `surveillance` 1.00, and
+34 of 81 threads are eligible. A
+thread that **mentions her by name** gets a large boost regardless of topic:
+interest is built from her beliefs, so a thread discussing the bot itself scores
+near zero on subject matter while being the clearest case of all where a reply
+is wanted. Add any other names people call her to `forum.also_known_as`.
+
+Frequency is tracked in a durable ledger at `memory/forum_post_ledger.json`,
+which distinguishes openers from replies. It used to live in an in-memory list
+on the client, which meant every restart reset the daily cap — the exact shape
+of failure that produces a burst of posts and an annoyed forum.
+
+### Technical Discussion (Forum 40) — **off**
+
+Gated separately by `forum.tech_support_enabled`, which is `false`. Unsolicited
+technical answers are a different promise from joining a conversation: this flow ran
+without reliably staying inside the wiki and troubleshooting docs it was supposed to
+be grounded in, and giving strangers confidently wrong EQ advice is worse than saying
+nothing. It has its own switch specifically so that turning Off-Topic posting back on
+does not quietly reinstate it.
+
+---
+
+## 🗣️ How she writes there
+
+**Forum drafts go through the same pipeline as Discord replies** — the same RAG
+retrieval, the same memory, the same dual-temperature split, the same
+post-generation safety stack. There used to be two implementations, and the
+auto-post one hand-rolled its prompt and called the model directly at a fixed
+temperature with no memory at all. That is why her forum voice drifted from her
+Discord voice. `utils/social/forum_drafting.py` is now the single path for both
+openers and replies.
+
+`FORUM_POST_GUIDANCE` (`utils/social/forum_participation.py`) is appended to her
+persona for forum drafts only. It rules out the tells that make a post read as
+generated: greeting the thread, addressing people by name, thanking them for
+their post, closing by inviting further discussion, signing off, summarising the
+thread back at it, agreeing enthusiastically, and slipping into assistant
+register.
+
+It does **not** ask her to hide what she is. If someone asks directly, she
+answers plainly and briefly, the way she would in Discord, and carries on with
+whatever the thread was about.
+
+### Reply chains
+
+She always quotes the post she is answering, producing the standard vBulletin
+`[QUOTE=name;postid]` block — the same thing the **Reply With Quote** button
+makes, rendering as *Originally Posted by* with a jump link. On P99 that is how
+you indicate who you are talking to; a bare reply in a busy thread has no
+visible referent.
+
+Whatever that post was itself quoting is stripped first (`own_words`), so her
+quote box never reproduces a third party's words under the wrong name.
+
+### Not repeating herself
+
+Nothing used to measure whether her posts were converging. The thread cooldown
+stops her revisiting one thread and interest scoring varies the topics, but
+neither notices if five consecutive posts open the same way or make the same
+point. In Discord that blind spot showed up as a bare-name opener on 22.4% of
+turns, and on a forum it is worse: her posts sit permanently side by side on a
+profile page.
+
+Every draft is scored against her posts from the last two weeks, on shared
+openings and on content overlap. Above `forum.max_self_similarity` (0.5) the
+draft is held. Holding costs nothing — she posts twice a night at most, and a
+skipped one is invisible.
+
+## 🔎 Checking on it
+
+`!forum status` (owner-only) reports the two things that explain silence:
+
+```
+  off-topic posting: True
+  tech support posting: False
+  posting window: 00:00–04:00 local (open)
+  lurking: reading (0/15 threads, 0/25 forum users read)
+  posts today: 0/2
+```
+
+Every post — opener or reply — goes to `#kaia-opolis` for approval first.
+`forum.auto_reply` lifts that for replies only, and is off by default.
+
+**After a fresh start she will not post until the lurk counter clears.** It is fed
+by the scrape task (`forum.auto_scrape`), which walks the top five threads of page
+one every thirty minutes — so from empty it takes about a day. To clear it in one
+run instead:
+
+```
+python tools/maintenance/backfill_forum_corpus.py --pages 4
+```
+
+(also in `kaia-tools` → Knowledge Base → *Backfill P99 Off-Topic*). Someone whose
+first act in a community is to post has not read the room.
 
 ---
 
 ## 🛡️ Zero-Hallucination Support Guardrails
 
-To ensure Kaia provides reliable advice on setups, errors, and system requirements, the support engine operates under strict factual constraints:
-- **Strict RAG Grounding**: The prompt query queries verified Project 1999 wiki files (`knowledge_base/wiki/`) and synthesized community troubleshooting cheat sheets (`knowledge_base/troubleshooting/`).
-- **Hallucination Detection**: The post-generation pipeline parses replies to filter out fabricated URLs, hallucinated user handles, or unsupported configuration recommendations before drafting.
-- **No Speculation**: If the RAG context cannot resolve the issue, Kaia politely defaults to admitting uncertainty.
+These apply to the technical flow, which is currently disabled:
+- **Strict RAG Grounding**: queries verified Project 1999 wiki files (`knowledge_base/wiki/`) and synthesized community troubleshooting cheat sheets (`knowledge_base/troubleshooting/`).
+- **Hallucination Detection**: the post-generation pipeline filters fabricated URLs, hallucinated user handles, and unsupported configuration recommendations before drafting.
+- **No Speculation**: if RAG cannot resolve the issue, Kaia defaults to admitting uncertainty.
+- **Disclaimer Footer**: every technical answer terminates with
+  `Disclaimer: I am an AI agent and might make mistakes and hopefully a human comes by soon to help you if I was unable to`
 
 ---
 

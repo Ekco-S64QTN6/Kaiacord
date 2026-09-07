@@ -1,3 +1,4 @@
+from utils.infrastructure.monitoring.telemetry_paths import telemetry_path
 import asyncio
 import os
 import time
@@ -415,7 +416,13 @@ class MessageProcessor:
             main_content = enriched_raw.split("[USER_MESSAGE]")[-1].strip()
         # ---------------------------------
         
-        sanitized_content = sanitize_prompt(main_content)
+        # A forum post carries the thread it is replying to, which is assembled
+        # by us rather than typed by a user. The default 2,000-character cap is
+        # sized for a chat message and would have silently discarded most of a
+        # ten-post thread — the context the reply depends on.
+        sanitized_content = sanitize_prompt(
+            main_content,
+            max_length=8000 if platform == 'vbulletin' else 2000)
         
         ctx = MessageContext(
             message=msg,
@@ -1593,13 +1600,21 @@ class MessageProcessor:
                 if ctx_m:
                     thread_ctx = ctx_m.group(1).strip()
 
-                # Clean forum context block in system prompt
+                # Clean forum context block in system prompt, plus the rules
+                # for writing there. This is the single place forum drafts get
+                # their instructions: the auto-post task used to assemble its
+                # own persona + context + guidance prompt and call ollama
+                # directly, which is why it drifted from how she sounds in
+                # Discord — it had no RAG, no memory, and a hardcoded
+                # temperature that ignored the dual-temperature split.
+                from utils.social.forum_participation import FORUM_POST_GUIDANCE
                 forum_context_block = (
                     f"\n\n--- FORUM THREAD CONTEXT ---\n"
                     f"Thread Title: {title}\n"
                     f"Recent posts in this thread (for context):\n"
                     f"{thread_ctx}\n"
                     f"----------------------------"
+                    f"{FORUM_POST_GUIDANCE}"
                 )
                 system_prompt += forum_context_block
 
@@ -2122,7 +2137,7 @@ class MessageProcessor:
 
             if contradiction_detected:
                 log_warning(f"[CONSISTENCY_WATCHDOG] Contradiction detected! Reasons: {reasons}")
-                log_path = os.path.join("memory", "generation_log.jsonl")
+                log_path = telemetry_path("memory/generation_log.jsonl")
                 def _log_to_disk():
                     with open(log_path, 'a', encoding='utf-8') as lf:
                         lf.write(json.dumps({
@@ -2477,7 +2492,7 @@ class MessageProcessor:
 
                 # ── Generation Quality Logging (Item 11) ──────────────────────
                 try:
-                    gen_log_path = os.path.join("memory", "generation_log.jsonl")
+                    gen_log_path = telemetry_path("memory/generation_log.jsonl")
                     log_entry = {
                         "ts": time.time(),
                         "user_id": ctx.author_id,

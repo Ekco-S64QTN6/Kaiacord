@@ -1,7 +1,9 @@
 #!/usr/bin/env bash
 # kaia-tools.sh — Kaiacord maintenance TUI
 # Runs from anywhere; it locates the project root from its own path.
-# Requires: whiptail  (Debian/Ubuntu: whiptail · Arch: libnewt · Fedora: newt)
+# Renders with fzf when present, whiptail otherwise. Force one with
+#   KAIA_TOOLS_UI=fzf|whiptail  kaia-tools
+# Requires: fzf  (preferred)  or  whiptail (Debian/Ubuntu: whiptail · Arch: libnewt)
 
 set -uo pipefail
 
@@ -91,8 +93,144 @@ status_line() {
     echo "Bot: $bot  |  Ollama: $ollama  |  $(date '+%H:%M:%S')"
 }
 
+# ── Presentation layer ────────────────────────────────────────────────────────
+# `ui_dialog` takes the same arguments whiptail does, so the call sites below
+# are unchanged and there is exactly one place that knows how anything is
+# drawn. It renders with fzf when available — truecolor, rounded borders, type
+# to filter — and falls back to whiptail, which is what the tool looked like
+# before: a grey newt box that a user fairly described as an MS-DOS installer.
+#
+# The whiptail calling convention is preserved: the UI is drawn on the
+# terminal and the *result* goes to stderr, because every call site uses the
+# `3>&1 1>&2 2>&3` swap to capture it. fzf draws on /dev/tty of its own accord,
+# so its stdout is only the selection.
+
+if [[ -z "${KAIA_TOOLS_UI:-}" ]]; then
+    if command -v fzf >/dev/null 2>&1; then KAIA_TOOLS_UI=fzf
+    else KAIA_TOOLS_UI=whiptail; fi
+fi
+
+# Muted violet/cyan on the terminal's own background, so it sits in the user's
+# theme rather than painting a grey slab over it.
+FZF_THEME='fg:#c8c8d4,bg:-1,hl:#a78bfa,fg+:#ffffff,bg+:#2a2a3a,hl+:#c4b5fd'
+FZF_THEME+=',info:#6b7280,border:#6d5b9e,prompt:#7dd3fc,pointer:#a78bfa'
+FZF_THEME+=',marker:#7dd3fc,header:#6b7280,gutter:-1'
+
+ui_banner() {
+    local cols w rule left right pad
+    cols=$(term_cols)
+    w=$(( cols - 4 )); (( w > 72 )) && w=72; (( w < 34 )) && w=34
+
+    # Built by parameter expansion, not `tr`: tr substitutes bytes, and every
+    # character in this frame is multibyte, so it produced mojibake.
+    printf -v rule '%*s' "$w" ''; rule=${rule// /─}
+
+    left="KAIACORD  maintenance console"
+    right="$(bot_running && echo 'bot up' || echo 'bot down') · $(ollama_running && echo 'ollama up' || echo 'ollama down')"
+    pad=$(( w - ${#left} - ${#right} - 4 )); (( pad < 1 )) && pad=1
+
+    printf '\033[38;5;98m  ╭%s╮\n' "$rule"
+    printf '  │\033[0m  \033[1mKAIACORD\033[0m\033[2m  maintenance console\033[0m%*s\033[2m%s\033[0m  \033[38;5;98m│\n' \
+        "$pad" '' "$right"
+    printf '  ╰%s╯\033[0m\n' "$rule"
+}
+
+# Split "Label  (hint)" into a bright label and a dim hint column.
+_ui_split_hint() {
+    local text=$1
+    if [[ "$text" =~ ^(.*[^\ ])\ \ +\((.*)\)$ ]]; then
+        printf '\033[0m%s\t\033[2m%s\033[0m' "${BASH_REMATCH[1]}" "${BASH_REMATCH[2]}"
+    else
+        printf '\033[0m%s\t' "$text"
+    fi
+}
+
+_ui_menu_fzf() {
+    local title=$1 prompt=$2; shift 2
+    local -a rows=()
+    while (( $# >= 2 )); do
+        rows+=("$(printf '%s\t%s' "$1" "$(_ui_split_hint "$2")")")
+        shift 2
+    done
+
+    # The prompt carries the live status line and any pending-ingress note.
+    local header
+    header=$(printf '%b' "$prompt" | sed '/^$/d')
+
+    local sel
+    sel=$(printf '%s\n' "${rows[@]}" | fzf \
+        --ansi --no-sort --no-multi --layout=reverse --info=hidden \
+        --height=~70% --min-height=12 --border=rounded --border-label=" $title " \
+        --border-label-pos=3 --padding=1 --delimiter=$'\t' \
+        --with-nth=2,3 --nth=2 --tabstop=1 \
+        --header="$header" --header-first \
+        --prompt='  ' --pointer='▸' --color="$FZF_THEME" \
+        --bind='esc:abort,ctrl-c:abort') || return 1
+    printf '%s' "${sel%%$'\t'*}" >&2
+}
+
+_ui_input_fzf() {
+    local title=$1 prompt=$2 default=${3:-} reply
+    {
+        printf '\n\033[38;5;98m  ╭─ \033[0m\033[1m%s\033[0m\n' "$title"
+        printf '%b\n' "  \033[38;5;98m│\033[0m  ${prompt//\\n/$'\n'  \\033[38;5;98m│\\033[0m  }"
+        printf '\033[38;5;98m  ╰─\033[0m '
+    } >/dev/tty
+    IFS= read -r -e -i "$default" reply </dev/tty >/dev/tty 2>&1 || return 1
+    printf '%s' "$reply" >&2
+}
+
+_ui_confirm_fzf() {
+    # `default_no` mirrors whiptail's --defaultno: the row listed first is the
+    # one preselected, so a destructive confirm cannot be accepted by a stray
+    # Enter. confirm_offline_rebuild relies on this to guard a RAG wipe against
+    # a running bot.
+    local title=$1 prompt=$2 default_no=${3:-} sel
+    local -a rows=($'yes\t\033[0mYes, continue' $'no\t\033[0mNo, cancel')
+    [[ -n "$default_no" ]] && rows=($'no\t\033[0mNo, cancel' $'yes\t\033[0mYes, continue')
+    sel=$(printf '%s\n' "${rows[@]}" | fzf \
+        --ansi --no-sort --no-multi --layout=reverse --info=hidden \
+        --height=~70% --min-height=8 --border=rounded --border-label=" $title " \
+        --border-label-pos=3 --padding=1 --delimiter=$'\t' --with-nth=2 \
+        --header="$(printf '%b' "$prompt")" --header-first \
+        --prompt='  ' --pointer='▸' --color="$FZF_THEME" \
+        --bind='esc:abort,ctrl-c:abort') || return 1
+    [[ "${sel%%$'\t'*}" == yes ]]
+}
+
+# Accepts whiptail's argument grammar so nothing below has to change.
+ui_dialog() {
+    local title="" mode="" prompt="" default=""
+    local -a rest=() original=("$@")
+    while (( $# )); do
+        case "$1" in
+            --title)     title=$2; shift 2 ;;
+            --menu)      mode=menu;  prompt=$2; shift 2
+                         shift 3 2>/dev/null || true ;;   # height width count
+            --inputbox)  mode=input; prompt=$2; shift 2
+                         shift 2 2>/dev/null || true      # height width
+                         if (( $# )) && [[ "$1" != --* ]]; then default=$1; shift; fi ;;
+            --yesno)     mode=yesno; prompt=$2; shift 2
+                         shift 2 2>/dev/null || true ;;
+            --defaultno) default=defaultno; shift ;;
+            --*)         shift ;;
+            *)           rest+=("$1"); shift ;;
+        esac
+    done
+
+    if [[ "$KAIA_TOOLS_UI" == fzf ]]; then
+        case "$mode" in
+            menu)  _ui_menu_fzf "$title" "$prompt" "${rest[@]}"; return $? ;;
+            input) _ui_input_fzf "$title" "$prompt" "$default"; return $? ;;
+            yesno) _ui_confirm_fzf "$title" "$prompt" "$default"; return $? ;;
+        esac
+    fi
+    # Fallback: the original arguments, verbatim, to the real thing.
+    command whiptail "${original[@]}"
+}
+
 confirm() {
-    whiptail --title "Confirm" --yesno "$1" 10 65
+    ui_dialog --title "Confirm" --yesno "$1" 10 65
 }
 
 # Validate a tool path exists before running it, warn if missing
@@ -127,7 +265,7 @@ run_tool() {
 # on-disk store and the in-process copy.
 confirm_offline_rebuild() {
     if bot_running; then
-        whiptail --title "Bot is running" --yesno \
+        ui_dialog --title "Bot is running" --yesno \
             "Kaia is currently RUNNING.\n\nRebuilding the index while she holds it open can corrupt memory/rag_storage.\n\nStop the bot first (System & Bot Control).\n\nProceed anyway?" \
             14 70 --defaultno || return 1
     fi
@@ -140,7 +278,7 @@ confirm_offline_rebuild() {
 
 menu_ollama() {
     while true; do
-        CHOICE=$(whiptail --title "Kaiacord Tools — Ollama Server" --menu \
+        CHOICE=$(ui_dialog --title "Kaiacord Tools — Ollama Server" --menu \
             "$(status_line)\n\nOllama management:" \
             "$(menu_height 7)" "$(menu_width 66)" 7 \
             "1" "Show loaded models  (ollama ps)" \
@@ -242,7 +380,7 @@ menu_ollama() {
 
 menu_system() {
     while true; do
-        CHOICE=$(whiptail --title "Kaiacord Tools — System & Bot Control" --menu \
+        CHOICE=$(ui_dialog --title "Kaiacord Tools — System & Bot Control" --menu \
             "$(status_line)\n\nChoose an operation:" \
             "$(menu_height 10)" "$(menu_width 66)" 10 \
             "1"  "Full health check  (Ollama, models, GPU, KB, config)" \
@@ -294,7 +432,7 @@ menu_system() {
                 warn "Bot is already running (PID: $(pgrep -f Kaiacord.py))."
                 pause; continue
             fi
-            MODE=$(whiptail --title "Start Bot" --menu "Choose mode:" 10 50 2 \
+            MODE=$(ui_dialog --title "Start Bot" --menu "Choose mode:" 10 50 2 \
                 "1" "Curses dashboard (default)" \
                 "2" "No GUI (simple mode)" \
                 3>&1 1>&2 2>&3) || continue
@@ -330,7 +468,7 @@ menu_system() {
                     pkill -f "Kaiacord.py" && ok "Stopped." || warn "Could not stop cleanly."
                     sleep 3
                 fi
-                MODE=$(whiptail --title "Restart Bot" --menu "Choose mode:" 10 50 2 \
+                MODE=$(ui_dialog --title "Restart Bot" --menu "Choose mode:" 10 50 2 \
                     "1" "Curses dashboard (default)" \
                     "2" "No GUI (simple mode)" \
                     3>&1 1>&2 2>&3) || continue
@@ -405,7 +543,7 @@ menu_system() {
 
 menu_rag() {
     while true; do
-        CHOICE=$(whiptail --title "Kaiacord Tools — RAG Management" --menu \
+        CHOICE=$(ui_dialog --title "Kaiacord Tools — RAG Management" --menu \
             "$(status_line)\n\nChoose an operation:" \
             "$(menu_height 7)" "$(menu_width 66)" 7 \
             "1" "Incremental refresh  (signal live bot via .trigger_reindex)" \
@@ -427,7 +565,7 @@ menu_rag() {
             pause
             ;;
         2)
-            FILE=$(whiptail --title "Re-index Specific File" \
+            FILE=$(ui_dialog --title "Re-index Specific File" \
                 --inputbox "Enter path relative to project root:\n(e.g. knowledge_base/user_logs/Ekco_177.../interactions_20260209.md)" \
                 10 72 3>&1 1>&2 2>&3) || continue
             [[ -z "$FILE" ]] && { warn "No file entered."; pause; continue; }
@@ -461,8 +599,8 @@ menu_rag() {
 
 menu_knowledge_base() {
     while true; do
-        CHOICE=$(whiptail --title "Kaiacord Tools — Knowledge Base" --menu \
-            "Choose an operation:" "$(menu_height 10)" "$(menu_width 66)" 10 \
+        CHOICE=$(ui_dialog --title "Kaiacord Tools — Knowledge Base" --menu \
+            "Choose an operation:" "$(menu_height 11)" "$(menu_width 66)" 11 \
             "1" "Scan KB for issues  (corrupted files, bad nodes)" \
             "2" "Clean OCR artifacts  (fix encoding issues in books/docs)" \
             "3" "Sanitize user logs  (strip internal runtime tags from logs)" \
@@ -473,6 +611,7 @@ menu_knowledge_base() {
             "8" "Delete logs for specific date  (targeted contamination removal)" \
             "9" "Scrape P99 Wiki  (crawls verified wiki articles to KB)" \
             "10" "Run Support Synthesis  (compile all tech support forum threads)" \
+            "11" "Backfill P99 Off-Topic  (lets Kaia start posting there sooner)" \
             "b" "← Back" \
             3>&1 1>&2 2>&3) || return
 
@@ -481,7 +620,7 @@ menu_knowledge_base() {
             run_tool "Scan Knowledge Base" tools/diagnostics/scan_knowledge_base.py
             ;;
         2)
-            DIR=$(whiptail --title "Clean OCR Artifacts" \
+            DIR=$(ui_dialog --title "Clean OCR Artifacts" \
                 --inputbox "Directory to clean (default: knowledge_base):" \
                 8 60 "knowledge_base" 3>&1 1>&2 2>&3) || continue
             [[ -z "$DIR" ]] && DIR="knowledge_base"
@@ -509,7 +648,7 @@ menu_knowledge_base() {
             run_tool "Find Contamination (scan only)" tools/maintenance/clean_hallucinations.py --dry-run
             ;;
         8)
-            DATE=$(whiptail --title "Delete Logs by Date" \
+            DATE=$(ui_dialog --title "Delete Logs by Date" \
                 --inputbox "Enter date to purge (YYYYMMDD format):\n(e.g. $(date '+%Y%m%d') for today)" \
                 9 55 "$(date '+%Y%m%d')" 3>&1 1>&2 2>&3) || continue
             [[ -z "$DATE" ]] && { warn "No date entered."; pause; continue; }
@@ -533,6 +672,17 @@ menu_knowledge_base() {
         10)
             run_tool "Forum Technical Support Synthesis" tools/social/synthesize_technical_knowledge.py
             ;;
+        11)
+            # Kaia will not post to a forum she has not been reading. The
+            # periodic scrape fills that corpus at five threads per half hour,
+            # so from empty it is about a day; this clears it in one run.
+            PAGES=$(ui_dialog --title "Backfill P99 Off-Topic" \
+                --inputbox "Listing pages to walk (more = longer, gentler on their server if you keep it low):" \
+                9 66 "4" 3>&1 1>&2 2>&3) || continue
+            [[ -z "$PAGES" ]] && PAGES="4"
+            run_tool "Backfill Off-Topic Corpus" tools/maintenance/backfill_forum_corpus.py \
+                --pages "$PAGES"
+            ;;
         b|B) return ;;
         esac
     done
@@ -549,9 +699,9 @@ menu_documents() {
         local errors
         errors=$(find knowledge_base/_ingress -maxdepth 1 -name "*.error" 2>/dev/null | wc -l)
 
-        CHOICE=$(whiptail --title "Kaiacord Tools — Documents & Ingestion" --menu \
+        CHOICE=$(ui_dialog --title "Kaiacord Tools — Documents & Ingestion" --menu \
             "Staged from !download: ${staged}   Failed: ${errors}\n\nChoose an operation:" \
-            "$(menu_height 8)" "$(menu_width 62)" 8 \
+            "$(menu_height 9)" "$(menu_width 62)" 9 \
             "1" "Process ingress now  (clean + file staged !download docs)" \
             "2" "Preview ingress  (dry run, nothing written)" \
             "3" "Convert ebook/PDF to KB markdown  (epub, pdf, txt, html)" \
@@ -559,6 +709,7 @@ menu_documents() {
             "5" "Enrich metadata  (frontmatter for logs & forum posts)" \
             "6" "List staged documents" \
             "7" "Clear failed ingress markers" \
+            "8" "Fetch a YouTube transcript  (paste a video url)" \
             "b" "← Back" \
             3>&1 1>&2 2>&3) || return
 
@@ -570,12 +721,12 @@ menu_documents() {
             run_tool "Preview Ingress" tools/maintenance/process_ingress.py --dry-run
             ;;
         3)
-            SRC=$(whiptail --title "Convert to KB Markdown" \
+            SRC=$(ui_dialog --title "Convert to KB Markdown" \
                 --inputbox "Path to an .epub / .pdf / .txt / .html file, or a directory:\n\n(tab completion is not available here — paste a full path)" \
                 12 72 "$HOME/" 3>&1 1>&2 2>&3) || continue
             [[ -z "$SRC" ]] && { warn "Nothing entered."; pause; continue; }
             if [[ ! -e "$SRC" ]]; then warn "Not found: $SRC"; pause; continue; fi
-            DEST=$(whiptail --title "Convert to KB Markdown" \
+            DEST=$(ui_dialog --title "Convert to KB Markdown" \
                 --inputbox "Destination folder under knowledge_base/:" \
                 9 60 "books" 3>&1 1>&2 2>&3) || continue
             [[ -z "$DEST" ]] && DEST="books"
@@ -618,6 +769,16 @@ menu_documents() {
             fi
             pause
             ;;
+        8)
+            URL=$(ui_dialog --title "YouTube Transcript" \
+                --inputbox "Paste a YouTube video URL.\n\nThe transcript is converted to knowledge-base markdown and staged in _ingress." \
+                12 72 "" 3>&1 1>&2 2>&3) || continue
+            [[ -z "$URL" ]] && { warn "Nothing entered."; pause; continue; }
+            run_tool "YouTube Transcript" tools/maintenance/youtube_to_kb_md.py "$URL" \
+                --outdir knowledge_base/_ingress
+            info "Run 'Process ingress now' to file it, or wait for the hourly pass."
+            pause
+            ;;
         7)
             if (( errors == 0 )); then
                 info "No failed markers to clear."
@@ -635,7 +796,7 @@ menu_documents() {
 
 menu_news() {
     while true; do
-        CHOICE=$(whiptail --title "Kaiacord Tools — News" --menu \
+        CHOICE=$(ui_dialog --title "Kaiacord Tools — News" --menu \
             "Choose an operation:" "$(menu_height 4)" "$(menu_width 66)" 4 \
             "1" "Update today's news  (requires GEMINI_API_KEY)" \
             "2" "Update with backfill  (fill missing days, uses more API quota)" \
@@ -658,7 +819,7 @@ menu_news() {
 
 menu_recovery() {
     while true; do
-        CHOICE=$(whiptail --title "Kaiacord Tools — Recovery  (!)" --menu \
+        CHOICE=$(ui_dialog --title "Kaiacord Tools — Recovery  (!)" --menu \
             "WARNING: These tools modify or delete data.\n\nChoose an operation:" \
             "$(menu_height 5)" "$(menu_width 66)" 5 \
             "1" "Find contamination  (scan only, no changes)" \
@@ -677,8 +838,8 @@ menu_recovery() {
             run_tool "Surgical Fix (dry-run)" tools/maintenance/clean_hallucinations.py --dry-run
             ;;
         3)
-            if confirm "Apply surgical hallucination fix?\n\nFiles are modified in-place. Run dry-run first to preview."; then
-                run_tool "Surgical Fix (APPLY)" tools/maintenance/clean_hallucinations.py
+            if confirm "Apply surgical hallucination fix?\n\nRemoves matching lines from Kaia's own log entries only.\nUser-authored lines are never touched. A .bak is written first.\nRun the dry-run first to preview."; then
+                run_tool "Surgical Fix (APPLY)" tools/maintenance/clean_hallucinations.py --apply
             fi
             ;;
         4)
@@ -724,7 +885,7 @@ menu_recovery() {
 
 main_menu() {
     while true; do
-        CHOICE=$(whiptail --title "Kaiacord Maintenance Tools" \
+        CHOICE=$(ui_dialog --title "Kaiacord Maintenance Tools" \
             --menu "$(status_line)$(ingress_hint)\n\nWhat do you need?" \
             "$(menu_height 8)" "$(menu_width 58)" 8 \
             "1" "System & Bot Control  (start/stop/restart, logs, memory)" \
@@ -751,19 +912,24 @@ main_menu() {
 }
 
 # ── Dependency check ──────────────────────────────────────────────────────────
-if ! command -v whiptail &>/dev/null; then
-    fail "whiptail is required but not installed."
+# Either renderer will do. fzf is preferred and whiptail is the fallback, so the
+# tool only fails when neither is present — it used to hard-require whiptail
+# even on a machine that had something better.
+if ! command -v fzf &>/dev/null && ! command -v whiptail &>/dev/null; then
+    fail "This needs either fzf (preferred) or whiptail."
     # The package name differs per distro, and the previous message only ever
     # gave the Debian one.
-    if   command -v pacman  &>/dev/null; then info "Install it with:  sudo pacman -S libnewt"
-    elif command -v apt-get &>/dev/null; then info "Install it with:  sudo apt install whiptail"
-    elif command -v dnf     &>/dev/null; then info "Install it with:  sudo dnf install newt"
-    elif command -v zypper  &>/dev/null; then info "Install it with:  sudo zypper install newt"
-    else info "Install the 'newt' / 'whiptail' package for your distribution."
+    if   command -v pacman  &>/dev/null; then info "Install it with:  sudo pacman -S fzf     (or libnewt)"
+    elif command -v apt-get &>/dev/null; then info "Install it with:  sudo apt install fzf   (or whiptail)"
+    elif command -v dnf     &>/dev/null; then info "Install it with:  sudo dnf install fzf   (or newt)"
+    elif command -v zypper  &>/dev/null; then info "Install it with:  sudo zypper install fzf (or newt)"
+    else info "Install fzf, or the 'newt' / 'whiptail' package for your distribution."
     fi
     exit 1
 fi
 
+clear
+ui_banner
 main_menu
 clear
 echo "bye."

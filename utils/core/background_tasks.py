@@ -14,6 +14,11 @@ from utils.infrastructure.system.bot_state import bot_state
 from utils.infrastructure.system.yaml_config import config
 from utils.infrastructure.system.shutdown_fixed import shutdown_manager
 
+# Kept as a re-export: the text is policy, and lives with the rest of the
+# forum participation rules rather than in the task scheduler.
+from utils.social.forum_participation import FORUM_POST_GUIDANCE  # noqa: F401
+
+
 class CoreTaskManager:
     """Manager for core background loops with dependency injection and error handling."""
     def __init__(self, ctx):
@@ -841,13 +846,39 @@ class CoreTaskManager:
         return noon_raid_task
 
     def _make_forum_auto_post_task(self):
-        @tasks.loop(hours=2)
+        # Polls hourly; the posting window and the durable ledger decide whether
+        # anything actually happens. The previous 2-hour loop ran around the
+        # clock, which is one of the things that reads as automation.
+        @tasks.loop(hours=1)
         async def forum_auto_post_task():
             if shutdown_manager.shutting_down: return
             if not self.ctx or not self.ctx.bot: return
-            
+
             # Guard: skip if forum posting is disabled in config
             if not config.get('forum.enabled', False): return
+
+            from utils.social.forum_participation import (
+                PostLedger, PostingWindow, load_interest_terms, rank_threads,
+            )
+
+            # ── When ──────────────────────────────────────────────────
+            window = PostingWindow(
+                int(config.get('forum.post_window_start_hour', 0)),
+                int(config.get('forum.post_window_end_hour', 4)),
+            )
+            if not window.contains():
+                log_debug(f"Forum: outside posting window ({window.describe()}).")
+                return
+
+            # ── How often ─────────────────────────────────────────────
+            ledger = PostLedger()
+            allowed, why = ledger.may_post(
+                max_per_day=int(config.get('forum.max_posts_per_day', 2)),
+                min_hours_between=float(config.get('forum.min_hours_between_posts', 4)),
+            )
+            if not allowed:
+                log_debug(f"Forum: holding — {why}.")
+                return
 
             # Guard: skip if actively generating or dreaming
             if getattr(self.ctx.bot_state, 'is_generating', False): return
@@ -855,33 +886,20 @@ class CoreTaskManager:
             if not getattr(self.ctx.bot_state, 'boot_complete', False): return
 
             try:
+                # Persona loading, prompt assembly, GPU scheduling and the
+                # filter stack all live in the pipeline now — this task only
+                # decides *whether* and *where*, then asks for a draft.
                 from utils.social.kaia_forum import get_forum_client, ForumDraftReviewView
-                from utils.social.kaia_social_responder import load_persona_async
-                from utils.infrastructure.gpu.gpu_memory_manager import gpu_memory_manager, GPUTaskPriority
                 import discord
-                import secrets
-                import uuid
-                from pathlib import Path
 
-                # ── Knowledge Gathering Phase Guard ──
-                # Ensure we have enough forum thread database and deep-scraped active user context
-                forum_posts_dir = Path("./knowledge_base/forum_posts")
-                user_logs_dir = Path("./knowledge_base/user_logs")
-                
-                thread_count = len(list(forum_posts_dir.glob("thread_*.md"))) if forum_posts_dir.exists() else 0
-                user_count = len([d for d in user_logs_dir.iterdir() if d.is_dir() and d.name.startswith("forum_")]) if user_logs_dir.exists() else 0
-                
-                # Require at least 15 threads and 25 users to proceed out of initial gathering phase
-                MIN_THREADS = 15
-                MIN_USERS = 25
-                
-                if thread_count < MIN_THREADS or user_count < MIN_USERS:
-                    log_debug(
-                        f"Forum auto-post deferred: knowledge base is in early gathering phase "
-                        f"({thread_count}/{MIN_THREADS} threads, {user_count}/{MIN_USERS} users scraped)."
-                    )
+                # Lurk before posting. This is reported at info level because
+                # it is the one reason the operator can enable forum posting
+                # and correctly see nothing happen for a day.
+                from utils.social.forum_participation import lurk_progress
+                ready, detail = lurk_progress()
+                if not ready:
+                    log_info(f"Forum: still reading before posting — {detail}.")
                     return
-                # ─────────────────────────────────────
 
                 client = await get_forum_client()
                 if not client or not client._logged_in:
@@ -900,22 +918,67 @@ class CoreTaskManager:
                     return
                 log_info(f"Scraped {len(page_threads)} active threads from Project 1999 Off-Topic (Forum 19)")
 
-                # Exclude stickies and threads where Kaia was the last poster
+                # Exclude stickies, threads where Kaia posted last, and any
+                # thread she has interjected into recently. This is the opener
+                # path, so the cooldown applies; a thread where someone has
+                # since replied to her is handled by the reply watcher instead,
+                # which is not cooldown-gated. The old filter only skipped
+                # threads where she happened to be the *last* poster.
+                thread_cooldown = float(config.get('forum.thread_cooldown_hours', 72))
                 candidates = [
-                    t for t in page_threads 
-                    if not t.is_sticky and t.last_poster.lower() != username.lower()
+                    t for t in page_threads
+                    if not t.is_sticky
+                    and t.last_poster.lower() != username.lower()
+                    and ledger.thread_is_cool(t.thread_id, thread_cooldown)
                 ]
-
                 if not candidates:
-                    log_info("No suitable active threads found where Kaia was not the last poster.")
+                    log_info("Forum: no eligible threads (all sticky, hers, or on cooldown).")
                     return
 
-                # Choose one of the top non-sticky active threads (up to 8)
-                chosen_thread = candidates[secrets.randbelow(min(len(candidates), 8))]
+                # Rank by how much the thread matches what she actually holds
+                # opinions about, rather than picking at random from the front
+                # page. Returning nothing is a valid outcome: if none of it is
+                # interesting, a person posts nothing.
+                interest = load_interest_terms()
+                previews = {}
+
+                async def _preview(t):
+                    if t.thread_id not in previews:
+                        try:
+                            data = await client.scrape_thread(t.thread_id, last_n_posts=4)
+                            previews[t.thread_id] = " ".join(
+                                (p if isinstance(p, dict) else p.to_dict()).get("content", "")
+                                for p in data.get("posts", [])
+                            )
+                        except Exception:
+                            previews[t.thread_id] = ""
+                    return previews[t.thread_id]
+
+                # Preview only the top few by reply activity, to bound scraping.
+                shortlist = candidates[:6]
+                for t in shortlist:
+                    await _preview(t)
+
+                # Her names count for more than her topics here: interest is
+                # built from her beliefs and anchors, so a thread *about* the
+                # bot can score near zero on subject matter while being the
+                # clearest case of all where a reply is wanted.
+                names = tuple(dict.fromkeys(
+                    n for n in (username, "kaia",
+                                *(config.get('forum.also_known_as', []) or [])) if n))
+                ranked = rank_threads(
+                    shortlist, interest, lambda t: previews.get(t.thread_id, ""),
+                    minimum=float(config.get('forum.min_interest_score', 2.0)),
+                    names=names,
+                )
+                if not ranked:
+                    log_info("Forum: nothing on the front page is in her wheelhouse tonight.")
+                    return
+
+                score, reason, chosen_thread = ranked[0]
                 thread_id = chosen_thread.thread_id
                 title = chosen_thread.title
-
-                log_info(f"Selected thread '{title}' (ID: {thread_id}) for auto-posting.")
+                log_info(f"Forum: selected '{title}' (id={thread_id}, score={score:.1f}) — {reason}")
 
                 # Scrape last 10 posts to establish context
                 thread_data = await client.scrape_thread(thread_id, last_n_posts=10)
@@ -924,119 +987,29 @@ class CoreTaskManager:
                     log_warning(f"Could not fetch posts for thread {thread_id}, skipping auto-post.")
                     return
 
-                # Determine if we should reply directly or quote a user
-                # 40% chance of quoting, 60% chance of direct reply
-                should_quote = secrets.randbelow(100) < 40
-                
-                # Try to find the most recent post by another user
-                other_posts = [
-                    p for p in posts 
-                    if (p.author if hasattr(p, 'author') else p.get('author', '')).lower() != username.lower()
-                ]
-
-                quote_post = None
-                if should_quote and other_posts:
-                    quote_post = other_posts[-1]  # Take the last post by another user
-
-                # Format thread context for LLM
-                thread_summary = []
-                for p in posts:
-                    p_dict = p if isinstance(p, dict) else p.to_dict()
-                    p_author = p_dict.get('author', 'Unknown')
-                    p_content = p_dict.get('content', '')
-                    p_num = p_dict.get('post_number', '?')
-                    thread_summary.append(f"#{p_num} {p_author}: {p_content}")
-
-                context_text = "\n---\n".join(thread_summary)
-                if len(context_text) > 5000:
-                    context_text = "...\n" + context_text[-5000:]
-
-                # Load Kaia's persona
-                persona = await load_persona_async()
-
-                # Build prompts — instructions go in system prompt, user message
-                # is natural conversation content (mirrors Discord pipeline)
-                if quote_post:
-                    qp_dict = quote_post if isinstance(quote_post, dict) else quote_post.to_dict()
-                    quote_author = qp_dict.get('author', 'Unknown')
-                    quote_content = qp_dict.get('content', '')
-                    quote_id = qp_dict.get('post_id')
-
-                    forum_system = (
-                        f"{persona}\n\n"
-                        f"--- FORUM CONTEXT ---\n"
-                        f"You are currently browsing the Project 1999 Off Topic forum.\n"
-                        f"Thread: \"{title}\"\n"
-                        f"Recent posts:\n{context_text}\n"
-                        f"---\n"
-                        f"You are replying to {quote_author}'s post. Respond naturally and conversationally — "
-                        f"be yourself. Do not output BBCode [QUOTE] tags; they are added automatically."
-                    )
-                    # User message is the post being replied to — natural conversation
-                    user_msg = f"{quote_author}: {quote_content}"
-                else:
-                    # Extract last post author/content for natural user message
-                    last_post = posts[-1] if posts else None
-                    if last_post:
-                        lp_dict = last_post if isinstance(last_post, dict) else last_post.to_dict()
-                        last_author = lp_dict.get('author', 'Someone')
-                        last_content = lp_dict.get('content', '')
-                        user_msg = f"{last_author}: {last_content}"
-                    else:
-                        user_msg = f"Thread: {title}"
-
-                    forum_system = (
-                        f"{persona}\n\n"
-                        f"--- FORUM CONTEXT ---\n"
-                        f"You are currently browsing the Project 1999 Off Topic forum.\n"
-                        f"Thread: \"{title}\"\n"
-                        f"Recent posts:\n{context_text}\n"
-                        f"---\n"
-                        f"Contribute to this thread naturally and conversationally — be yourself."
-                    )
-
-                # Call LLM
-                response = await gpu_memory_manager.run_with_gpu_guard(
-                    model_name=config.chat_model,
-                    priority=GPUTaskPriority.CHAT,
-                    coro=asyncio.wait_for(
-                        self.ctx.ollama_client.chat(
-                            model=config.chat_model,
-                            messages=[
-                                {"role": "system", "content": forum_system},
-                                {"role": "user", "content": user_msg}
-                            ],
-                            options={"temperature": 0.8, "num_ctx": config.max_context_tokens, "num_gpu": 99},
-                            keep_alive=-1
-                        ),
-                        timeout=120.0
-                    ),
-                    task_id=f"forum_auto_post_{uuid.uuid4().hex[:8]}"
-                )
-
-                ai_reply = response['message']['content'].strip()
-
-                # Apply safety filters: Hallucination, Contamination, and BotSpeak
-                from utils.core.hallucination_detector import HallucinationDetector
-                from utils.core.response_filter import EmergencyContaminationFilter, BotSpeakFilter
-                ai_reply = HallucinationDetector.clean_response(ai_reply)
-                ai_reply = EmergencyContaminationFilter.filter_response(ai_reply)
-                ai_reply = BotSpeakFilter.harden(ai_reply)
-
-                if not ai_reply:
-                    log_warning("Failed to generate a coherent reply draft, skipping.")
+                # One pipeline. This used to assemble its own persona +
+                # thread-context prompt and call ollama directly at a fixed
+                # temperature, which is exactly why her forum voice drifted
+                # from her Discord voice — that path had no RAG and no memory.
+                from utils.social.forum_drafting import draft_forum_reply
+                draft = await draft_forum_reply(
+                    self.ctx, thread_id=thread_id, title=title, posts=posts)
+                if not draft:
                     return
 
-                # Format final post message with quote if applicable
+                quote_post = draft['quote']
                 if quote_post:
-                    qp_dict = quote_post if isinstance(quote_post, dict) else quote_post.to_dict()
-                    quote_author = qp_dict.get('author', 'Unknown')
-                    quote_content = qp_dict.get('content', '')
-                    quote_id = qp_dict.get('post_id')
-                    formatted_quote = client.format_quote(quote_author, quote_id, quote_content)
-                    final_reply = formatted_quote + ai_reply
+                    # own_words strips anything that post was itself quoting —
+                    # otherwise her quote box reproduces a third party's text
+                    # under the wrong name.
+                    from utils.social.forum_drafting import own_words
+                    final_reply = client.format_quote(
+                        quote_post.get('author', 'Unknown'),
+                        quote_post.get('post_id'),
+                        own_words(quote_post.get('content', '')),
+                    ) + draft['text']
                 else:
-                    final_reply = ai_reply
+                    final_reply = draft['text']
 
                 # Deliver draft to #kaia-opolis Discord channel for review
                 channel = discord.utils.get(self.ctx.bot.get_all_channels(), name="kaia-opolis")
@@ -1071,7 +1044,11 @@ class CoreTaskManager:
                     )
 
                 # Instantiate interactive review view
-                view = ForumDraftReviewView(client, thread_id, title, final_reply, forum_type="off_topic")
+                from utils.social.forum_participation import INITIATION
+                newest = (posts[-1] if isinstance(posts[-1], dict) else posts[-1].to_dict()).get('post_id')
+                view = ForumDraftReviewView(client, thread_id, title, final_reply,
+                                            forum_type="off_topic", kind=INITIATION,
+                                            last_seen_post_id=newest)
                 await channel.send(review_msg, view=view)
                 log_success(f"Dispatched forum post draft for '{title}' to #kaia-opolis for review.")
                 
@@ -1106,8 +1083,12 @@ class CoreTaskManager:
             if shutdown_manager.shutting_down: return
             if not self.ctx or not self.ctx.bot: return
             
-            # Guard: skip if forum posting is disabled in config
+            # Two switches, not one. Unsolicited technical answers are a
+            # separate promise from joining an Off-Topic conversation, and the
+            # technical flow is off until its grounding is fixed — see
+            # forum.tech_support_enabled in default_config.yaml.
             if not config.get('forum.enabled', False): return
+            if not config.get('forum.tech_support_enabled', False): return
 
             # Guard: skip if actively generating or dreaming
             if getattr(self.ctx.bot_state, 'is_generating', False): return
@@ -1118,27 +1099,15 @@ class CoreTaskManager:
                 from utils.social.kaia_forum import get_forum_client, ForumDraftReviewView
                 from utils.social.kaia_social_responder import load_persona_async
                 from utils.infrastructure.gpu.gpu_memory_manager import gpu_memory_manager, GPUTaskPriority
+                from utils.social.forum_participation import lurk_progress
                 import discord
                 import secrets
                 import uuid
                 from pathlib import Path
 
-                # ── Knowledge Gathering Phase Guard ──
-                # Ensure we have enough forum thread database and deep-scraped active user context
-                forum_posts_dir = Path("./knowledge_base/forum_posts")
-                user_logs_dir = Path("./knowledge_base/user_logs")
-                
-                thread_count = len(list(forum_posts_dir.glob("thread_*.md"))) if forum_posts_dir.exists() else 0
-                user_count = len([d for d in user_logs_dir.iterdir() if d.is_dir() and d.name.startswith("forum_")]) if user_logs_dir.exists() else 0
-                
-                MIN_THREADS = 15
-                MIN_USERS = 25
-                
-                if thread_count < MIN_THREADS or user_count < MIN_USERS:
-                    log_debug(
-                        f"Forum tech support deferred: knowledge base is in early gathering phase "
-                        f"({thread_count}/{MIN_THREADS} threads, {user_count}/{MIN_USERS} users scraped)."
-                    )
+                ready, detail = lurk_progress()
+                if not ready:
+                    log_debug(f"Forum tech support deferred: still reading ({detail}).")
                     return
                 # ─────────────────────────────────────
 

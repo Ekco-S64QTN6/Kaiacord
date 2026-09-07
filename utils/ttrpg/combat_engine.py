@@ -475,7 +475,10 @@ def _resolve_combat(sheet: dict, monster: dict, atk_mod_global: int = 0, def_mod
             exchanges.append(f"   → {monster_dmg_breakdown}")
             exchanges.append(f"   Your HP: {sheet['hp']['current'] + monster_damage} → **{sheet['hp']['current']}/{sheet['hp']['max']}**")
         else:
-            exchanges.append(f"   Your HP: **{sheet['hp']['current']}/{sheet['hp']['max']}** (untouched)")
+            # "(untouched)" read as "at full health" — it was shown next to
+            # 77/141 in a bug report. It only ever meant the counter-attack
+            # missed this round.
+            exchanges.append(f"   Your HP: **{sheet['hp']['current']}/{sheet['hp']['max']}** (no damage taken)")
     else:
         exchanges.append(f"   {monster['name']} HP: **0** 💀")
         if is_duel:

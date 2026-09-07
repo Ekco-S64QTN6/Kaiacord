@@ -12,6 +12,7 @@ All commands are prefixed with `!`. Admin commands are restricted to the project
 | `!help` | Display interactive command and feature guide | All |
 | `!news [category]` | Fetch news by category | All |
 | `!download <url>` | Submit a URL for the knowledge base (staged, filed hourly) | All |
+| `!youtube <url>` | Pull a video's transcript into the knowledge base (`!yt`) | All |
 | `!quip` | Trigger a social media quip (10m cooldown) | All |
 | `!flag <reason>` | Flag the previous message for audit/review | Admin |
 | `!forum [cmd]` | VBulletin forum management | Mixed |
@@ -70,6 +71,19 @@ knowledge-base folder, and triggers a single reindex for the batch.
 That staging step is what lets the command stay open to everyone: unvetted web content
 cannot reach retrieval, where it would be presented as grounded fact. A document that
 fails processing stays in `_ingress/` with a `.error` sidecar rather than being dropped.
+
+### 🎬 YouTube (`!youtube <url>`, `!yt`)
+Fetches a video's transcript — uploader captions where available, machine-generated
+otherwise — and converts it to knowledge-base Markdown: frontmatter, prose paragraphs,
+and a timestamp anchor every five minutes so a retrieved passage can be cited back to a
+point in the video.
+
+Like `!download`, the result is **staged** in `knowledge_base/_ingress/` and filed into
+`knowledge_base/transcripts/` on the hourly ingest pass. Accepts every URL form
+(`watch?v=`, `youtu.be/`, `/shorts/`, `/live/`, with or without extra parameters).
+
+Videos with captions disabled will fail with a message saying so; there is nothing to
+fetch in that case.
 
 ### 📢 Quip (`!quip`)
 Triggers a social media quip — a short post cross-posted to Bluesky and/or X, grounded in Kaia's recent conversation history. 10-minute cooldown for non-owners.

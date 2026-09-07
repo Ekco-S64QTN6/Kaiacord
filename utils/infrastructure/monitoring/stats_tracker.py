@@ -1,3 +1,4 @@
+from utils.infrastructure.monitoring.telemetry_paths import telemetry_path
 import threading
 import time
 import json
@@ -33,7 +34,7 @@ class StatsTracker:
     def load_stats(self):
         """Load saved stats from disk"""
         try:
-            stats_file = "./memory/stats.json"
+            stats_file = telemetry_path("memory/stats.json")
             if os.path.exists(stats_file):
                 with open(stats_file, 'r') as f:
                     saved_stats = json.load(f)
@@ -51,7 +52,7 @@ class StatsTracker:
         """Save stats to disk"""
         try:
             os.makedirs("./memory", exist_ok=True)
-            stats_file = "./memory/stats.json"
+            stats_file = telemetry_path("memory/stats.json")
             
             with self.lock:
                 save_data = {

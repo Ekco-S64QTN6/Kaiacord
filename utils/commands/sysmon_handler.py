@@ -280,10 +280,19 @@ async def handle_sysmon_command(ctx, msg, send_kaia_response):
     approved = t_stats.get('forum_approved', 0)
     rejected = t_stats.get('forum_rejected', 0)
 
+    # Say when the subsystem is off. These counters sat at 39/6/22 for four
+    # months after `forum.enabled` was set false, displayed as if current.
+    try:
+        from utils.infrastructure.system.yaml_config import config as _cfg
+        forum_on = bool(_cfg.get('forum.enabled', False))
+    except Exception:
+        forum_on = False
+
     forum_str = (
         f"• **Drafts:** `{drafts}`\n"
         f"• **Approved:** `{approved}`\n"
         f"• **Rejected:** `{rejected}`"
+        + ("" if forum_on else "\n*(forum integration disabled)*")
     )
 
     bot_cog_value = (

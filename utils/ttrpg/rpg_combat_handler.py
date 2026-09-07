@@ -1,6 +1,7 @@
 PENDING_DUELS = {}
 
 from utils.ttrpg.narration import finish_cleanly
+from utils.ttrpg.session_manager import serialize_combat_action
 import asyncio
 import time
 import uuid as _uuid
@@ -50,6 +51,9 @@ class _InteractionMsg:
 
 from utils.ttrpg.rpg_views import *
 
+# Same load / resolve / await / save shape as the overworld handlers,
+# reached from the dungeon view's Attack button — so the same race.
+@serialize_combat_action
 async def _dungeon_combat_round(ctx_obj, interaction, uid, uname, is_owner):
     from utils.ttrpg.dungeon import _key
     from utils.ttrpg.combat_engine import _resolve_combat
@@ -833,6 +837,7 @@ async def _handle_hunt(ctx, msg, send, rest, uid, uname, is_owner):
     await msg.channel.send(embed=embed, view=combat_view)
 
 
+@serialize_combat_action
 async def _handle_attack(ctx, msg, send, rest, uid, uname, is_owner):
     from utils.ttrpg.combat_engine import _resolve_combat
     from utils.ttrpg.rpg_prompt_builder import build_combat_prompt
@@ -1232,6 +1237,7 @@ async def _handle_attack(ctx, msg, send, rest, uid, uname, is_owner):
                 await msg.channel.send(view=view)
 
 
+@serialize_combat_action
 async def _handle_flee(ctx, msg, send, rest, uid, uname, is_owner):
 
     s = await load_session(str(msg.channel.id))

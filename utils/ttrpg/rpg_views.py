@@ -1,3 +1,4 @@
+from utils.ttrpg.session_manager import serialize_combat_action
 from utils.ttrpg.narration import finish_cleanly
 import asyncio
 import time
@@ -2567,6 +2568,9 @@ async def _dungeon_move(ctx_obj, interaction, uid, uname, is_owner, direction):
     view = DungeonView(ctx_obj, uid, uname, is_owner, state)
     await interaction.followup.send(embed=embed, view=view)
 
+# Same load / resolve / await / save shape as the overworld handlers,
+# reached from the dungeon view's Attack button — so the same race.
+@serialize_combat_action
 async def _dungeon_combat_flee(ctx_obj, interaction, uid, uname, is_owner):
     sheet = await load(uid)
     if not sheet: return

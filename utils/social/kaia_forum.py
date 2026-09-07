@@ -1,4 +1,5 @@
 from __future__ import annotations
+from utils.infrastructure.monitoring.telemetry_paths import telemetry_path
 """
 Kaia VBulletin Forum Client
 ============================
@@ -21,7 +22,7 @@ import threading
 
 _moderation_log_lock = threading.Lock()
 from typing import Optional, List, Dict, Any
-from urllib.parse import urljoin, urlparse, parse_qs
+from urllib.parse import urljoin, urlparse, parse_qs, urlencode
 import discord
 
 from bs4 import BeautifulSoup
@@ -34,6 +35,38 @@ from utils.infrastructure.logging.kaia_logger import (
 
 _client: Optional["ForumClient"] = None
 _client_lock = asyncio.Lock()
+
+
+# The board serves and expects ISO-8859-1 (confirmed: Content-Type and the meta
+# tag both say so). aiohttp urlencodes form fields as UTF-8, so an em dash left
+# Kaia's first post reading "under the hoodâ€”it always feels" — the three UTF-8
+# bytes of U+2014 read back as three Latin-1 characters.
+#
+# Browsers posting to a legacy-charset form encode what they can in that
+# charset and escape the rest as numeric character references, which is why
+# other users' em dashes survive: vBulletin stores them as &#8212;. Doing the
+# same makes the whole class of problem go away rather than growing a list of
+# characters to replace one at a time.
+FORUM_CHARSET = "iso-8859-1"
+
+
+def encode_form(fields: Dict[str, str]) -> bytes:
+    """URL-encode form fields the way a browser would for this board."""
+    return urlencode(fields, encoding=FORUM_CHARSET,
+                     errors="xmlcharrefreplace").encode("ascii")
+
+
+FORM_HEADERS = {"Content-Type": f"application/x-www-form-urlencoded; charset={FORUM_CHARSET}"}
+
+
+def _is_synthesised_profile(path: Path) -> bool:
+    """True if this profile came from the LLM deep scrape rather than the
+    placeholder writer. The two share a filename but not a document_type."""
+    try:
+        return 'document_type: "User Personality Profile"' in path.read_text(
+            encoding="utf-8", errors="replace")[:400]
+    except OSError:
+        return False
 
 
 def is_forum_configured() -> bool:
@@ -121,7 +154,8 @@ class ForumClient:
         self._session: Optional[aiohttp.ClientSession] = None
         self._logged_in = False
         self._security_token: Optional[str] = None
-        self._post_log: List[datetime] = []  # Track post times for rate limiting
+        # Post history lives in memory/forum_post_ledger.json (durable across
+        # restarts); see utils/social/forum_participation.PostLedger.
 
         # Ensure storage directories exist
         self.KNOWLEDGE_DIR.mkdir(parents=True, exist_ok=True)
@@ -188,7 +222,8 @@ class ForumClient:
 
             async with session.post(
                 f"{self.base_url}/login.php?do=login",
-                data=login_data,
+                data=encode_form(login_data),
+                headers=FORM_HEADERS,
                 allow_redirects=True
             ) as resp:
                 if resp.status != 200:
@@ -513,11 +548,21 @@ class ForumClient:
 
     # ── Posting ─────────────────────────────────────────────────────────
 
-    def format_quote(self, author: str, post_id: int, content: str) -> str:
-        """Format a VBulletin-style quote block."""
-        return f"[QUOTE={author};{post_id}]{content}[/QUOTE]\n\n"
+    def format_quote(self, author: str, post_id: Optional[int], content: str) -> str:
+        """Format a vBulletin quote block — what Reply With Quote produces.
 
-    async def post_reply(self, thread_id: int, message: str) -> bool:
+        `[QUOTE=name;postid]` renders the "Originally Posted by" header with a
+        jump link back to the post. The post id can be missing if the scrape
+        failed to parse it, and `[QUOTE=name;None]` is not valid BBCode — vB
+        would show the literal text. The two-argument form is valid and just
+        loses the jump link, so fall back to it rather than emitting garbage.
+        """
+        author = (author or "").replace("]", "").replace(";", "").strip() or "Unknown"
+        head = f"{author};{post_id}" if post_id else author
+        return f"[QUOTE={head}]{content}[/QUOTE]\n\n"
+
+    async def post_reply(self, thread_id: int, message: str, *, title: str = "",
+                         kind: str = "", last_seen_post_id=None) -> bool:
         """Post a reply to a thread."""
         from utils.infrastructure.system.yaml_config import config
 
@@ -525,8 +570,9 @@ class ForumClient:
             log_error("Cannot post: not logged in")
             return False
 
-        # Rate limit check
-        if not self._check_rate_limit(config):
+        # Rate limit check — openers and replies have different budgets.
+        if not self._check_rate_limit(config, kind=kind, thread_id=thread_id,
+                                      newest_post_id=last_seen_post_id):
             log_warning("Forum post rate limit reached")
             return False
 
@@ -554,11 +600,15 @@ class ForumClient:
                     html = await resp.text()
                 self._security_token = self._extract_security_token(html)
 
-            # --- Encoding Safety ---
-            # VBulletin 3.x usually uses Latin-1/ISO-8859-1.
-            # Smart quotes and other UTF-8 special chars cause artifacts (â€™).
-            safe_message = message.replace('’', "'").replace('‘', "'").replace('“', '"').replace('”', '"')
-            safe_message = safe_message.replace('…', '...')
+            # Straight quotes and plain ellipses are a style choice for a
+            # plain-text forum, not an encoding workaround — encode_form()
+            # handles everything that cannot be represented in the board's
+            # charset. Keep this list short; do not grow it to paper over
+            # encoding bugs.
+            safe_message = (message
+                            .replace('\u2019', "'").replace('\u2018', "'")
+                            .replace('\u201c', '"').replace('\u201d', '"')
+                            .replace('\u2026', '...'))
 
             # POST the reply
             post_data = {
@@ -571,13 +621,14 @@ class ForumClient:
             }
 
             reply_url = f"{self.base_url}/newreply.php?do=postreply&t={thread_id}"
-            async with session.post(reply_url, data=post_data, allow_redirects=True) as resp:
+            async with session.post(reply_url, data=encode_form(post_data),
+                                    headers=FORM_HEADERS, allow_redirects=True) as resp:
                 if resp.status == 200:
                     response_html = await resp.text()
                     # Check for specific success indicator: The post-reply redirect or the specific thank-you message
                     # VBulletin 3 often shows a "Post Thanks" or just redirects back to the thread.
                     if 'Thank you for posting' in response_html or f'showthread.php?t={thread_id}' in str(resp.url):
-                        self._post_log.append(datetime.now())
+                        self._record_post(thread_id, title, kind, message, last_seen_post_id)
                         log_action(f"Forum post successful in thread {thread_id}")
                         return True
                     
@@ -592,11 +643,11 @@ class ForumClient:
                     
                     # Fallback: If we're on the showthread page, it worked.
                     if 'showthread.php' in str(resp.url):
-                        self._post_log.append(datetime.now())
+                        self._record_post(thread_id, title, kind, message, last_seen_post_id)
                         return True
 
                     log_warning(f"Ambiguous forum post result for thread {thread_id} - assuming success but check logs.")
-                    self._post_log.append(datetime.now())
+                    self._record_post(thread_id, title, kind, message, last_seen_post_id)
                     return True
                 else:
                     log_error(f"Forum post returned {resp.status}")
@@ -606,27 +657,53 @@ class ForumClient:
             log_error(f"Error posting to thread {thread_id}: {e}")
             return False
 
-    def _check_rate_limit(self, config) -> bool:
-        """Check if we're within posting rate limits."""
-        now = datetime.now()
-        min_hours = config.get('forum.min_hours_between_posts', 4)
-        max_per_day = config.get('forum.max_posts_per_day', 6)
+    @staticmethod
+    def _record_post(thread_id: int, title: str = "", kind: str = "",
+                     body: str = "", last_seen_post_id=None) -> None:
+        """Record a successful post in the durable ledger."""
+        try:
+            from utils.social.forum_participation import PostLedger, INITIATION
+            PostLedger().record(thread_id, title, kind=kind or INITIATION,
+                                body=body, last_seen_post_id=last_seen_post_id)
+        except Exception as e:
+            log_debug(f"Forum ledger record failed (non-fatal): {e}")
 
-        # Clean old entries
-        cutoff_24h = now - timedelta(hours=24)
-        self._post_log = [t for t in self._post_log if t > cutoff_24h]
+    def _check_rate_limit(self, config, kind: str = "", thread_id: int = 0,
+                          newest_post_id=None) -> bool:
+        """Check posting rate limits against the durable ledger.
 
-        # Check daily limit
-        if len(self._post_log) >= max_per_day:
+        The budget depends on which act this is. `may_post` governs *openers* —
+        walking into a stranger's thread — and applying it to replies would
+        have silenced her mid-conversation the moment the 2/day opener cap was
+        reached, contradicting the documented rule that answering someone who
+        answered her is not capped. Replies get `may_reply` instead: a short
+        interval, and something new must actually have been said.
+
+        The ledger itself is the durable part. This used to read
+        `self._post_log`, an in-memory list cleared by every restart, so the
+        daily cap held only within a single process lifetime.
+        """
+        try:
+            from utils.social.forum_participation import PostLedger, REPLY
+            ledger = PostLedger()
+            if kind == REPLY:
+                allowed, why = ledger.may_reply(
+                    thread_id, newest_post_id,
+                    min_minutes_between=float(
+                        config.get('forum.min_minutes_between_replies', 20)),
+                )
+            else:
+                allowed, why = ledger.may_post(
+                    max_per_day=int(config.get('forum.max_posts_per_day', 2)),
+                    min_hours_between=float(config.get('forum.min_hours_between_posts', 4)),
+                )
+            if not allowed:
+                log_info(f"Forum rate limit ({kind or 'opener'}): {why}")
+            return allowed
+        except Exception as e:
+            # Fail closed: if the ledger cannot be read, do not post.
+            log_warning(f"Forum rate-limit check failed, refusing to post: {e}")
             return False
-
-        # Check minimum interval
-        if self._post_log:
-            last_post = max(self._post_log)
-            if (now - last_post).total_seconds() < (min_hours * 3600):
-                return False
-
-        return True
 
     # ── Storage ─────────────────────────────────────────────────────────
 
@@ -1345,8 +1422,16 @@ class ForumClient:
                         log_info(f"Skipping {username} history — scraped within 4h")
                         continue
 
-                # NEW: Cooldown for profile scrape too (even if history doesn't exist)
-                if profile_path.exists():
+                # Cooldown for the profile scrape too (even if history doesn't
+                # exist). Two different writers produce user_profile.md:
+                # update_forum_user_profiles writes a placeholder from thread
+                # posts alone ("haven't formed a strong opinion yet"), and this
+                # method writes the real synthesised one. Testing existence
+                # alone let a placeholder written seconds earlier suppress the
+                # real scrape indefinitely — 142 users with stub profiles and
+                # zero post histories, which is not "read" by any useful
+                # definition. Only a real profile starts a cooldown.
+                if profile_path.exists() and _is_synthesised_profile(profile_path):
                     pmtime = datetime.fromtimestamp(profile_path.stat().st_mtime)
                     if (datetime.now() - pmtime).total_seconds() < 3600: # 1 hour
                         log_info(f"Skipping {username} profile — scraped within 1h")
@@ -1416,20 +1501,45 @@ class ForumClient:
     def get_status(self) -> Dict[str, Any]:
         """Get current forum client status."""
         from utils.infrastructure.system.yaml_config import config
-        now = datetime.now()
-        cutoff_24h = now - timedelta(hours=24)
-        recent_posts = [t for t in self._post_log if t > cutoff_24h]
+        # Read the same durable ledger the rate limit uses, or !forum status
+        # reports a different number than the limiter enforces.
+        window_desc, lurk_detail, lurk_ready = '?', 'unknown', False
+        try:
+            from utils.social.forum_participation import (
+                PostLedger, PostingWindow, lurk_progress,
+            )
+            recent_posts = PostLedger().posts_since(24)
+            window = PostingWindow(
+                int(config.get('forum.post_window_start_hour', 0)),
+                int(config.get('forum.post_window_end_hour', 4)),
+            )
+            window_desc = f"{window.describe()} ({'open' if window.contains() else 'closed'})"
+            lurk_ready, lurk_detail = lurk_progress()
+        except Exception as e:
+            log_warning(f"Forum status: could not read participation state: {e}")
+            recent_posts = []
+
+        # Ledger entries are dicts with a 'ts' float. An earlier version called
+        # max() on them directly, which raises TypeError on comparison — so
+        # !forum status would have worked until the first post was recorded and
+        # broken from then on, which is when it is actually consulted.
+        last_ts = max((p.get('ts', 0) for p in recent_posts), default=0)
 
         return {
             'logged_in': self._logged_in,
             'enabled': config.get('forum.enabled', False),
             'auto_reply': config.get('forum.auto_reply', False),
+            'tech_support': config.get('forum.tech_support_enabled', False),
             'base_url': self.base_url,
             'forum_id': self.forum_id,
             'posts_today': len(recent_posts),
-            'max_posts_per_day': config.get('forum.max_posts_per_day', 6),
+            'max_posts_per_day': config.get('forum.max_posts_per_day', 2),
             'min_hours_between_posts': config.get('forum.min_hours_between_posts', 4),
-            'last_post': max(recent_posts).isoformat() if recent_posts else 'never',
+            'last_post': (datetime.fromtimestamp(last_ts).isoformat(timespec='seconds')
+                          if last_ts else 'never'),
+            'window': window_desc,
+            'lurk_ready': lurk_ready,
+            'lurk_detail': lurk_detail,
         }
 
     async def get_global_stats(self) -> Dict[str, Any]:
@@ -1502,13 +1612,19 @@ class ForumClient:
 
 class ForumDraftReviewView(discord.ui.View):
     """Interactive Discord Moderation View for P99 Forum drafts."""
-    def __init__(self, client, thread_id, title, final_reply, forum_type="off_topic"):
+    def __init__(self, client, thread_id, title, final_reply, forum_type="off_topic",
+                 kind=None, last_seen_post_id=None):
         super().__init__(timeout=86400)  # 24-hour timeout
         self.client = client
         self.thread_id = thread_id
         self.title = title
         self.final_reply = final_reply
         self.forum_type = forum_type
+        # An opener counts against the daily cap; a reply to someone who spoke
+        # to her does not. See PostLedger.may_post.
+        from utils.social.forum_participation import INITIATION
+        self.kind = kind or INITIATION
+        self.last_seen_post_id = last_seen_post_id
 
     @discord.ui.button(label="✅ Accept & Post", style=discord.ButtonStyle.success)
     async def accept(self, interaction: discord.Interaction, button: discord.ui.Button):
@@ -1518,7 +1634,9 @@ class ForumDraftReviewView(discord.ui.View):
         for item in self.children:
             item.disabled = True
             
-        success = await self.client.post_reply(self.thread_id, self.final_reply)
+        success = await self.client.post_reply(
+            self.thread_id, self.final_reply, title=self.title, kind=self.kind,
+            last_seen_post_id=self.last_seen_post_id)
         
         if success:
             dest_name = "P99 TECHNICAL SUPPORT" if self.forum_type == "technical" else "P99 OFF-TOPIC"
@@ -1546,7 +1664,7 @@ class ForumDraftReviewView(discord.ui.View):
                 def _write_log():
                     os.makedirs('memory', exist_ok=True)
                     with _moderation_log_lock:
-                        with open('memory/forum_moderation_log.jsonl', 'a', encoding='utf-8') as f:
+                        with open(telemetry_path('memory/forum_moderation_log.jsonl'), 'a', encoding='utf-8') as f:
                             f.write(json.dumps(log_entry) + '\n')
                             f.flush()
                             try:
@@ -1563,6 +1681,10 @@ class ForumDraftReviewView(discord.ui.View):
                 stats_tracker.increment_forum_approved()
             except Exception:
                 pass
+
+            # No ledger write here: post_reply records every successful post
+            # itself. Doing it in both places counted each approved draft twice
+            # against the daily cap, halving it silently.
         else:
             dest_name = "P99 TECHNICAL SUPPORT" if self.forum_type == "technical" else "P99 OFF-TOPIC"
             await interaction.message.edit(
@@ -1602,7 +1724,7 @@ class ForumDraftReviewView(discord.ui.View):
             def _write_log():
                 os.makedirs('memory', exist_ok=True)
                 with _moderation_log_lock:
-                    with open('memory/forum_moderation_log.jsonl', 'a', encoding='utf-8') as f:
+                    with open(telemetry_path('memory/forum_moderation_log.jsonl'), 'a', encoding='utf-8') as f:
                         f.write(json.dumps(log_entry) + '\n')
                         f.flush()
                         try:

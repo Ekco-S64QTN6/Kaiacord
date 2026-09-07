@@ -125,10 +125,55 @@ def normalise(text: str) -> str:
     return text.strip()
 
 
+def _file_preformatted(md_path: Path, raw: str, meta: dict, dry_run: bool) -> tuple[bool, str]:
+    """Move an already-formatted document into place without touching its text.
+
+    Used by !youtube, whose converter emits the finished document. The only
+    change made here is appending the submitter, which the converter cannot
+    know.
+    """
+    folder = meta.get("folder") or DEFAULT_FOLDER
+    if folder not in ALLOWED_FOLDERS:
+        folder = DEFAULT_FOLDER
+
+    title = meta.get("title") or md_path.stem
+    dest_dir = KB / folder
+    dest = dest_dir / md_path.name
+    n = 2
+    while dest.exists():
+        dest = dest_dir / f"{md_path.stem} ({n}){md_path.suffix}"
+        n += 1
+
+    submitter = meta.get("submitted_by") or "unknown"
+    document = raw.rstrip() + f"\n\n---\n\n*Submitted by {submitter} via `!youtube`*\n"
+
+    if dry_run:
+        return True, f"would file as {dest.relative_to(KB)} (preformatted, {len(raw.split())} words)"
+
+    dest_dir.mkdir(parents=True, exist_ok=True)
+    tmp = dest.with_suffix(".tmp")
+    tmp.write_text(document, encoding="utf-8")
+    tmp.replace(dest)
+
+    md_path.unlink()
+    side = md_path.with_suffix(".meta.json")
+    if side.exists():
+        side.unlink()
+    return True, f"filed as {dest.relative_to(KB)} (preformatted, {len(raw.split())} words)"
+
+
 def process_one(md_path: Path, dry_run: bool = False) -> tuple[bool, str]:
     """Returns (ok, message)."""
     meta = load_sidecar(md_path)
     raw = md_path.read_text(encoding="utf-8", errors="replace")
+
+    # A preformatted document already carries knowledge-base frontmatter,
+    # headings and (for transcripts) timestamp anchors. Running the normaliser
+    # over it would reflow the paragraphs and destroy that structure, so it is
+    # filed as-is.
+    if meta.get("preformatted"):
+        return _file_preformatted(md_path, raw, meta, dry_run)
+
     body = normalise(strip_existing_frontmatter(raw))
 
     if len(body.split()) < 50:

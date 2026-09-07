@@ -1,3 +1,4 @@
+from utils.ttrpg.session_manager import serialize_combat_action
 from utils.ttrpg.narration import finish_cleanly
 import asyncio
 import time
@@ -1496,6 +1497,9 @@ async def _handle_unequip(ctx, msg, send, rest, uid, uname, is_owner):
     ))
 
 
+# Drinking a potion mid-fight is a combat action: it loads the sheet,
+# heals, and saves, in the same window an attack is resolving in.
+@serialize_combat_action
 async def _handle_use(ctx, msg, send, rest, uid, uname, is_owner):
     from utils.ttrpg.shop import find_item
     sheet = await load(uid)

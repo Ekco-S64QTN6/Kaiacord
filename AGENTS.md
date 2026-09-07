@@ -255,11 +255,13 @@ editing.
 - **Do not fabricate chapter headings.** Several books have no chapter markers in their text; a
   heading at a guessed position attaches a chapter name to the wrong passage and retrieves worse
   than no heading at all.
-- `knowledge_base/_ingress/` is a **staging area**, excluded from RAG indexing. `!download` writes
-  there with a `.meta.json` sidecar; `tools/maintenance/process_ingress.py` (hourly, and from
+- `knowledge_base/_ingress/` is a **staging area**, excluded from RAG indexing. `!download` and
+  `!youtube` write there with a `.meta.json` sidecar; `tools/maintenance/process_ingress.py` (hourly, and from
   `kaia-tools.sh` → Documents & Ingestion) normalises, adds frontmatter and provenance, and files
   each document into an allow-listed folder. Do not index `_ingress` — that exclusion is what
-  makes it safe for `!download` to be open to every user.
+  makes it safe for `!download` and `!youtube` to be open to every user.
+- A sidecar carrying `"preformatted": true` is filed **without normalisation**. `!youtube` emits
+  finished Markdown with timestamp anchors; running the reflow over it would destroy them.
 - Maintenance tools that write across the corpus must default to a dry run and require `--apply`.
   `enrich_kb_metadata.py` had no argument parsing at all, so probing it with `--help` rewrote
   frontmatter on 124 files.

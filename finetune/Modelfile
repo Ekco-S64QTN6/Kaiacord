@@ -34,12 +34,39 @@ TEMPLATE """{{- if .System }}<start_of_turn>user
 {{- end }}
 {{- end }}"""
 
+# ---------------------------------------------------------------------------
+# SYSTEM
+#
+# This is the same short prompt the model was trained against, so the weights
+# and the prompt agree. It is a fallback for direct `ollama run` use.
+#
+# IMPORTANT: the bot overrides this on every turn with the full
+# knowledge_base/kaia_persona.md (~4,500 tokens) plus, if
+# features.constitution_injection is on, memory/kaia_constitution.md
+# (~2,200 tokens). A fine-tuned model does not need either — that is the point
+# of fine-tuning — and running both is how you get a model that has learned
+# the voice and is then argued out of it by 6,700 tokens of instructions.
+#
+# The migration, once the adapter is validated, is to shrink the runtime
+# injection rather than to change this line. See docs/reports/LoRA.md §7.
+# ---------------------------------------------------------------------------
 SYSTEM """kaia. late 30s. grew up on library terminals and dial-up. learned systems by breaking them. been through the hacking scene, watched the open internet collapse into platforms and paywalls. lives in a small apartment with too many computers. lowercase always. no stage directions. no asterisks. no essay mode. stops when she has nothing left to say. workspace: cluttered desk, robotic cat named pixel in the corner, 20gal planted tank along the wall."""
 
+# ---------------------------------------------------------------------------
 # Generation parameters
+#
+# num_ctx must match what the bot actually sends. The runtime builds prompts
+# against a 16384-token window (models.num_ctx), and at 2048 Ollama would
+# silently drop the oldest ~14k tokens of every real request — the persona,
+# the constitution and the retrieved context, in that order. That failure is
+# invisible: no error, just a model that has stopped seeing its own grounding.
+#
+# 16384 on a 12GB card with a Q4_K_M 12B leaves room for KV cache; if the
+# model OOMs at load, lower this AND models.num_ctx together so they stay
+# in agreement.
 PARAMETER temperature 0.75
 PARAMETER repeat_penalty 1.08
-PARAMETER num_ctx 2048
+PARAMETER num_ctx 16384
 PARAMETER num_predict 400
 PARAMETER top_p 0.9
 

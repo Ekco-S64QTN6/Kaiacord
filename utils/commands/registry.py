@@ -20,6 +20,7 @@ from utils.commands.enrich_handler import handle_enrich_command
 from utils.commands.explain_handler import handle_explain_command
 from utils.commands.forum_handler import handle_forum_command
 from utils.commands.help_handler import handle_help_command
+from utils.commands.youtube_handler import handle_youtube_command
 from utils.commands.memory_handler import handle_memory_cmd
 from utils.commands.news_handler import handle_news_command
 from utils.commands.reindex_handler import handle_reindex_command
@@ -123,6 +124,11 @@ COMMANDS = (
     Command("download", handle_download_command, GROUP_KNOWLEDGE, extra=RESPONDER,
             usage="!download <url>",
             summary="Submit a URL for the knowledge base (filed on the next hourly pass)"),
+    # Open, and staged like !download: the transcript lands in _ingress, which
+    # the RAG indexer skips, so it is inert until the hourly pass files it.
+    Command("youtube", handle_youtube_command, GROUP_KNOWLEDGE, extra=RESPONDER,
+            aliases=("yt",), usage="!youtube <url>",
+            summary="Pull a video's transcript into the knowledge base"),
     Command("cache", handle_cache_command, GROUP_KNOWLEDGE,
             owner_only=True,
             summary="Show system cache stats"),

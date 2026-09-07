@@ -81,7 +81,7 @@ def start_social_tasks(app_ctx, on_message):
     
     # Start forum background tasks
     from utils.social.forum_tasks import start_forum_tasks
-    start_forum_tasks()
+    start_forum_tasks(app_ctx)
     
     log_action("Social background tasks started.")
 

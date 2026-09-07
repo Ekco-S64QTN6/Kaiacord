@@ -441,14 +441,22 @@ dream_mode:
 # VBulletin Forum Integration (Project 1999)
 # ============================================================================
 forum:
-  # Main switch to enable/disable forum features
-  enabled: false 
-  
-  # Whether to automatically scrape the forum for new content (DISABLED by default)
-  auto_scrape: false
-  
-  # Whether to allow the bot to automatically respond to threads (not implemented yet)
+  # Main switch. Gates scraping and Off-Topic posting.
+  enabled: true
+
+  # Reading the forum. Posting depends on this: she will not reply in a place
+  # she has not been reading (see min_threads/min_users_before_posting below).
+  auto_scrape: true
+
+  # Reply to questions in forum.allowed_threads. Off: it answers on sight
+  # rather than on interest, which is the behaviour people read as a bot.
   auto_reply: false
+
+  # Unsolicited answers in Technical Discussion. Off deliberately — this ran
+  # without staying inside the wiki and tech docs it was supposed to be
+  # grounded in, and giving strangers confidently wrong EQ advice is worse
+  # than saying nothing. Do not re-enable without fixing the grounding.
+  tech_support_enabled: false
   
   # Forum details
   base_url: "https://www.project1999.com/forums"
@@ -462,6 +470,62 @@ forum:
   full_scrape_max_pages: 50
   max_active_users_scrape: 15
   
-  # Rate limiting for posting
+  # ── Posting behaviour ──────────────────────────────────────────────────
+  # Kaia posts on a public forum among strangers who did not ask to hear from
+  # her, so the bar is "a welcome contribution from a person". These settings
+  # exist to keep her from reading as automation.
+
+  # Local-time window. Wraps midnight: 0–4 means 00:00 to 03:59.
+  post_window_start_hour: 0
+  post_window_end_hour: 4
+
+  # A couple of posts a night, well spaced. The task polls hourly; the window
+  # and the durable ledger (memory/forum_post_ledger.json) decide whether
+  # anything happens.
   min_hours_between_posts: 4
-  max_posts_per_day: 6
+  max_posts_per_day: 2
+
+  # Never reply into the same thread twice inside this many hours. Repeated
+  # replies in one thread are the clearest bot tell, and nothing previously
+  # prevented it.
+  thread_cooldown_hours: 72
+
+  # Minimum interest score for a thread to be worth answering, computed from
+  # overlap with her beliefs and anchors (see forum_participation.score_thread).
+  # If nothing on the front page clears it, she posts nothing — which is the
+  # correct behaviour, not a failure.
+  #
+  # Calibrated against the 81 real Off-Topic threads in the corpus: at 3.0
+  # roughly 40% are eligible, the AI/philosophy threads clear it comfortably,
+  # and "Movies Thread" / "Daily dose of eggdog" / "What are you listening to?"
+  # sit below it. At the previous 2.0 — before term distinctiveness was
+  # measured — 86% of threads cleared, so the "nothing tonight" valve never
+  # actually fired.
+  min_interest_score: 3.0
+
+  # Conversation, as distinct from interjecting. Answering someone who
+  # answered her is not rate-limited, windowed, or subject to the thread
+  # cooldown — she is not capped in Discord either, and going quiet for three
+  # days after someone replies to you is rude, not restrained. The only guard
+  # is a short interval plus a requirement that something new was actually
+  # said, which exists solely to bound reply-on-reply if she ever ends up
+  # talking to another bot.
+  min_minutes_between_replies: 20
+  reply_watch_days: 14
+
+  # Other names people call her on the forum. Threads mentioning any of these
+  # get a large interest boost: interest is scored from her beliefs, so a
+  # thread *about* her scores near zero on topic while being the clearest case
+  # where a reply is wanted.
+  also_known_as: []
+
+  # How much a draft may resemble her recent posts before it is held back.
+  # Nothing measured this before; in Discord the equivalent blind spot showed
+  # up as a bare-name opener on 22.4% of turns.
+  max_self_similarity: 0.5
+
+  # Lurk before posting. She stays silent until she has read this much of the
+  # forum, which after a fresh start takes roughly a day of scraping. Someone
+  # whose first act in a community is to post has not read the room.
+  min_threads_before_posting: 15
+  min_users_before_posting: 25

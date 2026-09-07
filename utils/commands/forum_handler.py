@@ -77,11 +77,19 @@ async def _handle_status(ctx, msg):
             return
 
         status = client.get_status()
+        # The window and the lurk counter are the two reasons she can be
+        # enabled, logged in, and still correctly posting nothing — so they
+        # belong here, where the question gets asked.
+        lurk = "done" if status['lurk_ready'] else f"reading ({status['lurk_detail']})"
         await msg.channel.send(
             f"```\n"
             f"Forum Status\n"
             f"  logged in: {status['logged_in']}\n"
+            f"  off-topic posting: {status['enabled']}\n"
+            f"  tech support posting: {status['tech_support']}\n"
             f"  auto-reply: {status['auto_reply']}\n"
+            f"  posting window: {status['window']}\n"
+            f"  lurking: {lurk}\n"
             f"  posts today: {status['posts_today']}/{status['max_posts_per_day']}\n"
             f"  min hours between posts: {status['min_hours_between_posts']}\n"
             f"  last post: {status['last_post']}\n"

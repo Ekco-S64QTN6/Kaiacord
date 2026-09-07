@@ -34,7 +34,19 @@ OUTPUT_DIR = os.path.join(SCRIPT_DIR, "output", "kaia_lora_adapter")
 # ---------------------------------------------------------------------------
 
 MODEL_NAME = "unsloth/gemma-3-12b-it-bnb-4bit"
-MAX_SEQ_LENGTH = 512    # Reduced from 1024 to 512 to save ~1.5GB VRAM (longest example is ~350 tokens)
+# Measured over the cleaned dataset (1,431 examples, full rendered chat
+# template, not just the target): p50 380 tokens, p90 630, p99 1132, max 1810.
+# The previous value of 512 truncated 23.2% of examples — the assistant turn
+# was cut mid-response, teaching the model to stop early. The comment that
+# justified it ("longest example is ~350 tokens") was wrong by a factor of five.
+#
+#   512  -> 23.2% truncated
+#   768  ->  4.2%
+#   1024 ->  1.6%   <- chosen
+#
+# If this OOMs on 12GB, drop to 768 before touching LoRA rank: losing 4% of
+# examples to truncation costs less than halving identity-learning capacity.
+MAX_SEQ_LENGTH = 1024
 DTYPE = None            # Auto-detect
 LOAD_IN_4BIT = True
 
@@ -148,7 +160,14 @@ def main():
         eval_strategy="steps",               # Enable step-based evaluation
         eval_steps=20,                       # Evaluate every 20 steps
         save_strategy="steps",
-        save_steps=50,                       # Save checkpoints every 50 steps
+        save_steps=20,                       # Must match eval_steps for best-model tracking
+        # Six epochs at lr 2e-4 on ~1,400 examples will overfit well before the
+        # end. Previously the final epoch was exported regardless of eval loss;
+        # now the lowest-eval-loss checkpoint is restored before saving.
+        load_best_model_at_end=True,
+        metric_for_best_model="eval_loss",
+        greater_is_better=False,
+        save_total_limit=3,                  # Keep the disk footprint bounded
         output_dir=CHECKPOINT_DIR,
         optim="adamw_8bit",                  # 8-bit optimizer saves ~2 GB
         weight_decay=0.01,
@@ -166,6 +185,33 @@ def main():
         args=training_args,
         max_seq_length=MAX_SEQ_LENGTH,
     )
+
+    # Compute loss on Kaia's turns only.
+    #
+    # Without this the model is also trained to predict the *user* turns, which
+    # spends capacity learning to imitate Ekco and Starkind — and on a dataset
+    # this size that capacity is the scarce resource. The goal is that the model
+    # *is* Kaia, so only Kaia's tokens should carry gradient.
+    try:
+        from unsloth.chat_templates import train_on_responses_only
+        trainer = train_on_responses_only(
+            trainer,
+            instruction_part="<start_of_turn>user\n",
+            response_part="<start_of_turn>model\n",
+        )
+        print("Loss masked to assistant turns only (train_on_responses_only).")
+    except Exception as e:
+        print(f"WARNING: could not mask user turns ({e}). "
+              "Training will also fit the user side, which wastes capacity.")
+
+    # Stop when eval loss has not improved for three evaluations. With
+    # load_best_model_at_end the best checkpoint is still what gets exported,
+    # so this only saves wall-clock time and reduces overfitting risk.
+    try:
+        from transformers import EarlyStoppingCallback
+        trainer.add_callback(EarlyStoppingCallback(early_stopping_patience=3))
+    except Exception as e:
+        print(f"WARNING: early stopping unavailable ({e})")
 
     # Run training
     # Automatically resume from checkpoint if available

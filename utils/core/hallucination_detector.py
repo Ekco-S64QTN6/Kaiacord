@@ -1,3 +1,4 @@
+from utils.infrastructure.monitoring.telemetry_paths import telemetry_path
 import re
 import json
 from typing import Optional
@@ -50,7 +51,10 @@ class HallucinationDetector:
             action_taken: 'cleaned', 'suppressed', 'warned', or 'passed'.
         """
         import os
-        log_path = os.path.join("memory", "hallucination_log.jsonl")
+        # Routed through telemetry_path so a test run cannot pollute the
+        # figure !sysmon reports. Every one of this file's 368 historical
+        # entries was a unit-test fixture (Phase 80).
+        log_path = telemetry_path("memory/hallucination_log.jsonl")
         entry = {
             "timestamp": __import__('time').time(),
             "date": __import__('datetime').datetime.now().strftime('%Y-%m-%d %H:%M:%S'),

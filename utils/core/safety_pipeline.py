@@ -6,6 +6,7 @@ Consolidates raw LLM post-generation sanitization into a unified, 10-layer testa
 and provides thread-safe verbatim security dogtag replay logging (💡-3).
 """
 
+from utils.infrastructure.monitoring.telemetry_paths import telemetry_path
 import os
 import re
 import time
@@ -37,7 +38,7 @@ def log_security_dogtag_replay(
     try:
         log_dir = "memory"
         os.makedirs(log_dir, exist_ok=True)
-        log_file = os.path.join(log_dir, "security_dogtag_replay.jsonl")
+        log_file = telemetry_path(os.path.join(log_dir, "security_dogtag_replay.jsonl"))
         
         entry = {
             "timestamp": time.time(),
