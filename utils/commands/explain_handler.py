@@ -14,12 +14,13 @@ from utils.infrastructure.logging.kaia_logger import log_info
 
 
 async def handle_explain_command(ctx, msg, send_kaia_response):
-    """Handle the !explain command — display provenance of last RAG retrieval (Admin only)."""
-    is_owner = ctx.config.is_owner(msg.author.name, msg.author.display_name, str(msg.author.id))
-    if not is_owner:
-        await msg.channel.send("```\nyou aren't my architect. restricted.\n```")
-        return
+    """Handle the !explain command — display provenance of the last RAG retrieval.
 
+    Open to everyone. !explain only reports which knowledge-base nodes informed
+    the previous answer and how they scored; it exposes no privileged state and
+    performs no mutation, so gating it mainly stopped users from being able to
+    check whether an answer was grounded.
+    """
     rag = ctx.rag
     if not rag:
         embed = discord.Embed(
@@ -28,6 +29,29 @@ async def handle_explain_command(ctx, msg, send_kaia_response):
             color=0xcc4444
         )
         await msg.channel.send(embed=embed)
+        return
+
+    # `!explain 3` reads the third-most-recent retrieval from the trace. The
+    # in-memory cache only ever holds the last one, so without this the turn
+    # worth investigating is gone the moment anyone says anything else.
+    raw = getattr(msg, "content", "")
+    parts = raw.split() if isinstance(raw, str) else []
+    nth = int(parts[1]) if len(parts) > 1 and parts[1].isdigit() else 0
+    if nth:
+        from utils.infrastructure.monitoring.retrieval_trace import recent
+        history = recent(max(nth, 1))
+        if len(history) < nth:
+            await msg.channel.send(
+                f"```\nonly {len(history)} retrieval(s) in the trace.\n```")
+            return
+        past = history[nth - 1]
+        lines = [f"retrieval #{nth} — {datetime.fromtimestamp(past['ts']):%H:%M:%S}",
+                 f"query: {past['query'][:160]}",
+                 f"confidence: {past['confidence']}   nodes: {past['n']}", ""]
+        for node in past["nodes"]:
+            lines.append(f"  {node['score']:.3f}  {node['source']}  [{node['category']}]")
+            lines.append(f"         {node['head'][:110]}")
+        await msg.channel.send("```\n" + "\n".join(lines)[:1900] + "\n```")
         return
 
     results = getattr(rag, '_last_retrieval_results', [])

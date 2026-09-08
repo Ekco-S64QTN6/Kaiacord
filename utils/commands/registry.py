@@ -80,9 +80,12 @@ COMMANDS = (
     # ── Core & Diagnostics ───────────────────────────────────────────
     Command("help", handle_help_command, GROUP_CORE, extra=RESPONDER,
             summary="Display this command directory"),
+    # Open to everyone: read-only provenance for the previous answer, no
+    # privileged state and no mutation.
     Command("explain", handle_explain_command, GROUP_CORE, extra=RESPONDER,
-            owner_only=True,
-            summary="Inspect RAG provenance & source scores for the last response"),
+            usage="!explain [n]",
+            summary="Inspect RAG provenance & source scores "
+                    "(!explain 3 = the third-most-recent retrieval)"),
     Command("flag", handle_flag_command, GROUP_CORE, extra=RESPONDER,
             owner_only=True, usage="!flag <construct>",
             summary="Flag retrieval nodes with a Data Rot label"),
