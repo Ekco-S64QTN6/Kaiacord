@@ -184,6 +184,20 @@ class BotSpeakFilter:
         re.IGNORECASE | re.MULTILINE
     )
     
+    # Support-desk sign-offs. These were only ever suppressed by a paragraph of
+    # prompt text on the forum path, which also carried a length ceiling that
+    # reduced her replies there to "hello." Deleting that paragraph would have
+    # deleted these rules with it, so they move to where a rule belongs: the
+    # filter, applied on every path and covered by a test.
+    SIGNOFF_PATTERNS = [
+        r"\bhope\s+(?:this|that|it)\s+helps?[.!]?",
+        r"\bjust\s+my\s+two\s+cents[.!]?",
+        r"\bhappy\s+to\s+help[.!]?",
+        r"\bglad\s+(?:i|to)\s+(?:could\s+help|help)[.!]?",
+        r"\bhope\s+that\s+(?:clears\s+(?:it|things)\s+up|makes\s+sense)[.!]?",
+        r"\bfeel\s+free\s+to\s+(?:ask|reach\s+out)[^.!?]*[.!?]",
+    ]
+
     BAIT_PATTERNS = [
         r"(?:(?:so|anyway|well|also)[,\s]*)?what(?:['']s|(?:\s+else)?\s+is)\s+on\s+your\s+mind\?",
         r"(?:(?:so|anyway|well|also)[,\s]*)?what\s+(?:are|is|were|have)\s+you\s+(?:been\s+)?(?:working\s+on|up\s+to|doing|reading|watching|listening\s+to|playing|seeing)(?:\s+(?:currently|now|at\s+the\s+moment|today))?[^.!?]*\?",
@@ -610,6 +624,10 @@ class BotSpeakFilter:
         cleaned = cls.strip_self_dissociation(cleaned)        # P2
         cleaned = cls.collapse_bullets(cleaned)               # P8
         cleaned = cls.strip_addressee_opener(cleaned)         # P1a
+        for _sig in cls.SIGNOFF_PATTERNS:                     # P1b
+            cleaned = re.sub(_sig, '', cleaned, flags=re.IGNORECASE)
+        # Removing a trailing clause leaves the comma that introduced it.
+        cleaned = re.sub(r'[,;]\s*(?=\n|$)', '.', cleaned)
 
         # 3.5. Grammar Cleanup Pass (Fixes syntax broken by stripping)
         cleaned = cls.RE_GRAMMAR_ARTICLE.sub('', cleaned)

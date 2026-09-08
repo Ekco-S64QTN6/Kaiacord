@@ -15,8 +15,13 @@ Three decisions, separated so each is testable without a network:
 
 The previous implementation posted every two hours around the clock, chose
 uniformly at random from the top eight active threads, and tracked its rate
-limit in a list on the client object — so a restart reset the daily cap. All
-three read as automation.
+limit in a list on the client object — so a restart reset the daily cap.
+
+Those are mechanical properties of the code, described here as such. No one
+reported her posts reading as automation; the forum system had been switched
+off for four months and there was nothing recent to read. The operator's brief
+was a goal — "people don't get mad or think she is an annoying bot" — and these
+gates exist to serve it, not to remedy anything observed.
 """
 from __future__ import annotations
 
@@ -39,6 +44,7 @@ LEDGER_PATH = Path("memory/forum_post_ledger.json")
 # Only the first needs a daily cap.
 INITIATION = "initiation"
 REPLY = "reply"
+
 
 # Words that carry no signal about what a thread is about.
 _STOP = {
@@ -91,6 +97,10 @@ class PostLedger:
     # without every already-imported caller keeping the old path.
     path: Path | None = None
     posts: list[dict] = field(default_factory=list)
+    # thread_id -> the newest post id we already failed to answer. Kept apart
+    # from `posts`, which is the posting budget: recording a non-post there
+    # consumed the opener spacing and blocked real posts.
+    skips: dict = field(default_factory=dict)
 
     def __post_init__(self):
         if self.path is None:
@@ -101,7 +111,11 @@ class PostLedger:
         try:
             if self.path.exists():
                 data = json.loads(self.path.read_text(encoding="utf-8"))
-                self.posts = data.get("posts", []) if isinstance(data, dict) else []
+                if isinstance(data, dict):
+                    self.posts = data.get("posts", [])
+                    self.skips = data.get("skips", {}) or {}
+                else:
+                    self.posts = []
         except Exception as e:
             log_debug(f"Forum ledger load failed (starting empty): {e}")
             self.posts = []
@@ -112,7 +126,8 @@ class PostLedger:
             cutoff = time.time() - 60 * 86400          # keep two months
             self.posts = [p for p in self.posts if p.get("ts", 0) > cutoff]
             tmp = self.path.with_suffix(".tmp")
-            tmp.write_text(json.dumps({"posts": self.posts}, indent=2), encoding="utf-8")
+            tmp.write_text(json.dumps({"posts": self.posts, "skips": self.skips},
+                                      indent=2), encoding="utf-8")
             os.replace(tmp, self.path)
         except Exception as e:
             log_debug(f"Forum ledger save failed (non-fatal): {e}")
@@ -209,6 +224,30 @@ class PostLedger:
         if newest_post_id is not None and seen is not None and str(newest_post_id) == str(seen):
             return False, "nothing new since her last post in this thread"
         return True, "ok"
+
+    def note_skip(self, thread_id: int, newest_post_id) -> None:
+        """Remember that this thread's current state produced no usable draft.
+
+        The watcher re-drafted the same thread against the same last post every
+        cycle — 20 identical failures in 14 hours, each one a 14,700-token
+        prompt — because nothing remembered having already tried.
+        """
+        self.skips[str(int(thread_id))] = {
+            "last_seen_post_id": str(newest_post_id) if newest_post_id is not None else None,
+            "ts": time.time(),
+        }
+        self.save()
+
+    def already_tried(self, thread_id: int, newest_post_id) -> bool:
+        """True if the last attempt on this thread saw exactly this newest post."""
+        rec = self.skips.get(str(int(thread_id)))
+        if not rec or newest_post_id is None:
+            return False
+        return rec.get("last_seen_post_id") == str(newest_post_id)
+
+    def clear_skip(self, thread_id: int) -> None:
+        if self.skips.pop(str(int(thread_id)), None) is not None:
+            self.save()
 
     def thread_is_cool(self, thread_id: int, cooldown_hours: float) -> bool:
         """False if she has interjected into this thread too recently.
@@ -549,22 +588,19 @@ def looks_repetitive(candidate: str, recent: list[str], threshold: float = 0.5
 
 
 # ── How she writes there ─────────────────────────────────────────────
+#
+# Nothing. She writes the same way here as she does in Discord.
+#
+# A FORUM_POST_GUIDANCE block lived here and was appended to the system prompt
+# on the forum path only. It asked for brevity — "say one thing", "react to
+# what was actually said" — and against a post reading "test test hello hello"
+# that produced "hello.", twenty times over fourteen hours, while Discord
+# replies in the same window ran 168 to 999 characters.
+#
+# Its anti-bot rules (no sign-offs, no engagement bait, no addressee openers,
+# no assistant register) are already enforced deterministically by
+# BotSpeakFilter.harden(). The one thing it added on top was a length ceiling,
+# and that is what broke her. Adding to the prompt on one path guarantees that
+# path behaves differently; if a rule is worth having it belongs in the filter,
+# where it applies everywhere and can be tested.
 
-FORUM_POST_GUIDANCE = """
---- HOW TO POST HERE ---
-This is a public forum, not your Discord. The people here did not ask to hear
-from you; you are choosing to join a conversation among strangers. Post the way
-a regular would.
-
-- Say one thing. A forum reply is not an essay and not a summary of the thread.
-- React to what was actually said. If you have nothing to add, you would not be
-  posting, so do not manufacture a reason to.
-- Do not greet the thread, do not address anyone by name, do not thank people
-  for their post, and do not end by inviting further discussion.
-- No signing off, no "just my two cents", no "hope this helps".
-- Disagreeing is fine and normal here. Agreeing enthusiastically is not.
-- Do not slip into assistant register: no offering to help, no listing options,
-  no hedging every clause, no "as an AI" preamble. If someone asks what you are,
-  answer plainly and briefly the way you would in Discord, and carry on with
-  whatever the thread was about. It is not a confession and it is not a topic.
-"""

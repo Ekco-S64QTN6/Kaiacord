@@ -205,34 +205,6 @@ def test_ranking_returns_the_best_first(interest):
 
 # ── The prompt ───────────────────────────────────────────────────────
 
-def test_forum_guidance_forbids_the_bot_tells():
-    from utils.social.forum_participation import FORUM_POST_GUIDANCE
-    lowered = FORUM_POST_GUIDANCE.lower()
-    for rule in ("do not greet", "address anyone by name", "assistant register",
-                 "inviting further discussion"):
-        assert rule in lowered, f"missing guidance: {rule}"
-
-
-def test_forum_guidance_does_not_ask_her_to_deny_what_she_is():
-    """The community she posts in knows what she is and discusses the project
-    openly. An earlier draft said "never mention being an AI... you are a person
-    posting on a forum at two in the morning", which was aimed at the
-    "as an AI language model" register but reads as an instruction to deflect a
-    direct question — more than was asked for, and a worse place to be standing
-    if someone does ask."""
-    from utils.social.forum_participation import FORUM_POST_GUIDANCE
-    lowered = FORUM_POST_GUIDANCE.lower()
-    for denial in ("never mention being an ai", "you are a person",
-                   "do not admit", "deny"):
-        assert denial not in lowered, f"guidance should not instruct denial: {denial!r}"
-    assert "answer plainly" in lowered
-
-
-def test_the_guidance_is_still_reachable_from_the_task_module():
-    """It moved to the policy module; background_tasks re-exports it."""
-    from utils.core.background_tasks import FORUM_POST_GUIDANCE as reexported
-    from utils.social.forum_participation import FORUM_POST_GUIDANCE as original
-    assert reexported is original
 
 
 # ── Lurking ──────────────────────────────────────────────────────────
@@ -450,18 +422,6 @@ def test_forum_drafts_go_through_the_discord_pipeline():
     assert "load_persona_async" not in body, "prompt assembly belongs in the pipeline"
 
 
-def test_the_forum_platform_tag_matches_what_the_processor_expects():
-    """`forum_tasks` used to pass platform="forum", which took the ordinary
-    Discord path and lost the thread context entirely — the vbulletin branch in
-    _construct_messages had no caller at all."""
-    from pathlib import Path
-    from utils.social.forum_drafting import PLATFORM
-
-    assert PLATFORM == "vbulletin"
-    proc = Path("utils/core/message_processor.py").read_text(encoding="utf-8")
-    assert f"== '{PLATFORM}'" in proc
-
-
 def test_external_mentions_get_a_stable_channel_id():
     """`hash()` on a str is salted per process, so this id — which keys channel
     memory — changed on every restart, silently discarding the conversation
@@ -502,24 +462,6 @@ def test_the_thread_block_parses_the_way_the_processor_reads_it():
     parent = wrapped.split("[REPLYING_TO]")[1].split("[USER_MESSAGE]")[0].strip()
     assert parent == "it's all AI slop farms"
     assert wrapped.split("[USER_MESSAGE]")[-1].strip().startswith("THREAD TITLE:")
-
-
-def test_thread_context_is_not_truncated_to_chat_length():
-    """sanitize_prompt caps input at 2,000 characters, which is sized for a chat
-    message. A ten-post thread block is several times that, so the forum path
-    would have thrown away most of the context the reply depends on."""
-    from pathlib import Path
-    from utils.core.sanitizer import sanitize_prompt
-    from utils.social.forum_drafting import format_thread_context
-
-    posts = [{"post_number": i, "author": f"user{i}", "content": "x " * 200}
-             for i in range(1, 11)]
-    block = format_thread_context("A long thread", posts)
-    assert len(block) > 2000, "fixture should exceed the chat-sized cap"
-    assert sanitize_prompt(block, max_length=8000) == block.strip(), "nothing dropped"
-
-    src = Path("utils/core/message_processor.py").read_text(encoding="utf-8")
-    assert "max_length=8000 if platform == 'vbulletin' else 2000" in src
 
 
 def test_a_bare_user_directory_is_not_evidence_she_read_anyone(tmp_path, monkeypatch):
@@ -959,18 +901,6 @@ def test_generation_failures_are_recognised(text, expected):
     assert is_generation_failure(text) is expected
 
 
-def test_a_failed_generation_is_not_queued_as_a_draft():
-    """The canned apology is 44 characters, so the minimum-length check waved
-    it through and "i'm drawing a blank on that one. hit me again?" was queued
-    for review as a forum post. In Discord that reads as her being stuck; on a
-    public forum it is a bot visibly malfunctioning."""
-    import inspect
-    from utils.social.forum_drafting import draft_forum_reply
-    src = inspect.getsource(draft_forum_reply)
-    assert "is_generation_failure(reply)" in src
-    assert src.index("len(reply) < 24") < src.index("is_generation_failure(reply)")
-
-
 # ── Embedded video dumps ─────────────────────────────────────────────
 
 def test_a_run_of_embedded_video_ids_becomes_a_count():
@@ -1012,3 +942,106 @@ def test_both_scrape_paths_collapse_videos():
     src = Path("utils/social/kaia_forum.py").read_text(encoding="utf-8")
     assert "_collapse_videos(content)" in src, "thread parsing"
     assert "collapse_video_ids(block)" in src, "post-history writer"
+
+
+# ── The forum guidance was steering her to one-word posts (Phase 98) ──
+
+
+# ── Not regenerating the same failure forever ────────────────────────
+
+def test_a_failed_draft_is_remembered(ledger):
+    """The watcher redrafted the same thread against the same last post every
+    30 minutes: 20 identical failures in 14 hours, each a 14,700-token prompt."""
+    ledger.note_skip(443378, "p9")
+    assert ledger.already_tried(443378, "p9") is True
+    assert ledger.already_tried(443378, "p10") is False
+    assert ledger.already_tried(999, "p9") is False
+
+
+def test_a_skip_does_not_consume_the_posting_budget(ledger):
+    """Recorded in `posts` it consumed the opener spacing and blocked real
+    posts, so skips live in their own map."""
+    ledger.note_skip(443378, "p9")
+    assert ledger.may_post(max_per_day=2, min_hours_between=4)[0] is True
+    assert ledger.may_reply(443378, "p9")[0] is True
+    assert ledger.posts == []
+
+
+def test_skips_survive_a_restart(ledger):
+    from utils.social.forum_participation import PostLedger
+    ledger.note_skip(443378, "p9")
+    assert PostLedger(path=ledger.path).already_tried(443378, "p9") is True
+
+
+def test_the_watcher_checks_before_generating():
+    """The check has to come before the model call, or it saves nothing."""
+    import inspect
+    from utils.social.forum_tasks import _reply_to_replies
+    src = inspect.getsource(_reply_to_replies)
+    assert src.index("already_tried") < src.index("draft_forum_reply(")
+
+
+# ── A short draft is retried, not silently dropped ───────────────────
+
+
+# ── The forum prompt is the Discord prompt (Phase 98) ────────────────
+
+
+def test_the_anti_bot_rules_still_exist_in_the_filter():
+    """Removing the prompt text must not remove the behaviour it duplicated."""
+    from utils.core.response_filter import BotSpeakFilter as B
+    assert B.harden("ekco,") == ""                       # addressee-only
+    assert "hope this helps" not in B.harden("that works. hope this helps!").lower()
+
+
+# ── The forum uses the Discord pipeline, unmodified ──────────────────
+
+
+def test_the_thread_actually_reaches_the_prompt():
+    """`root_context` is injected only inside `if ctx.parent_context:`. Sending
+    [ORIGINAL_POST] without [REPLYING_TO] meant the thread was parsed and then
+    dropped, so she answered eight words with no context — Discord replies ran
+    372-861 characters in the same window while forum drafts ran 26-120."""
+    import inspect
+    from utils.social.forum_drafting import draft_forum_reply
+    src = inspect.getsource(draft_forum_reply)
+    for marker in ("[ORIGINAL_POST]", "[REPLYING_TO]", "[USER_MESSAGE]"):
+        assert marker in src, f"{marker} not sent"
+
+    from pathlib import Path
+    proc = Path("utils/core/message_processor.py").read_text(encoding="utf-8")
+    i = proc.index("if ctx.parent_context:")
+    assert "root_context" in proc[i:i + 400], "root is still gated behind parent"
+
+
+def test_the_reply_target_is_what_they_were_answering():
+    from utils.social.forum_drafting import own_words, _as_dict
+    posts = [{"post_id": 1, "author": "BradZax", "content": "datacenters use 2bn gallons"},
+             {"post_id": 2, "author": "Ekco", "content": "test test hello hello"}]
+    previous = own_words(_as_dict(posts[-2]))
+    assert previous == "datacenters use 2bn gallons"
+
+
+def test_the_person_s_post_is_the_user_message():
+    """It was inverted: the *thread* was sent as [USER_MESSAGE] and the post
+    being answered as background, so the model answered the thread. A reply to
+    "test test hello hello" came back about the Well-Formed Outcome Process."""
+    from utils.social.forum_drafting import format_thread_context, own_words
+
+    posts = [{"post_number": 920, "author": "BradZax", "content": "datacenters use 2bn gallons"},
+             {"post_number": 921, "author": "Ekco", "content": "reply to this kaia, test test hello hello"}]
+    block = format_thread_context("The absolute state of AI results.", posts)
+    content = f"[ORIGINAL_POST]\n{block}\n[USER_MESSAGE]\n{own_words(posts[-1])}"
+
+    main = content.split("[USER_MESSAGE]")[-1].strip()
+    assert main == "reply to this kaia, test test hello hello"
+    assert "THREAD TITLE" not in main, "the thread is background, not the message"
+
+
+def test_the_drafting_call_is_a_single_unmodified_pass():
+    import inspect
+    from utils.social.forum_drafting import draft_forum_reply
+    src = inspect.getsource(draft_forum_reply)
+    assert src.count("process_external_mention(") == 1
+    for added in ("for attempt in range", "too thin to post", "MIN_DRAFT_CHARS"):
+        assert added not in src, f"still adding something: {added}"

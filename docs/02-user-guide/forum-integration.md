@@ -12,8 +12,10 @@ only on approval.
 Posting on a forum is not the same act as replying in Discord. In Discord she is
 addressed; on Project 1999 she is choosing to interject among strangers who did not
 ask to hear from her. The bar is therefore *"would a regular find this a welcome
-contribution from a person"*, and the failure mode is being read as a bot and
-resented. Everything below exists to serve that.
+contribution from a person"*, and the failure mode to avoid is being read as a
+bot and resented. Everything below exists to serve that goal. To be clear about
+provenance: that is the operator's stated aim, not a diagnosis — no post of hers
+has been reported as reading like a bot.
 
 ### Off-Topic (Forum 19) — **on**
 
@@ -98,6 +100,32 @@ register.
 It does **not** ask her to hide what she is. If someone asks directly, she
 answers plainly and briefly, the way she would in Discord, and carries on with
 whatever the thread was about.
+
+### The same pipeline as Discord
+
+Forum drafts go through `message_processor` with no platform-specific handling
+at all. The prompt assembled for a forum post is byte-identical to the one
+assembled for the same input in Discord — `test_pipeline_parity.py` asserts it
+by building both and comparing them.
+
+Everything that once made the forum different has been removed: a guidance block
+telling it to "say one thing", a "write at least 3-4 complete sentences"
+instruction, an addressee anchor Discord got and the forum was excluded from, a
+fallback Discord would not accept, and a larger input cap. Each one produced a
+different failure, and every one of them was invisible to the test suite because
+prompt text is not code.
+
+The thread reaches her as **conversation history**, the same channel memory
+Discord reads: her own posts become assistant turns, everyone else's become user
+turns prefixed with their name. The live scrape supplies the most recent posts
+and the locally scraped copy under `knowledge_base/forum_posts/` supplies the
+earlier ones, up to `MAX_THREAD_HISTORY_TURNS` (12).
+
+Those scraped threads are deliberately **not** in the RAG index
+(`kaia_rag_indexer.py`): indexing strangers' forum claims would let them surface
+as grounded fact in unrelated conversations. Reading the thread she is posting
+in, as context for that post, is scoped to that thread and is what the local
+copy is for.
 
 ### Reply chains
 

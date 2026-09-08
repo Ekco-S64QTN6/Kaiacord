@@ -417,13 +417,12 @@ class MessageProcessor:
             main_content = enriched_raw.split("[USER_MESSAGE]")[-1].strip()
         # ---------------------------------
         
-        # A forum post carries the thread it is replying to, which is assembled
-        # by us rather than typed by a user. The default 2,000-character cap is
-        # sized for a chat message and would have silently discarded most of a
-        # ten-post thread — the context the reply depends on.
-        sanitized_content = sanitize_prompt(
-            main_content,
-            max_length=8000 if platform == 'vbulletin' else 2000)
+        # One cap, every platform. A forum draft used to need a larger one
+        # because the whole thread was being sent as the user's message; the
+        # thread now travels in [ORIGINAL_POST] like any other quoted context,
+        # which is not sanitised here, so the message itself is just the post
+        # being answered and fits the ordinary limit.
+        sanitized_content = sanitize_prompt(main_content)
         
         ctx = MessageContext(
             message=msg,
@@ -1586,59 +1585,23 @@ class MessageProcessor:
         context_str = optimized['rag']
         optimized_history = optimized.get('history', [])
         
-        is_vbulletin = getattr(ctx.message, 'platform', 'discord') == 'vbulletin'
+        # No special case for the forum.
+        #
+        # A `platform == "vbulletin"` branch used to live here. It appended a
+        # thread-context block to the system prompt and *replaced* the user
+        # message with a string it reassembled itself — so the forum was the
+        # one path whose prompt was not the Discord prompt. Every problem with
+        # her forum replies traced back to something in it: a length ceiling
+        # that produced "hello.", then a retry instruction that produced a post
+        # about a topic lifted at random from the thread.
+        #
+        # The Discord pipeline has worked for months. The forum now uses it
+        # unchanged: the thread arrives as ordinary message content, assembled
+        # by forum_drafting, and nothing here knows or cares which platform it
+        # came from.
         user_msg_content = ctx.sanitized_content
 
-        if is_vbulletin:
-            try:
-                # Extract thread title and thread context
-                title = ""
-                thread_ctx = ""
-                title_m = re.search(r"THREAD TITLE:\s*(.*?)(?:\n\n|\n|$)", ctx.sanitized_content)
-                if title_m:
-                    title = title_m.group(1).strip()
-                ctx_m = re.search(r"THREAD CONTEXT:\s*(.*)", ctx.sanitized_content, re.DOTALL)
-                if ctx_m:
-                    thread_ctx = ctx_m.group(1).strip()
-
-                # Clean forum context block in system prompt, plus the rules
-                # for writing there. This is the single place forum drafts get
-                # their instructions: the auto-post task used to assemble its
-                # own persona + context + guidance prompt and call ollama
-                # directly, which is why it drifted from how she sounds in
-                # Discord — it had no RAG, no memory, and a hardcoded
-                # temperature that ignored the dual-temperature split.
-                from utils.social.forum_participation import FORUM_POST_GUIDANCE
-                forum_context_block = (
-                    f"\n\n--- FORUM THREAD CONTEXT ---\n"
-                    f"Thread Title: {title}\n"
-                    f"Recent posts in this thread (for context):\n"
-                    f"{thread_ctx}\n"
-                    f"----------------------------"
-                    f"{FORUM_POST_GUIDANCE}"
-                )
-                system_prompt += forum_context_block
-
-                # Construct a natural-looking conversation turn for the user message
-                if ctx.parent_context:
-                    user_msg_content = f"{ctx.author_name}: {ctx.parent_context}"
-                else:
-                    # Contributing to thread overall. Try to extract last post.
-                    posts_lines = [line.strip() for line in thread_ctx.split('\n') if line.strip()]
-                    last_post = ""
-                    if posts_lines:
-                        for line in reversed(posts_lines):
-                            if re.match(r"^#\d+", line):
-                                last_post = line
-                                break
-                    if last_post:
-                        natural_post = re.sub(r"^#\d+\s*", "", last_post)
-                        user_msg_content = natural_post
-                    else:
-                        user_msg_content = "System: Start of thread"
-            except Exception as e:
-                log_warning(f"Failed to parse forum context block: {e}")
-        else:
+        if True:
             # Handle empty or non-content inputs so the LLM has clear context to respond dynamically
             raw_msg_text = getattr(ctx.message, 'content', '').strip() if ctx.message else user_msg_content
             stripped_alpha = re.sub(r'[\W_]+', '', user_msg_content).strip().lower()
@@ -1832,14 +1795,12 @@ class MessageProcessor:
                 "END KNOWLEDGE BASE GROUNDING CONSTRAINT\n\n"
             )
 
+        # No forum-only instruction. This block told the model to "write at
+        # least 3-4 complete sentences (minimum 30-40 words)" for forum posts
+        # and nothing else. Given a trivial message it padded to length with
+        # whatever was in the thread context — which is how a reply to "test
+        # test hello hello" became a post about the Well-Formed Outcome Process.
         instruction = ""
-        if is_vbulletin:
-            instruction = (
-                "\n\n[SYSTEM INSTRUCTION: You are posting on the Project 1999 forum. "
-                "Write a natural, conversational forum post as Kaia, contributing to the thread. "
-                "Write at least 3-4 complete sentences (minimum 30-40 words). Do not include any "
-                "preamble, introduction, or metadata. Start your post directly as Kaia.]"
-            )
 
         safeguard_block = (
             "\n\n--- CORE RULES REINFORCEMENT ---\n"
@@ -1930,7 +1891,7 @@ class MessageProcessor:
 
         # Re-assert conversation target
         context_reminder = ""
-        if ctx.parent_context and not is_vbulletin:
+        if ctx.parent_context:
             label = "[REPLYING_TO_CONTEXT]"
             if ctx.root_context == ctx.parent_context:
                 label = "[THREAD_ROOT_AND_PARENT]"
@@ -1944,8 +1905,8 @@ class MessageProcessor:
                 f"{clipped_parent}"
             )
 
-        if is_vbulletin:
-            messages.append({"role": "user", "content": user_msg_content})
+        if False:   # the forum used to bypass the addressee anchor below
+            pass
         else:
             if context_reminder:
                 messages.append({"role": "user", "content": f"{context_reminder}\n\n[You are speaking exclusively to {ctx.author_name}. Do NOT greet or address other users.]\n{ctx.author_name}: {user_msg_content}"})
@@ -2071,9 +2032,11 @@ class MessageProcessor:
             except Exception as e:
                 log_error(f"Attempt {attempt + 1} failed: {e}")
                 
-        is_vbulletin = getattr(ctx.message, 'platform', 'discord') == 'vbulletin'
-        if is_vbulletin and best_fallback_response:
-            log_warning(f"All retry attempts failed to meet length constraints. Falling back to longest reply ({best_fallback_words} words).")
+        # The forum used to accept a fallback here that Discord would not. The
+        # last platform special-case; the two paths are now identical.
+        if best_fallback_response:
+            log_warning(f"All retry attempts failed to meet length constraints. "
+                        f"Falling back to longest reply ({best_fallback_words} words).")
             return best_fallback_response
 
         log_warning(f"[GENERATION_FAILURE] All {max_attempts} attempts exhausted for {getattr(ctx, 'author_name', 'unknown')}. Query: {getattr(ctx, 'sanitized_content', '')[:120]}")

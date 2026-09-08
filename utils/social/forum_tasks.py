@@ -175,12 +175,24 @@ async def _reply_to_replies(client, forum_username: str) -> None:
                 log_debug(f"Forum reply watch: skipping thread {thread_id} — {why}.")
                 continue
 
+            # Already failed against this exact state — do not regenerate it.
+            if ledger.already_tried(thread_id, newest_id):
+                log_debug(f"Forum reply watch: thread {thread_id} produced no draft "
+                          f"for this post already; waiting for something new.")
+                continue
+
             log_action(f"Forum: {poster} replied in thread {thread_id}; drafting an answer.")
             draft = await draft_forum_reply(
                 ctx, thread_id=thread_id,
                 title=thread_data.get('title', f'Thread {thread_id}'),
                 posts=posts, reply_to=last)
             if not draft:
+                # Remember the attempt against this exact thread state, so the
+                # next cycle's may_reply() sees "nothing new" and moves on
+                # instead of regenerating the same failure every 30 minutes.
+                ledger.note_skip(thread_id, newest_id)
+                log_info(f"Forum: no draft for thread {thread_id}; will not retry "
+                         f"until someone posts something new.")
                 continue
 
             text = draft['text']

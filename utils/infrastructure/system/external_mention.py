@@ -6,6 +6,17 @@ import zlib
 from typing import Any
 from utils.infrastructure.logging.kaia_logger import log_warning
 
+def conversation_channel_id(platform: str, conversation_key: Any = None) -> int:
+    """The channel id a given external conversation maps to.
+
+    Exposed so callers can seed that channel's history before handing the
+    message over — a forum thread's posts are its conversation, and Discord
+    gets its channel history the same way.
+    """
+    key = f"{platform}:{conversation_key}" if conversation_key is not None else platform
+    return zlib.crc32(key.encode("utf-8")) % 10**10
+
+
 async def process_external_mention(
     ctx: Any, content: str, author_name: str, author_id: Any, platform: str,
     conversation_key: Any = None, no_persist: bool = False,
@@ -31,8 +42,7 @@ async def process_external_mention(
     # (PYTHONHASHSEED), so this channel id — which keys channel memory — used to
     # change on every boot, quietly discarding the conversation history for
     # every external platform each time the bot restarted.
-    key = f"{platform}:{conversation_key}" if conversation_key is not None else platform
-    mock_channel = MockChannel(id=zlib.crc32(key.encode("utf-8")) % 10**10)
+    mock_channel = MockChannel(id=conversation_channel_id(platform, conversation_key))
     
     # Construct the mock message
     mock_msg = MockMessage(

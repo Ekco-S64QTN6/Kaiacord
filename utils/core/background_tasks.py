@@ -14,9 +14,6 @@ from utils.infrastructure.system.bot_state import bot_state
 from utils.infrastructure.system.yaml_config import config
 from utils.infrastructure.system.shutdown_fixed import shutdown_manager
 
-# Kept as a re-export: the text is policy, and lives with the rest of the
-# forum participation rules rather than in the task scheduler.
-from utils.social.forum_participation import FORUM_POST_GUIDANCE  # noqa: F401
 
 
 class CoreTaskManager:
@@ -848,7 +845,8 @@ class CoreTaskManager:
     def _make_forum_auto_post_task(self):
         # Polls hourly; the posting window and the durable ledger decide whether
         # anything actually happens. The previous 2-hour loop ran around the
-        # clock, which is one of the things that reads as automation.
+        # clock — a metronome, which is a property of the code rather than
+        # something anyone observed about her posts.
         @tasks.loop(hours=1)
         async def forum_auto_post_task():
             if shutdown_manager.shutting_down: return
