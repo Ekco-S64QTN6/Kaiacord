@@ -26,6 +26,30 @@ def sanitize_prompt(prompt: str, max_length: int = 2000) -> str:
     return prompt.strip()
 
 
+# Scaffolding context_enricher appends to a user's message so the model has
+# what it needs. It belongs in the prompt and nowhere else — logged verbatim it
+# becomes part of the user's transcript, which then feeds RAG (retrieved as if
+# the person said it) and the fine-tune corpus. Found in 22 user-log files and
+# 6 training examples.
+RUNTIME_SCAFFOLDING = re.compile(
+    r"\n*\[(?:CORE_DIRECTIVE|LINKED_WEB_CONTENT|LINKED_MESSAGE|SYSTEM WARNING)\b[^\]]*\]"
+    r"(?:(?!\n\[)[\s\S]*?(?=\n\[|\Z))?",
+    re.IGNORECASE,
+)
+
+
+def strip_runtime_scaffolding(text: str) -> str:
+    """Remove enricher-injected blocks before a message is written to a log.
+
+    Deliberately not part of sanitize_prompt: generation needs the scaffolding.
+    Only persistence does not.
+    """
+    if not text:
+        return text
+    cleaned = RUNTIME_SCAFFOLDING.sub("", text)
+    return re.sub(r"\n{3,}", "\n\n", cleaned).strip()
+
+
 def is_safe_url(url: str) -> bool:
     """
     Validate that a URL uses http/https and does not resolve to private,

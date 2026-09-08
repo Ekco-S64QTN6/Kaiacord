@@ -110,6 +110,29 @@ visible referent.
 Whatever that post was itself quoting is stripped first (`own_words`), so her
 quote box never reproduces a third party's words under the wrong name.
 
+### Who is who
+
+Forum handles and Discord names do not match — `magnetaress` on P99 is Starkind in
+Discord — so the mapping lives in `knowledge_base/identity_registry.json` and has to be
+recorded rather than guessed. When an account is linked, her profile of it says so
+(*"magnetaress — this is Starkind from Discord"*) and the profiler is told it is someone
+she already talks to, not a stranger who happens to post here.
+
+**Her own forum account is marked as self.** Without that it was simply the 213th user the
+scraper found, and it wrote her a profile reading *"a forum user… haven't formed a strong
+opinion yet"* — a memory of herself as a stranger, retrievable in conversation.
+
+Link an account with `!forum link <forum_id>`, or edit the registry directly.
+
+The periodic scraper only deep-scrapes people it finds in *recent* threads, so anyone
+quiet for a few months never gets a real profile. To build one on demand:
+
+```
+python tools/maintenance/refresh_forum_profiles.py --linked   # everyone she knows
+python tools/maintenance/refresh_forum_profiles.py --user 228819
+python tools/maintenance/refresh_forum_profiles.py --stubs --limit 20
+```
+
 ### Not repeating herself
 
 Nothing used to measure whether her posts were converging. The thread cooldown

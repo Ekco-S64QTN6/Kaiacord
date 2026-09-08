@@ -149,3 +149,38 @@ def test_this_run_did_not_touch_production_telemetry():
     """The whole point, asserted directly."""
     for src in DASHBOARD_SOURCES:
         assert telemetry_path(src) != src
+
+
+# ── The corpus, not just telemetry ───────────────────────────────────
+
+def test_corpus_writes_are_redirected_under_test():
+    """`!remember` writes a per-user file into knowledge_base/user_logs, and the
+    suite exercises that path — so TestUser_123456789/ had accumulated ~170
+    `injected_*.txt` fixtures, indexed into the production RAG corpus and
+    retrievable in a real conversation. Third instance of this failure after
+    logs/kaiacord.log and hallucination_log.jsonl."""
+    from utils.infrastructure.monitoring.telemetry_paths import corpus_dir
+    assert corpus_dir("./knowledge_base").endswith(".test")
+
+
+def test_the_persistence_layer_uses_the_redirect():
+    import ast
+    from pathlib import Path
+    src = Path("utils/core/kaia_rag_persistence.py").read_text(encoding="utf-8")
+    assert "corpus_dir(self.knowledge_base_dir)" in src
+    tree = ast.parse(src)
+    raw = [n for n in ast.walk(tree)
+           if isinstance(n, ast.Attribute) and n.attr == "knowledge_base_dir"]
+    # Every use must be wrapped; a bare one is a new write path that escapes.
+    assert src.count("self.knowledge_base_dir") == src.count("corpus_dir(self.knowledge_base_dir)"), \
+        "a knowledge_base_dir use is not routed through corpus_dir"
+
+
+def test_no_test_fixtures_remain_in_the_production_corpus():
+    from pathlib import Path
+    logs = Path("knowledge_base/user_logs")
+    if not logs.exists():
+        pytest.skip("no corpus")
+    strays = [d.name for d in logs.iterdir()
+              if d.is_dir() and d.name.lower().startswith("testuser")]
+    assert not strays, f"test fixtures in the production corpus: {strays}"

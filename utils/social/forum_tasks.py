@@ -184,12 +184,12 @@ async def _reply_to_replies(client, forum_username: str) -> None:
                 continue
 
             text = draft['text']
-            if draft['quote']:
-                from utils.social.forum_drafting import own_words
-                q = draft['quote']
+            from utils.social.forum_drafting import own_words
+            q = draft['quote']
+            quoted = own_words(q) if q else ""
+            if q and quoted:
                 text = client.format_quote(q.get('author', 'Unknown'),
-                                           q.get('post_id'),
-                                           own_words(q.get('content', ''))) + text
+                                           q.get('post_id'), quoted) + text
 
             title = thread_data.get('title', f'Thread {thread_id}')
 

@@ -180,3 +180,80 @@ def test_contamination_filter_rejects_sustained_contamination():
 def test_contamination_filter_passes_clean_responses(text):
     """A rejection costs a full regeneration, so false positives are expensive."""
     assert EmergencyContaminationFilter.filter_response(text) is not None
+
+
+# ── Bare-name openers, revisited (Phase 91) ──────────────────────────
+
+def test_the_addressee_list_is_not_hand_written():
+    """It was eleven names typed by hand, so it was wrong the moment someone
+    new joined. Measured against the fine-tune corpus it missed gnowmaticflux
+    (54 openers), gymconserve (39) and kristinoemnclature (29) — 5.8% of her
+    replies still opened with a bare name, to exactly the people nobody had
+    remembered to add."""
+    from utils.core.response_filter import BotSpeakFilter
+    assert len(BotSpeakFilter.ADDRESSEE_NAMES.split("|")) > 50
+
+
+@pytest.mark.parametrize("text,expected", [
+    ("gnowmaticflux, i retract that.", "i retract that."),
+    ("gymconserve, that is a fair point.", "that is a fair point."),
+    ("kristinoemnclature, the answer is no.", "the answer is no."),
+    ("jimjam the absent, welcome back.", "welcome back."),
+    ("starkind. the patch broke it.", "the patch broke it."),
+])
+def test_bare_name_openers_are_stripped(text, expected):
+    from utils.core.response_filter import BotSpeakFilter
+    assert BotSpeakFilter.harden(text) == expected
+
+
+@pytest.mark.parametrize("text", [
+    "ekco was right about the cache.",      # name, but not an address
+    "yeah, i suppose it is.",               # discourse marker
+    "conserve water, please.",              # substring of a configured name
+    "honestly, the whole thing is a mess.",
+])
+def test_ordinary_sentences_are_untouched(text):
+    from utils.core.response_filter import BotSpeakFilter
+    assert BotSpeakFilter.harden(text) == text
+
+
+def test_coined_nicknames_come_from_config():
+    """She invents names for people — those exist in no user directory and
+    cannot be discovered, so they are configuration."""
+    from utils.infrastructure.system.yaml_config import config
+    from utils.core.response_filter import BotSpeakFilter
+    extra = config.get("filters.extra_addressees", []) or []
+    assert extra, "filters.extra_addressees should carry the coined nicknames"
+    for name in extra:
+        assert name.lower() in BotSpeakFilter.ADDRESSEE_NAMES.lower()
+
+
+# ── The bait guard ate one-word replies (Phase 95) ───────────────────
+
+@pytest.mark.parametrize("text", [
+    "hello.", "yes.", "no.", "sure.", "hi.", "maybe.", "agreed.", "right.",
+])
+def test_a_one_word_reply_survives(text):
+    """The guard used RE_LEADING_NAME, which matches *any* word followed by
+    punctuation, so every one-word reply was deleted — exactly when a one-word
+    reply was the right answer. Each rejection costs a full regeneration, and
+    three failures return the "i'm drawing a blank on that one" fallback.
+
+    Kaia answered "test test hello hello" with "hello.", had it destroyed three
+    times, and the failure string was queued as a forum post."""
+    from utils.core.response_filter import BotSpeakFilter
+    assert BotSpeakFilter.harden(text) == text
+
+
+@pytest.mark.parametrize("text", ["ekco,", "starkind:", "jimjam.", "cecily"])
+def test_an_addressee_with_no_message_is_still_rejected(text):
+    """What the guard is actually for."""
+    from utils.core.response_filter import BotSpeakFilter
+    assert BotSpeakFilter.harden(text) == ""
+
+
+def test_the_guard_uses_the_name_allowlist_not_any_word():
+    from utils.core.response_filter import BotSpeakFilter
+    assert BotSpeakFilter.RE_ONLY_ADDRESSEE is not None
+    assert BotSpeakFilter.RE_ONLY_ADDRESSEE.match("ekco,")
+    assert not BotSpeakFilter.RE_ONLY_ADDRESSEE.match("hello.")

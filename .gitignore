@@ -97,3 +97,6 @@ tools/tests/test_knowledge_base/
 memory/*.test.json
 memory/*.test.jsonl
 logs/*.test.log
+
+# Corpus writes made by the test suite (see telemetry_paths.corpus_dir).
+knowledge_base/.test/

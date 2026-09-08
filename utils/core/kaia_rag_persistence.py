@@ -14,6 +14,7 @@ Contains:
 - pre_warm: BM25 pre-warming
 """
 
+from utils.infrastructure.monitoring.telemetry_paths import corpus_dir
 import os
 import re
 import asyncio
@@ -58,7 +59,7 @@ class RAGPersistenceMixin:
             with self._data_lock:
                 safe_user_name = "".join([c for c in user_name if c.isalnum() or c in (' ', '-', '_')]).strip().replace(' ', '_')
                 user_dir_name = f"{safe_user_name}_{user_id}"
-                user_log_dir = os.path.join(self.knowledge_base_dir, "user_logs", user_dir_name)
+                user_log_dir = os.path.join(corpus_dir(self.knowledge_base_dir), "user_logs", user_dir_name)
                 
                 os.makedirs(user_log_dir, exist_ok=True)
                 
@@ -138,6 +139,23 @@ class RAGPersistenceMixin:
 
         return canonical_id
 
+    def _existing_dir_for_id(self, user_id: str) -> Optional[str]:
+        """An existing `<anything>_<user_id>` directory, if one is already there.
+
+        Picks the fullest when several exist, so a rename lands back on the
+        history rather than beside it.
+        """
+        base = os.path.join(corpus_dir(self.knowledge_base_dir), "user_logs")
+        suffix = f"_{user_id}"
+        try:
+            matches = [d for d in os.listdir(base)
+                       if d.endswith(suffix) and os.path.isdir(os.path.join(base, d))]
+        except OSError:
+            return None
+        if not matches:
+            return None
+        return max(matches, key=lambda d: len(os.listdir(os.path.join(base, d))))
+
     def _resolve_log_path(self, canonical_id: str, user_name: str, user_id: int) -> str:
         """Determine the log file path for a user, creating directories as needed."""
         u_id_str = str(user_id)
@@ -154,7 +172,17 @@ class RAGPersistenceMixin:
         else:
             user_dir_name = f"{safe_user_name}_{u_id_str}"
 
-        user_log_dir = os.path.join(self.knowledge_base_dir, "user_logs", user_dir_name)
+        # The directory name embeds the *display name*, which a person changes;
+        # the id does not. One Discord user had three directories — galadriel,
+        # Jimjam and Jimjam_the_applauded, all id 103939159357399040 — so a
+        # rename started a fresh history and lost the continuity of everything
+        # before it. Reuse whatever directory already exists for this id.
+        existing = self._existing_dir_for_id(u_id_str)
+        if existing and existing != user_dir_name:
+            log_debug(f"Reusing existing log directory {existing} for {user_dir_name}")
+            user_dir_name = existing
+
+        user_log_dir = os.path.join(corpus_dir(self.knowledge_base_dir), "user_logs", user_dir_name)
 
         if not os.path.exists(user_log_dir):
             os.makedirs(user_log_dir)

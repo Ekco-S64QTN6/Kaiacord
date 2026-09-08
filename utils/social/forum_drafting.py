@@ -30,6 +30,23 @@ from utils.social.forum_participation import PostLedger, looks_repetitive
 # silently took the ordinary Discord path and lost the thread context entirely.
 PLATFORM = "vbulletin"
 
+# What message_processor returns when it cannot produce a response. These are
+# fine in Discord, where they read as her being stuck for a moment. On a public
+# forum they are a bot visibly malfunctioning.
+GENERATION_FAILURES = (
+    "i'm drawing a blank on that one",
+    "the data's a bit scrambled",
+    "knowledge base is busy",
+    "not enough gpu memory",
+    "that took too long",
+    "something went wrong",
+)
+
+
+def is_generation_failure(text: str) -> bool:
+    low = (text or "").lower()
+    return any(f in low for f in GENERATION_FAILURES)
+
 
 def _as_dict(post: Any) -> dict:
     return post if isinstance(post, dict) else post.to_dict()
@@ -54,16 +71,39 @@ def format_thread_context(title: str, posts: list, limit: int = 5000) -> str:
 _NESTED_QUOTE = re.compile(r'^\s*(quote:|originally posted by\b)', re.IGNORECASE)
 
 
-def own_words(content: str, limit: int = 700) -> str:
-    """A poster's own text, without whatever they were quoting."""
+def own_words(post, limit: int = 700) -> str:
+    """A poster's own text, without whatever they were quoting.
+
+    Prefers `own_text`, which the scraper extracts by removing the quote nodes
+    while the HTML structure is still present. The line-scanning fallback below
+    is only for posts that predate that field.
+
+    The fallback used to keep everything *before* the first "Quote:" marker and,
+    finding nothing there, fall back to the entire content. On a post whose
+    quote box comes first — quote, then the poster's one-line reply — that
+    returned the whole thing, so Kaia quoted BradZax's words inside a box
+    attributed to Jimjam. A flattened post has no reliable boundary; that is
+    why the real fix is at scrape time.
+    """
+    if not isinstance(post, str):
+        explicit = (post or {}).get("own_text") if hasattr(post, "get") else None
+        if explicit:
+            return explicit[:limit].rsplit(" ", 1)[0] + "..." if len(explicit) > limit else explicit
+        content = (post or {}).get("content", "") if hasattr(post, "get") else ""
+    else:
+        content = post
+
     lines, out = (content or "").split("\n"), []
     for line in lines:
         if _NESTED_QUOTE.match(line):
             break
         out.append(line)
     text = "\n".join(out).strip()
-    if not text:                       # the post was only a quote plus a reaction
-        text = (content or "").strip()
+    if not text:
+        # A post that is nothing but a quote gives us nothing to quote back.
+        # Returning the whole thing would attribute someone else's words to
+        # this poster, so return nothing and let the caller skip the quote.
+        return ""
     if len(text) > limit:
         text = text[:limit].rsplit(" ", 1)[0] + "..."
     return text
@@ -111,7 +151,7 @@ async def draft_forum_reply(ctx, *, thread_id: int, title: str, posts: list,
     # ctx.parent_context, which the vbulletin branch turns into the user turn.
     if quote_post:
         author = quote_post.get('author', 'Unknown')
-        content = (f"[REPLYING_TO]\n{own_words(quote_post.get('content', ''))}\n"
+        content = (f"[REPLYING_TO]\n{own_words(quote_post)}\n"
                    f"[USER_MESSAGE]\n{thread_block}")
         speaker, speaker_id = author, quote_post.get('user_id') or 0
     else:
@@ -126,11 +166,21 @@ async def draft_forum_reply(ctx, *, thread_id: int, title: str, posts: list,
         # Per-thread memory. Without this every thread on the site would share
         # one conversation history.
         conversation_key=thread_id,
+        # Draft only. The forum poster is being quoted, not conversed with.
+        no_persist=True,
     )
 
     reply = (reply or "").strip()
     if len(reply) < 24:
         log_warning("Forum: draft was empty or emptied by the filters, skipping.")
+        return None
+
+    # The pipeline returns a canned apology when every generation attempt
+    # fails. It is 44 characters, so the length check above waves it through —
+    # and "i'm drawing a blank on that one. hit me again?" was queued as a
+    # forum post. A failure to generate is not a post.
+    if is_generation_failure(reply):
+        log_warning(f"Forum: generation failed, not drafting a post. Got: {reply[:60]!r}")
         return None
 
     # Would this read as the same post again? Her forum posts sit permanently

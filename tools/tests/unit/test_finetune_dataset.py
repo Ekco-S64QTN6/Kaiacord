@@ -179,3 +179,96 @@ def test_the_modelfile_system_prompt_matches_the_trained_one():
     first = json.loads((DATASET / "train.jsonl").read_text(encoding="utf-8").splitlines()[0])
     trained = next(m["content"] for m in first["messages"] if m["role"] == "system")
     assert served.group(1).strip() == trained.strip()
+
+
+# ── Defects found by re-auditing the corpus (Phase 91) ───────────────
+
+def _train():
+    import json
+    from pathlib import Path
+    p = Path("finetune/dataset/train.jsonl")
+    if not p.exists():
+        pytest.skip("no dataset built")
+    return [json.loads(l) for l in p.read_text(encoding="utf-8").splitlines() if l.strip()]
+
+
+def _targets(rows):
+    return [m["content"] for r in rows for m in r["messages"] if m["role"] == "assistant"]
+
+
+def test_no_duplicate_exchanges():
+    """Examples are sliding windows over the same conversations, so one
+    exchange appeared inside several of them — 753 of 2,559 pairs were repeats
+    and one reply appeared eleven times. Whole-example dedup missed all of it,
+    and duplicates reweight the training objective toward whatever happens to
+    be duplicated."""
+    import collections
+    rows = _train()
+    pairs = collections.Counter()
+    for r in rows:
+        ms = r["messages"]
+        for i, m in enumerate(ms):
+            if m["role"] == "assistant" and i > 0 and ms[i - 1]["role"] == "user":
+                pairs[(ms[i - 1]["content"].strip().lower(),
+                       m["content"].strip().lower())] += 1
+    extra = sum(c - 1 for c in pairs.values() if c > 1)
+    assert extra == 0, f"{extra} duplicate (user, assistant) pairs"
+
+
+def test_the_runtimes_own_failure_messages_are_not_training_targets():
+    """"i'm drawing a blank on that one. hit me again?" is what
+    message_processor returns when generation fails. It was logged as if she
+    had said it, so the corpus taught her to emit it as a normal reply."""
+    fallbacks = ("drawing a blank on that one", "the data's a bit scrambled",
+                 "knowledge base is busy", "not enough gpu memory",
+                 "something went wrong rendering", "hit me again?")
+    bad = [t for t in _targets(_train())
+           if any(f in t.lower() for f in fallbacks)]
+    assert not bad, f"{len(bad)} targets are runtime failure messages: {bad[:2]}"
+
+
+def test_no_bare_name_openers_survive():
+    """Phase 81 reported 0%. It was 5.8% — the check used a hand-written name
+    list that was missing the four handles that actually appear."""
+    import re
+    from utils.core.response_filter import BotSpeakFilter
+    rx = re.compile(r"^(" + BotSpeakFilter.ADDRESSEE_NAMES + r")(?:\s+the\s+\w+)?\s*[.,:]\s",
+                    re.IGNORECASE)
+    bad = [t for t in _targets(_train()) if rx.match(t)]
+    assert not bad, f"{len(bad)} bare-name openers, e.g. {bad[:2]}"
+
+
+def test_nothing_exceeds_the_training_window():
+    """An over-long example is truncated, not skipped, so its target ends
+    mid-sentence and the model learns to stop there."""
+    import importlib.util
+    spec = importlib.util.spec_from_file_location("c", "finetune/01f_clean_targets.py")
+    mod = importlib.util.module_from_spec(spec)
+    spec.loader.exec_module(mod)
+    over = [r for r in _train() if mod.estimated_tokens(r) > mod.TRAIN_MAX_TOKENS]
+    assert not over, f"{len(over)} examples exceed {mod.TRAIN_MAX_TOKENS} tokens"
+
+
+def test_the_cleaner_keeps_ordinary_clause_openers():
+    """The structural opener rule must not eat "yeah, ..." or "honestly, ..."."""
+    import importlib.util
+    spec = importlib.util.spec_from_file_location("c", "finetune/01f_clean_targets.py")
+    mod = importlib.util.module_from_spec(spec)
+    spec.loader.exec_module(mod)
+    for keep in ("yeah, i suppose it is.", "honestly, the whole thing is a mess.",
+                 "no, that never happened.", "granted, it is a fair point."):
+        assert mod.training_quality_reject(keep) is None, keep
+    for drop in ("gnowmaticflux, i retract that.", "jimjam the absent, welcome back."):
+        assert mod.training_quality_reject(drop) == "bare_name_opener", drop
+
+
+def test_the_length_guard_matches_the_trainer():
+    """If these drift apart the guard stops guarding anything."""
+    import importlib.util, re
+    from pathlib import Path
+    spec = importlib.util.spec_from_file_location("c", "finetune/01f_clean_targets.py")
+    mod = importlib.util.module_from_spec(spec)
+    spec.loader.exec_module(mod)
+    src = Path("finetune/03_train.py").read_text(encoding="utf-8")
+    m = re.search(r"^MAX_SEQ_LENGTH\s*=\s*(\d+)", src, re.M)
+    assert m and int(m.group(1)) == mod.TRAIN_MAX_TOKENS

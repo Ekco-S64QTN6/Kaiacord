@@ -310,10 +310,42 @@ class BotSpeakFilter:
     # ------------------------------------------------------------------
 
     # Addressees Kaia speaks to. Used by the name-echo and dissociation guards.
-    ADDRESSEE_NAMES = (
-        r"ekco|ecko|starkind|cecily|jimjam|guardngnowm|tenn[o\u014d](?:[_ ]?henka)?"
-        r"|lune|toxigen|milla"
+    #
+    # This was a hand-written list of eleven names, and a hand-written list of
+    # people is wrong the moment someone new joins. Measured against the
+    # fine-tune corpus it was missing `gnowmaticflux` (54 openers),
+    # `gymconserve` (39) and `kristinoemnclature` (29) — 5.8% of her replies
+    # still opened with a bare name, to exactly the users nobody had added.
+    # The names now come from the user-log directories, which is the same
+    # source of truth the rest of the memory layer uses.
+    _CORE_ADDRESSEES = (
+        "ekco", "ecko", "starkind", "cecily", "jimjam", "guardngnowm",
+        "lune", "toxigen", "milla",
     )
+
+    @staticmethod
+    def _discovered_addressees() -> list[str]:
+        """Names from knowledge_base/user_logs, minus the forum_ prefix."""
+        import os
+        found = []
+        try:
+            for entry in os.listdir(os.path.join("knowledge_base", "user_logs")):
+                if "_" not in entry:
+                    continue
+                name = entry.rsplit("_", 1)[0]
+                if name.startswith("forum_"):
+                    name = name[len("forum_"):]
+                name = name.replace("_", " ").strip().lower()
+                # One- or two-word handles only. Anything longer is not what a
+                # bare-name opener looks like, and a long alternation is a
+                # needless cost on every response.
+                if 2 < len(name) <= 24 and len(name.split()) <= 2:
+                    found.append(name)
+        except OSError:
+            pass
+        return found
+
+    ADDRESSEE_NAMES = ""   # built below, after the class body is defined
 
     # P1a — formulaic bare-addressee opener ("ekco,\n\n<body>"). The name carries no
     # information; it is a tic the model falls into on nearly every turn.
@@ -324,10 +356,11 @@ class BotSpeakFilter:
     # turns still opened with a bare name. Adding '.' is safe because
     # ADDRESSEE_NAMES is an explicit allowlist: an ordinary sentence opening
     # "yes." or "right." cannot match it.
-    RE_ADDRESSEE_OPENER = re.compile(
-        rf'^[ \t]*(?:{ADDRESSEE_NAMES})[ \t]*[.,:][ \t]*(?:\n+|(?=\S))',
-        re.IGNORECASE
-    )
+    # `(?:\s+the\s+\w+)?` catches the epithet form — "jimjam the absent," —
+    # which the plain name pattern missed 27 times in the corpus. Deliberately
+    # narrow: only the literal word "the", so "ekco was right," is untouched.
+    RE_ADDRESSEE_OPENER = None   # compiled below, once the names are known
+    RE_ONLY_ADDRESSEE = None     # ditto — "ekco," and nothing else
 
     # P3 — fictional infrastructure / sci-fi status flavour and bare stage directions.
     FICTIONAL_STATUS_PATTERNS = [
@@ -598,10 +631,21 @@ class BotSpeakFilter:
             log_warning(f"[BAIT_GUARD] Truncated output to < 3 chars, returning empty string to trigger retry. Original: '{text}'")
             return ""
             
-        # Post-harden guard: If output consists solely of an addressee prefix with no body (e.g. 'starkind,' or 'ekco:'), fail it
-        body_only = cls.RE_LEADING_NAME.sub('', cleaned).strip()
-        if len(body_only) < 2:
-            log_warning(f"[BAIT_GUARD] Output contains only addressee prefix without message body: '{cleaned}'. Returning empty string to trigger retry.")
+        # Post-harden guard: output that is only an addressee and no message —
+        # "starkind," or "ekco:".
+        #
+        # This used RE_LEADING_NAME, which matches *any* word followed by
+        # punctuation, so it also destroyed "hello.", "yes." and "sure." — every
+        # one-word reply, exactly when a one-word reply was the right answer.
+        # Each rejection costs a full regeneration, and three failures return
+        # the "i'm drawing a blank on that one" fallback: Kaia answered "test
+        # test hello hello" with "hello.", had it deleted three times, and
+        # queued the failure string as a forum post.
+        #
+        # The allowlist is the right test here for the same reason it is in
+        # RE_ADDRESSEE_OPENER: it cannot swallow an ordinary word.
+        if cls.RE_ONLY_ADDRESSEE is not None and cls.RE_ONLY_ADDRESSEE.match(cleaned):
+            log_warning(f"[BAIT_GUARD] Output is an addressee with no message body: '{cleaned}'. Returning empty string to trigger retry.")
             return ""
             
         return cleaned
@@ -1015,3 +1059,45 @@ class BotSpeakFilter:
         
         return cleaned
 
+
+
+def _build_addressee_pattern() -> None:
+    """Compile the bare-name opener guard from the discovered addressees.
+
+    Done once at import, after the class body, because the discovery reads the
+    filesystem and a class-body call would run before the class exists. Rebuild
+    with `BotSpeakFilter.refresh_addressees()` if a new user appears mid-run.
+    """
+    # Kaia coins nicknames for people — "kristinoemnclature", "gymconserve" —
+    # and then opens with them. Those exist in no directory and cannot be
+    # discovered, so they are configuration: filters.extra_addressees.
+    extra = []
+    try:
+        from utils.infrastructure.system.yaml_config import config
+        extra = [str(n).lower() for n in (config.get("filters.extra_addressees", []) or [])]
+    except Exception:
+        pass
+
+    names = sorted(
+        set(BotSpeakFilter._CORE_ADDRESSEES)
+        | set(BotSpeakFilter._discovered_addressees())
+        | set(extra),
+        key=len, reverse=True,        # longest first, so "tenno henka" wins over "tenno"
+    )
+    alternation = "|".join(re.escape(n) for n in names if n)
+    # Keep the historical spelling variants that are not directory names.
+    alternation += r"|tenn[oō](?:[_ ]?henka)?"
+    BotSpeakFilter.ADDRESSEE_NAMES = alternation
+    BotSpeakFilter.RE_ADDRESSEE_OPENER = re.compile(
+        rf'^[ \t]*(?:{alternation})(?:\s+the\s+\w+)?[ \t]*[.,:][ \t]*(?:\n+|(?=\S))',
+        re.IGNORECASE,
+    )
+    # The whole response is a name and punctuation, with no message after it.
+    BotSpeakFilter.RE_ONLY_ADDRESSEE = re.compile(
+        rf'^\s*(?:{alternation})(?:\s+the\s+\w+)?\s*[,.:;!?\s]*$',
+        re.IGNORECASE,
+    )
+
+
+BotSpeakFilter.refresh_addressees = staticmethod(_build_addressee_pattern)
+_build_addressee_pattern()

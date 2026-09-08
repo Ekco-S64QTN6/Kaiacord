@@ -713,9 +713,13 @@ def test_a_quote_does_not_carry_someone_elses_quote_into_it():
     assert own_words(raw) == "fine, she'll come here again, Opus 5 improved the old posting system"
 
 
-def test_a_post_that_is_only_a_quote_still_gives_something_to_quote():
+def test_a_post_that_is_only_a_quote_gives_nothing_to_quote():
+    """Superseded. This test previously asserted the opposite — that a
+    quote-only post falls back to its whole content — and that assertion was
+    the bug: it put BradZax's words inside a box attributed to Jimjam. Kept as
+    a marker so the fallback is not reinstated as a "fix"."""
     from utils.social.forum_drafting import own_words
-    assert own_words("Quote:\nsomething they said\nthis") != ""
+    assert own_words("Quote:\nsomething they said\nthis") == ""
 
 
 def test_long_quotes_are_trimmed():
@@ -816,3 +820,195 @@ def test_no_dead_reply_bookkeeping():
     tree = ast.parse(Path("utils/social/forum_tasks.py").read_text(encoding="utf-8"))
     attrs = {n.attr for n in ast.walk(tree) if isinstance(n, ast.Attribute)}
     assert "forum_reply_times" not in attrs
+
+
+# ── Drafting is not conversing ───────────────────────────────────────
+
+def test_a_forum_draft_does_not_write_to_anyone_s_history():
+    """Routing forum drafts through the Discord pipeline bought RAG, memory and
+    the filter stack — and also its persistence, which is wrong. It wrote a
+    whole forum thread into a Discord user's interaction log, created a
+    directory keyed by a vBulletin id beside the real Discord user, and saved
+    one person's forum post as a *different* person's open loop."""
+    import inspect
+    from pathlib import Path
+    from utils.social.forum_drafting import draft_forum_reply
+    from utils.infrastructure.system.external_mention import process_external_mention
+
+    assert "no_persist" in inspect.signature(process_external_mention).parameters
+    assert "no_persist=True" in inspect.getsource(draft_forum_reply)
+
+    proc = Path("utils/core/message_processor.py").read_text(encoding="utf-8")
+    assert 'getattr(ctx.message, "no_persist", False)' in proc
+    # The guard must sit before the background logging task is created.
+    guard = proc.index('getattr(ctx.message, "no_persist", False)')
+    bg = proc.index("_background_logging_and_memory(ctx))")
+    assert guard < bg, "the no-persist guard must precede the logging task"
+
+
+def test_the_draft_flag_reaches_the_message():
+    from utils.infrastructure.system.messaging import MockMessage, MockUser, MockChannel
+    m = MockMessage("x", MockUser(1, "a", "a"), MockChannel(1), "vbulletin", no_persist=True)
+    assert m.no_persist is True
+    assert MockMessage("x", MockUser(1, "a", "a"), MockChannel(1)).no_persist is False
+
+
+# ── Quoting the right person (Phase 93) ──────────────────────────────
+
+def _post_div(html):
+    from bs4 import BeautifulSoup
+    return BeautifulSoup(html, "html.parser")
+
+
+VB_QUOTE_FIRST = '''
+<div id="post_message_3800299">
+  <div>
+    <div class="smallfont">Quote:</div>
+    <table><tr><td>
+      <div>Originally Posted by <strong>BradZax</strong></div>
+      lol im not exagurating anything<br/>
+      Datacenters: 2 billion gallons a year<br/>
+      You people are STUPID.
+    </td></tr></table>
+  </div>
+  It is funny cos their nuts are so dry. Maybe they need even more water?
+</div>'''
+
+
+def test_the_scraper_separates_a_posters_own_words():
+    """Jimjam's post was a BradZax quote box followed by one line of his own.
+    Kaia quoted the whole flattened thing — BradZax's words included — inside a
+    box attributed to Jimjam. Flattened text has no reliable boundary; the
+    structure does, so the split happens at scrape time."""
+    import asyncio
+    from utils.social.kaia_forum import ForumClient
+
+    client = ForumClient.__new__(ForumClient)
+    posts = asyncio.run(client._parse_posts(_post_div(VB_QUOTE_FIRST)))
+    assert len(posts) == 1
+    assert posts[0].own_text == (
+        "It is funny cos their nuts are so dry. Maybe they need even more water?")
+    assert "BradZax" in posts[0].content, "thread context keeps the quoted material"
+    assert "BradZax" not in posts[0].own_text
+
+
+def test_own_words_prefers_the_structural_extraction():
+    from utils.social.forum_drafting import own_words
+    post = {"author": "Jimjam",
+            "own_text": "It is funny cos their nuts are so dry.",
+            "content": "Quote:\nOriginally Posted by\nBradZax\nlol im not exagurating\n"
+                       "It is funny cos their nuts are so dry."}
+    assert own_words(post) == "It is funny cos their nuts are so dry."
+
+
+def test_a_quote_only_post_yields_nothing_to_quote():
+    """The old fallback returned the entire content here, which is how another
+    person's words ended up in the box."""
+    from utils.social.forum_drafting import own_words
+    assert own_words({"content": "Quote:\nOriginally Posted by\nY\ntheir words only"}) == ""
+
+
+def test_own_words_still_handles_the_quote_last_shape():
+    from utils.social.forum_drafting import own_words
+    assert own_words({"content": "my own line\nQuote:\nOriginally Posted by\nY\ntheirs"}) \
+        == "my own line"
+
+
+def test_no_empty_quote_box_is_emitted():
+    """If there is nothing of theirs to quote, post without a quote rather than
+    with an empty box."""
+    from pathlib import Path
+    for f in ("utils/core/background_tasks.py", "utils/social/forum_tasks.py"):
+        src = Path(f).read_text(encoding="utf-8")
+        assert "and quoted:" in src, f"{f} builds a quote without checking it is non-empty"
+
+
+# ── One decision per draft ───────────────────────────────────────────
+
+def test_the_review_buttons_cannot_run_twice():
+    """Posting takes seconds and the buttons stayed live throughout, because
+    `disabled = True` only reaches Discord on the next message edit — which
+    happened after the post. A second click posted-then-failed: the operator
+    saw "FAILED TO POST" for a post that had gone through."""
+    import inspect
+    from utils.social.kaia_forum import ForumDraftReviewView
+
+    for name in ("accept", "reject"):
+        src = inspect.getsource(getattr(ForumDraftReviewView, name))
+        assert '_handled' in src, f"{name} has no re-entry guard"
+
+    accept = inspect.getsource(ForumDraftReviewView.accept)
+    guard = accept.index("self._handled = True")
+    post = accept.index("post_reply(")
+    edit = accept.index("interaction.message.edit")
+    assert guard < post, "the guard must precede the post"
+    assert edit < post, "the disabled state must reach Discord before the slow call"
+
+
+# ── A failure to generate is not a post ──────────────────────────────
+
+@pytest.mark.parametrize("text,expected", [
+    ("i'm drawing a blank on that one. hit me again?", True),
+    ("that took too long. try again in a bit.", True),
+    ("the data's a bit scrambled right now. ask me again later.", True),
+    ("honestly the whole thing is enshittification with extra steps", False),
+    ("the data centre numbers are scrambled in that article, but the point holds", False),
+])
+def test_generation_failures_are_recognised(text, expected):
+    from utils.social.forum_drafting import is_generation_failure
+    assert is_generation_failure(text) is expected
+
+
+def test_a_failed_generation_is_not_queued_as_a_draft():
+    """The canned apology is 44 characters, so the minimum-length check waved
+    it through and "i'm drawing a blank on that one. hit me again?" was queued
+    for review as a forum post. In Discord that reads as her being stuck; on a
+    public forum it is a bot visibly malfunctioning."""
+    import inspect
+    from utils.social.forum_drafting import draft_forum_reply
+    src = inspect.getsource(draft_forum_reply)
+    assert "is_generation_failure(reply)" in src
+    assert src.index("len(reply) < 24") < src.index("is_generation_failure(reply)")
+
+
+# ── Embedded video dumps ─────────────────────────────────────────────
+
+def test_a_run_of_embedded_video_ids_becomes_a_count():
+    """`[embed]xxxxxxxxxxx[/embed]` flattens to a bare 11-character id. One
+    user's post_history.md held 256 of them; 694 across 44 files."""
+    from utils.social.kaia_forum import collapse_video_ids
+    text = "check these:\n- NynnApj2smY\n- 7yy0n3WXHng\n- Jayj1rIrVJI\n- alMyFJA__Jg\nthoughts?"
+    assert collapse_video_ids(text) == "check these:\n[4 embedded videos]\nthoughts?"
+
+
+def test_a_single_video_keeps_its_identity():
+    from utils.social.kaia_forum import collapse_video_ids
+    out = collapse_video_ids("watch:\n- NynnApj2smY\nwell?", {"NynnApj2smY": "A Title"})
+    assert out == "watch:\n[video: A Title]\nwell?"
+    assert collapse_video_ids("watch:\n- NynnApj2smY\nwell?") == "watch:\n[video NynnApj2smY]\nwell?"
+
+
+@pytest.mark.parametrize("word", [
+    "information", "engineering", "consequence", "blackburrow", "scaramouche",
+    "feelsbadman", "REEEEEEEEEE",
+])
+def test_eleven_letter_words_are_not_mistaken_for_video_ids(word):
+    """Length alone would eat real words — all of these appear in the corpus."""
+    from utils.social.kaia_forum import _looks_like_video_id
+    assert _looks_like_video_id(word) is False
+
+
+@pytest.mark.parametrize("vid", ["NynnApj2smY", "7yy0n3WXHng", "alMyFJA__Jg", "w_U8sXbpjqs"])
+def test_real_video_ids_are_detected(vid):
+    from utils.social.kaia_forum import _looks_like_video_id
+    assert _looks_like_video_id(vid) is True
+
+
+def test_both_scrape_paths_collapse_videos():
+    """The old resolver ran only in thread parsing and only matched a line that
+    was *exactly* the id — the history writer emits "- <id>" list items, so
+    nothing matched there at all."""
+    from pathlib import Path
+    src = Path("utils/social/kaia_forum.py").read_text(encoding="utf-8")
+    assert "_collapse_videos(content)" in src, "thread parsing"
+    assert "collapse_video_ids(block)" in src, "post-history writer"

@@ -529,3 +529,17 @@ forum:
   # whose first act in a community is to post has not read the room.
   min_threads_before_posting: 15
   min_users_before_posting: 25
+
+# ============================================================================
+# Response filters
+# ============================================================================
+filters:
+  # Names Kaia opens replies with that no user directory knows about — the
+  # nicknames she coins herself. The bare-name opener guard discovers real
+  # users from knowledge_base/user_logs; these are the ones it cannot find.
+  # Measured in the fine-tune corpus: gymconserve 39 openers,
+  # kristinoemnclature 29.
+  extra_addressees:
+    - gymconserve
+    - kristinoemnclature
+    - gnowmaticflux

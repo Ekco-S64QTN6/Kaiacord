@@ -151,7 +151,11 @@ def main():
         per_device_train_batch_size=1,
         per_device_eval_batch_size=1,        # Batch size 1 prevents evaluation OOM on 12GB VRAM
         gradient_accumulation_steps=8,       # Effective batch = 8
-        warmup_steps=10,
+        # Ratio, not a fixed count: at 1,191 examples with an effective batch
+        # of 8 a run is ~900 steps, so a hardcoded 10 is ~1% warmup — and it
+        # silently becomes a different fraction every time the dataset changes
+        # size, which it just did (1,458 -> 1,191 after de-duplication).
+        warmup_ratio=0.05,
         num_train_epochs=6,                  # Increased epochs from 4 to 6
         learning_rate=2e-4,                  # Increased learning rate from 2e-5 to 2e-4
         fp16=False,

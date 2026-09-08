@@ -124,7 +124,13 @@ class MockChannel:
         return _typing
 
 class MockMessage:
-    def __init__(self, content: str, author: MockUser, channel: MockChannel, platform: str = "discord"):
+    def __init__(self, content: str, author: MockUser, channel: MockChannel,
+                 platform: str = "discord", no_persist: bool = False):
+        # no_persist: run the pipeline for its output only. Used when drafting
+        # a forum reply, where the "author" is someone being quoted rather than
+        # someone Kaia is in conversation with, so writing interaction logs,
+        # relationships and open loops against them is wrong.
+        self.no_persist = no_persist
         self.content = content
         self.author = author
         self.channel = channel

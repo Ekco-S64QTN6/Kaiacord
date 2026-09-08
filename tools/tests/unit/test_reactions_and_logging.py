@@ -215,3 +215,42 @@ class TestRepeatAggregator:
 
     def test_flush_is_silent_with_nothing_pending(self):
         assert RepeatAggregator().flush() is None
+
+
+# ── Prompt scaffolding must not reach the transcript ─────────────────
+
+import pytest as _pytest
+
+
+@_pytest.mark.parametrize("text,expected", [
+    ("check this https://x.com/a\n\n[LINKED_WEB_CONTENT]\nscraped article body\n\n"
+     "[CORE_DIRECTIVE: Keep your response brutally concise.]",
+     "check this https://x.com/a"),
+    ("hey\n\n[SYSTEM WARNING: The following URLs could not be scraped: https://x]", "hey"),
+    ("a normal message with [brackets] in it", "a normal message with [brackets] in it"),
+    ("plain message", "plain message"),
+])
+def test_enricher_blocks_are_stripped_before_logging(text, expected):
+    """context_enricher appends these so the model has what it needs. Logged
+    verbatim they read as things the user typed, and the log feeds both RAG and
+    the fine-tune corpus — found in 28 user-log files and 11 training turns."""
+    from utils.core.sanitizer import strip_runtime_scaffolding
+    assert strip_runtime_scaffolding(text) == expected
+
+
+def test_generation_still_sees_the_scaffolding():
+    """Stripping belongs at persistence, not in sanitize_prompt — the model
+    needs the directive to obey it."""
+    from utils.core.sanitizer import sanitize_prompt
+    text = "look\n\n[CORE_DIRECTIVE: Keep your response brutally concise.]"
+    assert "CORE_DIRECTIVE" in sanitize_prompt(text)
+
+
+def test_the_logging_call_sites_strip():
+    from pathlib import Path
+    src = Path("utils/core/message_processor.py").read_text(encoding="utf-8")
+    for line in src.splitlines():
+        if "log_user_interaction_async(" in line and "def " not in line:
+            block_start = src.index(line)
+            window = src[block_start:block_start + 400]
+            assert "strip_runtime_scaffolding" in window, f"unstripped log call: {line.strip()}"

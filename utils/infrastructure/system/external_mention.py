@@ -8,7 +8,7 @@ from utils.infrastructure.logging.kaia_logger import log_warning
 
 async def process_external_mention(
     ctx: Any, content: str, author_name: str, author_id: Any, platform: str,
-    conversation_key: Any = None,
+    conversation_key: Any = None, no_persist: bool = False,
 ):
     """
     Process mentions from external platforms.
@@ -39,7 +39,8 @@ async def process_external_mention(
         content=content,
         author=mock_author,
         channel=mock_channel,
-        platform=platform
+        platform=platform,
+        no_persist=no_persist,
     )
     
     if not ctx.message_processor:

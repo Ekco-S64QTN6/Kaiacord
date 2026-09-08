@@ -267,11 +267,12 @@ class MessageProcessor:
                     # Background RAG log — observation only (empty response)
                     try:
                         if self.rag:
+                            from utils.core.sanitizer import strip_runtime_scaffolding
                             author_display = msg.author.display_name or msg.author.name
                             asyncio.create_task(
                                 self.rag.log_user_interaction_async(
                                     msg.author.id, author_display,
-                                    msg.content, ""
+                                    strip_runtime_scaffolding(msg.content), ""
                                 )
                             )
                     except Exception:
@@ -2193,6 +2194,19 @@ class MessageProcessor:
         await self._send_response(channel=ctx.message.channel, text=ctx.response_text)
         
         # 2. LOGGING & STATE (background to avoid holding up the UI)
+        #
+        # Drafting is not conversing. A forum draft borrows this pipeline for
+        # its retrieval, memory and filters — that is the point of routing it
+        # here — but the person on the other end is a forum poster being
+        # quoted, not someone Kaia is talking to. Running the persistence side
+        # of the pipeline over that wrote a whole forum thread into a Discord
+        # user's interaction log, created `Jimjam_33136` (a vBulletin id) beside
+        # the real Discord Jimjam, and saved Ekco's forum post as *Jimjam's*
+        # open loop — so she would have asked the wrong person how it went.
+        if getattr(ctx.message, "no_persist", False):
+            log_debug("Draft mode: skipping logging, memory and relationship updates.")
+            return
+
         # 3. Background Tasks with Backpressure
         # Create the task and let it manage its own semaphore lifecycle
         bg_task = asyncio.create_task(self._background_logging_and_memory(ctx))
@@ -2293,7 +2307,13 @@ class MessageProcessor:
                 
                 # Log for RAG — SKIP if style-drifted to prevent poisoning disk logs
                 if not _is_style_drifted:
-                    await self.rag.log_user_interaction_async(ctx.author_id, ctx.author_name, ctx.sanitized_content, bot_response)
+                    # The enricher's blocks belong in the prompt, not the
+                    # transcript: logged verbatim they read as things the user
+                    # typed, and the log feeds both RAG and the fine-tune corpus.
+                    from utils.core.sanitizer import strip_runtime_scaffolding
+                    await self.rag.log_user_interaction_async(
+                        ctx.author_id, ctx.author_name,
+                        strip_runtime_scaffolding(ctx.sanitized_content), bot_response)
                 
                 self.performance_monitor.stop_timer('total', 'response_time')
                 

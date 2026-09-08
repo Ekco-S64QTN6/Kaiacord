@@ -66,3 +66,26 @@ def telemetry_path(path: str) -> str:
         return path
     root, ext = os.path.splitext(path)
     return f"{root}{suffix}{ext}"
+
+
+# The same problem, one layer out. `!remember` writes a per-user file under
+# knowledge_base/user_logs, and the suite exercises that path — so
+# `knowledge_base/user_logs/TestUser_123456789/` had accumulated ~170
+# `injected_*.txt` files, all of them fixtures, all of them indexed into the
+# production RAG corpus and retrievable in a real conversation.
+#
+# Third instance of this failure after logs/kaiacord.log and
+# hallucination_log.jsonl, and the reason this module exists.
+TEST_CORPUS_SUBDIR = ".test"
+
+
+def corpus_dir(knowledge_base_dir: str) -> str:
+    """Where corpus writes go — a test subdirectory under pytest.
+
+    Reads are deliberately unaffected: a test that writes then reads its own
+    file still works, and nothing under `.test/` is indexed for production
+    because the indexer skips dot-directories.
+    """
+    if is_test_run():
+        return os.path.join(knowledge_base_dir, TEST_CORPUS_SUBDIR)
+    return knowledge_base_dir

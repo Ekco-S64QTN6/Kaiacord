@@ -40,14 +40,23 @@ echo ""
 # Pre-flight 2: verify the targets are what the runtime would actually emit.
 #
 # Training on unfiltered logs teaches the model to produce exactly what its own
-# filters then strip — the opposite of the goal. This is a report-only check;
-# run `01f_clean_targets.py --apply --with-corrections --strict` to fix.
+# filters then strip — the opposite of the goal.
+#
+# This is a gate, not a report. It used to print its findings and proceed
+# regardless, which is how an adapter came to be trained on a corpus carrying
+# 753 duplicate exchanges, 17 copies of the runtime's own "i'm drawing a blank"
+# failure message, and 149 bare-name openers. Regenerating the dataset from
+# logs and forgetting to clean it must not silently produce a bad model.
 # ---------------------------------------------------------------------------
 echo ">>> Pre-flight 2/2: Target quality vs the live filter stack"
 echo "---------------------------------------------"
-$PYTHON finetune/01f_clean_targets.py
+if ! $PYTHON finetune/01f_clean_targets.py --check --strict --with-corrections; then
+    echo ""
+    echo "Aborting: clean the dataset first (command above), then re-run."
+    exit 1
+fi
 echo ""
-echo ">>> Dataset audited — proceeding"
+echo ">>> Dataset clean — proceeding"
 echo ""
 
 # ---------------------------------------------------------------------------

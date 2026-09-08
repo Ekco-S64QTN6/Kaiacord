@@ -998,15 +998,17 @@ class CoreTaskManager:
                     return
 
                 quote_post = draft['quote']
-                if quote_post:
-                    # own_words strips anything that post was itself quoting —
-                    # otherwise her quote box reproduces a third party's text
-                    # under the wrong name.
-                    from utils.social.forum_drafting import own_words
+                from utils.social.forum_drafting import own_words
+                # own_words returns the poster's own text with their quote boxes
+                # removed. Empty means the post was nothing but a quote — there
+                # is nothing of theirs to quote back, and quoting the whole
+                # thing would attribute someone else's words to them.
+                quoted = own_words(quote_post) if quote_post else ""
+                if quote_post and quoted:
                     final_reply = client.format_quote(
                         quote_post.get('author', 'Unknown'),
                         quote_post.get('post_id'),
-                        own_words(quote_post.get('content', '')),
+                        quoted,
                     ) + draft['text']
                 else:
                     final_reply = draft['text']

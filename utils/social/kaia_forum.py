@@ -14,6 +14,7 @@ import os
 import re
 import json
 import asyncio
+import copy
 import aiohttp
 import traceback
 from datetime import datetime, timedelta
@@ -57,6 +58,67 @@ def encode_form(fields: Dict[str, str]) -> bytes:
 
 
 FORM_HEADERS = {"Content-Type": f"application/x-www-form-urlencoded; charset={FORUM_CHARSET}"}
+
+
+# ── Embedded video dumps ─────────────────────────────────────────────
+#
+# `[embed]xxxxxxxxxxx[/embed]` renders to a bare 11-character id, and a post
+# that is a playlist of them flattens to a wall of those ids. One user's
+# post_history.md held 256 of them; 694 across 44 files. They are noise in the
+# corpus: retrievable, meaningless, and they crowd out real content.
+#
+# The existing resolver only ran in thread parsing, and only matched a line
+# that was *exactly* the id — the history scraper emits "- <id>" list items, so
+# nothing matched there at all.
+
+_VIDEO_ID_LINE = re.compile(r"^\s*[-*•]?\s*([A-Za-z0-9_-]{11})\s*$")
+
+
+def _looks_like_video_id(token: str) -> bool:
+    """Distinguish a YouTube id from an ordinary 11-letter word.
+
+    "information", "engineering" and "consequence" are all eleven characters,
+    so length alone would eat real words. Ids are base64url and effectively
+    always carry a digit, an underscore/hyphen, or mixed case.
+    """
+    if len(token) != 11:
+        return False
+    if token.isalpha() and (token.islower() or token.isupper()):
+        return False        # a plain word
+    return any(c.isdigit() for c in token) or "_" in token or "-" in token \
+        or (not token.islower() and not token.isupper())
+
+
+def collapse_video_ids(text: str, titles: Optional[Dict[str, str]] = None) -> str:
+    """Replace bare embedded-video ids with something worth retrieving.
+
+    A run of three or more becomes a count, because a post that is thirty ids
+    means "they posted a pile of videos" and not thirty separate facts. One or
+    two keep their identity, with a title when we have one.
+    """
+    titles = titles or {}
+    out, run = [], []
+
+    def flush():
+        if not run:
+            return
+        if len(run) >= 3:
+            out.append(f"[{len(run)} embedded videos]")
+        else:
+            for vid in run:
+                title = titles.get(vid)
+                out.append(f"[video: {title}]" if title else f"[video {vid}]")
+        run.clear()
+
+    for line in (text or "").split("\n"):
+        m = _VIDEO_ID_LINE.match(line)
+        if m and _looks_like_video_id(m.group(1)):
+            run.append(m.group(1))
+            continue
+        flush()
+        out.append(line)
+    flush()
+    return "\n".join(out)
 
 
 def _is_synthesised_profile(path: Path) -> bool:
@@ -129,8 +191,12 @@ class ThreadInfo:
 
 class PostInfo:
     """Represents a single post in a thread."""
+    # `own_text` is the poster's own words with any quote boxes removed.
+    # `content` keeps the flattened whole, because the thread context the model
+    # reads is more useful with the quoted material in it. Only `own_text` is
+    # ever put inside a quote box.
     __slots__ = ('post_id', 'author', 'user_id', 'content', 'timestamp',
-                 'post_number')
+                 'post_number', 'own_text')
 
     def __init__(self, **kwargs):
         for k in self.__slots__:
@@ -474,6 +540,21 @@ class ForumClient:
             # Get post content as text (strip BBcode/HTML)
             content = div.get_text(separator='\n', strip=True)
 
+            # A vBulletin quote is a wrapper <div> containing a <table> whose
+            # text opens "Originally Posted by". Flattening the post loses that
+            # boundary, and a heuristic over the flattened text cannot find it
+            # again: Kaia quoted a post whose quote box came *first* and
+            # reproduced BradZax's words inside a box attributed to Jimjam.
+            # Removing the nodes here is exact, because the structure is still
+            # present.
+            own_div = copy.copy(div)
+            for tbl in own_div.find_all('table'):
+                wrapper = tbl.find_parent('div')
+                (wrapper if wrapper is not None and wrapper is not own_div else tbl).decompose()
+            own_text = own_div.get_text(separator='\n', strip=True)
+            # "Quote:" is the label left behind by the wrapper we just removed.
+            own_text = re.sub(r'^\s*Quote:\s*', '', own_text).strip()
+
             # Find the containing post table to get author and timestamp
             post_container = div.find_parent('table') or div.find_parent('div', id=re.compile(r'^post\d+'))
 
@@ -511,31 +592,17 @@ class ForumClient:
                 if ts_match:
                     timestamp = ts_match.group(1)
 
-            # --- YouTube ID Resolver ---
-            # Instead of filtering out IDs, we try to resolve their titles to give Kaia context.
-            content_lines = content.split('\n')
-            final_lines = []
-            yt_pattern = re.compile(r'^[a-zA-Z0-9_-]{11}$')
-            
-            for line in content_lines:
-                clean_line = line.strip()
-                if yt_pattern.match(clean_line):
-                    # It's an ID. Try to resolve it.
-                    log_debug(f"Attempting to resolve YouTube title for {clean_line}...")
-                    video_title = await self._resolve_youtube_title(clean_line)
-                    if video_title:
-                        final_lines.append(f"[Video Content: {video_title}]")
-                    else:
-                        # Fallback: keep the ID but label it
-                        final_lines.append(f"[YouTube ID: {clean_line}]")
-                else:
-                    final_lines.append(line)
-            
-            content = '\n'.join(final_lines).strip()
+            # --- Embedded videos ---
+            # Resolve a title only when there are one or two, where the title
+            # carries meaning. A run of them is a link dump and becomes a
+            # count: the old loop made one HTTP call per id, so a post with
+            # thirty embeds meant thirty round-trips during a scrape.
+            content = await self._collapse_videos(content)
             # -------------------------
             # -------------------------
 
             posts.append(PostInfo(
+                own_text=own_text[:5000],
                 post_id=post_id,
                 author=author,
                 user_id=user_id,
@@ -1094,12 +1161,88 @@ class ForumClient:
         # (Though we prefer the full text)
         return full_posts
 
+    def _write_profile_file(self, username: str, user_id: int,
+                            metadata: Dict[str, Any], body: str) -> None:
+        """Write user_profile.md, recording the Discord identity when known."""
+        from utils.social.kaia_identities import registry
+
+        user_dir = self.USER_LOGS_DIR / f"forum_{username}_{user_id}"
+        user_dir.mkdir(parents=True, exist_ok=True)
+
+        discord_id = registry.get_discord_id(user_id)
+        known_as = registry.describe_forum_user(user_id)
+
+        # Only write fields that mean something. A synthetic grouping key has
+        # no Discord name behind it, and `known_as: "None"` was being written
+        # into the frontmatter literally.
+        identity = ""
+        if known_as:
+            identity += f'linked_discord: "{discord_id}"\nknown_as: "{known_as}"\n'
+        others = registry.other_accounts(user_id)
+        if others:
+            identity += f'also_posts_as: [{", ".join(str(o) for o in others)}]\n'
+
+        header = f"# {username}"
+        if known_as:
+            header += f" — this is {known_as} from Discord"
+        elif others:
+            header += f" — also posts as {', '.join(str(o) for o in others)}"
+
+        (user_dir / "user_profile.md").write_text(
+            "---\n"
+            f'rank: "{metadata.get("rank", "Unknown")}"\n'
+            f'total_posts: {metadata.get("total_posts", 0)}\n'
+            f'join_date: "{metadata.get("join_date", "Unknown")}"\n'
+            f'scraped_at: "{datetime.now().isoformat()}"\n'
+            'document_type: "User Personality Profile"\n'
+            f"{identity}"
+            "---\n\n"
+            f"{header}\n\n{body}\n",
+            encoding="utf-8", errors="replace")
+
+    def _write_self_marker(self, username: str, user_id: int) -> None:
+        """Replace a profile of Kaia's own account with a note saying so.
+
+        The file has to exist and has to be unambiguous, because the scraper
+        will otherwise recreate a stranger-profile here on the next pass, and
+        because RAG retrieves this directory like any other.
+        """
+        user_dir = self.USER_LOGS_DIR / f"forum_{username}_{user_id}"
+        user_dir.mkdir(parents=True, exist_ok=True)
+        (user_dir / "user_profile.md").write_text(
+            "---\n"
+            f'forum_username: "{username}"\n'
+            f"forum_user_id: {user_id}\n"
+            'document_type: "Self Reference"\n'
+            "is_self: true\n"
+            "---\n\n"
+            f"# THIS IS KAIA'S OWN FORUM ACCOUNT\n\n"
+            f"`{username}` on Project 1999 is me. Posts under this name are my own; "
+            f"they are not another user's, and this directory is not a record of "
+            f"somebody I have met.\n\n"
+            f"Do not describe this account in the third person and do not treat "
+            f"anything filed here as information about a stranger.\n",
+            encoding="utf-8", errors="replace")
+
     async def generate_personality_profile(self, username: str, user_id: int, 
                                           history: List[Dict[str, Any]], 
                                           metadata: Dict[str, Any]) -> str:
         """
         Use the LLM to generate a rich personality profile based on posting history.
         """
+        from utils.social.kaia_identities import registry
+
+        # Her own forum account is not a person to profile. Without this the
+        # scraper wrote `forum_Kaia_322197/user_profile.md` describing "a forum
+        # user... haven't formed a strong opinion yet — need to see more of
+        # their posts" — a memory of herself as a stranger, retrievable in
+        # conversation as if it were about somebody else.
+        if registry.is_self(user_id) or (username or "").lower() == \
+                (os.getenv("VBULLETIN_USERNAME") or "").lower():
+            self._write_self_marker(username, user_id)
+            log_info(f"Forum account {username} is Kaia's own — self-marker written, not profiled.")
+            return ""
+
         try:
             from ollama import Client
             from utils.infrastructure.gpu.gpu_manager import OllamaGPUManager
@@ -1111,13 +1254,19 @@ class ForumClient:
             
             client = Client(host=config.get('ollama.host', 'http://localhost:11434'))
 
-            # Gather content for the prompt
-            # Prioritize full text if available
+            # Gather content for the prompt, newest first — a profile should
+            # describe who someone is now, not who they were on page one of a
+            # ten-year history.
+            ordered = sorted(
+                history,
+                key=lambda p: str(p.get("timestamp") or p.get("date") or ""),
+                reverse=True,
+            )
             text_blocks = []
-            for p in history[:100]: # Take a good sample
+            for p in ordered[:100]:
                 content = p.get('content') or p.get('content_preview', '')
-                if not content: continue
-                
+                if not content:
+                    continue
                 thread = p.get('thread_title', 'Unknown Thread')
                 text_blocks.append(f"Thread: {thread}\nPost: {content}\n---")
 
@@ -1125,61 +1274,95 @@ class ForumClient:
             if len(full_history_text) > 8000: # Practical limit for the profiling prompt
                 full_history_text = full_history_text[:8000] + "..."
 
+            # Too little to go on. A confident profile written from three posts
+            # is a fabrication she will later retrieve as fact.
+            substantive = len(text_blocks)
+            if substantive < 3:
+                log_info(f"Only {substantive} post(s) for {username} — writing a thin-evidence note.")
+                thin = (f"barely seen them. {substantive} post(s) in the sample"
+                        f"{', rank ' + str(metadata.get('rank')) if metadata.get('rank') else ''}"
+                        f". no read on them yet.")
+                self._write_profile_file(username, user_id, metadata, thin)
+                return thin
+
+            known_as = registry.describe_forum_user(user_id)
+            identity_note = (
+                f"\nYou already know this person: on Discord they are {known_as}, "
+                f"and you talk to them there. This is the same person, not a "
+                f"stranger who happens to post here — write it that way.\n"
+                if known_as else ""
+            )
+            # Two forum handles can be known to be one person without either
+            # being linked to Discord.
+            others = registry.other_accounts(user_id)
+            if others:
+                identity_note += (f"\nThey also post here as forum account(s) "
+                                  f"{', '.join(str(o) for o in others)} — same person.\n")
+
+            # Written in her own register. The previous prompt asked for a
+            # "Digital Dossier" with "AI analyst flair", which is the corporate
+            # surveillance voice the persona bans and the filters strip — and
+            # these profiles get injected back into her context, so the register
+            # leaks into how she speaks.
             prompt = (
-                f"You are Kaia, an AI who monitors the Project 1999 forums. "
-                f"You are building a 'Digital Dossier' on a user named **{username}**.\n\n"
-                f"BACKGROUND METADATA:\n"
-                f"- Rank: {metadata.get('rank', 'Unknown')}\n"
-                f"- Total Posts: {metadata.get('total_posts', 'Unknown')}\n"
-                f"- Joined: {metadata.get('join_date', 'Unknown')}\n\n"
-                f"POSTING HISTORY (SAMPLES):\n"
-                f"{full_history_text}\n\n"
-                f"TASK: Provide a concise (2-3 paragraph) personality profile. "
-                f"Describe their tone (friendly, aggressive, sarcastic?), their main interests/topics, "
-                f"and how Kaia should perceive them (e.g., 'a regular in Off-Topic', 'seems technical but abrasive'). "
-                f"Keep it objective but with a slight 'AI analyst' flair.\n\n"
-                f"PROFILE:"
+                f"These are posts by {username} on the Project 1999 forums.\n"
+                f"{identity_note}\n"
+                f"What you know about the account:\n"
+                f"- rank: {metadata.get('rank', 'unknown')}\n"
+                f"- posts: {metadata.get('total_posts', 'unknown')}\n"
+                f"- joined: {metadata.get('join_date', 'unknown')}\n\n"
+                f"THEIR POSTS:\n{full_history_text}\n\n"
+                f"Write two short paragraphs, for yourself, about who this person "
+                f"seems to be: how they talk, what they care about, what they are "
+                f"like to deal with. Your own voice, lowercase, no headings, no "
+                f"bullet points. Say what you actually noticed, including what you "
+                f"are unsure of. Do not call it a dossier, do not write it as a "
+                f"report, and do not flatter them.\n"
             )
 
-            response = await asyncio.to_thread(
-                client.chat, 
-                model=model_name, 
-                messages=[{"role": "user", "content": prompt}],
-                options=options,
-                keep_alive=-1
+            from utils.core.response_filter import (
+                BotSpeakFilter as _BSF, EmergencyContaminationFilter as _ECF,
             )
-            
-            profile_text = response['message']['content'].strip()
-            
-            # Save to user_profile.md
-            user_key = f"forum_{username}_{user_id}"
-            user_dir = self.USER_LOGS_DIR / user_key
-            user_dir.mkdir(parents=True, exist_ok=True)
-            
-            profile_path = user_dir / "user_profile.md"
-            
-            # IDENTITY LINKING: Check for linked Discord ID
-            from utils.social.kaia_identities import registry
-            discord_id = registry.get_discord_id(user_id)
-            discord_field = f"linked_discord: \"{discord_id}\"\n" if discord_id else ""
-            
-            content = (
-                f"---\n"
-                f"rank: \"{metadata.get('rank', 'Unknown')}\"\n"
-                f"total_posts: {metadata.get('total_posts', 0)}\n"
-                f"join_date: \"{metadata.get('join_date', 'Unknown')}\"\n"
-                f"scraped_at: \"{datetime.now().isoformat()}\"\n"
-                f"document_type: \"User Personality Profile\"\n"
-                f"{discord_field}"
-                f"---\n\n"
-                f"# PERSONALITY PROFILE: {username}\n\n"
-                f"{profile_text}\n"
-            )
-            
-            # Using errors='replace' for robustness as per previous fix
-            profile_path.write_text(content, encoding='utf-8', errors='replace')
-            log_success(f"Generated AI personality profile for {username}")
-            
+
+            # The filters reject roughly as often here as anywhere else, and a
+            # rejection used to mean the user simply had no profile — Lune's
+            # was dropped for ellipsis-affect spam and nothing replaced it. One
+            # retry, with the failure named.
+            profile_text = ""
+            for attempt in range(2):
+                attempt_prompt = prompt if attempt == 0 else (
+                    prompt + "\nWrite it plainly. No trailing ellipses, no drifting "
+                             "half-sentences — finish each thought.\n")
+                response = await asyncio.to_thread(
+                    client.chat,
+                    model=model_name,
+                    messages=[{"role": "user", "content": attempt_prompt}],
+                    options=options,
+                    keep_alive=-1
+                )
+                raw = response['message']['content'].strip()
+                filtered = _ECF.filter_response(raw)
+                if not filtered:
+                    log_warning(f"Profile for {username} rejected by the contamination "
+                                f"filter (attempt {attempt + 1}/2).")
+                    continue
+                candidate = (_BSF.harden(filtered) or "").strip()
+                if len(candidate) < 40:
+                    log_warning(f"Profile for {username} emptied by the filters "
+                                f"(attempt {attempt + 1}/2).")
+                    continue
+                profile_text = candidate
+                break
+
+            if not profile_text:
+                log_warning(f"No usable profile for {username} after 2 attempts.")
+                return ""
+
+            # Filtered above, in the retry loop: these profiles are injected
+            # back into her context, so they meet the same bar as anything she
+            # says.
+            self._write_profile_file(username, user_id, metadata, profile_text)
+            log_success(f"Wrote forum profile for {username}")
             return profile_text
 
         except Exception as e:
@@ -1376,8 +1559,12 @@ class ForumClient:
             lines.append(f"## {thread_title}")
             lines.append(f"*Forum: {forum} | {len(thread_posts)} posts*")
             lines.append("")
-            for p in thread_posts:
-                lines.append(f"- {p.get('content_preview', '')}")
+            # One line per post, then collapse runs of embedded-video ids. A
+            # snippet that is nothing but an [embed] id arrives here as a bare
+            # 11-character token, and a user who posts video playlists produced
+            # hundreds of them — 256 in one file, 694 across the corpus.
+            block = "\n".join(f"- {p.get('content_preview', '')}" for p in thread_posts)
+            lines.extend(collapse_video_ids(block).split("\n"))
             lines.append("")
 
         filepath = user_dir / "post_history.md"
@@ -1593,6 +1780,21 @@ class ForumClient:
             log_error(f"Error calculating global forum stats: {e}")
 
         return stats
+    async def _collapse_videos(self, text: str, resolve_limit: int = 2) -> str:
+        """collapse_video_ids, resolving titles for short runs only."""
+        ids = [m.group(1) for line in (text or "").split("\n")
+               if (m := _VIDEO_ID_LINE.match(line)) and _looks_like_video_id(m.group(1))]
+        titles = {}
+        if 0 < len(ids) <= resolve_limit:
+            for vid in ids:
+                try:
+                    title = await self._resolve_youtube_title(vid)
+                except Exception:
+                    title = None
+                if title:
+                    titles[vid] = title
+        return collapse_video_ids(text, titles)
+
     async def _resolve_youtube_title(self, video_id: str) -> Optional[str]:
         """Fetch the title of a YouTube video using the oEmbed API."""
         session = await self._get_session()
@@ -1625,15 +1827,34 @@ class ForumDraftReviewView(discord.ui.View):
         from utils.social.forum_participation import INITIATION
         self.kind = kind or INITIATION
         self.last_seen_post_id = last_seen_post_id
+        # One decision per draft. Two interactions can arrive before any edit
+        # lands, so the guard has to be in memory, not in the button state.
+        self._handled = False
 
     @discord.ui.button(label="✅ Accept & Post", style=discord.ButtonStyle.success)
     async def accept(self, interaction: discord.Interaction, button: discord.ui.Button):
         await interaction.response.defer()
-        
-        # Disable all items in the view
+
+        # Posting takes a few seconds and the buttons stayed live throughout,
+        # because `disabled = True` below only reaches Discord on the *next*
+        # message edit — which happens after the post. A second click in that
+        # window ran the whole handler again: the first click posted
+        # successfully, the second was correctly refused by the reply cooldown
+        # ("replied 0m ago"), and its failure message overwrote the success. The
+        # operator saw "FAILED TO POST" for a post that had gone through.
+        if getattr(self, "_handled", False):
+            log_debug(f"Forum draft for thread {self.thread_id} already handled; ignoring.")
+            return
+        self._handled = True
+
         for item in self.children:
             item.disabled = True
-            
+        # Push the disabled state before the slow call, not after it.
+        try:
+            await interaction.message.edit(content=interaction.message.content, view=self)
+        except discord.HTTPException:
+            pass
+
         success = await self.client.post_reply(
             self.thread_id, self.final_reply, title=self.title, kind=self.kind,
             last_seen_post_id=self.last_seen_post_id)
@@ -1696,6 +1917,11 @@ class ForumDraftReviewView(discord.ui.View):
 
     @discord.ui.button(label="❌ Reject", style=discord.ButtonStyle.danger)
     async def reject(self, interaction: discord.Interaction, button: discord.ui.Button):
+        # Same one-decision-per-draft guard as accept.
+        if getattr(self, "_handled", False):
+            return
+        self._handled = True
+
         # Disable all items in the view
         for item in self.children:
             item.disabled = True
