@@ -169,7 +169,10 @@ class RAGQueryMixin:
             def _tokens_match(qt, ft):
                 return qt == ft or ft.startswith(qt) or qt.startswith(ft)
 
-            for path, meta in self.indexed_files.items():
+            # Snapshot: background indexing mutates this dict concurrently, which
+            # raised "dictionary changed size during iteration" and aborted the
+            # whole retrieval (kaiacord.log, 00:34:54).
+            for path, meta in list(self.indexed_files.items()):
                 fname = os.path.basename(path).lower()
                 fname_no_ext = os.path.splitext(fname)[0]
                 clean_slug = re.sub(r'^\d{4}[-_]\d{2}[-_]\d{2}[-_]', '', fname_no_ext)
@@ -732,7 +735,7 @@ class RAGQueryMixin:
                 _best_path = None
                 _best_score = 0
                 _best_overlap = set()
-                for _mpath in self.indexed_files:
+                for _mpath in list(self.indexed_files):   # same concurrent-mutation risk
                     _fname = os.path.splitext(os.path.basename(_mpath))[0].lower()
                     # Strip date prefix from filename before tokenizing so dates don't dilute score
                     _fname_clean = re.sub(r'^\d{4}[-_]\d{2}[-_]\d{2}[-_]', '', _fname)

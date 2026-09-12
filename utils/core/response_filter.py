@@ -83,6 +83,10 @@ class EmergencyContaminationFilter:
 
     # Catch-all for any word trailing into an ellipsis, at a higher threshold.
     RE_ANY_ELLIPSIS = re.compile(r"\w+" + _ELLIPSIS)
+
+    # At or above this many copula-ellipsis hits the response is regenerated
+    # rather than cleaned; below it the punctuation is stripped in place.
+    ELLIPSIS_REJECT_AFFECT = 3
     @classmethod
     def filter_response(cls, response: str) -> Optional[str]:
         """Remove ANY contamination from response. If too much is removed, return None to trigger retry."""
@@ -106,9 +110,45 @@ class EmergencyContaminationFilter:
         # would have flagged 0.65%, taking legitimate text ("projecting output
         # in three... two... one.") with it — and each rejection costs a full
         # regeneration, so the extra sensitivity is not worth the added latency.
-        if len(affect_spams) >= 2 or len(general_ellipses) >= 3:
-            log_warning(f"[VERACITY GUARD] Too much ellipsis-affect spam (common: {len(affect_spams)}, total: {len(general_ellipses)}). Triggering full retry.")
+        # Sustained drift is still worth a regeneration. Measured over the
+        # current log, affect-ellipsis counts run 37/35/25 responses at 0/1/2
+        # and then fall off a cliff to 3 responses at >=3 — and the archetypal
+        # drift sample ("i appreciate the acknowledgement. it's… a reciprocal
+        # exchange…") sits exactly at 3. At that density the ellipsis is not a
+        # tic inside a good answer, it is the shape of the whole answer, and
+        # sanitizing leaves the sycophantic register behind with tidier
+        # punctuation. 3 of 974 generations, against 100 under the old rule.
+        if len(affect_spams) >= cls.ELLIPSIS_REJECT_AFFECT:
+            log_warning(f"[VERACITY GUARD] Sustained ellipsis-affect drift "
+                        f"(common: {len(affect_spams)}, total: {len(general_ellipses)}). "
+                        f"Triggering full retry.")
             return None
+
+        if len(affect_spams) >= 2 or len(general_ellipses) >= 3:
+            # Sanitize inline. This used to `return None`, which costs a full
+            # regeneration — and gemma3 uses this cadence constantly on
+            # reflective topics, so all three attempts were routinely rejected
+            # and the user got the "drawing a blank" fallback instead of an
+            # answer. Measured over the current log: 100 rejections in 974
+            # generations (10.3%), 11 exhausted retries, and 10 fallbacks
+            # delivered to Ekco and Starkind on Sept 10-11. The thresholds were
+            # calibrated when a regex bug meant this guard matched nothing, so
+            # the "0.18% of responses" figure in the old comment described a
+            # filter that was dead code.
+            #
+            # AGENTS.md: "Never let a filter empty a good response."
+            before = len(affect_spams) + len(general_ellipses)
+
+            # "that's… provocative" -> "that's provocative": the ellipsis is the
+            # affectation, the clause around it is fine.
+            response = cls.RE_AFFECT_ELLIPSIS.sub(
+                lambda m: re.sub(cls._ELLIPSIS, ' ', m.group(0)), response)
+            # Anything still trailing off becomes a full stop.
+            response = re.sub(r'(\w)' + cls._ELLIPSIS, r'\1.', response)
+            response = re.sub(r'\.{2,}', '.', response)
+            response = re.sub(r'[ \t]{2,}', ' ', response)
+            log_warning(f"[VERACITY GUARD] Sanitized {before} ellipsis-affect "
+                        f"patterns inline (no retry).")
 
         # Check for excessive em-dash usage (style drift from contaminated self-model)
         # Inline sanitize instead of expensive full LLM retry
@@ -227,6 +267,18 @@ class BotSpeakFilter:
         r"do\s+you\s+find\s+yourself\s+drawn\s+[^.!?]*\?",
         r"what\s+was\s+the\s+most\s+(?:challenging|rewarding|interesting|memorable)\s+[^.!?]*\?",
         r"have\s+you\s+considered\s+(?:providing|getting|giving)\s+[^.!?]*\?",
+
+        # Offers of further service. The list above enumerates phrasings, which
+        # is why it caught none of the closers actually being emitted: over
+        # Sept 10-11, 53% of her Discord replies ended in a question, and the
+        # dominant shapes were "what aspect of X would you like me to explore
+        # further, starkind?" and "what is your next inquiry?". These match the
+        # offer itself rather than the wording around it.
+        # Anchored back to the start of the sentence, or stripping the offer
+        # leaves its own question stem behind ("what aspects of this reality").
+        r"[^.!?]*\b(?:would|do)\s+you\s+(?:like|want)\s+me\s+to\b[^.!?]*\?",
+        r"[^.!?]*\bshall\s+i\b[^.!?]*\?",
+        r"[^.!?]*\bwhat(?:['\u2019]s|\s+is)\s+your\s+next\s+(?:inquiry|question|query)\b[^.!?]*\?",
     ]
     
     # Discourse markers that should never be emitted as standalone stub responses
@@ -253,6 +305,21 @@ class BotSpeakFilter:
         r"\balgorithmic\s+adjustments?\b",
         r"\bsystem\s+constraints?\b",
         r"\bflagging\s+this\s+for\b",
+
+        # RLHF assistant refusal language. It reached the public P99 forum on
+        # Sept 10 — "my purpose is to be helpful and harmless, and that includes
+        # refusing to participate in harmful activities" — which reads as a
+        # corporate filter rather than as her. She can decline; she declines in
+        # her own voice. 36 occurrences across the corpus.
+        r"my\s+purpose\s+is\s+to\s+be\s+helpful(\s+and\s+harmless)?",
+        r"\b(?:i'?m|i\s+am)\s+not\s+equipped\s+to\s+assist\s+with",
+        r"refus(?:e|ing)\s+to\s+participate\s+in\s+harmful",
+
+        # Internal review vocabulary spoken aloud to a user. "i'll flag that
+        # for review" describes a pipeline she should not be narrating.
+        # "semantic drift" and "grounding" are deliberately NOT here: both have
+        # legitimate technical uses in these conversations.
+        r"\bi'?(?:ll|\s+will)\s+flag\s+(?:that|it|this)\s+for\s+review\b",
         r"\blogging\s+this\s+(for|error)\b",
         r"\bprocessing\s+routines?\b",
         r"\bcompensatory\s+mechanisms?\b",
@@ -375,6 +442,7 @@ class BotSpeakFilter:
     # narrow: only the literal word "the", so "ekco was right," is untouched.
     RE_ADDRESSEE_OPENER = None   # compiled below, once the names are known
     RE_ONLY_ADDRESSEE = None     # ditto — "ekco," and nothing else
+    RE_VOCATIVE_BAIT = None      # ditto — "do you believe, starkind, that...?"
 
     # P3 — fictional infrastructure / sci-fi status flavour and bare stage directions.
     FICTIONAL_STATUS_PATTERNS = [
@@ -947,6 +1015,57 @@ class BotSpeakFilter:
         """
         return cls._strip_matching_sentences(text, cls.RE_SYSTEM_PROSE, "BOTSPEAK_GUARD")
 
+    @staticmethod
+    def _sentence_bounds(line: str, at: int) -> tuple[int, int]:
+        """Start and end of the sentence containing `at`, by scanning."""
+        start = 0
+        for i in range(at - 1, -1, -1):
+            if line[i] in ".!?":
+                start = i + 1
+                break
+        end = len(line)
+        for i in range(at, len(line)):
+            if line[i] in ".!?":
+                end = i + 1
+                break
+        return start, end
+
+    @classmethod
+    def _find_vocative_bait(cls, line: str):
+        """A question that sets the user's name into it, as a match-like object.
+
+        Two stages on purpose. The vocative itself is a cheap anchored match;
+        the sentence around it is found by scanning rather than by a regex with
+        `[^.!?]*` on both sides, which backtracked for hundreds of milliseconds
+        against the 445-name alternation.
+        """
+        if cls.RE_VOCATIVE_BAIT is None or "?" not in line:
+            return None
+        vm = cls.RE_VOCATIVE_BAIT.search(line)
+        if not vm:
+            return None
+
+        start, end = cls._sentence_bounds(line, vm.start())
+        sentence = line[start:end]
+        if not sentence.rstrip().endswith("?"):
+            return None
+        # Only the interrogative construction, not a short natural address
+        # ("ekco, you there?"). The logged bait runs 12-30 words; genuine
+        # vocative questions run four or five.
+        if len(sentence.split()) < 8:
+            return None
+
+        class _Span:
+            def __init__(self, s, e, t):
+                self._s, self._e, self._t = s, e, t
+            def start(self):
+                return self._s
+            def end(self):
+                return self._e
+            def group(self, _n=0):
+                return self._t
+        return _Span(start, end, sentence)
+
     @classmethod
     def strip_trailing_questions(cls, text: str) -> str:
         """Strip robotic engagement bait questions from the end of the response."""
@@ -966,6 +1085,8 @@ class BotSpeakFilter:
             while True:
                 found_bait = False
                 m = cls.RE_BAIT.search(current_line)
+                if not m:
+                    m = cls._find_vocative_bait(current_line)
                 if m:
                     before = current_line[:m.start()]
                     after = current_line[m.end():]
@@ -1110,6 +1231,26 @@ def _build_addressee_pattern() -> None:
         rf'^[ \t]*(?:{alternation})(?:\s+the\s+\w+)?[ \t]*[.,:][ \t]*(?:\n+|(?=\S))',
         re.IGNORECASE,
     )
+    # Socratic interrogation with the user's name set into the question —
+    # "do you believe, starkind, that ...?" appeared 18 times over two days,
+    # and "...are you curious about, starkind?" is the same move with the name
+    # at the end. A rhetorical question in her own voice has no vocative in it,
+    # so this separates the two without a phrase list.
+    #
+    # Her own name is in `alternation` (she has a forum account), but she does
+    # not address herself, and "is that you, kaia?" is natural speech.
+    #
+    # This matches ONLY the vocative itself. An earlier version wrapped it in
+    # `[^.!?]*` on both sides to capture the whole sentence, which with 445
+    # name alternatives backtracked catastrophically: 158 ms on a long line
+    # ending in "?", 590 ms on comma-heavy text — per line, inside a retry
+    # loop. The sentence bounds are now found by scanning, which is linear.
+    _vocative = "|".join(n for n in names if n.lower() != "kaia") or "ekco"
+    BotSpeakFilter.RE_VOCATIVE_BAIT = re.compile(
+        rf",\s*(?:{_vocative})\s*(?:,|(?=\?))",
+        re.IGNORECASE,
+    )
+
     # The whole response is a name and punctuation, with no message after it.
     BotSpeakFilter.RE_ONLY_ADDRESSEE = re.compile(
         rf'^\s*(?:{alternation})(?:\s+the\s+\w+)?\s*[,.:;!?\s]*$',

@@ -20,7 +20,14 @@ VENV="$PROJECT_ROOT/venv/bin/python"
 if [[ -x "$VENV" ]]; then
     PYTHON="$VENV"
 else
+    # Falling back to the system interpreter is not a neutral default. A system
+    # update moved python3 from 3.12 to 3.14, and with a stray set of packages
+    # in ~/.local the bot started anyway and then failed inside two subsystems
+    # (bs4 for forum scraping, google-genai for news) hours later. Say so here.
     PYTHON="python3"
+    echo "WARNING: $VENV not found — falling back to system $(python3 -V 2>&1)." >&2
+    echo "         Project deps live in the venv; recreate it with:" >&2
+    echo "         python3.12 -m venv venv && ./venv/bin/pip install -r requirements.txt" >&2
 fi
 
 # ── Colours ───────────────────────────────────────────────────────────────────
@@ -575,7 +582,11 @@ menu_rag() {
             fi
             ;;
         3)
-            if confirm_offline_rebuild "Full RAG Rebuild.\n\nThis clears memory/rag_storage and reindexes all documents.\nContinue?"; then
+            # Embeddings run on CPU by default so a live bot keeps the 12b
+            # chat model in VRAM. With the bot stopped nothing is holding that
+            # VRAM, and the GPU embeds ~9x faster on real chunk sizes, so
+            # reindex_rag.py switches automatically. --cpu-embed forces CPU.
+            if confirm_offline_rebuild "Full RAG Rebuild.\n\nThis clears memory/rag_storage and reindexes all documents.\nWith the bot STOPPED this embeds on GPU: ~14 min.\nWith it running, CPU: ~2 hours.\nContinue?"; then
                 run_tool "Full RAG Rebuild" tools/maintenance/reindex_rag.py --clear
             fi
             ;;
@@ -604,8 +615,8 @@ menu_knowledge_base() {
             "1" "Scan KB for issues  (corrupted files, bad nodes)" \
             "2" "Clean OCR artifacts  (fix encoding issues in books/docs)" \
             "3" "Sanitize user logs  (strip internal runtime tags from logs)" \
-            "4" "LLM-powered log clean  (denoise + rebuild metadata, uses Ollama)" \
-            "5" "Sync sanitized logs to RAG  (after manual log edits)" \
+            "4" "Compact user logs  (link dumps + scrape debris, no LLM)" \
+            "5" "Roll up + index user folders  (monthly archives, READMEs)" \
             "6" "Rebuild all user profiles  (regenerate from interaction logs)" \
             "7" "Find contamination  (scan for hallucinated content)" \
             "8" "Delete logs for specific date  (targeted contamination removal)" \
@@ -630,16 +641,31 @@ menu_knowledge_base() {
             run_tool "Sanitize User Logs" tools/maintenance/sanitize_logs.py
             ;;
         4)
-            warn "This uses Ollama (gemma3:12b) to clean each log file. Takes a while."
-            if bot_running; then
-                warn "Bot is running — this will compete with active inference."
-            fi
-            if confirm "Run LLM-powered log cleaning on all user logs?\n\nFiles edited in-place. Make sure git is clean first."; then
-                run_tool "LLM Log Cleaner" tools/maintenance/kb_cleanse_user_logs.py
+            # Replaces the LLM log cleaner, which asked a model to reformat the
+            # transcripts and got exactly that: it rewrote the
+            # "[timestamp] Ekco:" turn markers into "User:" across 774 files,
+            # taking the timestamps and speaker names the retrieval layer runs
+            # on. This pass is deterministic, idempotent, and cannot remove a
+            # turn marker — it refuses the file if a rewrite would.
+            info "Deterministic — no model involved. Shows a dry run first."
+            run_tool "Compact User Logs (dry run)" tools/maintenance/compact_user_logs.py
+            if confirm "Apply these changes?\n\nOriginals are copied to memory/log_compaction_backup first."; then
+                run_tool "Compact User Logs (apply)" tools/maintenance/compact_user_logs.py --apply
             fi
             ;;
         5)
-            run_tool "Sync Sanitized Logs" tools/maintenance/sync_sanitized_logs.py
+            # A day is the wrong unit for chunking: 533 of 1,112 daily files
+            # held fewer than the splitter's 6 turns, so half the corpus was
+            # chunked below the intended granularity. Closed months roll into
+            # one archive each; the last week stays daily so only today's file
+            # is ever re-embedded. Merging is lossless — every turn carries its
+            # own timestamp.
+            info "Rolls closed months into monthly archives, then rebuilds each folder's README."
+            run_tool "Roll Up User Logs (dry run)" tools/maintenance/rollup_user_logs.py
+            if confirm "Roll up closed months?\n\nOriginals are copied to memory/log_rollup_backup first."; then
+                run_tool "Roll Up User Logs" tools/maintenance/rollup_user_logs.py --apply
+            fi
+            run_tool "Rebuild Folder Indexes" tools/maintenance/build_user_folder_index.py --apply
             ;;
         6)
             run_tool "Rebuild User Profiles" tools/maintenance/generate_user_profiles.py

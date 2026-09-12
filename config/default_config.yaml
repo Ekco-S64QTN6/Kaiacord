@@ -442,7 +442,7 @@ dream_mode:
 # ============================================================================
 forum:
   # Main switch. Gates scraping and Off-Topic posting.
-  enabled: true
+  enabled: false
 
   # Reading the forum. Posting depends on this: she will not reply in a place
   # she has not been reading (see min_threads/min_users_before_posting below).

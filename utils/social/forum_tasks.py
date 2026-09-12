@@ -214,6 +214,13 @@ async def _reply_to_replies(client, forum_username: str) -> None:
                                            kind=REPLY, last_seen_post_id=newest_id,
                                            replying_to=poster):
                     log_action(f"Forum: reply to {poster} queued for review.")
+                    # A queued draft never reaches post_reply, so nothing was
+                    # recording this thread state and every scrape re-drafted
+                    # the same reply: five duplicates to #kaia-opolis for one
+                    # Ekco post on Sept 10 (18:45, 22:27, 22:57, 23:27, 23:57).
+                    # The approve/reject buttons are what decide its fate; the
+                    # watcher's job here is done.
+                    ledger.note_skip(thread_id, newest_id)
                 continue
 
             if await client.post_reply(thread_id, text, title=title,

@@ -19,15 +19,29 @@ LOG_DIRS = [
 
 async def cleanse_content_with_llm(client, content):
     """Use LLM to remove junk, redundancy, and roleplay while preserving facts."""
+    # Instruction 4 used to read "Fix any formatting so it follows a clean
+    # 'User: ...' / 'Kaia: ...' pattern", and the model complied: it rewrote
+    # `[2026-03-12 14:22:01] Ekco:` into `User:` across 774 files. That deleted
+    # the three things retrieval runs on — the turn markers
+    # ConversationTurnSplitter chunks on, the timestamp the indexer reads for
+    # recency, and the speaker name that scopes a log to its user. It also
+    # wrote the model's own preamble into the corpus.
+    #
+    # The line format is now stated as inviolable, and a post-check below
+    # rejects any rewrite that drops turn markers.
     prompt = (
-        "You are a Data Sanitization Engine. Clean the following chat log between 'User' and 'Kaia'.\n"
+        "You are a Data Sanitization Engine. Clean the following chat log.\n"
         "1. Remove ALL roleplay markers like (actions), [meta-talk], or *italicized actions*.\n"
         "2. Remove redundant or repetitive turns (e.g., the user asking the same question 5 times to test responses).\n"
         "3. Preserve all factual information, technical details, and meaningful relationship developments.\n"
-        "4. Fix any formatting so it follows a clean 'User: ...' / 'Kaia: ...' pattern.\n"
-        "5. If a turn is pure junk/test data with no value, omit it entirely.\n\n"
+        "4. NEVER change the line format. Every turn begins with its original\n"
+        "   `[YYYY-MM-DD HH:MM:SS] SpeakerName: ` prefix and MUST keep it exactly,\n"
+        "   including the timestamp and the speaker's real name. Do not replace a\n"
+        "   name with 'User'. Do not merge, reorder or re-time turns.\n"
+        "5. If a turn is pure junk/test data with no value, omit the whole line.\n"
+        "6. Output ONLY the cleaned log. No preamble, no commentary, no headers.\n\n"
         f"CHAT LOG:\n{content}\n\n"
-        "CLEANED LOG (preserving ONLY high-value interactions):"
+        "CLEANED LOG:"
     )
     
     try:
@@ -36,7 +50,22 @@ async def cleanse_content_with_llm(client, content):
             messages=[{"role": "user", "content": prompt}],
             options={"temperature": 0.1}
         )
-        return response['message']['content'].strip()
+        cleaned = response['message']['content'].strip()
+
+        # Refuse a rewrite that destroys structure. A model that drops the
+        # turn markers has not cleaned the log, it has replaced it with a
+        # summary — and the original is then gone.
+        import re as _re
+        _marker = _re.compile(r"^\[\d{4}-\d{2}-\d{2} \d{2}:\d{2}:\d{2}\]", _re.M)
+        before, after = len(_marker.findall(content)), len(_marker.findall(cleaned))
+        if before and after < before * 0.8:
+            print(f"  ! rejected rewrite: {before} turn markers in, {after} out — keeping original")
+            return content
+        if _re.search(r"^(?:okay,?\s*)?(?:here'?s|here is)\b.*(?:cleaned|instructions)",
+                      cleaned, _re.I | _re.M):
+            print("  ! rejected rewrite: model narrated its task into the output")
+            return content
+        return cleaned
     except Exception as e:
         log_error(f"Error cleansing content: {e}")
         return content

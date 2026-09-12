@@ -154,10 +154,17 @@ def clean_target(text: str, strict: bool = False) -> tuple[str | None, str]:
     if not raw:
         return None, "empty"
 
-    if EmergencyContaminationFilter.filter_response(raw) is None:
+    # Use the filter's *output*, not just its verdict. This called
+    # filter_response only to test for None and then hardened `raw`, so any
+    # sanitisation it performs — ellipsis collapsing, em-dash rewriting,
+    # contaminated-line removal — was thrown away and the target kept
+    # punctuation the runtime strips at generation time. That is precisely the
+    # mismatch this script exists to remove.
+    filtered = EmergencyContaminationFilter.filter_response(raw)
+    if filtered is None:
         return None, "contamination_rejected"
 
-    cleaned = (BotSpeakFilter.harden(raw) or "").strip()
+    cleaned = (BotSpeakFilter.harden(filtered) or "").strip()
     if len(cleaned) < MIN_TARGET_CHARS:
         return None, "emptied_by_filters"
 

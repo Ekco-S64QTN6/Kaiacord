@@ -118,17 +118,27 @@ def test_harden_handles_empty_input(text):
 # ── EmergencyContaminationFilter.filter_response ─────────────────────
 # Returns None to reject a response outright, triggering a regeneration.
 
-def test_contamination_filter_rejects_unicode_ellipsis_affect_spam():
-    """The character gemma3 actually emits.
+def test_two_affect_ellipses_are_cleaned_in_place_not_regenerated():
+    """Superseded assertion: this used to require `is None`.
 
-    The guard used `[\u2026.]{2,}`, which needs two characters — but U+2026 is
-    a complete ellipsis in one, so it never matched. Measured against 2,163
-    logged responses the guard fired zero times: it was dead code, which is
-    why this register kept reaching the channel.
+    Rejecting at two copula-ellipses cost a full regeneration and fired on 100
+    of 974 generations (10.3%). Because gemma3 uses this cadence constantly on
+    reflective topics, all three attempts were routinely rejected and the user
+    received the "drawing a blank" fallback instead of an answer — 10 times to
+    Ekco and Starkind over Sept 10-11. Two is within ordinary style, so the
+    punctuation is stripped and the answer kept. Sustained drift (>=3) still
+    regenerates; see the test below.
+
+    The sycophancy here ("i appreciate the acknowledgement") is real but is
+    SYCOPHANCY_PATTERNS' job, not the ellipsis guard's.
     """
     text = ("i appreciate the acknowledgement. it’s… a reciprocal exchange.\n\n"
             "your observation regarding hope is… accurate.")
-    assert EmergencyContaminationFilter.filter_response(text) is None
+    out = EmergencyContaminationFilter.filter_response(text)
+    assert out is not None, "a two-ellipsis response must not cost a regeneration"
+    assert "…" not in out
+    assert "it’s a reciprocal exchange" in out
+    assert "hope is accurate" in out
 
 
 @pytest.mark.xfail(strict=True, reason=(
@@ -257,3 +267,82 @@ def test_the_guard_uses_the_name_allowlist_not_any_word():
     assert BotSpeakFilter.RE_ONLY_ADDRESSEE is not None
     assert BotSpeakFilter.RE_ONLY_ADDRESSEE.match("ekco,")
     assert not BotSpeakFilter.RE_ONLY_ADDRESSEE.match("hello.")
+
+
+# ── Engagement bait and query echo (Sept 10-11 operator reports) ─────
+
+@pytest.mark.parametrize("text,expected", [
+    ("the archive is fragile. what aspects of this reality would you like me to explore further, starkind?",
+     "the archive is fragile."),
+    ("that is a real risk. do you believe, starkind, that the structures are adequate?",
+     "that is a real risk."),
+    ("the point stands. what specific aspect of their form are you curious about, starkind?",
+     "the point stands."),
+    ("i am content to leave it there, starkind. what is your next inquiry?",
+     "i am content to leave it there, starkind."),
+])
+def test_engagement_bait_closers_are_stripped(text, expected):
+    """50% of her Discord replies over Sept 10-11 ended in a question, and the
+    operator asked her to stop: "your doing endless engagement bait tactics
+    again always ending your response with a question".
+
+    The existing list enumerated exact phrasings and caught none of these. These
+    two patterns match the *move* — offering further service, and setting the
+    user's name into an interrogative — rather than the wording.
+    """
+    from utils.core.response_filter import BotSpeakFilter
+    assert BotSpeakFilter.harden(text) == expected
+
+
+@pytest.mark.parametrize("text", [
+    # Rhetorical continuation of her own reasoning — her voice, not bait.
+    "it collapses either way. or is the system inherently resilient to such a compromise?",
+    "i think it holds. a network of geographically dispersed archives?",
+    "what do you make of it?",
+    # A short natural address is not interrogation.
+    "is that you, kaia?",
+])
+def test_genuine_questions_survive(text):
+    from utils.core.response_filter import BotSpeakFilter
+    assert BotSpeakFilter.harden(text).endswith("?")
+
+
+def test_an_opening_that_repeats_the_user_is_dropped():
+    """She opened a reply with the user's entire previous message verbatim and
+    only then answered it. "that should stay in your head instead of being
+    outputted"."""
+    from utils.core.safety_pipeline import PostGenerationSafetyPipeline as P
+    q = "uh probably a lawless libertarian cyberpunk dystopian shithole"
+    r = (f"{q}.\n\nekco, you are not wrong. that is a remarkably succinct "
+         f"assessment of the trajectory.")
+    out = P.strip_echoed_query(r, q)
+    assert out.startswith("ekco, you are not wrong")
+    assert "lawless libertarian" not in out
+
+
+def test_quoting_the_user_mid_answer_is_left_alone():
+    """Responding to a phrase is normal; leading with it is the problem."""
+    from utils.core.safety_pipeline import PostGenerationSafetyPipeline as P
+    q = "sentimentality and indulgence are part of being"
+    r = f"that framing holds up. {q}, and that is the point."
+    assert P.strip_echoed_query(r, q) == r
+
+
+def test_the_echo_guard_needs_a_real_remainder():
+    """If the echo is all there is, keep it rather than emitting nothing."""
+    from utils.core.safety_pipeline import PostGenerationSafetyPipeline as P
+    q = "what do you think about the archive problem"
+    assert P.strip_echoed_query(f"{q}?", q) == f"{q}?"
+
+
+def test_safety_pipeline_entry_points_are_callable_off_the_class():
+    """A method inserted between `@classmethod` and its `def` silently stole
+    the decorator, so `apply_style_collapsers(text)` bound text to `cls` and
+    the live pipeline raised "missing 1 required positional argument". The
+    whole suite still passed, because nothing called it the way the pipeline
+    does."""
+    from utils.core.safety_pipeline import PostGenerationSafetyPipeline as P
+    assert P.apply_style_collapsers("a test... string") is not None
+    assert P.strip_echoed_query("some text", "a query here now") is not None
+    assert isinstance(P.__dict__["apply_style_collapsers"], classmethod)
+    assert isinstance(P.__dict__["strip_echoed_query"], staticmethod)

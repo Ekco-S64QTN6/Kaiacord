@@ -267,12 +267,12 @@ class MessageProcessor:
                     # Background RAG log — observation only (empty response)
                     try:
                         if self.rag:
-                            from utils.core.sanitizer import strip_runtime_scaffolding
+                            from utils.core.sanitizer import summarize_link_context
                             author_display = msg.author.display_name or msg.author.name
                             asyncio.create_task(
                                 self.rag.log_user_interaction_async(
                                     msg.author.id, author_display,
-                                    strip_runtime_scaffolding(msg.content), ""
+                                    summarize_link_context(msg.content), ""
                                 )
                             )
                     except Exception:
@@ -1564,7 +1564,17 @@ class MessageProcessor:
                         "Describe what you see plainly and naturally. If the image depicts a pet or animal, "
                         "it is a living, biological animal belonging to the user — NOT your fictional robotic cat Pixel. "
                         "Do not use robotic/sensor jargon (such as 'sensor readings', 'battery', 'thermal equilibrium') "
-                        "when describing living animals.]"
+                        "when describing living animals. "
+                        # Three confirmed misreads in two days, each stated with
+                        # full confidence: an origami swan called a bat, a
+                        # kintsugi bowl called a globe, a bus emergency hammer
+                        # called a yellow bulldozer. Being wrong about a picture
+                        # is forgivable; being certain about it is what made the
+                        # user stop trusting the answer.
+                        "Name only what you can actually make out. Where you are unsure of an object, "
+                        "say so in your own words rather than committing to a guess, and never invent "
+                        "specifics — colours, counts, materials, background detail — that you cannot see. "
+                        "A hedged description is worth more here than a confident wrong one.]"
                     )
         
         # 3. LLM Generation (flag active to block quips/dreams)
@@ -1584,6 +1594,28 @@ class MessageProcessor:
         system_prompt = optimized['persona']
         context_str = optimized['rag']
         optimized_history = optimized.get('history', [])
+
+        # An image with almost no text is the one case where the history can
+        # outweigh the message. Ekco posted a picture captioned only "Kaia,";
+        # the 27 injected turns were dominated by Starkind, who had just posted
+        # two photos of his own, and she replied to Starkind's conversation and
+        # addressed Ekco by his name. The addressee anchor below was already
+        # present and lost to sheer volume.
+        #
+        # With a picture in hand and nothing to go on textually, the picture is
+        # the subject. Keep enough history for continuity, not enough to
+        # drown the turn.
+        try:
+            from utils.core.sanitizer import user_authored_text
+            _atts = getattr(ctx.message, "attachments", None) or []
+            _words = len(user_authored_text(ctx.sanitized_content).split())
+            if _atts and _words < 4 and len(optimized_history) > 4:
+                log_info(f"Image with {_words}-word caption: trimming history "
+                         f"{len(optimized_history)} -> 4 turns to stop another "
+                         f"speaker's context dominating the reply.")
+                optimized_history = optimized_history[-4:]
+        except Exception as _trim_err:
+            log_debug(f"History trim for visual turn skipped: {_trim_err}")
         
         # No special case for the forum.
         #
@@ -2152,6 +2184,10 @@ class MessageProcessor:
         # Run Ellipsis & Em Dash Collapsers via Safety Pipeline (💡-4)
         from utils.core.safety_pipeline import PostGenerationSafetyPipeline
         ctx.response_text = PostGenerationSafetyPipeline.apply_style_collapsers(ctx.response_text)
+        # Needs the query, so it cannot live in harden(): drop an opening line
+        # that merely repeats what the user just said.
+        ctx.response_text = PostGenerationSafetyPipeline.strip_echoed_query(
+            ctx.response_text, getattr(ctx, "sanitized_content", "") or "")
 
         # 2. SEND RESPONSE
         await self._send_response(channel=ctx.message.channel, text=ctx.response_text)
@@ -2273,10 +2309,10 @@ class MessageProcessor:
                     # The enricher's blocks belong in the prompt, not the
                     # transcript: logged verbatim they read as things the user
                     # typed, and the log feeds both RAG and the fine-tune corpus.
-                    from utils.core.sanitizer import strip_runtime_scaffolding
+                    from utils.core.sanitizer import summarize_link_context
                     await self.rag.log_user_interaction_async(
                         ctx.author_id, ctx.author_name,
-                        strip_runtime_scaffolding(ctx.sanitized_content), bot_response)
+                        summarize_link_context(ctx.sanitized_content), bot_response)
                 
                 self.performance_monitor.stop_timer('total', 'response_time')
                 

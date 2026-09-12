@@ -1934,7 +1934,21 @@ class ForumDraftReviewView(discord.ui.View):
             view=self
         )
         log_info(f"Moderator {interaction.user.name} rejected P99 reply draft for thread {self.thread_id}")
-        
+
+        # A rejection retires this post. Nothing here touched the ledger, so
+        # the watcher kept finding the same unanswered post every 30 minutes
+        # and re-drafting the reply that had just been turned down — the
+        # operator disabled forum.enabled entirely to stop it. Recording the
+        # post id means may_reply() sees "nothing new" until somebody actually
+        # says something new in the thread.
+        try:
+            from utils.social.forum_participation import PostLedger
+            PostLedger().note_skip(self.thread_id, self.last_seen_post_id)
+            log_debug(f"Forum: thread {self.thread_id} retired at post "
+                      f"{self.last_seen_post_id} after rejection.")
+        except Exception as e:
+            log_warning(f"Forum: could not record rejection for thread {self.thread_id}: {e}")
+
         # Log to forum moderation file
         try:
             log_entry = {

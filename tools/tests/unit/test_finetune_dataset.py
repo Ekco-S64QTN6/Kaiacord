@@ -65,14 +65,21 @@ def test_clean_text_passes_through_unchanged(cleaner):
     assert cleaned == text and reason == "unchanged"
 
 
-def test_a_response_the_runtime_would_reject_is_dropped(cleaner):
-    """If the live pipeline would have regenerated it, it is not something to
-    teach."""
+def test_a_target_is_stored_as_the_runtime_would_emit_it(cleaner):
+    """The target must match what the runtime would actually emit.
+
+    Updated: at two copula-ellipses the runtime now cleans in place rather than
+    regenerating, so this is no longer dropped — but it must be stored in its
+    *cleaned* form. clean_target used to call the filter only to test for None
+    and then harden the raw text, so the ellipses survived into the training
+    data that the runtime strips at generation time.
+    """
     cleaned, reason = cleaner.clean_target(
         "i appreciate the acknowledgement. it's… a reciprocal exchange.\n\n"
         "your observation regarding hope is… accurate.")
-    assert cleaned is None
-    assert reason == "contamination_rejected"
+    assert cleaned is not None
+    assert "…" not in cleaned, "the stored target still carries what the runtime removes"
+    assert reason == "modified"
 
 
 def test_a_response_that_filters_would_empty_is_dropped(cleaner):

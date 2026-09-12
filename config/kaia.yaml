@@ -64,7 +64,7 @@ performance:
       knowledge: 0.15
 
 forum:
-  enabled: true
+  enabled: false
   auto_scrape: true
   tech_support_enabled: false
 

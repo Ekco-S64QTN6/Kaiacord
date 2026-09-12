@@ -316,6 +316,49 @@ class PostGenerationSafetyPipeline:
 
         return content, None
 
+    @staticmethod
+    def strip_echoed_query(text: str, query: str) -> str:
+        """Drop an opening line that just repeats what the user said.
+
+        Kaia opened a reply with "uh probably a lawless libertarian cyberpunk
+        dystopian shithole." — verbatim, the user's entire previous message —
+        and only then answered it. The operator's note: "that should stay in
+        your head instead of being outputted."
+
+        Only the *opening* is removed, and only when it is a near-verbatim copy.
+        Quoting a phrase mid-answer to respond to it is normal; leading with the
+        other person's words as though they were your own is not.
+        """
+        if not text or not query:
+            return text
+
+        def norm(s: str) -> str:
+            return re.sub(r"[^a-z0-9 ]+", "", s.lower()).strip()
+
+        # Compare against the user's own first line. `sanitized_content` still
+        # carries whatever context_enricher appended (embed blocks, scrape
+        # text), and normalising all of that produced a query far longer than
+        # any reply could open with — so on every message containing a link the
+        # guard silently did nothing.
+        first_q = next((l for l in (query or "").split("\n") if l.strip()), "")
+        q = norm(first_q)
+        if len(q.split()) < 4:          # too short to be a meaningful echo
+            return text
+
+        lines = text.split("\n")
+        first = lines[0].strip()
+        if not first:
+            return text
+
+        f = norm(first)
+        # Either the opening line is the query, or it opens with all of it.
+        if f == q or (f.startswith(q) and len(f) - len(q) < 15):
+            remainder = "\n".join(lines[1:]).strip()
+            if len(remainder) >= 20:
+                log_warning(f"[ECHO_GUARD] Dropped opening line echoing the user: {first[:70]!r}")
+                return remainder
+        return text
+
     @classmethod
     def apply_style_collapsers(cls, text: str) -> str:
         """Step 10: Ellipsis & Em Dash Collapsers (run on final response before send)."""

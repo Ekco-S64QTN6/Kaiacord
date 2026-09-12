@@ -251,18 +251,24 @@ def test_lurking_survives_a_missing_corpus(tmp_path, monkeypatch):
 
 # ── Configuration ────────────────────────────────────────────────────
 
-def test_technical_posting_stays_off_when_the_forum_is_on():
-    """The operator turned the forum back on for Off Topic specifically. The
-    technical flow answered strangers' questions without staying inside the
-    wiki and tech docs it was meant to be grounded in, and it shared a single
-    switch with Off Topic — so enabling one silently enabled both."""
+def test_technical_posting_stays_off_whether_or_not_the_forum_is_on():
+    """The technical flow answered strangers' questions without staying inside
+    the wiki and tech docs it was meant to be grounded in, and it once shared a
+    single switch with Off Topic — so enabling one silently enabled both.
+
+    `forum.enabled` is an operational switch the operator flips at will, so
+    asserting its value made this test fail the moment the forum was turned
+    off for unrelated reasons. What matters is the *separation*: technical
+    posting and unreviewed auto-reply stay off independently of it.
+    """
     import yaml
     with open("config/default_config.yaml", encoding="utf-8") as fh:
         forum = yaml.safe_load(fh)["forum"]
-    assert forum["enabled"] is True
-    assert forum["auto_scrape"] is True, "posting depends on having read the forum"
     assert forum["tech_support_enabled"] is False
     assert forum["auto_reply"] is False
+    assert isinstance(forum["enabled"], bool)
+    if forum["enabled"]:
+        assert forum["auto_scrape"] is True, "posting depends on having read the forum"
 
 
 def test_posting_budget_is_modest():
@@ -1045,3 +1051,45 @@ def test_the_drafting_call_is_a_single_unmodified_pass():
     assert src.count("process_external_mention(") == 1
     for added in ("for attempt in range", "too thin to post", "MIN_DRAFT_CHARS"):
         assert added not in src, f"still adding something: {added}"
+
+
+# ── A rejected draft retires the post ────────────────────────────────
+
+def test_a_queued_draft_stops_the_watcher_re_drafting(tmp_path, monkeypatch):
+    """A queued draft never reaches post_reply, so nothing recorded the thread
+    state and every 30-minute scrape re-drafted the same reply: five duplicates
+    to #kaia-opolis for one Ekco post on Sept 10 (18:45, 22:27, 22:57, 23:27,
+    23:57)."""
+    from utils.social import forum_participation as fp
+    ledger = fp.PostLedger(path=tmp_path / "ledger.json")
+    assert not ledger.already_tried(443378, "3800500")
+    ledger.note_skip(443378, "3800500")
+    assert ledger.already_tried(443378, "3800500")
+
+
+def test_rejection_is_recorded_against_the_post():
+    """The operator turned forum.enabled off entirely because a rejected draft
+    was re-offered every cycle. Rejecting must retire that post."""
+    import inspect
+    from utils.social.kaia_forum import ForumDraftReviewView
+    src = inspect.getsource(ForumDraftReviewView.reject)
+    assert "note_skip" in src, "reject does not record anything against the ledger"
+    assert "self.last_seen_post_id" in src
+
+
+def test_a_new_post_reopens_the_thread(tmp_path):
+    """Retiring a post must not silence the thread forever — only that post."""
+    from utils.social import forum_participation as fp
+    ledger = fp.PostLedger(path=tmp_path / "ledger.json")
+    ledger.note_skip(443378, "3800500")
+    assert ledger.already_tried(443378, "3800500")
+    assert not ledger.already_tried(443378, "3800501"), "someone said something new"
+
+
+def test_the_queue_path_records_the_skip():
+    import inspect
+    from pathlib import Path
+    src = Path("utils/social/forum_tasks.py").read_text(encoding="utf-8")
+    queued = src.index("queued for review.")
+    window = src[queued:queued + 500]
+    assert "note_skip" in window, "the review-queue path must record the thread state"

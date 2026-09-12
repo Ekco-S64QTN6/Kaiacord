@@ -150,9 +150,15 @@ RE_INLINE_HTML = re.compile(r"`[^`]*`\{=html\}")
 RE_EMPTY_ANCHOR = re.compile(r"\[\]\{#[^}]*\}")
 RE_ATTR_SPAN = re.compile(r"\{[.#][^}]*\}|\{style=\"[^\"]*\"\}|\{=html\}")
 RE_FENCED_DIV = re.compile(r"^:{3,}.*$", re.M)
-RE_IMAGE = re.compile(r"!\[[^\]]*\]\([^)]*\)")
+# Inline `![alt](url)` and reference-style `![alt][ref]`. Google Docs exports
+# use the reference form, so `![][image1]` survived every pass and landed in the
+# corpus as retrievable text.
+RE_IMAGE = re.compile(r"!\[[^\]]*\](?:\([^)]*\)|\[[^\]]*\])")
 RE_RAW_TAG = re.compile(r"</?(?:svg|image|div|span|img|a|p|br|hr)\b[^>]*/?>", re.I)
-RE_ESCAPES = re.compile(r"\\([<>{}\[\]*_#`|~^])")
+# Adds `.` and `-`: a Docs export escapes ordered-list markers as `1\.` and
+# bullets as `\-`, which are the most common escapes in the format and were
+# the two not being unescaped.
+RE_ESCAPES = re.compile(r"\\([<>{}\[\]*_#`|~^.\-+()])")
 RE_RULE_RUN = re.compile(r"^[=\-_*]{4,}\\?\s*$", re.M)
 RE_MANY_BLANKS = re.compile(r"\n{3,}")
 RE_TRAILING_WS = re.compile(r"[ \t]+$", re.M)
@@ -509,18 +515,56 @@ def build_frontmatter(title, author, category, doctype, summary, keywords) -> st
     return "\n".join(lines)
 
 
+# Words that say nothing about what a document is about. Kept deliberately
+# short — this is a stop list, not a vocabulary.
+_KW_STOP = frozenset("""the and of by a an to in on at for with from as is are was were be
+been being it its this that these those which who whom whose what when where why how
+not no nor but or if then than so such can could may might must shall will would should
+have has had having do does did done our their his her your you we they he she him
+them there here about into over under after before between through during more most
+other some any each both all one two three first second new old also just only very
+than too own same other another much many few less least about above below up down out
+off again further once because while until against among within without across behind
+along around upon whether either neither per via etc use used using make made making
+get got getting like likely well back even still yet ever never always often
+""".split())
+
+
 def derive_keywords(title: str, author: str, text: str, limit: int = 10) -> list[str]:
+    """Title and author terms, then the document's own distinctive vocabulary.
+
+    `text` was accepted and never used, so a document's keywords were its
+    filename split into words — "How", "Play", "Money" for an article about
+    prediction markets. Keywords feed BM25 title enrichment, so that was
+    actively misleading the sparse retriever.
+    """
+    import re as _re
+    from collections import Counter as _Counter
+
     kws: list[str] = []
+    if title:
+        kws.append(title)
     for part in (title, author):
-        for w in part.split():
+        for w in (part or "").split():
             w = w.strip(".,:;'\"")
-            if len(w) > 2 and w.lower() not in {"the", "and", "of", "by", "a", "an"}:
-                if w not in kws:
-                    kws.append(w)
-    if title and title not in kws:
-        kws.insert(0, title)
+            if len(w) > 2 and w.lower() not in _KW_STOP and w not in kws:
+                kws.append(w)
     if author and author not in kws:
         kws.append(author)
+
+    # Content terms by frequency. Requires a few occurrences so a single stray
+    # proper noun does not become a headline keyword.
+    counts = _Counter(
+        w.lower() for w in _re.findall(r"[A-Za-z][A-Za-z'-]{3,}", text or "")
+        if w.lower() not in _KW_STOP
+    )
+    have = {k.lower() for k in kws}
+    for term, n in counts.most_common(60):
+        if len(kws) >= limit:
+            break
+        if n >= 3 and term not in have:
+            kws.append(term)
+            have.add(term)
     return kws[:limit]
 
 

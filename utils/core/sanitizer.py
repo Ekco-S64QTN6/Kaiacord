@@ -32,10 +32,75 @@ def sanitize_prompt(prompt: str, max_length: int = 2000) -> str:
 # the person said it) and the fine-tune corpus. Found in 22 user-log files and
 # 6 training examples.
 RUNTIME_SCAFFOLDING = re.compile(
-    r"\n*\[(?:CORE_DIRECTIVE|LINKED_WEB_CONTENT|LINKED_MESSAGE|SYSTEM WARNING)\b[^\]]*\]"
+    # Every marker context_enricher can append. ATTACHED_EMBED_CONTEXT was
+    # missing, which is why Discord embeds still reached the transcripts after
+    # the web-scrape leak was closed: a "Kaia, <url>" message was logged with
+    # forty lines of article body attributed to the user. 249 such turns hold
+    # 29% of all user-turn text in the corpus.
+    r"\n*\[(?:CORE_DIRECTIVE|LINKED_WEB_CONTENT|LINKED_MESSAGE_CONTEXT|LINKED_MESSAGE"
+    r"|ATTACHED_EMBED_CONTEXT|SYSTEM WARNING)\b[^\]]*\]"
     r"(?:(?!\n\[)[\s\S]*?(?=\n\[|\Z))?",
     re.IGNORECASE,
 )
+
+
+def _link_title(block: str) -> str:
+    """The best one-line title from an embed or scrape block, or ''."""
+    for line in (block or "").split("\n"):
+        line = line.strip()
+        if not line:
+            continue
+        if line.lower().startswith("title:"):
+            return line.split(":", 1)[1].strip()[:120]
+        # Otherwise the first substantial line that is not a bare fragment.
+        # Only accept something that actually looks like a page title: a site
+        # separator, or Title Case. The first substantial line after a URL is
+        # just as often the user's own next sentence, and "just get it over
+        # with" is not a citation.
+        if not (6 <= len(line) <= 160) or " " not in line or line.startswith("["):
+            continue
+        looks_titled = (
+            any(sep in line for sep in (" – ", " — ", " | ", " - ")) or
+            sum(1 for w in line.split() if w[:1].isupper()) >= max(2, len(line.split()) // 2)
+        )
+        if looks_titled:
+            return line[:120]
+    return ""
+
+
+def summarize_link_context(text: str) -> str:
+    """Replace an enricher block with a one-line citation of what was linked.
+
+    Stripping the block outright loses the page title, which is the only part
+    of a shared link that carries topic for retrieval — a bare URL is opaque to
+    an embedding. Keeping the whole article is worse: 249 turns of scraped body
+    text held 29% of all user-turn text in the corpus, attributed to whoever
+    pasted the link.
+    """
+    if not text:
+        return text
+
+    def _replace(m):
+        title = _link_title(m.group(0).split("]", 1)[-1])
+        return f"\n[shared link: {title}]" if title else ""
+
+    cleaned = RUNTIME_SCAFFOLDING.sub(_replace, text)
+    return re.sub(r"\n{3,}", "\n\n", cleaned).strip()
+
+
+def user_authored_text(text: str) -> str:
+    """Just the words the user typed, with every enricher block removed.
+
+    `sanitized_content` is the *enriched* message: reply context, embeds,
+    scraped pages. Any check that asks "how much did the user actually say"
+    has to measure this instead, or a one-word caption on a reply looks like
+    a two-hundred-word message.
+    """
+    body = text or ""
+    if "[USER_MESSAGE]" in body:
+        body = body.split("[USER_MESSAGE]", 1)[1]
+    body = RUNTIME_SCAFFOLDING.sub("", body)
+    return body.strip()
 
 
 def strip_runtime_scaffolding(text: str) -> str:

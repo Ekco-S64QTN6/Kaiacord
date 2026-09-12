@@ -456,7 +456,14 @@ class IntentParser:
             try:
                 data = json.loads(clean_json)
             except json.JSONDecodeError as jde:
-                log_error(f"Intent Analysis JSON Error: {jde}. Raw Content: {raw_json[:200]}...")
+                # A 2b model emitting slightly-off JSON is routine, not an
+                # incident. This logged at ERROR and the outer handler logged
+                # ERROR again plus a traceback, so a recoverable fallback
+                # produced a stack dump on the dashboard that Ekco pasted into
+                # Discord asking what had broken. Re-raised so the outer block
+                # still returns the fallback Intent.
+                log_warning(f"[Intent Classifier] Malformed JSON after repair: {jde}. "
+                            f"Raw: {raw_json[:120]!r}. Using fallback intent.")
                 raise jde
             
             return Intent(
@@ -477,6 +484,10 @@ class IntentParser:
             elif "no json in thinking field" in err_msg:
                 # Expected fallback case when model ignores /no_think.
                 # Already logged as warning in _analyze_with_llm.
+                pass
+            elif isinstance(e, json.JSONDecodeError):
+                # Already reported as a warning above; no traceback for an
+                # expected, handled condition.
                 pass
             elif "out of memory" in err_msg or "cudamalloc" in err_msg or "terminat" in err_msg:
                 log_error(f"Intent Analysis CRITICAL OOM: {e}. Falling back to fast-path/default.")

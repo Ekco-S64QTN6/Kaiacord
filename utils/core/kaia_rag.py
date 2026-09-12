@@ -64,17 +64,40 @@ class KaiaRAG(RAGIndexerMixin, RAGPersistenceMixin, RAGQueryMixin):
         self.indexed_files = {}  # Manifest: {path: {"mtime": mtime, "size": size, "nodes": [node_ids]}}
         self._file_to_nodes = {} # Inverse index for fast deletion/update
         
-        # Configure Ollama Embedding
-        # Force CPU for embeddings to save VRAM for the main 12b model
+        # Configure Ollama Embedding.
+        #
+        # Embeddings run on CPU so the 12b chat model keeps the VRAM it is
+        # pinned into with keep_alive: -1. That is the right trade while the
+        # bot is serving: a GPU embed would evict the chat model and every
+        # subsequent reply would pay a reload.
+        #
+        # It is the wrong trade for an offline rebuild, where there is no chat
+        # model to protect and the job is tens of thousands of embeddings.
+        # `KAIA_EMBED_GPU=1` flips it; reindex_rag.py sets that automatically
+        # when no bot process is running. Note that `nomic-embed-text-cpu` and
+        # `nomic-embed-text` are the same weights — the tag is a label, the
+        # placement is decided entirely by num_gpu here.
+        _embed_on_gpu = os.getenv("KAIA_EMBED_GPU") == "1"
+        if _embed_on_gpu:
+            log_info("Embeddings: GPU (KAIA_EMBED_GPU=1) — offline batch mode.")
         self.embed_model = OllamaEmbedding(
             model_name=config.embedding_model,
             base_url="http://localhost:11434",
             query_instruction=config.rag_query_instruction,
             text_instruction=config.rag_text_instruction,
-            # Force CPU for embeddings to save VRAM for the main 12b model
+            # Measured on realistic ~1,750-token nodes, which is what a rebuild
+            # actually embeds — short test strings flatter the CPU badly:
+            #
+            #   CPU  3.9 nodes/s -> 28,562 nodes = 121 min
+            #   GPU 35.3 nodes/s -> 28,562 nodes =  14 min
+            #
+            # Raising embed_batch_size does nothing: throughput saturates by
+            # concurrency 10 and is flat at 64, because Ollama serialises the
+            # requests. Spare VRAM cannot be spent on the batch. The 9x is
+            # placement alone.
             ollama_additional_kwargs={
-                "num_gpu": 0,
-                "num_thread": 4,
+                "num_gpu": 99 if _embed_on_gpu else 0,
+                "num_thread": 8 if _embed_on_gpu else 4,
                 "num_ctx": config.embedding_context_tokens
             },
             client_kwargs={"timeout": config.embedding_request_seconds}

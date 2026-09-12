@@ -8,6 +8,7 @@ Rebuilds BM25 and vector RAG indices standalone or signals the live bot to perfo
 import os
 import sys
 import shutil
+import subprocess
 import time
 import argparse
 import asyncio
@@ -23,7 +24,17 @@ from utils.infrastructure.logging.kaia_logger import log_info, log_success, log_
 from utils.core.kaia_rag import KaiaRAG
 
 
-async def rebuild_rag(clear_storage: bool = False, file_path: str = None):
+def _bot_running() -> bool:
+    """True if a Kaiacord process is holding the GPU."""
+    try:
+        out = subprocess.run(["pgrep", "-f", "Kaiacord.py"],
+                             capture_output=True, text=True, timeout=5)
+        return bool(out.stdout.strip())
+    except Exception:
+        return True          # unknown: assume it is, and leave VRAM alone
+
+
+async def rebuild_rag(clear_storage: bool = False, file_path: str = None, force_cpu_embed: bool = False):
     """Rebuild or refresh the RAG index."""
     persist_dir = os.path.join(PROJECT_ROOT, "memory", "rag_storage")
     
@@ -41,6 +52,19 @@ async def rebuild_rag(clear_storage: bool = False, file_path: str = None):
                     pass
             log_success("Storage directory cleared.")
     
+    # Embeddings default to CPU so a running bot keeps the 12b chat model in
+    # VRAM. Nothing is holding that VRAM during an offline rebuild, and the job
+    # is tens of thousands of embeddings, so use the GPU when the bot is not
+    # running. `--cpu-embed` forces the old behaviour.
+    bot_up = _bot_running()
+    if bot_up:
+        log_info("Bot is running — embedding on CPU so the chat model keeps its VRAM.")
+    elif force_cpu_embed:
+        log_info("--cpu-embed given — embedding on CPU despite the bot being stopped.")
+    else:
+        os.environ["KAIA_EMBED_GPU"] = "1"
+        log_info("No bot process detected — embedding on GPU for this rebuild.")
+
     log_info("Initializing KaiaRAG engine...")
     try:
         rag = KaiaRAG()
@@ -80,9 +104,13 @@ if __name__ == "__main__":
     parser.add_argument("--clear", action="store_true", help="Clear storage directory before rebuilding")
     parser.add_argument("--trigger", action="store_true", help="Signal running bot to reindex via trigger file")
     parser.add_argument("file", nargs="?", default=None, help="Optional single file path to re-index")
+    parser.add_argument("--cpu-embed", action="store_true",
+                        help="Keep embeddings on CPU even with the bot stopped "
+                             "(the default while it is running, to protect its VRAM)")
     args = parser.parse_args()
 
     if args.trigger:
         trigger_bot_reindex()
     else:
-        asyncio.run(rebuild_rag(clear_storage=args.clear, file_path=args.file))
+        asyncio.run(rebuild_rag(clear_storage=args.clear, file_path=args.file,
+                                force_cpu_embed=args.cpu_embed))

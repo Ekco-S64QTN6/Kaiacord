@@ -15,6 +15,45 @@ from datetime import datetime
 from pathlib import Path
 from typing import Any, Dict, List, Optional
 
+# ── Interpreter guard ────────────────────────────────────────────────
+# Launched as `python Kaiacord.py` without activating the venv, this picked up
+# the system interpreter instead. A system update moved /usr/bin/python from
+# 3.12 to 3.14, and a parallel set of packages in ~/.local/lib/python3.14 meant
+# the bot still *started* — it just started with different libraries. The
+# failures surfaced hours later and nowhere near the cause: forum scraping died
+# on "No module named 'bs4'", and news on "cannot import name 'genai' from
+# 'google' (unknown location)", because that Python had a bare `google`
+# namespace directory and no google-genai in it.
+#
+# Re-exec into the venv rather than warn: a half-working bot that logs import
+# errors in two subsystems is the expensive failure, and there is no case where
+# running this file against some other interpreter is what was wanted. Set
+# KAIA_NO_REEXEC=1 to opt out (and the guard never loops — it marks the child).
+def _ensure_venv_interpreter() -> None:
+    if os.environ.get("KAIA_NO_REEXEC") == "1" or os.environ.get("_KAIA_REEXEC") == "1":
+        return
+    venv_py = Path(__file__).resolve().parent / "venv" / "bin" / "python"
+    if not venv_py.exists():
+        return
+    try:
+        running = Path(sys.executable).resolve()
+        if running == venv_py.resolve():
+            return
+    except Exception:
+        return
+    print(f"[startup] Not running in the project venv "
+          f"({sys.executable}, Python {sys.version_info.major}.{sys.version_info.minor}).\n"
+          f"[startup] Re-executing with {venv_py}.", flush=True)
+    os.environ["_KAIA_REEXEC"] = "1"
+    try:
+        os.execv(str(venv_py), [str(venv_py), os.path.abspath(__file__), *sys.argv[1:]])
+    except Exception as exc:      # pragma: no cover - exec almost never returns
+        print(f"[startup] Could not re-exec into the venv: {exc}", flush=True)
+
+
+_ensure_venv_interpreter()
+
+
 # Suppress harmless POSIX semaphore cleanup warnings from LlamaIndex tokenizer subprocesses
 warnings.filterwarnings("ignore", message=".*semaphore.*", module="multiprocessing.resource_tracker")
 

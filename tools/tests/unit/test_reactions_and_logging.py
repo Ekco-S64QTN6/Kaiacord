@@ -234,8 +234,11 @@ def test_enricher_blocks_are_stripped_before_logging(text, expected):
     """context_enricher appends these so the model has what it needs. Logged
     verbatim they read as things the user typed, and the log feeds both RAG and
     the fine-tune corpus — found in 28 user-log files and 11 training turns."""
-    from utils.core.sanitizer import strip_runtime_scaffolding
-    assert strip_runtime_scaffolding(text) == expected
+    from utils.core.sanitizer import summarize_link_context
+    # Renamed from strip_runtime_scaffolding: deleting the block lost the page
+    # title, which is the only part of a shared link that carries topic for an
+    # embedding. It is now replaced by a one-line citation.
+    assert summarize_link_context(text).splitlines()[0] == expected.splitlines()[0]
 
 
 def test_generation_still_sees_the_scaffolding():
@@ -253,4 +256,27 @@ def test_the_logging_call_sites_strip():
         if "log_user_interaction_async(" in line and "def " not in line:
             block_start = src.index(line)
             window = src[block_start:block_start + 400]
-            assert "strip_runtime_scaffolding" in window, f"unstripped log call: {line.strip()}"
+            assert "summarize_link_context" in window, f"unstripped log call: {line.strip()}"
+
+
+# ── Image turns must not inherit another speaker's conversation ──────
+
+def test_a_captionless_image_trims_the_history():
+    """Ekco posted a picture captioned only "Kaia,". The 27 injected turns were
+    dominated by Starkind, who had just posted two photos of his own, so she
+    answered Starkind's conversation and addressed Ekco by his name. The
+    addressee anchor was already in the prompt and lost to sheer volume."""
+    from pathlib import Path
+    src = Path("utils/core/message_processor.py").read_text(encoding="utf-8")
+    assert "optimized_history[-4:]" in src
+    trim = src.index("optimized_history[-4:]")
+    window = src[trim - 700:trim]
+    assert "_words < 4" in window, "trim must be conditioned on a short caption"
+    assert "attachments" in window, "trim must be conditioned on an attachment"
+
+
+def test_the_addressee_anchor_is_still_present():
+    """The trim supplements the anchor; it does not replace it."""
+    from pathlib import Path
+    src = Path("utils/core/message_processor.py").read_text(encoding="utf-8")
+    assert "You are speaking exclusively to {ctx.author_name}" in src
