@@ -9,7 +9,7 @@
 [![discord.py](https://img.shields.io/badge/discord.py-2.6.4-5865F2.svg?style=flat-square&logo=discord&logoColor=white)](https://discordpy.readthedocs.io)
 [![Model](https://img.shields.io/badge/Model-gemma3%3A12b-4285F4.svg?style=flat-square&logo=google&logoColor=white)](https://ollama.com/library/gemma3)
 [![VRAM](https://img.shields.io/badge/VRAM-12GB-76B900.svg?style=flat-square&logo=nvidia&logoColor=white)](#gpu-budget)
-[![Tests](https://img.shields.io/badge/tests-182%20passed-success.svg?style=flat-square)](#testing)
+[![Tests](https://img.shields.io/badge/tests-971%20passed-success.svg?style=flat-square)](#testing)
 [![License: MIT](https://img.shields.io/badge/License-MIT-green.svg?style=flat-square)](LICENSE)
 
 [Overview](#overview) · [Cognitive Pipeline](#cognitive-pipeline) · [Architecture](#architecture) · [Install](#installation) · [Configuration](#configuration) · [Operations](#operations) · [Docs](#documentation)
@@ -245,9 +245,16 @@ venv/bin/python3 tools/maintenance/health_check.py
 # Incremental RAG re-index against the running bot
 venv/bin/python3 tools/maintenance/reindex_rag.py --trigger
 
-# Full vector database wipe and rebuild
+# Full vector database wipe and rebuild. Refused while the bot is running —
+# she holds memory/rag_storage open, and a second writer corrupts the manifest.
+# Stop her first, or use --trigger above. (--force overrides, if you mean it.)
 venv/bin/python3 tools/maintenance/reindex_rag.py --clear
 ```
+
+> [!TIP]
+> With the bot stopped, a full rebuild embeds on the GPU automatically (~14 min on the current
+> corpus, against ~2 hours on CPU). While she is running it stays on CPU so the chat model keeps
+> its VRAM. `--cpu-embed` forces CPU either way.
 
 ### Adding books and documents
 
@@ -286,8 +293,8 @@ venv/bin/python3 tools/maintenance/repair_kb_book_structure.py --apply
 ### Testing
 
 ```bash
-venv/bin/python3 -m pytest tools/tests/unit/ tools/tests/integration/ -q
-# current baseline: 182 passed, 3 skipped
+venv/bin/python3 -m pytest tools/tests -q
+# current baseline: 971 passed, 10 skipped, 2 xfailed
 ```
 
 > [!TIP]
@@ -326,6 +333,18 @@ See [`docs/ttrpg/aethelgard_system.md`](docs/ttrpg/aethelgard_system.md).
 A CPU-rendered fractal flame generator based on the Electric Sheep algorithm: 20 variation
 functions, 10 curated colour LUTs, and adaptive density estimation. Each image is accompanied by
 commentary driven by Kaia's current emotional vector.
+
+`!art mandelbrot` renders the Mandelbrot set instead, with the iteration budget scaled to the
+zoom depth, mirrored palette cycling, and 2x2 supersampling. Pass a
+[weirdly.net](http://weirdly.net/webtoys/mandelbrot/) config URL — `!art <url>` — and it renders
+those exact coordinates, so a location someone shares can be reproduced rather than transcribed.
+
+```
+!art                          # fractal flame, random seed
+!art mandelbrot               # a random location, from shallow postcard views to 1e11 deep
+!art mandelbrot --palette void --seed 42
+!art http://weirdly.net/webtoys/mandelbrot/index.html?config=v1,-1.768941,...
+```
 
 </details>
 

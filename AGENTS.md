@@ -46,6 +46,19 @@ venv/bin/python3 -c "import ast, io; ast.parse(io.open('utils/core/message_proce
 > the dependencies (`python3 -m pytest` collects zero tests rather than hanging). Wrapping
 > commands in `timeout` is still good hygiene, not a workaround for a hang.
 
+> **Why this matters more than it looks (Sept 12, 2026).** A system update moved `/usr/bin/python`
+> from 3.12 to 3.14, and the bot was started as `python Kaiacord.py` without the venv active. It
+> *ran* — a stray set of packages under `~/.local/lib/python3.14` was enough to boot it — and then
+> failed hours later inside two unrelated subsystems: `No module named 'bs4'` in forum scraping,
+> and `cannot import name 'genai' from 'google'` in news. Neither traceback pointed anywhere near
+> the cause, and reinstalling `beautifulsoup4` "fixed" one of them by landing in that same stray
+> directory, which hid the real fault for another day.
+>
+> `Kaiacord.py` now re-execs into `venv/bin/python` when started under anything else
+> (`KAIA_NO_REEXEC=1` opts out), and `kaia-tools.sh` says so loudly when it falls back to the
+> system interpreter. The guard means a wrong-interpreter launch can no longer half-work — but the
+> rule stands for anything you run by hand, because nothing re-execs a bare `python3 -c`.
+
 **Do not** run `python Kaiacord.py` to test a change — that starts a real Discord client against
 the live token. Import the module and call the function instead.
 
