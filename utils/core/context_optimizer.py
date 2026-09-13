@@ -410,7 +410,14 @@ class ContextOptimizer:
         if match:
             try:
                 d = _dt(int(match.group(1)), int(match.group(2)), int(match.group(3)))
-                return d.strftime("%b %d")
+                # The year is carried only when it is not the current one. The
+                # corpus is single-year today, so "Sep 12" is unambiguous and
+                # stays terse — but the archive only grows, and come January a
+                # log from this September would otherwise still read "Sep 12"
+                # with nothing to separate it from the one a year later.
+                if d.year == _dt.now().year:
+                    return d.strftime("%b %d")
+                return d.strftime("%b %d %Y")
             except ValueError:
                 pass
 

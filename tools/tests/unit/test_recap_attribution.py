@@ -127,3 +127,22 @@ def test_a_single_word_filename_match_still_boosts_a_book():
     src = Path("utils/core/kaia_rag_query.py").read_text(encoding="utf-8")
     line = next(l for l in src.splitlines() if "path_boost = 0.6" in l)
     assert "general_knowledge" in line and "0.3" in line
+
+
+def test_an_older_year_is_named_and_the_current_one_is_not():
+    """"Sep 12" is unambiguous while the corpus spans one year, and it will stop
+    being so in January without anything failing loudly. The year is carried
+    only when it is not the current one, so the common case stays terse."""
+    from datetime import datetime
+
+    this_year = datetime.now().year
+    cur = f"knowledge_base/user_logs/Someone_519557167779676160/interactions_{this_year}0912.md"
+    old = f"knowledge_base/user_logs/Someone_519557167779676160/interactions_{this_year - 1}0912.md"
+
+    assert ContextOptimizer._extract_date_from_path(cur) == "Sep 12"
+    assert ContextOptimizer._extract_date_from_path(old) == f"Sep 12 {this_year - 1}"
+
+    cur_arch = f"knowledge_base/user_logs/Someone_519557167779676160/interactions_{this_year}08_archive.md"
+    old_arch = f"knowledge_base/user_logs/Someone_519557167779676160/interactions_{this_year - 1}08_archive.md"
+    assert ContextOptimizer._extract_date_from_path(cur_arch) == f"Aug {this_year}"
+    assert ContextOptimizer._extract_date_from_path(old_arch) == f"Aug {this_year - 1}"
