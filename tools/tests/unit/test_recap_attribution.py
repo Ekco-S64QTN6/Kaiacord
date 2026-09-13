@@ -93,3 +93,37 @@ def test_both_speaker_and_date_reach_the_prompt():
         "general", "persona", [node], [], "RECAP_QUERY", "what happened")
     line = next(l for l in out["rag"].split("\n") if "CONVERSATION HISTORY" in l)
     assert "STARKIND" in line and "Sep 12" in line, line
+
+
+# ── The literary damper must not suppress a book you asked for ────────
+
+def test_naming_a_work_exempts_it_from_the_literary_damper():
+    """Asking "neuromancer" returned the forum profiles of people who had
+    mentioned the book, above the book itself.
+
+    General-knowledge files whose name matches a literary marker take a 0.75x
+    multiplier, so novel prose does not bleed into unrelated conversation. But
+    the marker list contains 'neuromancer', so the book was penalised for
+    containing the exact word the user had just typed, while user_logs and
+    user_profile nodes took their own +0.15/+0.20 boosts and overtook it.
+
+    `path_boost` is set when the query's words appear in the filename, which is
+    the precise signal that the user named this document. It now exempts.
+    """
+    from pathlib import Path
+    src = Path("utils/core/kaia_rag_query.py").read_text(encoding="utf-8")
+
+    start = src.index("LITERARY_MARKERS")
+    guard = src[src.rindex("if (", 0, start):start]
+    assert "not path_boost" in guard, (
+        "the damper must not apply when the query named the file")
+    assert "general_knowledge" in guard
+
+
+def test_a_single_word_filename_match_still_boosts_a_book():
+    """The exemption is only meaningful if a one-word title match registers —
+    books are general_knowledge, which is the branch that allows it."""
+    from pathlib import Path
+    src = Path("utils/core/kaia_rag_query.py").read_text(encoding="utf-8")
+    line = next(l for l in src.splitlines() if "path_boost = 0.6" in l)
+    assert "general_knowledge" in line and "0.3" in line

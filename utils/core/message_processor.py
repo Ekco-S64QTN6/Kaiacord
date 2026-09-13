@@ -2617,7 +2617,14 @@ class MessageProcessor:
                     )
 
                 buf = _io.BytesIO()
-                frame.save(buf, format="JPEG", quality=85, optimize=True)
+                # q92 rather than q85. Measured on a detail-dense 896x896 frame:
+                # PSNR 30.85 -> 32.28 dB, worst-pixel error 82 -> 74, for 96 KB
+                # more base64 over a localhost socket. Small, but the images that
+                # get misread are fine-shape judgements (origami folds, the seams
+                # on a kintsugi bowl) and re-encoding loss lands exactly on those
+                # edges. This is not a fix for misreads — those are the vision
+                # encoder's limit, not the codec's — just a cost worth not paying.
+                frame.save(buf, format="JPEG", quality=92, optimize=True)
                 out = buf.getvalue()
 
             log_debug(f"Vision payload: {len(data)/1024:.0f}KB source -> {len(out)/1024:.0f}KB encoded")

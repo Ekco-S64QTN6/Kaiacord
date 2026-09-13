@@ -34,9 +34,27 @@ def _bot_running() -> bool:
         return True          # unknown: assume it is, and leave VRAM alone
 
 
-async def rebuild_rag(clear_storage: bool = False, file_path: str = None, force_cpu_embed: bool = False):
+async def rebuild_rag(clear_storage: bool = False, file_path: str = None,
+                      force_cpu_embed: bool = False, force: bool = False):
     """Rebuild or refresh the RAG index."""
     persist_dir = os.path.join(PROJECT_ROOT, "memory", "rag_storage")
+
+    # The kaia-tools menu asks before wiping the index under a live bot
+    # (confirm_offline_rebuild), but running this script directly bypassed that
+    # entirely and went straight to shutil.rmtree on a directory the bot holds
+    # open. Two processes writing one persist directory is not hypothetical:
+    # a second KaiaRAG opened against it during this session found no manifest,
+    # repopulated from scratch and overwrote the running bot's file_manifest.json.
+    # That one happened to produce an identical manifest. It did not have to.
+    if _bot_running() and not force:
+        if clear_storage:
+            log_error("Kaia is running. Refusing to clear memory/rag_storage from "
+                      "under her — stop the bot first, or pass --force if you are "
+                      "certain this is what you want.")
+            return False
+        log_warning("Kaia is running. She owns memory/rag_storage, and writing it "
+                    "from a second process can corrupt the manifest. Use the trigger "
+                    "instead: tools/maintenance/reindex_rag.py --trigger")
     
     if clear_storage:
         log_warning(f"CLEARING RAG storage directory: {persist_dir}")
@@ -104,6 +122,8 @@ if __name__ == "__main__":
     parser.add_argument("--clear", action="store_true", help="Clear storage directory before rebuilding")
     parser.add_argument("--trigger", action="store_true", help="Signal running bot to reindex via trigger file")
     parser.add_argument("file", nargs="?", default=None, help="Optional single file path to re-index")
+    parser.add_argument("--force", action="store_true",
+                        help="Proceed even though the bot is running (can corrupt the index)")
     parser.add_argument("--cpu-embed", action="store_true",
                         help="Keep embeddings on CPU even with the bot stopped "
                              "(the default while it is running, to protect its VRAM)")
@@ -113,4 +133,4 @@ if __name__ == "__main__":
         trigger_bot_reindex()
     else:
         asyncio.run(rebuild_rag(clear_storage=args.clear, file_path=args.file,
-                                force_cpu_embed=args.cpu_embed))
+                                force_cpu_embed=args.cpu_embed, force=args.force))

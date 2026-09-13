@@ -546,8 +546,19 @@ class RAGQueryMixin:
 
             final_score = (base_score + path_boost + type_boost + persona_file_bonus) * casual_knowledge_factor
 
-            # Soft dampening for literary prose documents for non-synthesis queries (avoid total erasure)
-            if source_type == 'general_knowledge' and not routing.get('is_entity_query') and not routing.get('is_news_query'):
+            # Soft dampening for literary prose documents for non-synthesis queries
+            # (avoid total erasure). The intent is to stop novel prose bleeding
+            # into unrelated conversation.
+            #
+            # `path_boost` exempts it. That is set when the query's own words
+            # appear in the filename, which is precisely the case the damper was
+            # mis-handling: asking "neuromancer" put the forum profiles of people
+            # who had *mentioned* the book above the book itself, because the book
+            # took a 0.75x multiplier for having "neuromancer" in its name — the
+            # same word the user had just typed. A query that names a work is the
+            # most relevant that work will ever be.
+            if (source_type == 'general_knowledge' and not path_boost
+                    and not routing.get('is_entity_query') and not routing.get('is_news_query')):
                 fname_lower = os.path.basename(file_path).lower()
                 LITERARY_MARKERS = ('neuromancer', 'gibson', 'dickens', 'novel', 'fiction')
                 if any(m in fname_lower for m in LITERARY_MARKERS):
