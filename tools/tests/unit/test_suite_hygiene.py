@@ -177,3 +177,18 @@ def test_pytest_ini_declares_every_marker_in_use():
                         used.add(node.attr)
 
     assert used <= declared, f"undeclared pytest markers in use: {sorted(used - declared)}"
+
+
+def test_no_bare_except_clauses_in_utils():
+    """A bare `except:` also catches KeyboardInterrupt and SystemExit. Four of
+    these sat in the retrieval hot path, in loops that run over every node of
+    every retrieval, so a Ctrl-C landing inside one was silently discarded."""
+    import ast
+    from pathlib import Path
+
+    offenders = []
+    for f in sorted(Path("utils").rglob("*.py")):
+        for node in ast.walk(ast.parse(f.read_text(encoding="utf-8"))):
+            if isinstance(node, ast.ExceptHandler) and node.type is None:
+                offenders.append(f"{f}:{node.lineno}")
+    assert not offenders, "bare except clauses: " + ", ".join(offenders)

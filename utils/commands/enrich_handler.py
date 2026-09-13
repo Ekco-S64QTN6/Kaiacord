@@ -88,10 +88,13 @@ async def handle_enrich_command(ctx, msg, send_kaia_response):
                 stdout, stderr = await asyncio.wait_for(process.communicate(), timeout=max_timeout)
             except asyncio.TimeoutError:
                 if process.returncode is None:
-                    try: 
+                    try:
                         process.terminate()
                         await process.wait()
-                    except: pass
+                    # Narrowed from a bare `except`, which swallowed the
+                    # CancelledError raised when this handler is itself torn
+                    # down — leaving the subprocess running.
+                    except (ProcessLookupError, OSError): pass
                 elapsed = int(asyncio.get_event_loop().time() - start_time)
                 await status_msg.edit(content=f"❌ **Enrichment Timed Out** (after {elapsed}s). Run from terminal for large batches.")
                 return

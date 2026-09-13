@@ -83,7 +83,7 @@ async def handle_explain_command(ctx, msg, send_kaia_response):
         fpath = node.get("metadata", {}).get("file_path", "")
         if fpath and os.path.exists(fpath):
             try: all_dates.append(os.path.getmtime(fpath))
-            except: pass
+            except OSError: pass
 
     recency_info = "unknown"
     if all_dates:

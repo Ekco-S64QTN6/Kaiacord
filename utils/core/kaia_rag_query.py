@@ -380,7 +380,7 @@ class RAGQueryMixin:
                             bm25_cache_path = self._get_bm25_cache_path(itype)
                             if os.path.exists(bm25_cache_path):
                                 try: os.remove(bm25_cache_path)
-                                except: pass
+                                except OSError: pass
                             self.bm25_cache.pop(itype, None)
                             self.persist_needed = True
                             
@@ -454,8 +454,12 @@ class RAGQueryMixin:
                     if isinstance(ts_val, (int, float)) and ts_val > 0:
                         ts = float(ts_val)
                     elif isinstance(ts_val, str):
+                        # Bare `except` here also caught KeyboardInterrupt and
+                        # SystemExit, in a loop that runs over every node of every
+                        # retrieval — so a Ctrl-C landing inside it was silently
+                        # discarded and the shutdown ignored.
                         try: ts = datetime.fromisoformat(ts_val).timestamp()
-                        except: pass
+                        except (ValueError, TypeError): pass
                 # Fall back to filesystem mtime
                 if not ts and file_path and os.path.exists(file_path):
                     ts = os.path.getmtime(file_path)
@@ -1037,7 +1041,7 @@ class RAGQueryMixin:
                     ts = node.metadata.get('timestamp', 0)
                     if isinstance(ts, str):
                         try: ts = datetime.fromisoformat(ts).timestamp()
-                        except: ts = 0
+                        except (ValueError, TypeError): ts = 0
                     if not ts:
                         # Fallback for recency computation
                         f_path = node.metadata.get('file_path', '')
