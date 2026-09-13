@@ -349,6 +349,43 @@ those exact coordinates, so a location someone shares can be reproduced rather t
 </details>
 
 <details>
+<summary><b>🎧 Live-coded music engine</b></summary>
+
+<br>
+
+`!music on` puts Kaia in a voice channel *performing* a set. She doesn't loop a pattern — she
+builds a track the way a live coder does: brings a part in, chains an effect onto a line that's
+already playing, nudges one number, solos something, strips it back, rebuilds.
+
+```
+!music on --house          # join your voice channel and start
+!music techno              # switch genre without leaving
+!music status              # genre, current move, what's playing
+!music genres              # list them
+!music off                 # stop and leave
+```
+
+Fourteen genres — `acid` `ambient` `berlinschool` `breakbeat` `deephouse` `drumnbass` `dub`
+`house` `lofi` `psytrance` `synthwave` `techno` `trance` `triphop` — each a 16–34 move script
+running 5–9.5 minutes, then a fresh pass with re-jittered timings. Six carry chopped vocal lanes.
+
+The sound engine is [Strudel](https://codeberg.org/uzu/strudel) (AGPL-3.0), running its own REPL
+in a local browser and captured off a PipeWire null sink into Discord voice. Strudel is fetched
+at install time — none of it is vendored here.
+
+**You can play along.** The page is the real Strudel editor: it shows the code, highlights
+whichever pattern is currently sounding, and draws the scope and piano roll. Every genre exposes
+`slider(...)` controls you can grab mid-set, and Kaia holds her next move while you're typing
+rather than overwriting your edit. `music.show_window: true` to watch.
+
+**GPU cost is zero** — synthesis happens in the browser, so the chat model keeps all of its VRAM.
+
+Setup: `python tools/maintenance/fetch_music_assets.py` (needs `ffmpeg` and `pactl`).
+See [`docs/reports/music_engine.md`](docs/reports/music_engine.md).
+
+</details>
+
+<details>
 <summary><b>🏟️ Project 1999 forum integration</b></summary>
 
 <br>

@@ -108,6 +108,21 @@ class CleanShutdown:
         """
         log_info("  🔄 Running async shutdown...")
 
+        # 0. Leave any voice channel first. This has to happen before the task
+        #    registry is torn down, because a graceful disconnect is itself an
+        #    await against the gateway — cancelled mid-flight, the bot lingers
+        #    in the channel as a ghost until Discord times the session out.
+        try:
+            from utils.audio.strudel_session import active_sessions, stop_all
+            if active_sessions():
+                log_info(f"  🔄 Leaving {len(active_sessions())} voice channel(s)...")
+                await stop_all()
+                log_info("  ✅ Voice channels released")
+        except ImportError:
+            pass                      # audio engine not installed
+        except Exception as e:
+            log_warning(f"  ⚠️  Failed to leave voice channel: {e}")
+
         # 1. Cancel all registered tasks via registry (STOP EVERYTHING FIRST)
         try:
             from utils.infrastructure.monitoring.async_task_registry import task_registry

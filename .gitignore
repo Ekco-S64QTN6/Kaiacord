@@ -100,3 +100,8 @@ logs/*.test.log
 
 # Corpus writes made by the test suite (see telemetry_paths.corpus_dir).
 knowledge_base/.test/
+
+# Music engine assets, fetched by tools/maintenance/fetch_music_assets.py.
+# Strudel is AGPL-3.0 — fetching its bundle at install time keeps that copyleft
+# off this repo, where committing it would not.
+assets/strudel/strudel-repl.js

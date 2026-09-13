@@ -440,6 +440,53 @@ dream_mode:
 # ============================================================================
 # VBulletin Forum Integration (Project 1999)
 # ============================================================================
+# ============================================================================
+# GENERATIVE MUSIC (!music)
+# ============================================================================
+# The sound engine is Strudel (https://codeberg.org/uzu/strudel, AGPL-3.0),
+# run in a local headed browser and captured off a PipeWire null sink. Strudel
+# is fetched as its own unmodified bundle by
+# tools/maintenance/fetch_music_assets.py and no part of it lives in this repo.
+#
+# GPU cost is zero and this process stays light: the synthesis happens inside
+# the browser, so the chat model keeps all of its VRAM.
+music:
+  enabled: true
+
+  # Which genre `!music on` starts with when none is named. One of:
+  # ambient, berlinschool, drumnbass, dub, house, lofi, synthwave, techno, trance
+  default_genre: ambient
+
+  # One stream at a time. Each session is a browser plus an ffmpeg capture.
+  max_concurrent_sessions: 1
+
+  # Show the Strudel editor window instead of parking it off-screen. On by
+  # default because the window IS the interface: it is the real Strudel REPL,
+  # so it shows the code, highlights whichever pattern is currently sounding,
+  # draws the scope and piano roll, and exposes the slider() controls a human
+  # can ride while Kaia plays. Set false to hide it; she still narrates every
+  # move to the log either way.
+  show_window: true
+
+  # How long to hold the performance while somebody is typing in the editor.
+  # Kaia will not apply her next move over a half-finished human edit, but she
+  # will not wait forever either — an editor left dirty and abandoned would
+  # otherwise freeze the set on one state.
+  human_edit_grace_seconds: 180
+
+  # Loop the capture sink back to this machine's speakers so a human can hear
+  # what is being broadcast. Off by default: the null sink deliberately has no
+  # output attached, which otherwise reads as "audio meters move, nothing
+  # plays" and looks like a fault.
+  monitor_on_speakers: false
+
+  # How long to let the first section come up before Discord starts pulling
+  # frames. Below about four seconds the opening is audibly thin.
+  prime_seconds: 6.0
+
+  # Leave the channel this long after the last human does.
+  alone_grace_seconds: 120
+
 forum:
   # Main switch. Gates scraping and Off-Topic posting.
   enabled: false

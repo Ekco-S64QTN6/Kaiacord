@@ -1,0 +1,231 @@
+"""
+Voice-channel session driving the Strudel engine through a performance.
+
+One session per guild. The session owns the engine, the capture, the voice
+connection and the arrangement clock, and a background task advances the
+performance so parts come and go over minutes instead of one pattern looping.
+"""
+
+from __future__ import annotations
+
+import asyncio
+import time
+
+import discord
+
+from utils.audio.performance import Performance, build
+from utils.audio.strudel_engine import StrudelEngine, monitor_to_speakers
+from utils.audio.strudel_patterns import GENRES
+from utils.audio.strudel_source import StrudelAudioSource
+from utils.infrastructure.logging.kaia_logger import (log_action, log_debug,
+                                                      log_error, log_info,
+                                                      log_warning)
+
+_sessions: dict[int, "MusicSession"] = {}
+WATCHDOG_PERIOD_S = 10.0
+
+
+def _cfg(key: str, default):
+    try:
+        from utils.infrastructure.system.yaml_config import config
+        return config.get(f"music.{key}", default)
+    except Exception:
+        return default
+
+
+class MusicSession:
+    def __init__(self, vc: discord.VoiceClient, engine: StrudelEngine,
+                 source: StrudelAudioSource, perf: Performance,
+                 genre: str, requested_by: str, text_channel=None):
+        self.vc = vc
+        self.engine = engine
+        self.source = source
+        self.perf = perf
+        self.genre = genre
+        self.requested_by = requested_by
+        self.text_channel = text_channel
+        self.started_at = time.time()
+        self._closing = False
+        self._alone_since: float | None = None
+        self._task = asyncio.create_task(self._run())
+
+    @property
+    def guild_id(self) -> int:
+        return self.vc.guild.id
+
+    @property
+    def channel_name(self) -> str:
+        return getattr(self.vc.channel, "name", "unknown")
+
+    def _humans(self) -> int:
+        return sum(1 for m in (getattr(self.vc.channel, "members", []) or [])
+                   if not m.bot)
+
+    async def _run(self) -> None:
+        """Advance the arrangement and keep the connection healthy."""
+        try:
+            while not self._closing:
+                await asyncio.sleep(WATCHDOG_PERIOD_S)
+                if self._closing:
+                    return
+
+                if not self.vc.is_connected():
+                    log_warning(f"[music] voice dropped in {self.channel_name}.")
+                    await self.stop()
+                    return
+
+                # Move the performance on. Strudel hot-swaps at the next cycle
+                # boundary, measured gapless: a continuous pad across two live
+                # re-evaluations never fell below 0.20 peak.
+                # Hold off while somebody is typing in the editor. Applying
+                # over a half-finished human edit is worse than being a beat
+                # late with the next move.
+                if self._held_for_human():
+                    pass
+                elif self.perf.advance(WATCHDOG_PERIOD_S):
+                    code = self.perf.code()
+                    d = self.perf.describe()
+                    if self.engine.play(code):
+                        log_info(f"[music] {self.genre}: {d['section']}"
+                                 f"  [{'+'.join(d['lanes']) or 'silent'}]")
+                        self.engine.set_label(self.genre, d["section"])
+                    else:
+                        log_warning(f"[music] '{d['section']}' was rejected; "
+                                    f"holding the previous state.")
+
+                if not self.vc.is_playing() and not self.vc.is_paused():
+                    log_warning("[music] playback stopped; restarting source.")
+                    try:
+                        self.vc.play(self.source)
+                    except Exception as exc:
+                        log_error(f"[music] restart failed: {exc}")
+                        await self.stop()
+                        return
+
+                grace = float(_cfg("alone_grace_seconds", 120))
+                if self._humans() == 0:
+                    if self._alone_since is None:
+                        self._alone_since = time.time()
+                        log_info(f"[music] alone in {self.channel_name}; leaving in "
+                                 f"{grace:.0f}s.")
+                    elif time.time() - self._alone_since > grace:
+                        log_action(f"[music] left {self.channel_name} — nobody listening.")
+                        await self.stop()
+                        return
+                elif self._alone_since is not None:
+                    self._alone_since = None
+        except asyncio.CancelledError:
+            raise
+        except Exception as exc:
+            log_error(f"[music] session loop failed: {exc}")
+
+    def _held_for_human(self) -> bool:
+        """Pause the script while the editor has unapplied human changes."""
+        try:
+            if not self.engine.human_edited():
+                self._held = 0
+                return False
+        except Exception:
+            return False
+        self._held = getattr(self, "_held", 0) + 1
+        # Do not wait forever: if the editor is left dirty and abandoned, the
+        # performance would freeze on one state for the rest of the session.
+        if self._held * WATCHDOG_PERIOD_S > float(_cfg("human_edit_grace_seconds", 180)):
+            log_info("[music] resuming the script; the editor has been left dirty.")
+            self._held = 0
+            return False
+        return True
+
+    async def set_genre(self, genre: str) -> None:
+        self.genre = genre
+        self.perf = build(GENRES[genre])
+        self.engine.play(self.perf.code())
+        log_action(f"[music] switched to {genre}.")
+
+    async def stop(self) -> None:
+        if self._closing:
+            return
+        self._closing = True
+        _sessions.pop(self.guild_id, None)
+        for step, what in (
+            (lambda: self.engine.stop(), "stop pattern"),
+            (lambda: self.vc.is_playing() and self.vc.stop(), "stop playback"),
+            (lambda: self.source.cleanup(), "cleanup source"),
+            (lambda: self.engine.close(), "close engine"),
+        ):
+            try:
+                step()
+            except Exception as exc:
+                log_debug(f"[music] {what}: {exc}")
+        try:
+            await self.vc.disconnect(force=True)
+        except Exception as exc:
+            log_debug(f"[music] disconnect: {exc}")
+        if self._task and not self._task.done():
+            self._task.cancel()
+        log_action(f"[music] session ended after "
+                   f"{(time.time() - self.started_at) / 60:.1f} min.")
+
+    def stats(self) -> dict:
+        return {
+            "channel": self.channel_name, "genre": self.genre,
+            "requested_by": self.requested_by,
+            "uptime_min": round((time.time() - self.started_at) / 60.0, 1),
+            "listeners": self._humans(),
+            **self.perf.describe(), **self.source.stats(),
+        }
+
+
+def get_session(guild_id: int) -> MusicSession | None:
+    return _sessions.get(guild_id)
+
+
+def active_sessions() -> list[MusicSession]:
+    return list(_sessions.values())
+
+
+async def start_session(channel, *, genre: str, requested_by: str,
+                        text_channel=None) -> MusicSession:
+    guild_id = channel.guild.id
+    if (existing := _sessions.get(guild_id)):
+        await existing.stop()
+
+    if not discord.opus.is_loaded():
+        try:
+            discord.opus._load_default()
+        except Exception as exc:
+            raise RuntimeError("libopus is not loaded") from exc
+
+    loop = asyncio.get_running_loop()
+    engine = StrudelEngine(show_window=bool(_cfg("show_window", False)))
+    # Playwright's sync API blocks; keep it off the event loop entirely.
+    await loop.run_in_executor(None, engine.start)
+    if _cfg("monitor_on_speakers", False):
+        monitor_to_speakers(True)
+
+    perf = build(GENRES[genre])
+    await loop.run_in_executor(None, engine.play, perf.code())
+    # Let the first section come up before Discord starts pulling frames.
+    await asyncio.sleep(float(_cfg("prime_seconds", 6.0)))
+
+    vc = channel.guild.voice_client
+    if vc and vc.is_connected():
+        await vc.move_to(channel)
+    else:
+        vc = await channel.connect(timeout=30.0, reconnect=True)
+
+    source = StrudelAudioSource(engine)
+    vc.play(source, after=lambda e: log_error(f"[music] playback error: {e}") if e else None)
+
+    session = MusicSession(vc, engine, source, perf, genre, requested_by, text_channel)
+    _sessions[guild_id] = session
+    log_action(f"[music] '{genre}' started in {channel.name} for {requested_by}.")
+    return session
+
+
+async def stop_all() -> None:
+    for s in list(_sessions.values()):
+        try:
+            await s.stop()
+        except Exception as exc:
+            log_debug(f"[music] stop_all: {exc}")

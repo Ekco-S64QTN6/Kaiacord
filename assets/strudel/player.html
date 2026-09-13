@@ -1,0 +1,83 @@
+<!doctype html>
+<html>
+  <head><meta charset="utf-8" /><title>Kaia · Strudel</title>
+    <script src="strudel-repl.js"></script>
+    <style>
+      html,body{margin:0;height:100%;background:#0b0d12;color:#9fe;font-family:ui-monospace,monospace}
+      #bar{display:flex;gap:10px;align-items:center;padding:7px 12px;
+           border-bottom:1px solid #1d2735;font-size:12px;color:#6cf}
+      #bar b{color:#9fe;font-weight:600}
+      button{background:#16202e;color:#6cf;border:1px solid #26364c;border-radius:5px;
+             padding:4px 11px;font-family:inherit;font-size:12px;cursor:pointer}
+      button:hover{background:#1d2a3c}
+      strudel-editor{display:block;height:calc(100vh - 40px)}
+    </style>
+  </head>
+  <body>
+    <div id="bar">
+      <b id="genre">idle</b><span id="section"></span>
+      <span style="flex:1"></span>
+      <span id="hint">edit freely — Kaia's next change will merge, not overwrite</span>
+      <button id="apply">apply</button>
+    </div>
+    <strudel-editor id="ed"></strudel-editor>
+    <script>
+      // Kaia's music engine host page.
+      //
+      // This embeds Strudel's own REPL web component rather than the slim
+      // @strudel/web bundle. That is what provides the editor, the
+      // highlighting of whichever pattern is currently sounding, and the
+      // _scope / _pianoroll / slider visuals — none of which exist in
+      // @strudel/web, where they fail silently along with trancegate and rlpf.
+      //
+      // Strudel (https://codeberg.org/uzu/strudel, AGPL-3.0) is loaded as its
+      // own unmodified bundle and only driven from here.
+      const ed = document.getElementById('ed');
+      window.__kaia = {
+        ready: false, pending: null, current: null, error: null, plays: 0,
+        // True while a human has typed something Kaia has not seen. The engine
+        // reads this and holds off, so an edit in progress is never yanked
+        // away mid-thought.
+        dirty: false,
+      };
+
+      function repl() { return ed.editor; }
+
+      const waitReady = setInterval(() => {
+        if (ed.editor) {
+          clearInterval(waitReady);
+          window.__kaia.ready = true;
+          document.getElementById('genre').textContent = 'ready';
+        }
+      }, 100);
+
+      function applyPending() {
+        const k = window.__kaia;
+        try {
+          k.error = null;
+          if (k.pending === null) { repl().stop(); k.current = null; return; }
+          repl().setCode(k.pending);
+          repl().evaluate();
+          k.current = k.pending;
+          k.dirty = false;
+          k.plays += 1;
+        } catch (e) { k.error = String(e); }
+      }
+
+      // evaluate() has to run inside a real user gesture or the AudioContext
+      // stays suspended: called straight from Playwright it returns cleanly,
+      // reports a running context, and makes no sound at all. The driver
+      // stages code and dispatches a genuine click here.
+      document.getElementById('apply').addEventListener('click', applyPending);
+
+      // Track human edits so Kaia can merge rather than clobber.
+      ed.addEventListener('keydown', () => { window.__kaia.dirty = true; }, true);
+
+      window.__kaiaSetLabel = (genre, section) => {
+        document.getElementById('genre').textContent = genre || '';
+        document.getElementById('section').textContent = section ? '· ' + section : '';
+      };
+      window.__kaiaGetCode = () => { try { return repl().code; } catch (e) { return null; } };
+    </script>
+  </body>
+</html>

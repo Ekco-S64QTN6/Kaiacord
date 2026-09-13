@@ -435,7 +435,10 @@ class FractalFlameRenderer:
 
     # Parameters are screened by a cheap probe before anything is rendered,
     # so a generous probe budget costs a fraction of one full render.
-    MAX_PROBES = 12
+    # Probes cost ~0.3s against an ~8s render, so a generous budget is cheap
+    # insurance. At MIN_OCCUPANCY 0.55, 35.8% of seeds pass (measured over 120),
+    # which puts the chance of all 20 failing at about 2 in 10,000.
+    MAX_PROBES = 20
     PROBE_RES = 384
     PROBE_POINTS = 60_000
     PROBE_ITERATIONS = 25
@@ -444,7 +447,17 @@ class FractalFlameRenderer:
     # (one measured seed put every point on 0.5% of pixels and still passed
     # the old gate at "100% coverage", because that gate was measuring the
     # tinted background rather than the fractal).
-    MIN_OCCUPANCY = 0.12
+    # Measured relationship between probe occupancy and how black the finished
+    # 1080px render comes out, over twelve seeds:
+    #
+    #     occupancy 0.94 0.87 0.79 0.64 0.60 0.44 0.40 0.33 0.20 0.13
+    #     black %     15   21   27   45   47   66   68   76   91   93
+    #
+    # Black fraction tracks (1 - occupancy) almost exactly. The gate was 0.12,
+    # so seeds measuring 0.129 and 0.134 passed it and rendered 92% black —
+    # that is the "excessive black space" regression, and it was the threshold,
+    # not the renderer. 0.55 keeps the finished image under about half black.
+    MIN_OCCUPANCY = 0.55
     # Contrast of the log-density field. A uniform fog has structure but no
     # composition; this rejects the flattest results.
     MIN_DENSITY_CONTRAST = 0.28
@@ -499,9 +512,14 @@ class FractalFlameRenderer:
                       f"occupancy={occupancy:.1%} (min {self.MIN_OCCUPANCY:.0%}), "
                       f"contrast={contrast:.2f} (min {self.MIN_DENSITY_CONTRAST:.2f})")
 
-        log_warning(f"[art] No parameter set passed in {self.MAX_PROBES} probes — "
-                    f"rendering the best of them (score={best_score:.2f}, "
-                    f"occupancy={best_stats['occupancy']:.1%})")
+        # Falling back to the best of a bad set still beats returning nothing,
+        # but say how bad: an occupancy this low is what a mostly-black frame
+        # looks like before it is rendered, and it should be visible in the log
+        # rather than only in the image.
+        level = log_error if best_stats["occupancy"] < 0.25 else log_warning
+        level(f"[art] No parameter set passed in {self.MAX_PROBES} probes — "
+              f"rendering the best of them (score={best_score:.2f}, "
+              f"occupancy={best_stats['occupancy']:.1%}, expect a sparse image)")
         return self._generate_single(best_seed, palette_name)
 
     # Roadmap 57-4, visual self-expression: palette follows mood rather than
@@ -610,8 +628,12 @@ class FractalFlameRenderer:
                 self.N_POINTS, self.N_ITERATIONS = saved_points, saved_iters
             return self._histogram_stats(alpha)
         except Exception as e:
-            log_debug(f"[art] Probe failed ({e}); assuming parameters are usable.")
-            return {"occupancy": 1.0, "density_contrast": 1.0}
+            # Was returning a perfect score here, which is exactly backwards: a
+            # probe that threw is evidence the parameters are broken, and
+            # scoring them 1.0/1.0 made them beat every real candidate and get
+            # accepted on the spot.
+            log_debug(f"[art] Probe failed ({e}); treating the parameters as unusable.")
+            return {"occupancy": 0.0, "density_contrast": 0.0}
 
     def _histogram_stats(self, alpha_acc):
         """Quality figures for a density histogram.

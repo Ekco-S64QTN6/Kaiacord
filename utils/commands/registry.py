@@ -22,6 +22,7 @@ from utils.commands.forum_handler import handle_forum_command
 from utils.commands.help_handler import handle_help_command
 from utils.commands.youtube_handler import handle_youtube_command
 from utils.commands.memory_handler import handle_memory_cmd
+from utils.commands.music_handler import handle_music_command
 from utils.commands.news_handler import handle_news_command
 from utils.commands.reindex_handler import handle_reindex_command
 from utils.commands.rpg_handler import handle_rpg_command
@@ -158,6 +159,10 @@ COMMANDS = (
             usage="!forum link <uid>",
             summary="Link your forum account "
                     "(other `!forum` subcommands are admin-only)"),
+    Command("music", handle_music_command, GROUP_MEDIA, extra=RESPONDER,
+            usage="!music on [--genre] | off | status | genres",
+            summary="Perform generative music in your voice channel — house, "
+                    "techno, trance, dnb, ambient and more (`!music genres`)"),
     Command("sysmon", handle_sysmon_command, GROUP_MEDIA, extra=RESPONDER,
             owner_only=True,
             summary="Live system/hardware monitoring dashboard"),
