@@ -316,48 +316,127 @@ class PostGenerationSafetyPipeline:
 
         return content, None
 
-    @staticmethod
-    def strip_echoed_query(text: str, query: str) -> str:
-        """Drop an opening line that just repeats what the user said.
+    # Words that carry no topic. Used to decide whether an opening sentence
+    # adds anything or merely hands the user their own statement back.
+    _ECHO_STOP = frozenset("""a an the and or but so it its it's that this these those there
+    here is are was were be been being am i you your yours we us our they them their he she
+    his her of to in on at for with from as by if then than about into over under do does did
+    done have has had not no nor yes yeah very quite really just also too more most much many
+    some any all both each own same such only even still yet well ok okay
+    """.split())
 
-        Kaia opened a reply with "uh probably a lawless libertarian cyberpunk
-        dystopian shithole." — verbatim, the user's entire previous message —
-        and only then answered it. The operator's note: "that should stay in
-        your head instead of being outputted."
+    # Deliberately function words only. Every word listed here is a word the
+    # guard will not count as novel, so a longer list makes it fire *more*
+    # readily. An earlier draft included "correct", "appear", "seem", "think"
+    # and "know", which emptied the content of the exact sentence this exists
+    # to catch ("you were correct.") and would have let it through.
 
-        Only the *opening* is removed, and only when it is a near-verbatim copy.
-        Quoting a phrase mid-answer to respond to it is normal; leading with the
-        other person's words as though they were your own is not.
+    @classmethod
+    def strip_echoed_query(cls, text: str, query: str) -> str:
+        """Drop an opening that just hands the user their own statement back.
+
+        Two shapes of the same fault, both reported by the operator:
+
+        1. Verbatim. She opened with "uh probably a lawless libertarian cyberpunk
+           dystopian shithole." — the user's entire previous message — and only
+           then answered it. "that should stay in your head instead of being
+           outputted".
+        2. Compressed and reworded, which the first version of this guard missed
+           because it compared whole lines for a near-exact prefix. Starkind
+           wrote "you where correct, it does appear to be part of a mandelbrot
+           set" and got back "you were correct. a mandelbrot set. the complexity
+           is still striking...". The echo is the first two *sentences* of a
+           longer line, the typo is silently corrected, and the second person
+           is left pointing the wrong way — Starkind said *she* was correct, and
+           she hands it back to him.
+
+        So the test is no longer textual similarity but whether the opening
+        contributes a single content word of its own. A sentence whose topic
+        words all came from the user's message is a restatement however it is
+        phrased; a genuine confirmation ("yes, that's a mandelbrot set") brings
+        its own words and survives.
         """
         if not text or not query:
             return text
 
-        def norm(s: str) -> str:
-            return re.sub(r"[^a-z0-9 ]+", "", s.lower()).strip()
+        def content(s: str) -> list[str]:
+            words = re.findall(r"[a-z0-9']+", (s or "").lower())
+            return [w for w in words if w not in cls._ECHO_STOP and len(w) > 1]
 
-        # Compare against the user's own first line. `sanitized_content` still
-        # carries whatever context_enricher appended (embed blocks, scrape
-        # text), and normalising all of that produced a query far longer than
-        # any reply could open with — so on every message containing a link the
-        # guard silently did nothing.
+        # The user's own first line. `sanitized_content` still carries whatever
+        # context_enricher appended (embed blocks, scrape text), and normalising
+        # all of that produced a query far longer than any reply could open
+        # with — so on every message containing a link the guard did nothing.
         first_q = next((l for l in (query or "").split("\n") if l.strip()), "")
-        q = norm(first_q)
-        if len(q.split()) < 4:          # too short to be a meaningful echo
+        q_words = set(content(first_q))
+        if len(q_words) < 2:
             return text
 
         lines = text.split("\n")
-        first = lines[0].strip()
-        if not first:
+        first_line = lines[0].strip()
+        if not first_line:
             return text
 
-        f = norm(first)
-        # Either the opening line is the query, or it opens with all of it.
-        if f == q or (f.startswith(q) and len(f) - len(q) < 15):
-            remainder = "\n".join(lines[1:]).strip()
-            if len(remainder) >= 20:
-                log_warning(f"[ECHO_GUARD] Dropped opening line echoing the user: {first[:70]!r}")
-                return remainder
-        return text
+        # Sentences of the opening line only. Leading with the other person's
+        # words is the fault; quoting a phrase mid-answer to respond to it is
+        # ordinary and must not be touched.
+        sentences = [s for s in re.split(r"(?<=[.!?])\s+", first_line) if s.strip()]
+        if not sentences:
+            return text
+
+        drop_upto = 0
+        for i, sent in enumerate(sentences[:2]):
+            cw = content(sent)
+            if len(sent.split()) > 16 or len(cw) < 1:
+                break
+            # A sentence with no content words at all ("yes.", "right.") is
+            # neither an echo nor worth removing; keep scanning past it only if
+            # something has already been marked for removal.
+            if not cw:
+                break
+            novel = [w for w in cw if w not in q_words]
+            if novel:
+                break
+            drop_upto = i + 1
+
+        if not drop_upto:
+            return text
+
+        # Returning a greeting is not echoing. "good morning, don't be shy" ->
+        # "morning jimjam. don't mind starkind..." had the opening removed, which
+        # is the one case where repeating the other person's words is the whole
+        # point of the sentence.
+        if re.match(r"^\s*(?:good\s+)?(?:morning|afternoon|evening|night|hey|hi|hello|"
+                    r"greetings|welcome\s+back|morning)\b", sentences[0], re.IGNORECASE):
+            return text
+
+        # A declarative restatement of a *question* is the answer to it, not an
+        # echo: "is the abstract available?" -> "the abstract is available." Only
+        # treat it as echo when she restates at length (two sentences or more),
+        # which is the shape that reads as stalling.
+        # Anywhere in the line, not just at the end: "is the abstract available?
+        # this is more commercially viable ... <url>" asks a question and then
+        # keeps going, and the reply "the abstract is available." is the answer
+        # to it. Losing a real answer is a worse failure than leaving a mild
+        # single-sentence echo, so the question wins the tie.
+        if "?" in first_q and drop_upto < 2:
+            return text
+
+        # A one-sentence opening with a single content word is too thin to call
+        # an echo — "understood.", "noted, mandelbrot." Require either two
+        # sentences of it or a sentence with real substance.
+        dropped_cw = content(" ".join(sentences[:drop_upto]))
+        if drop_upto == 1 and len(dropped_cw) < 2:
+            return text
+
+        rest = " ".join(sentences[drop_upto:]).strip()
+        remainder = "\n".join([rest] + lines[1:]).strip() if rest else "\n".join(lines[1:]).strip()
+        if len(remainder) < 40:
+            return text          # nothing of substance would be left
+
+        echoed = " ".join(sentences[:drop_upto])
+        log_warning(f"[ECHO_GUARD] Dropped opening restating the user: {echoed[:70]!r}")
+        return remainder
 
     @classmethod
     def apply_style_collapsers(cls, text: str) -> str:

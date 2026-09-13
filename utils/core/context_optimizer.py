@@ -36,7 +36,15 @@ RE_ORIGINAL_FRAG_HEADER = re.compile(r"## Original Fragment\s*", flags=re.IGNORE
 RE_SOURCE_HEADER_MATCH = re.compile(r"Source:\s*(.+)", flags=re.IGNORECASE)
 RE_SOURCE_HEADER_STRIP = re.compile(r"Source:\s*.+", flags=re.IGNORECASE)
 RE_KAIA_REFLECTION_HEADER = re.compile(r"## Kaia's Reflection\s*", flags=re.IGNORECASE)
-RE_DATE_FROM_PATH = re.compile(r'(\d{4})(\d{2})(\d{2})')
+# Anchored against a digit run and matched on the basename only. The bare
+# `(\d{4})(\d{2})(\d{2})` searched the whole path, so on
+# `user_logs/Starkind_519557167779676160/interactions_20260912.md` it matched
+# inside the Discord id — 5195-57-16 — raised ValueError on the month and
+# returned "". Every user-log chunk therefore reached the prompt with no date at
+# all, which is exactly the provenance a recap needs.
+RE_DATE_FROM_PATH = re.compile(r'(?<!\d)(20\d{2})(\d{2})(\d{2})(?!\d)')
+# Monthly rollup archives (`interactions_202608_archive.md`) carry no day.
+RE_MONTH_FROM_PATH = re.compile(r'(?<!\d)(20\d{2})(\d{2})(?!\d)')
 
 # Strip stale time-anchored status responses from history
 TIME_ANCHOR_PATTERN = re.compile(r"\bit'?s\s+\d+:\d+\b", re.IGNORECASE)
@@ -166,6 +174,13 @@ class ContextOptimizer:
             
             source_type = metadata.get('source_type', '')
             user_name = metadata.get('user_name', '').upper()
+            if not user_name and 'user_logs' in (metadata.get('file_path') or '').lower():
+                # Backstop for any retrieval path that rebuilds metadata and
+                # loses user_name — the recap did exactly that. The owning
+                # directory is the only speaker identity a log chunk carries,
+                # since every user's daily file is named interactions_<date>.md.
+                from utils.core.rag_utils import speaker_from_log_path
+                user_name = speaker_from_log_path(metadata.get('file_path', '')).upper()
             path_raw = metadata.get('file_path', '')
             path = path_raw.lower()
             
@@ -383,13 +398,28 @@ class ContextOptimizer:
 
     @staticmethod
     def _extract_date_from_path(path: str) -> str:
-        """Extract a readable date from file paths like 'interactions_20260221.md'."""
-        match = RE_DATE_FROM_PATH.search(path)
+        """A readable date from 'interactions_20260221.md' or its monthly archive.
+
+        Matched on the basename: the parent directory is `<Name>_<discord id>`,
+        and a 19-digit id contains any number of plausible-looking dates.
+        """
+        from datetime import datetime as _dt
+        base = os.path.basename(path or "")
+
+        match = RE_DATE_FROM_PATH.search(base)
         if match:
             try:
-                from datetime import datetime as _dt
                 d = _dt(int(match.group(1)), int(match.group(2)), int(match.group(3)))
                 return d.strftime("%b %d")
+            except ValueError:
+                pass
+
+        # A rolled-up month: name the month rather than nothing.
+        match = RE_MONTH_FROM_PATH.search(base)
+        if match:
+            try:
+                d = _dt(int(match.group(1)), int(match.group(2)), 1)
+                return d.strftime("%b %Y")
             except ValueError:
                 pass
         return ""

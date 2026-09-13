@@ -1006,7 +1006,7 @@ class RAGQueryMixin:
             stopwords = set(SimpleBM25Retriever.CONVERSATIONAL_STOPWORDS)
             query_words = [w for w in query.lower().split() if w not in stopwords and len(w) > 2]
             
-            from utils.core.rag_utils import get_node_text
+            from utils.core.rag_utils import get_node_text, speaker_from_log_path
             
             if query_words:
                 for node in recent_nodes:
@@ -1039,11 +1039,20 @@ class RAGQueryMixin:
                     {
                         "content": text,
                         "metadata": {
-                            "source_type": "user_logs", 
-                            "file_path": meta.get("file_path", "") or meta.get("doc_id", "unknown"), 
+                            "source_type": "user_logs",
+                            "file_path": meta.get("file_path", "") or meta.get("doc_id", "unknown"),
+                            # Carry the speaker through. Rebuilding metadata from
+                            # scratch dropped the `user_name` the indexer set, and
+                            # that field is what context_optimizer turns into the
+                            # "CONVERSATION HISTORY: <who>" attribution line — so
+                            # every node a recap injected arrived anonymous.
+                            "user_name": (meta.get("user_name")
+                                          or speaker_from_log_path(meta.get("file_path", ""))),
                             "retrieval_method": "fallback"
                         },
-                        "label": f"Recent Log: {os.path.basename(meta.get('file_path') or 'unknown')}",
+                        "label": ("Recent Log: "
+                                  + (speaker_from_log_path(meta.get("file_path", "")) or "unknown")
+                                  + f" ({os.path.basename(meta.get('file_path') or 'unknown')})"),
                         "score": 0.3,
                     }
                     for _, text, meta in fallback[:limit]
@@ -1068,9 +1077,13 @@ class RAGQueryMixin:
                     "metadata": {
                         "source_type": "user_logs",
                         "file_path": meta.get("file_path", "") or meta.get("doc_id", "unknown"),
+                        "user_name": (meta.get("user_name")
+                                      or speaker_from_log_path(meta.get("file_path", ""))),
                         "retrieval_method": "search"
                     },
-                    "label": f"Recent Log: {os.path.basename(meta.get('file_path') or 'unknown')}",
+                    "label": ("Recent Log: "
+                              + (speaker_from_log_path(meta.get("file_path", "")) or "unknown")
+                              + f" ({os.path.basename(meta.get('file_path') or 'unknown')})"),
                     "score": round(0.3 + (0.5 * (matches / max(max_matches, 1))), 3),
                 }
                 for matches, text, meta in scored_events[:limit]

@@ -13,7 +13,7 @@ from pathlib import Path
 import discord
 
 from utils.infrastructure.logging.kaia_logger import log_info, log_debug, log_warning, log_error
-from utils.core.kaia_art import FractalFlameRenderer
+from utils.core.kaia_art import FractalFlameRenderer, parse_mandelbrot_url
 
 ART_DIR = Path("memory/art")
 
@@ -40,12 +40,23 @@ async def handle_art_command(ctx, msg, send_kaia_response):
     art_type = "flame"      # default
     seed = None
     palette_name = None
+    viewport = None         # explicit mandelbrot coordinates, from a shared link
+    bad_url = False
 
     i = 1  # skip "!art"
     while i < len(args):
         arg = args[i].lower()
 
-        if arg == "mandelbrot":
+        if arg.startswith("http://") or arg.startswith("https://"):
+            # Starkind shared a weirdly.net link to a location eleven orders of
+            # magnitude deeper than anything in the target list, and the only
+            # thing to do with it was read the numbers out by hand. Render it.
+            viewport = parse_mandelbrot_url(args[i])
+            if viewport:
+                art_type = "mandelbrot"
+            else:
+                bad_url = True
+        elif arg == "mandelbrot":
             art_type = "mandelbrot"
         elif arg == "flame":
             art_type = "flame"
@@ -62,6 +73,12 @@ async def handle_art_command(ctx, msg, send_kaia_response):
 
         i += 1
 
+    if bad_url and not viewport:
+        await send_kaia_response(
+            msg.channel,
+            "i can read a weirdly.net mandelbrot link — the `?config=v1,x,y,...` kind. "
+            "that one i couldn't parse. rendering my own instead.")
+
     # ── Send placeholder ──────────────────────────────────────────────────────
     placeholder = None
     try:
@@ -73,8 +90,13 @@ async def handle_art_command(ctx, msg, send_kaia_response):
     renderer = FractalFlameRenderer()
     try:
         if art_type == "mandelbrot":
+            kwargs = {"seed": seed, "palette_name": palette_name}
+            if viewport:
+                kwargs.update(center=viewport["center"], span=viewport["span"],
+                              max_iter=viewport["max_iter"],
+                              location_name="shared coordinates")
             image, params = await asyncio.to_thread(
-                renderer.generate_mandelbrot, seed=seed, palette_name=palette_name
+                renderer.generate_mandelbrot, **kwargs
             )
         else:
             image, params = await asyncio.to_thread(
@@ -129,9 +151,12 @@ async def handle_art_command(ctx, msg, send_kaia_response):
 
         if params.get("type") == "mandelbrot":
             comment_prompt = (
-                f"you just generated a mandelbrot zoom image. "
-                f"palette: {params.get('palette', 'unknown')}, "
-                f"zoom depth: {params.get('zoom', 'unknown')}. "
+                f"you just rendered the mandelbrot set at "
+                f"{params.get('location', 'a location')}, "
+                f"magnification {params.get('zoom', 'unknown')}, "
+                f"{params.get('max_iter', '?')} iterations, "
+                f"palette: {params.get('palette', 'unknown')}. "
+                f"{'the coordinates came from a link someone shared with you. ' if viewport else ''}"
                 f"describe what you see in it in one or two sentences. "
                 f"be specific and a little strange. "
                 f"speak as kaia. lowercase only. no asterisks."
@@ -177,7 +202,17 @@ async def handle_art_command(ctx, msg, send_kaia_response):
             msg_text = comment
 
         seed_display = params.get("seed", "?")
-        footer = f"`seed: {seed_display} | palette: {params.get('palette', '?')} | {params.get('render_time_s', '?')}s`"
+        if params.get("type") == "mandelbrot":
+            # A mandelbrot frame is defined by where it is, not by its seed —
+            # the seed only picked the location, and with shared coordinates it
+            # did not even do that.
+            footer = (f"`{params.get('location', '?')} | {params.get('zoom', '?')}x | "
+                      f"{params.get('max_iter', '?')} iters | "
+                      f"palette: {params.get('palette', '?')} | "
+                      f"{params.get('render_time_s', '?')}s`")
+        else:
+            footer = (f"`seed: {seed_display} | palette: {params.get('palette', '?')} | "
+                      f"{params.get('render_time_s', '?')}s`")
 
         full_text = f"{msg_text}\n{footer}" if msg_text else footer
 

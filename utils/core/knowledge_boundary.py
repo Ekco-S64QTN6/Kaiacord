@@ -208,7 +208,9 @@ class KnowledgeBoundary:
         """Check for fuzzy matches (typos) in context."""
         if len(entity) < 4: return False
         entity_l = entity.lower()
-        context_l = context.lower()
+        # The caller already lowercased this. Re-lowering here ran a full pass
+        # over the entire RAG context once per candidate entity.
+        context_l = context
         
         if entity_l in context_l or context_l in entity_l:
             return True

@@ -688,7 +688,15 @@ class MessageProcessor:
             if hasattr(ctx.message.author, 'display_name') and ctx.message.author.display_name:
                 whitelist.add(ctx.message.author.display_name)
                 
-            boundary_check = self.knowledge_boundary.check_known_entities(ctx.sanitized_content, context_list, whitelist=whitelist)
+            # The user's own words, not the enriched message. Passing
+            # sanitized_content made the enricher's own markers look like
+            # entities the user had named: a message carrying a link was logged
+            # as "unknown entities: ['LINKED_WEB_CONTENT', 'CORE_DIRECTIVE',
+            # '@Ekco', 'weirdly.net']", of which only the last two were words
+            # anybody typed.
+            from utils.core.sanitizer import user_authored_text
+            boundary_check = self.knowledge_boundary.check_known_entities(
+                user_authored_text(ctx.sanitized_content), context_list, whitelist=whitelist)
             ctx.knowledge_boundary_check = boundary_check
             
             if not boundary_check["all_known"]:

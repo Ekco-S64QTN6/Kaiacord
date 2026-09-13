@@ -3,6 +3,7 @@ Kaia Art System — Fractal Flame Renderer
 Pure NumPy/SciPy implementation. CPU-only (GPU reserved for Ollama).
 Based on the Draves/Reckase algorithm (flam3.com/flame_draves.pdf).
 """
+import math
 import time
 import zlib
 import numpy as np
@@ -182,6 +183,34 @@ def _lut_palette(t, lut):
     indices = np.clip((t * 255).astype(int), 0, 255)
     return lut[indices]
 
+
+def _lut_palette_smooth(t, lut):
+    """As _lut_palette, but interpolating between entries instead of snapping.
+
+    `(t * 255).astype(int)` takes the nearest stop, so an image can hold at most
+    256 distinct colours no matter how smooth the underlying value field is — a
+    720x720 deep zoom came out with 230 of them, and the banding is plainly
+    visible. The toy Starkind linked evaluates a continuous function per channel
+    instead, which is most of why its output looks better than ours.
+    """
+    x = np.clip(t, 0.0, 1.0) * 255.0
+    i0 = np.floor(x).astype(np.int32)
+    i1 = np.minimum(i0 + 1, 255)
+    f = (x - i0)[..., np.newaxis]
+    return lut[i0] * (1.0 - f) + lut[i1] * f
+
+
+def _cyclic(t, cycles: float):
+    """Repeat a [0,1] ramp `cycles` times, mirroring so it never seams.
+
+    A sawtooth would jump from the last colour back to the first at every
+    boundary. Mirroring (ping-pong) makes any palette cycle seamlessly, which is
+    what lets a deep view band repeatedly — the `colour_period` term in the
+    weirdly.net config — instead of spending its whole range on one traverse.
+    """
+    frac = np.modf(np.clip(t, 0.0, 1.0) * max(cycles, 1e-6))[0]
+    return 1.0 - np.abs(2.0 * frac - 1.0)
+
 # Electric Sheep-style multi-hue palettes — each traverses 3+ distinct hues
 _LUT_ELECTRIC = _build_lut([
     (0.0,  0.02, 0.00, 0.10), (0.10, 0.10, 0.02, 0.35),
@@ -266,6 +295,95 @@ PALETTES = {
     'biolume':     lambda t: _lut_palette(t, _LUT_BIOLUME),
     'nebula':      lambda t: _lut_palette(t, _LUT_NEBULA),
 }
+
+# The same tables, unwrapped. The flame renderer wants the nearest-stop lookup
+# it was tuned against; the mandelbrot path interpolates them instead.
+PALETTE_LUTS = {
+    'electric': _LUT_ELECTRIC, 'ember': _LUT_EMBER, 'acid': _LUT_ACID,
+    'void': _LUT_VOID, 'aurora': _LUT_AURORA, 'ghost': _LUT_GHOST,
+    'deep_ocean': _LUT_DEEP_OCEAN, 'solar_flare': _LUT_SOLAR_FLARE,
+    'biolume': _LUT_BIOLUME, 'nebula': _LUT_NEBULA,
+}
+
+
+# ── Mandelbrot locations and the weirdly.net config format ────────────────────
+
+# `span` is the half-width of the view in complex units, so a smaller number is
+# a deeper zoom. The original six targets all sat between 0.003 and 0.02 — the
+# familiar postcard views. Starkind shared a location eleven orders of magnitude
+# deeper, which is where the set stops looking like a picture of itself and
+# starts producing the layered, organic imagery he was asking about.
+MANDELBROT_TARGETS = [
+    # (name, center_x, center_y, span)
+    ("classic spiral",   -0.7269,               0.1889,                 5e-3),
+    ("seahorse valley",  -0.1592,               1.0317,                 1e-2),
+    ("antenna tip",      -1.7686,               0.0042,                 5e-3),
+    ("mini brot",        -0.5251,               0.5255,                 2e-2),
+    ("spiral arm",       -0.745,                0.186,                  3e-3),
+    ("double spiral",    -1.256,                0.382,                  8e-3),
+    # Deep field. Double precision holds to roughly 1e-15 of absolute
+    # coordinate, so a span of 1e-11 still resolves cleanly at this size.
+    ("starkind's antenna", -1.7689411331682035, -0.002827913661875118,  1.48e-11),
+    ("deep valley",      -0.7436438870371587,   0.1318259042243799,     2e-9),
+    ("elephant hollow",   0.2929859127507,       0.6117848324958,       1e-8),
+    ("triple spiral",    -0.088,                 0.654,                 5e-7),
+]
+
+
+def parse_mandelbrot_url(url: str) -> dict | None:
+    """Pull a viewport out of a weirdly.net/webtoys/mandelbrot config URL.
+
+    The format is a flat comma-separated list after `?config=`:
+
+        v1, centre_x, centre_y, span_x, span_y, max_iter, ...colour terms...
+
+    Everything past max_iter describes that toy's own colouring model and has no
+    counterpart here, so it is read and discarded. Returns None for anything
+    that is not recognisably this format — a bad URL should fall back to a random
+    location, never raise at a person.
+    """
+    if not url or "config=" not in url:
+        return None
+    try:
+        raw = url.split("config=", 1)[1].split("#")[0].split("&")[0]
+        parts = raw.split(",")
+        if len(parts) < 6 or not parts[0].startswith("v"):
+            return None
+        cx, cy, sx, sy = (float(parts[i]) for i in range(1, 5))
+        max_iter = int(float(parts[5]))
+    except (ValueError, IndexError):
+        return None
+
+    span = max(abs(sx), abs(sy))
+    # Sanity: a span of zero renders one point, and anything wider than the set
+    # is just the whole set. Neither is what the link meant.
+    if not (1e-14 < span < 4.0):
+        return None
+    if not (-2.5 < cx < 1.5 and -2.0 < cy < 2.0):
+        return None
+    return {
+        "center": (cx, cy),
+        "span": span,
+        "max_iter": int(np.clip(max_iter, 64, 8000)),
+    }
+
+
+def depth_of(span: float) -> float:
+    """Zoom depth as a base-10 exponent: 0 at the full set, ~11 very deep."""
+    return math.log10(3.0 / max(span, 1e-14))
+
+
+def _iterations_for_span(span: float, requested: int | None = None) -> int:
+    """Iteration budget for a zoom depth.
+
+    A fixed 256 was the real limit on the old renderer: iteration count has to
+    grow with depth or the detail that only appears after a few hundred
+    iterations never resolves, and the frame saturates into one flat colour.
+    """
+    if requested:
+        return int(np.clip(requested, 64, 4000))
+    depth = depth_of(span)
+    return int(np.clip(256 + 210 * depth, 256, 2600))
 
 
 class FractalFlameRenderer:
@@ -572,30 +690,46 @@ class FractalFlameRenderer:
 
         return img, params
 
-    def generate_mandelbrot(self, seed=None, palette_name=None):
-        """
-        Generate a Mandelbrot zoom image (simpler fallback).
+    def generate_mandelbrot(self, seed=None, palette_name=None, *,
+                            center=None, span=None, max_iter=None,
+                            location_name=None):
+        """Render a Mandelbrot viewport.
 
-        Returns:
-            (PIL.Image.Image, dict) — the rendered image and its parameter dict.
+        Called with no viewport it picks a location at random. `center`/`span`
+        target one explicitly, which is how a shared weirdly.net link is
+        honoured — see `parse_mandelbrot_url`.
+
+        Three things were wrong with the previous version and all three showed
+        in the image:
+
+        * `max_iter` was pinned at 256 at every depth. Detail that only resolves
+          after several hundred iterations never appeared, so a deep zoom came
+          out as one flat colour.
+        * Points that never escaped kept `M = 0`, and so did the points that
+          escaped immediately — the interior of the set was drawn in the same
+          colour as the outermost band, which muddied every edge in the frame.
+        * Escape values were mapped linearly over `[0, max_iter]`. Deep views
+          use a narrow band of that range, so the palette was compressed into a
+          few adjacent LUT entries; equalising by rank is what makes the
+          layering visible.
         """
         t_start = time.time()
         rng = np.random.default_rng(seed)
         actual_seed = seed if seed is not None else rng.bit_generator.seed_seq.entropy
 
-        zoom_targets = [
-            (-0.7269, 0.1889, 0.005),    # classic spiral
-            (-0.1592, 1.0317, 0.01),      # seahorse valley
-            (-1.7686, 0.0042, 0.005),     # antenna tip
-            (-0.5251, 0.5255, 0.02),      # mini brot
-            (-0.745,  0.186,  0.003),     # spiral arm
-            (-1.256,  0.382,  0.008),     # double spiral
-        ]
-        idx = int(rng.integers(len(zoom_targets)))
-        cx, cy, zoom = zoom_targets[idx]
-        jitter = rng.uniform(-zoom * 0.3, zoom * 0.3, 2)
-        cx += jitter[0]
-        cy += jitter[1]
+        if center is not None and span is not None:
+            cx, cy = float(center[0]), float(center[1])
+            span = float(span)
+            name = location_name or "shared coordinates"
+        else:
+            name, cx, cy, span = MANDELBROT_TARGETS[int(rng.integers(len(MANDELBROT_TARGETS)))]
+            # Jitter proportionally, so a deep target stays deep. A fixed
+            # absolute jitter would have thrown a 1e-11 view clean out of the
+            # interesting region.
+            cx += float(rng.uniform(-span * 0.25, span * 0.25))
+            cy += float(rng.uniform(-span * 0.25, span * 0.25))
+
+        iters = _iterations_for_span(span, max_iter)
 
         if palette_name and palette_name in PALETTES:
             pal_name = palette_name
@@ -604,35 +738,99 @@ class FractalFlameRenderer:
         palette_fn = PALETTES[pal_name]
 
         W = H = 720
-        max_iter = 256
-        x = np.linspace(cx - zoom, cx + zoom, W)
-        y = np.linspace(cy - zoom * H / W, cy + zoom * H / W, H)
-        C = x[np.newaxis, :] + 1j * y[:, np.newaxis]
+        # Supersample. The boundary of the set is detail all the way down, so a
+        # single sample per pixel aliases every filament into a dotted line.
+        # 2x2 is the cheapest ratio that visibly fixes it.
+        SS = 2
+        WS, HS = W * SS, H * SS
+        x = np.linspace(cx - span, cx + span, WS)
+        y = np.linspace(cy - span * H / W, cy + span * H / W, HS)
+        C = (x[np.newaxis, :] + 1j * y[:, np.newaxis]).ravel()
 
-        Z = np.zeros_like(C)
-        M = np.zeros(C.shape, dtype=float)
-        escaped = np.zeros(C.shape, dtype=bool)
+        # Iterate only the points still in play. The previous loop rebuilt a
+        # boolean-masked copy of the full grid every pass and called np.abs —
+        # a square root — over all 518,400 points each time, including the ones
+        # that had already escaped hundreds of iterations earlier.
+        smooth = np.zeros(C.size, dtype=np.float64)
+        active = np.arange(C.size)
+        Za = np.zeros(C.size, dtype=np.complex128)
+        Ca = C
 
-        for i in range(max_iter):
-            mask = ~escaped
-            Z[mask] = Z[mask] ** 2 + C[mask]
-            newly_escaped = mask & (np.abs(Z) > 2)
-            M[newly_escaped] = i + 1 - np.log2(np.log2(np.abs(Z[newly_escaped]) + 1e-10))
-            escaped |= newly_escaped
+        for i in range(iters):
+            Za = Za * Za + Ca
+            mag2 = Za.real * Za.real + Za.imag * Za.imag
+            escaped = mag2 > 4.0
+            if escaped.any():
+                # Smooth (continuous) escape time. log2|Z| is half of log2|Z|^2,
+                # which avoids the square root entirely.
+                with np.errstate(divide='ignore', invalid='ignore'):
+                    nu = i + 1 - np.log2(np.maximum(0.5 * np.log2(mag2[escaped]), 1e-12))
+                smooth[active[escaped]] = np.nan_to_num(nu, nan=float(i + 1))
+                keep = ~escaped
+                active = active[keep]
+                Za = Za[keep]
+                Ca = Ca[keep]
+                if active.size == 0:
+                    break
 
-        M_norm = M / max_iter
-        rgb = palette_fn(M_norm)
+        interior = np.zeros(C.size, dtype=bool)
+        interior[active] = True
+
+        # Equalise by rank across the escaped points only, so the palette spans
+        # whatever narrow band of escape times this particular view occupies.
+        t = np.zeros(C.size, dtype=np.float64)
+        outside = ~interior
+        if outside.any():
+            vals = smooth[outside]
+            order = np.argsort(vals, kind="stable")
+            ranks = np.empty(vals.size, dtype=np.float64)
+            ranks[order] = np.linspace(0.0, 1.0, vals.size)
+            # A little linear blend keeps some of the true gradient, which reads
+            # as depth; pure equalisation alone can look posterised.
+            lin = np.clip(vals / max(iters, 1), 0.0, 1.0)
+            t[outside] = 0.78 * ranks + 0.22 * lin
+
+        # Cycle the palette instead of spending its whole range on one traverse.
+        # This is the `colour_period` term in the weirdly.net config: a deep view
+        # occupies a narrow, dense band of escape times, and repeating the ramp
+        # through it is what makes the layering legible at every scale. Deeper
+        # views carry more structure, so they get more cycles.
+        cycles = float(np.clip(1.0 + depth_of(span) / 2.0, 1.0, 7.0))
+        t = _cyclic(t, cycles)
+
+        lut = PALETTE_LUTS.get(pal_name)
+        # Interpolated, not nearest-stop: the nearest-stop lookup caps an image
+        # at 256 colours and bands every gradient.
+        rgb = (_lut_palette_smooth(t.reshape(HS, WS), lut) if lut is not None
+               else palette_fn(t.reshape(HS, WS)))
+        # The set itself is black. It is the one region with no escape time, and
+        # giving it its own value is what separates it from the fastest-escaping
+        # band next to it.
+        rgb = np.where(interior.reshape(HS, WS)[:, :, np.newaxis], 0.0, rgb)
+        # Box-downsample the supersampled buffer.
+        rgb = rgb.reshape(H, SS, W, SS, 3).mean(axis=(1, 3))
         img_array = (np.clip(rgb, 0, 1) * 255).astype(np.uint8)
 
         render_time = time.time() - t_start
-        log_info(f"[art] Mandelbrot rendered in {render_time:.1f}s (seed={actual_seed}, palette={pal_name})")
+        depth = depth_of(span)
+        log_info(f"[art] Mandelbrot '{name}' rendered in {render_time:.1f}s "
+                 f"(span={span:.3e}, ~1e{depth:.1f} zoom, iters={iters}, "
+                 f"interior={100.0 * interior.mean():.1f}%, palette={pal_name})")
 
         params = {
             "type": "mandelbrot",
             "seed": int(actual_seed) if actual_seed is not None else None,
+            "location": name,
             "center": [cx, cy],
-            "zoom": zoom,
-            "max_iter": max_iter,
+            "span": span,
+            "zoom": f"1e{depth:.1f}",
+            # Numeric alongside the display string: "1e11.3" is for the footer,
+            # not for anything that needs to compare depths.
+            "zoom_exponent": round(depth, 2),
+            "max_iter": iters,
+            "interior_fraction": round(float(interior.mean()), 4),
+            "colour_cycles": round(cycles, 2),
+            "supersample": SS,
             "palette": pal_name,
             "render_time_s": round(render_time, 2),
             "resolution": [W, H],

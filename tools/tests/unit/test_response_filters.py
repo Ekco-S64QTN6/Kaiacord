@@ -344,5 +344,86 @@ def test_safety_pipeline_entry_points_are_callable_off_the_class():
     from utils.core.safety_pipeline import PostGenerationSafetyPipeline as P
     assert P.apply_style_collapsers("a test... string") is not None
     assert P.strip_echoed_query("some text", "a query here now") is not None
-    assert isinstance(P.__dict__["apply_style_collapsers"], classmethod)
-    assert isinstance(P.__dict__["strip_echoed_query"], staticmethod)
+    # Either decorator is fine — strip_echoed_query became a classmethod when it
+    # gained a class-level stop list. What must hold is that each entry point is
+    # a real descriptor, so the call above binds nothing to its first parameter.
+    for name in ("apply_style_collapsers", "strip_echoed_query"):
+        assert isinstance(P.__dict__[name], (classmethod, staticmethod)), \
+            f"{name} is a plain function: calling it off the class binds the " \
+            f"first argument to the wrong parameter"
+
+
+# ── Echo guard: restatement, not just verbatim repetition ────────────
+
+def _echo(reply, query):
+    from utils.core.safety_pipeline import PostGenerationSafetyPipeline as P
+    return P.strip_echoed_query(reply, query)
+
+
+def test_a_reworded_opening_restatement_is_dropped():
+    """The operator's report. Starkind wrote "you where correct, it does appear
+    to be part of a mandelbrot set" and got his own sentence back — reworded,
+    typo silently corrected, and with the second person left pointing the wrong
+    way, so it reads as Kaia telling *him* he was right.
+
+    The first version of this guard compared whole lines for a near-exact
+    prefix and could not see this: the echo is the opening two sentences of a
+    longer line. The test is now whether the opening contributes a content word
+    of its own.
+    """
+    reply = ("you were correct. a mandelbrot set. the complexity is still striking, "
+             "even within that framework. it’s a testament to iterative processes.")
+    out = _echo(reply, "you where correct, it does appear to be part of a mandelbrot set")
+    assert out.startswith("the complexity is still striking")
+    assert "you were correct" not in out
+
+
+def test_a_verbatim_opening_is_still_dropped():
+    reply = ("uh probably a lawless libertarian cyberpunk dystopian shithole.\n"
+             "that is roughly where it lands. the incentives all point that way "
+             "and nobody is steering.")
+    out = _echo(reply, "uh probably a lawless libertarian cyberpunk dystopian shithole")
+    assert out.startswith("that is roughly where it lands")
+
+
+def test_returning_a_greeting_is_not_an_echo():
+    """"good morning, don't be shy" -> "morning jimjam. don't mind starkind..."
+    had its opening removed. Repeating the other person's words is the entire
+    point of a greeting."""
+    reply = ("morning jimjam. don’t mind starkind, he likes running philosophical "
+             "stress tests at dawn. feel free to jump in anytime.")
+    q = "@Jimjam jam good morning don't be shy or afraid to interrupt Starkind's interactions with Kaia."
+    assert _echo(reply, q) == reply
+
+
+def test_answering_a_yes_no_question_survives():
+    """"is the abstract available?" -> "the abstract is available." is the
+    answer, not a restatement. A lost answer is a worse failure than a mild
+    echo, so a question in the user's line protects a one-sentence opening."""
+    reply = ("the abstract is available. the nature article details a client challenge "
+             "— scaling the technology for data centre applications.")
+    q = "is the abstract available? this is more commercially viable on a data center scale https://www.nature.com/articles/x"
+    assert _echo(reply, q) == reply
+
+
+def test_an_opening_that_adds_its_own_words_survives():
+    """A genuine confirmation brings content of its own and must not be cut."""
+    reply = ("yes, that is the classic quadratic escape-time render. the palette "
+             "choice is what makes it unusual, though.")
+    out = _echo(reply, "it does appear to be part of a mandelbrot set")
+    assert out == reply
+
+
+def test_mid_answer_quoting_is_untouched():
+    """Only the opening is in scope. Quoting a phrase to respond to it is
+    ordinary conversation."""
+    reply = ("that framing is the interesting part. you said it was part of a "
+             "mandelbrot set, and that is exactly where the self-similarity "
+             "argument starts to bite.")
+    assert _echo(reply, "it does appear to be part of a mandelbrot set") == reply
+
+
+def test_the_guard_leaves_short_replies_alone():
+    """Nothing of substance may be left behind."""
+    reply = "a mandelbrot set. indeed."
+    assert _echo(reply, "it does appear to be part of a mandelbrot set") == reply
