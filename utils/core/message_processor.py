@@ -1889,10 +1889,25 @@ class MessageProcessor:
             "----------------------------------"
         )
 
+        # Order matters for more than readability. llama.cpp reuses the KV cache
+        # for the longest token prefix shared with the previous request, and the
+        # persona block is ~7.5k of the ~12.9k tokens in this prompt.
+        #
+        # The two constraint blocks used to sit in front of it. Both are empty on
+        # an ordinary turn and appear only for a recap or knowledge-base query,
+        # so asking one of those questions shifted every subsequent token and
+        # threw away the whole cached prefix — on that turn, and again on the
+        # next turn when the block disappeared. Measured on a live model: 15.3s
+        # for the first pass over this prompt against 3.9s when the prefix was
+        # already resident.
+        #
+        # They belong here anyway. Both say "the RAG context nodes below", and
+        # they are now actually adjacent to those nodes rather than separated
+        # from them by the entire persona.
         full_system_prompt = (
+            f"{system_prompt}\n\n"
             f"{kb_constraint_block}"
             f"{recap_constraint_block}"
-            f"{system_prompt}\n\n"
             f"{rag_block}"
             f"{metadata_block}"
             f"{safeguard_block}"

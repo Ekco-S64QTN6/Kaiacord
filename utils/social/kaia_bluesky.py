@@ -213,48 +213,70 @@ async def post_thread_to_bluesky(chunks: list[str]) -> tuple[bool, Optional[str]
     if not chunks:
         return False, "No content to post"
     
-    # Retry once with a fresh session if the first attempt fails (handles expired tokens)
+    # Retry once with a fresh session if the first attempt fails — that handles
+    # an expired token, which is a failure of the *first* call.
+    #
+    # The retry used to wrap the whole thread, root post included. Once the root
+    # had gone up, any later failure (a blip on post 2 of 3, a token expiring
+    # mid-thread) sent it back to the top and posted the root a second time:
+    # two identical root posts on a public timeline, the first one orphaned with
+    # a partial thread hanging off it. Progress is now tracked across attempts,
+    # so a retry resumes at the chunk that failed and never re-posts anything
+    # already live.
+    root = None          # (uri, cid) of the first post, once it exists
+    prev = None          # (uri, cid) of the most recent post in the thread
+    next_index = 0       # the chunk to post next
+    last_error = "unknown error"
+
     for attempt in range(2):
         client = await get_bluesky_client(force_new=(attempt > 0))
-        
+
         if client is None:
             return False, "Bluesky client not available"
-        
+
         try:
-            # Post the first chunk
-            first_post = await client.send_post(chunks[0])
-            log_success(f"Posted to Bluesky: {chunks[0][:50]}...")
-            
-            # If there are more chunks, reply to self to create a thread
+            if root is None:
+                first_post = await client.send_post(chunks[0])
+                root = (first_post.uri, first_post.cid)
+                prev = root
+                next_index = 1
+                log_success(f"Posted to Bluesky: {chunks[0][:50]}...")
+                if len(chunks) > 1:
+                    log_info(f"Creating Bluesky thread with {len(chunks)} posts...")
+
+            while next_index < len(chunks):
+                chunk = chunks[next_index]
+                parent_ref = models.ComAtprotoRepoStrongRef.Main(uri=prev[0], cid=prev[1])
+                root_ref = models.ComAtprotoRepoStrongRef.Main(uri=root[0], cid=root[1])
+                reply_ref = models.AppBskyFeedPost.ReplyRef(root=root_ref, parent=parent_ref)
+
+                continuation = await client.send_post(chunk, reply_to=reply_ref)
+                log_debug(f"Thread post {next_index + 1}/{len(chunks)}: {chunk[:40]}...")
+
+                prev = (continuation.uri, continuation.cid)
+                next_index += 1
+
             if len(chunks) > 1:
-                log_info(f"Creating Bluesky thread with {len(chunks)} posts...")
-                
-                prev_uri = first_post.uri
-                prev_cid = first_post.cid
-                root_uri = first_post.uri
-                root_cid = first_post.cid
-                
-                for i, chunk in enumerate(chunks[1:], 2):
-                    parent_ref = models.ComAtprotoRepoStrongRef.Main(uri=prev_uri, cid=prev_cid)
-                    root_ref = models.ComAtprotoRepoStrongRef.Main(uri=root_uri, cid=root_cid)
-                    reply_ref = models.AppBskyFeedPost.ReplyRef(root=root_ref, parent=parent_ref)
-                    
-                    continuation = await client.send_post(chunk, reply_to=reply_ref)
-                    log_debug(f"Thread post {i}/{len(chunks)}: {chunk[:40]}...")
-                    
-                    prev_uri = continuation.uri
-                    prev_cid = continuation.cid
-                
                 log_success(f"Bluesky thread complete ({len(chunks)} posts)")
-            
-            return True, first_post.uri
-            
+            return True, root[0]
+
         except Exception as e:
+            last_error = str(e)
             if attempt == 0:
-                log_warning(f"Bluesky post failed (attempt 1), retrying with fresh session: {e}")
-                continue  # Retry with force_new=True
+                where = "posting" if root is None else f"at chunk {next_index + 1}/{len(chunks)}"
+                log_warning(f"Bluesky post failed ({where}), retrying with fresh session: {e}")
+                continue
             log_error(f"Bluesky post failed after retry: {e}")
-            return False, str(e)
+            break
+
+    if root is not None:
+        # The root is live and the thread is short of its tail. Reporting failure
+        # here would invite the caller to post the whole thing again, which is
+        # the outcome this function exists to avoid.
+        log_error(f"Bluesky thread incomplete: {next_index}/{len(chunks)} posts up, "
+                  f"root at {root[0]}. Last error: {last_error}")
+        return True, root[0]
+    return False, last_error
 
 
 async def post_quip_to_bluesky(quip: str) -> bool:

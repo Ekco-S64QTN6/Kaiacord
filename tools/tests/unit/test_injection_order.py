@@ -87,3 +87,58 @@ async def test_injection_order_constitution_first(mock_log_debug, mock_log_info)
         f"CONSTITUTION@{const_pos}, SELF-MODEL@{self_pos}, PERSONA@{persona_pos}\n"
         f"Prompt preview: {prompt[:400]}"
     )
+
+
+# ── Prompt ordering and the KV prefix cache ──────────────────────────
+
+def test_the_stable_persona_precedes_every_volatile_block():
+    """llama.cpp reuses the KV cache for the longest token prefix shared with
+    the previous request, and the persona is ~7.5k of this prompt's ~12.9k
+    tokens.
+
+    Both constraint blocks used to sit in front of it. Each is empty on an
+    ordinary turn and appears only for a recap or knowledge-base query, so
+    asking one of those questions shifted every subsequent token and discarded
+    the cached prefix — on that turn, and again on the next when the block went
+    away. Measured against a live gemma3:12b on an 8.4k-token prompt, the
+    prompt-eval on the changed turn was 6.76s with the volatile block leading
+    and 0.59s with it trailing.
+    """
+    from pathlib import Path
+    src = Path("utils/core/message_processor.py").read_text(encoding="utf-8")
+
+    start = src.index("full_system_prompt = (")
+    block = src[start:src.index(")", start)]
+
+    order = [name for name in (
+        "system_prompt", "kb_constraint_block", "recap_constraint_block",
+        "rag_block", "metadata_block", "safeguard_block", "instruction",
+    ) if name in block]
+
+    assert order[0] == "system_prompt", (
+        f"the persona must lead the prompt or the cached prefix is worthless; "
+        f"found {order[0]!r} first")
+    for volatile in ("kb_constraint_block", "recap_constraint_block", "rag_block"):
+        assert block.index("system_prompt") < block.index(volatile), (
+            f"{volatile} precedes the persona and invalidates the prefix cache")
+
+
+def test_the_constraints_still_precede_the_rag_nodes_they_describe():
+    """Both blocks say "the RAG context nodes below". Moving them off the front
+    must not move them past what they are talking about."""
+    from pathlib import Path
+    src = Path("utils/core/message_processor.py").read_text(encoding="utf-8")
+    start = src.index("full_system_prompt = (")
+    block = src[start:src.index(")", start)]
+    assert block.index("kb_constraint_block") < block.index("rag_block")
+    assert block.index("recap_constraint_block") < block.index("rag_block")
+
+
+def test_the_behavioural_instruction_stays_last():
+    """The anti-botspeak ruleset is at the end deliberately — recency is what
+    makes it stick. The cache reordering must not have disturbed that."""
+    from pathlib import Path
+    src = Path("utils/core/message_processor.py").read_text(encoding="utf-8")
+    start = src.index("full_system_prompt = (")
+    block = src[start:src.index(")", start)]
+    assert block.rstrip().endswith('f"{instruction}"')

@@ -94,3 +94,84 @@ class TestBlueskyModule:
                     call_args = mock_client.send_post.call_args
                     posted_text = call_args[0][0] if call_args[0] else call_args[1].get('text', '')
                     assert len(posted_text) <= 300
+
+
+# ── A retry must never re-post what is already live ───────────────────
+
+@pytest.mark.asyncio
+async def test_a_mid_thread_failure_does_not_repost_the_root(monkeypatch):
+    """The retry used to wrap the whole thread, root included. A blip on post 2
+    of 3 sent it back to the top and put a second identical root on a public
+    timeline, with the first one orphaned under a partial thread."""
+    import utils.social.kaia_bluesky as bs
+
+    sent: list[str] = []
+
+    class _Ref:
+        def __init__(self, n): self.uri, self.cid = f"at://post/{n}", f"cid{n}"
+
+    class _Client:
+        def __init__(self): self.fail_next = False
+        async def send_post(self, text, reply_to=None):
+            sent.append(text)
+            if text == "second" and sum(s == "second" for s in sent) == 1:
+                raise RuntimeError("transient blip")
+            return _Ref(len(sent))
+
+    client = _Client()
+
+    async def _get(force_new=False):
+        return client
+
+    monkeypatch.setattr(bs, "get_bluesky_client", _get)
+    monkeypatch.setattr(bs, "AsyncClient", object)
+
+    ok, uri = await bs.post_thread_to_bluesky(["first", "second", "third"])
+
+    assert ok is True
+    assert sent.count("first") == 1, f"the root was posted {sent.count('first')} times: {sent}"
+    assert sent.count("third") == 1
+    assert uri == "at://post/1"
+
+
+@pytest.mark.asyncio
+async def test_a_live_root_reports_success_even_if_the_tail_fails(monkeypatch):
+    """Reporting failure while the root is live invites the caller to post the
+    whole thing again — the exact duplicate this guards against."""
+    import utils.social.kaia_bluesky as bs
+
+    class _Ref:
+        uri, cid = "at://post/root", "cidroot"
+
+    class _Client:
+        async def send_post(self, text, reply_to=None):
+            if reply_to is not None:
+                raise RuntimeError("always fails on continuations")
+            return _Ref()
+
+    async def _get(force_new=False):
+        return _Client()
+
+    monkeypatch.setattr(bs, "get_bluesky_client", _get)
+    monkeypatch.setattr(bs, "AsyncClient", object)
+
+    ok, uri = await bs.post_thread_to_bluesky(["root text", "tail text"])
+    assert ok is True and uri == "at://post/root"
+
+
+@pytest.mark.asyncio
+async def test_a_failure_before_anything_is_posted_reports_failure(monkeypatch):
+    import utils.social.kaia_bluesky as bs
+
+    class _Client:
+        async def send_post(self, text, reply_to=None):
+            raise RuntimeError("auth rejected")
+
+    async def _get(force_new=False):
+        return _Client()
+
+    monkeypatch.setattr(bs, "get_bluesky_client", _get)
+    monkeypatch.setattr(bs, "AsyncClient", object)
+
+    ok, err = await bs.post_thread_to_bluesky(["only"])
+    assert ok is False and "auth rejected" in err
