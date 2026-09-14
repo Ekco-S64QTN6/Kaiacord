@@ -74,6 +74,20 @@ class MusicSession:
                     await self.stop()
                     return
 
+                # The operator can close the player window at any time, and with
+                # show_window on that is a normal thing to do. Treat it as "end
+                # the set", not as a pattern that failed: this used to log an
+                # ERROR every tick and keep the session up streaming silence.
+                if not self.engine.alive():
+                    if self.text_channel:
+                        try:
+                            await self.text_channel.send(
+                                "the player window was closed, so i stopped the set.")
+                        except Exception:
+                            pass
+                    await self.stop()
+                    return
+
                 # Move the performance on. Strudel hot-swaps at the next cycle
                 # boundary, measured gapless: a continuous pad across two live
                 # re-evaluations never fell below 0.20 peak.

@@ -3,23 +3,116 @@
   <head><meta charset="utf-8" /><title>Kaia · Strudel</title>
     <script src="strudel-repl.js"></script>
     <style>
-      html,body{margin:0;height:100%;background:#0b0d12;color:#9fe;font-family:ui-monospace,monospace}
-      #bar{display:flex;gap:10px;align-items:center;padding:7px 12px;
-           border-bottom:1px solid #1d2735;font-size:12px;color:#6cf}
-      #bar b{color:#9fe;font-weight:600}
-      button{background:#16202e;color:#6cf;border:1px solid #26364c;border-radius:5px;
-             padding:4px 11px;font-family:inherit;font-size:12px;cursor:pointer}
-      button:hover{background:#1d2a3c}
-      strudel-editor{display:block;height:calc(100vh - 40px)}
+      /* ── tokens ──────────────────────────────────────────────────── */
+      :root{
+        --bg:#0a0c12; --panel:#11151f; --panel-2:#161b28;
+        --line:rgba(255,255,255,.07); --line-2:rgba(255,255,255,.12);
+        --ink:#e6edf6; --ink-dim:#8b98ad; --ink-faint:#5d6a7e;
+        --accent:#5eead4; --accent-dim:rgba(94,234,212,.14);
+        --radius:10px;
+        --ui:ui-sans-serif,system-ui,-apple-system,"Segoe UI",Inter,Roboto,sans-serif;
+        --mono:ui-monospace,"JetBrains Mono","SF Mono",Menlo,Consolas,monospace;
+      }
+      *{box-sizing:border-box}
+      html,body{margin:0;height:100%;width:100%;overflow:hidden;background:var(--bg);
+                color:var(--ink);font-family:var(--ui);
+                -webkit-font-smoothing:antialiased}
+      body{display:flex;flex-direction:column}
+
+      /* ── header ──────────────────────────────────────────────────── */
+      #bar{flex:0 0 auto;display:flex;align-items:center;gap:14px;
+           padding:10px 16px;min-width:0;
+           background:linear-gradient(180deg,var(--panel) 0%,var(--panel-2) 100%);
+           border-bottom:1px solid var(--line)}
+
+      #now{display:flex;align-items:baseline;gap:9px;min-width:0;flex:0 1 auto}
+      #dot{flex:none;width:7px;height:7px;border-radius:50%;background:var(--ink-faint);
+           align-self:center;transition:background .3s}
+      body.playing #dot{background:var(--accent);
+                        box-shadow:0 0 0 0 var(--accent-dim);
+                        animation:pulse 2.4s ease-out infinite}
+      @keyframes pulse{
+        0%{box-shadow:0 0 0 0 rgba(94,234,212,.35)}
+        70%{box-shadow:0 0 0 7px rgba(94,234,212,0)}
+        100%{box-shadow:0 0 0 0 rgba(94,234,212,0)}
+      }
+      #genre{font-size:13px;font-weight:600;letter-spacing:.01em;color:var(--ink);
+             white-space:nowrap}
+      #section{font-size:12.5px;color:var(--ink-dim);white-space:nowrap;
+               overflow:hidden;text-overflow:ellipsis;min-width:0}
+
+      #spacer{flex:1 1 auto;min-width:8px}
+
+      #hint kbd{font-family:var(--mono);font-size:10.5px;color:var(--ink-dim);
+                background:rgba(255,255,255,.06);border:1px solid var(--line-2);
+                border-radius:4px;padding:1px 4px;margin:0 1px}
+      #hint{font-size:11.5px;color:var(--ink-faint);white-space:nowrap;
+            overflow:hidden;text-overflow:ellipsis;min-width:0;flex:0 1 auto}
+      /* The hint is the first thing to go when the window gets narrow — the
+         status and the button are what actually matter. */
+      @media (max-width:760px){ #hint{display:none} }
+
+      #apply{flex:none;font-family:var(--ui);font-size:12px;font-weight:600;
+             letter-spacing:.02em;color:#06231e;background:var(--accent);
+             border:0;border-radius:var(--radius);padding:7px 15px;cursor:pointer;
+             transition:filter .15s,transform .08s}
+      #apply:hover{filter:brightness(1.08)}
+      #apply:active{transform:translateY(1px)}
+      #apply:focus-visible{outline:2px solid var(--accent);outline-offset:2px}
+
+      /* ── editor ──────────────────────────────────────────────────── */
+      /* <strudel-editor> renders NOTHING inside itself. Its connectedCallback
+         does `this.parentElement.insertBefore(div, this.nextSibling)` and hands
+         StrudelMirror that div as its root, so the editor is the host's next
+         SIBLING. Styling the host as the editor gave a full-viewport empty box
+         and pushed the real editor offscreen. StrudelMirror then sets
+         display:block inline on that root, which beats a stylesheet
+         `display:flex` — so it is sized by height, not by flex growth. */
+      strudel-editor{display:none}
+      strudel-editor + div{flex:1 1 auto;min-height:0;width:100%}
+      strudel-editor + div > .cm-editor{height:100%;width:100%;background:transparent}
+      .cm-scroller{flex:1 1 auto;min-height:0;overflow:auto;
+                   font-family:var(--mono);font-size:13px;line-height:1.65;
+                   padding:14px 0 40vh 0}
+
+      /* Wrap instead of scrolling sideways. These lines are long by nature —
+         a generative lane is one chain of forty calls — and a horizontal
+         scrollbar hides the end of every one of them. */
+      /* CodeMirror measures the widest line and pins a min-width on .cm-content,
+         which is what kept a horizontal scrollbar (and clipped the right-hand
+         end of every line) even once the text wrapped. These mirror CM's own
+         lineWrapping theme and then clear that measured width. */
+      .cm-content{white-space:pre-wrap !important;overflow-wrap:anywhere;
+                  word-break:break-word;flex-shrink:1;
+                  min-width:0 !important;max-width:100%;
+                  padding:0 20px 0 0}
+      .cm-line{white-space:pre-wrap !important;overflow-wrap:anywhere;
+               word-break:break-word}
+      .cm-scroller{overflow-x:hidden}
+      /* content and gutter are flex siblings inside the scroller: forcing the
+         content to 100% made it 100% *plus* the 42px gutter, which is exactly
+         how much was hanging off the right edge. Let flex hand it what is
+         left over instead. */
+      .cm-scroller > .cm-content{flex:1 1 auto}
+
+      .cm-gutters{background:transparent;border-right:1px solid var(--line);
+                  color:var(--ink-faint);padding-right:4px;min-width:42px}
+      .cm-activeLineGutter,.cm-activeLine{background:rgba(255,255,255,.03)}
+      .cm-cursor{border-left-color:var(--accent)}
+      .cm-selectionBackground,::selection{background:rgba(94,234,212,.18) !important}
+      .cm-scroller::-webkit-scrollbar{width:10px;height:10px}
+      .cm-scroller::-webkit-scrollbar-thumb{background:var(--line-2);border-radius:6px}
+      .cm-scroller::-webkit-scrollbar-thumb:hover{background:rgba(255,255,255,.2)}
+      .cm-scroller::-webkit-scrollbar-track{background:transparent}
     </style>
   </head>
   <body>
-    <div id="bar">
-      <b id="genre">idle</b><span id="section"></span>
-      <span style="flex:1"></span>
-      <span id="hint">edit freely — Kaia's next change will merge, not overwrite</span>
+    <header id="bar">
+      <span id="now"><i id="dot"></i><b id="genre">idle</b><span id="section"></span></span>
+      <span id="spacer"></span>
+      <span id="hint">edit freely — <kbd>ctrl</kbd>+<kbd>enter</kbd> or apply to run your change; Kaia waits while you type</span>
       <button id="apply">apply</button>
-    </div>
+    </header>
     <strudel-editor id="ed"></strudel-editor>
     <script>
       // Kaia's music engine host page.
@@ -35,6 +128,10 @@
       const ed = document.getElementById('ed');
       window.__kaia = {
         ready: false, pending: null, current: null, error: null, plays: 0,
+        // Set by the engine when IT stages a pattern. Without it the apply
+        // button always ran `pending` — Kaia's code — so a human who edited
+        // and pressed apply had their edit replaced by her last pattern.
+        staged: false,
         // True while a human has typed something Kaia has not seen. The engine
         // reads this and holds off, so an edit in progress is never yanked
         // away mid-thought.
@@ -48,6 +145,7 @@
           clearInterval(waitReady);
           window.__kaia.ready = true;
           document.getElementById('genre').textContent = 'ready';
+          watchEdits();
         }
       }, 100);
 
@@ -55,12 +153,31 @@
         const k = window.__kaia;
         try {
           k.error = null;
-          if (k.pending === null) { repl().stop(); k.current = null; return; }
-          repl().setCode(k.pending);
-          repl().evaluate();
-          k.current = k.pending;
-          k.dirty = false;
-          k.plays += 1;
+          if (k.staged) {
+            // Kaia's move: run what she staged.
+            k.staged = false;
+            if (k.pending === null) {
+              repl().stop(); k.current = null;
+              document.body.classList.remove('playing');
+              return;
+            }
+            repl().setCode(k.pending);
+            repl().evaluate();
+            k.current = k.pending;
+            k.dirty = false;
+            k.plays += 1;
+            document.body.classList.add('playing');
+          } else {
+            // A person pressed it: run exactly what is on screen, and do not
+            // clear `dirty` — they are still working, and that flag is what
+            // makes Kaia hold off instead of overwriting them.
+            const mine = repl().code;
+            repl().evaluate();
+            k.current = mine;
+            k.pending = mine;
+            k.plays += 1;
+            document.body.classList.add('playing');
+          }
         } catch (e) { k.error = String(e); }
       }
 
@@ -70,8 +187,33 @@
       // stages code and dispatches a genuine click here.
       document.getElementById('apply').addEventListener('click', applyPending);
 
-      // Track human edits so Kaia can merge rather than clobber.
-      ed.addEventListener('keydown', () => { window.__kaia.dirty = true; }, true);
+      // Track human edits so Kaia holds off rather than clobbering them.
+      //
+      // This listened on <strudel-editor>, which renders nothing and is now
+      // display:none — the editor is its SIBLING. So no keystroke ever set
+      // `dirty`, human_edited() was permanently false, and every edit was
+      // overwritten at Kaia's next move despite the hint promising otherwise.
+      function watchEdits() {
+        const root = ed.nextElementSibling;
+        if (!root) return false;
+        const touched = (e) => {
+          // ctrl/cmd+enter is Strudel's own evaluate — that is the person
+          // applying their edit, not an edit still in progress.
+          if (e && (e.ctrlKey || e.metaKey) && e.key === 'Enter') {
+            setTimeout(() => {
+              const mine = repl().code;
+              window.__kaia.current = mine;
+              window.__kaia.pending = mine;
+              document.body.classList.add('playing');
+            }, 60);
+            return;
+          }
+          window.__kaia.dirty = true;
+        };
+        root.addEventListener('keydown', touched, true);
+        root.addEventListener('input', () => { window.__kaia.dirty = true; }, true);
+        return true;
+      }
 
       window.__kaiaSetLabel = (genre, section) => {
         document.getElementById('genre').textContent = genre || '';

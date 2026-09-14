@@ -116,6 +116,11 @@ class StrudelEngine:
         self._ffmpeg: subprocess.Popen | None = None
         self.port = 0
         self.current_code: str | None = None
+        # Set when the page goes away under us. With show_window on, the
+        # operator can simply close the window — and the engine used to log an
+        # ERROR per tick, report the section "rejected", and keep the session
+        # alive streaming silence until somebody typed !music off.
+        self.page_closed = False
         # Playwright's sync API is pinned to the thread that created it, and
         # raises "Cannot switch to a different thread" anywhere else. The
         # session starts the engine on an executor thread and then drives it
@@ -169,7 +174,13 @@ class StrudelEngine:
         self._browser = self._pw.chromium.launch(
             headless=False,                 # headless emits silence; see module docstring
             executable_path=self._pw.chromium.executable_path, args=args)
-        self._page = self._browser.new_page()
+        # no_viewport: Playwright otherwise pins the page to a fixed 1280x720
+        # that ignores the real window. The window opens at 760x520 and the
+        # operator resizes it, but the page kept rendering at 1280x720 — so the
+        # code was cut off at 1280 however wide the window got, and everything
+        # past the viewport was black void. With no_viewport the page uses the
+        # window's own size and reflows when it is resized.
+        self._page = self._browser.new_page(no_viewport=True)
         self._page.goto(f"http://127.0.0.1:{self.port}/player.html",
                         wait_until="load", timeout=45000)
         self._page.wait_for_function("() => window.__kaia && window.__kaia.ready",
@@ -182,10 +193,11 @@ class StrudelEngine:
         return self._call(self._play_impl, code)
 
     def _play_impl(self, code: str) -> bool:
-        if self._page is None:
+        if self._page is None or self.page_closed:
             return False
         try:
-            self._page.evaluate("c => { window.__kaia.pending = c; }", code)
+            self._page.evaluate(
+                "c => { window.__kaia.pending = c; window.__kaia.staged = true; }", code)
             self._page.click("#apply", timeout=15000)
             err = self._page.evaluate("() => window.__kaia.error")
             if err:
@@ -194,7 +206,43 @@ class StrudelEngine:
             self.current_code = code
             return True
         except Exception as exc:
+            if self._note_if_gone(exc):
+                return False
             log_error(f"[music] failed to apply pattern: {exc}")
+            return False
+
+    # ── has the page gone away? ──────────────────────────────────────
+
+    @staticmethod
+    def _is_gone(exc: Exception) -> bool:
+        """True for the family of Playwright errors that mean 'no page left'."""
+        m = str(exc).lower()
+        return ("has been closed" in m or "target closed" in m
+                or "browser has been closed" in m or "target crashed" in m)
+
+    def _note_if_gone(self, exc: Exception) -> bool:
+        """Record a vanished page once, quietly. Returns True if it is gone."""
+        if not self._is_gone(exc):
+            return False
+        if not self.page_closed:
+            self.page_closed = True
+            log_warning("[music] the Strudel player window was closed; "
+                        "ending the session.")
+        return True
+
+    def alive(self) -> bool:
+        """False once the page is gone, so a session can stop cleanly."""
+        if self._page is None or self.page_closed:
+            return False
+        try:
+            if self._call(lambda: self._page.is_closed()):
+                self.page_closed = True
+                log_warning("[music] the Strudel player window was closed; "
+                            "ending the session.")
+                return False
+            return True
+        except Exception as exc:
+            self._note_if_gone(exc)
             return False
 
     def last_error(self) -> str | None:
@@ -247,14 +295,16 @@ class StrudelEngine:
         self._call(self._stop_impl)
 
     def _stop_impl(self) -> None:
-        if self._page is None:
+        if self._page is None or self.page_closed:
             return
         try:
-            self._page.evaluate("() => { window.__kaia.pending = null; }")
+            self._page.evaluate(
+                "() => { window.__kaia.pending = null; window.__kaia.staged = true; }")
             self._page.click("#apply", timeout=10000)
             self.current_code = None
         except Exception as exc:
-            log_debug(f"[music] stop: {exc}")
+            if not self._is_gone(exc):
+                log_debug(f"[music] stop: {exc}")
 
     # ── capture ──────────────────────────────────────────────────────
 
