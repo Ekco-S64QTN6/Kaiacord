@@ -46,6 +46,9 @@ async def test_generate_quip_unbound_local_error_fix():
             mock_state.last_manual_quip_time = 0.0
             mock_state.last_interaction_time = 0.0
             mock_state.consecutive_quips = 0
+            # A real list. On a bare MagicMock this returns a Mock, which the
+            # repetition guard cannot read.
+            mock_state.get_recent_quips.return_value = []
             
             # Mock internal functions to return EMPTY lists
             with patch('utils.social.kaia_social_responder.get_random_dream_reflection', new_callable=AsyncMock) as mock_dreams, \
@@ -68,17 +71,83 @@ async def test_generate_quip_unbound_local_error_fix():
                             self.config = mock_config
                     
                     ctx = MockCtx()
-                    
-                    # Execution
-                    # This should NOT raise UnboundLocalError
-                    await generate_quip(ctx, is_manual=True, target_channel=channel)
+                    ctx.message_processor = AsyncMock()
 
+                    # The quip path no longer calls ollama itself. It hands the
+                    # content to `process_external_mention`, which is the same
+                    # pipeline Discord and the forum use — so that is what the
+                    # test stands in for. Asserting `ollama_client.chat.called`
+                    # here asserted the old architecture: a second persona
+                    # load, a hand-built prompt and a direct chat call.
+                    with patch(
+                        "utils.infrastructure.system.external_mention.process_external_mention",
+                        new_callable=AsyncMock,
+                    ) as mock_pipeline:
+                        mock_pipeline.return_value = "the fallback held."
 
-                
-                # Verification
-                # It should have called ollama (because of the fallback)
-                assert ollama_client.chat.called
-                
+                        # Execution
+                        # This should NOT raise UnboundLocalError
+                        await generate_quip(ctx, is_manual=True, target_channel=channel)
+
+                # Verification: it went through the pipeline, not around it.
+                assert mock_pipeline.called, "quip bypassed the message pipeline"
+                assert not ollama_client.chat.called, \
+                    "quip called ollama directly instead of using the pipeline"
+
                 # It should have sent a message
                 assert channel.send.called
 
+
+
+@pytest.mark.asyncio
+async def test_thread_generation_also_uses_the_pipeline():
+    """The thread path had the same defect as the single-post path.
+
+    It loaded the persona a second time, built its own six-rule prompt, called
+    `ollama_client.chat` at a hardcoded temperature 0.8, and re-applied
+    `strip_bot_speak` by hand — so a Bluesky thread was written by different
+    code, with none of her channel memory, from the one that answers in
+    Discord. `forum_drafting` removed exactly this shape of defect for the
+    forum; both social paths now go the same way.
+    """
+    from utils.social.social_response_generator import generate_social_thread
+
+    ctx = MagicMock()
+    ctx.ollama_client = AsyncMock()
+
+    with patch(
+        "utils.infrastructure.system.external_mention.process_external_mention",
+        new_callable=AsyncMock,
+    ) as mock_pipeline:
+        mock_pipeline.return_value = (
+            "the first thought, which runs on for a while and says something.\n\n"
+            "the second thought, following from it and landing somewhere else."
+        )
+        posts = await generate_social_thread(ctx, "a dream about tape loops", "dream")
+
+    assert mock_pipeline.called, "thread generation bypassed the pipeline"
+    assert not ctx.ollama_client.chat.called, "thread called ollama directly"
+    assert posts, "the thread came back empty"
+
+
+@pytest.mark.asyncio
+async def test_a_generation_failure_string_is_never_posted_publicly():
+    """`i'm drawing a blank on that one` reads as her being stuck in a channel.
+
+    On a public feed it is a bot visibly malfunctioning, which is why the forum
+    path already screens for these. The social paths post to Bluesky and X, so
+    they screen for them too.
+    """
+    from utils.social.social_response_generator import generate_social_thread
+
+    ctx = MagicMock()
+    ctx.ollama_client = AsyncMock()
+
+    with patch(
+        "utils.infrastructure.system.external_mention.process_external_mention",
+        new_callable=AsyncMock,
+    ) as mock_pipeline:
+        mock_pipeline.return_value = "i'm drawing a blank on that one"
+        posts = await generate_social_thread(ctx, "anything", "dream")
+
+    assert posts == [], "a generation-failure string would have been posted"

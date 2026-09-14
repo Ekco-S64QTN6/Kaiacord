@@ -32,6 +32,12 @@ from utils.infrastructure.logging.kaia_logger import (
 )
 from utils.core.response_filter import BotSpeakFilter
 from utils.infrastructure.system.shutdown_fixed import shutdown_manager
+from utils.social.forum_participation import looks_repetitive
+
+# Her own feed. The processor is platform-agnostic — it keys nothing off this
+# string — but it separates broadcast history from any channel's, so
+# consecutive posts can see what she already said.
+BROADCAST_PLATFORM = "broadcast"
 
 # Import constants from the parent module to avoid duplication
 X_CHAR_LIMIT = 280
@@ -362,65 +368,61 @@ def _split_into_thread_posts(text, max_chars=X_CHAR_LIMIT, max_posts=MAX_THREAD_
     return posts[:max_posts]
 
 
-async def generate_social_thread(bot, ollama_client, reflection_target, context_type):
-    """Generate a proper thread instead of just a quip."""
+async def generate_social_thread(ctx, reflection_target, context_type):
+    """Generate a thread, through the same pipeline as everything else.
+
+    This used to load the persona a second time, build its own six-rule prompt,
+    call `ollama_client.chat` directly at a hardcoded temperature 0.8, and then
+    re-apply `strip_bot_speak` by hand — the same shape of defect that
+    `forum_drafting` was written to remove, and for the same reason: it was not
+    the pipeline, so it had none of her memory and only the remembered
+    fragments of the safety stack.
+
+    The thread-specific parts survive, because they are about the medium rather
+    than about generation: ask for a continuous stream rather than numbered
+    points, then cut it into posts.
+    """
     from utils.infrastructure.system.yaml_config import config
-    from utils.social.kaia_social_responder import load_persona_async
-    
-    raw_persona = await load_persona_async()
-    from datetime import datetime
-    current_time_str = datetime.now().strftime("%A, %B %d, %Y | %I:%M %p")
-    system_prompt = raw_persona.replace("[CURRENT_TIME]", current_time_str)
-    
-    thread_prompt = f"""Context: "{reflection_target}"
+    from utils.infrastructure.system.external_mention import process_external_mention
 
-Task: Write a deep-dive Bluesky thread about this.
-Guidelines:
-1. Write a continuous cohesive thought stream.
-2. DO NOT number your points (no "1/", "2/", "1.").
-3. Just write. I will handle the cutting and formatting.
-4. Speak naturally as Kaia (lowercase, blunt, grounded).
-5. Go deep but stay concise (aim for 4-5 posts maximum). Connect systems to feelings.
-6. DO NOT include any introductory preamble, metadata, or acknowledgement (e.g., no "Okay, here's a thread..."). Start the first post directly.
+    what_she_is_reacting_to = (reflection_target or "").strip()
+    if context_type:
+        what_she_is_reacting_to = f"{what_she_is_reacting_to}\n\n(this came up via {context_type})"
 
-"""
+    content = (
+        "[You are writing a longer post for your own feed — several paragraphs, one "
+        "continuous thought, not a numbered list. Nobody asked you a question. Go "
+        "deeper than a one-liner and connect it to something larger. What is on "
+        "your mind:]\n\n"
+        f"{what_she_is_reacting_to}"
+    )
 
-    messages = [
-        {"role": "system", "content": system_prompt},
-        {"role": "user", "content": thread_prompt}
-    ]
-    
     try:
-        from utils.infrastructure.gpu.gpu_manager import OllamaGPUManager, gpu_memory_manager, GPUTaskPriority
-        gpu_manager = OllamaGPUManager(config.chat_model)
-        options = gpu_manager.get_gpu_options(for_chat=True)
-        # Higher temperature for threading to encourage creativity/length
-        options['temperature'] = 0.8
-        options['num_predict'] = 1000 # Ensure enough tokens for a thread
-        import uuid
-        
-        response = await gpu_memory_manager.run_with_gpu_guard(
-            model_name=config.chat_model,
-            priority=GPUTaskPriority.CHAT,
-            coro=asyncio.wait_for(
-                ollama_client.chat(
-                    model=config.chat_model,
-                    messages=messages,
-                    options=options,
-                    keep_alive=-1
-                ),
-                timeout=600.0  # 10 minute absolute max for full thread generation
-            ),
-            task_id=f"social_thread_{uuid.uuid4().hex[:8]}"
-        )
-        
-        full_text = response['message']['content']
+        full_text = (await process_external_mention(
+            ctx=ctx,
+            content=content,
+            author_name="Kaia",
+            author_id=0,
+            platform=BROADCAST_PLATFORM,
+            conversation_key=None,
+            no_persist=True,
+        ) or "").strip()
+
+        if not full_text:
+            return []
+
+        from utils.social.forum_drafting import is_generation_failure
+        if is_generation_failure(full_text):
+            log_warning("Thread generation returned a failure string.")
+            return []
+
         max_threads = config.get('social.max_thread_posts', MAX_THREAD_POSTS)
         raw_posts = _split_into_thread_posts(full_text, max_posts=max_threads)
-        
-        # Apply hardening to each post in the thread
-        posts = [BotSpeakFilter.strip_bot_speak(p) for p in raw_posts if p]
-        return [p for p in posts if p]
+        # No second hardening pass: the pipeline already ran the full
+        # post-generation safety stack over this text. Splitting it does not
+        # reintroduce bot-speak, and running `strip_bot_speak` again on each
+        # fragment risked emptying a post that was fine as part of the whole.
+        return [p for p in raw_posts if p]
 
         
     except Exception as e:
@@ -429,10 +431,14 @@ Guidelines:
 
 
 async def generate_quip(ctx, is_manual=False, target_channel=None, on_message_func=None):
-    """Generate social posts by piping through the FULL Kaia engine.
-    
-    This ensures quips use the complete persona, RAG, and personalization pipeline
-    rather than a truncated custom prompt.
+    """Generate social posts through the same pipeline as Discord and the forum.
+
+    This docstring used to claim the full engine while the code below built its
+    own persona prompt and called ollama directly; it is true now. Both the
+    single post and the thread hand their content to
+    `process_external_mention`, so a broadcast gets the cognitive injections,
+    the dual-temperature split and the whole post-generation safety stack —
+    the same ones her replies in a channel get.
     """
     import time
     import random
@@ -556,7 +562,7 @@ async def generate_quip(ctx, is_manual=False, target_channel=None, on_message_fu
         
         if should_make_thread:
             log_action(f"Attempting to generate a thread about: {context_type}...")
-            posts = await generate_social_thread(bot, ollama_client, reflection_target, context_type)
+            posts = await generate_social_thread(ctx, reflection_target, context_type)
             
             if posts and len(posts) > 1:
                 # Post thread to Discord
@@ -608,154 +614,85 @@ async def generate_quip(ctx, is_manual=False, target_channel=None, on_message_fu
                 return True
 
         # 4. SINGLE POST FALLBACK (or design choice)
-        log_action(f"Generating single broadcast quip...")
-        
-        raw_persona = await load_persona_async()
-        from datetime import datetime
-        current_time_str = datetime.now().strftime("%A, %B %d, %Y | %I:%M %p")
-        system_prompt = raw_persona.replace("[CURRENT_TIME]", current_time_str)
-        
-        # --- RAG INTEGRATION START (FEATURE #4: CROSS-SYNTHESIS) ---
-        try:
-            # 1. Parallel RAG Retrieval (News vs Knowledge)
-            news_query = ""
-            knowledge_query = ""
-            
-            if "news about" in context_type:
-                news_query = context_type.replace("recent news about ", "")
-                knowledge_query = reflection_target # Use original fragment for knowledge context
-            else:
-                news_query = "latest major news" # Baseline news context
-                knowledge_query = reflection_target
+        log_action(f"Generating single broadcast quip via the main pipeline...")
 
-            log_debug(f"Quip RAG: news='{news_query}' knowledge='{knowledge_query}'")
-            
-            # Fetch in parallel
-            tasks = [
-                rag_instance.retrieve(news_query, top_k=2, category="news", include_news=True),
-                rag_instance.retrieve(knowledge_query, top_k=2, category="general")
-            ]
-            news_nodes, knowledge_nodes = await asyncio.gather(*tasks)
-            
-            rag_block = "\n\n### RELEVANT CONTEXT (SYNTHESIS REQUIRED)\n"
-            from utils.core.rag_utils import get_node_text
-            
-            if news_nodes:
-                rag_block += "RECENT NEWS:\n"
-                for node in news_nodes:
-                    content = get_node_text(node)
-                    if content:
-                        sanitized = _sanitize_rag_content(content)
-                        rag_block += f"- {sanitized[:400].replace(chr(10), ' ')}...\n"
-            
-            if knowledge_nodes:
-                rag_block += "\nCORE KNOWLEDGE / MEMORIES:\n"
-                for node in knowledge_nodes:
-                    content = get_node_text(node)
-                    if content:
-                        sanitized = _sanitize_rag_content(content)
-                        rag_block += f"- {sanitized[:400].replace(chr(10), ' ')}...\n"
-            
-            if news_nodes or knowledge_nodes:
-                system_prompt += rag_block
-                system_prompt += "\nINSTRUCTION: Find a subtle or blunt connection between these context blocks. Synthesis is preferred over simple repetition."
-                
-        except Exception as rag_err:
-            log_warning(f"Failed to perform quip cross-synthesis RAG: {rag_err}")
-        # --- RAG INTEGRATION END ---
+        # One path, the same one Discord and the forum use.
+        #
+        # What used to be here: a second persona load, a hand-built two-query
+        # RAG block, a five-rule prompt ("NO FILLERS", "Be contemplative and
+        # systemic", a character target), a three-attempt retry loop that
+        # raised the temperature and appended "give me something with more
+        # teeth", and then the filter stack re-applied by hand. None of it was
+        # the pipeline. It had no channel memory, no cognitive injections, no
+        # dual-temperature split, and only the fragments of the safety stack
+        # that were remembered here — which is why her broadcast voice drifted
+        # from the voice she has in a channel.
+        #
+        # `forum_drafting` fixed exactly this defect for the forum and its
+        # module docstring describes it in the same terms. This is that fix,
+        # applied to the last path still generating its own prompt: assemble
+        # the platform-specific content, hand it to the processor, and keep
+        # only what is genuinely specific to posting in public.
+        from utils.infrastructure.system.external_mention import process_external_mention
 
-        # Length Decision: Always aim for substantive length
-        length_instruction = "Aim for 200-280 characters. Use the space to say something substantive."
+        what_she_is_reacting_to = reflection_target.strip()
+        if context_type:
+            what_she_is_reacting_to = f"{what_she_is_reacting_to}\n\n(this came up via {context_type})"
 
-        # Standalone Broadcast Prompt
-        final_prompt = (
-            f"Context: \"{reflection_target}\"\n\n"
-            "Task: Post a standalone broadcast thought inspired by this context.\n"
-            "Guidelines:\n"
-            "1. Speak from your persona (Kaia). Use your natural voice.\n"
-            "2. NO FILLERS. DO NOT say 'it's funny how', 'interesting that', 'i wonder', or 'maybe'.\n"
-            "3. Make a definitive, declarative statement. No 'huh?' or generic questions.\n"
-            "4. Be contemplative and systemic. Connect the detail to a broader pattern of logic or architecture.\n"
-            f"5. {length_instruction} Lowercase only."
+        # Content, not a prompt. RAG runs on this inside the pipeline, which is
+        # what the hand-rolled cross-synthesis block was approximating.
+        content = (
+            "[You are writing a short post for your own feed. Nobody asked you a "
+            "question — this is you saying something unprompted, in your own voice. "
+            "What is on your mind:]\n\n"
+            f"{what_she_is_reacting_to}"
         )
-        
-        messages = [
-            {"role": "system", "content": system_prompt},
-            {"role": "user", "content": final_prompt}
-        ]
-        
-        # 5. RETRY LOOP FOR QUALITY
-        max_retries = 3
-        actual_quip = None
-        
-        for attempt in range(max_retries):
-            try:
-                from utils.infrastructure.gpu.gpu_manager import OllamaGPUManager
-                gpu_manager = OllamaGPUManager(config.chat_model)
-                options = gpu_manager.get_gpu_options(for_chat=True)
-                
-                # Increase temperature on retries to encourage creativity
-                options['temperature'] = 0.75 + (attempt * 0.1)
-                
-                # Vary prompt slightly on retries
-                current_messages = messages.copy()
-                if attempt > 0:
-                    current_messages.append({"role": "user", "content": "That was a bit too short or generic. Give me something with more teeth—connect it to a specific systemic pattern or observation. Be definitive."})
 
-                from utils.infrastructure.gpu.gpu_manager import gpu_memory_manager, GPUTaskPriority
-                
-                response = await gpu_memory_manager.run_with_gpu_guard(
-                    model_name=config.chat_model,
-                    priority=GPUTaskPriority.CHAT, # Using CHAT priority for actual generation
-                    coro=asyncio.wait_for(
-                        ollama_client.chat(
-                            model=config.chat_model,
-                            messages=current_messages,
-                            options=options,
-                            keep_alive=-1
-                        ),
-                        timeout=120.0
-                    ),
-                    task_id=f"quip_{uuid.uuid4().hex[:8]}"
-                )
-                raw_quip = response['message']['content'].strip()
-                
-                processed_quip = clean_quip(raw_quip, max_chars=800)
-                
-                # REJECT: Technical artifacts surviving sanitization (Final defense)
-                if re.search(r'<[a-z]+>|[\u2200-\u22FF]|\*\s*[A-Z]\s*[a-z]\d', processed_quip):
-                    log_warning(f"Quip attempt {attempt+1} contains raw technical artifacts. Skipping.")
-                    continue
-                
-                # Quality check
-                if is_too_vague(processed_quip):
-                    log_warning(f"Quip attempt {attempt+1} too vague: '{processed_quip}'. Skipping.")
-                    continue
-                    
-                if not is_interesting_post(processed_quip):
-                    log_warning(f"Quip attempt {attempt+1} too boring/short: '{processed_quip}'. Retrying...")
-                    continue
-                
-                # If we get here, it's good enough
-                actual_quip = processed_quip
-                break
-                
-            except Exception as e:
-                log_error(f"Generation attempt {attempt+1} failed: {e}")
-                if attempt == max_retries - 1: return # Last attempt failed
+        quip = (await process_external_mention(
+            ctx=ctx,
+            content=content,
+            author_name="Kaia",
+            author_id=0,
+            platform=BROADCAST_PLATFORM,
+            # One rolling broadcast history, so consecutive posts can see what
+            # she already said rather than circling the same thought.
+            conversation_key=None,
+            # This function does its own channel-memory and RAG bookkeeping
+            # below; letting the processor persist as well double-wrote it.
+            no_persist=True,
+        ) or "").strip()
 
-        if not actual_quip:
-            log_warning("All quip generation attempts failed quality check. Giving up.")
+        if not quip:
+            log_warning("Quip generation returned nothing.")
             return
 
-        quip = actual_quip
-
-        # 6. Apply strict hardening filter (strip_bot_speak is a classmethod)
-        quip = BotSpeakFilter.strip_bot_speak(quip)
-        
-        if not quip or "too much entropy" in quip:
-            log_warning("Quip failed hardening.")
+        from utils.social.forum_drafting import is_generation_failure
+        if is_generation_failure(quip):
+            log_warning(f"Quip was a generation failure string, not posting: '{quip}'")
             return
+
+        # Formatting for a public feed, not prompt engineering: Bluesky counts
+        # graphemes and will reject an over-long post outright.
+        quip = clean_quip(quip, max_chars=800)
+        if not quip:
+            log_warning("Quip was empty after formatting.")
+            return
+
+        # The one quality gate worth keeping. It is about *posting in public*
+        # rather than about generation: saying the same thing twice on a feed
+        # is visible forever, which is not true of a channel. Same reasoning as
+        # `looks_repetitive` in the forum path.
+        try:
+            # Coerce hard: `get_recent_quips` has returned None, and anything
+            # that is not a list of strings makes `looks_repetitive` answer on
+            # garbage — which fails *closed*, silently dropping a good post.
+            recent = bot_state.get_recent_quips() or []
+            recent = [r for r in recent if isinstance(r, str)] if isinstance(recent, (list, tuple)) else []
+            if recent and looks_repetitive(quip, recent):
+                log_warning("Quip repeats a recent post; skipping rather than posting it.")
+                return
+        except Exception as rep_err:
+            log_debug(f"Quip repetition check skipped: {rep_err}")
 
         # Ensure lowercase (persona style)
         if quip and quip[0].isupper():
