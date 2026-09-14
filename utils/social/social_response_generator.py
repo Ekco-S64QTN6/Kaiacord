@@ -688,9 +688,19 @@ async def generate_quip(ctx, is_manual=False, target_channel=None, on_message_fu
             # garbage — which fails *closed*, silently dropping a good post.
             recent = bot_state.get_recent_quips() or []
             recent = [r for r in recent if isinstance(r, str)] if isinstance(recent, (list, tuple)) else []
-            if recent and looks_repetitive(quip, recent):
-                log_warning("Quip repeats a recent post; skipping rather than posting it.")
-                return
+            if recent:
+                # `looks_repetitive` returns (verdict, reason). Testing the
+                # tuple itself is always True — a non-empty tuple is truthy —
+                # so this rejected every quip the moment she had any recent
+                # post recorded, whatever the score. Three visibly different
+                # posts were dropped on 2026-09-14 with score 0.00, and the
+                # warning blamed repetition. forum_drafting unpacks it; this
+                # did not.
+                repetitive, why = looks_repetitive(quip, recent)
+                if repetitive:
+                    log_warning(f"Quip repeats a recent post ({why}); skipping rather than posting it.")
+                    return
+                log_debug(f"Quip novelty check passed ({why}).")
         except Exception as rep_err:
             log_debug(f"Quip repetition check skipped: {rep_err}")
 

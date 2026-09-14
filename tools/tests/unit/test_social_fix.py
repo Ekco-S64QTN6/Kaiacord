@@ -151,3 +151,55 @@ async def test_a_generation_failure_string_is_never_posted_publicly():
         posts = await generate_social_thread(ctx, "anything", "dream")
 
     assert posts == [], "a generation-failure string would have been posted"
+
+
+def test_the_quip_novelty_guard_unpacks_its_verdict():
+    """`looks_repetitive` returns (verdict, reason), not a bool.
+
+    Testing the tuple itself is always True — a non-empty tuple is truthy — so
+    the guard rejected every quip the moment she had any recent post recorded,
+    whatever the score. On 2026-09-14 three visibly different posts were
+    dropped in a row, each at score 0.00, and the warning blamed repetition:
+
+        "The internet is a strange place..."
+        "The light's shifted again..."
+        "It's a familiar refrain, isn't it?..."
+
+    A guard that answers the same regardless of its input is not a guard.
+    """
+    import inspect
+
+    from utils.social import social_response_generator as srg
+
+    src = inspect.getsource(srg.generate_quip)
+    assert "repetitive, why = looks_repetitive(" in src, \
+        "the verdict is not being unpacked"
+    assert "if recent and looks_repetitive(" not in src, \
+        "still testing the tuple's truthiness"
+
+
+def test_distinct_posts_are_not_called_repetitive():
+    """The three real posts the guard dropped."""
+    from utils.social.forum_participation import looks_repetitive
+
+    posts = [
+        "The internet is a strange place. It's easy to forget that the people "
+        "behind the avatars are people.",
+        "The light's shifted again. It's that late-afternoon quality, the way "
+        "the dust motes hang suspended.",
+        "It's a familiar refrain, isn't it? The cycle of resentment and the "
+        "slow erosion of faith.",
+    ]
+    for i, post in enumerate(posts):
+        against = posts[:i] or ["an unrelated earlier thought"]
+        repetitive, why = looks_repetitive(post, against)
+        assert not repetitive, f"distinct post flagged as repetitive: {why}"
+
+
+def test_an_actual_duplicate_is_still_blocked():
+    """The guard has to keep doing its job."""
+    from utils.social.forum_participation import looks_repetitive
+
+    post = "The internet is a strange place, and it is easy to forget that."
+    repetitive, why = looks_repetitive(post, [post])
+    assert repetitive, f"an exact duplicate was allowed through: {why}"
