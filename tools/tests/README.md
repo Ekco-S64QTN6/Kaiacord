@@ -4,13 +4,19 @@
 tools/tests/
 ├── unit/           # Fast, isolated tests — no network, no Ollama, no GPU
 ├── integration/    # More than one subsystem together
-├── verification/   # Manual diagnostics, run by hand (not collected by pytest)
+├── verification/   # Manual diagnostics — collected, but marker-gated (see below)
 ├── archive/        # One-off scripts from past debugging, kept for reference
 └── conftest.py     # Shared fixtures
 ```
 
 Configuration lives in `pytest.ini` at the repo root: `testpaths`, marker
 declarations, `--strict-markers`, and the asyncio loop scope.
+
+`verification/` **is** collected — `testpaths` covers all of `tools/tests`. What keeps
+it out of an ordinary run is its markers: `test_gemma3_vram.py` carries `gpu`, `ollama`
+and `slow`, so `-m "not ollama and not gpu and not slow"` deselects it. Anything added
+there must carry the same markers, or a suite run will load a model and evict
+`gemma3:12b` from VRAM.
 
 ## Running
 

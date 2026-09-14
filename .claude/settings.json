@@ -1,0 +1,17 @@
+{
+  "permissions": {
+    "deny": [
+      "Read(./.env)",
+      "Read(./*.pem)",
+      "Read(./secrets/**)",
+      "Read(./config/secrets/**)"
+    ],
+    "ask": [
+      "Edit(./Kaiacord.py)",
+      "Edit(./config/**)",
+      "Edit(./memory/**)",
+      "Edit(./knowledge_base/kaia_persona.md)",
+      "Edit(./knowledge_base/user_logs/**)"
+    ]
+  }
+}

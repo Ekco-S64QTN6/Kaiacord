@@ -293,8 +293,8 @@ venv/bin/python3 tools/maintenance/repair_kb_book_structure.py --apply
 ### Testing
 
 ```bash
-venv/bin/python3 -m pytest tools/tests -q
-# current baseline: 971 passed, 10 skipped, 2 xfailed
+venv/bin/python3 -m pytest -q -m "not ollama and not gpu and not slow"
+# baseline, verified 2026-09-14: 1,226 passed, 10 skipped, 3 deselected, 2 xfailed
 ```
 
 > [!TIP]
@@ -380,8 +380,7 @@ rather than overwriting your edit. `music.show_window: true` to watch.
 
 **GPU cost is zero** — synthesis happens in the browser, so the chat model keeps all of its VRAM.
 
-Setup: `python tools/maintenance/fetch_music_assets.py` (needs `ffmpeg` and `pactl`).
-See [`docs/reports/music_engine.md`](docs/reports/music_engine.md).
+Setup: `venv/bin/python3 tools/maintenance/fetch_music_assets.py` (needs `ffmpeg` and `pactl`).
 
 </details>
 
@@ -418,7 +417,7 @@ See [`docs/02-user-guide/dashboard.md`](docs/02-user-guide/dashboard.md).
 ```
 Kaiacord/
 ├── Kaiacord.py               Entry point and orchestrator
-├── AGENTS.md                 Developer instructions & runtime constraints
+├── CLAUDE.md                 Developer instructions & runtime constraints
 ├── config/                   YAML configuration (kaia.yaml overrides defaults)
 ├── knowledge_base/           Grounding corpus
 │   ├── books/                Long-form reference works

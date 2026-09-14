@@ -65,10 +65,8 @@ tools/.music_scrape_data/
 
 # IDE and AI Tooling configs
 .vscode/
-.agent/
-.agents/
-.antigravity/
-.antigravityignore
+# .claude/settings.json is committed (shared permission rules); local overrides are not.
+.claude/settings.local.json
 
 # Internal Reports & Roadmaps
 docs/reports/
