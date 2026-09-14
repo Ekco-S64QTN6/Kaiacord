@@ -15,6 +15,7 @@ Architecture:
 
 import asyncio
 import json
+import hashlib
 import time
 import uuid
 from collections import deque
@@ -49,6 +50,8 @@ class InnerMonologue:
         self._buffer: deque[Thought] = deque(maxlen=5)
         self._last_generated: float = 0.0
         self._last_seen_message_count: int = 0
+        # sha256 of the exact window last observed; see generate_thought.
+        self._last_window_fingerprint: str = ""
 
     async def generate_thought(
         self,
@@ -68,10 +71,27 @@ class InnerMonologue:
         if now - self._last_generated < self.COOLDOWN_SECONDS:
             return None
 
-        # Collect recent messages across all channels (last ~10 messages)
-        recent_messages = []
+        # Collect recent messages across all channels.
+        #
+        # Two bugs lived here and together produced a monologue stuck on one
+        # forum user for a day and a half:
+        #
+        # 1. `channel_memory` is shared, and forum threads are seeded into it
+        #    by `forum_drafting.seed_thread_history` under a key from
+        #    `conversation_channel_id` — a plain int, so a thread is not
+        #    distinguishable from a channel by its key. Those turns are
+        #    formatted exactly like Discord ones ("author: text", role "user").
+        #    Live state held 24 Discord turns against 31 forum turns, so "your
+        #    Discord server" was mostly the Project 1999 forum.
+        # 2. The tail was taken from a concatenation in dict order with no
+        #    sort, so whichever channel was inserted last supplied every one of
+        #    the final 8 lines. Forum threads are seeded late, so they always
+        #    won, and every thought came out about the same poster.
+        collected = []
         for channel_id, messages in channel_memory.items():
             for msg in list(messages)[-5:]:
+                if msg.get("external"):
+                    continue  # a forum/social turn, not her Discord server
                 role = msg.get("role", "")
                 content = msg.get("content", "")
                 if role == "user" and content:
@@ -83,20 +103,38 @@ class InnerMonologue:
                     else:
                         name = "someone"
                         text = content[:120]
-                    recent_messages.append(f"{name}: {text}")
+                    try:
+                        when = float(msg.get("timestamp") or 0.0)
+                    except (TypeError, ValueError):
+                        when = 0.0
+                    collected.append((when, f"{name}: {text}"))
 
-        # No new activity — skip
-        current_count = len(recent_messages)
-        if current_count == 0:
-            return None
-        if current_count == self._last_seen_message_count:
+        # Genuinely most recent, across channels. Turns with no timestamp keep
+        # their relative order behind the stamped ones rather than jumping the
+        # queue, which is what a plain sort on a missing key would do.
+        collected.sort(key=lambda pair: pair[0])
+        recent_messages = [text for _, text in collected]
+
+        if not recent_messages:
             return None
 
-        self._last_seen_message_count = current_count
+        # Has she already thought about exactly this? The guard used to compare
+        # `len(recent_messages)` against the previous length — a count, not the
+        # content. Two different conversations of the same size were treated as
+        # "no new activity" and skipped, while one unchanged conversation whose
+        # count shifted by a single message was re-observed as though it were
+        # new. That is why the same stale window kept producing another thought
+        # about it every fifteen minutes.
+        window = recent_messages[-8:]
+        fingerprint = hashlib.sha256("\n".join(window).encode("utf-8")).hexdigest()
+        if fingerprint == self._last_window_fingerprint:
+            return None
+        self._last_window_fingerprint = fingerprint
+        self._last_seen_message_count = len(recent_messages)
 
         # Build a minimal prompt for a 1-sentence internal thought
         if recent_messages:
-            context_block = "\n".join(recent_messages[-8:])
+            context_block = "\n".join(window)
             prompt = (
                 "You are Kaia, observing recent conversation activity in your Discord server. "
                 "Generate ONE brief internal thought — something you've noticed, a pattern, "
@@ -157,6 +195,12 @@ class InnerMonologue:
             from utils.core.response_filter import BotSpeakFilter
             raw = BotSpeakFilter.harden(raw)
 
+            # Plain English. The model reaches for curly quotes and em dashes,
+            # nothing downstream folded them, and `json.dumps` escapes them —
+            # which is why this log read "bradzax\u2019s".
+            from utils.core.sanitizer import to_plain_english
+            raw = to_plain_english(raw)
+
             if raw and len(raw) > 10:
                 thought = Thought(
                     text=raw,
@@ -183,6 +227,9 @@ class InnerMonologue:
                     log_debug(f"Failed to persist inner monologue (non-fatal): {ex}")
 
                 log_info(f"🧠 Inner monologue: {raw[:80]}...")
+                # Delivery is the task's job, not this module's — everything
+                # that reaches Discord goes through background_tasks. The text
+                # is returned; the monologue task airs it in #kaia-opolis.
                 return raw
 
         except asyncio.TimeoutError:

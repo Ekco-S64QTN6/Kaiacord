@@ -241,11 +241,24 @@ def seed_thread_history(ctx, thread_id: int, earlier_posts: list, username: str)
         turns.append({
             "role": "assistant" if mine else "user",
             "content": text if mine else f"{author}: {text}",
-            "timestamp": str(time.time()),
+            # A float, like every other writer of channel_memory. This was a
+            # string, so anything sorting the merged history numerically threw
+            # or silently fell back to insertion order.
+            "timestamp": time.time(),
+            # These are forum posts, not Discord messages. channel_memory is
+            # shared, and `conversation_channel_id` hands back a plain int
+            # (crc32 % 10**10), so nothing downstream can tell a thread from a
+            # channel by its key. Consumers that mean "my Discord server" —
+            # the inner monologue above all — filter on this.
+            "external": PLATFORM,
         })
 
     try:
-        bot_state.channel_memory[channel_id] = turns
+        # Bounded, like every other channel. A bare list here grew without a
+        # maxlen and became the largest thing in channel_memory.
+        from collections import deque
+        bot_state.channel_memory[channel_id] = deque(
+            turns, maxlen=max(len(turns), int(config.get("max_memory_messages", 50))))
     except Exception:
         return 0
     log_info(f"Forum: seeded {len(turns)} thread posts as conversation history "

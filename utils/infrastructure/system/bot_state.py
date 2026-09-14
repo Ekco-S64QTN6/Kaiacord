@@ -108,6 +108,8 @@ class BotState:
                         self.recent_ingestions = state.get('recent_ingestions', [])
                         self.last_dream_date = state.get('last_dream_date', "")
                         self.kaia_engagement = float(state.get('kaia_engagement', 0.5))
+                        self.last_interaction_time = float(
+                            state.get('last_interaction_time', self.last_interaction_time))
                         self.kaia_coherence = float(state.get('kaia_coherence', 0.85))
                         self.kaia_dream_freshness = float(state.get('kaia_dream_freshness', 1.0))
                         self.curiosity_last_sent = state.get('curiosity_last_sent', {})
@@ -178,6 +180,13 @@ class BotState:
                     'recent_ingestions': self.recent_ingestions,
                     'last_dream_date': self.last_dream_date,
                     'kaia_engagement': self.kaia_engagement,
+                    # Persisted so engagement decay survives a restart. While
+                    # this lived only in memory it was re-stamped to boot time
+                    # on every launch, `hours_idle` was always ~0, and the
+                    # decay gate below could never open — so engagement only
+                    # ever ratcheted up (+0.05 a message, clamped at 1.0) and
+                    # never came back down.
+                    'last_interaction_time': self.last_interaction_time,
                     'kaia_coherence': self.kaia_coherence,
                     'kaia_dream_freshness': self.kaia_dream_freshness,
                     'curiosity_last_sent': self.curiosity_last_sent,

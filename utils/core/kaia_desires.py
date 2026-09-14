@@ -71,7 +71,25 @@ class DesireEngine:
     """Tracks what Kaia is currently short of."""
 
     #: Below this, she has nothing pressing enough to interrupt anyone with.
-    INITIATE_THRESHOLD = 0.55
+    # The gate's job is to shape *when* and *what kind of* contact she seeks —
+    # not to prevent contact.
+    #
+    # At 0.55 it prevented it. `observe_exchange` discharges `intellectual` by
+    # 0.35 on any reply over 400 characters and it only re-accrues over 14
+    # hours, so on an active server it sat pinned at exactly 0.0, dragging the
+    # three-need mean down with it. Measured on live state the ceiling was
+    # pressure 0.16 against a 0.55 threshold: 101 of 102 proactive evaluations
+    # in the production log declined, and she initiated once. Arithmetically
+    # she could only ever speak first after ~8 hours of social silence *and*
+    # ~30 hours without making anything.
+    #
+    # A chat bot that cannot chat first is not the point of the project, so the
+    # bar is now low enough that ordinary conditions clear it. What the engine
+    # still does — and this is the part worth keeping — is pick which source
+    # she reaches for via `source_multiplier`, and colour the prompt via
+    # `get_prompt_injection`. It stays quiet only right after a long stretch of
+    # talking, when rest is genuinely high.
+    INITIATE_THRESHOLD = 0.12
 
     #: Which proactive source serves which need. Sources absent from this map
     #: are unaffected by desire and keep their configured weight.
@@ -188,7 +206,22 @@ class DesireEngine:
         return max(0.0, min(1.0, outward - c["rest"] * 0.5))
 
     def wants_to_initiate(self) -> bool:
-        return self.pressure() >= self.INITIATE_THRESHOLD
+        """Whether she wants to speak first.
+
+        Both the threshold and the gate itself are configurable, so this can be
+        tuned — or reduced to decoration with `desires.gate_enabled: false`,
+        which keeps the needs vector shaping source choice and the prompt while
+        never blocking initiation.
+        """
+        try:
+            from utils.infrastructure.system.yaml_config import config
+            if not config.get("desires.gate_enabled", True):
+                return True
+            threshold = float(config.get("desires.initiate_threshold",
+                                         self.INITIATE_THRESHOLD))
+        except Exception:
+            threshold = self.INITIATE_THRESHOLD
+        return self.pressure() >= threshold
 
     def dominant_need(self) -> str:
         c = self.current()

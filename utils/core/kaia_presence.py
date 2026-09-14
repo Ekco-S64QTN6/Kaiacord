@@ -153,8 +153,27 @@ class KaiaPresenceManager:
         if dream_start <= current_hour < dream_end:
             return discord.Status.idle, self._pick_random(_DREAMING_TEXTS)
 
-        # 3. Read mood floats from bot_state
+        # 3. Read mood floats from bot_state.
+        #
+        # Decay first. `update_kaia_state` holds the passive-decay block, and
+        # its only callers are in the message path — so while the server was
+        # quiet, nothing ever recomputed engagement and it stayed frozen at
+        # whatever the last message left it at. That is precisely the window in
+        # which the status matters, and it is why she sat at engagement 0.87
+        # announcing "people are talking." to an empty server.
+        try:
+            self.bot_state.update_kaia_state()
+        except Exception as decay_err:
+            log_debug(f"Presence: engagement decay skipped ({decay_err})")
+
         engagement = getattr(self.bot_state, 'kaia_engagement', 0.5)
+
+        # How long since a person actually said something. The float is a slow
+        # average and can lag reality badly; this is the ground truth, and no
+        # amount of accumulated engagement is allowed to override it.
+        quiet_minutes = float(config.get('presence.quiet_after_minutes', 20))
+        last_seen = getattr(self.bot_state, 'last_interaction_time', 0.0) or 0.0
+        it_is_actually_quiet = (now - last_seen) > (quiet_minutes * 60.0)
         coherence = getattr(self.bot_state, 'kaia_coherence', 0.85)
         dream_freshness = getattr(self.bot_state, 'kaia_dream_freshness', 1.0)
 
@@ -199,14 +218,21 @@ class KaiaPresenceManager:
             elif dream_freshness > 0.9 and engagement < 0.4:
                 # Just dreamed recently but quiet day
                 text = self._pick_random(_POST_DREAM_TEXTS)
+            elif it_is_actually_quiet:
+                # Nobody has spoken in a while. "people are talking." is a
+                # statement about the room, not about her mood, so it is simply
+                # false here however engaged she feels.
+                text = self._pick_random(_IDLE_TEXTS)
             elif engagement >= 0.7:
                 text = self._pick_random(_ACTIVE_TEXTS)
             elif engagement <= 0.3:
                 text = self._pick_random(_IDLE_TEXTS)
             else:
-                # Moderate — mix of idle and active
-                pool = _IDLE_TEXTS + _ACTIVE_TEXTS
-                text = self._pick_random(pool)
+                # Moderate. This used to draw from _IDLE_TEXTS + _ACTIVE_TEXTS
+                # combined, so a coin flip in the middle band could claim
+                # "people are talking." with nothing to support it. The middle
+                # band now only says things that are true either way.
+                text = self._pick_random(_IDLE_TEXTS)
 
         return status, text
 

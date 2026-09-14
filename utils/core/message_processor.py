@@ -436,7 +436,31 @@ class MessageProcessor:
         )
 
         self.bot_state.reset_quips()
-        self.bot_state.update_interaction(msg.channel.id)
+
+        # Only a real Discord message means "the room is active".
+        #
+        # `update_interaction` stamps two Discord-presence facts:
+        # `last_interaction_time`, which drives engagement decay, the idle-quip
+        # timer and her status text, and `channel_last_activity`, which is what
+        # `_find_active_channel` picks a proactive target from. External
+        # platforms arrive here as MockMessages whose channel id comes from
+        # `conversation_channel_id` — a crc32, indistinguishable from a
+        # snowflake — so forum threads were stamping both.
+        #
+        # The damage was in two directions: a busy forum made her Discord
+        # status announce that people were talking in an empty server, and
+        # `_find_active_channel` would hand back a forum pseudo-id that
+        # `bot.get_channel()` cannot resolve, so the proactive dispatch
+        # returned False and said nothing at all.
+        # `is_social` is already "this did not come from Discord" — reusing it
+        # keeps the single platform comparison this module is allowed (see
+        # test_pipeline_parity.test_prompt_assembly_has_no_platform_conditionals,
+        # which exists because a platform branch in prompt assembly is what
+        # made her forum voice drift from her Discord voice).
+        if not ctx.is_social:
+            self.bot_state.update_interaction(msg.channel.id)
+        else:
+            log_debug("Interaction clock not stamped: message came from an external platform.")
         
         # Direct metrics: count processed messages (replaces log-scraping)
         self.stats_tracker.increment_messages()
@@ -2017,6 +2041,8 @@ class MessageProcessor:
         best_fallback_response = None
         best_fallback_words = -1
 
+        salvage_candidates: list[str] = []
+
         for attempt in range(max_attempts):
             # Scaled parameters on retry
             current_options = options.copy()
@@ -2079,6 +2105,13 @@ class MessageProcessor:
                     if reject_reason.startswith("i don't have clear records"):
                         # Canned honest override response from channel recall guard
                         return reject_reason
+                    # Keep it. Some rejections are about *cadence*, not content,
+                    # and the pipeline already knows how to defuse those inline
+                    # below its own reject threshold. Discarding the text meant
+                    # three usable answers were thrown away and the user got
+                    # "drawing a blank" — see the salvage pass after the loop.
+                    if content and content.strip():
+                        salvage_candidates.append(content)
                     continue
 
                 content = cleaned_content
@@ -2093,6 +2126,45 @@ class MessageProcessor:
             log_warning(f"All retry attempts failed to meet length constraints. "
                         f"Falling back to longest reply ({best_fallback_words} words).")
             return best_fallback_response
+
+        # Last resort: defuse the cadence and re-validate.
+        #
+        # The affect-ellipsis guard rejects at 3+ markers, and gemma3 reaches
+        # for that cadence constantly on reflective topics — the guard's own
+        # comment says so. When the subject genuinely is reflective, all three
+        # attempts clear the threshold and she said nothing at all. Observed
+        # 2026-09-14: a message about her own code produced "the details are…
+        # unsettling." three times over 35s of inference, each one discarded.
+        #
+        # This does not weaken the guard. The salvaged text is put back through
+        # the full pipeline and is only used if it passes on its own merits —
+        # the ellipsis is the affectation, the sentence around it was fine.
+        # CLAUDE.md: "Never let a filter empty a good response."
+        for candidate in sorted(salvage_candidates, key=len, reverse=True):
+            try:
+                from utils.core.response_filter import EmergencyContaminationFilter
+                defused = EmergencyContaminationFilter.defuse_ellipsis_affect(candidate)
+                if not defused or not defused.strip() or defused == candidate:
+                    continue
+                salvaged, still_rejected = PostGenerationSafetyPipeline.process_attempt(
+                    content=defused,
+                    attempt=max_attempts,
+                    query=getattr(ctx, 'sanitized_content', ''),
+                    author_id=getattr(ctx, 'author_id', None),
+                    channel_id=getattr(ctx, 'channel_id', None),
+                    is_channel_recall=getattr(ctx, '_is_channel_recall', False),
+                    channel_refs=getattr(ctx, '_channel_refs', None),
+                )
+                if not still_rejected and salvaged and salvaged.strip():
+                    log_warning(
+                        "[SALVAGE] All attempts were rejected for cadence; defused the "
+                        "ellipsis affect and the response passed the full pipeline. "
+                        "Answering instead of drawing a blank."
+                    )
+                    self.bot_state.first_chat_done = True
+                    return salvaged
+            except Exception as salvage_err:
+                log_debug(f"Salvage pass failed (non-fatal): {salvage_err}")
 
         log_warning(f"[GENERATION_FAILURE] All {max_attempts} attempts exhausted for {getattr(ctx, 'author_name', 'unknown')}. Query: {getattr(ctx, 'sanitized_content', '')[:120]}")
         return "i'm drawing a blank on that one. hit me again?"

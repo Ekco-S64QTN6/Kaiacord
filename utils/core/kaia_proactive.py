@@ -119,6 +119,9 @@ class ProactiveTrigger:
 class ProactiveEngine:
     """Evaluates trigger conditions and generates proactive conversation starters."""
 
+    # Why the last evaluate_triggers() call declined, for the task to log.
+    last_skip_reason: "str | None" = None
+
     def __init__(self):
         self._last_trigger_type: Optional[str] = None
 
@@ -184,6 +187,7 @@ class ProactiveEngine:
             if now - ts < 86400  # Active in last 24h
         ]
         if not candidates:
+            self.last_skip_reason = "no source produced a candidate"
             return None
 
         candidates.sort(key=lambda x: x[1], reverse=True)
@@ -876,10 +880,19 @@ class ProactiveEngine:
 
         Called by background_tasks every ~30 minutes.
         """
+        # Why this returned None. Every one of the five exits below used to
+        # surface as the same INFO line — "no active triggers" — which reads as
+        # "all nine sources were quiet" when in most cases not one of them was
+        # ever consulted. 101 of 102 evaluations in the production log say that,
+        # and the real reason was usually the desire gate.
+        self.last_skip_reason = None
+
         if not self._is_within_hours():
+            self.last_skip_reason = "outside active hours"
             return None
 
         if self._is_rate_limited(bot_state):
+            self.last_skip_reason = "rate limited"
             return None
 
         # Desire gate (roadmap 55-4). The rate limiter says whether she *may*
@@ -894,12 +907,17 @@ class ProactiveEngine:
                     f"{desire_engine.pressure():.2f} < "
                     f"{desire_engine.INITIATE_THRESHOLD})"
                 )
+                self.last_skip_reason = (
+                    f"desire gate closed (pressure {desire_engine.pressure():.2f}"
+                    f" < {desire_engine.INITIATE_THRESHOLD})"
+                )
                 return None
         except Exception as e:
             log_debug(f"Desire gate unavailable, proceeding (non-fatal): {e}")
 
         channel_id = self._find_active_channel(bot_state)
         if not channel_id:
+            self.last_skip_reason = "no recently active channel"
             return None
 
         # ── Priority 1: User Absence (always wins if applicable) ────
@@ -916,6 +934,7 @@ class ProactiveEngine:
 
         selection = self._select_diverse_source(candidates)
         if not selection:
+            self.last_skip_reason = "candidates were all blocked by the diversity rules"
             return None
 
         source_type, context, content_id, target_user = selection

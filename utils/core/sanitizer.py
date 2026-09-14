@@ -150,3 +150,36 @@ def is_safe_url(url: str) -> bool:
     except Exception:
         return False
 
+
+
+# Typographic characters the model reaches for that are not plain English
+# punctuation. They survive every filter — nothing here ever normalised them —
+# and then show up escaped in any ensure_ascii JSON file, which is why
+# monologue_log.jsonl reads "bradzax’s" instead of "bradzax's".
+_PLAIN_PUNCTUATION = {
+    "‘": "'", "’": "'", "‚": "'", "‛": "'",      # single quotes
+    "“": '"', "”": '"', "„": '"', "‟": '"',      # double quotes
+    "′": "'", "″": '"',                                    # primes
+    "‐": "-", "‑": "-", "‒": "-", "–": "-",      # hyphens/dashes
+    "—": "-", "―": "-", "−": "-",
+    "…": "...",                                                 # ellipsis
+    " ": " ", " ": " ", " ": " ", " ": " ",      # exotic spaces
+    "​": "", "‌": "", "‍": "", "﻿": "",          # zero-width
+}
+
+_PLAIN_TABLE = str.maketrans({k: v for k, v in _PLAIN_PUNCTUATION.items()})
+
+
+def to_plain_english(text: str) -> str:
+    """Fold typographic punctuation down to what a keyboard produces.
+
+    Applied to anything she *says* rather than to anything she reads: a curly
+    apostrophe is correct typography and completely fine in a document, but it
+    round-trips through JSON as an escape and reads as breakage.
+
+    Deliberately narrow. It does not touch letters, accents or any non-Latin
+    script — transliterating those would mangle a name.
+    """
+    if not text:
+        return text
+    return text.translate(_PLAIN_TABLE)

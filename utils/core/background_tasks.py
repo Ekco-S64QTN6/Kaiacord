@@ -8,6 +8,7 @@ import os
 from dataclasses import dataclass, field
 from datetime import datetime
 from pathlib import Path
+import discord
 from discord.ext import tasks
 from utils.infrastructure.logging.kaia_logger import log_action, log_success, log_error, log_info, log_warning, log_debug
 from utils.infrastructure.system.bot_state import bot_state
@@ -288,12 +289,14 @@ class CoreTaskManager:
             if not getattr(self.ctx.bot_state, 'boot_complete', False): return
 
             try:
-                await self.monologue.generate_thought(
+                thought = await self.monologue.generate_thought(
                     channel_memory=self.ctx.bot_state.channel_memory,
                     bot_state=self.ctx.bot_state,
                     ollama_client=self.ctx.ollama_client,
                     chat_model=config.chat_model,
                 )
+                if thought:
+                    await self._broadcast_monologue(thought)
             except Exception as e:
                 log_debug(f"Monologue task error (non-fatal): {e}")
 
@@ -322,10 +325,22 @@ class CoreTaskManager:
 
         channel = self.ctx.bot.get_channel(trigger.channel_id)
         if not channel:
+            # Silent until now, which is how this hid. `_find_active_channel`
+            # reads `channel_last_activity`, which external platforms were
+            # stamping with `conversation_channel_id` pseudo-ids — so whenever
+            # a forum thread was the most recent activity, the proactive target
+            # was an id Discord has never heard of and the whole dispatch
+            # returned False without a word. "Proactive message sent" appears
+            # once in the entire production log.
+            log_warning(
+                f"Proactive dispatch aborted: channel {trigger.channel_id} does not "
+                f"resolve to a Discord channel (trigger={trigger.trigger_type})."
+            )
             return False
 
         # Ensure it's a guild channel, not a DM
         if hasattr(channel, 'guild') and channel.guild is None:
+            log_debug(f"Proactive dispatch aborted: {trigger.channel_id} is a DM.")
             return False
 
         from utils.social.kaia_social_responder import load_persona_async
@@ -392,7 +407,8 @@ class CoreTaskManager:
                 )
 
                 if not trigger:
-                    log_info("Proactive trigger evaluation: no active triggers.")
+                    reason = getattr(self.proactive_engine, "last_skip_reason", None)
+                    log_info(f"Proactive: declined to initiate — {reason or 'no source produced a candidate'}.")
                     return
 
                 sent = await self._dispatch_proactive(trigger)
@@ -1689,12 +1705,71 @@ class CoreTaskManager:
 
         return observation_digest_task
 
-    async def _broadcast_observation_digest(self, digest_text: str, entry_ts: float) -> bool:
-        """Air a freshly generated digest in the most active channel.
+    async def _broadcast_monologue(self, thought: str) -> bool:
+        """Air an inner-monologue thought in #kaia-opolis.
 
-        Runs on its own budget rather than the general proactive allowance so
-        a digest is not crowded out by the other eight proactive sources, but
-        still respects quiet hours, a minimum gap, and a daily cap.
+        Gated separately from the observation digest so either can be silenced
+        without the other: this loop runs every 15 minutes, which is 96 posts a
+        day before the cap, where a digest is a handful.
+
+        The thought is posted as she thought it — no timestamp, no source
+        label, no framing. The metadata belongs in monologue_log.jsonl.
+        """
+        if not config.get("monologue.broadcast_to_chat", False):
+            return False
+        if not self.ctx or not self.ctx.bot:
+            return False
+
+        try:
+            max_per_day = int(config.get("monologue.max_broadcasts_per_day", 6))
+            min_gap = float(config.get("monologue.broadcast_min_interval_minutes", 90)) * 60.0
+
+            now = time.time()
+            today = datetime.now().strftime('%Y-%m-%d')
+            state = self.ctx.bot_state
+            if getattr(state, 'monologue_broadcast_date', '') != today:
+                state.monologue_broadcast_date = today
+                state.monologue_broadcast_count = 0
+
+            if getattr(state, 'monologue_broadcast_count', 0) >= max_per_day:
+                log_debug("Monologue broadcast skipped: daily cap reached.")
+                return False
+            if now - getattr(state, 'monologue_broadcast_last_sent', 0.0) < min_gap:
+                log_debug("Monologue broadcast skipped: inside minimum interval.")
+                return False
+
+            # Quiet hours are the proactive engine's, so one setting governs
+            # everything that speaks unprompted.
+            if self.proactive_engine and not self.proactive_engine.is_within_hours():
+                log_debug("Monologue broadcast skipped: outside active hours.")
+                return False
+
+            channel = discord.utils.get(self.ctx.bot.get_all_channels(), name="kaia-opolis")
+            if not channel:
+                log_debug("Monologue broadcast skipped: #kaia-opolis not found.")
+                return False
+
+            from utils.core.sanitizer import to_plain_english
+            from utils.infrastructure.system.messaging import send_kaia_response
+            await send_kaia_response(channel, to_plain_english(thought))
+
+            state.monologue_broadcast_count = getattr(state, 'monologue_broadcast_count', 0) + 1
+            state.monologue_broadcast_last_sent = now
+            state.monologue_broadcast_date = today
+            state.save()
+            log_success("Inner monologue aired in #kaia-opolis.")
+            return True
+        except Exception as e:
+            log_warning(f"Monologue broadcast failed (non-fatal): {e}")
+            return False
+
+    async def _broadcast_observation_digest(self, digest_text: str, entry_ts: float) -> bool:
+        """Speak a freshly generated digest, verbatim, in #kaia-opolis.
+
+        The digest text *is* the message. Runs on its own budget rather than
+        the general proactive allowance so it is not crowded out by the other
+        eight proactive sources, but still respects quiet hours, a minimum gap,
+        and a daily cap.
         """
         if not config.get("observation.broadcast_digest", True):
             return False
@@ -1727,25 +1802,67 @@ class CoreTaskManager:
                 log_debug("Observation digest broadcast skipped: inside minimum interval.")
                 return False
 
-            channel_id = self.proactive_engine._find_active_channel(self.ctx.bot_state)
-            if not channel_id:
-                log_debug("Observation digest broadcast skipped: no recently active channel.")
+            # #kaia-opolis, the same place the forum drafts go — this is her
+            # own channel, and a digest is her talking about what she noticed
+            # rather than a reply to whoever happened to speak last. It used to
+            # land in whatever channel was most recently active.
+            channel = discord.utils.get(self.ctx.bot.get_all_channels(), name="kaia-opolis")
+            if not channel:
+                log_debug("Observation digest broadcast skipped: #kaia-opolis not found.")
                 return False
+            channel_id = channel.id
 
-            from utils.core.kaia_proactive import ProactiveTrigger, build_digest_content_id
-            trigger = ProactiveTrigger(
-                trigger_type="overheard",
-                channel_id=channel_id,
-                context=(
-                    f"You overheard some conversation recently: '{digest_text}'. "
-                    "Share your thoughts, comments, or reaction to this topic in the chat. "
-                    "Keep it dry, slightly sardonic, and brief."
-                ),
-                source_category="overheard",
-                content_id=build_digest_content_id(entry_ts),
+            from utils.core.kaia_proactive import (
+                build_digest_content_id, mark_digest_broadcast,
             )
 
-            sent = await self._dispatch_proactive(trigger)
+            # Say the observation. Not a reaction to it.
+            #
+            # This used to build a ProactiveTrigger and hand it to
+            # `_dispatch_proactive`, which passed the digest to
+            # `generate_opener` as *hidden context* and sent whatever one-liner
+            # came back. So the thing that reached chat was never the digest:
+            #
+            #   digest:  "I noticed they were spiraling about AI regulation,
+            #             financial instability, and some bizarre online cults"
+            #   sent:    "i saw something similar. it's just the internet being
+            #             the internet, isn't it?"
+            #
+            # and the log then said "Observation digest broadcast to chat",
+            # which is how three of these looked like successes while the
+            # observation itself had never once been spoken. The summarisation
+            # is the point; re-generating a comment about it threw it away.
+            from utils.core.sanitizer import to_plain_english
+            from utils.infrastructure.system.messaging import send_kaia_response
+
+            text = to_plain_english(digest_text).strip()
+            if not text:
+                log_debug("Observation digest broadcast skipped: nothing to say.")
+                return False
+
+            async with channel.typing():
+                await asyncio.sleep(2.0)
+            await send_kaia_response(channel, text)
+
+            # Bookkeeping the dispatch path used to do on our behalf.
+            content_id = build_digest_content_id(entry_ts)
+            try:
+                mark_digest_broadcast(content_id)
+            except Exception as mark_err:
+                log_debug(f"Could not flag digest as aired: {mark_err}")
+
+            try:
+                if channel.id not in self.ctx.bot_state.channel_memory:
+                    from collections import deque
+                    self.ctx.bot_state.channel_memory[channel.id] = deque(
+                        maxlen=config.max_memory_messages)
+                self.ctx.bot_state.channel_memory[channel.id].append({
+                    "role": "assistant", "content": text, "timestamp": time.time(),
+                })
+            except Exception as mem_err:
+                log_debug(f"Could not append digest to channel memory: {mem_err}")
+
+            sent = True
             if sent:
                 self.ctx.bot_state.digest_broadcast_count = (
                     getattr(self.ctx.bot_state, 'digest_broadcast_count', 0) + 1
@@ -1753,7 +1870,7 @@ class CoreTaskManager:
                 self.ctx.bot_state.digest_broadcast_last_sent = now
                 self.ctx.bot_state.digest_broadcast_date = today
                 self.ctx.bot_state.save()
-                log_success("Observation digest broadcast to chat.")
+                log_success(f"Observation digest spoken in #kaia-opolis: '{text[:80]}'")
             return sent
         except Exception as e:
             log_warning(f"Observation digest broadcast failed (non-fatal): {e}")

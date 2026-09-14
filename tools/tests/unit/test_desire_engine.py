@@ -41,10 +41,49 @@ def test_rest_recovers_during_silence(engine):
 
 
 def test_silence_makes_her_want_to_initiate(engine):
-    assert engine.wants_to_initiate() is False
+    """Silence raises pressure, and she acts on it.
+
+    This used to open by asserting she would *not* initiate from a fresh
+    engine (needs at 0.5/0.5/0.4, pressure 0.37). That only held because the
+    threshold was 0.55, and that threshold is what made her mute: on live state
+    the ceiling was pressure 0.16, so 101 of 102 proactive evaluations in the
+    production log declined and she spoke first exactly once. Moderate need is
+    now a perfectly good reason to say something — the gate shapes what she
+    reaches for, it does not keep her quiet.
+    """
+    resting = engine.pressure()
     _age(engine, 12)
     assert engine.wants_to_initiate() is True
     assert engine.pressure() > 0.8
+    assert engine.pressure() > resting, "silence did not raise pressure"
+
+
+def test_she_will_speak_first_under_ordinary_conditions(engine):
+    """The regression that matters: a bot that cannot chat first.
+
+    Pressure on the real `memory/desires.json` measured 0.27. Anything at or
+    below that has to clear the bar, or the proactive engine — nine sources,
+    a whole subsystem — never fires.
+    """
+    assert engine.pressure() >= 0.12
+    assert engine.wants_to_initiate() is True, \
+        "she cannot initiate from a resting state"
+
+
+def test_the_gate_can_be_reduced_to_decoration(engine, monkeypatch):
+    """`desires.gate_enabled: false` keeps the needs vector shaping source
+    choice and the prompt injection while never blocking initiation."""
+    from utils.infrastructure.system import yaml_config
+
+    for _ in range(10):
+        engine.observe_exchange(grounded=True, length=900)
+    assert engine.wants_to_initiate() is False, "precondition: talked out"
+
+    real_get = yaml_config.config.get
+    monkeypatch.setattr(
+        yaml_config.config, "get",
+        lambda k, d=None: False if k == "desires.gate_enabled" else real_get(k, d))
+    assert engine.wants_to_initiate() is True
 
 
 def test_a_long_conversation_leaves_her_quiet(engine):
