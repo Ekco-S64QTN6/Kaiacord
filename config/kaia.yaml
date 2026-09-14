@@ -24,8 +24,10 @@ discord:
 # Leaving this on produced repeated login attempts, fetch timeouts and circuit-breaker
 # trips in logs/kaiacord.log for an account that no longer exists.
 bluesky:
-  enabled: false
-  cross_post_quips: false
+  enabled: true
+  cross_post_quips: true
+  # Still off: replying to strangers' mentions is a different risk from
+  # broadcasting her own posts, and was not part of turning quips back on.
   reply_to_mentions: false
 
 social:
@@ -39,6 +41,10 @@ x_twitter:
   reply_to_mentions: false
 features:
   dream_mode_enabled: true
+  # She quips into chat when things go quiet; bluesky.cross_post_quips above
+  # mirrors it to her feed. Both the quip and the thread now generate through
+  # the same pipeline Discord and the forum use.
+  idle_quips_enabled: true
 
 timeouts:
   classification_seconds: 60.0
@@ -64,9 +70,35 @@ performance:
       knowledge: 0.15
 
 forum:
-  enabled: false
+  # On. Every auto-generated post lands in #kaia-opolis as a draft with
+  # Accept/Reject buttons — nothing reaches the forum without a human press.
+  enabled: true
   auto_scrape: true
+
+  # Left OFF on purpose. Unsolicited answers in Technical Discussion ran
+  # without staying grounded in the wiki and tech docs, and confidently wrong
+  # EQ advice to strangers is worse than silence. The default_config comment
+  # says not to re-enable it without fixing the grounding first, and that has
+  # not been done.
   tech_support_enabled: false
+
+# How readily she speaks first. The threshold was 0.55, which was arithmetically
+# unreachable on an active server — she initiated once in 102 evaluations. Drop
+# initiate_threshold further, or set gate_enabled false, if she is still quiet.
+desires:
+  gate_enabled: true
+  initiate_threshold: 0.12
+
+# What she says unprompted. Two separate switches on purpose: the digest is a
+# few considered summaries a day, the monologue is a passing thought every
+# fifteen minutes. Turn the monologue off and the observations stay.
+observation:
+  # Summaries of what she noticed, aired in #kaia-opolis.
+  broadcast_digest: true
+
+monologue:
+  # Passing thoughts, aired in #kaia-opolis. The noisier of the two.
+  broadcast_to_chat: true
 
 generation:
   # base_temperature applies to ordinary conversation; rag_temperature only to

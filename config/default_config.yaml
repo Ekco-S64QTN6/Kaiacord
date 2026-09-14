@@ -286,6 +286,50 @@ dashboard:
 # in. The digest is triggered by how much NEW material has accumulated, not by
 # the clock — a fixed 2-hour loop re-summarised the same trailing window and
 # produced near-duplicate entries whenever the channel was quiet.
+# ============================================================================
+# Inner monologue
+# ============================================================================
+desires:
+  # Whether the needs vector may *block* her from speaking first.
+  #
+  # true  — she initiates once pressure clears initiate_threshold below.
+  # false — decoration: needs still choose which source she reaches for
+  #         (source_multiplier) and still colour the prompt, but they never
+  #         stop her initiating.
+  gate_enabled: true
+
+  # Pressure required to speak first, 0.0-1.0.
+  #
+  # This was 0.55 and that number made her mute. `observe_exchange` discharges
+  # the intellectual need by 0.35 on any reply over 400 characters, and it only
+  # re-accrues over 14 hours, so on an active server it sat pinned at 0.0 and
+  # dragged the three-need mean down with it. Measured ceiling on live state
+  # was 0.16, so 101 of 102 proactive evaluations declined and she spoke first
+  # exactly once in the whole production log. Lower it further, or set
+  # gate_enabled false, if she is still too quiet.
+  initiate_threshold: 0.12
+
+presence:
+  # How long without a human message before her Discord status must stop
+  # claiming the room is busy. Ground truth beats the engagement average,
+  # which is a slow float and lagged reality by hours.
+  quiet_after_minutes: 20
+
+monologue:
+  # Say her passing thoughts out loud in #kaia-opolis instead of keeping them
+  # as private state that only ever reaches chat as an injected hint.
+  #
+  # Off by default, and deliberately separate from observation.broadcast_digest:
+  # the monologue loop runs every 15 minutes where a digest is a handful a day,
+  # so this is the one far more likely to become noise. Turning it off does not
+  # stop her thinking — thoughts still reach monologue_log.jsonl and still get
+  # injected into replies.
+  broadcast_to_chat: false
+
+  # Budget, applied on top of the proactive engine's quiet hours.
+  max_broadcasts_per_day: 6
+  broadcast_min_interval_minutes: 90
+
 observation:
   # New observed turns that must accumulate past the last digest's watermark
   # before another digest is generated. Raise it for quieter servers.
