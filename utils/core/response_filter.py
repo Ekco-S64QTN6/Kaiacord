@@ -88,6 +88,26 @@ class EmergencyContaminationFilter:
     # rather than cleaned; below it the punctuation is stripped in place.
     ELLIPSIS_REJECT_AFFECT = 3
     @classmethod
+    def defuse_ellipsis_affect(cls, response: str) -> str:
+        """Strip the trailing-off cadence, keep the sentence.
+
+        "that's… provocative" -> "that's provocative": the ellipsis is the
+        affectation, the clause around it is fine. Extracted so the sub-
+        threshold branch in `harden` and the last-resort salvage in
+        `message_processor` apply exactly the same transform — a second copy
+        of these four substitutions would drift from this one.
+        """
+        if not response:
+            return response
+        response = cls.RE_AFFECT_ELLIPSIS.sub(
+            lambda m: re.sub(cls._ELLIPSIS, ' ', m.group(0)), response)
+        # Anything still trailing off becomes a full stop.
+        response = re.sub(r'(\w)' + cls._ELLIPSIS, r'\1.', response)
+        response = re.sub(r'\.{2,}', '.', response)
+        response = re.sub(r'[ \t]{2,}', ' ', response)
+        return response
+
+    @classmethod
     def filter_response(cls, response: str) -> Optional[str]:
         """Remove ANY contamination from response. If too much is removed, return None to trigger retry."""
         if not response:
@@ -136,17 +156,12 @@ class EmergencyContaminationFilter:
             # the "0.18% of responses" figure in the old comment described a
             # filter that was dead code.
             #
-            # AGENTS.md: "Never let a filter empty a good response."
+            # CLAUDE.md: "Never let a filter empty a good response."
             before = len(affect_spams) + len(general_ellipses)
 
             # "that's… provocative" -> "that's provocative": the ellipsis is the
             # affectation, the clause around it is fine.
-            response = cls.RE_AFFECT_ELLIPSIS.sub(
-                lambda m: re.sub(cls._ELLIPSIS, ' ', m.group(0)), response)
-            # Anything still trailing off becomes a full stop.
-            response = re.sub(r'(\w)' + cls._ELLIPSIS, r'\1.', response)
-            response = re.sub(r'\.{2,}', '.', response)
-            response = re.sub(r'[ \t]{2,}', ' ', response)
+            response = cls.defuse_ellipsis_affect(response)
             log_warning(f"[VERACITY GUARD] Sanitized {before} ellipsis-affect "
                         f"patterns inline (no retry).")
 
