@@ -160,6 +160,22 @@ def _extract_recap_hours(text: str) -> int:
 
     return 24  # True fallback
 
+def _has_word(text: str, words) -> bool:
+    """Whole-word membership test, with the ordinary English inflections.
+
+    `any(w in text for w in words)` is a substring test: "pro" hits inside
+    "compromise", "process" and "approach"; "agree" hits inside "disagree";
+    "anti" hits inside "anticipate". Polarity detection built on that is not
+    reliable enough to drive a correction.
+    """
+    if not text:
+        return False
+    return any(
+        re.search(rf"\b{re.escape(w)}(?:s|d|es|ed|ing)?\b", text)
+        for w in words
+    )
+
+
 class MessageProcessor:
     """
     Modular message processor that decomposes the complex on_message logic.
@@ -2202,11 +2218,25 @@ class MessageProcessor:
                         aliases = [topic] + [a.lower() for a in b.get('aliases', []) if a]
                         matched_alias = next((a for a in aliases if a in resp_lower), None)
                         if matched_alias:
-                            pos_positive = any(w in position for w in ["love", "like", "agree", "support", "good", "great", "favor", "pro"])
-                            pos_negative = any(w in position for w in ["hate", "dislike", "disagree", "oppose", "bad", "avoid", "anti"])
-                            
-                            resp_negative = any(w in resp_lower for w in ["don't like", "hate", "disagree", "oppose", "bad", "dislike"])
-                            resp_positive = any(w in resp_lower for w in ["love", "like", "agree", "support", "good", "great"])
+                            # Whole words only.
+                            #
+                            # These were substring tests, so "pro" matched
+                            # inside "compromise" and a belief about
+                            # "fundamental human failings (carelessness, greed,
+                            # compromise)" was read as a *positive* stance. Six
+                            # of her strong beliefs were mis-polarised that way.
+                            # Worse, "disagree" contains "agree", so every
+                            # disagreeing stance registered as both polarities
+                            # at once. The watchdog applies a deterministic
+                            # stance correction on the strength of this, so an
+                            # inverted reading makes her contradict herself in
+                            # the name of consistency.
+                            pos_positive = _has_word(position, ("love", "like", "agree", "support", "good", "great", "favor", "pro"))
+                            pos_negative = _has_word(position, ("hate", "dislike", "disagree", "oppose", "bad", "avoid", "anti"))
+
+                            resp_negative = ("don't like" in resp_lower) or _has_word(
+                                resp_lower, ("hate", "disagree", "oppose", "bad", "dislike"))
+                            resp_positive = _has_word(resp_lower, ("love", "like", "agree", "support", "good", "great"))
                             
                             if (pos_positive and resp_negative) or (pos_negative and resp_positive):
                                 contradiction_detected = True

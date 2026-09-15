@@ -120,3 +120,74 @@ def test_the_collapser_respects_its_own_threshold():
     below = "only two here… and one more… fine."
     assert Pipeline.apply_style_collapsers(below) == below, \
         "fires below the 3-fragment threshold"
+
+
+def test_rag_persistence_stays_dirty_when_a_write_fails():
+    """`persist_needed = False` ran unconditionally, so a failed write cleared
+    the dirty flag and the guard at the top of persist() turned every later
+    call into a no-op. The index changes were never retried and were silently
+    lost, while the log announced "RAG indices persisted." On the next restart
+    she comes back with a stale index and nothing says why."""
+    import os
+    import shutil
+    import threading
+    from unittest.mock import MagicMock
+
+    from utils.core.kaia_rag_persistence import RAGPersistenceMixin
+
+    base = "/tmp/claude-1000/ragtest-pytest"
+    shutil.rmtree(base, ignore_errors=True)
+
+    def _make(fail):
+        obj = RAGPersistenceMixin.__new__(RAGPersistenceMixin)
+        obj._data_lock = threading.RLock()
+        obj.persist_needed = True
+        obj.persist_dir = base
+        index = MagicMock()
+        if fail:
+            index.storage_context.persist.side_effect = OSError("disk full")
+        else:
+            def _write(persist_dir=None, **kwargs):
+                os.makedirs(persist_dir, exist_ok=True)
+                with open(os.path.join(persist_dir, "docstore.json"), "w") as fh:
+                    fh.write("{}")
+            index.storage_context.persist.side_effect = _write
+        obj.indices = {"knowledge": index}
+        return obj
+
+    failed = _make(True)
+    failed.persist()
+    assert failed.persist_needed is True, \
+        "a failed persist cleared the dirty flag; the write is lost"
+
+    ok = _make(False)
+    ok.persist()
+    assert ok.persist_needed is False, "a successful persist stayed dirty"
+    shutil.rmtree(base, ignore_errors=True)
+
+
+def test_belief_polarity_uses_whole_words():
+    """These were substring tests. "pro" matched inside "compromise", so a
+    belief about "fundamental human failings (carelessness, greed, compromise)"
+    read as a *positive* stance — six of her strong beliefs were mis-polarised.
+    "disagree" contains "agree", so a disagreeing stance registered as both
+    polarities at once. The watchdog applies a stance correction on this."""
+    from utils.core.message_processor import _has_word
+
+    positive = ("love", "like", "agree", "support", "good", "great", "favor", "pro")
+    negative = ("hate", "dislike", "disagree", "oppose", "bad", "avoid", "anti")
+
+    failings = "fundamental human failings (carelessness, greed, compromise)"
+    assert not _has_word(failings, positive), "'pro' still matches inside 'compromise'"
+
+    assert not _has_word("i disagree with that", ("agree",)), \
+        "'agree' still matches inside 'disagree'"
+    assert _has_word("i disagree with that", negative)
+
+    assert not _has_word("i anticipate trouble", ("anti",))
+    assert not _has_word("the process ran", ("pro",))
+
+    # and it must still catch the real thing, inflections included
+    assert _has_word("she likes it", positive)
+    assert _has_word("i supported that", positive)
+    assert _has_word("that is bad", negative)

@@ -348,6 +348,7 @@ class RAGPersistenceMixin:
             log_error(f"Failed to acquire data lock for RAG persistence{' (SHUTDOWN)' if force else ''}")
             return
 
+        persisted, failed = [], []
         try:
             for itype, index in self.indices.items():
                 try:
@@ -373,14 +374,32 @@ class RAGPersistenceMixin:
                     
                     if os.path.exists(old_dir):
                         shutil.rmtree(old_dir)
-                        
+
+                    persisted.append(itype)
+
                 except Exception as e:
+                    failed.append(itype)
                     log_error(f"Failed to persist {itype} index: {e}")
         finally:
             self._data_lock.release()
-        
+
+        # Only clear the dirty flag if everything actually reached disk.
+        #
+        # This used to run unconditionally, so a failed write cleared
+        # `persist_needed` anyway and the guard at the top of this function
+        # then made every subsequent call a no-op — the index changes were
+        # never retried and were silently lost, while the line below announced
+        # "RAG indices persisted." On the next restart she would quietly come
+        # back with a stale index and nothing in the log to say why.
+        if failed:
+            log_warning(
+                f"RAG persistence partial: {', '.join(persisted) or 'none'} saved; "
+                f"FAILED {', '.join(failed)}. Staying dirty so the next pass retries."
+            )
+            return
+
         self.persist_needed = False
-        log_success("RAG indices persisted.")
+        log_success(f"RAG indices persisted ({len(persisted)}).")
 
     async def pre_warm(self):
         """
