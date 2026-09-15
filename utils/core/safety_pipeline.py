@@ -445,13 +445,28 @@ class PostGenerationSafetyPipeline:
             return ""
 
         # Ellipsis Collapser
-        frag_count = len(re.findall(r'\w+[\u2026\.]{2,}', text))
+        #
+        # `[\u2026\.]{2,}` required TWO characters, so a lone "…" — which is
+        # what gemma3 actually emits — never matched and this collapser fired
+        # on 0 responses in production. response_filter.py hit the identical
+        # bug and documents the fix; safety_pipeline was never updated with it.
+        # `_ELLIPSIS` is imported rather than re-spelled so a third copy cannot
+        # drift from the other two.
+        from utils.core.response_filter import EmergencyContaminationFilter as _ECF
+        _ELL = _ECF._ELLIPSIS
+        frag_count = len(re.findall(r'\w+' + _ELL, text))
         if frag_count >= 3:
             log_warning(f"[ELLIPSIS_COLLAPSE] Collapsing {frag_count} ellipsis fragments in output")
-            text = re.sub(r'(\w)[\u2026\.]{2,}\s+', r'\1. ', text)
-            text = re.sub(r'(\w)[\u2026\.]{2,}$', r'\1.', text, flags=re.MULTILINE)
-            text = re.sub(r'^\s*[\u2026\.]{2,}\s*$', '', text, flags=re.MULTILINE)
-            text = re.sub(r'\.{2,}', '.', text)
+            # Delegate to the transform that was actually thought through.
+            #
+            # This block used to substitute the ellipsis with a full stop
+            # wherever it sat, which shatters a clause: "the details are…
+            # unsettling" became "the details are. unsettling." That is the
+            # grammar rubble CLAUDE.md warns about under output filters, and it
+            # went unnoticed because the regex above it was dead, so the bad
+            # transform never ran. `defuse_ellipsis_affect` drops the ellipsis
+            # and keeps the sentence whole.
+            text = _ECF.defuse_ellipsis_affect(text)
             text = re.sub(r'\n{3,}', '\n\n', text)
             text = text.strip()
 

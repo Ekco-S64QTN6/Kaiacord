@@ -203,9 +203,70 @@ def test_the_digest_broadcast_sends_the_digest_and_not_a_reaction_to_it():
     src = inspect.getsource(CoreTaskManager._broadcast_observation_digest)
     body = "\n".join(l for l in src.split("\n") if not l.strip().startswith("#"))
 
-    assert "send_kaia_response(channel, text)" in body, \
+    assert "send_kaia_response(channel, f\"{label} {text}\")" in body, \
         "the digest text is not what gets sent"
     assert "_dispatch_proactive" not in body, \
         "still routing through the opener generator, which discards the digest"
     assert "generate_opener" not in body
     assert "to_plain_english" in body, "digest is sent without normalising punctuation"
+
+
+def test_legacy_untagged_forum_turns_are_still_excluded():
+    """The `external` marker only covers turns seeded after it was added.
+
+    Two of four forum channels in the live bot_state.json carry no marker —
+    they were persisted before the fix — which is how a thought about a forum
+    poster ("i wonder if bradzax is intentionally trying to trigger reiwa")
+    reached the log hours afterwards. Asking Discord whether the channel
+    exists covers those; a crc32 conversation id can never resolve.
+    """
+    import asyncio
+
+    from utils.core.kaia_monologue import InnerMonologue
+
+    channel_memory = {
+        # real snowflake, resolves
+        "1462239450691145924": [
+            {"role": "user", "content": "Ekco: the reindex finished",
+             "timestamp": 1000.0}],
+        # legacy forum thread: pseudo-id, and crucially NO external marker
+        "1592286285": [
+            {"role": "user", "content": "Reiwa: probably meant 1952",
+             "timestamp": 2000.0}],
+    }
+    resolver = lambda cid: str(cid) == "1462239450691145924"
+
+    captured = {}
+
+    class _Fake:
+        async def chat(self, **kwargs):
+            captured["prompt"] = kwargs["messages"][0]["content"]
+            return {"message": {"content": "i notice it is quiet."}}
+
+    class _State:
+        pass
+
+    monologue = InnerMonologue()
+    monologue._last_generated = 0
+    asyncio.run(monologue.generate_thought(
+        channel_memory=channel_memory, bot_state=_State(),
+        ollama_client=_Fake(), chat_model="test-model",
+        is_discord_channel=resolver))
+
+    prompt = captured["prompt"]
+    assert "reindex finished" in prompt
+    assert "Reiwa" not in prompt, "an untagged forum turn still reached the monologue"
+
+
+def test_both_broadcasts_are_labelled():
+    """Unlabelled, an aired thought read as a random remark in the channel."""
+    import inspect
+
+    from utils.core.background_tasks import CoreTaskManager
+
+    mono = inspect.getsource(CoreTaskManager._broadcast_monologue)
+    digest = inspect.getsource(CoreTaskManager._broadcast_observation_digest)
+
+    assert 'config.get("monologue.broadcast_prefix"' in mono
+    assert 'config.get("observation.broadcast_prefix"' in digest
+    assert 'f"{label} ' in mono and 'f"{label} ' in digest

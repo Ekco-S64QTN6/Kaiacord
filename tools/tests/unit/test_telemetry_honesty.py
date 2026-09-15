@@ -66,3 +66,57 @@ def test_external_platforms_do_not_stamp_the_discord_interaction_clock():
     src = inspect.getsource(mp)
     assert "if not ctx.is_social:\n            self.bot_state.update_interaction" in src, \
         "the interaction clock is stamped regardless of platform"
+
+
+def test_batch_persistence_reports_what_actually_reached_disk():
+    """Per-index persist failures are caught and execution continues, so the
+    summary named every type it *attempted* — including any that had just
+    logged "Failed to persist". The summary is what surfaces in the dashboard,
+    and it contradicted the error line above it."""
+    import inspect
+
+    from utils.core.kaia_rag_indexer import RAGIndexerMixin
+
+    persist = inspect.getsource(RAGIndexerMixin._persist_updated_indices)
+    assert "return persisted" in persist, "the routine does not report its result"
+    assert "persisted.add(itype)" in persist, "success is not tracked per index"
+
+    refresh = inspect.getsource(RAGIndexerMixin)
+    assert "Batch persistence partial" in refresh, \
+        "a partial failure still reports as complete"
+
+
+def test_the_ellipsis_collapser_is_not_dead_code():
+    """`[\\u2026\\.]{2,}` needs two characters, so a lone "…" — what gemma3
+    actually emits — never matched. It fired on 0 production responses.
+    response_filter documents fixing the identical bug; this file never was."""
+    import re
+
+    from utils.core.safety_pipeline import PostGenerationSafetyPipeline as Pipeline
+
+    gemma_style = ("i'm… processing that. the details are… unsettling. "
+                   "the drift is… significant.")
+    out = Pipeline.apply_style_collapsers(gemma_style)
+    assert "…" not in out, "the collapser still cannot see a single-glyph ellipsis"
+
+
+def test_the_collapser_keeps_sentences_whole():
+    """It substituted a full stop wherever the ellipsis sat, so "the details
+    are… unsettling" became "the details are. unsettling." — the grammar
+    rubble CLAUDE.md warns about. It went unnoticed because the regex guarding
+    it was dead, so the bad transform never ran."""
+    from utils.core.safety_pipeline import PostGenerationSafetyPipeline as Pipeline
+
+    out = Pipeline.apply_style_collapsers(
+        "i'm… processing that. the details are… unsettling. the drift is… significant.")
+    assert "are unsettling" in out and "is significant" in out, \
+        f"clauses were shattered: {out}"
+    assert "are. unsettling" not in out
+
+
+def test_the_collapser_respects_its_own_threshold():
+    from utils.core.safety_pipeline import PostGenerationSafetyPipeline as Pipeline
+
+    below = "only two here… and one more… fine."
+    assert Pipeline.apply_style_collapsers(below) == below, \
+        "fires below the 3-fragment threshold"

@@ -59,6 +59,7 @@ class InnerMonologue:
         bot_state,
         ollama_client,
         chat_model: str,
+        is_discord_channel=None,
     ) -> Optional[str]:
         """Generate a private 1-sentence observation from recent channel activity.
 
@@ -89,6 +90,19 @@ class InnerMonologue:
         #    won, and every thought came out about the same poster.
         collected = []
         for channel_id, messages in channel_memory.items():
+            # Ground truth beats a marker. `seed_thread_history` now tags forum
+            # turns `external`, but turns seeded *before* that was added are
+            # still sitting in the persisted bot_state.json carrying no tag —
+            # two of four forum channels, 19 turns, which is how a thought
+            # about a forum poster reached the log hours after the fix landed.
+            # If the caller can ask Discord whether a channel exists, that
+            # answer covers legacy entries the marker cannot.
+            if is_discord_channel is not None:
+                try:
+                    if not is_discord_channel(channel_id):
+                        continue
+                except Exception:
+                    pass
             for msg in list(messages)[-5:]:
                 if msg.get("external"):
                     continue  # a forum/social turn, not her Discord server

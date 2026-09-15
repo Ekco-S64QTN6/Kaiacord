@@ -289,11 +289,25 @@ class CoreTaskManager:
             if not getattr(self.ctx.bot_state, 'boot_complete', False): return
 
             try:
+                def _is_discord_channel(cid) -> bool:
+                    """Does Discord actually know this channel?
+
+                    External conversations are keyed by `conversation_channel_id`
+                    (a crc32), which no bot can resolve. Asking the client is
+                    the only check that also covers forum turns seeded before
+                    they were tagged `external`.
+                    """
+                    try:
+                        return self.ctx.bot.get_channel(int(cid)) is not None
+                    except (TypeError, ValueError):
+                        return False
+
                 thought = await self.monologue.generate_thought(
                     channel_memory=self.ctx.bot_state.channel_memory,
                     bot_state=self.ctx.bot_state,
                     ollama_client=self.ctx.ollama_client,
                     chat_model=config.chat_model,
+                    is_discord_channel=_is_discord_channel,
                 )
                 if thought:
                     await self._broadcast_monologue(thought)
@@ -1751,7 +1765,11 @@ class CoreTaskManager:
 
             from utils.core.sanitizer import to_plain_english
             from utils.infrastructure.system.messaging import send_kaia_response
-            await send_kaia_response(channel, to_plain_english(thought))
+            # Labelled. Unlabelled it read as a random remark dropped into the
+            # channel; the point of airing a thought is that it is visibly a
+            # thought, not something she is saying to anyone.
+            label = config.get("monologue.broadcast_prefix", "🧠 **Inner monologue:**")
+            await send_kaia_response(channel, f"{label} {to_plain_english(thought)}")
 
             state.monologue_broadcast_count = getattr(state, 'monologue_broadcast_count', 0) + 1
             state.monologue_broadcast_last_sent = now
@@ -1840,9 +1858,13 @@ class CoreTaskManager:
                 log_debug("Observation digest broadcast skipped: nothing to say.")
                 return False
 
+            # Same reasoning as the monologue: label it so it reads as an
+            # observation about the room rather than an opinion aimed at
+            # whoever spoke last.
+            label = config.get("observation.broadcast_prefix", "👁️ **Overheard:**")
             async with channel.typing():
                 await asyncio.sleep(2.0)
-            await send_kaia_response(channel, text)
+            await send_kaia_response(channel, f"{label} {text}")
 
             # Bookkeeping the dispatch path used to do on our behalf.
             content_id = build_digest_content_id(entry_ts)

@@ -326,6 +326,10 @@ monologue:
   # injected into replies.
   broadcast_to_chat: false
 
+  # Prefixed so an aired thought reads as a thought. Unlabelled it looked
+  # like a random remark dropped into the channel.
+  broadcast_prefix: "🧠 **Inner monologue:**"
+
   # Budget, applied on top of the proactive engine's quiet hours.
   max_broadcasts_per_day: 6
   broadcast_min_interval_minutes: 90
@@ -337,6 +341,10 @@ observation:
 
   # Hard cap on turns fed to the model in one digest (token guard).
   max_turns_per_digest: 60
+
+  # Prefixed so it reads as an observation about the room rather than an
+  # opinion aimed at whoever spoke last.
+  broadcast_prefix: "👁️ **Overheard:**"
 
   # Say the digest out loud instead of only writing it to
   # memory/observation_digest.json. Set false to keep it background-only.

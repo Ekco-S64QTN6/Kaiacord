@@ -983,8 +983,16 @@ class RAGIndexerMixin:
         return False
 
 
-    def _persist_updated_indices(self, updated_itypes: Set[str]):
-        """Save indices to disk and invalidate/save BM25 cache."""
+    def _persist_updated_indices(self, updated_itypes: Set[str]) -> Set[str]:
+        """Save indices to disk and invalidate/save BM25 cache.
+
+        Returns the set that actually reached disk. Per-index failures are
+        caught and execution continues, so without this the caller announced
+        "Batch persistence complete for: logs, dreams, knowledge, persona"
+        naming every type it *attempted* — including any that had just logged
+        "Failed to persist". The summary line contradicted the error above it,
+        and the summary is the one that surfaces in the dashboard.
+        """
         self.persist_needed = True
         
         # 1. Invalidate BM25 caches (Quick internal state update)
@@ -998,12 +1006,14 @@ class RAGIndexerMixin:
         # We don't hold the global data lock during storage_context.persist()
         # because it performs slow filesystem writes. The index objects 
         # themselves are thread-safe for persistence.
+        persisted: Set[str] = set()
         for itype in updated_itypes:
             try:
                 persist_path = os.path.join(self.persist_dir, itype)
                 self.indices[itype].storage_context.persist(persist_dir=persist_path)
                 log_success(f"Index '{itype}' persisted.")
-                
+                persisted.add(itype)
+
                 # 3. Persist BM25 if already in memory (re-acquires lock internally)
                 if itype in self.bm25_cache and self.bm25_cache[itype]:
                     self._save_bm25_cache(itype)
@@ -1011,6 +1021,7 @@ class RAGIndexerMixin:
                 log_error(f"Failed to persist {itype}: {e}")
                 
         self._save_indexed_files()
+        return persisted
 
     async def refresh_knowledge_base(self, max_concurrent_files: int = 2):
         """Refresh knowledge base with concurrent file processing and batch persistence."""
@@ -1085,8 +1096,16 @@ class RAGIndexerMixin:
 
             if updated_itypes:
                 # Batch persist all updated indices at the end
-                await asyncio.to_thread(self._persist_updated_indices, updated_itypes)
-                log_success(f"Batch persistence complete for: {', '.join(updated_itypes)}")
+                persisted = await asyncio.to_thread(
+                    self._persist_updated_indices, updated_itypes)
+                failed = updated_itypes - (persisted or set())
+                if failed:
+                    log_warning(
+                        f"Batch persistence partial: {', '.join(sorted(persisted))} saved; "
+                        f"FAILED {', '.join(sorted(failed))}."
+                    )
+                else:
+                    log_success(f"Batch persistence complete for: {', '.join(sorted(persisted))}")
             elif new_file_paths:
                 # Still save the manifest if we scanned files
                 await asyncio.to_thread(self._save_indexed_files)
