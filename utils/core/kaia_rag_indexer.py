@@ -647,7 +647,12 @@ class RAGIndexerMixin:
         updated_itypes = set()
         deleted_files = [
             p for p in list(self.indexed_files.keys()) 
-            if not os.path.exists(p) or os.path.basename(p) == "kaia_persona.md" or "forum_posts" in p.replace('\\', '/')
+            if not os.path.exists(p) or os.path.basename(p) == "kaia_persona.md"
+            or "forum_posts" in p.replace('\\', '/')
+            or "/.test/" in p.replace('\\', '/')
+            or "/quarantine/" in p.replace('\\', '/')
+            or ("/user_logs/forum_" in p.replace('\\', '/')
+                and os.path.basename(p) != "user_profile.md")
         ]
         if not deleted_files:
             return updated_itypes
@@ -746,12 +751,40 @@ class RAGIndexerMixin:
             # unvetted web content into retrieval, where it is presented as
             # grounded fact; process_ingress.py moves them into the corpus
             # proper once cleaned.
+            # `.test` is where the suite's corpus isolation puts its fixtures
+            # (see `corpus_dir()` and test_telemetry_isolation). That isolation
+            # was being defeated here: 101 fixture files — "User (TestUser):
+            # Remember this: …" / "Kaia: Logged it. I'll remember that." — were
+            # walked into the production `logs` index as 101 retrievable nodes,
+            # sitting alongside real user history. `quarantine` is excluded for
+            # the same reason files are put there.
             if ("corrupt_files" in root
                     or "forum_posts" in norm_root
+                    or "/quarantine" in norm_root
+                    or "/.test" in norm_root
+                    or norm_root.endswith("/.test")
                     or "/_ingress" in norm_root
                     or norm_root.endswith("/_ingress")):
                 continue
+            # A forum user's *profile* is worth retrieving; their complete post
+            # history is not.
+            #
+            # `user_logs/forum_*/` held 4.2 MB of indexed material against 9
+            # Discord users' worth of real history: post_history.md at 2,229K
+            # and raw interactions_*.md dumps at 1,419K, versus 129K of actual
+            # profiles. The bulk landed in the `logs` index — the same one her
+            # Discord conversation history lives in — so a years-old forum
+            # thread competed for retrieval slots with what someone said to her
+            # yesterday, and won on volume.
+            #
+            # `user_profile.md` is untouched: it goes to the separate
+            # `user_profiles` index and is exactly the "who is this person"
+            # cheat sheet the forum reply path wants. The excluded files stay
+            # on disk; forum drafting reads them directly, not through RAG.
+            is_forum_user_dir = "/user_logs/forum_" in norm_root
             for file in files:
+                if is_forum_user_dir and file != "user_profile.md":
+                    continue
                 ext = os.path.splitext(file)[1].lower()
                 if ext in supported_exts:
                     full_path = os.path.join(root, file)
