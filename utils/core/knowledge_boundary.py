@@ -134,9 +134,65 @@ class KnowledgeBoundary:
             if m_lower in self.known_entities:
                 continue
 
+            if self._is_noise(m):
+                continue
+
             filtered_matches.append(m)
             
         return list(set(filtered_matches))
+
+    # Internal plumbing. These are tags this codebase wraps around content
+    # before the model ever sees it; flagging them as unknown lore means the
+    # boundary check is reading its own scaffolding as a mystery entity.
+    _SCAFFOLD_TAGS = {
+        "linked_web_content", "core_directive", "current_time", "current_user",
+        "metadata", "replying_to_context", "thread_root_and_parent",
+        "auto_quip", "auto_thread_part", "system_note",
+    }
+
+    # Ordinary file and web references. A URL the user pasted is a real thing
+    # they are pointing at, not something she invented.
+    _FILE_EXT = (
+        ".md", ".txt", ".py", ".json", ".yaml", ".yml", ".sh", ".html", ".htm",
+        ".in", ".cfg", ".ini", ".toml", ".log", ".csv", ".jsonl", ".png", ".jpg",
+    )
+    _TLD = (".com", ".net", ".org", ".gov", ".edu", ".io", ".sh", ".dev", ".ai")
+
+    def _is_noise(self, token: str) -> bool:
+        """Reject matches that are not what this check is looking for.
+
+        `extract_entities` targets "hallucinated SYSTEM entities like fake
+        usernames, file paths, or IDs", but its pattern is
+        `[A-Za-z]+[0-9_.-]+...`, which matches any hyphenated English word. In
+        production it flagged `one-liner`, `dial-up`, `real-time`,
+        `post-structuralist`, `decision-driven`, the typos `bu-uy-ing` and
+        `ca-ame`, the filenames `README.md` and `requirements.txt`, the domains
+        `pastebin.com` and `github.com`, her own handle `@Kaia`, and her own
+        internal tags `LINKED_WEB_CONTENT` and `CORE_DIRECTIVE` — all logged at
+        info/warning level, which surfaces them in the dashboard.
+        """
+        low = token.lower()
+
+        # Her own plumbing, with or without surrounding brackets.
+        if low.strip("[]") in self._SCAFFOLD_TAGS:
+            return True
+
+        # Her own name, and anyone the system already knows.
+        if low.startswith("@"):
+            handle = low[1:]
+            if handle in ("kaia", "everyone", "here") or handle in self.known_entities:
+                return True
+
+        # Real references rather than invented ones.
+        if low.endswith(self._FILE_EXT) or low.endswith(self._TLD):
+            return True
+
+        # A hyphenated word with no digits is English, not an identifier:
+        # "one-liner", "dial-up", "mood-driven". An ID has a number in it.
+        if not any(c.isdigit() for c in token) and "_" not in token:
+            return True
+
+        return False
 
     def check_known_entities(self, query: str, context: Union[str, List[str]], whitelist: Optional[Set[str]] = None) -> Dict:
         """Verify if entities in query are known to the system/context."""
