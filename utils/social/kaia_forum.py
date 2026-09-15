@@ -121,6 +121,32 @@ def collapse_video_ids(text: str, titles: Optional[Dict[str, str]] = None) -> st
     return "\n".join(out)
 
 
+def _recorded_total_posts(path: Path) -> Optional[int]:
+    """The `total_posts` watermark recorded in a user file, if any."""
+    try:
+        head = path.read_text(encoding="utf-8", errors="replace")[:2000]
+    except OSError:
+        return None
+    match = re.search(r"^total_posts:\s*(\d+)", head, re.M)
+    return int(match.group(1)) if match else None
+
+
+def _watermark_covers(total_posts: int, *paths: Path) -> bool:
+    """True if any of `paths` already records a total at least this high.
+
+    Checking several files is what lets a user survive compaction: the number
+    starts life in post_history.md and is carried into user_profile.md when
+    that history is pruned.
+    """
+    for path in paths:
+        if not path.exists():
+            continue
+        recorded = _recorded_total_posts(path)
+        if recorded is not None and recorded >= total_posts:
+            return True
+    return False
+
+
 def _is_synthesised_profile(path: Path) -> bool:
     """True if this profile came from the LLM deep scrape rather than the
     placeholder writer. The two share a filename but not a document_type."""
@@ -1629,17 +1655,22 @@ class ForumClient:
                 if not profile:
                     continue
 
-                # Deduplication: Check if total_posts changed
+                # Deduplication: has the poster actually posted anything new?
+                #
+                # The watermark is read from post_history.md *or*
+                # user_profile.md. Once a user has been compacted by
+                # tools/maintenance/compact_forum_profiles.py their
+                # post_history.md is gone — hundreds of KB of raw posts that
+                # nothing read and nothing indexed — and the watermark lives in
+                # the profile instead. Reading only the history file meant
+                # compaction silently reopened this gate: every cycle would
+                # re-download 20 post pages and 10 thread pages per user and
+                # rebuild exactly the files that had just been removed.
                 total_posts = profile.get('total_posts', 0)
-                if history_path.exists():
-                    try:
-                        h_content = history_path.read_text(encoding='utf-8')
-                        h_match = re.search(r'total_posts: (\d+)', h_content)
-                        if h_match and int(h_match.group(1)) >= total_posts:
-                            log_info(f"Skipping {username} history — total_posts ({total_posts}) unchanged")
-                            continue
-                    except Exception:
-                        pass
+                if _watermark_covers(total_posts, history_path, profile_path):
+                    log_info(f"Skipping {username} history — total_posts "
+                             f"({total_posts}) unchanged")
+                    continue
 
                 # Scrape full post history (20 pages = ~400-500 snippets)
                 posts = await self.scrape_user_post_history(uid, username, max_pages=20)

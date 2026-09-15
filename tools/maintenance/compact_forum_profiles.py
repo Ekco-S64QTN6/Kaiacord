@@ -65,6 +65,26 @@ def prose_of(path: Path) -> str:
     return re.sub(r"\[Post ID:[^\]]*\]\s*\[by[^\]]*\]", "", body).strip()
 
 
+def read_watermark(d: Path) -> tuple:
+    """Carry `total_posts` forward out of post_history.md.
+
+    That number is the scraper's only dedup gate for the expensive pass:
+    `scrape_active_users` compares the site's current total against the one
+    recorded in post_history.md and skips when it has not moved. Pruning the
+    file without preserving it means the gate can never fire, and every cycle
+    re-downloads 20 post pages and 10 thread pages for every user — the exact
+    loop compaction is supposed to end.
+    """
+    history = d / "post_history.md"
+    if not history.exists():
+        return None, None
+    head = history.read_text(encoding="utf-8", errors="replace")[:600]
+    total = re.search(r"^total_posts:\s*(\d+)", head, re.M)
+    uid = re.search(r"^user_id:\s*(\d+)", head, re.M)
+    return (int(total.group(1)) if total else None,
+            int(uid.group(1)) if uid else None)
+
+
 def already_compacted(profile: Path) -> bool:
     return profile.exists() and "compacted_from:" in profile.read_text(
         encoding="utf-8", errors="replace")[:600]
@@ -93,6 +113,7 @@ def compact(d: Path, args) -> tuple:
     sources = sorted([p for p in d.iterdir()
                       if p.is_file() and p.name != "user_profile.md"
                       and p.suffix == ".md"])
+    total_posts, user_id = read_watermark(d)
     material = "\n\n".join(filter(None, (prose_of(p) for p in sources)))
     words = len(material.split())
     if words < args.min_words:
@@ -120,7 +141,13 @@ def compact(d: Path, args) -> tuple:
         f"compacted_from: {len(sources)}\n"
         f"compacted_words: {words}\n"
         f"compacted_on: {time.strftime('%Y-%m-%d')}\n"
-        "---\n\n"
+        # The scraper's dedup watermark, carried out of post_history.md so the
+        # expensive pass stays skipped after that file is pruned. New posts
+        # still raise the site's total and trigger a fresh scrape; an unchanged
+        # total does not.
+        + (f"total_posts: {total_posts}\n" if total_posts is not None else "")
+        + (f"user_id: {user_id}\n" if user_id is not None else "")
+        + "---\n\n"
     )
     body = f"# INTERNAL MEMORY: {name} (Project 1999 forum)\n\n{card}\n"
     tmp = profile.with_suffix(".tmp")
@@ -128,6 +155,9 @@ def compact(d: Path, args) -> tuple:
     tmp.replace(profile)                              # atomic, CLAUDE.md §4
 
     pruned = 0
+    if args.prune and total_posts is None and (d / "post_history.md").exists():
+        return "written", (f"{words} words from {len(sources)} file(s); "
+                           "NOT pruned — no total_posts watermark to carry")
     if args.prune:
         dest = BACKUP / d.name
         dest.mkdir(parents=True, exist_ok=True)
