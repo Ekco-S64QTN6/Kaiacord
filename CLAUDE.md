@@ -47,8 +47,8 @@ venv/bin/python3 -c "from utils.core.message_processor import MessageProcessor"
 venv/bin/python3 -c "import ast, io; ast.parse(io.open('utils/core/message_processor.py').read())"
 ```
 
-Baseline for the no-external-services run, verified 2026-09-14: **1,226 passed, 10 skipped,
-3 deselected, 2 xfailed** in ~106 s. Only three tests in the whole suite need Ollama or a GPU, so
+Baseline for the no-external-services run, verified 2026-09-15: **1,347 passed, 10 skipped,
+3 deselected, 2 xfailed** in ~107 s. Only three tests in the whole suite need Ollama or a GPU, so
 that invocation is the one to use by default — the full `pytest -q` additionally loads
 `gemma3:12b`, which evicts the production model from VRAM.
 
@@ -207,7 +207,20 @@ regenerations; using clause mode on mid-sentence patterns left grammar rubble
 (`"the and i'll investigate."`). When adding a pattern, decide which shape it is.
 
 **Never let a filter empty a good response.** An empty return triggers a full regeneration,
-which costs a whole inference round-trip.
+which costs a whole inference round-trip — and if every attempt is rejected she says nothing at
+all. That happened: three contemplative replies to a question about her own code were each
+rejected for ellipsis-affect drift, 35 s of inference discarded, silence delivered. Exhaustion is
+now recoverable — `_generate_with_retries` retains rejected attempts, defuses the cadence with
+`EmergencyContaminationFilter.defuse_ellipsis_affect`, and **re-runs the full pipeline** on the
+result. Salvaged text is used only if it passes on its own merits; the guards are unchanged.
+
+**The reply must have room to exist.** `optimize_context` budgets with
+`performance.token_multiplier` (1.6), which is the *median* tokens-per-word — measured against 147
+real prompts the ratio runs 1.55 median, 1.66 p90, 2.04 worst. A median used as a bound
+underestimates half of all prompts, and four production turns overran the response reserve badly
+enough that the reply shrank to 21 tokens. `_clamp_to_context_window` is a hard clamp after
+assembly using the observed worst ratio: it drops history oldest-first, never the system prompt or
+the user's message, and logs `[CONTEXT_CLAMP]`.
 
 ### Persona grounding facts
 
@@ -224,17 +237,21 @@ which costs a whole inference round-trip.
 
 ## 6. LLM Call Paths
 
-Not everything goes through `MessageProcessor`. Trace the real `ollama_client` call before
-editing.
+Not everything goes through `MessageProcessor`, and **the rows below have been wrong before** —
+three of them still claimed "bypasses `MessageProcessor`" months after those paths were unified,
+and one named a function that does not exist. Trace the real `ollama_client` call before editing,
+and fix this table when it disagrees with the code.
 
 | Path | Entry point | Pipeline |
 |:--|:--|:--|
 | **Discord chat** | `MessageProcessor.process()` | Full cognitive pipeline, RAG, intent classification, full safety pipeline |
 | **Proactive opener** | `kaia_proactive.py` → `generate_opener()` | Selective injections; `harden()` + contamination filter + style collapsers |
 | **Afterthought** | `background_tasks.py` | Emotional arc + channel memory; full post-generation pipeline |
-| **Forum auto-post** | `background_tasks.py` → `_make_forum_auto_post_task()` | Direct Ollama call, bypasses `MessageProcessor`; `harden()` only |
-| **Forum tech support** | `background_tasks.py` → `_make_forum_support_task()` | Direct call, BM25/hybrid grounded, mandatory disclaimer footer |
-| **Social responder** | `kaia_social_responder.py` | Direct call, bypasses `MessageProcessor` |
+| **Forum auto-post** | `background_tasks.py` → `_make_forum_auto_post_task()` | **Through the pipeline**: `forum_drafting.draft_forum_reply()` → `process_external_mention()` |
+| **Forum tech support** | `background_tasks.py` → `_make_forum_tech_support_task()` | Direct call, BM25/hybrid grounded, mandatory disclaimer footer |
+| **Social responder** | `kaia_social_responder.py` → `mock_external_mention()` | **Through the pipeline**: builds a `MockMessage` and hands it to the normal `on_message` handler |
+| **Quip / social thread** | `social_response_generator.py` | **Through the pipeline** via `process_external_mention(platform="broadcast")` |
+| **Observation digest** | `background_tasks.py` → `_make_observation_digest_task()` | Direct call to summarise; the digest text is then spoken verbatim, not re-generated |
 | **Dream engine** | `kaia_dream.py` | Direct call, dream summary + belief extraction |
 | **Inner monologue** | `kaia_monologue.py` | Direct call, background thought generation |
 
@@ -281,9 +298,34 @@ drives it, so the copyleft does not reach Kaiacord. Do not copy Strudel source i
   with the disclaimer footer.
 - **Capped scraping**: 6-hour interval, 2–3 drafts per run; profile scrapes limited to 20 post
   pages / 10 thread pages, cached 4 h (history) and 1 h (profile).
-- **Bluesky and X are disabled** (`bluesky.enabled`, `x_twitter.enabled` = `false`). Credentials
-  alone do not re-enable them; the flag gates the integration and the mention poller is not
-  started when both are off.
+- **Bluesky is on, X is off.** As of Sept 2026 `bluesky.enabled` and `bluesky.cross_post_quips`
+  are `true` in `kaia.yaml`, so idle quips mirror to her feed; `x_twitter.enabled` is `false`.
+  Credentials alone never enable either — the flag gates the integration, and the mention poller
+  is not started when both are off.
+- **Forum posting is on** (`forum.enabled: true`), behind the Accept/Reject queue above.
+  `forum.tech_support_enabled` stays **off**: it answered strangers without staying grounded in
+  the wiki, and confidently wrong EQ advice is worse than silence. Do not enable it without
+  fixing the grounding.
+
+### Speaking unprompted
+
+Three separate things reach chat without being asked, on **separate** switches so one can be
+silenced without the others:
+
+| What | Switch | Where | Notes |
+|:--|:--|:--|:--|
+| Observation digest | `observation.broadcast_digest` | `#kaia-opolis` | The summary is spoken **verbatim**. It used to be handed to `generate_opener` as hidden context and an unrelated one-liner was sent instead, while the log claimed the digest had aired. |
+| Inner monologue | `monologue.broadcast_to_chat` | `#kaia-opolis` | Capped at 6/day, 90-minute gap. `monologue.respect_quiet_hours` is **false**: a thought in her own channel is not the interruption a proactive opener is. |
+| Proactive opener | the desire gate + rate limiter | most recent channel | Obeys `proactive.quiet_hour_start`/`quiet_hour_end` (9–22). |
+
+Both broadcasts are prefixed (`monologue.broadcast_prefix`, `observation.broadcast_prefix`) so
+they read as a thought and an observation rather than as remarks aimed at someone.
+
+**The desire gate must not be able to silence her.** `INITIATE_THRESHOLD` was 0.55 while
+`observe_exchange` pinned the intellectual need at 0.0 on any active server, capping pressure at
+0.16 — she spoke first **once in 102 evaluations**. It is 0.12 now and configurable
+(`desires.initiate_threshold`, `desires.gate_enabled`). A chat bot that cannot chat first is not
+the point.
 
 ---
 
@@ -308,6 +350,34 @@ drives it, so the copyleft does not reach Kaiacord. Do not copy Strudel source i
   Pass them through as-is.
 - Consecutive repeats of the same message *shape* are collapsed with a suppressed-count tally, so
   a varying number in the text no longer defeats deduplication.
+
+### Telemetry that lies
+
+**Do not trust a success line. Check what was actually transmitted.** This is the single most
+productive check in this codebase; a September 2026 review found six instances, every one of which
+had misled someone:
+
+- `"Observation digest broadcast to chat"` fired after sending an unrelated one-liner the opener
+  generator had produced *from* the digest. The digest itself had never once been spoken.
+- `"Proactive trigger evaluation: no active triggers"` covered five distinct exits, four of which
+  never consulted a trigger source. 101 of 102 evaluations said it.
+- `"Batch persistence complete for: …"` named every index it *attempted*, including ones that had
+  logged `"Failed to persist"` one line above.
+- `RAGPersistenceMixin.persist()` cleared `persist_needed` even when every write threw, so the
+  retry never happened and the index changes were lost silently.
+- `_dispatch_proactive` returned `False` with no log at all when the channel id did not resolve.
+  `"Proactive message sent"` appeared once in the entire log.
+- `[ELLIPSIS_COLLAPSE]` could not match a lone `…`, so it fired on 0 responses ever.
+
+The pattern behind all six: **success is logged where the attempt happens, not where the outcome
+lands.** When adding a log line that asserts an outcome, make it reachable only when that outcome
+occurred, and return what actually succeeded rather than what was tried.
+
+**Two sweeps worth repeating.** Enumerate every bracketed guard tag in `utils/` and count its
+occurrences in the production log — a tag with zero hits is either well-calibrated or dead code,
+and telling those apart means exercising the guard directly. And pair any claimed number against
+an independent measurement: estimated tokens against `prompt_eval_count`, a log line against the
+message actually sent, a guard's verdict against its own return value.
 
 ---
 
@@ -350,7 +420,18 @@ drives it, so the copyleft does not reach Kaiacord. Do not copy Strudel source i
 
 **Verify claims against the code.** Several long-standing statements in the old agent docs were
 simply false (see [§2](#2-running-and-validating-code)). If a doc and the code disagree, the code
-wins, and the doc should be fixed.
+wins, and the doc should be fixed. The §6 call-path table was wrong in four rows at once, so
+check it rather than trusting it.
+
+**Segment the log before counting anything.** A decision brief once reported the hallucination
+detector had "fired 42 times in the current production log". All 368 entries were unit-test
+fixtures; it has never fired on real input. `grep -c` over `logs/kaiacord.log` without splitting
+production from test runs (see [§9](#9-logging)) has now produced a wrong conclusion twice.
+
+**Exercise the code, do not just parse it.** `ast.parse` passes happily on a `NameError` waiting
+to happen — a config read added to `kaia_proactive` referenced a `config` that module never
+imported, and only calling the function found it. Three separate defects this September were
+caught by running the changed path and none by reading it.
 
 **Preserve content when cleaning.** Any transform that removes text should be checked for
 retention. A page-number stripper compiled with `re.IGNORECASE` silently deleted prose lines;
