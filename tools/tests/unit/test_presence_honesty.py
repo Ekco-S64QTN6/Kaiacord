@@ -4,12 +4,32 @@ She sat at `kaia_engagement` 0.874 announcing "people are talking." to a server
 where nobody had spoken for hours. Three separate defects produced it.
 """
 import time
-from unittest.mock import MagicMock
+from datetime import datetime
+from unittest.mock import MagicMock, patch
 
 import pytest
 
 import utils.core.kaia_presence as kp
 from utils.core.kaia_presence import KaiaPresenceManager
+
+
+@pytest.fixture(autouse=True)
+def _outside_dream_hours(monkeypatch):
+    """Pin the clock to midday for every test in this file.
+
+    `get_mood_activity` returns a sleeping status and exits before the decay
+    call and the activity bands whenever the hour is inside the dream window
+    (03:00-05:00). Without this the file passes all day and fails for two hours
+    every night — which is exactly what it did at 04:12.
+    """
+    real = datetime
+
+    class _Midday(datetime):
+        @classmethod
+        def now(cls, tz=None):
+            return real(2026, 9, 15, 12, 0, 0)
+
+    monkeypatch.setattr(kp, "datetime", _Midday)
 
 
 def _manager(engagement, minutes_since_message, coherence=0.85, freshness=0.5):
