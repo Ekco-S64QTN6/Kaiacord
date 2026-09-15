@@ -2009,6 +2009,65 @@ class MessageProcessor:
                 messages.append({"role": "user", "content": f"[You are speaking exclusively to {ctx.author_name}. Address them by this name.]\n{ctx.author_name}: {user_msg_content}"})
         
         log_debug(f"Final messages list contains {len(messages)} items (System + {len(optimized_history)} history turns + User).")
+        messages = self._clamp_to_context_window(messages)
+        return messages
+
+    def _clamp_to_context_window(self, messages: List[Dict[str, str]]) -> List[Dict[str, str]]:
+        """Drop the oldest history until the reply has room to exist.
+
+        `optimize_context` budgets with `performance.token_multiplier` (1.6),
+        which is calibrated to the *median* — measured over 147 real prompts
+        the true ratio runs 1.55 median, 1.66 at p90 and 2.04 at worst. A
+        median used as a bound underestimates roughly half of all prompts, and
+        the dense ones badly.
+
+        Measured over 154 production generations: 4 prompts broke the response
+        reserve, and the reply shrank in lockstep with what was left —
+
+            prompt 15484  headroom 900  reply 58 tokens
+            prompt 15487  headroom 897  reply 55
+            prompt 15840  headroom 544  reply 29
+            prompt 16363  headroom  21  reply 21
+
+        against a median of 87 tokens when the reserve held. She got terser on
+        exactly the turns carrying the most context. Raising the multiplier
+        covers ~6% where the worst case needs 27%, so this is a hard clamp
+        using the observed worst ratio rather than another prediction.
+
+        The system prompt and the user's own message are never trimmed; only
+        history is, oldest first — which is what `optimize_context` would have
+        dropped anyway had it known the real size.
+        """
+        try:
+            window = int(self.config.max_context_tokens)
+            reserve = int(self.config.max_response_tokens)
+        except Exception:
+            return messages
+
+        WORST_TOKENS_PER_WORD = 2.05   # observed max 2.04 over 147 real prompts
+        budget = window - reserve
+        if budget <= 0 or len(messages) < 3:
+            return messages
+
+        def _tok(m) -> int:
+            return int(len(str(m.get("content", "")).split()) * WORST_TOKENS_PER_WORD)
+
+        total = sum(_tok(m) for m in messages)
+        if total <= budget:
+            return messages
+
+        dropped = 0
+        while total > budget and len(messages) > 2:
+            total -= _tok(messages[1])
+            del messages[1]
+            dropped += 1
+
+        if dropped:
+            log_warning(
+                f"[CONTEXT_CLAMP] Dropped {dropped} history turn(s) to keep "
+                f"{reserve} tokens free for the reply "
+                f"(worst-case estimate {total} of {budget})."
+            )
         return messages
 
     async def _call_ollama_with_retries(self, ctx: MessageContext, messages: List[Dict[str, str]]) -> str:
