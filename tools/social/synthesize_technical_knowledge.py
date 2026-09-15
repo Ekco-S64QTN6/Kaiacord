@@ -1,4 +1,23 @@
 #!/usr/bin/env python3
+"""Turn the scraped Project 1999 technical forum and wiki into troubleshooting guides.
+
+Four stages: extract a {category, symptom, resolution} triple from each thread,
+group by category, consolidate each group with deduplication, write one guide
+per category into knowledge_base/troubleshooting/.
+
+Defaults to a dry run — it writes nothing without --apply, because it writes
+across the corpus (CLAUDE.md §10; `enrich_kb_metadata.py` had no argument
+parsing at all, so probing it with --help rewrote frontmatter on 124 files).
+
+    python tools/social/synthesize_technical_knowledge.py                 # dry run
+    python tools/social/synthesize_technical_knowledge.py --limit 40 --apply
+    python tools/social/synthesize_technical_knowledge.py --apply         # the lot
+
+Every Ollama call goes through `gpu_memory_manager` at BACKGROUND priority, so
+a live chat always wins the GPU (CLAUDE.md §4). It is still a few thousand
+inferences; running it with her stopped is kinder.
+"""
+import argparse
 import asyncio
 import os
 import json
@@ -17,6 +36,53 @@ WORK_DIR = Path("tools/.tech_scrape_data")
 EXTRACTED_FILE = WORK_DIR / "extracted_issues.jsonl"
 CHECKPOINT_FILE = WORK_DIR / "synthesis_checkpoint.json"
 KB_DIR = Path("knowledge_base/troubleshooting")
+
+DRY_RUN = True          # flipped by --apply
+LIMIT = None            # capped by --limit
+CONSOLIDATE_ONLY = False  # --consolidate-only: re-run stages 2-4 on existing extractions
+
+
+async def _guarded_chat(client, model_name, prompt, options, tag):
+    """One Ollama call, behind the GPU guard.
+
+    The original called `client.chat` through `asyncio.to_thread` directly, so
+    four concurrent 12B inferences competed with live chat for a 12 GB card.
+    BACKGROUND priority means this yields to anything the bot is doing.
+    """
+    from utils.infrastructure.gpu.gpu_manager import gpu_memory_manager, GPUTaskPriority
+    return await gpu_memory_manager.run_with_gpu_guard(
+        model_name=model_name,
+        priority=GPUTaskPriority.BACKGROUND,
+        coro=asyncio.to_thread(
+            client.chat, model=model_name,
+            messages=[{"role": "user", "content": prompt}], options=options),
+        task_id=tag,
+    )
+
+
+def strip_model_preamble(text: str) -> str:
+    """Drop the assistant chatter around a synthesised section.
+
+    gemma3 opens with "Okay, here's a consolidated and deduplicated guide... I'll
+    focus on clarity... Since this is based on only *one* report" and sometimes
+    closes by offering to do more. In a knowledge-base document that is not
+    commentary, it is retrievable text that reads as fact — and it leaks the
+    model's own voice into a corpus her answers are grounded in.
+
+    The prompt asks for `### Heading` sections, so anything before the first
+    heading is preamble by construction.
+    """
+    if not text:
+        return text
+    m = re.search(r'^#{2,4}\s+\S', text, re.M)
+    if m:
+        text = text[m.start():]
+    # trailing offers of further help
+    text = re.sub(
+        r'\n+(?:Let me know|Would you like|If you(?:\'d| would) like|I hope this)[^\n]*$',
+        '', text.rstrip(), flags=re.I)
+    return text.strip()
+
 
 def ensure_dirs():
     WORK_DIR.mkdir(parents=True, exist_ok=True)
@@ -76,6 +142,10 @@ async def stage1_extract(client, model_name, options):
 
     # Sort files by size so larger, more detailed files are processed first
     target_files.sort(key=lambda x: x.stat().st_size, reverse=True)
+
+    if LIMIT:
+        target_files = target_files[:LIMIT]
+        print(f"--limit {LIMIT}: taking the {len(target_files)} largest unprocessed files")
     
     print(f"Processing {len(target_files)} remaining files for synthesis...")
 
@@ -114,13 +184,9 @@ async def stage1_extract(client, model_name, options):
             )
 
             try:
-                response = await asyncio.to_thread(
-                    client.chat,
-                    model=model_name,
-                    messages=[{"role": "user", "content": prompt}],
-                    options=options
-                )
-                
+                response = await _guarded_chat(
+                    client, model_name, prompt, options, f"techsynth_extract_{i}")
+
                 summary = response['message']['content'].strip()
                 data = parse_json_from_llm(summary)
                 
@@ -200,12 +266,9 @@ async def stage3_and_4_consolidate(client, model_name, options, grouped_issues):
             
             print(f"  Processing chunk {i//chunk_size + 1}/{(len(issues)-1)//chunk_size + 1}...")
             try:
-                response = await asyncio.to_thread(
-                    client.chat,
-                    model=model_name,
-                    messages=[{"role": "user", "content": prompt}],
-                    options=options
-                )
+                response = await _guarded_chat(
+                    client, model_name, prompt, options,
+                    f"techsynth_consolidate_{category}_{i}")
                 all_synthesized_sections.append(response['message']['content'].strip())
             except Exception as e:
                 print(f"  Error on chunk: {e}")
@@ -213,26 +276,84 @@ async def stage3_and_4_consolidate(client, model_name, options, grouped_issues):
             await asyncio.sleep(1)
             
         if all_synthesized_sections:
-            with open(output_file, 'w', encoding='utf-8') as f:
-                f.write(f"# 🛠️ P99 Troubleshooting: {category}\n\n")
-                f.write(f"Source: Extracted and deduplicated from {len(issues)} community reports.\n\n")
+            if DRY_RUN:
+                print(f"  [dry run] would write {output_file} "
+                      f"({len(all_synthesized_sections)} sections from {len(issues)} reports)")
+                continue
+            readable = category.replace("_", " ")
+            keywords = sorted({
+                "Project 1999", "EverQuest", "troubleshooting", readable,
+                *[w for iss in issues[:40]
+                  for w in re.findall(r"[A-Za-z][A-Za-z0-9+#.]{3,}",
+                                      str(iss.get("symptom", "")))[:2]],
+            })[:14]
+            # The project frontmatter schema (CLAUDE.md §10). Without it these
+            # land among the 1,508 corpus files carrying no document_type, and
+            # tech-support grounding depends on retrieving them well.
+            fm = (
+                "---\n"
+                f'title: "P99 Troubleshooting — {readable}"\n'
+                'category: "Troubleshooting"\n'
+                'document_type: "Troubleshooting Guide"\n'
+                f'summary: "Deduplicated fixes for {readable} problems on Project 1999, '
+                f'consolidated from {len(issues)} community '
+                f'report{"s" if len(issues) != 1 else ""} and wiki pages."\n'
+                f'keywords: {json.dumps(keywords)}\n'
+                "---\n\n"
+            )
+            tmp = output_file.with_suffix(".tmp")
+            with open(tmp, 'w', encoding='utf-8') as f:
+                f.write(fm)
+                f.write(f"# P99 Troubleshooting: {readable}\n\n")
+                f.write(f"Consolidated from {len(issues)} community "
+                        f"report{'s' if len(issues) != 1 else ''}.\n\n")
                 for section in all_synthesized_sections:
-                    f.write(section + "\n\n---\n\n")
+                    cleaned = strip_model_preamble(section)
+                    if cleaned:
+                        f.write(cleaned + "\n\n---\n\n")
+            os.replace(tmp, output_file)      # atomic write, CLAUDE.md §4
             print(f"  Created {output_file.name}")
 
 async def main():
     ensure_dirs()
-    model_name = config.get('intelligence.main_model', 'gemma3:12b')
+    # `intelligence.main_model` and `ollama.host` are not keys this project
+    # defines — both were silently falling back to defaults that happened to be
+    # right. Use the real accessors.
+    model_name = config.chat_model
     gpu_manager = OllamaGPUManager(model_name)
     options = gpu_manager.get_gpu_options(for_chat=True)
-    client = Client(host=config.get('ollama.host', 'http://localhost:11434'))
+    client = Client(host=config.get('ollama_host', 'http://localhost:11434'))
 
-    await stage1_extract(client, model_name, options)
+    print(f"model: {model_name}   mode: {'DRY RUN (no files written)' if DRY_RUN else 'APPLY'}")
+
+    if not CONSOLIDATE_ONLY:
+        await stage1_extract(client, model_name, options)
+    else:
+        print("--consolidate-only: skipping extraction, using extracted_issues.jsonl")
     grouped = stage2_group()
     if grouped:
         await stage3_and_4_consolidate(client, model_name, options, grouped)
-        
-    print("\n✅ Pipeline Complete!")
+
+    if DRY_RUN:
+        print("\nDry run — nothing written to knowledge_base/troubleshooting/.")
+        print("Re-run with --apply to write the guides.")
+    else:
+        print("\nPipeline complete.")
+
 
 if __name__ == "__main__":
+    ap = argparse.ArgumentParser(description=__doc__,
+                                 formatter_class=argparse.RawDescriptionHelpFormatter)
+    ap.add_argument("--apply", action="store_true",
+                    help="actually write the guides (default: dry run)")
+    ap.add_argument("--limit", type=int, default=None,
+                    help="only extract from the N largest unprocessed files")
+    ap.add_argument("--consolidate-only", action="store_true",
+                    help="skip extraction and rebuild the guides from "
+                         "extracted_issues.jsonl (extraction over the whole "
+                         "corpus takes hours; this re-runs only stages 2-4)")
+    args = ap.parse_args()
+    DRY_RUN = not args.apply
+    LIMIT = args.limit
+    CONSOLIDATE_ONLY = args.consolidate_only
     asyncio.run(main())
