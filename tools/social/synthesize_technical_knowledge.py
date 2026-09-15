@@ -84,6 +84,43 @@ def strip_model_preamble(text: str) -> str:
     return text.strip()
 
 
+# The extraction prompt names eight categories; the model supplies variants
+# anyway. A 1,194-issue sample produced nine flavours of "UI"
+# (UI/Customization, UI/Interface, UI/Cosmetic, UI/Windows, UI/WinEQ2,
+# UI/Appearance, UI/Graphics, UI/Installation, UI), three of WinEQ2, plus
+# "Antivirus" and "Game Mechanics". Each distinct string becomes its own output
+# file, so without folding them the run produces guides containing a single
+# issue. Normalising at grouping time costs nothing and needs no re-extraction.
+CANONICAL = [
+    "Installation", "Login/Password", "WinEQ2", "Audio/Video",
+    "Networking/Lag", "Crashing", "Mac/Linux", "UI", "Other",
+]
+
+
+def canonical_category(raw: str) -> str:
+    c = (raw or "Other").strip()
+    low = c.lower()
+    for exact in CANONICAL:
+        if low == exact.lower():
+            return exact
+    # A prefix before the slash is the real category: "UI/Cosmetic" -> UI.
+    head = low.split("/", 1)[0].strip()
+    aliases = {
+        "ui": "UI", "wineq": "WinEQ2", "wineq2": "WinEQ2",
+        "install": "Installation", "installation": "Installation",
+        "login": "Login/Password", "password": "Login/Password",
+        "audio": "Audio/Video", "video": "Audio/Video", "sound": "Audio/Video",
+        "graphics": "Audio/Video",
+        "network": "Networking/Lag", "networking": "Networking/Lag",
+        "lag": "Networking/Lag", "connection": "Networking/Lag",
+        "crash": "Crashing", "crashing": "Crashing",
+        "mac": "Mac/Linux", "linux": "Mac/Linux",
+        "antivirus": "Installation", "firewall": "Networking/Lag",
+        "game mechanics": "Other", "performance": "Networking/Lag",
+    }
+    return aliases.get(head, aliases.get(low, "Other"))
+
+
 def ensure_dirs():
     WORK_DIR.mkdir(parents=True, exist_ok=True)
     KB_DIR.mkdir(parents=True, exist_ok=True)
@@ -225,7 +262,7 @@ def stage2_group():
             if not line: continue
             try:
                 data = json.loads(line)
-                cat = data.get("category", "Other").replace("/", "_").replace(" ", "_")
+                cat = canonical_category(data.get("category")).replace("/", "_").replace(" ", "_")
                 if cat not in grouped:
                     grouped[cat] = []
                 grouped[cat].append(data)
