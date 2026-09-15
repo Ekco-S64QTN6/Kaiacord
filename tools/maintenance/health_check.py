@@ -88,18 +88,22 @@ class HealthCheck:
                 self.check("Ollama Installed", True, "")
                 
                 # Read required models from config — no hardcoded model names
+                # No classification model. `models.classification_model` was
+                # removed in 69de4d8 along with the gemma2:2b second pass,
+                # whose verdict nothing read. This kept reading the key and
+                # falling back to the literal 'gemma2:2b', so the health check
+                # reported a required model as missing and told the operator to
+                # pull something that had been deliberately deleted.
                 try:
                     from utils.infrastructure.system.yaml_config import config
                     chat_model = config.chat_model
-                    classification_model = config.get('models.classification_model', 'gemma2:2b')
                     embedding_model = config.get('models.embedding', 'nomic-embed-text-cpu')
                 except Exception:
                     chat_model = "gemma3:12b"
-                    classification_model = "gemma2:2b"
                     embedding_model = "nomic-embed-text-cpu"
 
                 output = result.stdout.lower()
-                required_models = [chat_model, classification_model, embedding_model]
+                required_models = [chat_model, embedding_model]
                 found_models = []
                 
                 for model in required_models:

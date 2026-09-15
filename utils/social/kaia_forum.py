@@ -182,11 +182,28 @@ async def get_forum_client(force_new: bool = False) -> Optional["ForumClient"]:
 
         if _client is None:
             from utils.infrastructure.system.yaml_config import config
-            _client = ForumClient(
+            candidate = ForumClient(
                 base_url=config.get('forum.base_url', 'https://www.project1999.com/forums'),
                 forum_id=config.get('forum.forum_id', 19),
             )
-            await _client.login()
+            # Do not cache a client that failed to log in.
+            #
+            # `_client` used to be assigned before the login attempt and the
+            # result was discarded, so a single transient failure — the forum
+            # down for a minute, a network blip — left an unauthenticated
+            # client cached for the lifetime of the process. Every later call
+            # saw `_client is not None` and returned it without retrying, so
+            # forum posting and scraping stayed dead until a restart, with one
+            # stale log_error far up the log as the only clue.
+            if not await candidate.login():
+                log_warning("Forum login failed; not caching the client so the "
+                            "next call retries.")
+                try:
+                    await candidate.close()
+                except Exception:
+                    pass
+                return None
+            _client = candidate
 
         return _client
 
