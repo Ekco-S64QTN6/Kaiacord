@@ -2049,29 +2049,64 @@ class MessageProcessor:
         except Exception:
             return messages
 
-        WORST_TOKENS_PER_WORD = 2.05   # observed max 2.04 over 147 real prompts
+        # 1.85, not the observed worst of ~2.05.
+        #
+        # The first cut of this used the worst ratio on every prompt, on the
+        # reasoning that a budget wants a conservative bound. That was wrong by
+        # a wide margin: at 2.05 the system prompt *alone* exceeds the budget,
+        # so the loop drained every history turn and still reported itself over.
+        # Five consecutive production turns lost 12, 17, 19, 21 and 23 turns of
+        # conversation, and the prompts that resulted measured 12461, 11757,
+        # 14989, 11982 and 13757 tokens — every one comfortably inside 15360.
+        # She could not recall anything said to her.
+        #
+        # Derived from those same five turns, the true ratio runs 1.42 to 1.76
+        # (median 1.51). 1.75 sits at the observed maximum. Going higher is not
+        # "safer": the assembled system prompt is ~8,400 words on its own, so
+        # at 1.85 it alone is scored over budget and every history turn is
+        # discarded before the loop gives up. The asymmetry settles it —
+        # underestimating costs a shorter reply on a rare dense turn,
+        # overestimating costs her entire memory on every turn.
+        TOKENS_PER_WORD = 1.75
+        # She always keeps recent context. `optimize_context` has already
+        # fitted history to its own budget before this runs — the log line
+        # "History optimized to 26 turns within 2128 token budget" is that
+        # work — so this is a backstop for what gets added to the system prompt
+        # *after* that budgeting, not a second opinion on how much history is
+        # affordable. Trimming to nothing is never the right answer: if the
+        # prompt still does not fit, the system prompt is the oversized part.
+        MIN_HISTORY_TURNS = 8
+
         budget = window - reserve
         if budget <= 0 or len(messages) < 3:
             return messages
 
         def _tok(m) -> int:
-            return int(len(str(m.get("content", "")).split()) * WORST_TOKENS_PER_WORD)
+            return int(len(str(m.get("content", "")).split()) * TOKENS_PER_WORD)
 
         total = sum(_tok(m) for m in messages)
         if total <= budget:
             return messages
 
         dropped = 0
-        while total > budget and len(messages) > 2:
+        # messages[0] is the system prompt, messages[-1] the user's message;
+        # everything between is history.
+        while total > budget and (len(messages) - 2) > MIN_HISTORY_TURNS:
             total -= _tok(messages[1])
             del messages[1]
             dropped += 1
 
-        if dropped:
+        if total > budget:
+            log_warning(
+                f"[CONTEXT_CLAMP] Still {total} of {budget} with only "
+                f"{len(messages) - 2} history turn(s) left — the system prompt "
+                f"is the oversized part, not the history. Keeping what remains."
+            )
+        elif dropped:
             log_warning(
                 f"[CONTEXT_CLAMP] Dropped {dropped} history turn(s) to keep "
                 f"{reserve} tokens free for the reply "
-                f"(worst-case estimate {total} of {budget})."
+                f"(estimate {total} of {budget})."
             )
         return messages
 

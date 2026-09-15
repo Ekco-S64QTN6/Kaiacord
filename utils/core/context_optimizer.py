@@ -226,6 +226,31 @@ class ContextOptimizer:
                 if "kaia_dreams" in path: type_label = "INTERNAL REFLECTION (DREAM)"
                 elif is_persona: type_label = "IDENTITY CORE"
                 elif "user_profile" in path: type_label = "USER PROFILE SUMMARY"
+                elif "user_logs/forum_" in path or "user_logs\\forum_" in path:
+                    # A forum post is not something that was said to her.
+                    #
+                    # `knowledge_base/user_logs/` holds both Discord transcripts
+                    # and scraped Project 1999 posts — 218 forum directories
+                    # against 9 Discord ones, 47% of the corpus by size. Both
+                    # matched `is_log`, so a years-old forum post was injected
+                    # as "[CONVERSATION HISTORY: TENNO | 2026-09-07]" and she
+                    # recalled it as something said in Discord.
+                    #
+                    # The person is the same — the identity registry links the
+                    # accounts deliberately — so the name stays. Only the venue
+                    # is restored, because that is what was missing.
+                    provenance = []
+                    if user_name:
+                        # "forum Tenno Henka 123" -> "TENNO HENKA"
+                        cleaned = re.sub(r'^FORUM\s+', '', user_name)
+                        cleaned = re.sub(r'\s+\d+$', '', cleaned).strip()
+                        provenance.append(cleaned or user_name)
+                    date_str = self._extract_date_from_path(path)
+                    if date_str: provenance.append(date_str)
+                    label = "FORUM POST (Project 1999 — NOT said in Discord)"
+                    if provenance: label += f": {' | '.join(provenance)}"
+                    history_nodes.append(f"[{label}]\n{content_raw}")
+                    continue
                 else:
                     # Add user name and date provenance
                     provenance = []

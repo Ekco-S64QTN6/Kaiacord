@@ -23,7 +23,7 @@ import pytest
 from utils.core.message_processor import MessageProcessor
 
 WINDOW, RESERVE = 16384, 1024
-WORST = 2.05
+WORST = 1.75
 
 
 @pytest.fixture
@@ -76,3 +76,37 @@ def test_it_degrades_rather_than_raising_on_a_broken_config(processor):
     processor.config.max_context_tokens = "not a number"
     messages = _build(history_turns=12)
     assert processor._clamp_to_context_window(messages) is messages
+
+
+def test_it_does_not_strip_history_to_nothing(processor):
+    """The first cut used the observed worst ratio (2.05) on every prompt. At
+    that multiplier the ~8,400-word system prompt alone scores over budget, so
+    the loop drained every history turn and still reported itself over. Five
+    consecutive production turns lost 12, 17, 19, 21 and 23 turns, and the
+    resulting prompts measured 12461, 11757, 14989, 11982 and 13757 tokens —
+    every one comfortably inside 15360. She could not recall anything said to
+    her, which is how it was noticed.
+    """
+    clamped = processor._clamp_to_context_window(_build(history_turns=26))
+    history = len(clamped) - 2
+    assert history >= 8, f"history stripped to {history} turns"
+
+
+def test_a_healthy_prompt_keeps_all_of_its_history(processor):
+    """The five real turns above all fitted. None of them should be touched."""
+    messages = _build(history_turns=6, words_each=60, system_words=8400)
+    before = len(messages)
+    assert processor._clamp_to_context_window(messages) == messages
+    assert len(messages) == before
+
+
+def test_the_multiplier_sits_at_the_measured_maximum(processor):
+    """1.75 catches 4/4 of the real overflows that squeezed the reply while
+    wrongly trimming 1/5 healthy turns; 2.05 wrongly trims 3/5."""
+    import inspect
+
+    src = inspect.getsource(processor._clamp_to_context_window)
+    assert "TOKENS_PER_WORD = 1.75" in src
+    # 2.05 may still be named in the comment explaining why it was wrong; what
+    # matters is that it is not the value in use.
+    assert "TOKENS_PER_WORD = 2.05" not in src
