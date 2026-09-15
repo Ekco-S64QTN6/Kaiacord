@@ -34,6 +34,8 @@ from utils.infrastructure.logging.kaia_logger import (
 # ── Rate Limiting Constants ─────────────────────────────────────────
 MAX_DAILY_PROACTIVE = 2
 MIN_INTERVAL_SECONDS = 4 * 3600  # 4 hours between proactive messages
+# Defaults for the proactive speaking window. Overridable in config; these
+# were hardcoded, so changing when she may speak first meant editing source.
 QUIET_HOUR_START = 9   # 9 AM
 QUIET_HOUR_END = 22    # 10 PM
 ABSENCE_THRESHOLD_DAYS = 3  # User must be gone this long to trigger
@@ -130,7 +132,13 @@ class ProactiveEngine:
     def _is_within_hours(self) -> bool:
         """Check if current time is within the allowed proactive window."""
         hour = datetime.now().hour
-        return QUIET_HOUR_START <= hour < QUIET_HOUR_END
+        try:
+            from utils.infrastructure.system.yaml_config import config
+            start = int(config.get('proactive.quiet_hour_start', QUIET_HOUR_START))
+            end = int(config.get('proactive.quiet_hour_end', QUIET_HOUR_END))
+        except (TypeError, ValueError):
+            start, end = QUIET_HOUR_START, QUIET_HOUR_END
+        return start <= hour < end
 
     def is_within_hours(self) -> bool:
         """Public alias so out-of-band senders (e.g. the observation digest

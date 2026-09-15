@@ -283,6 +283,16 @@ dashboard:
 # the clock — a fixed 2-hour loop re-summarised the same trailing window and
 # produced near-duplicate entries whenever the channel was quiet.
 # ============================================================================
+# Proactive speaking window
+# ============================================================================
+proactive:
+  # Local hours during which she may speak first. Wraps nothing: 9-22 means
+  # 09:00 until 21:59. These were hardcoded in kaia_proactive.py, so changing
+  # when she may initiate meant editing source.
+  quiet_hour_start: 9
+  quiet_hour_end: 22
+
+# ============================================================================
 # Inner monologue
 # ============================================================================
 desires:
@@ -325,6 +335,15 @@ monologue:
   # Prefixed so an aired thought reads as a thought. Unlabelled it looked
   # like a random remark dropped into the channel.
   broadcast_prefix: "🧠 **Inner monologue:**"
+
+  # Whether an aired thought obeys the proactive quiet hours below.
+  #
+  # Off. A proactive opener interrupts someone in a channel they are reading;
+  # a thought in #kaia-opolis is her talking to herself in her own room. With
+  # this on she generated three thoughts one evening — 23:02, 23:31, 23:48,
+  # the last directly about a question she had just been asked — and withheld
+  # every one. The daily cap and minimum interval still apply.
+  respect_quiet_hours: false
 
   # Budget, applied on top of the proactive engine's quiet hours.
   max_broadcasts_per_day: 6

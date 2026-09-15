@@ -1752,11 +1752,20 @@ class CoreTaskManager:
                 log_debug("Monologue broadcast skipped: inside minimum interval.")
                 return False
 
-            # Quiet hours are the proactive engine's, so one setting governs
-            # everything that speaks unprompted.
-            if self.proactive_engine and not self.proactive_engine.is_within_hours():
-                log_debug("Monologue broadcast skipped: outside active hours.")
-                return False
+            # Quiet hours are opt-in here, and off by default.
+            #
+            # These used to be the proactive engine's window (09:00-22:00) on
+            # the reasoning that one setting should govern everything that
+            # speaks unprompted. In practice that is the wrong comparison: a
+            # proactive opener interrupts someone in a channel they are reading,
+            # whereas a thought in #kaia-opolis is her talking to herself in her
+            # own room. Three thoughts in one evening — 23:02, 23:31, 23:48,
+            # one of them directly about the question Ekco had just asked her —
+            # were generated, logged, and silently withheld.
+            if config.get("monologue.respect_quiet_hours", False):
+                if self.proactive_engine and not self.proactive_engine.is_within_hours():
+                    log_debug("Monologue broadcast skipped: outside active hours.")
+                    return False
 
             channel = discord.utils.get(self.ctx.bot.get_all_channels(), name="kaia-opolis")
             if not channel:

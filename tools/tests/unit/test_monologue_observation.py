@@ -270,3 +270,64 @@ def test_both_broadcasts_are_labelled():
     assert 'config.get("monologue.broadcast_prefix"' in mono
     assert 'config.get("observation.broadcast_prefix"' in digest
     assert 'f"{label} ' in mono and 'f"{label} ' in digest
+
+
+def test_a_late_night_thought_is_not_withheld():
+    """Three thoughts in one evening were generated, logged and silently
+    dropped — 23:02, 23:31 and 23:48, the last directly about a question Ekco
+    had just asked her — because the monologue obeyed the proactive engine's
+    09:00-22:00 window.
+
+    That was the wrong comparison. A proactive opener interrupts someone in a
+    channel they are reading; a thought in #kaia-opolis is her talking to
+    herself in her own room. The daily cap and minimum interval still apply.
+    """
+    import asyncio
+    from unittest.mock import MagicMock, patch
+
+    from utils.core.background_tasks import CoreTaskManager
+    from utils.infrastructure.system import yaml_config
+
+    def _air(respect_quiet_hours):
+        manager = CoreTaskManager.__new__(CoreTaskManager)
+        manager.ctx = MagicMock()
+        manager.ctx.bot_state.monologue_broadcast_date = ""
+        manager.ctx.bot_state.monologue_broadcast_count = 0
+        manager.ctx.bot_state.monologue_broadcast_last_sent = 0.0
+        engine = MagicMock()
+        engine.is_within_hours.return_value = False        # 23:48
+        manager.proactive_engine = engine
+
+        real_get = yaml_config.config.get
+
+        def fake_get(key, default=None):
+            if key == "monologue.broadcast_to_chat":
+                return True
+            if key == "monologue.respect_quiet_hours":
+                return respect_quiet_hours
+            return real_get(key, default)
+
+        async def _noop(channel, text):
+            return None
+
+        with patch.object(yaml_config.config, "get", fake_get), \
+             patch("discord.utils.get", return_value=MagicMock(id=1)), \
+             patch("utils.infrastructure.system.messaging.send_kaia_response", _noop):
+            return asyncio.run(manager._broadcast_monologue("a late thought"))
+
+    assert _air(respect_quiet_hours=False) is True, \
+        "a thought at 23:48 was withheld"
+    assert _air(respect_quiet_hours=True) is False, \
+        "the opt-in quiet-hours gate no longer works"
+
+
+def test_the_proactive_window_is_configurable():
+    """`QUIET_HOUR_START`/`QUIET_HOUR_END` were hardcoded, so changing when she
+    may speak first meant editing source."""
+    import inspect
+
+    from utils.core.kaia_proactive import ProactiveEngine
+
+    src = inspect.getsource(ProactiveEngine._is_within_hours)
+    assert "proactive.quiet_hour_start" in src
+    assert "proactive.quiet_hour_end" in src
