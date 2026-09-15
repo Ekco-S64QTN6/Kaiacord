@@ -33,7 +33,7 @@ month.
 
 | | |
 |:--|:--|
-| **Runs entirely offline** | One 12 GB consumer GPU. Inference, embeddings, and classification are all local. |
+| **Runs entirely offline** | One 12 GB consumer GPU. Inference and embeddings are local; intent classification is plain regex. |
 | **State survives restarts** | Mood, relationships, beliefs, and episodic anchors are persisted atomically to disk. |
 | **Deterministic where it matters** | Combat maths, budgeting, and safety filtering are plain Python. The LLM is used for language, not arithmetic. |
 | **Grounded by default** | Hybrid BM25 + vector retrieval over a curated Markdown knowledge base, fused with Reciprocal Rank Fusion. |
@@ -126,9 +126,11 @@ flowchart TD
     end
 ```
 
-**1 · Intent classification (CPU).** A dual-path classifier routes common patterns through
-regex matchers and sends ambiguous input to a CPU-pinned `gemma2:2b`, so the primary model is
-never woken just to label a message.
+**1 · Intent classification (CPU).** Deterministic regex matchers label the query — greeting,
+command, recap, diagnostic, dream recall — so the primary model is never woken just to label a
+message. An LLM second pass exists in `IntentParser.parse_intent` but is not wired into the
+request path: it was dispatched fire-and-forget and its verdict was never read, so it was
+removed rather than left burning CPU for a discarded answer.
 
 **2 · Hybrid retrieval.** BM25 lexical search and dense vectors (`nomic-embed-text-cpu`) run in
 parallel over the Markdown knowledge base, then merge via Reciprocal Rank Fusion. Sources
@@ -168,7 +170,6 @@ pip install -r requirements.txt
 
 ```bash
 ollama pull gemma3:12b            # chat, narration, vision  (GPU)
-ollama pull gemma2:2b             # intent classification    (CPU)
 ollama pull nomic-embed-text-cpu  # RAG embeddings           (CPU)
 ```
 
@@ -218,7 +219,6 @@ the full context window stays available to the chat model.
 | Model | Role | Device | VRAM | Host RAM |
 |:--|:--|:--:|--:|--:|
 | `gemma3:12b` | Chat, narration, vision | **GPU** | ~8.2 GB | ~1.2 GB KV cache |
-| `gemma2:2b` | Intent classification | CPU | — | ~1.6 GB |
 | `nomic-embed-text-cpu` | RAG embeddings | CPU | — | ~500 MB |
 
 > [!NOTE]

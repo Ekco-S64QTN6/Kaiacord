@@ -1861,7 +1861,7 @@ class CoreTaskManager:
             # Same reasoning as the monologue: label it so it reads as an
             # observation about the room rather than an opinion aimed at
             # whoever spoke last.
-            label = config.get("observation.broadcast_prefix", "👁️ **Overheard:**")
+            label = config.get("observation.broadcast_prefix", "💭 **Observation:**")
             async with channel.typing():
                 await asyncio.sleep(2.0)
             await send_kaia_response(channel, f"{label} {text}")

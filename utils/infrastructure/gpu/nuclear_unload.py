@@ -11,7 +11,6 @@ async def nuclear_unload():
     # Read model names from config — no more hardcoded strings
     models = [
         config.chat_model,
-        config.get('models.classification_model', 'gemma2:2b'),
         config.get('models.embedding', 'nomic-embed-text-cpu'),
     ]
     

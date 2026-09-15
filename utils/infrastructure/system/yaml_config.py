@@ -335,6 +335,8 @@ class YAMLConfig:
     
     @property
     def classification_context_tokens(self) -> int:
+        # Retained only so an old kaia.yaml carrying this key does not break.
+        # Nothing reads it: there is no classification model any more.
         return self.get_path('performance.classification_context_tokens', 2048)
     
     @property
@@ -426,16 +428,6 @@ class YAMLConfig:
     # =========================================================================
     # Timeout Configuration (extracted from magic numbers)
     # =========================================================================
-    @property
-    def classification_timeout(self) -> float:
-        """Query classification timeout in seconds"""
-        return self.get_path('timeouts.classification_seconds', 35.0)
-    
-    @property
-    def orchestration_classification_timeout(self) -> float:
-        """Orchestration wait timeout for classification in seconds"""
-        return self.get_path('timeouts.orchestration_classification_seconds', 45.0)
-    
     @property
     def prewarm_timeout(self) -> float:
         """Model pre-warm timeout in seconds"""

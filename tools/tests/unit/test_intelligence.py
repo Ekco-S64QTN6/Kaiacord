@@ -81,10 +81,15 @@ def test_fast_parse_handles_a_technical_query_without_the_llm():
 
 @needs_ollama
 @pytest.mark.ollama
-@pytest.mark.slow
-@pytest.mark.asyncio
-async def test_full_parse_classifies_a_technical_query():
-    import ollama
-    parser = IntentParser(ollama.AsyncClient())
-    intent = await parser.parse_intent("how do I fix a CUDA error in pytorch?")
-    assert intent.suggested_strategy in ("DIAGNOSTIC_DEEP_DIVE", "EXPLORATORY_DIALOGUE")
+def test_there_is_no_llm_second_pass():
+    """`parse_intent` ran gemma2:2b on every ambiguous message and its verdict
+    was never read — `ctx.intent` only ever came from `fast_parse`. The model
+    was pulled, warmed and held ~1.6 GB of host RAM to answer 135 times in one
+    production log, into the void. Classification is regex now."""
+    parser = IntentParser()
+    assert not hasattr(parser, "parse_intent")
+    assert not hasattr(parser, "_analyze_with_llm")
+    assert not hasattr(parser, "pre_warm")
+    assert not hasattr(parser, "classification_model")
+    # the regex path is the classifier, and still works
+    assert parser.fast_parse("hi kaia").suggested_strategy == "SOCIAL_GREETING"

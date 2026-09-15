@@ -21,7 +21,11 @@ inference on a single RTX 3060 12 GB.
 | **Social & forum** | `utils/social/` | Project 1999 forum client, moderation queue, Bluesky/X (both disabled by default). |
 | **Monitoring** | `utils/infrastructure/monitoring/` | Curses dashboard (`btop_dashboard_v2.py`). |
 
-Models: `gemma3:12b` (GPU), `gemma2:2b` (CPU classifier), `nomic-embed-text-cpu` (CPU embeddings).
+Models: `gemma3:12b` (GPU), `nomic-embed-text-cpu` (CPU embeddings). **There is no classifier
+model.** Intent is matched by regex in `IntentParser.fast_parse`. A `gemma2:2b` second pass used
+to run on every ambiguous message and its verdict was never read — `ctx.intent` only ever came
+from the fast path — so the dispatch, the model, its warm-up and its config were removed in
+September 2026. Do not re-add a classification model without also consuming its result.
 
 Configuration resolves **environment variables → `config/kaia.yaml` (your overrides) →
 `config/default_config.yaml` (defaults)**. Edit `kaia.yaml`; leave the defaults file alone.

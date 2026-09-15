@@ -401,11 +401,8 @@ async def on_ready():
     # VRAM contention during the initial load window.
     log_action("[Phase 1.5] Initializing secondary models...")
     ctx.model_warm_pool = ModelWarmPool(ctx.ollama_client)
-    ctx.intent_parser = IntentParser(
-        ctx.ollama_client,
-        model=config.get('models.classification_model', 'gemma2:2b'),
-        timeout=config.classification_timeout,
-    )
+    # Regex only — no model, nothing to load. See IntentParser.__init__.
+    ctx.intent_parser = IntentParser()
     if ctx.message_processor:
         ctx.message_processor.intent_parser = ctx.intent_parser
 
@@ -473,22 +470,9 @@ async def _phase3_background_init():
     except Exception as e:
         log_error(f"[Phase 3] RAG init error: {e}")
 
-    # 3c. Warm intent classifier on CPU only.
-    try:
-        classifier_device = "GPU" if config.get('models.classification_on_gpu', False) else "CPU"
-        log_action(f"[Phase 3] Waiting for first chat completion before warming intent classifier...")
-        
-        # Sequence Fix: Wait for first chat or 10 min fallback to avoid connection serialization stalls
-        _wait_start = time.time()
-        while not ctx.bot_state.first_chat_done and (time.time() - _wait_start < 600):
-            await asyncio.sleep(5.0)
-            
-        log_action(f"[Phase 3] Warming intent classifier ({config.get('models.classification_model', 'gemma2:2b')}) on {classifier_device} …")
-        if ctx.intent_parser:
-            await ctx.intent_parser.pre_warm()
-        log_success(f"[Phase 3] Intent classifier ready ({classifier_device}).")
-    except Exception as e:
-        log_error(f"[Phase 3] Intent classifier warm failed: {e}")
+    # 3c. (removed) The intent classifier used to be warmed here, which meant
+    # waiting up to ten minutes for the first chat and then pulling and loading
+    # gemma2:2b. Classification is regex now; there is no model to warm.
 
     # 3d. RAG knowledge base refresh — scans for new/changed files and embeds them.
     try:

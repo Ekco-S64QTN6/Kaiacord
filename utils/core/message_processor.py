@@ -561,23 +561,28 @@ class MessageProcessor:
             if fast_intent.confidence > 0.9 and fast_intent.suggested_strategy in ["SOCIAL_GREETING", "COMMAND_EXECUTION", "RECAP_QUERY"]:
                 return
 
-        # 2. Start Logic Analysis (Layer 2)
-        task_name = f"intent_{ctx.author_id}_{hash(ctx.message.content)}"
-
-        all_tasks = task_registry.get_all_tasks()
-        if task_name in all_tasks and not all_tasks[task_name].done():
-            log_debug(f"Intent analysis already in progress for {ctx.author_name}, reusing task.")
-            ctx.classification_task = all_tasks[task_name]
-            return
-
-        from utils.core.kaia_intelligence import ContextWeaver
-        channel_mem = list(self.bot_state.channel_memory.get(ctx.channel_id, []))
-        context_obj = ContextWeaver.weave(channel_mem)
-
-        ctx.classification_task = asyncio.create_task(
-            self.intent_parser.parse_intent(ctx.sanitized_content, context_obj)
-        )
-        task_registry.register(task_name, ctx.classification_task)
+        # Layer 2 is not dispatched. It was fire-and-forget.
+        #
+        # This used to create an asyncio task running `parse_intent`, which
+        # wakes gemma2:2b on the CPU — 135 times in one production log, median
+        # 1.0s each. Nothing ever awaited that task or read its result:
+        # `ctx.intent` is only ever assigned from `fast_parse` above, the task
+        # registry touches these only to cancel them at shutdown, and
+        # `ctx.classification_task` had no reader anywhere in the codebase. The
+        # `Strategy Merge: Overriding LLM ...` line fires inside `parse_intent`,
+        # so the merge genuinely happened and the merged verdict then went
+        # nowhere.
+        #
+        # It cost no wall-clock latency, since it overlapped retrieval, but it
+        # competed with nomic-embed-text-cpu for the same cores to produce an
+        # answer that was discarded. Removing the dispatch changes no behaviour
+        # — nothing downstream consumed it — and reclaims that work.
+        #
+        # `IntentParser.parse_intent` is deliberately left intact. If Layer 2
+        # is wanted, the work is to await it where intent is needed and accept
+        # that routing will shift on the turns where the fast path finds
+        # nothing; it is not to re-add a call whose result is dropped.
+        return
 
     def _derive_legacy_category(self, intent) -> str:
         """Map new strategies to old categories for backward compatibility."""

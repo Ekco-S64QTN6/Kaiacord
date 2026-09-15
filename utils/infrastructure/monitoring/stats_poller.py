@@ -157,10 +157,11 @@ class RealTimeStatsPoller:
                     new_stats['ollama_status'] = "🟢 ONLINE"
                     
                     # Target models for filtering
+                    # gemma2:2b is gone: classification is regex, so no
+                    # classifier model is loaded and it should not be listed.
                     target_models = [
                         config.chat_model,          # gemma3:12b
-                        config.embedding_model,     # nomic-embed-text-cpu  
-                        config.get('models.classification_model', 'gemma2:2b')
+                        config.embedding_model,     # nomic-embed-text-cpu
                     ]
                     
                     model_list = []

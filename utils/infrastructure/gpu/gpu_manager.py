@@ -192,8 +192,7 @@ class OllamaGPUManager:
                 # Fallback list
                 from utils.infrastructure.system.yaml_config import config
                 running_models = [
-                    config.chat_model, 
-                    config.get('models.classification_model', 'gemma2:2b'),
+                    config.chat_model,
                     config.get('models.embedding', 'nomic-embed-text-cpu'),
                 ]
 

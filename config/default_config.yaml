@@ -19,11 +19,9 @@ models:
   # nomic-embed-text-cpu runs CPU-only via num_gpu:0, preserving VRAM for the chat model.
   embedding: "nomic-embed-text-cpu"
 
-  # Intent classification model
-  classification_model: "gemma2:2b"
-
-  # Whether to run intent classification on GPU (default: false, runs on CPU)
-  classification_on_gpu: false
+  # No classification model. Intent is matched by regex in
+  # IntentParser.fast_parse; the LLM second pass was removed because its
+  # verdict was never read (see utils/core/intent_classifier.py).
 
 # ============================================================================
 # Performance Configuration
@@ -80,8 +78,6 @@ performance:
   # Total tokens for chat model (bumped from 12000 to use VRAM headroom)
   max_context_tokens: 16384
 
-  # Context window for CPU-based classification (IntentParser)
-  classification_context_tokens: 2048
   
   # Context window for CPU-based embeddings (OllamaEmbedding)
   embedding_context_tokens: 2048
@@ -344,7 +340,7 @@ observation:
 
   # Prefixed so it reads as an observation about the room rather than an
   # opinion aimed at whoever spoke last.
-  broadcast_prefix: "👁️ **Overheard:**"
+  broadcast_prefix: "💭 **Observation:**"
 
   # Say the digest out loud instead of only writing it to
   # memory/observation_digest.json. Set false to keep it background-only.

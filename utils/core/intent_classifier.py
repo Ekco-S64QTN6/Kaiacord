@@ -51,9 +51,9 @@ class ModelWarmPool:
         # it can collide with an in-flight chat. It also needs a timeout: the
         # bare `except Exception: pass` below would swallow a hang completely.
         #
-        # for_chat is False so a CPU-only model (the gemma2:2b classifier) is
-        # not forced onto the GPU by the warm-up. get_gpu_options(for_chat=True)
-        # returns num_gpu: 99 regardless of the model.
+        # for_chat is False so a CPU-only model is not forced onto the GPU by
+        # the warm-up. get_gpu_options(for_chat=True) returns num_gpu: 99
+        # regardless of the model.
         try:
             from utils.infrastructure.gpu.gpu_manager import (
                 OllamaGPUManager, gpu_memory_manager, GPUTaskPriority,
@@ -170,72 +170,22 @@ class IntentParser:
     """
     
 
-    def __init__(self, ollama_client=None, model=None, logger=None, host="http://localhost:11434", timeout=120.0):
-        from utils.infrastructure.system.yaml_config import config
-        self.ollama_client = ollama_client
-        self.host = host
-        self.host_model = model or config.chat_model
+    def __init__(self, ollama_client=None, model=None, logger=None,
+                 host="http://localhost:11434", timeout=120.0):
+        """Regex intent matching. No model is loaded and none is called.
+
+        The arguments are kept so existing call sites and tests keep working;
+        they are ignored. This class used to hold an Ollama client, a
+        `classification_model` (gemma2:2b), CPU option tuning and a pre-warm
+        routine for a second LLM pass — `parse_intent` / `_analyze_with_llm` —
+        that ran on every ambiguous message and whose verdict nothing ever
+        read. `ctx.intent` was only ever assigned from `fast_parse`, so the
+        model was pulled, warmed, held ~1.6 GB of host RAM and answered 135
+        times in one production log, into the void.
+        """
         self.logger = logger or log_info
-        self.timeout = timeout
-        
-        # Lazy client initialization if needed
-        if self.ollama_client is None:
-            try:
-                import ollama
-                self.ollama_client = ollama.AsyncClient(host=self.host, timeout=self.timeout)
-            except ImportError:
-                log_error("Ollama library not found. IntentParser will fail.")
-        
-        # Optimized options for analysis
-        from utils.infrastructure.system.yaml_config import config
-        from utils.infrastructure.gpu.gpu_manager import OllamaGPUManager
-        
-        # LAYER 0: Classification Model Selection (Default to gemma2:2b on CPU)
-        # Using a smaller model on CPU prevents GPU semaphore contention.
-        self.classification_model = config.get('models.classification_model', 'gemma2:2b')
-        self.use_gpu_for_classification = config.get('models.classification_on_gpu', False)
-        
-        # DEFENSIVE GUARD: Ensure config values are real types, not MagicMock objects
-        # from test contamination (see: test_intent_fix.py sys.modules poisoning incident)
-        if not isinstance(self.classification_model, str):
-            log_warning(f"[IntentParser] classification_model is {type(self.classification_model).__name__}, falling back to 'gemma2:2b'")
-            self.classification_model = 'gemma2:2b'
-        if not isinstance(self.use_gpu_for_classification, bool):
-            self.use_gpu_for_classification = False
-        
-        # [MEMORY OPTIMIZATION]: Intent analysis only needs the current query and 
-        # minimal context. 
-        # We cap this to the value in config (default 2048).
-        classification_ctx = config.classification_context_tokens
-        if not isinstance(classification_ctx, int):
-            classification_ctx = 2048
-        
-        _num_thread = config.num_thread
-        if not isinstance(_num_thread, int):
-            _num_thread = 6
-        
-        # Get base options
-        if self.use_gpu_for_classification:
-            gpu_mgr = OllamaGPUManager(self.classification_model)
-            self.classification_options = gpu_mgr.get_gpu_options(for_chat=True, num_ctx=classification_ctx)
-        else:
-            # CPU-only options
-            self.classification_options = {
-                "num_gpu": 0,
-                "num_thread": _num_thread, # Utilize Ryzen 5 9600X cores
-                "num_ctx": classification_ctx,
-                "num_predict": 256,
-                "temperature": 0.1,
-                "top_p": 0.9
-            }
-        
-        if self.use_gpu_for_classification:
-            self.classification_options.update({
-                "temperature": 0.1,
-                "top_p": 0.9,
-                "num_predict": 256
-            })
-        
+
+
         # LAYER 1: Fast Pattern Triggers (Precompiled for performance)
         self.fast_triggers = {}
         raw_triggers = {
@@ -311,7 +261,7 @@ class IntentParser:
         for strategy, patterns in raw_triggers.items():
             self.fast_triggers[strategy] = [re.compile(p, re.IGNORECASE) for p in patterns]
 
-        log_success(f"IntentParser initialized (Model: {self.classification_model})")
+        log_success("IntentParser initialized (regex fast-path only).")
     
     def fast_parse(self, query: str) -> Optional[Intent]:
         """Layer 1: Fast Pattern Detection"""
@@ -367,225 +317,4 @@ class IntentParser:
                     )
         return None
 
-    async def parse_intent(self, query: str, context: Optional[ContextCtx] = None) -> Intent:
-        """Main Entry Point: Analyze query into Intent Object"""
-        
-        # 1. Layer 1: Fast Path
-        fast_intent = self.fast_parse(query)
-        # If it's a Greeting, Command, or Summarization, return immediately.
-        if fast_intent and fast_intent.suggested_strategy in ["SOCIAL_GREETING", "COMMAND_EXECUTION", "SUMMARIZATION"]:
-             return fast_intent
-
-        # 2. Layer 2: LLM Intent Analysis (with fast-path hint if available)
-        hint = fast_intent.suggested_strategy if fast_intent else None
-        
-        # EXECUTION: If classification is on CPU, we BYPASS the GPU semaphore.
-        # This allows classification to run while another task is generating.
-        if not self.use_gpu_for_classification:
-            log_debug(f"Executing CPU-based intent classification: {self.classification_model}")
-            llm_intent = await self._analyze_with_llm(query, context, fast_path_hint=hint)
-        else:
-            from utils.infrastructure.gpu.gpu_manager import gpu_memory_manager, GPUTaskPriority
-            
-            llm_intent = await gpu_memory_manager.run_with_gpu_guard(
-                model_name=self.classification_model,
-                priority=GPUTaskPriority.CRITICAL,
-                coro=self._analyze_with_llm(query, context, fast_path_hint=hint),
-                task_id=f"intent_{int(time.time())}"
-            )
-        
-        # 3. Layer 3: Strategy Merging (Cognitive Stabilization)
-        # If the LLM confidence is low or it returned EXPLORATORY_DIALOGUE, 
-        # while a specific fast-path hint exists, we trust the technical/specific hint.
-        if hint and hint != "EXPLORATORY_DIALOGUE":
-            if llm_intent.confidence < 0.7 or llm_intent.suggested_strategy == "EXPLORATORY_DIALOGUE":
-                log_debug(f"Strategy Merge: Overriding LLM '{llm_intent.suggested_strategy}' with fast-path '{hint}'")
-                llm_intent.suggested_strategy = hint
-                # Don't overwrite confidence, as the merger itself might be a slightly fuzzy decision
-                
-        return llm_intent
-
-    async def _analyze_with_llm(self, query: str, context: Optional[ContextCtx], fast_path_hint: Optional[str] = None) -> Intent:
-        """Layer 2: Deep Analysis via LLM"""
-        try:
-            # Context string construction
-            ctx_str = ""
-            if context:
-                ctx_str = f"Active Entities: {', '.join(context.active_entities)}\nLast Topic: {context.last_turns[-1] if context.last_turns else 'None'}"
-
-            hint_str = f"\nFAST_PATH_HINT: {fast_path_hint} (Use this as a strong indicator if it matches the content)\n" if fast_path_hint else ""
-
-            prompt = (
-                "SYSTEM: You are an Intent Analysis Engine. JSON OUTPUT ONLY.\n"
-                "{\n"
-                "  \"explicit_intent\": \"literal meaning\",\n"
-                "  \"implied_needs\": [\"need1\", \"need2\"],\n"
-                "  \"emotional_context\": \"neutral|urgent|frustrated\",\n"
-                "  \"temporal_focus\": \"present_immediate\",\n"
-                "  \"relational_context\": \"general\",\n"
-                "  \"confidence\": 0.0 to 1.0,\n"
-                "  \"suggested_strategy\": \"PRECISE_RECALL|DIAGNOSTIC_DEEP_DIVE|DREAM_RECALL|CREATIVE_ASSOCIATION|RELATIONAL_MIRROR|SYNTHESIS_SCAN|EXPLORATORY_DIALOGUE|SUMMARIZATION\"\n"
-                "}\n\n"
-                "suggested_strategy must be one of: PRECISE_RECALL|DIAGNOSTIC_DEEP_DIVE|DREAM_RECALL|"
-                "CREATIVE_ASSOCIATION|RELATIONAL_MIRROR|SYNTHESIS_SCAN|EXPLORATORY_DIALOGUE|SUMMARIZATION\n"
-                f"{hint_str}"
-                f"CONTEXT: {ctx_str[:200]}\n"
-                f"QUERY: \"{query}\"\n/no_think\nJSON:"
-            )
-
-
-            # EXECUTION: The GPU guard/routing is now handled entirely in the parent parse_intent()
-            # method. This child method is a "dumb" executor to avoid re-entrant deadlock.
-            from utils.infrastructure.system.yaml_config import config
-            response = await asyncio.wait_for(
-                self.ollama_client.chat(
-                    model=self.classification_model,
-                    messages=[{"role": "user", "content": prompt}],
-                    options=self.classification_options
-                ),
-                timeout=config.classification_timeout
-            )
-            
-            raw_json = response['message']['content'].strip()
-            
-            if not raw_json:
-                log_warning(f"Intent classifier returned empty response.")
-                raise json.JSONDecodeError("Empty response from classifier", "", 0)
-            
-            clean_json = await self._repair_json(raw_json)
-            try:
-                data = json.loads(clean_json)
-            except json.JSONDecodeError as jde:
-                # A 2b model emitting slightly-off JSON is routine, not an
-                # incident. This logged at ERROR and the outer handler logged
-                # ERROR again plus a traceback, so a recoverable fallback
-                # produced a stack dump on the dashboard that Ekco pasted into
-                # Discord asking what had broken. Re-raised so the outer block
-                # still returns the fallback Intent.
-                log_warning(f"[Intent Classifier] Malformed JSON after repair: {jde}. "
-                            f"Raw: {raw_json[:120]!r}. Using fallback intent.")
-                raise jde
-            
-            return Intent(
-                explicit_intent=data.get('explicit_intent', query),
-                implied_needs=data.get('implied_needs', []),
-                emotional_context=data.get('emotional_context', 'neutral'),
-                temporal_focus=data.get('temporal_focus', 'present_immediate'),
-                relational_context=data.get('relational_context', 'general'),
-                suggested_strategy=data.get('suggested_strategy', 'EXPLORATORY_DIALOGUE'),
-                confidence=float(data.get('confidence', 0.85))
-            )
-
-        except Exception as e:
-            err_msg = str(e).lower()
-            if isinstance(e, TimeoutError):
-                from utils.infrastructure.system.yaml_config import config
-                log_warning(f"Intent Analysis timed out after {config.classification_timeout}s. Falling back to fast-path/default.")
-            elif "no json in thinking field" in err_msg:
-                # Expected fallback case when model ignores /no_think.
-                # Already logged as warning in _analyze_with_llm.
-                pass
-            elif isinstance(e, json.JSONDecodeError):
-                # Already reported as a warning above; no traceback for an
-                # expected, handled condition.
-                pass
-            elif "out of memory" in err_msg or "cudamalloc" in err_msg or "terminat" in err_msg:
-                log_error(f"Intent Analysis CRITICAL OOM: {e}. Falling back to fast-path/default.")
-            else:
-                import traceback
-                err_display = f"{type(e).__name__}: {e}" if str(e) else type(e).__name__
-                log_error(f"Intent Analysis Failed: {err_display}")
-                log_debug(f"Intent Analysis Traceback:\n{traceback.format_exc()}")
-            
-            # Fallback Intent
-            # If we have a hint from the fast-path regex, use it. Otherwise, default.
-            strategy = fast_path_hint if fast_path_hint else "EXPLORATORY_DIALOGUE"
-            
-            return Intent(
-                explicit_intent=query,
-                implied_needs=["emergency fallback"],
-                emotional_context="neutral",
-                temporal_focus="present_immediate",
-                relational_context="general",
-                suggested_strategy=strategy,
-                confidence=0.5
-            )
-
-    async def _repair_json(self, text: str) -> str:
-        """Attempt to repair broken JSON from LLM output using precompiled regex."""
-        # Remove think blocks and markdown code blocks if present
-        text = RE_THINK_BLOCK.sub('', text)
-        text = RE_MD_JSON_BLOCK_START.sub('', text)
-        text = RE_MD_BLOCK_BACKTICKS.sub('', text).strip()
-        
-        if hasattr(self, '_json_repairs'):
-            for p, r in self._json_repairs:
-                text = p.sub(r, text)
-        
-        # Find first { and last } to ensure valid JSON structure
-        start = text.find('{')
-        end = text.rfind('}')
-        if start != -1 and end != -1:
-            return text[start:end+1]
-        return text
-
-    async def pre_warm(self):
-        """Pre-warm the model with a direct call. Pulls the model if missing."""
-        log_action(f"Pre-warming IntentParser model: {self.classification_model}...")
-        try:
-            # 1. Check if model exists
-            model_exists = False
-            try:
-                await self.ollama_client.show(model=self.classification_model)
-                model_exists = True
-            except Exception as e:
-                if "404" in str(e) or "not found" in str(e).lower():
-                    log_warning(f"Model {self.classification_model} not found in Ollama. Attempting to pull...")
-                else:
-                    raise e
-
-            # 2. Pull if missing
-            if not model_exists:
-                log_action(f"📥 Pulling {self.classification_model} — this may take a few minutes...")
-                async for progress in self.ollama_client.pull(model=self.classification_model, stream=True):
-                    if hasattr(progress, 'status'):
-                        status = progress.status
-                        if "downloading" not in status.lower() or "100%" in status:
-                             log_info(f"  [Pull] {status}")
-                    elif isinstance(progress, dict) and 'status' in progress:
-                        status = progress['status']
-                        if "downloading" not in status.lower() or "100%" in status:
-                             log_info(f"  [Pull] {status}")
-                log_success(f"✅ Successfully pulled {self.classification_model}")
-
-            # [BUG FIX]: name 'config' is not defined
-            from utils.infrastructure.system.yaml_config import config
-            
-            # 3. Warming (Respect configuration for GPU/CPU and residency)
-            log_action(f"🔥 Warming {self.classification_model} ({'GPU' if self.use_gpu_for_classification else 'CPU'})...")
-            
-            # Use appropriate residency: -1 (infinite) if we want it to stay resident, 
-            # or 0 if we want it to unload immediately.
-            keep_alive = -1 if self.use_gpu_for_classification or config.get('models.classification_stay_resident', True) else 0
-            
-            options = self.classification_options.copy()
-            # Ensure the pre-warm call matches the intended device
-            options["num_gpu"] = 99 if self.use_gpu_for_classification else 0
-            
-            await asyncio.wait_for(
-                self.ollama_client.generate(
-                    model=self.classification_model,
-                    prompt=".",
-                    options=options,
-                    keep_alive=keep_alive
-                ),
-                timeout=180.0
-            )
-            log_success(f"IntentParser model {self.classification_model} warmed ({'GPU' if self.use_gpu_for_classification else 'CPU'}).")
-        except Exception as e:
-            import traceback
-            log_error(f"IntentParser pre-warm failed: {type(e).__name__}: {e}")
-            log_debug(f"IntentParser Pre-warm Traceback:\n{traceback.format_exc()}")
-
-# Legacy Alias for Refactor Compatibility
 QueryClassifier = IntentParser

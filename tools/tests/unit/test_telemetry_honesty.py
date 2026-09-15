@@ -191,3 +191,40 @@ def test_belief_polarity_uses_whole_words():
     assert _has_word("she likes it", positive)
     assert _has_word("i supported that", positive)
     assert _has_word("that is bad", negative)
+
+
+def test_layer_two_intent_is_not_dispatched_fire_and_forget():
+    """It ran gemma2:2b on the CPU 135 times in one production log and every
+    verdict was discarded.
+
+    `ctx.intent` is only ever assigned from `fast_parse`; nothing awaited the
+    task or read `.result()`; the task registry touches these only to cancel
+    them at shutdown. Re-adding the dispatch without also consuming the result
+    just burns CPU against nomic-embed-text-cpu for an answer nobody reads.
+    """
+    import inspect
+
+    from utils.core.message_processor import MessageProcessor
+
+    src = inspect.getsource(MessageProcessor._perform_classification)
+    body = "\n".join(l for l in src.split("\n") if not l.strip().startswith("#"))
+
+    assert "asyncio.create_task" not in body, \
+        "Layer-2 intent classification is being dispatched again"
+    assert "parse_intent" not in body, \
+        "parse_intent is called from the request path but its result is unused"
+    # the fast path is what actually classifies, and must remain
+    assert "fast_parse" in body
+
+
+def test_the_docs_match_the_classifier_that_exists():
+    """README and CLAUDE.md both described a dual-path classifier sending
+    ambiguous input to gemma2:2b. Half of that was true and useless."""
+    from pathlib import Path
+
+    readme = Path("README.md").read_text(encoding="utf-8")
+    claude = Path("CLAUDE.md").read_text(encoding="utf-8")
+
+    assert "dual-path classifier" not in readme, \
+        "README still claims a dual-path classifier"
+    assert "regex only" in claude or "regex matchers" in readme
