@@ -315,6 +315,18 @@ desires:
   # gate_enabled false, if she is still too quiet.
   initiate_threshold: 0.12
 
+knowledge_base:
+  # Backfill summary and keywords on new corpus files nightly, in the dream
+  # window. Every Discord daily log is created with summary: "" and
+  # keywords: [] — it must be, the day has not happened yet — and nothing
+  # filled them in: 51 of 144 were still empty, in the index her memory of a
+  # conversation comes from. enrich_metadata.py is idempotent, so a pass only
+  # touches what is still missing.
+  auto_enrich: true
+  # Files per nightly pass. A backlog is worked off over several nights rather
+  # than in one long stall.
+  auto_enrich_limit: 40
+
 presence:
   # How long without a human message before her Discord status must stop
   # claiming the room is busy. Ground truth beats the engagement average,

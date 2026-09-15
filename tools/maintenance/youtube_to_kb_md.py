@@ -235,7 +235,20 @@ def derive_keywords(title: str, channel: str, body: str, limit: int = 14) -> lis
             "what", "when", "where", "will", "would", "there", "their", "about",
             "like", "just", "because", "which", "into", "than", "then", "some",
             "yeah", "well", "right", "okay", "sure", "look", "mean", "know",
-            "think", "thing", "really", "actually", "going", "want", "said"}
+            "think", "thing", "really", "actually", "going", "want", "said",
+            # Title-case function words. A video title capitalises every word,
+            # so capitalisation cannot separate "Doctorow" from "Can" — and the
+            # title/channel loop below adds its words unconditionally, which is
+            # deliberate (a name in the title is a topic). Without these, "AI
+            # Can Reproduce. Who Controls Its Children?" yielded the keywords
+            # Can, Who, Its — filling the list before any real term from the
+            # body could earn a place.
+            "can", "who", "whom", "whose", "its", "how", "why", "does", "did",
+            "should", "could", "would", "may", "might", "must", "shall",
+            "been", "being", "very", "more", "most", "such", "only", "also",
+            "even", "still", "ever", "never", "each", "every", "both", "many",
+            "much", "own", "same", "too", "new", "get", "getting", "make",
+            "made", "why's", "here", "now", "out", "off", "over", "under"}
 
     kws: list[str] = []
     for part in (title, channel):

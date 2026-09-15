@@ -6,7 +6,7 @@ import time
 import sys
 import os
 from dataclasses import dataclass, field
-from datetime import datetime
+from datetime import datetime, timedelta
 from pathlib import Path
 import discord
 from discord.ext import tasks
@@ -63,6 +63,7 @@ class CoreTaskManager:
         self.forum_auto_post_task = self._make_forum_auto_post_task()
         self.forum_tech_support_task = self._make_forum_tech_support_task()
         self.observation_digest_task = self._make_observation_digest_task()
+        self.metadata_enrichment_task = self._make_metadata_enrichment_task()
         self.ingress_task = self._make_ingress_task()
         
     def _make_news_refresh_task(self):
@@ -276,6 +277,84 @@ class CoreTaskManager:
             log_error(f"CRITICAL: Afterthought task died: {error}")
 
         return afterthought_task
+
+    def _make_metadata_enrichment_task(self):
+        """Backfill summary and keywords on new knowledge-base files nightly.
+
+        Every Discord daily log is created with `summary: ""` and
+        `keywords: []` — it has to be, since the day has not happened yet — and
+        nothing ever filled them in. `enrich_metadata.py` does exactly that job
+        and is idempotent (`is_eligible_for_enrichment` skips anything already
+        carrying both), but it only ran when someone typed `!enrich` or picked
+        it out of kaia-tools.sh. 51 of 144 Discord logs were sitting with empty
+        metadata, in the `logs` index, which is the corpus her memory of a
+        conversation actually comes from.
+
+        Runs in the dream window, when the GPU is already hers and nobody is
+        talking, and caps each pass so a backlog is worked off over several
+        nights rather than in one long stall.
+        """
+        @tasks.loop(hours=24)
+        async def metadata_enrichment_task():
+            if shutdown_manager.shutting_down:
+                return
+            if not config.get("knowledge_base.auto_enrich", True):
+                return
+            if not getattr(self.ctx, 'bot_state', None) or \
+                    not getattr(self.ctx.bot_state, 'boot_complete', False):
+                return
+
+            import sys as _sys
+            from pathlib import Path as _Path
+
+            root = _Path(__file__).resolve().parents[2]
+            script = root / "tools" / "maintenance" / "enrich_metadata.py"
+            if not script.exists():
+                log_warning("Metadata enrichment skipped: script missing.")
+                return
+
+            limit = int(config.get("knowledge_base.auto_enrich_limit", 40))
+            try:
+                proc = await asyncio.create_subprocess_exec(
+                    _sys.executable, str(script), "--category", "all",
+                    "--limit", str(limit),
+                    stdout=asyncio.subprocess.PIPE,
+                    stderr=asyncio.subprocess.PIPE,
+                    cwd=str(root),
+                )
+                out, err = await asyncio.wait_for(proc.communicate(), timeout=3600)
+            except asyncio.TimeoutError:
+                log_warning("Metadata enrichment timed out after an hour; "
+                            "it is resumable, so the next pass continues.")
+                return
+            except Exception as e:                       # noqa: BLE001
+                log_warning(f"Metadata enrichment failed to start: {e}")
+                return
+
+            if proc.returncode == 0:
+                tail = (out or b"").decode(errors="replace").strip().splitlines()
+                log_success(f"Metadata enrichment pass complete "
+                            f"({tail[-1] if tail else 'no output'})")
+            else:
+                log_warning(f"Metadata enrichment exited {proc.returncode}: "
+                            f"{(err or b'').decode(errors='replace')[:200]}")
+
+        @metadata_enrichment_task.before_loop
+        async def before_enrichment():
+            await self.ctx.bot.wait_until_ready()
+            # Land inside the dream window rather than at boot.
+            start = int(config.get('dream_mode.schedule_start_hour', 3))
+            now = datetime.now()
+            target = now.replace(hour=start, minute=30, second=0, microsecond=0)
+            if target <= now:
+                target = target + timedelta(days=1)
+            await asyncio.sleep(max(60.0, (target - now).total_seconds()))
+
+        @metadata_enrichment_task.error
+        async def enrichment_error(error):
+            log_error(f"CRITICAL: Metadata enrichment task died: {error}")
+
+        return metadata_enrichment_task
 
     def _make_monologue_task(self):
         @tasks.loop(minutes=15)
@@ -1964,6 +2043,9 @@ class CoreTaskManager:
 
         # Passive Observation Digest task
         self.observation_digest_task.start()
+        self.metadata_enrichment_task.start()
+        if self.metadata_enrichment_task.get_task():
+            task_registry.register('metadata_enrichment_task', self.metadata_enrichment_task.get_task())
         if self.observation_digest_task.get_task():
             task_registry.register("observation_digest_task", self.observation_digest_task.get_task())
         self.ingress_task.start()
