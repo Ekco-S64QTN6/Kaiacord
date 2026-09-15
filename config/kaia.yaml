@@ -34,10 +34,24 @@ social:
   poll_interval_minutes: 1
   admin_handles: ["ekco-thewizard.bsky.social", "michaelschellhorn.link"]
 
-# X/Twitter: DISABLED — unused.
+# X/Twitter: @KaiaKuroshi. Credentials in .env (X_USERNAME / X_EMAIL /
+# X_PASSWORD); twikit authenticates with browser session cookies cached at
+# memory/x_cookies.json — see docs/04-security/x-twikit-credentials.md.
 x_twitter:
+  # OFF, and not because of the account — @KaiaKuroshi and its credentials are
+  # fine, and is_x_configured() passes. twikit 2.3.3 (the latest release) can
+  # no longer talk to X at all: x.com returns HTTP 200 but twikit's
+  # ON_DEMAND_FILE_REGEX no longer matches anything in the page, so
+  # ClientTransaction.get_indices raises "Couldn't get KEY_BYTE indices".
+  # That transaction id is generated for *every* request, not just login, so
+  # importing browser cookies does not get around it either.
+  #
+  # Flip both to true once a twikit release fixes it — nothing else needs
+  # changing, the cross-post path is wired and tested.
   enabled: false
   cross_post_quips: false
+  # Still off: replying to strangers' mentions is a different risk from
+  # broadcasting her own posts, and matches how bluesky is set.
   reply_to_mentions: false
 features:
   dream_mode_enabled: true

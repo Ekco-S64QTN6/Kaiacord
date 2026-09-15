@@ -570,24 +570,37 @@ async def generate_quip(ctx, is_manual=False, target_channel=None, on_message_fu
                     await channel.send(f"**[Thread {i+1}/{len(posts)}]**\n```\n{post}\n```")
                     await asyncio.sleep(1) # Slight visual delay
                 
-                # Cross-post thread
+                # Cross-post thread. The two feeds are independent.
+                #
+                # The X post used to sit inside the Bluesky block and inside
+                # its try, so X received nothing at all whenever Bluesky was
+                # switched off, and nothing whenever post_thread_to_bluesky
+                # raised. It also appended "(thread on bsky)" unconditionally,
+                # which was false in exactly the case where Bluesky had failed.
+                bsky_ok = False
                 if config.bluesky_cross_post_quips:
                     try:
                         from utils.social.kaia_bluesky import post_thread_to_bluesky
                         bsky_ok, _ = await post_thread_to_bluesky(posts)
-                        if bsky_ok and target_channel:
-                            await target_channel.send("```\nskeet thread sent ✓\n```")
-                        elif not bsky_ok and target_channel:
-                            await target_channel.send("```\nskeet thread failed ✗\n```")
-                         # Also post the hook to X if enabled
-                        if config.x_cross_post_quips:
-                            from utils.social.kaia_twitter import post_quip_to_x
-                            # Append link to thread if possible? For now just the first tweet
-                            await post_quip_to_x(posts[0] + " (thread on bsky)")
+                        if target_channel:
+                            await target_channel.send(
+                                "```\nskeet thread sent ✓\n```" if bsky_ok
+                                else "```\nskeet thread failed ✗\n```")
                     except Exception as e:
-                        log_error(f"Thread cross-post failed: {e}")
+                        log_error(f"Bluesky thread cross-post failed: {e}")
                         if target_channel:
                             await target_channel.send(f"```\nskeet thread failed: {e}\n```")
+
+                if config.x_cross_post_quips:
+                    try:
+                        from utils.social.kaia_twitter import post_quip_to_x
+                        # Only claim the thread is on Bluesky if it actually is.
+                        hook = posts[0] + (" (thread on bsky)" if bsky_ok else "")
+                        if len(hook) > 280:
+                            hook = hook[:277] + "..."
+                        await post_quip_to_x(hook)
+                    except Exception as e:
+                        log_error(f"X thread cross-post failed: {e}")
                 
                 # Update channel memory & RAG for each post in the thread
                 if channel.id not in bot_state.channel_memory:
