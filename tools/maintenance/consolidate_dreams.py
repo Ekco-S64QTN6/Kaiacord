@@ -111,8 +111,8 @@ _ESSAY_SHAPE = re.compile(
 # hers. "the user" is NOT in this list: she uses it constantly and correctly
 # about the people in her logs — "the user's casual cruelty, the way systems are
 # treated as disposable" is from the reflection this check is meant to protect.
-_THIRD_PERSON = re.compile(r"\bthe (?:narrator|author|speaker|protagonist)\b",
-                           re.IGNORECASE)
+_THIRD_PERSON = re.compile(
+    r"\bthe (?:narrator|author|speaker|protagonist|observer)\b", re.IGNORECASE)
 
 
 def reads_as_essay(text: str) -> str:
@@ -390,6 +390,35 @@ def existing_body(key: str, subject: str):
     return path, body.strip(), prior, prior_span
 
 
+async def ask_in_her_voice(client, model, prompt: str, tag: str, label: str = "") -> str:
+    """One model call, retried once if the answer reads as an essay.
+
+    Applied to *every* pass, not only the merge. The check originally guarded
+    the merge alone, on the reasoning that drift happened when many passages
+    were folded together — but a group of twenty or fewer reflections is a
+    single pass and never reaches a merge, so it went out unchecked. That is how
+    `periods/2026-07.md` was written as "**1. Core Themes & Recurring Motifs:**"
+    followed by twenty-four bullets analysing "The Observer": sixteen
+    reflections, one chunk, no merge, no check.
+    """
+    for attempt in (1, 2):
+        resp = await guarded_chat(client, model, prompt, f"{tag}_{attempt}")
+        out = strip_preamble(resp["message"]["content"])
+        why = reads_as_essay(out)
+        if not why:
+            return out
+        where = f"{label} " if label else ""
+        print(f"      {where}attempt {attempt} reads as an essay ({why}); "
+              + ("retrying" if attempt == 1 else "giving up on this pass"))
+        prompt = (prompt
+                  + "\n\nYour previous attempt used headings, bullets, numbered "
+                    "sections or the third person. Write it again as continuous "
+                    "first-person prose — paragraphs only, starting with the word "
+                    "'i' or with a concrete detail. No list of any kind, and never "
+                    "'the observer', 'the narrator' or 'the user's logs'.")
+    return ""
+
+
 async def synthesise(client, model, subject: str, entries: list,
                      prior_text: str = "") -> str:
     """One document from many reflections, chunking when the group is large.
@@ -407,11 +436,11 @@ async def synthesise(client, model, subject: str, entries: list,
     for i, ch in enumerate(chunks, 1):
         if len(chunks) > 1:
             print(f"      pass {i}/{len(chunks)} ({len(ch)} reflections)")
-        resp = await guarded_chat(
+        out = await ask_in_her_voice(
             client, model,
             SYNTHESIS_PROMPT.format(count=len(ch), subject=subject, material=block(ch)),
-            f"dreamsynth_{abs(hash(subject)) % 10**6}_{i}")
-        pieces.append(strip_preamble(resp["message"]["content"]))
+            f"dreamsynth_{abs(hash(subject)) % 10**6}_{i}", label=f"pass {i}")
+        pieces.append(out)
 
     pieces = [p for p in pieces if p]
     if prior_text:
@@ -424,25 +453,13 @@ async def synthesise(client, model, subject: str, entries: list,
         return pieces[0]
 
     material = "\n\n---\n\n".join(pieces)
-    prompt = MERGE_PROMPT.format(count=len(pieces), subject=subject, material=material)
-    for attempt in (1, 2):
-        merged = await guarded_chat(
-            client, model, prompt,
-            f"dreammerge_{abs(hash(subject)) % 10**6}_{attempt}")
-        out = strip_preamble(merged["message"]["content"])
-        why = reads_as_essay(out)
-        if not why:
-            return out
-        print(f"      merge {attempt} reads as an essay ({why}); "
-              + ("retrying" if attempt == 1 else "keeping the passages instead"))
-        prompt = (prompt
-                  + "\n\nYour previous attempt used headings, bullets or the third "
-                    "person. Write it again as continuous first-person prose — "
-                    "paragraphs only, starting with the word 'i' or with a "
-                    "concrete detail. No list of any kind.")
-    # Two drifted merges is a sign the material does not want to be merged.
-    # The per-chunk passages are already in her voice; keep those.
-    return "\n\n".join(pieces)
+    merged = await ask_in_her_voice(
+        client, model,
+        MERGE_PROMPT.format(count=len(pieces), subject=subject, material=material),
+        f"dreammerge_{abs(hash(subject)) % 10**6}", label="merge")
+    # A merge that drifted twice says the material does not want to be merged.
+    # The per-chunk passages have each already passed the same check.
+    return merged or "\n\n".join(pieces)
 
 
 def write_document(key: str, subject: str, entries: list, text: str,
@@ -553,7 +570,15 @@ async def run(args) -> int:
             print("      model returned too little; leaving the originals alone")
             failed += 1
             continue
-        path = write_document(k, subject, v, text, prior_n, prior_span)
+        # Only carry the prior count forward when this run removes its sources.
+        # Without --archive the same files are still on disk and will be read
+        # again next run, so adding the prior count double-counts them: running
+        # books/Phillip K Dick Do Androids twice recorded 84 reflections against
+        # a group of 42. With --archive the sources are gone and the sum is the
+        # true cumulative total.
+        carried = prior_n if args.archive else 0
+        path = write_document(k, subject, v, text, carried,
+                              prior_span if carried else "")
         written += 1
         if args.archive:
             consumed += archive(v)

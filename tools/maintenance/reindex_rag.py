@@ -48,13 +48,27 @@ async def rebuild_rag(clear_storage: bool = False, file_path: str = None,
     # That one happened to produce an identical manifest. It did not have to.
     if _bot_running() and not force:
         if clear_storage:
-            log_error("Kaia is running. Refusing to clear memory/rag_storage from "
-                      "under her — stop the bot first, or pass --force if you are "
-                      "certain this is what you want.")
+            # Both channels, deliberately. This refusal reached neither stdout
+            # nor logs/kaiacord.log — `log_error` in a standalone script without
+            # the bot's logging set up goes nowhere useful — so
+            # `reindex_rag.py --clear` under a live bot printed nothing at all
+            # and exited 0. The operator had every reason to believe the index
+            # had been rebuilt. A CLI that declines the job has to say so where
+            # the person who typed it will see it, and exit non-zero.
+            msg = ("Kaia is running. Refusing to clear memory/rag_storage from "
+                   "under her.\n"
+                   "  - to pick up new and moved files without a rebuild: "
+                   "tools/maintenance/reindex_rag.py --trigger\n"
+                   "  - to rebuild from scratch: stop the bot first\n"
+                   "  - to override anyway (can corrupt the manifest): --force")
+            print(f"REFUSED: {msg}", file=sys.stderr)
+            log_error(msg.replace("\n", " "))
             return False
-        log_warning("Kaia is running. She owns memory/rag_storage, and writing it "
-                    "from a second process can corrupt the manifest. Use the trigger "
-                    "instead: tools/maintenance/reindex_rag.py --trigger")
+        warn = ("Kaia is running. She owns memory/rag_storage, and writing it "
+                "from a second process can corrupt the manifest. Use the trigger "
+                "instead: tools/maintenance/reindex_rag.py --trigger")
+        print(f"WARNING: {warn}", file=sys.stderr)
+        log_warning(warn)
     
     if clear_storage:
         log_warning(f"CLEARING RAG storage directory: {persist_dir}")
@@ -132,5 +146,8 @@ if __name__ == "__main__":
     if args.trigger:
         trigger_bot_reindex()
     else:
-        asyncio.run(rebuild_rag(clear_storage=args.clear, file_path=args.file,
-                                force_cpu_embed=args.cpu_embed, force=args.force))
+        ok = asyncio.run(rebuild_rag(clear_storage=args.clear, file_path=args.file,
+                                     force_cpu_embed=args.cpu_embed, force=args.force))
+        # `rebuild_rag` returns False when it declines. Exiting 0 on a refusal
+        # made a no-op indistinguishable from a rebuild for any caller.
+        sys.exit(0 if ok is not False else 1)
