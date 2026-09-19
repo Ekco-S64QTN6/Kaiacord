@@ -413,6 +413,35 @@ message actually sent, a guard's verdict against its own return value.
   `enrich_kb_metadata.py` had no argument parsing at all, so probing it with `--help` rewrote
   frontmatter on 124 files.
 
+### Dreams
+
+`knowledge_base/kaia_dreams/` is its own RAG index, and `context_optimizer` labels anything
+retrieved from it **INTERNAL REFLECTION (DREAM)** — as something Kaia thought. Two consequences
+follow, and both had already gone wrong by September 2026:
+
+- **Only reflections belong in it.** 868 of 2,399 files were cleaned chat transcripts and scraped
+  prose written there by an older pipeline, one of them an American Express advertisement,
+  retrievable as a thing Kaia dreamt about credit cards. `tools/maintenance/triage_dreams.py`
+  sorts the folder (deterministic, no model) and quarantines the rest.
+- **`kaia_dreams` is itself a valid dream source** (`dream_source_type = 'prior_dream'`), so
+  anything wrong in there teaches the next night. 250 reflections are reflections on earlier
+  dreams; that is how transcript-shaped files came to produce `User:`-prefixed fragments inside a
+  reflection about a novel whose own file has no such prefixes.
+
+One file per night is right for *writing* a dream and wrong for retrieving one — forty-two
+separate reflections on *Do Androids Dream* retrieve as three fragments chosen by similarity.
+`tools/maintenance/consolidate_dreams.py` groups them (by book, by person, by topic, all in
+Python) and writes one document per subject. It **extends** an existing document rather than
+replacing it; without that, a weekly run would overwrite a 229-reflection synthesis with one built
+from the week's seven. Both tools run weekly from `_make_dream_curation_task`
+(`dream_mode.auto_curate`).
+
+The synthesis is the fragile half. Asked to merge twelve passages about a person, gemma3 returns
+`**1. Key Themes & Recurring Ideas:**` and bullets analysing "the narrator" — a literary essay
+about Kaia instead of Kaia. `reads_as_essay()` rejects that shape and retries; do not remove it
+without a better check. "the user" is deliberately *not* treated as third person — she uses it
+constantly and correctly about the people in her logs.
+
 ---
 
 ## 11. Working Practice
@@ -465,6 +494,14 @@ path before assuming the bot needs restarting.
 | `knowledge_base/kaia_persona.md` | Changes alter Kaia's entire behavioural baseline |
 | `config/` | Downstream effects across all subsystems |
 | `knowledge_base/user_logs/` | Real user messages. Kaia's turns may be corrected; **user turns never** |
+
+**`user_profile.md` has more than one writer.** `compact_forum_profiles.py` and
+`generate_user_profiles.py` both rebuild it from a fixed key list, and neither consulted
+`kaia_identities.registry`. Making one of them identity-aware on Sept 18 was undone at 03:41 the
+next morning by the other, which replaced Kaia's own self-reference document with a third-person
+personality profile assembled from her own posts. Anything that writes this file has to ask the
+registry who the account belongs to first; `test_every_writer_of_user_profile_consults_the_identity_registry`
+enforces it.
 
 ---
 

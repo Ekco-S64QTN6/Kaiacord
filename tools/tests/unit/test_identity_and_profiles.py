@@ -14,6 +14,7 @@ Three ways Kaia lost track of a person:
 """
 import json
 import pathlib
+import re
 from pathlib import Path
 
 import pytest
@@ -217,3 +218,45 @@ def test_compaction_never_strips_the_identity_link():
 
     assert mod.uid_of(_P("knowledge_base/user_logs/forum_magnetaress_210090")) == 210090
     assert mod.uid_of(_P("knowledge_base/user_logs/forum_no_digits")) is None
+
+
+def test_every_writer_of_user_profile_consults_the_identity_registry():
+    """Two tools write `user_profile.md`, and fixing one was not enough.
+
+    `compact_forum_profiles.py` was made identity-aware on 2026-09-18 and the
+    corpus repaired. `generate_user_profiles.py` ran at 03:41 the next morning,
+    knew nothing about the registry, and replaced Kaia's own self-reference
+    document with a third-person personality profile assembled from her own
+    posts — "they are a thoughtful and observant presence, but our relationship
+    remains primarily intellectual rather than personal."
+
+    So the check is on the class rather than the instance: anything that writes
+    this filename has to ask who the account belongs to first.
+    """
+    from pathlib import Path as _P
+
+    # A *write*, not a mention. `tools/diagnostics/jspace_probe.py` names the
+    # file only to skip it, and a whole-file "does this contain write_text"
+    # test flagged it. Look for the write within a few lines of the name.
+    writers = []
+    for p in _P("tools").rglob("*.py"):
+        # Tests write fixtures into tmp directories; the rule is about the tools
+        # that write the real corpus.
+        if "tests" in p.parts:
+            continue
+        src = p.read_text(encoding="utf-8", errors="replace")
+        lines = src.splitlines()
+        for i, line in enumerate(lines):
+            if "user_profile.md" not in line:
+                continue
+            window = "\n".join(lines[max(0, i - 4):i + 6])
+            if re.search(r"\bwrite_text\b|\bopen\([^)]*['\"]w", window):
+                writers.append((p, src))
+                break
+
+    assert writers, "no writers found — has the filename changed?"
+    for p, src in writers:
+        assert "kaia_identities" in src or "registry" in src, (
+            f"{p} writes user_profile.md without consulting the identity "
+            f"registry; it will overwrite is_self / known_as on its next run"
+        )

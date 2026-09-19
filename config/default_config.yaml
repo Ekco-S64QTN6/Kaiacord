@@ -502,6 +502,25 @@ social:
 # Dream Mode Configuration
 # ============================================================================
 dream_mode:
+  # Weekly corpus curation, run two hours after the dream window closes.
+  #
+  # Triage is deterministic and always runs: it moves anything in kaia_dreams/
+  # that is not a reflection into quarantine. 868 of 2,399 files were cleaned
+  # chat transcripts and scraped prose — indexed and labelled to her as
+  # INTERNAL REFLECTION (DREAM), and feeding the next night's dream, since
+  # kaia_dreams is itself a dream source.
+  auto_curate: true
+
+  # Reflections that must have accumulated before the expensive half — folding
+  # the week's dreams into one document per book, person and topic — is worth a
+  # model call.
+  curate_min_new: 15
+
+  # Groups consolidated per weekly pass. The work is resumable: each group is
+  # archived as it finishes and an existing document is folded back in rather
+  # than replaced, so a backlog is worked off over several weeks.
+  curate_group_limit: 8
+
   # Schedule for nightly processing (24h format)
   schedule_start_hour: 3  # 3 AM
   schedule_end_hour: 5    # 5 AM

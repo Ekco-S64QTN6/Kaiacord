@@ -8,6 +8,7 @@ Usage:
 """
 import asyncio
 import argparse
+import re
 import os
 import sys
 from pathlib import Path
@@ -53,9 +54,73 @@ GROUNDING RULES:
 Output ONLY the profile markdown. No preamble, no commentary."""
 
 
+def _identity(user_dir: Path):
+    """(is_self, frontmatter_lines, header_suffix) for a forum directory.
+
+    Sept 19 2026. This tool rebuilds `user_profile.md` from a fixed header and
+    knows nothing about the identity registry, so it silently undoes what the
+    registry knows. `forum_Kaia_322197/user_profile.md` was repaired to its
+    self-reference document on Sept 18; this ran at 03:41 the next morning and
+    replaced it with a third-person personality profile of Kaia, written from
+    Kaia's own posts — "they are a thoughtful and observant presence, but our
+    relationship remains primarily intellectual rather than personal."
+
+    `compact_forum_profiles.py` had the same hole and was fixed first. Fixing
+    one writer is not enough when two of them write the same file.
+    """
+    m = re.search(r"_(\d+)$", user_dir.name)
+    if not m or not user_dir.name.startswith("forum_"):
+        return False, "", ""
+    uid = int(m.group(1))
+    try:
+        from utils.social.kaia_identities import registry
+    except Exception:                                  # noqa: BLE001
+        return False, "", ""
+    if registry.is_self(uid):
+        return True, "", ""
+    lines, suffix = "", ""
+    known_as = registry.describe_forum_user(uid)
+    if known_as:
+        lines += f'linked_discord: "{registry.get_discord_id(uid)}"\nknown_as: "{known_as}"\n'
+        suffix = f" — this is {known_as} from Discord"
+    others = registry.other_accounts(uid)
+    if others:
+        lines += f"also_posts_as: [{', '.join(str(o) for o in others)}]\n"
+    return False, lines, suffix
+
+
+SELF_PROFILE = (
+    "---\n"
+    'forum_username: "{name}"\n'
+    "forum_user_id: {uid}\n"
+    'document_type: "Self Reference"\n'
+    "is_self: true\n"
+    "---\n\n"
+    "# THIS IS KAIA'S OWN FORUM ACCOUNT\n\n"
+    "`{name}` on Project 1999 is me. Posts under this name are my own; they are "
+    "not another user's, and this directory is not a record of somebody I have "
+    "met.\n"
+)
+
+
 async def generate_profile(user_dir: Path, dry_run: bool = False) -> bool:
     import ollama as _ollama
     username = user_dir.name
+
+    is_self, identity_lines, header_suffix = _identity(user_dir)
+    if is_self:
+        # Profiling her own account produces a stranger's dossier built from her
+        # own words, and costs a model call to do it.
+        if dry_run:
+            print(f"  SELF {username} — would restore the self-reference document")
+            return None
+        m = re.search(r"^forum_(.+)_(\d+)$", username)
+        user_dir.joinpath("user_profile.md").write_text(
+            SELF_PROFILE.format(name=m.group(1) if m else username,
+                                uid=m.group(2) if m else 0),
+            encoding="utf-8")
+        print(f"  ✔ {username} — own account, self-reference document restored")
+        return True
 
     # Gather interaction logs (newest first, cap at ~8000 chars)
     log_files = sorted(user_dir.glob("interactions_*.md"), reverse=True)
@@ -105,8 +170,11 @@ async def generate_profile(user_dir: Path, dry_run: bool = False) -> bool:
         profile_path = user_dir / "user_profile.md"
         header = (
             f"---\ngenerated: {datetime.now().isoformat()}\n"
-            f"source: generate_user_profiles.py\n---\n\n"
-            f"# INTERNAL MEMORY: {username}\n\n"
+            f"source: generate_user_profiles.py\n"
+            # Who this is on Discord, when the registry knows. Without it the
+            # document has nothing tying a forum account to the person behind it.
+            f"{identity_lines}---\n\n"
+            f"# INTERNAL MEMORY: {username}{header_suffix}\n\n"
         )
         profile_path.write_text(header + profile_text, encoding="utf-8")
         print(f"  ✔ Wrote {profile_path}")

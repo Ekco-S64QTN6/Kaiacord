@@ -64,6 +64,7 @@ class CoreTaskManager:
         self.forum_tech_support_task = self._make_forum_tech_support_task()
         self.observation_digest_task = self._make_observation_digest_task()
         self.metadata_enrichment_task = self._make_metadata_enrichment_task()
+        self.dream_curation_task = self._make_dream_curation_task()
         self.ingress_task = self._make_ingress_task()
         
     def _make_news_refresh_task(self):
@@ -355,6 +356,110 @@ class CoreTaskManager:
             log_error(f"CRITICAL: Metadata enrichment task died: {error}")
 
         return metadata_enrichment_task
+
+    def _make_dream_curation_task(self):
+        """Weekly: sort the dream folder, then fold the week's dreams into the
+        documents they belong to.
+
+        One file per night is the right shape for *writing* a dream and the
+        wrong one for retrieving it. By Sept 2026 `kaia_dreams/` held 2,399
+        files; a question about Do Androids Dream retrieved three fragments
+        chosen by similarity, out of forty-two, with nothing to say what she had
+        settled on. 868 of those files were not reflections at all but cleaned
+        chat transcripts and scraped prose — one an American Express
+        advertisement — all of it indexed and labelled to her as INTERNAL
+        REFLECTION (DREAM), and all of it feeding the next night's dream, since
+        `kaia_dreams` is itself a valid dream source.
+
+        Triage first and always: it is deterministic, costs nothing, and its
+        output is what keeps the transcript shape from propagating. The
+        consolidation pass is the expensive half and is skipped unless enough
+        new material has accumulated to be worth a model call.
+
+        Both halves are resumable. Consolidation archives each group as it
+        finishes and folds an existing document back in rather than replacing
+        it, so a run cut short by the timeout simply continues next week.
+        """
+        @tasks.loop(hours=24 * 7)
+        async def dream_curation_task():
+            if shutdown_manager.shutting_down:
+                return
+            if not config.get("dream_mode.auto_curate", True):
+                return
+            if not getattr(self.ctx, 'bot_state', None) or \
+                    not getattr(self.ctx.bot_state, 'boot_complete', False):
+                return
+
+            import sys as _sys
+            from pathlib import Path as _Path
+
+            root = _Path(__file__).resolve().parents[2]
+            tools = root / "tools" / "maintenance"
+
+            async def _run(script: str, *args, timeout: float):
+                path = tools / script
+                if not path.exists():
+                    log_warning(f"Dream curation: {script} is missing.")
+                    return None
+                try:
+                    proc = await asyncio.create_subprocess_exec(
+                        _sys.executable, str(path), *args,
+                        stdout=asyncio.subprocess.PIPE,
+                        stderr=asyncio.subprocess.PIPE, cwd=str(root))
+                    out, err = await asyncio.wait_for(proc.communicate(), timeout=timeout)
+                except asyncio.TimeoutError:
+                    log_warning(f"Dream curation: {script} hit its time limit; "
+                                "it is resumable and continues next week.")
+                    return None
+                except Exception as e:                   # noqa: BLE001
+                    log_warning(f"Dream curation: {script} failed to start: {e}")
+                    return None
+                if proc.returncode != 0:
+                    log_warning(f"Dream curation: {script} exited {proc.returncode}: "
+                                f"{(err or b'').decode(errors='replace')[:200]}")
+                    return None
+                return (out or b"").decode(errors="replace")
+
+            triaged = await _run("triage_dreams.py", "--apply", timeout=600)
+            if triaged is not None:
+                tail = [l for l in triaged.strip().splitlines() if "moved to" in l]
+                log_success("Dream triage complete"
+                            + (f" — {tail[-1].strip()}" if tail else " — nothing to sort"))
+
+            # Only pay for synthesis when a week has actually produced dreams.
+            dreams_dir = root / "knowledge_base" / "kaia_dreams"
+            pending = sum(1 for p in dreams_dir.rglob("*.md")
+                          if "consolidated" not in p.parts)
+            threshold = int(config.get("dream_mode.curate_min_new", 15))
+            if pending < threshold:
+                log_info(f"Dream consolidation skipped: {pending} reflection(s) "
+                         f"waiting, minimum {threshold}.")
+                return
+
+            limit = int(config.get("dream_mode.curate_group_limit", 8))
+            done = await _run("consolidate_dreams.py", "--apply", "--archive",
+                              "--limit", str(limit), timeout=3600 * 3)
+            if done is not None:
+                tail = [l for l in done.strip().splitlines() if "document(s) written" in l]
+                log_success("Dream consolidation complete"
+                            + (f" — {tail[-1].strip()}" if tail else ""))
+
+        @dream_curation_task.before_loop
+        async def before_curation():
+            await self.ctx.bot.wait_until_ready()
+            # After the dream window, so the week's last dream is included.
+            start = int(config.get('dream_mode.schedule_start_hour', 3))
+            now = datetime.now()
+            target = now.replace(hour=(start + 2) % 24, minute=0, second=0, microsecond=0)
+            if target <= now:
+                target = target + timedelta(days=1)
+            await asyncio.sleep(max(60.0, (target - now).total_seconds()))
+
+        @dream_curation_task.error
+        async def curation_error(error):
+            log_error(f"CRITICAL: Dream curation task died: {error}")
+
+        return dream_curation_task
 
     def _make_monologue_task(self):
         @tasks.loop(minutes=15)
@@ -2046,6 +2151,9 @@ class CoreTaskManager:
         self.metadata_enrichment_task.start()
         if self.metadata_enrichment_task.get_task():
             task_registry.register('metadata_enrichment_task', self.metadata_enrichment_task.get_task())
+        self.dream_curation_task.start()
+        if self.dream_curation_task.get_task():
+            task_registry.register('dream_curation_task', self.dream_curation_task.get_task())
         if self.observation_digest_task.get_task():
             task_registry.register("observation_digest_task", self.observation_digest_task.get_task())
         self.ingress_task.start()
@@ -2070,6 +2178,11 @@ class CoreTaskManager:
         self.forum_auto_post_task.stop()
         self.forum_tech_support_task.stop()
         self.observation_digest_task.stop()
+        # Both of these were started and registered but never stopped — on
+        # shutdown they were left to the task registry's cancellation rather
+        # than being asked to finish their current loop.
+        self.metadata_enrichment_task.stop()
+        self.dream_curation_task.stop()
         self.ingress_task.stop()
 
 # Helper for backward compatibility

@@ -909,18 +909,91 @@ menu_recovery() {
 # MAIN MENU
 # ═══════════════════════════════════════════════════════════════════════════════
 
+menu_dreams() {
+    while true; do
+        CHOICE=$(ui_dialog --title "Kaiacord Tools — Dreams & Corpus Curation" --menu \
+            "Choose an operation:" "$(menu_height 8)" "$(menu_width 70)" 8 \
+            "1" "Triage dreams  (separate real reflections from transcripts)" \
+            "2" "Consolidate dreams  (one document per book/person/topic)" \
+            "3" "Compact forum profiles  (many log files -> one profile)" \
+            "4" "Repair profile identity  (restore is_self / known_as tags)" \
+            "5" "Tidy troubleshooting guides  (dedupe + retitle)" \
+            "6" "Retitle documents  (enforce '<Topic> - <Title>.md')" \
+            "b" "\u2190 Back" \
+            3>&1 1>&2 2>&3) || return
+
+        case "$CHOICE" in
+        1)
+            # 868 of 2,399 files in kaia_dreams were not reflections at all but
+            # cleaned chat transcripts and scraped prose, indexed and labelled
+            # to her as INTERNAL REFLECTION (DREAM). One was an American Express
+            # advertisement. Quarantine is reversible; nothing is deleted.
+            info "Deterministic \u2014 no model involved. Shows a report first."
+            run_tool "Triage Dreams (report)" tools/maintenance/triage_dreams.py
+            if confirm "Quarantine everything that is not a reflection?\n\nFiles move to knowledge_base/quarantine/dreams/ and can be moved back."; then
+                run_tool "Triage Dreams (apply)" tools/maintenance/triage_dreams.py --apply
+            fi
+            ;;
+        2)
+            # One file per night is the right shape for writing a dream and the
+            # wrong one for retrieving it: 42 separate reflections on Do Androids
+            # Dream retrieve as three unrelated fragments. Groups by book, by
+            # person, by topic, then writes one document each.
+            info "Uses the GPU at BACKGROUND priority. Safe to run while she is up, but slow."
+            run_tool "Consolidate Dreams (plan)" tools/maintenance/consolidate_dreams.py
+            if confirm "Synthesise these documents?\n\nSources are archived to knowledge_base/.dream_archive/, not deleted."; then
+                run_tool "Consolidate Dreams (apply)" tools/maintenance/consolidate_dreams.py --apply --archive
+            fi
+            ;;
+        3)
+            info "Distils each forum user's scattered daily logs into one profile."
+            run_tool "Compact Forum Profiles (dry run)" tools/maintenance/compact_forum_profiles.py
+            if confirm "Write the profiles?\n\nAdd --prune separately to remove the source files."; then
+                run_tool "Compact Forum Profiles (apply)" tools/maintenance/compact_forum_profiles.py --apply
+            fi
+            ;;
+        4)
+            # Compaction rebuilds a profile from a fixed key list, which silently
+            # dropped `is_self: true` from Kaia's own forum account and
+            # `known_as: "Starkind"` from magnetaress \u2014 the only thing in the
+            # document linking a forum account to the Discord user behind it.
+            info "Frontmatter only. No model calls, no prose is touched."
+            run_tool "Repair Identity (dry run)" tools/maintenance/compact_forum_profiles.py --repair-identity
+            if confirm "Restore the identity frontmatter?"; then
+                run_tool "Repair Identity (apply)" tools/maintenance/compact_forum_profiles.py --repair-identity --apply
+            fi
+            ;;
+        5)
+            run_tool "Tidy Troubleshooting (dry run)" tools/maintenance/tidy_troubleshooting.py
+            if confirm "Apply the tidy pass?"; then
+                run_tool "Tidy Troubleshooting (apply)" tools/maintenance/tidy_troubleshooting.py --apply
+            fi
+            ;;
+        6)
+            run_tool "Retitle Documents (dry run)" tools/maintenance/retitle_documents.py
+            if confirm "Rename to the '<Topic> - <Title>.md' convention?"; then
+                run_tool "Retitle Documents (apply)" tools/maintenance/retitle_documents.py --apply
+            fi
+            ;;
+        b|B) return ;;
+        esac
+        pause
+    done
+}
+
 main_menu() {
     while true; do
         CHOICE=$(ui_dialog --title "Kaiacord Maintenance Tools" \
             --menu "$(status_line)$(ingress_hint)\n\nWhat do you need?" \
-            "$(menu_height 8)" "$(menu_width 58)" 8 \
+            "$(menu_height 9)" "$(menu_width 58)" 9 \
             "1" "System & Bot Control  (start/stop/restart, logs, memory)" \
             "2" "Ollama Server  (restart, flush VRAM, model status)" \
             "3" "RAG Management  (reindex, rebuild, diagnose)" \
             "4" "Knowledge Base  (clean, sanitize, profiles)" \
             "5" "Documents & Ingestion  (convert books, file !download)" \
             "6" "News" \
-            "7" "Recovery (!)  (contamination, surgical fix, RAG reset)" \
+            "7" "Dreams & Curation  (triage, consolidate, profiles)" \
+            "8" "Recovery (!)  (contamination, surgical fix, RAG reset)" \
             "q" "Quit" \
             3>&1 1>&2 2>&3) || break
 
@@ -931,7 +1004,8 @@ main_menu() {
         4) menu_knowledge_base ;;
         5) menu_documents ;;
         6) menu_news ;;
-        7) menu_recovery ;;
+        7) menu_dreams ;;
+        8) menu_recovery ;;
         q|Q) break ;;
         esac
     done
