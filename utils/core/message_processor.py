@@ -79,6 +79,16 @@ _OBSERVATIONAL_PATTERNS = [
     ]
 ]
 
+# "it's 5:44 am cdt" — a claim about the current time, which is what makes it
+# stale the moment the turn ends. Deliberately narrow: it must be a copula
+# construction, so a time that is the *subject* of a sentence rather than an
+# assertion about now ("the server comes up at 3:00 am") is untouched.
+_STALE_CLOCK_CLAIM = re.compile(
+    r"\b(?:it'?s|it is|the time is|currently)\s+"
+    r"\d{1,2}:\d{2}\s*(?:[ap]\.?m\.?)?"
+    r"(?:\s+[A-Za-z]{2,5}T\b|\s+(?:utc|gmt))?[.,]?\s*",
+    re.IGNORECASE)
+
 # Pre-compiled regex for hot-path sanitization
 _JSON_RESPONSE_PATTERN = re.compile(r'^\s*\{.*"response"\s*:', re.DOTALL)
 _JSON_WRAPPER_PATTERN = re.compile(r'^\s*\{[\s\S]*"response"\s*:\s*"([\s\S]*)"\s*\}\s*$', re.MULTILINE)
@@ -1386,7 +1396,19 @@ class MessageProcessor:
             log_warning("Persona result was a list (likely from gather timeout). Resetting to empty string.")
             raw_persona = ""
             
-        ctx.system_prompt = str(raw_persona)
+        # Resolve the runtime tag. The persona instructs her to "use the
+        # [CURRENT_TIME] data from your system prompt", and until Sept 19 that
+        # substitution happened on exactly one branch — the Adaptive Skip at the
+        # top of `process()`, taken only by high-confidence greetings and
+        # commands. Every ordinary turn, this one included, shipped the persona
+        # with the literal placeholder still in it, so the sentence pointed at a
+        # tag the prompt did not contain. The real time was present the whole
+        # time under [LOCAL_TIME] in the metadata block, which is what makes this
+        # easy to miss: nothing was missing, one instruction just named the wrong
+        # thing.
+        _current_time, _, _ = _get_user_time_info(ctx.author_name)
+        ctx.system_prompt = str(raw_persona).replace(
+            "[CURRENT_TIME]", f"[CURRENT_TIME]: {_current_time}")
         log_debug(summarize_payload("persona loaded", ctx.system_prompt))
 
         ctx.raw_nodes = results.get('rag', [])
@@ -1986,6 +2008,21 @@ class MessageProcessor:
                     r'\s+\d{1,2},\s+\d{4}\s+\|[^\n]*',
                     '', content
                 )
+                # A clock time she *stated in prose* is the same stale fact in a
+                # shape the two patterns above cannot see. On 2026-09-19 she
+                # answered "what time is it" with 5:44 am at 05:29, and then said
+                # 5:44 again at 05:31 and 05:32 — not three wrong readings but
+                # one, read back out of her own history twice. The metadata block
+                # already says "any timestamps in conversation history are
+                # outdated"; this makes that true of the history it is competing
+                # with.
+                #
+                # Only the "it's <time>" construction, and only in her own turns.
+                # That is a claim about *now* and is stale by definition one turn
+                # later; "the raid starts at 8:00 pm" is a fact about a time and
+                # must survive, as must anything the user typed.
+                if turn.get('role') == 'assistant':
+                    content = _STALE_CLOCK_CLAIM.sub('', content)
                 turn['content'] = content.strip()
                 messages.append(turn)
 
