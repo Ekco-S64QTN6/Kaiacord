@@ -21,29 +21,18 @@ SCAN = inspect.getsource(RAGIndexerMixin._scan_for_new_files) \
 PRUNE = inspect.getsource(RAGIndexerMixin._prune_deleted_files)
 
 
-def _excluded(path: str) -> bool:
-    """Mirror of the indexer's rule, for asserting on concrete paths.
-
-    Any dot-directory, not just `.test`: that named exclusion left
-    `.compacted_backup` and `.dream_archive` — the originals that compaction and
-    consolidation had just superseded — being walked into the index.
-    """
-    n = path.replace("\\", "/")
-    if any(part.startswith(".") and part not in (".", "..") for part in n.split("/")):
-        return True
-    return ("/_quarantine" in n or "/_ingress" in n or "forum_posts" in n
-            or ("/user_logs/forum_" in n and os.path.basename(n) != "user_profile.md"))
+# The indexer's own predicate, not a copy of it. A mirror in the test file can
+# agree with itself while the code drifts — which is how three of these tests
+# went on passing by matching substrings in the scanner's source after the rule
+# had moved elsewhere.
+_excluded = RAGIndexerMixin._is_excluded_path
 
 
 def test_test_fixtures_are_not_indexed():
-    assert 'part.startswith(".")' in SCAN, "dot-directories are walked into the index"
-    assert "/.test/" in PRUNE, "already-indexed test fixtures are never pruned"
     assert _excluded("knowledge_base/.test/user_logs/TestUser_123456789/injected_1.txt")
 
 
 def test_quarantine_is_not_indexed():
-    assert "/_quarantine" in SCAN
-    assert "/_quarantine/" in PRUNE, "already-indexed quarantined files are never pruned"
     assert _excluded("knowledge_base/_quarantine/whatever.md")
     assert _excluded("knowledge_base/_quarantine/corrupt_files/broken.md")
     assert _excluded("knowledge_base/_quarantine/dreams/transcript/x.md")
@@ -99,14 +88,29 @@ def test_discord_user_logs_are_untouched():
         "knowledge_base/user_logs/Tenno_Henka_919782120308752425/interactions_20260914.md")
 
 
-def test_the_indexer_implements_that_rule():
-    assert "/user_logs/forum_" in SCAN, "forum user dirs are not special-cased on scan"
-    assert 'user_profile.md' in SCAN, "the profile exception is missing"
-    assert "/user_logs/forum_" in PRUNE, "existing forum bulk is never pruned"
+def test_the_scan_and_the_prune_apply_the_same_rule():
+    """Both ends must consult one predicate.
+
+    An exclusion that lives only in the scanner stops new files being *added*
+    and does nothing about the ones indexed before it existed — the prune pass
+    removed an entry only when its file had vanished from disk. Adding the
+    dot-directory rule to the scan alone left 475 `.compacted_backup` entries in
+    the manifest: the raw forum post histories compaction had replaced, still
+    retrievable beside the profiles that superseded them.
+    """
+    assert "_is_excluded_path" in SCAN, "the scan no longer uses the shared rule"
+    assert "_is_excluded_path" in PRUNE, (
+        "the prune pass no longer uses the shared rule, so anything already "
+        "indexed under an old rule will stay indexed forever"
+    )
+
+
+def test_a_forum_directory_keeps_only_its_profile():
+    assert _excluded("knowledge_base/user_logs/forum_BradZax_315418/post_history.md")
+    assert not _excluded("knowledge_base/user_logs/forum_BradZax_315418/user_profile.md")
 
 
 def test_ingress_and_forum_posts_stay_excluded():
     """Pre-existing exclusions must survive the change."""
-    assert "_ingress" in SCAN
-    assert "forum_posts" in SCAN
+    assert _excluded("knowledge_base/_ingress/pending.md")
     assert _excluded("knowledge_base/forum_posts/thread_123_something.md")

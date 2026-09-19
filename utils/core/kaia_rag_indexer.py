@@ -642,17 +642,39 @@ class RAGIndexerMixin:
         log_success(f"RAG State: {len(self.indexed_files)} files in manifest ({count_added} newly discovered).")
         self._save_indexed_files()
 
+    @staticmethod
+    def _is_excluded_path(p: str) -> bool:
+        """True if this path must not be in an index, whatever put it there.
+
+        Scan-time exclusions only stop a file being *added*. Everything already
+        indexed before a rule existed stays until something removes it, and the
+        only removal condition here was "the file is gone from disk" — which
+        these files are not. Adding the dot-directory rule to the scan left 475
+        `.compacted_backup` entries sitting in the manifest: the raw forum post
+        histories that compaction had replaced, still retrievable, still beside
+        the profiles that superseded them.
+
+        So the same predicate governs both ends. A rule added here takes effect
+        on the next sweep instead of only on files that have yet to appear.
+        """
+        n = p.replace('\\', '/')
+        if any(part.startswith(".") and part not in (".", "..")
+               for part in n.split("/")):
+            return True
+        return ("forum_posts" in n
+                or "/_quarantine/" in n
+                or "/_ingress/" in n
+                or ("/user_logs/forum_" in n
+                    and os.path.basename(n) != "user_profile.md"))
+
     def _prune_deleted_files(self) -> Set[str]:
-        """Detect and remove files from indices that no longer exist on disk using manifest."""
+        """Remove index entries for files that are gone, or must not be indexed."""
         updated_itypes = set()
         deleted_files = [
-            p for p in list(self.indexed_files.keys()) 
-            if not os.path.exists(p) or os.path.basename(p) == "kaia_persona.md"
-            or "forum_posts" in p.replace('\\', '/')
-            or "/.test/" in p.replace('\\', '/')
-            or "/_quarantine/" in p.replace('\\', '/')
-            or ("/user_logs/forum_" in p.replace('\\', '/')
-                and os.path.basename(p) != "user_profile.md")
+            p for p in list(self.indexed_files.keys())
+            if not os.path.exists(p)
+            or os.path.basename(p) == "kaia_persona.md"
+            or self._is_excluded_path(p)
         ]
         if not deleted_files:
             return updated_itypes
@@ -763,6 +785,10 @@ class RAGIndexerMixin:
             # and `quarantine` were two names for "not part of the corpus", each
             # with its own exclusion rule. `_quarantine` is the single folder,
             # and the leading underscore is the same signal `_ingress` carries.
+            # One predicate for both ends — see `_is_excluded_path`. A rule that
+            # lives only here stops new files being added and does nothing about
+            # the ones indexed before it existed.
+            #
             # A dot-directory is working data, not corpus. This was a named
             # exclusion for `.test` alone, and two backup directories were being
             # walked straight into the index: `.compacted_backup` (474 files,
@@ -770,17 +796,9 @@ class RAGIndexerMixin:
             # replaced) and `.dream_archive` (the individual reflections a
             # consolidated document was built from). Both are deliberately
             # superseded content, so indexing them gave her the summary *and*
-            # everything it summarised — which is the one outcome compaction and
-            # consolidation exist to prevent. The convention now carries the
-            # rule: a leading dot means the indexer does not look inside.
-            if any(part.startswith(".") and part not in (".", "..")
-                   for part in norm_root.split("/")):
-                continue
-            if ("/_quarantine" in norm_root
-                    or norm_root.endswith("/_quarantine")
-                    or "forum_posts" in norm_root
-                    or "/_ingress" in norm_root
-                    or norm_root.endswith("/_ingress")):
+            # everything it summarised — the one outcome compaction and
+            # consolidation exist to prevent.
+            if self._is_excluded_path(norm_root + "/"):
                 continue
             # A forum user's *profile* is worth retrieving; their complete post
             # history is not.

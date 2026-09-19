@@ -408,6 +408,13 @@ message actually sent, a guard's verdict against its own return value.
   `.compacted_backup` (474 files, the raw forum histories compaction had just replaced) and
   `.dream_archive` being walked into the index — handing her the summary *and* everything it
   summarised.
+- **An exclusion has two ends, and both must use `RAGIndexerMixin._is_excluded_path`.** The scan
+  decides what gets *added*; `_prune_deleted_files` decides what gets *removed*, and it only ever
+  removed entries whose file had vanished from disk. So adding the dot rule to the scan alone left
+  475 `.compacted_backup` entries in `file_manifest.json` — blocked from being re-added, never
+  removed, still retrievable. A new exclusion takes effect on the next sweep only because both
+  ends now call the same predicate. Note the prune runs **in the live bot**, so a rule added here
+  reaches the index at her next restart, not on a `--trigger`.
 - Naming: `books/` uses `Book - <Title> by <Author>.md`; `documents/` uses `<Topic> - <Title>.md`.
 - Frontmatter schema: `title`, `category`, `document_type`, `summary`, `keywords`. A hand-written
   summary substantially outperforms the auto-extracted fallback.
