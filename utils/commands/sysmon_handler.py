@@ -27,7 +27,7 @@ from utils.infrastructure.monitoring.stats_poller import stats_poller
 from utils.infrastructure.monitoring.stats_tracker import stats_tracker
 
 # Where snapshots go for RAG indexing
-_SYSMON_LOG_DIR = Path("knowledge_base/system_logs")
+_SYSMON_LOG_DIR = Path("knowledge_base/runtime/system_logs")
 
 
 def _count_recent_hallucinations(log_path: str = "memory/hallucination_log.jsonl", seconds: int = 86400) -> int:
@@ -356,7 +356,7 @@ async def handle_sysmon_command(ctx, msg, send_kaia_response):
 
 def _write_sysmon_snapshot(report: str):
     """
-    Write a timestamped snapshot to knowledge_base/system_logs/
+    Write a timestamped snapshot to knowledge_base/runtime/system_logs/
     so Kaia can recall system history through RAG.
     """
     try:

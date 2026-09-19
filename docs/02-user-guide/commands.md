@@ -128,7 +128,7 @@ Manages Kaia's persistent memory systems.
 - `!cache` — Semantic cache status (permanently decommissioned for real-time inference).
 
 ### 📋 Conversation Snapshot (`!snapshot`)
-Distills recent channel conversation into a structured Markdown RAG node in `knowledge_base/snapshots/` tagged with participants, date, channel, and topic summary.
+Distills recent channel conversation into a structured Markdown RAG node in `knowledge_base/runtime/snapshots/` tagged with participants, date, channel, and topic summary.
 
 ### 🪞 Self-Model (`!selfmodel`)
 Regenerates Kaia's self-model — a synthesis of interaction logs into `knowledge_base/kaia_self_model.md`.

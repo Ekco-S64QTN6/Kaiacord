@@ -38,7 +38,7 @@ def clean_db(db_path, kb_path):
                 valid_entities.add(d.name.rsplit("_", 1)[0].replace("_", " ").lower())
 
     # Other Folders (Filenames)
-    for subdir in ["Books", "news", "deep_dive_reports", "blogs", "forum_posts"]:
+    for subdir in ["books", "news", "documents", "forum_posts"]:
         folder = Path(kb_path) / subdir
         if folder.exists():
             for f in folder.rglob("*"):

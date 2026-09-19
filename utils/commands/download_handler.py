@@ -492,11 +492,13 @@ def _classify_folder(url: str, title: str, file_type: str, word_count: int) -> s
     parsed = urlparse(url)
     domain = parsed.netloc.lower()
     
-    # Blog domains
+    # Blog domains. `blogs/` was folded into `documents/` in Sept 2026 — both
+    # were prose scraped from the web, and fourteen files did not earn a
+    # top-level folder of their own.
     if any(bd in domain for bd in BLOG_DOMAINS):
-        return "blogs"
+        return "documents"
     if '/blog/' in url_lower or '/blogs/' in url_lower or '/posts/' in url_lower:
-        return "blogs"
+        return "documents"
     
     # News domains
     if any(nd in domain for nd in NEWS_DOMAINS):
@@ -507,11 +509,11 @@ def _classify_folder(url: str, title: str, file_type: str, word_count: int) -> s
     # Books: PDFs that are long or have "book" in title
     if file_type == 'pdf':
         if word_count > 10000 or 'book' in title_lower or 'manual' in title_lower or 'guide' in title_lower:
-            return "Books"
+            return "books"
     
     # Research/reports
     if any(kw in title_lower for kw in ['report', 'whitepaper', 'white paper', 'analysis', 'study']):
-        return "deep_dive_reports"
+        return "documents"
     
     # Default
     return "documents"

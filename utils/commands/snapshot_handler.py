@@ -97,7 +97,7 @@ async def handle_snapshot_command(ctx, msg, send_kaia_response):
 
         # Save to knowledge_base/snapshots/
         kb_dir = config.get('paths.knowledge_base', './knowledge_base')
-        snapshot_dir = os.path.join(kb_dir, "snapshots")
+        snapshot_dir = os.path.join(kb_dir, "runtime", "snapshots")
         os.makedirs(snapshot_dir, exist_ok=True)
 
         filename = f"snapshot_{file_date}.md"

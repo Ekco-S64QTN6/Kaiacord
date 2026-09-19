@@ -29,7 +29,7 @@ def check_health():
     supported_exts = [".pdf", ".txt", ".md", ".docx"]
     
     for root, _, files in os.walk(knowledge_base_dir):
-        if "corrupt_files" in root: continue
+        if "_quarantine" in root: continue
         for file in files:
             ext = os.path.splitext(file)[1].lower()
             if ext in supported_exts:

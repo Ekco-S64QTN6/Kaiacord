@@ -13,7 +13,7 @@ def scan_for_phantom_names():
     """Scan knowledge base for phantom names that shouldn't be there"""
     knowledge_base_dir = Path("./knowledge_base")
     config_dir = Path("./config")
-    quarantine_dir = knowledge_base_dir / "quarantine"
+    quarantine_dir = knowledge_base_dir / "_quarantine"
     quarantine_dir.mkdir(exist_ok=True)
     
     # Names that definitely shouldn't be in Kaia's knowledge base
@@ -30,7 +30,7 @@ def scan_for_phantom_names():
     for ext in extensions:
         for file_path in knowledge_base_dir.rglob(f"*{ext}"):
             # Skip quarantine and user logs (those should stay)
-            if "quarantine" in str(file_path) or "user_logs" in str(file_path):
+            if "_quarantine" in str(file_path) or "user_logs" in str(file_path):
                 continue
                 
             try:

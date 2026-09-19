@@ -28,6 +28,9 @@ memory/*
 memory/*/*
 knowledge_base/*
 !knowledge_base/kaia_persona.md
+# The layout document. Describes the folder structure and the four places a new
+# folder has to be registered; contains no user content.
+!knowledge_base/README.md
 !knowledge_base/*/
 knowledge_base/*/*
 # The ingress staging area is part of the documented ingest flow, so its

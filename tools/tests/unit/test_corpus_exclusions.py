@@ -22,21 +22,65 @@ PRUNE = inspect.getsource(RAGIndexerMixin._prune_deleted_files)
 
 
 def _excluded(path: str) -> bool:
-    """Mirror of the indexer's rule, for asserting on concrete paths."""
+    """Mirror of the indexer's rule, for asserting on concrete paths.
+
+    Any dot-directory, not just `.test`: that named exclusion left
+    `.compacted_backup` and `.dream_archive` — the originals that compaction and
+    consolidation had just superseded — being walked into the index.
+    """
     n = path.replace("\\", "/")
-    return ("/.test/" in n or "/quarantine/" in n or "forum_posts" in n
+    if any(part.startswith(".") and part not in (".", "..") for part in n.split("/")):
+        return True
+    return ("/_quarantine" in n or "/_ingress" in n or "forum_posts" in n
             or ("/user_logs/forum_" in n and os.path.basename(n) != "user_profile.md"))
 
 
 def test_test_fixtures_are_not_indexed():
-    assert "/.test" in SCAN, "the .test corpus is still walked into the index"
+    assert 'part.startswith(".")' in SCAN, "dot-directories are walked into the index"
     assert "/.test/" in PRUNE, "already-indexed test fixtures are never pruned"
     assert _excluded("knowledge_base/.test/user_logs/TestUser_123456789/injected_1.txt")
 
 
 def test_quarantine_is_not_indexed():
-    assert "/quarantine" in SCAN
-    assert _excluded("knowledge_base/quarantine/whatever.md")
+    assert "/_quarantine" in SCAN
+    assert "/_quarantine/" in PRUNE, "already-indexed quarantined files are never pruned"
+    assert _excluded("knowledge_base/_quarantine/whatever.md")
+    assert _excluded("knowledge_base/_quarantine/corrupt_files/broken.md")
+    assert _excluded("knowledge_base/_quarantine/dreams/transcript/x.md")
+
+
+def test_the_backup_directories_are_not_indexed():
+    """`.compacted_backup` held 474 files — the raw forum post histories that
+    `compact_forum_profiles` had just replaced — and the log shows them being
+    re-indexed one by one. Indexing a backup of superseded content gives her the
+    summary and everything it summarised, which is what compaction exists to
+    prevent. Same for the reflections `consolidate_dreams` folds away."""
+    assert _excluded("knowledge_base/.compacted_backup/forum_Ekco_251675/post_history.md")
+    assert _excluded("knowledge_base/.dream_archive/books/dream_20260208_034713_x.md")
+
+
+def test_the_staging_area_is_not_indexed():
+    """`_ingress` being excluded is what makes !download and !youtube safe to
+    leave open to every user."""
+    assert _excluded("knowledge_base/_ingress/whatever.md")
+
+
+def test_the_real_corpus_is_still_indexed():
+    """An exclusion rule that is too broad fails silently — the corpus simply
+    gets smaller. Assert the folders that must survive it."""
+    for keep in (
+        "knowledge_base/books/Book - Neuromancer by William Gibson.md",
+        "knowledge_base/documents/AI - Cognitive Architectures.md",
+        "knowledge_base/news/daily/2026-09-19.md",
+        "knowledge_base/news/tech_updates/x.md",
+        "knowledge_base/wiki/Enchanter.md",
+        "knowledge_base/troubleshooting/Troubleshooting_Crashing.md",
+        "knowledge_base/transcripts/AI - Claude Opus Discussion.md",
+        "knowledge_base/runtime/snapshots/snap_2026.md",
+        "knowledge_base/kaia_dreams/consolidated/books/Snow_Crash.md",
+        "knowledge_base/user_logs/Ekco_177011971818782721/interactions_20260919.md",
+    ):
+        assert not _excluded(keep), f"{keep} would be dropped from the index"
 
 
 def test_forum_bulk_is_excluded_but_the_profile_survives():

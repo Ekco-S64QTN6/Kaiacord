@@ -650,7 +650,7 @@ class RAGIndexerMixin:
             if not os.path.exists(p) or os.path.basename(p) == "kaia_persona.md"
             or "forum_posts" in p.replace('\\', '/')
             or "/.test/" in p.replace('\\', '/')
-            or "/quarantine/" in p.replace('\\', '/')
+            or "/_quarantine/" in p.replace('\\', '/')
             or ("/user_logs/forum_" in p.replace('\\', '/')
                 and os.path.basename(p) != "user_profile.md")
         ]
@@ -756,13 +756,29 @@ class RAGIndexerMixin:
             # was being defeated here: 101 fixture files — "User (TestUser):
             # Remember this: …" / "Kaia: Logged it. I'll remember that." — were
             # walked into the production `logs` index as 101 retrievable nodes,
-            # sitting alongside real user history. `quarantine` is excluded for
-            # the same reason files are put there.
-            if ("corrupt_files" in root
+            # sitting alongside real user history. `_quarantine` is excluded
+            # for the same reason files are put there.
+            #
+            # One clause now covers what used to be two folders: `corrupt_files`
+            # and `quarantine` were two names for "not part of the corpus", each
+            # with its own exclusion rule. `_quarantine` is the single folder,
+            # and the leading underscore is the same signal `_ingress` carries.
+            # A dot-directory is working data, not corpus. This was a named
+            # exclusion for `.test` alone, and two backup directories were being
+            # walked straight into the index: `.compacted_backup` (474 files,
+            # 5.9 MB of the raw forum post histories that compaction had just
+            # replaced) and `.dream_archive` (the individual reflections a
+            # consolidated document was built from). Both are deliberately
+            # superseded content, so indexing them gave her the summary *and*
+            # everything it summarised — which is the one outcome compaction and
+            # consolidation exist to prevent. The convention now carries the
+            # rule: a leading dot means the indexer does not look inside.
+            if any(part.startswith(".") and part not in (".", "..")
+                   for part in norm_root.split("/")):
+                continue
+            if ("/_quarantine" in norm_root
+                    or norm_root.endswith("/_quarantine")
                     or "forum_posts" in norm_root
-                    or "/quarantine" in norm_root
-                    or "/.test" in norm_root
-                    or norm_root.endswith("/.test")
                     or "/_ingress" in norm_root
                     or norm_root.endswith("/_ingress")):
                 continue
@@ -1078,7 +1094,7 @@ class RAGIndexerMixin:
                 log_info("Indices not initialized. Running initialization...")
                 await asyncio.to_thread(self._initialize_indices)
                 
-            corrupt_dir = os.path.join(self.knowledge_base_dir, "corrupt_files")
+            corrupt_dir = os.path.join(self.knowledge_base_dir, "_quarantine", "corrupt_files")
             if not os.path.exists(corrupt_dir): os.makedirs(corrupt_dir)
 
             updated_itypes = await asyncio.to_thread(self._prune_deleted_files)

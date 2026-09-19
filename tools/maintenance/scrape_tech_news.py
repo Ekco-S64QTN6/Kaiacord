@@ -21,7 +21,7 @@ except ImportError:
 
 class TechNewsScraper:
     def __init__(self):
-        self.output_dir = Path("./knowledge_base/documents/tech_updates")
+        self.output_dir = Path("./knowledge_base/news/tech_updates")
         self.output_dir.mkdir(parents=True, exist_ok=True)
         self.today = datetime.datetime.now().strftime("%Y-%m-%d")
         

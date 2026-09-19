@@ -53,8 +53,7 @@ REINDEX_TRIGGER = Path(".trigger_reindex")
 # Folders a sidecar is allowed to name. Anything else is filed as a document,
 # so a malformed or hostile sidecar cannot write outside the corpus.
 ALLOWED_FOLDERS = {
-    "blogs", "books", "deep_dive_reports", "documents",
-    "news", "transcripts", "troubleshooting",
+    "books", "documents", "news", "transcripts", "troubleshooting", "wiki",
 }
 DEFAULT_FOLDER = "documents"
 

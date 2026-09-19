@@ -51,14 +51,24 @@ When a user queries Kaia, the system performs a hybrid search:
 
 | Index Type | Source Path | Purpose |
 |:-----------|:------------|:--------|
-| `persona` | `knowledge_base/kaia_persona.md` | Tone, rules, and core identity |
-| `user_profiles` | `knowledge_base/user_profiles/` | Summarized facts about specific users |
-| `user_logs` | `knowledge_base/user_logs/` | Raw conversation history |
-| `knowledge` | `knowledge_base/general/` | Manual uploads and scraped URLs |
-| `wiki` | `knowledge_base/wiki/` | Verified Project 1999 Wikipedia articles |
-| `troubleshooting` | `knowledge_base/troubleshooting/` | Synthesized community technical support guides |
-| `news` | `knowledge_base/news/` | Daily tech briefs |
-| `dreams` | `knowledge_base/reflections/` | Nightly associative summaries |
+| `persona` | `knowledge_base/kaia_persona.md` | Tone, rules, and core identity. Never truncated |
+| `user_profiles` | `knowledge_base/user_logs/*/user_profile.md` | Summarised facts about specific users, Discord and forum |
+| `logs` | `knowledge_base/user_logs/` | Raw conversation history |
+| `dreams` | `knowledge_base/kaia_dreams/` | Nightly reflections, plus `consolidated/` — one document per book, person and topic |
+| `knowledge` | everything else indexed: `books/`, `documents/`, `news/`, `wiki/`, `troubleshooting/`, `transcripts/`, `runtime/` | Manual uploads, scrapes and her own snapshots |
+
+There are five indices, not one per folder — `index_types` in `kaia_rag_indexer`
+is `['persona', 'user_profiles', 'knowledge', 'logs', 'dreams']`. An earlier
+version of this table named `knowledge_base/user_profiles/`,
+`knowledge_base/general/` and `knowledge_base/reflections/`, none of which have
+ever existed; the folder layout is in `knowledge_base/README.md` and the code
+wins over both.
+
+Three trees are deliberately **not** indexed — `_ingress/` (staging),
+`_quarantine/` (pulled out of the corpus), `forum_posts/` (9,236 scraped threads,
+excluded from global retrieval so strangers' claims cannot surface as fact) —
+along with any dot-directory, which is where compaction and consolidation keep
+the originals they superseded.
 
 ## Technical Specs
 - **Embeddings**: `nomic-embed-text` (CPU)

@@ -15,7 +15,7 @@ keywords. This retitles those files in place.
 
     python tools/maintenance/retitle_documents.py                  # dry run
     python tools/maintenance/retitle_documents.py --apply
-    python tools/maintenance/retitle_documents.py --folder blogs --apply
+    python tools/maintenance/retitle_documents.py --folder documents --apply
 
 Dry run by default: it renames files and rewrites frontmatter, and a maintenance
 tool that writes across the corpus should never do that on invocation alone.

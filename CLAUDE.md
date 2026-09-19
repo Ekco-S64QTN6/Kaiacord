@@ -394,6 +394,20 @@ message actually sent, a guard's verdict against its own return value.
   `kaia-tools.sh` → Documents & Ingestion. Never drop raw `pandoc` output into the tree — it
   carries fenced divs, empty anchors, style spans, and Calibre frontmatter that degrade
   retrieval.
+- **Layout is documented in `knowledge_base/README.md`** — read it before adding a folder. The
+  top level was flattened from sixteen folders to twelve in September 2026 (`corrupt_files` +
+  `quarantine` → `_quarantine`, `snapshots` + `system_logs` → `runtime`, `blogs` and
+  `deep_dive_reports` → `documents`, `documents/tech_updates` → `news/tech_updates`). A new folder
+  has to be named in `process_ingress.ALLOWED_FOLDERS`, `knowledge_boundary` and
+  `enrich_metadata.knowledge_dirs` or it half-works silently — a sidecar naming a folder absent
+  from the allow-list is discarded and the file is filed as a document instead. That is not
+  hypothetical: `_classify_folder` returned `"Books"` against an allow-list holding `"books"`, so
+  every long PDF `!download` fetched lost its folder hint.
+- **A leading underscore means not indexed** (`_ingress`, `_quarantine`), and so does a leading
+  dot. The dot rule replaced a named exclusion for `.test` alone, which had left
+  `.compacted_backup` (474 files, the raw forum histories compaction had just replaced) and
+  `.dream_archive` being walked into the index — handing her the summary *and* everything it
+  summarised.
 - Naming: `books/` uses `Book - <Title> by <Author>.md`; `documents/` uses `<Topic> - <Title>.md`.
 - Frontmatter schema: `title`, `category`, `document_type`, `summary`, `keywords`. A hand-written
   summary substantially outperforms the auto-extracted fallback.

@@ -53,7 +53,7 @@ def backfill():
         print("❌ Cannot backfill history: GEMINI_API_KEY is not set.")
         sys.exit(1)
         
-    output_dir = Path("./knowledge_base/documents/tech_updates/history")
+    output_dir = Path("./knowledge_base/news/tech_updates/history")
     output_dir.mkdir(parents=True, exist_ok=True)
     
     # Initialize Google GenAI client
