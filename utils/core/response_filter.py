@@ -218,6 +218,32 @@ class EmergencyContaminationFilter:
         return []
     
     
+# Rubble a substring excision leaves behind: an article or demonstrative welded
+# to the verb that belonged to the noun just removed.
+#
+# Two guards have shipped this shape. PROMPT_ECHO_GUARD turned
+#   the "dead internet theory" is... concerning.   ->  the is... concerning.
+# and queued it to the forum for review. DIRECTIVE_LEAK_GUARD turned
+#   the system warning is unhelpful on its own.    ->  theis unhelpful on its own.
+# Both remove a *substring* from the middle of a clause, which CLAUDE.md §5 rules
+# out precisely because the removed span is usually carrying the grammar.
+#
+# Any guard that excises inside a sentence should call `excision_broke_grammar`
+# and keep the original when it did. Shipping the offence is strictly better than
+# shipping a sentence with its subject missing.
+_ORPHANED_ARTICLE = re.compile(
+    r"\b(?:the|a|an|this|that|these|those|his|her|its|their|our|my|your)\s*"
+    r"(?:is|was|are|were|has|have|had|seems|feels|means|sounds)\b",
+    re.IGNORECASE)
+
+
+def excision_broke_grammar(before: str, after: str) -> bool:
+    """True if removing something stranded an article that was fine before."""
+    if not after:
+        return False
+    return bool(_ORPHANED_ARTICLE.search(after)) and not bool(_ORPHANED_ARTICLE.search(before or ""))
+
+
 class BotSpeakFilter:
     """
     Minimal filter to catch only the most egregious system leaks.
@@ -984,11 +1010,20 @@ class BotSpeakFilter:
             return text
         scrubbed = cls.RE_DIRECTIVE_LEAK.sub('', text)
         if scrubbed != text:
-            log_warning("[DIRECTIVE_LEAK_GUARD] Scrubbed internal directive text from output.")
             scrubbed = cls.RE_DOUBLE_SPACES.sub(' ', scrubbed)
             scrubbed = re.sub(r'\s+([,\.\?!])', r'\1', scrubbed)
             scrubbed = re.sub(r'(?:(?<=^)|(?<=[.!?]\s))\s*[.,]\s*', '', scrubbed)
             scrubbed = re.sub(r'\.\s*\.', '.', scrubbed).strip()
+            # The label is often the subject of the sentence she is in the middle
+            # of: "the system warning is unhelpful on its own" scrubbed to
+            # "theis unhelpful on its own". These are phrases she uses constantly
+            # when discussing her own plumbing, which is the conversation this
+            # guard is most likely to fire in.
+            if excision_broke_grammar(text, scrubbed):
+                log_warning("[DIRECTIVE_LEAK_GUARD] Scrubbing the label stranded an "
+                            "article; keeping the original sentence instead.")
+                return text
+            log_warning("[DIRECTIVE_LEAK_GUARD] Scrubbed internal directive text from output.")
         return scrubbed
 
     @classmethod

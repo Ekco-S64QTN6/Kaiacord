@@ -17,7 +17,8 @@ from typing import Optional, Tuple, Dict, Any, List
 
 from utils.infrastructure.logging.kaia_logger import log_info, log_warning, log_debug
 from utils.core.hallucination_detector import HallucinationDetector
-from utils.core.response_filter import EmergencyContaminationFilter, BotSpeakFilter
+from utils.core.response_filter import (EmergencyContaminationFilter, BotSpeakFilter,
+                                        excision_broke_grammar)
 
 _dogtag_replay_lock = threading.Lock()
 
@@ -110,6 +111,21 @@ class PostGenerationSafetyPipeline:
     def _norm(s: str) -> str:
         return re.sub(r'[^a-z0-9 ]+', ' ', (s or '').lower())
 
+    # A quoted span the sentence is built around rather than one standing on its
+    # own. "the <span> is concerning" and "about the <span>" are ordinary
+    # English: she is naming a thing with the words the other person used for
+    # it, which is how you refer to a thing, not an echo.
+    _SPAN_IS_LOAD_BEARING = re.compile(
+        r"\b(?:the|a|an|this|that|these|those|his|her|its|their|our|my|your|"
+        r"of|about|on|in|with|by|for|from|to|called|named|termed|re)\s*$",
+        re.IGNORECASE)
+
+    # A verb directly after the span makes the span the subject of it.
+    _VERB_FOLLOWS_SPAN = re.compile(
+        r"^\s*(?:is|was|are|were|has|have|had|seems|seemed|feels|felt|means|"
+        r"meant|sounds|sounded|gets|got|comes|came|stands|remains)\b",
+        re.IGNORECASE)
+
     @classmethod
     def strip_prompt_echo(cls, content: str, query: str) -> str:
         """P1b — remove quoted spans that merely replay the user's own message.
@@ -134,10 +150,29 @@ class PostGenerationSafetyPipeline:
             if len(words) < 3:
                 return m.group(0)
             overlap = sum(1 for w in words if w in qnorm) / len(words)
-            if overlap >= 0.7:
-                log_warning(f"[PROMPT_ECHO_GUARD] Dropped echoed span: '{span[:60]}...'")
-                return ''
-            return m.group(0)
+            if overlap < 0.7:
+                return m.group(0)
+
+            # Is the sentence built around this phrase? The fault this guard
+            # exists for is a span standing on its own at the front of a turn —
+            #   "«starkind's assessment…» yes, you're largely summarizing him"
+            # — not a quoted term used as a noun. Removing the latter is a
+            # substring excision in the middle of a clause, which CLAUDE.md §5
+            # rules out for exactly this reason: on 2026-09-20 it turned
+            #   the "dead internet theory" is... concerning.
+            # into
+            #   the is... concerning.
+            # and queued that to the forum for review.
+            before = content[:m.start()]
+            after = content[m.end():]
+            if cls._SPAN_IS_LOAD_BEARING.search(before) or \
+                    cls._VERB_FOLLOWS_SPAN.match(after):
+                log_debug("[PROMPT_ECHO_GUARD] Echoed span is the subject of its "
+                          "sentence; leaving it rather than stranding the article.")
+                return m.group(0)
+
+            log_warning(f"[PROMPT_ECHO_GUARD] Dropped echoed span: '{span[:60]}...'")
+            return ''
 
         cleaned = cls.QUOTED_SPAN.sub(_repl, content)
         if cleaned == content:
@@ -149,7 +184,17 @@ class PostGenerationSafetyPipeline:
         cleaned = re.sub(r'[ \t]{2,}', ' ', cleaned)
         cleaned = re.sub(r'\s+([,.!?;:])', r'\1', cleaned)
         cleaned = re.sub(r'(?:(?<=^)|(?<=[.!?]\s))\s*[,;:]\s*', '', cleaned)
-        return cleaned.strip()
+        cleaned = cleaned.strip()
+
+        # Last line of defence. If the excision still left an article welded to a
+        # verb, the sentence lost its subject and no amount of punctuation tidying
+        # will put it back. Shipping the echo is strictly better than shipping
+        # rubble — especially here, where the output is a public forum post.
+        if excision_broke_grammar(content, cleaned):
+            log_warning("[PROMPT_ECHO_GUARD] Removing the echoed span stranded an "
+                        "article; keeping the original sentence instead.")
+            return content
+        return cleaned
 
     @classmethod
     def guard_literalism(cls, content: str, query: str) -> Optional[str]:

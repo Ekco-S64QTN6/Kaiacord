@@ -206,6 +206,22 @@ Using sentence mode on concessional prefixes deleted entire valid answers and fo
 regenerations; using clause mode on mid-sentence patterns left grammar rubble
 (`"the and i'll investigate."`). When adding a pattern, decide which shape it is.
 
+**There is a third shape, and it is the one that keeps getting shipped: a *substring*
+excision inside a clause.** The removed span is usually carrying the grammar, so taking it
+leaves the sentence without its subject. Two guards did this in one week:
+
+| Guard | Wrote | Shipped |
+|:--|:--|:--|
+| `PROMPT_ECHO_GUARD` | `the "dead internet theory" is… concerning.` | `the is… concerning.` |
+| `DIRECTIVE_LEAK_GUARD` | `the system warning is unhelpful on its own.` | `theis unhelpful on its own.` |
+
+The first was queued to the Project 1999 forum for review before anyone noticed. Any guard
+that excises inside a sentence must call `response_filter.excision_broke_grammar(before,
+after)` and keep the original when it returns True — shipping the offence beats shipping a
+sentence with a hole in it. `strip_prompt_echo` additionally declines outright when the span
+is the subject of its sentence: quoting someone's term to refer to the thing is how you
+refer to a thing, and was never the fault that guard was written for.
+
 **Never let a filter empty a good response.** An empty return triggers a full regeneration,
 which costs a whole inference round-trip — and if every attempt is rejected she says nothing at
 all. That happened: three contemplative replies to a question about her own code were each
