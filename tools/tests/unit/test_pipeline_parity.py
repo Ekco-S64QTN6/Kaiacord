@@ -169,7 +169,7 @@ def test_a_forum_thread_becomes_conversation_history():
     n = seed_thread_history(None, 88888888, posts, "Kaia")
     assert n == 3
 
-    turns = bot_state.channel_memory[str(conversation_channel_id("vbulletin", 88888888))]
+    turns = bot_state.channel_memory[conversation_channel_id("vbulletin", 88888888)]
     assert [t["role"] for t in turns] == ["user", "assistant", "user"]
     # Her own posts are hers; everyone else is named, exactly as Discord stores it.
     assert turns[1]["content"] == "that figure needs a denominator."
@@ -184,7 +184,7 @@ def test_thread_history_is_bounded():
 
     posts = [{"post_id": i, "author": f"u{i}", "content": f"post {i}"} for i in range(50)]
     seed_thread_history(None, 999, posts, "Kaia")
-    turns = bot_state.channel_memory[str(conversation_channel_id("vbulletin", 999))]
+    turns = bot_state.channel_memory[conversation_channel_id("vbulletin", 999)]
     assert len(turns) == MAX_THREAD_HISTORY_TURNS
     assert turns[-1]["content"].endswith("post 49"), "keeps the most recent"
 
@@ -198,6 +198,24 @@ def test_the_history_channel_matches_the_one_the_pipeline_reads():
     assert "conversation_channel_id(PLATFORM, thread_id)" in inspect.getsource(seed_thread_history)
     assert "conversation_key=thread_id" in inspect.getsource(draft_forum_reply)
     assert conversation_channel_id("vbulletin", 1) != conversation_channel_id("vbulletin", 2)
+
+    # The source check above is not enough on its own, and said so by passing for
+    # months while the seed went to a key nothing read: `seed_thread_history` did
+    # call `conversation_channel_id(PLATFORM, thread_id)`, then wrapped it in
+    # `str()`. `channel_memory` is int-keyed — `bot_state.load()` casts to int and
+    # drops anything else — so the history was written, never read, and discarded
+    # at the next restart. Assert the type the processor indexes with.
+    from utils.infrastructure.system.bot_state import bot_state
+    from utils.social.forum_drafting import seed_thread_history as _seed
+
+    tid = 77777777
+    key = conversation_channel_id("vbulletin", tid)
+    bot_state.channel_memory.pop(key, None)
+    bot_state.channel_memory.pop(str(key), None)
+    _seed(None, tid, [{"post_id": 1, "author": "Duik", "content": "does the port matter"}], "Kaia")
+    assert key in bot_state.channel_memory, "seeded under a key the pipeline never reads"
+    assert str(key) not in bot_state.channel_memory
+    bot_state.channel_memory.pop(key, None)
 
 
 def test_the_locally_scraped_thread_is_used_as_context():

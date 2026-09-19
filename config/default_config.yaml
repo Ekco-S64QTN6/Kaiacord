@@ -361,6 +361,15 @@ monologue:
   max_broadcasts_per_day: 6
   broadcast_min_interval_minutes: 90
 
+quip:
+  # The third thing she says without being asked, after the inner monologue and
+  # the observation digest. Those two are prefixed so they read as a thought and
+  # an observation; this one was posted in a bare ``` code block with no label at
+  # all, which is why it looked like a stray fragment rather than her musing.
+  #
+  # Set to "" to post the quip unadorned (still not in a code block).
+  broadcast_prefix: "\U0001f4ac **Passing thought:**"
+
 observation:
   # New observed turns that must accumulate past the last digest's watermark
   # before another digest is generated. Raise it for quieter servers.

@@ -2412,6 +2412,13 @@ class MessageProcessor:
         # that merely repeats what the user just said.
         ctx.response_text = PostGenerationSafetyPipeline.strip_echoed_query(
             ctx.response_text, getattr(ctx, "sanitized_content", "") or "")
+        # The same fault in the body of a reply rather than at its front. Measured
+        # against `user_authored_text`, not `sanitized_content`: the enricher's
+        # appended blocks are not words the user typed, and counting them would
+        # let a scraped article's phrasing look like an echo of the reader.
+        from utils.core.sanitizer import user_authored_text as _user_words
+        ctx.response_text = PostGenerationSafetyPipeline.strip_restatements(
+            ctx.response_text, _user_words(getattr(ctx, "sanitized_content", "") or ""))
 
         # 2. SEND RESPONSE
         await self._send_response(channel=ctx.message.channel, text=ctx.response_text)

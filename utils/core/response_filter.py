@@ -787,6 +787,21 @@ class BotSpeakFilter:
     # rather than deleting the whole sentence.
     _CLAUSE_BREAK = re.compile(r'\s*[,;:\u2014\u2013-]\s+|\s+(?=that\b|and\b|but\b|so\b)')
 
+    # A tail beginning with one of these is the *continuation* of the clause just
+    # removed, not a sentence standing on its own: "you're right to point that
+    # out" excises to "to point that out", which means nothing without the half
+    # that was deleted.
+    _DANGLING_TAIL = re.compile(r"^(?:to|that|about|for|on|in|with|of)\b", re.IGNORECASE)
+
+    # A connector stranded at the end of the head once the clause it introduced
+    # is gone: "i'm not sure what caused it, but <concession>".
+    _TRAILING_CONNECTOR = re.compile(
+        r"[\s,;:\u2014\u2013-]*\b(?:and|but|so|yet|though|although|because|while)\s*$",
+        re.IGNORECASE)
+
+    # Restored when an excision takes the sentence's own full stop with it.
+    _TERMINAL_PUNC = re.compile(r"[.!?\u2026]$")
+
     @classmethod
     def _split_units(cls, text: str):
         r"""Split into sentences, treating newlines as hard boundaries.
@@ -817,29 +832,58 @@ class BotSpeakFilter:
             return sentence
         head = sentence[:m.start()]
         tail = sentence[m.end():]
+        had_terminal = bool(cls._TERMINAL_PUNC.search(sentence.rstrip()))
+        terminal = sentence.rstrip()[-1] if had_terminal else ''
         # Consume the connector that joined the concession to its substance.
         brk = cls._CLAUSE_BREAK.match(tail)
         if brk:
             tail = tail[brk.end():]
-        remainder = (head + tail).strip(' \t,;:-\u2014\u2013')
-        # A leading concession ("you're right to flag that, i'll drop it") leaves a
-        # dangling infinitive; if the head was empty and the tail still starts with a
-        # connective fragment, take everything after the next comma instead.
-        if not head.strip() and remainder:
-            first = remainder.split()[0].strip(',')
-            # "you're right to flag that phrasing, i'll drop it" -> dangling infinitive
-            if first in ('to', 'that', 'about', 'for', 'on', 'in'):
-                after = re.split(r',\s+', remainder, maxsplit=1)
-                remainder = after[1].strip() if len(after) > 1 else ''
-            # "that's a great point, and the chain is weak" -> the praised noun is left
-            # stranded ahead of the connector; drop it with the connector.
-            elif re.match(r'^\w+\s*,\s+(?:and|but|so|though|although)\b', remainder):
-                remainder = re.split(r',\s+', remainder, maxsplit=1)[1].strip()
-                remainder = re.sub(r'^(?:and|but|so)\s+', '', remainder)
+
+        # Does what follows stand on its own, or is it the rest of the offense?
+        #
+        #   "you're right; the cron job was the culprit"  -> the tail is substance
+        #   "you're right to point that out"              -> the tail is the offense
+        #
+        # Sept 18 2026. This test used to run only when the head was empty, so any
+        # sentence with something in front of the concession shipped the dangling
+        # half welded to it. Eight reached users in a single day, every one logged
+        # by this guard as "kept substance":
+        #
+        #   'starkind, you're right to point that out.'    -> 'starkind,  to point that out.'
+        #   'lune, you're right to call me out.'           -> 'lune,  to call me out.'
+        #   'and you're correct to identify the aversion.' -> 'and  to identify the aversion.'
+        #
+        # The head is irrelevant to whether the tail is a fragment; it only decides
+        # what is left worth keeping afterwards.
+        stripped_tail = tail.strip()
+        if stripped_tail and cls._DANGLING_TAIL.match(stripped_tail):
+            after = re.split(r',\s+', stripped_tail, maxsplit=1)
+            tail = after[1].strip() if len(after) > 1 else ''
+        elif not head.strip() and stripped_tail:
+            # "that's a great point, and the chain is weak" — the praised noun is
+            # left stranded ahead of the connector; drop it with the connector.
+            if re.match(r'^\w+\s*,\s+(?:and|but|so|though|although)\b', stripped_tail):
+                rest = re.split(r',\s+', stripped_tail, maxsplit=1)[1].strip()
+                tail = re.sub(r'^(?:and|but|so)\s+', '', rest)
+
+        if not tail.strip():
+            # Nothing survives to the right, so whatever introduced the concession
+            # goes with it: a trailing "but"/"and" and a leading one are both
+            # scaffolding for a clause that no longer exists.
+            head = cls._TRAILING_CONNECTOR.sub('', head)
+            head = re.sub(r'^\s*(?:and|but|so|yet)\s+', '', head.strip(), flags=re.IGNORECASE)
+
+        joiner = ' ' if head.strip() and tail.strip() else ''
+        remainder = (head.rstrip() + joiner + tail.lstrip()).strip(' \t,;:-—–')
         if len(remainder.split()) < cls._MIN_KEEP_WORDS:
             return None
+        # The sentence's own full stop is frequently inside the excised tail.
+        # Without it the rebuilt paragraph runs two sentences together.
+        if had_terminal and not cls._TERMINAL_PUNC.search(remainder):
+            remainder += terminal
         # Kaia writes in lowercase; preserve the surviving fragment's own casing.
         return remainder
+
 
     @classmethod
     def _strip_matching_sentences(cls, text: str, pattern, tag: str, mode: str = "sentence") -> str:

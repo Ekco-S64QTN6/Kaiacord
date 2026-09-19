@@ -225,18 +225,49 @@ class PostLedger:
             return False, "nothing new since her last post in this thread"
         return True, "ok"
 
-    def note_skip(self, thread_id: int, newest_post_id) -> None:
+    def note_skip(self, thread_id: int, newest_post_id, body: str = "") -> None:
         """Remember that this thread's current state produced no usable draft.
 
         The watcher re-drafted the same thread against the same last post every
         cycle — 20 identical failures in 14 hours, each one a 14,700-token
         prompt — because nothing remembered having already tried.
+
+        `body` is the text that was turned down. Recording it is what stops the
+        *next* draft, against a genuinely new post, from arriving at the same
+        rejected paragraph again: `rejected_bodies()` feeds the novelty check in
+        `draft_forum_reply`, which previously compared only against posts she had
+        actually published. A rejection left no trace at all, so several
+        rejections in a row each regenerated from an identical starting point and
+        drifted the same way — the operator's "compounding slop".
         """
-        self.skips[str(int(thread_id))] = {
+        key = str(int(thread_id))
+        prior = self.skips.get(key) or {}
+        bodies = [b for b in (prior.get("rejected") or []) if isinstance(b, str)]
+        if body and body.strip():
+            bodies.append(body.strip()[:600])
+        self.skips[key] = {
             "last_seen_post_id": str(newest_post_id) if newest_post_id is not None else None,
             "ts": time.time(),
+            # Bounded. A thread someone keeps rejecting in should not grow an
+            # unbounded list inside a file loaded on every ledger construction.
+            "rejected": bodies[-5:],
         }
         self.save()
+
+    def rejected_bodies(self, hours: float = 14 * 24) -> list:
+        """Drafts that were turned down recently, across every thread.
+
+        Deliberately not scoped to one thread: the repetition she was showing was
+        a house style reasserting itself — the same opening move and the same
+        closing question — not a fixation on one topic.
+        """
+        cutoff = time.time() - hours * 3600
+        out = []
+        for rec in self.skips.values():
+            if not isinstance(rec, dict) or rec.get("ts", 0) <= cutoff:
+                continue
+            out.extend(b for b in (rec.get("rejected") or []) if isinstance(b, str))
+        return out
 
     def already_tried(self, thread_id: int, newest_post_id) -> bool:
         """True if the last attempt on this thread saw exactly this newest post."""

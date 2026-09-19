@@ -722,7 +722,14 @@ async def generate_quip(ctx, is_manual=False, target_channel=None, on_message_fu
             quip = quip[0].lower() + quip[1:]
 
         # 6. POST to Discord
-        await channel.send(f"```\n{quip}\n```")
+        #
+        # Labelled and un-boxed, like the other two things she says unprompted.
+        # A quip in a code block with no label was the third kind of unasked-for
+        # message in the channel and the only one that did not say what it was —
+        # it read as a monospaced fragment from nowhere, while the inner monologue
+        # and the observation digest both announce themselves.
+        label = config.get("quip.broadcast_prefix", "\U0001f4ac **Passing thought:**")
+        await channel.send(f"{label} {quip}" if label else quip)
 
         # Update channel memory
         if channel.id not in bot_state.channel_memory:

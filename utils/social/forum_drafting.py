@@ -115,6 +115,45 @@ def own_words(post, limit: int = 700) -> str:
     return text
 
 
+def quoted_context(post) -> tuple[str, str]:
+    """What this post was actually replying to: (author, text).
+
+    vBulletin flattens a quote box into the body as "Originally Posted by <name>"
+    followed by the quoted words, and `own_text` is the same post with the quote
+    nodes removed. The difference between them is therefore exactly the material
+    this person chose to answer — which is the only honest source for
+    `[REPLYING_TO]`.
+
+    Returns ("", "") when the post quotes nobody. That is the common case and it
+    matters that it is distinguishable: the caller previously fell back to the
+    chronologically previous post in the thread, which on a busy thread is a
+    different person talking about something else. Kaia then answered Ekco while
+    holding BradZax's unrelated argument as "what Ekco was responding to", and
+    the post came out about the wrong subject. On a forum, unlike a chat channel,
+    adjacency is not a reply relationship.
+    """
+    d = _as_dict(post) if not isinstance(post, str) else {}
+    content = (d.get("content") or "").strip()
+    own = (d.get("own_text") or "").strip()
+    if not content:
+        return "", ""
+
+    m = re.search(r"originally posted by\s+(.+)", content, re.IGNORECASE)
+    author = m.group(1).split("\n")[0].strip() if m else ""
+
+    # The quoted block is whatever the poster's own words are not. Without
+    # `own_text` (posts scraped before it existed) there is no reliable boundary,
+    # and guessing one is what attributed the wrong words to the wrong person.
+    if not own or own == content:
+        return "", ""
+    quoted = content
+    if own and own in quoted:
+        quoted = quoted.replace(own, " ")
+    quoted = _readable(quoted)
+    quoted = re.sub(r"^\s*" + re.escape(author) + r"\s*", "", quoted).strip() if author else quoted
+    return author, quoted[:700]
+
+
 def pick_quote_target(posts: list, username: str, force: bool = False) -> Optional[dict]:
     """The post she is replying to — the one the Reply button would quote.
 
@@ -218,7 +257,21 @@ def seed_thread_history(ctx, thread_id: int, earlier_posts: list, username: str)
     except Exception:
         return 0
 
-    channel_id = str(conversation_channel_id(PLATFORM, thread_id))
+    # An int, because that is what `channel_memory` is keyed by. This was
+    # `str(...)`, and `MessageProcessor` reads `bot_state.channel_memory[
+    # ctx.channel_id]` where `ctx.channel_id` comes off the mock channel as an
+    # int — so every thread was seeded under "222746109" and read back under
+    # 222746109, and the read missed. `bot_state.load()` states the contract
+    # explicitly ("channel_memory uses int keys") and casts on load, which also
+    # meant the orphaned string keys were silently dropped at every restart.
+    #
+    # The effect was that the work this module exists to do never happened: the
+    # log said "seeded 12 thread posts as conversation history" on every draft
+    # and `optimize_context` received an empty history on every draft. That is
+    # the whole of "her forum posts read worse than her Discord replies" — the
+    # docstring below already names no-conversation-to-be-in-the-middle-of as
+    # the cause of boilerplate, and the fix had been written but never connected.
+    channel_id = conversation_channel_id(PLATFORM, thread_id)
 
     # Prefer the local copy where it reaches further back than the live scrape,
     # keeping the live posts for the tail because they are the current state.
@@ -278,7 +331,13 @@ async def draft_forum_reply(ctx, *, thread_id: int, title: str, posts: list,
         return None
 
     username = os.getenv("VBULLETIN_USERNAME", "")
-    thread_block = format_thread_context(title, posts)
+
+    # `format_thread_context` used to be assembled here and then never sent
+    # anywhere — a leftover from when this function built its own prompt. The
+    # thread reaches the model as conversation history via `seed_thread_history`
+    # below, which is the shape the pipeline actually reads. The function is now
+    # exercised only by tests; it is kept because a thread flattened into one
+    # block is the readable form when debugging what she was given.
 
     # The target is explicit in every case. Previously, when the coin flip came
     # up "no quote", reply_to was None and the model was left to infer who it
@@ -304,22 +363,29 @@ async def draft_forum_reply(ctx, *, thread_id: int, title: str, posts: list,
     speaker_id = target.get('user_id') or 0
     their_words = own_words(target) or (target.get('content') or '').strip()
 
-    # What they were replying to. On the forum that is whatever they quoted, or
-    # failing that the post immediately before theirs — the same relationship
-    # Discord expresses when someone replies to a message.
+    # `[REPLYING_TO]` must be non-empty whatever happens: `root_context` is
+    # injected *inside* `if ctx.parent_context:`, so an empty antecedent silently
+    # discards the thread background with it.
     #
-    # This has to be set, and not only for the anchor text: `root_context` (the
-    # thread background) is injected *inside* `if ctx.parent_context:`. Sending
-    # [ORIGINAL_POST] without [REPLYING_TO] meant the thread was parsed and then
-    # silently dropped, so she was answering eight words with no context at all
-    # — which is exactly what a one-sentence boilerplate reply looks like.
-    previous = ""
-    for earlier in reversed(posts[:-1] if target is _as_dict(posts[-1]) else posts):
-        d = _as_dict(earlier)
-        if d.get('post_id') != target.get('post_id'):
-            previous = own_words(d) or (d.get('content') or '').strip()
-            if previous:
-                break
+    # What they were replying to — and on a forum that is what they *quoted*,
+    # nothing else.
+    #
+    # This used to walk backwards from the target and take the first earlier post
+    # in the thread. In a two-person exchange that is right; in the 177-post
+    # threads she actually posts in it hands her a different person arguing a
+    # different point and labels it as the thing she is answering. The operator
+    # saw the result as posts that "inject unrelated context from previous posts
+    # by different people".
+    #
+    # When they quoted nobody, the honest answer is that there is no antecedent,
+    # and the fallback below uses their own words — the same shape as a Discord
+    # message sent without a reply attached.
+    quoted_author, previous = quoted_context(target)
+    if previous:
+        log_debug(f"Forum: {speaker} was answering {quoted_author or 'an earlier post'}; "
+                  f"using that as the antecedent.")
+    else:
+        log_debug(f"Forum: {speaker} quoted nobody; answering their post on its own terms.")
 
     content = (f"[REPLYING_TO]\n{previous or their_words}\n"
                f"[USER_MESSAGE]\n{their_words}")
@@ -370,7 +436,12 @@ async def draft_forum_reply(ctx, *, thread_id: int, title: str, posts: list,
     # side by side on a profile page, where a repeated opening is far more
     # visible than it is in a scrolling chat.
     ledger = PostLedger()
+    # Published posts *and* drafts the operator turned down. A rejection is the
+    # strongest signal available about what she should not send, and it was being
+    # thrown away: only `posts` was consulted, so the guard could not tell that
+    # the paragraph in front of it had already been refused once.
     recent_bodies = [p.get("body", "") for p in ledger.posts_since(14 * 24)]
+    recent_bodies += ledger.rejected_bodies()
     repetitive, why = looks_repetitive(
         reply, recent_bodies,
         threshold=float(config.get('forum.max_self_similarity', 0.5)))

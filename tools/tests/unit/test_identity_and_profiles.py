@@ -185,3 +185,35 @@ def test_a_thin_history_does_not_get_a_confident_profile():
     from utils.social.kaia_forum import ForumClient
     src = inspect.getsource(ForumClient.generate_personality_profile)
     assert "substantive < 3" in src, "no guard against profiling from a couple of posts"
+
+
+def test_compaction_never_strips_the_identity_link():
+    """`compact_forum_profiles` rebuilds the document from a fixed key list.
+
+    That is how `is_self: true` and `known_as: "Starkind"` disappeared from the
+    profiles on 2026-09-17/18 — the registry still knew both facts, but the
+    document that reaches retrieval no longer carried them, so nothing in a
+    prompt connected a forum account to the Discord user behind it.
+    """
+    import importlib.util
+    from pathlib import Path as _P
+
+    spec = importlib.util.spec_from_file_location(
+        "_cfp", _P("tools/maintenance/compact_forum_profiles.py"))
+    mod = importlib.util.module_from_spec(spec)
+    spec.loader.exec_module(mod)
+
+    # Her own account is recognised and never profiled as a stranger.
+    is_self, lines, suffix = mod.identity_of(_P("knowledge_base/user_logs/forum_Kaia_322197"))
+    assert is_self and not lines
+
+    # A linked account carries the link into the frontmatter and the heading.
+    d = _P("knowledge_base/user_logs/forum_magnetaress_210090")
+    if d.exists():
+        is_self, lines, suffix = mod.identity_of(d)
+        assert not is_self
+        assert 'known_as: "Starkind"' in lines
+        assert "Starkind" in suffix
+
+    assert mod.uid_of(_P("knowledge_base/user_logs/forum_magnetaress_210090")) == 210090
+    assert mod.uid_of(_P("knowledge_base/user_logs/forum_no_digits")) is None

@@ -711,6 +711,14 @@ class ProactiveEngine:
                 for msg in mem:
                     if msg.get('role') != 'user':
                         continue
+                    # Forum threads are seeded into channel_memory in the same
+                    # shape as Discord turns and tagged `external`. Without this
+                    # filter a proactive opener in Discord could be a follow-up
+                    # to a stranger's P1999 post — the same leak `kaia_monologue`
+                    # already guards against, and the reason a thought about
+                    # someone nobody in the server has heard of turns up mid-chat.
+                    if msg.get('external'):
+                        continue
                     ts = msg.get('timestamp', 0)
                     if ts < cutoff:
                         continue

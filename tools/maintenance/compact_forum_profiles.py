@@ -65,6 +65,71 @@ def prose_of(path: Path) -> str:
     return re.sub(r"\[Post ID:[^\]]*\]\s*\[by[^\]]*\]", "", body).strip()
 
 
+def uid_of(d: Path) -> int | None:
+    """The forum user id, from the directory name.
+
+    `read_watermark` also returns one, but it reads `post_history.md`, which
+    --prune deletes. The directory name is `forum_<username>_<id>` and survives.
+    """
+    m = re.search(r"_(\d+)$", d.name)
+    return int(m.group(1)) if m else None
+
+
+def identity_of(d: Path) -> tuple:
+    """(is_self, frontmatter_lines, header_suffix) from the identity registry.
+
+    Sept 18 2026. This tool rebuilt `user_profile.md` from scratch and emitted a
+    fixed set of frontmatter keys, so the identity keys the *scraper* writes were
+    silently dropped the first time a profile was compacted:
+
+      * `forum_Kaia_322197/user_profile.md` lost `is_self: true`, turning Kaia's
+        own forum account into a personality profile of a stranger — built from
+        her own posts, retrievable as somebody she has met.
+      * `forum_magnetaress_210090` lost `known_as: "Starkind"`, which is the only
+        thing in the document connecting that account to the Discord user of the
+        same person. Reconnecting those two was the operator's explicit ask.
+
+    The registry is the source of truth and was never wrong; only the document
+    that reaches retrieval was.
+    """
+    uid = uid_of(d)
+    if uid is None:
+        return False, "", ""
+    try:
+        from utils.social.kaia_identities import registry
+    except Exception:                                 # noqa: BLE001
+        return False, "", ""
+
+    if registry.is_self(uid):
+        return True, "", ""
+
+    lines, suffix = "", ""
+    known_as = registry.describe_forum_user(uid)
+    if known_as:
+        lines += f'linked_discord: "{registry.get_discord_id(uid)}"\nknown_as: "{known_as}"\n'
+        suffix = f" — this is {known_as} from Discord"
+    others = registry.other_accounts(uid)
+    if others:
+        lines += f"also_posts_as: [{', '.join(str(o) for o in others)}]\n"
+        if not suffix:
+            suffix = f" — also posts as {', '.join(str(o) for o in others)}"
+    return False, lines, suffix
+
+
+SELF_PROFILE = (
+    "---\n"
+    'forum_username: "{name}"\n'
+    "forum_user_id: {uid}\n"
+    'document_type: "Self Reference"\n'
+    "is_self: true\n"
+    "---\n\n"
+    "# THIS IS KAIA'S OWN FORUM ACCOUNT\n\n"
+    "`{name}` on Project 1999 is me. Posts under this name are my own; they are "
+    "not another user's, and this directory is not a record of somebody I have "
+    "met.\n"
+)
+
+
 def read_watermark(d: Path) -> tuple:
     """Carry `total_posts` forward out of post_history.md.
 
@@ -114,6 +179,23 @@ def compact(d: Path, args) -> tuple:
                       if p.is_file() and p.name != "user_profile.md"
                       and p.suffix == ".md"])
     total_posts, user_id = read_watermark(d)
+    if user_id is None:
+        user_id = uid_of(d)
+    is_self, identity_lines, header_suffix = identity_of(d)
+
+    if is_self:
+        # Her own account is not a poster she has met. Distilling her own posts
+        # into a "how to engage them" cheat sheet is both wrong and expensive,
+        # and the self-reference document is what every caller of `is_self`
+        # expects to find here.
+        if args.dry_run:
+            return "[dry run]", "own account — would restore the self-reference document"
+        profile.write_text(
+            SELF_PROFILE.format(name=re.sub(r"_\d+$", "", d.name[len("forum_"):]),
+                                uid=user_id),
+            encoding="utf-8")
+        return "written", "own account — self-reference document restored"
+
     material = "\n\n".join(filter(None, (prose_of(p) for p in sources)))
     words = len(material.split())
     if words < args.min_words:
@@ -147,9 +229,13 @@ def compact(d: Path, args) -> tuple:
         # total does not.
         + (f"total_posts: {total_posts}\n" if total_posts is not None else "")
         + (f"user_id: {user_id}\n" if user_id is not None else "")
+        # Who this is on Discord, if the registry knows. Rebuilding the document
+        # without these dropped the only link between a forum account and the
+        # person behind it.
+        + identity_lines
         + "---\n\n"
     )
-    body = f"# INTERNAL MEMORY: {name} (Project 1999 forum)\n\n{card}\n"
+    body = f"# INTERNAL MEMORY: {name}{header_suffix} (Project 1999 forum)\n\n{card}\n"
     tmp = profile.with_suffix(".tmp")
     tmp.write_text(front + body, encoding="utf-8")
     tmp.replace(profile)                              # atomic, CLAUDE.md §4
@@ -169,6 +255,55 @@ def compact(d: Path, args) -> tuple:
         f", {pruned} pruned" if pruned else "")
 
 
+def repair_identity(d: Path, args) -> tuple:
+    """Put the identity keys back on an already-compacted profile.
+
+    No model call: the prose is fine, only the frontmatter lost the link. Kept
+    separate from `compact` so fixing 218 profiles does not mean regenerating
+    them, which would be hours of GPU for a metadata edit.
+    """
+    profile = d / "user_profile.md"
+    if not profile.exists():
+        return None, "no profile"
+    text = profile.read_text(encoding="utf-8", errors="replace")
+    is_self, identity_lines, header_suffix = identity_of(d)
+
+    if is_self:
+        if "is_self: true" in text:
+            return None, "already marked as self"
+        if args.dry_run:
+            return "[dry run]", "own account — would restore the self-reference document"
+        profile.write_text(
+            SELF_PROFILE.format(name=re.sub(r"_\d+$", "", d.name[len("forum_"):]),
+                                uid=uid_of(d)),
+            encoding="utf-8")
+        return "repaired", "own account — self-reference document restored"
+
+    if not identity_lines:
+        return None, "registry knows no link for this account"
+    wanted = [ln for ln in identity_lines.strip().split("\n") if ln]
+    if all(ln in text for ln in wanted):
+        return None, "identity already present"
+    if not text.startswith("---"):
+        return None, "no frontmatter to amend"
+    if args.dry_run:
+        return "[dry run]", "would add " + ", ".join(w.split(":")[0] for w in wanted)
+
+    head, body = text[4:].split("---", 1)
+    # Replace rather than append, so re-running cannot stack duplicate keys.
+    keep = [ln for ln in head.split("\n")
+            if not ln.startswith(("linked_discord:", "known_as:", "also_posts_as:"))]
+    new = "---\n" + "\n".join(x for x in keep if x.strip()) + "\n" + identity_lines + "---" + body
+    if header_suffix and header_suffix not in new:
+        new = re.sub(r"^(# INTERNAL MEMORY: [^\n(]+?)( \(Project 1999 forum\))",
+                     lambda m: m.group(1) + header_suffix + m.group(2), new, count=1,
+                     flags=re.M)
+    tmp = profile.with_suffix(".tmp")
+    tmp.write_text(new, encoding="utf-8")
+    tmp.replace(profile)                              # atomic, CLAUDE.md §4
+    return "repaired", "added " + ", ".join(w.split(":")[0] for w in wanted)
+
+
 def main() -> int:
     ap = argparse.ArgumentParser(
         description=__doc__, formatter_class=argparse.RawDescriptionHelpFormatter)
@@ -176,6 +311,9 @@ def main() -> int:
     ap.add_argument("--prune", action="store_true",
                     help="delete the source files after writing, backing them up first")
     ap.add_argument("--force", action="store_true", help="redo already-compacted users")
+    ap.add_argument("--repair-identity", action="store_true",
+                    help="only restore is_self / known_as frontmatter; no model calls")
+    ap.add_argument("--verbose", action="store_true", help="print skipped users too")
     ap.add_argument("--limit", type=int, default=None)
     ap.add_argument("--min-words", type=int, default=MIN_WORDS)
     args = ap.parse_args()
@@ -190,15 +328,17 @@ def main() -> int:
           f"{'  [--prune]' if args.prune else ''}\n")
     done = skipped = 0
     for d in dirs:
-        status, note = compact(d, args)
+        status, note = (repair_identity(d, args) if args.repair_identity
+                        else compact(d, args))
         if status:
             done += 1
             print(f"  ok    {d.name[:46]:46s} {note}")
         else:
             skipped += 1
-            if args.verbose if hasattr(args, "verbose") else False:
+            if args.verbose:
                 print(f"  skip  {d.name[:46]:46s} {note}")
-    print(f"\n{done} compacted, {skipped} skipped."
+    verb = "repaired" if args.repair_identity else "compacted"
+    print(f"\n{done} {verb}, {skipped} skipped."
           + ("\nRe-run with --apply to write." if args.dry_run else ""))
     return 0
 

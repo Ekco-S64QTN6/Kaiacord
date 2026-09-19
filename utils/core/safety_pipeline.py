@@ -331,6 +331,180 @@ class PostGenerationSafetyPipeline:
     # and "know", which emptied the content of the exact sentence this exists
     # to catch ("you were correct.") and would have let it through.
 
+    # A verbatim run this long is not coincidence. Two people discussing the same
+    # subject share vocabulary and the odd three-word phrase; seven consecutive
+    # words in the same order is a copy.
+    _MIN_LIFT_RUN = 7
+
+    # How much of a sentence must sit inside a verbatim lift before the sentence
+    # is a restatement rather than a reply that happens to reuse a phrase.
+    #
+    # Coverage, not vocabulary overlap. The turn that prompted this guard —
+    #   Starkind: "...the necessity to understand, maintain, and utilize the
+    #              perspective of the other for continued existence or operation"
+    #   Kaia:     "the necessity to understand and utilize the perspective of the
+    #              other for continued existence or operation is a critical point."
+    # scores only 0.80 on shared vocabulary, because "critical" and "point" are
+    # novel, and slipped past an 0.85 vocabulary bound. Measured as *coverage* it
+    # is 12 of 20 words inside one lifted run, which is what it plainly is: a copy
+    # with an evaluative tag bolted on.
+    _LIFT_COVERAGE = 0.6
+
+    # Shorter than this and a lift is more likely to be an idiom or a title.
+    _MIN_SENTENCE_WORDS = 10
+
+    # Bounds on the damage a single turn can take. The guard is deleting text a
+    # model produced on purpose; capping it means a pathological reply loses a
+    # couple of sentences rather than most of itself.
+    _MAX_DROPS_PER_TURN = 2
+    _MAX_DROP_FRACTION = 0.4
+
+    # A denial is an answer, not an echo. "should i apply to be the next pope?" ->
+    # "no, you should not apply to be the next pope." reuses every content word in
+    # the question and is exactly the reply that was wanted.
+    _NEGATION = re.compile(
+        r"\b(?:not|no|never|none|cannot|can't|won't|don't|doesn't|didn't|isn't|"
+        r"aren't|wasn't|weren't|nothing|nobody|nowhere)\b", re.IGNORECASE)
+
+    # A sentence about herself is a statement, not a restatement of the user's.
+    # "are you willing to explore imagery outside..." -> "i am willing to explore
+    # imagery outside..." is the answer to the question.
+    _FIRST_PERSON = re.compile(r"^\s*[\"'“‘]?(?:i|i'm|i'll|i've|i'd|my|me)\b",
+                               re.IGNORECASE)
+
+    # Auxiliaries and copulas. Used only to recognise that a sentence has a finite
+    # verb of its own, i.e. that it is a sentence and not a dangling noun phrase
+    # left behind when the clause it modified was removed.
+    _FINITE_VERB = re.compile(
+        r"\b(?:is|are|was|were|am|be|been|being|has|have|had|do|does|did|can|could|"
+        r"will|would|shall|should|may|might|must|isn't|aren't|wasn't|weren't|don't|"
+        r"doesn't|didn't|can't|won't|it's|that's|there's|i'm|you're|we're|they're)\b",
+        re.IGNORECASE)
+
+    # Openers that make a sentence dependent on the one before it.
+    _FRAGMENT_OPENER = re.compile(
+        r"^\s*(?:a|an|the|another|which|of|to|for|like|or|nor|plus|"
+        r"and|but|so|yet|just|maybe|perhaps|almost)\b", re.IGNORECASE)
+
+    @classmethod
+    def _is_dependent_fragment(cls, sentence: str) -> bool:
+        """Would this sentence read as garbage if the one before it vanished?
+
+        "a way of imposing order on a chaotic system." is an appositive: it renames
+        something in the sentence before it and says nothing alone. "the geometry is
+        doing a lot of the work." has its own finite verb and stands unsupported.
+        """
+        s = (sentence or "").strip()
+        if not s or not cls._FRAGMENT_OPENER.match(s):
+            return False
+        return not cls._FINITE_VERB.search(s)
+
+    @classmethod
+    def strip_restatements(cls, text: str, query: str) -> str:
+        """Drop sentences that hand the user their own words back mid-answer.
+
+        `strip_echoed_query` looks only at the *opening*, on the reasoning that
+        leading with someone's own words is the fault while quoting a phrase
+        mid-answer is ordinary. That holds for quoting. It does not hold for the
+        shape the operator reported on 2026-09-18, where the echo sits in the body
+        of a four-paragraph reply, unquoted, with an evaluative tag attached:
+
+            "your point, 'you can't evolve yourself out of a clade', is sharp."
+            "all critical backups are located at off-site locations on a rolling
+             schedule, the last backup was 2400 sept 17 2026, that's reassuring."
+
+        Measured across her September logs this appears in 21-26% of turns with
+        Starkind, whose messages are long and abstract enough to be worth
+        restating, and almost never with anyone whose messages are short — which
+        is why it read as a regression rather than a constant.
+
+        Whole sentences only. Excising a lifted span mid-sentence is exactly the
+        clause/sentence-mode error in CLAUDE.md §5: it leaves grammar rubble where
+        there had been a comprehensible, if lazy, sentence.
+        """
+        if not text or not query:
+            return text
+
+        def words(s: str) -> list:
+            return re.findall(r"[a-z0-9']+", (s or "").lower())
+
+        qw = words(query)
+        if len(qw) < cls._MIN_LIFT_RUN:
+            return text
+        run = cls._MIN_LIFT_RUN
+        qruns = {" ".join(qw[i:i + run]) for i in range(len(qw) - run + 1)}
+        q_negated = bool(cls._NEGATION.search(query))
+
+        blocks = re.split(r"(\n+)", text)
+        sentences, index = [], []
+        for bi, block in enumerate(blocks):
+            if not block or block.strip() == "":
+                continue
+            for si, sent in enumerate(re.split(r"(?<=[.!?])\s+", block)):
+                if sent.strip():
+                    sentences.append(sent)
+                    index.append((bi, si))
+
+        doomed = set()
+        for n, sent in enumerate(sentences):
+            sw = words(sent)
+            if len(sw) < cls._MIN_SENTENCE_WORDS:
+                continue
+            covered = set()
+            for i in range(len(sw) - run + 1):
+                if " ".join(sw[i:i + run]) in qruns:
+                    covered.update(range(i, i + run))
+            if not covered or len(covered) / len(sw) < cls._LIFT_COVERAGE:
+                continue
+            if cls._NEGATION.search(sent) and not q_negated:
+                continue
+            if cls._FIRST_PERSON.match(sent):
+                continue
+            doomed.add(n)
+
+        if not doomed:
+            return text
+
+        # Bound the damage before applying any of it.
+        if len(doomed) > cls._MAX_DROPS_PER_TURN or \
+                len(doomed) > max(1, int(len(sentences) * cls._MAX_DROP_FRACTION)):
+            log_warning(f"[RESTATEMENT_GUARD] {len(doomed)} of {len(sentences)} sentences "
+                        f"restate the user; leaving the turn intact rather than gutting it.")
+            return text
+
+        # A sentence that leans on a dropped one goes with it, or it is left
+        # stranded the way ECHO_GUARD stranded "a way of imposing order on a
+        # chaotic system." when it removed the sentence that phrase renamed.
+        for n in sorted(doomed):
+            nxt = n + 1
+            while nxt < len(sentences) and cls._is_dependent_fragment(sentences[nxt]):
+                doomed.add(nxt)
+                nxt += 1
+
+        rebuilt_blocks = {}
+        for n, sent in enumerate(sentences):
+            if n in doomed:
+                continue
+            rebuilt_blocks.setdefault(index[n][0], []).append(sent)
+
+        out = []
+        for bi, block in enumerate(blocks):
+            if not block or block.strip() == "":
+                out.append(block)
+            elif bi in rebuilt_blocks:
+                out.append(" ".join(rebuilt_blocks[bi]))
+        rebuilt = re.sub(r"\n{3,}", "\n\n", "".join(out)).strip()
+
+        # Never let the guard empty a turn. A reply that was nothing but
+        # restatement is a generation problem, and returning "" here would buy a
+        # full regeneration for a turn that at least said something.
+        if len(rebuilt) < 40:
+            return text
+        for n in sorted(doomed):
+            log_warning(f"[RESTATEMENT_GUARD] Dropped sentence restating the user: "
+                        f"'{sentences[n][:70]}'")
+        return rebuilt
+
     @classmethod
     def strip_echoed_query(cls, text: str, query: str) -> str:
         """Drop an opening that just hands the user their own statement back.
@@ -429,7 +603,17 @@ class PostGenerationSafetyPipeline:
         if drop_upto == 1 and len(dropped_cw) < 2:
             return text
 
-        rest = " ".join(sentences[drop_upto:]).strip()
+        # A sentence that only renames something in the dropped opening goes with
+        # it. Removing "the irony is a human projection." on 2026-09-18 promoted
+        # its appositive — "a way of imposing order on a chaotic system." — to
+        # opening sentence, where it reads as a fragment of a missing thought.
+        survivors = sentences[drop_upto:]
+        while survivors and cls._is_dependent_fragment(survivors[0]):
+            log_warning(f"[ECHO_GUARD] Also dropped the fragment it supported: "
+                        f"'{survivors[0][:60]}'")
+            survivors = survivors[1:]
+
+        rest = " ".join(survivors).strip()
         remainder = "\n".join([rest] + lines[1:]).strip() if rest else "\n".join(lines[1:]).strip()
         if len(remainder) < 40:
             return text          # nothing of substance would be left

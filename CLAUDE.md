@@ -247,7 +247,7 @@ and fix this table when it disagrees with the code.
 | **Discord chat** | `MessageProcessor.process()` | Full cognitive pipeline, RAG, intent classification, full safety pipeline |
 | **Proactive opener** | `kaia_proactive.py` → `generate_opener()` | Selective injections; `harden()` + contamination filter + style collapsers |
 | **Afterthought** | `background_tasks.py` | Emotional arc + channel memory; full post-generation pipeline |
-| **Forum auto-post** | `background_tasks.py` → `_make_forum_auto_post_task()` | **Through the pipeline**: `forum_drafting.draft_forum_reply()` → `process_external_mention()` |
+| **Forum auto-post** | `background_tasks.py` → `_make_forum_auto_post_task()` | **Through the pipeline**: `forum_drafting.draft_forum_reply()` → `process_external_mention()`. The thread is seeded into `channel_memory` as conversation history — under an **int** key, because that is what `ctx.channel_id` is. It was `str()`-wrapped until Sept 18, so no forum draft ever had history and every one was generated cold. |
 | **Forum tech support** | `background_tasks.py` → `_make_forum_tech_support_task()` | Direct call, BM25/hybrid grounded, mandatory disclaimer footer |
 | **Social responder** | `kaia_social_responder.py` → `mock_external_mention()` | **Through the pipeline**: builds a `MockMessage` and hands it to the normal `on_message` handler |
 | **Quip / social thread** | `social_response_generator.py` | **Through the pipeline** via `process_external_mention(platform="broadcast")` |
@@ -317,6 +317,7 @@ silenced without the others:
 | Observation digest | `observation.broadcast_digest` | `#kaia-opolis` | The summary is spoken **verbatim**. It used to be handed to `generate_opener` as hidden context and an unrelated one-liner was sent instead, while the log claimed the digest had aired. |
 | Inner monologue | `monologue.broadcast_to_chat` | `#kaia-opolis` | Capped at 6/day, 90-minute gap. `monologue.respect_quiet_hours` is **false**: a thought in her own channel is not the interruption a proactive opener is. |
 | Proactive opener | the desire gate + rate limiter | most recent channel | Obeys `proactive.quiet_hour_start`/`quiet_hour_end` (9–22). |
+| Idle quip | the idle timer | most recent channel | `quip.broadcast_prefix`. Was posted in a bare ``` block with no label, which is why it read as a stray fragment rather than a thought. |
 
 Both broadcasts are prefixed (`monologue.broadcast_prefix`, `observation.broadcast_prefix`) so
 they read as a thought and an observation rather than as remarks aimed at someone.
@@ -354,7 +355,7 @@ the point.
 ### Telemetry that lies
 
 **Do not trust a success line. Check what was actually transmitted.** This is the single most
-productive check in this codebase; a September 2026 review found six instances, every one of which
+productive check in this codebase; a September 2026 review found seven instances, every one of which
 had misled someone:
 
 - `"Observation digest broadcast to chat"` fired after sending an unrelated one-liner the opener
@@ -368,10 +369,16 @@ had misled someone:
 - `_dispatch_proactive` returned `False` with no log at all when the channel id did not resolve.
   `"Proactive message sent"` appeared once in the entire log.
 - `[ELLIPSIS_COLLAPSE]` could not match a lone `…`, so it fired on 0 responses ever.
+- `[APOLOGY_GUARD] Trimmed offending clause, kept substance` logged eight times on 2026-09-18
+  while emitting `'starkind,  to point that out.'` and `'lune,  to call me out.'` The dangling-tail
+  repair ran only when the excised clause had *nothing* in front of it, so every sentence with a
+  name, an "and", or a preceding clause shipped the fragment — announced as substance kept.
 
-The pattern behind all six: **success is logged where the attempt happens, not where the outcome
-lands.** When adding a log line that asserts an outcome, make it reachable only when that outcome
-occurred, and return what actually succeeded rather than what was tried.
+The pattern behind the first six: **success is logged where the attempt happens, not where the
+outcome lands.** The seventh is a variant worth naming separately — **a guard that reports what it
+intended rather than what it produced** — and the fix for it is the same shape: when a guard
+rewrites text, log the result. When adding a log line that asserts an outcome, make it reachable
+only when that outcome occurred, and return what actually succeeded rather than what was tried.
 
 **Two sweeps worth repeating.** Enumerate every bracketed guard tag in `utils/` and count its
 occurrences in the production log — a tag with zero hits is either well-calibrated or dead code,

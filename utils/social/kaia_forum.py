@@ -1991,9 +1991,29 @@ class ForumDraftReviewView(discord.ui.View):
         # says something new in the thread.
         try:
             from utils.social.forum_participation import PostLedger
-            PostLedger().note_skip(self.thread_id, self.last_seen_post_id)
+            # The rejected text goes in with the skip. Without it the novelty
+            # check in `draft_forum_reply` had no idea this paragraph had already
+            # been refused, and the next draft — against a genuinely new post —
+            # was free to arrive at it again.
+            PostLedger().note_skip(self.thread_id, self.last_seen_post_id,
+                                   body=self.final_reply or "")
             log_debug(f"Forum: thread {self.thread_id} retired at post "
                       f"{self.last_seen_post_id} after rejection.")
+
+            # Drop the thread's seeded conversation history. It is rebuilt from
+            # the scrape on the next draft, so keeping it buys nothing, and
+            # keeping it means the rejected draft's framing survives as the
+            # context the next attempt is generated against. "Regenerate fresh"
+            # has to include forgetting.
+            try:
+                from utils.infrastructure.system.bot_state import bot_state
+                from utils.infrastructure.system.external_mention import (
+                    conversation_channel_id)
+                bot_state.channel_memory.pop(
+                    conversation_channel_id("vbulletin", self.thread_id), None)
+            except Exception as ce:
+                log_debug(f"Forum: could not clear seeded history for "
+                          f"thread {self.thread_id}: {ce}")
         except Exception as e:
             log_warning(f"Forum: could not record rejection for thread {self.thread_id}: {e}")
 
