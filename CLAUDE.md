@@ -9,8 +9,14 @@ This file provides guidance to Claude Code (claude.ai/code) when working with co
 
 ## 1. Project Overview
 
-**Kaiacord** is a self-hosted Discord bot: `discord.py 2.6.4`, Python 3.12, Ollama for local
+**Kaiacord** is a self-hosted Discord bot: `discord.py 2.7.1`, Python 3.12, Ollama for local
 inference on a single RTX 3060 12 GB.
+
+`discord.py >= 2.7` and `davey` are both **required, not optional**. Discord enforced its DAVE
+end-to-end-encryption protocol for all non-stage voice on 2 March 2026; a client without it is
+refused at the handshake with close code 4017 and can never join a voice channel. 2.6.4 has no
+DAVE support at all, so `!music` fails with five retries and "Not connected to voice" whatever
+the bot does. This file said 2.6.4 until September 2026 — check `requirements.txt`, not here.
 
 | Subsystem | Where | Summary |
 |:--|:--|:--|
@@ -47,7 +53,7 @@ venv/bin/python3 -c "from utils.core.message_processor import MessageProcessor"
 venv/bin/python3 -c "import ast, io; ast.parse(io.open('utils/core/message_processor.py').read())"
 ```
 
-Baseline for the no-external-services run, verified 2026-09-19: **1,528 passed, 10 skipped,
+Baseline for the no-external-services run, verified 2026-09-20: **1,563 passed, 10 skipped,
 3 deselected, 2 xfailed** in ~110 s. Only three tests in the whole suite need Ollama or a GPU, so
 that invocation is the one to use by default — the full `pytest -q` additionally loads
 `gemma3:12b`, which evicts the production model from VRAM.
@@ -133,7 +139,7 @@ exec(open('utils/ttrpg/equipment_registry.py').read())
 print('gear', sum(len(d) for d in (WEAPONS,ARMOR,HEADGEAR,BOOTS,ACCESSORIES)), '+ consumables', len(CONSUMABLES))"
 ```
 
-Verified 2026-09-14: **369 monsters**, **395 gear + 58 consumables = 453 items**, 253 fish,
+Verified 2026-09-20: **369 monsters**, **395 gear + 58 consumables = 453 items**, 253 fish,
 12 quests, 10 classes.
 
 ---
@@ -146,7 +152,15 @@ Verified 2026-09-14: **369 monsters**, **395 gear + 58 consumables = 453 items**
   `level * 1.5 + 12` are intentional. Do not remove or bypass.
 - **Character sheets** go through `character_manager.load()` / `.save()` only, never direct file
   access. It uses per-user async locks.
-- **Atomic writes everywhere**: write `.tmp`, then `os.replace()`.
+- **Atomic writes everywhere**: `utils/core/atomic_write.write_atomic()`. Do not call
+  `Path.write_text` on anything under `knowledge_base/` or `memory/`. The rule dates from a
+  half-written registry that caused an outage, and it was being followed where people remembered
+  it: a September 2026 sweep found **35 bare `write_text` calls across 21 modules** that rewrite
+  the corpus in place, including the nightly metadata enrichment, the hourly ingress filer and
+  the dream engine. An interrupted rewrite there raises nothing anywhere — it leaves a truncated
+  document that is indexed on the next sweep, retrievable, and indistinguishable from a file that
+  was simply short. The temporary is written beside its destination because `os.replace` is only
+  atomic within a filesystem.
 - **Blocking work off the event loop.** File I/O, PIL, and CPU rendering must be wrapped in
   `asyncio.to_thread()`. This is not theoretical — vision image preparation was found running
   full-resolution PIL decode and base64 synchronously on the loop, stalling every other
@@ -206,21 +220,32 @@ Using sentence mode on concessional prefixes deleted entire valid answers and fo
 regenerations; using clause mode on mid-sentence patterns left grammar rubble
 (`"the and i'll investigate."`). When adding a pattern, decide which shape it is.
 
-**There is a third shape, and it is the one that keeps getting shipped: a *substring*
-excision inside a clause.** The removed span is usually carrying the grammar, so taking it
-leaves the sentence without its subject. Two guards did this in one week:
+**Whichever mode you pick, check what the excision leaves behind.** This is the failure that
+keeps recurring, in both modes: clause mode strands the half of the sentence that depended on
+what it removed, and a *substring* excision inside a clause takes the grammar with it, because
+the removed span is usually the subject. Four guards shipped it in two weeks:
 
 | Guard | Wrote | Shipped |
 |:--|:--|:--|
+| `APOLOGY_GUARD` | `starkind, you're right to point that out.` | `starkind,  to point that out.` |
 | `PROMPT_ECHO_GUARD` | `the "dead internet theory" is… concerning.` | `the is… concerning.` |
 | `DIRECTIVE_LEAK_GUARD` | `the system warning is unhelpful on its own.` | `theis unhelpful on its own.` |
+| `SYCOPHANCY_GUARD` | `it's a complicated issue, and your observation is astute.` | `it's a complicated issue, and .` |
 
-The first was queued to the Project 1999 forum for review before anyone noticed. Any guard
-that excises inside a sentence must call `response_filter.excision_broke_grammar(before,
-after)` and keep the original when it returns True — shipping the offence beats shipping a
-sentence with a hole in it. `strip_prompt_echo` additionally declines outright when the span
-is the subject of its sentence: quoting someone's term to refer to the thing is how you
-refer to a thing, and was never the fault that guard was written for.
+The `PROMPT_ECHO` one was queued to the Project 1999 forum for review before anyone noticed.
+Every one of them logged **"Trimmed offending clause, kept substance"** or the equivalent while
+doing it, which is why they lasted — see [§9](#9-logging).
+
+Rules that follow:
+
+- Any guard that excises inside a sentence must call
+  `response_filter.excision_broke_grammar(before, after)` and keep the original when it returns
+  True. Shipping the offence beats shipping a sentence with a hole in it.
+- `strip_prompt_echo` declines outright when the span is the subject of its sentence. Quoting
+  someone's term to refer to the thing is how you refer to a thing, and was never the fault that
+  guard was written for.
+- Punctuation is not survival. `tail.strip()` on a bare `"."` is truthy, so the trailing-connector
+  repair never ran when the offence reached the end of the sentence.
 
 **Never let a filter empty a good response.** An empty return triggers a full regeneration,
 which costs a whole inference round-trip — and if every attempt is rejected she says nothing at
@@ -241,11 +266,33 @@ assembly: it drops history oldest-first, never the system prompt or the user's m
 **Its ratio is measured, not chosen.** Two hardcoded constants have been wrong here in opposite
 directions, both costing her memory: 2.05 scored the system prompt alone over budget and drained
 every history turn; 1.75 ("the observed maximum" over five turns) overshot by a **median of 2,620
-tokens** and cut history to the floor on 30 of 42 turns on 2026-09-20 — the largest real prompt
+tokens** and cut history to the floor on 30 of 42 turns in one day — the largest real prompt
 that day was 15,127 against a 15,360 budget, so not one would have overflowed. Ollama reports
 `prompt_eval_count` on every generation, so `_observe_prompt_tokens` feeds the truth back and
 `_calibrated_tokens_per_word()` returns a bounded p90 of recent observations. If you find yourself
 picking a number here, measure instead.
+
+### Vision
+
+Images go inline to `gemma3:12b` as base64 on the `user` message. Three things about that path:
+
+- **It keys off `ctx.message.attachments` and nothing else.** Any platform that wants Kaia to see
+  a picture has to populate that list. The forum did not, so `MockMessage.attachments` was always
+  empty and she answered image posts blind — a photograph in thread 443378 drew *"those symbols
+  again? what are you trying to do?"*. `MockAttachment` supplies the `.filename`/`.url` the branch
+  reads, and guesses an extension for `attachment.php?attachmentid=…`, which has none and would
+  otherwise fail the suffix test in silence.
+- **Downscale before encoding, and do it off the loop.** gemma3's vision encoder works at 896×896;
+  a 4032×3024 phone photo is ~49 MB of base64 for no added detail, and the PIL decode was running
+  synchronously on the event loop, stalling every other coroutine.
+- **The grounding block must match where the picture came from.** It said "The user attached an
+  image from their physical environment", which for a public thread invites her to discuss a
+  stranger's screenshot as their living room. It varies by platform now.
+
+Certainty is the failure mode, not error. Three confirmed misreads in two days — an origami swan
+called a bat, a kintsugi bowl called a globe, a bus emergency hammer called a yellow bulldozer —
+each stated with full confidence, and that is what stopped the operator trusting the answer. The
+prompt asks her to name only what she can make out and to hedge rather than commit.
 
 ### Persona grounding facts
 
@@ -272,7 +319,7 @@ and fix this table when it disagrees with the code.
 | **Discord chat** | `MessageProcessor.process()` | Full cognitive pipeline, RAG, intent classification, full safety pipeline |
 | **Proactive opener** | `kaia_proactive.py` → `generate_opener()` | Selective injections; `harden()` + contamination filter + style collapsers |
 | **Afterthought** | `background_tasks.py` | Emotional arc + channel memory; full post-generation pipeline |
-| **Forum auto-post** | `background_tasks.py` → `_make_forum_auto_post_task()` | **Through the pipeline**: `forum_drafting.draft_forum_reply()` → `process_external_mention()`. The thread is seeded into `channel_memory` as conversation history — under an **int** key, because that is what `ctx.channel_id` is. It was `str()`-wrapped until Sept 18, so no forum draft ever had history and every one was generated cold. |
+| **Forum auto-post** | `background_tasks.py` → `_make_forum_auto_post_task()` | **Through the pipeline**: `forum_drafting.draft_forum_reply()` → `process_external_mention()`. The thread is seeded into `channel_memory` as conversation history — under an **int** key, because that is what `ctx.channel_id` is. It was `str()`-wrapped until Sept 18, so no forum draft ever had history and every one was generated cold. Images in the post pass as `image_urls` and reach the vision model through the same `MockMessage.attachments` path Discord uses. |
 | **Forum tech support** | `background_tasks.py` → `_make_forum_tech_support_task()` | Direct call, BM25/hybrid grounded, mandatory disclaimer footer |
 | **Social responder** | `kaia_social_responder.py` → `mock_external_mention()` | **Through the pipeline**: builds a `MockMessage` and hands it to the normal `on_message` handler |
 | **Quip / social thread** | `social_response_generator.py` | **Through the pipeline** via `process_external_mention(platform="broadcast")` |
@@ -388,7 +435,7 @@ the point.
 ### Telemetry that lies
 
 **Do not trust a success line. Check what was actually transmitted.** This is the single most
-productive check in this codebase; a September 2026 review found seven instances, every one of which
+productive check in this codebase; a September 2026 review found ten instances, every one of which
 had misled someone:
 
 - `"Observation digest broadcast to chat"` fired after sending an unrelated one-liner the opener
@@ -402,16 +449,32 @@ had misled someone:
 - `_dispatch_proactive` returned `False` with no log at all when the channel id did not resolve.
   `"Proactive message sent"` appeared once in the entire log.
 - `[ELLIPSIS_COLLAPSE]` could not match a lone `…`, so it fired on 0 responses ever.
-- `[APOLOGY_GUARD] Trimmed offending clause, kept substance` logged eight times on 2026-09-18
-  while emitting `'starkind,  to point that out.'` and `'lune,  to call me out.'` The dangling-tail
+- `[APOLOGY_GUARD] Trimmed offending clause, kept substance` logged eight times in one day while
+  emitting `'starkind,  to point that out.'` and `'lune,  to call me out.'` The dangling-tail
   repair ran only when the excised clause had *nothing* in front of it, so every sentence with a
   name, an "and", or a preceding clause shipped the fragment — announced as substance kept.
+  `SYCOPHANCY_GUARD`, `PROMPT_ECHO_GUARD` and `DIRECTIVE_LEAK_GUARD` each did the same thing in
+  their own way ([§5](#5-kaia-cognitive-pipeline)).
+- `[CONTEXT_CLAMP] Dropped N history turn(s)` was accurate about what it did and silent about
+  whether it should have. Paired against the `prompt_eval_count` that followed each one, the
+  estimate ran a median of 2,620 tokens high and cut history on 30 turns that would have fit.
+- `reindex_rag.py --clear` under a live bot correctly refuses to `rmtree` a directory the bot
+  holds open, and reported that through `log_error` — which in a standalone script reaches
+  neither stdout nor `logs/kaiacord.log`. It printed nothing and exited **0**, so a no-op was
+  indistinguishable from a rebuild.
+- `"Saved 0 entries to ./memory/rag_storage/file_manifest.json"` in `kaiacord.test.log` was a
+  faithful report of the test suite writing over the live index. Nothing was wrong with the log
+  line; nobody was reading it.
 
-The pattern behind the first six: **success is logged where the attempt happens, not where the
-outcome lands.** The seventh is a variant worth naming separately — **a guard that reports what it
-intended rather than what it produced** — and the fix for it is the same shape: when a guard
-rewrites text, log the result. When adding a log line that asserts an outcome, make it reachable
-only when that outcome occurred, and return what actually succeeded rather than what was tried.
+Three patterns, not one:
+
+1. **Success is logged where the attempt happens, not where the outcome lands.** Make an outcome
+   line reachable only when that outcome occurred, and return what succeeded rather than what was
+   tried.
+2. **A guard reports what it intended rather than what it produced.** When a guard rewrites text,
+   log the result. Four separate guards shipped grammar rubble while announcing "kept substance".
+3. **A refusal that reports only to the log.** A CLI that declines the job has to say so where the
+   person who typed it will see it, and exit non-zero.
 
 **Two sweeps worth repeating.** Enumerate every bracketed guard tag in `utils/` and count its
 occurrences in the production log — a tag with zero hits is either well-calibrated or dead code,
@@ -490,11 +553,32 @@ replacing it; without that, a weekly run would overwrite a 229-reflection synthe
 from the week's seven. Both tools run weekly from `_make_dream_curation_task`
 (`dream_mode.auto_curate`).
 
-The synthesis is the fragile half. Asked to merge twelve passages about a person, gemma3 returns
-`**1. Key Themes & Recurring Ideas:**` and bullets analysing "the narrator" — a literary essay
-about Kaia instead of Kaia. `reads_as_essay()` rejects that shape and retries; do not remove it
-without a better check. "the user" is deliberately *not* treated as third person — she uses it
-constantly and correctly about the people in her logs.
+The synthesis is the fragile half, and it fails in three distinct ways. `reads_as_essay()`
+rejects all three and retries; **it runs on every pass, not only on merges** — a group of twenty
+reflections or fewer is a single pass and reached no merge, which is how one document went out
+unchecked.
+
+| Shape | What it looks like |
+|:--|:--|
+| essay | `**1. Key Themes & Recurring Ideas:**` and bullets analysing "the narrator" |
+| review | *"That's excellent! It flows beautifully… I'd love for you to focus on lost authenticity in the next iteration."* |
+| meta | talking about "these passages" and "the prompt to merge" instead of performing it |
+
+The review shape is the one to watch for: it is fluent, first-person and has no bullets, so it
+passes every structural test. `books/Neuromancer.md` was forty-three nights of reflection replaced
+by a critique of a draft. **"the user" is deliberately not treated as third person** — she uses it
+constantly and correctly about the people in her logs, and an earlier rule rejected the very
+reflection it existed to protect.
+
+Two accounting rules that are easy to get wrong:
+
+- Consolidation **extends** an existing document rather than replacing it, but only carries the
+  prior count forward when the run archives what it consumed. Re-running a group without
+  `--archive` counted the same sources twice and recorded 84 reflections against a group of 42.
+- Titles are canonicalised against the real filenames in `knowledge_base/books/`. The engine
+  truncates a source stem to 30 characters and a dream-about-a-dream spends 22 of those on the
+  parent's timestamp, so one book arrived under three keys and 250 files under the key
+  `dream 20`.
 
 ---
 
@@ -522,6 +606,18 @@ production from test runs (see [§9](#9-logging)) has now produced a wrong concl
 to happen — a config read added to `kaia_proactive` referenced a `config` that module never
 imported, and only calling the function found it. Three separate defects this September were
 caught by running the changed path and none by reading it.
+
+**A regex across many files is a change you have not read.** Converting 35 `write_text` calls in
+21 modules to the atomic helper looked mechanical. The pattern matched the receiver greedily, so
+it swallowed each line's leading indentation, and it turned
+`other.with_suffix(other.suffix + ".error")` into `other.suffix +write_atomic(".error")`. Twenty
+files stopped parsing. `ast.parse` over the tree caught it, `git checkout` undid it — and took an
+uncommitted feature with it, which is the second lesson. If you must sweep:
+
+- anchor the pattern at line start and keep the indentation in its own group
+- restrict the receiver to what you expect (a dotted name), not `.+?`
+- parse every touched file before moving on, and import the ones that are modules
+- commit the unrelated work first
 
 **Preserve content when cleaning.** Any transform that removes text should be checked for
 retention. A page-number stripper compiled with `re.IGNORECASE` silently deleted prose lines;
