@@ -1,11 +1,16 @@
 # ==============================================================================
-# Default Configuration
+# Kaia — Default Configuration
 # ==============================================================================
 #
-# Hierarchical configuration with environment variable override support.
+# Every key the application reads, with its shipped default. Do not edit this
+# file to change behaviour — put overrides in config/kaia.yaml, which is
+# resolved on top of it.
 #
-# This YAML file provides default configuration values. Environment variables
-# and user config files can override these defaults.
+# Resolution order, highest priority first:
+#   1. Environment variables (DISCORD_TOKEN, OLLAMA_HOST, …)
+#   2. config/kaia.yaml
+#   3. This file
+#
 # ==============================================================================
 
 # ============================================================================
@@ -19,9 +24,16 @@ models:
   # nomic-embed-text-cpu runs CPU-only via num_gpu:0, preserving VRAM for the chat model.
   embedding: "nomic-embed-text-cpu"
 
-  # No classification model. Intent is matched by regex in
-  # IntentParser.fast_parse; the LLM second pass was removed because its
-  # verdict was never read (see utils/core/intent_classifier.py).
+  # There is no classification model. Intent is matched by regex in
+  # IntentParser.fast_parse (utils/core/intent_classifier.py).
+
+# ============================================================================
+# Ollama Daemon
+# ============================================================================
+ollama:
+  # Where the Ollama daemon listens. Every generation and embedding call goes
+  # here; OLLAMA_HOST in the environment overrides it.
+  host: "http://localhost:11434"
 
 # ============================================================================
 # Performance Configuration
@@ -102,6 +114,9 @@ performance:
     dreams: 64800       # 18 hours
     user_scan_interval: 300 # 5 minutes
 
+# ============================================================================
+# RAG retrieval
+# ============================================================================
 rag:
   # Instruction prefixes for embedding models
   # nomic-embed-text requires these prefixes for correct retrieval quality.
@@ -122,20 +137,19 @@ generation:
   # Grounded temperature for RAG retrieval and document summarization
   rag_temperature: 0.35
   
-  # Temperature increment per retry attempt.
-  # A retry only happens when a guard REJECTED the previous output, so the retry needs to
-  # actually diverge. At 0.05 attempt 3 was only base+0.10, which reproduced near-identical
-  # text and burned a second inference for nothing. Restored to 0.15 (pre-2977554 value).
+  # Temperature added per retry attempt. A retry only happens when a guard
+  # rejected the previous output, so this has to be large enough for the next
+  # attempt to actually diverge — too small and the retry reproduces the
+  # rejected text and burns an inference for nothing.
   temperature_scaling: 0.15
   
   # Fallback num_predict on context reduction
   fallback_num_predict: 512
 
-  # Maximum number of tokens to generate in a response.
-  # Measured over 352 real generations (Sept 2026): p50=70, p90=163, p99=265, max=852.
-  # Nothing has ever exceeded 1024. This value is *reserved* out of the context window on
-  # every turn, so 2048 was spending ~1200 tokens of RAG/history budget on headroom that
-  # is never used. Raise it only if responses actually start hitting the ceiling.
+  # Maximum tokens to generate in a response. This is *reserved* out of the
+  # context window on every turn, so headroom here is taken directly from the
+  # RAG and history budget. Measured over 352 real generations: p50=70,
+  # p90=163, p99=265, max=852. Raise it only if replies hit the ceiling.
   max_response_tokens: 1024
 
 # ============================================================================
@@ -276,37 +290,21 @@ dashboard:
   ansi_fallback: true
 
 # ============================================================================
-# Passive Observation Digest
-# ============================================================================
-# Kaia periodically summarises conversation she overheard but did not take part
-# in. The digest is triggered by how much NEW material has accumulated, not by
-# the clock — a fixed 2-hour loop re-summarised the same trailing window and
-# produced near-duplicate entries whenever the channel was quiet.
-# ============================================================================
-# Proactive speaking window
+# Proactive speaking
 # ============================================================================
 proactive:
-  # Whether the proactive opener observes quiet hours at all.
-  #
-  # OFF by default. The window governed the one loop that decides whether she
-  # ever speaks first, and a 9-22 default ruled out a third of every day before
-  # the desire gate or the rate limiter were consulted — the log said
-  # "declined to initiate — outside active hours" and nothing else. Whether she
-  # should be quiet at 3am is a judgement about your server, not a default.
-  #
-  # The rate limiter and the desire gate still apply either way; this only
-  # removes the clock from the decision. `monologue.respect_quiet_hours` is
-  # false for the same reason.
+  # Whether the quiet-hour window below is applied at all. When false, the
+  # clock is ignored; the rate limiter and desire gate still decide.
   respect_quiet_hours: false
 
-  # Local hours during which she may speak first. Wraps nothing: 9-22 means
-  # 09:00 until 21:59. These were hardcoded in kaia_proactive.py, so changing
-  # when she may initiate meant editing source.
+  # Local hours she may speak first, when respect_quiet_hours is true.
+  # 9-22 means 09:00 until 21:59. Wraps midnight when start > end
+  # (22-6 = quiet overnight).
   quiet_hour_start: 9
   quiet_hour_end: 22
 
 # ============================================================================
-# Inner monologue
+# Desire gate
 # ============================================================================
 desires:
   # Whether the needs vector may *block* her from speaking first.
@@ -317,89 +315,72 @@ desires:
   #         stop her initiating.
   gate_enabled: true
 
-  # Pressure required to speak first, 0.0-1.0.
+  # Mean need pressure required to speak first, 0.0-1.0. Lower means she
+  # initiates more often.
   #
-  # This was 0.55 and that number made her mute. `observe_exchange` discharges
-  # the intellectual need by 0.35 on any reply over 400 characters, and it only
-  # re-accrues over 14 hours, so on an active server it sat pinned at 0.0 and
-  # dragged the three-need mean down with it. Measured ceiling on live state
-  # was 0.16, so 101 of 102 proactive evaluations declined and she spoke first
-  # exactly once in the whole production log. Lower it further, or set
-  # gate_enabled false, if she is still too quiet.
+  # Note the achievable range is narrow: `observe_exchange` discharges the
+  # intellectual need by 0.35 on any reply over 400 characters and it re-accrues
+  # over 14 hours, so on an active server the three-need mean tops out around
+  # 0.16. A threshold above that silences her entirely.
   initiate_threshold: 0.12
 
+# ============================================================================
+# Knowledge base maintenance
+# ============================================================================
 knowledge_base:
-  # Backfill summary and keywords on new corpus files nightly, in the dream
-  # window. Every Discord daily log is created with summary: "" and
-  # keywords: [] — it must be, the day has not happened yet — and nothing
-  # filled them in: 51 of 144 were still empty, in the index her memory of a
-  # conversation comes from. enrich_metadata.py is idempotent, so a pass only
-  # touches what is still missing.
+  # Nightly pass that fills in missing summary and keywords on corpus files.
+  # Runs in the dream window. Idempotent: only files still missing either
+  # field are touched.
   auto_enrich: true
-  # Files *enriched* per nightly pass, not files looked at.
-  #
-  # The cap used to be applied to the whole corpus listing in directory order —
-  # books first, all already enriched — so the pass spent its entire budget
-  # skipping them and never reached the 369 news files that have no frontmatter
-  # at all. It logged a completed pass every night and moved nothing. Now the
-  # eligible set is computed first, so 40 means forty documents actually gain
-  # metadata. Raise it while a backlog is being drained; each file is one small
-  # BACKGROUND-priority call.
+
+  # How many files each nightly pass enriches. Counted against files that
+  # actually need work, not files scanned. One model call per file, at
+  # BACKGROUND GPU priority. Raise it to drain a backlog faster.
   auto_enrich_limit: 60
 
-  # Weekly deterministic corpus upkeep: roll closed months into archives,
-  # rebuild the per-user folder READMEs, then run the read-only audit and log
-  # what it found.
-  #
-  # All three existed only behind kaia-tools.sh, which means they happened when
-  # somebody thought of them. Rollup is the one that matters: a day is the wrong
-  # unit for chunking, and 305 daily files come due the moment the month turns.
-  # No model call, so this cannot compete with her for the GPU.
+  # Weekly pass that rolls closed months of user logs into monthly archives,
+  # rebuilds the per-user folder READMEs, and logs the corpus audit's
+  # findings. Deterministic — no model call.
   auto_hygiene: true
 
+# ============================================================================
+# Discord presence
+# ============================================================================
 presence:
   # How long without a human message before her Discord status must stop
   # claiming the room is busy. Ground truth beats the engagement average,
   # which is a slow float and lagged reality by hours.
   quiet_after_minutes: 20
 
+# ============================================================================
+# Inner monologue
+# ============================================================================
 monologue:
-  # Say her passing thoughts out loud in #kaia-opolis instead of keeping them
-  # as private state that only ever reaches chat as an injected hint.
-  #
-  # Off by default, and deliberately separate from observation.broadcast_digest:
-  # the monologue loop runs every 15 minutes where a digest is a handful a day,
-  # so this is the one far more likely to become noise. Turning it off does not
-  # stop her thinking — thoughts still reach monologue_log.jsonl and still get
-  # injected into replies.
+  # Post passing thoughts to #kaia-opolis. When false she still generates them
+  # — they reach memory/monologue_log.jsonl and are injected into replies —
+  # they are simply not spoken aloud. The loop runs every 15 minutes.
   broadcast_to_chat: false
 
-  # Prefixed so an aired thought reads as a thought. Unlabelled it looked
-  # like a random remark dropped into the channel.
+  # Label prepended to an aired thought. Set "" for no label.
   broadcast_prefix: "🧠 **Inner monologue:**"
 
-  # Whether an aired thought obeys the proactive quiet hours below.
-  #
-  # Off. A proactive opener interrupts someone in a channel they are reading;
-  # a thought in #kaia-opolis is her talking to herself in her own room. With
-  # this on she generated three thoughts one evening — 23:02, 23:31, 23:48,
-  # the last directly about a question she had just been asked — and withheld
-  # every one. The daily cap and minimum interval still apply.
+  # Whether aired thoughts observe proactive.quiet_hour_start/end.
   respect_quiet_hours: false
 
-  # Budget, applied on top of the proactive engine's quiet hours.
+  # Per-day cap and minimum gap between aired thoughts.
   max_broadcasts_per_day: 6
   broadcast_min_interval_minutes: 90
 
+# ============================================================================
+# Idle quips
+# ============================================================================
 quip:
-  # The third thing she says without being asked, after the inner monologue and
-  # the observation digest. Those two are prefixed so they read as a thought and
-  # an observation; this one was posted in a bare ``` code block with no label at
-  # all, which is why it looked like a stray fragment rather than her musing.
-  #
-  # Set to "" to post the quip unadorned (still not in a code block).
+  # Label prepended to an idle quip in chat. Set "" to post it unadorned.
   broadcast_prefix: "\U0001f4ac **Passing thought:**"
 
+# ============================================================================
+# Passive observation digest
+# ============================================================================
 observation:
   # New observed turns that must accumulate past the last digest's watermark
   # before another digest is generated. Raise it for quieter servers.
@@ -408,17 +389,15 @@ observation:
   # Hard cap on turns fed to the model in one digest (token guard).
   max_turns_per_digest: 60
 
-  # Prefixed so it reads as an observation about the room rather than an
-  # opinion aimed at whoever spoke last.
+  # Label prepended to an aired digest. Set "" for no label.
   broadcast_prefix: "💭 **Observation:**"
 
-  # Say the digest out loud instead of only writing it to
-  # memory/observation_digest.json. Set false to keep it background-only.
+  # Post the digest to chat. When false it is written to
+  # memory/observation_digest.json only.
   broadcast_digest: true
 
-  # Broadcast budget. Independent of the general proactive allowance so a
-  # digest is not crowded out by the other proactive sources, but still
-  # bounded. Quiet hours from the proactive engine always apply.
+  # Per-day cap and minimum gap, counted separately from the proactive
+  # allowance. proactive quiet hours still apply.
   max_broadcasts_per_day: 3
   broadcast_min_interval_minutes: 120
 
@@ -426,21 +405,20 @@ observation:
 # Feature Flags
 # ============================================================================
 features:
-  # --- Identity injection (Sept 2026 token audit) ---
-  # Kaia's character comes from knowledge_base/kaia_persona.md, which is injected on every
-  # turn and never truncated. These two blocks are *additional* prepends on top of it.
-  #
-  # self_model_injection: memory/kaia_self_model.md (~1070 tokens/turn). Disabled by default.
-  #   Its per-user observations duplicate three channels that are already injected and are
-  #   better grounded: relationship_manager.format_for_injection(), personalization_engine
-  #   .adapt_prompt(user_traits), and the per-user user_profile.md docs in RAG (which carry
-  #   the highest type boost, 0.20). It is also auto-written by the model and then re-read
-  #   by the model, so its stylistic tics feed back into generation.
+  # --- Identity injection ---
+  # Kaia's character comes from knowledge_base/kaia_persona.md, injected every
+  # turn and never truncated. The two blocks below are additional prepends on
+  # top of it, and both come out of the retrieval budget.
+
+  # Prepend memory/kaia_self_model.md (~1070 tokens/turn): her running notes on
+  # the people she talks to. Overlaps relationship_manager, the personalization
+  # engine and the per-user user_profile.md docs in RAG, and is written by the
+  # model as well as read by it.
   self_model_injection: false
-  #
-  # constitution_injection: memory/kaia_constitution.md (~2500 tokens/turn). Left ON, since
-  # it states operating principles the persona file does not. Turn it off to reclaim the
-  # largest single block of per-turn budget if RAG recall needs the room.
+
+  # Prepend memory/kaia_constitution.md (~2500 tokens/turn): operating
+  # principles the persona file does not state. The largest single block of
+  # per-turn budget — turn it off if RAG recall needs the room.
   constitution_injection: true
   # Enable news system
   news_enabled: true
@@ -490,30 +468,28 @@ snapshots:
 # Bluesky Configuration
 # ============================================================================
 bluesky:
-  # Enable Bluesky integration.
-  # Default off: the account this was built against was deleted, and with it on
-  # the poster fails every cycle ("1 validation error for Main") and eventually
-  # trips the circuit breaker. config/kaia.yaml already overrides this to false;
-  # the default matched the old reality, so a fresh install turned it back on.
+  # Enable Bluesky. Requires BLUESKY_HANDLE and BLUESKY_APP_PASSWORD in .env;
+  # credentials alone do nothing without this flag.
   enabled: false
-  
-  # Cross-post idle quips to Bluesky
+
+  # Mirror idle quips to the Bluesky feed.
   cross_post_quips: false
-  
-  # Reply to mentions on Bluesky
+
+  # Reply to mentions received on Bluesky.
   reply_to_mentions: false
 
 # ============================================================================
 # X (Twitter) Configuration
 # ============================================================================
 x_twitter:
-  # Enable X integration
+  # Enable X. Requires X_USERNAME, X_PASSWORD and X_EMAIL in .env; credentials
+  # alone do nothing without this flag.
   enabled: false
-  
-  # Cross-post idle quips to X
+
+  # Mirror idle quips to X.
   cross_post_quips: false
-  
-  # Reply to mentions on X
+
+  # Reply to mentions received on X.
   reply_to_mentions: false
 
 # ============================================================================
@@ -532,13 +508,10 @@ social:
 # Dream Mode Configuration
 # ============================================================================
 dream_mode:
-  # Weekly corpus curation, run two hours after the dream window closes.
-  #
-  # Triage is deterministic and always runs: it moves anything in kaia_dreams/
-  # that is not a reflection into quarantine. 868 of 2,399 files were cleaned
-  # chat transcripts and scraped prose — indexed and labelled to her as
-  # INTERNAL REFLECTION (DREAM), and feeding the next night's dream, since
-  # kaia_dreams is itself a dream source.
+  # Weekly corpus curation, two hours after the dream window closes. Triage is
+  # deterministic and always runs: anything in kaia_dreams/ that is not a
+  # reflection is quarantined, since everything retrieved from that folder is
+  # labelled to her as INTERNAL REFLECTION (DREAM) and feeds the next night.
   auto_curate: true
 
   # Reflections that must have accumulated before the expensive half — folding
@@ -585,14 +558,13 @@ forum:
   # she has not been reading (see min_threads/min_users_before_posting below).
   auto_scrape: false
 
-  # Reply to questions in forum.allowed_threads. Off: it answers on sight
-  # rather than on interest, which is the behaviour people read as a bot.
+  # Reply to questions in forum.allowed_threads. Answers on sight rather than
+  # on interest, so it ignores min_interest_score below.
   auto_reply: false
 
-  # Unsolicited answers in Technical Discussion. Off deliberately — this ran
-  # without staying inside the wiki and tech docs it was supposed to be
-  # grounded in, and giving strangers confidently wrong EQ advice is worse
-  # than saying nothing. Do not re-enable without fixing the grounding.
+  # Unsolicited answers in Technical Discussion, grounded in knowledge_base/
+  # wiki and troubleshooting and footed with a disclaimer. The grounding is
+  # not reliable; enabling this posts confident answers to strangers.
   tech_support_enabled: false
 
   # Forum details
@@ -606,6 +578,57 @@ forum:
   max_pages_per_thread_scrape: 25
   full_scrape_max_pages: 50
   max_active_users_scrape: 15
+
+  # ── Posting behaviour ──────────────────────────────────────────────────
+  # Rate, timing and novelty limits on unsolicited posts. Together they set how
+  # much like automation she reads to strangers on a public forum.
+
+  # Local-time window. Wraps midnight: 0–4 means 00:00 to 03:59.
+  post_window_start_hour: 0
+  post_window_end_hour: 4
+
+  # Spacing and daily cap for unsolicited posts. The task polls hourly; the
+  # window above and the durable ledger (memory/forum_post_ledger.json) decide
+  # whether a given poll posts anything.
+  min_hours_between_posts: 4
+  max_posts_per_day: 2
+
+  # Never post into the same thread twice inside this many hours. Does not
+  # apply to replies to someone who addressed her — see
+  # min_minutes_between_replies below.
+  thread_cooldown_hours: 72
+
+  # Minimum interest score for a thread to be worth answering, scored from
+  # overlap with her beliefs and anchors (forum_participation.score_thread).
+  # When nothing on the front page clears it she posts nothing.
+  #
+  # Scale, measured against 81 real Off-Topic threads: 3.0 admits ~40% of them
+  # (the AI and philosophy threads, not "Movies Thread" or "What are you
+  # listening to?"); 2.0 admits ~86%, which is effectively no filter.
+  min_interest_score: 3.0
+
+  # Replying to someone who replied to her. This path ignores the posting
+  # window, the daily cap and the thread cooldown above; the only guards are a
+  # minimum interval and a requirement that something new was said, which bound
+  # reply-on-reply against another bot.
+  min_minutes_between_replies: 20
+
+  # How long after one of her posts she keeps watching it for replies.
+  reply_watch_days: 14
+
+  # Other names people call her on the forum. A thread mentioning any of these
+  # gets a large interest boost — interest is scored from her beliefs, so a
+  # thread about her would otherwise score near zero on topic.
+  also_known_as: []
+
+  # How much a draft may resemble her own recent posts, 0.0-1.0, before it is
+  # held back as repetitive.
+  max_self_similarity: 0.5
+
+  # Lurk requirement: how much of the forum must be in the scrape cache before
+  # she posts at all. From a cold start this is roughly a day of scraping.
+  min_threads_before_posting: 15
+  min_users_before_posting: 25
 
 # ============================================================================
 # GENERATIVE MUSIC (!music)
@@ -627,12 +650,11 @@ music:
   # One stream at a time. Each session is a browser plus an ffmpeg capture.
   max_concurrent_sessions: 1
 
-  # Show the Strudel editor window instead of parking it off-screen. On by
-  # default because the window IS the interface: it is the real Strudel REPL,
-  # so it shows the code, highlights whichever pattern is currently sounding,
-  # draws the scope and piano roll, and exposes the slider() controls a human
-  # can ride while Kaia plays. Set false to hide it; she still narrates every
-  # move to the log either way.
+  # Show the Strudel editor window instead of parking it off-screen. The window
+  # is the real Strudel REPL: it shows the running code, highlights whichever
+  # pattern is sounding, draws the scope and piano roll, and exposes slider()
+  # controls a human can ride mid-set. Hiding it changes nothing audible — she
+  # narrates every move to the log either way.
   show_window: true
 
   # How long to hold the performance while somebody is typing in the editor.
@@ -641,10 +663,10 @@ music:
   # otherwise freeze the set on one state.
   human_edit_grace_seconds: 180
 
-  # Loop the capture sink back to this machine's speakers so a human can hear
-  # what is being broadcast. Off by default: the null sink deliberately has no
-  # output attached, which otherwise reads as "audio meters move, nothing
-  # plays" and looks like a fault.
+  # Loop the capture sink back to this machine's speakers so a human at the
+  # console can hear what is being broadcast. The null sink has no output
+  # attached, so with this off the local machine is silent while Discord hears
+  # the set.
   monitor_on_speakers: false
 
   # How long to let the first section come up before Discord starts pulling
@@ -654,75 +676,13 @@ music:
   # Leave the channel this long after the last human does.
   alone_grace_seconds: 120
 
-  # ── Posting behaviour ──────────────────────────────────────────────────
-  # Kaia posts on a public forum among strangers who did not ask to hear from
-  # her, so the bar is "a welcome contribution from a person". These settings
-  # exist to keep her from reading as automation.
-
-  # Local-time window. Wraps midnight: 0–4 means 00:00 to 03:59.
-  post_window_start_hour: 0
-  post_window_end_hour: 4
-
-  # A couple of posts a night, well spaced. The task polls hourly; the window
-  # and the durable ledger (memory/forum_post_ledger.json) decide whether
-  # anything happens.
-  min_hours_between_posts: 4
-  max_posts_per_day: 2
-
-  # Never reply into the same thread twice inside this many hours. Repeated
-  # replies in one thread are the clearest bot tell, and nothing previously
-  # prevented it.
-  thread_cooldown_hours: 72
-
-  # Minimum interest score for a thread to be worth answering, computed from
-  # overlap with her beliefs and anchors (see forum_participation.score_thread).
-  # If nothing on the front page clears it, she posts nothing — which is the
-  # correct behaviour, not a failure.
-  #
-  # Calibrated against the 81 real Off-Topic threads in the corpus: at 3.0
-  # roughly 40% are eligible, the AI/philosophy threads clear it comfortably,
-  # and "Movies Thread" / "Daily dose of eggdog" / "What are you listening to?"
-  # sit below it. At the previous 2.0 — before term distinctiveness was
-  # measured — 86% of threads cleared, so the "nothing tonight" valve never
-  # actually fired.
-  min_interest_score: 3.0
-
-  # Conversation, as distinct from interjecting. Answering someone who
-  # answered her is not rate-limited, windowed, or subject to the thread
-  # cooldown — she is not capped in Discord either, and going quiet for three
-  # days after someone replies to you is rude, not restrained. The only guard
-  # is a short interval plus a requirement that something new was actually
-  # said, which exists solely to bound reply-on-reply if she ever ends up
-  # talking to another bot.
-  min_minutes_between_replies: 20
-  reply_watch_days: 14
-
-  # Other names people call her on the forum. Threads mentioning any of these
-  # get a large interest boost: interest is scored from her beliefs, so a
-  # thread *about* her scores near zero on topic while being the clearest case
-  # where a reply is wanted.
-  also_known_as: []
-
-  # How much a draft may resemble her recent posts before it is held back.
-  # Nothing measured this before; in Discord the equivalent blind spot showed
-  # up as a bare-name opener on 22.4% of turns.
-  max_self_similarity: 0.5
-
-  # Lurk before posting. She stays silent until she has read this much of the
-  # forum, which after a fresh start takes roughly a day of scraping. Someone
-  # whose first act in a community is to post has not read the room.
-  min_threads_before_posting: 15
-  min_users_before_posting: 25
-
 # ============================================================================
 # Response filters
 # ============================================================================
 filters:
-  # Names Kaia opens replies with that no user directory knows about — the
-  # nicknames she coins herself. The bare-name opener guard discovers real
-  # users from knowledge_base/user_logs; these are the ones it cannot find.
-  # Measured in the fine-tune corpus: gymconserve 39 openers,
-  # kristinoemnclature 29.
+  # Extra names the bare-name opener guard should recognise. It discovers real
+  # users from knowledge_base/user_logs; list here any nickname she uses that
+  # does not appear there.
   extra_addressees:
     - gymconserve
     - kristinoemnclature

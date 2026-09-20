@@ -194,7 +194,7 @@ async def handle_audit_command(ctx, msg, send_kaia_response):
         )
 
     # Total weight reduction
-    penalty = config.get('rag_scoring.audit_flag_penalty', 0.15)
+    penalty = config.get('audit.flag_penalty', 0.15)
     max_penalty = penalty * 3  # capped at 3 flags
     embed.add_field(
         name="Weight Reductions",
