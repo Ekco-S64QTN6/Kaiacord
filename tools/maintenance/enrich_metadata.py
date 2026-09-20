@@ -21,6 +21,7 @@ from pathlib import Path
 # Fix path to allow importing from utils
 sys.path.append(str(Path(__file__).parent.parent.parent))
 from utils.infrastructure.logging.kaia_logger import log_action, log_success, log_error, log_warning, log_info
+from utils.core.atomic_write import write_atomic
 
 OLLAMA_HOST = "http://localhost:11434"
 # Resolve chat model dynamically from configuration
@@ -208,7 +209,7 @@ async def process_file(filepath: Path, category: str, session: aiohttp.ClientSes
         try:
             new_frontmatter_block = dump_frontmatter(merged)
             new_content = new_frontmatter_block + body
-            filepath.write_text(new_content, encoding='utf-8')
+            write_atomic(filepath, new_content)
             log_success(f"Enriched {filepath.name}")
         except Exception as e:
             log_error(f"Failed to write {filepath}: {e}")

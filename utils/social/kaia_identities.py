@@ -14,6 +14,7 @@ from typing import Optional, Dict, List, Any
 from datetime import datetime
 
 from utils.infrastructure.logging.kaia_logger import log_info, log_success, log_error, log_action
+from utils.core.atomic_write import write_atomic
 
 class IdentityRegistry:
     REGISTRY_PATH = Path("./knowledge_base/identity_registry.json")
@@ -48,7 +49,7 @@ class IdentityRegistry:
     def _save(self):
         try:
             self.REGISTRY_PATH.parent.mkdir(parents=True, exist_ok=True)
-            self.REGISTRY_PATH.write_text(json.dumps(self.data, indent=4), encoding='utf-8')
+            write_atomic(self.REGISTRY_PATH, json.dumps(self.data, indent=4))
         except Exception as e:
             log_error(f"Failed to save identity registry: {e}")
 

@@ -18,6 +18,7 @@ import time
 from pathlib import Path
 
 from utils.infrastructure.logging.kaia_logger import log_action, log_error, log_warning
+from utils.core.atomic_write import write_atomic
 
 INGRESS = Path("knowledge_base/_ingress")
 
@@ -90,8 +91,7 @@ async def handle_youtube_command(ctx, msg, send_kaia_response):
         while path.exists():
             path = INGRESS / safe_filename(f"{stats['title']} ({n})")
             n += 1
-        path.write_text(markdown, encoding="utf-8")
-
+        write_atomic(path, markdown)
         # preformatted: the converter already produced knowledge-base Markdown
         # with frontmatter, headings and timestamp anchors. Running the ingress
         # normaliser over it would reflow the paragraphs and destroy them.

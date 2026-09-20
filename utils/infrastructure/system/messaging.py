@@ -123,9 +123,43 @@ class MockChannel:
             yield
         return _typing
 
+class MockAttachment:
+    """Enough of a discord.Attachment for the vision path to fetch it.
+
+    That path keys off `.filename` and `.url` and nothing else, so a forum post's
+    images can reach the model through the same code Discord uses. The extension
+    matters: it is how `_prepare_image_payload` decides whether to take the first
+    frame of a GIF, and a vBulletin attachment URL carries no extension at all.
+    """
+
+    __slots__ = ("url", "filename", "content_type", "size")
+
+    def __init__(self, url: str, filename: str = "", content_type: str = "image/jpeg"):
+        self.url = url
+        self.filename = filename or _filename_for(url)
+        self.content_type = content_type
+        self.size = 0
+
+
+def _filename_for(url: str) -> str:
+    """A filename with a usable extension, inferred from the URL.
+
+    `attachment.php?attachmentid=12345` is how vBulletin serves an uploaded
+    image and has no extension, so the vision path's suffix test rejects it. It
+    is a JPEG far more often than not, and a wrong guess costs the GIF
+    first-frame branch rather than the image itself.
+    """
+    from urllib.parse import urlparse
+    name = (urlparse(url).path.rsplit("/", 1)[-1] or "image").strip()
+    if any(name.lower().endswith(e) for e in (".png", ".jpg", ".jpeg", ".gif", ".webp")):
+        return name
+    return f"{name or 'image'}.jpg"
+
+
 class MockMessage:
     def __init__(self, content: str, author: MockUser, channel: MockChannel,
-                 platform: str = "discord", no_persist: bool = False):
+                 platform: str = "discord", no_persist: bool = False,
+                 attachments=None):
         # no_persist: run the pipeline for its output only. Used when drafting
         # a forum reply, where the "author" is someone being quoted rather than
         # someone Kaia is in conversation with, so writing interaction logs,
@@ -135,7 +169,7 @@ class MockMessage:
         self.author = author
         self.channel = channel
         self.platform = platform
-        self.attachments = []
+        self.attachments = list(attachments or [])
         self.embeds = []
         self.id = 123456789
         self.guild = None

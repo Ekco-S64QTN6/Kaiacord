@@ -20,14 +20,11 @@
 
 ## Overview
 
-Kaia is an autonomous Discord persona that runs entirely on local hardware — no cloud API, no
-telemetry, no per-token billing. She keeps a persistent emotional state, per-user relationships
-that deepen over time, a revisable belief store, and a nightly consolidation cycle that turns
-the day's conversations into long-term memory.
+Kaia is a local Discord bot with a memory that persists.
 
-The design goal is continuity rather than capability: a bot that remembers the outage you were
-both awake for, notices you have been quiet for a week, and holds an opinion it formed last
-month.
+She runs entirely on local hardware, with no cloud APIs, telemetry, or per-token billing. She carries an emotional state from one conversation to the next, develops different relationships with different people, forms beliefs that can later change, and turns the day's conversations into long-term memory each night.
+
+The result is continuity across conversations. Things that happen are retained and can matter later: shared events, periods of absence, changes in a relationship, or beliefs formed during earlier conversations.
 
 **What makes it different from a chat wrapper**
 

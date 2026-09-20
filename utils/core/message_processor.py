@@ -1634,10 +1634,20 @@ class MessageProcessor:
                 messages[-1]["images"] = images
                 log_info(f"Attached {len(images)} images to user message for inline multimodal processing.")
                 if messages and messages[0].get("role") == "system":
+                    # The framing has to match where the picture came from. On
+                    # the forum it is an image someone posted in a public
+                    # thread, not something "the user attached from their
+                    # physical environment", and telling her otherwise invites
+                    # her to talk about a stranger's screenshot as if it were
+                    # their living room.
+                    _plat = str(getattr(ctx.message, "platform", "discord") or "discord")
+                    _origin = ("Someone posted an image in this forum thread"
+                               if _plat == "vbulletin"
+                               else "The user attached an image from their physical environment")
                     messages[0]["content"] += (
-                        "\n\n[VISUAL GROUNDING: The user attached an image from their physical environment. "
+                        f"\n\n[VISUAL GROUNDING: {_origin}. "
                         "Describe what you see plainly and naturally. If the image depicts a pet or animal, "
-                        "it is a living, biological animal belonging to the user — NOT your fictional robotic cat Pixel. "
+                        "it is a living, biological animal belonging to whoever posted it — NOT your fictional robotic cat Pixel. "
                         "Do not use robotic/sensor jargon (such as 'sensor readings', 'battery', 'thermal equilibrium') "
                         "when describing living animals. "
                         # Three confirmed misreads in two days, each stated with

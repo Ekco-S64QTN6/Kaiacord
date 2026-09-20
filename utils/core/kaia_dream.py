@@ -20,6 +20,7 @@ except ImportError:
     docx2txt = None
 
 from utils.infrastructure.logging.kaia_logger import log_info, log_error, log_warning, log_success, log_action, log_debug
+from utils.core.atomic_write import write_atomic
 
 # ── Style Artifact Sanitizer ──────────────────────────────────────────────
 # Strips excessive em dashes, ellipses, and asterisked emphasis from
@@ -1281,8 +1282,7 @@ STRICT RULES:
             # Write with header
             header = f"<!-- Generated: {datetime.now().strftime('%Y-%m-%d %H:%M')} (auto) -->\n"
             self_model_path.parent.mkdir(parents=True, exist_ok=True)
-            self_model_path.write_text(header + result, encoding='utf-8')
-
+            write_atomic(self_model_path, header + result)
             log_success(f"Self-model auto-regenerated ({len(result)} chars).")
 
             # Log to growth arc

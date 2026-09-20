@@ -20,6 +20,7 @@ def conversation_channel_id(platform: str, conversation_key: Any = None) -> int:
 async def process_external_mention(
     ctx: Any, content: str, author_name: str, author_id: Any, platform: str,
     conversation_key: Any = None, no_persist: bool = False,
+    image_urls=None,
 ):
     """
     Process mentions from external platforms.
@@ -29,7 +30,8 @@ async def process_external_mention(
     a forum thread id, say — so that each keeps its own channel memory instead
     of every thread on the site sharing one history.
     """
-    from utils.infrastructure.system.messaging import MockMessage, MockUser, MockChannel
+    from utils.infrastructure.system.messaging import (
+        MockMessage, MockUser, MockChannel, MockAttachment)
     
     # Create a compatible mock author
     mock_author = MockUser(
@@ -45,12 +47,17 @@ async def process_external_mention(
     mock_channel = MockChannel(id=conversation_channel_id(platform, conversation_key))
     
     # Construct the mock message
+    # Pictures in the post reach the vision model through the same attachment
+    # path Discord uses. Without this the forum drafted replies to images it
+    # could not see — "those symbols again? what are you trying to do?" in answer
+    # to a post that was a photograph.
     mock_msg = MockMessage(
         content=content,
         author=mock_author,
         channel=mock_channel,
         platform=platform,
         no_persist=no_persist,
+        attachments=[MockAttachment(u) for u in (image_urls or [])],
     )
     
     if not ctx.message_processor:

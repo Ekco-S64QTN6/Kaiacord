@@ -17,6 +17,7 @@ from datetime import datetime
 sys.path.insert(0, str(Path(__file__).parent.parent.parent))
 
 from utils.infrastructure.logging.unified_logging import replace_all_logging
+from utils.core.atomic_write import write_atomic
 replace_all_logging()
 
 LOG_DIR = Path("knowledge_base/user_logs")
@@ -176,7 +177,7 @@ async def generate_profile(user_dir: Path, dry_run: bool = False) -> bool:
             f"{identity_lines}---\n\n"
             f"# INTERNAL MEMORY: {username}{header_suffix}\n\n"
         )
-        profile_path.write_text(header + profile_text, encoding="utf-8")
+        write_atomic(profile_path, header + profile_text)
         print(f"  ✔ Wrote {profile_path}")
         return True
     except Exception as e:

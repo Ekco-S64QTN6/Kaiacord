@@ -238,8 +238,13 @@ class PostInfo:
     # `content` keeps the flattened whole, because the thread context the model
     # reads is more useful with the quoted material in it. Only `own_text` is
     # ever put inside a quote box.
+    # `images` holds the URLs of pictures actually posted in the body. Kaia
+    # drafted "those symbols again? what are you trying to do?" in reply to a
+    # post that was a picture — the forum path built a MockMessage with an empty
+    # `attachments` list, so the vision model never saw it and she was answering
+    # text that did not exist.
     __slots__ = ('post_id', 'author', 'user_id', 'content', 'timestamp',
-                 'post_number', 'own_text')
+                 'post_number', 'own_text', 'images')
 
     def __init__(self, **kwargs):
         for k in self.__slots__:
@@ -250,6 +255,16 @@ class PostInfo:
 
 
 # ─── Main client ────────────────────────────────────────────────────────────
+
+# vBulletin renders its chrome as images from the same host. None of these are
+# something a person posted, and handing them to the vision model is both a
+# wasted fetch and an invitation to describe a spacer gif.
+_FORUM_UI_IMAGES = (
+    "images/smilies/", "images/statusicon/", "images/buttons/", "images/misc/",
+    "images/reputation/", "images/rank", "customavatars/", "clear.gif",
+    "spacer.gif", "/images/styles/", "blank.gif",
+)
+
 
 class ForumClient:
     """VBulletin 3.x forum client with login, scraping, and posting."""
@@ -598,6 +613,27 @@ class ForumClient:
             # "Quote:" is the label left behind by the wrapper we just removed.
             own_text = re.sub(r'^\s*Quote:\s*', '', own_text).strip()
 
+            # Pictures posted in the body. Taken from `own_div`, so an image
+            # inside a quote box belongs to whoever is being quoted and is not
+            # attributed here.
+            #
+            # vBulletin serves its entire UI as images from the same domain —
+            # smilies, post icons, rank badges, spacer gifs — so an unfiltered
+            # sweep hands the vision model a 1x1 clear.gif and a thumbs-up emoji
+            # and nothing a person posted.
+            post_images = []
+            for _img in own_div.find_all('img'):
+                _src = (_img.get('src') or '').strip()
+                if not _src or _src.startswith('data:'):
+                    continue
+                if any(junk in _src.lower() for junk in _FORUM_UI_IMAGES):
+                    continue
+                _src = 'https:' + _src if _src.startswith('//') else urljoin(self.base_url + '/', _src)
+                if _src not in post_images:
+                    post_images.append(_src)
+            if post_images:
+                log_debug(f"Forum: post {post_id} carries {len(post_images)} image(s).")
+
             # Find the containing post table to get author and timestamp
             post_container = div.find_parent('table') or div.find_parent('div', id=re.compile(r'^post\d+'))
 
@@ -652,6 +688,7 @@ class ForumClient:
                 content=content[:5000],  # Cap content length
                 timestamp=timestamp,
                 post_number=post_number,
+                images=post_images[:4],   # a link dump is not worth four round-trips
             ))
 
         return posts

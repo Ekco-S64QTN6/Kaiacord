@@ -9,6 +9,7 @@ from urllib.parse import urlparse, unquote
 
 from utils.infrastructure.logging.kaia_logger import log_action, log_error, log_warning, log_debug
 from utils.core.sanitizer import is_safe_url
+from utils.core.atomic_write import write_atomic
 
 # Max download size: 10MB
 MAX_DOWNLOAD_BYTES = 10 * 1024 * 1024
@@ -249,8 +250,7 @@ async def _download_and_convert(url: str, username: str, user_id: str) -> dict:
     ingress_dir.mkdir(parents=True, exist_ok=True)
     filepath = ingress_dir / filename
 
-    filepath.write_text(markdown_body, encoding='utf-8')
-
+    write_atomic(filepath, markdown_body)
     # Sidecar carries everything the processor needs plus provenance, so the
     # finished document can say who submitted it and from where.
     sidecar = {

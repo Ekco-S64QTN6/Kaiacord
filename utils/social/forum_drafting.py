@@ -412,9 +412,18 @@ async def draft_forum_reply(ctx, *, thread_id: int, title: str, posts: list,
     # produced a post about the Well-Formed Outcome Process, a topic lifted at
     # random from the thread context and unrelated to the message being
     # answered. An irrelevant post is worse than a short one.
+    # Pictures in the post she is answering. Without these the vision model never
+    # saw them and she replied to text that was not there: a post consisting of
+    # an image drew "those symbols again? what are you trying to do?".
+    images = list(target.get("images") or [])
+    if images:
+        log_info(f"Forum: {speaker}'s post carries {len(images)} image(s); "
+                 f"passing them to the vision model.")
+
     reply = (await process_external_mention(
         ctx=ctx, content=content, author_name=speaker, author_id=speaker_id,
         platform=PLATFORM,
+        image_urls=images,
         # Per-thread memory. Without this every thread on the site would share
         # one conversation history.
         conversation_key=thread_id,

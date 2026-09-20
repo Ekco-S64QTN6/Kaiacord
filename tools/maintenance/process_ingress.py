@@ -35,6 +35,8 @@ from pathlib import Path
 
 sys.path.insert(0, str(Path(__file__).resolve().parents[2]))
 
+from utils.core.atomic_write import write_atomic  # noqa: E402
+
 from tools.maintenance.ebook_to_kb_md import (  # noqa: E402
     build_frontmatter,
     clean_markup,
@@ -233,7 +235,7 @@ def convert_staged_file(path: Path, dry_run: bool) -> tuple:
     if dry_run:
         return True, f"would convert -> {md_path.name} ({len(raw.split())} words)"
 
-    md_path.write_text(raw, encoding="utf-8")
+    write_atomic(md_path, raw)
     side = path.with_suffix(".meta.json")
     if side.exists() and not md_path.with_suffix(".meta.json").exists():
         side.rename(md_path.with_suffix(".meta.json"))

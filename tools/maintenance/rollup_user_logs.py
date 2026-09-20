@@ -34,6 +34,7 @@ import sys
 from collections import defaultdict
 from datetime import datetime, timedelta
 from pathlib import Path
+from utils.core.atomic_write import write_atomic
 
 ROOT = Path(__file__).resolve().parent.parent.parent
 sys.path.insert(0, str(ROOT))
@@ -128,7 +129,7 @@ def main() -> int:
                 dest.mkdir(parents=True, exist_ok=True)
                 for f in days:
                     shutil.copy2(f, dest / f.name)
-                archive.write_text(text, encoding="utf-8")
+                write_atomic(archive, text)
                 for f in days:
                     f.unlink()
                 # Look as old as the conversation it holds, not as new as now.

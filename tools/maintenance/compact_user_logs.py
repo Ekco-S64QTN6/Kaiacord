@@ -42,6 +42,7 @@ import shutil
 import sys
 from collections import Counter
 from pathlib import Path
+from utils.core.atomic_write import write_atomic
 
 ROOT = Path(__file__).resolve().parent.parent.parent
 sys.path.insert(0, str(ROOT))
@@ -210,8 +211,7 @@ def main() -> int:
             dest = BACKUP / f.parent.name
             dest.mkdir(parents=True, exist_ok=True)
             shutil.copy2(f, dest / f.name)
-            f.write_text(new_text, encoding="utf-8")
-
+            write_atomic(f, new_text)
     print(f"scanned {files} transcripts, {touched} would change" if not args.apply
           else f"scanned {files} transcripts, {touched} changed")
     for k in ("scaffolding", "link_dump", "fragments", "preamble"):
