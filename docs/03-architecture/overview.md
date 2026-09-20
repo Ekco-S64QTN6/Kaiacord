@@ -15,7 +15,7 @@ graph TB
     
     subgraph CL ["Core Logic"]
         RAG["kaia_rag.py (facade)\n+ query / indexer / persistence"]
-        Intel["kaia_intelligence.py (facade)\n+ classifier / optimizer"]
+        Intel["kaia_intelligence.py (facade)\n+ intent / optimizer / enricher"]
         Dream[kaia_dream.py]
         MP[message_processor.py]
         COG["Cognitive Pipeline\nmonologue · mood · proactive · anchors"]
@@ -226,5 +226,6 @@ Kaia implements a 3-pass self-healing generation loop:
 
 ## References
 
-- [Master Report](../reports/master_report.md)
-- [Unified Production Audit](../reports/audit_report.md)
+- `docs/reports/01-status/master_report.md` *(local only — `docs/reports/` is
+  git-ignored, so it is referenced by path rather than linked)*
+- `docs/reports/01-status/audit_report.md` *(local only)*

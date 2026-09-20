@@ -9,7 +9,7 @@
 [![discord.py](https://img.shields.io/badge/discord.py-2.6.4-5865F2.svg?style=flat-square&logo=discord&logoColor=white)](https://discordpy.readthedocs.io)
 [![Model](https://img.shields.io/badge/Model-gemma3%3A12b-4285F4.svg?style=flat-square&logo=google&logoColor=white)](https://ollama.com/library/gemma3)
 [![VRAM](https://img.shields.io/badge/VRAM-12GB-76B900.svg?style=flat-square&logo=nvidia&logoColor=white)](#gpu-budget)
-[![Tests](https://img.shields.io/badge/tests-971%20passed-success.svg?style=flat-square)](#testing)
+[![Tests](https://img.shields.io/badge/tests-1%2C528%20passed-success.svg?style=flat-square)](#testing)
 [![License: MIT](https://img.shields.io/badge/License-MIT-green.svg?style=flat-square)](LICENSE)
 
 [Overview](#overview) · [Cognitive Pipeline](#cognitive-pipeline) · [Architecture](#architecture) · [Install](#installation) · [Configuration](#configuration) · [Operations](#operations) · [Docs](#documentation)
@@ -52,7 +52,7 @@ heuristics in Python, not auxiliary model calls, so they add context without cos
                       └───────────┬────────────┘
                                   │
              ┌────────────────────▼─────────────────────┐
-             │  28-Feature Cognitive Filter             │
+             │  Behavioural Injection Layer              │
              │  Mood · Stance · History · Relationships │
              └────────────────────┬─────────────────────┘
                                   │
@@ -78,8 +78,14 @@ heuristics in Python, not auxiliary model calls, so they add context without cos
   callbacks to events from weeks earlier.
 - **Passive inner monologue** — background commentary from room observation, woven into the
   active context as private intuition.
-- **Proactive initiation** — a nine-source trigger engine (absence, beliefs, dreams, mood,
-  curiosity, memory, silence, anchors, overheard digest), rate-capped to a lifelike frequency.
+- **Proactive initiation** — a multi-source trigger engine (absence, beliefs, dreams, mood,
+  curiosity, memory, silence, anchors, observation digest), rate-capped to a lifelike
+  frequency. The desire gate and its threshold are config-tunable, and deliberately so: the
+  gate once sat high enough that she spoke first *once in 102 evaluations*.
+- **Four things reach chat unasked**, each on its own switch so one can be silenced without
+  the others — an inner monologue (`🧠`), an observation digest (`💭`), an idle quip (`💬`)
+  and a proactive opener. Only the opener obeys quiet hours; a thought in her own channel is
+  not the same interruption as a message in yours.
 - **Temporal awareness** — time-of-day adjustments, fatigue multipliers on long threads, and
   reunion detection when a user returns after an absence.
 - **Consistency watchdog** — compares each response against active high-confidence beliefs and
@@ -128,9 +134,8 @@ flowchart TD
 
 **1 · Intent classification (CPU).** Deterministic regex matchers label the query — greeting,
 command, recap, diagnostic, dream recall — so the primary model is never woken just to label a
-message. An LLM second pass exists in `IntentParser.parse_intent` but is not wired into the
-request path: it was dispatched fire-and-forget and its verdict was never read, so it was
-removed rather than left burning CPU for a discarded answer.
+message. No auxiliary model is involved; the secondary classifier (`gemma2:2b`) was removed
+entirely after measurement showed it contributed nothing.
 
 **2 · Hybrid retrieval.** BM25 lexical search and dense vectors (`nomic-embed-text-cpu`) run in
 parallel over the Markdown knowledge base, then merge via Reciprocal Rank Fusion. Sources
@@ -138,8 +143,12 @@ include the persona file, curated books and articles, daily news briefs, dream r
 per-user conversation history.
 
 **3 · Guarded generation.** Two temperatures are used: `0.70` for conversation, `0.35` for
-document-grounded answers. Output passes a ten-layer safety pipeline that removes prompt echoes,
-roleplay artifacts, fabricated citations, and sycophancy before delivery.
+document-grounded answers. A hard clamp guarantees the reply has room to exist in the context
+window — and calibrates its own token estimate against `prompt_eval_count`, because two
+hardcoded ratios have been wrong here in opposite directions. A rejected answer is salvaged and
+re-run rather than becoming silence. Output then passes the post-generation pipeline, which
+removes prompt echoes, roleplay artefacts, fabricated citations, parroted user phrasing,
+sycophancy and stale clock times before delivery.
 
 ---
 
@@ -207,6 +216,9 @@ Settings resolve in order: **environment variables** → `config/kaia.yaml` (you
 | `generation.max_response_tokens` | `1024` | Reserved from the context window every turn. Measured maximum response across 352 generations: 852 tokens. |
 | `generation.base_temperature` | `0.70` | Conversational generation. |
 | `generation.rag_temperature` | `0.35` | Document-grounded generation only. |
+| `observation.broadcast_digest` | `true` | Broadcasts a few considered observation summaries a day to the designated channel. |
+| `monologue.broadcast_to_chat` | `true` | Broadcasts passing inner-monologue thoughts (separate from the digest). |
+| `desires.gate_enabled` | `true` | Enables the desire engine; `desires.initiate_threshold` sets how readily she speaks first. |
 | `bluesky.enabled` / `x_twitter.enabled` | `false` | With both disabled the social mention poller is never started. |
 
 <a name="gpu-budget"></a>
@@ -294,7 +306,7 @@ venv/bin/python3 tools/maintenance/repair_kb_book_structure.py --apply
 
 ```bash
 venv/bin/python3 -m pytest -q -m "not ollama and not gpu and not slow"
-# baseline, verified 2026-09-14: 1,226 passed, 10 skipped, 3 deselected, 2 xfailed
+# baseline, verified 2026-09-19: 1,453 passed, 10 skipped, 2 xfailed
 ```
 
 > [!TIP]
@@ -393,6 +405,11 @@ Periodic scraping of Off-Topic and Technical Discussion forums, with a Discord m
 offering Accept/Reject on drafted replies, RAG-grounded support answers, and profile caching to
 model active users.
 
+September added a tech-knowledge synthesiser that extracts and categorises issues from
+Technical Discussion threads into the knowledge base, profile compaction that distils scattered
+forum-user logs into single grounded cards, and scrape-watermark persistence so compacted users
+are not redundantly re-scraped.
+
 See [`docs/02-user-guide/forum-integration.md`](docs/02-user-guide/forum-integration.md).
 
 </details>
@@ -441,11 +458,14 @@ Kaiacord/
 │   ├── ttrpg/                Combat, dungeon, housing state
 │   ├── commands/             Discord command routers
 │   ├── social/               Forum crawler & social responders
+│   ├── audio/                Strudel pattern generation for !music
 │   └── infrastructure/       DI context, dashboard, logging, GPU pinning
 ├── tools/
-│   ├── maintenance/          Health checks, re-indexing, KB ingestion
+│   ├── maintenance/          Health checks, re-indexing, KB ingestion, dream curation,
+│   │                         profile compaction, document retitling
 │   ├── diagnostics/          RAG deep-dive and index health
 │   ├── development/          Self-model and profile utilities
+│   ├── social/               Tech-knowledge synthesiser
 │   └── tests/                Unit and integration suites
 ├── finetune/                 LoRA pipeline for Gemma 3 12B
 └── docs/                     Technical and gameplay documentation
@@ -463,6 +483,7 @@ Kaiacord/
 | Persona system | [`docs/02-user-guide/persona.md`](docs/02-user-guide/persona.md) |
 | Curses dashboard | [`docs/02-user-guide/dashboard.md`](docs/02-user-guide/dashboard.md) |
 | News system | [`docs/02-user-guide/news-system.md`](docs/02-user-guide/news-system.md) |
+| Social integrations | [`docs/02-user-guide/social-media.md`](docs/02-user-guide/social-media.md) |
 | Forum integration | [`docs/02-user-guide/forum-integration.md`](docs/02-user-guide/forum-integration.md) |
 | User profiling | [`docs/02-user-guide/user-profiling.md`](docs/02-user-guide/user-profiling.md) |
 | Architecture overview | [`docs/03-architecture/overview.md`](docs/03-architecture/overview.md) |

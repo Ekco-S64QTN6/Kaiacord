@@ -892,12 +892,23 @@ class BotSpeakFilter:
                 rest = re.split(r',\s+', stripped_tail, maxsplit=1)[1].strip()
                 tail = re.sub(r'^(?:and|but|so)\s+', '', rest)
 
-        if not tail.strip():
+        # Punctuation is not survival. `tail.strip()` on a bare "." is truthy, so
+        # the branch below was skipped whenever the offence ran to the end of the
+        # sentence and took the full stop's neighbours with it. Shipped on
+        # 2026-09-20:
+        #   'it's a complicated issue, and your observation is astute.'
+        #     -> 'it's a complicated issue, and .'
+        # logged, as ever, as "kept substance".
+        if not tail.strip(" \t.,;:!?-—–…\"'“”‘’"):
             # Nothing survives to the right, so whatever introduced the concession
             # goes with it: a trailing "but"/"and" and a leading one are both
             # scaffolding for a clause that no longer exists.
             head = cls._TRAILING_CONNECTOR.sub('', head)
             head = re.sub(r'^\s*(?:and|but|so|yet)\s+', '', head.strip(), flags=re.IGNORECASE)
+            # Drop the orphaned punctuation too. Joining it back on gives
+            # "it's a complicated issue ." — the terminal restore below puts a
+            # proper full stop on instead.
+            tail = ''
 
         joiner = ' ' if head.strip() and tail.strip() else ''
         remainder = (head.rstrip() + joiner + tail.lstrip()).strip(' \t,;:-—–')

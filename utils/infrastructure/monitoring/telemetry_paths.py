@@ -89,3 +89,26 @@ def corpus_dir(knowledge_base_dir: str) -> str:
     if is_test_run():
         return os.path.join(knowledge_base_dir, TEST_CORPUS_SUBDIR)
     return knowledge_base_dir
+
+
+# Fourth instance of the same failure, after logs/kaiacord.log,
+# hallucination_log.jsonl and the corpus itself.
+#
+# `KaiaRAG` defaults to `./memory/rag_storage`, and the suite constructs one.
+# Nothing redirected it, so every `pytest` run opened the *live* index, found
+# whatever the test fixture had (nothing), and wrote `{}` over the running bot's
+# `file_manifest.json` — 1,094 entries on 2026-09-19, replaced with two bytes,
+# eight times in one day. `Saved 0 entries to ./memory/rag_storage/
+# file_manifest.json` in logs/kaiacord.test.log is the line, and it is a
+# faithful report of something that should never have been possible.
+#
+# The bot keeps its manifest in memory and restores the file on its next save,
+# so the damage is bounded: a restart in that window re-indexes the whole corpus
+# from scratch instead of incrementally. `reindex_rag.py` refuses to touch this
+# directory while the bot is running for exactly this reason; the suite had no
+# such guard.
+def persist_dir(path: str = "./memory/rag_storage") -> str:
+    """Where RAG indices and the manifest live — a sibling directory under pytest."""
+    if is_test_run():
+        return f"{path.rstrip('/')}.test"
+    return path

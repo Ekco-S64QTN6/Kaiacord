@@ -184,3 +184,40 @@ def test_no_test_fixtures_remain_in_the_production_corpus():
     strays = [d.name for d in logs.iterdir()
               if d.is_dir() and d.name.lower().startswith("testuser")]
     assert not strays, f"test fixtures in the production corpus: {strays}"
+
+
+def test_the_rag_persist_directory_is_isolated_under_pytest():
+    """Fourth instance of this failure, after logs/kaiacord.log,
+    hallucination_log.jsonl and the corpus itself.
+
+    `KaiaRAG` defaults to `./memory/rag_storage` and the suite constructs one.
+    Nothing redirected it, so every `pytest` run opened the live index and wrote
+    `{}` over the running bot's `file_manifest.json` — 1,094 entries replaced
+    with two bytes, eight times on 2026-09-19 alone. `reindex_rag.py` refuses to
+    touch this directory while the bot is running; the suite had no such guard.
+    """
+    from utils.infrastructure.monitoring.telemetry_paths import persist_dir
+
+    resolved = persist_dir()
+    assert resolved != "./memory/rag_storage", (
+        "the suite is pointed at the live index directory")
+    assert resolved.endswith(".test")
+
+
+def test_the_redirect_is_wired_into_the_constructor():
+    """Asserted on `KaiaRAG.__init__`, not just on the helper: a resolver that
+    exists but is never called is how the live index got written to in the first
+    place. Instantiating KaiaRAG here would load the embedding model, so this
+    checks the call site."""
+    import inspect
+
+    from utils.core.kaia_rag import KaiaRAG
+
+    src = inspect.getsource(KaiaRAG.__init__)
+    assert "persist_dir" in src and "telemetry_paths" in src, (
+        "KaiaRAG.__init__ no longer resolves its persist directory; a test run "
+        "will write over the live index"
+    )
+    body = src.split("self.persist_dir")[0]
+    assert "_resolve_persist_dir(persist_dir)" in body, (
+        "the resolver is imported but the raw argument is still assigned")

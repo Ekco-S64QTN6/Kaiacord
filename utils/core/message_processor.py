@@ -2056,6 +2056,59 @@ class MessageProcessor:
         messages = self._clamp_to_context_window(messages)
         return messages
 
+    # Seed until enough real counts have been observed, and the bounds the
+    # learned ratio is held inside. The floor stops one freak sample from
+    # under-budgeting the reply; the ceiling stops one from deleting her memory,
+    # which is the more expensive direction (see the clamp's docstring).
+    _SEED_TOKENS_PER_WORD = 1.60
+    _MIN_TOKENS_PER_WORD = 1.25
+    _MAX_TOKENS_PER_WORD = 2.05
+    # Below this many observations the seed is used unchanged.
+    _CALIBRATION_MIN_SAMPLES = 8
+
+    def _observe_prompt_tokens(self, prompt_eval_count) -> None:
+        """Record what the last prompt actually cost, in real tokens.
+
+        Ollama reports `prompt_eval_count` on every generation: the exact token
+        count for the message list that was just sent. Pairing it with the word
+        count `_clamp_to_context_window` measured turns the words->tokens ratio
+        from a hardcoded guess into an observation.
+
+        This matters because the guess was wrong in the expensive direction and
+        nothing noticed for two days. The ratio also moves with content — code,
+        names and unicode tokenize differently from prose — so it is a
+        distribution, not a number.
+        """
+        try:
+            words = getattr(self, "_last_prompt_words", 0)
+            real = int(prompt_eval_count)
+        except (TypeError, ValueError):
+            return
+        if words < 500 or real <= 0:
+            return                       # too small to be representative
+        ratio = real / words
+        if not (0.5 <= ratio <= 4.0):
+            return                       # nonsense; do not let it into the pool
+        if not hasattr(self, "_tpw_samples"):
+            from collections import deque
+            self._tpw_samples = deque(maxlen=60)
+        self._tpw_samples.append(ratio)
+
+    def _calibrated_tokens_per_word(self) -> float:
+        """A high percentile of recently observed ratios, bounded.
+
+        p90 rather than the max: the clamp is a backstop, and budgeting for the
+        single densest prompt ever seen is what produced the 1.75 that cost her
+        most of her history on 71% of turns.
+        """
+        samples = getattr(self, "_tpw_samples", None)
+        if not samples or len(samples) < self._CALIBRATION_MIN_SAMPLES:
+            return self._SEED_TOKENS_PER_WORD
+        ordered = sorted(samples)
+        p90 = ordered[min(len(ordered) - 1, int(len(ordered) * 0.9))]
+        return max(self._MIN_TOKENS_PER_WORD,
+                   min(self._MAX_TOKENS_PER_WORD, p90 * 1.05))
+
     def _clamp_to_context_window(self, messages: List[Dict[str, str]]) -> List[Dict[str, str]]:
         """Drop the oldest history until the reply has room to exist.
 
@@ -2106,7 +2159,23 @@ class MessageProcessor:
         # discarded before the loop gives up. The asymmetry settles it —
         # underestimating costs a shorter reply on a rare dense turn,
         # overestimating costs her entire memory on every turn.
-        TOKENS_PER_WORD = 1.75
+        # Calibrated against `prompt_eval_count`, not guessed. See
+        # `_observe_prompt_tokens`: every generation reports the real token
+        # count for the prompt that was just sent, so the words->tokens ratio
+        # does not have to be a constant at all.
+        #
+        # It was 1.75, "the observed maximum" over five turns. Measured over 30
+        # paired samples on 2026-09-20 — the clamp's own estimate against the
+        # `prompt_eval_count` that followed it — 1.75 overshot by a median of
+        # 2,620 tokens (ratio 1.06 to 1.25). The clamp fired on 30 of 42 turns
+        # and cut history to the floor on every one; the largest real prompt all
+        # day was 15,127 against a 15,360 budget, so not one of them would have
+        # overflowed. Exactly the failure the comment below warns about, one
+        # notch milder: not all of her memory, just most of it.
+        #
+        # The spread is per-turn and content-dependent, so no single constant
+        # fits. The seed below is used until enough real counts have been seen.
+        TOKENS_PER_WORD = self._calibrated_tokens_per_word()
         # She always keeps recent context. `optimize_context` has already
         # fitted history to its own budget before this runs — the log line
         # "History optimized to 26 turns within 2128 token budget" is that
@@ -2122,6 +2191,11 @@ class MessageProcessor:
 
         def _tok(m) -> int:
             return int(len(str(m.get("content", "")).split()) * TOKENS_PER_WORD)
+
+        # Stash the word count so `_observe_prompt_tokens` can pair it with the
+        # real token count this prompt produces.
+        self._last_prompt_words = sum(
+            len(str(m.get("content", "")).split()) for m in messages)
 
         total = sum(_tok(m) for m in messages)
         if total <= budget:
@@ -2240,6 +2314,8 @@ class MessageProcessor:
                 # TEMPORARY DEBUG: Log raw response to diagnose gemma3 empty responses
                 log_debug(f"[GEMMA3_DEBUG] Raw response length={len(content)}, first100={repr(content[:100])}, done_reason={response.get('done_reason', 'unknown')}")
                 log_debug(f"[TOKEN_DEBUG] prompt_eval_count={response.get('prompt_eval_count', 'n/a')} eval_count={response.get('eval_count', 'n/a')} num_ctx={self.config.max_context_tokens}")
+                # Close the loop: the clamp's next estimate is calibrated on this.
+                self._observe_prompt_tokens(response.get('prompt_eval_count'))
 
                 # Process raw generation through PostGenerationSafetyPipeline (💡-4)
                 from utils.core.safety_pipeline import PostGenerationSafetyPipeline

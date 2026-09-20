@@ -2,6 +2,33 @@
 
 Set up Bluesky and X accounts for Kaia to post and reply.
 
+> ## Current status (September 2026)
+>
+> | Platform | `enabled` | Cross-posts quips | Replies to mentions |
+> |:--|:--|:--|:--|
+> | **Bluesky** | `true` | `true` | `false` |
+> | **X / Twitter** | `false` | `false` | `false` |
+>
+> **Credentials alone never enable either.** The flag gates the integration, and
+> the mention poller is not started when both are off. Setting the `.env` values
+> below does nothing on its own.
+>
+> **X is off for an upstream reason, not an account one.** `@KaiaKuroshi` and its
+> credentials are fine and `is_x_configured()` passes. twikit 2.3.3 — the latest
+> release — cannot talk to X at all: x.com returns HTTP 200 but
+> `ON_DEMAND_FILE_REGEX` no longer matches anything in the page, so
+> `ClientTransaction.get_indices` raises *"Couldn't get KEY_BYTE indices"*. That
+> transaction id is generated for **every** request, not just login, so importing
+> browser cookies does not get around it.
+>
+> Flip `x_twitter.enabled` and `x_twitter.cross_post_quips` to `true` once a
+> twikit release fixes it. Nothing else needs changing — the cross-post path is
+> wired and tested, and is decoupled from Bluesky so one failing no longer takes
+> the other down.
+>
+> Replying to strangers' mentions is deliberately off on both: broadcasting her
+> own posts is a different risk from answering people who did not ask.
+
 ## Bluesky Setup
 
 ### 1. Create Account

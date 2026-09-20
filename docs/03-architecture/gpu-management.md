@@ -10,8 +10,11 @@
 | Model | Purpose | Runs On | VRAM Impact |
 |:------|:--------|:--------|:------------|
 | **gemma3:12b** | Chat / Generation | GPU | ~7.0 GB |
-| **gemma2:2b** | Intent Classification | CPU (`num_gpu: 0`) | 0 GB |
 | **nomic-embed-text-cpu** | RAG Embeddings | CPU (`num_gpu: 0`) | 0 GB |
+
+Two models, and only two. A `gemma2:2b` intent classifier was listed here until
+September 2026; it ran on every ambiguous message and its verdict was never read,
+so the model, its dispatch and its warm-up were removed. Intent is regex only.
 
 ## VRAM Allocation Strategy
 
@@ -19,7 +22,6 @@ Kaia is optimized for continuous presence on a single 12GB GPU. Unlike previous 
 
 ### 1. Residency Policy
 - **Chat Model** (`gemma3:12b`): Stays loaded in VRAM permanently. Never unloaded.
-- **Classification Model** (`gemma2:2b`): Runs entirely on CPU via `ThreadPoolExecutor`. Zero VRAM usage.
 - **Embedding Model** (`nomic-embed-text-cpu`): Runs on CPU via `ollama_additional_kwargs: {"num_gpu": 0}`. Zero VRAM usage.
 
 ### 2. Context Window Optimization
@@ -33,16 +35,21 @@ Kaia is optimized for continuous presence on a single 12GB GPU. Unlike previous 
 
 ### 3. GPU Semaphore Guard
 The system uses a global `asyncio.Semaphore(1)` to prevent concurrent GPU access:
-- All GPU-bound operations (chat, dream generation) acquire the semaphore before calling Ollama.
+- All GPU-bound operations (chat, dream generation, dream consolidation, forum drafting,
+  metadata enrichment) acquire the semaphore before calling Ollama.
+- Every call carries a `GPUTaskPriority`. Batch tools run at `BACKGROUND`, which yields to
+  live chat — that is what makes it safe to consolidate dreams or synthesise troubleshooting
+  guides while she is up.
 - A `ContextVar` tracks re-entrancy to prevent deadlocks from nested GPU calls.
 - The guard is managed through `GPUMemoryManager.run_with_gpu_guard()`.
 
 ### 4. Boot Sequence (Phase 1/2/3)
 On startup, `on_ready()` runs a sequenced boot:
 - **Phase 1**: `gemma3:12b` loaded exclusively via direct `ollama.generate()` under `_gpu_startup_lock`. Timeout: `model_load_seconds` (default 240s). A 5s recovery delay after Ollama cleanup ensures the daemon is ready.
-- **Phase 1.5**: `ModelWarmPool` and `IntentParser` (gemma2:2b, CPU-only) initialized AFTER GPU is claimed.
+- **Phase 1.5**: `ModelWarmPool` and `IntentParser` (regex, no model) initialized AFTER GPU is claimed.
 - **Phase 2**: Bot marked ready to serve messages.
-- **Phase 3**: RAG init, classifier warm, knowledge refresh — all background, non-blocking.
+- **Phase 3**: RAG init and knowledge refresh — background, non-blocking. There is no
+  classifier to warm.
 
 ## Adaptive Performance Monitoring
 

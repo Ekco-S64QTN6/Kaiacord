@@ -8,6 +8,7 @@ All commands are prefixed with `!`. Admin commands are restricted to the project
 |:---|:---|:---|
 | `!scores` / `!stats` | Gamified memory analytics & affinity leaderboards | All |
 | `!art` | Generate a fractal flame artwork with Kaia commentary | All |
+| `!music` | Perform a live-coded set in your voice channel | All |
 | `!rpg` | Open the Aethelgard TTRPG HUD and play | All |
 | `!help` | Display interactive command and feature guide | All |
 | `!news [category]` | Fetch news by category | All |
@@ -101,6 +102,25 @@ Manages VBulletin 3.x integration and Discord ↔ Forum identity linking.
 - `!forum post <thread_id> <message>` — Post a manual reply.
 - `!forum reply <thread_id>` — Trigger an AI-generated reply.
 - `!forum user <user_id>` — Deep-scrape a user's full post history.
+
+---
+
+### `!music`
+
+Puts Kaia in your voice channel performing a live-coded set.
+
+```
+!music on [--genre <name>]   join and start playing
+!music off                   stop and leave
+!music status                what is currently playing
+!music genres                list available genres
+```
+
+House, techno, trance, dnb, ambient and more. **No model is involved and no VRAM
+is used** — the arrangement is scripted in `strudel_patterns.py` and driven
+through a real browser, so it is safe to run alongside inference. See
+`docs/03-architecture/` and `CLAUDE.md` §7 for why the browser runs headed and
+why patterns are applied by clicking a real button.
 
 ---
 

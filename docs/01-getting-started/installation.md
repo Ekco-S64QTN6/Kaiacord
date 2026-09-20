@@ -86,12 +86,13 @@ pip install -r requirements.txt
 # Chat model (~7GB VRAM)
 ollama pull gemma3:12b
 
-# Classification model (runs on CPU)
-ollama pull gemma2:2b
-
 # Embedding model (runs on CPU)
 ollama pull nomic-embed-text-cpu
 ```
+
+Two models, and only two. A `gemma2:2b` classification model used to be listed
+here; it was removed in September 2026 because its verdict was never read. If you
+pulled it for an earlier version, `ollama rm gemma2:2b` reclaims 1.6 GB.
 
 ---
 
@@ -128,7 +129,6 @@ Expected output:
 ```
 ✅ Ollama server: ONLINE
 ✅ gemma3:12b: Found
-✅ gemma2:2b: Found
 ✅ nomic-embed-text-cpu: Found
 ✅ GPU: NVIDIA RTX 3060 (12GB)
 ✅ Knowledge base: Accessible

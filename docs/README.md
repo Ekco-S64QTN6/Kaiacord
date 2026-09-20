@@ -43,17 +43,37 @@ Design specifications, system architecture, maintenance procedures, and developm
 
 Operational audits live in `docs/reports/`, which is **git-ignored**: they quote user transcripts
 and runtime telemetry, so they stay on the deployment machine rather than in the public
-repository. In a working checkout you will find:
+repository. `docs/reports/README.md` indexes them *(local only — the link would 404
+on GitHub, which is why nothing here links into that tree)*.
+
+Reports are organised by purpose:
+
+```
+reports/
+├── 01-status/      Living documents: master report, audit log, roadmap, history
+├── 02-decisions/   Open questions waiting on a call from Ekco
+├── 03-subsystems/  Per-subsystem design docs (music engine, art, LoRA)
+├── 04-audits/      Point-in-time investigations (grounding, sycophancy, probing)
+├── 05-reference/   External research (Strudel guide, data-curation strategy)
+├── templates/      Prompts and scaffolding — not reports
+└── archive/        Fully actioned or superseded
+```
 
 | Report | Contents |
 | :--- | :--- |
-| `master_report.md` | System status, metrics, strategic roadmap |
-| `audit_report.md` | Phase-by-phase production audits (cognitive pipeline, RAG, safety, GPU) |
-| `history.md` | Development history, Phase 1 onward |
-| `response_accuracy_audit_report.md` | Grounding and persona-fidelity audit |
-| `consistency_watchdog_sycophancy_report.md` | Epistemic stability and anti-sycophancy analysis |
-| `Jspace.md` · `LoRA.md` · `art_report.md` | Behavioural probing, fine-tuning, fractal renderer |
-| `evolution_proposals.md` | Proposals under discussion |
+| `01-status/master_report.md` | System status, metrics, strategic roadmap |
+| `01-status/audit_report.md` | Phase-by-phase production audits (cognitive pipeline, RAG, safety, GPU) |
+| `01-status/history.md` | Development history, Phase 1 onward |
+| `01-status/evolution_proposals.md` | Proposals and backlog |
+| `03-subsystems/music_engine.md` | `!music` — Strudel-backed live-coded performance engine |
+| `03-subsystems/art_report.md` | Fractal flame renderer and Mandelbrot rebuild |
+| `03-subsystems/lora.md` | LoRA fine-tuning pipeline |
+| `04-audits/response_accuracy_audit_report.md` | Grounding and persona-fidelity audit |
+| `04-audits/consistency_watchdog_sycophancy_report.md` | Epistemic stability and anti-sycophancy analysis |
+| `04-audits/cryptographic_inventory_for_kaia.md` | Cryptographic dependency inventory |
+| `04-audits/jspace.md` · `04-audits/noon_events_mechanical_audit.md` | Behavioural probing, world-event mechanics |
+| `05-reference/strudel-coding-guide.md` | Strudel syntax reference for pattern authoring |
+| `05-reference/local-ai-data-curation-strategy.md` | RAG data-curation research |
 
 ### ⚔️ [Aethelgard TTRPG Specifications](ttrpg/)
 *   [System Specification](ttrpg/aethelgard_system.md) — Complete game rules, combat formulas, class trees, and item structures.
@@ -74,3 +94,5 @@ repository. In a working checkout you will find:
 | **I need to fix a database exception** | [🛠️ Common Issues & Remedies](06-troubleshooting/common-issues.md) |
 | **I want to verify Aethelgard balance** | [⚔️ TTRPG Balance & Audit Report](ttrpg/ttrpg_report.md) |
 | **I need to see the latest audit status** | `docs/reports/audit_report.md` *(local only)* |
+| **I want to see all reports** | `docs/reports/README.md` *(local only)* |
+

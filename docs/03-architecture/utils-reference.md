@@ -11,8 +11,8 @@ Core utility modules used by Kaiacord.
 | `kaia_rag_indexer.py` | Document ingestion, BM25 indexing, and parallel background updates |
 | `kaia_rag_persistence.py` | RAG state persistence (JSON manifest + BM25 pickle) and pre-warming |
 | `kaia_rag_retriever.py` | Shared RAG utilities and thread-safe lock decorators |
-| `kaia_intelligence.py` | Intelligence facade — coordinates classification and optimization |
-| `intent_classifier.py` | Dual-mode intent detection (Fast-path Regex + LLM Deep Dive) |
+| `kaia_intelligence.py` | Intelligence facade — coordinates intent matching, budgeting and enrichment |
+| `intent_classifier.py` | Intent detection by regex. No model — the `gemma2:2b` second pass was removed in Sept 2026 because its verdict was never read |
 | `context_optimizer.py` | Dynamic context window management and token budgeting |
 | `hallucination_detector.py` | Canonical detector for AI structural leaks and fabrications |
 | `message_processor.py` | Modular on_message pipeline with timeout guards and self-healing (~2310 lines) |

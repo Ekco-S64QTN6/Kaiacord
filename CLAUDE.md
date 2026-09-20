@@ -47,8 +47,8 @@ venv/bin/python3 -c "from utils.core.message_processor import MessageProcessor"
 venv/bin/python3 -c "import ast, io; ast.parse(io.open('utils/core/message_processor.py').read())"
 ```
 
-Baseline for the no-external-services run, verified 2026-09-15: **1,347 passed, 10 skipped,
-3 deselected, 2 xfailed** in ~107 s. Only three tests in the whole suite need Ollama or a GPU, so
+Baseline for the no-external-services run, verified 2026-09-19: **1,528 passed, 10 skipped,
+3 deselected, 2 xfailed** in ~110 s. Only three tests in the whole suite need Ollama or a GPU, so
 that invocation is the one to use by default — the full `pytest -q` additionally loads
 `gemma3:12b`, which evicts the production model from VRAM.
 
@@ -235,8 +235,17 @@ result. Salvaged text is used only if it passes on its own merits; the guards ar
 real prompts the ratio runs 1.55 median, 1.66 p90, 2.04 worst. A median used as a bound
 underestimates half of all prompts, and four production turns overran the response reserve badly
 enough that the reply shrank to 21 tokens. `_clamp_to_context_window` is a hard clamp after
-assembly using the observed worst ratio: it drops history oldest-first, never the system prompt or
-the user's message, and logs `[CONTEXT_CLAMP]`.
+assembly: it drops history oldest-first, never the system prompt or the user's message, and logs
+`[CONTEXT_CLAMP]`.
+
+**Its ratio is measured, not chosen.** Two hardcoded constants have been wrong here in opposite
+directions, both costing her memory: 2.05 scored the system prompt alone over budget and drained
+every history turn; 1.75 ("the observed maximum" over five turns) overshot by a **median of 2,620
+tokens** and cut history to the floor on 30 of 42 turns on 2026-09-20 — the largest real prompt
+that day was 15,127 against a 15,360 budget, so not one would have overflowed. Ollama reports
+`prompt_eval_count` on every generation, so `_observe_prompt_tokens` feeds the truth back and
+`_calibrated_tokens_per_word()` returns a bounded p90 of recent observations. If you find yourself
+picking a number here, measure instead.
 
 ### Persona grounding facts
 
@@ -352,6 +361,14 @@ the point.
   `UnifiedLogger._resolve_log_file()` detects pytest. Do not remove this: mock artifacts in the
   shared log were previously indistinguishable from production incidents and cost real
   debugging time.
+- **Everything a test writes must be redirected, and four things needed it.** `telemetry_paths`
+  holds all four: `telemetry_path()` for `memory/*.jsonl`, `corpus_dir()` for
+  `knowledge_base/`, the logger's own split, and `persist_dir()` for `memory/rag_storage`. The
+  last was missing until Sept 19, so every `pytest` run opened the **live** RAG index and wrote
+  `{}` over the running bot's `file_manifest.json` — 1,094 entries replaced with two bytes,
+  eight times in one day. `reindex_rag.py` refuses to touch that directory while the bot is
+  running; the suite had no such guard. If you add a component that persists anything, redirect
+  it here first.
 - Elevate core cognitive actions (monologue, dream summaries, belief shifts, anchor formation),
   scraper operations, and mood changes to `log_info`/`log_warning` so they surface in the
   dashboard.

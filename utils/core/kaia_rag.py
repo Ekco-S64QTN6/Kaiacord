@@ -59,6 +59,12 @@ from utils.core.kaia_rag_query import RAGQueryMixin
 
 class KaiaRAG(RAGIndexerMixin, RAGPersistenceMixin, RAGQueryMixin):
     def __init__(self, knowledge_base_dir="./knowledge_base", persist_dir="./memory/rag_storage"):
+        # Under pytest this becomes `./memory/rag_storage.test`. Without it the
+        # suite opened the live index and wrote an empty manifest over it — see
+        # `telemetry_paths.persist_dir`.
+        from utils.infrastructure.monitoring.telemetry_paths import (
+            persist_dir as _resolve_persist_dir)
+        persist_dir = _resolve_persist_dir(persist_dir)
         self.knowledge_base_dir = knowledge_base_dir
         self.persist_dir = persist_dir
         self.indexed_files = {}  # Manifest: {path: {"mtime": mtime, "size": size, "nodes": [node_ids]}}

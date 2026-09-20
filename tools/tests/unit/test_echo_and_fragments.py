@@ -76,3 +76,25 @@ def test_a_sentence_with_its_own_verb_is_not_treated_as_a_fragment():
     assert not P._is_dependent_fragment("the geometry is doing a lot of the work.")
     assert not P._is_dependent_fragment("a constant tension, isn't it?")
     assert P._is_dependent_fragment("a way of imposing order on a chaotic system.")
+
+
+# ── Trailing position, found live 2026-09-20 ─────────────────────────
+
+@pytest.mark.parametrize("sentence,expected", [
+    ("it’s a complicated issue, and your observation is astute.",
+     "it’s a complicated issue."),
+    ("the chain is weak, but your framing is compelling!",
+     "the chain is weak!"),
+])
+def test_a_concession_at_the_end_takes_its_connector_with_it(sentence, expected):
+    """`tail.strip()` on a bare "." is truthy, so when the offence ran to the end
+    of the sentence the trailing-connector branch was skipped entirely. Shipped
+    to Starkind as "it’s a complicated issue, and ." and logged, as ever, as
+    "Trimmed offending clause, kept substance"."""
+    assert BotSpeakFilter.strip_sycophancy(sentence) == expected
+
+
+def test_the_sentence_keeps_its_own_terminal_punctuation():
+    out = BotSpeakFilter.strip_sycophancy("the chain is weak, but your framing is compelling!")
+    assert out.endswith("!"), "the sentence's own punctuation was replaced or lost"
+    assert " ." not in out and " !" not in out, "orphaned punctuation left floating"

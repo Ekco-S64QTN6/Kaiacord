@@ -131,10 +131,10 @@ python Kaiacord.py
 # Check Ollama status
 ollama list
 
-# If empty, pull models:
+# If empty, pull models. These two are the whole set:
 ollama pull gemma3:12b
-ollama pull gemma2:2b
-ollama pull nomic-embed-text
+ollama pull nomic-embed-text-cpu    # note the -cpu suffix; the bare name is a
+                                    # different tag and will not be found
 
 # If Ollama not running:
 sudo systemctl start ollama

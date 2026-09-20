@@ -1,68 +1,130 @@
 # Kaia Intelligence Layer
 
-## Overview
-The Intelligence Layer coordinates the cognitive logic between receiving a message and generating a response. It handles intent classification, context window optimization, content enrichment, and output validation.
+Everything between receiving a message and sending a reply: intent matching,
+context budgeting, enrichment, generation and the guards on the way out.
+
+> **September 2026.** This file described a `gemma2:2b` "deep-dive" classifier
+> running on CPU for nuanced intents. That model was removed entirely — its
+> verdict was dispatched fire-and-forget and never read, so `ctx.intent` only
+> ever came from the regex fast path. The dispatch, the model, its warm-up and
+> its config are all gone. Do not re-add a classification model without also
+> consuming its result.
 
 ## Architecture
 
 ```mermaid
 flowchart TD
-    MP[MessageProcessor] --> IF[kaia_intelligence.py Facade]
+    MP[MessageProcessor] --> IF[kaia_intelligence.py facade]
     IF --> IC[intent_classifier.py]
     IF --> CO[context_optimizer.py]
     IF --> CE[context_enricher.py]
-    
-    CE --> URL[URL Fetching]
+
+    CE --> URL[URL fetching]
     CE --> AT[Attachments]
-    
-    IC --> GPT[gemma2:2b\nCPU Inference]
+
+    IC --> RX[Regex matchers, CPU, no model]
 ```
 
-### 1. Intent Classification (`intent_classifier.py`)
-Before any RAG retrieval or LLM call, Kaia determines what the user actually wants. This prevents unnecessary work and optimizes the persona's response strategy.
-- **Dual-Mode Detection**:
-    - **Fast-Path**: Regex-based instant detection for commands, greetings, and simple identity questions.
-    - **Deep-Dive**: Calls `gemma2:2b` on **CPU** for nuanced intents (e.g., `DIAGNOSTIC_DEEP_DIVE`, `DREAM_RECALL`).
-- **Strategy Selection**: Produces a `MessageIntent` object that guides the downstream RAG retrieval and prompt construction.
+### 1 · Intent matching (`intent_classifier.py`)
 
-### 2. Context Optimization (`context_optimizer.py`)
-Manages the limited context window (KV cache) of the primary LLM.
-- **Budgeting**: Allocates tokens between Persona, RAG Context, and Conversation History.
-- **Ranked Pruning**: If context exceeds the limit, lower-ranked RAG nodes or older history are pruned first.
-- **Anchor Nodes**: The persona and the 5 most recent messages are never pruned.
+`IntentParser.fast_parse` labels the message with regex before any retrieval or
+inference — greeting, command, recap, diagnostic, dream recall. It produces a
+`MessageIntent` that steers retrieval strategy and prompt construction.
 
-### 3. Content Enrichment (`context_enricher.py`)
-Enhances the prompt with external information without manually re-coding `on_message`.
-- **URL Fetching**: Automatically scrapes and summarizes links found in messages.
-- **Attachment OCR**: Processes text attachments and small images.
-- **Topic Extraction**: Identifies technical entities to trigger specific knowledge boundaries.
+There is no second pass and no auxiliary model. A high-confidence
+`SOCIAL_GREETING` or `COMMAND_EXECUTION` takes the **Adaptive Skip** path in
+`MessageProcessor.process`, which bypasses RAG entirely; everything else goes
+through the full pipeline.
 
-### 4. Self-Healing System (`utils/core/message_processor.py`)
-A 3-pass loop that ensures high-quality output:
-1. **Pass 1**: Standard generation.
-2. **Pass 2 (Retry)**: Triggered if Pass 1 is hallucinated or cuts off. Regenerates with higher temperature and a "corrective" system prompt.
-3. **Pass 3 (Fallback)**: If still failing, provides a pre-grounded "safe" response aligned with the persona.
+### 2 · Context budgeting (`context_optimizer.py`)
 
-### 5. Memory Model Warm Pool
-- **Pre-warming**: Ensures `gemma3:12b` is resident in VRAM before the first message.
-- **Recovery Reload**: If the model is swapped out by an external process, the intelligence layer detects the latency spike or 404 and triggers a recovery load.
+Allocates the 16,384-token window between persona, RAG context and history.
+Lower-ranked RAG nodes and older history are pruned first; the persona is never
+truncated.
 
-### 6. Hallucination Guard (`hallucination_detector.py`)
-Canonical detector for AI structural leaks.
-- **Cleanup**: Strips technical artifacts (e.g., "AI Assistant:", "Think:") and known hallucinated names.
-- **Adversarial Check**: Uses pattern matching to detect if the LLM is fabricating memories and strips contaminated lines.
+`optimize_context` budgets with `performance.token_multiplier`, a median-calibrated
+estimate, so `_clamp_to_context_window` in `message_processor.py` runs after
+assembly as a hard backstop. It drops history oldest-first — never the system
+prompt or the user's message — and logs `[CONTEXT_CLAMP]`.
 
-### 7. Cognitive Pipeline Logging & Monitoring
-To ensure the Btop-Style monitor dashboard displays active pipeline states without cluttering the screen with VRAM/inference logs:
-- **Log Elevation**: Important state transformations (monologues, dreams, belief changes, memory anchors, scraping tasks, proactive initiation triggers, and user emotional arc transitions) bypass standard debug suppression and log at `INFO` or `WARNING` level.
-- **Unified Stats Tracker**: Counters for forum drafts, approvals, and rejections are thread-safely updated and saved to `memory/stats.json`.
+Its words-to-tokens ratio is **measured, not assumed**: every generation reports
+`prompt_eval_count`, and `_observe_prompt_tokens` feeds that back so the next
+estimate is calibrated on real counts. Two hardcoded constants have been wrong
+here in opposite directions — 2.05 deleted every history turn, 1.75 overshot by a
+median of 2,620 tokens and cut history to the floor on 30 of 42 turns that would
+have fit.
 
-## Interaction Flow
+### 3 · Content enrichment (`context_enricher.py`)
 
-1. **Gatekeeper**: Rate limit and safety check.
-2. **Classify**: Determines `MessageIntent` (CPU/Regex).
-3. **Enriched**: Fetches URLs or attachments if needed.
-4. **Retrieve**: Calls `KaiaRAG` with intent-specific strategy.
-5. **Optimize**: Budgets tokens and constructs the prompt.
-6. **Generate**: 3-pass self-healing loop via Ollama.
-7. **Filter**: Cleans output before sending to Discord.
+Appends reply context, embeds, attachments and scraped pages to the message.
+
+Everything it adds is wrapped in a labelled block (`[LINKED_WEB_CONTENT]`,
+`[ATTACHED_EMBED_CONTEXT]`, …). Any check asking "what did the user actually
+say" must measure `sanitizer.user_authored_text()` rather than
+`sanitized_content`, or a one-word caption on a link looks like a two-hundred-word
+message.
+
+### 4 · Generation and salvage (`message_processor.py`)
+
+`_generate_with_retries` runs up to `generation_max_retry_attempts` passes
+(default 3). A rejected attempt is not discarded: the text is retained, its
+ellipsis cadence defused with `EmergencyContaminationFilter.defuse_ellipsis_affect`,
+and the **full pipeline is re-run** on the result. Salvaged text is used only if
+it passes on its own merits.
+
+This exists because exhaustion used to mean silence — three contemplative replies
+to a question about her own code were each rejected for ellipsis drift, 35 s of
+inference discarded, nothing delivered.
+
+### 5 · Model warm pool
+
+Keeps `gemma3:12b` resident in VRAM before the first message, and reloads it if
+an external process evicts it. All Ollama calls go through `gpu_memory_manager`
+with a `GPUTaskPriority`; background work yields to live chat.
+
+### 6 · Output guards (`safety_pipeline.py`, `response_filter.py`)
+
+Prompt echoes, roleplay artefacts, fabricated citations, sycophancy, bot-speak,
+restatement of the user, and stale clock times are removed before delivery.
+
+Three excision shapes, and confusing them has caused real damage:
+
+| Mode | Offence | Action |
+|:--|:--|:--|
+| `clause` | a prefix on real content (`"you're right; <substance>"`) | excise the clause, keep the substance |
+| `sentence` | the whole sentence is the artefact | drop it |
+| substring | a span inside a clause | usually **wrong** — the span is carrying the grammar |
+
+A guard that excises inside a sentence must call
+`response_filter.excision_broke_grammar(before, after)` and keep the original when
+it returns True. Two guards shipped `the is… concerning.` and
+`theis unhelpful on its own.` before that existed.
+
+**No guard may empty a good response.** An empty return costs a full inference
+round-trip, and if every attempt is rejected she says nothing at all.
+
+### 7 · Logging and monitoring
+
+Core cognitive actions — monologues, dream summaries, belief shifts, memory
+anchors, scraper runs, proactive triggers, mood transitions — are elevated to
+`INFO`/`WARNING` so they surface on the dashboard. Forum draft, approval and
+rejection counters are written to `memory/stats.json`.
+
+Test runs write to `logs/kaiacord.test.log`, and `memory/` telemetry is
+suffixed `.test`, so fixtures are never mistaken for production incidents.
+
+## Interaction flow
+
+1. **Gatekeeper** — rate limit and safety check
+2. **Match** — `MessageIntent` by regex; high-confidence greetings skip RAG
+3. **Enrich** — reply context, URLs, attachments
+4. **Retrieve** — `KaiaRAG`, hybrid BM25 + vector with RRF
+5. **Budget** — `optimize_context`, then the hard clamp
+6. **Generate** — up to 3 passes with salvage
+7. **Filter** — the guards above, then send
+
+## See also
+
+- [`rag-system.md`](rag-system.md) — indices and what is excluded from them
+- [`gpu-management.md`](gpu-management.md) — VRAM budget and task priorities
+- `CLAUDE.md` §5–6 — the cognitive pipeline contract and the call-path table

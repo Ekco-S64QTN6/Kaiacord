@@ -23,7 +23,13 @@ import pytest
 from utils.core.message_processor import MessageProcessor
 
 WINDOW, RESERVE = 16384, 1024
-WORST = 1.75
+
+# The clamp's own ratio, whatever it currently is. Hardcoding 1.75 here made
+# this file agree with a number rather than with the code: when the ratio became
+# calibrated (see test_context_calibration.py) these assertions measured the
+# fixture with one ratio and the clamp with another.
+def _ratio(processor):
+    return processor._calibrated_tokens_per_word()
 
 
 @pytest.fixture
@@ -35,8 +41,8 @@ def processor():
     return proc
 
 
-def _tokens(messages):
-    return sum(int(len(str(m["content"]).split()) * WORST) for m in messages)
+def _tokens(messages, ratio):
+    return sum(int(len(str(m["content"]).split()) * ratio) for m in messages)
 
 
 def _build(history_turns, words_each=400, system_words=5000):
@@ -49,11 +55,12 @@ def _build(history_turns, words_each=400, system_words=5000):
 
 
 def test_an_oversized_prompt_is_trimmed_to_leave_the_reserve(processor):
+    r = _ratio(processor)
     messages = _build(history_turns=12)
-    assert _tokens(messages) > WINDOW - RESERVE, "fixture is not actually oversized"
+    assert _tokens(messages, r) > WINDOW - RESERVE, "fixture is not actually oversized"
 
     clamped = processor._clamp_to_context_window(messages)
-    assert _tokens(clamped) <= WINDOW - RESERVE
+    assert _tokens(clamped, r) <= WINDOW - RESERVE
 
 
 def test_a_prompt_that_already_fits_is_untouched(processor):
@@ -100,13 +107,25 @@ def test_a_healthy_prompt_keeps_all_of_its_history(processor):
     assert len(messages) == before
 
 
-def test_the_multiplier_sits_at_the_measured_maximum(processor):
-    """1.75 catches 4/4 of the real overflows that squeezed the reply while
-    wrongly trimming 1/5 healthy turns; 2.05 wrongly trims 3/5."""
+def test_the_ratio_is_observed_rather_than_hardcoded(processor):
+    """It was 1.75, "the observed maximum" over five turns. Measured over 30
+    paired samples on 2026-09-20 — the clamp's own estimate against the
+    `prompt_eval_count` that followed it — that overshot by a median of 2,620
+    tokens and cut history to the floor on 30 of 42 turns, none of which would
+    have overflowed.
+
+    `prompt_eval_count` is reported on every generation, so the ratio is now
+    measured. This asserts the loop is closed, not what number it settles on.
+    """
     import inspect
 
     src = inspect.getsource(processor._clamp_to_context_window)
-    assert "TOKENS_PER_WORD = 1.75" in src
+    assert "_calibrated_tokens_per_word()" in src, (
+        "the clamp is back to a hardcoded ratio")
+    assert inspect.getsource(type(processor)._observe_prompt_tokens), (
+        "nothing feeds real token counts back in")
+    assert processor._MIN_TOKENS_PER_WORD < processor._calibrated_tokens_per_word() \
+        < processor._MAX_TOKENS_PER_WORD
     # 2.05 may still be named in the comment explaining why it was wrong; what
     # matters is that it is not the value in use.
     assert "TOKENS_PER_WORD = 2.05" not in src

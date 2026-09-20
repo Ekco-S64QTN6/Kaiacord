@@ -29,7 +29,7 @@ venv/bin/python3 -m pytest tools/tests/unit/test_response_filters.py::test_harde
 4. **Skipping External Services** (the invocation to use by default):
 ```bash
 venv/bin/python3 -m pytest -q -m "not ollama and not gpu and not slow"
-# baseline, verified 2026-09-14: 1,226 passed, 10 skipped, 3 deselected, 2 xfailed
+# baseline, verified 2026-09-19: 1,528 passed, 10 skipped, 3 deselected, 2 xfailed
 ```
 Only three tests in the suite need Ollama or a GPU. A bare `pytest -q` runs them, which loads
 `gemma3:12b` and evicts the production model from VRAM.
