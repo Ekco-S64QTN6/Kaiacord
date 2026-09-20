@@ -15,7 +15,11 @@ def test_bait_expansion():
         "what are you listening to?",
         "what have you been playing lately?",
         "what has kept you busy?",
-        "What's on your mind? (case test)",
+        # Capitalisation variant. This read "What's on your mind? (case test)"
+        # and passed only because the stage-direction guard was deleting any
+        # multi-word lowercase parenthetical — the bait phrase alone was never
+        # what made the line empty.
+        "What's On Your Mind?",
         "So, what are you reading right now?",
         "what are you reading currently?",
         "what are you watching today?"

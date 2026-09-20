@@ -225,9 +225,6 @@ class BotSpeakFilter:
     Most behavioral constraints should be handled by the Persona prompt.
     """
     
-    # Strip roleplay actions only — targeted patterns to avoid legitimate content
-    RE_PARENS = re.compile(r'\((?![0-9]{4})([^\)]+?)\)', re.IGNORECASE)
-    RE_ASTERISKS = re.compile(r'(?<!\*)\*(?!\*)([^\*]+?)\*(?!\*)', re.IGNORECASE)
     RE_PREFIXES = re.compile(
         r'^\s*(?:'
         r'Kaia|User|Assistant|System'                          # English role labels
@@ -573,21 +570,84 @@ class BotSpeakFilter:
     RE_TRAILING_NAME = re.compile(r'(?:,\s*|\s+)[a-zA-Z0-9_’\'\-]+[.?!\s…]*$', re.IGNORECASE)
 
     
+    # ── Stage directions ─────────────────────────────────────────────
+    #
+    # A stage direction is narration of a physical act, wrapped in parentheses
+    # or asterisks: "*scratches head*", "(a long pause)". Those markers are
+    # detected by VOCABULARY, never by shape.
+    #
+    # A shape test is what a "looks like roleplay" heuristic reaches for first,
+    # and it is wrong here: measured over 618 marked spans in her own output,
+    # not one was a stage direction. They are publication titles (*The
+    # Washington Post*), transliterations (*nigi-mitama*), emphasis (*what it
+    # costs*), code ((*args, **kwargs)) and data ((50-48)). Any rule shaped like
+    # "multi-word and lowercase" deletes all of those.
+    #
+    # The asymmetry settles the bias: an un-stripped stage direction is a line
+    # of flavour text, a wrongly stripped span is a deleted source, term or
+    # clause — and often a sentence with a hole in it.
+
+    # Third-person singular, the form a stage direction uses: "*nods*".
     ACTION_VERBS = {
-        'nods', 'sighs', 'grins', 'smiles', 'laughs', 'pauses', 'frowns', 'shrugs', 
-        'blinks', 'tilts', 'leans', 'taps', 'looks', 'waves', 'winks', 'checks', 
+        'nods', 'sighs', 'grins', 'smiles', 'laughs', 'pauses', 'frowns', 'shrugs',
+        'blinks', 'tilts', 'leans', 'taps', 'looks', 'waves', 'winks', 'checks',
         'points', 'whispers', 'mumbles', 'groans', 'hisses', 'pouts', 'scoffs',
-        'types', 'adjusts', 'swallows', 'stares', 'recalibrates', 'processes'
+        'types', 'adjusts', 'swallows', 'stares', 'recalibrates', 'processes',
+        'chuckles', 'exhales', 'inhales', 'nudges', 'gestures', 'glances',
+        'clears', 'shifts', 'settles', 'straightens', 'rubs', 'scratches',
     }
+
+    # The same acts as a participle: "*leaning back*". Kept separate from
+    # ACTION_VERBS so a bare noun ("processes", "looks") cannot be confused
+    # with the verb when it opens a span.
+    ACTION_GERUNDS = {
+        'nodding', 'sighing', 'grinning', 'smiling', 'laughing', 'pausing',
+        'frowning', 'shrugging', 'blinking', 'tilting', 'leaning', 'tapping',
+        'waving', 'winking', 'pointing', 'whispering', 'mumbling', 'groaning',
+        'hissing', 'scoffing', 'adjusting', 'swallowing', 'staring', 'chuckling',
+        'exhaling', 'inhaling', 'gesturing', 'glancing', 'shifting', 'settling',
+        'straightening', 'rubbing', 'scratching',
+    }
+
+    # Screenplay annotation: a narrator describing what the speaker is doing
+    # rather than saying it — "(Explaining her approach)".
+    NARRATION_GERUNDS = {
+        'reflecting', 'explaining', 'describing', 'expressing', 'demonstrating',
+        'defining', 'noting', 'observing', 'recalling', 'considering',
+        'establishing', 'highlighting', 'indicating', 'conveying',
+    }
+
+    # The head noun of a wordless stage direction: "(a long pause)",
+    # "(a faint clicking sound, almost imperceptible)".
+    SENSORY_NOUNS = {
+        'pause', 'beat', 'silence', 'sigh', 'smile', 'frown', 'nod', 'shrug',
+        'laugh', 'chuckle', 'click', 'clicking', 'hum', 'humming', 'whir',
+        'whirring', 'breath', 'exhale', 'inhale', 'gesture', 'glance',
+    }
+
+    _DETERMINERS = {'a', 'an', 'the', 'his', 'her', 'their', 'its', 'my'}
+    _FIRST_PERSON = {'i', 'she', 'he', 'they'}
+
+    # Bare stems, for "(i lean back)".
+    _ACTION_STEMS = {v.rstrip('s') for v in ACTION_VERBS}
+
+    #: A span longer than this is prose, whatever it opens with.
+    MAX_STAGE_DIRECTION_WORDS = 12
+
+    #: Openers that mark an aside as explanatory or enumerating.
+    _RE_EXPLANATORY_OPENER = re.compile(
+        r"(?:e\.?\s*g\.?|i\.?\s*e\.?|viz\.?|cf\.?|see|note|or|not|including|"
+        r"such\s+as|per|via|source)\b[,.:\s]", re.IGNORECASE)
 
     RE_EMPTY_PARENS = re.compile(r'\(\s*\)')
     
     # We strip the full token *including* leading spaces if it's an action, 
     # so we don't leave things like 'sighs yeah' instead of 'yeah'.
     RE_ASTERISK_BLOCK = re.compile(r' ?(?<!\*)\*(?!\*)([^\*]+?)\*(?!\*) ?', re.IGNORECASE)
-    RE_PAREN_BLOCK = re.compile(r' ?\((?![0-9]{4})([^\)]+?)\) ?', re.IGNORECASE)
     
-    RE_EMPTY_ASTERISKS = re.compile(r'(?<!\*)\*\s*\*(?!\*)')
+    # An empty pair left behind by a strip, not a '**' doing a job: bold
+    # markers and Python's '**kwargs' both butt against a word character.
+    RE_EMPTY_ASTERISKS = re.compile(r'(?<![\*\w])\*\s*\*(?![\*\w])')
     RE_DOUBLE_SPACES = re.compile(r' +')
     RE_SPACE_BEFORE_PUNC = re.compile(r' ([\.,\?\!])')
     RE_GLOBAL_ROLE_PREFIX = re.compile(r'^\s*(Kaia|User|Assistant):\s+', re.IGNORECASE | re.MULTILINE)
@@ -599,26 +659,120 @@ class BotSpeakFilter:
     RE_GRAMMAR_START_PUNC = re.compile(r'^[,\.\?!]\s*')
 
     @classmethod
-    def _selective_strip(cls, match):
-        """Callback to strip markers and decide if content is an action or emphasis."""
-        content = match.group(1).strip()
-        clean_content = content.lower().rstrip('.?!… ')
-        
-        # Heuristic: If it's a known action verb, strip it.
-        if clean_content in cls.ACTION_VERBS:
-            return ''
-            
-        # If it's a multi-word phrase that looks like roleplay (e.g. *scratches head*)
-        # We check if it's all lowercase and doesn't contain numbers.
-        if ' ' in clean_content:
-            is_roleplay = all(word.islower() for word in clean_content.split() if word.isalpha())
-            has_no_numbers = not any(char.isdigit() for char in clean_content)
-            if is_roleplay and has_no_numbers:
+    def is_stage_direction(cls, content: str) -> bool:
+        """True if this marked span narrates a physical act rather than saying one.
+
+        Membership tests only. Every branch requires a word from one of the
+        vocabularies above, so a span this method has never seen is kept.
+        """
+        words = re.findall(r"[a-z']+", (content or "").lower())
+        if not words or len(words) > cls.MAX_STAGE_DIRECTION_WORDS:
+            return False
+
+        # "*sighs*", "*scratches head*", "*leans back slowly*"
+        if words[0] in cls.ACTION_VERBS:
+            return True
+
+        # "*leaning back*", "(Explaining her approach)"
+        if words[0] in cls.ACTION_GERUNDS or words[0] in cls.NARRATION_GERUNDS:
+            return True
+
+        # "(i lean back)", "(she sighs)"
+        if len(words) > 1 and words[0] in cls._FIRST_PERSON:
+            if words[1] in cls.ACTION_VERBS or words[1] in cls._ACTION_STEMS:
+                return True
+
+        # "(a long pause)", "(a faint clicking sound, almost imperceptible)".
+        # The head noun has to be near the front, or any sentence mentioning a
+        # smile in passing would qualify.
+        #
+        # An aside that explains or enumerates is not a stage direction however
+        # it reads: "(e.g., the hum, the lighting, ...)" puts a sensory noun in
+        # the head position while plainly being a list.
+        if not cls._RE_EXPLANATORY_OPENER.match((content or "").strip()):
+            head = [w for w in words if w not in cls._DETERMINERS][:3]
+            if any(w in cls.SENSORY_NOUNS for w in head):
+                return True
+
+        return False
+
+    @classmethod
+    def _strip_stage_directions(cls, text: str) -> str:
+        """Remove stage directions, leaving every other marked span intact.
+
+        Parentheses and asterisks are handled differently on the way out, and
+        the difference matters: a parenthesis is punctuation and is kept with
+        its span, where an asterisk is markdown emphasis whose markers come off.
+        Removing the brackets turns "a 3060 (12gb)" into "a 3060 12gb".
+        """
+        if not text:
+            return text
+        text = cls._strip_paren_directions(text)
+        text = cls._strip_asterisk_directions(text)
+        return text
+
+    @classmethod
+    def _strip_paren_directions(cls, text: str) -> str:
+        r"""Scan balanced parentheses and drop the ones that are stage directions.
+
+        Scanned rather than matched: `\([^)]+?\)` cannot cross an inner ')', so
+        on "(actions (within actions))" it consumes up to the INNER bracket and
+        orphans the outer one — shipping "nested ) should be fine." An
+        unbalanced run is left completely alone.
+        """
+        # One pass with a stack: every top-level balanced group, start to end.
+        # Rescanning forward from each '(' instead is quadratic, and a run of
+        # unclosed brackets is the worst case.
+        groups = {}
+        stack = []
+        for idx, ch in enumerate(text):
+            if ch == '(':
+                stack.append(idx)
+            elif ch == ')' and stack:
+                start = stack.pop()
+                if not stack:
+                    groups[start] = idx
+
+        out = []
+        i = 0
+        n = len(text)
+        while i < n:
+            ch = text[i]
+            if ch != '(' or i not in groups:   # unbalanced: not ours to touch
+                out.append(ch)
+                i += 1
+                continue
+            j = groups[i]
+            span = text[i:j + 1]
+            inner = span[1:-1]
+            if cls.is_stage_direction(inner):
+                # Take one flanking space with it so "hello (a pause) there"
+                # does not become "hello  there".
+                if out and out[-1] == ' ':
+                    out.pop()
+                elif j + 1 < n and text[j + 1] == ' ':
+                    j += 1
+                log_warning(f"[STAGE_DIRECTION_GUARD] Removed: ({inner[:60]})")
+            else:
+                out.append(span)              # kept whole, brackets included
+            i = j + 1
+        return ''.join(out)
+
+    @classmethod
+    def _strip_asterisk_directions(cls, text: str) -> str:
+        """Drop asterisk stage directions; unwrap the rest to plain text.
+
+        Only well-formed pairs are touched, so a lone '*' is never created and
+        never consumed.
+        """
+        def _one(match):
+            content = match.group(1).strip()
+            if cls.is_stage_direction(content):
+                log_warning(f"[STAGE_DIRECTION_GUARD] Removed: *{content[:60]}*")
                 return ' '
-        
-        # Otherwise, assume it's emphasis and keep the word but remove the markers.
-        # Add a trailing space to prevent concatenating with next word if space was consumed
-        return f" {content} "
+            return f" {content} "                 # emphasis: markers off
+
+        return cls.RE_ASTERISK_BLOCK.sub(_one, text)
 
     @classmethod
     def harden(cls, text: str) -> str:
@@ -634,8 +788,11 @@ class BotSpeakFilter:
             text,
             flags=re.IGNORECASE
         )
-        # Also clean any starting markdown dividers (e.g. --- or *** at the start)
-        cleaned = re.sub(r'^(?:[\s-]*\n*|[\s\*]*\n*)+', '', cleaned)
+        # Leading markdown dividers. A divider is a RUN of three or more; a
+        # single leading '*' opens an italic span, and eating it orphans the
+        # closing marker ("*Axios* and *Politico*" -> "axios and politico*").
+        cleaned = re.sub(r'^(?:[ \t]*(?:-{3,}|\*{3,}|_{3,})[ \t]*\n?)+', '', cleaned)
+        cleaned = cleaned.lstrip('\n \t')
 
         # Strip any BBCode quote blocks generated by the LLM to prevent double-quoting
         cleaned = re.sub(r'\[QUOTE[^\]]*\].*?\[/QUOTE\]', '', cleaned, flags=re.IGNORECASE | re.DOTALL).strip()
@@ -645,9 +802,8 @@ class BotSpeakFilter:
         while cleaned != last_cleaned:
             last_cleaned = cleaned
             
-            # 1. Selective stripping for parens and asterisks
-            cleaned = cls.RE_PAREN_BLOCK.sub(cls._selective_strip, cleaned)
-            cleaned = cls.RE_ASTERISK_BLOCK.sub(cls._selective_strip, cleaned)
+            # 1. Stage directions, by vocabulary. Everything else marked is kept.
+            cleaned = cls._strip_stage_directions(cleaned)
             
             # 2. Strip standalone role prefixes
             cleaned = cls.RE_PREFIXES.sub('', cleaned)

@@ -83,17 +83,13 @@ def test_harden_does_not_clip_mid_sentence():
      "hello. how are you?"),
     ("i *scratches head* don't really know about that.",
      "i don't really know about that."),
-    pytest.param(
-        "nested (actions (within actions)) should be fine.",
-        "nested should be fine.",
-        marks=pytest.mark.xfail(
-            reason="Nested parentheses are matched non-greedily, leaving a "
-                   "stray ')': 'nested ) should be fine.'. Rare enough in "
-                   "practice that a recursive strip is not worth the risk to "
-                   "ordinary parenthetical asides.",
-            strict=True,
-        ),
-    ),
+    # Nesting: the outer span is a stage direction, the inner one goes with it.
+    ("hello *leans back (slowly)* there.", "hello there."),
+    # Nesting where nothing is a stage direction: kept whole, brackets and all.
+    # This previously matched to the INNER ')' and shipped "nested ) should be
+    # fine."
+    ("nested (actions (within actions)) should be fine.",
+     "nested (actions (within actions)) should be fine."),
 ])
 def test_harden_removes_roleplay_stage_directions(text, expected):
     """From test_roleplay_filter.py — Kaia narrating physical actions she
