@@ -1008,20 +1008,31 @@ class ForumClient:
             interaction_path = user_dir / f"interactions_{today_str}.md"
 
             is_new = not interaction_path.exists()
-            existing_content = ""
-            if not is_new:
+
+            # Every post id already recorded for this user, across every dated
+            # file — not just today's.
+            #
+            # The dedup used to read `interaction_path` alone, so a post written
+            # to interactions_20260917.md was invisible when the scraper ran on
+            # the 18th and was written again in full. Result: 76 byte-identical
+            # files across 34 forum user directories, one more added per user
+            # per day for as long as the scraper kept seeing the same posts.
+            seen_ids = set()
+            for prior in user_dir.glob("interactions_*.md"):
                 try:
-                    existing_content = interaction_path.read_text(encoding='utf-8', errors='replace')
-                except Exception:
-                    pass
+                    seen_ids.update(re.findall(
+                        r"\[Post ID: ([^\]]+)\]",
+                        prior.read_text(encoding='utf-8', errors='replace')))
+                except OSError:
+                    continue
 
             new_entries = []
             for post in user_post_list:
-                # Deduplication: Check for Post ID in current file
+                # Deduplication: has this post been recorded on any day?
                 pid = post.get('post_id')
-                marker = f"[Post ID: {pid}]"
-                if marker in existing_content:
+                if str(pid) in seen_ids:
                     continue
+                marker = f"[Post ID: {pid}]"
                 
                 content = post.get('content', '')
                 new_entries.append(f"{marker} [by {author}]\n{content[:2000]}\n\n")

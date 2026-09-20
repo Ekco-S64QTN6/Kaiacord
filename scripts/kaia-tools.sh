@@ -912,13 +912,14 @@ menu_recovery() {
 menu_dreams() {
     while true; do
         CHOICE=$(ui_dialog --title "Kaiacord Tools — Dreams & Corpus Curation" --menu \
-            "Choose an operation:" "$(menu_height 8)" "$(menu_width 70)" 8 \
+            "Choose an operation:" "$(menu_height 9)" "$(menu_width 70)" 9 \
             "1" "Triage dreams  (separate real reflections from transcripts)" \
             "2" "Consolidate dreams  (one document per book/person/topic)" \
             "3" "Compact forum profiles  (many log files -> one profile)" \
             "4" "Repair profile identity  (restore is_self / known_as tags)" \
             "5" "Tidy troubleshooting guides  (dedupe + retitle)" \
             "6" "Retitle documents  (enforce '<Topic> - <Title>.md')" \
+            "7" "Audit knowledge base  (every fault class, read-only)" \
             "b" "\u2190 Back" \
             3>&1 1>&2 2>&3) || return
 
@@ -974,6 +975,12 @@ menu_dreams() {
             if confirm "Rename to the '<Topic> - <Title>.md' convention?"; then
                 run_tool "Retitle Documents (apply)" tools/maintenance/retitle_documents.py --apply
             fi
+            ;;
+        7)
+            # Read-only. Reports duplicates, thin pages, missing frontmatter,
+            # baked-in replacement characters and anything in kaia_dreams that
+            # is not a reflection — and names the tool that fixes each.
+            run_tool "Audit Knowledge Base" tools/maintenance/audit_knowledge_base.py
             ;;
         b|B) return ;;
         esac

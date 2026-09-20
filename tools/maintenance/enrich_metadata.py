@@ -262,10 +262,32 @@ async def main_async():
     log_action(f"Starting Metadata Enrichment (Dry Run: {args.dry_run}, Category: {args.category})")
     
     files = gather_files(args.dir, args.category)
+    total_scanned = len(files)
+
+    # Filter to what actually needs work *before* capping.
+    #
+    # The cap used to be applied to the whole list, which is in directory order:
+    # books first, then documents, then news. Those front folders were already
+    # enriched, so a nightly `--limit 40` spent its entire budget skipping them
+    # and never reached the 369 news files that have no frontmatter at all. The
+    # task logged "Metadata enrichment pass complete" every night while
+    # enriching nothing, and the backlog never moved.
+    eligible = []
+    for filepath, category in files:
+        try:
+            content = filepath.read_text(encoding="utf-8", errors="replace")
+        except OSError:
+            continue
+        frontmatter, _raw, body = parse_frontmatter(content)
+        if is_eligible_for_enrichment(frontmatter, body):
+            eligible.append((filepath, category))
+
+    log_info(f"Scanned {total_scanned} file(s); {len(eligible)} need metadata.")
+    files = eligible
     if len(files) > args.limit:
-        log_info(f"Capped to {args.limit} files (use --limit N for more)")
+        log_info(f"Capped to {args.limit} of {len(files)} eligible "
+                 f"(use --limit N for more)")
         files = files[:args.limit]
-    log_info(f"Found {len(files)} total markdown files matching criteria.")
     
     stats = {'skipped': 0, 'enriched': 0, 'failed': 0}
     

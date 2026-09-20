@@ -1,0 +1,215 @@
+#!/usr/bin/env python3
+"""Check the corpus for every fault class that has actually occurred.
+
+The knowledge base gets tinkered with constantly, and each round of tinkering
+has introduced a defect that nobody noticed until it changed an answer. This
+tool exists so the checking does not depend on someone remembering to look.
+
+Every check below corresponds to something real:
+
+  duplicates        76 byte-identical forum logs across 34 directories — the
+                    scraper's dedup read only *today's* file, so a post seen
+                    yesterday was written again in full
+  thin pages        an 8-word wiki page filed as "WinEQ Installation and
+                    Configuration"; it wins retrieval on the title and then
+                    answers nothing
+  disambiguation    a stub pointing at two other pages, indexed as a guide
+  replacement char  46 literal U+FFFD baked in by a decode with errors="replace"
+  frontmatter       369 news files with none at all; 308 user logs with an empty
+                    summary and no keywords
+  fused frontmatter `---User: speeding ticket...` — the closing fence on the same
+                    line as the body, which defeats every anchored parser
+  not-a-dream       868 chat transcripts and scraped adverts in kaia_dreams/,
+                    labelled to her as INTERNAL REFLECTION (DREAM)
+  stale folders     a doc or tool naming a folder that was merged away
+
+    python tools/maintenance/audit_knowledge_base.py            # report
+    python tools/maintenance/audit_knowledge_base.py --check    # exit 1 on any
+    python tools/maintenance/audit_knowledge_base.py --show duplicates
+
+Read-only. It never moves or rewrites anything — the fixes live in the tools
+named in the report.
+"""
+from __future__ import annotations
+
+import argparse
+import hashlib
+import re
+import sys
+from collections import Counter, defaultdict
+from pathlib import Path
+
+sys.path.insert(0, str(Path(__file__).resolve().parents[2]))
+
+KB = Path("knowledge_base")
+
+# Not corpus: staging, quarantine, the forum bulk archive, and anything hidden.
+NOT_CORPUS = {"_ingress", "_quarantine", "forum_posts"}
+
+# Below this a page carries no answer worth retrieving.
+MIN_BODY_WORDS = 60
+
+# Folders whose files are expected to carry full frontmatter. `news` is listed
+# because it should and does not; that gap is the point of reporting it.
+WANT_FRONTMATTER = {"books", "documents", "news", "wiki", "troubleshooting",
+                    "transcripts"}
+
+# These are *created* with `summary: ""` — a daily log cannot summarise a day
+# that has not happened, and a dream is written before anything reads it. The
+# nightly `enrich_metadata` pass backfills them, so the count here is a backlog
+# to watch shrink rather than a defect. It is reported separately for that
+# reason: mixed in with the real findings it would drown them.
+BACKFILL_PENDING = {"user_logs", "kaia_dreams"}
+
+FIXES = {
+    "duplicates": "kaia_forum dedup now spans every dated file; "
+                  "tools/maintenance/compact_forum_profiles.py --apply --prune folds the rest",
+    "thin": "scrape_p99_wiki.py now refuses them; move existing ones to _quarantine/thin_pages/",
+    "disambiguation": "scrape_p99_wiki.py now refuses them",
+    "replacement_char": "re-ingest the source; errors='replace' bakes the loss in permanently",
+    "no_frontmatter": "tools/maintenance/enrich_metadata.py --category all --apply",
+    "empty_metadata": "tools/maintenance/enrich_metadata.py --category all --apply",
+    "fused_frontmatter": "tools/maintenance/repair_kb.py",
+    "not_a_reflection": "tools/maintenance/triage_dreams.py --apply",
+    "empty_file": "delete, or re-ingest the source",
+}
+
+
+def corpus_files():
+    for d in sorted(p for p in KB.iterdir() if p.is_dir()):
+        if d.name in NOT_CORPUS or d.name.startswith("."):
+            continue
+        for f in sorted(d.rglob("*.md")):
+            if any(p.startswith(".") for p in f.relative_to(KB).parts):
+                continue
+            yield d.name, f
+
+
+def split_frontmatter(text: str):
+    """(frontmatter, body). Tolerates the fence being fused to the body."""
+    t = text.lstrip()
+    if not t.startswith("---"):
+        return "", text
+    end = t.find("\n---", 3)
+    if end == -1:
+        return "", text
+    return t[3:end], t[end + 4:].lstrip("-").lstrip("\n")
+
+
+def audit():
+    findings = defaultdict(list)
+    by_hash = {}
+    counts = Counter()
+
+    for folder, f in corpus_files():
+        counts[folder] += 1
+        rel = str(f.relative_to(KB))
+        try:
+            raw = f.read_bytes()
+        except OSError:
+            continue
+        text = raw.decode("utf-8", errors="replace")
+        fm, body = split_frontmatter(text)
+        words = len(body.split())
+        low = body.lower()
+
+        if not text.strip():
+            findings["empty_file"].append(rel)
+            continue
+
+        # Byte-identical content anywhere in the corpus.
+        if len(body.strip()) > 200:
+            h = hashlib.sha256(body.strip().encode()).hexdigest()
+            if h in by_hash:
+                findings["duplicates"].append(f"{rel}  ==  {by_hash[h]}")
+            else:
+                by_hash[h] = rel
+
+        if "�" in text:
+            findings["replacement_char"].append(f"{rel} ({text.count(chr(0xfffd))})")
+
+        # The closing fence sharing a line with the first line of content.
+        if text.lstrip().startswith("---"):
+            t = text.lstrip()
+            end = t.find("\n---", 3)
+            if end != -1 and not t[end + 4:].startswith(("\n", "\r")) and t[end + 4:].strip():
+                findings["fused_frontmatter"].append(rel)
+
+        if folder in BACKFILL_PENDING and fm:
+            if re.search(r'^summary:\s*(""|\'\')?\s*$', fm, re.M):
+                findings["_backfill_pending"].append(rel)
+
+        if folder in WANT_FRONTMATTER:
+            if not fm:
+                findings["no_frontmatter"].append(rel)
+            else:
+                blank_summary = re.search(r'^summary:\s*(""|\'\')?\s*$', fm, re.M)
+                blank_keywords = re.search(r"^keywords:\s*\[\]\s*$", fm, re.M)
+                if blank_summary or blank_keywords or "summary:" not in fm:
+                    findings["empty_metadata"].append(rel)
+
+        if "intended to disambiguate" in low or low.strip().startswith("#redirect"):
+            findings["disambiguation"].append(rel)
+        elif folder in ("wiki", "troubleshooting", "books") and words < MIN_BODY_WORDS:
+            findings["thin"].append(f"{rel} ({words}w)")
+
+        # kaia_dreams must contain reflections, not transcripts.
+        if folder == "kaia_dreams" and "consolidated" not in rel:
+            if "## Kaia's Reflection" not in text and re.search(r"^\**(?:User|Kaia)\**:", body, re.M):
+                findings["not_a_reflection"].append(rel)
+
+    return findings, counts
+
+
+def main() -> int:
+    ap = argparse.ArgumentParser(
+        description=__doc__, formatter_class=argparse.RawDescriptionHelpFormatter)
+    ap.add_argument("--check", action="store_true",
+                    help="exit 1 if anything was found (for a pre-commit or cron use)")
+    ap.add_argument("--show", help="list every instance of one finding")
+    ap.add_argument("--limit", type=int, default=5)
+    args = ap.parse_args()
+
+    if not KB.exists():
+        print(f"{KB} not found. Run from the project root.")
+        return 1
+
+    findings, counts = audit()
+
+    if args.show:
+        for line in findings.get(args.show, []):
+            print(f"  {line}")
+        print(f"\n{len(findings.get(args.show, []))} instance(s) of {args.show!r}")
+        return 0
+
+    total = sum(counts.values())
+    print(f"{total} corpus file(s) across {len(counts)} folder(s)")
+    print("  " + "  ".join(f"{k}:{v}" for k, v in sorted(counts.items())) + "\n")
+
+    if not findings and not findings.get("_backfill_pending"):
+        print("No findings.")
+        return 0
+
+    backlog = findings.pop("_backfill_pending", [])
+
+    for name in sorted(findings, key=lambda k: -len(findings[k])):
+        rows = findings[name]
+        print(f"  {len(rows):5d}  {name}")
+        for r in rows[:args.limit]:
+            print(f"         {r[:100]}")
+        if len(rows) > args.limit:
+            print(f"         … --show {name} for the rest")
+        if name in FIXES:
+            print(f"         fix: {FIXES[name]}")
+        print()
+
+    if backlog:
+        print(f"  {len(backlog):5d}  awaiting nightly metadata backfill "
+              f"(not a defect — these are created with an empty summary)")
+        print(f"         raise knowledge_base.auto_enrich_limit to drain it faster\n")
+
+    return 1 if args.check else 0
+
+
+if __name__ == "__main__":
+    raise SystemExit(main())

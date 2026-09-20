@@ -41,6 +41,12 @@ WIKI_URLS = [
     "https://wiki.project1999.com/Per-Level_Hunting_Guide",
 ]
 
+# Below this a page carries no answer worth retrieving. The two rejected on
+# 2026-09-20 held 8 and 25 words; the smallest genuinely useful guide in the
+# corpus is an order of magnitude larger.
+MIN_ARTICLE_WORDS = 60
+
+
 def scrape_wiki():
     print("--- Scraping P99 Wiki for Technical Knowledge ---")
     
@@ -91,6 +97,22 @@ def scrape_wiki():
                     
             final_text = '\n'.join(clean_lines)
             
+            # Not every wiki URL is an article. A disambiguation page or a
+            # two-link stub indexed as a "Technical Guide" is worse than nothing:
+            # it wins retrieval on the title and then contributes no answer.
+            #
+            # `Project 1999 Wiki - WinEQ Installation and Configuration.md` was
+            # eight words — two bare URLs — under a filename promising an
+            # installation guide. `... - Linux Installation Guide.md` was a
+            # disambiguation stub pointing at two other pages.
+            low = final_text.lower()
+            if "intended to disambiguate" in low or "#redirect" in low:
+                print(f"  - skipped {title}: disambiguation/redirect page")
+                continue
+            if len(final_text.split()) < MIN_ARTICLE_WORDS:
+                print(f"  - skipped {title}: only {len(final_text.split())} words of content")
+                continue
+
             filename = f"wiki_{title.replace(' ', '_').replace('/', '_')}.md"
             filepath = output_dir / filename
             

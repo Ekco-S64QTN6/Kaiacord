@@ -526,6 +526,15 @@ message actually sent, a guard's verdict against its own return value.
   makes it safe for `!download` and `!youtube` to be open to every user.
 - A sidecar carrying `"preformatted": true` is filed **without normalisation**. `!youtube` emits
   finished Markdown with timestamp anchors; running the reflow over it would destroy them.
+- **`tools/maintenance/audit_knowledge_base.py` checks every fault class that has actually
+  occurred** — duplicates, thin pages, disambiguation stubs, baked-in U+FFFD, missing or empty
+  frontmatter, a frontmatter fence fused to the body, and anything in `kaia_dreams/` that is not
+  a reflection. Read-only, names the tool that fixes each finding, and `--check` exits non-zero.
+  Run it after anything that writes across the corpus; that is cheaper than the sweep it replaces.
+- **A cap must be applied to the eligible set, not to the listing.** `enrich_metadata` capped the
+  whole corpus listing in directory order — books first, all already enriched — so a nightly
+  `--limit 40` spent its entire budget skipping them and never reached the 369 news files with no
+  frontmatter at all. It logged a completed pass every night and moved nothing.
 - Maintenance tools that write across the corpus must default to a dry run and require `--apply`.
   `enrich_kb_metadata.py` had no argument parsing at all, so probing it with `--help` rewrote
   frontmatter on 124 files.

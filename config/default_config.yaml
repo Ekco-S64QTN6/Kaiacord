@@ -323,9 +323,16 @@ knowledge_base:
   # conversation comes from. enrich_metadata.py is idempotent, so a pass only
   # touches what is still missing.
   auto_enrich: true
-  # Files per nightly pass. A backlog is worked off over several nights rather
-  # than in one long stall.
-  auto_enrich_limit: 40
+  # Files *enriched* per nightly pass, not files looked at.
+  #
+  # The cap used to be applied to the whole corpus listing in directory order —
+  # books first, all already enriched — so the pass spent its entire budget
+  # skipping them and never reached the 369 news files that have no frontmatter
+  # at all. It logged a completed pass every night and moved nothing. Now the
+  # eligible set is computed first, so 40 means forty documents actually gain
+  # metadata. Raise it while a backlog is being drained; each file is one small
+  # BACKGROUND-priority call.
+  auto_enrich_limit: 60
 
 presence:
   # How long without a human message before her Discord status must stop
