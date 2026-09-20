@@ -32,17 +32,42 @@ ART_PALETTES = (
 )
 
 
+def _args_of(cmd) -> str:
+    """The argument part of a usage string, without repeating the command name.
+
+    `usage` is written as a whole invocation ("!music on [--genre] | off"), which
+    makes the line long enough to wrap in an embed field. Splitting the name off
+    lets the name stand as the anchor and the arguments trail it quietly.
+    """
+    usage = (cmd.usage or "").strip()
+    if not usage:
+        return ""
+    head = f"!{cmd.name}"
+    return usage[len(head):].strip() if usage.startswith(head) else usage
+
+
+def _line(cmd) -> str:
+    """One command, as a single readable line.
+
+    Discord renders backticks as inline code, so the name reads as something you
+    can type and the arguments sit beside it without competing. An em dash
+    separates the description; a bullet marks admin.
+    """
+    args = _args_of(cmd)
+    head = f"`!{cmd.name}`" + (f" `{args}`" if args else "")
+    marker = " ◆" if cmd.owner_only else ""
+    return f"{head}{marker}\n\u2003{cmd.summary}"
+
+
 def _render_group(commands, group, is_owner):
-    """Format one group's commands, hiding what the caller cannot run."""
-    lines = []
-    for cmd in commands:
-        if cmd.group != group:
-            continue
-        if cmd.owner_only and not is_owner:
-            continue
-        marker = " *(admin)*" if cmd.owner_only else ""
-        lines.append(f"`{cmd.usage}` — {cmd.summary}{marker}")
-    return lines
+    """Format one group's commands, hiding what the caller cannot run.
+
+    Everyone's commands first, admin below: a directory that opens with things
+    the reader cannot run buries the ones they can.
+    """
+    mine = [c for c in commands if c.group == group and not c.owner_only]
+    admin = [c for c in commands if c.group == group and c.owner_only] if is_owner else []
+    return [_line(c) for c in mine] + [_line(c) for c in admin]
 
 
 def _chunk(lines):
@@ -68,11 +93,14 @@ async def handle_help_command(ctx, msg, send_kaia_response):
         msg.author.name, msg.author.display_name, str(msg.author.id)
     )
 
+    total = sum(1 for c in COMMANDS if is_owner or not c.owner_only)
+
     embed = discord.Embed(
-        title="📖  KAIA — COMMANDS DIRECTORY",
+        title="Kaia — Command Directory",
         description=(
-            "Cognitive, operational and gaming command interfaces."
-            + ("" if is_owner else "\nAdmin-only commands are not listed.")
+            f"{total} commands. Type any of them in chat.\n"
+            + ("`◆` marks admin-only." if is_owner
+               else "_Admin-only commands are hidden._")
         ),
         color=0x5F5CAF,
     )
@@ -88,20 +116,22 @@ async def handle_help_command(ctx, msg, send_kaia_response):
                 inline=False,
             )
 
+    # Reference values, not commands — kept last and kept terse.
+    embed.add_field(
+        name="\u200b",
+        value=("**Art palettes** " + " ".join(f"`{p}`" for p in ART_PALETTES)
+               + "\n\u2003`!art --palette void`"),
+        inline=False,
+    )
     if is_owner:
         embed.add_field(
-            name="🏷️  Flag Constructs",
-            value=", ".join(f"`{c}`" for c in FLAG_CONSTRUCTS),
+            name="\u200b",
+            value=("**Flag constructs** " + " ".join(f"`{c}`" for c in FLAG_CONSTRUCTS)
+                   + "\n\u2003`!flag hedge_density`"),
             inline=False,
         )
 
-    embed.add_field(
-        name="🎨  Art Palettes",
-        value=", ".join(f"`{p}`" for p in ART_PALETTES) + " (e.g., `!art --palette void`)",
-        inline=False,
-    )
-
-    embed.set_footer(text="Kaia Cognitive System · self-hosted")
+    embed.set_footer(text="Kaia · self-hosted · gemma3:12b on a single RTX 3060")
 
     await msg.channel.send(embed=embed)
     log_info(f"Help embed displayed for {msg.author.name} (owner={is_owner})")

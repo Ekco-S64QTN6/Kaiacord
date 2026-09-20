@@ -492,9 +492,8 @@ def _classify_folder(url: str, title: str, file_type: str, word_count: int) -> s
     parsed = urlparse(url)
     domain = parsed.netloc.lower()
     
-    # Blog domains. `blogs/` was folded into `documents/` in Sept 2026 — both
-    # were prose scraped from the web, and fourteen files did not earn a
-    # top-level folder of their own.
+    # Blog domains file to `documents/`, which holds prose scraped from the web.
+    # There is no separate `blogs/` folder.
     if any(bd in domain for bd in BLOG_DOMAINS):
         return "documents"
     if '/blog/' in url_lower or '/blogs/' in url_lower or '/posts/' in url_lower:

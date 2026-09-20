@@ -31,7 +31,6 @@ from utils.commands.selfmodel_handler import handle_selfmodel_command
 from utils.commands.snapshot_handler import handle_snapshot_command
 from utils.commands.social_handler import handle_quip_command
 from utils.commands.sysmon_handler import handle_sysmon_command
-from utils.commands.system_handler import handle_cache_command
 from utils.infrastructure.logging.kaia_logger import log_debug, log_error
 
 
@@ -85,8 +84,8 @@ COMMANDS = (
     # privileged state and no mutation.
     Command("explain", handle_explain_command, GROUP_CORE, extra=RESPONDER,
             usage="!explain [n]",
-            summary="Inspect RAG provenance & source scores "
-                    "(!explain 3 = the third-most-recent retrieval)"),
+            summary="RAG provenance and source scores "
+                    "(`!explain 3` = third-most-recent)"),
     Command("flag", handle_flag_command, GROUP_CORE, extra=RESPONDER,
             owner_only=True, usage="!flag <construct>",
             summary="Flag retrieval nodes with a Data Rot label"),
@@ -98,7 +97,7 @@ COMMANDS = (
     Command("scores", handle_scores_command, GROUP_MEMORY,
             aliases=("score", "leaderboard", "halloffame", "stats"),
             usage="!scores",
-            summary="Interactive leaderboards & memory analytics "
+            summary="Leaderboards and memory analytics "
                     "(`!leaderboard`, `!stats`, `!halloffame`)"),
     Command("dream", handle_dreams_command, GROUP_MEMORY, extra=PERSONA,
             aliases=("dreams",), owner_only=True, usage="!dream [list|generate|stats]",
@@ -108,9 +107,7 @@ COMMANDS = (
             summary="Inspect belief and anchor stores"),
     Command("selfmodel", handle_selfmodel_command, GROUP_MEMORY, extra=RESPONDER,
             owner_only=True,
-            summary="Regenerate the 30-day self-model document "
-                    "(not injected into prompts by default — see "
-                    "`features.self_model_injection`)"),
+            summary="Rebuild the 30-day self-model from recent interactions"),
     Command("snapshot", handle_snapshot_command, GROUP_MEMORY, extra=RESPONDER,
             owner_only=True,
             summary="Save a snapshot of the current conversation"),
@@ -127,15 +124,12 @@ COMMANDS = (
     # has cleaned and filed it.
     Command("download", handle_download_command, GROUP_KNOWLEDGE, extra=RESPONDER,
             usage="!download <url>",
-            summary="Submit a URL for the knowledge base (filed on the next hourly pass)"),
+            summary="Submit a URL to the knowledge base (filed on the next hourly pass)"),
     # Open, and staged like !download: the transcript lands in _ingress, which
     # the RAG indexer skips, so it is inert until the hourly pass files it.
     Command("youtube", handle_youtube_command, GROUP_KNOWLEDGE, extra=RESPONDER,
             aliases=("yt",), usage="!youtube <url>",
             summary="Pull a video's transcript into the knowledge base"),
-    Command("cache", handle_cache_command, GROUP_KNOWLEDGE,
-            owner_only=True,
-            summary="Show system cache stats"),
 
     # ── Aethelgard TTRPG & Fishing ───────────────────────────────────
     Command("rpg", handle_rpg_command, GROUP_RPG, extra=RESPONDER,
@@ -147,8 +141,7 @@ COMMANDS = (
     Command("news", handle_news_command, GROUP_MEDIA, extra=RESPONDER,
             summary="Fetch and summarize latest news"),
     Command("quip", handle_quip_command, GROUP_MEDIA,
-            summary="Generate a social media draft post "
-                    "(10-minute cooldown; owners are exempt)"),
+            summary="Draft a social post (10-minute cooldown; owners exempt)"),
     Command("art", handle_art_command, GROUP_MEDIA, extra=RESPONDER,
             usage="!art [--seed N] [--palette NAME]",
             summary="Render fractal flame art"),
@@ -161,8 +154,8 @@ COMMANDS = (
                     "(other `!forum` subcommands are admin-only)"),
     Command("music", handle_music_command, GROUP_MEDIA, extra=RESPONDER,
             usage="!music on [--genre] | off | status | genres",
-            summary="Perform generative music in your voice channel — house, "
-                    "techno, trance, dnb, ambient and more (`!music genres`)"),
+            summary="Live-coded set in your voice channel "
+                    "(`!music genres` for the list)"),
     Command("sysmon", handle_sysmon_command, GROUP_MEDIA, extra=RESPONDER,
             owner_only=True,
             summary="Live system/hardware monitoring dashboard"),
