@@ -3,7 +3,7 @@ Deterministic Global Newsroom Wall Clocks Resolver
 ===================================================
 
 Provides deterministic, zoneinfo-based timezone arithmetic for Kaiacord,
-injecting verified 12-hour real-time facts for 4 primary global timezones
+injecting 12-hour wall-clock facts for 4 primary global timezones
 (Chicago/Texas, London, Sydney, UTC) + any mentioned locations directly into
 system prompt context. Prevents LLM mental-math hallucinations, handles Daylight
 Saving Time (DST) transitions, and accounts for leap years via standard IANA.
@@ -120,13 +120,21 @@ _TIME_QUERY_PATTERNS = [
 ]
 
 
-def calculate_location_time(tz_name: str) -> Tuple[str, int, str]:
+def calculate_location_time(tz_name: str,
+                            now_utc: Optional[datetime] = None) -> Tuple[str, int, str]:
     """
     Calculate formatted 12-hour time for an IANA timezone string.
     Automatically accounts for Daylight Saving Time (DST) and Leap Years via zoneinfo/IANA.
     Returns: (formatted_time_str, hour_int, timezone_abbr)
+
+    `now_utc` is the instant to convert. Pass one — ideally the Discord
+    message's own `created_at` — so every clock in a single prompt describes the
+    same moment, and so the answer is anchored to when the person actually
+    spoke rather than to whenever the prompt happened to be assembled. Under
+    load those differ: a turn can wait seconds behind the dream engine.
     """
-    now_utc = datetime.now(timezone.utc)
+    if now_utc is None:
+        now_utc = datetime.now(timezone.utc)
     try:
         tz = ZoneInfo(tz_name)
         dt = now_utc.astimezone(tz)
@@ -143,21 +151,32 @@ def calculate_location_time(tz_name: str) -> Tuple[str, int, str]:
         return f"{date_str} | {time_12h} UTC", now_utc.hour, "UTC"
 
 
-def get_newsroom_wall_clock_block() -> str:
+def get_newsroom_wall_clock_block(now_utc: Optional[datetime] = None) -> str:
     """
     Produce the universal 4-clock Newsroom Wall block for injection into metadata on every message turn.
+
+    One instant for all four clocks. Each used to call `datetime.now()` for
+    itself, so the block described four slightly different moments — harmless in
+    practice, and wrong in principle for something labelled deterministic.
     """
+    if now_utc is None:
+        now_utc = datetime.now(timezone.utc)
     facts: List[str] = []
     for tz_name, label in NEWSROOM_WALL_CLOCKS:
-        time_str, _, _ = calculate_location_time(tz_name)
+        time_str, _, _ = calculate_location_time(tz_name, now_utc)
         facts.append(f"- {label}: {time_str}")
     return (
-        "[GLOBAL_WALL_CLOCKS (12-Hour Verified Real-Time)]:\n" +
+        "[GLOBAL_WALL_CLOCKS] (12-hour, computed from one instant):\n" +
         "\n".join(facts)
     )
 
 
-def resolve_time_queries(text: str) -> str:
+def is_time_query(text: str) -> bool:
+    """True if this message is asking what time it is."""
+    return bool(text) and any(p.search(text.lower()) for p in _TIME_QUERY_PATTERNS)
+
+
+def resolve_time_queries(text: str, now_utc: Optional[datetime] = None) -> str:
     """
     Detect time queries in text and produce deterministic 12-hour real-time facts
     for the 4 primary Global Newsroom Wall Clocks + any specific target location requested.
@@ -165,6 +184,8 @@ def resolve_time_queries(text: str) -> str:
     """
     if not text:
         return ""
+    if now_utc is None:
+        now_utc = datetime.now(timezone.utc)
 
     text_lower = text.lower()
     is_time_query = any(pat.search(text_lower) for pat in _TIME_QUERY_PATTERNS)
@@ -176,7 +197,7 @@ def resolve_time_queries(text: str) -> str:
 
     # 1. Always include the 4 Global Newsroom Wall Clocks (Chicago, London, Sydney, UTC)
     for tz_name, label in NEWSROOM_WALL_CLOCKS:
-        time_str, _, abbr = calculate_location_time(tz_name)
+        time_str, _, abbr = calculate_location_time(tz_name, now_utc)
         seen_tz.add(tz_name)
         facts.append(f"- {label}: {time_str}")
 
@@ -185,13 +206,21 @@ def resolve_time_queries(text: str) -> str:
         if re.search(r'\b' + re.escape(loc_key) + r'\b', text_lower):
             if tz_name not in seen_tz:
                 seen_tz.add(tz_name)
-                time_str, _, abbr = calculate_location_time(tz_name)
+                time_str, _, abbr = calculate_location_time(tz_name, now_utc)
                 facts.append(f"- {display_name}: {time_str}")
 
     fact_block = (
-        "[DETERMINISTIC_TIME_FACTS]: Verified Real-Time Global Wall Clocks (12-Hour Format):\n" +
+        # Not "Verified Real-Time": the source is a timestamp handed in by the
+        # application — Discord's own `created_at` where there is one, the local
+        # clock otherwise. Calling it verified invited her to reason about
+        # whether it could be wrong, and she concluded out loud that "the system
+        # clock drifted" with no second clock to compare against.
+        "[CURRENT_TIME_FACTS] (computed from the message timestamp):\n" +
         "\n".join(facts) + "\n" +
-        "CRITICAL INSTRUCTION: Respond using 12-hour time format (e.g. 8:10 PM). Use these exact computed real-time values when stating current times."
+        "CRITICAL INSTRUCTION: Respond using 12-hour time format (e.g. 8:10 PM). State these "
+        "values exactly as given. Do not adjust, round, recalculate or second-guess them, and "
+        "do not claim the clock has drifted or is out of sync — you have no second clock to "
+        "compare against."
     )
     return fact_block
 

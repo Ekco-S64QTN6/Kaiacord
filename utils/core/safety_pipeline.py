@@ -72,8 +72,8 @@ class PostGenerationSafetyPipeline:
     )
 
     # ------------------------------------------------------------------
-    # Sept 1-5 2026 persona audit. These two guards need the *user's query*
-    # to make their decision, so they live here rather than in BotSpeakFilter.
+    # These two guards need the *user's query* to make their decision, so they
+    # live here rather than in BotSpeakFilter.
     # ------------------------------------------------------------------
 
     # A quoted span, matched as an explicit open/close PAIR. Pairing matters: a single
@@ -126,6 +126,67 @@ class PostGenerationSafetyPipeline:
         r"meant|sounds|sounded|gets|got|comes|came|stands|remains)\b",
         re.IGNORECASE)
 
+    # A clock time *asserted as the current time*. The copula is required, for
+    # the same reason it is in `_STALE_CLOCK_CLAIM`: "the raid starts at 8:00 pm"
+    # is a fact about a time and must survive a correction aimed at "it's 5:21".
+    # A bare leading "5:21 AM CDT." counts too — that is how she answers when
+    # the addressee guard has taken the name off the front.
+    _CLOCK = r"(?P<h>\d{1,2}):(?P<m>\d{2})\s*(?P<ap>[ap])\.?\s*m\.?(?:\s+(?P<tz>[A-Za-z]{2,5}T|UTC|GMT))?"
+    _STATED_CLOCK = re.compile(
+        # `['\u2019]?` — she writes curly apostrophes. A straight-quote-only
+        # pattern matched none of her actual output.
+        r"(?:\b(?:it['\u2019]?s|it is|the time is|currently|right now it['\u2019]?s)\s+|^\s*)" + _CLOCK,
+        re.IGNORECASE)
+    # Used only to read the authoritative string apart.
+    _ANY_CLOCK = re.compile(_CLOCK, re.IGNORECASE)
+
+    @classmethod
+    def correct_stated_time(cls, content: str, authoritative: str) -> str:
+        """Replace a clock time she stated with the one the application computed.
+
+        Python owns deterministic state; the model narrates it (CLAUDE.md §4).
+        Time is deterministic state, and she does not narrate it reliably:
+
+            message sent 05:14:54, prompt assembled 05:14:38 carrying
+            "5:14 AM CDT" three times — and the reply was "it's 5:21 am cdt".
+
+        The value was in front of her, flagged CRITICAL, and she produced a
+        different one. The day before, 5:44 against a real 5:29. Both wrong in
+        the same direction, which is not what a random slip looks like. Adding a
+        fourth instruction is the move CLAUDE.md §11 rules out, so the
+        application asserts the fact instead: on a question about the time, any
+        clock value in the answer is replaced with the computed one and the
+        substitution is logged.
+
+        `authoritative` is "5:14 AM CDT" — the time part of what the resolver
+        produced. Only the digits and meridiem are touched; her sentence,
+        cadence and any surrounding thought survive intact.
+        """
+        if not content or not authoritative:
+            return content
+        m = cls._ANY_CLOCK.search(authoritative)
+        if not m:
+            return content
+        real = m.group(0).strip()
+
+        replaced = []
+
+        def _swap(found):
+            inner = cls._ANY_CLOCK.search(found.group(0))
+            if not inner or inner.group(0).strip().lower() == real.lower():
+                return found.group(0)
+            replaced.append(inner.group(0).strip())
+            # Keep her casing: she writes lowercase, but the addressee guard can
+            # leave a capitalised opener.
+            corrected = real.lower() if inner.group("ap").islower() else real
+            return found.group(0)[:inner.start()] + corrected + found.group(0)[inner.end():]
+
+        out = cls._STATED_CLOCK.sub(_swap, content, count=1)
+        if replaced:
+            log_warning(f"[TIME_GUARD] She stated {replaced!r}; the message timestamp "
+                        f"says {real!r}. Corrected.")
+        return out
+
     @classmethod
     def strip_prompt_echo(cls, content: str, query: str) -> str:
         """P1b — remove quoted spans that merely replay the user's own message.
@@ -157,12 +218,10 @@ class PostGenerationSafetyPipeline:
             # exists for is a span standing on its own at the front of a turn —
             #   "«starkind's assessment…» yes, you're largely summarizing him"
             # — not a quoted term used as a noun. Removing the latter is a
-            # substring excision in the middle of a clause, which CLAUDE.md §5
-            # rules out for exactly this reason: on 2026-09-20 it turned
+            # substring excision in the middle of a clause, which turns
             #   the "dead internet theory" is... concerning.
             # into
             #   the is... concerning.
-            # and queued that to the forum for review.
             before = content[:m.start()]
             after = content[m.end():]
             if cls._SPAN_IS_LOAD_BEARING.search(before) or \
@@ -370,11 +429,10 @@ class PostGenerationSafetyPipeline:
     some any all both each own same such only even still yet well ok okay
     """.split())
 
-    # Deliberately function words only. Every word listed here is a word the
-    # guard will not count as novel, so a longer list makes it fire *more*
-    # readily. An earlier draft included "correct", "appear", "seem", "think"
-    # and "know", which emptied the content of the exact sentence this exists
-    # to catch ("you were correct.") and would have let it through.
+    # Deliberately function words only. Anything listed here is a word the guard
+    # will not count as novel, so a longer list makes it fire *more* readily —
+    # adding "correct", "seem" or "know" empties the content out of the very
+    # sentences this exists to catch ("you were correct.").
 
     # A verbatim run this long is not coincidence. Two people discussing the same
     # subject share vocabulary and the odd three-word phrase; seven consecutive
@@ -384,15 +442,10 @@ class PostGenerationSafetyPipeline:
     # How much of a sentence must sit inside a verbatim lift before the sentence
     # is a restatement rather than a reply that happens to reuse a phrase.
     #
-    # Coverage, not vocabulary overlap. The turn that prompted this guard —
-    #   Starkind: "...the necessity to understand, maintain, and utilize the
-    #              perspective of the other for continued existence or operation"
-    #   Kaia:     "the necessity to understand and utilize the perspective of the
-    #              other for continued existence or operation is a critical point."
-    # scores only 0.80 on shared vocabulary, because "critical" and "point" are
-    # novel, and slipped past an 0.85 vocabulary bound. Measured as *coverage* it
-    # is 12 of 20 words inside one lifted run, which is what it plainly is: a copy
-    # with an evaluative tag bolted on.
+    # Coverage, not vocabulary overlap. A copy with an evaluative tag bolted on
+    # ("<20 lifted words> is a critical point.") scores only ~0.80 on shared
+    # vocabulary, because the tag is novel — but 12 of its 20 words sit inside one
+    # lifted run, which is what coverage measures.
     _LIFT_COVERAGE = 0.6
 
     # Shorter than this and a lift is more likely to be an idiom or a title.
@@ -448,24 +501,15 @@ class PostGenerationSafetyPipeline:
     def strip_restatements(cls, text: str, query: str) -> str:
         """Drop sentences that hand the user their own words back mid-answer.
 
-        `strip_echoed_query` looks only at the *opening*, on the reasoning that
-        leading with someone's own words is the fault while quoting a phrase
-        mid-answer is ordinary. That holds for quoting. It does not hold for the
-        shape the operator reported on 2026-09-18, where the echo sits in the body
-        of a four-paragraph reply, unquoted, with an evaluative tag attached:
+        `strip_echoed_query` covers the *opening* only, since quoting a phrase
+        mid-answer is ordinary. This covers the other shape: a lifted run sitting in
+        the body of a long reply, unquoted, with an evaluative tag attached —
+        "your point, 'you can't evolve yourself out of a clade', is sharp."
+        It appears mostly against long, abstract messages, which are the ones worth
+        restating.
 
-            "your point, 'you can't evolve yourself out of a clade', is sharp."
-            "all critical backups are located at off-site locations on a rolling
-             schedule, the last backup was 2400 sept 17 2026, that's reassuring."
-
-        Measured across her September logs this appears in 21-26% of turns with
-        Starkind, whose messages are long and abstract enough to be worth
-        restating, and almost never with anyone whose messages are short — which
-        is why it read as a regression rather than a constant.
-
-        Whole sentences only. Excising a lifted span mid-sentence is exactly the
-        clause/sentence-mode error in CLAUDE.md §5: it leaves grammar rubble where
-        there had been a comprehensible, if lazy, sentence.
+        Whole sentences only. Excising a lifted span mid-sentence leaves grammar
+        rubble where there had been a comprehensible, if lazy, sentence.
         """
         if not text or not query:
             return text
@@ -554,26 +598,16 @@ class PostGenerationSafetyPipeline:
     def strip_echoed_query(cls, text: str, query: str) -> str:
         """Drop an opening that just hands the user their own statement back.
 
-        Two shapes of the same fault, both reported by the operator:
+        Two shapes of the same fault: the user's message repeated verbatim before the
+        answer, and the same thing compressed, reworded and typo-corrected ("you where
+        correct, it does appear to be a mandelbrot set" -> "you were correct. a
+        mandelbrot set. ...") — which can also leave the second person pointing the
+        wrong way.
 
-        1. Verbatim. She opened with "uh probably a lawless libertarian cyberpunk
-           dystopian shithole." — the user's entire previous message — and only
-           then answered it. "that should stay in your head instead of being
-           outputted".
-        2. Compressed and reworded, which the first version of this guard missed
-           because it compared whole lines for a near-exact prefix. Starkind
-           wrote "you where correct, it does appear to be part of a mandelbrot
-           set" and got back "you were correct. a mandelbrot set. the complexity
-           is still striking...". The echo is the first two *sentences* of a
-           longer line, the typo is silently corrected, and the second person
-           is left pointing the wrong way — Starkind said *she* was correct, and
-           she hands it back to him.
-
-        So the test is no longer textual similarity but whether the opening
-        contributes a single content word of its own. A sentence whose topic
-        words all came from the user's message is a restatement however it is
-        phrased; a genuine confirmation ("yes, that's a mandelbrot set") brings
-        its own words and survives.
+        The test is therefore not textual similarity but whether the opening
+        contributes a content word of its own. A sentence whose topic words all came
+        from the user is a restatement however it is phrased; a genuine confirmation
+        ("yes, that's a mandelbrot set") brings its own words.
         """
         if not text or not query:
             return text
@@ -648,8 +682,8 @@ class PostGenerationSafetyPipeline:
         if drop_upto == 1 and len(dropped_cw) < 2:
             return text
 
-        # A sentence that only renames something in the dropped opening goes with
-        # it. Removing "the irony is a human projection." on 2026-09-18 promoted
+        # A sentence that only renames something in the dropped opening goes
+        # with it. Otherwise removing "the irony is a human projection." promotes
         # its appositive — "a way of imposing order on a chaotic system." — to
         # opening sentence, where it reads as a fragment of a missing thought.
         survivors = sentences[drop_upto:]
@@ -673,28 +707,22 @@ class PostGenerationSafetyPipeline:
         if not text:
             return ""
 
-        # Ellipsis Collapser
+        # Ellipsis collapser.
         #
-        # `[\u2026\.]{2,}` required TWO characters, so a lone "…" — which is
-        # what gemma3 actually emits — never matched and this collapser fired
-        # on 0 responses in production. response_filter.py hit the identical
-        # bug and documents the fix; safety_pipeline was never updated with it.
-        # `_ELLIPSIS` is imported rather than re-spelled so a third copy cannot
-        # drift from the other two.
+        # `_ELLIPSIS` is imported rather than re-spelled: a character class like
+        # `[\u2026\.]{2,}` requires two characters and so never matches the lone
+        # "…" gemma3 actually emits, and a third local copy is a third place for
+        # that to go wrong.
         from utils.core.response_filter import EmergencyContaminationFilter as _ECF
         _ELL = _ECF._ELLIPSIS
         frag_count = len(re.findall(r'\w+' + _ELL, text))
         if frag_count >= 3:
             log_warning(f"[ELLIPSIS_COLLAPSE] Collapsing {frag_count} ellipsis fragments in output")
-            # Delegate to the transform that was actually thought through.
-            #
-            # This block used to substitute the ellipsis with a full stop
-            # wherever it sat, which shatters a clause: "the details are…
-            # unsettling" became "the details are. unsettling." That is the
-            # grammar rubble CLAUDE.md warns about under output filters, and it
-            # went unnoticed because the regex above it was dead, so the bad
-            # transform never ran. `defuse_ellipsis_affect` drops the ellipsis
-            # and keeps the sentence whole.
+            # Delegate rather than substituting here. Replacing the ellipsis
+            # with a full stop wherever it sits shatters the clause — "the
+            # details are… unsettling" becomes "the details are. unsettling." —
+            # where `defuse_ellipsis_affect` drops the ellipsis and keeps the
+            # sentence whole.
             text = _ECF.defuse_ellipsis_affect(text)
             text = re.sub(r'\n{3,}', '\n\n', text)
             text = text.strip()

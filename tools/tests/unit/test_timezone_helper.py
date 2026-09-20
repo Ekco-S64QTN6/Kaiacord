@@ -29,7 +29,7 @@ def test_resolve_time_queries():
     query = "what time is it in Texas right now kaia and what time is it in London kaia"
     facts = resolve_time_queries(query)
 
-    assert "[DETERMINISTIC_TIME_FACTS]" in facts
+    assert "[CURRENT_TIME_FACTS]" in facts
     assert "Chicago / US Central (Texas)" in facts
     assert "London / UK" in facts
     assert "Sydney / Australia" in facts
@@ -61,9 +61,9 @@ def test_newsroom_wall_clocks():
         "got the time",
     ]:
         facts = resolve_time_queries(query)
-        assert "[DETERMINISTIC_TIME_FACTS]" in facts, f"Failed for query: {query}"
+        assert "[CURRENT_TIME_FACTS]" in facts, f"Failed for query: {query}"
         assert "Chicago / US Central (Texas)" in facts
         assert "London / UK" in facts
         assert "Sydney / Australia" in facts
         assert "UTC (Universal Base Time)" in facts
-        assert "12-Hour Format" in facts
+        assert "12-hour" in facts.lower()

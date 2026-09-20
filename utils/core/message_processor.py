@@ -35,13 +35,41 @@ from utils.core.sanitizer import sanitize_prompt
 
 # Constants
 
-def _get_user_time_info(username: Optional[str] = None):
+def message_instant(msg) -> Optional["datetime"]:
+    """The moment the user actually spoke, from Discord rather than from us.
+
+    `discord.Message.created_at` is UTC, derived from the snowflake id, and set
+    by Discord's servers. Two reasons to prefer it over `datetime.now()`:
+
+    * it does not depend on this machine's clock being right
+    * it is when the person *sent* the message, not when we got round to
+      building a prompt. Those differ under load — a turn can sit behind the
+      dream engine for seconds — and the answer she gives should match the
+      timestamp shown next to the question in their client.
+
+    Returns None for a MockMessage (forum, social) or anything without it, and
+    the caller falls back to the local clock.
+    """
+    from datetime import datetime as _dt, timezone as _tz
+    ts = getattr(msg, "created_at", None)
+    # An isinstance check, not a duck-type one: a MagicMock answers every
+    # attribute, so `.astimezone()` would return another mock and that mock
+    # would be formatted straight into the prompt.
+    if not isinstance(ts, _dt):
+        return None
+    try:
+        return ts.astimezone(_tz.utc) if ts.tzinfo else ts.replace(tzinfo=_tz.utc)
+    except Exception:                                    # noqa: BLE001
+        return None
+
+
+def _get_user_time_info(username: Optional[str] = None, now_utc=None):
     try:
         from utils.core.timezone_helper import calculate_location_time
-        return calculate_location_time("America/Chicago")
+        return calculate_location_time("America/Chicago", now_utc)
     except Exception:
         from datetime import datetime, timezone
-        now_utc = datetime.now(timezone.utc)
+        now_utc = now_utc or datetime.now(timezone.utc)
         time_12h = now_utc.strftime('%I:%M %p').lstrip('0')
         date_str = now_utc.strftime('%A, %B %d, %Y')
         return f"{date_str} | {time_12h} UTC", now_utc.hour, "UTC"
@@ -345,7 +373,7 @@ class MessageProcessor:
                 except Exception: pass
                 return
 
-        # 3. Command Dispatching (Phase 3 Registry)
+        # 3. Command dispatch, through utils/commands/registry.py.
         if await dispatch_command(self.ctx, msg, load_persona_async, send_kaia_response):
             if is_social: log_debug("Social message handled by command dispatcher")
             return
@@ -443,11 +471,9 @@ class MessageProcessor:
             main_content = enriched_raw.split("[USER_MESSAGE]")[-1].strip()
         # ---------------------------------
         
-        # One cap, every platform. A forum draft used to need a larger one
-        # because the whole thread was being sent as the user's message; the
-        # thread now travels in [ORIGINAL_POST] like any other quoted context,
-        # which is not sanitised here, so the message itself is just the post
-        # being answered and fits the ordinary limit.
+        # One cap, every platform. Quoted thread context travels in
+        # [ORIGINAL_POST] and is not sanitised here, so the message itself is
+        # only ever the post being answered and fits the ordinary limit.
         sanitized_content = sanitize_prompt(main_content)
         
         ctx = MessageContext(
@@ -467,22 +493,16 @@ class MessageProcessor:
         #
         # `update_interaction` stamps two Discord-presence facts:
         # `last_interaction_time`, which drives engagement decay, the idle-quip
-        # timer and her status text, and `channel_last_activity`, which is what
+        # timer and her status text, and `channel_last_activity`, which
         # `_find_active_channel` picks a proactive target from. External
-        # platforms arrive here as MockMessages whose channel id comes from
-        # `conversation_channel_id` — a crc32, indistinguishable from a
-        # snowflake — so forum threads were stamping both.
+        # platforms arrive as MockMessages whose channel id is a crc32,
+        # indistinguishable from a snowflake, so stamping either from them makes
+        # her status describe an empty server and hands the proactive dispatch a
+        # pseudo-id `bot.get_channel()` cannot resolve.
         #
-        # The damage was in two directions: a busy forum made her Discord
-        # status announce that people were talking in an empty server, and
-        # `_find_active_channel` would hand back a forum pseudo-id that
-        # `bot.get_channel()` cannot resolve, so the proactive dispatch
-        # returned False and said nothing at all.
-        # `is_social` is already "this did not come from Discord" — reusing it
-        # keeps the single platform comparison this module is allowed (see
-        # test_pipeline_parity.test_prompt_assembly_has_no_platform_conditionals,
-        # which exists because a platform branch in prompt assembly is what
-        # made her forum voice drift from her Discord voice).
+        # `is_social` already means "this did not come from Discord". Reusing it
+        # keeps the one platform comparison this module is allowed — see
+        # test_pipeline_parity.test_prompt_assembly_has_no_platform_conditionals.
         if not ctx.is_social:
             self.bot_state.update_interaction(msg.channel.id)
         else:
@@ -571,27 +591,14 @@ class MessageProcessor:
             if fast_intent.confidence > 0.9 and fast_intent.suggested_strategy in ["SOCIAL_GREETING", "COMMAND_EXECUTION", "RECAP_QUERY"]:
                 return
 
-        # Layer 2 is not dispatched. It was fire-and-forget.
+        # Layer 2 is deliberately not dispatched. `ctx.intent` is only ever
+        # assigned from `fast_parse` above, so an LLM second pass has no reader
+        # and its CPU time competes with the embedding model for nothing.
         #
-        # This used to create an asyncio task running `parse_intent`, which
-        # wakes gemma2:2b on the CPU — 135 times in one production log, median
-        # 1.0s each. Nothing ever awaited that task or read its result:
-        # `ctx.intent` is only ever assigned from `fast_parse` above, the task
-        # registry touches these only to cancel them at shutdown, and
-        # `ctx.classification_task` had no reader anywhere in the codebase. The
-        # `Strategy Merge: Overriding LLM ...` line fires inside `parse_intent`,
-        # so the merge genuinely happened and the merged verdict then went
-        # nowhere.
-        #
-        # It cost no wall-clock latency, since it overlapped retrieval, but it
-        # competed with nomic-embed-text-cpu for the same cores to produce an
-        # answer that was discarded. Removing the dispatch changes no behaviour
-        # — nothing downstream consumed it — and reclaims that work.
-        #
-        # `IntentParser.parse_intent` is deliberately left intact. If Layer 2
-        # is wanted, the work is to await it where intent is needed and accept
-        # that routing will shift on the turns where the fast path finds
-        # nothing; it is not to re-add a call whose result is dropped.
+        # `IntentParser.parse_intent` is left intact. Wiring Layer 2 back in
+        # means awaiting it where intent is needed and accepting that routing
+        # shifts on the turns the fast path finds nothing — not re-adding a call
+        # whose result is dropped.
         return
 
     def _derive_legacy_category(self, intent) -> str:
@@ -630,7 +637,7 @@ class MessageProcessor:
             raw_persona = await load_persona_async()
             
             # Resolve runtime tags (Bug 2 Fix implementation)
-            current_time, _, _ = _get_user_time_info(ctx.author_name)
+            current_time, _, _ = _get_user_time_info(ctx.author_name, message_instant(ctx.message))
             ctx.system_prompt = raw_persona.replace("[CURRENT_TIME]", f"[CURRENT_TIME]: {current_time}")
             
             ctx.context_nodes = []
@@ -667,11 +674,10 @@ class MessageProcessor:
                     filtered_results.append(r)
             raw_results = filtered_results
         except asyncio.TimeoutError:
-            # Sept 2026 audit: this path fired in production (00:45:35) and produced a
-            # 103s turn answered with ZERO retrieved nodes. The salvage below is correct,
-            # but the old log line could not say WHICH task hung, so the root cause was
-            # not diagnosable after the fact. Name the stalled tasks and escalate to ERROR
-            # when nothing at all was salvaged, because that is a silent grounding failure.
+            # Name the stalled tasks: a timeout here answers the turn with no
+            # retrieved nodes, and an unnamed one cannot be diagnosed afterwards.
+            # Escalate to ERROR when nothing at all was salvaged — that is a
+            # silent grounding failure, not a slow turn.
             raw_results = []
             salvaged, stalled = [], []
             for i, t in enumerate(task_objects):
@@ -743,12 +749,10 @@ class MessageProcessor:
             if hasattr(ctx.message.author, 'display_name') and ctx.message.author.display_name:
                 whitelist.add(ctx.message.author.display_name)
                 
-            # The user's own words, not the enriched message. Passing
-            # sanitized_content made the enricher's own markers look like
-            # entities the user had named: a message carrying a link was logged
-            # as "unknown entities: ['LINKED_WEB_CONTENT', 'CORE_DIRECTIVE',
-            # '@Ekco', 'weirdly.net']", of which only the last two were words
-            # anybody typed.
+            # The user's own words, not the enriched message: passing
+            # sanitized_content makes the enricher's own markers
+            # ('LINKED_WEB_CONTENT', 'CORE_DIRECTIVE') look like entities the
+            # user named.
             from utils.core.sanitizer import user_authored_text
             boundary_check = self.knowledge_boundary.check_known_entities(
                 user_authored_text(ctx.sanitized_content), context_list, whitelist=whitelist)
@@ -852,7 +856,7 @@ class MessageProcessor:
                         rel['last_open_loop'] = ''
                         self.bot_state.save()
 
-                # P54-4. Anticipatory Context Priming dossier (Item P54-4)
+                # 8b2. Anticipatory context priming dossier.
                 dossier = self.bot_state.get_user_dossier(ctx.author_id, ctx.author_name)
                 if dossier:
                     ctx.system_prompt = ctx.system_prompt + f"\n\n{dossier}"
@@ -886,7 +890,7 @@ class MessageProcessor:
         except Exception:
             pass  # Never let anchor injection break generation
 
-        # 8b3. Theory of Mind Lite injection — user state modeling (P54-5)
+        # 8b3. Theory-of-mind injection: a model of the user's current state.
         try:
             if self.bot_state:
                 self.bot_state.update_user_state(ctx.author_id, ctx.sanitized_content)
@@ -986,7 +990,7 @@ class MessageProcessor:
 
         # 8d. Time-of-Day Personality Modulation
         try:
-            _current_time_str, _hour, _tz_name = _get_user_time_info(ctx.author_name)
+            _current_time_str, _hour, _tz_name = _get_user_time_info(ctx.author_name, message_instant(ctx.message))
             if 6 <= _hour < 12:
                 _time_mod = "[time: morning — you're more direct and concise right now. shorter responses.]"
             elif 12 <= _hour < 18:
@@ -1068,12 +1072,11 @@ class MessageProcessor:
         except Exception:
             pass
 
-        # 8h. Micro-Mood Expressions — REMOVED (P55 audit)
-        # Was redundant with get_kaia_state_line() which injects from the same
-        # bot_state floats (kaia_engagement, kaia_coherence, kaia_dream_freshness).
-        # Mood is now consolidated to 2 non-overlapping signals:
-        # - get_kaia_state_line(): activity/memory/dream status (injected at 8.)
-        # - emotional_arc.get_prompt_injection(): valence/arousal/energy (injected at 8a.)
+        # 8h. Micro-mood expressions: deliberately absent. Mood reaches the
+        # prompt through two non-overlapping signals only —
+        # get_kaia_state_line() (activity/memory/dream, at 8.) and
+        # emotional_arc.get_prompt_injection() (valence/arousal/energy, at 8a.).
+        # A third read the same bot_state floats a second time.
 
         # 8i. "I've Been Reading" Mentions — organic references to recently ingested knowledge
         try:
@@ -1091,11 +1094,10 @@ class MessageProcessor:
         except Exception:
             pass
 
-        # 8j. Claim Verification — skepticism injection when users assert Kaia's past actions
-        # Prevents confabulation from false claims (e.g. the "Ester Williams" deception).
-        # Softened for in-context references to avoid triggering defensive behavior
-        # when users are simply referencing something Kaia said earlier in the
-        # same conversation.
+        # 8j. Claim verification: skepticism injected when a user asserts
+        # something Kaia supposedly did, which otherwise invites confabulation.
+        # Softened for in-context references so that quoting something she said
+        # earlier in the same conversation does not read as a false claim.
         try:
             import re as _claim_re
             _CLAIM_PATTERNS = _claim_re.compile(
@@ -1247,21 +1249,16 @@ class MessageProcessor:
                     limit=10
                 )
 
-                # Synthesize channel_memory into RAG-compatible dicts so the RECALL
-                # CONSTRAINT in the generation prompt will permit Kaia to reference them.
-                # Ekco flagged this on 2026-08-26 via !explain: the provenance panel showed
-                # eight identical rows, all `0.950 (INJECTION) -> live_session_memory`, and it
-                # read as a retrieval hallucination. It was not a hallucination, but it was a
-                # real bug in two ways:
-                #   1. Every turn in channel_memory (maxlen 35) became a node, uncapped, all
-                #      scored 0.950 and all prepended ahead of real RAG results. Since the
-                #      context optimizer fills the RAG budget in order, up to 35 live-session
-                #      turns could consume the entire budget before a single knowledge-base
-                #      document was considered. That is the opposite of "recap with fallback".
-                #   2. Every node carried the same file_path, so !explain could not tell them
-                #      apart even though a distinguishing `label` was already being set.
-                # Fix: cap the injection to the most recent turns, and give each node a
-                # distinct file_path so provenance is readable.
+                # Synthesize channel_memory into RAG-compatible dicts so the
+                # RECALL CONSTRAINT in the generation prompt permits Kaia to
+                # reference them. Two properties matter:
+                #   1. The injection is capped. These nodes score 0.950 and are
+                #      prepended ahead of real RAG results, and the context
+                #      optimizer fills its budget in order — uncapped, 35 live
+                #      turns consume the whole budget before one knowledge-base
+                #      document is considered.
+                #   2. Each node gets a distinct file_path, or !explain shows a
+                #      column of identical rows that reads as a hallucination.
                 MAX_SESSION_INJECTIONS = 8
 
                 memory_nodes = []
@@ -1296,9 +1293,9 @@ class MessageProcessor:
 
                 combined_results = memory_nodes + (rag_results or [])
 
-                # P62-9: All-injection grounding warning
-                # If every result is a session injection (zero real KB documents),
-                # inject a warning so the LLM knows it has no grounding material.
+                # Every result is a session injection and no real knowledge-base
+                # document was retrieved, so say so — otherwise she answers as
+                # though the material were grounded.
                 real_docs = [r for r in combined_results
                              if r.get("metadata", {}).get("retrieval_method") != "injection"]
                 if not real_docs and memory_nodes:
@@ -1396,17 +1393,12 @@ class MessageProcessor:
             log_warning("Persona result was a list (likely from gather timeout). Resetting to empty string.")
             raw_persona = ""
             
-        # Resolve the runtime tag. The persona instructs her to "use the
-        # [CURRENT_TIME] data from your system prompt", and until Sept 19 that
-        # substitution happened on exactly one branch — the Adaptive Skip at the
-        # top of `process()`, taken only by high-confidence greetings and
-        # commands. Every ordinary turn, this one included, shipped the persona
-        # with the literal placeholder still in it, so the sentence pointed at a
-        # tag the prompt did not contain. The real time was present the whole
-        # time under [LOCAL_TIME] in the metadata block, which is what makes this
-        # easy to miss: nothing was missing, one instruction just named the wrong
-        # thing.
-        _current_time, _, _ = _get_user_time_info(ctx.author_name)
+        # Resolve the runtime tag on every branch. The persona tells her to use
+        # the [CURRENT_TIME] data from her system prompt, so any path that ships
+        # the persona with the literal placeholder still in it points her at a
+        # tag the prompt does not contain — which is easy to miss, because the
+        # time is also present under [LOCAL_TIME] in the metadata block.
+        _current_time, _, _ = _get_user_time_info(ctx.author_name, message_instant(ctx.message))
         ctx.system_prompt = str(raw_persona).replace(
             "[CURRENT_TIME]", f"[CURRENT_TIME]: {_current_time}")
         log_debug(summarize_payload("persona loaded", ctx.system_prompt))
@@ -1436,12 +1428,12 @@ class MessageProcessor:
                 await asyncio.to_thread(self._update_identity_cache)
                 self._identity_cache_time = now
 
-            # Inject self-model FIRST (prepends — will be second after constitution prepends on top).
-            # Gated by features.self_model_injection (default false, Sept 2026 token audit):
-            # this block cost ~1070 tokens of RAG/history budget on every turn while duplicating
-            # relationship_manager, personalization_engine.adapt_prompt and the per-user
-            # user_profile.md RAG docs. It is also model-written and model-read, so its style
-            # tics fed back into generation.
+            # Inject self-model first; the constitution prepends on top of it.
+            # Gated by features.self_model_injection because it costs ~1070 tokens
+            # of RAG/history budget per turn while overlapping relationship_manager,
+            # personalization_engine.adapt_prompt and the per-user user_profile.md
+            # RAG docs — and, being model-written and model-read, feeds its own
+            # style tics back into generation.
             self_model_content = self._identity_cache.get("self_model", "")
             if self_model_content and self.config.get('features.self_model_injection', False):
                 ctx.system_prompt = (
@@ -1530,9 +1522,8 @@ class MessageProcessor:
         except Exception:
             pass
 
-        # P62-8: Open-ended factual hallucination caveat
-        # When RAG retrieves no real KB documents and the query looks open-ended/factual,
-        # inject a caveat telling Kaia to hedge unverified claims.
+        # An open-ended factual question with no real knowledge-base document
+        # behind it: tell her to hedge rather than assert.
         try:
             _open_ended_patterns = [
                 r"tell\s+me\s+something\s+interesting",
@@ -1634,12 +1625,10 @@ class MessageProcessor:
                 messages[-1]["images"] = images
                 log_info(f"Attached {len(images)} images to user message for inline multimodal processing.")
                 if messages and messages[0].get("role") == "system":
-                    # The framing has to match where the picture came from. On
-                    # the forum it is an image someone posted in a public
+                    # The framing has to match where the picture came from. A
+                    # forum image is something a stranger posted in a public
                     # thread, not something "the user attached from their
-                    # physical environment", and telling her otherwise invites
-                    # her to talk about a stranger's screenshot as if it were
-                    # their living room.
+                    # physical environment".
                     _plat = str(getattr(ctx.message, "platform", "discord") or "discord")
                     _origin = ("Someone posted an image in this forum thread"
                                if _plat == "vbulletin"
@@ -1650,12 +1639,9 @@ class MessageProcessor:
                         "it is a living, biological animal belonging to whoever posted it — NOT your fictional robotic cat Pixel. "
                         "Do not use robotic/sensor jargon (such as 'sensor readings', 'battery', 'thermal equilibrium') "
                         "when describing living animals. "
-                        # Three confirmed misreads in two days, each stated with
-                        # full confidence: an origami swan called a bat, a
-                        # kintsugi bowl called a globe, a bus emergency hammer
-                        # called a yellow bulldozer. Being wrong about a picture
-                        # is forgivable; being certain about it is what made the
-                        # user stop trusting the answer.
+                        # Certainty is the failure mode here, not error. Being
+                        # wrong about a picture is forgivable; being confident
+                        # about it is what stops the answer being trusted.
                         "Name only what you can actually make out. Where you are unsure of an object, "
                         "say so in your own words rather than committing to a guess, and never invent "
                         "specifics — colours, counts, materials, background detail — that you cannot see. "
@@ -1680,16 +1666,14 @@ class MessageProcessor:
         context_str = optimized['rag']
         optimized_history = optimized.get('history', [])
 
-        # An image with almost no text is the one case where the history can
-        # outweigh the message. Ekco posted a picture captioned only "Kaia,";
-        # the 27 injected turns were dominated by Starkind, who had just posted
-        # two photos of his own, and she replied to Starkind's conversation and
-        # addressed Ekco by his name. The addressee anchor below was already
-        # present and lost to sheer volume.
+        # An image with almost no text is the one case where history can
+        # outweigh the message: a picture captioned "Kaia," against 27 injected
+        # turns means she answers whoever dominated those turns, and the
+        # addressee anchor below is lost to sheer volume.
         #
         # With a picture in hand and nothing to go on textually, the picture is
-        # the subject. Keep enough history for continuity, not enough to
-        # drown the turn.
+        # the subject. Keep enough history for continuity, not enough to drown
+        # the turn.
         try:
             from utils.core.sanitizer import user_authored_text
             _atts = getattr(ctx.message, "attachments", None) or []
@@ -1702,20 +1686,10 @@ class MessageProcessor:
         except Exception as _trim_err:
             log_debug(f"History trim for visual turn skipped: {_trim_err}")
         
-        # No special case for the forum.
-        #
-        # A `platform == "vbulletin"` branch used to live here. It appended a
-        # thread-context block to the system prompt and *replaced* the user
-        # message with a string it reassembled itself — so the forum was the
-        # one path whose prompt was not the Discord prompt. Every problem with
-        # her forum replies traced back to something in it: a length ceiling
-        # that produced "hello.", then a retry instruction that produced a post
-        # about a topic lifted at random from the thread.
-        #
-        # The Discord pipeline has worked for months. The forum now uses it
-        # unchanged: the thread arrives as ordinary message content, assembled
-        # by forum_drafting, and nothing here knows or cares which platform it
-        # came from.
+        # No special case for the forum. Prompt assembly has no platform
+        # branch: the thread arrives as ordinary message content, assembled by
+        # forum_drafting, and nothing here knows which platform it came from.
+        # A branch here is how her forum voice drifts from her Discord voice.
         user_msg_content = ctx.sanitized_content
 
         if True:
@@ -1767,11 +1741,10 @@ class MessageProcessor:
                 "speak from what you know, hedge where uncertain, do not invent]"
             )
 
-        # Channel-specific grounding: if user asked about specific channels
-        # and no retrieved context actually ORIGINATES from those channels.
-        # NOTE: We check for explicit channel-context markers (e.g. #channel,
-        # [channel: X]) in metadata — NOT just the word itself, since common
-        # words like "general" appear in unrelated logs.
+        # Channel-specific grounding: the user named channels and no retrieved
+        # context originates from them. Keyed on explicit channel markers
+        # (#channel, [channel: X]) in metadata rather than the bare word, since
+        # names like "general" appear throughout unrelated logs.
         _is_channel_recall = False
         _channel_refs = []
         try:
@@ -1817,14 +1790,12 @@ class MessageProcessor:
         # Document/File Grounding: if user asked about a specific file or document
         # and no retrieved context matches that file, prevent hallucination.
         try:
-            # Sept 2026 fix: the second alternative used to capture *any* word following
-            # "file|doc|document|article|paper|whitepaper", so ordinary conversation tripped
-            # the hard rule. Real examples from the Sept 1-5 logs:
-            #   "How's your internal document coming along?"      -> _queried_doc = 'coming'
-            #   "Instead of paper clips it would be bugcat..."    -> _queried_doc = 'clips'
-            # Kaia was then told she could not access a file named "coming", mid-chat.
-            # The capture now requires an explicit "called/named" lead-in, and the captured
-            # token must actually look like a filename (extension or slug) rather than a word.
+            # The capture requires an explicit "called/named" lead-in and a token
+            # that looks like a filename (extension or slug). Matching any word
+            # after "file|doc|document|article|paper" trips the hard rule on
+            # ordinary conversation — "your internal document coming along?"
+            # captures 'coming', and she is then told mid-chat that she cannot
+            # access a file by that name.
             _file_query_match = re.search(
                 r'\b([a-zA-Z0-9_\-]+\.(?:md|txt|pdf|docx|json|yaml))\b'
                 r'|\b(?:the\s+)?(?:file|doc|document|article|paper|whitepaper)\s+'
@@ -1859,10 +1830,11 @@ class MessageProcessor:
         except Exception:
             pass  # Never let grounding check break generation
 
-        current_time_str, _, _ = _get_user_time_info(ctx.author_name)
+        _instant = message_instant(ctx.message)
+        current_time_str, _, _ = _get_user_time_info(ctx.author_name, _instant)
         from utils.core.timezone_helper import resolve_time_queries, get_newsroom_wall_clock_block
-        newsroom_clocks = get_newsroom_wall_clock_block()
-        time_facts = resolve_time_queries(ctx.sanitized_content)
+        newsroom_clocks = get_newsroom_wall_clock_block(_instant)
+        time_facts = resolve_time_queries(ctx.sanitized_content, _instant)
         time_facts_str = f"\n{time_facts}" if time_facts else ""
 
         metadata_block = (
@@ -1914,11 +1886,9 @@ class MessageProcessor:
                 "END KNOWLEDGE BASE GROUNDING CONSTRAINT\n\n"
             )
 
-        # No forum-only instruction. This block told the model to "write at
-        # least 3-4 complete sentences (minimum 30-40 words)" for forum posts
-        # and nothing else. Given a trivial message it padded to length with
-        # whatever was in the thread context — which is how a reply to "test
-        # test hello hello" became a post about the Well-Formed Outcome Process.
+        # No forum-only length instruction. A minimum word count applied to a
+        # trivial message is padded out of whatever is in the thread context,
+        # which turns a reply to "hello" into a post about an unrelated topic.
         instruction = ""
 
         safeguard_block = (
@@ -1970,19 +1940,14 @@ class MessageProcessor:
 
         # Order matters for more than readability. llama.cpp reuses the KV cache
         # for the longest token prefix shared with the previous request, and the
-        # persona block is ~7.5k of the ~12.9k tokens in this prompt.
+        # persona is ~7.5k of the ~12.9k tokens here.
         #
-        # The two constraint blocks used to sit in front of it. Both are empty on
-        # an ordinary turn and appear only for a recap or knowledge-base query,
-        # so asking one of those questions shifted every subsequent token and
-        # threw away the whole cached prefix — on that turn, and again on the
-        # next turn when the block disappeared. Measured on a live model: 15.3s
-        # for the first pass over this prompt against 3.9s when the prefix was
-        # already resident.
-        #
-        # They belong here anyway. Both say "the RAG context nodes below", and
-        # they are now actually adjacent to those nodes rather than separated
-        # from them by the entire persona.
+        # The two constraint blocks are conditional — empty on an ordinary turn,
+        # present for a recap or knowledge-base query — so anything placed ahead
+        # of the persona shifts every subsequent token and discards the cached
+        # prefix twice: on the turn it appears and on the turn it goes away.
+        # Keep conditional blocks after the persona. These also read "the RAG
+        # context nodes below", so here they are adjacent to those nodes.
         full_system_prompt = (
             f"{system_prompt}\n\n"
             f"{kb_constraint_block}"
@@ -2020,19 +1985,16 @@ class MessageProcessor:
                     r'\s+\d{1,2},\s+\d{4}\s+\|[^\n]*',
                     '', content
                 )
-                # A clock time she *stated in prose* is the same stale fact in a
-                # shape the two patterns above cannot see. On 2026-09-19 she
-                # answered "what time is it" with 5:44 am at 05:29, and then said
-                # 5:44 again at 05:31 and 05:32 — not three wrong readings but
-                # one, read back out of her own history twice. The metadata block
-                # already says "any timestamps in conversation history are
-                # outdated"; this makes that true of the history it is competing
-                # with.
+                # A clock time she stated in prose is the same stale fact in a
+                # shape the two patterns above cannot see: left in history, she
+                # reads her own earlier answer back as the current time. The
+                # metadata block already says history timestamps are outdated;
+                # this makes that true of the history competing with it.
                 #
                 # Only the "it's <time>" construction, and only in her own turns.
-                # That is a claim about *now* and is stale by definition one turn
-                # later; "the raid starts at 8:00 pm" is a fact about a time and
-                # must survive, as must anything the user typed.
+                # That is a claim about *now* and is stale one turn later, where
+                # "the raid starts at 8:00 pm" is a fact about a time and must
+                # survive — as must anything the user typed.
                 if turn.get('role') == 'assistant':
                     content = _STALE_CLOCK_CLAIM.sub('', content)
                 turn['content'] = content.strip()
@@ -2151,48 +2113,22 @@ class MessageProcessor:
         except Exception:
             return messages
 
-        # 1.85, not the observed worst of ~2.05.
+        # Seed only. The real ratio is measured: `_observe_prompt_tokens` reads
+        # `prompt_eval_count` off every generation and `_calibrated_tokens_per_word`
+        # returns a bounded p90 of recent observations, so this constant is used
+        # only until enough real counts exist.
         #
-        # The first cut of this used the worst ratio on every prompt, on the
-        # reasoning that a budget wants a conservative bound. That was wrong by
-        # a wide margin: at 2.05 the system prompt *alone* exceeds the budget,
-        # so the loop drained every history turn and still reported itself over.
-        # Five consecutive production turns lost 12, 17, 19, 21 and 23 turns of
-        # conversation, and the prompts that resulted measured 12461, 11757,
-        # 14989, 11982 and 13757 tokens — every one comfortably inside 15360.
-        # She could not recall anything said to her.
-        #
-        # Derived from those same five turns, the true ratio runs 1.42 to 1.76
-        # (median 1.51). 1.75 sits at the observed maximum. Going higher is not
-        # "safer": the assembled system prompt is ~8,400 words on its own, so
-        # at 1.85 it alone is scored over budget and every history turn is
-        # discarded before the loop gives up. The asymmetry settles it —
-        # underestimating costs a shorter reply on a rare dense turn,
-        # overestimating costs her entire memory on every turn.
-        # Calibrated against `prompt_eval_count`, not guessed. See
-        # `_observe_prompt_tokens`: every generation reports the real token
-        # count for the prompt that was just sent, so the words->tokens ratio
-        # does not have to be a constant at all.
-        #
-        # It was 1.75, "the observed maximum" over five turns. Measured over 30
-        # paired samples on 2026-09-20 — the clamp's own estimate against the
-        # `prompt_eval_count` that followed it — 1.75 overshot by a median of
-        # 2,620 tokens (ratio 1.06 to 1.25). The clamp fired on 30 of 42 turns
-        # and cut history to the floor on every one; the largest real prompt all
-        # day was 15,127 against a 15,360 budget, so not one of them would have
-        # overflowed. Exactly the failure the comment below warns about, one
-        # notch milder: not all of her memory, just most of it.
-        #
-        # The spread is per-turn and content-dependent, so no single constant
-        # fits. The seed below is used until enough real counts have been seen.
+        # A constant does not fit — the ratio is per-turn and content-dependent —
+        # and the error is asymmetric. Overestimating scores the ~8,400-word system
+        # prompt over budget on its own, so the loop discards every history turn
+        # and she recalls nothing; underestimating costs a shorter reply on a rare
+        # dense turn. Do not raise this on the theory that a budget wants a
+        # conservative bound.
         TOKENS_PER_WORD = self._calibrated_tokens_per_word()
-        # She always keeps recent context. `optimize_context` has already
-        # fitted history to its own budget before this runs — the log line
-        # "History optimized to 26 turns within 2128 token budget" is that
-        # work — so this is a backstop for what gets added to the system prompt
-        # *after* that budgeting, not a second opinion on how much history is
-        # affordable. Trimming to nothing is never the right answer: if the
-        # prompt still does not fit, the system prompt is the oversized part.
+        # A backstop, not a second opinion. `optimize_context` has already fitted
+        # history to its own budget; this only covers what is added to the system
+        # prompt after that. Trimming history to nothing is never the answer — if
+        # the prompt still does not fit, the system prompt is the oversized part.
         MIN_HISTORY_TURNS = 8
 
         budget = window - reserve
@@ -2244,20 +2180,15 @@ class MessageProcessor:
         
         max_attempts = self.config.generation_max_retry_attempts
 
-        # Determine whether this generation is *document-grounded* work, which runs at the
-        # lower rag_temperature, versus ordinary conversation, which runs at base_temperature.
+        # Is this document-grounded work (rag_temperature) or ordinary
+        # conversation (base_temperature)?
         #
-        # Sept 2026 regression fix: this predicate previously also matched
-        #   retrieval_method in ['vector', 'bm25', 'hybrid', 'manifest_fast_path']
-        # which is true for essentially ANY retrieved node, including user_logs and persona
-        # chunks. Since RAG runs on nearly every non-fast-path message, that flipped almost
-        # all normal conversation to 0.35 rather than the intended 0.70. The observable
-        # result was flatter, more agreeable, more sycophantic prose — the dual-temperature
-        # design was correct, its trigger was not.
-        #
-        # Grounding is now keyed on the *source* being reference material, or on a strategy
-        # that is explicitly document-oriented. 'summarization' is kept as a retrieval_method
-        # because it only ever comes from _get_summarization_nodes().
+        # Keyed on the *source* being reference material, or on an explicitly
+        # document-oriented strategy. It must not key on `retrieval_method` in
+        # (vector, bm25, hybrid): that is true of nearly every turn, which runs
+        # all conversation at the lower temperature and flattens the prose.
+        # 'summarization' is kept because it only comes from
+        # _get_summarization_nodes().
         KNOWLEDGE_SOURCES = ('general_knowledge', 'knowledge', 'article', 'whitepaper', 'book')
 
         def _node_meta(n):
@@ -2346,10 +2277,8 @@ class MessageProcessor:
                         # Canned honest override response from channel recall guard
                         return reject_reason
                     # Keep it. Some rejections are about *cadence*, not content,
-                    # and the pipeline already knows how to defuse those inline
-                    # below its own reject threshold. Discarding the text meant
-                    # three usable answers were thrown away and the user got
-                    # "drawing a blank" — see the salvage pass after the loop.
+                    # and the pipeline can defuse those inline — see the salvage
+                    # pass after the loop. Discarded text cannot be salvaged.
                     if content and content.strip():
                         salvage_candidates.append(content)
                     continue
@@ -2360,8 +2289,8 @@ class MessageProcessor:
             except Exception as e:
                 log_error(f"Attempt {attempt + 1} failed: {e}")
                 
-        # The forum used to accept a fallback here that Discord would not. The
-        # last platform special-case; the two paths are now identical.
+        # No platform special-case: the forum takes the same fallback as
+        # Discord.
         if best_fallback_response:
             log_warning(f"All retry attempts failed to meet length constraints. "
                         f"Falling back to longest reply ({best_fallback_words} words).")
@@ -2369,17 +2298,13 @@ class MessageProcessor:
 
         # Last resort: defuse the cadence and re-validate.
         #
-        # The affect-ellipsis guard rejects at 3+ markers, and gemma3 reaches
-        # for that cadence constantly on reflective topics — the guard's own
-        # comment says so. When the subject genuinely is reflective, all three
-        # attempts clear the threshold and she said nothing at all. Observed
-        # 2026-09-14: a message about her own code produced "the details are…
-        # unsettling." three times over 35s of inference, each one discarded.
+        # gemma3 reaches for the affect-ellipsis cadence constantly on reflective
+        # topics, so on a genuinely reflective subject all three attempts clear
+        # the guard's threshold and she says nothing at all.
         #
-        # This does not weaken the guard. The salvaged text is put back through
-        # the full pipeline and is only used if it passes on its own merits —
-        # the ellipsis is the affectation, the sentence around it was fine.
-        # CLAUDE.md: "Never let a filter empty a good response."
+        # This does not weaken the guard: salvaged text goes back through the
+        # full pipeline and is used only if it passes on its own merits. The
+        # ellipsis is the affectation; the sentence around it is usually fine.
         for candidate in sorted(salvage_candidates, key=len, reverse=True):
             try:
                 from utils.core.response_filter import EmergencyContaminationFilter
@@ -2410,7 +2335,7 @@ class MessageProcessor:
         return "i'm drawing a blank on that one. hit me again?"
 
     async def _run_consistency_watchdog(self, ctx: MessageContext, response_text: str):
-        """P54-2: Self-Consistency Watchdog.
+        """Self-consistency watchdog.
 
         Checks whether the generated response contradicts Kaia's active strong beliefs
         or her own immediately preceding messages, and logs conflicts to
@@ -2442,19 +2367,13 @@ class MessageProcessor:
                         aliases = [topic] + [a.lower() for a in b.get('aliases', []) if a]
                         matched_alias = next((a for a in aliases if a in resp_lower), None)
                         if matched_alias:
-                            # Whole words only.
-                            #
-                            # These were substring tests, so "pro" matched
-                            # inside "compromise" and a belief about
-                            # "fundamental human failings (carelessness, greed,
-                            # compromise)" was read as a *positive* stance. Six
-                            # of her strong beliefs were mis-polarised that way.
-                            # Worse, "disagree" contains "agree", so every
-                            # disagreeing stance registered as both polarities
-                            # at once. The watchdog applies a deterministic
-                            # stance correction on the strength of this, so an
-                            # inverted reading makes her contradict herself in
-                            # the name of consistency.
+                            # Whole words only. As substring tests these invert
+                            # polarity: "pro" matches inside "compromise", and
+                            # "disagree" contains "agree" so a disagreeing stance
+                            # registers as both at once. The watchdog applies a
+                            # deterministic stance correction on the result, so an
+                            # inverted reading makes her contradict herself in the
+                            # name of consistency.
                             pos_positive = _has_word(position, ("love", "like", "agree", "support", "good", "great", "favor", "pro"))
                             pos_negative = _has_word(position, ("hate", "dislike", "disagree", "oppose", "bad", "avoid", "anti"))
 
@@ -2506,20 +2425,18 @@ class MessageProcessor:
         ctx.response_text = re.sub(r'\[?CURRENT_TIME\]?:?.*?(?:\n|$)', '', ctx.response_text).strip()
         ctx.response_text = re.sub(r'\[?CURRENT_USER\]?:?.*?(?:\n|$)', '', ctx.response_text).strip()
         
-        # Run Self-Consistency Watchdog (P54-2).
-        # Sept 2026 audit: previously observational only — it logged a contradiction and
-        # let the capitulating text ship anyway. It now runs BEFORE the send (it always
-        # did) and its result is acted on: capitulation praise is stripped deterministically
-        # so the belief conflict does not reach the user as agreement-plus-compliment.
+        # Self-consistency watchdog. Its result is acted on, not just logged:
+        # capitulation praise is stripped deterministically so a belief conflict
+        # does not reach the user as agreement-plus-compliment.
         _watchdog_reasons = await self._run_consistency_watchdog(ctx, ctx.response_text)
         if _watchdog_reasons:
             try:
                 from utils.core.response_filter import BotSpeakFilter as _BSF
-                # strip_sycophancy already ran inside harden() during the safety pipeline,
-                # so re-running it here is a guaranteed no-op (found in review). The residue
-                # a belief conflict actually leaves is the *offer to revise her own
-                # self-model*, which no general guard catches because out of context it is
-                # an ordinary cooperative sentence.
+                # Not strip_sycophancy — harden() has already run it, so a second
+                # pass is a no-op. The residue a belief conflict leaves is the
+                # offer to revise her own self-model, which no general guard
+                # catches because out of context it is an ordinary cooperative
+                # sentence.
                 _corrected = _BSF.strip_self_model_capitulation(ctx.response_text)
                 if _corrected and _corrected.strip() and _corrected != ctx.response_text:
                     log_warning(
@@ -2542,22 +2459,35 @@ class MessageProcessor:
         # appended blocks are not words the user typed, and counting them would
         # let a scraped article's phrasing look like an echo of the reader.
         from utils.core.sanitizer import user_authored_text as _user_words
+        _asked = _user_words(getattr(ctx, "sanitized_content", "") or "")
         ctx.response_text = PostGenerationSafetyPipeline.strip_restatements(
-            ctx.response_text, _user_words(getattr(ctx, "sanitized_content", "") or ""))
+            ctx.response_text, _asked)
+
+        # Time is deterministic state, and she does not narrate it reliably: the
+        # prompt carried "5:14 AM CDT" three times and she answered "5:21 am
+        # cdt". Python owns the fact (CLAUDE.md §4); this asserts it rather than
+        # adding a fourth instruction she can ignore.
+        try:
+            from utils.core.timezone_helper import is_time_query
+            if is_time_query(_asked):
+                _true_time, _, _ = _get_user_time_info(
+                    ctx.author_name, message_instant(ctx.message))
+                ctx.response_text = PostGenerationSafetyPipeline.correct_stated_time(
+                    ctx.response_text, _true_time)
+        except Exception as _tg_err:
+            log_debug(f"Time guard skipped (non-fatal): {_tg_err}")
 
         # 2. SEND RESPONSE
         await self._send_response(channel=ctx.message.channel, text=ctx.response_text)
         
-        # 2. LOGGING & STATE (background to avoid holding up the UI)
+        # 2. LOGGING & STATE (background, to avoid holding up the UI)
         #
         # Drafting is not conversing. A forum draft borrows this pipeline for
-        # its retrieval, memory and filters — that is the point of routing it
-        # here — but the person on the other end is a forum poster being
-        # quoted, not someone Kaia is talking to. Running the persistence side
-        # of the pipeline over that wrote a whole forum thread into a Discord
-        # user's interaction log, created `Jimjam_33136` (a vBulletin id) beside
-        # the real Discord Jimjam, and saved Ekco's forum post as *Jimjam's*
-        # open loop — so she would have asked the wrong person how it went.
+        # retrieval, memory and filters, but the person on the other end is a
+        # poster being quoted, not someone Kaia is talking to. Persisting from
+        # that path writes forum threads into Discord interaction logs, creates
+        # duplicate identities keyed on vBulletin ids, and files one person's
+        # post as another's open loop.
         if getattr(ctx.message, "no_persist", False):
             log_debug("Draft mode: skipping logging, memory and relationship updates.")
             return
@@ -2950,13 +2880,11 @@ class MessageProcessor:
                     )
 
                 buf = _io.BytesIO()
-                # q92 rather than q85. Measured on a detail-dense 896x896 frame:
-                # PSNR 30.85 -> 32.28 dB, worst-pixel error 82 -> 74, for 96 KB
-                # more base64 over a localhost socket. Small, but the images that
-                # get misread are fine-shape judgements (origami folds, the seams
-                # on a kintsugi bowl) and re-encoding loss lands exactly on those
-                # edges. This is not a fix for misreads — those are the vision
-                # encoder's limit, not the codec's — just a cost worth not paying.
+                # q92 rather than q85: +1.4 dB PSNR on a detail-dense 896x896
+                # frame for ~96 KB more base64 over a localhost socket.
+                # Re-encoding loss lands on exactly the fine edges that shape
+                # judgements depend on. It does not fix misreads — those are the
+                # vision encoder's limit — it just avoids adding to them.
                 frame.save(buf, format="JPEG", quality=92, optimize=True)
                 out = buf.getvalue()
 
@@ -2976,14 +2904,12 @@ class MessageProcessor:
                         if resp.status == 200:
                             data = await resp.read()
 
-                            # Sept 2026: image preparation used to run PIL decode/encode and
-                            # base64 of the full-size payload directly on the event loop, and
-                            # sent the image at its original resolution. A 4032x3024 phone
-                            # photo is ~49 MB of base64 for zero added detail — gemma3's vision
-                            # encoder works at 896x896 and downscales anything larger anyway,
-                            # so the extra pixels were pure transfer and CPU decode cost, and
-                            # the synchronous work stalled every other coroutine while it ran.
-                            # Now: downscale to VISION_MAX_EDGE and do all of it in a thread.
+                            # Downscale to VISION_MAX_EDGE, and do the whole
+                            # decode/encode/base64 in a thread. gemma3's vision
+                            # encoder works at 896x896 and downscales anything
+                            # larger anyway, so a full-resolution phone photo is
+                            # ~49 MB of base64 for no added detail — and run on
+                            # the event loop it stalls every other coroutine.
                             return await asyncio.to_thread(self._prepare_image_payload, data, is_gif)
                         else:
                             log_warning(f"Failed to fetch image: Status {resp.status} for {url}")

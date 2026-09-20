@@ -55,7 +55,7 @@ def test_split_text_into_safe_chunks_super_long_unbroken_line():
 
 def test_get_newsroom_wall_clock_block():
     block = get_newsroom_wall_clock_block()
-    assert "[GLOBAL_WALL_CLOCKS (12-Hour Verified Real-Time)]:" in block
+    assert "[GLOBAL_WALL_CLOCKS] (12-hour, computed from one instant):" in block
     assert "Chicago / US Central (Texas):" in block
     assert "London / UK:" in block
     assert "Sydney / Australia:" in block
@@ -148,7 +148,7 @@ def test_expanded_time_patterns():
     ]
     for q in queries:
         facts = resolve_time_queries(q)
-        assert "[DETERMINISTIC_TIME_FACTS]" in facts, f"Failed for query: {q}"
+        assert "[CURRENT_TIME_FACTS]" in facts, f"Failed for query: {q}"
         assert "Chicago / US Central (Texas)" in facts
         assert "London / UK" in facts
         assert "Sydney / Australia" in facts
