@@ -34,10 +34,12 @@ import sys
 from collections import defaultdict
 from datetime import datetime, timedelta
 from pathlib import Path
-from utils.core.atomic_write import write_atomic
 
 ROOT = Path(__file__).resolve().parent.parent.parent
 sys.path.insert(0, str(ROOT))
+
+# After sys.path.insert: `utils` is not importable until that line runs.
+from utils.core.atomic_write import write_atomic  # noqa: E402
 
 USER_LOGS = ROOT / "knowledge_base" / "user_logs"
 BACKUP = ROOT / "memory" / "log_rollup_backup"

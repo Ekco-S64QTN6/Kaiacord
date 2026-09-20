@@ -139,10 +139,24 @@ def is_recursive(text: str) -> bool:
     return bool(s) and ("dream_" in s or "kaia_dreams" in s)
 
 
+# `consolidated/` is this folder's *output*, not its input: one document per
+# book, person and topic, written by consolidate_dreams.py. Those files carry
+# `document_type: Consolidated Dream Reflection` and no `## Kaia's Reflection`
+# heading, so `classify()` reads all 46 of them as residue.
+#
+# The weekly curation task runs `triage_dreams --apply` *before* consolidation,
+# so this would have quarantined the previous week's entire output every week —
+# destroying exactly what the pass exists to produce, unattended, while logging
+# a successful triage.
+CONSOLIDATED = "consolidated"
+
+
 def scan() -> list:
     out = []
     for f in sorted(DREAMS.rglob("*.md")):
         if QUARANTINE in f.parents:
+            continue
+        if CONSOLIDATED in f.relative_to(DREAMS).parts:
             continue
         try:
             t = f.read_text(encoding="utf-8", errors="replace")

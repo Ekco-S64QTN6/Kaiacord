@@ -173,23 +173,24 @@ async def generate_metadata(session: aiohttp.ClientSession, category: str, body:
             data = await _post()
         if data is None:
             return {}
-            raw_text = data.get('response', '').strip()
-            
-            # Clean accidental markdown fences
-            if raw_text.startswith("```"):
-                lines = raw_text.split('\n')
-                if lines[0].startswith("```"):
-                    lines = lines[1:]
-                if lines and lines[-1].startswith("```"):
-                    lines = lines[:-1]
-                raw_text = '\n'.join(lines).strip()
-                
-            try:
-                return json.loads(raw_text)
-            except json.JSONDecodeError as e:
-                log_warning(f"Failed to parse LLM JSON: {e}\nRaw: {raw_text[:100]}...")
-                return {}
-                
+
+        raw_text = data.get('response', '').strip()
+
+        # Clean accidental markdown fences
+        if raw_text.startswith("```"):
+            lines = raw_text.split('\n')
+            if lines[0].startswith("```"):
+                lines = lines[1:]
+            if lines and lines[-1].startswith("```"):
+                lines = lines[:-1]
+            raw_text = '\n'.join(lines).strip()
+
+        try:
+            return json.loads(raw_text)
+        except json.JSONDecodeError as e:
+            log_warning(f"Failed to parse LLM JSON: {e}\nRaw: {raw_text[:100]}...")
+            return {}
+
     except asyncio.TimeoutError:
         log_warning(f"Ollama call timed out after {TIMEOUT_SECONDS}s")
         return {}

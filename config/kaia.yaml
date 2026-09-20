@@ -17,12 +17,10 @@ discord:
   whitelisted_channels: "kaia-opolis,aethelgard"
   rpg_channel: "aethelgard"
   ignored_users:
-    #- "Thorondor_470028550951403531"
+    #- "exampleName_470028550951403531"
     #- "470028550951403531"
 
-# Bluesky: DISABLED — the @kaiakuroshi.bsky.social account was deleted (Sept 2026).
-# Leaving this on produced repeated login attempts, fetch timeouts and circuit-breaker
-# trips in logs/kaiacord.log for an account that no longer exists.
+# Bluesky:
 bluesky:
   enabled: true
   cross_post_quips: true
@@ -86,8 +84,8 @@ performance:
 forum:
   # On. Every auto-generated post lands in #kaia-opolis as a draft with
   # Accept/Reject buttons — nothing reaches the forum without a human press.
-  enabled: true
-  auto_scrape: true
+  enabled: false
+  auto_scrape: false
 
   # Left OFF on purpose. Unsolicited answers in Technical Discussion ran
   # without staying grounded in the wiki and tech docs, and confidently wrong

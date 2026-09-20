@@ -102,7 +102,9 @@ def test_a_linked_profile_says_who_it_is():
     if not p.exists():
         pytest.skip("profile not generated")
     text = p.read_text(encoding="utf-8")
-    assert 'known_as: "Starkind"' in text
+    # Unquoted too: `enrich_metadata` round-trips the frontmatter through
+    # `yaml.safe_dump`, which drops the quotes. The value is what matters.
+    assert re.search(r'^known_as:\s*"?Starkind"?\s*$', text, re.M), text[:200]
     assert "this is Starkind from Discord" in text
 
 

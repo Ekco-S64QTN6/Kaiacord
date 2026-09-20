@@ -95,3 +95,61 @@ def test_the_wiki_scraper_refuses_pages_with_no_article_in_them():
     src = Path("tools/social/scrape_p99_wiki.py").read_text(encoding="utf-8")
     assert "intended to disambiguate" in src
     assert "MIN_ARTICLE_WORDS" in src
+
+
+# ── enrich_metadata's contract ───────────────────────────────────────
+
+def test_generate_metadata_never_returns_none():
+    """`process_file` treats a falsy return as 'failed', and `None` is falsy —
+    so a function that falls off the end reports every file as a failure and
+    explains nothing.
+
+    That happened: putting the Ollama call behind the GPU guard left the whole
+    response-processing block indented under `if data is None: return {}`, so it
+    was unreachable. The function returned `None` implicitly and the nightly
+    pass reported `Failed: 60` with no other line in the log.
+    """
+    import ast
+    import inspect
+
+    src = Path("tools/maintenance/enrich_metadata.py").read_text(encoding="utf-8")
+    tree = ast.parse(src)
+    fn = next(n for n in ast.walk(tree)
+              if isinstance(n, ast.AsyncFunctionDef) and n.name == "generate_metadata")
+
+    # No statement may follow a `return` in the same block.
+    for node in ast.walk(fn):
+        for field in ("body", "orelse", "finalbody"):
+            block = getattr(node, field, None)
+            if not isinstance(block, list):
+                continue
+            for i, stmt in enumerate(block[:-1]):
+                assert not isinstance(stmt, ast.Return), (
+                    f"unreachable code after `return` at line {stmt.lineno} "
+                    f"in generate_metadata"
+                )
+
+
+def test_no_maintenance_tool_has_unreachable_code_after_a_return():
+    """The same shape, swept across every tool. It is invisible to `ast.parse`,
+    invisible to an import, and only shows up as a wrong result."""
+    import ast
+
+    offenders = []
+    for p in Path("tools").rglob("*.py"):
+        if "tests" in p.parts:
+            continue
+        try:
+            tree = ast.parse(p.read_text(encoding="utf-8", errors="replace"))
+        except SyntaxError:
+            continue
+        for node in ast.walk(tree):
+            for field in ("body", "orelse", "finalbody"):
+                block = getattr(node, field, None)
+                if not isinstance(block, list):
+                    continue
+                for stmt in block[:-1]:
+                    if isinstance(stmt, (ast.Return, ast.Continue, ast.Break)):
+                        nxt = block[block.index(stmt) + 1]
+                        offenders.append(f"{p}:{nxt.lineno}")
+    assert not offenders, f"unreachable code: {offenders[:10]}"

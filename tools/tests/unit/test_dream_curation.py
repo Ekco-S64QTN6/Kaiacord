@@ -195,3 +195,31 @@ def test_her_own_prose_is_not_mistaken_for_an_essay(text):
     check exists to protect, and an earlier version of the rule rejected it."""
     assert consol.reads_as_essay(text) == ""
 
+
+
+# ── The two tools must not eat each other ────────────────────────────
+
+def test_triage_leaves_the_consolidated_documents_alone():
+    """`consolidated/` is triage's *output*, not its input.
+
+    Those documents carry `document_type: Consolidated Dream Reflection` and no
+    `## Kaia's Reflection` heading, so `classify()` read all 46 of them as
+    residue. The weekly curation task runs `triage_dreams --apply` *before*
+    consolidation, so it would have quarantined the previous week's entire
+    output every week — unattended, while logging a successful triage.
+    """
+    doomed = [str(f) for f, cls, _ in triage.scan() if cls != "reflection"]
+    consolidated = [d for d in doomed if "consolidated" in d]
+    assert not consolidated, (
+        f"triage would quarantine {len(consolidated)} consolidated document(s)")
+
+
+def test_the_weekly_task_triages_before_it_consolidates():
+    """The ordering is what makes the bug above destructive rather than merely
+    wrong, so it is worth pinning: if triage ever runs *after* consolidation
+    without the exclusion, the same thing happens."""
+    import inspect
+    from utils.core.background_tasks import CoreTaskManager
+
+    src = inspect.getsource(CoreTaskManager._make_dream_curation_task)
+    assert src.index("triage_dreams.py") < src.index("consolidate_dreams.py")

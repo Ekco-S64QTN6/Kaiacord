@@ -65,6 +65,7 @@ class CoreTaskManager:
         self.observation_digest_task = self._make_observation_digest_task()
         self.metadata_enrichment_task = self._make_metadata_enrichment_task()
         self.dream_curation_task = self._make_dream_curation_task()
+        self.corpus_hygiene_task = self._make_corpus_hygiene_task()
         self.ingress_task = self._make_ingress_task()
         
     def _make_news_refresh_task(self):
@@ -460,6 +461,113 @@ class CoreTaskManager:
             log_error(f"CRITICAL: Dream curation task died: {error}")
 
         return dream_curation_task
+
+    def _make_corpus_hygiene_task(self):
+        """Weekly: the deterministic corpus upkeep nobody remembers to run.
+
+        Three operations existed only behind `kaia-tools.sh`, which means they
+        happened when somebody thought of them:
+
+        * **rollup** — a day is the wrong unit for chunking. 533 of 1,112 daily
+          files once held fewer than the splitter's 6 turns, so half the corpus
+          was chunked below the intended granularity. Closed months fold into
+          one archive each; the current month stays daily so only today's file
+          is ever re-embedded. Nothing was due while every daily file belonged
+          to the current month — which is exactly why it was easy to forget that
+          305 of them come due the moment the month turns.
+        * **folder indexes** — the per-user READMEs are indexed, and go stale as
+          soon as the files under them move.
+        * **audit** — read-only. Reports what has gone wrong in the corpus and
+          names the tool that fixes it, into the log where the dashboard shows it.
+
+        All three are deterministic and make no model call, so this costs
+        nothing and cannot compete with her for the GPU. The audit runs last,
+        so its report describes the corpus *after* the other two.
+        """
+        @tasks.loop(hours=24 * 7)
+        async def corpus_hygiene_task():
+            if shutdown_manager.shutting_down:
+                return
+            if not config.get("knowledge_base.auto_hygiene", True):
+                return
+            if not getattr(self.ctx, 'bot_state', None) or \
+                    not getattr(self.ctx.bot_state, 'boot_complete', False):
+                return
+
+            import sys as _sys
+            from pathlib import Path as _Path
+
+            root = _Path(__file__).resolve().parents[2]
+
+            async def _run(script: str, *args, timeout: float = 900):
+                path = root / "tools" / "maintenance" / script
+                if not path.exists():
+                    log_warning(f"Corpus hygiene: {script} is missing.")
+                    return None
+                try:
+                    proc = await asyncio.create_subprocess_exec(
+                        _sys.executable, str(path), *args,
+                        stdout=asyncio.subprocess.PIPE,
+                        stderr=asyncio.subprocess.PIPE, cwd=str(root))
+                    out, err = await asyncio.wait_for(proc.communicate(), timeout=timeout)
+                except asyncio.TimeoutError:
+                    log_warning(f"Corpus hygiene: {script} hit its time limit.")
+                    return None
+                except Exception as e:                   # noqa: BLE001
+                    log_warning(f"Corpus hygiene: {script} failed to start: {e}")
+                    return None
+                text = (out or b"").decode(errors="replace")
+                # These scripts report refusals and crashes on stderr; a
+                # non-zero exit with no explanation is the thing worth logging.
+                if proc.returncode != 0:
+                    log_warning(f"Corpus hygiene: {script} exited "
+                                f"{proc.returncode}: "
+                                f"{(err or b'').decode(errors='replace')[:200]}")
+                    return None
+                return text
+
+            rolled = await _run("rollup_user_logs.py", "--apply")
+            if rolled is not None:
+                tail = [l for l in rolled.strip().splitlines() if "monthly archive" in l]
+                log_success("Log rollup complete"
+                            + (f" — {tail[-1].strip()}" if tail else " — nothing due"))
+                await _run("build_user_folder_index.py", "--apply")
+
+            report = await _run("audit_knowledge_base.py", timeout=300)
+            if report is not None:
+                lines = [l.rstrip() for l in report.strip().splitlines()]
+                # The findings are the indented count lines. The header and the
+                # backfill line are both that shape and neither is a defect —
+                # the backlog is pending work the nightly pass is already doing,
+                # and reporting it as a finding every week is how a warning
+                # stops being read.
+                findings = [
+                    l.strip() for l in lines
+                    if re.match(r"^\s+\d+\s+\w", l)
+                    and "corpus file" not in l
+                    and "awaiting nightly" not in l
+                ]
+                if findings:
+                    log_warning("Corpus audit: " + "; ".join(findings[:6]))
+                else:
+                    log_success("Corpus audit: no findings.")
+
+        @corpus_hygiene_task.before_loop
+        async def before_hygiene():
+            await self.ctx.bot.wait_until_ready()
+            # An hour after the dream curation, so it sees a settled corpus.
+            start = int(config.get('dream_mode.schedule_start_hour', 3))
+            now = datetime.now()
+            target = now.replace(hour=(start + 3) % 24, minute=0, second=0, microsecond=0)
+            if target <= now:
+                target = target + timedelta(days=1)
+            await asyncio.sleep(max(60.0, (target - now).total_seconds()))
+
+        @corpus_hygiene_task.error
+        async def hygiene_error(error):
+            log_error(f"CRITICAL: Corpus hygiene task died: {error}")
+
+        return corpus_hygiene_task
 
     def _make_monologue_task(self):
         @tasks.loop(minutes=15)
@@ -2154,6 +2262,9 @@ class CoreTaskManager:
         self.dream_curation_task.start()
         if self.dream_curation_task.get_task():
             task_registry.register('dream_curation_task', self.dream_curation_task.get_task())
+        self.corpus_hygiene_task.start()
+        if self.corpus_hygiene_task.get_task():
+            task_registry.register('corpus_hygiene_task', self.corpus_hygiene_task.get_task())
         if self.observation_digest_task.get_task():
             task_registry.register("observation_digest_task", self.observation_digest_task.get_task())
         self.ingress_task.start()
@@ -2183,6 +2294,7 @@ class CoreTaskManager:
         # than being asked to finish their current loop.
         self.metadata_enrichment_task.stop()
         self.dream_curation_task.stop()
+        self.corpus_hygiene_task.stop()
         self.ingress_task.stop()
 
 # Helper for backward compatibility

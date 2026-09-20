@@ -80,7 +80,7 @@ def clean_transcript(file_path):
 
 if __name__ == "__main__":
     # Relative, and lowercase: `Books/` has never existed on a case-sensitive
-# filesystem, and an absolute path pins this to one machine.
-target = "knowledge_base/books/Book - Johnny Mnemonic by William Gibson.md"
+    # filesystem, and an absolute path pinned this to one machine.
+    target = "knowledge_base/books/Book - Johnny Mnemonic by William Gibson.md"
     clean_transcript(target)
     print(f"✅ Cleaned {target}")

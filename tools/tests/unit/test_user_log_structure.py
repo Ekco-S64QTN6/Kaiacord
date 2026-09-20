@@ -72,12 +72,23 @@ def test_the_cleanser_cannot_flatten_a_log_again():
     assert "rejected rewrite" in src, "no post-check guarding the rewrite"
 
 
-def test_reconstructed_timestamps_are_declared():
-    """Repaired files carry synthetic within-day times; nothing downstream
-    should mistake them for original precision."""
-    repaired = [f for f in _discord_logs()
-                if "reconstructed_times: true" in f.read_text(encoding="utf-8", errors="replace")]
-    assert repaired, "expected the repair to mark the files it rebuilt"
+def test_the_repair_declares_reconstructed_timestamps():
+    """A repaired file carries synthetic within-day times, and says so, because
+    nothing downstream should mistake them for original precision.
+
+    This used to assert that *some file in the corpus* carried the marker, which
+    made it a test of corpus state rather than of the tool. `rollup_user_logs`
+    merges closed months into one archive and writes fresh frontmatter, so the
+    marker legitimately disappears once every repaired daily file has been
+    rolled up — and then this failed with nothing wrong. The durable claim is
+    that the tool writes it.
+    """
+    src = Path("tools/maintenance/repair_flattened_user_logs.py").read_text(encoding="utf-8")
+    assert "reconstructed_times: true" in src, (
+        "the repair no longer declares that it rebuilt the timestamps")
+    # And it must add the key when the frontmatter lacks it, rather than only
+    # when it happens to be there already.
+    assert 'if "reconstructed_times:" not in front' in src
 
 
 # ── The compaction tool ──────────────────────────────────────────────

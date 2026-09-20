@@ -6,6 +6,12 @@ from pathlib import Path
 # Add project root to path
 sys.path.append(str(Path(__file__).parent.parent))
 
+# A `tools/` script is run directly, so the project root is not on
+# sys.path until this line. Without it: ModuleNotFoundError: 'utils'.
+import sys
+from pathlib import Path
+sys.path.insert(0, str(Path(__file__).resolve().parents[2]))
+
 from utils.core.response_filter import BotSpeakFilter
 
 def sanitize_file(file_path, dry_run=True):

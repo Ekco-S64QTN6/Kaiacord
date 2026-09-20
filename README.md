@@ -402,7 +402,7 @@ Periodic scraping of Off-Topic and Technical Discussion forums, with a Discord m
 offering Accept/Reject on drafted replies, RAG-grounded support answers, and profile caching to
 model active users.
 
-September added a tech-knowledge synthesiser that extracts and categorises issues from
+added a tech-knowledge synthesiser that extracts and categorises issues from
 Technical Discussion threads into the knowledge base, profile compaction that distils scattered
 forum-user logs into single grounded cards, and scrape-watermark persistence so compacted users
 are not redundantly re-scraped.

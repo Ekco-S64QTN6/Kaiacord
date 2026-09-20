@@ -623,6 +623,15 @@ to happen — a config read added to `kaia_proactive` referenced a `config` that
 imported, and only calling the function found it. Three separate defects this September were
 caught by running the changed path and none by reading it.
 
+**A test that runs a tool is a tool run.** `test_tools_runnable` checked that every script in
+`tools/` can start, by invoking `python <tool> --help`. Sixteen of them have no argparse, so the
+argument is ignored and the script simply **runs** — `sanitize_logs`, `kb_cleanse_user_logs`,
+`repair_kb` and `precision_repair_kb` all rewrite `knowledge_base/user_logs/` in place. The suite
+stripped the identity frontmatter off eight forum profiles, twice, while claiming to be a
+read-only check, and the repair had to be run again afterwards. Exercise a script's *import block*
+with `importlib.util.spec_from_file_location` + `exec_module` under any name but `__main__`;
+anything guarded by `if __name__ == "__main__":` then stays unexecuted.
+
 **A regex across many files is a change you have not read.** Converting 35 `write_text` calls in
 21 modules to the atomic helper looked mechanical. The pattern matched the receiver greedily, so
 it swallowed each line's leading indentation, and it turned
@@ -668,6 +677,11 @@ next morning by the other, which replaced Kaia's own self-reference document wit
 personality profile assembled from her own posts. Anything that writes this file has to ask the
 registry who the account belongs to first; `test_every_writer_of_user_profile_consults_the_identity_registry`
 enforces it.
+
+It has now been stripped three times — twice by a second writer, once by the *test suite* running
+tools that have no argparse. `compact_forum_profiles.py --repair-identity --apply` restores it
+from the registry in seconds and touches nothing else, so run that whenever
+`test_identity_and_profiles` fails rather than hunting for the cause first.
 
 ---
 

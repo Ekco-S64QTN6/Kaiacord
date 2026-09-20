@@ -347,6 +347,16 @@ knowledge_base:
   # BACKGROUND-priority call.
   auto_enrich_limit: 60
 
+  # Weekly deterministic corpus upkeep: roll closed months into archives,
+  # rebuild the per-user folder READMEs, then run the read-only audit and log
+  # what it found.
+  #
+  # All three existed only behind kaia-tools.sh, which means they happened when
+  # somebody thought of them. Rollup is the one that matters: a day is the wrong
+  # unit for chunking, and 305 daily files come due the moment the month turns.
+  # No model call, so this cannot compete with her for the GPU.
+  auto_hygiene: true
+
 presence:
   # How long without a human message before her Discord status must stop
   # claiming the room is busy. Ground truth beats the engagement average,
@@ -567,6 +577,36 @@ dream_mode:
 # ============================================================================
 # VBulletin Forum Integration (Project 1999)
 # ============================================================================
+forum:
+  # Main switch. Gates scraping and Off-Topic posting.
+  enabled: false
+
+  # Reading the forum. Posting depends on this: she will not reply in a place
+  # she has not been reading (see min_threads/min_users_before_posting below).
+  auto_scrape: false
+
+  # Reply to questions in forum.allowed_threads. Off: it answers on sight
+  # rather than on interest, which is the behaviour people read as a bot.
+  auto_reply: false
+
+  # Unsolicited answers in Technical Discussion. Off deliberately — this ran
+  # without staying inside the wiki and tech docs it was supposed to be
+  # grounded in, and giving strangers confidently wrong EQ advice is worse
+  # than saying nothing. Do not re-enable without fixing the grounding.
+  tech_support_enabled: false
+
+  # Forum details
+  base_url: "https://www.project1999.com/forums"
+  forum_id: 19  # Off Topic
+
+  # Scraping settings
+  scrape_interval_minutes: 30
+  scrape_last_n_pages: 1
+  max_posts_per_thread_scrape: 200
+  max_pages_per_thread_scrape: 25
+  full_scrape_max_pages: 50
+  max_active_users_scrape: 15
+
 # ============================================================================
 # GENERATIVE MUSIC (!music)
 # ============================================================================
@@ -614,36 +654,6 @@ music:
   # Leave the channel this long after the last human does.
   alone_grace_seconds: 120
 
-forum:
-  # Main switch. Gates scraping and Off-Topic posting.
-  enabled: false
-
-  # Reading the forum. Posting depends on this: she will not reply in a place
-  # she has not been reading (see min_threads/min_users_before_posting below).
-  auto_scrape: true
-
-  # Reply to questions in forum.allowed_threads. Off: it answers on sight
-  # rather than on interest, which is the behaviour people read as a bot.
-  auto_reply: false
-
-  # Unsolicited answers in Technical Discussion. Off deliberately — this ran
-  # without staying inside the wiki and tech docs it was supposed to be
-  # grounded in, and giving strangers confidently wrong EQ advice is worse
-  # than saying nothing. Do not re-enable without fixing the grounding.
-  tech_support_enabled: false
-  
-  # Forum details
-  base_url: "https://www.project1999.com/forums"
-  forum_id: 19  # Off Topic
-  
-  # Scraping settings
-  scrape_interval_minutes: 30
-  scrape_last_n_pages: 1
-  max_posts_per_thread_scrape: 200
-  max_pages_per_thread_scrape: 25
-  full_scrape_max_pages: 50
-  max_active_users_scrape: 15
-  
   # ── Posting behaviour ──────────────────────────────────────────────────
   # Kaia posts on a public forum among strangers who did not ask to hear from
   # her, so the bar is "a welcome contribution from a person". These settings

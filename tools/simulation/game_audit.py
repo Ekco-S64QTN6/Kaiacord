@@ -10,7 +10,10 @@ sys.path.append(os.path.abspath(os.path.join(os.path.dirname(__file__), "../..")
 
 from utils.ttrpg.character_manager import create
 from utils.ttrpg.combat_engine import _resolve_combat
-from utils.ttrpg.monster_registry import get as get_monster, random_encounter
+from utils.ttrpg.monster_registry import get as get_monster
+# `random_encounter` moved to encounter_tables; this import had been
+# pointing at monster_registry since the split, so the tool could not start.
+from utils.ttrpg.encounter_tables import random_encounter
 from utils.ttrpg.forest_events import resolve_event
 from utils.ttrpg.progression import check_level_up, XP_THRESHOLDS
 

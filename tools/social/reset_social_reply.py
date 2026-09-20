@@ -2,6 +2,12 @@
 import os
 import asyncio
 from atproto import models
+# A `tools/` script is run directly, so the project root is not on
+# sys.path until this line. Without it: ModuleNotFoundError: 'utils'.
+import sys
+from pathlib import Path
+sys.path.insert(0, str(Path(__file__).resolve().parents[2]))
+
 from utils.social.kaia_bluesky import get_bluesky_client
 from utils.infrastructure.logging.kaia_logger import log_info, log_success, log_error
 

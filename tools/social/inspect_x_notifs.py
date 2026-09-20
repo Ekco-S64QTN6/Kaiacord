@@ -1,5 +1,11 @@
 import asyncio
 import os
+# A `tools/` script is run directly, so the project root is not on
+# sys.path until this line. Without it: ModuleNotFoundError: 'utils'.
+import sys
+from pathlib import Path
+sys.path.insert(0, str(Path(__file__).resolve().parents[2]))
+
 from utils.social.kaia_twitter import get_x_client
 
 async def inspect_x_notifs():
