@@ -931,7 +931,7 @@ menu_dreams() {
             # advertisement. Quarantine is reversible; nothing is deleted.
             info "Deterministic \u2014 no model involved. Shows a report first."
             run_tool "Triage Dreams (report)" tools/maintenance/triage_dreams.py
-            if confirm "Quarantine everything that is not a reflection?\n\nFiles move to knowledge_base/quarantine/dreams/ and can be moved back."; then
+            if confirm "Quarantine everything that is not a reflection?\n\nFiles move to knowledge_base/_quarantine/dreams/ and can be moved back."; then
                 run_tool "Triage Dreams (apply)" tools/maintenance/triage_dreams.py --apply
             fi
             ;;

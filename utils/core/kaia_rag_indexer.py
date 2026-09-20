@@ -480,7 +480,13 @@ class RAGIndexerMixin:
             doc.metadata["source_type"] = "user_logs"
         elif itype == 'user_profiles' or "user_profile" in file_path:
             doc.metadata["source_type"] = "user_profile"
-        elif "news_brief" in file_path or "news_summary" in file_path:
+        elif ("news_brief" in file_path or "news_summary" in file_path
+                or "/news/" in file_path.replace("\\", "/")):
+            # Keyed on the filename alone, this missed the 118 `tech_digest_*`
+            # files under news/tech_updates/. The prompt routing was unaffected
+            # — `context_optimizer` falls back to `"news" in path` — but
+            # `!explain` reported them as general_knowledge, so the metadata
+            # disagreed with where the node actually went.
             doc.metadata["source_type"] = "news"
         elif itype == 'dreams' or "kaia_dreams" in file_path:
             # Check for kaia_reflection frontmatter or path indicator

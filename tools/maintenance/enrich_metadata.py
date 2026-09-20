@@ -143,13 +143,36 @@ async def generate_metadata(session: aiohttp.ClientSession, category: str, body:
         "options": opts
     }
     
-    try:
-        async with session.post(f"{OLLAMA_HOST}/api/generate", json=payload, timeout=TIMEOUT_SECONDS) as response:
+    async def _post():
+        async with session.post(f"{OLLAMA_HOST}/api/generate", json=payload,
+                                timeout=TIMEOUT_SECONDS) as response:
             if response.status != 200:
                 log_warning(f"Ollama returned {response.status}")
-                return {}
-                
-            data = await response.json()
+                return None
+            return await response.json()
+
+    try:
+        # Behind the GPU guard at BACKGROUND priority.
+        #
+        # This posted straight to localhost:11434, so it was invisible to
+        # `gpu_memory_manager` and could not yield to anything. Running a
+        # backlog through it held the card at 98% back-to-back on gemma3:12b
+        # while the bot was live — every message she received queued behind
+        # whichever document was mid-enrichment, and the priority system had no
+        # way to know. CLAUDE.md §4: all Ollama calls go through the guard.
+        try:
+            from utils.infrastructure.gpu.gpu_manager import (
+                gpu_memory_manager, GPUTaskPriority)
+            import uuid as _uuid
+            data = await gpu_memory_manager.run_with_gpu_guard(
+                model_name=MODEL, priority=GPUTaskPriority.BACKGROUND,
+                coro=_post(), task_id=f"enrich_{_uuid.uuid4().hex[:8]}")
+        except ImportError:
+            # Running outside the bot's package (a bare checkout); the guard is
+            # not available and there is nothing to yield to.
+            data = await _post()
+        if data is None:
+            return {}
             raw_text = data.get('response', '').strip()
             
             # Clean accidental markdown fences

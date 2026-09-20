@@ -37,9 +37,23 @@ Kaia is optimized for continuous presence on a single 12GB GPU. Unlike previous 
 The system uses a global `asyncio.Semaphore(1)` to prevent concurrent GPU access:
 - All GPU-bound operations (chat, dream generation, dream consolidation, forum drafting,
   metadata enrichment) acquire the semaphore before calling Ollama.
-- Every call carries a `GPUTaskPriority`. Batch tools run at `BACKGROUND`, which yields to
-  live chat — that is what makes it safe to consolidate dreams or synthesise troubleshooting
-  guides while she is up.
+- Every call carries a `GPUTaskPriority`, and inside the bot process `BACKGROUND` work yields
+  to live chat.
+
+**The semaphore does not span processes.** `gpu_semaphore = asyncio.Semaphore(1)` is a
+module-level object, so a standalone tool — `consolidate_dreams.py`, `enrich_metadata.py`,
+`synthesize_technical_knowledge.py`, the news refresh subprocess — gets its *own* semaphore that
+coordinates with nothing the bot is doing. Calling `run_with_gpu_guard` there serialises the tool
+against itself and nothing more.
+
+What actually keeps them from colliding is the Ollama daemon: both processes talk to one server,
+which queues work per model rather than running it concurrently. So the failure mode is **latency,
+not VRAM thrash or corruption** — a message arriving mid-batch waits for the in-flight generation
+to finish, which for a 400-token metadata call is several seconds.
+
+Practical consequence: a long batch is safe to run while she is up, but it will make her slower to
+answer for as long as it runs. Stop it if someone is actually talking to her. Every batch tool in
+this repository is resumable and idempotent for that reason.
 - A `ContextVar` tracks re-entrancy to prevent deadlocks from nested GPU calls.
 - The guard is managed through `GPUMemoryManager.run_with_gpu_guard()`.
 

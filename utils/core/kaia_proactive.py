@@ -130,15 +130,33 @@ class ProactiveEngine:
     # ── Time & Rate Checks ──────────────────────────────────────────
 
     def _is_within_hours(self) -> bool:
-        """Check if current time is within the allowed proactive window."""
-        hour = datetime.now().hour
+        """Is now inside the proactive window — or is the window switched off?
+
+        `proactive.respect_quiet_hours` defaults to **false**, matching
+        `monologue.respect_quiet_hours`. The window silently governed the single
+        loop that decides whether she ever speaks first, and its default of
+        9-22 meant a third of every day was ruled out before the desire gate or
+        the rate limiter were even consulted — "declined to initiate — outside
+        active hours" with nothing else logged.
+
+        Whether she should be quiet at 3am is the operator's call about their
+        own server, not something to bake in.
+        """
         try:
             from utils.infrastructure.system.yaml_config import config
+            if not config.get('proactive.respect_quiet_hours', False):
+                return True
             start = int(config.get('proactive.quiet_hour_start', QUIET_HOUR_START))
             end = int(config.get('proactive.quiet_hour_end', QUIET_HOUR_END))
         except (TypeError, ValueError):
             start, end = QUIET_HOUR_START, QUIET_HOUR_END
-        return start <= hour < end
+        hour = datetime.now().hour
+        # Wraps midnight when start > end, the same way PostingWindow does.
+        if start == end:
+            return True
+        if start < end:
+            return start <= hour < end
+        return hour >= start or hour < end
 
     def is_within_hours(self) -> bool:
         """Public alias so out-of-band senders (e.g. the observation digest

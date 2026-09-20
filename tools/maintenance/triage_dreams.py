@@ -30,7 +30,7 @@ This tool only sorts. It writes nothing into the corpus and calls no model.
     python tools/maintenance/triage_dreams.py --apply        # quarantine
     python tools/maintenance/triage_dreams.py --show transcript --limit 5
 
-Quarantined files move to `knowledge_base/quarantine/dreams/<class>/`, which is
+Quarantined files move to `knowledge_base/_quarantine/dreams/<class>/`, which is
 excluded from indexing, so nothing is destroyed and the move is reversible.
 Dry run by default (CLAUDE.md §10).
 """
@@ -46,7 +46,12 @@ from pathlib import Path
 sys.path.insert(0, str(Path(__file__).resolve().parents[2]))
 
 DREAMS = Path("knowledge_base/kaia_dreams")
-QUARANTINE = Path("knowledge_base/quarantine/dreams")
+# `_quarantine`, with the underscore. `RAGIndexerMixin._is_excluded_path`
+# matches "/_quarantine" and nothing else, so the old spelling put every
+# quarantined transcript straight back into the index — and this tool runs
+# with --apply from the weekly curation task, so it would have done that
+# unattended, defeating its own purpose.
+QUARANTINE = Path("knowledge_base/_quarantine/dreams")
 
 # The heading the current dream engine writes. Its presence is what makes a file
 # a reflection; everything else in the folder is residue from an older pipeline.

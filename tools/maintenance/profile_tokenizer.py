@@ -29,7 +29,7 @@ def profile_file(file_path):
         print(f"FAILED: {e}")
 
 if __name__ == "__main__":
-    path = "knowledge_base/Books/Artificial Intelligence A Modern Approach by Stuart Russell and Peter Norvig.md"
+    path = "knowledge_base/books/Artificial Intelligence A Modern Approach by Stuart Russell and Peter Norvig.md"
     if os.path.exists(path):
         profile_file(path)
     else:

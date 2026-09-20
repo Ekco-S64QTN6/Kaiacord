@@ -286,6 +286,19 @@ dashboard:
 # Proactive speaking window
 # ============================================================================
 proactive:
+  # Whether the proactive opener observes quiet hours at all.
+  #
+  # OFF by default. The window governed the one loop that decides whether she
+  # ever speaks first, and a 9-22 default ruled out a third of every day before
+  # the desire gate or the rate limiter were consulted — the log said
+  # "declined to initiate — outside active hours" and nothing else. Whether she
+  # should be quiet at 3am is a judgement about your server, not a default.
+  #
+  # The rate limiter and the desire gate still apply either way; this only
+  # removes the clock from the decision. `monologue.respect_quiet_hours` is
+  # false for the same reason.
+  respect_quiet_hours: false
+
   # Local hours during which she may speak first. Wraps nothing: 9-22 means
   # 09:00 until 21:59. These were hardcoded in kaia_proactive.py, so changing
   # when she may initiate meant editing source.

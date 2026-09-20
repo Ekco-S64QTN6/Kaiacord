@@ -98,7 +98,7 @@ def main():
         for filename, found_name in moved_files:
             print(f"  - {filename} (contains '{found_name}') -> moved to quarantine")
         
-        print("\n⚠️  These files were moved to ./knowledge_base/quarantine/")
+        print("\n⚠️  These files were moved to ./knowledge_base/_quarantine/")
         print("⚠️  Review them and either delete or clean them before re-adding")
     else:
         print("\n✓ No phantom content found in knowledge base")

@@ -168,6 +168,13 @@ Verified 2026-09-20: **369 monsters**, **395 gear + 58 consumables = 453 items**
 - **GPU is reserved for Ollama.** No CUDA, Numba, or PyCUDA for non-LLM work. CPU + NumPy only.
   All Ollama calls go through `gpu_memory_manager` with an appropriate `GPUTaskPriority`
   (`grep -rc run_with_gpu_guard utils/` for current call sites).
+- **That guard is process-local.** `gpu_semaphore` is a module-level `asyncio.Semaphore(1)`, so a
+  standalone tool gets its own and coordinates with nothing the bot is doing. What keeps a batch
+  job from colliding with live chat is the Ollama daemon queueing per model — so the cost is
+  **latency, not corruption**: a message arriving mid-batch waits for the in-flight generation.
+  Run long batches when nobody is talking to her, and keep every one of them resumable.
+  `docs/03-architecture/gpu-management.md` said BACKGROUND priority "yields to live chat" and made
+  this sound safer than it is; it is true inside the bot and false for every tool in `tools/`.
 - **`secrets` for security-relevant randomness** (combat rolls, loot, tokens). `random` is fine
   for flavour (dream shuffling, world-event variety).
 
