@@ -56,8 +56,8 @@ def clean_body_text(body):
     # 3. Clean up empty brackets like []{#...}
     body = re.sub(r'\[\]\{[^}]+\}', '', body)
     
-    # 4. Remove redundant double-bolding/headers if they just repeat the filename/title
-    # (Optional, but let's be careful not to over-strip)
+    # 4. Remove a bolded header that only repeats the filename or title.
+    #    Conservative — an over-strip here removes real headings.
     
     # Normalize internal whitespace within paragraphs but keep double newlines
     blocks = re.split(r'\n\s*\n', body)

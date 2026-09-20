@@ -801,7 +801,7 @@ def test_the_draft_flag_reaches_the_message():
     assert MockMessage("x", MockUser(1, "a", "a"), MockChannel(1)).no_persist is False
 
 
-# ── Quoting the right person (Phase 93) ──────────────────────────────
+# ── Quoting the right person ─────────────────────────────────────────
 
 def _post_div(html):
     from bs4 import BeautifulSoup
@@ -950,7 +950,7 @@ def test_both_scrape_paths_collapse_videos():
     assert "collapse_video_ids(block)" in src, "post-history writer"
 
 
-# ── The forum guidance was steering her to one-word posts (Phase 98) ──
+# ── Forum guidance must not steer her to one-word posts ──────────────
 
 
 # ── Not regenerating the same failure forever ────────────────────────
@@ -990,7 +990,7 @@ def test_the_watcher_checks_before_generating():
 # ── A short draft is retried, not silently dropped ───────────────────
 
 
-# ── The forum prompt is the Discord prompt (Phase 98) ────────────────
+# ── The forum prompt is the Discord prompt ───────────────────────────
 
 
 def test_the_anti_bot_rules_still_exist_in_the_filter():

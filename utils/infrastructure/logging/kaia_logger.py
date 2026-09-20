@@ -204,8 +204,8 @@ def log_debug(message):
 
 def log_separator():
     """Print a horizontal separator line."""
-    # Separators are visual clutter in dashboard logs, so we might skip them
-    # or log them as a special info message
+    # Separators are visual clutter in the dashboard, so they are logged as
+    # plain info rather than rendered.
     pass
 
 

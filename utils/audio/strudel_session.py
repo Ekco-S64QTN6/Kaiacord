@@ -76,8 +76,8 @@ class MusicSession:
 
                 # The operator can close the player window at any time, and with
                 # show_window on that is a normal thing to do. Treat it as "end
-                # the set", not as a pattern that failed: this used to log an
-                # ERROR every tick and keep the session up streaming silence.
+                # the set", not as a pattern failure — otherwise the session
+                # stays up streaming silence and logs an error every tick.
                 if not self.engine.alive():
                     if self.text_channel:
                         try:

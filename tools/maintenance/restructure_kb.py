@@ -1,19 +1,8 @@
 #!/usr/bin/env python3
-"""One-off: flatten the knowledge_base top level into something legible.
+"""One-off: flatten the knowledge_base top level from sixteen folders to twelve,
+merging the pairs that were two names for one thing.
 
-Sixteen top-level folders had grown up one at a time, and by September 2026 the
-shape no longer said anything about the contents:
-
-  * `documents/tech_updates/` (121 files) sat inside `documents/` while a
-    separate `news/` (250 files) held the same kind of material.
-  * `corrupt_files/` (0 files) and `quarantine/` (868) were two names for
-    "not part of the corpus", excluded by two separate rules in the indexer.
-  * `snapshots/` (0) and `system_logs/` (1) were two names for "something the
-    running bot wrote about itself".
-  * `deep_dive_reports/` held two files, and `blogs/` fourteen, both of which
-    are prose from the web and belong with `documents/`.
-
-The moves, and what each one costs:
+The moves:
 
     documents/tech_updates  ->  news/tech_updates
     corrupt_files           ->  _quarantine/corrupt_files
@@ -23,9 +12,8 @@ The moves, and what each one costs:
     deep_dive_reports/*.md  ->  documents/
     blogs/*.md              ->  documents/
 
-`_quarantine` keeps the leading underscore that `_ingress` established for
-"staging, never indexed". `runtime` does not take one, because snapshots *are*
-indexed (`source_type: snapshot`) and the underscore would say otherwise.
+`_quarantine` takes the leading underscore that means "never indexed".
+`runtime` does not, because snapshots *are* indexed (`source_type: snapshot`).
 
     python tools/maintenance/restructure_kb.py            # dry run
     python tools/maintenance/restructure_kb.py --apply

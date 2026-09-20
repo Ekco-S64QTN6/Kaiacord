@@ -41,9 +41,9 @@ async def process_external_mention(
     )
     
     # Stable across restarts. `hash()` on a str is salted per process
-    # (PYTHONHASHSEED), so this channel id — which keys channel memory — used to
-    # change on every boot, quietly discarding the conversation history for
-    # every external platform each time the bot restarted.
+    # (PYTHONHASHSEED), and this id keys channel memory — so a salted hash
+    # discards the conversation history of every external platform on each
+    # boot.
     mock_channel = MockChannel(id=conversation_channel_id(platform, conversation_key))
     
     # Construct the mock message

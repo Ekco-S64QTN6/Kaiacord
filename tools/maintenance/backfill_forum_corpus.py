@@ -72,9 +72,9 @@ async def backfill(pages: int, users: int, delay: float, forum_id: int) -> int:
 
     if all_posts:
         # Deep-scrape first. update_forum_user_profiles writes a placeholder
-        # user_profile.md for every author it sees, and the deep scrape's own
-        # 1-hour profile cooldown used to treat those placeholders as "already
-        # done" — so running it second scraped nobody at all.
+        # user_profile.md for every author it sees, and the deep scrape's 1-hour
+        # profile cooldown counts an existing profile as recent work — so run the
+        # other way round it scrapes nobody.
         n = await client.scrape_active_users(all_threads, all_posts, max_users=users)
         print(f"Deep-scraped {n} user histories.")
         client.update_forum_user_profiles(all_posts)

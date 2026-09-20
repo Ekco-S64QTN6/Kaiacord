@@ -1,16 +1,11 @@
 """Test runs must never write into production telemetry.
 
-This has gone wrong twice, in two different files, each of which hardcoded its
-own path so fixing one did nothing for the other:
+A writer that hardcodes its own path has to be fixed on its own, and each one
+missed puts suite output where an audit reads it back as production behaviour:
+mock objects in the log, fixture rows counted by `!sysmon`.
 
-  * `logs/kaiacord.log` (Phase 67) — mock objects and `test-model` traces read
-    back as production ERRORs during a log review.
-  * `memory/hallucination_log.jsonl` (Phase 80) — **all 368 entries** were unit
-    test fixtures, and `!sysmon` reported that count as "hallucinations in the
-    last 24h".
-
-`telemetry_paths.telemetry_path()` is now the single decision point. These
-tests exist so a third instance cannot be introduced quietly.
+`telemetry_paths.telemetry_path()` is the single decision point. These tests
+assert that every dashboard source goes through it.
 """
 import ast
 import io

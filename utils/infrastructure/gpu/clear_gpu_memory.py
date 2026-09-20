@@ -65,24 +65,24 @@ def force_clear_gpu() -> bool:
         return True
     
     try:
-        # Phase 1: Standard cleanup (Reduced loops for efficiency)
+        # Step 1: Standard cleanup (Reduced loops for efficiency)
         for _ in range(2):
             gc.collect()
             torch.cuda.empty_cache()
         
         torch.cuda.synchronize()
         
-        # Phase 2: Reset allocator stats
+        # Step 2: Reset allocator stats
         torch.cuda.reset_peak_memory_stats()
         torch.cuda.reset_accumulated_memory_stats()
         
-        # Phase 3: IPC cleanup for multi-process scenarios
+        # Step 3: IPC cleanup for multi-process scenarios
         try:
             torch.cuda.ipc_collect()
         except Exception:
             pass
         
-        # Phase 4: Final cleanup
+        # Step 4: Final cleanup
         gc.collect()
         torch.cuda.empty_cache()
         

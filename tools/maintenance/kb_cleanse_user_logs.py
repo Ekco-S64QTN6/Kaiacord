@@ -19,16 +19,12 @@ LOG_DIRS = [
 
 async def cleanse_content_with_llm(client, content):
     """Use LLM to remove junk, redundancy, and roleplay while preserving facts."""
-    # Instruction 4 used to read "Fix any formatting so it follows a clean
-    # 'User: ...' / 'Kaia: ...' pattern", and the model complied: it rewrote
-    # `[2026-03-12 14:22:01] Ekco:` into `User:` across 774 files. That deleted
-    # the three things retrieval runs on — the turn markers
+    # The line format is stated as inviolable, and the post-check below rejects
+    # any rewrite that drops turn markers. An instruction to "fix the formatting"
+    # is taken literally: the model rewrites `[2026-03-12 14:22:01] Ekco:` to
+    # `User:` and deletes the three things retrieval runs on — the marker
     # ConversationTurnSplitter chunks on, the timestamp the indexer reads for
-    # recency, and the speaker name that scopes a log to its user. It also
-    # wrote the model's own preamble into the corpus.
-    #
-    # The line format is now stated as inviolable, and a post-check below
-    # rejects any rewrite that drops turn markers.
+    # recency, and the speaker name that scopes a log to its user.
     prompt = (
         "You are a Data Sanitization Engine. Clean the following chat log.\n"
         "1. Remove ALL roleplay markers like (actions), [meta-talk], or *italicized actions*.\n"

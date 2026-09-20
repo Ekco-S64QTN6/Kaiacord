@@ -362,24 +362,19 @@ class CoreTaskManager:
         """Weekly: sort the dream folder, then fold the week's dreams into the
         documents they belong to.
 
-        One file per night is the right shape for *writing* a dream and the
-        wrong one for retrieving it. By Sept 2026 `kaia_dreams/` held 2,399
-        files; a question about Do Androids Dream retrieved three fragments
-        chosen by similarity, out of forty-two, with nothing to say what she had
-        settled on. 868 of those files were not reflections at all but cleaned
-        chat transcripts and scraped prose — one an American Express
-        advertisement — all of it indexed and labelled to her as INTERNAL
-        REFLECTION (DREAM), and all of it feeding the next night's dream, since
-        `kaia_dreams` is itself a valid dream source.
+        One file per night is the right shape for *writing* a dream and the wrong
+        one for retrieving it — forty-two reflections on one book retrieve as three
+        fragments chosen by similarity.
 
-        Triage first and always: it is deterministic, costs nothing, and its
-        output is what keeps the transcript shape from propagating. The
-        consolidation pass is the expensive half and is skipped unless enough
-        new material has accumulated to be worth a model call.
+        Triage runs first and always: it is deterministic, costs nothing, and it is
+        what keeps non-reflections out of an index labelled to her as INTERNAL
+        REFLECTION (DREAM) and feeding the next night's dream. Consolidation is the
+        expensive half and is skipped unless enough new material has accumulated to
+        be worth a model call.
 
-        Both halves are resumable. Consolidation archives each group as it
-        finishes and folds an existing document back in rather than replacing
-        it, so a run cut short by the timeout simply continues next week.
+        Both halves are resumable: consolidation archives each group as it finishes
+        and folds an existing document back in rather than replacing it, so a run cut
+        short by the timeout continues next week.
         """
         @tasks.loop(hours=24 * 7)
         async def dream_curation_task():
@@ -631,13 +626,9 @@ class CoreTaskManager:
 
         channel = self.ctx.bot.get_channel(trigger.channel_id)
         if not channel:
-            # Silent until now, which is how this hid. `_find_active_channel`
-            # reads `channel_last_activity`, which external platforms were
-            # stamping with `conversation_channel_id` pseudo-ids — so whenever
-            # a forum thread was the most recent activity, the proactive target
-            # was an id Discord has never heard of and the whole dispatch
-            # returned False without a word. "Proactive message sent" appears
-            # once in the entire production log.
+            # Log the unresolved case. `_find_active_channel` reads
+            # `channel_last_activity`, and an id Discord has never heard of makes
+            # the whole dispatch return False — silently, if this is not here.
             log_warning(
                 f"Proactive dispatch aborted: channel {trigger.channel_id} does not "
                 f"resolve to a Discord channel (trigger={trigger.trigger_type})."
@@ -1238,12 +1229,11 @@ class CoreTaskManager:
                     return
                 log_info(f"Scraped {len(page_threads)} active threads from Project 1999 Off-Topic (Forum 19)")
 
-                # Exclude stickies, threads where Kaia posted last, and any
-                # thread she has interjected into recently. This is the opener
-                # path, so the cooldown applies; a thread where someone has
-                # since replied to her is handled by the reply watcher instead,
-                # which is not cooldown-gated. The old filter only skipped
-                # threads where she happened to be the *last* poster.
+                # Exclude stickies and any thread she has interjected into
+                # recently, not merely those where she posted last. This is the
+                # opener path, so the thread cooldown applies; a thread where
+                # someone has since replied to her belongs to the reply watcher,
+                # which is not cooldown-gated.
                 thread_cooldown = float(config.get('forum.thread_cooldown_hours', 72))
                 candidates = [
                     t for t in page_threads
@@ -1307,10 +1297,9 @@ class CoreTaskManager:
                     log_warning(f"Could not fetch posts for thread {thread_id}, skipping auto-post.")
                     return
 
-                # One pipeline. This used to assemble its own persona +
-                # thread-context prompt and call ollama directly at a fixed
-                # temperature, which is exactly why her forum voice drifted
-                # from her Discord voice — that path had no RAG and no memory.
+                # One pipeline. A locally assembled persona and thread-context
+                # prompt calling ollama directly gets no RAG and no memory, which
+                # is how a forum voice drifts from the Discord one.
                 from utils.social.forum_drafting import draft_forum_reply
                 draft = await draft_forum_reply(
                     self.ctx, thread_id=thread_id, title=title, posts=posts)
@@ -1720,14 +1709,12 @@ class CoreTaskManager:
         except Exception as e:
             log_error(f"Failed to run news update: {e}")
 
-    # ── Observation Digest ──────────────────────────────────────────
-    # The digest is driven by how much NEW conversation Kaia has actually
-    # overheard, not by the wall clock. The previous 2-hour loop re-read the
-    # whole day's log and re-summarised the same trailing 40 turns each time,
-    # so consecutive entries could differ by 2 messages (81 -> 83) and say
-    # substantially the same thing. Now a high-water mark records the newest
-    # turn already folded into a digest, and a run only happens once enough
-    # unseen turns have accumulated past it.
+    # ── Observation digest ──────────────────────────────────────────
+    # Driven by how much NEW conversation has been overheard, not by the clock.
+    # A high-water mark records the newest turn already folded into a digest and
+    # a run happens only once enough unseen turns accumulate past it — a fixed
+    # interval re-summarises the same trailing window and produces near-duplicate
+    # entries whenever the channel is quiet.
 
     #: Passive turns that must accumulate past the watermark before digesting.
     OBS_DIGEST_MIN_NEW_TURNS = 25
@@ -1996,11 +1983,10 @@ class CoreTaskManager:
                 except Exception as e:
                     log_debug(f"Failed to log growth event for observation digest: {e}")
 
-                # 3. Say it out loud. Previously the digest only ever reached
-                #    chat if the proactive lottery happened to pick the
-                #    "overheard" source (weight 20 of ~139, capped at 2
-                #    proactives/day), so most digests were written and never
-                #    spoken.
+                # 3. Say it out loud, on this path rather than through the
+                #    proactive lottery — routed there the digest only airs when
+                #    the "overheard" source wins a weighted draw, so most are
+                #    written and never spoken.
                 await self._broadcast_observation_digest(digest_text, entry_ts)
             except Exception as e:
                 log_error(f"Observation digest task failed: {e}")
@@ -2044,16 +2030,11 @@ class CoreTaskManager:
                 log_debug("Monologue broadcast skipped: inside minimum interval.")
                 return False
 
-            # Quiet hours are opt-in here, and off by default.
-            #
-            # These used to be the proactive engine's window (09:00-22:00) on
-            # the reasoning that one setting should govern everything that
-            # speaks unprompted. In practice that is the wrong comparison: a
-            # proactive opener interrupts someone in a channel they are reading,
-            # whereas a thought in #kaia-opolis is her talking to herself in her
-            # own room. Three thoughts in one evening — 23:02, 23:31, 23:48,
-            # one of them directly about the question Ekco had just asked her —
-            # were generated, logged, and silently withheld.
+            # Quiet hours are opt-in here, on their own switch rather than the
+            # proactive engine's. The two interruptions are not comparable: a
+            # proactive opener speaks into a channel someone is reading, where an
+            # aired thought in her own channel does not. Sharing one setting
+            # withholds thoughts that were generated and logged.
             if config.get("monologue.respect_quiet_hours", False):
                 if self.proactive_engine and not self.proactive_engine.is_within_hours():
                     log_debug("Monologue broadcast skipped: outside active hours.")
@@ -2121,10 +2102,9 @@ class CoreTaskManager:
                 log_debug("Observation digest broadcast skipped: inside minimum interval.")
                 return False
 
-            # #kaia-opolis, the same place the forum drafts go — this is her
-            # own channel, and a digest is her talking about what she noticed
-            # rather than a reply to whoever happened to speak last. It used to
-            # land in whatever channel was most recently active.
+            # #kaia-opolis, the same place the forum drafts go. A digest is her
+            # talking about what she noticed, not a reply to whoever spoke last,
+            # so it goes to her own channel rather than the most active one.
             channel = discord.utils.get(self.ctx.bot.get_all_channels(), name="kaia-opolis")
             if not channel:
                 log_debug("Observation digest broadcast skipped: #kaia-opolis not found.")
@@ -2135,22 +2115,10 @@ class CoreTaskManager:
                 build_digest_content_id, mark_digest_broadcast,
             )
 
-            # Say the observation. Not a reaction to it.
-            #
-            # This used to build a ProactiveTrigger and hand it to
-            # `_dispatch_proactive`, which passed the digest to
-            # `generate_opener` as *hidden context* and sent whatever one-liner
-            # came back. So the thing that reached chat was never the digest:
-            #
-            #   digest:  "I noticed they were spiraling about AI regulation,
-            #             financial instability, and some bizarre online cults"
-            #   sent:    "i saw something similar. it's just the internet being
-            #             the internet, isn't it?"
-            #
-            # and the log then said "Observation digest broadcast to chat",
-            # which is how three of these looked like successes while the
-            # observation itself had never once been spoken. The summarisation
-            # is the point; re-generating a comment about it threw it away.
+            # Say the observation, not a reaction to it. Passing the digest to
+            # `generate_opener` as hidden context sends whatever one-liner comes
+            # back and the digest itself is never spoken — while the log still
+            # reports it as broadcast. The summary is the point.
             from utils.core.sanitizer import to_plain_english
             from utils.infrastructure.system.messaging import send_kaia_response
 
@@ -2167,7 +2135,7 @@ class CoreTaskManager:
                 await asyncio.sleep(2.0)
             await send_kaia_response(channel, f"{label} {text}")
 
-            # Bookkeeping the dispatch path used to do on our behalf.
+            # Bookkeeping the proactive dispatch path does for its own sends.
             content_id = build_digest_content_id(entry_ts)
             try:
                 mark_digest_broadcast(content_id)
@@ -2673,10 +2641,9 @@ async def run_moogle_festival(bot_ctx, channel):
                 return key, name
         return DROP_POOL[0][0], DROP_POOL[0][1]
 
-    # The copy used to be framed as mail ("Moogle Mail Drop", "Packages
-    # Delivered"), which sent players to the pub mailbox to find nothing —
-    # the items go straight into the pack. Reworded so the framing matches
-    # what the code does.
+    # Not framed as mail: the items go straight into the pack, so wording like
+    # "Mail Drop" or "Packages Delivered" sends players to the pub mailbox to
+    # find nothing.
     await channel.send(embed=discord.Embed(
         title="🪶 Moogle Hand-Delivery",
         description=(

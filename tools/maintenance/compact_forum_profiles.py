@@ -78,19 +78,14 @@ def uid_of(d: Path) -> int | None:
 def identity_of(d: Path) -> tuple:
     """(is_self, frontmatter_lines, header_suffix) from the identity registry.
 
-    Sept 18 2026. This tool rebuilt `user_profile.md` from scratch and emitted a
-    fixed set of frontmatter keys, so the identity keys the *scraper* writes were
-    silently dropped the first time a profile was compacted:
+    This tool rebuilds `user_profile.md` from scratch, so the identity keys the
+    scraper writes have to be re-read from the registry rather than assumed: a
+    fixed key list drops `is_self: true` (turning Kaia's own forum account into a
+    profile of a stranger) and `known_as` (the only thing linking a forum account
+    to the Discord user of the same person).
 
-      * `forum_Kaia_322197/user_profile.md` lost `is_self: true`, turning Kaia's
-        own forum account into a personality profile of a stranger — built from
-        her own posts, retrievable as somebody she has met.
-      * `forum_magnetaress_210090` lost `known_as: "Starkind"`, which is the only
-        thing in the document connecting that account to the Discord user of the
-        same person. Reconnecting those two was the operator's explicit ask.
-
-    The registry is the source of truth and was never wrong; only the document
-    that reaches retrieval was.
+    The registry is the source of truth; only the document that reaches retrieval
+    can be wrong.
     """
     uid = uid_of(d)
     if uid is None:

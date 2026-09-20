@@ -47,7 +47,7 @@ CONFUSION_PATTERNS = [
     (r"(?i)Kaia:.*different\s*story", "Kaia acknowledged different story"),
     (r"(?i)Kaia:.*my\s*apologies.*thinking\s*of\s*something\s*else", "Kaia acknowledged confusion"),
     
-    # Specific to the incident - Herbert themes applied to Deus Ex
+    # Narrow: Herbert themes bleeding into Deus Ex material.
     (r"(?i)deus\s*ex.*revolution.*power\s*structures.*herbert", "Herbert themes on Deus Ex"),
 
     # Cheese Hallucination (Cheese in China)

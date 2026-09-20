@@ -28,8 +28,8 @@ def repair_line_breaks(content):
     frontmatter = parts[1]
     body = "".join(parts[2:])
     
-    # If there are many single-word lines followed by empty lines
-    # Let's strip excess newlines and join
+    # Many single-word lines separated by blanks: collapse the excess newlines
+    # and rejoin the fragments.
     
     # Heuristic: if average line length is extremely low
     lines = [l.strip() for l in body.split("\n")]

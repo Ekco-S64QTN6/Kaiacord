@@ -58,14 +58,12 @@ class UnifiedLogger:
     def _resolve_log_file():
         """Pick the log destination.
 
-        Sept 2026 audit: the test suite was writing into logs/kaiacord.log, the same file
-        used as production telemetry. Mock objects from the suite (e.g. a MagicMock `cid`
-        in the Bluesky path, `test-model` GPU traces) then read back as production ERRORs
-        and cost real time to rule out during log review. Test runs are redirected to a
-        separate file so the production log stays a truthful incident record.
+        Test runs go to a separate file. Sharing one with production telemetry makes
+        suite artifacts — MagicMock repr, `test-model` GPU traces — read back as
+        production errors, and they cost real time to rule out during a log review.
 
-        Precedence: explicit KAIACORD_LOG_FILE override, then pytest detection, then the
-        production default.
+        Precedence: explicit KAIACORD_LOG_FILE override, then pytest detection, then
+        the production default.
         """
         override = os.getenv("KAIACORD_LOG_FILE")
         if override:

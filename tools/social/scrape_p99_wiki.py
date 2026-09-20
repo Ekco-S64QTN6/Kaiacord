@@ -41,9 +41,9 @@ WIKI_URLS = [
     "https://wiki.project1999.com/Per-Level_Hunting_Guide",
 ]
 
-# Below this a page carries no answer worth retrieving. The two rejected on
-# 2026-09-20 held 8 and 25 words; the smallest genuinely useful guide in the
-# corpus is an order of magnitude larger.
+# Below this a page carries no answer worth retrieving — a rejected page runs to
+# a couple of dozen words, where the smallest useful guide in the corpus is an
+# order of magnitude larger.
 MIN_ARTICLE_WORDS = 60
 
 

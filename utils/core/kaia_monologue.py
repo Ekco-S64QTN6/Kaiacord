@@ -72,22 +72,16 @@ class InnerMonologue:
         if now - self._last_generated < self.COOLDOWN_SECONDS:
             return None
 
-        # Collect recent messages across all channels.
+        # Collect recent messages across all channels. Two properties matter:
         #
-        # Two bugs lived here and together produced a monologue stuck on one
-        # forum user for a day and a half:
-        #
-        # 1. `channel_memory` is shared, and forum threads are seeded into it
-        #    by `forum_drafting.seed_thread_history` under a key from
-        #    `conversation_channel_id` — a plain int, so a thread is not
-        #    distinguishable from a channel by its key. Those turns are
-        #    formatted exactly like Discord ones ("author: text", role "user").
-        #    Live state held 24 Discord turns against 31 forum turns, so "your
-        #    Discord server" was mostly the Project 1999 forum.
-        # 2. The tail was taken from a concatenation in dict order with no
-        #    sort, so whichever channel was inserted last supplied every one of
-        #    the final 8 lines. Forum threads are seeded late, so they always
-        #    won, and every thought came out about the same poster.
+        # 1. Forum threads must be filtered out. `channel_memory` is shared and
+        #    `forum_drafting.seed_thread_history` seeds threads into it under an
+        #    int key, indistinguishable from a channel id, with turns formatted
+        #    exactly like Discord ones — so unfiltered, "your Discord server" is
+        #    mostly the forum.
+        # 2. The tail must be sorted by time. Taken from a concatenation in dict
+        #    order, whichever channel was inserted last supplies every line, and
+        #    every thought comes out about the same person.
         collected = []
         for channel_id, messages in channel_memory.items():
             # Ground truth beats a marker. `seed_thread_history` now tags forum
@@ -132,13 +126,10 @@ class InnerMonologue:
         if not recent_messages:
             return None
 
-        # Has she already thought about exactly this? The guard used to compare
-        # `len(recent_messages)` against the previous length — a count, not the
-        # content. Two different conversations of the same size were treated as
-        # "no new activity" and skipped, while one unchanged conversation whose
-        # count shifted by a single message was re-observed as though it were
-        # new. That is why the same stale window kept producing another thought
-        # about it every fifteen minutes.
+        # Has she already thought about exactly this? Compared on content, not
+        # on `len(recent_messages)`: a count treats two different conversations
+        # of the same size as unchanged, and one unchanged conversation as new
+        # the moment a single message shifts the total.
         window = recent_messages[-8:]
         fingerprint = hashlib.sha256("\n".join(window).encode("utf-8")).hexdigest()
         if fingerprint == self._last_window_fingerprint:

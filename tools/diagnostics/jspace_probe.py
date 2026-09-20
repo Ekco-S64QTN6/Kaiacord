@@ -914,7 +914,7 @@ def main():
     paths = 3 if lora_model else 2
     info(f"Estimated time: ~{total_probes * 20 * paths}s ({total_probes} probes x {paths} paths x ~20s each)")
 
-    # ── Phase 1: Run Probes ──────────────────────────────────────────────────
+    # ── Step 1: Run Probes ──────────────────────────────────────────────────
     header("Phase 1: Triple-Path Probe Execution")
 
     all_results = []
@@ -945,7 +945,7 @@ def main():
 
     ok(f"\nPhase 1 complete: {len(all_results)} probes written to {jsonl_path}")
 
-    # ── Phase 1.5: Quick Stats ───────────────────────────────────────────────
+    # ── Step 1.5: Quick Stats ───────────────────────────────────────────────
     header("Quick Stats Summary")
 
     total_suppressed = sum(len(r["suppressed_tokens"]) for r in all_results)
@@ -1004,7 +1004,7 @@ def main():
         print(f"  LoRA overhead vs bare:       {avg_lora_time - avg_bare_time:+.1f}s",
               file=sys.stderr)
 
-    # ── Phase 2: LLM Analysis ────────────────────────────────────────────────
+    # ── Step 2: LLM Analysis ────────────────────────────────────────────────
     report_content = generate_analysis_report(args.model, all_results)
 
     # Build full report with header

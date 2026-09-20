@@ -27,8 +27,8 @@ async def test_generate_quip_unbound_local_error_fix():
     channel.permissions_for.return_value.send_messages = True
     bot.get_channel.return_value = channel
     
-    # Mock random.choice to avoid errors when lists are empty if logic fails
-    # But wait, the logic we are testing is explicitly handling empty lists.
+    # random.choice is patched because the code under test is exactly the
+    # empty-list handling; an unpatched choice would raise before the assertion.
     
     # Mock config
     with patch('utils.infrastructure.system.yaml_config.config') as mock_config:

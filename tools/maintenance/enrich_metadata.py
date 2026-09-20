@@ -290,12 +290,9 @@ async def main_async():
 
     # Filter to what actually needs work *before* capping.
     #
-    # The cap used to be applied to the whole list, which is in directory order:
-    # books first, then documents, then news. Those front folders were already
-    # enriched, so a nightly `--limit 40` spent its entire budget skipping them
-    # and never reached the 369 news files that have no frontmatter at all. The
-    # task logged "Metadata enrichment pass complete" every night while
-    # enriching nothing, and the backlog never moved.
+    # The listing is in directory order, so a cap applied to the whole list
+    # spends its budget skipping already-enriched folders and never reaches the
+    # backlog behind them — while still logging a completed pass every night.
     eligible = []
     for filepath, category in files:
         try:

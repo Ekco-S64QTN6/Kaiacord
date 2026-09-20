@@ -2,21 +2,15 @@
 
 Production telemetry — anything the dashboard, `!sysmon` or a later audit reads
 back as a record of what Kaia did — must never contain output from the test
-suite. This has now gone wrong twice:
+suite. Mock objects and `test-model` traces read back as production errors, and
+a counter filled with fixtures is reported to the operator as a real figure.
 
-  * `logs/kaiacord.log` (fixed Phase 67 in `UnifiedLogger._resolve_log_file`).
-    Mock objects and `test-model` traces read back as production ERRORs and
-    cost real time to rule out during a log review.
-  * `memory/hallucination_log.jsonl` (fixed Phase 80). Every one of its 368
-    entries was a unit-test fixture, and `!sysmon` had been reporting that
-    count as "hallucinations in the last 24h" — a figure that was 100% noise.
-
-Both writers hardcoded their own path, so fixing one did nothing for the other.
-This module is the single decision point: a writer calls `telemetry_path()` and
-gets a test-suffixed path under pytest and the real one otherwise.
+Every writer that hardcodes its own path has to be fixed separately, so this
+module is the single decision point: call `telemetry_path()` and get a
+test-suffixed path under pytest and the real one otherwise.
 
 `test_telemetry_isolation.py` asserts that every file the dashboard reads is
-routed through here, so a third instance cannot be introduced quietly.
+routed through here.
 """
 from __future__ import annotations
 
@@ -91,22 +85,14 @@ def corpus_dir(knowledge_base_dir: str) -> str:
     return knowledge_base_dir
 
 
-# Fourth instance of the same failure, after logs/kaiacord.log,
-# hallucination_log.jsonl and the corpus itself.
+# `KaiaRAG` defaults to `./memory/rag_storage` and the suite constructs one, so
+# without redirection every `pytest` run opens the *live* index and writes its
+# empty fixture state over the running bot's `file_manifest.json`.
 #
-# `KaiaRAG` defaults to `./memory/rag_storage`, and the suite constructs one.
-# Nothing redirected it, so every `pytest` run opened the *live* index, found
-# whatever the test fixture had (nothing), and wrote `{}` over the running bot's
-# `file_manifest.json` — 1,094 entries on 2026-09-19, replaced with two bytes,
-# eight times in one day. `Saved 0 entries to ./memory/rag_storage/
-# file_manifest.json` in logs/kaiacord.test.log is the line, and it is a
-# faithful report of something that should never have been possible.
-#
-# The bot keeps its manifest in memory and restores the file on its next save,
-# so the damage is bounded: a restart in that window re-indexes the whole corpus
+# The bot keeps the manifest in memory and restores it on its next save, so the
+# damage is bounded — a restart inside that window re-indexes the whole corpus
 # from scratch instead of incrementally. `reindex_rag.py` refuses to touch this
-# directory while the bot is running for exactly this reason; the suite had no
-# such guard.
+# directory while the bot is running for the same reason.
 def persist_dir(path: str = "./memory/rag_storage") -> str:
     """Where RAG indices and the manifest live — a sibling directory under pytest."""
     if is_test_run():

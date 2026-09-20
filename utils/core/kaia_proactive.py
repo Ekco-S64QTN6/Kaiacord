@@ -467,7 +467,7 @@ class ProactiveEngine:
             if not recent:
                 return None
 
-            # Check diversity log for previously used ingestion filenames
+            # Skip ingestion filenames already used, per the diversity log.
             history = self._load_diversity_log()
             used_files = set()
             for h in history:
@@ -664,7 +664,7 @@ class ProactiveEngine:
     OVERHEARD_MAX_AGE_SECONDS = 6 * 3600
 
     def _get_overheard_digest(self) -> Optional[Tuple[str, str, str]]:
-        """Retrieve the newest un-broadcast passive observation digest (P54-16).
+        """Retrieve the newest un-broadcast passive observation digest.
 
         Walks newest-first and returns the first digest that is both fresh and
         has not already reached chat. Without the dedup the engine re-offered
@@ -914,11 +914,10 @@ class ProactiveEngine:
 
         Called by background_tasks every ~30 minutes.
         """
-        # Why this returned None. Every one of the five exits below used to
-        # surface as the same INFO line — "no active triggers" — which reads as
-        # "all nine sources were quiet" when in most cases not one of them was
-        # ever consulted. 101 of 102 evaluations in the production log say that,
-        # and the real reason was usually the desire gate.
+        # Why this returned None. The five exits below are distinct reasons, and
+        # a shared "no active triggers" line reports all of them as "every source
+        # was quiet" — including the exits that never consulted a source at
+        # all.
         self.last_skip_reason = None
 
         if not self._is_within_hours():

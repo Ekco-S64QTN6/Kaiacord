@@ -212,7 +212,7 @@ def _roll_theme(location: str) -> str:
     return weights[0][0]
 
 
-# ── Phase 1: Room placement ───────────────────────────────────────────────────
+# ── Step 1: Room placement ───────────────────────────────────────────────────
 
 def _place_rooms(num_rooms: int) -> List[Tuple[int,int]]:
     """
@@ -257,7 +257,7 @@ def _place_rooms(num_rooms: int) -> List[Tuple[int,int]]:
     return rooms
 
 
-# ── Phase 2: MST connectivity (Prim's algorithm) ─────────────────────────────
+# ── Step 2: MST connectivity (Prim's algorithm) ─────────────────────────────
 
 def _build_mst(rooms: List[Tuple[int,int]]) -> List[Tuple[Tuple[int,int], Tuple[int,int]]]:
     """
@@ -292,7 +292,7 @@ def _build_mst(rooms: List[Tuple[int,int]]) -> List[Tuple[Tuple[int,int], Tuple[
     return edges
 
 
-# ── Phase 3: Add loop corridors ───────────────────────────────────────────────
+# ── Step 3: Add loop corridors ───────────────────────────────────────────────
 
 def _add_loops(
     rooms: List[Tuple[int,int]],
@@ -327,7 +327,7 @@ def _add_loops(
     return added
 
 
-# ── Phase 4: Build connections dict from edges ────────────────────────────────
+# ── Step 4: Build connections dict from edges ────────────────────────────────
 
 def _edges_to_connections(
     rooms: List[Tuple[int,int]],
@@ -420,7 +420,7 @@ def _edges_to_connections(
     return connections, corridor_cells
 
 
-# ── Phase 5: Graph analysis ───────────────────────────────────────────────────
+# ── Step 5: Graph analysis ───────────────────────────────────────────────────
 
 def _analyze_graph(
     rooms: List[Tuple[int,int]],
@@ -461,7 +461,7 @@ def _analyze_graph(
     return meta
 
 
-# ── Phase 6: Assign room types ────────────────────────────────────────────────
+# ── Step 6: Assign room types ────────────────────────────────────────────────
 
 def _assign_room_types(
     rooms: List[Tuple[int,int]],
@@ -665,28 +665,28 @@ def generate_dungeon(
     num_rooms  = base_rooms.get(difficulty, 24) + secrets.randbelow(variance.get(difficulty, 5))
     num_loops  = difficulty + secrets.randbelow(2)   # 1–2, 2–3, 3–4, 4–5, 5–6
 
-    # Phase 1: Place rooms
+    # Step 1: Place rooms
     rooms = _place_rooms(num_rooms)
 
-    # Phase 2: MST
+    # Step 2: MST
     mst_edges = _build_mst(rooms)
 
-    # Phase 3: Add loops
+    # Step 3: Add loops
     loop_edges = _add_loops(rooms, mst_edges, num_loops)
 
     all_edges = mst_edges + loop_edges
 
-    # Phase 4: Build connections + corridor cells
+    # Step 4: Build connections + corridor cells
     connections, corridor_cells = _edges_to_connections(rooms, all_edges)
 
-    # Phase 5: Graph analysis
+    # Step 5: Graph analysis
     meta = _analyze_graph(rooms, connections)
 
-    # Phase 6: Assign room types
+    # Step 6: Assign room types
     room_types, boss_pos = _assign_room_types(rooms, meta, corridor_cells, difficulty)
     boss_key = _key(*boss_pos)
 
-    # Phase 7: Build final rooms dict (rooms + corridor connectors)
+    # Step 7: Build final rooms dict (rooms + corridor connectors)
     all_cells = list(rooms) + [c for c in corridor_cells if _in_bounds(*c)]
     rooms_dict: Dict[str, dict] = {}
     has_secret_shrine = False

@@ -44,9 +44,8 @@ def test_split():
     # 3. Look for space.
     # 4. Hard cut.
     
-    # Let's test specific logic.
-    # "A" * 280 -> hard cut
-    # "A" * 270 + ". " + "B" * 10
+    # "A" * 280         -> hard cut at the limit
+    # "A" * 270 + ". " + "B" * 10  -> split at the sentence boundary
     
     text_hard = "E" * 300
     posts = _split_into_thread_posts(text_hard)

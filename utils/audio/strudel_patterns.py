@@ -95,8 +95,8 @@ GENRES: dict[str, dict] = {
             'open': 's("~ oh ~ oh").bank("RolandTR909").gain(0.17).o(2).color("#94a3b8")',
             'shaker': 's("hh:2*8").bank("RolandTR909").gain(0.09).degradeBy(0.3).pan(rand).o(2).color("#94a3b8")',
             # Rolling bass with a filter envelope (lpa/lpd/lpenv) rather than a
-            # bare sawtooth — that envelope is the house bass sound, and it was
-            # previously not applied until four moves into the script.
+            # bare sawtooth. That envelope is the house bass sound, so it belongs
+            # in the opening move, not several edits in.
             'bass': 'note("<c2 [c2 c2] g1 [a#1 c2]>*2").s("sawtooth").lpf(620).lpq(8).lpa(0.02).lpd(0.12).lpenv(3).attack(0.01).decay(0.14).sustain(0.06).release(0.12).gain(0.8).o(3).color("#fb923c")._scope()',
             # Real 7th-chord voicings with voice leading, struck on the
             # off-beats. `n(...).scale(...)` triads were the thin sound.

@@ -54,7 +54,7 @@ async def _reconstruct_bluesky_history(_silenced_replied_ids: set):
             params=models.AppBskyFeedGetAuthorFeed.Params(actor=handle, limit=50)
         )
 
-        # Phase 1: Collect parent URIs
+        # Step 1: Collect parent URIs
         reply_map = {}  # {bot_post_uri: (root_uri, parent_uri)}
         for i, item in enumerate(response.feed):
             post = item.post
@@ -69,7 +69,7 @@ async def _reconstruct_bluesky_history(_silenced_replied_ids: set):
         if not reply_map:
             return
 
-        # Phase 2: Batch fetch parent posts to get authors
+        # Step 2: Batch fetch parent posts to get authors
         parent_uris = list(set(p for r, p in reply_map.values()))
         author_map = {}  # {post_uri: author_handle}
 
@@ -91,7 +91,7 @@ async def _reconstruct_bluesky_history(_silenced_replied_ids: set):
             except Exception as e:
                 log_warning(f"Failed to fetch batch of parent posts: {e}")
 
-        # Phase 3: Update state
+        # Step 3: Update state
         count = 0
         for i, (bot_post_uri, (root_uri, parent_uri)) in enumerate(reply_map.items()):
             # Track replies per user in this thread

@@ -1,28 +1,18 @@
 #!/usr/bin/env python3
 """Separate Kaia's actual dreams from everything else that landed in the folder.
 
-`knowledge_base/kaia_dreams/` is indexed as its own RAG index and
-`context_optimizer` labels anything retrieved from it **INTERNAL REFLECTION
-(DREAM)** — that is, as something Kaia thought. Measured 2026-09-19 over 2,399
-files, 859 of them (36%) are not reflections at all:
+`knowledge_base/kaia_dreams/` is its own RAG index, and `context_optimizer`
+labels anything retrieved from it **INTERNAL REFLECTION (DREAM)** — as something
+Kaia thought. Three classes of file get in that are not reflections:
 
-  474  raw `User:` / `Kaia:` transcripts, saved by an older pipeline that asked
-       the model to *clean a chat log* and wrote the cleaned log out as a dream.
-       These duplicate `user_logs/`, which is separately indexed, and one of them
-       is a scraped American Express advertisement complete with the model's own
-       degeneration ("an annual fee of $6095 and includes 40, American Express
-       Plati...") — retrievable as a thing Kaia dreamt about credit cards.
-   27  files whose entire content is the model reporting there was nothing to
-       summarise ("Therefore, the cleaned log is empty.").
-  rest miscellaneous scraped prose with no reflection in it.
+  transcript  raw `User:` / `Kaia:` logs written there by an older pipeline.
+              These duplicate `user_logs/`, which is indexed separately.
+  empty       the model reporting there was nothing to summarise.
+  scraped     web prose with no reflection in it.
 
-The damage compounds, because the dream engine treats `kaia_dreams` as a valid
-source (`dream_source_type = 'prior_dream'`). 250 of the 1,540 real reflections
-are reflections *on earlier dreams*, so a transcript-shaped "dream" teaches the
-next night's dream to produce `User:`-prefixed fragments. That is how a
-reflection filed under *Do Androids Dream of Electric Sheep* comes to quote the
-novel with every paragraph prefixed `User:` — the novel in `books/` has no such
-prefixes — and then open by discussing the Hagakure.
+The damage compounds: the dream engine treats `kaia_dreams` as a valid source
+(`dream_source_type = 'prior_dream'`), so a transcript-shaped file teaches the
+next night's dream to emit `User:`-prefixed fragments inside a reflection.
 
 This tool only sorts. It writes nothing into the corpus and calls no model.
 

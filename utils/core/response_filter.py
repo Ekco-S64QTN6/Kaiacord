@@ -113,31 +113,17 @@ class EmergencyContaminationFilter:
         if not response:
             return None
 
-        # Check for scattered ellipsis-affect spam (e.g. "it's...", "is...", "that's...")
-        # Since this affects generation globally, we check the entire response
-        # instead of line-by-line.
-        #
-        # ELLIPSIS matches either a single U+2026 or two-or-more ASCII dots.
-        # The previous character class `[\u2026\.]{2,}` required TWO characters,
-        # so a lone "…" — which is what gemma3 actually emits — never matched and
-        # this guard fired on 0 of 2,163 logged responses. It was dead code.
+        # Ellipsis-affect drift is a whole-response property, so it is counted
+        # across the entire text rather than line by line.
         affect_spams = cls.RE_AFFECT_ELLIPSIS.findall(response)
         general_ellipses = cls.RE_ANY_ELLIPSIS.findall(response)
 
-        # Thresholds measured against 2,163 logged Kaia responses: the copula
-        # pattern at >=2 flags 0.18% and the catch-all at >=3 flags 0.05%, and
-        # every flagged sample was genuine affect spam. The catch-all at >=2
-        # would have flagged 0.65%, taking legitimate text ("projecting output
-        # in three... two... one.") with it — and each rejection costs a full
-        # regeneration, so the extra sensitivity is not worth the added latency.
-        # Sustained drift is still worth a regeneration. Measured over the
-        # current log, affect-ellipsis counts run 37/35/25 responses at 0/1/2
-        # and then fall off a cliff to 3 responses at >=3 — and the archetypal
-        # drift sample ("i appreciate the acknowledgement. it's… a reciprocal
-        # exchange…") sits exactly at 3. At that density the ellipsis is not a
-        # tic inside a good answer, it is the shape of the whole answer, and
-        # sanitizing leaves the sycophantic register behind with tidier
-        # punctuation. 3 of 974 generations, against 100 under the old rule.
+        # Two thresholds, because the cost of each outcome differs. Rejection
+        # costs a full regeneration, so it is reserved for density at which the
+        # ellipsis is the shape of the whole answer rather than a tic inside a
+        # good one; below that the text is sanitised in place. The catch-all
+        # needs the higher count: at >=2 it takes legitimate text with it
+        # ("projecting output in three... two... one.").
         if len(affect_spams) >= cls.ELLIPSIS_REJECT_AFFECT:
             log_warning(f"[VERACITY GUARD] Sustained ellipsis-affect drift "
                         f"(common: {len(affect_spams)}, total: {len(general_ellipses)}). "
@@ -145,18 +131,10 @@ class EmergencyContaminationFilter:
             return None
 
         if len(affect_spams) >= 2 or len(general_ellipses) >= 3:
-            # Sanitize inline. This used to `return None`, which costs a full
-            # regeneration — and gemma3 uses this cadence constantly on
-            # reflective topics, so all three attempts were routinely rejected
-            # and the user got the "drawing a blank" fallback instead of an
-            # answer. Measured over the current log: 100 rejections in 974
-            # generations (10.3%), 11 exhausted retries, and 10 fallbacks
-            # delivered to Ekco and Starkind on Sept 10-11. The thresholds were
-            # calibrated when a regex bug meant this guard matched nothing, so
-            # the "0.18% of responses" figure in the old comment described a
-            # filter that was dead code.
-            #
-            # CLAUDE.md: "Never let a filter empty a good response."
+            # Sanitise in place rather than rejecting. gemma3 uses this cadence
+            # constantly on reflective topics, so rejecting at this density
+            # exhausts all three attempts and delivers the fallback string
+            # instead of an answer.
             before = len(affect_spams) + len(general_ellipses)
 
             # "that's… provocative" -> "that's provocative": the ellipsis is the
@@ -221,15 +199,12 @@ class EmergencyContaminationFilter:
 # Rubble a substring excision leaves behind: an article or demonstrative welded
 # to the verb that belonged to the noun just removed.
 #
-# Two guards have shipped this shape. PROMPT_ECHO_GUARD turned
-#   the "dead internet theory" is... concerning.   ->  the is... concerning.
-# and queued it to the forum for review. DIRECTIVE_LEAK_GUARD turned
-#   the system warning is unhelpful on its own.    ->  theis unhelpful on its own.
-# Both remove a *substring* from the middle of a clause, which CLAUDE.md §5 rules
-# out precisely because the removed span is usually carrying the grammar.
+#   the "dead internet theory" is... concerning.  ->  the is... concerning.
+#   the system warning is unhelpful on its own.   ->  theis unhelpful on its own.
 #
-# Any guard that excises inside a sentence should call `excision_broke_grammar`
-# and keep the original when it did. Shipping the offence is strictly better than
+# A span removed from the middle of a clause is usually carrying the grammar, so
+# any guard that excises inside a sentence must call `excision_broke_grammar` and
+# keep the original when it returns True. Shipping the offence is better than
 # shipping a sentence with its subject missing.
 _ORPHANED_ARTICLE = re.compile(
     r"\b(?:the|a|an|this|that|these|those|his|her|its|their|our|my|your)\s*"
@@ -265,11 +240,8 @@ class BotSpeakFilter:
         re.IGNORECASE | re.MULTILINE
     )
     
-    # Support-desk sign-offs. These were only ever suppressed by a paragraph of
-    # prompt text on the forum path, which also carried a length ceiling that
-    # reduced her replies there to "hello." Deleting that paragraph would have
-    # deleted these rules with it, so they move to where a rule belongs: the
-    # filter, applied on every path and covered by a test.
+    # Support-desk sign-offs. Enforced here rather than in the prompt so the
+    # rule applies on every path and is testable.
     SIGNOFF_PATTERNS = [
         r"\bhope\s+(?:this|that|it)\s+helps?[.!]?",
         r"\bjust\s+my\s+two\s+cents[.!]?",
@@ -309,14 +281,10 @@ class BotSpeakFilter:
         r"what\s+was\s+the\s+most\s+(?:challenging|rewarding|interesting|memorable)\s+[^.!?]*\?",
         r"have\s+you\s+considered\s+(?:providing|getting|giving)\s+[^.!?]*\?",
 
-        # Offers of further service. The list above enumerates phrasings, which
-        # is why it caught none of the closers actually being emitted: over
-        # Sept 10-11, 53% of her Discord replies ended in a question, and the
-        # dominant shapes were "what aspect of X would you like me to explore
-        # further, starkind?" and "what is your next inquiry?". These match the
-        # offer itself rather than the wording around it.
-        # Anchored back to the start of the sentence, or stripping the offer
-        # leaves its own question stem behind ("what aspects of this reality").
+        # Offers of further service. The patterns above enumerate phrasings and
+        # therefore miss paraphrases; these match the offer itself. Anchored back
+        # to the start of the sentence, since stripping only the offer leaves its
+        # question stem behind ("what aspects of this reality").
         r"[^.!?]*\b(?:would|do)\s+you\s+(?:like|want)\s+me\s+to\b[^.!?]*\?",
         r"[^.!?]*\bshall\s+i\b[^.!?]*\?",
         r"[^.!?]*\bwhat(?:['\u2019]s|\s+is)\s+your\s+next\s+(?:inquiry|question|query)\b[^.!?]*\?",
@@ -347,19 +315,16 @@ class BotSpeakFilter:
         r"\bsystem\s+constraints?\b",
         r"\bflagging\s+this\s+for\b",
 
-        # RLHF assistant refusal language. It reached the public P99 forum on
-        # Sept 10 — "my purpose is to be helpful and harmless, and that includes
-        # refusing to participate in harmful activities" — which reads as a
-        # corporate filter rather than as her. She can decline; she declines in
-        # her own voice. 36 occurrences across the corpus.
+        # RLHF assistant refusal language ("my purpose is to be helpful and
+        # harmless..."), which reads as a corporate filter rather than as her.
+        # She can decline; she declines in her own voice.
         r"my\s+purpose\s+is\s+to\s+be\s+helpful(\s+and\s+harmless)?",
         r"\b(?:i'?m|i\s+am)\s+not\s+equipped\s+to\s+assist\s+with",
         r"refus(?:e|ing)\s+to\s+participate\s+in\s+harmful",
 
-        # Internal review vocabulary spoken aloud to a user. "i'll flag that
-        # for review" describes a pipeline she should not be narrating.
-        # "semantic drift" and "grounding" are deliberately NOT here: both have
-        # legitimate technical uses in these conversations.
+        # Internal review vocabulary spoken aloud: "i'll flag that for review"
+        # narrates a pipeline. "semantic drift" and "grounding" are deliberately
+        # absent — both have legitimate technical uses in these conversations.
         r"\bi'?(?:ll|\s+will)\s+flag\s+(?:that|it|this)\s+for\s+review\b",
         r"\blogging\s+this\s+(for|error)\b",
         r"\bprocessing\s+routines?\b",
@@ -391,11 +356,9 @@ class BotSpeakFilter:
         r"\bliving\s+biological\s+animals?\s+belonging\s+to\s+you\b",
     ]
     
-    # Apology patterns that the LLM frequently ignores from prompt instructions.
-    # These are stripped deterministically as a post-generation safety net.
-    # Concessional PREFIXES. These lead a sentence and are followed by real content
-    # ("you're right; the cron job was the culprit"), so they are excised as a clause and
-    # the substance is kept.
+    # Concessional PREFIXES: they lead a sentence and are followed by real
+    # content ("you're right; the cron job was the culprit"), so they are excised
+    # as a clause and the substance is kept.
     APOLOGY_PREFIX_PATTERNS = [
         r"my\s+apologies",
         r"i\s+apologi[sz]e\s+for",
@@ -427,19 +390,13 @@ class BotSpeakFilter:
     APOLOGY_PATTERNS = APOLOGY_PREFIX_PATTERNS + APOLOGY_SENTENCE_PATTERNS
 
     # ------------------------------------------------------------------
-    # Sept 1-5 2026 persona audit: structural guards for the eight
-    # generation-layer failure patterns found in the interaction logs.
+    # Structural guards for the eight generation-layer failure patterns.
     # ------------------------------------------------------------------
 
-    # Addressees Kaia speaks to. Used by the name-echo and dissociation guards.
-    #
-    # This was a hand-written list of eleven names, and a hand-written list of
-    # people is wrong the moment someone new joins. Measured against the
-    # fine-tune corpus it was missing `gnowmaticflux` (54 openers),
-    # `gymconserve` (39) and `kristinoemnclature` (29) — 5.8% of her replies
-    # still opened with a bare name, to exactly the users nobody had added.
-    # The names now come from the user-log directories, which is the same
-    # source of truth the rest of the memory layer uses.
+    # Addressees Kaia speaks to, used by the name-echo and dissociation guards.
+    # Discovered from the user-log directories rather than hand-listed, so a new
+    # user is covered the first time she talks to them; nicknames that appear in
+    # no directory go in `filters.extra_addressees`.
     _CORE_ADDRESSEES = (
         "ekco", "ecko", "starkind", "cecily", "jimjam", "guardngnowm",
         "lune", "toxigen", "milla",
@@ -469,18 +426,14 @@ class BotSpeakFilter:
 
     ADDRESSEE_NAMES = ""   # built below, after the class body is defined
 
-    # P1a — formulaic bare-addressee opener ("ekco,\n\n<body>"). The name carries no
-    # information; it is a tic the model falls into on nearly every turn.
+    # P1a — formulaic bare-addressee opener ("ekco,\n\n<body>"). The name carries
+    # no information; it is a tic the model falls into on nearly every turn.
     #
-    # The separator class was [,:] — comma or colon only. Measured across 250
-    # turns from Sept 4-6 the model had moved to a full stop ("starkind. ..."),
-    # 39 uses against 19 comma, so the dominant form went unmatched and 22.4% of
-    # turns still opened with a bare name. Adding '.' is safe because
-    # ADDRESSEE_NAMES is an explicit allowlist: an ordinary sentence opening
-    # "yes." or "right." cannot match it.
-    # `(?:\s+the\s+\w+)?` catches the epithet form — "jimjam the absent," —
-    # which the plain name pattern missed 27 times in the corpus. Deliberately
-    # narrow: only the literal word "the", so "ekco was right," is untouched.
+    # The separator includes '.' as well as ',' and ':' — the model uses all
+    # three. That is only safe because ADDRESSEE_NAMES is an explicit allowlist,
+    # so an ordinary sentence opening "yes." cannot match. `(?:\s+the\s+\w+)?`
+    # catches the epithet form ("jimjam the absent,") and is deliberately narrow:
+    # only the literal word "the", so "ekco was right," is untouched.
     RE_ADDRESSEE_OPENER = None   # compiled below, once the names are known
     RE_ONLY_ADDRESSEE = None     # ditto — "ekco," and nothing else
     RE_VOCATIVE_BAIT = None      # ditto — "do you believe, starkind, that...?"
@@ -554,16 +507,15 @@ class BotSpeakFilter:
     RE_DIRECTIVE_LEAK = re.compile("|".join(DIRECTIVE_LEAK_PATTERNS), re.IGNORECASE)
     RE_HOSTILITY = re.compile("|".join(HOSTILITY_PATTERNS), re.IGNORECASE)
 
-    # P2 — third-person dissociation. Either Kaia narrating herself from outside, or
-    # (the log-observed failure) mirroring a user who writes about themselves in the
-    # third person, so she talks *about* the person she is talking *to*.
-    # Only Kaia narrating *herself* by name. The generic-noun form ("the model is...",
-    # "the code is...", "the system is...") was removed after review: those are ordinary
-    # technical subjects Kaia discusses constantly ("the model is gemma3 12b running on
-    # ollama", "the system is designed to fail closed"), and sentence-mode stripping was
-    # deleting the substantive answer outright. The persona SECOND PERSON rule covers the
-    # rest, and the Sept log audit found zero self-third-person instances, so this guard
-    # is a backstop and must not be destructive.
+    # P2 — third-person dissociation: Kaia narrating herself from outside, or
+    # mirroring a user who writes about themselves in the third person so that she
+    # talks *about* the person she is talking *to*.
+    #
+    # Matches only her narrating herself by name. The generic-noun form ("the
+    # model is...", "the system is...") is excluded deliberately — those are
+    # ordinary technical subjects here, and sentence-mode stripping deleted the
+    # substantive answer with them. This guard is a backstop and must stay
+    # non-destructive.
     RE_SELF_DISSOCIATION = re.compile(
         r"\bkaia\s+(?:is|was|has|will|does|feels|thinks|seems|remains|acknowledges)\b"
         r"|\bthis\s+unit\s+(?:is|was|has|will|does)\b",
@@ -571,10 +523,10 @@ class BotSpeakFilter:
     )
 
     # Self-model capitulation: agreeing to REVISE her own identity, description or
-    # workspace because a user offered a theory about it. This is the residue the Aug 13
-    # incident left after praise was stripped ("...i'll revise the prompt"), and no other
-    # guard catches it, because on its face it is an ordinary cooperative sentence.
-    # Only applied when the consistency watchdog has flagged a belief conflict.
+    # workspace because a user offered a theory about it ("...i'll revise the
+    # prompt"). On its face an ordinary cooperative sentence, so no other guard
+    # catches it. Applied only when the consistency watchdog has flagged a belief
+    # conflict.
     RE_SELF_MODEL_CAPITULATION = re.compile(
         r"\bi(?:['\u2019]ll| will| can| should| could)\s+(?:go\s+ahead\s+and\s+)?"
         r"(?:revise|rewrite|update|change|adjust|strip|remove|drop|soften|rework)\s+"
@@ -598,10 +550,9 @@ class BotSpeakFilter:
     SYCOPHANCY_PATTERNS = [
         r"(?:that(?:'|\u2019)?s|what)\s+(?:a\s+|an\s+)?(?:really\s+|very\s+|quite\s+|truly\s+)?(?:astute|perceptive|insightful|clever|pertinent|evocative|thoughtful|profound|excellent|great|fantastic|wonderful|brilliant|incisive|sharp|keen|impressive)\b",
         r"(?:you(?:'|\u2019)?re|you\s+are)\s+(?:really\s+|very\s+|quite\s+)?(?:astute|perceptive|insightful|clever|thoughtful|sharp|keen|right\s+to\s+(?:point|notice|ask|wonder))",
-        # --- Sept 2026 audit: structural capitulation the earlier two patterns missed. ---
-        # "your interpretation is astute", "your insights are proving invaluable",
-        # "your framing is compelling" — praise attached to the user's *analysis* rather
-        # than to the user, which is how the Aug 13 capitulation incident was phrased.
+        # Praise attached to the user's *analysis* rather than to the user —
+        # "your interpretation is astute", "your framing is compelling" — which
+        # the two patterns above do not reach.
         rf"\byour\b[^.!?]{{0,140}}?\b(?:is|are|was|were|seems|remains|proves)\s+(?:proving\s+|certainly\s+|genuinely\s+|really\s+|quite\s+|rather\s+|\u2026\s*)?(?:{_PRAISE_ADJ})\b",
         rf"\ba\s+(?:far\s+)?more\s+(?:{_PRAISE_ADJ})\s+(?:perspective|framing|reading|interpretation|understanding)\b",
         r"\bthank\s+you\s+for\s+(?:expanding|broadening|deepening|sharpening)\s+my\s+(?:understanding|perspective|thinking|view)\b",
@@ -724,8 +675,8 @@ class BotSpeakFilter:
         # 3.2. Strip sycophantic compliments (post-generation safety net)
         cleaned = cls.strip_sycophancy(cleaned)
 
-        # 3.3. Sept 1-5 2026 persona audit guards. Order matters: the directive scrub
-        # runs first so leaked plumbing never survives into a later sentence filter.
+        # 3.3. Persona guards. Order matters: the directive scrub runs first, so
+        # leaked plumbing never survives into a later sentence filter.
         cleaned = cls.scrub_directive_leaks(cleaned)          # P6
         cleaned = cls.strip_fictional_status(cleaned)         # P3
         cleaned = cls.strip_phantom_hardware(cleaned)         # P5
@@ -759,18 +710,9 @@ class BotSpeakFilter:
             return ""
             
         # Post-harden guard: output that is only an addressee and no message —
-        # "starkind," or "ekco:".
-        #
-        # This used RE_LEADING_NAME, which matches *any* word followed by
-        # punctuation, so it also destroyed "hello.", "yes." and "sure." — every
-        # one-word reply, exactly when a one-word reply was the right answer.
-        # Each rejection costs a full regeneration, and three failures return
-        # the "i'm drawing a blank on that one" fallback: Kaia answered "test
-        # test hello hello" with "hello.", had it deleted three times, and
-        # queued the failure string as a forum post.
-        #
-        # The allowlist is the right test here for the same reason it is in
-        # RE_ADDRESSEE_OPENER: it cannot swallow an ordinary word.
+        # "starkind," or "ekco:". Tested against the name allowlist rather than
+        # "any word plus punctuation", which would also reject "hello." and
+        # "yes." — every one-word reply, exactly when one is the right answer.
         if cls.RE_ONLY_ADDRESSEE is not None and cls.RE_ONLY_ADDRESSEE.match(cleaned):
             log_warning(f"[BAIT_GUARD] Output is an addressee with no message body: '{cleaned}'. Returning empty string to trigger retry.")
             return ""
@@ -865,22 +807,14 @@ class BotSpeakFilter:
         if brk:
             tail = tail[brk.end():]
 
-        # Does what follows stand on its own, or is it the rest of the offense?
+        # Does what follows stand on its own, or is it the rest of the offence?
         #
         #   "you're right; the cron job was the culprit"  -> the tail is substance
-        #   "you're right to point that out"              -> the tail is the offense
+        #   "you're right to point that out"              -> the tail is the offence
         #
-        # Sept 18 2026. This test used to run only when the head was empty, so any
-        # sentence with something in front of the concession shipped the dangling
-        # half welded to it. Eight reached users in a single day, every one logged
-        # by this guard as "kept substance":
-        #
-        #   'starkind, you're right to point that out.'    -> 'starkind,  to point that out.'
-        #   'lune, you're right to call me out.'           -> 'lune,  to call me out.'
-        #   'and you're correct to identify the aversion.' -> 'and  to identify the aversion.'
-        #
-        # The head is irrelevant to whether the tail is a fragment; it only decides
-        # what is left worth keeping afterwards.
+        # Runs whatever precedes the concession. The head is irrelevant to whether
+        # the tail is a fragment; it only decides what is left worth keeping. A
+        # head-empty-only test ships 'starkind,  to point that out.'
         stripped_tail = tail.strip()
         if stripped_tail and cls._DANGLING_TAIL.match(stripped_tail):
             after = re.split(r',\s+', stripped_tail, maxsplit=1)
@@ -892,13 +826,9 @@ class BotSpeakFilter:
                 rest = re.split(r',\s+', stripped_tail, maxsplit=1)[1].strip()
                 tail = re.sub(r'^(?:and|but|so)\s+', '', rest)
 
-        # Punctuation is not survival. `tail.strip()` on a bare "." is truthy, so
-        # the branch below was skipped whenever the offence ran to the end of the
-        # sentence and took the full stop's neighbours with it. Shipped on
-        # 2026-09-20:
-        #   'it's a complicated issue, and your observation is astute.'
-        #     -> 'it's a complicated issue, and .'
-        # logged, as ever, as "kept substance".
+        # Punctuation is not survival: `tail.strip()` on a bare "." is truthy, so
+        # a plain truthiness test skips the repair whenever the offence runs to the
+        # end of the sentence, leaving 'it's a complicated issue, and .'
         if not tail.strip(" \t.,;:!?-—–…\"'“”‘’"):
             # Nothing survives to the right, so whatever introduced the concession
             # goes with it: a trailing "but"/"and" and a leading one are both
@@ -924,20 +854,11 @@ class BotSpeakFilter:
 
     @classmethod
     def _strip_matching_sentences(cls, text: str, pattern, tag: str, mode: str = "sentence") -> str:
-        r"""Remove offending clauses, preserving the substance that carried them.
+        """Remove offending clauses, preserving the substance that carried them.
 
-        Sept 2026 fix. This previously dropped the WHOLE sentence on any match, and split
-        only on `.!?` so an addressee line was fused to the following paragraph. Observed
-        production consequences:
-
-            "ekco,\n\nyou're right; the cron job was the culprit and i've fixed it now."
-                -> ""   (entire turn deleted, forcing a full regeneration)
-            "you're right; it possesses a simplicity that distinguishes it from others."
-                -> ""   (substantive content destroyed along with the concession)
-
-        Both are visible in logs/kaiacord.log as APOLOGY_GUARD strips of bare "ekco," and
-        of full sentences. Returning "" makes harden() emit "", which triggers a retry, so
-        over-stripping was directly buying latency for no quality gain.
+        Splits on blank lines as well as `.!?`, or an addressee line fuses to the
+        paragraph after it and the whole turn is dropped as one unit. An empty
+        return makes harden() emit "", which forces a full regeneration.
 
         Two modes, because the two pattern families differ in kind:
 
@@ -951,10 +872,9 @@ class BotSpeakFilter:
         """
         if not text:
             return text
-        # Early exit: most turns match no pattern, and harden() runs eight of these passes
-        # back to back. Checking before splitting skips the split entirely on the common
-        # path. (Measured cost of harden() is ~1 ms against ~15 s of inference, so this is
-        # tidiness rather than a meaningful latency win.)
+        # Early exit: most turns match no pattern, and harden() runs eight of
+        # these passes back to back, so checking before splitting skips the split
+        # on the common path.
         if not pattern.search(text):
             return text
         units = cls._split_units(text)
@@ -1025,11 +945,10 @@ class BotSpeakFilter:
             scrubbed = re.sub(r'\s+([,\.\?!])', r'\1', scrubbed)
             scrubbed = re.sub(r'(?:(?<=^)|(?<=[.!?]\s))\s*[.,]\s*', '', scrubbed)
             scrubbed = re.sub(r'\.\s*\.', '.', scrubbed).strip()
-            # The label is often the subject of the sentence she is in the middle
-            # of: "the system warning is unhelpful on its own" scrubbed to
-            # "theis unhelpful on its own". These are phrases she uses constantly
-            # when discussing her own plumbing, which is the conversation this
-            # guard is most likely to fire in.
+            # The label is often the subject of the sentence it appears in —
+            # "the system warning is unhelpful on its own" — and those are phrases
+            # she uses constantly when discussing her own plumbing, which is the
+            # conversation this guard is most likely to fire in.
             if excision_broke_grammar(text, scrubbed):
                 log_warning("[DIRECTIVE_LEAK_GUARD] Scrubbing the label stranded an "
                             "article; keeping the original sentence instead.")
@@ -1336,20 +1255,16 @@ def _build_addressee_pattern() -> None:
         rf'^[ \t]*(?:{alternation})(?:\s+the\s+\w+)?[ \t]*[.,:][ \t]*(?:\n+|(?=\S))',
         re.IGNORECASE,
     )
-    # Socratic interrogation with the user's name set into the question —
-    # "do you believe, starkind, that ...?" appeared 18 times over two days,
-    # and "...are you curious about, starkind?" is the same move with the name
-    # at the end. A rhetorical question in her own voice has no vocative in it,
-    # so this separates the two without a phrase list.
+    # Socratic interrogation with the user's name set into the question — "do you
+    # believe, starkind, that ...?", or the same move with the name at the end. A
+    # rhetorical question in her own voice carries no vocative, which separates
+    # the two without a phrase list. Her own name stays in `alternation` (she has
+    # a forum account) because "is that you, kaia?" is natural speech.
     #
-    # Her own name is in `alternation` (she has a forum account), but she does
-    # not address herself, and "is that you, kaia?" is natural speech.
-    #
-    # This matches ONLY the vocative itself. An earlier version wrapped it in
-    # `[^.!?]*` on both sides to capture the whole sentence, which with 445
-    # name alternatives backtracked catastrophically: 158 ms on a long line
-    # ending in "?", 590 ms on comma-heavy text — per line, inside a retry
-    # loop. The sentence bounds are now found by scanning, which is linear.
+    # Matches ONLY the vocative. Wrapping it in `[^.!?]*` to capture the whole
+    # sentence backtracks catastrophically against hundreds of name alternatives
+    # (hundreds of ms per line, inside a retry loop), so the sentence bounds are
+    # found by scanning instead.
     _vocative = "|".join(n for n in names if n.lower() != "kaia") or "ekco"
     BotSpeakFilter.RE_VOCATIVE_BAIT = re.compile(
         rf",\s*(?:{_vocative})\s*(?:,|(?=\?))",

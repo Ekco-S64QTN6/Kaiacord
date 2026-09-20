@@ -508,7 +508,7 @@ def get_dynamic_lore(floor_num, base_meta, base_flav):
     import copy
     meta = copy.deepcopy(base_meta)
     
-    # Let's inject progressive lore into the 'empty' or 'shrine' rooms (usually F, A, J, O)
+    # Inject progressive lore into the 'empty' and 'shrine' rooms (usually F, A, J, O).
     flav = base_flav
     
     if 1 <= floor_num <= 10:

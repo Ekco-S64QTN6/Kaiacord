@@ -4,10 +4,9 @@ tools/maintenance/compact_user_logs.py
 
 Normalise user transcripts into something retrieval can actually use.
 
-No model is involved. Everything here is a deterministic rewrite with an exact
-inverse in the backup directory, because the last tool that asked a model to
-"clean" these files rewrote `[2026-03-12 14:22:01] Ekco:` into `User:` across
-774 of them and took the timestamps with it.
+No model is involved. Every pass is a deterministic rewrite with an exact
+inverse in the backup directory. A model asked to "clean" these files rewrites
+turn markers and drops timestamps.
 
 The format is the contract. `ConversationTurnSplitter` chunks on
 `[YYYY-MM-DD HH:MM:SS] Speaker: `, the indexer reads recency from that same
@@ -22,9 +21,8 @@ Passes, in order:
                      as a one-line citation.
   2. link dumps    — the same thing from before those markers existed: a pasted
                      URL followed by the whole scraped article, attributed to
-                     whoever pasted it. 249 such turns held 29% of all
-                     user-turn text.
-  3. preamble      — a previous cleaner narrated its task into the corpus
+                     whoever pasted it.
+  3. preamble      — a cleaner narrating its task into the corpus
                      ("Okay, here's the cleaned chat log...").
   4. fragments     — navigation debris left by scraping: lone label lines
                      ("TOPIC:"), orphaned single words, bare punctuation.

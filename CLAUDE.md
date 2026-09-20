@@ -24,7 +24,7 @@ the bot does. This file said 2.6.4 until September 2026 — check `requirements.
 | **Aethelgard TTRPG** | `utils/ttrpg/` | Deterministic turn-based RPG, 77-floor mega-dungeon. |
 | **Fractal art** | `utils/core/kaia_art.py` | Electric Sheep flame renderer, CPU-only NumPy/SciPy. |
 | **Music** | `utils/audio/` | Live-coded sets in a voice channel, driving Strudel in a real browser. No LLM, no GPU — see [§7](#7-music-engine). |
-| **Social & forum** | `utils/social/` | Project 1999 forum client, moderation queue, Bluesky/X (both disabled by default). |
+| **Social & forum** | `utils/social/` | Project 1999 forum client, moderation queue, Bluesky/X, each behind its own enable flag. |
 | **Monitoring** | `utils/infrastructure/monitoring/` | Curses dashboard (`btop_dashboard_v2.py`). |
 
 Models: `gemma3:12b` (GPU), `nomic-embed-text-cpu` (CPU embeddings). **There is no classifier
@@ -197,12 +197,12 @@ The context window is 16,384 tokens. `optimize_context()` in `context_optimizer.
 `system_reserve_tokens` + `max_response_tokens` + the user message, then splits the remainder
 between RAG and history. **Anything you add to the system prompt comes out of retrieval.**
 
-Two toggles exist because those blocks are expensive:
+Two blocks are expensive enough to be switchable:
 
-| Key | Default | Cost |
-|:--|:--|:--|
-| `features.self_model_injection` | `false` | ~900 tokens/turn |
-| `features.constitution_injection` | `true` | ~2,400 tokens/turn |
+| Key | Cost when on |
+|:--|:--|
+| `features.self_model_injection` | ~900 tokens/turn |
+| `features.constitution_injection` | ~2,400 tokens/turn |
 
 Persona (`knowledge_base/kaia_persona.md`) is never truncated, so additions there are permanent
 per-turn cost. Keep new rules terse.
@@ -377,14 +377,13 @@ drives it, so the copyleft does not reach Kaiacord. Do not copy Strudel source i
   with the disclaimer footer.
 - **Capped scraping**: 6-hour interval, 2–3 drafts per run; profile scrapes limited to 20 post
   pages / 10 thread pages, cached 4 h (history) and 1 h (profile).
-- **Bluesky is on, X is off.** As of Sept 2026 `bluesky.enabled` and `bluesky.cross_post_quips`
-  are `true` in `kaia.yaml`, so idle quips mirror to her feed; `x_twitter.enabled` is `false`.
-  Credentials alone never enable either — the flag gates the integration, and the mention poller
-  is not started when both are off.
-- **Forum posting is on** (`forum.enabled: true`), behind the Accept/Reject queue above.
-  `forum.tech_support_enabled` stays **off**: it answered strangers without staying grounded in
-  the wiki, and confidently wrong EQ advice is worse than silence. Do not enable it without
-  fixing the grounding.
+- **A flag gates each integration, never credentials.** `bluesky.enabled`, `x_twitter.enabled`
+  and `forum.enabled` decide whether their subsystem runs; `.env` values alone do nothing, and
+  the mention poller is not started when both social flags are off. Read `config/kaia.yaml` for
+  what is currently set — this file does not track it.
+- **`forum.tech_support_enabled` needs grounding work before it is turned on.** It answered
+  strangers without staying grounded in the wiki, and confidently wrong EQ advice is worse than
+  silence.
 
 ### Speaking unprompted
 
@@ -393,19 +392,18 @@ silenced without the others:
 
 | What | Switch | Where | Notes |
 |:--|:--|:--|:--|
-| Observation digest | `observation.broadcast_digest` | `#kaia-opolis` | The summary is spoken **verbatim**. It used to be handed to `generate_opener` as hidden context and an unrelated one-liner was sent instead, while the log claimed the digest had aired. |
-| Inner monologue | `monologue.broadcast_to_chat` | `#kaia-opolis` | Capped at 6/day, 90-minute gap. `monologue.respect_quiet_hours` is **false**: a thought in her own channel is not the interruption a proactive opener is. |
-| Proactive opener | the desire gate + rate limiter | most recent channel | Obeys `proactive.quiet_hour_start`/`quiet_hour_end` (9–22). |
-| Idle quip | the idle timer | most recent channel | `quip.broadcast_prefix`. Was posted in a bare ``` block with no label, which is why it read as a stray fragment rather than a thought. |
+| Observation digest | `observation.broadcast_digest` | `#kaia-opolis` | The summary is spoken **verbatim**, not re-generated from. |
+| Inner monologue | `monologue.broadcast_to_chat` | `#kaia-opolis` | Its own daily cap and minimum gap. `monologue.respect_quiet_hours` decides whether the clock applies. |
+| Proactive opener | the desire gate + rate limiter | most recent channel | `proactive.respect_quiet_hours` decides whether `quiet_hour_start`/`end` apply. |
+| Idle quip | the idle timer | most recent channel | `quip.broadcast_prefix` labels it. |
 
-Both broadcasts are prefixed (`monologue.broadcast_prefix`, `observation.broadcast_prefix`) so
-they read as a thought and an observation rather than as remarks aimed at someone.
+Each carries a configurable prefix so it reads as a thought or an observation rather than as a
+remark aimed at whoever spoke last.
 
-**The desire gate must not be able to silence her.** `INITIATE_THRESHOLD` was 0.55 while
-`observe_exchange` pinned the intellectual need at 0.0 on any active server, capping pressure at
-0.16 — she spoke first **once in 102 evaluations**. It is 0.12 now and configurable
-(`desires.initiate_threshold`, `desires.gate_enabled`). A chat bot that cannot chat first is not
-the point.
+**The desire gate must not be able to silence her.** `observe_exchange` pins the intellectual
+need at 0.0 on any active server, which caps pressure at 0.16 — so a threshold above that means
+she never speaks first, and at 0.55 she did so once in 102 evaluations. Both the threshold and
+the gate itself are configurable (`desires.initiate_threshold`, `desires.gate_enabled`).
 
 ---
 
@@ -643,6 +641,15 @@ uncommitted feature with it, which is the second lesson. If you must sweep:
 - restrict the receiver to what you expect (a dotted name), not `.+?`
 - parse every touched file before moving on, and import the ones that are modules
 - commit the unrelated work first
+
+**A comment states the rule; the report states the incident.** Comments in this codebase had
+become an incident log — dated anecdotes, transcript excerpts, the tuning history of individual
+thresholds, internal phase and ticket numbers. That material goes stale where nobody updates it
+and makes the code harder to read. Say what the guard or option *is* and which constraint gives
+it its shape; the story of what went wrong belongs in `docs/reports/`, where
+`04-audits/comment_provenance.md` holds what was removed. The same applies to config comments
+and to this file: neither should assert what an option is currently set to, because the file
+itself is right there.
 
 **Preserve content when cleaning.** Any transform that removes text should be checked for
 retention. A page-number stripper compiled with `re.IGNORECASE` silently deleted prose lines;

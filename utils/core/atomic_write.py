@@ -1,18 +1,12 @@
 """One way to write a file that something else might be reading.
 
-CLAUDE.md §4 requires atomic writes — `.tmp` then `os.replace()` — and the rule
-existed because a half-written registry took the bot down. It was being followed
-in the places people remembered and nowhere else: a September 2026 sweep found
-35 bare `write_text` calls across 21 modules that rewrite `knowledge_base/`
-in place, including the nightly metadata enrichment, the hourly ingress filer,
-the dream engine and every profile generator.
+Write to `.tmp`, then `os.replace()`. Required for everything under
+`knowledge_base/` and `memory/` (CLAUDE.md §4): an interrupted bare write raises
+nowhere and leaves a truncated document that is indexed on the next sweep,
+retrievable, and indistinguishable from a file that was simply short.
 
-An interrupted rewrite there does not raise anywhere. It leaves a truncated
-document in the corpus, indexed on the next sweep, retrievable, and identical in
-every respect to a file that was simply short.
-
-`os.replace` is atomic within a filesystem, which is why the temporary file is
-written beside its destination rather than in `/tmp`.
+`os.replace` is atomic only within a filesystem, so the temporary is written
+beside its destination rather than in `/tmp`.
 """
 from __future__ import annotations
 

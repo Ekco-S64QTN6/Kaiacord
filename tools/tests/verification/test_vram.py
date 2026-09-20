@@ -48,7 +48,8 @@ async def probe_num_gpu(val):
         print(f"Error: {e}")
 
 async def main():
-    # Try: Auto (None), forced GPU (-1), Phase 14 bypass (99), Safe mid-range (32)
+    # num_gpu values to try: auto (None), all layers (-1), over-max bypass (99),
+    # safe mid-range (32).
     for v in [None, -1, 99, 32, 1]:
         await probe_num_gpu(v)
 

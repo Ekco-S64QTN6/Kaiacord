@@ -620,18 +620,15 @@ def looks_repetitive(candidate: str, recent: list[str], threshold: float = 0.5
 
 # ── How she writes there ─────────────────────────────────────────────
 #
-# Nothing. She writes the same way here as she does in Discord.
+# Nothing here. She writes the same way on the forum as in Discord.
 #
-# A FORUM_POST_GUIDANCE block lived here and was appended to the system prompt
-# on the forum path only. It asked for brevity — "say one thing", "react to
-# what was actually said" — and against a post reading "test test hello hello"
-# that produced "hello.", twenty times over fourteen hours, while Discord
-# replies in the same window ran 168 to 999 characters.
+# The anti-bot rules a forum-only guidance block would carry — no sign-offs, no
+# engagement bait, no addressee openers, no assistant register — are already
+# enforced deterministically by BotSpeakFilter.harden(). What such a block adds
+# on top is a brevity instruction, and that collapses her replies to one word
+# against a trivial post.
 #
-# Its anti-bot rules (no sign-offs, no engagement bait, no addressee openers,
-# no assistant register) are already enforced deterministically by
-# BotSpeakFilter.harden(). The one thing it added on top was a length ceiling,
-# and that is what broke her. Adding to the prompt on one path guarantees that
-# path behaves differently; if a rule is worth having it belongs in the filter,
-# where it applies everywhere and can be tested.
+# Adding to the prompt on one path guarantees that path behaves differently. A
+# rule worth having belongs in the filter, where it applies everywhere and can
+# be tested.
 

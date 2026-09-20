@@ -27,9 +27,9 @@ from utils.infrastructure.logging.kaia_logger import log_debug, log_info, log_wa
 from utils.infrastructure.system.yaml_config import config
 from utils.social.forum_participation import PostLedger, looks_repetitive
 
-# vBulletin's own platform tag. The processor keys its forum-specific prompt
-# assembly off this exact string; `forum_tasks` used to pass "forum", which
-# silently took the ordinary Discord path and lost the thread context entirely.
+# vBulletin's own platform tag. The processor keys its forum-specific handling
+# off this exact string — any other spelling ("forum") silently takes the
+# ordinary Discord path and loses the thread context.
 PLATFORM = "vbulletin"
 
 # How much of a thread becomes conversation history. Discord's channel memory is
@@ -257,20 +257,12 @@ def seed_thread_history(ctx, thread_id: int, earlier_posts: list, username: str)
     except Exception:
         return 0
 
-    # An int, because that is what `channel_memory` is keyed by. This was
-    # `str(...)`, and `MessageProcessor` reads `bot_state.channel_memory[
-    # ctx.channel_id]` where `ctx.channel_id` comes off the mock channel as an
-    # int — so every thread was seeded under "222746109" and read back under
-    # 222746109, and the read missed. `bot_state.load()` states the contract
-    # explicitly ("channel_memory uses int keys") and casts on load, which also
-    # meant the orphaned string keys were silently dropped at every restart.
-    #
-    # The effect was that the work this module exists to do never happened: the
-    # log said "seeded 12 thread posts as conversation history" on every draft
-    # and `optimize_context` received an empty history on every draft. That is
-    # the whole of "her forum posts read worse than her Discord replies" — the
-    # docstring below already names no-conversation-to-be-in-the-middle-of as
-    # the cause of boilerplate, and the fix had been written but never connected.
+    # An int, because that is what `channel_memory` is keyed by:
+    # `MessageProcessor` reads it under `ctx.channel_id`, which comes off the
+    # mock channel as an int, and `bot_state.load()` states the contract and
+    # casts on load. Seeded as a string the write and the read never meet, the
+    # orphaned keys are dropped at the next restart, and every draft is
+    # generated with no history — while the log still reports the seeding.
     channel_id = conversation_channel_id(PLATFORM, thread_id)
 
     # Prefer the local copy where it reaches further back than the live scrape,
@@ -332,32 +324,26 @@ async def draft_forum_reply(ctx, *, thread_id: int, title: str, posts: list,
 
     username = os.getenv("VBULLETIN_USERNAME", "")
 
-    # `format_thread_context` used to be assembled here and then never sent
-    # anywhere — a leftover from when this function built its own prompt. The
-    # thread reaches the model as conversation history via `seed_thread_history`
-    # below, which is the shape the pipeline actually reads. The function is now
-    # exercised only by tests; it is kept because a thread flattened into one
-    # block is the readable form when debugging what she was given.
+    # The thread reaches the model as conversation history via
+    # `seed_thread_history` below, which is the shape the pipeline reads.
+    # `format_thread_context` is kept for tests and debugging — a thread
+    # flattened into one block is the readable form of what she was given.
 
-    # The target is explicit in every case. Previously, when the coin flip came
-    # up "no quote", reply_to was None and the model was left to infer who it
-    # was answering from the tail of the thread block.
+    # The target is explicit in every case, quoted or not. Left as None the
+    # model infers who it is answering from the tail of the thread block.
     quote_post = reply_to if reply_to is not None else pick_quote_target(posts, username)
     if quote is False:
         quote_post = None
 
     # Shaped exactly like a Discord message, because it goes through the Discord
-    # pipeline.
-    #
-    # This had it backwards: the *thread* was sent as [USER_MESSAGE] and the
-    # person's actual post as [REPLYING_TO] background. So the model was
-    # answering the thread, with the message it was supposed to answer demoted
-    # to context — which is why a reply to "test test hello hello" came back
-    # about the Well-Formed Outcome Process. In Discord the message is the
-    # message; here it now is too.
+    # pipeline — the post being answered is the message, and the thread is
+    # background:
     #
     #   [ORIGINAL_POST] the rest of the thread, as background
     #   [USER_MESSAGE]  what this person actually said
+    #
+    # Reversed, the model answers the thread and replies about a topic lifted at
+    # random from it.
     target = quote_post if quote_post else _as_dict(posts[-1])
     speaker = target.get('author', 'Someone')
     speaker_id = target.get('user_id') or 0
@@ -370,12 +356,9 @@ async def draft_forum_reply(ctx, *, thread_id: int, title: str, posts: list,
     # What they were replying to — and on a forum that is what they *quoted*,
     # nothing else.
     #
-    # This used to walk backwards from the target and take the first earlier post
-    # in the thread. In a two-person exchange that is right; in the 177-post
-    # threads she actually posts in it hands her a different person arguing a
-    # different point and labels it as the thing she is answering. The operator
-    # saw the result as posts that "inject unrelated context from previous posts
-    # by different people".
+    # Not the first earlier post in the thread. That is right in a two-person
+    # exchange and wrong in a hundred-post one, where it hands her a different
+    # person arguing a different point and labels it as what she is answering.
     #
     # When they quoted nobody, the honest answer is that there is no antecedent,
     # and the fallback below uses their own words — the same shape as a Discord
@@ -405,16 +388,12 @@ async def draft_forum_reply(ctx, *, thread_id: int, title: str, posts: list,
     # No retries, no nudges, no extra instructions. The pipeline is asked once,
     # exactly as Discord asks it, and whatever comes back is the draft.
     #
-    # Two previous attempts to "help" here both made it worse. A length floor of
-    # 24 characters dropped "hello." — a fair reply to "test test hello hello" —
-    # and logged that the filters had emptied it, which they had not. Replacing
-    # that with a retry that said "reply to what the THREAD is about instead"
-    # produced a post about the Well-Formed Outcome Process, a topic lifted at
-    # random from the thread context and unrelated to the message being
-    # answered. An irrelevant post is worse than a short one.
-    # Pictures in the post she is answering. Without these the vision model never
-    # saw them and she replied to text that was not there: a post consisting of
-    # an image drew "those symbols again? what are you trying to do?".
+    # Both ways of "helping" here make it worse. A length floor rejects "hello."
+    # when that is the fair reply, and reports it as the filters emptying the
+    # response. A retry telling her to answer the thread instead produces a post
+    # about a topic lifted at random from it — irrelevant is worse than short.
+    # Pictures in the post she is answering. Without these the vision model gets
+    # nothing and she answers an image post blind.
     images = list(target.get("images") or [])
     if images:
         log_info(f"Forum: {speaker}'s post carries {len(images)} image(s); "

@@ -36,12 +36,10 @@ RE_ORIGINAL_FRAG_HEADER = re.compile(r"## Original Fragment\s*", flags=re.IGNORE
 RE_SOURCE_HEADER_MATCH = re.compile(r"Source:\s*(.+)", flags=re.IGNORECASE)
 RE_SOURCE_HEADER_STRIP = re.compile(r"Source:\s*.+", flags=re.IGNORECASE)
 RE_KAIA_REFLECTION_HEADER = re.compile(r"## Kaia's Reflection\s*", flags=re.IGNORECASE)
-# Anchored against a digit run and matched on the basename only. The bare
-# `(\d{4})(\d{2})(\d{2})` searched the whole path, so on
-# `user_logs/Starkind_519557167779676160/interactions_20260912.md` it matched
-# inside the Discord id — 5195-57-16 — raised ValueError on the month and
-# returned "". Every user-log chunk therefore reached the prompt with no date at
-# all, which is exactly the provenance a recap needs.
+# Anchored against a digit run and matched on the basename only. An unanchored
+# `(\d{4})(\d{2})(\d{2})` over the whole path matches inside a 19-digit Discord
+# id and raises on the impossible month, so no user-log chunk carries a date —
+# which is exactly the provenance a recap needs.
 RE_DATE_FROM_PATH = re.compile(r'(?<!\d)(20\d{2})(\d{2})(\d{2})(?!\d)')
 # Monthly rollup archives (`interactions_202608_archive.md`) carry no day.
 RE_MONTH_FROM_PATH = re.compile(r'(?<!\d)(20\d{2})(\d{2})(?!\d)')
@@ -230,15 +228,14 @@ class ContextOptimizer:
                     # A forum post is not something that was said to her.
                     #
                     # `knowledge_base/user_logs/` holds both Discord transcripts
-                    # and scraped Project 1999 posts — 218 forum directories
-                    # against 9 Discord ones, 47% of the corpus by size. Both
-                    # matched `is_log`, so a years-old forum post was injected
-                    # as "[CONVERSATION HISTORY: TENNO | 2026-09-07]" and she
-                    # recalled it as something said in Discord.
+                    # and scraped forum posts, and both match `is_log` — so
+                    # without the venue in the label a years-old forum post is
+                    # injected as conversation history and recalled as something
+                    # said in Discord.
                     #
-                    # The person is the same — the identity registry links the
-                    # accounts deliberately — so the name stays. Only the venue
-                    # is restored, because that is what was missing.
+                    # The person is the same (the identity registry links the
+                    # accounts deliberately), so the name stays; only the venue
+                    # is added.
                     provenance = []
                     if user_name:
                         # "forum Tenno Henka 123" -> "TENNO HENKA"

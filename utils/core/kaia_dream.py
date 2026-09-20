@@ -178,11 +178,10 @@ class DreamEngine:
                 except OSError:
                     pass
 
-            # Size-gated rotation, mirroring kaia_mood._log_snapshot.
-            # This is the log's main writer (dreams, beliefs, digests), but the
-            # only rotation used to live in message_processor's relationship
-            # milestone branch, which fires at 10/25/50/100/250/500 exchanges —
-            # so in practice the file grew unbounded between rare milestones.
+            # Size-gated rotation, mirroring kaia_mood._log_snapshot. This is
+            # the log's main writer (dreams, beliefs, digests), so it has to
+            # rotate here — rotation attached to a rare milestone elsewhere lets
+            # the file grow unbounded in between.
             try:
                 if self.GROWTH_LOG_PATH.stat().st_size > self.GROWTH_LOG_MAX_BYTES:
                     with open(self.GROWTH_LOG_PATH, 'r', encoding='utf-8') as f:
@@ -573,7 +572,7 @@ VOICE AND FORMAT RULES (always apply regardless of dream type):
         # Shuffle again to mix types in processing order
         random.shuffle(sample_files_with_salience)
         
-        # 3. Phase 1: Concurrent Snippet Extraction (CPU/IO Bound)
+        # 3. Snippet extraction, concurrent (CPU/IO bound).
         log_action(f"Extracting snippets for {len(sample_files_with_salience)} candidate dreams...")
         extraction_tasks = [self._extract_snippet_async(item[0]) for item in sample_files_with_salience]
         snippets_raw = await asyncio.gather(*extraction_tasks)
@@ -591,7 +590,7 @@ VOICE AND FORMAT RULES (always apply regardless of dream type):
         work_items_sorted = sorted(work_items, key=lambda x: x[2], reverse=True)
         n_nrem = max(1, int(len(work_items_sorted) * 0.4)) if work_items_sorted else 0
         
-        # 4. Phase 2: Guarded GPU Generation (Sequential/Guarded)
+        # 4. Generation, sequential behind the GPU guard.
         for idx, (file_path, snippet, salience) in enumerate(work_items_sorted):
             phase = 'nrem' if idx < n_nrem else 'rem'
             try:
@@ -677,7 +676,7 @@ VOICE AND FORMAT RULES (always apply regardless of dream type):
         # Auto Self-Model Regeneration — weekly inline rebuild
         await self._maybe_regenerate_self_model(persona_content)
 
-        # Profile Staleness Auto-Refresh (P54-17)
+        # Profile staleness auto-refresh.
         await self._maybe_refresh_user_profiles()
 
         log_info(f"Nightly dreaming complete. Added {new_dreams_count} new thoughts.")
@@ -989,13 +988,13 @@ VOICE AND FORMAT RULES (always apply regardless of dream type):
 
         # Cap at 100 beliefs.
         #
-        # Eviction used to sort on confidence alone, which is recency-hostile:
-        # a belief formed minutes ago starts around 0.7-0.8 and would be dropped
-        # in favour of a two-week-old 0.95 that nothing has referenced since.
-        # It also permanently reordered the file and discarded ten at a time.
-        # Score instead on confidence reinforced by use and decayed by age,
-        # mirroring the anchor decay in memory_anchors.py, and evict only the
-        # single weakest entry so a burst of new beliefs cannot wipe a block.
+        # Scored on confidence reinforced by use and decayed by age, mirroring
+        # the anchor decay in memory_anchors.py. Confidence alone is
+        # recency-hostile: a belief formed minutes ago starts around 0.7-0.8 and
+        # loses to a fortnight-old 0.95 nothing has referenced since.
+        #
+        # Evicts the single weakest entry, so a burst of new beliefs cannot wipe
+        # a block, and leaves file order alone.
         if len(beliefs) > 100:
             now = time.time()
 
@@ -1043,7 +1042,7 @@ VOICE AND FORMAT RULES (always apply regardless of dream type):
             })
 
     async def _maybe_refresh_user_profiles(self):
-        """P54-17: Profile Staleness Decay & Auto-Refresh.
+        """Profile staleness decay and auto-refresh.
         
         Evaluates every user profile in the user logs directory.
         If a profile is older than subsequent logs by 7+ days or subsequent logs exceed 15KB,

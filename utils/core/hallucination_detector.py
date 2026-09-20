@@ -51,9 +51,8 @@ class HallucinationDetector:
             action_taken: 'cleaned', 'suppressed', 'warned', or 'passed'.
         """
         import os
-        # Routed through telemetry_path so a test run cannot pollute the
-        # figure !sysmon reports. Every one of this file's 368 historical
-        # entries was a unit-test fixture (Phase 80).
+        # Routed through telemetry_path so a test run cannot pollute the figure
+        # !sysmon reports — without it the file fills with unit-test fixtures.
         log_path = telemetry_path("memory/hallucination_log.jsonl")
         entry = {
             "timestamp": __import__('time').time(),

@@ -67,7 +67,7 @@ _persona_cache = None
 _persona_last_load = 0
 
 
-# ── Extracted Platform Polling (Phase 28 / CQ-01) ────────────────────────
+# ── Platform polling ─────────────────────────────────────────────────────
 from utils.social.social_bluesky_polling import (              # noqa: F401
     _reconstruct_bluesky_history,
     _get_bluesky_mentions,
@@ -434,7 +434,7 @@ async def mock_external_mention(on_message_func, content: str, author_name: str,
 
 
 
-# ── Extracted Response Generation (Phase 28 / CQ-01) ─────────────────────
+# ── Response generation ──────────────────────────────────────────────────
 from utils.social.social_response_generator import (           # noqa: F401
     get_random_memories,
     get_random_dream_reflection,

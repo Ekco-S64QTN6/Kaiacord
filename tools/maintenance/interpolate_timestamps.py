@@ -19,8 +19,7 @@ for user_dir in Path(user_logs_dir).iterdir():
         
     username = user_dir.name.split('_')[0]
     
-    # Process files sequentially so we could theoretically carry over time,
-    # but let's just do it file by file.
+    # One file at a time; no state carries between files.
     for log_file in sorted(user_dir.glob("interactions_202603*.md")):
         date_match = re.search(r'interactions_(\d{4})(\d{2})(\d{2})\.md', log_file.name)
         if not date_match:
@@ -58,14 +57,9 @@ for user_dir in Path(user_logs_dir).iterdir():
         
         new_lines = []
         
-        # We'll just do a simple pass:
-        # Keep track of last known time.
-        # If we see a timestamp, update last known time.
-        # If we see an un-timestamped "User:" or "Kaia:", use (last_known_time + 1 min), update last known time.
-        # But wait, what if there's an anchor later? We don't want to overshoot.
-        # A simpler way: forward fill from 12:00:00 for the file if no anchors.
-        # If there are anchors, any unknown before the first anchor is (anchor - N mins).
-        # Any unknown after an anchor is (anchor + 1 min).
+        # Forward-fill from the last known time, one minute per untimestamped
+        # turn. Turns before the first anchor are back-filled from it; a file
+        # with no anchors at all starts at 12:00:00.
         
         # Parse into turns
         turns = []

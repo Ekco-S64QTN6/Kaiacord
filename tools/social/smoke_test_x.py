@@ -37,8 +37,8 @@ async def smoke_test_x():
             
             # Check if we can get account info (minimal read test)
             try:
-                # user = await client.user() # Some versions might differ, let's try a simple property or method
-                # Better to just try to get the user ID or similar
+                # client.user() is not available across all twikit versions;
+                # read the id off the client instead.
                 me = await client.get_user_by_screen_name(username)
                 log_success(f"Verified account info: {me.name} (ID: {me.id})")
                 

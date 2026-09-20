@@ -188,7 +188,7 @@ def test_the_modelfile_system_prompt_matches_the_trained_one():
     assert served.group(1).strip() == trained.strip()
 
 
-# ── Defects found by re-auditing the corpus (Phase 91) ───────────────
+# ── Corpus defects the first audit missed ────────────────────────────
 
 def _train():
     import json

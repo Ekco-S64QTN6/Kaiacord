@@ -228,10 +228,9 @@ class KaiaPresenceManager:
             elif engagement <= 0.3:
                 text = self._pick_random(_IDLE_TEXTS)
             else:
-                # Moderate. This used to draw from _IDLE_TEXTS + _ACTIVE_TEXTS
-                # combined, so a coin flip in the middle band could claim
-                # "people are talking." with nothing to support it. The middle
-                # band now only says things that are true either way.
+                # Moderate: only statements that hold whether or not anyone is
+                # talking. Drawing from the idle and active pools together lets
+                # the middle band assert "people are talking." on a coin flip.
                 text = self._pick_random(_IDLE_TEXTS)
 
         return status, text

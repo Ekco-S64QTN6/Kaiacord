@@ -15,9 +15,7 @@ def list_gemini_models():
     
     print("--- Available Gemini Models ---")
     try:
-        # The new SDK might have a different way to list models
-        # Let's try to list them
-        # According to the docs/examples, searching models is done via models.list()
+        # models.list() is the SDK's model enumeration entry point.
         for model in client.models.list():
             print(f"Model: {model.name}")
             print(f"  Supported Actions: {model.supported_actions}")

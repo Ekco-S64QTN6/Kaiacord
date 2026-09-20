@@ -550,17 +550,14 @@ class RAGQueryMixin:
 
             final_score = (base_score + path_boost + type_boost + persona_file_bonus) * casual_knowledge_factor
 
-            # Soft dampening for literary prose documents for non-synthesis queries
-            # (avoid total erasure). The intent is to stop novel prose bleeding
-            # into unrelated conversation.
+            # Soft dampening of literary prose on non-synthesis queries, to stop
+            # novel prose bleeding into unrelated conversation. Damped, not
+            # erased.
             #
-            # `path_boost` exempts it. That is set when the query's own words
-            # appear in the filename, which is precisely the case the damper was
-            # mis-handling: asking "neuromancer" put the forum profiles of people
-            # who had *mentioned* the book above the book itself, because the book
-            # took a 0.75x multiplier for having "neuromancer" in its name — the
-            # same word the user had just typed. A query that names a work is the
-            # most relevant that work will ever be.
+            # `path_boost` exempts it: that flag means the query's own words are
+            # in the filename, and a query naming a work is the most relevant that
+            # work will ever be. Without the exemption, asking for a book ranks
+            # everyone who mentioned it above the book itself.
             if (source_type == 'general_knowledge' and not path_boost
                     and not routing.get('is_entity_query') and not routing.get('is_news_query')):
                 fname_lower = os.path.basename(file_path).lower()
@@ -692,13 +689,12 @@ class RAGQueryMixin:
                     self._last_retrieval_node_count = len(results)
                     return results
             
-            # Manifest title fast path: match query words against indexed filenames directly.
-            # SAFETY GUARDS (2026-04-03 incident):
-            #   - Skipped for casual/social/greeting/dream/recap queries
-            #   - Requires at least one distinctive word (>= 6 chars) in the overlap
-            #   - Requires minimum 30% filename coverage
-            #   - Comprehensive stopword lists to prevent spurious matches on
-            #     common words like "what", "why", "work", "does" appearing in titles
+            # Manifest title fast path: match query words against indexed
+            # filenames directly. It bypasses scoring, so it is deliberately hard
+            # to enter — skipped for casual, social, greeting, dream and recap
+            # queries, and requiring a distinctive word (>= 6 chars) in the
+            # overlap plus 30% filename coverage. The stopword lists keep common
+            # words ("what", "why", "work", "does") from matching titles.
             _FAST_PATH_QUERY_STOPS = {
                 # Articles, prepositions, conjunctions
                 "the", "a", "an", "of", "and", "or", "to", "in", "is", "for",

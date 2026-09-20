@@ -16,19 +16,13 @@ from pathlib import Path
 from typing import Any, Dict, List, Optional
 
 # ── Interpreter guard ────────────────────────────────────────────────
-# Launched as `python Kaiacord.py` without activating the venv, this picked up
-# the system interpreter instead. A system update moved /usr/bin/python from
-# 3.12 to 3.14, and a parallel set of packages in ~/.local/lib/python3.14 meant
-# the bot still *started* — it just started with different libraries. The
-# failures surfaced hours later and nowhere near the cause: forum scraping died
-# on "No module named 'bs4'", and news on "cannot import name 'genai' from
-# 'google' (unknown location)", because that Python had a bare `google`
-# namespace directory and no google-genai in it.
+# Re-exec into venv/bin/python when started under anything else. A stray set of
+# user-site packages is enough for the bot to *start* on the wrong interpreter
+# and then fail hours later inside unrelated subsystems, with tracebacks that
+# point nowhere near the cause. Re-exec rather than warn: there is no case where
+# running this file against another interpreter is intended.
 #
-# Re-exec into the venv rather than warn: a half-working bot that logs import
-# errors in two subsystems is the expensive failure, and there is no case where
-# running this file against some other interpreter is what was wanted. Set
-# KAIA_NO_REEXEC=1 to opt out (and the guard never loops — it marks the child).
+# KAIA_NO_REEXEC=1 opts out. The guard marks the child, so it cannot loop.
 def _ensure_venv_interpreter() -> None:
     if os.environ.get("KAIA_NO_REEXEC") == "1" or os.environ.get("_KAIA_REEXEC") == "1":
         return
@@ -507,11 +501,9 @@ async def _phase3_background_init():
     log_success("[Phase 3] All background systems online. Kaia fully operational.")
 
 
-# _run_rag_initialize_cpu_only() has been removed.
-# Previous versions nested: thread → new event loop → async → thread again.
-# This was unnecessary CPU/memory overhead. initialize_async() is awaited
-# directly inside _phase3_background_init() which already runs on the main
-# event loop as a background task — no thread wrapper needed.
+# RAG initialisation is awaited directly in _phase3_background_init(), which
+# already runs on the main event loop as a background task. It needs no thread
+# wrapper — nesting thread -> event loop -> async -> thread buys nothing.
 
 
 # ─────────────────────────────────────────────

@@ -58,16 +58,14 @@ Output ONLY the profile markdown. No preamble, no commentary."""
 def _identity(user_dir: Path):
     """(is_self, frontmatter_lines, header_suffix) for a forum directory.
 
-    Sept 19 2026. This tool rebuilds `user_profile.md` from a fixed header and
-    knows nothing about the identity registry, so it silently undoes what the
-    registry knows. `forum_Kaia_322197/user_profile.md` was repaired to its
-    self-reference document on Sept 18; this ran at 03:41 the next morning and
-    replaced it with a third-person personality profile of Kaia, written from
-    Kaia's own posts — "they are a thoughtful and observant presence, but our
-    relationship remains primarily intellectual rather than personal."
+    This tool rebuilds `user_profile.md` from a fixed header, so without asking
+    the identity registry first it overwrites what the registry knows — turning
+    Kaia's own forum account into a third-person personality profile assembled
+    from her own posts.
 
-    `compact_forum_profiles.py` had the same hole and was fixed first. Fixing
-    one writer is not enough when two of them write the same file.
+    `compact_forum_profiles.py` writes the same file and must consult the registry
+    for the same reason; both are covered by
+    test_every_writer_of_user_profile_consults_the_identity_registry.
     """
     m = re.search(r"_(\d+)$", user_dir.name)
     if not m or not user_dir.name.startswith("forum_"):

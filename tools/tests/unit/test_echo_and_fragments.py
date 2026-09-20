@@ -78,7 +78,7 @@ def test_a_sentence_with_its_own_verb_is_not_treated_as_a_fragment():
     assert P._is_dependent_fragment("a way of imposing order on a chaotic system.")
 
 
-# ── Trailing position, found live 2026-09-20 ─────────────────────────
+# ── The offence running to the end of the sentence ───────────────────
 
 @pytest.mark.parametrize("sentence,expected", [
     ("it’s a complicated issue, and your observation is astute.",

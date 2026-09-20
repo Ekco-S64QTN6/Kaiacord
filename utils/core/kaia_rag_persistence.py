@@ -385,12 +385,10 @@ class RAGPersistenceMixin:
 
         # Only clear the dirty flag if everything actually reached disk.
         #
-        # This used to run unconditionally, so a failed write cleared
-        # `persist_needed` anyway and the guard at the top of this function
-        # then made every subsequent call a no-op — the index changes were
-        # never retried and were silently lost, while the line below announced
-        # "RAG indices persisted." On the next restart she would quietly come
-        # back with a stale index and nothing in the log to say why.
+        # Clearing it unconditionally makes the guard at the top of this function
+        # a no-op on every later call, so failed writes are never retried and the
+        # index changes are lost — while the line below still reports success and
+        # the next restart comes back stale.
         if failed:
             log_warning(
                 f"RAG persistence partial: {', '.join(persisted) or 'none'} saved; "

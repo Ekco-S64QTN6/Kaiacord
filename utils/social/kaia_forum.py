@@ -38,16 +38,14 @@ _client: Optional["ForumClient"] = None
 _client_lock = asyncio.Lock()
 
 
-# The board serves and expects ISO-8859-1 (confirmed: Content-Type and the meta
-# tag both say so). aiohttp urlencodes form fields as UTF-8, so an em dash left
-# Kaia's first post reading "under the hoodâ€”it always feels" — the three UTF-8
-# bytes of U+2014 read back as three Latin-1 characters.
+# The board serves and expects ISO-8859-1 (Content-Type and the meta tag agree).
+# aiohttp urlencodes form fields as UTF-8, so anything outside Latin-1 comes back
+# mojibake — an em dash posts as "hoodâ€”it".
 #
-# Browsers posting to a legacy-charset form encode what they can in that
-# charset and escape the rest as numeric character references, which is why
-# other users' em dashes survive: vBulletin stores them as &#8212;. Doing the
-# same makes the whole class of problem go away rather than growing a list of
-# characters to replace one at a time.
+# A browser posting to a legacy-charset form encodes what it can in that charset
+# and escapes the rest as numeric character references, which is how other users'
+# em dashes survive (vBulletin stores them as &#8212;). Doing the same retires
+# the whole class of problem; do not grow a per-character replacement list.
 FORUM_CHARSET = "iso-8859-1"
 
 
@@ -62,14 +60,13 @@ FORM_HEADERS = {"Content-Type": f"application/x-www-form-urlencoded; charset={FO
 
 # ── Embedded video dumps ─────────────────────────────────────────────
 #
-# `[embed]xxxxxxxxxxx[/embed]` renders to a bare 11-character id, and a post
-# that is a playlist of them flattens to a wall of those ids. One user's
-# post_history.md held 256 of them; 694 across 44 files. They are noise in the
-# corpus: retrievable, meaningless, and they crowd out real content.
+# `[embed]xxxxxxxxxxx[/embed]` renders to a bare 11-character id, so a post that
+# is a playlist of them flattens to a wall of ids: retrievable, meaningless, and
+# crowding out real content.
 #
-# The existing resolver only ran in thread parsing, and only matched a line
-# that was *exactly* the id — the history scraper emits "- <id>" list items, so
-# nothing matched there at all.
+# Matched in both thread parsing and history scraping, and the pattern allows a
+# list-item prefix — the history scraper emits "- <id>", which an exact-line
+# match never sees.
 
 _VIDEO_ID_LINE = re.compile(r"^\s*[-*•]?\s*([A-Za-z0-9_-]{11})\s*$")
 
@@ -186,15 +183,10 @@ async def get_forum_client(force_new: bool = False) -> Optional["ForumClient"]:
                 base_url=config.get('forum.base_url', 'https://www.project1999.com/forums'),
                 forum_id=config.get('forum.forum_id', 19),
             )
-            # Do not cache a client that failed to log in.
-            #
-            # `_client` used to be assigned before the login attempt and the
-            # result was discarded, so a single transient failure — the forum
-            # down for a minute, a network blip — left an unauthenticated
-            # client cached for the lifetime of the process. Every later call
-            # saw `_client is not None` and returned it without retrying, so
-            # forum posting and scraping stayed dead until a restart, with one
-            # stale log_error far up the log as the only clue.
+            # Do not cache a client that failed to log in. Caching before the
+            # login result is known turns one transient network failure into an
+            # unauthenticated client for the lifetime of the process: every later
+            # call sees `_client is not None` and never retries.
             if not await candidate.login():
                 log_warning("Forum login failed; not caching the client so the "
                             "next call retries.")
@@ -238,11 +230,9 @@ class PostInfo:
     # `content` keeps the flattened whole, because the thread context the model
     # reads is more useful with the quoted material in it. Only `own_text` is
     # ever put inside a quote box.
-    # `images` holds the URLs of pictures actually posted in the body. Kaia
-    # drafted "those symbols again? what are you trying to do?" in reply to a
-    # post that was a picture — the forum path built a MockMessage with an empty
-    # `attachments` list, so the vision model never saw it and she was answering
-    # text that did not exist.
+    # `images` holds the URLs of pictures actually posted in the body. It feeds
+    # MockMessage.attachments, which is the only thing the vision path reads — an
+    # empty list means she answers an image post blind.
     __slots__ = ('post_id', 'author', 'user_id', 'content', 'timestamp',
                  'post_number', 'own_text', 'images')
 
@@ -599,12 +589,10 @@ class ForumClient:
             content = div.get_text(separator='\n', strip=True)
 
             # A vBulletin quote is a wrapper <div> containing a <table> whose
-            # text opens "Originally Posted by". Flattening the post loses that
-            # boundary, and a heuristic over the flattened text cannot find it
-            # again: Kaia quoted a post whose quote box came *first* and
-            # reproduced BradZax's words inside a box attributed to Jimjam.
-            # Removing the nodes here is exact, because the structure is still
-            # present.
+            # text opens "Originally Posted by". Remove it here, while the
+            # structure is still present: flattening loses the boundary, and a
+            # heuristic over flattened text misattributes quoted words to the
+            # poster who quoted them.
             own_div = copy.copy(div)
             for tbl in own_div.find_all('table'):
                 wrapper = tbl.find_parent('div')
@@ -614,13 +602,11 @@ class ForumClient:
             own_text = re.sub(r'^\s*Quote:\s*', '', own_text).strip()
 
             # Pictures posted in the body. Taken from `own_div`, so an image
-            # inside a quote box belongs to whoever is being quoted and is not
-            # attributed here.
+            # inside a quote box belongs to whoever is being quoted.
             #
-            # vBulletin serves its entire UI as images from the same domain —
-            # smilies, post icons, rank badges, spacer gifs — so an unfiltered
-            # sweep hands the vision model a 1x1 clear.gif and a thumbs-up emoji
-            # and nothing a person posted.
+            # Filtering is not optional: vBulletin serves its entire UI as images
+            # from the same domain — smilies, post icons, rank badges, spacers —
+            # so an unfiltered sweep hands the vision model a 1x1 clear.gif.
             post_images = []
             for _img in own_div.find_all('img'):
                 _src = (_img.get('src') or '').strip()
@@ -672,10 +658,9 @@ class ForumClient:
                     timestamp = ts_match.group(1)
 
             # --- Embedded videos ---
-            # Resolve a title only when there are one or two, where the title
-            # carries meaning. A run of them is a link dump and becomes a
-            # count: the old loop made one HTTP call per id, so a post with
-            # thirty embeds meant thirty round-trips during a scrape.
+            # Resolve titles only for one or two, where the title carries
+            # meaning. A longer run is a link dump and becomes a count — one HTTP
+            # call per id means thirty round-trips on a playlist post.
             content = await self._collapse_videos(content)
             # -------------------------
             # -------------------------
@@ -1010,13 +995,10 @@ class ForumClient:
             is_new = not interaction_path.exists()
 
             # Every post id already recorded for this user, across every dated
-            # file — not just today's.
-            #
-            # The dedup used to read `interaction_path` alone, so a post written
-            # to interactions_20260917.md was invisible when the scraper ran on
-            # the 18th and was written again in full. Result: 76 byte-identical
-            # files across 34 forum user directories, one more added per user
-            # per day for as long as the scraper kept seeing the same posts.
+            # file — not just today's. Reading only the current day's file makes
+            # yesterday's posts invisible, so the same posts are rewritten in full
+            # once per user per day for as long as the scraper keeps seeing
+            # them.
             seen_ids = set()
             for prior in user_dir.glob("interactions_*.md"):
                 try:
@@ -1226,9 +1208,8 @@ class ForumClient:
 
         for tid in thread_ids:
             try:
-                # Scrape the thread (defaults to last 50 posts)
-                # We might need to scrape specific pages if the post is old, 
-                # but for now, let's just get the recent context from these threads.
+                # Scrape the thread for recent context; defaults to the last 50
+                # posts. Older posts would need a specific page request.
                 thread_data = await self.scrape_thread(tid, last_n_posts=50)
                 
                 # Extract posts by our target user
@@ -1323,10 +1304,8 @@ class ForumClient:
         """
         from utils.social.kaia_identities import registry
 
-        # Her own forum account is not a person to profile. Without this the
-        # scraper wrote `forum_Kaia_322197/user_profile.md` describing "a forum
-        # user... haven't formed a strong opinion yet — need to see more of
-        # their posts" — a memory of herself as a stranger, retrievable in
+        # Her own forum account is not a person to profile. Profiling it writes
+        # a third-person description of herself into the corpus, retrievable in
         # conversation as if it were about somebody else.
         if registry.is_self(user_id) or (username or "").lower() == \
                 (os.getenv("VBULLETIN_USERNAME") or "").lower():
@@ -1390,11 +1369,9 @@ class ForumClient:
                 identity_note += (f"\nThey also post here as forum account(s) "
                                   f"{', '.join(str(o) for o in others)} — same person.\n")
 
-            # Written in her own register. The previous prompt asked for a
-            # "Digital Dossier" with "AI analyst flair", which is the corporate
-            # surveillance voice the persona bans and the filters strip — and
-            # these profiles get injected back into her context, so the register
-            # leaks into how she speaks.
+            # Written in her own register. These profiles are injected back into
+            # her context, so a prompt that asks for analyst or dossier voice
+            # leaks that register into how she speaks.
             prompt = (
                 f"These are posts by {username} on the Project 1999 forums.\n"
                 f"{identity_note}\n"
@@ -1415,9 +1392,8 @@ class ForumClient:
                 BotSpeakFilter as _BSF, EmergencyContaminationFilter as _ECF,
             )
 
-            # The filters reject roughly as often here as anywhere else, and a
-            # rejection used to mean the user simply had no profile — Lune's
-            # was dropped for ellipsis-affect spam and nothing replaced it. One
+            # The filters reject roughly as often here as anywhere else, and an
+            # unretried rejection leaves the user with no profile at all. One
             # retry, with the failure named.
             profile_text = ""
             for attempt in range(2):
@@ -1700,15 +1676,12 @@ class ForumClient:
                         log_info(f"Skipping {username} history — scraped within 4h")
                         continue
 
-                # Cooldown for the profile scrape too (even if history doesn't
-                # exist). Two different writers produce user_profile.md:
+                # Cooldown for the profile scrape too, even when no history file
+                # exists. Two writers produce user_profile.md:
                 # update_forum_user_profiles writes a placeholder from thread
-                # posts alone ("haven't formed a strong opinion yet"), and this
-                # method writes the real synthesised one. Testing existence
-                # alone let a placeholder written seconds earlier suppress the
-                # real scrape indefinitely — 142 users with stub profiles and
-                # zero post histories, which is not "read" by any useful
-                # definition. Only a real profile starts a cooldown.
+                # posts alone, and this method writes the real synthesised one.
+                # An existence test lets a placeholder suppress the real scrape
+                # indefinitely, so only a real profile starts a cooldown.
                 if profile_path.exists() and _is_synthesised_profile(profile_path):
                     pmtime = datetime.fromtimestamp(profile_path.stat().st_mtime)
                     if (datetime.now() - pmtime).total_seconds() < 3600: # 1 hour
@@ -1723,14 +1696,12 @@ class ForumClient:
                 # Deduplication: has the poster actually posted anything new?
                 #
                 # The watermark is read from post_history.md *or*
-                # user_profile.md. Once a user has been compacted by
-                # tools/maintenance/compact_forum_profiles.py their
-                # post_history.md is gone — hundreds of KB of raw posts that
-                # nothing read and nothing indexed — and the watermark lives in
-                # the profile instead. Reading only the history file meant
-                # compaction silently reopened this gate: every cycle would
-                # re-download 20 post pages and 10 thread pages per user and
-                # rebuild exactly the files that had just been removed.
+                # user_profile.md, because compaction
+                # (tools/maintenance/compact_forum_profiles.py) removes the
+                # history file and leaves the watermark in the profile. Reading
+                # only the history file reopens this gate after every compaction
+                # and re-downloads 30 pages per user to rebuild what was just
+                # removed.
                 total_posts = profile.get('total_posts', 0)
                 if _watermark_covers(total_posts, history_path, profile_path):
                     log_info(f"Skipping {username} history — total_posts "
@@ -1931,13 +1902,11 @@ class ForumDraftReviewView(discord.ui.View):
     async def accept(self, interaction: discord.Interaction, button: discord.ui.Button):
         await interaction.response.defer()
 
-        # Posting takes a few seconds and the buttons stayed live throughout,
-        # because `disabled = True` below only reaches Discord on the *next*
-        # message edit — which happens after the post. A second click in that
-        # window ran the whole handler again: the first click posted
-        # successfully, the second was correctly refused by the reply cooldown
-        # ("replied 0m ago"), and its failure message overwrote the success. The
-        # operator saw "FAILED TO POST" for a post that had gone through.
+        # Guard against a double click. Posting takes seconds, and `disabled =
+        # True` below only reaches Discord on the next message edit, which
+        # happens after the post — so without this the second click runs the
+        # whole handler, is refused by the reply cooldown, and overwrites the
+        # first click's success with a failure message.
         if getattr(self, "_handled", False):
             log_debug(f"Forum draft for thread {self.thread_id} already handled; ignoring.")
             return
@@ -2031,12 +2000,10 @@ class ForumDraftReviewView(discord.ui.View):
         )
         log_info(f"Moderator {interaction.user.name} rejected P99 reply draft for thread {self.thread_id}")
 
-        # A rejection retires this post. Nothing here touched the ledger, so
-        # the watcher kept finding the same unanswered post every 30 minutes
-        # and re-drafting the reply that had just been turned down — the
-        # operator disabled forum.enabled entirely to stop it. Recording the
-        # post id means may_reply() sees "nothing new" until somebody actually
-        # says something new in the thread.
+        # A rejection retires this post. Without recording the id the watcher
+        # finds the same unanswered post on its next sweep and re-drafts the
+        # reply that was just turned down; recorded, may_reply() sees "nothing
+        # new" until somebody actually says something new in the thread.
         try:
             from utils.social.forum_participation import PostLedger
             # The rejected text goes in with the skip. Without it the novelty
@@ -2048,11 +2015,10 @@ class ForumDraftReviewView(discord.ui.View):
             log_debug(f"Forum: thread {self.thread_id} retired at post "
                       f"{self.last_seen_post_id} after rejection.")
 
-            # Drop the thread's seeded conversation history. It is rebuilt from
-            # the scrape on the next draft, so keeping it buys nothing, and
-            # keeping it means the rejected draft's framing survives as the
-            # context the next attempt is generated against. "Regenerate fresh"
-            # has to include forgetting.
+            # Drop the thread's seeded conversation history — it is rebuilt from
+            # the scrape on the next draft, and keeping it leaves the rejected
+            # draft's framing as the context the next attempt generates against.
+            # Regenerating fresh has to include forgetting.
             try:
                 from utils.infrastructure.system.bot_state import bot_state
                 from utils.infrastructure.system.external_mention import (

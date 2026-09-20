@@ -12,10 +12,9 @@ from typing import Optional, Dict, Any, List
 
 CHARACTERS_DIR = os.path.join("memory", "ttrpg", "characters")
 _lock = threading.Lock()  # Protects internal file I/O
-# Held inside load() and inside save(), and released between them — so each
-# individual file operation is atomic. This does NOT make a read-modify-write
-# atomic, despite what this comment used to claim; for that a caller must hold
-# session_manager.get_action_lock across the whole sequence.
+# Held inside load() and inside save(), and released between them, so each file
+# operation is atomic on its own. A read-modify-write is NOT atomic: for that the
+# caller must hold session_manager.get_action_lock across the whole sequence.
 _user_locks: Dict[str, asyncio.Lock] = {}
 _global_lock = asyncio.Lock()  # Protects access to the _user_locks dict
 

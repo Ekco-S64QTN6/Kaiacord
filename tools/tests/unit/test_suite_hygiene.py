@@ -25,9 +25,8 @@ COLLECTED_DIRS = ("unit", "integration")
 # Every entry needs Ollama, a built index, or the network — they are excluded
 # from a normal run with `-m "not ollama and not network and not slow"`.
 #
-# This list is a backlog, not a permanent exemption. It shrank from 24 files
-# to these during the September 2026 audit; anything added to it should come
-# with a reason on the same line.
+# This list is a backlog, not a permanent exemption. Anything added to it
+# should carry a reason on the same line.
 ASSERTLESS_ALLOWLIST: set[str] = {
     "test_bm25_cache.py",       # builds and reloads a BM25 cache via embeddings
     "test_embed_device.py",     # asserts nothing; proves embeddings stay on CPU

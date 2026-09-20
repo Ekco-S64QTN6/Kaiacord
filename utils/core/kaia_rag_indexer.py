@@ -482,11 +482,11 @@ class RAGIndexerMixin:
             doc.metadata["source_type"] = "user_profile"
         elif ("news_brief" in file_path or "news_summary" in file_path
                 or "/news/" in file_path.replace("\\", "/")):
-            # Keyed on the filename alone, this missed the 118 `tech_digest_*`
-            # files under news/tech_updates/. The prompt routing was unaffected
-            # — `context_optimizer` falls back to `"news" in path` — but
-            # `!explain` reported them as general_knowledge, so the metadata
-            # disagreed with where the node actually went.
+            # Keyed on the directory as well as the filename. Filename alone
+            # misses `tech_digest_*` under news/tech_updates/: prompt routing is
+            # unaffected (`context_optimizer` falls back to `"news" in path`),
+            # but the node's own metadata then disagrees with where it went, and
+            # `!explain` reports it as general_knowledge.
             doc.metadata["source_type"] = "news"
         elif itype == 'dreams' or "kaia_dreams" in file_path:
             # Check for kaia_reflection frontmatter or path indicator
@@ -545,7 +545,7 @@ class RAGIndexerMixin:
                     if name_match:
                         doc.metadata['user_name'] = name_match.group(1).replace("_", " ")
 
-        # Compute Quality Score (P54-18)
+        # Compute quality score.
         quality = 0.5  # default baseline
         try:
             score = 0.0
@@ -774,53 +774,34 @@ class RAGIndexerMixin:
         
         for root, _, files in os.walk(self.knowledge_base_dir):
             norm_root = root.replace('\\', '/')
-            # _ingress holds raw user-submitted downloads that have not been
-            # normalised or given metadata yet. Indexing them would put
-            # unvetted web content into retrieval, where it is presented as
-            # grounded fact; process_ingress.py moves them into the corpus
-            # proper once cleaned.
-            # `.test` is where the suite's corpus isolation puts its fixtures
-            # (see `corpus_dir()` and test_telemetry_isolation). That isolation
-            # was being defeated here: 101 fixture files — "User (TestUser):
-            # Remember this: …" / "Kaia: Logged it. I'll remember that." — were
-            # walked into the production `logs` index as 101 retrievable nodes,
-            # sitting alongside real user history. `_quarantine` is excluded
-            # for the same reason files are put there.
+            # Two exclusion rules, both structural rather than by name.
             #
-            # One clause now covers what used to be two folders: `corrupt_files`
-            # and `quarantine` were two names for "not part of the corpus", each
-            # with its own exclusion rule. `_quarantine` is the single folder,
-            # and the leading underscore is the same signal `_ingress` carries.
-            # One predicate for both ends — see `_is_excluded_path`. A rule that
-            # lives only here stops new files being added and does nothing about
-            # the ones indexed before it existed.
+            # A leading underscore means staging or quarantine: `_ingress` holds
+            # raw downloads that have not been normalised or given metadata, and
+            # indexing them puts unvetted web content into retrieval where it is
+            # presented as grounded fact. `process_ingress.py` moves them into
+            # the corpus once cleaned.
             #
-            # A dot-directory is working data, not corpus. This was a named
-            # exclusion for `.test` alone, and two backup directories were being
-            # walked straight into the index: `.compacted_backup` (474 files,
-            # 5.9 MB of the raw forum post histories that compaction had just
-            # replaced) and `.dream_archive` (the individual reflections a
-            # consolidated document was built from). Both are deliberately
-            # superseded content, so indexing them gave her the summary *and*
-            # everything it summarised — the one outcome compaction and
-            # consolidation exist to prevent.
+            # A leading dot means working data: test fixtures (`corpus_dir()`,
+            # test_telemetry_isolation) and the backup directories written by
+            # compaction and dream consolidation. Those hold content those tools
+            # have deliberately superseded, so indexing them returns the summary
+            # *and* everything it summarised.
+            #
+            # Both ends must use `_is_excluded_path`. A rule applied only to the
+            # scan stops new files being added and never removes the ones indexed
+            # before it existed — see `_prune_deleted_files`.
             if self._is_excluded_path(norm_root + "/"):
                 continue
             # A forum user's *profile* is worth retrieving; their complete post
-            # history is not.
+            # history is not. Raw histories and interaction dumps outweigh the
+            # profiles by an order of magnitude and land in the `logs` index
+            # alongside Discord conversation history, where a years-old thread
+            # competes on volume with what someone said yesterday.
             #
-            # `user_logs/forum_*/` held 4.2 MB of indexed material against 9
-            # Discord users' worth of real history: post_history.md at 2,229K
-            # and raw interactions_*.md dumps at 1,419K, versus 129K of actual
-            # profiles. The bulk landed in the `logs` index — the same one her
-            # Discord conversation history lives in — so a years-old forum
-            # thread competed for retrieval slots with what someone said to her
-            # yesterday, and won on volume.
-            #
-            # `user_profile.md` is untouched: it goes to the separate
-            # `user_profiles` index and is exactly the "who is this person"
-            # cheat sheet the forum reply path wants. The excluded files stay
-            # on disk; forum drafting reads them directly, not through RAG.
+            # `user_profile.md` is untouched — it goes to the separate
+            # `user_profiles` index. The excluded files stay on disk; forum
+            # drafting reads them directly rather than through RAG.
             is_forum_user_dir = "/user_logs/forum_" in norm_root
             for file in files:
                 if is_forum_user_dir and file != "user_profile.md":
@@ -849,15 +830,8 @@ class RAGIndexerMixin:
                     if (is_new or is_modified) and "user_memories.txt" not in file:
                         new_file_paths.append((full_path, is_modified, itype == 'logs', itype))
 
-        # Check persona file
-        # Check persona file - EXCLUDED per Bug 1
-        # persona_file = "knowledge_base/kaia_persona.md"
-        # if os.path.exists(persona_file):
-        #     norm_path = os.path.abspath(persona_file)
-        #     mtime = os.path.getmtime(norm_path)
-        #     entry = self.indexed_files.get(norm_path)
-        #     if entry is None or mtime > entry.get("mtime", 0):
-        #         new_file_paths.append((persona_file, entry is not None, False, 'persona'))
+        # The persona file is deliberately not indexed: it is injected into every
+        # prompt in full, so a retrieved chunk of it only displaces real context.
         
         return new_file_paths
 
@@ -1047,11 +1021,8 @@ class RAGIndexerMixin:
                         return True
                 except Exception: pass
         
-        # Move to corrupt (DISABLED - Files should stay where they are)
-        # dest = os.path.join(corrupt_dir, os.path.basename(file_path))
-        # if os.path.exists(dest): dest = f"{dest}_{int(time.time())}"
-        # import shutil
-        # shutil.move(file_path, dest)
+        # Logged, not moved. A file that fails to index stays where it is;
+        # relocating it hides the fault and breaks anything referencing the path.
         log_critical(f"UNABLE TO INDEX CORRUPT FILE: {file_path}. Keeping in original location.")
         return False
 

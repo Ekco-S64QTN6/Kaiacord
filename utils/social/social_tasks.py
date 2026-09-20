@@ -67,11 +67,9 @@ def start_social_tasks(app_ctx, on_message):
     quip_task = idle_quip_task.start()
     task_registry.register("idle_quip_task", quip_task)
     
-    # Only run the social mention poller if at least one platform is actually enabled.
-    # Sept 2026: with Bluesky and X both off, this loop still woke every
-    # `social.poll_interval_minutes` (set to 1) to call check_and_reply_mentions(), which
-    # then no-opped on the per-platform flags. Cheap per tick, but it is a scheduled task
-    # and a network-capable code path kept alive for two dead integrations.
+    # Start the mention poller only when a platform is enabled. Checking the
+    # flags inside the loop instead keeps a scheduled, network-capable task alive
+    # on `social.poll_interval_minutes` to do nothing.
     if config.bluesky_enabled or config.x_enabled:
         mention_task = social_mention_task.start()
         social_mention_task.change_interval(minutes=config.get('social.poll_interval_minutes', 3))

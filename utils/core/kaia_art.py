@@ -407,22 +407,18 @@ class FractalFlameRenderer:
     DENSITY_SIGMA = 1.2
 
     # ── Tone mapping ────────────────────────────────────────────────
-    # Log density is anchored on percentiles of the OCCUPIED pixels rather
-    # than scaled by a fixed constant. The previous pipeline used
-    # `log1p(alpha * 500)` normalised by the max, which put a single-hit
-    # pixel at 65% brightness — measured across ten seeds, five rendered
-    # with a median brightness of 255 (pure white).
+    # Log density is anchored on percentiles of the OCCUPIED pixels, not scaled
+    # by a fixed constant. A constant multiplier normalised by the max puts a
+    # single-hit pixel near two-thirds brightness and blows the image out.
     GAMMA = 2.2
     BLACK_POINT_PCT = 12.0   # log-density percentile mapped to black
     WHITE_POINT_PCT = 99.8   # log-density percentile mapped to white
     EXPOSURE = 1.20
 
-    # Density estimation: blur strength at zero density, falling to zero at
-    # full density. flam3 blurs sparse regions to hide sampling noise and
-    # leaves dense regions sharp; the old code added an ungated
-    # `narrow_blur * 0.2` to every pixel, softening every filament.
-    # Measured across twelve seeds, 0.25 gave the best mean occupancy and is
-    # half the smoothing of the value it replaced.
+    # Density estimation: blur strength is highest at zero density and falls to
+    # zero at full density, as flam3 does — sparse regions are blurred to hide
+    # sampling noise, dense regions stay sharp. An ungated blur added to every
+    # pixel softens every filament.
     DE_STRENGTH = 0.35
     DE_SIGMA = 2.5
 
@@ -442,21 +438,14 @@ class FractalFlameRenderer:
     PROBE_RES = 384
     PROBE_POINTS = 60_000
     PROBE_ITERATIONS = 25
-    # Fraction of the histogram that must be occupied. The lower bound
-    # rejects degenerate attractors that collapse onto a few thin curves
-    # (one measured seed put every point on 0.5% of pixels and still passed
-    # the old gate at "100% coverage", because that gate was measuring the
-    # tinted background rather than the fractal).
-    # Measured relationship between probe occupancy and how black the finished
-    # 1080px render comes out, over twelve seeds:
+    # Fraction of the histogram that must be occupied, measured on the fractal
+    # rather than the tinted background — the lower bound rejects degenerate
+    # attractors that collapse onto a few thin curves.
     #
-    #     occupancy 0.94 0.87 0.79 0.64 0.60 0.44 0.40 0.33 0.20 0.13
-    #     black %     15   21   27   45   47   66   68   76   91   93
-    #
-    # Black fraction tracks (1 - occupancy) almost exactly. The gate was 0.12,
-    # so seeds measuring 0.129 and 0.134 passed it and rendered 92% black —
-    # that is the "excessive black space" regression, and it was the threshold,
-    # not the renderer. 0.55 keeps the finished image under about half black.
+    # The black fraction of the finished render tracks (1 - occupancy) almost
+    # exactly, so this threshold *is* the "too much black space" control: 0.55
+    # keeps a render under about half black, and anything near 0.13 renders
+    # over 90% black.
     MIN_OCCUPANCY = 0.55
     # Contrast of the log-density field. A uniform fog has structure but no
     # composition; this rejects the flattest results.
@@ -483,10 +472,9 @@ class FractalFlameRenderer:
         best_seed, best_score, best_stats = None, -1.0, None
 
         # Retry seeds are derived from the caller's seed, so `!art --seed 42`
-        # reproduces the same image even when the first parameters are
-        # rejected. Previously each retry drew from an unseeded RNG, which
-        # made a seeded request reproducible only if it happened to pass the
-        # gate on the first try.
+        # reproduces the same image even when the first parameters are rejected.
+        # An unseeded retry RNG makes a seeded request reproducible only when it
+        # passes the gate on the first try.
         seed_rng = np.random.default_rng(seed)
 
         for attempt in range(self.MAX_PROBES):
@@ -595,10 +583,9 @@ class FractalFlameRenderer:
         n_transforms = int(rng.integers(2, 5))
         transforms, weights, color_speed = self._random_transforms(rng, n_transforms)
 
-        # The post-affine is passed through: it was previously hardcoded to
-        # None at this point, so the secondary affine that _random_transforms
-        # generates for ~40% of transforms was computed, recorded in the params
-        # dict, and then never applied to a single point.
+        # The post-affine is passed through. `_random_transforms` generates one
+        # for ~40% of transforms, and dropping it here means it is computed and
+        # recorded in the params dict but never applied to a point.
         compiled = [
             (affine, [_VARIATION_MAP[v] for v in var_names], color_i, post_affine, var_weights)
             for affine, var_names, color_i, post_affine, var_weights in transforms
@@ -905,13 +892,11 @@ class FractalFlameRenderer:
 
             # Pick 1-3 variations with per-variation weights.
             #
-            # flam3 blends variations as a WEIGHTED sum. The previous code
-            # summed them and divided by the count, so a two-variation
-            # transform was always an even 50/50 average — which mushes two
-            # distinct shapes into something with the character of neither.
-            # That is the main reason some flames read as crisp and others as
-            # formless fog. Weights are drawn so one variation usually
-            # dominates and the others act as accents.
+            # flam3 blends variations as a WEIGHTED sum, not an even average.
+            # Averaging mushes two distinct shapes into something with the
+            # character of neither, which is what separates a crisp flame from
+            # formless fog. Weights are drawn so one variation dominates and the
+            # rest act as accents.
             n_vars = int(rng.choice([1, 2, 2, 3]))
             var_names = list(rng.choice(PRIMARY_VARIATIONS, size=n_vars, replace=False))
             # A Dirichlet with alpha < 1 concentrates mass on one component.
@@ -1101,12 +1086,10 @@ class FractalFlameRenderer:
             else:
                 fx, fy = x, y
 
-            # Accumulate the point set and all its rotational copies in a
-            # single call. Each bincount allocates and adds a full
-            # `total_pixels` array, so that fixed cost was previously paid
-            # symmetry_k times per iteration; batching pays it once and
-            # amortises the palette lookup over every copy. The resulting
-            # histogram is bit-identical.
+            # Accumulate the point set and all its rotational copies in one
+            # call. Each bincount allocates and adds a full `total_pixels` array,
+            # so per-copy calls pay that fixed cost symmetry_k times per
+            # iteration. The resulting histogram is bit-identical.
             if symmetry_k > 1:
                 angles = (2 * np.pi / symmetry_k) * np.arange(symmetry_k)
                 cos_a = np.cos(angles)[:, None]

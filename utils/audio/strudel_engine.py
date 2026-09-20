@@ -116,10 +116,9 @@ class StrudelEngine:
         self._ffmpeg: subprocess.Popen | None = None
         self.port = 0
         self.current_code: str | None = None
-        # Set when the page goes away under us. With show_window on, the
-        # operator can simply close the window — and the engine used to log an
-        # ERROR per tick, report the section "rejected", and keep the session
-        # alive streaming silence until somebody typed !music off.
+        # Set when the page goes away under us. With show_window on the operator
+        # can simply close the window, so this is an ordinary end to the set —
+        # not a pattern failure to log and retry against a dead page.
         self.page_closed = False
         # Playwright's sync API is pinned to the thread that created it, and
         # raises "Cannot switch to a different thread" anywhere else. The

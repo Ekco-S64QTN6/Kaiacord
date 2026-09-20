@@ -6,22 +6,16 @@ Non-verbal communication via emoji reactions. Instead of always replying with
 text, Kaia occasionally reacts with a contextually appropriate emoji, creating
 a layered presence.
 
-September 2026 rework. The previous version had four defects, all measured
-against the 7,708 logged user messages:
+Three rules the matching depends on:
 
-  * **Substring matching.** `"peak" in content` matched "speaking", `"idea"`
-    matched words containing it, `"love"` matched "glove". Sixteen keywords
-    produced mid-word false positives. Matching is now anchored at a word
-    *start*, which keeps stem matches ("thank" → "thanks") while rejecting
-    interior ones.
-  * **First category wins.** Categories were tried in dict order, so a message
-    containing both "thanks" and "interesting" always drew from the affection
-    pool. Every category is now scored and the strongest match wins.
-  * **A dead pool.** `_DISAGREEMENT_REACTIONS` was defined and unreachable — no
-    trigger referenced it.
-  * **Nothing connected it to Kaia's state.** She has a persistent emotional
-    arc; it did not influence what she reacted with. It does now, which is the
-    point of having internal state at all.
+  * **Anchored at a word start**, not a substring. `"peak" in content` matches
+    "speaking" and `"love"` matches "glove"; anchoring keeps stem matches
+    ("thank" -> "thanks") and rejects interior ones.
+  * **Every category is scored**, and the strongest match wins. Taking the first
+    category in dict order means a message containing both "thanks" and
+    "interesting" always draws from the same pool.
+  * **The emotional arc colours the choice.** Reactions are drawn against her
+    current state rather than from the keyword pool alone.
 """
 
 import re

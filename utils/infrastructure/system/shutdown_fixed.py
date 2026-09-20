@@ -149,12 +149,10 @@ class CleanShutdown:
         except Exception as e:
             log_warning(f"  ⚠️  Failed to release Ollama VRAM: {e}")
 
-        # 2b. RAG Refresh Sweep — REMOVED
-        # Previously attempted a final refresh_knowledge_base here, but it ran
-        # AFTER GPU models were unloaded (step 2) and tasks cancelled (step 1),
-        # causing embedding failures and blocking shutdown. The hourly maintenance
-        # task handles periodic indexing; persisting existing indices (step 3)
-        # is sufficient for data safety at shutdown.
+        # 2b. No final RAG refresh here. It would run after the GPU models are
+        # unloaded and the tasks cancelled, so every embedding fails and shutdown
+        # blocks. The hourly maintenance task handles indexing, and persisting
+        # the existing indices in step 3 is what data safety needs.
 
         # 3. Persist RAG Index (Critical Data Safety)
         if self.rag:

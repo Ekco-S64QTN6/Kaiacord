@@ -43,8 +43,8 @@ class BotState:
         self.last_evening_reflection: str = ""  # YYYY-MM-DD, persisted
         self.last_dawn_date: str = ""           # YYYY-MM-DD, persisted
 
-        # Kaia mood state — 3 floats, all 0.0–1.0, persisted across restarts.
-        # Used to inject a single context line into the system prompt.
+        # Kaia mood state — 3 floats, all 0.0-1.0, persisted across restarts.
+        # Feeds a single context line in the system prompt.
         # engagement: how much has she been talked to recently (updated per message)
         # coherence: rolling average RAG retrieval confidence (updated per retrieval)
         # dream_freshness: how recently the dream cycle ran successfully (decays over time)
@@ -88,7 +88,7 @@ class BotState:
         self.digest_broadcast_count: int = 0
         self.digest_broadcast_date: str = ""
 
-        # Phase 55: P54-4 Anticipatory Context Priming & P54-5 Theory of Mind Lite
+        # Anticipatory context priming and the theory-of-mind user model.
         self.user_states: Dict[str, dict] = {}  # {user_id: {"apparent_mood": str, "energy": str, "likely_intent": str, "updated_at": float}}
         self._dossier_primed_users: Dict[str, float] = {}  # {user_id: last_seen_timestamp_when_primed}
 
@@ -180,12 +180,10 @@ class BotState:
                     'recent_ingestions': self.recent_ingestions,
                     'last_dream_date': self.last_dream_date,
                     'kaia_engagement': self.kaia_engagement,
-                    # Persisted so engagement decay survives a restart. While
-                    # this lived only in memory it was re-stamped to boot time
-                    # on every launch, `hours_idle` was always ~0, and the
-                    # decay gate below could never open — so engagement only
-                    # ever ratcheted up (+0.05 a message, clamped at 1.0) and
-                    # never came back down.
+                    # Persisted so engagement decay survives a restart. Held
+                    # only in memory this is re-stamped to boot time on every
+                    # launch, `hours_idle` is always ~0, and the decay gate below
+                    # can never open — engagement then only ratchets up.
                     'last_interaction_time': self.last_interaction_time,
                     'kaia_coherence': self.kaia_coherence,
                     'kaia_dream_freshness': self.kaia_dream_freshness,
@@ -500,7 +498,7 @@ class BotState:
         return ""  # Seamless continuation
 
     def get_user_dossier(self, user_id: str, user_name: str) -> str:
-        """P54-4: Anticipatory Context Priming.
+        """Anticipatory context priming.
         
         Compiles a ~200-token returning summary for familiar users returning
         after an absence of > 2 hours. One-shot per session absence.
@@ -583,7 +581,7 @@ class BotState:
         return " ".join(parts)
 
     def update_user_state(self, user_id: str, message_text: str) -> dict:
-        """P54-5: Theory of Mind Lite (User State Modeling).
+        """Theory of mind: a model of the user's current state.
         
         Updates session-bound user state (apparent_mood, energy, likely_intent)
         via lightweight heuristics and metrics. State decays after 2 hours.
@@ -644,7 +642,7 @@ class BotState:
         return state
 
     def get_user_state_read(self, user_id: str, user_name: str) -> str:
-        """P54-5: Theory of Mind Lite read for system prompt injection."""
+        """Read the user-state model back for system-prompt injection."""
         uid = str(user_id)
         state = self.user_states.get(uid)
         if not state or (time.time() - state.get('updated_at', 0) > 7200):

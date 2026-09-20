@@ -71,24 +71,18 @@ class DesireEngine:
     """Tracks what Kaia is currently short of."""
 
     #: Below this, she has nothing pressing enough to interrupt anyone with.
-    # The gate's job is to shape *when* and *what kind of* contact she seeks —
-    # not to prevent contact.
     #
-    # At 0.55 it prevented it. `observe_exchange` discharges `intellectual` by
-    # 0.35 on any reply over 400 characters and it only re-accrues over 14
-    # hours, so on an active server it sat pinned at exactly 0.0, dragging the
-    # three-need mean down with it. Measured on live state the ceiling was
-    # pressure 0.16 against a 0.55 threshold: 101 of 102 proactive evaluations
-    # in the production log declined, and she initiated once. Arithmetically
-    # she could only ever speak first after ~8 hours of social silence *and*
-    # ~30 hours without making anything.
+    # The gate shapes *when* and *what kind of* contact she seeks; it is not
+    # meant to prevent contact, and the achievable range is narrow enough that a
+    # high threshold does exactly that. `observe_exchange` discharges
+    # `intellectual` by 0.35 on any reply over 400 characters and it re-accrues
+    # over 14 hours, so on an active server it sits pinned at 0.0 and drags the
+    # three-need mean with it — a measured ceiling around 0.16.
     #
-    # A chat bot that cannot chat first is not the point of the project, so the
-    # bar is now low enough that ordinary conditions clear it. What the engine
-    # still does — and this is the part worth keeping — is pick which source
-    # she reaches for via `source_multiplier`, and colour the prompt via
-    # `get_prompt_injection`. It stays quiet only right after a long stretch of
-    # talking, when rest is genuinely high.
+    # The rest of the engine earns its keep either way: `source_multiplier`
+    # picks which source she reaches for, and `get_prompt_injection` colours the
+    # prompt. Kept low, she stays quiet only after a long stretch of talking,
+    # when rest is genuinely high.
     INITIATE_THRESHOLD = 0.12
 
     #: Which proactive source serves which need. Sources absent from this map

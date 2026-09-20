@@ -40,7 +40,7 @@ from utils.infrastructure.system.yaml_config import config
 from utils.core.kaia_intelligence import Intent
 from utils.social.kaia_identities import registry
 
-# ── Extracted Retrieval Components (Phase 28 / CQ-01) ────────────────────
+# ── Retrieval components ─────────────────────────────────────────────────
 from utils.core.kaia_rag_retriever import (                    # noqa: F401
     CircuitOpenError,
     sanitize_log_content,
@@ -52,7 +52,7 @@ from utils.core.kaia_rag_retriever import (                    # noqa: F401
 from utils.core.hallucination_detector import HallucinationDetector  # noqa: F401
 
 
-# ── Mixin Modules (Phase 28 / CQ-01 deep split) ─────────────────────────
+# ── Mixin modules ───────────────────────────────────────────────────────
 from utils.core.kaia_rag_indexer import RAGIndexerMixin
 from utils.core.kaia_rag_persistence import RAGPersistenceMixin
 from utils.core.kaia_rag_query import RAGQueryMixin
@@ -70,19 +70,16 @@ class KaiaRAG(RAGIndexerMixin, RAGPersistenceMixin, RAGQueryMixin):
         self.indexed_files = {}  # Manifest: {path: {"mtime": mtime, "size": size, "nodes": [node_ids]}}
         self._file_to_nodes = {} # Inverse index for fast deletion/update
         
-        # Configure Ollama Embedding.
+        # Embeddings run on CPU so the chat model keeps the VRAM it is pinned
+        # into with keep_alive: -1 — a GPU embed evicts it and every subsequent
+        # reply pays a reload.
         #
-        # Embeddings run on CPU so the 12b chat model keeps the VRAM it is
-        # pinned into with keep_alive: -1. That is the right trade while the
-        # bot is serving: a GPU embed would evict the chat model and every
-        # subsequent reply would pay a reload.
-        #
-        # It is the wrong trade for an offline rebuild, where there is no chat
-        # model to protect and the job is tens of thousands of embeddings.
-        # `KAIA_EMBED_GPU=1` flips it; reindex_rag.py sets that automatically
-        # when no bot process is running. Note that `nomic-embed-text-cpu` and
-        # `nomic-embed-text` are the same weights — the tag is a label, the
-        # placement is decided entirely by num_gpu here.
+        # That trade inverts for an offline rebuild, where there is no chat model
+        # to protect and the job is tens of thousands of embeddings.
+        # `KAIA_EMBED_GPU=1` flips it, and reindex_rag.py sets it automatically
+        # when no bot process is running. `nomic-embed-text-cpu` and
+        # `nomic-embed-text` are the same weights; placement is decided entirely
+        # by num_gpu here.
         _embed_on_gpu = os.getenv("KAIA_EMBED_GPU") == "1"
         if _embed_on_gpu:
             log_info("Embeddings: GPU (KAIA_EMBED_GPU=1) — offline batch mode.")
@@ -91,16 +88,10 @@ class KaiaRAG(RAGIndexerMixin, RAGPersistenceMixin, RAGQueryMixin):
             base_url="http://localhost:11434",
             query_instruction=config.rag_query_instruction,
             text_instruction=config.rag_text_instruction,
-            # Measured on realistic ~1,750-token nodes, which is what a rebuild
-            # actually embeds — short test strings flatter the CPU badly:
-            #
-            #   CPU  3.9 nodes/s -> 28,562 nodes = 121 min
-            #   GPU 35.3 nodes/s -> 28,562 nodes =  14 min
-            #
-            # Raising embed_batch_size does nothing: throughput saturates by
-            # concurrency 10 and is flat at 64, because Ollama serialises the
-            # requests. Spare VRAM cannot be spent on the batch. The 9x is
-            # placement alone.
+            # Placement is worth ~9x on a full rebuild (measured on realistic
+            # ~1,750-token nodes; short strings flatter the CPU badly). Batch size
+            # is not a lever: Ollama serialises the requests, so throughput
+            # saturates around concurrency 10 and is flat above it.
             ollama_additional_kwargs={
                 "num_gpu": 99 if _embed_on_gpu else 0,
                 "num_thread": 8 if _embed_on_gpu else 4,
@@ -118,20 +109,15 @@ class KaiaRAG(RAGIndexerMixin, RAGPersistenceMixin, RAGQueryMixin):
         
         # Construction is I/O-free. NLTK pre-loading moved to initialize_async().
         
-        # RAG uses the chat model for query synthesis. We deliberately DO NOT 
-        # set `num_gpu: 0` here. If we did, LlamaIndex would pass that option 
-        # to Ollama during runtime queries, forcing the main model to be evicted 
-        # from VRAM back to system RAM to satisfy the request.
-        # 
-        # Construction is I/O-free and safe because LlamaIndex's Ollama() wrapper
-        # doesn't call out to the engine until the first query is actually sent
-        # (which happens well after the Phase 1 GPU lock is established).
+        # Query synthesis uses the chat model, and `num_gpu: 0` must NOT be set
+        # here: LlamaIndex passes the option through on every runtime query, which
+        # evicts the chat model from VRAM to satisfy it.
         #
-        # WARNING: Do NOT use OllamaGPUManager here — it probes Ollama and can trigger
-        # VRAM allocation before the Phase 1 GPU lock has been established.
-        # [VRAM LOCK]: Build options from config directly to avoid synchronous 
-        # OllamaGPUManager instantiation (which triggers slow NVML probing).
-        # Ensures internal LLM calls (synthesis, etc) match the main chat model's fingerprint.
+        # Options are built from config directly rather than through
+        # OllamaGPUManager, which probes Ollama over NVML and can allocate VRAM
+        # before the Phase 1 GPU lock is established. Construction itself is
+        # I/O-free — the Ollama() wrapper does not call the engine until the first
+        # query, well after that lock.
         llm_timeout = getattr(config, 'llm_request_seconds', 360.0)
         
         settings_options = {

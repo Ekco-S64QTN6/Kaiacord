@@ -216,13 +216,10 @@ async def post_thread_to_bluesky(chunks: list[str]) -> tuple[bool, Optional[str]
     # Retry once with a fresh session if the first attempt fails — that handles
     # an expired token, which is a failure of the *first* call.
     #
-    # The retry used to wrap the whole thread, root post included. Once the root
-    # had gone up, any later failure (a blip on post 2 of 3, a token expiring
-    # mid-thread) sent it back to the top and posted the root a second time:
-    # two identical root posts on a public timeline, the first one orphaned with
-    # a partial thread hanging off it. Progress is now tracked across attempts,
-    # so a retry resumes at the chunk that failed and never re-posts anything
-    # already live.
+    # Progress is tracked across attempts, so a retry resumes at the chunk that
+    # failed. Retrying the whole thread instead re-posts a root that is already
+    # live — two identical roots on a public timeline, the first orphaned with a
+    # partial thread hanging off it.
     root = None          # (uri, cid) of the first post, once it exists
     prev = None          # (uri, cid) of the most recent post in the thread
     next_index = 0       # the chunk to post next

@@ -570,13 +570,10 @@ async def generate_quip(ctx, is_manual=False, target_channel=None, on_message_fu
                     await channel.send(f"**[Thread {i+1}/{len(posts)}]**\n```\n{post}\n```")
                     await asyncio.sleep(1) # Slight visual delay
                 
-                # Cross-post thread. The two feeds are independent.
-                #
-                # The X post used to sit inside the Bluesky block and inside
-                # its try, so X received nothing at all whenever Bluesky was
-                # switched off, and nothing whenever post_thread_to_bluesky
-                # raised. It also appended "(thread on bsky)" unconditionally,
-                # which was false in exactly the case where Bluesky had failed.
+                # Cross-post thread. The two feeds are independent: each has its
+                # own enable check and its own try, so one being off or failing
+                # does not suppress the other, and the "(thread on bsky)" suffix
+                # is added only when Bluesky actually posted.
                 bsky_ok = False
                 if config.bluesky_cross_post_quips:
                     try:
@@ -629,23 +626,15 @@ async def generate_quip(ctx, is_manual=False, target_channel=None, on_message_fu
         # 4. SINGLE POST FALLBACK (or design choice)
         log_action(f"Generating single broadcast quip via the main pipeline...")
 
-        # One path, the same one Discord and the forum use.
+        # One path, the same one Discord and the forum use: assemble the
+        # platform-specific content, hand it to the processor, and keep only what
+        # is genuinely specific to posting in public.
         #
-        # What used to be here: a second persona load, a hand-built two-query
-        # RAG block, a five-rule prompt ("NO FILLERS", "Be contemplative and
-        # systemic", a character target), a three-attempt retry loop that
-        # raised the temperature and appended "give me something with more
-        # teeth", and then the filter stack re-applied by hand. None of it was
-        # the pipeline. It had no channel memory, no cognitive injections, no
-        # dual-temperature split, and only the fragments of the safety stack
-        # that were remembered here — which is why her broadcast voice drifted
-        # from the voice she has in a channel.
-        #
-        # `forum_drafting` fixed exactly this defect for the forum and its
-        # module docstring describes it in the same terms. This is that fix,
-        # applied to the last path still generating its own prompt: assemble
-        # the platform-specific content, hand it to the processor, and keep
-        # only what is genuinely specific to posting in public.
+        # A locally built prompt here means no channel memory, no cognitive
+        # injections, no dual-temperature split and only the fragments of the
+        # safety stack that were remembered — which is how a broadcast voice
+        # drifts from the voice she has in a channel. `forum_drafting` documents
+        # the same rule for the forum path.
         from utils.infrastructure.system.external_mention import process_external_mention
 
         what_she_is_reacting_to = reflection_target.strip()
@@ -702,13 +691,9 @@ async def generate_quip(ctx, is_manual=False, target_channel=None, on_message_fu
             recent = bot_state.get_recent_quips() or []
             recent = [r for r in recent if isinstance(r, str)] if isinstance(recent, (list, tuple)) else []
             if recent:
-                # `looks_repetitive` returns (verdict, reason). Testing the
-                # tuple itself is always True — a non-empty tuple is truthy —
-                # so this rejected every quip the moment she had any recent
-                # post recorded, whatever the score. Three visibly different
-                # posts were dropped on 2026-09-14 with score 0.00, and the
-                # warning blamed repetition. forum_drafting unpacks it; this
-                # did not.
+                # `looks_repetitive` returns (verdict, reason) — unpack it. A
+                # non-empty tuple is always truthy, so testing the return value
+                # directly rejects every quip whatever its score.
                 repetitive, why = looks_repetitive(quip, recent)
                 if repetitive:
                     log_warning(f"Quip repeats a recent post ({why}); skipping rather than posting it.")
@@ -724,10 +709,9 @@ async def generate_quip(ctx, is_manual=False, target_channel=None, on_message_fu
         # 6. POST to Discord
         #
         # Labelled and un-boxed, like the other two things she says unprompted.
-        # A quip in a code block with no label was the third kind of unasked-for
-        # message in the channel and the only one that did not say what it was —
-        # it read as a monospaced fragment from nowhere, while the inner monologue
-        # and the observation digest both announce themselves.
+        # An unlabelled quip in a code block reads as a monospaced fragment from
+        # nowhere, where the monologue and the observation digest announce what
+        # they are.
         label = config.get("quip.broadcast_prefix", "\U0001f4ac **Passing thought:**")
         await channel.send(f"{label} {quip}" if label else quip)
 

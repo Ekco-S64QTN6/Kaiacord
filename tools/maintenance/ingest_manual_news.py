@@ -30,7 +30,7 @@ def ingest_manual_news():
     manual_files = []
     for sdir in search_dirs:
         if sdir.exists():
-            # Match various patterns: "NEWS_BRIEF: 2026-02-01.md", "WEEKLY_NEWS_BRIEF: ...", etc.
+            # Matches "NEWS_BRIEF: <date>.md", "WEEKLY_NEWS_BRIEF: ...", and kin.
             manual_files.extend(list(sdir.glob("*NEWS_BRIEF: *.md")))
             manual_files.extend(list(sdir.glob("news_brief_*.md")))
             manual_files.extend(list(sdir.glob("weekly_summary_*.md")))

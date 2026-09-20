@@ -32,15 +32,15 @@ from pathlib import Path
 
 LOGS_DIR = Path("./knowledge_base/user_logs")
 
-# Phrasing from a past contamination incident. These are ordinary words in
-# ordinary conversation — "Eurasia" is a real place and an Orwell reference —
-# so a match is a prompt to look, never a reason to delete on its own.
+# Phrasing seen in contaminated output. These are ordinary words in ordinary
+# conversation — "Eurasia" is a real place and an Orwell reference — so a match
+# is a prompt to look, never a reason to delete on its own.
 DEFAULT_PATTERNS = [
     r"\bEurasian?\b",
     r"\bPan-Pacific\b",
 ]
 
-# Log lines look like: [2026-08-29 15:22:21] Lune: text
+# Log lines look like: [YYYY-MM-DD HH:MM:SS] Speaker: text
 SPEAKER = re.compile(r"^\[\d{4}-\d\d-\d\d[^\]]*\]\s*([^:]{1,64}):")
 
 

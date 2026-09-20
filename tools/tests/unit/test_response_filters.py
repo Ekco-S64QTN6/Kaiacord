@@ -192,7 +192,7 @@ def test_contamination_filter_passes_clean_responses(text):
     assert EmergencyContaminationFilter.filter_response(text) is not None
 
 
-# ── Bare-name openers, revisited (Phase 91) ──────────────────────────
+# ── Bare-name openers ────────────────────────────────────────────────
 
 def test_the_addressee_list_is_not_hand_written():
     """It was eleven names typed by hand, so it was wrong the moment someone
@@ -238,7 +238,7 @@ def test_coined_nicknames_come_from_config():
         assert name.lower() in BotSpeakFilter.ADDRESSEE_NAMES.lower()
 
 
-# ── The bait guard ate one-word replies (Phase 95) ───────────────────
+# ── The bait guard must not eat one-word replies ─────────────────────
 
 @pytest.mark.parametrize("text", [
     "hello.", "yes.", "no.", "sure.", "hi.", "maybe.", "agreed.", "right.",
@@ -269,7 +269,7 @@ def test_the_guard_uses_the_name_allowlist_not_any_word():
     assert not BotSpeakFilter.RE_ONLY_ADDRESSEE.match("hello.")
 
 
-# ── Engagement bait and query echo (Sept 10-11 operator reports) ─────
+# ── Engagement bait and query echo ───────────────────────────────────
 
 @pytest.mark.parametrize("text,expected", [
     ("the archive is fragile. what aspects of this reality would you like me to explore further, starkind?",

@@ -23,12 +23,10 @@ async def test_memory_retrieval():
     
     rag = KaiaRAG()
     
-    # Mock index for testing without full initialization
-    # We'll just test the retrieve logic if possible, or integration test
-    # Since RAG initialization is heavy, let's check if we can verify the code changes
-    # by inspecting the class methods or running a small integration test.
+    # Mock index: full RAG initialisation is too heavy for a unit test, so only
+    # the retrieve logic is exercised here.
     
-    # Let's try to add a memory and retrieve it
+    # Add a memory and retrieve it.
     user_id = 123456789
     user_name = "TestUser"
     memory_text = "Worship means to place the highest value on the guidance of"
