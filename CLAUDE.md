@@ -226,6 +226,23 @@ sycophantic prose.
 
 ### Output filters
 
+> [!IMPORTANT]
+> **Her roleplay is not a bug, and no guard gets to police it.** Kaia plays
+> scenes with users on purpose — in-character crises, fictional telemetry
+> ("resource consumption has reached 45%", "operating at the edge of
+> stability"), sci-fi framing. That is wanted behaviour. Do not add a pattern,
+> a persona rule or a filter to suppress it, and do not report it as a finding
+> when reviewing logs.
+>
+> The §5 grounding rules below are about her asserting hardware facts as her own
+> in ordinary conversation. A guard cannot tell that apart from a scene, and
+> every attempt has cost more than it caught — guards in this file have deleted
+> publication titles, stranded sentence fragments, emptied good responses and
+> eaten one-word replies. **Before changing anything here, have a real user
+> report of the behaviour being wrong.** A log line you find suspicious is not
+> that.
+
+
 `response_filter.py` guards run in two modes and the distinction matters:
 
 - `mode="clause"` — the offence is a *prefix* on real content (`"you're right; <substance>"`).
