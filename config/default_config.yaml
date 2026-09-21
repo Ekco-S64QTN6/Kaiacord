@@ -303,6 +303,11 @@ proactive:
   quiet_hour_start: 9
   quiet_hour_end: 22
 
+  # Label prepended to an opener she starts on her own. Set "" to post it
+  # unadorned. An absence check-in is addressed to a person and is never
+  # labelled, whatever this is set to.
+  broadcast_prefix: "\u2615 **Apropos of nothing:**"
+
 # ============================================================================
 # Desire gate
 # ============================================================================

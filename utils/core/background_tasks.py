@@ -659,9 +659,19 @@ class CoreTaskManager:
             # Natural reading pause before sending
             await asyncio.sleep(2.0 + _secrets.randbelow(4))
 
-        from utils.infrastructure.system.messaging import send_kaia_response
-        await send_kaia_response(channel, message)
+        # Labelled like the other three things she says unprompted, so an
+        # opener reads as a thought rather than as a remark aimed at whoever
+        # spoke last. A trigger carrying a `target_user` is aimed at someone by
+        # design — an absence check-in — and goes out unadorned.
+        label = config.get("proactive.broadcast_prefix", "\u2615 **Apropos of nothing:**")
+        if getattr(trigger, "target_user", None):
+            label = ""
 
+        from utils.infrastructure.system.messaging import send_kaia_response
+        await send_kaia_response(channel, f"{label} {message}" if label else message)
+
+        # Channel memory keeps the unlabelled text: the prefix is framing for
+        # the reader, not something she said.
         # Append to channel memory
         try:
             if channel.id not in self.ctx.bot_state.channel_memory:
@@ -2051,7 +2061,8 @@ class CoreTaskManager:
             # channel; the point of airing a thought is that it is visibly a
             # thought, not something she is saying to anyone.
             label = config.get("monologue.broadcast_prefix", "🧠 **Inner monologue:**")
-            await send_kaia_response(channel, f"{label} {to_plain_english(thought)}")
+            body = to_plain_english(thought)
+            await send_kaia_response(channel, f"{label} {body}" if label else body)
 
             state.monologue_broadcast_count = getattr(state, 'monologue_broadcast_count', 0) + 1
             state.monologue_broadcast_last_sent = now
@@ -2133,7 +2144,7 @@ class CoreTaskManager:
             label = config.get("observation.broadcast_prefix", "💭 **Observation:**")
             async with channel.typing():
                 await asyncio.sleep(2.0)
-            await send_kaia_response(channel, f"{label} {text}")
+            await send_kaia_response(channel, f"{label} {text}" if label else text)
 
             # Bookkeeping the proactive dispatch path does for its own sends.
             content_id = build_digest_content_id(entry_ts)

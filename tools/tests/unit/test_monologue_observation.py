@@ -203,7 +203,7 @@ def test_the_digest_broadcast_sends_the_digest_and_not_a_reaction_to_it():
     src = inspect.getsource(CoreTaskManager._broadcast_observation_digest)
     body = "\n".join(l for l in src.split("\n") if not l.strip().startswith("#"))
 
-    assert "send_kaia_response(channel, f\"{label} {text}\")" in body, \
+    assert "send_kaia_response(channel, f\"{label} {text}\" if label else text)" in body, \
         "the digest text is not what gets sent"
     assert "_dispatch_proactive" not in body, \
         "still routing through the opener generator, which discards the digest"
@@ -331,3 +331,42 @@ def test_the_proactive_window_is_configurable():
     src = inspect.getsource(ProactiveEngine._is_within_hours)
     assert "proactive.quiet_hour_start" in src
     assert "proactive.quiet_hour_end" in src
+
+
+def test_the_proactive_opener_is_labelled_too():
+    """Three of the four things she says unprompted announced what they were.
+    The opener did not, so it arrived in the channel as a bare remark with no
+    indication that nobody had spoken to her."""
+    import inspect
+
+    from utils.core.background_tasks import CoreTaskManager
+
+    src = inspect.getsource(CoreTaskManager._dispatch_proactive)
+    assert 'config.get("proactive.broadcast_prefix"' in src
+    assert 'f"{label} {message}"' in src
+
+
+def test_an_absence_checkin_is_not_labelled():
+    """An absence trigger is addressed to a named person — a check-in, not a
+    musing — so the thought label would misdescribe it."""
+    import inspect
+
+    from utils.core.background_tasks import CoreTaskManager
+
+    src = inspect.getsource(CoreTaskManager._dispatch_proactive)
+    assert 'getattr(trigger, "target_user", None)' in src
+
+
+def test_an_empty_prefix_means_no_prefix():
+    """Every broadcast_prefix comment promises that "" posts the text
+    unadorned. Two of them prepended a bare space instead."""
+    import inspect
+
+    from utils.core.background_tasks import CoreTaskManager
+
+    for fn in (CoreTaskManager._broadcast_monologue,
+               CoreTaskManager._broadcast_observation_digest,
+               CoreTaskManager._dispatch_proactive):
+        src = inspect.getsource(fn)
+        assert "if label else" in src, \
+            f"{fn.__name__} still prepends an empty label"

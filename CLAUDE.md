@@ -422,8 +422,10 @@ silenced without the others:
 | Proactive opener | the desire gate + rate limiter | most recent channel | `proactive.respect_quiet_hours` decides whether `quiet_hour_start`/`end` apply. |
 | Idle quip | the idle timer | most recent channel | `quip.broadcast_prefix` labels it. |
 
-Each carries a configurable prefix so it reads as a thought or an observation rather than as a
-remark aimed at whoever spoke last.
+Each carries a configurable prefix (`<name>.broadcast_prefix`, `""` for none) so it reads as a
+thought or an observation rather than as a remark aimed at whoever spoke last. The one exception
+is deliberate: a proactive trigger carrying a `target_user` — an absence check-in — *is* addressed
+to a person, so it goes out unadorned whatever the prefix is set to.
 
 **The desire gate must not be able to silence her.** `observe_exchange` pins the intellectual
 need at 0.0 on any active server, which caps pressure at 0.16 — so a threshold above that means
