@@ -53,10 +53,17 @@ venv/bin/python3 -c "from utils.core.message_processor import MessageProcessor"
 venv/bin/python3 -c "import ast, io; ast.parse(io.open('utils/core/message_processor.py').read())"
 ```
 
-Baseline for the no-external-services run, verified 2026-09-20: **1,563 passed, 10 skipped,
-3 deselected, 2 xfailed** in ~110 s. Only three tests in the whole suite need Ollama or a GPU, so
-that invocation is the one to use by default — the full `pytest -q` additionally loads
-`gemma3:12b`, which evicts the production model from VRAM.
+**Take the baseline from the suite, not from here.** The pass count moves every phase, and this
+number has been stale in three files at once — CLAUDE.md, README and CONTRIBUTING each asserted a
+different one. Run it and read the tail; what matters is that nothing *failed*, not that the count
+matches a doc.
+
+The no-external-services invocation is the default because only **2** of ~1,780 tests need Ollama
+or a GPU. The rest of what it deselects is the 81 marked `slow`. The full `pytest -q` additionally
+loads `gemma3:12b`, which evicts the production model from VRAM.
+
+Markers are declared in `pytest.ini` under `--strict-markers`, so a typo'd marker is an error
+rather than a silently ignored one: `slow`, `gpu`, `ollama`, `network`, `integration`.
 
 **There is no linter or formatter.** No `ruff`, `black`, `pyproject.toml`, `setup.cfg`, or
 pre-commit hook exists, and none is in `requirements.txt`. Don't go looking for one, and don't
@@ -254,6 +261,24 @@ Rules that follow:
 - Punctuation is not survival. `tail.strip()` on a bare `"."` is truthy, so the trailing-connector
   repair never ran when the offence reached the end of the sentence.
 
+**Detect by vocabulary, not by shape — and measure what the marker is actually used for.**
+The stage-direction guard classified a span as roleplay if it was multi-word, lowercase and
+digit-free. Two things were wrong. The lowercase test was dead (`content.lower()` ran before
+`word.islower()`, which can then never be False), so *every* multi-word span matched. And the
+premise was never checked: across 618 marked spans in her own output, **not one** was a stage
+direction — they are publication titles (`*The Washington Post*`), transliterations
+(`*nigi-mitama*`), emphasis (`*what it costs*`), code (`(*args, **kwargs)`) and data (`(50-48)`).
+The guard had nothing to catch and was deleting all of it, including the clause a sentence was
+built on. Before writing a shape rule, grep the corpus for what the shape actually contains; then
+make the rule a membership test against a named vocabulary, so an unrecognised span is kept.
+
+**A delimiter has two halves.** `\([^)]+?\)` cannot cross an inner `)`, so on
+`(actions (within actions))` it matches to the *inner* bracket and ships `nested ) should be
+fine.` Scan balanced pairs with a stack and leave an unbalanced run alone. The same class of bug
+ate the `*` opening an italic span (a leading-divider strip using `[\s\*]*`) and stripped the
+markers off `**kwargs` (an "empty pair" pattern that matched any `**`). Assert the property, not
+the case: *the filter must not increase the imbalance of its input*.
+
 **Never let a filter empty a good response.** An empty return triggers a full regeneration,
 which costs a whole inference round-trip — and if every attempt is rejected she says nothing at
 all. That happened: three contemplative replies to a question about her own code were each
@@ -413,6 +438,12 @@ the gate itself are configurable (`desires.initiate_threshold`, `desires.gate_en
   `UnifiedLogger._resolve_log_file()` detects pytest. Do not remove this: mock artifacts in the
   shared log were previously indistinguishable from production incidents and cost real
   debugging time.
+- **The split only covers pytest.** `_resolve_log_file()` detects the test runner, not you. A
+  bare `venv/bin/python3 -c` that imports a guard and calls it writes straight into the
+  production log — and a filter exercised over corpus text emits a hundred plausible WARNING
+  lines with real user text in them, timestamped today. Export `KAIACORD_LOG_FILE` before any
+  ad-hoc run that touches a logging code path. If you forget, segment by timestamp and delete
+  your own burst; the file is a record someone reads back as evidence.
 - **Everything a test writes must be redirected, and four things needed it.** `telemetry_paths`
   holds all four: `telemetry_path()` for `memory/*.jsonl`, `corpus_dir()` for
   `knowledge_base/`, the logger's own split, and `persist_dir()` for `memory/rag_storage`. The

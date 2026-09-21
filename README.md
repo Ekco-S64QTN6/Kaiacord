@@ -303,7 +303,8 @@ venv/bin/python3 tools/maintenance/repair_kb_book_structure.py --apply
 
 ```bash
 venv/bin/python3 -m pytest -q -m "not ollama and not gpu and not slow"
-# baseline, verified 2026-09-19: 1,453 passed, 10 skipped, 2 xfailed
+# 2026-09-21: 1,659 passed, 10 skipped, 82 deselected, 1 xfailed.
+# Re-run rather than trusting this line — the count moves every phase.
 ```
 
 > [!TIP]
