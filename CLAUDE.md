@@ -426,8 +426,11 @@ silenced without the others:
 
 Each carries a configurable prefix (`<name>.broadcast_prefix`, `""` for none) so it reads as a
 thought or an observation rather than as a remark aimed at whoever spoke last. The one exception
-is deliberate: a proactive trigger carrying a `target_user` — an absence check-in — *is* addressed
-to a person, so it goes out unadorned whatever the prefix is set to.
+is deliberate: a proactive trigger whose `trigger_type` is `absence` *is* addressed to a person,
+so the check-in goes out unadorned whatever the prefix is set to. Key that on the type and not on
+`target_user` being set — `conversation_followup`, `personal_memory` and `anchor_callback` all
+populate that field with the person the thought is *about*, so a presence test silences the label
+on most openers.
 
 **The desire gate must not be able to silence her.** `observe_exchange` pins the intellectual
 need at 0.0 on any active server, which caps pressure at 0.16 — so a threshold above that means

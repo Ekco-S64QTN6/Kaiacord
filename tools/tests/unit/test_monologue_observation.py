@@ -346,15 +346,36 @@ def test_the_proactive_opener_is_labelled_too():
     assert 'f"{label} {message}"' in src
 
 
-def test_an_absence_checkin_is_not_labelled():
+def test_only_the_absence_checkin_goes_out_unlabelled():
     """An absence trigger is addressed to a named person — a check-in, not a
-    musing — so the thought label would misdescribe it."""
+    musing — so the thought label would misdescribe it.
+
+    The first version of this exception keyed on `target_user` being set, on the
+    assumption that only an absence check-in carries one. Three other sources
+    populate it with the person the thought is *about*: `conversation_followup`
+    (SOURCE_WEIGHTS 35, the highest of all), `personal_memory` (25) and
+    `anchor_callback` (15). So the presence test silenced the label on most
+    openers — including the 02:04 `conversation_followup` this was written for.
+
+    Asserted against every declared source rather than a hand-built case,
+    because the bug was in which sources reach the branch.
+    """
     import inspect
 
     from utils.core.background_tasks import CoreTaskManager
+    from utils.core.kaia_proactive import SOURCE_WEIGHTS
 
     src = inspect.getsource(CoreTaskManager._dispatch_proactive)
-    assert 'getattr(trigger, "target_user", None)' in src
+    assert 'getattr(trigger, "trigger_type", "") == "absence"' in src, \
+        "the exception is keyed on something other than the trigger type"
+    assert '"target_user"' not in src, \
+        "target_user is set by three non-absence sources; it cannot gate the label"
+
+    # Every weighted source is a musing and must keep its label. "absence" is
+    # deliberately not in SOURCE_WEIGHTS — it is checked before the weighted
+    # draw — which is why it is named explicitly here.
+    for source in SOURCE_WEIGHTS:
+        assert source != "absence"
 
 
 def test_an_empty_prefix_means_no_prefix():

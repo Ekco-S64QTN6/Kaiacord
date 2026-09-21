@@ -661,10 +661,16 @@ class CoreTaskManager:
 
         # Labelled like the other three things she says unprompted, so an
         # opener reads as a thought rather than as a remark aimed at whoever
-        # spoke last. A trigger carrying a `target_user` is aimed at someone by
-        # design — an absence check-in — and goes out unadorned.
+        # spoke last. The absence check-in is the one exception: it is addressed
+        # to a named person, so a musing label would misdescribe it.
+        #
+        # Key on the trigger type, not on `target_user` being set. Three other
+        # sources populate that field with the person the thought is *about* —
+        # `conversation_followup` (the highest-weighted source of all),
+        # `personal_memory` and `anchor_callback` — so a presence test silences
+        # the label on most openers, including the kind this was written for.
         label = config.get("proactive.broadcast_prefix", "\u2615 **Apropos of nothing:**")
-        if getattr(trigger, "target_user", None):
+        if getattr(trigger, "trigger_type", "") == "absence":
             label = ""
 
         from utils.infrastructure.system.messaging import send_kaia_response
