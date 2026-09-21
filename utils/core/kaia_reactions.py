@@ -31,23 +31,33 @@ from utils.infrastructure.logging.kaia_logger import log_debug, log_warning
 # ── Reaction pools ───────────────────────────────────────────────────────────
 # Dry, understated, never cutesy — the register the persona file describes.
 
-_AMUSED = ["💀", "😭", "🫠", "😮‍💨", "🙃", "😅"]
-_APPROVING = ["💯", "🫡", "✨", "🔥", "👌", "⭐"]
-_CURIOUS = ["🤔", "👀", "💭", "🧐", "❓"]
-_WARM = ["❤️", "🫂", "🩵", "🥺", "💗"]
-_SKEPTICAL = ["🫤", "😐", "🤨", "😑", "🙄"]
-_IMPRESSED = ["🤯", "😲", "👏", "🙌"]
-_SYMPATHY = ["😔", "🫂", "💔", "😞"]
-_TECHNICAL = ["🛠️", "⚙️", "🧠", "📉", "🐛"]
-_AGREEMENT = ["✅", "💯", "🫡", "☝️"]
-_NOCTURNAL = ["🌙", "☕", "🥱", "🕯️"]
+# No red hearts anywhere — ❤️, 💗 and 💔 were in here and they are the wrong
+# register for her entirely. 🩵 and 🫂 carry warmth without declaring love, and
+# a flat pool gave the heaviest emoji in it the same odds as the mildest: 💔 sat
+# beside 😔 for anything matching "sympathy", so "Sorry Kaia 😅" drew a broken
+# heart and the user asked her why.
+#
+# Pools are wide on purpose. A three-emoji pool with a two-deep no-repeat memory
+# leaves one choice, which reads as a tic.
+_AMUSED = ["💀", "😭", "🫠", "😮‍💨", "🙃", "😅", "😂", "🤣", "😏", "🫡"]
+_APPROVING = ["💯", "🫡", "✨", "🔥", "👌", "⭐", "👏", "😎", "🎯"]
+_CURIOUS = ["🤔", "👀", "💭", "🧐", "❓", "🔍", "🤨", "📡"]
+_WARM = ["🫂", "🩵", "🫡", "😊", "🙂", "🌱", "☺️"]
+_SKEPTICAL = ["🫤", "😐", "🤨", "😑", "🙄", "😒", "🧐", "❔"]
+_IMPRESSED = ["🤯", "😲", "👏", "🙌", "😳", "‼️", "🔥"]
+_SYMPATHY = ["😔", "🫂", "😞", "😮‍💨", "🥲", "😕", "🩵"]
+# An apology aimed at her is not distress and does not want a sympathy face.
+_APOLOGY = ["🫡", "👌", "🙂", "👍", "😌", "🤝"]
+_TECHNICAL = ["🛠️", "⚙️", "🧠", "📉", "🐛", "🔧", "💾", "📊", "🧪"]
+_AGREEMENT = ["✅", "💯", "🫡", "☝️", "👍", "🎯", "📌"]
+_NOCTURNAL = ["🌙", "☕", "🥱", "🕯️", "🌃", "😴", "🦉"]
 
 # Every pool is reachable from at least one trigger; test_reactions asserts it.
 ALL_POOLS = {
     "amused": _AMUSED, "approving": _APPROVING, "curious": _CURIOUS,
     "warm": _WARM, "skeptical": _SKEPTICAL, "impressed": _IMPRESSED,
     "sympathy": _SYMPATHY, "technical": _TECHNICAL, "agreement": _AGREEMENT,
-    "nocturnal": _NOCTURNAL,
+    "nocturnal": _NOCTURNAL, "apology": _APOLOGY,
 }
 
 
@@ -72,8 +82,8 @@ _TRIGGERS = {
         "pool": _CURIOUS,
     },
     "warm": {
-        "keywords": {"thank", "appreciate", "grateful", "love you", "missed you",
-                     "glad", "proud of", "congrats", "congratulations"},
+        "keywords": {"thank", "appreciate", "grateful", "glad", "proud of",
+                     "congrats", "congratulations", "love you", "missed you"},
         "pool": _WARM,
     },
     "skeptical": {
@@ -87,10 +97,18 @@ _TRIGGERS = {
         "pool": _IMPRESSED,
     },
     "sympathy": {
-        "keywords": {"sorry", "rough", "exhausted", "burnt out", "burned out",
-                     "sucks", "awful", "hospital", "passed away", "rip",
-                     "stressed", "anxious"},
+        # "sorry" is gone: across the logs it is a light apology 41 times and a
+        # grief context once, so as a sympathy keyword it was wrong 98% of the
+        # time. It has its own category below.
+        "keywords": {"rough", "exhausted", "burnt out", "burned out",
+                     "sucks", "awful", "stressed", "anxious", "miserable",
+                     "passed away", "lost my", "euthan"},
         "pool": _SYMPATHY,
+    },
+    "apology": {
+        "keywords": {"sorry", "my bad", "apologies", "my mistake", "didn't mean to",
+                     "didnt mean to"},
+        "pool": _APOLOGY,
     },
     "technical": {
         "keywords": {"segfault", "stack trace", "traceback", "regression",
@@ -118,6 +136,9 @@ _TRIGGERS = {
 # a complete utterance: "this" alone is agreement, "this codebase" is not.
 _EXACT_TRIGGERS = {
     "agreement": {"this", "this.", "^", "^^", "+1", "same", "fr", "facts"},
+    # Only as the whole message. As a keyword "rip" is a prefix of "ripping",
+    # "ripples" and the surname "Ripperger".
+    "sympathy": {"rip", "rip.", "f", "f."},
     "amused": {"lol", "lmao", "lmfao", "kek", "💀"},
     "curious": {"hm", "hmm", "huh", "wait what", "?"},
 }

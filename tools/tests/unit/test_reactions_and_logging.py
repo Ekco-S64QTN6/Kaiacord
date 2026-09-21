@@ -280,3 +280,49 @@ def test_the_addressee_anchor_is_still_present():
     from pathlib import Path
     src = Path("utils/core/message_processor.py").read_text(encoding="utf-8")
     assert "You are speaking exclusively to {ctx.author_name}" in src
+
+
+# ── Emoji register ───────────────────────────────────────────────────────────
+
+def test_no_red_hearts_anywhere():
+    """❤️, 💗 and 💔 were in the warm and sympathy pools. They are the wrong
+    register for her, and a flat pool gave 💔 the same odds as 😔 — so
+    "Sorry Kaia 😅" drew a broken heart and the user asked her why it did."""
+    from utils.core.kaia_reactions import ALL_POOLS
+
+    banned = {"❤️", "❤", "\U0001f497", "\U0001f494", "♥️",
+              "\U0001f97a"}
+    offenders = [(name, e) for name, pool in ALL_POOLS.items()
+                 for e in pool if e in banned]
+    assert not offenders, f"red heart / doe eyes back in a pool: {offenders}"
+
+
+def test_an_apology_is_not_distress():
+    """"sorry" was a sympathy keyword. Across the logs it is a light apology 41
+    times and a grief context once, so it was wrong 98% of the time."""
+    from utils.core.kaia_reactions import KaiaReactions
+
+    eng = KaiaReactions.__new__(KaiaReactions)
+    scores = eng.score_categories("Sorry Kaia 😅")
+    assert scores, "no category matched at all"
+    assert max(scores, key=lambda n: scores[n]) == "apology"
+
+
+def test_rip_only_counts_as_a_whole_message():
+    """As a keyword `\\brip` is a prefix of "ripping", "ripples" and the surname
+    "Ripperger" — all three appear in the logs."""
+    from utils.core.kaia_reactions import KaiaReactions
+
+    eng = KaiaReactions.__new__(KaiaReactions)
+    assert eng.score_categories("rip").get("sympathy")
+    for decoy in ("ripping their head off", "structural ripples", "Chad Ripperger"):
+        assert not eng.score_categories(decoy).get("sympathy"), decoy
+
+
+def test_pools_are_wide_enough_to_not_read_as_a_tic():
+    """`pick_reaction` filters the last four used out of the pool, so a
+    three-emoji pool leaves one choice."""
+    from utils.core.kaia_reactions import ALL_POOLS
+
+    thin = {n: len(p) for n, p in ALL_POOLS.items() if len(p) < 6}
+    assert not thin, f"pools too small to vary: {thin}"
