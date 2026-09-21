@@ -127,19 +127,115 @@ def repair_unparseable(text: str):
     except yaml.YAMLError:
         pass
 
+    data = None
     fixed = fix_flow_sequence(raw)
-    if fixed == raw:
-        return None                      # a shape this tool does not know
-    try:
-        data = yaml.safe_load(fixed)
-    except yaml.YAMLError:
-        return None
+    if fixed != raw:
+        try:
+            parsed = yaml.safe_load(fixed)
+            if isinstance(parsed, dict) and parsed:
+                data = parsed
+        except yaml.YAMLError:
+            data = None
+    if data is None:
+        # Both faults in one block, or a shape the sequence fix does not cover.
+        data = reconstruct(raw)
     if not isinstance(data, dict) or not data:
         return None
 
     dumped = yaml.safe_dump(data, default_flow_style=False, sort_keys=False,
                             allow_unicode=True)
     return f"---\n{dumped}---\n{body.lstrip(chr(10))}"
+
+
+KEY_START = re.compile(r"^([A-Za-z_][A-Za-z0-9_-]*):[ \t]*(.*)$")
+
+
+def reconstruct(raw_yaml: str):
+    """Rebuild a block line by line when the YAML parser cannot read it at all.
+
+    The shape this exists for carries two faults at once, both from the same
+    f-string: a `keywords: [- a` flow sequence, and a double-quoted scalar with
+    raw quotes inside it —
+
+        summary: "Forum thread discussion: Can''t Start P99. "Fatal Error: ..."
+        keywords: [- eqmain.dll"
+
+    Fixing the sequence alone leaves the scalar unreadable, so the block is
+    re-read structurally instead: a line that opens with `key:` starts a value,
+    anything else continues the previous one, and `- ` entries collect into a
+    list. Quoting is then the YAML writer's job.
+
+    Returns None rather than a guess whenever the result would be empty or
+    would lose a key, because a wrong summary written into the corpus is worse
+    than an unreadable one.
+    """
+    data, key, buf, items = {}, None, [], None
+
+    def flush():
+        if key is None:
+            return
+        if items is not None:
+            data[key] = items
+        else:
+            value = " ".join(x.strip() for x in buf if x.strip())
+            # Strip one layer of wrapping quotes and the doubled-quote escape
+            # the broken writer left behind; inner quotes simply stay as text.
+            value = value.strip()
+            if len(value) >= 2 and value[0] == value[-1] and value[0] in "\"'":
+                value = value[1:-1]
+            value = value.replace("''", "'").strip().rstrip('"').strip()
+            data[key] = value
+
+    for line in raw_yaml.split("\n"):
+        stripped = line.strip()
+        if not stripped:
+            continue
+        if stripped.startswith("- ") or stripped.startswith("-\t"):
+            if items is None:
+                items = []
+            item = stripped[1:].strip().rstrip("]").strip()
+            item = item.strip('"').strip("'").replace("''", "'").rstrip('"').strip()
+            if item:
+                items.append(item)
+            continue
+        m = KEY_START.match(stripped)
+        if m and not line.startswith((" ", "\t")):
+            flush()
+            key, buf, items = m.group(1), [m.group(2)], None
+            rest = m.group(2).strip()
+            if rest.startswith("["):
+                items = []
+                first = rest[1:].strip()
+                if first.startswith("-"):
+                    first = first[1:].strip().rstrip("]").strip()
+                    first = first.strip('"').strip("'").rstrip('"').strip()
+                    if first:
+                        items.append(first)
+                buf = []
+            continue
+        buf.append(line)
+    flush()
+
+    # Accept only a result that looks like frontmatter.
+    #
+    # Without this, a block whose body text had leaked into it reconstructed to
+    # a single key holding a PC spec dump — `document_type: 'Desktop Processor
+    # a Main Circuit Board b 4.70 gigahertz AMD FX-9590 …'` — which is a worse
+    # outcome than leaving the file unreadable. Unknown keys are dropped, a
+    # scalar far longer than its key could sensibly hold is dropped, and a
+    # result with none of the schema keys left is refused outright.
+    SCHEMA = {"title", "summary", "keywords", "category", "document_type",
+              "author", "source", "source_url", "platform", "date", "tags",
+              "thread_id", "page", "post_count", "scraped_at"}
+    LONG_OK = {"summary", "title"}
+
+    data = {k: v for k, v in data.items() if v not in ("", [], None)}
+    data = {k: v for k, v in data.items() if k in SCHEMA}
+    data = {k: v for k, v in data.items()
+            if k in LONG_OK or not isinstance(v, str) or len(v) <= 120}
+    if not data or not ({"title", "summary", "keywords"} & set(data)):
+        return None
+    return data
 
 
 def repair(text: str):
