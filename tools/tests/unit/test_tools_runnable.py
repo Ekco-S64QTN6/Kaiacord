@@ -88,3 +88,38 @@ def test_the_import_of_the_atomic_helper_comes_after_sys_path_insert():
         if first_utils < insert_at:
             offenders.append(str(p))
     assert not offenders, f"utils imported before sys.path.insert in: {offenders}"
+
+
+def test_no_tool_reconfigures_logging_at_import_scope():
+    """`exec_module` above runs every tool's import block, and so does the live
+    bot: `kaia_dream` imports `generate_profile` from a tool during the nightly
+    profile refresh.
+
+    `generate_user_profiles.py` called `replace_all_logging()` at import scope,
+    so that ran inside the running process every night. It emits the "Unified
+    logging system initialized" marker that CLAUDE.md §9 and §11 tell you to
+    segment the production log by — 6 of 23 markers in one log were this rather
+    than a boot — and it strips every handler off the root logger while
+    re-hijacking stdout and stderr. Reconfiguring global logging is a script's
+    decision to make, so it belongs under the `__main__` guard.
+    """
+    import ast
+
+    offenders = []
+    for tool in TOOLS:
+        try:
+            tree = ast.parse(tool.read_text(encoding="utf-8"))
+        except SyntaxError:
+            continue                    # test_tools_parse covers this
+        if "development" in tool.parts:
+            continue                    # profiling scripts time this call by design
+        for node in tree.body:          # top level only; a __main__ guard is an ast.If
+            if (isinstance(node, ast.Expr)
+                    and isinstance(node.value, ast.Call)
+                    and getattr(node.value.func, "id", "") == "replace_all_logging"):
+                offenders.append(f"{tool}:{node.lineno}")
+
+    assert not offenders, (
+        "replace_all_logging() at import scope — move it under "
+        f"`if __name__ == \"__main__\":`: {offenders}"
+    )

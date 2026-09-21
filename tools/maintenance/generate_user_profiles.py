@@ -18,7 +18,6 @@ sys.path.insert(0, str(Path(__file__).parent.parent.parent))
 
 from utils.infrastructure.logging.unified_logging import replace_all_logging
 from utils.core.atomic_write import write_atomic
-replace_all_logging()
 
 LOG_DIR = Path("knowledge_base/user_logs")
 
@@ -219,4 +218,11 @@ async def main():
     print(f"\nDone. ✔ {ok} generated  ✘ {fail} failed  — {skip} skipped (no logs)")
 
 if __name__ == "__main__":
+    # Only when run as a script. The live bot imports `generate_profile` from
+    # here during the nightly profile refresh, and at import scope this call
+    # re-ran inside the running process: it emits the "Unified logging system
+    # initialized" marker that §9 tells you to segment the log by, and strips
+    # every handler off the root logger while re-hijacking stdout and stderr.
+    # Six of twenty-three markers in one log were this, not a boot.
+    replace_all_logging()
     asyncio.run(main())

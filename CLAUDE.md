@@ -462,6 +462,14 @@ the gate itself are configurable (`desires.initiate_threshold`, `desires.gate_en
 - When auditing the log, **separate production runs from test runs first**. Segment by the
   "Unified logging system initialized" boot marker and discard segments containing `MagicMock`,
   `test-model`, or `(case test)`.
+- **Check that a boot marker is a boot.** `generate_user_profiles.py` called `replace_all_logging()`
+  at import scope and the bot imports `generate_profile` from it nightly, so the marker fired
+  mid-run: 6 of 23 in one log, five at the identical point in the profile refresh. The call now
+  sits under the `__main__` guard and `test_no_tool_reconfigures_logging_at_import_scope` keeps
+  it there, but logs written before that still carry the false markers. A real boot is followed
+  by `Ensuring all models are flushed from VRAM`; a spurious one is wedged between two lines of
+  whatever was running. Segmenting on the marker alone splits one 1,439-line segment into a
+  77-line tail that reads as clean.
 - **Never interpolate a document into a log message.** `UnifiedLogger.log()` compacts multi-line
   payloads, but the right fix is at the call site: use
   `log_sanitize.summarize_payload("label", text)`, which reports size instead of content. A
