@@ -316,6 +316,14 @@ class CoreTaskManager:
                 return
 
             limit = int(config.get("knowledge_base.auto_enrich_limit", 40))
+
+            # Announce the pass at ACTION, the way the dream task does. The work
+            # runs in a subprocess whose own output is DEBUG and SUCCESS, and the
+            # dashboard drops DEBUG — so without this the only trace of a pass
+            # that holds the GPU for minutes was its completion line, and a pass
+            # in flight looked like the bot doing nothing while the GPU worked.
+            log_action(f"Metadata enrichment pass starting (up to {limit} files)...")
+
             try:
                 proc = await asyncio.create_subprocess_exec(
                     _sys.executable, str(script), "--category", "all",
