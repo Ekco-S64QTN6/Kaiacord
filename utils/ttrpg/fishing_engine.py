@@ -114,15 +114,21 @@ def roll_catch(
             chosen_fish = fish_data
             break
 
-    # Roll weight
-    min_w, max_w = chosen_fish["weight_range"]
-    weight_roll = secrets.randbelow(1000) / 1000.0  # 0.0-1.0
-    # Bias toward lower weights (exponential distribution feel)
-    weight_roll = weight_roll ** 1.5
-    fish_weight = min_w + (max_w - min_w) * weight_roll
-    fish_weight = round(fish_weight, 2)
+    return chosen_key, chosen_fish, roll_fish_weight(chosen_fish)
 
-    return chosen_key, chosen_fish, fish_weight
+
+def roll_fish_weight(fish_data: dict) -> float:
+    """A weight inside the species' range, biased toward the lower end.
+
+    Shared so every catch uses the same distribution. The tainted-waters branch
+    in `fishing_handler` rolled its own and reached for `secrets.uniform`, which
+    does not exist — `secrets` exposes `randbelow`, `randbits` and `choice`, and
+    only `secrets.SystemRandom()` has `uniform`. A flat roll there would also
+    have made aberrant catches heavier on average than anything else in the game.
+    """
+    min_w, max_w = fish_data["weight_range"]
+    weight_roll = (secrets.randbelow(1000) / 1000.0) ** 1.5
+    return round(min_w + (max_w - min_w) * weight_roll, 2)
 
 
 def calculate_catch_value(fish_key: str, fish_weight: float, cha_mod: int = 0) -> int:

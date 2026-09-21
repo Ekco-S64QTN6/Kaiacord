@@ -19,6 +19,7 @@ from utils.ttrpg.character_manager import load, save
 from utils.ttrpg.fishing import FISH, BAIT, POLES, BAG_UPGRADES, DEFAULT_BAG_CAPACITY, get_time_of_day
 from utils.ttrpg.fishing_engine import (
     roll_catch,
+    roll_fish_weight,
     calculate_catch_value,
     add_to_fishing_bag,
     sell_fishing_bag,
@@ -529,10 +530,14 @@ async def _handle_cast(ctx, interaction: discord.Interaction, uid: str, uname: s
             # 40% Aberrant Catch (sells for 2x normal price!)
             fish_key = secrets.choice(["voidfin_carp", "blackwater_eel", "sludge_catfish"])
             fish_data = FISH[fish_key]
-            fish_weight = round(secrets.uniform(*fish_data["weight_range"]), 2)
+            fish_weight = roll_fish_weight(fish_data)
         elif roll_tainted <= 70:
             # 30% Monster Hook!
-            from utils.ttrpg.session_manager import load as load_session, save as save_session
+            # `load_session`/`save_session` are the names this module exports;
+            # `load`/`save` are the character-sheet functions imported at the
+            # top of this file, and aliasing them from here raised ImportError
+            # on every monster hook.
+            from utils.ttrpg.session_manager import load_session, save_session
             from utils.ttrpg.monster_registry import get as get_monster
             chan_id = str(interaction.channel.id)
             s = await load_session(chan_id)
