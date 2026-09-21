@@ -32,6 +32,11 @@ from utils.infrastructure.logging.kaia_logger import (
 )
 
 # ── Rate Limiting Constants ─────────────────────────────────────────
+# Defaults only. Both are read from config at call time, because 2 a day with a
+# 4-hour gap means she is finished initiating by mid-morning and every later
+# evaluation reports "rate limited" — which reads like a fault and is the cap
+# working as written. The quiet-hour window below was made configurable for the
+# same reason; the limiter was left hardcoded.
 MAX_DAILY_PROACTIVE = 2
 MIN_INTERVAL_SECONDS = 4 * 3600  # 4 hours between proactive messages
 # Defaults for the proactive speaking window. Overridable in config; these
@@ -182,6 +187,11 @@ class ProactiveEngine:
 
     def _is_rate_limited(self, bot_state) -> bool:
         """Check if we've exceeded daily or interval limits."""
+        # Imported here, as elsewhere in this module: `config` is not a
+        # module-level name, and a config read added without this raised
+        # NameError only when the function ran (CLAUDE.md §11).
+        from utils.infrastructure.system.yaml_config import config
+
         now = time.time()
         today = datetime.now().strftime('%Y-%m-%d')
 
@@ -192,14 +202,22 @@ class ProactiveEngine:
             bot_state.last_proactive_date = today
 
         # Daily cap
-        if getattr(bot_state, 'proactive_daily_count', 0) >= MAX_DAILY_PROACTIVE:
+        max_daily = int(config.get('proactive.max_per_day', MAX_DAILY_PROACTIVE))
+        count = getattr(bot_state, 'proactive_daily_count', 0)
+        if max_daily > 0 and count >= max_daily:
+            self.last_limit_detail = f"daily cap {count}/{max_daily}"
             return True
 
         # Minimum interval
+        min_gap = float(config.get('proactive.min_interval_minutes',
+                                   MIN_INTERVAL_SECONDS / 60.0)) * 60.0
         last_sent = getattr(bot_state, 'proactive_last_sent', 0.0)
-        if now - last_sent < MIN_INTERVAL_SECONDS:
+        if now - last_sent < min_gap:
+            mins = int((min_gap - (now - last_sent)) / 60)
+            self.last_limit_detail = f"{mins} min left of the {int(min_gap/60)} min gap"
             return True
 
+        self.last_limit_detail = ""
         return False
 
     def _find_active_channel(self, bot_state) -> Optional[int]:
@@ -925,7 +943,10 @@ class ProactiveEngine:
             return None
 
         if self._is_rate_limited(bot_state):
-            self.last_skip_reason = "rate limited"
+            # Say which limit. "rate limited" alone made a working cap look like
+            # a fault and gave no way to tell the daily cap from the gap.
+            detail = getattr(self, "last_limit_detail", "")
+            self.last_skip_reason = f"rate limited ({detail})" if detail else "rate limited"
             return None
 
         # Desire gate (roadmap 55-4). The rate limiter says whether she *may*
