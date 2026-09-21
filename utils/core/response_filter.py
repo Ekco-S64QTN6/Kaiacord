@@ -956,6 +956,20 @@ class BotSpeakFilter:
     # that was deleted.
     _DANGLING_TAIL = re.compile(r"^(?:to|that|about|for|on|in|with|of)\b", re.IGNORECASE)
 
+    # A finite verb, which is what separates a clause that can stand alone from
+    # a phrase that cannot. Contractions are in it because a first attempt
+    # without them called "that's unsettling" verbless and scored 21.7% false
+    # positives on her own sentences; over the population this actually runs on
+    # — text following a comma inside one of her sentences — it judges 13.8%
+    # dependent, and reading those they are dependent ("a whimsical dance
+    # between convention and perception", "deliberate pleasure").
+    _FINITE_VERB = re.compile(
+        r"\b(?:is|are|was|were|be|been|am|has|have|had|do|does|did|can|could"
+        r"|will|would|shall|should|may|might|must|isn|aren|wasn|weren|hasn"
+        r"|haven|don|doesn|didn|won|wouldn|couldn|shouldn)\b"
+        r"|['\u2019](?:s|re|ve|ll|d|m)\b"
+        r"|\b\w{3,}(?:ed|ing|es|s)\b", re.IGNORECASE)
+
     # A connector stranded at the end of the head once the clause it introduced
     # is gone: "i'm not sure what caused it, but <concession>".
     _TRAILING_CONNECTOR = re.compile(
@@ -1012,8 +1026,24 @@ class BotSpeakFilter:
         # head-empty-only test ships 'starkind,  to point that out.'
         stripped_tail = tail.strip()
         if stripped_tail and cls._DANGLING_TAIL.match(stripped_tail):
+            # A dangling tail is the continuation of the clause just removed.
+            # What follows a comma inside it can be real substance —
+            # "you're correct to press on this point, the dependency chain is
+            # weak" — but only when it is a clause in its own right. Promoting
+            # it unconditionally shipped a bare phrase as the answer:
+            #
+            #   "you're correct to point out that the assertion of privacy
+            #    should have been limited to one's own property, person to
+            #    person."  ->  "person to person."
+            #
+            # which reached Starkind as the opening line of a paragraph, logged
+            # as "kept substance"; the one other time this fired in her whole
+            # corpus it produced "not an anomaly." the same way. So the
+            # remainder has to carry a finite verb to be promoted, and
+            # otherwise the unit goes with the offence it belongs to.
             after = re.split(r',\s+', stripped_tail, maxsplit=1)
-            tail = after[1].strip() if len(after) > 1 else ''
+            candidate = after[1].strip() if len(after) > 1 else ''
+            tail = candidate if cls._FINITE_VERB.search(candidate) else ''
         elif not head.strip() and stripped_tail:
             # "that's a great point, and the chain is weak" — the praised noun is
             # left stranded ahead of the connector; drop it with the connector.
@@ -1087,6 +1117,16 @@ class BotSpeakFilter:
                 log_warning(f"[{tag}] Dropped offense-only sentence: '{unit[:80]}'")
                 continue
             if survivor != unit:
+                # The §5 rule, applied where four of the five documented
+                # failures came from: this shared path never called it, so only
+                # DIRECTIVE_LEAK_GUARD and the safety pipeline were protected
+                # while APOLOGY_GUARD, SYCOPHANCY_GUARD and ECHO_GUARD excised
+                # freely. Shipping the offence beats shipping a hole.
+                if excision_broke_grammar(unit, survivor):
+                    log_warning(f"[{tag}] Excision broke the sentence; keeping "
+                                f"the original: '{unit[:60]}'")
+                    kept.append(unit)
+                    continue
                 trimmed += 1
                 log_warning(f"[{tag}] Trimmed offending clause, kept substance: '{unit[:60]}' -> '{survivor[:60]}'")
             kept.append(survivor)
