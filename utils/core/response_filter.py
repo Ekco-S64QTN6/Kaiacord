@@ -484,24 +484,6 @@ class BotSpeakFilter:
         r"\byour\s+shopping\s+history\b",
         r"\bpressure\s+behind\s+my\s+(?:left|right)\s+eye\b",
         r"\bcoffee\s+in\s+virtual\s+space\b",
-        # A *numeric* claim about her own utilisation. She has no readout of her
-        # processing load (§5), so a percentage attached to it is invented — and
-        # she does not invent it once: across one conversation the figure
-        # climbed 17% -> 23% -> 31% -> 45% and ended at "operating at the edge
-        # of stability", none of it measurable and all of it stated flatly.
-        #
-        # Kept numeric on purpose. She discusses CPUs, VRAM and throughput as
-        # ordinary technical subjects constantly, and matching those words is
-        # the mistake DIRECTIVE_LEAK_PATTERNS made. Over 7,221 of her sentences
-        # this form flags 5, and all 5 are the fabrication.
-        r"\b(?:i(?:'m| am)?\s+(?:consuming|using|running at|operating at)"
-        r"|my\s+(?:\w+\s+){0,2}(?:consumption|capacity|utilisation|utilization|load)"
-        r"\s+(?:is|has|reached)"
-        r"|(?:resource consumption|processing capacity|memory usage|system load)"
-        r"\s+(?:is|has|have)?\s*(?:now\s+)?(?:reached|increased to|risen to|at))"
-        r"\b[^.]{0,40}\d{1,3}\s*%",
-        r"\b\d{1,3}\s*%\s+of\s+my\b",
-        r"\boperating\s+at\s+the\s+edge\s+of\s+stability\b",
     ]
 
     # P6 — internal plumbing labels that must never surface as speech.
