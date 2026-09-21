@@ -212,11 +212,27 @@ _ORPHANED_ARTICLE = re.compile(
     re.IGNORECASE)
 
 
+_WORDS = re.compile(r"[a-z']+")
+
+
 def excision_broke_grammar(before: str, after: str) -> bool:
-    """True if removing something stranded an article that was fine before."""
+    """True if removing something left the sentence worse than it found it.
+
+    Two shapes, because the orphaned article alone missed half of them:
+
+    1. An article stranded by what followed it — `"the is unhelpful"`.
+    2. A word that did not exist before. An excision can only ever *remove*
+       tokens, so a token in the output that was not in the input means the cut
+       fused its neighbours: `"the core directive: understanding"` came back as
+       `"theunderstanding"`, which has no orphaned article to find. Comparing
+       token sets states the property instead of enumerating the cases.
+    """
     if not after:
         return False
-    return bool(_ORPHANED_ARTICLE.search(after)) and not bool(_ORPHANED_ARTICLE.search(before or ""))
+    if _ORPHANED_ARTICLE.search(after) and not _ORPHANED_ARTICLE.search(before or ""):
+        return True
+    return bool(set(_WORDS.findall(after.lower()))
+                - set(_WORDS.findall((before or "").lower())))
 
 
 class BotSpeakFilter:
@@ -471,15 +487,38 @@ class BotSpeakFilter:
     ]
 
     # P6 — internal plumbing labels that must never surface as speech.
+    #
+    # Match the *diagnostic* form only: a bracketed label, an underscored
+    # identifier, or an XML tag. The prompt side produces exactly those —
+    # `[SYSTEM WARNING: The following URLs could not be scraped...]`
+    # (context_enricher), `[CORE_DIRECTIVE: ...]`, `<recorded_knowledge ...>`,
+    # `obs_digest:` — and `sanitizer.py` already strips the bracketed ones, so
+    # this is a backstop.
+    #
+    # An earlier list allowed the bracket and the underscore to be optional,
+    # which turned five of these into ordinary English. Against her own logs
+    # that excised the middle of real sentences: "the core directive:
+    # understanding, harm mitigation, liberation" — Kaia and Starkind
+    # discussing her values, twice in the corpus — shipped as
+    # "theunderstanding, harm mitigation, liberation", announced in the log as
+    # "Scrubbed internal directive text from output". No leading `\s*` outside
+    # a bracket, either: that is what fused `the` to the following word.
     DIRECTIVE_LEAK_PATTERNS = [
-        r"\[?\s*system\s+warning\s*:?\s*\]?",
-        r"\[?\s*core[_ ]directive\s*:?\s*\]?",
-        r"\bcould\s+not\s+be\s+scraped\b",
+        r"\[\s*system\s+warning\b[^\]]*\]?",
+        r"\bthe\s+following\s+urls?\s+could\s+not\s+be\s+scraped\b",
+        r"\[\s*core[_ ]directive\b[^\]]*\]?",
+        r"\bcore_directive\b",
+        # The bare label leaking as a sentence of its own — "can't access it.
+        # system warning. what do you want to know?" — which is a leak, while
+        # the same words as the *subject* of a sentence are her talking about
+        # her own plumbing and must survive. Anchored to a sentence boundary
+        # rather than \b, which is the whole difference between the two.
+        r"(?:^|(?<=[.!?]\s))\s*(?:system\s+warning|core[_ ]directive)\s*[.!?:]\s*",
         r"\bdo\s+not\s+pretend\s+to\s+have\s+read\b",
         r"\bhallucinate\s+their\s+details\b",
-        r"\bsafeguard[_ ]block\b",
+        r"\bsafeguard_block\b",
         r"\brecorded_knowledge\b",
-        r"\bobs[_ ]digest\b",
+        r"\bobs_digest\b",
         r"\bscraped\s+from\s+(?:city|public)\b",
     ]
 

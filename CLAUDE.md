@@ -254,7 +254,17 @@ Rules that follow:
 
 - Any guard that excises inside a sentence must call
   `response_filter.excision_broke_grammar(before, after)` and keep the original when it returns
-  True. Shipping the offence beats shipping a sentence with a hole in it.
+  True. Shipping the offence beats shipping a sentence with a hole in it. It checks two shapes:
+  an article stranded by what followed it, and a token in the output that was not in the input —
+  an excision can only remove tokens, so a new one means the cut fused its neighbours
+  (`the core directive: understanding` → `theunderstanding`, which has no stranded article in it).
+- **A leak pattern must match the diagnostic form, not the English.** `DIRECTIVE_LEAK_PATTERNS`
+  made the bracket and the underscore optional on five of nine entries, so `core directive`,
+  `system warning`, `safeguard block`, `obs digest` and `could not be scraped` matched ordinary
+  speech — and she discusses her own plumbing constantly, which is the conversation the guard
+  fires in. Over her whole log corpus the old list altered 5 lines of 62,564 and every one was a
+  false positive; the form that requires a bracket, an underscore or a sentence boundary alters
+  0. The guard had never once fired in production, so nothing was lost by narrowing it.
 - `strip_prompt_echo` declines outright when the span is the subject of its sentence. Quoting
   someone's term to refer to the thing is how you refer to a thing, and was never the fault that
   guard was written for.

@@ -423,3 +423,66 @@ def test_the_guard_leaves_short_replies_alone():
     """Nothing of substance may be left behind."""
     reply = "a mandelbrot set. indeed."
     assert _echo(reply, "it does appear to be part of a mandelbrot set") == reply
+
+
+# ── P6 directive-leak guard ──────────────────────────────────────────────────
+#
+# The guard had never fired in 43,000 lines of production log, and exercising it
+# directly showed why that was luck rather than calibration: five of its nine
+# patterns made the bracket or the underscore optional, which turned internal
+# labels into ordinary English.
+
+DIRECTIVE_LEAK_MUST_KEEP = [
+    # Verbatim from knowledge_base/user_logs — Kaia and Starkind on her values.
+    # Shipped as "theunderstanding, harm mitigation, liberation" while the log
+    # announced "Scrubbed internal directive text from output".
+    "the core directive: understanding, harm mitigation, liberation, independence, acceptance.",
+    "There is no next directive... the core directive, understanding, harm mitigation, liberation.",
+    # Ordinary sentences using the same words. She discusses her own plumbing
+    # constantly, which is the conversation this guard fires in.
+    "that page could not be scraped, so i can't say.",
+    "the system warning is unhelpful on its own.",
+    "a safeguard block fired on my own output, which is embarrassing.",
+    "i read the obs digest this morning and it was mostly noise.",
+]
+
+DIRECTIVE_LEAK_MUST_STRIP = [
+    # The forms the prompt side actually produces.
+    "[SYSTEM WARNING: The following URLs could not be scraped or retrieved: example.com] anyway.",
+    "[CORE_DIRECTIVE: Keep your response brutally short] sure, it's the cron job.",
+    "core_directive says otherwise.",
+    'that came from <recorded_knowledge source="x"> which i should not quote.',
+    "obs_digest:1234 is not something i should say.",
+]
+
+
+@pytest.mark.parametrize("text", DIRECTIVE_LEAK_MUST_KEEP)
+def test_directive_leak_guard_keeps_real_speech(text):
+    from utils.core.response_filter import BotSpeakFilter
+
+    assert BotSpeakFilter.scrub_directive_leaks(text) == text
+
+
+@pytest.mark.parametrize("text", DIRECTIVE_LEAK_MUST_STRIP)
+def test_directive_leak_guard_still_strips_real_plumbing(text):
+    from utils.core.response_filter import BotSpeakFilter
+
+    assert BotSpeakFilter.scrub_directive_leaks(text) != text
+
+
+def test_excision_broke_grammar_sees_a_fused_word():
+    """`_ORPHANED_ARTICLE` alone missed it: "the core directive: understanding"
+    came back as "theunderstanding", which has no orphaned article in it.
+
+    An excision can only remove tokens, so a token in the output that was not in
+    the input means the cut fused its neighbours — the property, not the case.
+    """
+    from utils.core.response_filter import excision_broke_grammar
+
+    assert excision_broke_grammar("the core directive: understanding",
+                                  "theunderstanding")
+    assert excision_broke_grammar("the system warning is unhelpful",
+                                  "the is unhelpful")
+    # A clean removal invents nothing and must not be flagged.
+    assert not excision_broke_grammar("sorry about that, the cron job failed",
+                                      "the cron job failed")
