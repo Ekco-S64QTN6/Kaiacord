@@ -1,6 +1,14 @@
+import argparse
 import os
 import re
+import sys
 from pathlib import Path
+
+sys.path.insert(0, str(Path(__file__).parent.parent.parent))
+
+import yaml
+
+from utils.core.atomic_write import write_atomic
 
 KB_DIR = Path("knowledge_base")
 
@@ -37,10 +45,24 @@ def normalize_metadata(content):
         
     doc_type = get_yaml_value("document_type", metadata_raw) or get_yaml_value("type", metadata_raw) or "Article"
 
-    # Reconstruct
-    kv_list = f"[{', '.join(keywords)}]"
-    new_meta = f'---\nsummary: "{summary}"\nkeywords: {kv_list}\ndocument_type: {doc_type}\n---'
-    
+    # Reconstruct through the YAML writer, never by string formatting.
+    #
+    # `f"keywords: [{', '.join(keywords)}]"` produced invalid YAML whenever the
+    # source used a block list: the regex above returns the whole indented run
+    # as a single string carrying its own "- " dashes and newlines, so the flow
+    # sequence opened and never closed —
+    #
+    #     keywords: [- STI Agent
+    #     - Cognitive Architecture
+    #
+    # which `yaml.safe_load` rejects. enrich_metadata then read the parse error
+    # as "no frontmatter" and prepended a second block: 60 files in one pass.
+    # A summary containing a quote or a colon broke it the same way.
+    meta_dict = {"summary": summary, "keywords": keywords, "document_type": doc_type}
+    dumped = yaml.safe_dump(meta_dict, default_flow_style=False, sort_keys=False,
+                            allow_unicode=True)
+    new_meta = f"---\n{dumped}---"
+
     return body, new_meta
 
 def clean_body_text(body):
@@ -80,7 +102,7 @@ def clean_body_text(body):
         
     return "\n\n".join(repaired_blocks)
 
-def process_file(path):
+def process_file(path, dry_run=True):
     with open(path, "r", encoding="utf-8", errors="ignore") as f:
         content = f.read()
     
@@ -98,22 +120,41 @@ def process_file(path):
         new_content = meta + "\n\n" + body
         
         if new_content != original:
-            with open(path, "w", encoding="utf-8") as f:
-                f.write(new_content)
+            if dry_run:
+                return True
+            # Atomic, per CLAUDE.md §4: an interrupted rewrite here leaves a
+            # truncated document that is indexed on the next sweep and is
+            # indistinguishable from a file that was simply short.
+            write_atomic(path, new_content)
             return True
     return False
 
 def main():
-    print("🚀 Starting Precision KB Repair v2...")
+    # Dry run unless --apply. This tool had no argument parsing at all, so
+    # `--help` ran it — and the test suite invoked every tool with `--help`,
+    # which is how it rewrote the corpus twice while claiming to be read-only
+    # (CLAUDE.md §11).
+    ap = argparse.ArgumentParser(
+        description="Normalise knowledge-base frontmatter and body formatting.")
+    ap.add_argument("--apply", action="store_true",
+                    help="write the repairs; without it this only reports")
+    args = ap.parse_args()
+
+    print("Starting Precision KB Repair v2"
+          f"{'' if args.apply else ' (dry run — pass --apply to write)'}...")
     fixed_count = 0
     for md_path in KB_DIR.rglob("*.md"):
         if "kaia_persona.md" in md_path.name or "walkthrough" in md_path.name:
             continue
-        if process_file(md_path):
-            print(f"  ✅ Repaired: {md_path.relative_to(KB_DIR)}")
+        if process_file(md_path, dry_run=not args.apply):
+            verb = "Repaired" if args.apply else "Would repair"
+            print(f"  {verb}: {md_path.relative_to(KB_DIR)}")
             fixed_count += 1
     
-    print(f"\n✨ Repair complete. Cleaned {fixed_count} files.")
+    verb = "Cleaned" if args.apply else "Would clean"
+    print(f"\nRepair complete. {verb} {fixed_count} files.")
+    if not args.apply and fixed_count:
+        print("Re-run with --apply to write them.")
 
 if __name__ == "__main__":
     main()

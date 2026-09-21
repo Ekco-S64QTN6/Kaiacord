@@ -66,6 +66,15 @@ PROMPT_TEMPLATES = {
 }
 
 
+class MalformedFrontmatter(Exception):
+    """The file opens with a frontmatter fence whose YAML does not parse.
+
+    Distinct from having no frontmatter at all, which is the case this tool
+    exists to fix. A file that already carries a block must be repaired, never
+    given a second one.
+    """
+
+
 def parse_frontmatter(content: str) -> tuple[dict, str, str]:
     """Parse a markdown file with YAML frontmatter.
     Returns: (frontmatter_dict, raw_frontmatter_text, body_text)
@@ -86,7 +95,12 @@ def parse_frontmatter(content: str) -> tuple[dict, str, str]:
             data = {}
         return data, raw_frontmatter, body
     except yaml.YAMLError:
-        return {}, "", content
+        # Broken frontmatter is not absent frontmatter. Returning the whole file
+        # as the body made the caller see an unenriched document and prepend a
+        # second block on top of the first: 60 files in one pass ended up with
+        # two stacked frontmatter blocks, the outer one valid and the inner one
+        # still broken. Signal it instead, so the caller can skip and report.
+        raise MalformedFrontmatter(raw_frontmatter)
 
 def dump_frontmatter(data: dict) -> str:
     """Format a dictionary into a markdown YAML frontmatter block."""
@@ -208,8 +222,14 @@ async def process_file(filepath: Path, category: str, session: aiohttp.ClientSes
         log_error(f"Failed to read {filepath}: {e}")
         return 'failed'
         
-    frontmatter, raw_yaml, body = parse_frontmatter(content)
-    
+    try:
+        frontmatter, raw_yaml, body = parse_frontmatter(content)
+    except MalformedFrontmatter:
+        # Name it. Silently skipping would leave the file unenriched forever
+        # with nothing saying why, and enriching it stacks a second block.
+        log_warning(f"Malformed frontmatter, left untouched: {filepath}")
+        return 'malformed'
+
     # Check if we should actually process this
     if not is_eligible_for_enrichment(frontmatter, body):
         return 'skipped'
@@ -294,12 +314,17 @@ async def main_async():
     # spends its budget skipping already-enriched folders and never reaches the
     # backlog behind them — while still logging a completed pass every night.
     eligible = []
+    malformed = []
     for filepath, category in files:
         try:
             content = filepath.read_text(encoding="utf-8", errors="replace")
         except OSError:
             continue
-        frontmatter, _raw, body = parse_frontmatter(content)
+        try:
+            frontmatter, _raw, body = parse_frontmatter(content)
+        except MalformedFrontmatter:
+            malformed.append(filepath)
+            continue
         if is_eligible_for_enrichment(frontmatter, body):
             eligible.append((filepath, category))
 
@@ -310,7 +335,7 @@ async def main_async():
                  f"(use --limit N for more)")
         files = files[:args.limit]
     
-    stats = {'skipped': 0, 'enriched': 0, 'failed': 0}
+    stats = {'skipped': 0, 'enriched': 0, 'failed': 0, 'malformed': 0}
     
     async with aiohttp.ClientSession() as session:
         for idx, (filepath, category) in enumerate(files):
@@ -326,12 +351,21 @@ async def main_async():
     print(f"Skipped:  {stats['skipped']} (already enriched or too short)")
     if stats['failed'] > 0:
         print(f"Failed:   {stats['failed']}")
+    if malformed or stats['malformed']:
+        print(f"Malformed frontmatter, left untouched: "
+              f"{len(malformed) + stats['malformed']}")
+        for fp in malformed[:10]:
+            print(f"  {fp}")
+        print("  fix: tools/maintenance/repair_stacked_frontmatter.py --apply")
 
     log_action("--- ENRICHMENT COMPLETED ---")
     log_success(f"Enriched: {stats['enriched']}")
     log_info(f"Skipped:  {stats['skipped']} (Already enriched or too short)")
     if stats['failed'] > 0:
         log_error(f"Failed:   {stats['failed']} (LLM format or read/write error)")
+    if malformed or stats['malformed']:
+        log_warning(f"Malformed frontmatter, left untouched: "
+                    f"{len(malformed) + stats['malformed']} file(s)")
 
 if __name__ == "__main__":
     asyncio.run(main_async())
