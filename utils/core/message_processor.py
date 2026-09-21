@@ -587,8 +587,18 @@ class MessageProcessor:
             ctx.category = self._derive_legacy_category(fast_intent)
             log_info(f"Fast-path intent: {fast_intent.suggested_strategy} ({ctx.category})")
             
-            # If high confidence command/greeting/recap, skip full analysis
-            if fast_intent.confidence > 0.9 and fast_intent.suggested_strategy in ["SOCIAL_GREETING", "COMMAND_EXECUTION", "RECAP_QUERY"]:
+            # If high confidence command/greeting/recap, skip full analysis.
+            #
+            # Not when the message is a reply carrying a quoted post. `fast_parse`
+            # only ever sees `sanitized_content`, which is the text after
+            # [USER_MESSAGE] — the quote is invisible to it. So replying to a
+            # post with the single word "Kaia" classified as SOCIAL_GREETING at
+            # full confidence, and she answered "hey ekco. what's up?" to a
+            # quoted paragraph she never read. The quoted post is the subject of
+            # the turn; a one-word body is how you point at it, not a greeting.
+            if (fast_intent.confidence > 0.9
+                    and fast_intent.suggested_strategy in ["SOCIAL_GREETING", "COMMAND_EXECUTION", "RECAP_QUERY"]
+                    and not getattr(ctx, "parent_context", None)):
                 return
 
         # Layer 2 is deliberately not dispatched. `ctx.intent` is only ever
@@ -629,7 +639,11 @@ class MessageProcessor:
 
         # 1. REDUNDANCY BYPASS: Skip RAG for simple greetings and commands
         # This saves ~4-6 seconds of latency for simple interactions.
-        if ctx.intent and ctx.intent.confidence >= 0.9 and ctx.intent.suggested_strategy in ["SOCIAL_GREETING", "COMMAND_EXECUTION"]:
+        # The same exclusion: a reply quoting a post needs retrieval for what it
+        # quotes, and the bare persona this branch installs has none of it.
+        if (ctx.intent and ctx.intent.confidence >= 0.9
+                and ctx.intent.suggested_strategy in ["SOCIAL_GREETING", "COMMAND_EXECUTION"]
+                and not getattr(ctx, "parent_context", None)):
             from utils.social.kaia_social_responder import load_persona_async
             log_info(f"Adaptive Skip: Bypassing RAG for high-confidence {ctx.intent.suggested_strategy}")
             
