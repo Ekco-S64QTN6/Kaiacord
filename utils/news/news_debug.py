@@ -120,10 +120,19 @@ def create_sample_news():
 - Social media platforms face regulation over algorithm transparency
 """
     
-    with open('./knowledge_base/news/daily/sample_news_20260123.md', 'w') as f:
-        f.write(sample_news)
-    
-    print("  ✅ Created sample news file")
+    # Not into knowledge_base/news/daily/. This text is invented — "Netflix
+    # announces interactive AI-generated movies", "Taylor Swift breaks records
+    # with holographic world tour" — and that folder is indexed, so the sample
+    # would be retrievable as real news she could state as fact. A leading
+    # underscore keeps the folder out of the index (§10).
+    from pathlib import Path
+    from utils.core.atomic_write import write_atomic
+
+    dest = Path("knowledge_base/_quarantine/news_debug/sample_news_20260123.md")
+    dest.parent.mkdir(parents=True, exist_ok=True)
+    write_atomic(dest, sample_news)
+
+    print(f"  Created sample news file at {dest} (not indexed)")
 
 # Run diagnostics and fixes
 if __name__ == "__main__":

@@ -15,7 +15,13 @@ import re
 import datetime
 import json
 from pathlib import Path
+import sys
+
+sys.path.insert(0, str(Path(__file__).resolve().parents[2]))
+
 import ollama
+
+from utils.core.atomic_write import write_atomic
 
 KNOWLEDGE_DIR_DAILY = Path("./knowledge_base/news/daily")
 KNOWLEDGE_DIR_WEEKLY = Path("./knowledge_base/news/weekly")
@@ -127,8 +133,8 @@ def ingest_manual_news():
         if has_changed:
             ingested_count += 1
             print(f"\n📄 Ingesting: {file.name}")
-            with open(dest_path, 'w', encoding='utf-8') as f:
-                f.write(content)
+            # Atomic, per §4 — this lands in the indexed news corpus.
+            write_atomic(dest_path, content)
             
             # Delete original if different
             if file.absolute() != dest_path.absolute():
@@ -242,17 +248,17 @@ def generate_summary(full_brief, target_date, summary_path):
                 if f.read().strip() == final_summary.strip():
                     return
 
-        with open(summary_path, 'w', encoding='utf-8') as f:
-            f.write(final_summary)
-        print(f"✓ Created summary: {summary_path.name}")
+        write_atomic(summary_path, final_summary)
+        print(f"Created summary: {summary_path.name}")
         
     except Exception as e:
         print(f"⚠️ Could not create summary: {e}")
         lines = full_brief.split('\n')
         bullet_lines = [line for line in lines if line.strip().startswith('- ')]
-        with open(summary_path, 'w', encoding='utf-8') as f:
-            f.write(f"# QUICK REFERENCE: {target_date}\n\n" + '\n'.join(bullet_lines[:10]))
-        print(f"✓ Created fallback summary from bullets.")
+        write_atomic(summary_path,
+                     f"# QUICK REFERENCE: {target_date}\n\n"
+                     + '\n'.join(bullet_lines[:10]))
+        print("Created fallback summary from bullets.")
 
 if __name__ == "__main__":
     ingest_manual_news()

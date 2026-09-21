@@ -196,3 +196,70 @@ def test_no_corpus_writer_builds_frontmatter_with_an_f_string():
     assert not offenders, (
         "frontmatter built by string formatting — use "
         f"utils.core.frontmatter.dump_frontmatter: {offenders}")
+
+
+def test_no_corpus_write_bypasses_the_atomic_helper():
+    """CLAUDE.md §4: nothing under `knowledge_base/` or `memory/` may be written
+    with `Path.write_text` or a bare `open(..., "w")`.
+
+    An interrupted rewrite raises nothing anywhere — it leaves a truncated
+    document that the next sweep indexes, that retrieval will serve, and that is
+    indistinguishable from a file which was simply short. A September 2026 sweep
+    converted 35 of these; two grew back, including the forum listing rewritten
+    on every scrape.
+
+    Matched on the surrounding lines rather than by resolving the path, so a
+    write into a variable holding a corpus directory still counts.
+    """
+    import ast
+    import re
+
+    CORPUS = re.compile(r"knowledge_base|KNOWLEDGE_DIR|KB_DIR")
+
+    offenders = []
+    for root in (Path("utils"), Path("tools")):
+        for src in root.rglob("*.py"):
+            if "tests" in src.parts:
+                continue
+            try:
+                text = src.read_text(encoding="utf-8")
+                tree = ast.parse(text)
+            except (SyntaxError, UnicodeDecodeError, OSError):
+                continue
+            lines = text.split("\n")
+            for node in ast.walk(tree):
+                if not isinstance(node, ast.Call):
+                    continue
+                fn = node.func
+                name = fn.attr if isinstance(fn, ast.Attribute) else getattr(fn, "id", "")
+                if name == "write_text":
+                    # The receiver is usually a variable bound a few lines up
+                    # (`filepath = self.KNOWLEDGE_DIR / "x.md"`), so judge this
+                    # one on its surroundings.
+                    near = "\n".join(lines[max(0, node.lineno - 4):node.lineno])
+                elif name == "open" and any(
+                        isinstance(a, ast.Constant) and isinstance(a.value, str)
+                        and "w" in a.value for a in node.args):
+                    # Judge `open` on its own path argument. The context window
+                    # flagged two calls that write a shell script and a helper
+                    # into `tools/`, purely because a nearby comment said
+                    # "knowledge_base".
+                    if not node.args:
+                        continue
+                    target = node.args[0]
+                    if isinstance(target, ast.Constant) and isinstance(target.value, str):
+                        near = target.value
+                    elif isinstance(target, ast.Name):
+                        near = "\n".join(
+                            ln for ln in lines[:node.lineno]
+                            if re.match(rf"\s*{re.escape(target.id)}\s*=", ln))
+                    else:
+                        near = ast.unparse(target)
+                else:
+                    continue
+                if CORPUS.search(near):
+                    offenders.append(f"{src}:{node.lineno}")
+
+    assert not offenders, (
+        "corpus write bypassing utils.core.atomic_write.write_atomic: "
+        f"{offenders}")

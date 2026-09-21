@@ -167,7 +167,9 @@ Verified 2026-09-20: **369 monsters**, **395 gear + 58 consumables = 453 items**
   the dream engine. An interrupted rewrite there raises nothing anywhere — it leaves a truncated
   document that is indexed on the next sweep, retrievable, and indistinguishable from a file that
   was simply short. The temporary is written beside its destination because `os.replace` is only
-  atomic within a filesystem.
+  atomic within a filesystem. `test_no_corpus_write_bypasses_the_atomic_helper` enforces it now,
+  because two grew back after that sweep — including the forum Off-Topic listing, rewritten on
+  every scrape.
 - **Blocking work off the event loop.** File I/O, PIL, and CPU rendering must be wrapped in
   `asyncio.to_thread()`. This is not theoretical — vision image preparation was found running
   full-resolution PIL decode and base64 synchronously on the loop, stalling every other

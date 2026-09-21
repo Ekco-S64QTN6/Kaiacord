@@ -865,7 +865,11 @@ class ForumClient:
             lines.append("")
 
         filepath = self.KNOWLEDGE_DIR / "off_topic_listing.md"
-        filepath.write_text('\n'.join(lines), encoding='utf-8')
+        # Atomic, per §4: this rewrites an indexed document in place on every
+        # scrape, and an interrupted write leaves a truncated listing that the
+        # next sweep indexes and nothing reports.
+        from utils.core.atomic_write import write_atomic
+        write_atomic(filepath, '\n'.join(lines))
         log_info(f"Saved forum listing to {filepath}")
         return str(filepath)
 
