@@ -42,17 +42,13 @@ Allocates the 16,384-token window between persona, RAG context and history.
 Lower-ranked RAG nodes and older history are pruned first; the persona is never
 truncated.
 
-`optimize_context` budgets with `performance.token_multiplier`, a median-calibrated
-estimate, so `_clamp_to_context_window` in `message_processor.py` runs after
-assembly as a hard backstop. It drops history oldest-first — never the system
-prompt or the user's message — and logs `[CONTEXT_CLAMP]`.
-
-Its words-to-tokens ratio is **measured, not assumed**: every generation reports
-`prompt_eval_count`, and `_observe_prompt_tokens` feeds that back so the next
-estimate is calibrated on real counts. Two hardcoded constants have been wrong
-here in opposite directions — 2.05 deleted every history turn, 1.75 overshot by a
-median of 2,620 tokens and cut history to the floor on 30 of 42 turns that would
-have fit.
+`optimize_context` budgets with `performance.token_multiplier` and is the only
+budget in the path. A second, post-assembly clamp was tried in September 2026 and
+removed: a words-to-tokens ratio is per-turn and content-dependent, so every
+version of it — 2.05 hardcoded, 1.75 "observed maximum", and finally a p90
+calibrated on real `prompt_eval_count` values — overshot and cut history that fit.
+The real token count is still logged as `[TOKEN_DEBUG]`; if replies start hitting
+the ceiling, `max_response_tokens` and the system prompt's size are the levers.
 
 ### 3 · Content enrichment (`context_enricher.py`)
 
@@ -119,7 +115,7 @@ suffixed `.test`, so fixtures are never mistaken for production incidents.
 2. **Match** — `MessageIntent` by regex; high-confidence greetings skip RAG
 3. **Enrich** — reply context, URLs, attachments
 4. **Retrieve** — `KaiaRAG`, hybrid BM25 + vector with RRF
-5. **Budget** — `optimize_context`, then the hard clamp
+5. **Budget** — `optimize_context`
 6. **Generate** — up to 3 passes with salvage
 7. **Filter** — the guards above, then send
 

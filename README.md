@@ -140,12 +140,10 @@ include the persona file, curated books and articles, daily news briefs, dream r
 per-user conversation history.
 
 **3 · Guarded generation.** Two temperatures are used: `0.70` for conversation, `0.35` for
-document-grounded answers. A hard clamp guarantees the reply has room to exist in the context
-window — and calibrates its own token estimate against `prompt_eval_count`, because two
-hardcoded ratios have been wrong here in opposite directions. A rejected answer is salvaged and
-re-run rather than becoming silence. Output then passes the post-generation pipeline, which
-removes prompt echoes, roleplay artefacts, fabricated citations, parroted user phrasing,
-sycophancy and stale clock times before delivery.
+document-grounded answers. `optimize_context` allocates the whole window; a rejected answer is
+salvaged and re-run rather than becoming silence. Output then passes the post-generation
+pipeline, which removes prompt echoes, roleplay artefacts, fabricated citations, parroted user
+phrasing, sycophancy and stale clock times before delivery.
 
 ---
 

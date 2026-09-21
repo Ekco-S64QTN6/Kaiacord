@@ -287,22 +287,24 @@ now recoverable — `_generate_with_retries` retains rejected attempts, defuses 
 `EmergencyContaminationFilter.defuse_ellipsis_affect`, and **re-runs the full pipeline** on the
 result. Salvaged text is used only if it passes on its own merits; the guards are unchanged.
 
-**The reply must have room to exist.** `optimize_context` budgets with
-`performance.token_multiplier` (1.6), which is the *median* tokens-per-word — measured against 147
-real prompts the ratio runs 1.55 median, 1.66 p90, 2.04 worst. A median used as a bound
-underestimates half of all prompts, and four production turns overran the response reserve badly
-enough that the reply shrank to 21 tokens. `_clamp_to_context_window` is a hard clamp after
-assembly: it drops history oldest-first, never the system prompt or the user's message, and logs
-`[CONTEXT_CLAMP]`.
+**`optimize_context` is the only budget. Do not add a second one.** A post-assembly clamp
+(`_clamp_to_context_window`) was added in September 2026 because four turns overran the response
+reserve and one reply shrank to 21 tokens. It was removed the same month after five bug-fixes,
+having spent its whole life cutting history that fit. Every variant of it was wrong in the same
+way and none of them were wrong by a little:
 
-**Its ratio is measured, not chosen.** Two hardcoded constants have been wrong here in opposite
-directions, both costing her memory: 2.05 scored the system prompt alone over budget and drained
-every history turn; 1.75 ("the observed maximum" over five turns) overshot by a **median of 2,620
-tokens** and cut history to the floor on 30 of 42 turns in one day — the largest real prompt
-that day was 15,127 against a 15,360 budget, so not one would have overflowed. Ollama reports
-`prompt_eval_count` on every generation, so `_observe_prompt_tokens` feeds the truth back and
-`_calibrated_tokens_per_word()` returns a bounded p90 of recent observations. If you find yourself
-picking a number here, measure instead.
+| Ratio | Effect |
+|:--|:--|
+| 2.05 hardcoded | scored the system prompt alone over budget, drained every history turn |
+| 1.75 "observed maximum" | overshot by a median of **2,620** tokens; cut history on 30 of 42 turns in one day, when the largest real prompt that day was 15,127 against a 15,360 budget |
+| bounded p90 of measured `prompt_eval_count` | still overshot by a median of **1,159** tokens across its last 11 firings; every one of those prompts fit |
+
+The lesson is not "calibrate harder" — the last version *was* calibrated on real counts from the
+generation it was budgeting for, and still cut memory it did not need to. A words-to-tokens ratio
+is per-turn and content-dependent, so any single number used as a *bound* is wrong for most turns
+by construction, and the error falls entirely on her memory. `prompt_eval_count` is still logged
+as `[TOKEN_DEBUG]`, which is where to look if reply truncation reappears; the fix then is
+`max_response_tokens` or the system prompt's size, not a second budget downstream of the first.
 
 ### Vision
 
@@ -495,7 +497,11 @@ had misled someone:
   their own way ([§5](#5-kaia-cognitive-pipeline)).
 - `[CONTEXT_CLAMP] Dropped N history turn(s)` was accurate about what it did and silent about
   whether it should have. Paired against the `prompt_eval_count` that followed each one, the
-  estimate ran a median of 2,620 tokens high and cut history on 30 turns that would have fit.
+  estimate ran a median of 2,620 tokens high and cut history on 30 turns that would have fit —
+  and after being recalibrated on real counts it still ran 1,159 high. It also logged at WARNING,
+  which the dashboard promotes into a ten-line ALERTS pane, so 189 routine lines evicted every
+  real alert. The guard is gone ([§5](#5-kaia-cognitive-pipeline)); the lesson is that a line
+  reporting an action taken is not evidence the action was warranted.
 - `reindex_rag.py --clear` under a live bot correctly refuses to `rmtree` a directory the bot
   holds open, and reported that through `log_error` — which in a standalone script reaches
   neither stdout nor `logs/kaiacord.log`. It printed nothing and exited **0**, so a no-op was
