@@ -31,8 +31,11 @@ def harden(text):
      "that's the part i keep returning to."),
     ("(a beat) go on.", "go on."),
     ("(a long pause) i'm not sure.", "i'm not sure."),
-    ("hello. (a long pause. a faint clicking sound, almost imperceptible.) how are you?",
-     "hello. how are you?"),
+    # The trailing filler is not "how are you?": the bait guard removes that by
+    # design now, which made this paren-stripping case fail for an unrelated
+    # reason. The multi-sentence span inside one pair is what is under test.
+    ("hello. (a long pause. a faint clicking sound, almost imperceptible.) the tank is cycling.",
+     "hello. the tank is cycling."),
     ("(i lean back) it's a fair question.", "it's a fair question."),
     ("(Explaining her data gathering approach) the readings are consistent.",
      "the readings are consistent."),

@@ -1351,7 +1351,14 @@ class BotSpeakFilter:
                     after = current_line[m.end():]
                     
                     before_clean = before.strip()
-                    before_clean = cls.RE_LEADING_NAME.sub('', before_clean).strip()
+                    # The allowlist opener, not RE_LEADING_NAME. That pattern
+                    # matches *any* word followed by punctuation or a space, so
+                    # "hello." and even "the tank is fine." lost their first
+                    # word — and a short remainder then failed the stub check
+                    # below and took the whole line with it. The allowlist fix
+                    # was made once, for the whole-response check, and never
+                    # reached here.
+                    before_clean = cls.RE_ADDRESSEE_OPENER.sub('', before_clean).strip()
                     
                     after_clean = after.strip()
                     after_clean = cls.RE_TRAILING_NAME.sub('', after_clean).strip(' .?!…')
@@ -1369,7 +1376,7 @@ class BotSpeakFilter:
                         candidate = before.rstrip(' ,')
                         # Stub guard: don't emit single discourse-marker words like 'actually'
                         remainder = candidate.strip()
-                        remainder_body = cls.RE_LEADING_NAME.sub('', remainder).strip().rstrip('.,!? ')
+                        remainder_body = cls.RE_ADDRESSEE_OPENER.sub('', remainder).strip().rstrip('.,!? ')
                         if remainder_body.lower() in cls.DISCOURSE_STUBS or len(remainder_body) < 3:
                             log_warning(f"[BAIT_GUARD] Dropped stub remainder '{remainder}' after stripping: '{removed}'")
                             current_line = ''

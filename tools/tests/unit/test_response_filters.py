@@ -79,8 +79,11 @@ def test_harden_does_not_clip_mid_sentence():
 
 
 @pytest.mark.parametrize("text,expected", [
-    ("hello. (a long pause. a faint clicking sound, almost imperceptible.) how are you?",
-     "hello. how are you?"),
+    # The trailing filler is not "how are you?": the bait guard removes that by
+    # design now, which made this paren-stripping case fail for an unrelated
+    # reason. The multi-sentence span inside one pair is what is under test.
+    ("hello. (a long pause. a faint clicking sound, almost imperceptible.) the tank is cycling.",
+     "hello. the tank is cycling."),
     ("i *scratches head* don't really know about that.",
      "i don't really know about that."),
     # Nesting: the outer span is a stage direction, the inner one goes with it.
