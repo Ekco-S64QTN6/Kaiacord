@@ -10,6 +10,7 @@ from urllib.parse import urlparse, unquote
 from utils.infrastructure.logging.kaia_logger import log_action, log_error, log_warning, log_debug
 from utils.core.sanitizer import is_safe_url
 from utils.core.atomic_write import write_atomic
+from utils.core.frontmatter import dump_frontmatter
 
 # Max download size: 10MB
 MAX_DOWNLOAD_BYTES = 10 * 1024 * 1024
@@ -205,35 +206,24 @@ async def _download_and_convert(url: str, username: str, user_id: str) -> dict:
     if isinstance(keywords, str):
         keywords = [k.strip() for k in keywords.split(',') if k.strip()]
 
-    fm_lines = [
-        "---",
-        f'title: "{clean_title}"',
-    ]
-    if clean_author:
-        fm_lines.append(f'author: "{clean_author}"')
-    if clean_summary:
-        fm_lines.append(f'summary: "{clean_summary}"')
-    else:
-        fm_lines.append('summary: ""')
-    
-    if keywords:
-        fm_lines.append("keywords:")
-        for kw in keywords[:10]:
-            fm_lines.append(f'  - "{_escape_yaml(kw)}"')
-    else:
-        fm_lines.append("keywords: []")
-        
     doc_type = "article"
     if file_type == "pdf":
         doc_type = "whitepaper" if any(w in clean_title.lower() for w in ["whitepaper", "report", "study"]) else "document"
-        
-    fm_lines.extend([
-        f'document_type: {doc_type}',
-        f'date: {date_str}',
-        f'source_url: "{url}"',
-        "---\n\n"
-    ])
-    frontmatter = "\n".join(fm_lines)
+
+    # Through the YAML writer rather than by quoting each value. `!download` is
+    # open to every user, so the title, the summary and the URL are all
+    # attacker-adjacent text; `_escape_yaml` above handled the quote but not a
+    # value that starts with `[`, a colon-space, or a trailing backslash.
+    fields = {"title": clean_title}
+    if clean_author:
+        fields["author"] = clean_author
+    fields["summary"] = clean_summary or ""
+    fields["keywords"] = [_escape_yaml(kw) for kw in keywords[:10]]
+    fields["document_type"] = doc_type
+    fields["date"] = date_str
+    fields["source_url"] = url
+
+    frontmatter = dump_frontmatter(fields) + "\n"
     
     # Ensure title heading exists at top of body for strong RAG chunk weighting
     if title and not markdown_body.strip().startswith('#'):

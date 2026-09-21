@@ -44,6 +44,10 @@ from pathlib import Path
 
 sys.path.insert(0, str(Path(__file__).resolve().parents[2]))
 
+import yaml
+
+from utils.core.frontmatter import dump_frontmatter, parse_frontmatter
+
 DREAMS = Path("knowledge_base/kaia_dreams")
 OUT = DREAMS / "consolidated"
 ARCHIVE = Path("knowledge_base/.dream_archive")
@@ -379,11 +383,28 @@ def existing_body(key: str, subject: str):
     if not path.exists():
         return path, "", 0, ""
     text = path.read_text(encoding="utf-8", errors="replace")
-    m = re.search(r"^consolidated_from:\s*(\d+)", text, re.MULTILINE)
-    prior = int(m.group(1)) if m else 0
-    sm = re.search(r'^consolidated_span:\s*"([^"]*)"', text, re.MULTILINE)
-    prior_span = sm.group(1) if sm else ""
-    body = text.split("---", 2)[-1]
+    # Read the block with the YAML parser, not a regex that assumes quoting.
+    # `^consolidated_span:\s*"([^"]*)"` required double quotes, so the moment
+    # the writer switched to yaml.safe_dump — which quotes only when it has to —
+    # the span came back empty and the document's date range restarted. Losing
+    # it is the accounting bug in §10: the count and the span only survive if
+    # they are carried forward.
+    fm, body = {}, text.split("---", 2)[-1]
+    try:
+        fm, _rest = parse_frontmatter(text)
+    except yaml.YAMLError:
+        fm = {}
+    try:
+        prior = int(fm.get("consolidated_from") or 0)
+    except (TypeError, ValueError):
+        prior = 0
+    prior_span = str(fm.get("consolidated_span") or "")
+    if not prior:                                     # pre-YAML documents
+        m = re.search(r"^consolidated_from:\s*(\d+)", text, re.MULTILINE)
+        prior = int(m.group(1)) if m else 0
+    if not prior_span:
+        sm = re.search(r'^consolidated_span:\s*"?([^"\n]*)"?', text, re.MULTILINE)
+        prior_span = sm.group(1).strip() if sm else ""
     # Drop the heading and the italic provenance line; keep the prose.
     body = re.sub(r"^#\s+.*$", "", body, flags=re.MULTILINE)
     body = re.sub(r"^\*\d+ reflections? about .*\*$", "", body, flags=re.MULTILINE)
@@ -480,20 +501,22 @@ def write_document(key: str, subject: str, entries: list, text: str,
     kind = {"books": "a book", "people": "someone she talks to",
             "topics": "a subject", "periods": "a month of conversations"}[bucket]
 
-    front = (
-        "---\n"
-        f'title: "What Kaia thinks about {subject}"\n'
-        'category: "Internal Reflection"\n'
-        'document_type: "Consolidated Dream Reflection"\n'
-        f'summary: "Kaia\'s settled view of {subject}, drawn together from '
-        f'{total} nightly reflections between {span}."\n'
-        f'keywords: ["{subject}", "reflection", "dream", "{bucket}"]\n'
-        "source_type: kaia_reflection\n"
-        f"consolidated_from: {total}\n"
-        f"consolidated_span: \"{span}\"\n"
-        f"consolidated_on: {time.strftime('%Y-%m-%d')}\n"
-        "---\n\n"
-    )
+    # Through the YAML writer. `subject` is a book title or a person's name
+    # taken off a filename — an apostrophe or a colon in it (*Do Androids
+    # Dream of Electric Sheep?*, "Kaia's Memory") used to produce a block no
+    # parser could read, and nothing downstream would have noticed (§10).
+    front = dump_frontmatter({
+        "title": f"What Kaia thinks about {subject}",
+        "category": "Internal Reflection",
+        "document_type": "Consolidated Dream Reflection",
+        "summary": (f"Kaia's settled view of {subject}, drawn together from "
+                    f"{total} nightly reflections between {span}."),
+        "keywords": [subject, "reflection", "dream", bucket],
+        "source_type": "kaia_reflection",
+        "consolidated_from": total,
+        "consolidated_span": span,
+        "consolidated_on": time.strftime("%Y-%m-%d"),
+    }) + "\n"
     body = (f"# {subject}\n\n"
             f"*{total} reflections about {kind}, {span}.*\n\n"
             f"{text}\n")

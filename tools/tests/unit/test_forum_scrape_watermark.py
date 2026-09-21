@@ -83,5 +83,10 @@ def test_the_compactor_carries_the_watermark_and_refuses_to_prune_without_it():
 
     src = inspect.getsource(module)
     assert "def read_watermark" in src
-    assert "total_posts: {total_posts}" in src, "watermark not written to the profile"
+    # The key, not its rendering: the frontmatter goes through
+    # utils.core.frontmatter.dump_frontmatter now, so there is no
+    # `total_posts: {total_posts}` literal to match. Asserting the string was
+    # asserting the f-string that had to be removed.
+    assert '"total_posts"' in src, "watermark not written to the profile"
+    assert "dump_frontmatter(" in src, "frontmatter is not going through the YAML writer"
     assert "NOT pruned" in src, "prunes even when the watermark could not be carried"

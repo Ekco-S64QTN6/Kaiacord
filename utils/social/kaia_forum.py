@@ -913,16 +913,23 @@ class ForumClient:
         filepath = self.KNOWLEDGE_DIR / filename
 
         now = datetime.now()
+        # `title` is a scraped forum thread title — quotes, colons and
+        # apostrophes are routine in them, and interpolating one into
+        # f'title: "{title}"' produced frontmatter no parser could read. The
+        # indexer reads these blocks with line regexes, so retrieval never
+        # noticed (CLAUDE.md §10).
+        from utils.core.frontmatter import dump_frontmatter
+
         lines = [
-            "---",
-            f'thread_id: {thread_id}',
-            f'title: "{title}"',
-            f'scraped_at: "{now.isoformat()}"',
-            f'page: {thread_data.get("page", 1)}',
-            f'post_count: {len(posts)}',
-            f'source: "Project 1999 {forum_source}"',
-            'document_type: "Forum Thread"',
-            "---",
+            dump_frontmatter({
+                "thread_id": thread_id,
+                "title": title,
+                "scraped_at": now.isoformat(),
+                "page": thread_data.get("page", 1),
+                "post_count": len(posts),
+                "source": f"Project 1999 {forum_source}",
+                "document_type": "Forum Thread",
+            }).rstrip("\n"),
             "",
             f"# {title}",
             "",
@@ -1050,18 +1057,23 @@ class ForumClient:
             )
 
             if not profile_path.exists():
-                profile_content = (
-                    "---\n"
-                    f'summary: "Forum user from Project 1999 Off Topic."\n'
-                    f'keywords: [forum, Off Topic, Project 1999, "{rank}"]\n'
-                    f'document_type: Narrative/Log\n'
-                    f'platform: vbulletin\n'
-                    "---\n\n"
-                    f"# INTERNAL MEMORY: {author} (Forum)\n\n"
+                # Through the YAML writer: `rank` comes off a scraped page, and
+                # one quote in it turns the whole block into text no parser can
+                # read. write_atomic per §4 — this lands under knowledge_base/.
+                from utils.core.frontmatter import dump_frontmatter
+                from utils.core.atomic_write import write_atomic
+
+                profile_content = dump_frontmatter({
+                    "summary": "Forum user from Project 1999 Off Topic.",
+                    "keywords": ["forum", "Off Topic", "Project 1999", rank],
+                    "document_type": "Narrative/Log",
+                    "platform": "vbulletin",
+                }) + (
+                    f"\n# INTERNAL MEMORY: {author} (Forum)\n\n"
                     f"{narrative}\n"
                     f"haven't formed a strong opinion yet — need to see more of their posts.\n"
                 )
-                profile_path.write_text(profile_content, encoding='utf-8', errors='replace')
+                write_atomic(profile_path, profile_content)
                 log_info(f"Created forum user profile for {author}")
             elif profile_metadata:
                 # Update existing profile with new metadata if provided

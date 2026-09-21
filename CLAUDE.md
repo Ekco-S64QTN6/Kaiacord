@@ -591,7 +591,8 @@ message actually sent, a guard's verdict against its own return value.
   makes it safe for `!download` and `!youtube` to be open to every user.
 - A sidecar carrying `"preformatted": true` is filed **without normalisation**. `!youtube` emits
   finished Markdown with timestamp anchors; running the reflow over it would destroy them.
-- **Write frontmatter through `yaml.safe_dump`, never by string formatting.** Every corpus
+- **Write frontmatter through `utils.core.frontmatter.dump_frontmatter`, never by string
+  formatting.** Every corpus
   writer that built a block with an f-string has produced invalid YAML:
   `f"keywords: [{', '.join(keywords)}]"` turns a block-style list into a flow sequence full
   of `- ` entries that no parser will take, and an interpolated summary breaks on the first
@@ -600,6 +601,10 @@ message actually sent, a guard's verdict against its own return value.
   frontmatter with line regexes rather than a parser. Retrieval kept working; enrichment
   skipped every one of them for good. `tools/maintenance/repair_frontmatter.py` fixes the
   two known shapes and declines anything less regular.
+  `test_no_corpus_writer_builds_frontmatter_with_an_f_string` keeps new ones out; it flags an
+  f-string that opens with a frontmatter key and interpolates on that line, unless every value
+  goes through an escaper. The values here are scraped thread titles, Discord display names
+  and book titles — a quote, a colon or a comma in any of them is routine.
 - **Broken frontmatter is not absent frontmatter.** `parse_frontmatter` returned the whole
   file as the body on a YAML error, so the caller prepended a *second* block on top of the
   first — 60 files in one pass. A parse failure has to be its own outcome, named in the

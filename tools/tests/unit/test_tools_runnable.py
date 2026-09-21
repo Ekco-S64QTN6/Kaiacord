@@ -123,3 +123,76 @@ def test_no_tool_reconfigures_logging_at_import_scope():
         "replace_all_logging() at import scope — move it under "
         f"`if __name__ == \"__main__\":`: {offenders}"
     )
+
+
+def test_no_corpus_writer_builds_frontmatter_with_an_f_string():
+    """`f'keywords: [{", ".join(keywords)}]'` turned a block list into a flow
+    sequence full of `- ` entries and left 1,074 of 6,741 corpus files — 16% —
+    unparseable. `f'title: "{title}"'` breaks the same way on the first quote,
+    and the values are forum thread titles, Discord display names and book
+    titles that nobody controls.
+
+    Nothing downstream catches it: the RAG indexer reads frontmatter with line
+    regexes rather than a YAML parser, so retrieval keeps working while the
+    block is unreadable to everything that parses it.
+
+    Flags an f-string that *starts* with a bare `key:` and interpolates on that
+    line — which is how a frontmatter line is built — unless every value on it
+    goes through an escaper. A `print(f"Created summary: {path}")` does not
+    start with a key, so it does not match; the first version of this test
+    keyed on a literal `{`, which an f-string never contains, and passed
+    against the exact code it was written to catch.
+    """
+    import ast
+    import re
+
+    # Frontmatter keys only. `^[a-z_]+:` was tried and matches every log line
+    # of the form f"thread_id: {x}", which is noise, not a finding.
+    KEY_LINE = re.compile(r"^(?:title|summary|keywords|category|document_type"
+                          r"|tags|author|participants|source_url|topic)"
+                          r"\s*:\s*\S*\x00")
+    ESCAPERS = {"yaml_escape", "_escape_yaml", "dumps", "dump_frontmatter",
+                "safe_dump", "identity_yaml"}
+
+    allowed = {
+        Path("utils/core/frontmatter.py"),
+        Path("tools/maintenance/repair_frontmatter.py"),
+    }
+
+    def escaped(node):
+        """True if every interpolation in this f-string goes through an escaper."""
+        vals = [v for v in node.values if isinstance(v, ast.FormattedValue)]
+        if not vals:
+            return True
+        for v in vals:
+            call = v.value
+            if not isinstance(call, ast.Call):
+                return False
+            fn = call.func
+            name = fn.attr if isinstance(fn, ast.Attribute) else getattr(fn, "id", "")
+            if name not in ESCAPERS:
+                return False
+        return True
+
+    offenders = []
+    for root in (Path("tools"), Path("utils")):
+        for src in root.rglob("*.py"):
+            if "tests" in src.parts or src in allowed:
+                continue
+            try:
+                tree = ast.parse(src.read_text(encoding="utf-8"))
+            except (SyntaxError, UnicodeDecodeError):
+                continue
+            for node in ast.walk(tree):
+                if not isinstance(node, ast.JoinedStr):
+                    continue
+                text = "".join(
+                    v.value if isinstance(v, ast.Constant) and isinstance(v.value, str)
+                    else "\x00"
+                    for v in node.values)
+                if KEY_LINE.match(text) and not escaped(node):
+                    offenders.append(f"{src}:{node.lineno}")
+
+    assert not offenders, (
+        "frontmatter built by string formatting — use "
+        f"utils.core.frontmatter.dump_frontmatter: {offenders}")

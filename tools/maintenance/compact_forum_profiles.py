@@ -34,6 +34,10 @@ from pathlib import Path
 
 sys.path.insert(0, str(Path(__file__).resolve().parents[2]))
 
+import yaml
+
+from utils.core.frontmatter import dump_frontmatter
+
 ROOT = Path("knowledge_base/user_logs")
 BACKUP = Path("knowledge_base/.compacted_backup")
 MIN_WORDS = 60          # below this there is nothing to profile
@@ -98,17 +102,34 @@ def identity_of(d: Path) -> tuple:
     if registry.is_self(uid):
         return True, "", ""
 
-    lines, suffix = "", ""
+    fields, suffix = {}, ""
     known_as = registry.describe_forum_user(uid)
     if known_as:
-        lines += f'linked_discord: "{registry.get_discord_id(uid)}"\nknown_as: "{known_as}"\n'
+        fields["linked_discord"] = str(registry.get_discord_id(uid))
+        fields["known_as"] = known_as
         suffix = f" — this is {known_as} from Discord"
     others = registry.other_accounts(uid)
     if others:
-        lines += f"also_posts_as: [{', '.join(str(o) for o in others)}]\n"
+        fields["also_posts_as"] = [str(o) for o in others]
         if not suffix:
             suffix = f" — also posts as {', '.join(str(o) for o in others)}"
-    return False, lines, suffix
+    return False, fields, suffix
+
+
+def identity_yaml(fields: dict) -> str:
+    """`identity_of`'s dict as frontmatter lines, one key per line.
+
+    Quoted by the YAML writer rather than by an f-string: these are forum
+    display names and registry values, and nobody controls what is in them.
+    `f'known_as: "{known_as}"'` breaks on the first quote, and a name containing
+    a comma turns `also_posts_as: [a, b]` into the wrong list entirely.
+
+    `default_flow_style=None` keeps lists inline so every key stays on one line,
+    which the repair path below relies on; `width` stops the writer wrapping a
+    long value onto a second line for the same reason.
+    """
+    return yaml.safe_dump(fields, default_flow_style=None, sort_keys=False,
+                          allow_unicode=True, width=10 ** 9)
 
 
 SELF_PROFILE = (
@@ -176,7 +197,7 @@ def compact(d: Path, args) -> tuple:
     total_posts, user_id = read_watermark(d)
     if user_id is None:
         user_id = uid_of(d)
-    is_self, identity_lines, header_suffix = identity_of(d)
+    is_self, identity_fields, header_suffix = identity_of(d)
 
     if is_self:
         # Her own account is not a poster she has met. Distilling her own posts
@@ -206,30 +227,36 @@ def compact(d: Path, args) -> tuple:
     if len(card.split()) < 40:
         return None, "model returned too little"
 
-    front = (
-        "---\n"
-        f'title: "Forum profile — {name}"\n'
-        'category: "User Profile"\n'
-        'document_type: "User Personality Profile"\n'
-        "platform: vbulletin\n"
-        f'summary: "Who {name} is on the Project 1999 forums: their interests, '
-        f'how they write, what they argue for, and how to talk to them."\n'
-        f'keywords: ["{name}", "Project 1999", "forum", "user profile", "poster"]\n'
-        f"compacted_from: {len(sources)}\n"
-        f"compacted_words: {words}\n"
-        f"compacted_on: {time.strftime('%Y-%m-%d')}\n"
-        # The scraper's dedup watermark, carried out of post_history.md so the
-        # expensive pass stays skipped after that file is pruned. New posts
-        # still raise the site's total and trigger a fresh scrape; an unchanged
-        # total does not.
-        + (f"total_posts: {total_posts}\n" if total_posts is not None else "")
-        + (f"user_id: {user_id}\n" if user_id is not None else "")
-        # Who this is on Discord, if the registry knows. Rebuilding the document
-        # without these dropped the only link between a forum account and the
-        # person behind it.
-        + identity_lines
-        + "---\n\n"
-    )
+    # Built as a dict and rendered by the YAML writer. `name` is a forum display
+    # name: one quote in it used to break the block, and a broken block is
+    # invisible — the indexer reads frontmatter with line regexes, so nothing
+    # downstream notices (CLAUDE.md §10).
+    fields = {
+        "title": f"Forum profile — {name}",
+        "category": "User Profile",
+        "document_type": "User Personality Profile",
+        "platform": "vbulletin",
+        "summary": (f"Who {name} is on the Project 1999 forums: their interests, "
+                    f"how they write, what they argue for, and how to talk to them."),
+        "keywords": [name, "Project 1999", "forum", "user profile", "poster"],
+        "compacted_from": len(sources),
+        "compacted_words": words,
+        "compacted_on": time.strftime("%Y-%m-%d"),
+    }
+    # The scraper's dedup watermark, carried out of post_history.md so the
+    # expensive pass stays skipped after that file is pruned. New posts still
+    # raise the site's total and trigger a fresh scrape; an unchanged total does
+    # not.
+    if total_posts is not None:
+        fields["total_posts"] = total_posts
+    if user_id is not None:
+        fields["user_id"] = user_id
+    # Who this is on Discord, if the registry knows. Rebuilding the document
+    # without these dropped the only link between a forum account and the person
+    # behind it.
+    fields.update(identity_fields)
+
+    front = dump_frontmatter(fields) + "\n"
     body = f"# INTERNAL MEMORY: {name}{header_suffix} (Project 1999 forum)\n\n{card}\n"
     tmp = profile.with_suffix(".tmp")
     tmp.write_text(front + body, encoding="utf-8")
@@ -261,7 +288,7 @@ def repair_identity(d: Path, args) -> tuple:
     if not profile.exists():
         return None, "no profile"
     text = profile.read_text(encoding="utf-8", errors="replace")
-    is_self, identity_lines, header_suffix = identity_of(d)
+    is_self, identity_fields, header_suffix = identity_of(d)
 
     if is_self:
         if "is_self: true" in text:
@@ -274,8 +301,9 @@ def repair_identity(d: Path, args) -> tuple:
             encoding="utf-8")
         return "repaired", "own account — self-reference document restored"
 
-    if not identity_lines:
+    if not identity_fields:
         return None, "registry knows no link for this account"
+    identity_lines = identity_yaml(identity_fields)
     wanted = [ln for ln in identity_lines.strip().split("\n") if ln]
     if all(ln in text for ln in wanted):
         return None, "identity already present"

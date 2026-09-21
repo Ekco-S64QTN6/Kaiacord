@@ -31,6 +31,7 @@ sys.path.append(os.getcwd())
 from ollama import Client
 from utils.infrastructure.gpu.gpu_manager import OllamaGPUManager
 from utils.infrastructure.system.yaml_config import config
+from utils.core.frontmatter import dump_frontmatter
 
 WORK_DIR = Path("tools/.tech_scrape_data")
 EXTRACTED_FILE = WORK_DIR / "extracted_issues.jsonl"
@@ -327,17 +328,19 @@ async def stage3_and_4_consolidate(client, model_name, options, grouped_issues):
             # The project frontmatter schema (CLAUDE.md §10). Without it these
             # land among the 1,508 corpus files carrying no document_type, and
             # tech-support grounding depends on retrieving them well.
-            fm = (
-                "---\n"
-                f'title: "P99 Troubleshooting — {readable}"\n'
-                'category: "Troubleshooting"\n'
-                'document_type: "Troubleshooting Guide"\n'
-                f'summary: "Deduplicated fixes for {readable} problems on Project 1999, '
-                f'consolidated from {len(issues)} community '
-                f'report{"s" if len(issues) != 1 else ""} and wiki pages."\n'
-                f'keywords: {json.dumps(keywords)}\n'
-                "---\n\n"
-            )
+            # Through the YAML writer: `readable` is derived from scraped
+            # thread titles, so a quote or a colon in it used to break the
+            # block, and a broken block is invisible downstream (§10).
+            plural = "s" if len(issues) != 1 else ""
+            fm = dump_frontmatter({
+                "title": f"P99 Troubleshooting — {readable}",
+                "category": "Troubleshooting",
+                "document_type": "Troubleshooting Guide",
+                "summary": (f"Deduplicated fixes for {readable} problems on Project 1999, "
+                            f"consolidated from {len(issues)} community "
+                            f"report{plural} and wiki pages."),
+                "keywords": list(keywords),
+            }) + "\n"
             tmp = output_file.with_suffix(".tmp")
             with open(tmp, 'w', encoding='utf-8') as f:
                 f.write(fm)

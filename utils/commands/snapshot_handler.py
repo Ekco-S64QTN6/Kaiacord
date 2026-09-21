@@ -66,15 +66,20 @@ async def handle_snapshot_command(ctx, msg, send_kaia_response):
         file_date = timestamp.strftime("%Y%m%d_%H%M%S")
 
         # Build structured Markdown
+        # `participants` are Discord display names and `topic` is free text —
+        # both user-controlled, and a comma in a display name turned
+        # `participants: [a, b]` into the wrong list entirely.
+        from utils.core.frontmatter import dump_frontmatter
+
         lines = [
-            "---",
-            f'title: "Conversation Snapshot — {date_str}"',
-            f'date: "{date_str}"',
-            f'participants: [{", ".join(participants)}]',
-            f'channel: "{channel_name}"',
-            f'topic: "{_escape_yaml(topic)}"',
-            f'document_type: Snapshot',
-            "---",
+            dump_frontmatter({
+                "title": f"Conversation Snapshot — {date_str}",
+                "date": date_str,
+                "participants": list(participants),
+                "channel": channel_name,
+                "topic": topic,
+                "document_type": "Snapshot",
+            }).rstrip("\n"),
             "",
             f"# Conversation Snapshot — {date_str}",
             f"**Channel:** {channel_name}",

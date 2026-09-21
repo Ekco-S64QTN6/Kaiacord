@@ -207,16 +207,24 @@ def test_compaction_never_strips_the_identity_link():
     spec.loader.exec_module(mod)
 
     # Her own account is recognised and never profiled as a stranger.
-    is_self, lines, suffix = mod.identity_of(_P("knowledge_base/user_logs/forum_Kaia_322197"))
-    assert is_self and not lines
+    is_self, fields, suffix = mod.identity_of(_P("knowledge_base/user_logs/forum_Kaia_322197"))
+    assert is_self and not fields
 
     # A linked account carries the link into the frontmatter and the heading.
+    #
+    # Asserted on the fields rather than on their rendered text: these values
+    # go through the YAML writer now, so `known_as: Starkind` is as valid as
+    # `known_as: "Starkind"` and matching the quoting tests the renderer, not
+    # the link this test is about.
     d = _P("knowledge_base/user_logs/forum_magnetaress_210090")
     if d.exists():
-        is_self, lines, suffix = mod.identity_of(d)
+        is_self, fields, suffix = mod.identity_of(d)
         assert not is_self
-        assert 'known_as: "Starkind"' in lines
+        assert fields.get("known_as") == "Starkind"
         assert "Starkind" in suffix
+        # And it still survives the trip through YAML in both directions.
+        import yaml
+        assert yaml.safe_load(mod.identity_yaml(fields))["known_as"] == "Starkind"
 
     assert mod.uid_of(_P("knowledge_base/user_logs/forum_magnetaress_210090")) == 210090
     assert mod.uid_of(_P("knowledge_base/user_logs/forum_no_digits")) is None
