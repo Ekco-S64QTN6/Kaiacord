@@ -591,11 +591,29 @@ message actually sent, a guard's verdict against its own return value.
   makes it safe for `!download` and `!youtube` to be open to every user.
 - A sidecar carrying `"preformatted": true` is filed **without normalisation**. `!youtube` emits
   finished Markdown with timestamp anchors; running the reflow over it would destroy them.
+- **Write frontmatter through `yaml.safe_dump`, never by string formatting.** Every corpus
+  writer that built a block with an f-string has produced invalid YAML:
+  `f"keywords: [{', '.join(keywords)}]"` turns a block-style list into a flow sequence full
+  of `- ` entries that no parser will take, and an interpolated summary breaks on the first
+  quote or colon it contains. That one line left **1,074 of 6,741 files — 16% of the
+  corpus — unparseable**, and nothing noticed for months because the indexer reads
+  frontmatter with line regexes rather than a parser. Retrieval kept working; enrichment
+  skipped every one of them for good. `tools/maintenance/repair_frontmatter.py` fixes the
+  two known shapes and declines anything less regular.
+- **Broken frontmatter is not absent frontmatter.** `parse_frontmatter` returned the whole
+  file as the body on a YAML error, so the caller prepended a *second* block on top of the
+  first — 60 files in one pass. A parse failure has to be its own outcome, named in the
+  output, not folded into "this file has no metadata yet".
 - **`tools/maintenance/audit_knowledge_base.py` checks every fault class that has actually
   occurred** — duplicates, thin pages, disambiguation stubs, baked-in U+FFFD, missing or empty
   frontmatter, a frontmatter fence fused to the body, and anything in `kaia_dreams/` that is not
   a reflection. Read-only, names the tool that fixes each finding, and `--check` exits non-zero.
   Run it after anything that writes across the corpus; that is cheaper than the sweep it replaces.
+  Note the two scopes: `NOT_CORPUS` skips `forum_posts` because the *quality* checks do not
+  apply to scraped threads, but that folder is indexed and retrievable
+  (`knowledge_boundary.py` lists it), so `MECHANICAL_ONLY` runs the integrity checks over it.
+  Excluding it outright hid 4,516 files from every check — 17 files carrying baked-in U+FFFD
+  among them.
 - **A cap must be applied to the eligible set, not to the listing.** `enrich_metadata` capped the
   whole corpus listing in directory order — books first, all already enriched — so a nightly
   `--limit 40` spent its entire budget skipping them and never reached the 369 news files with no

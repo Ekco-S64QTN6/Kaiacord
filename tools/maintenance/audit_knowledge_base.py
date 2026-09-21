@@ -36,6 +36,8 @@ import argparse
 import hashlib
 import re
 import sys
+
+import yaml
 from collections import Counter, defaultdict
 from pathlib import Path
 
@@ -45,6 +47,14 @@ KB = Path("knowledge_base")
 
 # Not corpus: staging, quarantine, the forum bulk archive, and anything hidden.
 NOT_CORPUS = {"_ingress", "_quarantine", "forum_posts"}
+
+# `forum_posts` is excluded above because the curated-corpus checks do not apply
+# to scraped threads: they are short by nature, duplicated by nature, and carry
+# no hand-written summary. It is still **indexed and retrievable**
+# (`knowledge_boundary.py` lists it), so a mechanical fault there reaches her
+# answers exactly like one anywhere else — and 4,516 files were invisible to
+# every check. The integrity checks below run over it; the quality ones do not.
+MECHANICAL_ONLY = {"forum_posts"}
 
 # Below this a page carries no answer worth retrieving.
 MIN_BODY_WORDS = 60
@@ -70,6 +80,8 @@ FIXES = {
     "no_frontmatter": "tools/maintenance/enrich_metadata.py --category all --apply",
     "empty_metadata": "tools/maintenance/enrich_metadata.py --category all --apply",
     "fused_frontmatter": "tools/maintenance/repair_kb.py",
+    "malformed_frontmatter": "tools/maintenance/repair_frontmatter.py --apply "
+                             "(what it declines needs a person)",
     "not_a_reflection": "tools/maintenance/triage_dreams.py --apply",
     "empty_file": "delete, or re-ingest the source",
 }
@@ -83,6 +95,18 @@ def corpus_files():
             if any(p.startswith(".") for p in f.relative_to(KB).parts):
                 continue
             yield d.name, f
+
+
+def mechanical_only_files():
+    """Indexed folders that the quality checks deliberately skip."""
+    for name in sorted(MECHANICAL_ONLY):
+        d = KB / name
+        if not d.is_dir():
+            continue
+        for f in sorted(d.rglob("*.md")):
+            if any(p.startswith(".") for p in f.relative_to(KB).parts):
+                continue
+            yield name, f
 
 
 def split_frontmatter(text: str):
@@ -135,6 +159,19 @@ def audit():
             if end != -1 and not t[end + 4:].startswith(("\n", "\r")) and t[end + 4:].strip():
                 findings["fused_frontmatter"].append(rel)
 
+        # A block that is present but does not parse. The audit checked only
+        # that a fence existed, so 1,074 files — 16% of the corpus — carried
+        # invalid YAML without ever being reported: `keywords: [- camp` from
+        # precision_repair_kb, a flow sequence holding block entries. The
+        # indexer reads frontmatter with line regexes rather than a parser, so
+        # retrieval never noticed, and enrichment skips them for good.
+        if fm:
+            try:
+                yaml.safe_load(fm)
+            except yaml.YAMLError as exc:
+                reason = str(exc).split("\n")[0][:60]
+                findings["malformed_frontmatter"].append(f"{rel} ({reason})")
+
         if folder in BACKFILL_PENDING and fm:
             if re.search(r'^summary:\s*(""|\'\')?\s*$', fm, re.M):
                 findings["_backfill_pending"].append(rel)
@@ -157,6 +194,23 @@ def audit():
         if folder == "kaia_dreams" and "consolidated" not in rel:
             if "## Kaia's Reflection" not in text and re.search(r"^\**(?:User|Kaia)\**:", body, re.M):
                 findings["not_a_reflection"].append(rel)
+
+    # Integrity checks only, over the indexed folders the quality checks skip.
+    for folder, f in mechanical_only_files():
+        rel = str(f.relative_to(KB))
+        try:
+            text = f.read_bytes().decode("utf-8", errors="replace")
+        except OSError:
+            continue
+        if "\ufffd" in text:
+            findings["replacement_char"].append(f"{rel} ({text.count(chr(0xfffd))})")
+        fm, _body = split_frontmatter(text)
+        if fm:
+            try:
+                yaml.safe_load(fm)
+            except yaml.YAMLError as exc:
+                reason = str(exc).split("\n")[0][:60]
+                findings["malformed_frontmatter"].append(f"{rel} ({reason})")
 
     return findings, counts
 

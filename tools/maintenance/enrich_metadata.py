@@ -356,7 +356,7 @@ async def main_async():
               f"{len(malformed) + stats['malformed']}")
         for fp in malformed[:10]:
             print(f"  {fp}")
-        print("  fix: tools/maintenance/repair_stacked_frontmatter.py --apply")
+        print("  fix: tools/maintenance/repair_frontmatter.py --apply")
 
     log_action("--- ENRICHMENT COMPLETED ---")
     log_success(f"Enriched: {stats['enriched']}")

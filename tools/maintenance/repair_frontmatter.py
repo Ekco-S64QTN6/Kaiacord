@@ -1,5 +1,9 @@
 #!/usr/bin/env python3
-"""Repair files that ended up with two stacked YAML frontmatter blocks.
+"""Repair knowledge-base frontmatter that does not parse as YAML.
+
+Two faults, both from the same origin.
+
+**Stacked blocks.**
 
 `enrich_metadata.parse_frontmatter` treated a YAML parse error the same as an
 absent frontmatter block: it returned the whole file as the body, so the caller
@@ -16,8 +20,16 @@ Repair keeps the generated outer block, salvages any scalar key the outer block
 is missing from the broken inner one, and drops the rest. Dry run unless
 --apply, as every corpus writer here must be.
 
-    python tools/maintenance/repair_stacked_frontmatter.py
-    python tools/maintenance/repair_stacked_frontmatter.py --apply
+**A flow sequence filled with block entries.** `precision_repair_kb` also wrote
+`keywords: [- camp\n- rules\n- project 1999 wiki]`, which no YAML parser will
+take — a `[...]` flow sequence cannot contain `- ` entries. 1,074 files across
+forum_posts, news, documents, transcripts, wiki and user_logs carry it. The
+indexer reads frontmatter with line regexes rather than a YAML parser, so
+retrieval still works, but nothing that *does* parse the block can read them:
+they are permanently skipped by enrichment and invisible to any metadata pass.
+
+    python tools/maintenance/repair_frontmatter.py
+    python tools/maintenance/repair_frontmatter.py --apply
 """
 import argparse
 import re
@@ -72,11 +84,69 @@ def salvage(inner_lines):
     return out
 
 
+FLOW_KEYWORDS = re.compile(
+    r"^(?P<key>keywords|tags):[ \t]*\[[ \t]*\n?(?P<items>(?:[ \t]*-[ \t]+[^\n]*\n?)+)",
+    re.MULTILINE)
+
+
+def fix_flow_sequence(raw_yaml: str) -> str:
+    """Turn `keywords: [- a\n- b]` back into a block list.
+
+    Only this one shape, and only when every line between the bracket and the
+    end of the run is a `- ` entry. Anything less regular is left for a person:
+    a guess here writes silently wrong metadata into the corpus.
+    """
+    def _swap(m):
+        items = []
+        for line in m.group("items").split("\n"):
+            line = line.strip()
+            if not line.startswith("-"):
+                continue
+            item = line[1:].strip().rstrip("]").strip().strip('"').strip("'")
+            if item:
+                items.append(item)
+        if not items:
+            return m.group(0)
+        body = "".join(f"- {i}\n" for i in items)
+        return f"{m.group('key')}:\n{body}"
+
+    return FLOW_KEYWORDS.sub(_swap, raw_yaml)
+
+
+def repair_unparseable(text: str):
+    """Repair a single frontmatter block whose YAML does not load."""
+    if not text.startswith("---\n"):
+        return None
+    parts = text.split("---\n", 2)
+    if len(parts) < 3:
+        return None
+    raw, body = parts[1], parts[2]
+    try:
+        yaml.safe_load(raw)
+        return None                      # already fine; nothing to do
+    except yaml.YAMLError:
+        pass
+
+    fixed = fix_flow_sequence(raw)
+    if fixed == raw:
+        return None                      # a shape this tool does not know
+    try:
+        data = yaml.safe_load(fixed)
+    except yaml.YAMLError:
+        return None
+    if not isinstance(data, dict) or not data:
+        return None
+
+    dumped = yaml.safe_dump(data, default_flow_style=False, sort_keys=False,
+                            allow_unicode=True)
+    return f"---\n{dumped}---\n{body.lstrip(chr(10))}"
+
+
 def repair(text: str):
-    """Return the repaired text, or None if the file is not stacked."""
+    """Return the repaired text, or None if there is nothing this tool fixes."""
     found = find_stacked(text)
     if not found:
-        return None
+        return repair_unparseable(text)
     lines, fences = found
 
     outer_yaml = "\n".join(lines[fences[0] + 1:fences[1]])
