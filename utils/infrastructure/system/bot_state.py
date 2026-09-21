@@ -88,6 +88,16 @@ class BotState:
         self.digest_broadcast_count: int = 0
         self.digest_broadcast_date: str = ""
 
+        # Inner-monologue broadcasts, on their own budget for the same reason.
+        # These must be saved and loaded like the digest ones: the gate reads
+        # them back to enforce monologue.broadcast_min_interval_minutes and
+        # max_broadcasts_per_day, so losing them on restart means she airs a
+        # thought within two minutes of every boot no matter when the last one
+        # went out, and the daily count starts again from zero.
+        self.monologue_broadcast_last_sent: float = 0.0
+        self.monologue_broadcast_count: int = 0
+        self.monologue_broadcast_date: str = ""
+
         # Anticipatory context priming and the theory-of-mind user model.
         self.user_states: Dict[str, dict] = {}  # {user_id: {"apparent_mood": str, "energy": str, "likely_intent": str, "updated_at": float}}
         self._dossier_primed_users: Dict[str, float] = {}  # {user_id: last_seen_timestamp_when_primed}
@@ -124,6 +134,9 @@ class BotState:
                         self.digest_broadcast_last_sent = float(state.get('digest_broadcast_last_sent', 0.0))
                         self.digest_broadcast_count = int(state.get('digest_broadcast_count', 0))
                         self.digest_broadcast_date = state.get('digest_broadcast_date', '')
+                        self.monologue_broadcast_last_sent = float(state.get('monologue_broadcast_last_sent', 0.0))
+                        self.monologue_broadcast_count = int(state.get('monologue_broadcast_count', 0))
+                        self.monologue_broadcast_date = state.get('monologue_broadcast_date', '')
                         
                         # Per-channel activity — keys stored as strings in JSON
                         raw_activity = state.get('channel_last_activity', {})
@@ -200,6 +213,9 @@ class BotState:
                     'digest_broadcast_last_sent': self.digest_broadcast_last_sent,
                     'digest_broadcast_count': self.digest_broadcast_count,
                     'digest_broadcast_date': self.digest_broadcast_date,
+                    'monologue_broadcast_last_sent': self.monologue_broadcast_last_sent,
+                    'monologue_broadcast_count': self.monologue_broadcast_count,
+                    'monologue_broadcast_date': self.monologue_broadcast_date,
                     # boot_complete is TRANSIENT - do not save to disk
                     'mentioned_files': list(self.mentioned_files),
                     # Explicitly cast int keys to str for JSON serialisation (JSON keys must be strings).
