@@ -836,6 +836,15 @@ class RAGQueryMixin:
 
             # Cache results for !flag and !explain commands
             self._last_retrieval_results = results
+
+            # And append to the trace `!explain N` reads. The cache above holds
+            # one retrieval per channel, so without this the turn someone wants
+            # to investigate is overwritten by the next thing anyone says.
+            try:
+                from utils.infrastructure.monitoring.retrieval_trace import record
+                record(query, self._last_retrieval_confidence, results)
+            except Exception:
+                pass
             self._last_retrieval_node_ids = []
             for node_result in all_node_results[:top_k * 2]:
                 node = node_result.node if hasattr(node_result, 'node') else node_result
