@@ -31,6 +31,16 @@ performance:
   # Characters kept from a URL fetched out of chat.
   url_max_content_length: 8000
 
+  # Turns kept per channel. The history budget is what actually limits how far
+  # back she can see, but this caps how many turns exist to choose from.
+  max_memory_messages: 70
+
+  # Context window. gemma3:12b holds 7,684 MiB of weights and ~130 MiB of KV
+  # cache per 1k tokens on this card, so 24k costs ~10.8 GiB of the 12 GiB and
+  # leaves ~1.4 GiB of headroom. Raise further only with nvidia-smi in front of
+  # you: an OOM here takes the model out mid-conversation.
+  max_context_tokens: 24576
+
   # Ollama CPU threads. Below the core count, to leave headroom for the
   # embedding model and the rest of the machine.
   num_thread: 6
@@ -107,17 +117,35 @@ desires:
 # ============================================================================
 # Speaking unprompted
 # ============================================================================
-# Two separate switches: the digest is a few considered summaries a day, the
-# monologue is a passing thought every fifteen minutes. Either can be silenced
-# without the other.
+# Four systems put messages in chat nobody asked for. All four switches are
+# here so you can silence one without the others.
+#
+#   ☕ **Apropos of nothing:**   proactive:      most active channel
+#   🧠 **Inner monologue:**      monologue:      #kaia-opolis
+#   💬 **Passing thought:**      quip:           most active channel
+#   💭 **Observation:**          observation:    #kaia-opolis
 
+# ☕ **Apropos of nothing:** in the most active channel — she starts a
+# conversation. max_per_day: 0 turns it off. min_interval_minutes is the gap
+# between two of them.
+proactive:
+  max_per_day: 5
+  min_interval_minutes: 140
+
+# 🧠 **Inner monologue:** in #kaia-opolis — a private thought, posted.
+# false = she still thinks it, you just do not see it.
 monologue:
-  # Air passing thoughts in #kaia-opolis. The noisier of the two.
-  broadcast_to_chat: true
+  broadcast_to_chat: false
 
+# 💭 **Observation:** in #kaia-opolis — a summary of a conversation she read
+# but did not join. false = written to memory/observation_digest.json only.
 observation:
-  # Air summaries of conversation she overheard but did not join.
   broadcast_digest: true
+
+# 💬 **Passing thought:** in the most active channel when it goes quiet.
+# bluesky.cross_post_quips below mirrors these to her feed.
+quip:
+  enabled: true
 
 # ============================================================================
 # Feature flags
@@ -126,9 +154,10 @@ features:
   # Nightly associative recall over the corpus.
   dream_mode_enabled: true
 
-  # Timer-driven quips when a channel goes quiet. bluesky.cross_post_quips
-  # below mirrors them to her feed.
-  idle_quips_enabled: true
+  # The constitution block costs ~2,200 tokens of every prompt, taken off the
+  # top before RAG and history split what is left. Off, that goes to history.
+  constitution_injection: false
+
 
 # ============================================================================
 # Bluesky

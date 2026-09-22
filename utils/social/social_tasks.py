@@ -16,7 +16,11 @@ async def idle_quip_task():
         return
 
     # Feature flag — idle quips can be disabled while keeping manual !quip functional
-    if not config.get('features.idle_quips_enabled', False):
+    # `quip.enabled` is the switch; it lives in the quip: block with the rest
+    # of the quip settings. The old spelling is still read so an existing
+    # kaia.yaml keeps working.
+    if not config.get('quip.enabled',
+                      config.get('features.idle_quips_enabled', False)):
         return
         
     try:

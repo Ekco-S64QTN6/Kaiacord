@@ -289,9 +289,30 @@ dashboard:
   # Fallback to ANSI if curses fails
   ansi_fallback: true
 
+# ############################################################################
+# SPEAKING UNPROMPTED
+# ############################################################################
+# Four separate systems put messages in chat that nobody asked for. Each has
+# its own switch so you can silence one without the others. What you see in
+# Discord tells you which block to edit:
+#
+#   ☕ **Apropos of nothing:**   proactive:      most active channel
+#   🧠 **Inner monologue:**      monologue:      #kaia-opolis
+#   💬 **Passing thought:**      quip:           most active channel
+#   💭 **Observation:**          observation:    #kaia-opolis
+#
+# desires: below gates the proactive opener only.
+
 # ============================================================================
 # Proactive speaking
 # ============================================================================
+# ============================================================================
+# "Apropos of nothing" — she starts a conversation
+# ============================================================================
+# Appears in chat as:  ☕ **Apropos of nothing:** <her opener>
+# Goes to the most recently active channel. There is no on/off switch here —
+# what decides is the desire gate (desires: below) and the limits in this
+# block. Set max_per_day: 0 to stop it entirely.
 proactive:
   # Whether the quiet-hour window below is applied at all. When false, the
   # clock is ignored; the rate limiter and desire gate still decide.
@@ -310,10 +331,74 @@ proactive:
   max_per_day: 2
   min_interval_minutes: 240
 
-  # Label prepended to an opener she starts on her own. Set "" to post it
-  # unadorned. An absence check-in is addressed to a person and is never
-  # labelled, whatever this is set to.
+  # The label on the front of the message. Set "" for no label.
+  # A "haven't seen you in a while" check-in is aimed at a person, so that one
+  # is never labelled no matter what this says.
   broadcast_prefix: "\u2615 **Apropos of nothing:**"
+
+# ============================================================================
+# "Inner monologue" — a private thought, posted
+# ============================================================================
+# Appears in chat as:  🧠 **Inner monologue:** <the thought>
+# Goes to #kaia-opolis. One is generated every 15 minutes no matter what.
+monologue:
+  # Post it to the channel. THIS IS THE ON/OFF SWITCH.
+  # false = she still has the thought — it is written to
+  # memory/monologue_log.jsonl and colours her replies — you just never see it.
+  broadcast_to_chat: false
+
+  # The label on the front of the message. Set "" for no label.
+  broadcast_prefix: "🧠 **Inner monologue:**"
+
+  # true = do not post between proactive.quiet_hour_start and quiet_hour_end.
+  # false = post at any hour.
+  respect_quiet_hours: false
+
+  # Most she may post in one day, and the minimum minutes between two of them.
+  max_broadcasts_per_day: 6
+  broadcast_min_interval_minutes: 90
+
+# ============================================================================
+# "Passing thought" — a remark when a channel goes quiet
+# ============================================================================
+# Appears in chat as:  💬 **Passing thought:** <the remark>
+# Goes to the most recently active channel, on a timer.
+# Timer: performance.idle_quip_timeout_minutes.
+quip:
+  # Post it to the channel. THIS IS THE ON/OFF SWITCH.
+  # Was features.idle_quips_enabled, which sat 80 lines away from everything
+  # else about quips; that spelling is still honoured if it is set.
+  enabled: true
+
+  # The label on the front of the message. Set "" for no label.
+  broadcast_prefix: "\U0001f4ac **Passing thought:**"
+
+# ============================================================================
+# "Observation" — a summary of a conversation she watched
+# ============================================================================
+# Appears in chat as:  💭 **Observation:** <the summary>
+# Goes to #kaia-opolis. Built from conversations she read but did not join.
+observation:
+  # Post it to the channel. THIS IS THE ON/OFF SWITCH.
+  # false = the summary is still written to memory/observation_digest.json,
+  # you just never see it.
+  broadcast_digest: true
+
+  # The label on the front of the message. Set "" for no label.
+  broadcast_prefix: "💭 **Observation:**"
+
+  # How many new messages she has to have watched since the last summary
+  # before she writes another one. Raise it for quieter servers.
+  min_new_turns: 25
+
+  # Most messages fed into one summary. Guards the token budget.
+  max_turns_per_digest: 60
+
+  # Most she may post in one day, and the minimum minutes between two of them.
+  # Counted separately from the "Apropos of nothing" allowance, but the
+  # proactive quiet hours still apply.
+  max_broadcasts_per_day: 3
+  broadcast_min_interval_minutes: 120
 
 # ============================================================================
 # Desire gate
@@ -365,55 +450,6 @@ presence:
   quiet_after_minutes: 20
 
 # ============================================================================
-# Inner monologue
-# ============================================================================
-monologue:
-  # Post passing thoughts to #kaia-opolis. When false she still generates them
-  # — they reach memory/monologue_log.jsonl and are injected into replies —
-  # they are simply not spoken aloud. The loop runs every 15 minutes.
-  broadcast_to_chat: false
-
-  # Label prepended to an aired thought. Set "" for no label.
-  broadcast_prefix: "🧠 **Inner monologue:**"
-
-  # Whether aired thoughts observe proactive.quiet_hour_start/end.
-  respect_quiet_hours: false
-
-  # Per-day cap and minimum gap between aired thoughts.
-  max_broadcasts_per_day: 6
-  broadcast_min_interval_minutes: 90
-
-# ============================================================================
-# Idle quips
-# ============================================================================
-quip:
-  # Label prepended to an idle quip in chat. Set "" to post it unadorned.
-  broadcast_prefix: "\U0001f4ac **Passing thought:**"
-
-# ============================================================================
-# Passive observation digest
-# ============================================================================
-observation:
-  # New observed turns that must accumulate past the last digest's watermark
-  # before another digest is generated. Raise it for quieter servers.
-  min_new_turns: 25
-
-  # Hard cap on turns fed to the model in one digest (token guard).
-  max_turns_per_digest: 60
-
-  # Label prepended to an aired digest. Set "" for no label.
-  broadcast_prefix: "💭 **Observation:**"
-
-  # Post the digest to chat. When false it is written to
-  # memory/observation_digest.json only.
-  broadcast_digest: true
-
-  # Per-day cap and minimum gap, counted separately from the proactive
-  # allowance. proactive quiet hours still apply.
-  max_broadcasts_per_day: 3
-  broadcast_min_interval_minutes: 120
-
-# ============================================================================
 # Feature Flags
 # ============================================================================
 features:
@@ -455,9 +491,6 @@ features:
 
   # Enable conversation snapshot capture (!snapshot)
   snapshots_enabled: true
-
-  # Enable idle quip generation (timer-based broadcasts). Manual !quip still works.
-  idle_quips_enabled: false
 
   # Enable Discord Presence system (mood-driven status updates)
   presence_enabled: true
