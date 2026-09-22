@@ -86,7 +86,10 @@ class ContextOptimizer:
         self.system_reserve = config.system_reserve_tokens
         # Optimal ratios for different models
         self.ratios = {
-            'gemma3:12b': {'persona': 0.10, 'rag': 0.50, 'history': 0.35, 'system': 0.05},
+            # History over retrieval. At 0.50/0.35 the remainder split 59/41 in
+            # RAG's favour and history got 2,522 tokens — around 20 turns, which
+            # is not enough to recall what was said yesterday.
+            'gemma3:12b': {'persona': 0.10, 'rag': 0.40, 'history': 0.45, 'system': 0.05},
             'gemma4:12b': {'persona': 0.10, 'rag': 0.50, 'history': 0.35, 'system': 0.05},
             'llama3.2': {'persona': 0.15, 'rag': 0.45, 'history': 0.35, 'system': 0.05},
             'default': {'persona': 0.10, 'rag': 0.50, 'history': 0.30, 'system': 0.10}
