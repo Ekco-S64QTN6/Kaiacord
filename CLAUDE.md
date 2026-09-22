@@ -26,6 +26,8 @@ the bot does. This file said 2.6.4 until September 2026 — check `requirements.
 | **Music** | `utils/audio/` | Live-coded sets in a voice channel, driving Strudel in a real browser. No LLM, no GPU — see [§7](#7-music-engine). |
 | **Social & forum** | `utils/social/` | Project 1999 forum client, moderation queue, Bluesky/X, each behind its own enable flag. |
 | **Monitoring** | `utils/infrastructure/monitoring/` | Curses dashboard (`btop_dashboard_v2.py`). |
+| **News** | `utils/news/` | Daily briefs filed into `knowledge_base/news/`. The generator (`tools/maintenance/update_kaia_news.py`) is the **one path that leaves the machine** — it calls the Gemini API with Google Search grounding. `utils/news/` itself only reads what was filed. |
+| **LoRA fine-tune** | `finetune/` | Numbered pipeline (`01_convert_logs.py` → `05c_evaluate_persona.py`), driven by `scripts/run_finetune.sh`. Trains a persona adapter on her own logs and exports GGUF for Ollama. Off the runtime path — see [§16](#16-fine-tuning). |
 
 Models: `gemma3:12b` (GPU), `nomic-embed-text-cpu` (CPU embeddings). **There is no classifier
 model.** Intent is matched by regex in `IntentParser.fast_parse`. A `gemma2:2b` second pass used
@@ -697,7 +699,7 @@ unchecked.
 | meta | talking about "these passages" and "the prompt to merge" instead of performing it |
 
 The review shape is the one to watch for: it is fluent, first-person and has no bullets, so it
-passes every structural test. `books/Neuromancer.md` was forty-three nights of reflection replaced
+passes every structural test. `knowledge_base/books/Book - Neuromancer by William Gibson.md` was forty-three nights of reflection replaced
 by a critique of a draft. **"the user" is deliberately not treated as third person** — she uses it
 constantly and correctly about the people in her logs, and an earlier rule rejected the very
 reflection it existed to protect.
@@ -795,6 +797,8 @@ path before assuming the bot needs restarting.
 | `config/` | Downstream effects across all subsystems |
 | `knowledge_base/user_logs/` | Real user messages. Kaia's turns may be corrected; **user turns never** |
 
+This table is enforced, not just stated. `.claude/settings.json` is committed and carries the same list: `.env` and any `secrets/` are `deny`, and `Kaiacord.py`, `config/**`, `memory/**`, `kaia_persona.md` and `user_logs/**` are `ask`. A permission prompt on one of those is the rule working. Local-only overrides go in `.claude/settings.local.json`, which is git-ignored.
+
 **`user_profile.md` has more than one writer.** `compact_forum_profiles.py` and
 `generate_user_profiles.py` both rebuild it from a fixed key list, and neither consulted
 `kaia_identities.registry`. Making one of them identity-aware on Sept 18 was undone at 03:41 the
@@ -847,8 +851,41 @@ it here.
 | Testing | `docs/04-development/testing.md`, `tools/tests/README.md` |
 | TTRPG spec | `docs/ttrpg/aethelgard_system.md` — **read before touching combat** |
 | TTRPG balance | `docs/ttrpg/ttrpg_report.md` |
+| Corpus layout | `knowledge_base/README.md` — **read before adding a folder** ([§10](#10-knowledge-base)) |
+| Shell tooling | `scripts/README.md` — what `kaia-tools.sh` exposes |
 | Contributing | `CONTRIBUTING.md` — human-facing PR workflow |
 
 > `docs/reports/` (audit reports, master report, history) is **git-ignored** — it contains
 > transcript excerpts and runtime telemetry. It exists in a working checkout but not on GitHub,
 > so do not link it from tracked documentation.
+
+---
+
+## 16. Fine-Tuning
+
+`finetune/` trains a persona LoRA for `gemma3:12b` on her own logs and exports a GGUF for Ollama.
+It is **off the runtime path** — nothing in `utils/` imports it, and the bot runs the stock model
+until a Modelfile is built and registered. `scripts/run_finetune.sh` drives it; the numbered steps
+are meant to be runnable individually and the wrapper deliberately skips two of them
+(`01_convert_logs.py`, because the dataset is pre-built, and `01b_augment_data.py`, which would
+overwrite it).
+
+Only `*.py`, `Modelfile` and the directory skeletons are tracked. `dataset/`, `output/`,
+`checkpoints/`, `llama.cpp/` and every `.gguf`/`.safetensors` are git-ignored — the corpus is real
+user messages.
+
+Two constraints that are easy to break and silent when broken:
+
+- **`num_ctx` in the Modelfile must equal `models.num_ctx`** (16,384). The runtime builds prompts
+  against that window; at Ollama's 2,048 default it discards the oldest ~14k tokens of every
+  request — persona, constitution, retrieved context, in that order — with no error and no log
+  line. If the model OOMs at load, lower both together.
+- **A fine-tuned model is meant to replace the runtime injection, not stack with it.** The
+  `SYSTEM` block is the short prompt the weights were trained against, and the bot overrides it
+  every turn with the full persona plus the constitution — a model that has learned the voice and
+  is then argued out of it by several thousand tokens of instructions. Shrinking the injection is
+  the migration; changing the `SYSTEM` line is not.
+
+Validation is `05b_test_ollama.py` (live Ollama) and `05c_evaluate_persona.py`, not the stub in
+`05_validate.py`. Training and the merge both want the GPU to themselves — see
+[§4](#4-architecture-rules) on `gpu_semaphore` being process-local.
