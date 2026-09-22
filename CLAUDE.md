@@ -20,7 +20,7 @@ the bot does. This file said 2.6.4 until September 2026 — check `requirements.
 
 | Subsystem | Where | Summary |
 |:--|:--|:--|
-| **Kaia** | `utils/core/` | AI persona. 28-feature cognitive pipeline in `message_processor.py`, post-generation safety pipeline in `safety_pipeline.py` + `response_filter.py`, hybrid BM25 + vector RAG. |
+| **Kaia** | `utils/core/` | AI persona. Behavioural injections in `message_processor.py`, post-generation safety pipeline in `safety_pipeline.py` + `response_filter.py`, hybrid BM25 + vector RAG. |
 | **Aethelgard TTRPG** | `utils/ttrpg/` | Deterministic turn-based RPG, 77-floor mega-dungeon. |
 | **Fractal art** | `utils/core/kaia_art.py` | Electric Sheep flame renderer, CPU-only NumPy/SciPy. |
 | **Music** | `utils/audio/` | Live-coded sets in a voice channel, driving Strudel in a real browser. No LLM, no GPU — see [§7](#7-music-engine). |
@@ -59,7 +59,7 @@ different one. Run it and read the tail; what matters is that nothing *failed*, 
 matches a doc.
 
 The no-external-services invocation is the default because only **2** of ~1,780 tests need Ollama
-or a GPU. The rest of what it deselects is the 81 marked `slow`. The full `pytest -q` additionally
+or a GPU. The rest of what it deselects is the 82 marked `slow`. The full `pytest -q` additionally
 loads `gemma3:12b`, which evicts the production model from VRAM.
 
 Markers are declared in `pytest.ini` under `--strict-markers`, so a typo'd marker is an error
@@ -191,8 +191,10 @@ Verified 2026-09-20: **369 monsters**, **395 gear + 58 consumables = 453 items**
 
 ## 5. Kaia Cognitive Pipeline
 
-- All 28 behavioural injections in `message_processor.py` are **pure Python heuristics** — no LLM
-  calls. Each is wrapped in `try/except Exception: pass` so a non-critical feature can never
+- Every behavioural injection in `message_processor.py` is a **pure Python heuristic** — no LLM
+  calls. The count is deliberately not stated: they are numbered `7`, `8`, `8a`, `8a1`, `8b2`
+  in the source, there is no clean total, and "28 features" and "11 safety layers" are both
+  numbers that have been asserted in docs and been wrong ([§14](#14-why-one-file)). Each is wrapped in `try/except Exception: pass` so a non-critical feature can never
   break the response path. This is mandatory for new injections.
 - **Pre-initialise variables before `try` blocks.** A production `UnboundLocalError` came from a
   local bound in only one branch of an `if/else` and read unconditionally afterwards.
@@ -443,15 +445,29 @@ drives it, so the copyleft does not reach Kaiacord. Do not copy Strudel source i
 
 ### Speaking unprompted
 
-Three separate things reach chat without being asked, on **separate** switches so one can be
-silenced without the others:
+Four separate things reach chat without being asked, on **separate** switches so one can be
+silenced without the others. The four blocks sit together in `config/default_config.yaml` under a
+`SPEAKING UNPROMPTED` banner, each headed by the label it produces in Discord,
+with the on/off switch as the first key. All four are also in `kaia.yaml`.
 
-| What | Switch | Where | Notes |
-|:--|:--|:--|:--|
-| Observation digest | `observation.broadcast_digest` | `#kaia-opolis` | The summary is spoken **verbatim**, not re-generated from. |
-| Inner monologue | `monologue.broadcast_to_chat` | `#kaia-opolis` | Its own daily cap and minimum gap. `monologue.respect_quiet_hours` decides whether the clock applies. |
-| Proactive opener | the desire gate + rate limiter | most recent channel | `proactive.respect_quiet_hours` decides whether `quiet_hour_start`/`end` apply. |
-| Idle quip | the idle timer | most recent channel | `quip.broadcast_prefix` labels it. |
+| In chat | Section | On/off switch | Where | Notes |
+|:--|:--|:--|:--|:--|
+| 💭 **Observation:** | `observation:` | `observation.broadcast_digest` | `#kaia-opolis` | The summary is spoken **verbatim**, not re-generated from. |
+| 🧠 **Inner monologue:** | `monologue:` | `monologue.broadcast_to_chat` | `#kaia-opolis` | Its own daily cap and minimum gap. `monologue.respect_quiet_hours` decides whether the clock applies. The gate state is persisted — see below. |
+| ☕ **Apropos of nothing:** | `proactive:` | `proactive.max_per_day` (`0` = off) | most recent channel | Also gated by the desire gate. `proactive.min_interval_minutes` is the gap. `proactive.respect_quiet_hours` decides whether `quiet_hour_start`/`end` apply. |
+| 💬 **Passing thought:** | `quip:` | `quip.enabled` | most recent channel | Was `features.idle_quips_enabled`, which sat 80 lines from the rest of the quip settings; the old spelling is still read as a fallback. Timer: `performance.idle_quip_timeout_minutes`. |
+
+**A broadcast gate has to be persisted or a restart resets it.** `BotState`
+names every saved field in three places — the attribute, `load()` and `save()`
+— and the three `monologue_broadcast_*` fields were in none of them, so the gap
+read 0.0 and the count read 0 on every boot. She aired a thought two minutes
+after starting regardless of when the last one went out: 12:19:50, restart
+12:31:15, 12:33:40, against a configured 90-minute minimum.
+
+**Name the limit in the skip line.** `"Proactive: declined to initiate — rate
+limited"` reads like a fault when it is the cap working as written, and gives
+no way to tell the daily cap from the interval. It says which now, and how much
+is left.
 
 Each carries a configurable prefix (`<name>.broadcast_prefix`, `""` for none) so it reads as a
 thought or an observation rather than as a remark aimed at whoever spoke last. The one exception

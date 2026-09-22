@@ -541,6 +541,10 @@ x_twitter:
 # Social Media Polling
 # ============================================================================
 social:
+  # Handles that bypass the per-thread reply limits. Read by
+  # kaia_social_responder and social_bluesky_polling; it had no entry here, so
+  # the only way to find the key was to grep the source.
+  admin_handles: []
   # How often to check for mentions (in minutes)
   poll_interval_minutes: 3
   

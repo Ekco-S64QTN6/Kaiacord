@@ -17,12 +17,13 @@ Core utility modules used by Kaiacord.
 | `hallucination_detector.py` | Canonical detector for AI structural leaks and fabrications |
 | `message_processor.py` | Modular on_message pipeline with timeout guards and self-healing (~2310 lines) |
 | `response_filter.py` | BotSpeakFilter, boilerplate filtering, and response cleaning |
-| `safety_pipeline.py` | 11-layer post-generation safety pipeline and dogtag replay |
+| `safety_pipeline.py` | Post-generation safety pipeline and dogtag replay. Steps are numbered in the source; the count in this table was wrong twice, so it is not asserted here. |
 | `sanitizer.py` | Output sanitization and artifact cleanup |
+| `frontmatter.py` | The one writer for YAML frontmatter blocks. Every corpus writer that built one with an f-string eventually produced invalid YAML. |
 | `timezone_helper.py` | 4-clock Newsroom Wall timezone engine (12-hour AM/PM format, IANA safety) |
 | `background_tasks.py` | Afterthoughts, dawn tasks, presence loops, and forum scheduling |
 | `kaia_art.py` | Fractal flame renderer (CPU-only, NumPy/SciPy) |
-| `kaia_reactions.py` | Non-verbal emoji reactions — 48 emoji across 10 mood-biased pools |
+| `kaia_reactions.py` | Non-verbal emoji reactions — 85 emoji across 11 mood-biased pools, graded so the heaviest is not as likely as the mildest |
 
 ## Cognitive Pipeline (`utils/core/`)
 
@@ -48,6 +49,7 @@ Core utility modules used by Kaiacord.
 | `system/messaging.py` | Discord message utilities and chunking guard ($\le 1990$ chars) |
 | `system/rate_limiter.py` | Per-user interaction rate limiting |
 | `logging/kaia_logger.py` | Structured logging |
+| `monitoring/retrieval_trace.py` | In-memory ring buffer of recent RAG retrievals, so `!explain N` can look past the single cached one |
 | `monitoring/btop_dashboard_v2.py` | Live curses monitoring dashboard |
 | `monitoring/async_task_registry.py`| Background task lifecycle tracking |
 | `monitoring/watchdog.py` | Event loop health monitor |

@@ -24,7 +24,7 @@ venv/bin/python3 tools/maintenance/reindex_rag.py --clear
 **Usage**: `venv/bin/python3 tools/maintenance/cleanup_kb.py`
 
 ### `generate_user_profiles.py`
-**Purpose**: Synthesizes user interaction logs into structured profiles in `knowledge_base/user_profiles/`.  
+**Purpose**: Synthesizes each user's interaction logs into `knowledge_base/user_logs/<Name>_<id>/user_profile.md`.  
 **Usage**: `venv/bin/python3 tools/maintenance/generate_user_profiles.py`
 
 ### `update_kaia_news.py`

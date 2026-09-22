@@ -36,11 +36,25 @@ There is no second pass and no auxiliary model. A high-confidence
 `MessageProcessor.process`, which bypasses RAG entirely; everything else goes
 through the full pipeline.
 
+**The skip declines when the message is a reply carrying a quoted post.**
+`fast_parse` only ever sees `ctx.sanitized_content` — the text after
+`[USER_MESSAGE]` — so the quote is invisible to it, and replying to a post with
+the single word "Kaia" scored `SOCIAL_GREETING` at confidence 1.0. Both gates
+(`_perform_classification`'s early return and `_retrieve_and_generate`'s bypass)
+now check `ctx.parent_context`. A one-word body on a reply is how you point at
+the quote, not a greeting — and the quote is what the turn is about, so it is
+exactly the turn that needs retrieval.
+
 ### 2 · Context budgeting (`context_optimizer.py`)
 
 Allocates the 16,384-token window between persona, RAG context and history.
 Lower-ranked RAG nodes and older history are pruned first; the persona is never
 truncated.
+
+The gemma3:12b split is `persona 0.10 / rag 0.40 / history 0.45 / system 0.05`.
+It was `rag 0.50 / history 0.35`, which after persona and the system reserve came
+off the top divided the remainder 59/41 in RAG's favour and left history 2,522
+tokens — around 20 turns, not enough to recall what was said the day before.
 
 `optimize_context` budgets with `performance.token_multiplier` and is the only
 budget in the path. A second, post-assembly clamp was tried in September 2026 and
@@ -49,6 +63,14 @@ version of it — 2.05 hardcoded, 1.75 "observed maximum", and finally a p90
 calibrated on real `prompt_eval_count` values — overshot and cut history that fit.
 The real token count is still logged as `[TOKEN_DEBUG]`; if replies start hitting
 the ceiling, `max_response_tokens` and the system prompt's size are the levers.
+
+`KaiaRAG` keeps exactly one retrieval per channel in
+`_last_retrieval_results`, so the turn worth investigating is overwritten by the
+next thing anyone says. `utils/infrastructure/monitoring/retrieval_trace.py` is a
+small in-memory ring buffer alongside it: `!explain 3` reads the third-most-recent
+retrieval, bare `!explain` still reads the live cache. In memory deliberately —
+traces quote corpus text and user queries, and on disk that is user content
+somewhere nobody prunes.
 
 ### 3 · Content enrichment (`context_enricher.py`)
 
@@ -112,7 +134,8 @@ suffixed `.test`, so fixtures are never mistaken for production incidents.
 ## Interaction flow
 
 1. **Gatekeeper** — rate limit and safety check
-2. **Match** — `MessageIntent` by regex; high-confidence greetings skip RAG
+2. **Match** — `MessageIntent` by regex; high-confidence greetings skip RAG,
+   unless the message quotes a post
 3. **Enrich** — reply context, URLs, attachments
 4. **Retrieve** — `KaiaRAG`, hybrid BM25 + vector with RRF
 5. **Budget** — `optimize_context`

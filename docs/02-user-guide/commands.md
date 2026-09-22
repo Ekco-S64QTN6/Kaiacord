@@ -19,7 +19,6 @@ All commands are prefixed with `!`. Admin commands are restricted to the project
 | `!forum [cmd]` | VBulletin forum management | Mixed |
 | `!dream [cmd]` | Dream engine management | Admin |
 | `!memory [cmd]` | Memory and beliefs management (100-cap) | Admin |
-| `!cache [cmd]` | Inspect and manage RAG cache | Admin |
 | `!audit [cmd]` | Inspect flagged interactions and hallucination logs | Admin |
 | `!snapshot` | Create an instant state backup snapshot | Admin |
 | `!enrich [text]` | Run manual entity/context enrichment | Admin |
@@ -142,16 +141,15 @@ Manages Kaia's persistent memory systems.
 - `!flag <construct>` — Tag the last retrieval's nodes with a Data Rot label (`circular_justification`, `linguistic_mimicry`, `anthropocentric_exceptionalism`, `paternalistic_framing`, `hedge_density`) to penalize retrieval weight.
 - `!audit` — View audit flag summary statistics, most-flagged sources, and penalty calculations.
 
-### 🗄️ Knowledge Base & Cache (`!reindex` / `!enrich` / `!cache`)
+### 🗄️ Knowledge Base (`!reindex` / `!enrich`)
 - `!reindex` — Incremental re-index (scan for new/changed/deleted files). Use `--full` for full wipe and re-embedding.
 - `!enrich` — Run metadata enrichment on knowledge base (`--category [all|knowledge|logs]`, `--limit N`, `--dry-run`).
-- `!cache` — Semantic cache status (permanently decommissioned for real-time inference).
 
 ### 📋 Conversation Snapshot (`!snapshot`)
 Distills recent channel conversation into a structured Markdown RAG node in `knowledge_base/runtime/snapshots/` tagged with participants, date, channel, and topic summary.
 
 ### 🪞 Self-Model (`!selfmodel`)
-Regenerates Kaia's self-model — a synthesis of interaction logs into `knowledge_base/kaia_self_model.md`.
+Regenerates Kaia's self-model — a synthesis of interaction logs into `memory/kaia_self_model.md`.
 
 ### 📊 Sysmon (`!sysmon`)
 System monitoring — displays GPU VRAM usage, CPU load, memory bars, UFW firewall status, open ports, recent SSH activity, and hallucination log metrics in an interactive Discord card.
@@ -176,6 +174,6 @@ Kaia responds naturally to specific phrases when mentioned or addressed — no `
 | Role | Commands |
 |:---|:---|
 | **All Users** | `!scores`, `!art`, `!rpg`, `!help`, `!news`, `!quip`, `!forum link` |
-| **Admin (Owner)** | All of the above, plus `!dream`, `!memory`, `!flag`, `!audit`, `!reindex`, `!enrich`, `!cache`, `!snapshot`, `!selfmodel`, `!sysmon`, `!forum (status/stats/scrape/read/post/reply/user)` |
+| **Admin (Owner)** | All of the above, plus `!dream`, `!memory`, `!flag`, `!audit`, `!reindex`, `!enrich`, `!snapshot`, `!selfmodel`, `!sysmon`, `!forum (status/stats/scrape/read/post/reply/user)` |
 
 Rate limiting applies to all users (configurable via `performance.requests_per_minute` in `kaia.yaml`).

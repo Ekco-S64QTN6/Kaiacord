@@ -93,6 +93,6 @@ reports/
 | **I want to understand the VRAM split** | [🏗️ GPU & VRAM Management](03-architecture/gpu-management.md) |
 | **I need to fix a database exception** | [🛠️ Common Issues & Remedies](06-troubleshooting/common-issues.md) |
 | **I want to verify Aethelgard balance** | [⚔️ TTRPG Balance & Audit Report](ttrpg/ttrpg_report.md) |
-| **I need to see the latest audit status** | `docs/reports/audit_report.md` *(local only)* |
+| **I need to see the latest audit status** | `docs/reports/01-status/audit_report.md` *(local only)* |
 | **I want to see all reports** | `docs/reports/README.md` *(local only)* |
 

@@ -3,10 +3,24 @@
 Kaia builds persistent user profiles and tracks per-user relationships to create a personalized, evolving social presence.
 
 ## 1. Relationship Tracking
-The `relationship_manager.py` module maintains per-user relationship event stores:
-- **Relationship Stages**: `stranger` → `acquaintance` → `familiar` → `friend` → `close_friend` → `inner_circle` — each stage unlocks different behavioral gating.
-- **Event Store**: Up to 100 events per user with atomic writes, stored in `memory/relationships/`.
-- **Behavioral Gating**: Kaia adjusts tone, depth, and proactivity based on the current relationship stage.
+`relationship_manager.py` maintains a per-user event store; `!scores` reads it.
+
+- **Familiarity is a float, not a ladder.** There are no discrete stages to
+  unlock. `scores_handler._get_stage_badge` turns the score into a label at
+  four thresholds:
+
+  | Familiarity | Shown as |
+  |:--|:--|
+  | < 0.15 | 👤 Stranger |
+  | ≥ 0.15 | 📜 Acquaintance |
+  | ≥ 0.40 | 🗡️ Familiar |
+  | ≥ 0.65 | 🛡️ Confidant |
+  | ≥ 0.85 | 👑 Inner Circle |
+
+  The label is display only. What actually varies with familiarity is tone,
+  depth and how readily she speaks first.
+- **Event Store**: Up to 100 events per user with atomic writes, stored in
+  `memory/relationships/`.
 
 ## 2. Automated Profiling
 The `generate_user_profiles.py` script performs multi-layered analysis of each user's interaction logs:
@@ -27,4 +41,10 @@ Profiles are stored in the user's log directory and indexed by the RAG system.
 - **Contextual Awareness**: Profile data tailors responses to the user's known preferences.
 
 ## 5. Maintenance
-Profiles are regenerated periodically or can be triggered manually via `tools/maintenance/generate_user_profiles.py`.
+Profiles are regenerated periodically or triggered manually with
+`venv/bin/python3 tools/maintenance/generate_user_profiles.py`.
+
+Each profile is written to `knowledge_base/user_logs/<Name>_<id>/user_profile.md`
+— there is no `knowledge_base/user_profiles/` folder. Two tools write that file
+(`generate_user_profiles.py` and `compact_forum_profiles.py`) and both must
+consult `kaia_identities.registry` first; see CLAUDE.md §12.

@@ -80,9 +80,11 @@ heuristics in Python, not auxiliary model calls, so they add context without cos
   frequency. The desire gate and its threshold are config-tunable, and deliberately so: the
   gate once sat high enough that she spoke first *once in 102 evaluations*.
 - **Four things reach chat unasked**, each on its own switch so one can be silenced without
-  the others — an inner monologue (`🧠`), an observation digest (`💭`), an idle quip (`💬`)
-  and a proactive opener. Only the opener obeys quiet hours; a thought in her own channel is
-  not the same interruption as a message in yours.
+  the others — 🧠 **Inner monologue**, 💭 **Observation**, 💬 **Passing thought** and
+  ☕ **Apropos of nothing**. Each config block is headed by the label it produces in Discord,
+  so a message in chat points at the switch that controls it. Only the opener obeys quiet
+  hours by default; a thought in her own channel is not the same interruption as a message in
+  yours.
 - **Temporal awareness** — time-of-day adjustments, fatigue multipliers on long threads, and
   reunion detection when a user returns after an absence.
 - **Consistency watchdog** — compares each response against active high-confidence beliefs and
@@ -211,8 +213,10 @@ Settings resolve in order: **environment variables** → `config/kaia.yaml` (you
 | `generation.max_response_tokens` | `1024` | Reserved from the context window every turn. Measured maximum response across 352 generations: 852 tokens. |
 | `generation.base_temperature` | `0.70` | Conversational generation. |
 | `generation.rag_temperature` | `0.35` | Document-grounded generation only. |
-| `observation.broadcast_digest` | `true` | Broadcasts a few considered observation summaries a day to the designated channel. |
-| `monologue.broadcast_to_chat` | `true` | Broadcasts passing inner-monologue thoughts (separate from the digest). |
+| `observation.broadcast_digest` | `true` | 💭 **Observation:** — posts a few considered summaries a day of conversations she read but did not join, to `#kaia-opolis`. |
+| `monologue.broadcast_to_chat` | `false` | 🧠 **Inner monologue:** — posts a private thought to `#kaia-opolis`. Off, she still has the thought; it reaches `memory/monologue_log.jsonl` and colours her replies. |
+| `quip.enabled` | `false` | 💬 **Passing thought:** — a remark in the most active channel when it goes quiet. Was `features.idle_quips_enabled`; the old spelling is still read. |
+| `proactive.max_per_day` | `2` | ☕ **Apropos of nothing:** — how many times a day she may start a conversation. `0` turns it off; `proactive.min_interval_minutes` is the gap. |
 | `desires.gate_enabled` | `true` | Enables the desire engine; `desires.initiate_threshold` sets how readily she speaks first. |
 | `bluesky.enabled` / `x_twitter.enabled` | `false` | With both disabled the social mention poller is never started. |
 
@@ -301,7 +305,7 @@ venv/bin/python3 tools/maintenance/repair_kb_book_structure.py --apply
 
 ```bash
 venv/bin/python3 -m pytest -q -m "not ollama and not gpu and not slow"
-# 2026-09-21: 1,674 passed, 10 skipped, 83 deselected, 1 xfailed.
+# 2026-09-21: 1,687 passed, 10 skipped, 83 deselected, 1 xfailed.
 # Re-run rather than trusting this line — the count moves every phase.
 ```
 
