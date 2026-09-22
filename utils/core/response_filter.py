@@ -301,6 +301,19 @@ class BotSpeakFilter:
         r"[^.!?]*\b(?:would|do)\s+you\s+(?:like|want)\s+me\s+to\b[^.!?]*\?",
         r"[^.!?]*\bshall\s+i\b[^.!?]*\?",
         r"[^.!?]*\bwhat(?:['\u2019]s|\s+is)\s+your\s+next\s+(?:inquiry|question|query)\b[^.!?]*\?",
+
+        # The contentless reciprocal check-in — "how are things on your end?".
+        # She asked it twice in three minutes on 2026-09-21, the second time in
+        # answer to a follow-up about the fish tank that had already been
+        # answered. Anchored on the reciprocal target rather than the opener,
+        # because "how are things in the whisperwood?" and "how is the tank
+        # doing?" are real questions with a subject and must survive.
+        r"[^.!?]*\bhow(?:['\u2019]s|\s+(?:are|is))\s+(?:things|it|everything|life|you)\b"
+        r"[^.!?]*\b(?:your\s+(?:end|side|way)|you)\s*\?",
+        # The bare form, which has no reciprocal target to anchor on. Requires
+        # the question mark immediately after, so "how are you feeling about the
+        # raid?" is untouched.
+        r"\bhow\s+are\s+you(?:\s+doing|\s+holding\s+up)?\s*\?",
     ]
     
     # Discourse markers that should never be emitted as standalone stub responses
@@ -1324,6 +1337,81 @@ class BotSpeakFilter:
             def group(self, _n=0):
                 return self._t
         return _Span(start, end, sentence)
+
+    # Her recent closing questions, per channel. In memory and small: this is a
+    # conversational tic detector, not a record, and a restart clearing it costs
+    # nothing.
+    _CLOSING_Q: dict = {}
+    _CLOSING_Q_WINDOW = 3        # how many of her own recent turns to compare against
+    _CLOSING_Q_SIMILARITY = 0.7  # Jaccard over content words
+
+    #: Function words that carry no topic, so two questions differing only in
+    #: these are the same question.
+    _Q_STOP = frozenset("""a an the and or but so it its is are was were be am i you your
+    yours we us our they them their of to in on at for with from as by if then than about
+    into over under do does did have has had not no yes just also too any all some more
+    how what where when why who which that this these those s t re ve ll d m
+    """.split())
+
+    @classmethod
+    def _question_fingerprint(cls, sentence: str) -> frozenset:
+        words = re.findall(r"[a-z']+", sentence.lower())
+        return frozenset(w for w in words if w not in cls._Q_STOP)
+
+    @classmethod
+    def drop_repeated_closing_question(cls, text: str, channel_id=None) -> str:
+        """Drop a closing question she already asked a turn or two ago.
+
+        The bait vocabulary matches a phrasing. It cannot match the same
+        question asked again in different words — "how are things on your end?"
+        and "how are things progressing on your end?" are one word apart and
+        only one of them was in the list.
+
+        Compared on content words with the function words removed, so the
+        rewording does not hide it, and only against her own last few turns in
+        this channel, so a question genuinely worth asking twice across a long
+        conversation still gets through.
+
+        Never empties the turn: a reply that is *only* a question is an answer
+        in its own right, and a filter that returns nothing costs a full
+        regeneration ([§5]).
+        """
+        if not text or not text.strip().endswith("?"):
+            return text
+
+        sentences = re.split(r"(?<=[.!?])\s+", text.strip())
+        if len(sentences) < 2:
+            return text                      # the question is the whole turn
+        closing = sentences[-1].strip()
+        fingerprint = cls._question_fingerprint(closing)
+        if len(fingerprint) < 2:
+            return text                      # too little content to judge
+
+        # Imported here, as every other deque use in this tree does. Without it
+        # this raised NameError on every call, the post-generation pipeline
+        # failed, and `_generate_with_retries` burned a second inference on
+        # Attempt 2 — which is the reply the user actually saw.
+        from collections import deque
+
+        key = str(channel_id) if channel_id is not None else "global"
+        seen = cls._CLOSING_Q.setdefault(key, deque(maxlen=cls._CLOSING_Q_WINDOW))
+
+        for prior in seen:
+            union = fingerprint | prior
+            if not union:
+                continue
+            overlap = len(fingerprint & prior) / len(union)
+            if overlap >= cls._CLOSING_Q_SIMILARITY:
+                kept = " ".join(sentences[:-1]).strip()
+                if len(kept) < 3:
+                    return text
+                log_warning("[REPEAT_QUESTION_GUARD] Dropped closing question "
+                            f"already asked this conversation: {closing!r}")
+                seen.appendleft(fingerprint)
+                return kept
+
+        seen.appendleft(fingerprint)
+        return text
 
     @classmethod
     def strip_trailing_questions(cls, text: str) -> str:

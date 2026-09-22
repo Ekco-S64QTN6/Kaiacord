@@ -418,6 +418,15 @@ class PostGenerationSafetyPipeline:
                 )
                 return canned_response, None
 
+        # Step 9: don't ask the same closing question twice in a row.
+        #
+        # The bait vocabulary catches a phrasing; it cannot catch the same
+        # question asked again in different words. On 2026-09-21 she closed
+        # 07:02 with "how are things on your end?", was answered, and closed
+        # 07:04 with "how are things progressing on your end?" — two minutes
+        # later, in a reply about the fish tank.
+        content = BotSpeakFilter.drop_repeated_closing_question(content, channel_id)
+
         return content, None
 
     # Words that carry no topic. Used to decide whether an opening sentence
