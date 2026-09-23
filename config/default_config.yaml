@@ -292,118 +292,105 @@ dashboard:
 # ############################################################################
 # SPEAKING UNPROMPTED
 # ############################################################################
-# Four separate systems put messages in chat that nobody asked for. Each has
-# its own switch so you can silence one without the others. What you see in
-# Discord tells you which block to edit:
+# Everything she says that nobody asked for goes through one system
+# (utils/core/unprompted.py). Four sources feed it:
 #
-#   ☕ **Apropos of nothing:**   proactive:      most active channel
-#   🧠 **Inner monologue:**      monologue:      #kaia-opolis
-#   💬 **Passing thought:**      quip:           most active channel
-#   💭 **Observation:**          observation:    #kaia-opolis
+#   proactive     she starts a conversation            most active channel
+#   quip          a remark when a channel goes quiet   most active channel
+#                 (sometimes a thread of several posts)
+#   observation   a summary of a conversation she      #kaia-opolis
+#                 watched but did not join
+#   monologue     one of her private thoughts          #kaia-opolis
 #
-# desires: below gates the proactive opener only.
+# Each source still decides what to say and when to try — the proactive
+# engine's desire gate (desires: below), the quip's idle timer
+# (performance.idle_quip_timeout_minutes), the digest's count of new messages
+# (observation: below), a thought every 15 minutes. Whether anything actually
+# posts is decided once, here, for all four: the switches, one daily limit and
+# one gap shared between them, and one set of posting hours.
+unprompted:
+  # Master switch. false = nothing unprompted posts at all.
+  enabled: true
 
-# ============================================================================
-# Proactive speaking
-# ============================================================================
-# ============================================================================
-# "Apropos of nothing" — she starts a conversation
-# ============================================================================
-# Appears in chat as:  ☕ **Apropos of nothing:** <her opener>
-# Goes to the most recently active channel. There is no on/off switch here —
-# what decides is the desire gate (desires: below) and the limits in this
-# block. Set max_per_day: 0 to stop it entirely.
-proactive:
-  # Whether the quiet-hour window below is applied at all. When false, the
-  # clock is ignored; the rate limiter and desire gate still decide.
+  # Which sources may post. A source switched off still runs — the monologue
+  # still thinks and colours her replies, the digest is still written to
+  # memory/observation_digest.json — you just never see it.
+  sources:
+    proactive: true
+    quip: true
+    observation: true
+    monologue: false
+
+  # One allowance shared by all four: at most this many posts a day, at least
+  # this many minutes apart. 0 for max_per_day removes the daily limit.
+  # A manual !quip is not unprompted and neither needs nor spends it.
+  max_per_day: 8
+  min_interval_minutes: 90
+
+  # When true, nothing posts outside these local hours. 9 and 22 mean 09:00
+  # until 21:59; start > end wraps midnight (22 and 6 = quiet overnight).
   respect_quiet_hours: false
-
-  # Local hours she may speak first, when respect_quiet_hours is true.
-  # 9-22 means 09:00 until 21:59. Wraps midnight when start > end
-  # (22-6 = quiet overnight).
   quiet_hour_start: 9
   quiet_hour_end: 22
 
-  # How many times a day she may speak first, and the minimum gap between
-  # those. At 2 and 240 she is finished initiating by mid-morning and every
-  # evaluation after that logs "rate limited" — which is the cap working, not a
-  # fault. 0 for max_per_day removes the cap.
-  max_per_day: 2
-  min_interval_minutes: 240
+  # Which sources are also posted to her Bluesky feed (bluesky.enabled must be
+  # on too). Observations and proactive openers often name or quote people from
+  # the server; turning them on puts that on a public feed. A "haven't seen you
+  # in a while" check-in to a person is never cross-posted.
+  bluesky:
+    proactive: false
+    quip: true
+    observation: false
+    monologue: false
 
-  # The label on the front of the message. Set "" for no label.
-  # A "haven't seen you in a while" check-in is aimed at a person, so that one
-  # is never labelled no matter what this says.
-  broadcast_prefix: "\u2615 **Apropos of nothing:**"
+  # The same for X (x_twitter.enabled must be on too).
+  x:
+    proactive: false
+    quip: false
+    observation: false
+    monologue: false
 
-# ============================================================================
-# "Inner monologue" — a private thought, posted
-# ============================================================================
-# Appears in chat as:  🧠 **Inner monologue:** <the thought>
-# Goes to #kaia-opolis. One is generated every 15 minutes no matter what.
-monologue:
-  # Post it to the channel. THIS IS THE ON/OFF SWITCH.
-  # false = she still has the thought — it is written to
-  # memory/monologue_log.jsonl and colours her replies — you just never see it.
-  broadcast_to_chat: false
+  # ── Labels ──────────────────────────────────────────────────────────────
+  # Every post goes out under one of these. Which one is picked from what the
+  # post is — where it came from and what it says — with a little chance mixed
+  # in, and never the same one twice in a row in a channel:
+  #
+  #   a belief she has changed, "i used to think…"        Unspooling
+  #   something she read, "turns out…"                     Down the rabbit hole
+  #   building on something someone said                   Train of thought
+  #   a string of questions, "i wonder…"                   Thinking out loud
+  #   a long post, or a thread of three or more            Long thought
+  #   a one-liner                                          Passing thought
+  #
+  # Each source only wears labels that describe it honestly: an observation is
+  # always an Observation, and a check-in to a person goes out with no label.
+  #
+  # false = no chance: each source always wears its own label (proactive →
+  # Apropos of nothing, quip → Passing thought, a quip thread → Train of
+  # thought, observation → Observation, monologue → Inner monologue).
+  rotate: true
 
-  # The label on the front of the message. Set "" for no label.
-  broadcast_prefix: "🧠 **Inner monologue:**"
+  # The wording, emoji first. Set one to "" to retire it.
+  labels:
+    observation: "💭 Observation"
+    inner_monologue: "🧠 Inner monologue"
+    apropos: "☕ Apropos of nothing"
+    passing_thought: "💬 Passing thought"
+    train_of_thought: "🧵 Train of thought"
+    thinking_out_loud: "🦋 Thinking out loud"
+    rabbit_hole: "🌀 Down the rabbit hole"
+    unspooling: "🪡 Unspooling"
+    long_thought: "📜 Long thought"
 
-  # true = do not post between proactive.quiet_hour_start and quiet_hour_end.
-  # false = post at any hour.
-  respect_quiet_hours: false
-
-  # Most she may post in one day, and the minimum minutes between two of them.
-  max_broadcasts_per_day: 6
-  broadcast_min_interval_minutes: 90
-
-# ============================================================================
-# "Passing thought" — a remark when a channel goes quiet
-# ============================================================================
-# Appears in chat as:  💬 **Passing thought:** <the remark>
-#        or, as a thread:  🧵 **Train of thought:** <several posts, one message>
-# Goes to the most recently active channel, on a timer.
-# Timer: performance.idle_quip_timeout_minutes.
-quip:
-  # Post it to the channel. THIS IS THE ON/OFF SWITCH.
-  # Was features.idle_quips_enabled, which sat 80 lines away from everything
-  # else about quips; that spelling is still honoured if it is set.
-  enabled: true
-
-  # The label on the front of the message. Set "" for no label.
-  broadcast_prefix: "\U0001f4ac **Passing thought:**"
-
-  # Sometimes the thought runs to several posts. Those go to chat as one
-  # message under this label, and to Bluesky as a thread. Set "" for no label.
-  thread_prefix: "🧵 **Train of thought:**"
-
-# ============================================================================
-# "Observation" — a summary of a conversation she watched
-# ============================================================================
-# Appears in chat as:  💭 **Observation:** <the summary>
-# Goes to #kaia-opolis. Built from conversations she read but did not join.
+# When the observation digest is written. Whether it is posted is decided
+# under unprompted: above.
 observation:
-  # Post it to the channel. THIS IS THE ON/OFF SWITCH.
-  # false = the summary is still written to memory/observation_digest.json,
-  # you just never see it.
-  broadcast_digest: true
-
-  # The label on the front of the message. Set "" for no label.
-  broadcast_prefix: "💭 **Observation:**"
-
   # How many new messages she has to have watched since the last summary
   # before she writes another one. Raise it for quieter servers.
   min_new_turns: 25
 
   # Most messages fed into one summary. Guards the token budget.
   max_turns_per_digest: 60
-
-  # Most she may post in one day, and the minimum minutes between two of them.
-  # Counted separately from the "Apropos of nothing" allowance, but the
-  # proactive quiet hours still apply.
-  max_broadcasts_per_day: 3
-  broadcast_min_interval_minutes: 120
 
 # ============================================================================
 # Desire gate
@@ -522,8 +509,7 @@ bluesky:
   # credentials alone do nothing without this flag.
   enabled: false
 
-  # Mirror idle quips to the Bluesky feed.
-  cross_post_quips: false
+  # What she posts to her feed is chosen under unprompted.bluesky.
 
   # Reply to mentions received on Bluesky.
   reply_to_mentions: false
@@ -536,8 +522,7 @@ x_twitter:
   # alone do nothing without this flag.
   enabled: false
 
-  # Mirror idle quips to X.
-  cross_post_quips: false
+  # What she posts to X is chosen under unprompted.x.
 
   # Reply to mentions received on X.
   reply_to_mentions: false

@@ -472,37 +472,55 @@ drives it, so the copyleft does not reach Kaiacord. Do not copy Strudel source i
 
 ### Speaking unprompted
 
-Four separate things reach chat without being asked, on **separate** switches so one can be
-silenced without the others. The four blocks sit together in `config/default_config.yaml` under a
-`SPEAKING UNPROMPTED` banner, each headed by the label it produces in Discord,
-with the on/off switch as the first key. All four are also in `kaia.yaml`.
+Everything she says without being asked goes through **one system**,
+`utils/core/unprompted.py`, configured by one `unprompted:` block. Four sources feed it:
 
-| In chat | Section | On/off switch | Where | Notes |
-|:--|:--|:--|:--|:--|
-| 💭 **Observation:** | `observation:` | `observation.broadcast_digest` | `#kaia-opolis` | The summary is spoken **verbatim**, not re-generated from. |
-| 🧠 **Inner monologue:** | `monologue:` | `monologue.broadcast_to_chat` | `#kaia-opolis` | Its own daily cap and minimum gap. `monologue.respect_quiet_hours` decides whether the clock applies. The gate state is persisted — see below. |
-| ☕ **Apropos of nothing:** | `proactive:` | `proactive.max_per_day` (`0` = off) | most recent channel | Also gated by the desire gate. `proactive.min_interval_minutes` is the gap. `proactive.respect_quiet_hours` decides whether `quiet_hour_start`/`end` apply. |
-| 💬 **Passing thought:** | `quip:` | `quip.enabled` | most recent channel | Was `features.idle_quips_enabled`, which sat 80 lines from the rest of the quip settings; the old spelling is still read as a fallback. Timer: `performance.idle_quip_timeout_minutes`. A quip that runs to several posts goes out as one message under `quip.thread_prefix` (🧵 **Train of thought:**) and to Bluesky as a thread. |
+| Source | Decides when to try | Posts to |
+|:--|:--|:--|
+| `proactive` | every 30 min, then the desire gate (`desires:`) | most recent channel |
+| `quip` | the channel has been quiet `performance.idle_quip_timeout_minutes` | most recent channel |
+| `observation` | `observation.min_new_turns` new messages watched | `#kaia-opolis` |
+| `monologue` | a thought every 15 minutes | `#kaia-opolis` |
 
-**A broadcast gate has to be persisted or a restart resets it.** `BotState`
-names every saved field in three places — the attribute, `load()` and `save()`
-— and the three `monologue_broadcast_*` fields were in none of them, so the gap
-read 0.0 and the count read 0 on every boot. She aired a thought two minutes
-after starting regardless of when the last one went out: 12:19:50, restart
-12:31:15, 12:33:40, against a configured 90-minute minimum.
+A source decides *what* to say and *when to try*. Whether it posts is decided once, for all
+four, by `unprompted.gate`: the master switch, `unprompted.sources.<name>`, **one daily limit
+and one minimum gap shared by all four**, and one set of posting hours. `unprompted.speak` then
+labels the post, sends it, appends it to channel memory, spends the allowance and cross-posts it
+to the feeds listed under `unprompted.bluesky` / `unprompted.x`. A source switched off still runs
+— the monologue still thinks, the digest is still written — nobody sees it. A manual `!quip`
+skips the gate and spends nothing.
 
-**Name the limit in the skip line.** `"Proactive: declined to initiate — rate
-limited"` reads like a fault when it is the cap working as written, and gives
-no way to tell the daily cap from the interval. It says which now, and how much
-is left.
+**Check the gate before generating, not only before sending.** The proactive engine, the quip
+and the digest all call `unprompted.gate` first, so a closed gate costs no model call; `speak`
+checks again because other sources may have posted in between.
 
-Each carries a configurable prefix (`<name>.broadcast_prefix`, `""` for none) so it reads as a
-thought or an observation rather than as a remark aimed at whoever spoke last. The one exception
-is deliberate: a proactive trigger whose `trigger_type` is `absence` *is* addressed to a person,
-so the check-in goes out unadorned whatever the prefix is set to. Key that on the type and not on
-`target_user` being set — `conversation_followup`, `personal_memory` and `anchor_callback` all
-populate that field with the person the thought is *about*, so a presence test silences the label
-on most openers.
+**Labels rotate, but only honestly.** Nine labels live under `unprompted.labels`. Each source
+may wear only the ones in `KIND_LABELS`. The descriptive ones — Unspooling, Down the rabbit
+hole, Long thought, Train of thought — are worn only when the post earns them (a revised
+belief, something she read, length, a thought built on what someone said), 80% of the time
+when it does. Otherwise a post rotates among its home label and the ambient ones, away from
+the last label used in that channel. An observation is always an Observation. Tune the cues
+against `utils/core/unprompted._leans`, and keep `test_descriptive_labels_are_only_worn_when_earned`
+passing: "Unspooling" on a post that questions nothing stops meaning anything.
+
+**An absence check-in is addressed to a person.** It goes out unlabelled and is never
+cross-posted. Key that on `trigger_type == "absence"`, not on `target_user` being set —
+`conversation_followup`, `personal_memory` and `anchor_callback` populate that field with the
+person the thought is *about*.
+
+**Posting to a public feed needs a literal `true`.** `cross_posts` compares with `is True`:
+a MagicMock config answers every key with something truthy, and a test reached the real Bluesky
+posting function that way. Observations and proactive openers often name or quote people from
+the server, which is why the default cross-posts quips only.
+
+**A broadcast gate has to be persisted or a restart resets it.** `BotState` names every saved
+field in three places — the attribute, `load()` and `save()` — and the monologue's gate fields
+were once in none of them, so she aired a thought two minutes after every restart against a
+90-minute minimum. The shared gate's `unprompted_date` / `_count` / `_last_sent` are in all three.
+
+**Name the limit in the skip line.** `gate` returns the reason — `daily limit 16/16`,
+`12 min left of the 45 min gap`, `outside the posting hours` — and every caller logs it.
+"Rate limited" alone reads like a fault when it is the cap working as written.
 
 **The desire gate must not be able to silence her.** `observe_exchange` pins the intellectual
 need at 0.0 on any active server, which caps pressure at 0.16 — so a threshold above that means

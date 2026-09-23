@@ -97,6 +97,11 @@ class BotState:
         self.monologue_broadcast_last_sent: float = 0.0
         self.monologue_broadcast_count: int = 0
         self.monologue_broadcast_date: str = ""
+        # The shared allowance for everything she says unprompted
+        # (utils/core/unprompted.py): one daily count and one gap for all four.
+        self.unprompted_last_sent: float = 0.0
+        self.unprompted_count: int = 0
+        self.unprompted_date: str = ""
 
         # Anticipatory context priming and the theory-of-mind user model.
         self.user_states: Dict[str, dict] = {}  # {user_id: {"apparent_mood": str, "energy": str, "likely_intent": str, "updated_at": float}}
@@ -137,6 +142,9 @@ class BotState:
                         self.monologue_broadcast_last_sent = float(state.get('monologue_broadcast_last_sent', 0.0))
                         self.monologue_broadcast_count = int(state.get('monologue_broadcast_count', 0))
                         self.monologue_broadcast_date = state.get('monologue_broadcast_date', '')
+                        self.unprompted_last_sent = float(state.get('unprompted_last_sent', 0.0))
+                        self.unprompted_count = int(state.get('unprompted_count', 0))
+                        self.unprompted_date = state.get('unprompted_date', '')
                         
                         # Per-channel activity — keys stored as strings in JSON
                         raw_activity = state.get('channel_last_activity', {})
@@ -216,6 +224,9 @@ class BotState:
                     'monologue_broadcast_last_sent': self.monologue_broadcast_last_sent,
                     'monologue_broadcast_count': self.monologue_broadcast_count,
                     'monologue_broadcast_date': self.monologue_broadcast_date,
+                    'unprompted_last_sent': self.unprompted_last_sent,
+                    'unprompted_count': self.unprompted_count,
+                    'unprompted_date': self.unprompted_date,
                     # boot_complete is TRANSIENT - do not save to disk
                     'mentioned_files': list(self.mentioned_files),
                     # Explicitly cast int keys to str for JSON serialisation (JSON keys must be strings).

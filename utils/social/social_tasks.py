@@ -15,12 +15,10 @@ async def idle_quip_task():
     if not ctx or not _on_message:
         return
 
-    # Feature flag — idle quips can be disabled while keeping manual !quip functional
-    # `quip.enabled` is the switch; it lives in the quip: block with the rest
-    # of the quip settings. The old spelling is still read so an existing
-    # kaia.yaml keeps working.
-    if not config.get('quip.enabled',
-                      config.get('features.idle_quips_enabled', False)):
+    # unprompted.sources.quip is the switch, beside the other three sources.
+    # A manual !quip works either way.
+    from utils.core import unprompted
+    if not unprompted.source_enabled("quip"):
         return
         
     try:

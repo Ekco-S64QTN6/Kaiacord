@@ -6,11 +6,13 @@ Kaia occasionally speaks first — triggered by knowledge ingestion, user
 absence, dream insights, personal memories, mood reflections, or belief
 musings. Heavily rate-limited to avoid annoyance.
 
-Guardrails:
-- Maximum 2 proactive messages per 24-hour period globally
+Whether an opener may go out at all — the daily limit, the gap, the posting
+hours — is the shared unprompted gate's decision (utils/core/unprompted.py),
+the same allowance the quip, the observation digest and the monologue draw on.
+What stays here is what is particular to starting a conversation:
+
 - Only post in channels where Kaia has recently been active
-- Time gate: only between 9 AM – 10 PM local time
-- Minimum 4 hours between proactive messages
+- The desire gate: she initiates when she wants to, not because a timer elapsed
 - Natural, casual openers — never pushy
 - Topic diversity: no same source type twice in a row,
   no source type more than 3× in last 10 messages
@@ -31,18 +33,8 @@ from utils.infrastructure.logging.kaia_logger import (
     log_debug, log_info, log_warning, log_success,
 )
 
-# ── Rate Limiting Constants ─────────────────────────────────────────
-# Defaults only. Both are read from config at call time, because 2 a day with a
-# 4-hour gap means she is finished initiating by mid-morning and every later
-# evaluation reports "rate limited" — which reads like a fault and is the cap
-# working as written. The quiet-hour window below was made configurable for the
-# same reason; the limiter was left hardcoded.
-MAX_DAILY_PROACTIVE = 2
-MIN_INTERVAL_SECONDS = 4 * 3600  # 4 hours between proactive messages
-# Defaults for the proactive speaking window. Overridable in config; these
-# were hardcoded, so changing when she may speak first meant editing source.
-QUIET_HOUR_START = 9   # 9 AM
-QUIET_HOUR_END = 22    # 10 PM
+# The daily limit, the gap and the posting hours are the shared unprompted
+# allowance's — see utils/core/unprompted.py and `unprompted:` in config.
 ABSENCE_THRESHOLD_DAYS = 3  # User must be gone this long to trigger
 
 # ── Diversity Constants ─────────────────────────────────────────────
@@ -135,37 +127,12 @@ class ProactiveEngine:
     # ── Time & Rate Checks ──────────────────────────────────────────
 
     def _is_within_hours(self) -> bool:
-        """Is now inside the proactive window — or is the window switched off?
-
-        `proactive.respect_quiet_hours` defaults to **false**, matching
-        `monologue.respect_quiet_hours`. The window silently governed the single
-        loop that decides whether she ever speaks first, and its default of
-        9-22 meant a third of every day was ruled out before the desire gate or
-        the rate limiter were even consulted — "declined to initiate — outside
-        active hours" with nothing else logged.
-
-        Whether she should be quiet at 3am is the operator's call about their
-        own server, not something to bake in.
-        """
-        try:
-            from utils.infrastructure.system.yaml_config import config
-            if not config.get('proactive.respect_quiet_hours', False):
-                return True
-            start = int(config.get('proactive.quiet_hour_start', QUIET_HOUR_START))
-            end = int(config.get('proactive.quiet_hour_end', QUIET_HOUR_END))
-        except (TypeError, ValueError):
-            start, end = QUIET_HOUR_START, QUIET_HOUR_END
-        hour = datetime.now().hour
-        # Wraps midnight when start > end, the same way PostingWindow does.
-        if start == end:
-            return True
-        if start < end:
-            return start <= hour < end
-        return hour >= start or hour < end
+        """Inside the shared posting window (`unprompted.respect_quiet_hours`)."""
+        from utils.core import unprompted
+        return unprompted.within_hours()
 
     def is_within_hours(self) -> bool:
-        """Public alias so out-of-band senders (e.g. the observation digest
-        broadcast) honour the same quiet-hours window as the proactive loop."""
+        """Public alias of the shared posting window."""
         return self._is_within_hours()
 
     def was_content_broadcast(self, content_id: str) -> bool:
@@ -186,39 +153,15 @@ class ProactiveEngine:
             return False
 
     def _is_rate_limited(self, bot_state) -> bool:
-        """Check if we've exceeded daily or interval limits."""
-        # Imported here, as elsewhere in this module: `config` is not a
-        # module-level name, and a config read added without this raised
-        # NameError only when the function ran (CLAUDE.md §11).
-        from utils.infrastructure.system.yaml_config import config
+        """Has the shared unprompted allowance run out for now?
 
-        now = time.time()
-        today = datetime.now().strftime('%Y-%m-%d')
-
-        # Reset daily count if new day
-        last_date = getattr(bot_state, 'last_proactive_date', '')
-        if last_date != today:
-            bot_state.proactive_daily_count = 0
-            bot_state.last_proactive_date = today
-
-        # Daily cap
-        max_daily = int(config.get('proactive.max_per_day', MAX_DAILY_PROACTIVE))
-        count = getattr(bot_state, 'proactive_daily_count', 0)
-        if max_daily > 0 and count >= max_daily:
-            self.last_limit_detail = f"daily cap {count}/{max_daily}"
-            return True
-
-        # Minimum interval
-        min_gap = float(config.get('proactive.min_interval_minutes',
-                                   MIN_INTERVAL_SECONDS / 60.0)) * 60.0
-        last_sent = getattr(bot_state, 'proactive_last_sent', 0.0)
-        if now - last_sent < min_gap:
-            mins = int((min_gap - (now - last_sent)) / 60)
-            self.last_limit_detail = f"{mins} min left of the {int(min_gap/60)} min gap"
-            return True
-
-        self.last_limit_detail = ""
-        return False
+        Checked before anything is generated, so a closed gate costs no model
+        call. `last_limit_detail` names which limit it was.
+        """
+        from utils.core import unprompted
+        ok, why = unprompted.gate(bot_state, "proactive")
+        self.last_limit_detail = "" if ok else why
+        return not ok
 
     def _find_active_channel(self, bot_state) -> Optional[int]:
         """Find the most recently active channel where Kaia has spoken."""
@@ -942,15 +885,11 @@ class ProactiveEngine:
         # all.
         self.last_skip_reason = None
 
-        if not self._is_within_hours():
-            self.last_skip_reason = "outside active hours"
-            return None
-
         if self._is_rate_limited(bot_state):
             # Say which limit. "rate limited" alone made a working cap look like
             # a fault and gave no way to tell the daily cap from the gap.
             detail = getattr(self, "last_limit_detail", "")
-            self.last_skip_reason = f"rate limited ({detail})" if detail else "rate limited"
+            self.last_skip_reason = f"held by the shared limit ({detail})" if detail else "held by the shared limit"
             return None
 
         # Desire gate (roadmap 55-4). The rate limiter says whether she *may*

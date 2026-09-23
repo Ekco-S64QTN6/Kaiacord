@@ -667,38 +667,19 @@ class CoreTaskManager:
             # Natural reading pause before sending
             await asyncio.sleep(2.0 + _secrets.randbelow(4))
 
-        # Labelled like the other three things she says unprompted, so an
-        # opener reads as a thought rather than as a remark aimed at whoever
-        # spoke last. The absence check-in is the one exception: it is addressed
-        # to a named person, so a musing label would misdescribe it.
-        #
-        # Key on the trigger type, not on `target_user` being set. Three other
-        # sources populate that field with the person the thought is *about* —
-        # `conversation_followup` (the highest-weighted source of all),
-        # `personal_memory` and `anchor_callback` — so a presence test silences
-        # the label on most openers, including the kind this was written for.
-        label = config.get("proactive.broadcast_prefix", "\u2615 **Apropos of nothing:**")
-        if getattr(trigger, "trigger_type", "") == "absence":
-            label = ""
-
-        from utils.infrastructure.system.messaging import send_kaia_response
-        await send_kaia_response(channel, f"{label} {message}" if label else message)
-
-        # Channel memory keeps the unlabelled text: the prefix is framing for
-        # the reader, not something she said.
-        # Append to channel memory
-        try:
-            if channel.id not in self.ctx.bot_state.channel_memory:
-                from collections import deque
-                self.ctx.bot_state.channel_memory[channel.id] = deque(maxlen=config.max_memory_messages)
-            self.ctx.bot_state.channel_memory[channel.id].append({
-                "role": "assistant",
-                "content": message,
-                "timestamp": time.time()
-            })
-            self.ctx.bot_state.save()
-        except Exception as mem_err:
-            log_warning(f"Failed to append proactive opener to channel memory: {mem_err}")
+        # Labelled, sent, remembered and cross-posted by the one system every
+        # unprompted post goes through. An absence check-in is addressed to a
+        # named person, so it goes out unlabelled and stays off Bluesky.
+        from utils.core import unprompted
+        is_checkin = getattr(trigger, "trigger_type", "") == "absence"
+        spoken = await unprompted.speak(
+            self.ctx, channel, "proactive", message,
+            trigger=getattr(trigger, "trigger_type", ""),
+            brief=getattr(trigger, "context", ""),
+            cross_post=not is_checkin)
+        if not spoken.posted:
+            log_info(f"Proactive opener not posted: {spoken.reason}.")
+            return False
 
         self.proactive_engine.record_sent(self.ctx.bot_state, trigger, message)
 
@@ -2051,68 +2032,27 @@ class CoreTaskManager:
         return observation_digest_task
 
     async def _broadcast_monologue(self, thought: str) -> bool:
-        """Air an inner-monologue thought in #kaia-opolis.
+        """Post an inner-monologue thought in #kaia-opolis.
 
-        Gated separately from the observation digest so either can be silenced
-        without the other: this loop runs every 15 minutes, which is 96 posts a
-        day before the cap, where a digest is a handful.
-
-        The thought is posted as she thought it — no timestamp, no source
-        label, no framing. The metadata belongs in monologue_log.jsonl.
+        Whether it may go out — the switch, the daily limit, the gap, the hours
+        — is the shared unprompted gate's decision (`unprompted.sources.monologue`
+        is the switch). The thought is generated every 15 minutes regardless;
+        the metadata belongs in monologue_log.jsonl.
         """
-        if not config.get("monologue.broadcast_to_chat", False):
-            return False
         if not self.ctx or not self.ctx.bot:
             return False
-
         try:
-            max_per_day = int(config.get("monologue.max_broadcasts_per_day", 6))
-            min_gap = float(config.get("monologue.broadcast_min_interval_minutes", 90)) * 60.0
-
-            now = time.time()
-            today = datetime.now().strftime('%Y-%m-%d')
-            state = self.ctx.bot_state
-            if getattr(state, 'monologue_broadcast_date', '') != today:
-                state.monologue_broadcast_date = today
-                state.monologue_broadcast_count = 0
-
-            if getattr(state, 'monologue_broadcast_count', 0) >= max_per_day:
-                log_debug("Monologue broadcast skipped: daily cap reached.")
+            from utils.core import unprompted
+            if not unprompted.source_enabled("monologue"):
                 return False
-            if now - getattr(state, 'monologue_broadcast_last_sent', 0.0) < min_gap:
-                log_debug("Monologue broadcast skipped: inside minimum interval.")
-                return False
-
-            # Quiet hours are opt-in here, on their own switch rather than the
-            # proactive engine's. The two interruptions are not comparable: a
-            # proactive opener speaks into a channel someone is reading, where an
-            # aired thought in her own channel does not. Sharing one setting
-            # withholds thoughts that were generated and logged.
-            if config.get("monologue.respect_quiet_hours", False):
-                if self.proactive_engine and not self.proactive_engine.is_within_hours():
-                    log_debug("Monologue broadcast skipped: outside active hours.")
-                    return False
-
             channel = discord.utils.get(self.ctx.bot.get_all_channels(), name="kaia-opolis")
             if not channel:
-                log_debug("Monologue broadcast skipped: #kaia-opolis not found.")
+                log_debug("Monologue not posted: #kaia-opolis not found.")
                 return False
-
             from utils.core.sanitizer import to_plain_english
-            from utils.infrastructure.system.messaging import send_kaia_response
-            # Labelled. Unlabelled it read as a random remark dropped into the
-            # channel; the point of airing a thought is that it is visibly a
-            # thought, not something she is saying to anyone.
-            label = config.get("monologue.broadcast_prefix", "🧠 **Inner monologue:**")
-            body = to_plain_english(thought)
-            await send_kaia_response(channel, f"{label} {body}" if label else body)
-
-            state.monologue_broadcast_count = getattr(state, 'monologue_broadcast_count', 0) + 1
-            state.monologue_broadcast_last_sent = now
-            state.monologue_broadcast_date = today
-            state.save()
-            log_success("Inner monologue aired in #kaia-opolis.")
-            return True
+            spoken = await unprompted.speak(self.ctx, channel, "monologue",
+                                            to_plain_english(thought))
+            return spoken.posted
         except Exception as e:
             log_warning(f"Monologue broadcast failed (non-fatal): {e}")
             return False
@@ -2120,14 +2060,11 @@ class CoreTaskManager:
     async def _broadcast_observation_digest(self, digest_text: str, entry_ts: float) -> bool:
         """Speak a freshly generated digest, verbatim, in #kaia-opolis.
 
-        The digest text *is* the message. Runs on its own budget rather than
-        the general proactive allowance so it is not crowded out by the other
-        eight proactive sources, but still respects quiet hours, a minimum gap,
-        and a daily cap.
+        The digest text *is* the message — passing it to `generate_opener` as
+        hidden context sent a one-liner about it and never the digest itself.
+        Whether it may go out is the shared unprompted gate's decision.
         """
-        if not config.get("observation.broadcast_digest", True):
-            return False
-        if not self.proactive_engine or not self.ctx or not self.ctx.bot_state:
+        if not self.ctx or not self.ctx.bot_state:
             return False
         if getattr(self.ctx.bot_state, 'is_generating', False):
             return False
@@ -2135,88 +2072,35 @@ class CoreTaskManager:
             return False
 
         try:
-            if not self.proactive_engine.is_within_hours():
-                log_debug("Observation digest broadcast skipped: outside active hours.")
+            from utils.core import unprompted
+            if not unprompted.source_enabled("observation"):
                 return False
-
-            max_per_day = int(config.get("observation.max_broadcasts_per_day", 3))
-            min_gap = float(config.get("observation.broadcast_min_interval_minutes", 120)) * 60.0
-
-            now = time.time()
-            today = datetime.now().strftime('%Y-%m-%d')
-            if getattr(self.ctx.bot_state, 'digest_broadcast_date', '') != today:
-                self.ctx.bot_state.digest_broadcast_date = today
-                self.ctx.bot_state.digest_broadcast_count = 0
-
-            if getattr(self.ctx.bot_state, 'digest_broadcast_count', 0) >= max_per_day:
-                log_debug("Observation digest broadcast skipped: daily cap reached.")
-                return False
-            last_sent = getattr(self.ctx.bot_state, 'digest_broadcast_last_sent', 0.0)
-            if now - last_sent < min_gap:
-                log_debug("Observation digest broadcast skipped: inside minimum interval.")
-                return False
-
-            # #kaia-opolis, the same place the forum drafts go. A digest is her
-            # talking about what she noticed, not a reply to whoever spoke last,
-            # so it goes to her own channel rather than the most active one.
             channel = discord.utils.get(self.ctx.bot.get_all_channels(), name="kaia-opolis")
             if not channel:
-                log_debug("Observation digest broadcast skipped: #kaia-opolis not found.")
+                log_debug("Observation digest not posted: #kaia-opolis not found.")
                 return False
-            channel_id = channel.id
 
-            from utils.core.kaia_proactive import (
-                build_digest_content_id, mark_digest_broadcast,
-            )
-
-            # Say the observation, not a reaction to it. Passing the digest to
-            # `generate_opener` as hidden context sends whatever one-liner comes
-            # back and the digest itself is never spoken — while the log still
-            # reports it as broadcast. The summary is the point.
             from utils.core.sanitizer import to_plain_english
-            from utils.infrastructure.system.messaging import send_kaia_response
-
             text = to_plain_english(digest_text).strip()
             if not text:
-                log_debug("Observation digest broadcast skipped: nothing to say.")
                 return False
 
-            # Same reasoning as the monologue: label it so it reads as an
-            # observation about the room rather than an opinion aimed at
-            # whoever spoke last.
-            label = config.get("observation.broadcast_prefix", "💭 **Observation:**")
+            ok, why = unprompted.gate(self.ctx.bot_state, "observation")
+            if not ok:
+                log_debug(f"Observation digest held: {why}.")
+                return False
             async with channel.typing():
                 await asyncio.sleep(2.0)
-            await send_kaia_response(channel, f"{label} {text}" if label else text)
-
-            # Bookkeeping the proactive dispatch path does for its own sends.
-            content_id = build_digest_content_id(entry_ts)
-            try:
-                mark_digest_broadcast(content_id)
-            except Exception as mark_err:
-                log_debug(f"Could not flag digest as aired: {mark_err}")
-
-            try:
-                if channel.id not in self.ctx.bot_state.channel_memory:
-                    from collections import deque
-                    self.ctx.bot_state.channel_memory[channel.id] = deque(
-                        maxlen=config.max_memory_messages)
-                self.ctx.bot_state.channel_memory[channel.id].append({
-                    "role": "assistant", "content": text, "timestamp": time.time(),
-                })
-            except Exception as mem_err:
-                log_debug(f"Could not append digest to channel memory: {mem_err}")
-
-            sent = True
-            if sent:
-                self.ctx.bot_state.digest_broadcast_count = (
-                    getattr(self.ctx.bot_state, 'digest_broadcast_count', 0) + 1
+            spoken = await unprompted.speak(self.ctx, channel, "observation", text)
+            if spoken.posted:
+                from utils.core.kaia_proactive import (
+                    build_digest_content_id, mark_digest_broadcast,
                 )
-                self.ctx.bot_state.digest_broadcast_last_sent = now
-                self.ctx.bot_state.digest_broadcast_date = today
-                self.ctx.bot_state.save()
-                log_success(f"Observation digest spoken in #kaia-opolis: '{text[:80]}'")
-            return sent
+                try:
+                    mark_digest_broadcast(build_digest_content_id(entry_ts))
+                except Exception as mark_err:
+                    log_debug(f"Could not flag digest as aired: {mark_err}")
+            return spoken.posted
         except Exception as e:
             log_warning(f"Observation digest broadcast failed (non-fatal): {e}")
             return False

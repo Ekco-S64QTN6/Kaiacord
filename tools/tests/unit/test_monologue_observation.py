@@ -162,53 +162,6 @@ def test_the_monologue_normalises_what_it_stores():
     assert "to_plain_english" in src, "the thought is stored unnormalised"
 
 
-def test_the_two_broadcasts_are_independently_switchable():
-    """One switch for both would mean silencing a few considered summaries a
-    day to stop a passing thought every fifteen minutes."""
-    import inspect
-
-    from utils.core.background_tasks import CoreTaskManager
-
-    mono = inspect.getsource(CoreTaskManager._broadcast_monologue)
-    digest = inspect.getsource(CoreTaskManager._broadcast_observation_digest)
-
-    assert 'config.get("monologue.broadcast_to_chat"' in mono
-    assert 'config.get("observation.broadcast_digest"' in digest
-    assert "monologue.broadcast_to_chat" not in digest
-    assert "observation.broadcast_digest" not in mono
-    # both land in her own channel, not wherever someone last spoke
-    assert 'name="kaia-opolis"' in mono
-    assert 'name="kaia-opolis"' in digest
-
-
-def test_the_digest_broadcast_sends_the_digest_and_not_a_reaction_to_it():
-    """Three runs logged "Observation digest broadcast to chat" and none of
-    them spoke the observation.
-
-    The digest was handed to `_dispatch_proactive`, which passed it to
-    `generate_opener` as hidden context and sent the one-liner that came back:
-
-        digest: "I noticed they were spiraling about AI regulation, financial
-                 instability, and some bizarre online cults"
-        sent:   "i saw something similar. it's just the internet being the
-                 internet, isn't it?"
-
-    The summary is the whole point of generating it, so the summary is what
-    gets sent.
-    """
-    import inspect
-
-    from utils.core.background_tasks import CoreTaskManager
-
-    src = inspect.getsource(CoreTaskManager._broadcast_observation_digest)
-    body = "\n".join(l for l in src.split("\n") if not l.strip().startswith("#"))
-
-    assert "send_kaia_response(channel, f\"{label} {text}\" if label else text)" in body, \
-        "the digest text is not what gets sent"
-    assert "_dispatch_proactive" not in body, \
-        "still routing through the opener generator, which discards the digest"
-    assert "generate_opener" not in body
-    assert "to_plain_english" in body, "digest is sent without normalising punctuation"
 
 
 def test_legacy_untagged_forum_turns_are_still_excluded():
@@ -258,92 +211,8 @@ def test_legacy_untagged_forum_turns_are_still_excluded():
     assert "Reiwa" not in prompt, "an untagged forum turn still reached the monologue"
 
 
-def test_both_broadcasts_are_labelled():
-    """Unlabelled, an aired thought read as a random remark in the channel."""
-    import inspect
-
-    from utils.core.background_tasks import CoreTaskManager
-
-    mono = inspect.getsource(CoreTaskManager._broadcast_monologue)
-    digest = inspect.getsource(CoreTaskManager._broadcast_observation_digest)
-
-    assert 'config.get("monologue.broadcast_prefix"' in mono
-    assert 'config.get("observation.broadcast_prefix"' in digest
-    assert 'f"{label} ' in mono and 'f"{label} ' in digest
 
 
-def test_a_late_night_thought_is_not_withheld():
-    """Three thoughts in one evening were generated, logged and silently
-    dropped — 23:02, 23:31 and 23:48, the last directly about a question Ekco
-    had just asked her — because the monologue obeyed the proactive engine's
-    09:00-22:00 window.
-
-    That was the wrong comparison. A proactive opener interrupts someone in a
-    channel they are reading; a thought in #kaia-opolis is her talking to
-    herself in her own room. The daily cap and minimum interval still apply.
-    """
-    import asyncio
-    from unittest.mock import MagicMock, patch
-
-    from utils.core.background_tasks import CoreTaskManager
-    from utils.infrastructure.system import yaml_config
-
-    def _air(respect_quiet_hours):
-        manager = CoreTaskManager.__new__(CoreTaskManager)
-        manager.ctx = MagicMock()
-        manager.ctx.bot_state.monologue_broadcast_date = ""
-        manager.ctx.bot_state.monologue_broadcast_count = 0
-        manager.ctx.bot_state.monologue_broadcast_last_sent = 0.0
-        engine = MagicMock()
-        engine.is_within_hours.return_value = False        # 23:48
-        manager.proactive_engine = engine
-
-        real_get = yaml_config.config.get
-
-        def fake_get(key, default=None):
-            if key == "monologue.broadcast_to_chat":
-                return True
-            if key == "monologue.respect_quiet_hours":
-                return respect_quiet_hours
-            return real_get(key, default)
-
-        async def _noop(channel, text):
-            return None
-
-        with patch.object(yaml_config.config, "get", fake_get), \
-             patch("discord.utils.get", return_value=MagicMock(id=1)), \
-             patch("utils.infrastructure.system.messaging.send_kaia_response", _noop):
-            return asyncio.run(manager._broadcast_monologue("a late thought"))
-
-    assert _air(respect_quiet_hours=False) is True, \
-        "a thought at 23:48 was withheld"
-    assert _air(respect_quiet_hours=True) is False, \
-        "the opt-in quiet-hours gate no longer works"
-
-
-def test_the_proactive_window_is_configurable():
-    """`QUIET_HOUR_START`/`QUIET_HOUR_END` were hardcoded, so changing when she
-    may speak first meant editing source."""
-    import inspect
-
-    from utils.core.kaia_proactive import ProactiveEngine
-
-    src = inspect.getsource(ProactiveEngine._is_within_hours)
-    assert "proactive.quiet_hour_start" in src
-    assert "proactive.quiet_hour_end" in src
-
-
-def test_the_proactive_opener_is_labelled_too():
-    """Three of the four things she says unprompted announced what they were.
-    The opener did not, so it arrived in the channel as a bare remark with no
-    indication that nobody had spoken to her."""
-    import inspect
-
-    from utils.core.background_tasks import CoreTaskManager
-
-    src = inspect.getsource(CoreTaskManager._dispatch_proactive)
-    assert 'config.get("proactive.broadcast_prefix"' in src
-    assert 'f"{label} {message}"' in src
 
 
 def test_only_the_absence_checkin_goes_out_unlabelled():
@@ -377,20 +246,6 @@ def test_only_the_absence_checkin_goes_out_unlabelled():
     for source in SOURCE_WEIGHTS:
         assert source != "absence"
 
-
-def test_an_empty_prefix_means_no_prefix():
-    """Every broadcast_prefix comment promises that "" posts the text
-    unadorned. Two of them prepended a bare space instead."""
-    import inspect
-
-    from utils.core.background_tasks import CoreTaskManager
-
-    for fn in (CoreTaskManager._broadcast_monologue,
-               CoreTaskManager._broadcast_observation_digest,
-               CoreTaskManager._dispatch_proactive):
-        src = inspect.getsource(fn)
-        assert "if label else" in src, \
-            f"{fn.__name__} still prepends an empty label"
 
 
 def test_every_broadcast_gate_field_survives_a_restart():
@@ -453,3 +308,156 @@ def test_the_monologue_gate_actually_round_trips(tmp_path):
         f"not written to disk: {sorted(raw)[:12]}"
     assert raw.get("monologue_broadcast_count") == 4
     assert raw.get("monologue_broadcast_date") == "2026-09-21"
+
+
+
+# ── Posting through the shared unprompted system ────────────────────────────
+def _manager(config_values, sent):
+    """A CoreTaskManager wired to a fake #kaia-opolis and a controlled config."""
+    import types
+    from unittest.mock import MagicMock
+
+    from utils.core import unprompted
+    from utils.core.background_tasks import CoreTaskManager
+
+    class Channel:
+        id = 7
+        name = "kaia-opolis"
+
+        async def send(self, text):
+            sent.append(text)
+
+        def typing(self):
+            class _T:
+                async def __aenter__(self): return None
+                async def __aexit__(self, *a): return False
+            return _T()
+
+    manager = CoreTaskManager.__new__(CoreTaskManager)
+    state = types.SimpleNamespace(unprompted_date="", unprompted_count=0,
+                                  unprompted_last_sent=0.0, channel_memory={},
+                                  is_generating=False, boot_complete=True)
+    state.save = lambda: None
+    manager.ctx = types.SimpleNamespace(bot=MagicMock(), bot_state=state)
+    manager.proactive_engine = MagicMock()
+
+    class Cfg:
+        max_memory_messages = 10
+
+        @staticmethod
+        def get(key, default=None):
+            return config_values.get(key, default)
+
+    return manager, Channel(), Cfg
+
+
+def _run(coro_fn, config_values):
+    import asyncio
+    from unittest.mock import patch
+
+    from utils.core import unprompted
+
+    sent = []
+    manager, channel, cfg = _manager(config_values, sent)
+    with patch.object(unprompted, "_config", lambda: cfg), \
+         patch("discord.utils.get", return_value=channel), \
+         patch("asyncio.sleep", _instant):
+        result = asyncio.run(coro_fn(manager))
+    return result, sent
+
+
+async def _instant(*_a, **_k):
+    return None
+
+
+def test_the_digest_is_what_gets_sent():
+    """Three runs logged "Observation digest broadcast to chat" and none of
+    them spoke the observation: the digest went to `generate_opener` as hidden
+    context and the one-liner that came back was sent instead. The summary is
+    the point of generating it, so the summary is what gets sent — under the
+    Observation label, which it always wears."""
+    digest = "I noticed they were arguing about AI regulation and online cults."
+    ok, sent = _run(lambda m: m._broadcast_observation_digest(digest, 1.0),
+                    {"unprompted.min_interval_minutes": 0})
+    assert ok is True
+    assert sent == [f"💭 **Observation:** {digest}"]
+
+
+def test_the_monologue_and_the_digest_switch_independently():
+    """Silencing a thought every fifteen minutes must not silence a few
+    considered summaries a day, or the other way round."""
+    cfg = {"unprompted.sources.monologue": False, "unprompted.min_interval_minutes": 0}
+    ok, sent = _run(lambda m: m._broadcast_monologue("a thought."), cfg)
+    assert ok is False and sent == []
+    ok, sent = _run(lambda m: m._broadcast_observation_digest("a summary.", 1.0), cfg)
+    assert ok is True and sent
+
+
+def test_a_late_night_thought_is_not_withheld_unless_asked():
+    """23:48 thoughts were generated, logged and silently dropped because the
+    monologue obeyed a 09:00-22:00 window nobody had chosen for it. The window
+    is one opt-in setting for everything unprompted now."""
+    from datetime import datetime
+    from unittest.mock import patch
+
+    base = {"unprompted.sources.monologue": True, "unprompted.min_interval_minutes": 0,
+            "unprompted.quiet_hour_start": 9, "unprompted.quiet_hour_end": 22}
+    with patch("utils.core.unprompted.datetime") as dt:
+        dt.now.return_value = datetime(2026, 9, 20, 23, 48)
+        dt.fromtimestamp = datetime.fromtimestamp
+        ok, _ = _run(lambda m: m._broadcast_monologue("a late thought."),
+                     {**base, "unprompted.respect_quiet_hours": False})
+        assert ok is True, "a thought at 23:48 was withheld"
+        ok, _ = _run(lambda m: m._broadcast_monologue("a late thought."),
+                     {**base, "unprompted.respect_quiet_hours": True})
+        assert ok is False, "the opt-in posting hours no longer apply"
+
+
+def test_the_opener_is_labelled_but_a_checkin_is_not():
+    """An opener that arrives bare reads as a remark aimed at whoever spoke
+    last. An absence check-in is the exception: it is addressed to a named
+    person, so a musing label would misdescribe it — and keying that on
+    `target_user` silenced the label on most openers, since three other
+    sources set it to the person the thought is *about*."""
+    import types
+    from unittest.mock import AsyncMock, MagicMock
+
+    def dispatch(trigger_type):
+        async def go(manager):
+            manager.ctx.bot.get_channel.return_value = _CHANNEL
+            manager.proactive_engine.generate_opener = AsyncMock(return_value="been a while.")
+            manager.ctx.ollama_client = MagicMock()
+            trigger = types.SimpleNamespace(channel_id=7, trigger_type=trigger_type,
+                                            context="", target_user="starkind",
+                                            content_id="")
+            from unittest.mock import patch
+            with patch("utils.social.kaia_social_responder.load_persona_async",
+                       AsyncMock(return_value="")):
+                return await manager._dispatch_proactive(trigger)
+        return go
+
+    global _CHANNEL
+    sent = []
+
+    class _Ch:
+        id = 7
+        guild = object()
+
+        async def send(self, text):
+            sent.append(text)
+
+        def typing(self):
+            class _T:
+                async def __aenter__(self): return None
+                async def __aexit__(self, *a): return False
+            return _T()
+
+    _CHANNEL = _Ch()
+    ok, _ = _run(dispatch("conversation_followup"), {"unprompted.min_interval_minutes": 0,
+                                                     "unprompted.rotate": False})
+    assert ok and sent[-1] == "☕ **Apropos of nothing:** been a while."
+    ok, _ = _run(dispatch("absence"), {"unprompted.min_interval_minutes": 0})
+    assert ok and sent[-1] == "been a while."
+
+
+_CHANNEL = None

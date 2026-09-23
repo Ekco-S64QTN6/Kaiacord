@@ -370,18 +370,10 @@ class YAMLConfig:
     def bluesky_password(self) -> str:
         return os.getenv("BLUESKY_APP_PASSWORD", "")
     
-    @property
-    def bluesky_cross_post_quips(self) -> bool:
-        return self.get_path('bluesky.cross_post_quips', False)
-    
     # X (Twitter) configuration
     @property
     def x_enabled(self) -> bool:
         return self.get_path('x_twitter.enabled', False)
-    
-    @property
-    def x_cross_post_quips(self) -> bool:
-        return self.get_path('x_twitter.cross_post_quips', False)
     
     @property
     def bluesky_reply_to_mentions(self) -> bool:

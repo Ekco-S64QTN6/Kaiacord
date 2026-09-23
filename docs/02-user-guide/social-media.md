@@ -21,7 +21,7 @@ Set up Bluesky and X accounts for Kaia to post and reply.
 > transaction id is generated for **every** request, not just login, so importing
 > browser cookies does not get around it.
 >
-> Flip `x_twitter.enabled` and `x_twitter.cross_post_quips` to `true` once a
+> Flip `x_twitter.enabled` and the sources under `unprompted.x` to `true` once a
 > twikit release fixes it. Nothing else needs changing — the cross-post path is
 > wired and tested, and is decoupled from Bluesky so one failing no longer takes
 > the other down.
@@ -79,13 +79,22 @@ Enable/disable features in `config/kaia.yaml`:
 ```yaml
 bluesky:
   enabled: true
-  cross_post_quips: true    # Post idle quips to Bluesky
   reply_to_mentions: true   # Reply when mentioned
 
 x_twitter:
   enabled: true
-  cross_post_quips: true    # Post idle quips to X
   reply_to_mentions: true   # Reply when mentioned
+
+# What she posts to each feed on her own — quips, openers, observations,
+# monologue thoughts — is chosen per source under unprompted:
+unprompted:
+  bluesky:
+    quip: true
+    proactive: false        # openers can quote people from the server
+    observation: false      # so can summaries of conversations she watched
+    monologue: false
+  x:
+    quip: true
 
 social:
   poll_interval_minutes: 1  # How often to check for mentions

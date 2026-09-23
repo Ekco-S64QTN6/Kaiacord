@@ -45,27 +45,6 @@ MAX_THREAD_POSTS = 5
 
 
 
-DISCORD_LIMIT = 2000
-
-
-def thread_messages(posts, label: str = "", limit: int = DISCORD_LIMIT) -> list:
-    """A thread as chat messages: the label once, the posts a blank line apart.
-
-    Split only when Discord's limit forces it, and then between posts, so no
-    post is cut in half.
-    """
-    messages, current = [], label
-    for post in (p.strip() for p in posts if p and p.strip()):
-        post = post[:limit - 1]
-        sep = (" " if current == label else "\n\n") if current else ""
-        if current and len(current) + len(sep) + len(post) > limit:
-            messages.append(current)
-            current, sep = "", ""
-        current += sep + post
-    if current and current != label:
-        messages.append(current)
-    return messages
-
 async def get_random_memories(limit=20):
     """Get random interaction snippets from any user log in the knowledge base.
     
@@ -505,6 +484,14 @@ async def generate_quip(ctx, is_manual=False, target_channel=None, on_message_fu
         else:
             log_action(f"Forcing social post due to max interval ({time_since_last/3600:.1f}h > {config.social_max_interval_hours}h)")
 
+        # The shared allowance for everything she says unprompted. Checked
+        # before generating, so a closed gate costs no model call.
+        from utils.core import unprompted
+        ok, why = unprompted.gate(bot_state, "quip")
+        if not ok:
+            log_debug(f"Quip held: {why}.")
+            return
+
     # Find target channel
     channel = target_channel
     if not channel:
@@ -587,55 +574,28 @@ async def generate_quip(ctx, is_manual=False, target_channel=None, on_message_fu
             posts = await generate_social_thread(ctx, reflection_target, context_type)
             
             if posts and len(posts) > 1:
-                # One labelled message, like the other things she says
-                # unprompted — not a numbered code block per post.
-                label = config.get("quip.thread_prefix", "🧵 **Train of thought:**")
-                for part in thread_messages(posts, label):
-                    await channel.send(part)
-                
-                # Cross-post thread. The two feeds are independent: each has its
-                # own enable check and its own try, so one being off or failing
-                # does not suppress the other, and the "(thread on bsky)" suffix
-                # is added only when Bluesky actually posted.
-                bsky_ok = False
-                if config.bluesky_cross_post_quips:
-                    try:
-                        from utils.social.kaia_bluesky import post_thread_to_bluesky
-                        bsky_ok, _ = await post_thread_to_bluesky(posts)
-                        if target_channel:
-                            await target_channel.send(
-                                "```\nskeet thread sent ✓\n```" if bsky_ok
-                                else "```\nskeet thread failed ✗\n```")
-                    except Exception as e:
-                        log_error(f"Bluesky thread cross-post failed: {e}")
-                        if target_channel:
-                            await target_channel.send(f"```\nskeet thread failed: {e}\n```")
+                # Labelled, sent, remembered and cross-posted by the shared
+                # unprompted system, as one message rather than a code block per
+                # post.
+                from utils.core import unprompted
+                spoken = await unprompted.speak(
+                    ctx, channel, "quip", posts=posts, kind="thread",
+                    brief=context_type or "", manual=is_manual)
+                if not spoken.posted:
+                    log_info(f"Quip thread not posted: {spoken.reason}.")
+                    return False
+                if is_manual and target_channel and spoken.bluesky is not None:
+                    await target_channel.send(
+                        "skeet thread sent ✓" if spoken.bluesky else "skeet thread failed ✗")
 
-                if config.x_cross_post_quips:
-                    try:
-                        from utils.social.kaia_twitter import post_quip_to_x
-                        # Only claim the thread is on Bluesky if it actually is.
-                        hook = posts[0] + (" (thread on bsky)" if bsky_ok else "")
-                        if len(hook) > 280:
-                            hook = hook[:277] + "..."
-                        await post_quip_to_x(hook)
-                    except Exception as e:
-                        log_error(f"X thread cross-post failed: {e}")
-                
-                # Update channel memory & RAG for each post in the thread
-                if channel.id not in bot_state.channel_memory:
-                    from collections import deque
-                    bot_state.channel_memory[channel.id] = deque(maxlen=config.max_memory_messages)
-                
-                for post in posts:
-                    bot_state.channel_memory[channel.id].append({"role": "assistant", "content": post})
-                    if rag_instance:
-                        await asyncio.to_thread(rag_instance.log_user_interaction, 
-                                                user_id=f"channel_{channel.id}", 
-                                                user_name="Kaia-Autonomous", 
-                                                message_content="[AUTO_THREAD_PART]", 
+                if rag_instance:
+                    for post in posts:
+                        await asyncio.to_thread(rag_instance.log_user_interaction,
+                                                user_id=f"channel_{channel.id}",
+                                                user_name="Kaia-Autonomous",
+                                                message_content="[AUTO_THREAD_PART]",
                                                 bot_response=post)
-                
+
                 # Update state
                 bot_state.add_quip(posts[0]) # Track identifying post
                 if not is_manual:
@@ -729,53 +689,28 @@ async def generate_quip(ctx, is_manual=False, target_channel=None, on_message_fu
         if quip and quip[0].isupper():
             quip = quip[0].lower() + quip[1:]
 
-        # 6. POST to Discord
-        #
-        # Labelled and un-boxed, like the other two things she says unprompted.
-        # An unlabelled quip in a code block reads as a monospaced fragment from
-        # nowhere, where the monologue and the observation digest announce what
-        # they are.
-        label = config.get("quip.broadcast_prefix", "\U0001f4ac **Passing thought:**")
-        await channel.send(f"{label} {quip}" if label else quip)
+        # 6. POST — labelled, sent, remembered and cross-posted by the shared
+        # unprompted system.
+        from utils.core import unprompted
+        spoken = await unprompted.speak(
+            ctx, channel, "quip", quip, brief=context_type or "", manual=is_manual)
+        if not spoken.posted:
+            log_info(f"Quip not posted: {spoken.reason}.")
+            return False
 
-        # Update channel memory
-        if channel.id not in bot_state.channel_memory:
-            from collections import deque
-            bot_state.channel_memory[channel.id] = deque(maxlen=config.max_memory_messages)
-        bot_state.channel_memory[channel.id].append({"role": "assistant", "content": quip})
-        
         # Log to RAG (Non-critical error handling)
         try:
             if rag_instance:
                 if shutdown_manager.shutting_down:
                     log_warning("Shutdown in progress, skipping RAG logging for quip.")
                 else:
-                    await asyncio.to_thread(rag_instance.log_user_interaction, 
-                                            user_id=f"channel_{channel.id}", 
-                                            user_name="Kaia-Autonomous", 
-                                            message_content="[AUTO_QUIP]", 
+                    await asyncio.to_thread(rag_instance.log_user_interaction,
+                                            user_id=f"channel_{channel.id}",
+                                            user_name="Kaia-Autonomous",
+                                            message_content="[AUTO_QUIP]",
                                             bot_response=quip)
         except Exception as rag_err:
             log_error(f"Failed to log quip to RAG: {rag_err}")
-
-        # 7. Cross-post
-        if config.bluesky_cross_post_quips:
-            try:
-                from utils.social.kaia_bluesky import post_quip_to_bluesky
-                await post_quip_to_bluesky(quip)
-            except Exception as e:
-                log_error(f"Bluesky post failed: {e}")
-        
-        if config.x_cross_post_quips:
-            try:
-                from utils.social.kaia_twitter import post_quip_to_x
-                # Truncate for X if needed (soft truncate)
-                x_quip = quip
-                if len(x_quip) > 280:
-                     x_quip = x_quip[:277] + "..."
-                await post_quip_to_x(x_quip)
-            except Exception as e:
-                log_error(f"X post failed: {e}")
 
         # 8. UPDATE state
         bot_state.add_quip(quip)
