@@ -572,8 +572,8 @@ async def _handle_cast(ctx, interaction: discord.Interaction, uid: str, uname: s
                 ),
                 color=0x8b0000
             )
+            from utils.ttrpg.rpg_views import RPGCombatView, _InteractionMsg
             fake_msg = _InteractionMsg(interaction)
-            from utils.ttrpg.rpg_views import RPGCombatView
             cview = RPGCombatView(ctx, fake_msg, uid, uname, is_owner, m_key)
             await interaction.followup.send(embed=monster_embed, view=cview)
             return
