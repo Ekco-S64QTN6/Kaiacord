@@ -35,11 +35,13 @@ performance:
   # back she can see, but this caps how many turns exist to choose from.
   max_memory_messages: 70
 
-  # Context window. gemma3:12b holds 7,684 MiB of weights and ~130 MiB of KV
-  # cache per 1k tokens on this card, so 24k costs ~10.8 GiB of the 12 GiB and
-  # leaves ~1.4 GiB of headroom. Raise further only with nvidia-smi in front of
-  # you: an OOM here takes the model out mid-conversation.
-  max_context_tokens: 24576
+  # Context window. With Ollama's KV cache at q8_0 (OLLAMA_KV_CACHE_TYPE in its
+  # service config) each 1k tokens costs ~33 MiB of VRAM on top of ~8.3 GiB of
+  # weights, vision encoder and buffers: 24576 measured 9,356 MiB for the whole
+  # model, 32768 adds ~270 MiB to that. Keep ~1 GiB free for the desktop,
+  # browser and Discord — check with nvidia-smi after changing it. 24576 is
+  # the known-good fallback.
+  max_context_tokens: 32768
 
   # Ollama CPU threads. Below the core count, to leave headroom for the
   # embedding model and the rest of the machine.
@@ -117,35 +119,35 @@ desires:
 # ============================================================================
 # Speaking unprompted
 # ============================================================================
-# Four systems put messages in chat nobody asked for. All four switches are
-# here so you can silence one without the others.
-#
-#   ☕ **Apropos of nothing:**   proactive:      most active channel
-#   🧠 **Inner monologue:**      monologue:      #kaia-opolis
-#   💬 **Passing thought:**      quip:           most active channel
-#   💭 **Observation:**          observation:    #kaia-opolis
-
-# ☕ **Apropos of nothing:** in the most active channel — she starts a
-# conversation. max_per_day: 0 turns it off. min_interval_minutes is the gap
-# between two of them.
-proactive:
-  max_per_day: 5
-  min_interval_minutes: 140
-
-# 🧠 **Inner monologue:** in #kaia-opolis — a private thought, posted.
-# false = she still thinks it, you just do not see it.
-monologue:
-  broadcast_to_chat: false
-
-# 💭 **Observation:** in #kaia-opolis — a summary of a conversation she read
-# but did not join. false = written to memory/observation_digest.json only.
-observation:
-  broadcast_digest: true
-
-# 💬 **Passing thought:** in the most active channel when it goes quiet.
-# bluesky.cross_post_quips below mirrors these to her feed.
-quip:
+# Everything she says that nobody asked for — proactive openers, quips and
+# quip threads, observations, monologue thoughts — goes through one system
+# with one set of limits. Full notes on each setting, and the list of labels
+# her posts rotate through, are under unprompted: in default_config.yaml.
+unprompted:
   enabled: true
+
+  # Which sources may post. Switched off, the monologue still thinks and the
+  # digest is still written — you just never see them.
+  sources:
+    proactive: true
+    quip: true
+    observation: true
+    monologue: false
+
+  # Shared by all four: at most this many posts a day, this many minutes apart.
+  max_per_day: 16
+  min_interval_minutes: 45
+
+  # true = nothing posts outside quiet_hour_start..quiet_hour_end (local).
+  respect_quiet_hours: false
+
+  # Also posted to her Bluesky feed. Observations and proactive openers often
+  # name or quote people from the server. Check-ins to a person never go.
+  bluesky:
+    proactive: true
+    quip: true
+    observation: true
+    monologue: true
 
 # ============================================================================
 # Feature flags
@@ -167,8 +169,7 @@ features:
 bluesky:
   enabled: true
 
-  # Mirror idle quips to her feed.
-  cross_post_quips: true
+  # What she posts there is chosen under unprompted.bluesky above.
 
   # Reply to mentions from strangers. Separate from broadcasting her own posts.
   reply_to_mentions: false
@@ -186,9 +187,6 @@ bluesky:
 # not avoid it.
 x_twitter:
   enabled: false
-
-  # Mirror idle quips to X.
-  cross_post_quips: false
 
   # Reply to mentions from strangers.
   reply_to_mentions: false
