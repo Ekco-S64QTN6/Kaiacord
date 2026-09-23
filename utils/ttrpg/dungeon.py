@@ -501,7 +501,6 @@ def _assign_room_types(
     # (the room with dist = boss_dist - 1 that has a connection to boss)
     boss_dist = meta[boss_key]["dist_from_start"]
     antechamber_pos = None
-    boss_k = _key(*boss_pos)
     for d in ["N","S","E","W"]:
         dx, dy = DIRECTIONS[d]
         nx, ny = boss_pos[0]+dx, boss_pos[1]+dy
@@ -524,7 +523,6 @@ def _assign_room_types(
     dead_end_idx = 0
     dead_end_cycle = [R_TREASURE, R_SHRINE, R_TREASURE, R_TRAP]
 
-    has_secret_shrine = False
 
     for room in rooms:
         k = _key(*room)

@@ -248,7 +248,7 @@ async def check_and_reply_mentions(on_message_func):
     if shutdown_manager.shutting_down:
         return 0
         
-    global _first_poll_done, _silenced_replied_ids
+    global _first_poll_done
     
     # log_debug("Social media poll started...")
     

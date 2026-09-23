@@ -83,7 +83,6 @@ class LoopWatchdog:
         import contextlib
         @contextlib.contextmanager
         def _suppress():
-            old_tick = self._last_tick
             yield
             # Reset tick to now so the time spent in the suppressed block doesn't count
             self._last_tick = time.time()

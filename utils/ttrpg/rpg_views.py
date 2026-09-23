@@ -957,10 +957,6 @@ async def _make_shop_view(ctx, msg, uid, uname, is_owner, items, sheet=None):
     sheet = sheet or await load(uid)
     loc = sheet.get("location", "hemlocks_store") if sheet else "hemlocks_store"
 
-    from utils.ttrpg.world_state import load_world_state
-    _wstate = load_world_state()
-    _special_sale = _wstate.get("special_item_sale")
-
     # Reputation and CHA affect what the player is actually charged, so the
     # label has to know them — the sell side already does this below.
     _ui_cha_mod = (sheet.get("stats", {}).get("cha", 10) - 10) // 2 if sheet else 0
