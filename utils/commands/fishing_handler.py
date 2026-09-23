@@ -83,6 +83,10 @@ class FishingMenuView(discord.ui.View):
         bag_count = sum(len(v) for v in sheet.get("fishing_bag", {}).values())
         bag_label = f"🐟 Bag ({bag_count})" if bag_count > 0 else "🐟 Bag (empty)"
 
+        # Computed for the buttons and, until now, never put on them.
+        self.bag_btn.label = bag_label
+        self.switch_bait_btn.label = f"🪱 {bait_name} ×{bait_count}"[:80]
+
     @discord.ui.button(label="🪱 Bait", style=discord.ButtonStyle.secondary, row=0)
     async def switch_bait_btn(self, interaction: discord.Interaction, button: discord.ui.Button):
         if str(interaction.user.id) != self._uid:
