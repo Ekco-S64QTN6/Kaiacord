@@ -1130,53 +1130,60 @@ VOICE AND FORMAT RULES (always apply regardless of dream type):
             else:
                 log_info("Self-model regeneration forced by command.")
 
-            # Gather source material (mirrors generate_self_model.py logic)
-            # 1. Recent interaction logs
-            logs_text = ""
-            user_logs_dir = self.kb_dir / "user_logs"
-            if user_logs_dir.exists():
-                log_chunks = []
-                total_chars = 0
-                for user_folder in sorted(user_logs_dir.iterdir()):
-                    if not user_folder.is_dir():
-                        continue
-                    user_name = user_folder.name.rsplit("_", 1)[0].replace("_", " ")
-                    for log_file in sorted(user_folder.glob("interactions_*.md"), reverse=True)[:3]:
-                        try:
-                            content = log_file.read_text(encoding='utf-8', errors='ignore')
-                            chunk = f"[{user_name} — {log_file.name}]\n{content[:2000]}"
-                            log_chunks.append(chunk)
-                            total_chars += len(chunk)
-                            if total_chars > 15000:
-                                break
-                        except Exception:
+            # Gather source material (mirrors generate_self_model.py logic), off
+            # the event loop: it reads dozens of logs and dreams.
+            def _gather_sources():
+                # Gather source material (mirrors generate_self_model.py logic)
+                # 1. Recent interaction logs
+                logs_text = ""
+                user_logs_dir = self.kb_dir / "user_logs"
+                if user_logs_dir.exists():
+                    log_chunks = []
+                    total_chars = 0
+                    for user_folder in sorted(user_logs_dir.iterdir()):
+                        # Her own conversations: not the scraped forum threads.
+                        if not user_folder.is_dir() or user_folder.name.startswith(('forum_', '.')):
                             continue
-                    if total_chars > 15000:
-                        break
-                logs_text = "\n\n---\n\n".join(log_chunks)
+                        user_name = user_folder.name.rsplit("_", 1)[0].replace("_", " ")
+                        for log_file in sorted(user_folder.glob("interactions_*.md"), reverse=True)[:3]:
+                            try:
+                                content = log_file.read_text(encoding='utf-8', errors='ignore')
+                                chunk = f"[{user_name} — {log_file.name}]\n{content[:2000]}"
+                                log_chunks.append(chunk)
+                                total_chars += len(chunk)
+                                if total_chars > 15000:
+                                    break
+                            except Exception:
+                                continue
+                        if total_chars > 15000:
+                            break
+                    logs_text = "\n\n---\n\n".join(log_chunks)
 
-            # 2. Recent dreams
-            dreams_text = ""
-            dream_files = sorted(
-                self.dreams_kb_dir.rglob("*.md"),
-                key=lambda f: f.stat().st_mtime,
-                reverse=True
-            )
-            dream_parts = []
-            for df in dream_files[:8]:
-                try:
-                    content = df.read_text(encoding='utf-8', errors='ignore')[:600]
-                    if content.strip():
-                        dream_parts.append(f"[Dream: {df.name}]\n{content}")
-                except Exception:
-                    continue
-            dreams_text = "\n\n".join(dream_parts)
+                # 2. Recent dreams
+                dreams_text = ""
+                dream_files = sorted(
+                    self.dreams_kb_dir.rglob("*.md"),
+                    key=lambda f: f.stat().st_mtime,
+                    reverse=True
+                )
+                dream_parts = []
+                for df in dream_files[:8]:
+                    try:
+                        content = df.read_text(encoding='utf-8', errors='ignore')[:600]
+                        if content.strip():
+                            dream_parts.append(f"[Dream: {df.name}]\n{content}")
+                    except Exception:
+                        continue
+                dreams_text = "\n\n".join(dream_parts)
 
-            # 3. Identity stream
-            identity_text = ""
-            identity_path = Path("memory") / "identity_stream.md"
-            if identity_path.exists():
-                identity_text = identity_path.read_text(encoding='utf-8', errors='ignore').strip()[-4000:]
+                # 3. Identity stream
+                identity_text = ""
+                identity_path = Path("memory") / "identity_stream.md"
+                if identity_path.exists():
+                    identity_text = identity_path.read_text(encoding='utf-8', errors='ignore').strip()[-4000:]
+                return logs_text, dreams_text, identity_text
+
+            logs_text, dreams_text, identity_text = await asyncio.to_thread(_gather_sources)
 
             if not logs_text and not dreams_text and not identity_text:
                 log_warning("Self-model regen: No source material found. Skipping.")
@@ -1294,18 +1301,27 @@ STRICT RULES:
         log_action("Starting evening reflection pass...")
         
         # 1. Gather recent interactions
-        recent_log_files = []
-        user_logs_dir = self.kb_dir / 'user_logs'
-        if user_logs_dir.exists():
+        # Her own conversations only. user_logs/forum_* holds scraped forum
+        # threads, rewritten by every scrape; counted here, a busy forum night
+        # had her journalling about strangers' posts as "today's conversations".
+        def _recent_logs():
+            found = []
+            user_logs_dir = self.kb_dir / 'user_logs'
+            if not user_logs_dir.exists():
+                return found
             cutoff_12h = time.time() - (12 * 3600)
-            for root, _, filenames in os.walk(user_logs_dir):
-                for f in filenames:
-                    if f.startswith('interactions_') and f.endswith('.md'):
-                        p = Path(root) / f
-                        try:
-                            if p.stat().st_mtime > cutoff_12h:
-                                recent_log_files.append(p)
-                        except Exception: pass
+            for user_dir in user_logs_dir.iterdir():
+                if not user_dir.is_dir() or user_dir.name.startswith(('forum_', '.')):
+                    continue
+                for p in user_dir.glob('interactions_*.md'):
+                    try:
+                        if p.stat().st_mtime > cutoff_12h:
+                            found.append(p)
+                    except OSError:
+                        pass
+            return found
+
+        recent_log_files = await asyncio.to_thread(_recent_logs)
         
         if not recent_log_files:
             log_info("Evening reflection: No recent interactions found to reflect on.")
@@ -1315,7 +1331,7 @@ STRICT RULES:
         snippets = []
         for file_path in recent_log_files:
             try:
-                content = file_path.read_text(encoding='utf-8', errors='replace')
+                content = await asyncio.to_thread(file_path.read_text, encoding='utf-8', errors='replace')
                 # Grab just the last few entries (bottom of the file)
                 entries = content.split('[Post ID:')
                 if len(entries) > 1:
@@ -1441,7 +1457,11 @@ TODAY'S CONVERSATIONS:
                     reader = pypdf.PdfReader(str(file_path))
                     num_pages = len(reader.pages)
                     if num_pages > 0:
-                        page_num = random.randint(min(5, num_pages-1), max(0, num_pages - 5))
+                        # Skip the front matter and the back, when there is room.
+                        # `randint(min(5, n-1), max(0, n-5))` put the low bound
+                        # above the high one for any 6-9 page PDF and raised.
+                        lo = min(5, num_pages - 1)
+                        page_num = random.randint(lo, max(lo, num_pages - 5))
                         content = reader.pages[page_num].extract_text()
                         snippet = content[:2500] if content else ""
                 except Exception as e:
@@ -1450,7 +1470,7 @@ TODAY'S CONVERSATIONS:
             elif ext == '.docx' and docx2txt:
                 try:
                     content = docx2txt.process(str(file_path))
-                    if len(content) > 3000:
+                    if len(content) > 3500:
                         start = random.randint(500, len(content) - 3000)
                         snippet = content[start:start+2500]
                     else:
