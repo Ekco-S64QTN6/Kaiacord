@@ -32,7 +32,10 @@ INDEX_ARTEFACTS = ("persona", "user_profiles", "knowledge", "logs", "dreams",
 def _bot_running() -> bool:
     """True if a Kaiacord process is holding the GPU."""
     try:
-        out = subprocess.run(["pgrep", "-f", "Kaiacord.py"],
+        # A python process whose script is Kaiacord.py. A bare "Kaiacord.py"
+        # pattern also matched any shell whose command line merely mentioned
+        # the file, and its dot matched any character.
+        out = subprocess.run(["pgrep", "-f", r"python[0-9.]*\s+(\S*/)?Kaiacord\.py(\s|$)"],
                              capture_output=True, text=True, timeout=5)
         return bool(out.stdout.strip())
     except Exception:
