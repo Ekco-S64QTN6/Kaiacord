@@ -1813,7 +1813,14 @@ class ForumClient:
         }
 
     async def get_global_stats(self) -> Dict[str, Any]:
-        """Calculate global totals for all scraped forum content."""
+        """Calculate global totals for all scraped forum content.
+
+        Walks ~200 thread files and every forum user folder, so it runs on a
+        worker thread rather than the event loop.
+        """
+        return await asyncio.to_thread(self._global_stats_sync)
+
+    def _global_stats_sync(self) -> Dict[str, Any]:
         stats = {
             'total_threads': 0,
             'total_posts': 0,
@@ -1831,8 +1838,9 @@ class ForumClient:
             for f in thread_files:
                 try:
                     stats['disk_usage_mb'] += f.stat().st_size / (1024 * 1024)
-                    # Simple regex to get post_count from frontmatter
-                    content = f.read_text(encoding='utf-8', errors='replace')
+                    # post_count is in the frontmatter; the head is enough.
+                    with open(f, 'r', encoding='utf-8', errors='replace') as fh:
+                        content = fh.read(4096)
                     match = re.search(r'post_count: (\d+)', content)
                     if match:
                         stats['total_posts'] += int(match.group(1))

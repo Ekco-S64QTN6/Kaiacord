@@ -769,7 +769,7 @@ VOICE AND FORMAT RULES (always apply regardless of dream type):
 
                 existing = ""
                 if identity_path.exists():
-                    existing = identity_path.read_text(encoding='utf-8').strip()
+                    existing = (await asyncio.to_thread(identity_path.read_text, encoding='utf-8')).strip()
 
                 combined = (existing + new_entry).strip()
 
@@ -783,9 +783,7 @@ VOICE AND FORMAT RULES (always apply regardless of dream type):
                     else:
                         combined = combined[-max_chars:].strip()
 
-                tmp_path = identity_path.with_suffix('.tmp')
-                tmp_path.write_text(combined, encoding='utf-8')
-                os.replace(tmp_path, identity_path)
+                await asyncio.to_thread(write_atomic, identity_path, combined)
                 log_success("Identity stream updated.")
 
                 # Log identity shift to growth arc
