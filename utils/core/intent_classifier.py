@@ -250,7 +250,11 @@ class IntentParser:
                 r"^\s*(kaia\s+)?(what's the|any) news\b",
                 r"^\s*(kaia\s+)?what's happening in the (world|news)\b",
                 r"\b(anything new (with|about))\b",
-                r"\b(latest updates?)\b"
+                r"\b(latest updates?)\b",
+                # "recent Iran war news", "tech news", "news about the strikes".
+                # A bare "news" is not enough: "that's good news" is not a request.
+                r"\b(recent|latest|today'?s|current|world|political|politics|tech|hacker|breaking)\b.{0,30}\bnews\b",
+                r"\bnews\s+(on|about|from|regarding)\b",
             ],
             "TECH_INQUIRY": [
                 r"\b(how do i|how to|explain|what is)\s+(python|nvidia|cuda|gpu|linux|terminal|code|script)\b",
@@ -258,8 +262,15 @@ class IntentParser:
             ]
         }
         
-        for strategy, patterns in raw_triggers.items():
-            self.fast_triggers[strategy] = [re.compile(p, re.IGNORECASE) for p in patterns]
+        # News is checked before PRECISE_RECALL. Triggers are tried in order and
+        # the first match wins, and "tell me about" is a PRECISE_RECALL cue — so
+        # "Kaia, tell me about recent hacker news" was routed as a question
+        # about herself, identity-scoped, and answered from her own logs.
+        order = list(raw_triggers)
+        order.remove("SYNTHESIS_SCAN")
+        order.insert(order.index("PRECISE_RECALL"), "SYNTHESIS_SCAN")
+        for strategy in order:
+            self.fast_triggers[strategy] = [re.compile(p, re.IGNORECASE) for p in raw_triggers[strategy]]
 
         log_success("IntentParser initialized (regex fast-path only).")
     

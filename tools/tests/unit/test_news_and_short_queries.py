@@ -63,3 +63,23 @@ def test_the_newest_briefs_on_the_topic_join_a_news_pool(monkeypatch):
 
     general = rag._latest_news_candidates(pool, "any news today?")
     assert len(general) == 2  # no topic: every newest brief not already held
+
+
+@pytest.mark.parametrize("q,strategy", [
+    ("Kaia, tell me about recent hacker news", "SYNTHESIS_SCAN"),
+    ("Kaia, tell me about recent Iran war news", "SYNTHESIS_SCAN"),
+    ("any news today?", "SYNTHESIS_SCAN"),
+    ("tell me about neuromancer", "PRECISE_RECALL"),
+    ("who is starkind", "PRECISE_RECALL"),
+    ("thats good news", None),
+])
+def test_a_news_request_is_not_routed_as_a_question_about_kaia(q, strategy):
+    from utils.core.intent_classifier import IntentParser
+    intent = IntentParser().fast_parse(q)
+    assert (intent.suggested_strategy if intent else None) == strategy
+
+
+def test_chat_logs_keep_their_weight_when_the_conversation_is_the_question():
+    from utils.core.kaia_rag_query import _CONVERSATION_CUE
+    assert _CONVERSATION_CUE.search("what did we say about the iran news")
+    assert not _CONVERSATION_CUE.search("tell me about recent hacker news")

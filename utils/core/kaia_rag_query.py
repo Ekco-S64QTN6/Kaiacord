@@ -60,6 +60,9 @@ hello there thanks thank sorry night morning evening today tonight doing going
 really right sleep tired about think where which whats what's still again maybe
 anyone anybody someone thoughts okay sounds guess
 """.split())
+# How much a chat log counts on a news turn, and the cue that restores it.
+NEWS_TURN_LOG_WEIGHT = 0.6
+_CONVERSATION_CUE = re.compile(r"\b(?:we|us|our|you said|i said|remember|talked|told)\b", re.I)
 # Words in a news question that are not its topic.
 _NEWS_FILLER = frozenset("""
 news headlines headline latest today tonight recent recently current events this week now new
@@ -628,6 +631,14 @@ class RAGQueryMixin:
             # June"): decaying by age then buries exactly what was asked for.
             if not (source_type == 'news' and routing.get('names_period')):
                 final_score *= _recency_decay(file_path, source_type, metadata)
+
+            # On a news turn the news answers it. A chat log that shares the
+            # topic ranked above the digests, and a remark of Ekco's about
+            # finding exploits in P99 with AI came back as a Hacker News story.
+            # Asked about the conversation itself, logs keep their weight.
+            if (routing.get('is_news_query') and source_type == 'user_logs'
+                    and not _CONVERSATION_CUE.search(query_lower)):
+                final_score *= NEWS_TURN_LOG_WEIGHT
 
             # Balanced same-user boost for logs (0.15 instead of 0.30 to avoid drowning out curated documentation)
             if source_type == 'user_logs':
