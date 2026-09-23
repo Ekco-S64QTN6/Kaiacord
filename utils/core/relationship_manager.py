@@ -239,6 +239,10 @@ def _own_words(user_text: str) -> Optional[str]:
     text = user_text or ""
     if text.startswith("THREAD TITLE:"):
         return None
+    # Drops reply context before [USER_MESSAGE] and every known enricher block;
+    # _APPENDED catches any marker added since.
+    from utils.core.sanitizer import user_authored_text
+    text = user_authored_text(text)
     m = _APPENDED.search(text)
     if m:
         text = text[:m.start()]

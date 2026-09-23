@@ -121,7 +121,8 @@ class KaiaPresenceManager:
                         if topic:
                             return f"thinking about {topic.lower()}."
                     elif evt.get('type') == 'relationship_insight':
-                        user = evt.get('user_name', '')
+                        # The dream engine logs these under "user".
+                        user = evt.get('user') or evt.get('user_name', '')
                         if user:
                             return f"thinking about what {user.lower()} said."
                 except json.JSONDecodeError:

@@ -29,3 +29,9 @@ def test_ordinary_remarks_and_other_peoples_text_are_not_events(text):
 ])
 def test_real_events_are_still_found(text, kind):
     assert detect_event_type(text, "") == kind
+
+
+def test_quoted_reply_context_is_not_the_users_words():
+    text = ("[REPLYING_TO]\nBrad: you're wrong, shut up\n"
+            "[USER_MESSAGE]\nwhat do you make of this?")
+    assert detect_event_type(text, "") is None
