@@ -11,6 +11,10 @@ sys.path.append(str(Path(__file__).parent))
 from utils.core.kaia_rag import KaiaRAG
 from utils.infrastructure.system.yaml_config import config
 
+# Talks to the live Ollama daemon and shells out to `ollama ps` and
+# `nvidia-smi`, so it is not a unit test of anything in this tree.
+@pytest.mark.ollama
+@pytest.mark.gpu
 @pytest.mark.asyncio
 async def test_embedding_device():
     print("Initializing RAG with new CPU-force settings...")

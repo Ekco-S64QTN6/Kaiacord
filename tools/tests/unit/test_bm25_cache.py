@@ -10,6 +10,8 @@ sys.path.append(os.path.abspath(os.path.join(os.path.dirname(__file__), '../../.
 from utils.core.kaia_rag import KaiaRAG
 from llama_index.core.schema import Document
 
+# Inserting a document embeds it through the live Ollama daemon.
+@pytest.mark.ollama
 @pytest.mark.asyncio
 async def test_bm25(tmp_path):
     avail = psutil.virtual_memory().available / 1024**3
@@ -32,23 +34,15 @@ async def test_bm25(tmp_path):
     print("Testing pre-warm (builds BM25 and saves)...")
     await rag.pre_warm()
     
-    print(f"Cache populated? {'knowledge' in rag.bm25_cache}")
-    if 'knowledge' in rag.bm25_cache:
-        retriever = rag.bm25_cache['knowledge']
-        print(f"Nodes in BM25: {len(retriever.nodes)}")
-        print(f"BM25 initialized object: {getattr(retriever, 'bm25', None)}")
-    
-    print("Testing save...")
-    rag._save_bm25_cache('knowledge')
-    print(f"File exists after save? {os.path.exists(rag._get_bm25_cache_path('knowledge'))}")
+    assert 'knowledge' in rag.bm25_cache
+    assert len(rag.bm25_cache['knowledge'].nodes) >= 1
 
-    print("Testing reload...")
-    rag.bm25_cache = {} 
+    rag._save_bm25_cache('knowledge')
+    assert os.path.exists(rag._get_bm25_cache_path('knowledge'))
+
+    rag.bm25_cache = {}
     retriever = await asyncio.to_thread(rag._load_bm25_cache, "knowledge")
-    if retriever:
-        print(f"Successfully loaded knowledge from disk! {retriever.bm25}")
-    else:
-        print(f"Failed to load knowledge from disk or no data.")
+    assert retriever is not None, "the saved BM25 cache did not load back"
 
 if __name__ == "__main__":
     asyncio.run(test_bm25())
