@@ -12,6 +12,9 @@ import sys
 
 import yaml
 
+sys.path.insert(0, os.path.dirname(os.path.dirname(os.path.dirname(os.path.abspath(__file__)))))
+from utils.core.atomic_write import write_atomic  # noqa: E402
+
 # Resolved from this file rather than hardcoded to one developer's home.
 KB_DIR = os.path.join(
     os.path.dirname(os.path.dirname(os.path.dirname(os.path.abspath(__file__)))),
@@ -71,14 +74,10 @@ def enrich_file(filepath, category):
             modified = True
             
     elif category == "user_logs":
-        parent_dir = os.path.basename(os.path.dirname(filepath))
-        username = parent_dir.replace("forum_", "").split("_")[0]
-        if not data.get("summary"):
-            data["summary"] = f"Activity and interaction logs for user '{username}'."
-            modified = True
-        if not data.get("keywords") or data["keywords"] == []:
-            data["keywords"] = [username, "user logs", "interactions", "forum history"]
-            modified = True
+        # No summary or keywords here. A template summary ("Activity and
+        # interaction logs for user X") told enrich_metadata the file was
+        # already enriched, so the model never wrote a real one; the nightly
+        # pass fills both from the conversation itself.
         if not data.get("document_type"):
             data["document_type"] = "Transcript"
             modified = True
@@ -89,8 +88,7 @@ def enrich_file(filepath, category):
         if DRY_RUN:
             print(f"Would update frontmatter: {filepath}")
             return
-        with open(filepath, 'w') as f:
-            f.write(new_content)
+        write_atomic(filepath, new_content)
         print(f"Updated/Added frontmatter for {filepath}")
 
 def main():

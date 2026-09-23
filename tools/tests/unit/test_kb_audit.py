@@ -162,3 +162,17 @@ def test_enrichment_writes_only_with_apply_and_its_callers_pass_it():
     assert '"--apply"' in src and "args.dry_run or not args.apply" in src
     assert '"--apply"' in Path("utils/core/background_tasks.py").read_text(encoding="utf-8")
     assert '"--apply"' in Path("utils/commands/enrich_handler.py").read_text(encoding="utf-8")
+
+
+def test_a_template_summary_does_not_count_as_enriched():
+    import importlib.util
+    spec = importlib.util.spec_from_file_location("enrich_metadata_under_test",
+                                                  "tools/maintenance/enrich_metadata.py")
+    mod = importlib.util.module_from_spec(spec)
+    spec.loader.exec_module(mod)
+    body = "[2026-09-04 20:10:00] Starkind: a real conversation. " * 10
+    stamped = {"summary": "Activity and interaction logs for user 'Starkind'.",
+               "keywords": ["Starkind", "user logs"]}
+    assert mod.is_eligible_for_enrichment(stamped, body)
+    real = {"summary": "Starkind and Kaia argue about moral equivalence.", "keywords": ["ethics"]}
+    assert not mod.is_eligible_for_enrichment(real, body)

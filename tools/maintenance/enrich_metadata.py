@@ -112,6 +112,9 @@ def dump_frontmatter(data: dict) -> str:
         log_error(f"Failed to dump YAML: {e}")
         return "---\n---\n"
 
+TEMPLATE_SUMMARIES = ("Activity and interaction logs for user", "Forum thread discussion:")
+
+
 def is_eligible_for_enrichment(frontmatter: dict, body: str) -> bool:
     """Check if the document needs enrichment."""
     # Skip short files
@@ -121,6 +124,10 @@ def is_eligible_for_enrichment(frontmatter: dict, body: str) -> bool:
     summary = frontmatter.get('summary')
     keywords = frontmatter.get('keywords')
     
+    # Placeholders written by other tools are not a summary.
+    if isinstance(summary, str) and summary.startswith(TEMPLATE_SUMMARIES):
+        return True
+
     # If it has both and they aren't empty, it's already enriched
     if summary and isinstance(summary, str) and summary.strip() and \
        keywords and isinstance(keywords, list) and len(keywords) > 0:
