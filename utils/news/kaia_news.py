@@ -9,7 +9,7 @@ import re
 import hashlib
 import yaml
 from pathlib import Path
-from utils.infrastructure.logging.kaia_logger import log_info, log_warning, log_error
+from utils.infrastructure.logging.kaia_logger import log_info, log_warning, log_error, log_debug
 
 class NewsManager:
     """Unified news manager for scanning, parsing, and retrieving news (Consolidated)"""

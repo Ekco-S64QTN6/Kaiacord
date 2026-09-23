@@ -229,6 +229,7 @@ class CleanShutdown:
         # 7. EMERGENCY: Kill orphaned Ollama runners (VRAM retrieval)
         try:
             from utils.infrastructure.system.yaml_config import config
+            from utils.infrastructure.gpu.clear_gpu_memory import kill_orphaned_runners
             try:
                 await asyncio.wait_for(
                     asyncio.to_thread(

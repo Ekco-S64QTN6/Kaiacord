@@ -13,7 +13,7 @@ from datetime import datetime
 from typing import Optional, Any, List
 
 from utils.infrastructure.logging.kaia_logger import (
-    log_info, log_success, log_warning, log_error, log_action, log_separator, log_debug, log_ready
+    log_info, log_success, log_warning, log_error, log_action, log_separator, log_debug, log_ready, log_critical
 )
 from utils.infrastructure.system.shutdown_fixed import shutdown_manager
 from utils.infrastructure.monitoring.stats_helpers import set_stats_poller

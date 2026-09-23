@@ -1,5 +1,5 @@
 import time
-from utils.infrastructure.logging.kaia_logger import log_action, log_error
+from utils.infrastructure.logging.kaia_logger import log_action, log_error, log_debug
 
 async def handle_quip_command(ctx, msg):
     """Handle the !quip command"""
