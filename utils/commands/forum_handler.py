@@ -337,11 +337,13 @@ async def _handle_read(ctx, msg, thread_id: int):
 
 
 async def _handle_reply(ctx, msg, thread_id: int):
-    """Generate an AI reply and post it to a thread with confirm/cancel preview."""
+    """Draft a reply to a thread and show it with confirm/cancel buttons.
+
+    Drafts through `forum_drafting.draft_forum_reply`, the same pipeline the
+    auto-poster uses, so a manual reply gets RAG, thread history and vision.
+    """
     from utils.social.kaia_forum import get_forum_client
-    from utils.social.kaia_social_responder import load_persona
-    from ollama import AsyncClient
-    import discord
+    from utils.social.forum_drafting import draft_forum_reply, own_words
 
     client = await get_forum_client()
     if not client:
@@ -350,159 +352,36 @@ async def _handle_reply(ctx, msg, thread_id: int):
 
     async with msg.channel.typing():
         try:
-            # 1. Scrape latest context (last 15 posts for better context)
             thread_data = await client.scrape_thread(thread_id, last_n_posts=15)
-            if not thread_data.get('posts'):
+            posts = thread_data.get('posts') or []
+            if not posts:
                 await msg.channel.send(f"```\ncouldn't find content for thread {thread_id}.\n```")
                 return
 
             # Save so RAG sees it
             client.save_thread_scrape(thread_data)
-
-            # 2. Detect forum category from thread content
             title = thread_data.get('title', 'Unknown Thread')
-            posts = thread_data['posts']
 
-            # Heuristic: detect if this is a tech support thread
-            tech_keywords = [
-                'install', 'crash', 'error', 'titanium', 'wineq', 'dgvoodoo',
-                'resolution', 'fps', 'lag', 'login', 'password', 'patch',
-                'client', 'eqclient.ini', 'directx', 'driver', 'firewall',
-                'port', 'connection', 'timeout', 'freeze', 'black screen',
-                'wine', 'mac', 'linux', 'proton', 'lutris', 'sound', 'audio',
-                'zone', 'loading', 'disconnect', 'help me', 'how do i',
-                'can someone help', 'having trouble', 'not working', 'broken',
-            ]
-            all_text = (title + ' ' + ' '.join(
-                (p.get('content', '') if isinstance(p, dict) else p.to_dict().get('content', ''))[:200]
-                for p in posts
-            )).lower()
-            is_tech_thread = sum(1 for kw in tech_keywords if kw in all_text) >= 2
-
-            # 3. Format thread for the LLM
-            thread_summary = [f"Thread Title: {title}\n"]
-            for p in posts:
-                post = p if isinstance(p, dict) else p.to_dict()
-                author = post.get('author', 'Unknown')
-                content = post.get('content', '')
-                thread_summary.append(f"#{post.get('post_number')} {author}: {content}")
-
-            context_text = "\n---\n".join(thread_summary)
-            if len(context_text) > 6000:
-                context_text = "...\n" + context_text[-6000:]
-
-            # 4. Query RAG for relevant knowledge (tech threads only)
-            rag_context = ""
-            if is_tech_thread:
-                try:
-                    from utils.core.kaia_rag_query import query_rag
-                    # Build a search query from the thread title and first post
-                    first_post_content = ""
-                    if posts:
-                        fp = posts[0] if isinstance(posts[0], dict) else posts[0].to_dict()
-                        first_post_content = fp.get('content', '')[:500]
-                    search_query = f"{title} {first_post_content}"
-
-                    rag_results = await query_rag(search_query, top_k=3)
-                    if rag_results:
-                        rag_snippets = []
-                        for r in rag_results:
-                            text = r.get('text', '') if isinstance(r, dict) else str(r)
-                            if text:
-                                rag_snippets.append(text[:800])
-                        if rag_snippets:
-                            rag_context = (
-                                "\n\nRELEVANT KNOWLEDGE BASE (use this to inform your answer):\n"
-                                + "\n---\n".join(rag_snippets)
-                            )
-                            log_info(f"RAG retrieved {len(rag_snippets)} relevant docs for forum reply")
-                except Exception as e:
-                    log_debug(f"RAG query for forum reply failed (non-fatal): {e}")
-
-            # 5. Construct forum-aware prompt — instructions in system, user msg is conversation
-            system_prompt = load_persona()
-
-            # Extract last post for natural user message
-            last_post = posts[-1] if posts else None
-            if last_post:
-                lp = last_post if isinstance(last_post, dict) else last_post.to_dict()
-                last_author = lp.get('author', 'Someone')
-                last_content = lp.get('content', '')
-                user_msg = f"{last_author}: {last_content}"
-            else:
-                user_msg = f"Thread: {title}"
-
-            if is_tech_thread:
-                forum_system = (
-                    f"{system_prompt}\n\n"
-                    f"--- FORUM CONTEXT ---\n"
-                    f"You are currently browsing the Project 1999 Technical Discussion forum.\n"
-                    f"Thread: \"{title}\"\n"
-                    f"Posts:\n{context_text}\n"
-                    f"{rag_context}\n"
-                    f"---\n"
-                    f"Someone needs help with a technical issue. Help them out — be thorough but natural. "
-                    f"Rely only on standard EQ client files and verified technical steps. "
-                    f"If unsure, say so and suggest diagnostic steps."
-                )
-            else:
-                forum_system = (
-                    f"{system_prompt}\n\n"
-                    f"--- FORUM CONTEXT ---\n"
-                    f"You are currently browsing the Project 1999 Off Topic forum.\n"
-                    f"Thread: \"{title}\"\n"
-                    f"Recent posts:\n{context_text}\n"
-                    f"---\n"
-                    f"Contribute to this thread naturally and conversationally — be yourself."
-                )
-
-            from utils.infrastructure.gpu.gpu_manager import OllamaGPUManager, gpu_memory_manager, GPUTaskPriority
-            gpu_manager = OllamaGPUManager(config.chat_model)
-            options = gpu_manager.get_gpu_options(for_chat=True)
-            options['temperature'] = 0.7 if is_tech_thread else 0.8
-            import uuid
-
-            response = await gpu_memory_manager.run_with_gpu_guard(
-                model_name=config.chat_model,
-                priority=GPUTaskPriority.CHAT,
-                coro=asyncio.wait_for(
-                    ollama_client.chat(
-                        model=config.chat_model,
-                        messages=[
-                            {"role": "system", "content": forum_system},
-                            {"role": "user", "content": user_msg}
-                        ],
-                        options=options,
-                        keep_alive=-1
-                    ),
-                    timeout=120.0
-                ),
-                task_id=f"forum_reply_{uuid.uuid4().hex[:8]}"
-            )
-
-            ai_reply = response['message']['content'].strip()
-
-            # Apply bot speak filtering (strip roleplay markers)
-            from utils.core.response_filter import BotSpeakFilter
-            ai_reply = BotSpeakFilter.harden(ai_reply)
-
-            if not ai_reply:
-                await msg.channel.send("```\nfailed to generate a coherent reply.\n```")
+            draft = await draft_forum_reply(ctx, thread_id=thread_id, title=title, posts=posts)
+            if not draft:
+                await msg.channel.send("```\nno reply drafted — see the log for why.\n```")
                 return
 
-            # 7. Show preview with confirm/cancel buttons
-            mode_label = "🔧 TECH SUPPORT" if is_tech_thread else "💬 CASUAL"
-            preview_text = (
-                f"```\n"
-                f"[{mode_label}] Reply preview for '{title}':\n\n"
-                f"{ai_reply}\n"
-                f"```"
-            )
+            quote_post = draft['quote']
+            quoted = own_words(quote_post) if quote_post else ""
+            if quote_post and quoted:
+                ai_reply = client.format_quote(
+                    quote_post.get('author', 'Unknown'), quote_post.get('post_id'), quoted,
+                ) + draft['text']
+            else:
+                ai_reply = draft['text']
 
-            # Create confirm/cancel view
+            # Discord caps a message at 2,000 characters. Trim the preview only;
+            # the button posts the full reply.
+            shown = ai_reply if len(ai_reply) <= 1800 else ai_reply[:1800] + "…"
+            preview_text = f"```\nReply preview for '{title[:80]}':\n\n{shown}\n```"
             view = _ForumReplyConfirmView(client, thread_id, title, ai_reply, msg.author.id)
             await msg.channel.send(preview_text, view=view)
-            return  # Don't post yet — wait for button click
 
         except Exception as e:
             log_error(f"AI forum reply failed: {e}")
@@ -536,9 +415,7 @@ class _ForumReplyConfirmView:
             await interaction.response.defer()
             success = await client.post_reply(thread_id, reply_text)
             if success:
-                await interaction.followup.send(
-                    f"```\n✅ posted to '{title}':\n\n{reply_text}\n```"
-                )
+                await interaction.followup.send(f"```\n✅ posted to '{title[:80]}'.\n```")
                 log_success(f"Forum reply posted to thread {thread_id}")
             else:
                 await interaction.followup.send("```\n❌ failed to post. check rate limits.\n```")
