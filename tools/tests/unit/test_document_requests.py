@@ -39,3 +39,20 @@ def test_conversation_is_not_routed_to_summarisation():
         assert router._route_retrieval_strategy("general", query, None)["strategy"] != "SUMMARIZATION"
     assert router._route_retrieval_strategy(
         "general", "summarize the international ai safety report", None)["strategy"] == "SUMMARIZATION"
+
+
+def test_a_log_chunk_is_dated_by_its_conversation_not_its_file():
+    """A recap of "the last 24 hours" took any chunk whose file had been
+    rewritten recently — a monthly archive the rollup just touched — as new."""
+    import types
+    from datetime import datetime
+    node = lambda **m: types.SimpleNamespace(metadata=m)
+    recent = datetime(2026, 9, 22).timestamp()
+
+    assert RAGQueryMixin._node_timestamp(node(timestamp=123.0)) == 123.0
+    assert datetime.fromtimestamp(RAGQueryMixin._node_timestamp(
+        node(file_path="/logs/Ekco_177011971818782721/interactions_20260911.md",
+             last_modified_at=recent))).date().isoformat() == "2026-09-11"
+    assert datetime.fromtimestamp(RAGQueryMixin._node_timestamp(
+        node(file_path="/logs/x/interactions_202607_archive.md",
+             last_modified_at=recent))).date().isoformat() == "2026-07-31"

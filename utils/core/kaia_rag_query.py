@@ -404,11 +404,24 @@ class RAGQueryMixin:
                             
                         log_success(f"Repaired {itype} index by removing stale Node {stale_node_id} in-memory. Retrying retrieval...")
                         
-                        # Defer slow disk persistence to a background thread to prevent query lag
-                        from utils.infrastructure.monitoring.async_task_registry import task_registry
-                        task_registry.register(
-                            f"rag_repair_persist_{itype}",
-                            asyncio.create_task(asyncio.to_thread(self.persist, force=True)))
+                        # Persist off the query path — once. A retrieval can repair
+                        # up to 50 stale nodes, and one full persist per repair put
+                        # several threads writing the same index files at once.
+                        # persist_needed is set above, so a repair made while a
+                        # persist is already running is written by the next one.
+                        if not getattr(self, "_repair_persist_running", False):
+                            self._repair_persist_running = True
+
+                            def _persist_once():
+                                try:
+                                    self.persist(force=True)
+                                finally:
+                                    self._repair_persist_running = False
+
+                            from utils.infrastructure.monitoring.async_task_registry import task_registry
+                            task_registry.register(
+                                f"rag_repair_persist_{itype}",
+                                asyncio.create_task(asyncio.to_thread(_persist_once)))
                         
                         return await self._execute_hybrid_retrieval(itype, query, retrieve_count, _retry_count + 1)
                     except Exception as repair_err:
@@ -879,8 +892,55 @@ class RAGQueryMixin:
             
         except Exception as e:
             log_error(f"Error during retrieval: {e}")
-            traceback.print_exc()
+            log_debug(traceback.format_exc())
             return []
+
+    @staticmethod
+    def _node_timestamp(node) -> float:
+        """When a log chunk's conversation happened, as best the metadata says.
+
+        The chunk's own `timestamp` (its first turn) first, then the date in the
+        filename, and only then when the file was last written. A file's
+        modification time says when it was last touched: a monthly archive the
+        weekly rollup just rewrote would otherwise count every chunk in it as
+        happening today.
+        """
+        meta = getattr(node, "metadata", None) or {}
+        ts_val = meta.get("timestamp")
+        if isinstance(ts_val, (int, float)) and ts_val > 0:
+            return float(ts_val)
+        if isinstance(ts_val, str) and ts_val:
+            try:
+                if "_" in ts_val and len(ts_val) == 15:
+                    return datetime.strptime(ts_val, "%Y%m%d_%H%M%S").timestamp()
+                return datetime.fromisoformat(ts_val).timestamp()
+            except (ValueError, TypeError):
+                pass
+
+        base = os.path.basename(meta.get("file_path", "") or "")
+        m = re.search(r"(?<!\d)(20\d{2})(\d{2})(\d{2})(?!\d)", base)
+        if m:
+            try:
+                # The end of that day, not its midnight.
+                return datetime(int(m.group(1)), int(m.group(2)), int(m.group(3)),
+                                23, 59, 59).timestamp()
+            except ValueError:
+                pass
+        # A monthly rollup (`interactions_202608_archive.md`): the end of that month.
+        m = re.search(r"(?<!\d)(20\d{2})(\d{2})(?!\d)", base)
+        if m and 1 <= int(m.group(2)) <= 12:
+            year, month = int(m.group(1)), int(m.group(2))
+            nxt = datetime(year + (month == 12), month % 12 + 1, 1)
+            return nxt.timestamp() - 1
+
+        for field in ("last_modified_at", "mtime"):
+            val = meta.get(field)
+            if isinstance(val, (int, float)) and val > 0:
+                return float(val)
+        path = meta.get("file_path", "")
+        if path and os.path.exists(path):
+            return os.path.getmtime(path)
+        return 0.0
 
     def get_recent_highlights(self, hours: int = 24, limit: int = 5) -> List[str]:
         """
@@ -902,42 +962,7 @@ class RAGQueryMixin:
             
             recent_nodes = []
             for node in all_nodes:
-                ts = 0
-                file_path = node.metadata.get('file_path', '')
-                
-                # 1. Try metadata fields: explicit timestamp, last_modified_at, mtime
-                for field in ('timestamp', 'last_modified_at', 'mtime'):
-                    ts_val = node.metadata.get(field)
-                    if ts_val:
-                        if isinstance(ts_val, (int, float)):
-                            ts = float(ts_val)
-                        elif isinstance(ts_val, str):
-                            try:
-                                if "_" in ts_val and len(ts_val) == 15:
-                                    ts = datetime.strptime(ts_val, "%Y%m%d_%H%M%S").timestamp()
-                                else:
-                                    ts = datetime.fromisoformat(ts_val).timestamp()
-                            except Exception:
-                                pass
-                        if ts > 0:
-                            break  # Found a valid timestamp, stop trying
-
-                # 2. Extract date from file_path (e.g. interactions_20260311.md)
-                if ts == 0 and file_path:
-                    m = re.search(r'(\d{8})', os.path.basename(file_path))
-                    if m:
-                        try:
-                            # Add 23h 59m 59s to make it the END of that day, not midnight
-                            dt = datetime.strptime(m.group(1), "%Y%m%d")
-                            dt = dt.replace(hour=23, minute=59, second=59)
-                            ts = dt.timestamp()
-                        except Exception:
-                            pass
-
-                # 3. Last resort: Real file system mtime
-                if ts == 0 and file_path and os.path.exists(file_path):
-                    ts = os.path.getmtime(file_path)
-
+                ts = self._node_timestamp(node)
                 if ts > cutoff:
                     recent_nodes.append(node)
             
@@ -999,42 +1024,7 @@ class RAGQueryMixin:
             
             recent_nodes = []
             for node in all_nodes:
-                ts = 0
-                file_path = node.metadata.get('file_path', '')
-                
-                # Priority 1: metadata fields
-                for field in ('timestamp', 'last_modified_at', 'mtime'):
-                    ts_val = node.metadata.get(field)
-                    if ts_val:
-                        if isinstance(ts_val, (int, float)):
-                            ts = float(ts_val)
-                        elif isinstance(ts_val, str):
-                            try:
-                                if "_" in ts_val and len(ts_val) == 15:
-                                    ts = datetime.strptime(ts_val, "%Y%m%d_%H%M%S").timestamp()
-                                else:
-                                    ts = datetime.fromisoformat(ts_val).timestamp()
-                            except Exception:
-                                pass
-                        if ts > 0:
-                            break  # Found a valid timestamp, stop trying
-
-                # Priority 2: filename date
-                if ts == 0 and file_path:
-                    m = re.search(r'(\d{8})', os.path.basename(file_path))
-                    if m:
-                        try:
-                            # Add 23h 59m 59s to make it the END of that day, not midnight
-                            dt = datetime.strptime(m.group(1), "%Y%m%d")
-                            dt = dt.replace(hour=23, minute=59, second=59)
-                            ts = dt.timestamp()
-                        except Exception:
-                            pass
-
-                # Priority 3: filesystem mtime (fallback)
-                if ts == 0 and file_path and os.path.exists(file_path):
-                    ts = os.path.getmtime(file_path)
-
+                ts = self._node_timestamp(node)
                 if ts > cutoff:
                     recent_nodes.append(node)
             
