@@ -180,3 +180,15 @@ def test_clear_removes_the_index_and_keeps_runtime_state(tmp_path, monkeypatch):
         asyncio.run(mod.rebuild_rag(clear_storage=True))
 
     assert sorted(p.name for p in store.iterdir()) == ["dream_history.json", "kaia_continuity.md"]
+
+
+def test_the_news_quick_reference_is_not_indexed():
+    """It condenses the same day's brief and carries no date of its own."""
+    assert RAGIndexerMixin._is_excluded_path("/kb/news/daily/news_summary_20260915.md")
+    assert not RAGIndexerMixin._is_excluded_path("/kb/news/daily/news_brief_20260915.md")
+
+
+def test_a_failed_news_day_is_not_filled_with_yesterdays_brief():
+    from pathlib import Path
+    src = Path("tools/maintenance/update_kaia_news.py").read_text(encoding="utf-8")
+    assert "FALLBACK from" not in src

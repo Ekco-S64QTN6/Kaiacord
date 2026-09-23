@@ -1,5 +1,6 @@
 #!/usr/bin/env python3
 import os
+import sys
 import json
 import datetime
 import time
@@ -10,6 +11,9 @@ from dotenv import load_dotenv
 from google import genai
 from google.genai import types
 from google.genai.errors import APIError, ServerError
+
+sys.path.insert(0, str(Path(__file__).resolve().parents[2]))
+from utils.core.atomic_write import write_atomic  # noqa: E402
 
 load_dotenv(dotenv_path=Path(__file__).parent.parent.parent / '.env')
 
@@ -179,8 +183,7 @@ RULES:
         filename = f"news_brief_{date_to_use.replace('-', '')}.md"
         filepath = self.knowledge_dir / filename
         
-        with open(filepath, 'w', encoding='utf-8') as f:
-            f.write(brief)
+        write_atomic(filepath, brief)
         
         print(f"[DEBUG] Saved daily brief to: {filepath}")
         
@@ -237,8 +240,7 @@ RULES:
             
             # Save summary
             summary_file = self.knowledge_dir / f"news_summary_{date_to_use.replace('-', '')}.md"
-            with open(summary_file, 'w', encoding='utf-8') as f:
-                f.write(summary)
+            write_atomic(summary_file, summary)
             
             print(f"[DEBUG] Created quick reference: {summary_file}")
             
@@ -246,11 +248,8 @@ RULES:
             print(f"⚠️ Could not create summary: {e}")
             # Save raw brief as summary
             summary_file = self.knowledge_dir / f"news_summary_{date_to_use.replace('-', '')}.md"
-            with open(summary_file, 'w', encoding='utf-8') as f:
-                # Extract just bullet points
-                lines = full_brief.split('\n')
-                bullet_lines = [line for line in lines if line.strip().startswith('- ')]
-                f.write(f"# QUICK REFERENCE: {date_to_use}\n\n" + '\n'.join(bullet_lines[:10]))
+            bullet_lines = [line for line in full_brief.split('\n') if line.strip().startswith('- ')]
+            write_atomic(summary_file, f"# QUICK REFERENCE: {date_to_use}\n\n" + '\n'.join(bullet_lines[:10]))
     
     def clean_old_briefs(self, keep_days: int = 14):
         """Archive news briefs older than specified days instead of deleting"""
@@ -378,39 +377,9 @@ RULES:
             error_str = str(e)
             print(f"❌ Error generating daily brief: {error_str}")
             
-            # Try to recover by cloning the latest available news brief
-            try:
-                latest_brief, latest_date = self.get_latest_existing_brief()
-                if latest_brief and latest_date:
-                    print(f"⚠️ Falling back to latest existing brief from {latest_date} to prevent system update failure.")
-                    
-                    # Add fallback indicator to the header
-                    lines = latest_brief.split('\n')
-                    if lines and lines[0].startswith('# NEWS_BRIEF:'):
-                        lines[0] = f"# NEWS_BRIEF: {self.today} (FALLBACK from {latest_date})"
-                    
-                    fallback_note = f"\n> [Slim Note]\n> This is a fallback news brief cloned from {latest_date} due to temporary unavailability of the Google Search grounding service.\n"
-                    if len(lines) > 1:
-                        lines.insert(1, fallback_note)
-                    else:
-                        lines.append(fallback_note)
-                        
-                    fallback_brief = '\n'.join(lines)
-                    
-                    # Save as today's brief
-                    self.save_to_knowledge_base(fallback_brief)
-                    
-                    # Clean old files
-                    self.clean_old_briefs()
-                    
-                    # Optional: Trigger RAG reindex
-                    self.trigger_reindex()
-                    
-                    print(f"\n✅ Daily update (fallback) complete for {self.today}")
-                    return
-            except Exception as fallback_err:
-                print(f"❌ Failed to generate fallback brief: {fallback_err}")
-            
+            # No brief today. Cloning yesterday's under today's date made the
+            # same news retrievable twice and presented it as current; every
+            # reader already falls back to the most recent real brief.
             if "429" in error_str or "RESOURCE_EXHAUSTED" in error_str:
                 print("⚠️ Gemini API quota exhausted. Skipping update.")
             else:

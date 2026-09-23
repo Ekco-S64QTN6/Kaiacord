@@ -688,7 +688,11 @@ class RAGIndexerMixin:
         n = p.replace('\\', '/')
         return (RAGIndexerMixin._is_excluded_dir(n)
                 or ("/user_logs/forum_" in n
-                    and os.path.basename(n) != "user_profile.md"))
+                    and os.path.basename(n) != "user_profile.md")
+                # The !news quick reference: a condensed copy of the same
+                # day's brief, with no title or date of its own, so indexing it
+                # retrieved each day's news twice and once undated.
+                or os.path.basename(n).startswith("news_summary_"))
 
     @staticmethod
     def _is_excluded_dir(p: str) -> bool:
