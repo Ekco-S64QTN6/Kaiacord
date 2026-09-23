@@ -510,8 +510,10 @@ class RAGQueryMixin:
         # Fix #5: Compute pool-size ratio ONCE before the per-node loop (O(1) not O(N))
         _pool_deflation_factor = 1.0
         if 'logs' in self.indices and 'knowledge' in self.indices:
-            _logs_size = len(self.indices['logs'].storage_context.docstore.docs)
-            _knowledge_size = len(self.indices['knowledge'].storage_context.docstore.docs)
+            # nodes_dict, not docstore.docs: the latter deserialises every
+            # node to count them, ~160 ms on every retrieval.
+            _logs_size = len(self.indices['logs'].index_struct.nodes_dict)
+            _knowledge_size = len(self.indices['knowledge'].index_struct.nodes_dict)
             if _logs_size > 0 and _knowledge_size > 0:
                 _ratio = _logs_size / max(_knowledge_size, 1)
                 if _ratio < 0.3:  # Logs pool is less than 30% the size of knowledge

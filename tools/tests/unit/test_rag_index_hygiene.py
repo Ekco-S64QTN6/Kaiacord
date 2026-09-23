@@ -192,3 +192,27 @@ def test_a_failed_news_day_is_not_filled_with_yesterdays_brief():
     from pathlib import Path
     src = Path("tools/maintenance/update_kaia_news.py").read_text(encoding="utf-8")
     assert "FALLBACK from" not in src
+
+
+@pytest.mark.parametrize("name,day", [
+    ("news_brief_20260614.md", (2026, 6, 14)),
+    ("tech_digest_20260922.md", (2026, 9, 22)),
+    ("dream_20260728_030425_dream_20260315_035630_dream_20.md", (2026, 7, 28)),
+])
+def test_news_and_dreams_are_dated_by_their_name(name, day):
+    from datetime import datetime
+    ts = RAGIndexerMixin._dated_filename_ts(f"/kb/x/{name}")
+    assert datetime.fromtimestamp(ts).timetuple()[:3] == day
+
+
+def test_other_documents_keep_their_mtime():
+    assert RAGIndexerMixin._dated_filename_ts("/kb/books/Book - 1984 by George Orwell.md") is None
+    assert RAGIndexerMixin._dated_filename_ts("/kb/documents/AI - Report 20260101.md") is None
+
+
+def test_a_question_about_the_news_retrieves_news():
+    from utils.core.message_processor import _NEWS_CUE
+    assert _NEWS_CUE.search("what's the latest news on Iran")
+    assert _NEWS_CUE.search("any headlines?")
+    assert not _NEWS_CUE.search("what's new with you")
+    assert not _NEWS_CUE.search("newsletter from the guild")

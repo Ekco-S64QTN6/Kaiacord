@@ -709,6 +709,28 @@ class RAGIndexerMixin:
             return True
         return "forum_posts" in n or "/_quarantine/" in n or "/_ingress/" in n
 
+    _FILENAME_DATE = re.compile(r"(?:^|_)(20\d{2})(\d{2})(\d{2})(?=[_.])")
+
+    @classmethod
+    def _dated_filename_ts(cls, file_path: str) -> Optional[float]:
+        """Noon on the date a news brief or dream names, or None.
+
+        Recency scoring reads `timestamp`, which was the file's mtime — and
+        enrichment rewrites old briefs, so a February brief scored as today's
+        news. The first date in the name is the document's own: a dream about
+        a dream names its own night first and its source second.
+        """
+        name = os.path.basename(file_path)
+        if not (name.startswith(("news_", "tech_digest_", "dream_"))):
+            return None
+        m = cls._FILENAME_DATE.search(name)
+        if not m:
+            return None
+        try:
+            return datetime(int(m.group(1)), int(m.group(2)), int(m.group(3)), 12).timestamp()
+        except ValueError:
+            return None
+
     @staticmethod
     def _vector_ids(index) -> Set[str]:
         """Ids that have an embedding in this index's vector store."""
@@ -1098,7 +1120,7 @@ class RAGIndexerMixin:
             if itype == 'logs':
                 conversation_ts = self._extract_log_conversation_ts(doc.text, mtime)
             else:
-                conversation_ts = mtime
+                conversation_ts = self._dated_filename_ts(file_path) or mtime
             doc.metadata.update({'last_modified_at': mtime, 'timestamp': conversation_ts, 'file_path': abs_path, 'itype': itype})
             self._apply_priority_metadata(doc, itype, file_path)
             if itype == 'persona': doc.metadata['user_id'] = "KAIA_SYSTEM"

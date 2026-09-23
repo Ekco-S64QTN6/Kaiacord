@@ -25,8 +25,10 @@ from utils.core.kaia_rag import KaiaRAG
 
 
 # What --clear removes: one directory per index type, and the manifests.
-INDEX_ARTEFACTS = ("persona", "user_profiles", "knowledge", "logs", "dreams",
-                   "file_manifest.json", "indexed_files.json")
+_INDEX_TYPES = ("persona", "user_profiles", "knowledge", "logs", "dreams")
+# Each type's directory plus the _tmp/_old siblings an interrupted persist leaves.
+INDEX_ARTEFACTS = tuple(f"{t}{suffix}" for t in _INDEX_TYPES for suffix in ("", "_tmp", "_old")) + (
+    "file_manifest.json", "indexed_files.json")
 
 
 def _bot_running() -> bool:

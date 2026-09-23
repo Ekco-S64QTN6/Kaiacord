@@ -214,6 +214,10 @@ def _has_word(text: str, words) -> bool:
     )
 
 
+# A turn that asks about the news, whatever the intent parser made of it.
+_NEWS_CUE = re.compile(r"\b(?:news|headlines?|current events)\b", re.IGNORECASE)
+
+
 class MessageProcessor:
     """
     Modular message processor that decomposes the complex on_message logic.
@@ -1362,7 +1366,10 @@ class MessageProcessor:
                 user_name=target_user_name, 
                 top_k=retrieval_top_k,
                 strict_identity=strict_identity_flag,
-                include_news=False,
+                # News only when the turn is about news. It was always False,
+                # and the scorer drops every news node when it is, so no chat
+                # turn ever retrieved a brief however it was asked.
+                include_news=(ctx.category == 'news' or bool(_NEWS_CUE.search(clean_query))),
                 category=ctx.category,
                 intent=ctx.intent
             ))
