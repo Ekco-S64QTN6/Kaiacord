@@ -13,7 +13,7 @@ All commands are prefixed with `!`. Admin commands are restricted to the project
 | `!help` | Display interactive command and feature guide | All |
 | `!news [category]` | Fetch news by category | All |
 | `!download <url>` | Submit a URL for the knowledge base (staged, filed hourly) | All |
-| `!youtube <url>` | Pull a video's transcript into the knowledge base (`!yt`) | All |
+| `!youtube <url>` | Pull a video's transcript into the knowledge base, correcting misheard names (`!yt`) | All |
 | `!quip` | Trigger a social media quip (10m cooldown) | All |
 | `!flag <reason>` | Flag the previous message for audit/review | Admin |
 | `!forum [cmd]` | VBulletin forum management | Mixed |

@@ -36,15 +36,25 @@ Kaia is optimized for continuous presence on a single 12GB GPU. Unlike previous 
   The per-turn budget subtracts `system_reserve_tokens` and `max_response_tokens` before
   splitting the remainder between RAG and history, so anything added to the system prompt
   comes directly out of retrieval headroom.
-- **VRAM Impact**, measured from Ollama's own load lines — gemma3 keeps a full-length KV cache
-  for its global layers and a 1,536-cell one for its sliding-window layers:
+- **VRAM Impact**, measured from Ollama's own load lines and `nvidia-smi` — gemma3 keeps a
+  full-length KV cache for its global layers and a 1,536-cell one for its sliding-window
+  layers, and loads its vision encoder beside the text model:
 
-  | `max_context_tokens` | Weights | KV cache | Compute | Total |
+  | `max_context_tokens` | Weights | KV cache (f16) | Vision encoder + buffers | `llama-server` total |
   |:--|:--|:--|:--|:--|
-  | 16,384 | 6.8 GiB | 1.5 GiB | 0.1 GiB | ~8.4 GiB |
-  | 24,576 | 6.8 GiB | 2.0 GiB | 0.1 GiB | ~8.9 GiB |
+  | 16,384 | 6.8 GiB | 1.5 GiB | ~1.2 GiB | ~9.5 GiB |
+  | 24,576 | 6.8 GiB | 2.0 GiB | ~1.2 GiB | 9.9 GiB (10,188 MiB measured) |
 
-  All 49 layers stay on the GPU at either size. Ollama's scheduler *predicts* far more (16 GiB
+  All 49 layers stay on the GPU at either size. The desktop, a browser and Discord take
+  roughly another 1.2 GiB of the 12, so at 24,576 the card sits within a few hundred MiB of
+  full. The KV cache is the one large piece that can shrink without losing context:
+  `OLLAMA_KV_CACHE_TYPE=q8_0` (with `OLLAMA_FLASH_ATTENTION=1`) in Ollama's service
+  environment halves it, about 1 GiB back at 24,576.
+- **The bot process itself must hold no GPU memory.** `clear_gpu_memory()` called
+  `torch.cuda.synchronize()` and `empty_cache()` in a process that never uses CUDA, which
+  *created* a 104 MiB context on every boot. It now returns unless this process has
+  initialised CUDA. `nvidia-smi --query-compute-apps=pid,used_memory --format=csv` should show
+  only `llama-server` for the bot's side. Ollama's scheduler *predicts* far more (16 GiB
   at 24,576) and logs "predicted to exceed available memory, evicting" — that is its
   estimate, not the allocation, and what it evicts is the CPU embedding runner.
 

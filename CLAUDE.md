@@ -181,7 +181,9 @@ Verified 2026-09-20: **369 monsters**, **395 gear + 58 consumables = 453 items**
   coroutine.
 - **GPU is reserved for Ollama.** No CUDA, Numba, or PyCUDA for non-LLM work. CPU + NumPy only.
   All Ollama calls go through `gpu_memory_manager` with an appropriate `GPUTaskPriority`
-  (`grep -rc run_with_gpu_guard utils/` for current call sites).
+  (`grep -rc run_with_gpu_guard utils/` for current call sites). The bot process itself holds
+  no CUDA context: a `torch.cuda` call in it creates one, ~100 MiB on a card the model already
+  fills, and `clear_gpu_memory()` was doing exactly that on every boot.
 - **Every call to the chat model sends the same runner options.** Ollama keeps one runner per
   model and reloads it whenever a request's `num_ctx`, `num_gpu`, `num_thread` or `main_gpu`
   differ from the loaded one. Build options with `gpu_manager.chat_options(**overrides)` — it
@@ -655,6 +657,13 @@ message actually sent, a guard's verdict against its own return value.
   makes it safe for `!download` and `!youtube` to be open to every user.
 - A sidecar carrying `"preformatted": true` is filed **without normalisation**. `!youtube` emits
   finished Markdown with timestamp anchors; running the reflow over it would destroy them.
+- **`!youtube` corrects misheard names before staging** (`tools/maintenance/transcript_names.py`,
+  also a dry-run CLI for transcripts already filed). Auto-captions give "house ATT treaties" for
+  House Atreides, and names are what retrieval keys on. The model only supplies a glossary;
+  Python applies a pair only if the misheard form is in the excerpt, is a phrase or a non-word,
+  and the correction is capitalised and *sounds like* it. Without the sound test gemma3 answered
+  confidently and wrongly — "simx" (cymek) became "thinking machines" sixteen times. What was
+  changed is recorded in the sidecar's `name_corrections`.
 - **Write frontmatter through `utils.core.frontmatter.dump_frontmatter`, never by string
   formatting.** Every corpus
   writer that built a block with an f-string has produced invalid YAML:
