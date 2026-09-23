@@ -732,10 +732,9 @@ message actually sent, a guard's verdict against its own return value.
   a reflection. Read-only, names the tool that fixes each finding, and `--check` exits non-zero.
   Run it after anything that writes across the corpus; that is cheaper than the sweep it replaces.
   Note the two scopes: `NOT_CORPUS` skips `forum_posts` because the *quality* checks do not
-  apply to scraped threads, but that folder is indexed and retrievable
-  (`knowledge_boundary.py` lists it), so `MECHANICAL_ONLY` runs the integrity checks over it.
-  Excluding it outright hid 4,516 files from every check — 17 files carrying baked-in U+FFFD
-  among them.
+  apply to scraped threads, but forum drafting reads those threads directly (they are *not* in
+  the RAG index), so `MECHANICAL_ONLY` runs the integrity checks over it. Excluding it outright
+  hid 4,516 files from every check — 17 files carrying baked-in U+FFFD among them.
 - **A cap must be applied to the eligible set, not to the listing.** `enrich_metadata` capped the
   whole corpus listing in directory order — books first, all already enriched — so a nightly
   `--limit 40` spent its entire budget skipping them and never reached the 369 news files with no
@@ -743,6 +742,36 @@ message actually sent, a guard's verdict against its own return value.
 - Maintenance tools that write across the corpus must default to a dry run and require `--apply`.
   `enrich_kb_metadata.py` had no argument parsing at all, so probing it with `--help` rewrote
   frontmatter on 124 files.
+
+### The index
+
+`memory/rag_storage/` holds one llama_index store per index type (`knowledge`, `logs`,
+`dreams`, `user_profiles`) plus `file_manifest.json`. Rules that were each broken in a way
+retrieval never reported:
+
+- **Delete through `RAGIndexerMixin._delete_nodes`.** `VectorStoreIndex.delete_nodes` defaults
+  to `delete_from_docstore=False`: the vector goes, the node stays in the docstore that BM25 is
+  built from and the manifest is rebuilt from at boot. By September 2026, 70% of the knowledge
+  docstore was old versions and removed files, and 3,852 nodes were superseded persona text.
+  `_reconcile_indices()` runs on every refresh and removes any node with no embedding, no
+  source file, a deleted or excluded file, or persona text; a second pass should find nothing.
+- **Any index change deletes that index's BM25 pickle.** Its freshness check is file mtimes,
+  and a deletion changes none.
+- **Directory and file exclusions are separate predicates.** `_is_excluded_dir` for walking,
+  `_is_excluded_path` for files. Asking the file rule about a forum user's folder excluded the
+  whole folder, so their `user_profile.md` was indexed once and never refreshed.
+- **Log tails are byte offsets**, with a hash of the indexed prefix. Character offsets against a
+  byte size re-indexed turns on any file with a curly quote, and a log rewritten in place
+  (a corrected turn, enrichment adding frontmatter) is now re-indexed whole.
+- **Only `title` and `user_name` are embedded** (`EMBED_METADATA_KEYS`). Every other metadata
+  key — absolute path, offsets, epoch timestamps, scores — was prepended to the text of every
+  vector.
+- **Not indexed:** the persona (injected whole), `news_summary_*` (a dateless condensed copy of
+  the day's brief, kept for `!news`), forum threads and post histories, and anything without a
+  source file. `RelevanceFeedback` used to insert synthetic Q/A copies of her own answers; it
+  no longer writes.
+- **`reindex_rag.py --clear` removes only the index artefacts.** `dream_history.json` and
+  `kaia_continuity.md` live in the same directory and are not rebuilt from anything.
 
 ### Dreams
 

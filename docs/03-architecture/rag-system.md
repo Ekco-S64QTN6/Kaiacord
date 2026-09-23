@@ -35,10 +35,11 @@ When a user queries Kaia, the system performs a hybrid search:
 
 ### 3. Identity & Privacy
 - **Identity Resolution**: Forum IDs and Discord IDs are cross-referenced to retrieve the correct user profile.
-- **Strict Partitioning**: Persona nodes and user logs are indexed separately to prevent cross-user leakage while maintaining persona stability.
+- **Strict Partitioning**: User profiles, user logs and her own dreams are separate indices. The persona is not indexed at all: it is injected into every prompt whole.
 
 ### 4. Persistence & Pre-warming (`kaia_rag_persistence.py`)
-- **JSON Manifest**: Tracks file hashes and metadata. Nodes are only re-indexed if the file changes.
+- **JSON Manifest**: Tracks each file's mtime, size and node ids (logs also a byte offset and a hash of the indexed prefix). Nodes are only re-indexed if the file changes; a log rewritten in place is re-indexed whole.
+- **Reconcile**: every refresh removes nodes with no embedding, no source file, a deleted or excluded file, or persona text — see CLAUDE.md §10, *The index*.
 - **Consolidated Storage**: All indices are stored in `memory/rag_storage/`.
 - **Pre-warming**: On startup, indices are loaded into memory and the BM25 pickle is hydrated to ensure the first query is fast.
 
@@ -51,14 +52,14 @@ When a user queries Kaia, the system performs a hybrid search:
 
 | Index Type | Source Path | Purpose |
 |:-----------|:------------|:--------|
-| `persona` | `knowledge_base/kaia_persona.md` | Tone, rules, and core identity. Never truncated |
 | `user_profiles` | `knowledge_base/user_logs/*/user_profile.md` | Summarised facts about specific users, Discord and forum |
 | `logs` | `knowledge_base/user_logs/` | Raw conversation history |
 | `dreams` | `knowledge_base/kaia_dreams/` | Nightly reflections, plus `consolidated/` — one document per book, person and topic |
 | `knowledge` | everything else indexed: `books/`, `documents/`, `news/`, `wiki/`, `troubleshooting/`, `transcripts/`, `runtime/` | Manual uploads, scrapes and her own snapshots |
 
-There are five indices, not one per folder — `index_types` in `kaia_rag_indexer`
-is `['persona', 'user_profiles', 'knowledge', 'logs', 'dreams']`. An earlier
+There are four populated indices, not one per folder — `index_types` in
+`kaia_rag_indexer` still creates a fifth, `persona`, which stays empty because the
+persona is injected whole rather than retrieved. An earlier
 version of this table named `knowledge_base/user_profiles/`,
 `knowledge_base/general/` and `knowledge_base/reflections/`, none of which have
 ever existed; the folder layout is in `knowledge_base/README.md` and the code
@@ -68,10 +69,14 @@ Three trees are deliberately **not** indexed — `_ingress/` (staging),
 `_quarantine/` (pulled out of the corpus), `forum_posts/` (9,236 scraped threads,
 excluded from global retrieval so strangers' claims cannot surface as fact) —
 along with any dot-directory, which is where compaction and consolidation keep
-the originals they superseded.
+the originals they superseded, and `news_summary_*`, the `!news` quick reference
+that condenses the same day's brief.
+
+Only `title` and `user_name` are embedded with a chunk's text; the rest of a
+node's metadata (path, offsets, timestamps, scores) is excluded from the vector.
 
 ## Technical Specs
-- **Embeddings**: `nomic-embed-text` (CPU)
+- **Embeddings**: `nomic-embed-text` — CPU while the bot runs, GPU for an offline `reindex_rag.py` rebuild
 - **Top K**: Default 8 (balanced for context window)
 - **RRF Weight**: k=60 (standard RRF parameter)
 - **Locking**: Thread-safe locks ensure only one re-index happens at a time.
