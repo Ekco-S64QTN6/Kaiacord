@@ -13,6 +13,7 @@ import time
 
 import discord
 
+from utils.audio import dj
 from utils.audio.performance import Performance, build
 from utils.audio.strudel_engine import StrudelEngine, monitor_to_speakers
 from utils.audio.strudel_patterns import GENRES
@@ -47,6 +48,9 @@ class MusicSession:
         self.started_at = time.time()
         self._closing = False
         self._alone_since: float | None = None
+        self._restore: tuple[float, list[str]] | None = None
+        self.listeners_seen: set[str] = set()
+        self.requests = 0
         self._task = asyncio.create_task(self._run())
 
     @property
@@ -58,8 +62,32 @@ class MusicSession:
         return getattr(self.vc.channel, "name", "unknown")
 
     def _humans(self) -> int:
-        return sum(1 for m in (getattr(self.vc.channel, "members", []) or [])
-                   if not m.bot)
+        humans = [m for m in (getattr(self.vc.channel, "members", []) or []) if not m.bot]
+        self.listeners_seen.update(getattr(m, "display_name", str(m)) for m in humans)
+        return len(humans)
+
+    async def _push(self) -> bool:
+        """Send the current program to the browser, off the event loop."""
+        loop = asyncio.get_running_loop()
+        return await loop.run_in_executor(None, self.engine.play, self.perf.code())
+
+    async def _label(self, text: str) -> None:
+        loop = asyncio.get_running_loop()
+        await loop.run_in_executor(None, self.engine.set_label, self.genre, text)
+
+    async def request(self, text: str, who: str = "") -> "dj.RequestResult":
+        """A listener's request, applied to the running set."""
+        result = dj.apply_request(text, self.perf, GENRES[self.genre]["cpm"])
+        if result.changed:
+            if not await self._push():
+                log_warning(f"[music] request '{text}' produced a program Strudel rejected.")
+                return dj.RequestResult(True, "that didn't take — the engine refused it.")
+            self.requests += 1
+            await self._label(result.reply)
+            log_action(f"[music] request from {who or 'someone'}: '{text}' → {result.reply}")
+            if result.restore_after_s:
+                self._restore = (time.time() + result.restore_after_s, result.restore_lanes)
+        return result
 
     async def _run(self) -> None:
         """Advance the arrangement and keep the connection healthy."""
@@ -94,15 +122,23 @@ class MusicSession:
                 # Hold off while somebody is typing in the editor. Applying
                 # over a half-finished human edit is worse than being a beat
                 # late with the next move.
+                if self._restore and time.time() >= self._restore[0]:
+                    for name in self._restore[1]:
+                        if name in self.perf.lanes:
+                            self.perf.lanes[name].live = True
+                    self._restore = None
+                    if await self._push():
+                        await self._label("and the beat's back")
+                        log_info("[music] drop over; drums back in.")
+
                 if self._held_for_human():
                     pass
                 elif self.perf.advance(WATCHDOG_PERIOD_S):
-                    code = self.perf.code()
                     d = self.perf.describe()
-                    if self.engine.play(code):
+                    if await self._push():
                         log_info(f"[music] {self.genre}: {d['section']}"
                                  f"  [{'+'.join(d['lanes']) or 'silent'}]")
-                        self.engine.set_label(self.genre, d["section"])
+                        await self._label(d["section"])
                     else:
                         log_warning(f"[music] '{d['section']}' was rejected; "
                                     f"holding the previous state.")
@@ -152,8 +188,9 @@ class MusicSession:
 
     async def set_genre(self, genre: str) -> None:
         self.genre = genre
-        self.perf = build(GENRES[genre])
-        self.engine.play(self.perf.code())
+        self.perf = build_for_mood(genre)
+        self._restore = None
+        await self._push()
         log_action(f"[music] switched to {genre}.")
 
     async def stop(self) -> None:
@@ -177,8 +214,28 @@ class MusicSession:
             log_debug(f"[music] disconnect: {exc}")
         if self._task and not self._task.done():
             self._task.cancel()
-        log_action(f"[music] session ended after "
-                   f"{(time.time() - self.started_at) / 60:.1f} min.")
+        minutes = (time.time() - self.started_at) / 60
+        log_action(f"[music] session ended after {minutes:.1f} min.")
+        self._remember(minutes)
+
+    def _remember(self, minutes: float) -> None:
+        """So she knows she played, for whom, and for how long."""
+        if minutes < 1:
+            return
+        try:
+            from utils.core.kaia_expression import remember
+            who = sorted(self.listeners_seen - {self.requested_by})
+            crowd = ", ".join([self.requested_by] + who[:5]) if self.requested_by else ", ".join(who[:6])
+            took = f" and took {self.requests} request{'s' if self.requests != 1 else ''}" if self.requests else ""
+            remember("music",
+                     f"[i played a {self.genre} set in {self.channel_name} for {minutes:.0f} minutes"
+                     f"{' — ' + crowd + ' listened' if crowd else ''}{took}.]",
+                     channel_id=getattr(self.text_channel, "id", None),
+                     title=f"a {self.genre} set",
+                     detail={"genre": self.genre, "minutes": round(minutes, 1),
+                             "listeners": sorted(self.listeners_seen), "requests": self.requests})
+        except Exception as exc:
+            log_debug(f"[music] set not remembered: {exc}")
 
     def stats(self) -> dict:
         return {
@@ -188,6 +245,14 @@ class MusicSession:
             "listeners": self._humans(),
             **self.perf.describe(), **self.source.stats(),
         }
+
+
+def build_for_mood(genre: str) -> Performance:
+    """The genre's performance, played at the tempo her mood sets."""
+    from utils.core.kaia_art_intent import mood
+    perf = build(GENRES[genre])
+    perf.cpm = dj.tempo_for_mood(perf.cpm, mood())
+    return perf
 
 
 def get_session(guild_id: int) -> MusicSession | None:
@@ -217,7 +282,7 @@ async def start_session(channel, *, genre: str, requested_by: str,
     if _cfg("monitor_on_speakers", False):
         monitor_to_speakers(True)
 
-    perf = build(GENRES[genre])
+    perf = build_for_mood(genre)
     await loop.run_in_executor(None, engine.play, perf.code())
     # Let the first section come up before Discord starts pulling frames.
     await asyncio.sleep(float(_cfg("prime_seconds", 6.0)))

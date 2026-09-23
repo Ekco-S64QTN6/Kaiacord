@@ -469,6 +469,24 @@ the authority, but they are the ones most likely to be "fixed" by mistake:
   user gesture: it returns true, logs `[cyclist] start`, reports a running AudioContext, and
   produces nothing.
 
+**Kaia is the DJ, without a model.** `utils/audio/dj.py` is where she is in the set: with no
+genre asked for she picks one from her mood and the hour and says why, her arousal nudges the
+tempo a few percent either way, and `!music darker | faster | drop | more bass …` becomes an
+edit to the lanes that are playing — the same `set_param` / `live` operations the script uses —
+answered in her voice. Every decision reads her *state*; none of it calls a model, so §7's
+"no VRAM" still holds. A new request must leave the program balanced and audible on every genre:
+`test_every_request_edits_every_genre_cleanly` covers the text, and the verifier approach
+(play it, measure it) covers the sound. When a set ends, `kaia_expression.remember` writes it
+into the channel's history and the growth log, so she knows she played and for whom.
+
+**`!art` is decided before it is drawn.** `kaia_art_intent.decide` turns a prompt, her mood or an
+attached image into an `ArtIntent` — palette (or a colour ramp from the image), symmetry, lead
+shapes, complexity, title. Her own choice comes from one short model call that picks *from the
+renderer's menus* and returns JSON; Python drops anything off-menu, and a lexicon and her mood
+fill whatever she left open. The renderer still draws the geometry from the seed, and an empty
+intent must draw exactly what the seed always drew (`test_an_unsteered_seed_renders_what_it_always_did`).
+The piece is remembered the same way a set is.
+
 Strudel is AGPL-3.0 and is **not vendored**. `tools/maintenance/fetch_music_assets.py` fetches it
 as its own unmodified bundle at install time (needs `ffmpeg` and `pactl`), and this project only
 drives it, so the copyleft does not reach Kaiacord. Do not copy Strudel source into the tree.

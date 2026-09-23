@@ -304,7 +304,7 @@ def test_build_varies_the_timings():
 ])
 def test_command_parsing(words, expected):
     from utils.commands.music_handler import _parse
-    assert _parse(words) == expected
+    assert _parse(words)[:2] == expected
 
 
 # ── Wiring ───────────────────────────────────────────────────────────
