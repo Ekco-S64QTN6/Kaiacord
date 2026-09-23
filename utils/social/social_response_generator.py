@@ -461,6 +461,16 @@ async def generate_quip(ctx, is_manual=False, target_channel=None, on_message_fu
             log_info("Quip deferred: user chat generation in progress.")
             return
 
+        # The shared allowance for everything she says unprompted. Checked
+        # first: before generating, so a closed gate costs no model call, and
+        # before the force check, which otherwise announced "Forcing social
+        # post" every tick of a night the gate was holding.
+        from utils.core import unprompted
+        ok, why = unprompted.gate(bot_state, "quip")
+        if not ok:
+            log_debug(f"Quip held: {why}.")
+            return
+
         # Check if we need to FORCE a post due to time elapsed
         last_quip = bot_state.last_quip_time
         # Handle 0.0 case where it was never set (backward compatibility)
@@ -483,14 +493,6 @@ async def generate_quip(ctx, is_manual=False, target_channel=None, on_message_fu
                 return
         else:
             log_action(f"Forcing social post due to max interval ({time_since_last/3600:.1f}h > {config.social_max_interval_hours}h)")
-
-        # The shared allowance for everything she says unprompted. Checked
-        # before generating, so a closed gate costs no model call.
-        from utils.core import unprompted
-        ok, why = unprompted.gate(bot_state, "quip")
-        if not ok:
-            log_debug(f"Quip held: {why}.")
-            return
 
     # Find target channel
     channel = target_channel
