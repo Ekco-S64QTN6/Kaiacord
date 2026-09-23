@@ -323,12 +323,14 @@ class MessageProcessor:
                         if self.rag:
                             from utils.core.sanitizer import summarize_link_context
                             author_display = msg.author.display_name or msg.author.name
-                            asyncio.create_task(
-                                self.rag.log_user_interaction_async(
-                                    msg.author.id, author_display,
-                                    summarize_link_context(msg.content), ""
-                                )
-                            )
+                            task_registry.register(
+                                f"observe_log_{uuid.uuid4().hex[:6]}",
+                                asyncio.create_task(
+                                    self.rag.log_user_interaction_async(
+                                        msg.author.id, author_display,
+                                        summarize_link_context(msg.content), ""
+                                    )
+                                ))
                     except Exception:
                         pass
                 return
@@ -1505,18 +1507,26 @@ class MessageProcessor:
             diversified_items = self.news_enhancer.diversify_news_results(news_items, ctx.author_id)
             self.news_enhancer.track_mentioned_news([i['id'] for i in diversified_items], ctx.author_id)
             
-            ctx.context_nodes = [node.text if hasattr(node, 'text') else str(node) for node in other_nodes]
-            ctx.context_nodes.extend([item['content'] for item in diversified_items])
+            # Nodes stay as nodes. `optimize_context` reads text and metadata
+            # through get_node_text/get_node_metadata; `str()` on a dict node
+            # put its Python repr, metadata and all, into the prompt.
+            ctx.context_nodes = list(other_nodes)
+            ctx.context_nodes.extend(
+                {'content': item['content'], 'metadata': item['metadata']}
+                for item in diversified_items)
         else:
             ctx.context_nodes = ctx.raw_nodes
 
         # Append legacy expansions if any (news_extra_0, news_extra_1, etc)
+        from utils.core.rag_utils import get_node_text as _node_text
+        _seen_texts = {_node_text(n) for n in ctx.context_nodes}
         for key, res in results.items():
             if key.startswith('news_extra_') and res:
                 for node in res:
-                    text = node.text if hasattr(node, 'text') else str(node)
-                    if text and text not in ctx.context_nodes:
-                        ctx.context_nodes.append(text)
+                    text = _node_text(node)
+                    if text and text not in _seen_texts:
+                        _seen_texts.add(text)
+                        ctx.context_nodes.append(node)
 
         # Self-Referential Continuity: detect when RAG retrieves Kaia's own dreams
         try:
@@ -1824,7 +1834,7 @@ class MessageProcessor:
                 ):
                     _queried_doc = None
                 _found_doc = False
-                if ctx.context_nodes:
+                if _queried_doc and ctx.context_nodes:
                     for n in ctx.context_nodes:
                         _meta = n.get('metadata', {}) if isinstance(n, dict) else getattr(n, 'metadata', {})
                         _fn = str(_meta.get('file_name', '') or _meta.get('file_path', '') or _meta.get('title', '')).lower()
@@ -1984,6 +1994,12 @@ class MessageProcessor:
         for turn in optimized_history:
             if isinstance(turn, dict) and 'role' in turn and 'content' in turn:
                 if turn.get('role') == 'system':
+                    # The one system turn history holds is the summary that
+                    # replaces its oldest 15 turns. Dropped here, those turns
+                    # were simply gone. It goes in as a bracketed note in the
+                    # user role rather than as a second system message.
+                    if str(turn['content']).startswith('[summary of earlier conversation'):
+                        messages.append({'role': 'user', 'content': turn['content']})
                     continue
                 # Scrub [CURRENT_TIME], [CURRENT_USER] and resolved date strings from history to prevent mimicry
                 # Handles: [CURRENT_TIME]: ..., CURRENT_TIME: ..., and legacy [CURRENT_TIME]/[CURRENT_USER]
@@ -2623,13 +2639,14 @@ class MessageProcessor:
                         if os.path.exists(continuity_path):
                             note = f"\n[{datetime.now().strftime('%Y-%m-%d %H:%M')}] {significance_reason} with {ctx.author_name}: {ctx.sanitized_content[:100]}"
                             try:
-                                with open(continuity_path, 'r', encoding='utf-8') as cf:
-                                    current_content = cf.read()
-                                new_content = current_content + note
-                                tmp_continuity = continuity_path + ".tmp"
-                                with open(tmp_continuity, 'w', encoding='utf-8') as cf:
-                                    cf.write(new_content)
-                                os.replace(tmp_continuity, continuity_path)
+                                from utils.core.atomic_write import write_atomic
+
+                                def _append_note():
+                                    with open(continuity_path, 'r', encoding='utf-8') as cf:
+                                        current_content = cf.read()
+                                    write_atomic(continuity_path, current_content + note)
+
+                                await asyncio.to_thread(_append_note)
                                 log_info(f"Continuity note appended atomically: {significance_reason} with {ctx.author_name}")
                             except Exception as _write_err:
                                 log_debug(f"Failed atomic write to continuity file: {_write_err}")
