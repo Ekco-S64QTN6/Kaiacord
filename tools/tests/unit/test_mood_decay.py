@@ -32,3 +32,22 @@ def test_reading_the_mood_does_not_decay_it_again(monkeypatch, tmp_path):
     expected = kaia_mood.BASELINE_AROUSAL + (1.0 - kaia_mood.BASELINE_AROUSAL) * 0.5 ** (
         3 * 3600 / kaia_mood.DECAY_HALF_LIFE)
     assert abs(once._mood.arousal - expected) < 1e-9
+
+
+def test_engagement_decays_once_per_idle_span(tmp_path):
+    """update_kaia_state runs twice in one turn before the interaction clock is
+    stamped; the second call must not apply the same idle span again."""
+    import time
+    from utils.infrastructure.system.bot_state import BotState
+
+    state = BotState(state_file=str(tmp_path / "bot_state.json"))
+    state.save = lambda: None
+    state.kaia_engagement = 0.8
+    state.last_interaction_time = time.time() - 10 * 3600
+
+    state.update_kaia_state()
+    first = state.kaia_engagement
+    state.update_kaia_state(coherence_sample=0.5)
+
+    assert abs(first - 0.8 * 0.5 ** (10 / 24)) < 1e-3
+    assert state.kaia_engagement == first
