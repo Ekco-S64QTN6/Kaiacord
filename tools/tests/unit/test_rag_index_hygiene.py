@@ -148,3 +148,35 @@ def test_only_descriptive_metadata_is_embedded():
     embedded = node.get_content(metadata_mode=MetadataMode.EMBED)
     assert "Tidal Locking" in embedded
     assert "/abs/path.md" not in embedded and "priority" not in embedded
+
+
+def test_clear_removes_the_index_and_keeps_runtime_state(tmp_path, monkeypatch):
+    import importlib.util
+    spec = importlib.util.spec_from_file_location("reindex_rag_under_test",
+                                                  "tools/maintenance/reindex_rag.py")
+    mod = importlib.util.module_from_spec(spec)
+    spec.loader.exec_module(mod)
+
+    store = tmp_path / "memory" / "rag_storage"
+    (store / "knowledge").mkdir(parents=True)
+    (store / "knowledge" / "docstore.json").write_text("{}")
+    (store / "file_manifest.json").write_text("{}")
+    (store / "dream_history.json").write_text('{"kept": true}')
+    (store / "kaia_continuity.md").write_text("kept")
+
+    monkeypatch.setattr(mod, "PROJECT_ROOT", tmp_path)
+    monkeypatch.setattr(mod, "_bot_running", lambda: False)
+    monkeypatch.setenv("KAIA_EMBED_GPU", "")  # the rebuild sets it; restored after
+
+    class _Stop(Exception):
+        pass
+
+    def _no_rag(*a, **k):
+        raise _Stop
+
+    monkeypatch.setattr(mod, "KaiaRAG", _no_rag)
+    import asyncio
+    with pytest.raises(SystemExit):
+        asyncio.run(mod.rebuild_rag(clear_storage=True))
+
+    assert sorted(p.name for p in store.iterdir()) == ["dream_history.json", "kaia_continuity.md"]

@@ -24,6 +24,11 @@ from utils.infrastructure.logging.kaia_logger import log_info, log_success, log_
 from utils.core.kaia_rag import KaiaRAG
 
 
+# What --clear removes: one directory per index type, and the manifests.
+INDEX_ARTEFACTS = ("persona", "user_profiles", "knowledge", "logs", "dreams",
+                   "file_manifest.json", "indexed_files.json")
+
+
 def _bot_running() -> bool:
     """True if a Kaiacord process is holding the GPU."""
     try:
@@ -71,19 +76,20 @@ async def rebuild_rag(clear_storage: bool = False, file_path: str = None,
         log_warning(warn)
     
     if clear_storage:
-        log_warning(f"CLEARING RAG storage directory: {persist_dir}")
-        if os.path.exists(persist_dir):
-            gitkeep_path = os.path.join(persist_dir, ".gitkeep")
-            has_gitkeep = os.path.exists(gitkeep_path)
-            
-            shutil.rmtree(persist_dir)
-            os.makedirs(persist_dir, exist_ok=True)
-            
-            if has_gitkeep:
-                with open(gitkeep_path, 'w') as f:
-                    pass
-            log_success("Storage directory cleared.")
-    
+        # Only the index. The directory also holds runtime state that is not
+        # rebuilt from the corpus — dream_history.json (which sources have
+        # been dreamed) and kaia_continuity.md — and an rmtree of the whole
+        # directory erased both.
+        log_warning(f"CLEARING RAG indices in: {persist_dir}")
+        for name in INDEX_ARTEFACTS:
+            target = os.path.join(persist_dir, name)
+            if os.path.isdir(target):
+                shutil.rmtree(target)
+            elif os.path.exists(target):
+                os.remove(target)
+        os.makedirs(persist_dir, exist_ok=True)
+        log_success("Indices cleared; other files in the directory kept.")
+
     # Embeddings default to CPU so a running bot keeps the 12b chat model in
     # VRAM. Nothing is holding that VRAM during an offline rebuild, and the job
     # is tens of thousands of embeddings, so use the GPU when the bot is not
