@@ -181,8 +181,9 @@ class TestProvenanceFormatting:
                     "file_path": f"/home/user/knowledge_base/books/very_long_directory_name/dream_20260203_001422_phillip_k_dick_do_androids_dream_of_electric_sheep_long_version_{i}.md"
                 }
             })
-        ctx.rag._last_retrieval_results = nodes
-        ctx.rag._last_retrieval_confidence = 0.88
+        from utils.infrastructure.monitoring import retrieval_trace
+        retrieval_trace.clear()
+        retrieval_trace.record("a question", 0.88, nodes)
 
         msg = AsyncMock()
         msg.author.name = "Ekco"
@@ -195,10 +196,8 @@ class TestProvenanceFormatting:
         assert msg.channel.send.called
         sent_embed = msg.channel.send.call_args[1].get("embed")
         assert sent_embed is not None
-        assert len(sent_embed.fields) > 0
-        field_val = sent_embed.fields[0].value
-        assert len(field_val) <= 1024
-        assert len(field_val) > 0
+        assert 0 < len(sent_embed.description) <= 4096
+        assert len(sent_embed) <= 6000
 
 
 

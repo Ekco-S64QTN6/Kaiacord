@@ -83,9 +83,8 @@ def test_explain_n_sends_an_embed_even_for_a_fenced_query():
     msg = _msg("!explain 1")
     asyncio.run(handle_explain_command(MagicMock(), msg, AsyncMock()))
     embed = msg.channel.send.call_args.kwargs["embed"]
-    assert "```" not in (embed.description or "")
-    assert embed.fields[0].name == "1. 💬 Ekco · chat · Sep 15"
-    assert "Ekco: hello there" in embed.fields[0].value
+    assert "```" not in embed.description and "\x1b" not in embed.description
+    assert "**1.** 💬 Ekco · chat · Sep 15" in embed.description
     retrieval_trace.clear()
 
 
@@ -120,3 +119,25 @@ def test_command_handlers_reply_in_the_box_not_raw_code_blocks():
             if send.search(line) and not line.lstrip().startswith("#"):
                 offenders.append(f"{path}:{n}")
     assert offenders == []
+
+
+def test_explain_lists_each_source_once_by_name():
+    from utils.commands.explain_handler import render_sources
+    rows = [{"score": 1.0, "source": "documents/Architecture - HyMem Hybrid Memory Systems.md",
+             "head": "HyMem page 1"}] * 8
+    embed = render_sources("t", "q", 1.0, 16, rows, "f", when="6 min ago")
+    lines = [l for l in embed.description.splitlines() if l.startswith("**")]
+    assert lines == ["**1.** 📄 HyMem Hybrid Memory Systems · 8 passages"]
+    assert "score" not in embed.description and "HyMem page 1" not in embed.description
+    assert "6 min ago" in embed.description
+
+
+def test_a_pasted_link_is_not_a_request_for_a_stored_document():
+    from utils.core.kaia_rag_query import RAGQueryMixin
+    turn = ("Kaia, https://pastebin.com/raw/abc\n\n[LINKED_WEB_CONTENT]\n"
+            "This document summarizes your memory systems report.\n")
+    own = RAGQueryMixin._own_words(turn)
+    assert "document" not in own and "pastebin" not in own
+    assert not RAGQueryMixin._is_document_request(own)
+    assert RAGQueryMixin._is_document_request(
+        RAGQueryMixin._own_words("kaia summarize the HyMem paper"))

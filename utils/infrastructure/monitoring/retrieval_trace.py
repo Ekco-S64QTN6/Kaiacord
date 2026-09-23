@@ -74,6 +74,7 @@ def record(query: str, confidence: float, nodes: List[Dict[str, Any]]) -> None:
                     "source": _source_of(node.get("metadata") or {}),
                     "category": (node.get("metadata") or {}).get("source_type", "unknown"),
                     "method": (node.get("metadata") or {}).get("retrieval_method", ""),
+                    "flags": list((node.get("metadata") or {}).get("audit_flags") or []),
                     "head": _head(node.get("content", "")),
                 }
                 for node in (nodes or [])[:8]

@@ -71,6 +71,19 @@ tell give show and for are there has have been kaia you your me some from over
 """.split())
 
 
+def _trace_whole_document(query: str, results) -> None:
+    """Record a whole-document retrieval in the !explain trace.
+
+    These paths return before the ordinary record, so `!explain` showed the
+    previous retrieval under the next reply, with no question attached.
+    """
+    try:
+        from utils.infrastructure.monitoring.retrieval_trace import record
+        record(query, 1.0, results)
+    except Exception:
+        pass
+
+
 class RAGQueryMixin:
     """Mixin class providing retrieval and query methods for KaiaRAG."""
 
@@ -109,7 +122,22 @@ class RAGQueryMixin:
     def _is_document_request(cls, query_lower: str) -> bool:
         return bool(cls._DOC_CUE.search(query_lower))
 
-    def _route_retrieval_strategy(self, category: str, query_lower: str, intent: Optional[Intent]) -> Dict[str, Any]:
+    @staticmethod
+    def _own_words(query: str) -> str:
+        """What the user typed, lowercased: no reply context, fetched page or URL.
+
+        Whether a turn asks for a stored document is a question about the
+        user's words. Asked of the whole enriched turn, a pasted link whose
+        page said "document" and "memory systems" was routed as a request to
+        summarise the HyMem paper, and its sixteen chunks became the context
+        for a reply about something else.
+        """
+        from utils.core.sanitizer import user_authored_text
+        own = user_authored_text(query or "")
+        return re.sub(r"\S+://\S+", " ", own).lower()
+
+    def _route_retrieval_strategy(self, category: str, query_lower: str, intent: Optional[Intent],
+                                  own_lower: Optional[str] = None) -> Dict[str, Any]:
         """Determine the retrieval strategy and flags based on intent and category."""
         strategy = intent.suggested_strategy if intent else None
         
@@ -131,13 +159,14 @@ class RAGQueryMixin:
             "error:" in query_lower or
             "log_info" in query_lower
         )
-        if not is_code_or_log and self._is_document_request(query_lower):
+        own = query_lower if own_lower is None else own_lower
+        if not is_code_or_log and self._is_document_request(own):
             for pat in self._FILENAME_REF_PATTERNS:
-                if pat.search(query_lower):
+                if pat.search(own):
                     is_doc_query = True
                     break
 
-        if is_doc_query and (strategy in [None, "EXPLORATORY_DIALOGUE", "PRECISE_RECALL", "CREATIVE_ASSOCIATION"] or any(w in query_lower for w in ["summarize", "summary", "overview", "breakdown", "what is in", "what does", "about", "read", "check"])):
+        if is_doc_query and (strategy in [None, "EXPLORATORY_DIALOGUE", "PRECISE_RECALL", "CREATIVE_ASSOCIATION"] or any(w in own for w in ["summarize", "summary", "overview", "breakdown", "what is in", "what does", "about", "read", "check"])):
             strategy = "SUMMARIZATION"
 
         if strategy == "PRECISE_RECALL":
@@ -801,7 +830,8 @@ class RAGQueryMixin:
             
         try:
             query_lower = query.lower()
-            routing = self._route_retrieval_strategy(category, query_lower, intent)
+            own_lower = self._own_words(query)
+            routing = self._route_retrieval_strategy(category, query_lower, intent, own_lower)
             if include_news:
                 # A news turn is not small talk, however short: "any news
                 # today?" routed as casual searched profiles and logs only.
@@ -810,12 +840,13 @@ class RAGQueryMixin:
                 routing["names_period"] = bool(_NAMED_PERIOD.search(query_lower))
 
             if routing["strategy"] == "SUMMARIZATION":
-                results = self._get_summarization_nodes(query_lower)
+                results = self._get_summarization_nodes(own_lower)
                 if results:
                     self._last_retrieval_results = results
                     self._last_retrieval_node_ids = []
                     self._last_retrieval_confidence = 1.0
                     self._last_retrieval_node_count = len(results)
+                    _trace_whole_document(query, results)
                     return results
             
             # Manifest title fast path: match query words against indexed
@@ -870,8 +901,8 @@ class RAGQueryMixin:
                 "action:" in query_lower or
                 "log_info" in query_lower
             )
-            _skip_fast_path = _skip_fast_path or not self._is_document_request(query_lower)
-            _query_words = set(re.findall(r'\w+', query_lower)) - _FAST_PATH_QUERY_STOPS
+            _skip_fast_path = _skip_fast_path or not self._is_document_request(own_lower)
+            _query_words = set(re.findall(r'\w+', own_lower)) - _FAST_PATH_QUERY_STOPS
             if len(_query_words) >= 2 and not _skip_fast_path:
                 _best_path = None
                 _best_score = 0
@@ -908,6 +939,7 @@ class RAGQueryMixin:
                         self._last_retrieval_confidence = 1.0
                         self._last_retrieval_node_count = len(_fname_results)
                         log_success(f"Manifest title fast path resolved {len(_fname_results)} nodes")
+                        _trace_whole_document(query, _fname_results)
                         return _fname_results
 
             # Filename-reference fast path — runs regardless of routing strategy, but skipped on raw logs/code.
@@ -915,7 +947,7 @@ class RAGQueryMixin:
             # "kaia check X", explicit filename pastes with dashes/underscores.
             if not _skip_fast_path:
                 for _pat in self._FILENAME_REF_PATTERNS:
-                    _match = _pat.search(query_lower)
+                    _match = _pat.search(own_lower)
                     if _match:
                         _hint = _match.group(1).strip()
                         if len(_hint) >= 6:  # Ignore short accidental matches
@@ -927,6 +959,7 @@ class RAGQueryMixin:
                                 self._last_retrieval_confidence = 1.0
                                 self._last_retrieval_node_count = len(_fname_results)
                                 log_success(f"Filename fast path resolved {len(_fname_results)} nodes for '{_hint}'")
+                                _trace_whole_document(query, _fname_results)
                                 return _fname_results
                         break
             

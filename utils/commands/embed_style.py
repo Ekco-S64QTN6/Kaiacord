@@ -145,7 +145,9 @@ def describe_source(source: str) -> str:
         return f"📖 {shorten(title, 70)}"
     icons = {"wiki": "📚", "troubleshooting": "🛠️", "transcripts": "🎬",
              "documents": "📄", "runtime": "🗂️"}
-    return f"{icons.get(top, '📄')} {shorten(stem, 70)}"
+    # "<Topic> - <Title>" and "Project 1999 Wiki - <Page>": the title is the name.
+    title = stem.split(" - ", 1)[1] if " - " in stem else stem
+    return f"{icons.get(top, '📄')} {shorten(title.replace('_', ' '), 70)}"
 
 
 def notice(text: str, error: bool = False, title: str = "") -> discord.Embed:
