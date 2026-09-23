@@ -770,6 +770,16 @@ retrieval never reported:
   the day's brief, kept for `!news`), forum threads and post histories, and anything without a
   source file. `RelevanceFeedback` used to insert synthetic Q/A copies of her own answers; it
   no longer writes.
+- **News and dreams are dated by their filename.** `timestamp` was the file mtime, and
+  enrichment rewrites old briefs, so recency could not tell February from yesterday.
+- **Retrieval, not just indexing, decides what she can know.** Chat always passed
+  `include_news=False`, and the scorer drops every news node then — the corpus that costs a
+  Gemini call a day was never retrieved. News is included when the turn asks about it; a turn
+  asking for what is *current* is also offered the newest briefs on its topic
+  (`_latest_news_candidates`), and one that names its period ("in June") is not decayed by age.
+  And four words or fewer meant casual, which searches only profiles and logs, so "who wrote
+  Neuromancer?" never reached the book — `_is_short_question` keeps real short questions out of
+  that bucket. Check a change here by asking the index real questions, not by reading scores.
 - **`reindex_rag.py --clear` removes only the index artefacts.** `dream_history.json` and
   `kaia_continuity.md` live in the same directory and are not rebuilt from anything.
 
