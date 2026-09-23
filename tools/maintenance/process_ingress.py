@@ -112,8 +112,9 @@ _TITLE_PROMPT = (
 
 def derive_topic_and_title(body: str, fallback_title: str, client=None,
                            model: str = None) -> tuple:
-    """-> (topic, title, summary, keywords). See the module docstring."""
-    """Ask the model for a topic and a real title.
+    """Ask the model for a topic, a real title, a summary and keywords.
+
+    Returns (topic, title, summary, keywords).
 
     The previous behaviour was `title = meta["title"] or titlecase(stem)` with
     `category` hardcoded to "Reference". For anything without a scraped title —
@@ -348,8 +349,13 @@ def process_one(md_path: Path, dry_run: bool = False) -> tuple[bool, str]:
     # which produced summaries starting mid-clause ("on resilience to loss of
     # control correctly focuses on…") and keyword lists that were the title
     # followed by its individual words.
-    summary = meta.get("summary") or better_summary or trim_summary(first_paragraph(body))
-    keywords = better_keywords or derive_keywords(title, author, body)
+    # The page's own description (`page_summary`) and keywords come next: they
+    # were written by the publisher, which beats anything cut from the body.
+    summary = (meta.get("summary") or better_summary
+               or trim_summary(meta.get("page_summary") or "")
+               or trim_summary(first_paragraph(body)))
+    page_keywords = [str(k).strip() for k in (meta.get("keywords") or []) if str(k).strip()]
+    keywords = better_keywords or page_keywords or derive_keywords(title, author, body)
 
     front = build_frontmatter(
         title=title, author=author, category=meta.get("category") or topic,

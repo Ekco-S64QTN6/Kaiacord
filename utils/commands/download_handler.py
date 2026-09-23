@@ -10,7 +10,6 @@ from urllib.parse import urlparse, unquote
 from utils.infrastructure.logging.kaia_logger import log_action, log_error, log_warning, log_debug
 from utils.core.sanitizer import is_safe_url
 from utils.core.atomic_write import write_atomic
-from utils.core.frontmatter import dump_frontmatter
 
 # Max download size: 10MB
 MAX_DOWNLOAD_BYTES = 10 * 1024 * 1024
@@ -196,35 +195,15 @@ async def _download_and_convert(url: str, username: str, user_id: str) -> dict:
 
     markdown_body = _clean_markdown(markdown_body)
 
-    # Build metadata frontmatter
     now = datetime.now()
-    date_str = now.strftime('%Y-%m-%d')
-    clean_title = _escape_yaml(title or "")
-    clean_author = _escape_yaml(meta_info.get('author', ''))
-    clean_summary = _escape_yaml(meta_info.get('summary', ''))
     keywords = meta_info.get('keywords', [])
     if isinstance(keywords, str):
         keywords = [k.strip() for k in keywords.split(',') if k.strip()]
 
-    doc_type = "article"
+    doc_type = "Article"
     if file_type == "pdf":
-        doc_type = "whitepaper" if any(w in clean_title.lower() for w in ["whitepaper", "report", "study"]) else "document"
+        doc_type = "Whitepaper" if any(w in (title or "").lower() for w in ["whitepaper", "report", "study"]) else "Document"
 
-    # Through the YAML writer rather than by quoting each value. `!download` is
-    # open to every user, so the title, the summary and the URL are all
-    # attacker-adjacent text; `_escape_yaml` above handled the quote but not a
-    # value that starts with `[`, a colon-space, or a trailing backslash.
-    fields = {"title": clean_title}
-    if clean_author:
-        fields["author"] = clean_author
-    fields["summary"] = clean_summary or ""
-    fields["keywords"] = [_escape_yaml(kw) for kw in keywords[:10]]
-    fields["document_type"] = doc_type
-    fields["date"] = date_str
-    fields["source_url"] = url
-
-    frontmatter = dump_frontmatter(fields) + "\n"
-    
     # Ensure title heading exists at top of body for strong RAG chunk weighting
     if title and not markdown_body.strip().startswith('#'):
         markdown_body = f"# {title}\n\n{markdown_body}"
@@ -240,9 +219,12 @@ async def _download_and_convert(url: str, username: str, user_id: str) -> dict:
     ingress_dir.mkdir(parents=True, exist_ok=True)
     filepath = ingress_dir / filename
 
-    write_atomic(filepath, markdown_body)
     # Sidecar carries everything the processor needs plus provenance, so the
-    # finished document can say who submitted it and from where.
+    # finished document can say who submitted it and from where. The page's
+    # own author, description and keywords go with it: process_ingress builds
+    # the frontmatter, and falls back on these when the model gives nothing.
+    # It is written before the document so the hourly processor can never pick
+    # up a document whose sidecar has not landed yet.
     sidecar = {
         'title': title,
         'source_url': url,
@@ -251,10 +233,16 @@ async def _download_and_convert(url: str, username: str, user_id: str) -> dict:
         'submitted_at': now.isoformat(),
         'folder': folder,
         'content_type': file_type,
+        'document_type': doc_type,
     }
-    filepath.with_suffix('.meta.json').write_text(
-        json.dumps(sidecar, indent=2), encoding='utf-8'
-    )
+    if meta_info.get('author'):
+        sidecar['author'] = meta_info['author']
+    if meta_info.get('summary'):
+        sidecar['page_summary'] = meta_info['summary']
+    if keywords:
+        sidecar['keywords'] = keywords[:10]
+    write_atomic(filepath.with_suffix('.meta.json'), json.dumps(sidecar, indent=2))
+    write_atomic(filepath, markdown_body)
 
     word_count = len(markdown_body.split())
 
@@ -538,11 +526,6 @@ def _title_from_url(url: str) -> str:
     
     # Fall back to domain
     return urlparse(url).netloc
-
-
-def _escape_yaml(text: str) -> str:
-    """Escape text for YAML string value."""
-    return text.replace('"', '\\"').replace('\n', ' ')
 
 
 def _trigger_reindex():
