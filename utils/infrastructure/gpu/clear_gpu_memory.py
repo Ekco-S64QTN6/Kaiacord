@@ -23,6 +23,13 @@ def clear_gpu_memory(silent: bool = False):
         if not silent:
             log_info("CUDA not available")
         return
+
+    # Nothing of ours is on the GPU unless this process initialised CUDA, and
+    # the bot never does — inference is Ollama's. empty_cache() and
+    # synchronize() would *create* a context here, which is how "clearing GPU
+    # memory" put 104 MiB of the bot on a card with 200 MiB to spare.
+    if not torch.cuda.is_initialized():
+        return
     
     if not silent:
         log_info("Clearing GPU memory...")
@@ -61,9 +68,9 @@ def force_clear_gpu() -> bool:
     except ImportError:
         return True  # No torch = nothing to clear = success
     
-    if not torch.cuda.is_available():
-        return True
-    
+    if not torch.cuda.is_available() or not torch.cuda.is_initialized():
+        return True  # no CUDA context in this process: nothing to release
+
     try:
         # Step 1: Standard cleanup (Reduced loops for efficiency)
         for _ in range(2):
