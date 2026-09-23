@@ -1167,7 +1167,8 @@ class RAGIndexerMixin:
                     await asyncio.sleep(2.0)
                     await self.refresh_knowledge_base(max_concurrent_files)
                     
-                asyncio.create_task(trigger_refresh())
+                from utils.infrastructure.monitoring.async_task_registry import task_registry
+                task_registry.register("rag_trigger_refresh", asyncio.create_task(trigger_refresh()))
 
     def _convert_pdf_to_md(self, pdf_path: str) -> Optional[str]:
         """Convert a PDF file to a Markdown file by extracting text."""

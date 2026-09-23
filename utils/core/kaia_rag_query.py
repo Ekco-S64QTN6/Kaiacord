@@ -387,7 +387,10 @@ class RAGQueryMixin:
                         log_success(f"Repaired {itype} index by removing stale Node {stale_node_id} in-memory. Retrying retrieval...")
                         
                         # Defer slow disk persistence to a background thread to prevent query lag
-                        asyncio.create_task(asyncio.to_thread(self.persist, force=True))
+                        from utils.infrastructure.monitoring.async_task_registry import task_registry
+                        task_registry.register(
+                            f"rag_repair_persist_{itype}",
+                            asyncio.create_task(asyncio.to_thread(self.persist, force=True)))
                         
                         return await self._execute_hybrid_retrieval(itype, query, retrieve_count, _retry_count + 1)
                     except Exception as repair_err:
