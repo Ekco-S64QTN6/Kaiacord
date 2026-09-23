@@ -57,8 +57,7 @@ async def handle_enrich_command(ctx, msg, send_kaia_response):
 
         # Build command
         cmd = [sys.executable, str(script_path.absolute()), "--category", category, "--limit", str(limit)]
-        if is_dry_run:
-            cmd.append("--dry-run")
+        cmd.append("--dry-run" if is_dry_run else "--apply")
 
         # Run as subprocess with explicit cwd (Fix 2)
         process = await asyncio.create_subprocess_exec(

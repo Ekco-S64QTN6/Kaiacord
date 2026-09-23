@@ -153,3 +153,12 @@ def test_no_maintenance_tool_has_unreachable_code_after_a_return():
                         nxt = block[block.index(stmt) + 1]
                         offenders.append(f"{p}:{nxt.lineno}")
     assert not offenders, f"unreachable code: {offenders[:10]}"
+
+
+def test_enrichment_writes_only_with_apply_and_its_callers_pass_it():
+    """A corpus-wide writer defaults to a dry run; the nightly task and
+    `!enrich` have to ask for the write, and the audit's advice has to parse."""
+    src = Path("tools/maintenance/enrich_metadata.py").read_text(encoding="utf-8")
+    assert '"--apply"' in src and "args.dry_run or not args.apply" in src
+    assert '"--apply"' in Path("utils/core/background_tasks.py").read_text(encoding="utf-8")
+    assert '"--apply"' in Path("utils/commands/enrich_handler.py").read_text(encoding="utf-8")

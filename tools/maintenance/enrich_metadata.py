@@ -296,13 +296,16 @@ def gather_files(base_dir: str, category_flag: str) -> list[tuple[Path, str]]:
 
 async def main_async():
     parser = argparse.ArgumentParser(description="Enrich missing frontmatter metadata.")
-    parser.add_argument("--dry-run", action="store_true", help="Print changes without saving.")
+    # A corpus-wide writer defaults to a dry run (CLAUDE.md §10).
+    parser.add_argument("--apply", action="store_true", help="Write the metadata (default: report only).")
+    parser.add_argument("--dry-run", action="store_true", help="Report only (the default; kept for old callers).")
     parser.add_argument("--category", choices=['all', 'knowledge', 'logs'], default='all', help="Specific category to enrich.")
     parser.add_argument("--dir", default="./knowledge_base", help="Path to knowledge base root.")
     parser.add_argument("--limit", type=int, default=50, help="Max files to process per run (default 50).")
     args = parser.parse_args()
     
     log_info(f"Scanning knowledge base at: {Path(args.dir).absolute()}")
+    args.dry_run = args.dry_run or not args.apply
     log_action(f"Starting Metadata Enrichment (Dry Run: {args.dry_run}, Category: {args.category})")
     
     files = gather_files(args.dir, args.category)

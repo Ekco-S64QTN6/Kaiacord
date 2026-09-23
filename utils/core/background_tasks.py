@@ -327,7 +327,7 @@ class CoreTaskManager:
             try:
                 proc = await asyncio.create_subprocess_exec(
                     _sys.executable, str(script), "--category", "all",
-                    "--limit", str(limit),
+                    "--limit", str(limit), "--apply",
                     stdout=asyncio.subprocess.PIPE,
                     stderr=asyncio.subprocess.PIPE,
                     cwd=str(root),
