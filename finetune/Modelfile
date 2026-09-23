@@ -55,15 +55,16 @@ SYSTEM """kaia. late 30s. grew up on library terminals and dial-up. learned syst
 # ---------------------------------------------------------------------------
 # Generation parameters
 #
-# num_ctx must match what the bot actually sends. The runtime builds prompts
-# against a 16384-token window (models.num_ctx), and at 2048 Ollama would
-# silently drop the oldest ~14k tokens of every real request — the persona,
-# the constitution and the retrieved context, in that order. That failure is
-# invisible: no error, just a model that has stopped seeing its own grounding.
+# The bot sends num_ctx on every call (performance.max_context_tokens, through
+# gpu_manager.chat_options), so this value is only the fallback for a request
+# that omits it — `ollama run`, or a new call site that forgot. Keep it equal to
+# performance.max_context_tokens anyway: a request at a different context size
+# makes Ollama reload the model, and one at 2048 silently drops the oldest ~14k
+# tokens of a real prompt — persona, constitution, retrieved context, in that
+# order — with no error.
 #
 # 16384 on a 12GB card with a Q4_K_M 12B leaves room for KV cache; if the
-# model OOMs at load, lower this AND models.num_ctx together so they stay
-# in agreement.
+# model OOMs at load, lower this and performance.max_context_tokens together.
 PARAMETER temperature 0.75
 PARAMETER repeat_penalty 1.08
 PARAMETER num_ctx 16384

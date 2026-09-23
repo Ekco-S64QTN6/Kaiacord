@@ -29,13 +29,14 @@ venv/bin/python3 -m pytest tools/tests/unit/test_response_filters.py::test_harde
 4. **Skipping External Services** (the invocation to use by default):
 ```bash
 venv/bin/python3 -m pytest -q -m "not ollama and not gpu and not slow"
-# 2026-09-21: 1,687 passed, 10 skipped, 83 deselected, 1 xfailed.
+# 2026-09-22: 1,696 passed, 9 skipped, 85 deselected, 1 xfailed.
 # Re-run rather than trusting this line — the count moves every phase, and it
 # has been stale in three files at once. What matters is that nothing failed.
 ```
-Only **2** tests need Ollama or a GPU. The rest of what that invocation deselects is the 81
-marked `slow` (82 of them). A bare `pytest -q` runs them, which loads `gemma3:12b` and evicts the production
-model from VRAM.
+Only **4** tests need Ollama or a GPU. The rest of what that invocation deselects is the 82
+marked `slow`. A bare `pytest -q` runs them, which loads `gemma3:12b` and evicts the production
+model from VRAM. A test that reaches the Ollama daemon at all — even just to embed — is marked
+`ollama`; two were not, and ran against the bot's own daemon on every run.
 
 Markers are declared in `pytest.ini` under `--strict-markers`, so a typo'd marker is an error
 rather than a silently ignored one: `slow`, `gpu`, `ollama`, `network`, `integration`.

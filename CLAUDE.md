@@ -60,8 +60,11 @@ number has been stale in three files at once — CLAUDE.md, README and CONTRIBUT
 different one. Run it and read the tail; what matters is that nothing *failed*, not that the count
 matches a doc.
 
-The no-external-services invocation is the default because only **2** of ~1,780 tests need Ollama
-or a GPU. The rest of what it deselects is the 82 marked `slow`. The full `pytest -q` additionally
+The no-external-services invocation is the default because only **4** of ~1,790 tests need Ollama
+or a GPU. The rest of what it deselects is the 82 marked `slow`. Two of the four were unmarked
+until September 2026 and ran on every "no external services" invocation, embedding through the
+bot's own live Ollama — Ollama's journal (`journalctl -u ollama`) is where that showed up. A test
+that touches the daemon is marked `ollama`, whatever else it does. The full `pytest -q` additionally
 loads `gemma3:12b`, which evicts the production model from VRAM.
 
 Markers are declared in `pytest.ini` under `--strict-markers`, so a typo'd marker is an error
@@ -179,6 +182,13 @@ Verified 2026-09-20: **369 monsters**, **395 gear + 58 consumables = 453 items**
 - **GPU is reserved for Ollama.** No CUDA, Numba, or PyCUDA for non-LLM work. CPU + NumPy only.
   All Ollama calls go through `gpu_memory_manager` with an appropriate `GPUTaskPriority`
   (`grep -rc run_with_gpu_guard utils/` for current call sites).
+- **Every call to the chat model sends the same runner options.** Ollama keeps one runner per
+  model and reloads it whenever a request's `num_ctx`, `num_gpu`, `num_thread` or `main_gpu`
+  differ from the loaded one. Build options with `gpu_manager.chat_options(**overrides)` — it
+  returns the shared runner options, and overrides are for sampling (`temperature`,
+  `num_predict`) only. Six call sites built their own dicts, and the monologue, sending no
+  `num_ctx` at all, reloaded gemma3 at 4,096 context every 15 minutes; the next chat turn paid a
+  full reload back. `journalctl -u ollama | grep "n_ctx  "` shows every reload and its size.
 - **That guard is process-local.** `gpu_semaphore` is a module-level `asyncio.Semaphore(1)`, so a
   standalone tool gets its own and coordinates with nothing the bot is doing. What keeps a batch
   job from colliding with live chat is the Ollama daemon queueing per model — so the cost is
@@ -186,6 +196,12 @@ Verified 2026-09-20: **369 monsters**, **395 gear + 58 consumables = 453 items**
   Run long batches when nobody is talking to her, and keep every one of them resumable.
   `docs/03-architecture/gpu-management.md` said BACKGROUND priority "yields to live chat" and made
   this sound safer than it is; it is true inside the bot and false for every tool in `tools/`.
+- **A decay applied on read must advance its own clock.** `kaia_mood._apply_decay` decayed mood
+  over the span since the last *interaction* and never moved that mark, so every reader between
+  two interactions — the prompt injection, the proactive opener, `update()` itself — applied the
+  same span again. Arousal fell twice as fast as its 6-hour half-life and energy overshot its
+  regeneration ceiling: her mood depended on how often something asked. `bot_state`'s engagement
+  decay had the same shape. `kaia_desires._accrue` is the correct one to copy.
 - **`secrets` for security-relevant randomness** (combat rolls, loot, tokens). `random` is fine
   for flavour (dream shuffling, world-event variety).
 
@@ -206,9 +222,9 @@ Verified 2026-09-20: **369 monsters**, **395 gear + 58 consumables = 453 items**
 
 ### Token budget
 
-The context window is 16,384 tokens. `optimize_context()` in `context_optimizer.py` reserves
-`system_reserve_tokens` + `max_response_tokens` + the user message, then splits the remainder
-between RAG and history. **Anything you add to the system prompt comes out of retrieval.**
+The context window is `performance.max_context_tokens` (16,384 by default). `optimize_context()`
+in `context_optimizer.py` reserves `system_reserve_tokens` + `max_response_tokens` + the user
+message, then splits the remainder between RAG and history. **Anything you add to the system prompt comes out of retrieval.**
 
 Two blocks are expensive enough to be switchable:
 
@@ -260,7 +276,7 @@ regenerations; using clause mode on mid-sentence patterns left grammar rubble
 **Whichever mode you pick, check what the excision leaves behind.** This is the failure that
 keeps recurring, in both modes: clause mode strands the half of the sentence that depended on
 what it removed, and a *substring* excision inside a clause takes the grammar with it, because
-the removed span is usually the subject. Four guards shipped it in two weeks:
+the removed span is usually the subject. Four guards shipped it, two of them in more than one shape:
 
 | Guard | Wrote | Shipped |
 |:--|:--|:--|
@@ -268,6 +284,8 @@ the removed span is usually the subject. Four guards shipped it in two weeks:
 | `PROMPT_ECHO_GUARD` | `the "dead internet theory" is… concerning.` | `the is… concerning.` |
 | `DIRECTIVE_LEAK_GUARD` | `the system warning is unhelpful on its own.` | `theis unhelpful on its own.` |
 | `SYCOPHANCY_GUARD` | `it's a complicated issue, and your observation is astute.` | `it's a complicated issue, and .` |
+| `APOLOGY_GUARD` | `i apologize for the unwarranted accusation.` | `the unwarranted accusation.` |
+| `SYCOPHANCY_GUARD` | `your observation … is astute and technically sound.` | `and technically sound.` |
 
 The `PROMPT_ECHO` one was queued to the Project 1999 forum for review before anyone noticed.
 Every one of them logged **"Trimmed offending clause, kept substance"** or the equivalent while
@@ -291,6 +309,11 @@ Rules that follow:
 - `strip_prompt_echo` declines outright when the span is the subject of its sentence. Quoting
   someone's term to refer to the thing is how you refer to a thing, and was never the fault that
   guard was written for.
+- **A pattern must not swallow the word the fragment checks key on.** `i\s+apologi[sz]e\s+for`
+  consumed the `for`, so the dangling-tail check — which already treats a tail opening on `for`
+  as the rest of the offence — never saw one. Match up to the boundary and leave the connector
+  in the tail with a lookahead. The same goes for the praised noun: `that's an astute` stopping
+  before `observation` stranded it.
 - Punctuation is not survival. `tail.strip()` on a bare `"."` is truthy, so the trailing-connector
   repair never ran when the offence reached the end of the sentence.
 
@@ -386,7 +409,7 @@ and fix this table when it disagrees with the code.
 | **Discord chat** | `MessageProcessor.process()` | Full cognitive pipeline, RAG, intent classification, full safety pipeline |
 | **Proactive opener** | `kaia_proactive.py` → `generate_opener()` | Selective injections; `harden()` + contamination filter + style collapsers |
 | **Afterthought** | `background_tasks.py` | Emotional arc + channel memory; full post-generation pipeline |
-| **Forum auto-post** | `background_tasks.py` → `_make_forum_auto_post_task()` | **Through the pipeline**: `forum_drafting.draft_forum_reply()` → `process_external_mention()`. The thread is seeded into `channel_memory` as conversation history — under an **int** key, because that is what `ctx.channel_id` is. It was `str()`-wrapped until Sept 18, so no forum draft ever had history and every one was generated cold. Images in the post pass as `image_urls` and reach the vision model through the same `MockMessage.attachments` path Discord uses. |
+| **Forum auto-post** | `background_tasks.py` → `_make_forum_auto_post_task()` | **Through the pipeline**: `forum_drafting.draft_forum_reply()` → `process_external_mention()`. The thread is seeded into `channel_memory` as conversation history — under an **int** key, because that is what `ctx.channel_id` is. It was `str()`-wrapped until Sept 18, so no forum draft ever had history and every one was generated cold. Images in the post pass as `image_urls` and reach the vision model through the same `MockMessage.attachments` path Discord uses. `!forum reply <id>` drafts through the same function; its old direct-to-Ollama version had never worked. |
 | **Forum tech support** | `background_tasks.py` → `_make_forum_tech_support_task()` | Direct call, BM25/hybrid grounded, mandatory disclaimer footer |
 | **Social responder** | `kaia_social_responder.py` → `mock_external_mention()` | **Through the pipeline**: builds a `MockMessage` and hands it to the normal `on_message` handler |
 | **Quip / social thread** | `social_response_generator.py` | **Through the pipeline** via `process_external_mention(platform="broadcast")` |
@@ -533,7 +556,7 @@ the gate itself are configurable (`desires.initiate_threshold`, `desires.gate_en
 ### Telemetry that lies
 
 **Do not trust a success line. Check what was actually transmitted.** This is the single most
-productive check in this codebase; a September 2026 review found ten instances, every one of which
+productive check in this codebase. Every one of these was found in September 2026, and every one
 had misled someone:
 
 - `"Observation digest broadcast to chat"` fired after sending an unrelated one-liner the opener
@@ -547,6 +570,10 @@ had misled someone:
 - `_dispatch_proactive` returned `False` with no log at all when the channel id did not resolve.
   `"Proactive message sent"` appeared once in the entire log.
 - `[ELLIPSIS_COLLAPSE]` could not match a lone `…`, so it fired on 0 responses ever.
+- `"desire gate closed (pressure 0.04 < 0.12)"` printed the class default `INITIATE_THRESHOLD`,
+  while the gate compared against `desires.initiate_threshold` from config. They agreed only
+  because nobody had changed the setting. Anything reporting the gate reads
+  `desire_engine.initiate_threshold()`.
 - `[APOLOGY_GUARD] Trimmed offending clause, kept substance` logged eight times in one day while
   emitting `'starkind,  to point that out.'` and `'lune,  to call me out.'` The dangling-tail
   repair ran only when the excised clause had *nothing* in front of it, so every sentence with a
@@ -876,10 +903,12 @@ user messages.
 
 Two constraints that are easy to break and silent when broken:
 
-- **`num_ctx` in the Modelfile must equal `models.num_ctx`** (16,384). The runtime builds prompts
-  against that window; at Ollama's 2,048 default it discards the oldest ~14k tokens of every
-  request — persona, constitution, retrieved context, in that order — with no error and no log
-  line. If the model OOMs at load, lower both together.
+- **`num_ctx` in the Modelfile should equal `performance.max_context_tokens`.** The bot sends
+  `num_ctx` on every call, so the Modelfile value is only the fallback for a request that omits
+  it — `ollama run`, or a call site built without `chat_options`. Such a request at a different
+  size reloads the model, and at 2,048 it discards the oldest ~14k tokens of a real prompt —
+  persona, constitution, retrieved context, in that order — with no error. If the model OOMs at
+  load, lower both together.
 - **A fine-tuned model is meant to replace the runtime injection, not stack with it.** The
   `SYSTEM` block is the short prompt the weights were trained against, and the bot overrides it
   every turn with the full persona plus the constitution — a model that has learned the voice and

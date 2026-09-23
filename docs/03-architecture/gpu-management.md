@@ -21,7 +21,14 @@ so the model, its dispatch and its warm-up were removed. Intent is regex only.
 Kaia is optimized for continuous presence on a single 12GB GPU. Unlike previous versions that swapped models in and out, the current architecture keeps the chat model permanently loaded and offloads all auxiliary inference to CPU.
 
 ### 1. Residency Policy
-- **Chat Model** (`gemma3:12b`): Stays loaded in VRAM permanently. Never unloaded.
+- **Chat Model** (`gemma3:12b`): Stays loaded in VRAM permanently — *provided every request asks
+  for the same runner*. Ollama keeps one runner per model and reloads it whenever a request's
+  `num_ctx`, `num_gpu`, `num_thread` or `main_gpu` differ from the loaded one, so a single call
+  that builds its own options evicts the chat runner and the next chat turn pays a full reload.
+  Build options with `gpu_manager.chat_options(**overrides)` and override sampling
+  (`temperature`, `num_predict`) only. Until September 2026 the inner monologue sent no
+  `num_ctx`, and its journal entries show gemma3 reloading at 4,096 context every 15 minutes.
+  `journalctl -u ollama | grep "n_ctx  "` lists every load with its context size.
 - **Embedding Model** (`nomic-embed-text-cpu`): Runs on CPU via `ollama_additional_kwargs: {"num_gpu": 0}`. Zero VRAM usage.
 
 ### 2. Context Window Optimization
@@ -29,9 +36,17 @@ Kaia is optimized for continuous presence on a single 12GB GPU. Unlike previous 
   The per-turn budget subtracts `system_reserve_tokens` and `max_response_tokens` before
   splitting the remainder between RAG and history, so anything added to the system prompt
   comes directly out of retrieval headroom.
-- **VRAM Impact**: Approximately 0.6GB of KV cache on top of the model weights.
-- **Budget**: 7GB (gemma3:12b) + 0.6GB (KV cache) + 0.5GB (system overhead) = ~8.1GB total.
-- **Headroom**: ~4GB remains for OS, display buffers, and transient allocations.
+- **VRAM Impact**, measured from Ollama's own load lines — gemma3 keeps a full-length KV cache
+  for its global layers and a 1,536-cell one for its sliding-window layers:
+
+  | `max_context_tokens` | Weights | KV cache | Compute | Total |
+  |:--|:--|:--|:--|:--|
+  | 16,384 | 6.8 GiB | 1.5 GiB | 0.1 GiB | ~8.4 GiB |
+  | 24,576 | 6.8 GiB | 2.0 GiB | 0.1 GiB | ~8.9 GiB |
+
+  All 49 layers stay on the GPU at either size. Ollama's scheduler *predicts* far more (16 GiB
+  at 24,576) and logs "predicted to exceed available memory, evicting" — that is its
+  estimate, not the allocation, and what it evicts is the CPU embedding runner.
 
 ### 3. GPU Semaphore Guard
 The system uses a global `asyncio.Semaphore(1)` to prevent concurrent GPU access:

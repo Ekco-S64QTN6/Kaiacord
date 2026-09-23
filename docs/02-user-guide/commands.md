@@ -25,7 +25,7 @@ All commands are prefixed with `!`. Admin commands are restricted to the project
 | `!reindex` | Trigger background knowledge base reindexing | Admin |
 | `!selfmodel` | Regenerate Kaia's self-model | Admin |
 | `!sysmon` | System monitoring dashboard | Admin |
-| `!explain` | Deep-dive into RAG retrieval logic | Admin |
+| `!explain [n]` | Where the last answer's retrieved context came from, or the *n*-th most recent | All |
 
 ---
 
@@ -88,8 +88,10 @@ fetch in that case.
 ### 📢 Quip (`!quip`)
 Triggers a social media quip — a short post cross-posted to Bluesky and/or X, grounded in Kaia's recent conversation history. 10-minute cooldown for non-owners.
 
-### 🔍 Explain (`!explain`)
+### 🔍 Explain (`!explain [n]`)
 Deep-dive into the RAG retrieval logic for the last response — shows top retrieved sources with similarity scores, retrieval method (HYBRID/VECTOR/BM25/INJECTION), clean category paths, and audit flags in color-coded ANSI code blocks.
+
+`!explain 3` shows the third-most-recent retrieval instead, from a short in-memory history, so an answer can still be checked after someone else has spoken. The history does not survive a restart. Open to everyone: it shows what a previous answer was grounded in and changes nothing.
 
 ### 🏟️ Forum (`!forum`)
 Manages VBulletin 3.x integration and Discord ↔ Forum identity linking.
@@ -99,7 +101,7 @@ Manages VBulletin 3.x integration and Discord ↔ Forum identity linking.
 - `!forum stats` — Scraper totals (threads, posts, users).
 - `!forum read <thread_id>` — Read last posts from a thread.
 - `!forum post <thread_id> <message>` — Post a manual reply.
-- `!forum reply <thread_id>` — Trigger an AI-generated reply.
+- `!forum reply <thread_id>` — Draft a reply through the same pipeline as the auto-poster (retrieval, thread history, images) and show it with Post / Cancel / Regenerate buttons. Nothing is posted until you press Post.
 - `!forum user <user_id>` — Deep-scrape a user's full post history.
 
 ---

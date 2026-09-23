@@ -51,7 +51,7 @@ Core utility modules used by Kaiacord.
 | `logging/kaia_logger.py` | Structured logging |
 | `monitoring/retrieval_trace.py` | In-memory ring buffer of recent RAG retrievals, so `!explain N` can look past the single cached one |
 | `monitoring/btop_dashboard_v2.py` | Live curses monitoring dashboard |
-| `monitoring/async_task_registry.py`| Background task lifecycle tracking |
+| `monitoring/async_task_registry.py`| Background task lifecycle tracking. Register fire-and-forget tasks here: asyncio holds tasks weakly, so a bare `create_task` can be collected mid-run |
 | `monitoring/watchdog.py` | Event loop health monitor |
 | `monitoring/stats_tracker.py` | Thread-safe forum and pipeline statistics counter |
 | `monitoring/stats_poller.py` | Background poller for hardware and cognitive telemetry |
@@ -60,7 +60,7 @@ Core utility modules used by Kaiacord.
 
 | Module | Purpose |
 |--------|---------|
-| `gpu_manager.py` | Ollama GPU options |
+| `gpu_manager.py` | Ollama GPU options. `chat_options(**overrides)` is how every chat-model call builds its options — the runner options must match or Ollama reloads the model |
 | `gpu_memory_manager.py` | GPU task queue with priority scheduling (Semaphore Guard) |
 
 ## Specialized Handlers (`utils/commands/`)
@@ -77,7 +77,7 @@ Core utility modules used by Kaiacord.
 | `dream_handler.py` | `!dream` commands |
 | `memory_handler.py` | `!memory` commands |
 | `social_handler.py` | `!quip` and Bluesky/X social posting |
-| `forum_handler.py` | `!forum` linking and scrapers |
+| `forum_handler.py` | `!forum` linking, scrapers, and `!forum reply` (drafts through `forum_drafting`) |
 | `audit_handler.py` | `!audit` and `!flag` moderation audit handlers |
 | `snapshot_handler.py` | `!snapshot` state archiving |
 | `selfmodel_handler.py` | `!selfmodel` regeneration |
