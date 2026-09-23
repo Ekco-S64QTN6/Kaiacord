@@ -62,6 +62,24 @@ class RAGQueryMixin:
         re.compile(r'\b((?:aquarium|setup|research|migration|report|apollo|backsliding|agent-civilizations|agent\s+civilizations)\s+(?:research|setup|for|doc|file|whitepaper|article|report)?)\s*(?:for\s+kaia)?\b', re.IGNORECASE),
     ]
 
+    # Does this turn ask about a document at all? The filename patterns above
+    # are loose on their own — "explain this", "state-of-the-art" and the bare
+    # word "research" all match — and both shortcuts below replace retrieval
+    # with one whole document at full confidence. On their own they fired on
+    # idle quips ("ai" and "international" shared with a report title) and on
+    # ordinary conversation. A turn has to name a document, or carry an
+    # explicit filename, before either shortcut or summarisation routing runs.
+    _DOC_CUE = re.compile(
+        r"\b(?:documents?|docs?|reports?|articles?|papers?|whitepapers?|files?|"
+        r"transcripts?|essays?|books?|pdfs?|summar(?:y|ies|i[sz]e))\b"
+        r"|\b[\w\-]{4,}\.(?:md|txt|pdf|docx|json|ya?ml)\b"
+        r"|\b\d{4}-\d{2}-\d{2}[-_][\w\-]{4,}\b",
+        re.IGNORECASE)
+
+    @classmethod
+    def _is_document_request(cls, query_lower: str) -> bool:
+        return bool(cls._DOC_CUE.search(query_lower))
+
     def _route_retrieval_strategy(self, category: str, query_lower: str, intent: Optional[Intent]) -> Dict[str, Any]:
         """Determine the retrieval strategy and flags based on intent and category."""
         strategy = intent.suggested_strategy if intent else None
@@ -83,7 +101,7 @@ class RAGQueryMixin:
             "error:" in query_lower or
             "log_info" in query_lower
         )
-        if not is_code_or_log:
+        if not is_code_or_log and self._is_document_request(query_lower):
             for pat in self._FILENAME_REF_PATTERNS:
                 if pat.search(query_lower):
                     is_doc_query = True
@@ -744,6 +762,7 @@ class RAGQueryMixin:
                 "action:" in query_lower or
                 "log_info" in query_lower
             )
+            _skip_fast_path = _skip_fast_path or not self._is_document_request(query_lower)
             _query_words = set(re.findall(r'\w+', query_lower)) - _FAST_PATH_QUERY_STOPS
             if len(_query_words) >= 2 and not _skip_fast_path:
                 _best_path = None
@@ -759,9 +778,9 @@ class RAGQueryMixin:
                     if not _fname_words:
                         continue
                     _overlap = _query_words & _fname_words
-                    # Require at least one distinctive word (>= 5 chars) to avoid
+                    # Require at least one distinctive word (>= 6 chars) to avoid
                     # spurious matches on short common words like "work", "does".
-                    _has_distinctive = any(len(w) >= 5 for w in _overlap)
+                    _has_distinctive = any(len(w) >= 6 for w in _overlap)
                     _score = len(_overlap) / len(_fname_words)
                     if (len(_overlap) >= 2 and _has_distinctive
                             and _score >= 0.3 and _score > _best_score):
