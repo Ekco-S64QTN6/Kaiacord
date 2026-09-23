@@ -79,12 +79,12 @@ def test_art_arguments_separate_the_prompt_from_the_flags():
 # ── music ────────────────────────────────────────────────────────────────
 
 from utils.audio import dj  # noqa: E402
-from utils.audio.performance import build  # noqa: E402
+from utils.audio.tracks import TrackPerformance  # noqa: E402
 from utils.audio.strudel_patterns import GENRES  # noqa: E402
 
 
 def _full(genre):
-    p = build(GENRES[genre], random.Random(2))
+    p = TrackPerformance(GENRES[genre]["track"], random.Random(2))
     for lane in p.lanes.values():
         lane.live = True
     return p

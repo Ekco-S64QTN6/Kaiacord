@@ -180,6 +180,13 @@ class StrudelEngine:
         # past the viewport was black void. With no_viewport the page uses the
         # window's own size and reflows when it is resized.
         self._page = self._browser.new_page(no_viewport=True)
+        # Strudel reports a pattern it cannot evaluate only to the console
+        # ("[eval] error: ..."); the REPL catches the exception, so nothing
+        # reaches __kaia.error and the previous pattern simply keeps playing.
+        # A program with a double-quoted sample URL failed that way and read as
+        # a success. The console is the only place the failure is said.
+        self._eval_errors: list[str] = []
+        self._page.on("console", self._on_console)
         self._page.goto(f"http://127.0.0.1:{self.port}/player.html",
                         wait_until="load", timeout=45000)
         self._page.wait_for_function("() => window.__kaia && window.__kaia.ready",
@@ -187,18 +194,51 @@ class StrudelEngine:
         log_info(f"[music] Strudel engine up on port {self.port} "
                  f"(window {'visible' if self.show_window else 'off-screen'})")
 
+    def warm_up(self, code: str, timeout: float = 25.0) -> None:
+        """Play a silent program until its samples are loaded, then stop.
+
+        Loading samples on first use cost real bars: a set that opened on a
+        break genre never started at all, because the download ran past the
+        gesture that unlocks audio.
+        """
+        import time
+        # Start the clock with something that needs nothing loaded: a first
+        # program that waits on a download never gets its clock started.
+        self.play("setcpm(60/4)\n$: s(\"~\")")
+        time.sleep(1.0)
+        if not self.play(code):
+            return
+        deadline = time.time() + timeout
+        while time.time() < deadline:
+            c = self.cycle()
+            if c is not None and c >= 2.0:
+                break
+            time.sleep(0.5)
+        self.stop()
+
     def play(self, code: str) -> bool:
         """Evaluate a pattern. Returns False if Strudel reported an error."""
         return self._call(self._play_impl, code)
+
+    def _on_console(self, msg) -> None:
+        text = getattr(msg, "text", "") or ""
+        if "[eval] error" in text:
+            import re as _re
+            m = _re.search(r"\[eval\] error: (.*?)(?:\s+background-color|$)", text)
+            self._eval_errors.append(m.group(1) if m else text[:200])
 
     def _play_impl(self, code: str) -> bool:
         if self._page is None or self.page_closed:
             return False
         try:
+            self._eval_errors.clear()
             self._page.evaluate(
                 "c => { window.__kaia.pending = c; window.__kaia.staged = true; }", code)
             self._page.click("#apply", timeout=15000)
-            err = self._page.evaluate("() => window.__kaia.error")
+            # Let the console events for this evaluation arrive.
+            self._page.wait_for_timeout(300)
+            err = self._page.evaluate("() => window.__kaia.error") or (
+                self._eval_errors[-1] if self._eval_errors else None)
             if err:
                 log_warning(f"[music] Strudel rejected the pattern: {err}")
                 return False
@@ -253,7 +293,8 @@ class StrudelEngine:
         if self._page is None:
             return None
         try:
-            return self._call(lambda: self._page.evaluate("() => window.__kaia.error"))
+            return self._call(lambda: self._page.evaluate("() => window.__kaia.error")) or (
+                self._eval_errors[-1] if getattr(self, "_eval_errors", None) else None)
         except Exception:
             return None
 
@@ -275,6 +316,22 @@ class StrudelEngine:
                 [genre, section]))
         except Exception as exc:
             log_debug(f"[music] label update failed: {exc}")
+
+    def cycle(self) -> float | None:
+        """Strudel's own position, in cycles (one cycle is one bar here).
+
+        The arrangement is anchored to this clock, so Python knows which bar is
+        playing without keeping a timer of its own that could drift from it.
+        """
+        if self._page is None:
+            return None
+        try:
+            return float(self._call(lambda: self._page.evaluate(
+                "() => { const r = document.getElementById('ed').editor.repl;"
+                " return r && r.scheduler ? r.scheduler.now() : null; }")))
+        except Exception as exc:
+            log_debug(f"[music] cycle read failed: {exc}")
+            return None
 
     def human_edited(self) -> bool:
         """True if somebody has typed in the editor since Kaia last applied.

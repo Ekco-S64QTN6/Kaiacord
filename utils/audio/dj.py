@@ -20,7 +20,7 @@ import re
 from dataclasses import dataclass, field
 from typing import Optional
 
-from utils.audio.performance import Performance
+from utils.audio.tracks import TrackPerformance as Performance
 
 # ── lanes by role ────────────────────────────────────────────────────────
 

@@ -9,12 +9,13 @@ performance so parts come and go over minutes instead of one pattern looping.
 from __future__ import annotations
 
 import asyncio
+import math
 import time
 
 import discord
 
 from utils.audio import dj
-from utils.audio.performance import Performance, build
+from utils.audio.tracks import TrackPerformance
 from utils.audio.strudel_engine import StrudelEngine, monitor_to_speakers
 from utils.audio.strudel_patterns import GENRES
 from utils.audio.strudel_source import StrudelAudioSource
@@ -36,7 +37,7 @@ def _cfg(key: str, default):
 
 class MusicSession:
     def __init__(self, vc: discord.VoiceClient, engine: StrudelEngine,
-                 source: StrudelAudioSource, perf: Performance,
+                 source: StrudelAudioSource, perf: TrackPerformance,
                  genre: str, requested_by: str, text_channel=None):
         self.vc = vc
         self.engine = engine
@@ -131,17 +132,7 @@ class MusicSession:
                         await self._label("and the beat's back")
                         log_info("[music] drop over; drums back in.")
 
-                if self._held_for_human():
-                    pass
-                elif self.perf.advance(WATCHDOG_PERIOD_S):
-                    d = self.perf.describe()
-                    if await self._push():
-                        log_info(f"[music] {self.genre}: {d['section']}"
-                                 f"  [{'+'.join(d['lanes']) or 'silent'}]")
-                        await self._label(d["section"])
-                    else:
-                        log_warning(f"[music] '{d['section']}' was rejected; "
-                                    f"holding the previous state.")
+                await self._follow_the_form()
 
                 if not self.vc.is_playing() and not self.vc.is_paused():
                     log_warning("[music] playback stopped; restarting source.")
@@ -169,6 +160,46 @@ class MusicSession:
         except Exception as exc:
             log_error(f"[music] session loop failed: {exc}")
 
+    async def _cycle(self) -> float | None:
+        loop = asyncio.get_running_loop()
+        return await loop.run_in_executor(None, self.engine.cycle)
+
+    async def _follow_the_form(self) -> None:
+        """Track the bar Strudel is on; label sections; line up the next pass.
+
+        Strudel plays the arrangement itself, so nothing here moves the music
+        on — it reads where the music is. The one push it makes is the next
+        pass, sent during the last half-bar so it takes effect on the downbeat.
+        """
+        cycle = await self._cycle()
+        if cycle is None:
+            return
+        info = self.perf.update(cycle)
+        if info["section"] != getattr(self, "_section", None):
+            self._section = info["section"]
+            d = self.perf.describe()
+            log_info(f"[music] {self.genre}: {d['section']}  [{'+'.join(d['lanes']) or 'silent'}]")
+            await self._label(d["section"])
+
+        cps = (dj.bpm_of(self.perf.cpm) or 120) / 4 / 60
+        until = self.perf.cycles_to_next_pass(cycle) / cps
+        if until < WATCHDOG_PERIOD_S + 2 and not getattr(self, "_pass_task", None):
+            self._pass_task = asyncio.create_task(self._next_pass_at(until - 0.5 / cps))
+
+    async def _next_pass_at(self, delay: float) -> None:
+        try:
+            await asyncio.sleep(max(0.0, delay))
+            if self._closing or self._held_for_human():
+                return
+            self.perf.next_pass()
+            if await self._push():
+                log_info(f"[music] {self.genre}: pass {self.perf.passes + 2}, now in {self.perf.key}")
+            else:
+                log_warning("[music] the next pass was rejected; holding the current one.")
+        finally:
+            await asyncio.sleep(1.0)
+            self._pass_task = None
+
     def _held_for_human(self) -> bool:
         """Pause the script while the editor has unapplied human changes."""
         try:
@@ -187,9 +218,12 @@ class MusicSession:
         return True
 
     async def set_genre(self, genre: str) -> None:
+        # The new track starts on the next bar Strudel plays.
+        cycle = await self._cycle()
         self.genre = genre
-        self.perf = build_for_mood(genre)
+        self.perf = build_for_mood(genre, anchor=int(math.ceil(cycle)) if cycle is not None else 0)
         self._restore = None
+        self._section = None
         await self._push()
         log_action(f"[music] switched to {genre}.")
 
@@ -247,10 +281,10 @@ class MusicSession:
         }
 
 
-def build_for_mood(genre: str) -> Performance:
-    """The genre's performance, played at the tempo her mood sets."""
+def build_for_mood(genre: str, anchor: int = 0) -> TrackPerformance:
+    """The genre's track, played at the tempo her mood sets."""
     from utils.core.kaia_art_intent import mood
-    perf = build(GENRES[genre])
+    perf = TrackPerformance(GENRES[genre]["track"], anchor=anchor)
     perf.cpm = dj.tempo_for_mood(perf.cpm, mood())
     return perf
 
@@ -279,6 +313,8 @@ async def start_session(channel, *, genre: str, requested_by: str,
     engine = StrudelEngine(show_window=bool(_cfg("show_window", False)))
     # Playwright's sync API blocks; keep it off the event loop entirely.
     await loop.run_in_executor(None, engine.start)
+    from utils.audio.strudel_patterns import warmup_program
+    await loop.run_in_executor(None, engine.warm_up, warmup_program())
     if _cfg("monitor_on_speakers", False):
         monitor_to_speakers(True)
 

@@ -1,0 +1,162 @@
+{
+  "acid": {
+    "acid": 1.958,
+    "bass": 1.297,
+    "clap": 3.644,
+    "crash": 0.968,
+    "hats": 1.521,
+    "kick": 0.572,
+    "ohat": 2.145,
+    "riser": 2.122,
+    "roll": 0.532,
+    "stab": 3.088
+  },
+  "ambient": {
+    "bells": 2.539,
+    "chimes": 1.014,
+    "drone": 1.979,
+    "glass": 1.607,
+    "halo": 0.97,
+    "piano": 3.79,
+    "wind": 3.979
+  },
+  "berlinschool": {
+    "choir": 1.958,
+    "kick": 2.795,
+    "pad": 1.312,
+    "pulse": 2.472,
+    "seq": 2.389,
+    "seq2": 5.549
+  },
+  "breakbeat": {
+    "bass": 1.63,
+    "break": 1.996,
+    "crash": 1.031,
+    "fx": 6.848,
+    "hoover": 5.137,
+    "kit": 2.384,
+    "pad": 1.404,
+    "riser": 2.124,
+    "roll": 0.808
+  },
+  "deephouse": {
+    "bass": 1.056,
+    "clap": 3.493,
+    "crash": 0.968,
+    "hats": 1.627,
+    "keys": 0.967,
+    "kick": 2.183,
+    "pad": 1.364,
+    "pluck": 4.093,
+    "rim": 2.595,
+    "riser": 2.087,
+    "roll": 0.617
+  },
+  "drumnbass": {
+    "bells": 3.285,
+    "break": 4.07,
+    "crash": 1.03,
+    "hats": 3.767,
+    "keys": 1.253,
+    "kit": 0.874,
+    "pad": 0.825,
+    "reese": 1.753,
+    "riser": 2.368,
+    "roll": 0.489,
+    "sub": 1.544
+  },
+  "dub": {
+    "bass": 0.818,
+    "hats": 5.066,
+    "kick": 2.329,
+    "melodica": 1.012,
+    "siren": 0.614,
+    "skank": 7.22,
+    "snare": 7.134,
+    "space": 2.057
+  },
+  "house": {
+    "bass": 1.191,
+    "choir": 0.809,
+    "clap": 3.192,
+    "crash": 1.031,
+    "kick": 0.652,
+    "ohat": 1.824,
+    "piano": 1.383,
+    "riser": 2.395,
+    "roll": 0.821,
+    "shaker": 7.872,
+    "top": 8.0
+  },
+  "lofi": {
+    "bass": 1.149,
+    "crackle": 5.089,
+    "hats": 4.0,
+    "keys": 0.907,
+    "kick": 2.798,
+    "melody": 2.121,
+    "snare": 0.694
+  },
+  "psytrance": {
+    "acid": 1.61,
+    "arp": 1.562,
+    "bass": 1.35,
+    "crash": 1.02,
+    "hats": 3.113,
+    "kick": 0.597,
+    "ohat": 1.604,
+    "pad": 0.892,
+    "perc": 0.989,
+    "riser": 2.235,
+    "roll": 0.508,
+    "zaps": 5.048
+  },
+  "synthwave": {
+    "arp": 4.255,
+    "bass": 2.646,
+    "crash": 1.467,
+    "hats": 1.476,
+    "kick": 1.174,
+    "lead": 1.951,
+    "pad": 0.911,
+    "riser": 2.531,
+    "roll": 0.321,
+    "snare": 1.677
+  },
+  "techno": {
+    "acid": 2.639,
+    "bass": 1.843,
+    "clap": 3.533,
+    "crash": 1.025,
+    "hats": 3.203,
+    "kick": 0.578,
+    "ohat": 1.652,
+    "pad": 1.119,
+    "perc": 0.569,
+    "ride": 1.57,
+    "riser": 2.432,
+    "roll": 0.498,
+    "stab": 2.728
+  },
+  "trance": {
+    "bass": 1.942,
+    "clap": 3.735,
+    "crash": 0.988,
+    "gate": 4.088,
+    "hats": 1.404,
+    "kick": 0.554,
+    "lead": 3.463,
+    "pad": 1.122,
+    "riser": 2.364,
+    "roll": 0.51
+  },
+  "triphop": {
+    "bass": 0.757,
+    "bells": 2.041,
+    "break": 1.68,
+    "crackle": 8.0,
+    "keys": 2.135,
+    "kick": 3.09,
+    "strings": 1.379
+  }
+}

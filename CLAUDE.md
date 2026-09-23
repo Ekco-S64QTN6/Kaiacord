@@ -447,8 +447,8 @@ and fix this table when it disagrees with the code.
 
 ## 7. Music Engine
 
-`!music` puts Kaia in a voice channel performing a live-coded set. The arrangement is a scripted
-performance in `strudel_patterns.py` / `performance.py` — **no model is involved and no VRAM is
+`!music` puts Kaia in a voice channel performing a live-coded set. Each genre is an arranged
+track in `strudel_patterns.py`, played by `tracks.py` — **no model is involved and no VRAM is
 used**, so it is safe to run alongside inference.
 
 ```
@@ -469,13 +469,30 @@ the authority, but they are the ones most likely to be "fixed" by mistake:
   user gesture: it returns true, logs `[cyclist] start`, reports a running AudioContext, and
   produces nothing.
 
+**A track is arranged, not accumulated.** Every part is in the program from bar one; a
+`.mask("<…>")` and per-bar automation sequences (`lpf`, `gain`, roll speed) decide what sounds in
+each bar of the form (intro → groove → build → drop → break → build → drop → outro). Sequences are
+rotated to an anchor on Strudel's own clock, so a re-render — a DJ request, the next pass — keeps
+the song's position. Rules `tracks.check()` and the tests enforce, each learned from silence:
+
+- **No event longer than a bar** (`<a b>/2`, `.slow(2)` on a trigger). It is locked to absolute
+  cycles, and one that starts in a masked bar never sounds. Spell it out: `<a a b b>`.
+- **Sample URLs go in single quotes.** Strudel parses a double-quoted string as mini-notation, so
+  `samples("github:…")` is an eval error — and the REPL swallows it and keeps playing the *old*
+  program. The engine now collects `[eval] error` from the console and `play()` returns False.
+- **Levels are measured, not guessed.** `audition_tracks.py --calibrate` solos every part, measures
+  gated RMS against a per-role target (`ROLE_DB`) and writes `utils/audio/levels.json`, applied as
+  `.postgain`. Re-run it for any genre whose parts you change; a part it reports SILENT is broken.
+- **Soundfonts and Dirt-Samples load on first use**, which drops the first bar. `warmup_program()`
+  plays every sample once, inaudibly, when the engine starts.
+
 **Kaia is the DJ, without a model.** `utils/audio/dj.py` is where she is in the set: with no
 genre asked for she picks one from her mood and the hour and says why, her arousal nudges the
 tempo a few percent either way, and `!music darker | faster | drop | more bass …` becomes an
 edit to the lanes that are playing — the same `set_param` / `live` operations the script uses —
 answered in her voice. Every decision reads her *state*; none of it calls a model, so §7's
 "no VRAM" still holds. A new request must leave the program balanced and audible on every genre:
-`test_every_request_edits_every_genre_cleanly` covers the text, and the verifier approach
+`test_every_request_edits_every_genre_cleanly` covers the text, and `audition_tracks.py`
 (play it, measure it) covers the sound. When a set ends, `kaia_expression.remember` writes it
 into the channel's history and the growth log, so she knows she played and for whom.
 
