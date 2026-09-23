@@ -788,7 +788,8 @@ class MessageProcessor:
         curiosity_note = ""
         try:
             from utils.core.curiosity_scanner import get_curiosity_prompt
-            curiosity_note = get_curiosity_prompt(
+            curiosity_note = await asyncio.to_thread(
+                get_curiosity_prompt,
                 user_id=ctx.author_id,
                 user_name=ctx.author_name,
                 knowledge_base_dir=self.config.knowledge_base_dir,
@@ -895,7 +896,8 @@ class MessageProcessor:
         # 8b2. Episodic Memory Anchor injection — deep associative callbacks
         try:
             from utils.core.memory_anchors import find_matching_anchors, format_anchor_injection
-            anchors = find_matching_anchors(
+            anchors = await asyncio.to_thread(
+                find_matching_anchors,
                 message_text=ctx.sanitized_content,
                 user_id=str(ctx.author_id),
                 max_results=1,
