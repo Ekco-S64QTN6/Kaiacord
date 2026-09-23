@@ -3,7 +3,7 @@
 ```
 tools/tests/
 ├── unit/           # Fast, isolated tests — no network, no Ollama, no GPU
-├── integration/    # More than one subsystem together
+├── integration/    # More than one subsystem together, and anything that needs a live service
 ├── verification/   # Manual diagnostics — collected, but marker-gated (see below)
 ├── archive/        # One-off scripts from past debugging, kept for reference
 └── conftest.py     # Shared fixtures
@@ -17,6 +17,12 @@ it out of an ordinary run is its markers: `test_gemma3_vram.py` carries `gpu`, `
 and `slow`, so `-m "not ollama and not gpu and not slow"` deselects it. Anything added
 there must carry the same markers, or a suite run will load a model and evict
 `gemma3:12b` from VRAM.
+
+The same holds anywhere in the tree. `test_embed_device.py` and `test_bm25_cache.py`
+sat in `unit/` with no marker and embedded through the bot's own Ollama on every
+"no external services" run; they carry `ollama` now and live in `integration/`.
+`journalctl -u ollama` during a suite run is the check — it should show no
+`/api/embed` or `/api/chat` at all.
 
 ## Running
 

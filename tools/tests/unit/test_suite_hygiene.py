@@ -20,15 +20,14 @@ REPO_ROOT = TESTS_ROOT.parent.parent
 # that pytest does not pick up, and `archive/` is kept for reference.
 COLLECTED_DIRS = ("unit", "integration")
 
-# Smoke tests: their whole job is to prove a path runs end to end against a
-# real service without raising, so there is no return value to assert on.
-# Every entry needs Ollama, a built index, or the network — they are excluded
-# from a normal run with `-m "not ollama and not network and not slow"`.
+# Smoke tests: their whole job is to prove a path runs end to end without
+# raising, so there is no return value to assert on. Being on this list is
+# not the same as being excluded from a normal run — that takes a marker, and
+# a test that reaches the live Ollama daemon must carry `ollama`.
 #
 # This list is a backlog, not a permanent exemption. Anything added to it
 # should carry a reason on the same line.
 ASSERTLESS_ALLOWLIST: set[str] = {
-    "test_bm25_cache.py",       # builds and reloads a BM25 cache via embeddings
     "test_embed_device.py",     # asserts nothing; proves embeddings stay on CPU
     "test_exact_rag.py",        # exact-match retrieval against the live index
     "test_md_logging.py",       # markdown interaction logging round-trip
