@@ -1,4 +1,5 @@
 
+import hashlib
 import os
 import sys
 
@@ -36,13 +37,13 @@ def main():
     
     if nodes_to_delete:
         log_info(f"Deleting {len(nodes_to_delete)} old nodes...")
-        for node_id in nodes_to_delete:
-            target_index.delete_nodes([node_id])
+        rag._delete_nodes(itype, nodes_to_delete)
     
     # 2. Re-index the FULL content (bypassing tail-indexing)
     log_info(f"Re-indexing full file content...")
-    with open(target_file, 'r', encoding='utf-8') as f:
-        content = f.read()
+    with open(target_file, 'rb') as f:
+        raw = f.read()
+    content = raw.decode('utf-8', errors='replace')
     
     if content.strip():
         doc = Document(
@@ -51,19 +52,24 @@ def main():
                 "file_path": abs_path,
                 "last_modified_at": os.path.getmtime(abs_path),
                 "file_offset": 0,
-                "content_length": len(content),
+                "content_length": len(raw),
                 "source": "user_logs"
             }
         )
         rag._apply_priority_metadata(doc, itype, target_file)
         parser = rag._get_node_parser_for_doc(itype, target_file)
         nodes = parser.get_nodes_from_documents([doc])
-        target_index.insert_nodes(nodes)
-        
+        target_index.insert_nodes(rag._prepare_nodes(nodes))
+
+        # The manifest has to name these nodes, or the next prune or re-index
+        # of this file cannot find them to remove.
         rag.indexed_files[abs_path] = {
             "mtime": os.path.getmtime(abs_path),
             "size": os.path.getsize(abs_path),
-            "nodes": []
+            "nodes": [n.node_id for n in nodes],
+            "itype": itype,
+            "indexed_bytes": len(raw),
+            "indexed_prefix_sha1": hashlib.sha1(raw).hexdigest(),
         }
         
         log_success(f"Successfully re-indexed {len(nodes)} new nodes.")

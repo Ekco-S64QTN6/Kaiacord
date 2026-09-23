@@ -8,7 +8,7 @@ Contains:
 - Intent, ContextCtx dataclasses (shared types)
 - ContextOptimizer: Model-aware token allocation and context trimming
 - ContextWeaver: Constructs ContextCtx from raw bot state
-- RelevanceFeedback: Learns from user interactions
+- RelevanceFeedback: retired; kept as the interface Kaiacord.py constructs
 - PersonalizationEngine: User preference tracking
 - PersistentStateManager: State serialization/deserialization
 """
@@ -457,47 +457,20 @@ class ContextOptimizer:
         return ""
 
 class RelevanceFeedback:
-    """Learn from user interactions to improve retrieval."""
+    """Kept as the interface the bot constructs; it no longer writes to RAG.
+
+    It inserted every fifty exchanges into the logs index as synthetic
+    "User Query / Kaia Response" documents. The same exchanges are already
+    indexed from knowledge_base/user_logs/, so this only duplicated them —
+    with no source file, so nothing could prune them, and with her own
+    answers fed back as retrievable context whether or not they were right.
+    """
     def __init__(self, rag):
         self.rag = rag
-        self.feedback_log = []
-        
+
     async def log_interaction(self, query, response, user_id, user_name="Unknown"):
-        # ECHO CHAMBER PROTECTION: Don't log generic "what's new" or status queries
-        # as synthetic RAG documents, as they create a feedback loop.
-        query_lower = query.lower()
-        blacklist = ["what's new", "whats new", "what have you", "learned", "status", "info", "uptime", "stats", "how are you"]
-        if any(trigger in query_lower for trigger in blacklist):
-            return
-            
-        self.feedback_log.append({'query': query, 'response': response, 'user_id': user_id, 'user_name': user_name, 'timestamp': time.time()})
-        if len(self.feedback_log) >= 50: await self.process_feedback()
-            
-    async def process_feedback(self):
-        log_action("Processing relevance feedback to improve RAG...")
-        recent_pairs = self.feedback_log[-50:]
-        self.feedback_log = []
-        
-        from llama_index.core import Document
-        synthetic_docs = []
-        for item in recent_pairs:
-            doc = Document(
-                text=f"User Query: {item['query']}\nKaia Response: {item['response']}",
-                metadata={'source': 'feedback', 'type': 'successful_qa', 'user_id': str(item['user_id']), 'user_name': item.get('user_name', 'Unknown'), 'timestamp': item['timestamp']}
-            )
-            synthetic_docs.append(doc)
-            
-        if synthetic_docs:
-            try:
-                # BATCH INSERTION: Single thread-hop for all documents
-                def _batch_insert():
-                    for doc in synthetic_docs:
-                        self.rag.indices['logs'].insert(doc)
-                
-                await asyncio.to_thread(_batch_insert)
-                log_success(f"Added {len(synthetic_docs)} feedback nodes to RAG (Batch).")
-            except Exception as e:
-                log_error(f"Error adding feedback to RAG: {e}")
+        return None
+
 
 _TECH_WORDS = re.compile(
     r"\b(?:how|why|code|implement\w*|system\w*|architecture|errors?|bugs?|"

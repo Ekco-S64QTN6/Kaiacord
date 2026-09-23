@@ -326,7 +326,7 @@ class RAGQueryMixin:
         retrieve_count = base_top_k
 
         if is_kaia_query or strategy == "PRECISE_RECALL" or is_entity_query:
-            target_itypes = ['persona', 'knowledge', 'logs', 'user_profiles']
+            target_itypes = ['knowledge', 'logs', 'user_profiles']
         elif strategy == "DIAGNOSTIC_DEEP_DIVE":
             target_itypes = ['logs']
             retrieve_count = 15
@@ -392,7 +392,7 @@ class RAGQueryMixin:
                     log_warning(f"Detected stale Node ID {stale_node_id} in {itype} index. Repairing automatically...")
                     try:
                         with self._data_lock:
-                            self.indices[itype].delete_nodes([stale_node_id])
+                            self._delete_nodes(itype, [stale_node_id])
                             
                             # Clean BM25 cache since index changed
                             bm25_cache_path = self._get_bm25_cache_path(itype)
@@ -576,13 +576,8 @@ class RAGQueryMixin:
             # Fix 3: rely solely on yaml_config for type_boosts — no inline fallback with stale keys
             boost_key = 'knowledge' if source_type == 'general_knowledge' else source_type
             type_boost = config.rag_type_boosts.get(boost_key, 0.0)
-            
-            # Strong bonus for the actual persona file on identity queries
-            persona_file_bonus = 0.0
-            if routing.get("is_kaia_query") and basename_lower == "kaia_persona.md":
-                persona_file_bonus = 0.60
 
-            final_score = (base_score + path_boost + type_boost + persona_file_bonus) * casual_knowledge_factor
+            final_score = (base_score + path_boost + type_boost) * casual_knowledge_factor
 
             # Soft dampening of literary prose on non-synthesis queries, to stop
             # novel prose bleeding into unrelated conversation. Damped, not

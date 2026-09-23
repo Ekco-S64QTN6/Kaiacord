@@ -45,7 +45,10 @@ class ConversationTurnSplitter:
     Each chunk is N complete turns, preserving timestamps for accurate recall.
     """
     _TURN_PATTERN = re.compile(
-        r'(\[\d{4}-\d{2}-\d{2} \d{2}:\d{2}:\d{2}\] (?:User|Kaia|Ekco|social|\w+): )',
+        # Any speaker name up to 40 characters: "Tenno Henka" and
+        # "Kaia-Autonomous channel" are single speakers, and a one-word pattern
+        # glued their turns onto whoever spoke before them.
+        r'(\[\d{4}-\d{2}-\d{2} \d{2}:\d{2}:\d{2}\] [^\]:\n]{1,40}: )',
         re.IGNORECASE
     )
 
@@ -447,26 +450,45 @@ class RAGIndexerMixin:
             return SentenceSplitter(chunk_size=1024, chunk_overlap=200)
 
     def _pre_chunk_document(self, doc: Document, chunk_size: int = 4000) -> List[Document]:
-        """Break a giant document into smaller documents before node parsing."""
-        if len(doc.text) <= chunk_size:
+        """Break a large document into sections before node parsing.
+
+        Cuts at a paragraph break (or failing that a sentence end) inside the
+        last quarter of each window. A fixed character stride cut mid-word, so
+        most chunks of a book began and ended on half a word.
+        """
+        text = doc.text
+        if len(text) <= chunk_size:
             return [doc]
-            
-        log_action(f"Pre-chunking large document ({len(doc.text)} chars)...")
+
         chunks = []
-        # Simple character-based split with overlap for efficiency
-        overlap = 200
-        for i in range(0, len(doc.text), chunk_size - overlap):
-            chunk_text = doc.text[i:i + chunk_size]
-            new_doc = Document(
-                text=chunk_text,
-                metadata=doc.metadata.copy()
-            )
-            # Add chunk info to metadata
-            new_doc.metadata['chunk_index'] = len(chunks)
-            chunks.append(new_doc)
+        start = 0
+        while start < len(text):
+            end = min(len(text), start + chunk_size)
+            if end < len(text):
+                window = text[start + chunk_size * 3 // 4:end]
+                for sep in ("\n\n", "\n", ". "):
+                    cut = window.rfind(sep)
+                    if cut != -1:
+                        end = start + chunk_size * 3 // 4 + cut + len(sep)
+                        break
+            piece = Document(text=text[start:end], metadata=doc.metadata.copy())
+            piece.metadata['chunk_index'] = len(chunks)
+            chunks.append(piece)
+            start = end
         return chunks
 
+    # Metadata that describes what a chunk is about. Everything else on a node
+    # (absolute path, byte offsets, epoch timestamps, priority, quality score)
+    # was being embedded with it: fifteen lines of plumbing ahead of the text
+    # in every vector, which pulls unrelated chunks toward each other.
+    EMBED_METADATA_KEYS = frozenset({"title", "user_name"})
 
+    @classmethod
+    def _prepare_nodes(cls, nodes):
+        for n in nodes:
+            n.excluded_embed_metadata_keys = [k for k in n.metadata if k not in cls.EMBED_METADATA_KEYS]
+            n.excluded_llm_metadata_keys = list(n.metadata)
+        return nodes
 
     def _apply_priority_metadata(self, doc: Document, itype: str, file_path: str):
         """Apply neutral priority and source type metadata"""
@@ -664,14 +686,111 @@ class RAGIndexerMixin:
         on the next sweep instead of only on files that have yet to appear.
         """
         n = p.replace('\\', '/')
+        return (RAGIndexerMixin._is_excluded_dir(n)
+                or ("/user_logs/forum_" in n
+                    and os.path.basename(n) != "user_profile.md"))
+
+    @staticmethod
+    def _is_excluded_dir(p: str) -> bool:
+        """True for a directory nothing under which is ever indexed.
+
+        Separate from the file rule because a forum user's folder is not
+        excluded — its `user_profile.md` is indexed. Asking the file rule about
+        the folder (basename "") excluded all of it, so a profile was indexed
+        once and never refreshed again: 219 of them were three days stale.
+        """
+        n = p.replace('\\', '/').rstrip('/') + '/'
         if any(part.startswith(".") and part not in (".", "..")
                for part in n.split("/")):
             return True
-        return ("forum_posts" in n
-                or "/_quarantine/" in n
-                or "/_ingress/" in n
-                or ("/user_logs/forum_" in n
-                    and os.path.basename(n) != "user_profile.md"))
+        return "forum_posts" in n or "/_quarantine/" in n or "/_ingress/" in n
+
+    @staticmethod
+    def _vector_ids(index) -> Set[str]:
+        """Ids that have an embedding in this index's vector store."""
+        store = getattr(index, "vector_store", None)
+        data = getattr(store, "data", None) or getattr(store, "_data", None)
+        return set(getattr(data, "embedding_dict", {}) or {})
+
+    def _delete_nodes(self, itype: str, node_ids) -> int:
+        """Remove nodes from one index completely. Returns how many it held.
+
+        `VectorStoreIndex.delete_nodes` defaults to `delete_from_docstore=False`:
+        the embedding goes and the node stays, in the docstore that BM25 is
+        built from and the manifest is rebuilt from at boot. Every deletion
+        here had gone through that default, so every re-indexed file left its
+        previous version searchable by keyword — 70% of the knowledge docstore
+        by September 2026. Ids the index does not hold are skipped.
+        """
+        index = self.indices.get(itype)
+        if index is None or not node_ids:
+            return 0
+        docstore = index.docstore
+        vectors = self._vector_ids(index)
+        held = [n for n in dict.fromkeys(node_ids)
+                if n in vectors or docstore.document_exists(n)]
+        if not held:
+            return 0
+        index.delete_nodes(held, delete_from_docstore=True)
+        self.bm25_cache.pop(itype, None)
+        return len(held)
+
+    def _reconcile_indices(self) -> Set[str]:
+        """Remove every node that should not be retrievable. Returns the itypes changed.
+
+        Works from the indexes themselves, not the manifest, because the
+        manifest is what lost track of them. A node goes if it has no
+        embedding (a leftover of an earlier deletion), if it has no source
+        file (synthetic feedback documents), if its file is gone, if
+        its path is excluded, or if it is the persona, which is injected whole
+        and never indexed. Manifest entries are brought into line; an existing
+        file left with no live nodes is dropped from the manifest so the next
+        scan indexes it again.
+        """
+        changed: Set[str] = set()
+        report = []
+        exists_cache: Dict[str, bool] = {}
+        with self._data_lock:
+            for itype, index in self.indices.items():
+                vectors = self._vector_ids(index)
+                doomed = []
+                for node_id, node in index.docstore.docs.items():
+                    path = (node.metadata or {}).get("file_path") or ""
+                    ap = os.path.abspath(path) if path else ""
+                    if ap and ap not in exists_cache:
+                        exists_cache[ap] = os.path.exists(ap)
+                    if (node_id not in vectors
+                            or not ap
+                            or not exists_cache[ap]
+                            or (ap and self._is_excluded_path(ap))
+                            or os.path.basename(ap) == "kaia_persona.md"):
+                        doomed.append(node_id)
+                # Embeddings whose node is already gone from the docstore.
+                doomed.extend(v for v in vectors if not index.docstore.document_exists(v))
+                if doomed:
+                    removed = self._delete_nodes(itype, doomed)
+                    if removed:
+                        changed.add(itype)
+                        report.append(f"{itype} {removed}")
+
+            if changed:
+                live = set()
+                for index in self.indices.values():
+                    live |= self._vector_ids(index)
+                for path in list(self.indexed_files):
+                    entry = self.indexed_files[path]
+                    nodes = [n for n in entry.get("nodes", []) if n in live]
+                    if len(nodes) != len(entry.get("nodes", [])):
+                        if nodes:
+                            entry["nodes"] = nodes
+                            self._file_to_nodes[path] = nodes
+                        else:
+                            self.indexed_files.pop(path, None)
+                            self._file_to_nodes.pop(path, None)
+
+        if changed:
+            log_action(f"RAG reconcile removed stale nodes: {', '.join(report)}")
+        return changed
 
     def _prune_deleted_files(self) -> Set[str]:
         """Remove index entries for files that are gone, or must not be indexed."""
@@ -686,32 +805,19 @@ class RAGIndexerMixin:
             return updated_itypes
             
         log_action(f"Detected {len(deleted_files)} deleted files. Pruning index O(k)...")
-        to_prune = {} # itype -> list of node_ids
-        
         with self._data_lock:
+            node_ids = []
             for file_path in deleted_files:
-                node_ids = self.indexed_files[file_path].get("nodes", [])
-                if not node_ids:
-                    self.indexed_files.pop(file_path, None)
-                    continue
-                    
-                for itype in self.indices:
-                    if itype not in to_prune:
-                        to_prune[itype] = []
-                    to_prune[itype].extend(node_ids)
-                
+                node_ids.extend(self.indexed_files[file_path].get("nodes", []))
                 self.indexed_files.pop(file_path, None)
                 self._file_to_nodes.pop(file_path, None)
-            
-            # Deletion happens inside the same lock scope
-            for itype, node_ids in to_prune.items():
-                if not node_ids:
-                    continue
-                try:
-                    self.indices[itype].delete_nodes(node_ids)
+
+            # Every index is offered every id; _delete_nodes removes only the
+            # ones it holds. The manifest's itype has been missing or wrong on
+            # old entries, and a wrong guess left the nodes retrievable.
+            for itype in self.indices:
+                if self._delete_nodes(itype, node_ids):
                     updated_itypes.add(itype)
-                except Exception:
-                    pass
 
         self._save_indexed_files()
         return updated_itypes
@@ -791,7 +897,7 @@ class RAGIndexerMixin:
             # Both ends must use `_is_excluded_path`. A rule applied only to the
             # scan stops new files being added and never removes the ones indexed
             # before it existed — see `_prune_deleted_files`.
-            if self._is_excluded_path(norm_root + "/"):
+            if self._is_excluded_dir(norm_root):
                 continue
             # A forum user's *profile* is worth retrieving; their complete post
             # history is not. Raw histories and interaction dumps outweigh the
@@ -814,7 +920,9 @@ class RAGIndexerMixin:
                     
                     itype = 'knowledge'
                     if file == "kaia_persona.md":
-                        itype = 'persona'
+                        # Injected into every prompt in full; a retrieved
+                        # chunk of it only displaces real context.
+                        continue
                     elif "user_logs" in full_path:
                         itype = 'user_profiles' if "user_profile.md" in file else 'logs'
                     elif "kaia_dreams" in full_path:
@@ -848,7 +956,7 @@ class RAGIndexerMixin:
             if nodes_to_delete:
                 log_success(f"  Removing {len(nodes_to_delete)} old nodes to prepare for update.")
                 with self._data_lock: # Lock for modifying indices
-                    target_index.delete_nodes(nodes_to_delete)
+                    self._delete_nodes(itype, nodes_to_delete)
                     # Clear from manifest to avoid stale references if indexing fails midway
                     if entry: entry["nodes"] = []
 
@@ -876,66 +984,87 @@ class RAGIndexerMixin:
             return self._handle_corrupt_file(file_path, itype, corrupt_dir)
 
     def _index_log_tail(self, file_path: str, abs_path: str, itype: str) -> bool:
-        """Perform tail-indexing for log files using O(k) offset detection."""
+        """Index what was appended to a log since the last pass.
+
+        Offsets are in bytes. They were character counts from `f.read()`,
+        compared against the byte size and handed to a text-mode `seek()`; on
+        any file with a curly quote the seek landed early and the next pass
+        indexed the end of the conversation a second time.
+
+        The entry keeps a hash of the bytes already indexed. A log rewritten in
+        place (a corrected turn, a sanitising pass) no longer matches it, and is
+        re-indexed from the start instead of from an offset into different text.
+        """
+        import hashlib
         target_index = self.indices[itype]
-        last_offset = 0
-        
-        entry = self.indexed_files.get(abs_path)
-        if entry and entry.get("nodes"):
-            # Get only nodes belonging to this file from docstore
+        entry = self.indexed_files.get(abs_path) or {}
+
+        with open(file_path, 'rb') as f:
+            data = f.read()
+
+        indexed = entry.get("indexed_bytes")
+        if indexed is None and entry.get("nodes"):
+            # An entry written before byte offsets: its nodes carry character
+            # offsets into the file as it is now. Convert once.
+            chars = 0
             for node_id in entry["nodes"]:
-                node = target_index.docstore.get_node(node_id)
+                node = target_index.docstore.get_node(node_id, raise_error=False)
                 if node:
-                    last_offset = max(last_offset, node.metadata.get('file_offset', 0) + node.metadata.get('content_length', 0))
-        
-        if os.path.getsize(file_path) <= last_offset:
-            # Update manifest even if no new content to avoid re-scanning
-            mtime = os.path.getmtime(file_path)
+                    chars = max(chars, node.metadata.get('file_offset', 0) + node.metadata.get('content_length', 0))
+            indexed = len(data.decode('utf-8', errors='replace')[:chars].encode('utf-8'))
+            entry["indexed_prefix_sha1"] = hashlib.sha1(data[:indexed]).hexdigest()
+        indexed = indexed or 0
+
+        rewritten = indexed and (
+            len(data) < indexed
+            or entry.get("indexed_prefix_sha1") not in (None, hashlib.sha1(data[:indexed]).hexdigest())
+        )
+        if rewritten:
+            log_action(f"Log rewritten since it was indexed; re-indexing in full: {file_path}")
+            with self._data_lock:
+                self._delete_nodes(itype, entry.get("nodes", []))
+            entry = {}
+            indexed = 0
+
+        mtime = os.path.getmtime(file_path)
+        new_bytes = data[indexed:]
+
+        def _record(node_ids):
             self.indexed_files[abs_path] = {
                 "mtime": mtime,
-                "size": os.path.getsize(file_path),
-                "nodes": entry.get("nodes", []) if entry else [],
-                "itype": itype
+                "size": len(data),
+                "nodes": node_ids,
+                "itype": itype,
+                "indexed_bytes": len(data),
+                "indexed_prefix_sha1": hashlib.sha1(data).hexdigest(),
             }
-            return False
-            
-        with open(file_path, 'r', encoding='utf-8', errors='replace') as f:
-            f.seek(last_offset)
-            new_content = f.read()
-            
+            self._file_to_nodes[abs_path] = node_ids
+
+        existing_nodes = list(entry.get("nodes", []))
+        new_content = new_bytes.decode('utf-8', errors='replace')
         if not new_content.strip():
-            return False
-            
-        # Parse nodes and apply metadata outside the lock
-        mtime = os.path.getmtime(file_path)
+            with self._data_lock:
+                _record(existing_nodes)
+            return bool(rewritten)
+
         conversation_ts = self._extract_log_conversation_ts(new_content, mtime)
         from llama_index.core import Document as LlamaDocument
         doc = LlamaDocument(text=new_content, metadata={
             'file_path': abs_path,
-            'file_offset': last_offset,
-            'content_length': len(new_content),
+            'file_offset': indexed,
+            'content_length': len(new_bytes),
             'last_modified_at': mtime,
             'timestamp': conversation_ts,
             'itype': itype
         })
         self._apply_priority_metadata(doc, itype, file_path)
-        
+
         parser = self._get_node_parser_for_doc(itype, file_path)
         nodes = parser.get_nodes_from_documents([doc])
-        
+
         with self._data_lock: # Lock only for the final insertion and manifest update
-            target_index.insert_nodes(nodes)
-            
-            # Update manifest
-            node_ids = [n.node_id for n in nodes]
-            existing_nodes = entry.get("nodes", []) if entry else []
-            self.indexed_files[abs_path] = {
-                "mtime": mtime,
-                "size": os.path.getsize(file_path),
-                "nodes": list(set(existing_nodes + node_ids)),
-                "itype": itype
-            }
-            self._file_to_nodes[abs_path] = self.indexed_files[abs_path]["nodes"]
+            target_index.insert_nodes(self._prepare_nodes(nodes))
+            _record(list(dict.fromkeys(existing_nodes + [n.node_id for n in nodes])))
         return True
 
     def _index_regular_file(self, file_path: str, abs_path: str, itype: str) -> bool:
@@ -977,7 +1106,7 @@ class RAGIndexerMixin:
         
         with self._data_lock: # Lock only for the final insertion and manifest update
             for nodes in processed_nodes_batch:
-                self.indices[itype].insert_nodes(nodes)
+                self.indices[itype].insert_nodes(self._prepare_nodes(nodes))
                 all_node_ids.extend([n.node_id for n in nodes])
             
             self.indexed_files[abs_path] = {
@@ -1003,23 +1132,14 @@ class RAGIndexerMixin:
         if file_path.lower().endswith((".pdf", ".docx")):
             md_path = self._convert_pdf_to_md(file_path) if file_path.lower().endswith(".pdf") else self._convert_docx_to_md(file_path)
             if md_path:
-                try:
-                    from llama_index.core import SimpleDirectoryReader
-                    md_docs = SimpleDirectoryReader(input_files=[md_path]).load_data()
-                    if md_docs:
-                        mtime = os.path.getmtime(md_path)
-                        parser = self._get_node_parser_for_doc(itype, md_path)
-                        with self._data_lock: # Lock for modifying indices and manifest
-                            for doc in md_docs:
-                                doc.metadata.update({'last_modified_at': mtime, 'itype': itype})
-                                self.indices[itype].insert_nodes(parser.get_nodes_from_documents([doc]))
-                            # NOTE: nodes for the converted file live under the .md path entry;
-                            # the original .pdf/.docx entry intentionally has nodes=[] — it acts
-                            # as a "file seen" sentinel so _prune_deleted_files won't try to prune it.
-                            self.indexed_files[os.path.abspath(md_path)] = {"mtime": mtime, "size": os.path.getsize(md_path), "nodes": [], "itype": itype}
-                            self.indexed_files[os.path.abspath(file_path)] = {"mtime": os.path.getmtime(file_path), "size": 0, "nodes": [], "itype": itype}
-                        return True
-                except Exception: pass
+                # The converted Markdown sits beside the original and is
+                # indexed by the next scan like any other document, with its
+                # own manifest entry — indexing it here as well put it in twice.
+                # The original is recorded as seen so it is not retried.
+                with self._data_lock:
+                    self.indexed_files[os.path.abspath(file_path)] = {
+                        "mtime": os.path.getmtime(file_path), "size": 0, "nodes": [], "itype": itype}
+                return False
         
         # Logged, not moved. A file that fails to index stays where it is;
         # relocating it hides the fault and breaks anything referencing the path.
@@ -1039,12 +1159,17 @@ class RAGIndexerMixin:
         """
         self.persist_needed = True
         
-        # 1. Invalidate BM25 caches (Quick internal state update)
+        # 1. Invalidate BM25 caches, in memory and on disk. The disk copy is
+        # judged fresh by file mtimes alone, and a deletion changes no file:
+        # after a prune the old pickle, deleted nodes and all, was loaded
+        # straight back.
         with self._data_lock:
             for itype in updated_itypes:
-                if itype in self.bm25_cache:
-                    log_info(f"Invalidating memory BM25 cache for '{itype}' to trigger re-save")
-                    del self.bm25_cache[itype]
+                self.bm25_cache.pop(itype, None)
+                try:
+                    os.remove(self._get_bm25_cache_path(itype))
+                except OSError:
+                    pass
 
         # 2. Heavy Disk I/O (NO LOCK HELD)
         # We don't hold the global data lock during storage_context.persist()
@@ -1093,6 +1218,7 @@ class RAGIndexerMixin:
             if not os.path.exists(corrupt_dir): os.makedirs(corrupt_dir)
 
             updated_itypes = await asyncio.to_thread(self._prune_deleted_files)
+            updated_itypes |= await asyncio.to_thread(self._reconcile_indices)
             new_file_paths = await asyncio.to_thread(self._find_changed_files)
 
             if not new_file_paths:
