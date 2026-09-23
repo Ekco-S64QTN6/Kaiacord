@@ -57,3 +57,38 @@ def speaker_from_log_path(path: str) -> str:
     import re as _re
     name = _re.sub(r"_\d{5,}$", "", folder)
     return name.replace("_", " ").strip()
+
+
+# ── Asking the live bot to reindex ──────────────────────────────────────────
+# The maintenance loop (maintenance_tasks.rag_maintenance_task) checks for this
+# file every five minutes and sweeps when it finds one. Every writer goes
+# through these two functions: four of them touched a file in the wrong place —
+# the repo root, knowledge_base/news/ — which the loop never looks at, so their
+# "reindex now" never happened and new content waited for the hourly sweep.
+def reindex_trigger_path():
+    """The trigger file the live bot watches, as an absolute path."""
+    from pathlib import Path
+    root = Path(__file__).resolve().parents[2]
+    try:
+        from utils.infrastructure.system.yaml_config import config
+        kb = Path(config.knowledge_base_dir)
+    except Exception:
+        kb = Path("knowledge_base")
+    kb = kb if kb.is_absolute() else root / kb
+    try:
+        from utils.infrastructure.monitoring.telemetry_paths import corpus_dir
+        kb = Path(corpus_dir(str(kb)))       # a test's request stays out of the live corpus
+    except Exception:
+        pass
+    return kb / ".trigger_reindex"
+
+
+def request_reindex() -> bool:
+    """Ask the live bot to sweep the corpus on its next maintenance tick."""
+    try:
+        path = reindex_trigger_path()
+        path.parent.mkdir(parents=True, exist_ok=True)
+        path.touch()
+        return True
+    except OSError:
+        return False

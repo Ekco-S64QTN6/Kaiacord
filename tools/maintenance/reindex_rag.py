@@ -126,8 +126,8 @@ async def rebuild_rag(clear_storage: bool = False, file_path: str = None,
 
 def trigger_bot_reindex():
     """Touch trigger file to signal running bot to perform incremental reindex."""
-    trigger_file = os.path.join(PROJECT_ROOT, "knowledge_base", ".trigger_reindex")
-    Path(trigger_file).touch()
+    from utils.core.rag_utils import request_reindex
+    request_reindex()
     log_success("Created .trigger_reindex file. Live bot will pick up changes on next loop.")
 
 

@@ -548,8 +548,8 @@ def _escape_yaml(text: str) -> str:
 def _trigger_reindex():
     """Touch the .trigger_reindex file so the RAG picks up new content."""
     try:
-        trigger_path = Path("./knowledge_base/.trigger_reindex")
-        trigger_path.touch()
-        log_debug("Touched .trigger_reindex for RAG refresh")
+        from utils.core.rag_utils import request_reindex
+        if request_reindex():
+            log_debug("Requested a RAG refresh via .trigger_reindex")
     except Exception as e:
         log_warning(f"Could not trigger reindex: {e}")

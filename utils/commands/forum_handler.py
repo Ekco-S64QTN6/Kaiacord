@@ -1,6 +1,7 @@
 import asyncio
 from utils.infrastructure.logging.kaia_logger import log_action, log_error, log_info, log_success, log_debug
 from pathlib import Path
+from utils.core.rag_utils import request_reindex
 
 
 async def handle_forum_command(ctx, msg, send_kaia_response):
@@ -268,7 +269,7 @@ async def _handle_scrape(ctx, msg):
             users_scraped = await client.scrape_active_users(threads, all_posts, max_users=max_users)
 
             # Trigger reindex
-            Path("./knowledge_base/.trigger_reindex").touch()
+            request_reindex()
 
         await msg.channel.send(
             f"```\n"
@@ -329,7 +330,7 @@ async def _handle_read(ctx, msg, thread_id: int):
 
         # Also save the full scrape
         client.save_thread_scrape(thread_data)
-        Path("./knowledge_base/.trigger_reindex").touch()
+        request_reindex()
 
     except Exception as e:
         log_error(f"Forum read error: {e}")
@@ -495,7 +496,7 @@ async def _handle_user(ctx, msg, user_id: int):
                 
                 # Save the big history file
                 filepath = client.save_user_post_history(username, user_id, profile, all_results)
-                Path("./knowledge_base/.trigger_reindex").touch()
+                request_reindex()
 
         # Report
         total = profile.get('total_posts', '?')

@@ -83,7 +83,8 @@ async def forum_scrape_task():
 
         # Trigger RAG reindex ONLY if content changed
         if any_updated:
-            Path("./knowledge_base/.trigger_reindex").touch()
+            from utils.core.rag_utils import request_reindex
+            request_reindex()
             log_action(f"Forum scrape: {len(threads)} threads, {len(all_posts)} posts ingested (Updates found)")
         else:
             log_info(f"Forum scrape: {len(threads)} threads checked. No new content.")

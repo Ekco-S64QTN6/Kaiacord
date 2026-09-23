@@ -79,7 +79,8 @@ async def backfill(pages: int, users: int, delay: float, forum_id: int) -> int:
         print(f"Deep-scraped {n} user histories.")
         client.update_forum_user_profiles(all_posts)
 
-    (ROOT / "knowledge_base" / ".trigger_reindex").touch()
+    from utils.core.rag_utils import request_reindex
+    request_reindex()
 
     ready, detail = lurk_progress()
     print(f"After:  {detail}")

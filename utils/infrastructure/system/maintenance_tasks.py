@@ -34,7 +34,8 @@ async def rag_maintenance_task():
         _rag_tick_count += 1
             
         # Check if a manual trigger exists
-        trigger_path = os.path.join(ctx.rag.knowledge_base_dir, ".trigger_reindex")
+        from utils.core.rag_utils import reindex_trigger_path
+        trigger_path = str(reindex_trigger_path())
         force_sweep = os.path.exists(trigger_path)
         is_hourly = (_rag_tick_count % 12 == 0)  # Full scan every ~60 minutes
         
@@ -86,11 +87,15 @@ async def memory_audit_task():
         NORMAL_THRESHOLD_MB = getattr(ctx.config, 'memory_critical_threshold_mb', 12000)
         
         if rss_mb > NORMAL_THRESHOLD_MB:
+            # This is the bot's own RAM. The GPU is Ollama's, and the bot holds
+            # none of it, so "clearing GPU memory" here did nothing while the
+            # log line said it had. Collect garbage and report what it freed.
+            import gc
             from utils.infrastructure.logging.kaia_logger import log_critical
-            log_critical(f"Memory usage critical ({rss_mb:.1f}MB > {NORMAL_THRESHOLD_MB}MB)! Clearing caches and GPU memory.")
-            
-            if ctx.clear_gpu_memory:
-                await ctx.clear_gpu_memory()
+            freed = await asyncio.to_thread(gc.collect)
+            after = psutil.Process().memory_info().rss / 1024 / 1024
+            log_critical(f"Memory usage critical ({rss_mb:.1f}MB > {NORMAL_THRESHOLD_MB}MB). "
+                         f"Garbage collection freed {freed} objects; RSS now {after:.1f}MB.")
             
         # Cleanup rate limiter to prevent unbounded memory growth
         ctx.rate_limiter.cleanup()

@@ -50,7 +50,6 @@ from tools.maintenance.ebook_to_kb_md import (  # noqa: E402
 
 KB = Path("knowledge_base")
 INGRESS = KB / "_ingress"
-REINDEX_TRIGGER = Path(".trigger_reindex")
 
 # Folders a sidecar is allowed to name. Anything else is filed as a document,
 # so a malformed or hostile sidecar cannot write outside the corpus.
@@ -438,7 +437,8 @@ def main() -> int:
 
     if ok and not args.dry_run:
         # One reindex for the batch, not one per document.
-        REINDEX_TRIGGER.touch()
+        from utils.core.rag_utils import request_reindex
+        request_reindex()
 
     print(f"Ingress: {ok} filed, {failed} failed"
           + (" (dry run, nothing written)" if args.dry_run else ""))

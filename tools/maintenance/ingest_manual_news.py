@@ -183,8 +183,8 @@ def ingest_manual_news():
             
     # Trigger reindex if work was done
     if ingested_count > 0 or summarized_count > 0:
-        trigger_file = KNOWLEDGE_DIR_DAILY.parent / ".trigger_reindex"
-        trigger_file.touch()
+        from utils.core.rag_utils import request_reindex
+        request_reindex()
         print(f"\n✅ Ingested {ingested_count} files and generated {summarized_count} summaries. RAG reindex triggered.")
 
 def generate_summary(full_brief, target_date, summary_path):

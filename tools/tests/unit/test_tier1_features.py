@@ -92,16 +92,21 @@ class TestSnapshotHandler:
         assert _escape_yaml('Hello "world"') == 'Hello \\"world\\"'
         assert _escape_yaml("Line1\nLine2") == "Line1 Line2"
 
-    def test_trigger_reindex_creates_file(self):
+    def test_trigger_reindex_writes_where_the_bot_looks(self):
+        """!snapshot touched a file at the repo root; the maintenance loop only
+        checks knowledge_base/.trigger_reindex, so it never fired."""
+        from pathlib import Path
         from utils.commands.snapshot_handler import _trigger_reindex
-        # Remove if exists
-        trigger_file = ".trigger_reindex"
-        if os.path.exists(trigger_file):
-            os.remove(trigger_file)
-        
+        from utils.core.rag_utils import reindex_trigger_path
+
+        target = reindex_trigger_path()
+        assert target.name == ".trigger_reindex"
+        assert "knowledge_base" in target.parts
+        target.unlink(missing_ok=True)
         _trigger_reindex()
-        # The file should now exist (or the function gracefully fails)
-        # NOTE: In CI this might fail if cwd doesn't allow writes
+        assert target.exists()
+        target.unlink()
+        assert not Path(".trigger_reindex").exists()
 
 
 

@@ -135,7 +135,5 @@ def _escape_yaml(text: str) -> str:
 
 def _trigger_reindex():
     """Touch the trigger file so RAG picks up new content."""
-    try:
-        Path(".trigger_reindex").touch()
-    except Exception:
-        pass
+    from utils.core.rag_utils import request_reindex
+    request_reindex()

@@ -107,3 +107,7 @@ knowledge_base/.test/
 # Strudel is AGPL-3.0 — fetching its bundle at install time keeps that copyleft
 # off this repo, where committing it would not.
 assets/strudel/strudel-repl.js
+
+# A reindex request belongs at knowledge_base/.trigger_reindex (ignored above).
+# One at the repo root was never read by anything.
+/.trigger_reindex

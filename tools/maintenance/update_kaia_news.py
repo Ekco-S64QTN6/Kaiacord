@@ -420,19 +420,10 @@ RULES:
             raise e
     
     def trigger_reindex(self):
-        """Optionally trigger RAG reindexing"""
-        # This would depend on how your Kaiacord handles new files
-        # One approach: create a trigger file
-        trigger_file = self.knowledge_dir.parent / ".trigger_reindex"
-        trigger_file.touch()
-        print("[DEBUG] Reindex trigger created")
-        
-        # Also create a small python script to trigger it if needed
-        # Path is relative to knowledge_base/news/daily
-        trigger_script = self.knowledge_dir.parent.parent.parent / "tools" / "trigger_reindex.py"
-        if not trigger_script.exists():
-            with open(trigger_script, 'w') as f:
-                f.write("import os\nfrom pathlib import Path\nPath('./knowledge_base/.trigger_reindex').touch()\nprint('RAG reindex triggered.')\n")
+        """Ask the running bot to pick up the new brief on its next maintenance tick."""
+        from utils.core.rag_utils import request_reindex
+        if request_reindex():
+            print("[DEBUG] Reindex requested")
 
 # Manual version for when you don't have Gemini API
 def manual_news_update():
