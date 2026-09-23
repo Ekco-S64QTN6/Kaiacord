@@ -10,6 +10,7 @@ from urllib.parse import urlparse, unquote
 from utils.infrastructure.logging.kaia_logger import log_action, log_error, log_warning, log_debug
 from utils.core.sanitizer import is_safe_url
 from utils.core.atomic_write import write_atomic
+from utils.commands.embed_style import COLOR_INFO, add_field, box, clean, notice
 
 # Max download size: 10MB
 MAX_DOWNLOAD_BYTES = 10 * 1024 * 1024
@@ -48,7 +49,7 @@ async def handle_download_command(ctx, msg, send_kaia_response):
     parts = msg.content.strip().split(None, 1)
     
     if len(parts) < 2 or not parts[1].strip():
-        await msg.channel.send("```\nusage: !download <url>\nsupported: HTML pages, PDFs, plain text files\n```")
+        await msg.channel.send(embed=notice("usage: `!download <url>`\nsupported: HTML pages, PDFs, plain text files"))
         return
 
     url = parts[1].strip()
@@ -61,16 +62,16 @@ async def handle_download_command(ctx, msg, send_kaia_response):
     try:
         parsed = urlparse(url)
         if parsed.scheme not in ('http', 'https'):
-            await msg.channel.send("```\ninvalid url. needs to be http:// or https://\n```")
+            await msg.channel.send(embed=notice("invalid url. needs to be http:// or https://", error=True))
             return
         if not parsed.netloc:
-            await msg.channel.send("```\nthat doesn't look like a valid url.\n```")
+            await msg.channel.send(embed=notice("that doesn't look like a valid url.", error=True))
             return
         if not is_safe_url(url):
-            await msg.channel.send("```\naccess denied: internal/private IP targets are restricted.\n```")
+            await msg.channel.send(embed=notice("access denied: internal/private IP targets are restricted.", error=True))
             return
     except Exception:
-        await msg.channel.send("```\ncouldn't parse that url.\n```")
+        await msg.channel.send(embed=notice("couldn't parse that url.", error=True))
         return
 
     # Show typing while downloading
@@ -78,26 +79,22 @@ async def handle_download_command(ctx, msg, send_kaia_response):
         try:
             result = await _download_and_convert(url, msg.author.display_name, str(msg.author.id))
         except DownloadError as e:
-            await msg.channel.send(f"```\ndownload failed: {e}\n```")
+            await msg.channel.send(embed=notice(f"download failed: {e}", error=True))
             return
         except Exception as e:
             log_error(f"Download command error: {e}")
-            await msg.channel.send("```\nsomething went wrong during the download. check the url and try again.\n```")
+            await msg.channel.send(embed=notice("something went wrong during the download. check the url and try again.", error=True))
             return
 
     # No reindex from here. The document is staged outside the indexed tree;
     # process_ingress.py requests a single reindex once it has filed a batch.
-    await msg.channel.send(
-        f"```\n"
-        f"staged for the knowledge base.\n"
-        f"  file: {result['filename']}\n"
-        f"  words: ~{result['word_count']}\n"
-        f"  type: {result['content_type']}\n"
-        f"  destination: knowledge_base/{result['folder']}\n"
-        f"\n"
-        f"it gets cleaned up and filed on the next ingest pass (hourly).\n"
-        f"```"
-    )
+    embed = box(f"📥  {clean(result.get('title') or result['filename'], 200)}",
+                "staged for the knowledge base.", COLOR_INFO,
+                footer="cleaned up and filed on the next ingest pass (hourly)")
+    add_field(embed, "Words", f"~{result['word_count']:,}", inline=True)
+    add_field(embed, "Type", str(result['content_type']), inline=True)
+    add_field(embed, "Destination", f"`{result['folder']}/`", inline=True)
+    await msg.channel.send(embed=embed)
     log_action(f"Staged {url} -> {result['filepath']} ({result['word_count']} words) "
                f"by {msg.author.display_name}")
 

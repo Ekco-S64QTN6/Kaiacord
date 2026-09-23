@@ -32,6 +32,7 @@ from utils.ttrpg.fishing_engine import (
     get_reel_window,
 )
 from utils.ttrpg.calendar import get_season
+from utils.commands.embed_style import notice
 
 POND_COLOR = 0x3a8fc1  # deep pond blue
 
@@ -146,7 +147,7 @@ class FishingMenuView(discord.ui.View):
     @discord.ui.button(label="🎣 Cast", style=discord.ButtonStyle.primary, row=0)
     async def cast_btn(self, interaction: discord.Interaction, button: discord.ui.Button):
         if str(interaction.user.id) != self._uid:
-            await interaction.response.send_message("```\nnot your rod.\n```", ephemeral=True)
+            await interaction.response.send_message(embed=notice("not your rod.", error=True), ephemeral=True)
             return
         await interaction.response.defer()
         await _handle_cast(self._ctx, interaction, self._uid, self._uname, self._is_owner)
@@ -188,7 +189,7 @@ class FishingMenuView(discord.ui.View):
         try:
             await _handle_talk(self._ctx, fake, send_fn, "gregor", self._uid, self._uname, self._is_owner)
         except Exception as e:
-            await interaction.followup.send(f"```\nTalk failed: {e}\n```", ephemeral=True)
+            await interaction.followup.send(embed=notice(f"talk failed: {e}", error=True), ephemeral=True)
 
     @discord.ui.button(label="📊 My Stats", style=discord.ButtonStyle.secondary, row=1)
     async def stats_btn(self, interaction: discord.Interaction, button: discord.ui.Button):

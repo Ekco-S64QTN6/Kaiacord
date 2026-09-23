@@ -2,6 +2,7 @@ import asyncio
 from utils.infrastructure.logging.kaia_logger import log_action, log_error, log_info, log_success, log_debug
 from pathlib import Path
 from utils.core.rag_utils import request_reindex
+from utils.commands.embed_style import COLOR_INFO, add_field, box, clean, clean_block, notice
 
 
 async def handle_forum_command(ctx, msg, send_kaia_response):
@@ -12,14 +13,14 @@ async def handle_forum_command(ctx, msg, send_kaia_response):
     if subcommand == "link":
         user_id = int(parts[2]) if len(parts) > 2 and parts[2].isdigit() else None
         if not user_id:
-            await msg.channel.send("```\nusage: !forum link <forum_id>\n```")
+            await msg.channel.send(embed=notice("usage: `!forum link <forum_id>`"))
             return
         await _handle_link(ctx, msg, user_id)
         return
 
     is_owner = ctx.config.is_owner(msg.author.name, msg.author.display_name, str(msg.author.id))
     if not is_owner:
-        await msg.channel.send("```\nrestricted.\n```")
+        await msg.channel.send(embed=notice("restricted.", error=True))
         return
 
     if subcommand == "status":
@@ -31,13 +32,13 @@ async def handle_forum_command(ctx, msg, send_kaia_response):
     elif subcommand == "read":
         thread_id = int(parts[2]) if len(parts) > 2 and parts[2].isdigit() else None
         if not thread_id:
-            await msg.channel.send("```\nusage: !forum read <thread_id>\n```")
+            await msg.channel.send(embed=notice("usage: `!forum read <thread_id>`"))
             return
         await _handle_read(ctx, msg, thread_id)
     elif subcommand == "user":
         user_id = int(parts[2]) if len(parts) > 2 and parts[2].isdigit() else None
         if not user_id:
-            await msg.channel.send("```\nusage: !forum user <user_id>\n```")
+            await msg.channel.send(embed=notice("usage: `!forum user <user_id>`"))
             return
         await _handle_user(ctx, msg, user_id)
     elif subcommand == "post":
@@ -45,22 +46,20 @@ async def handle_forum_command(ctx, msg, send_kaia_response):
     elif subcommand == "reply":
         thread_id = int(parts[2]) if len(parts) > 2 and parts[2].isdigit() else None
         if not thread_id:
-            await msg.channel.send("```\nusage: !forum reply <thread_id>\n```")
+            await msg.channel.send(embed=notice("usage: `!forum reply <thread_id>`"))
             return
         await _handle_reply(ctx, msg, thread_id)
     else:
-        await msg.channel.send(
-            "```\n"
-            "!forum status    — connection status and rate limits\n"
-            "!forum stats     — global scraper totals (threads, posts, users)\n"
-            "!forum scrape    — scrape Off Topic [forum=ID limit=N full=true]\n"
-            "!forum read <id> — read last posts from a thread\n"
-            "!forum post <id> <message> — post a reply\n"
-            "!forum reply <id> — AI-generated reply to a thread\n"
-            "!forum user <id> — deep-scrape a user's full post history\n"
-            "!forum link <id> — link YOUR discord account to a forum id\n"
-            "```"
-        )
+        await msg.channel.send(embed=box("🧵  Forum commands", "\n".join((
+            "`!forum status` — connection status and rate limits",
+            "`!forum stats` — global scraper totals (threads, posts, users)",
+            "`!forum scrape` `[forum=ID limit=N full=true]` — scrape Off Topic",
+            "`!forum read <id>` — the last posts in a thread",
+            "`!forum post <id> <message>` — post a reply",
+            "`!forum reply <id>` — draft a reply for review",
+            "`!forum user <id>` — deep-scrape a user's post history",
+            "`!forum link <id>` — link your Discord account to a forum id",
+        ))))
 
 
 async def _handle_status(ctx, msg):
@@ -68,13 +67,13 @@ async def _handle_status(ctx, msg):
     from utils.social.kaia_forum import is_forum_configured, get_forum_client
 
     if not is_forum_configured():
-        await msg.channel.send("```\nforum integration is disabled in config.\n```")
+        await msg.channel.send(embed=notice("forum integration is disabled in config."))
         return
 
     try:
         client = await get_forum_client()
         if not client:
-            await msg.channel.send("```\ncouldn't connect to forum.\n```")
+            await msg.channel.send(embed=notice("couldn't connect to forum.", error=True))
             return
 
         status = client.get_status()
@@ -82,24 +81,19 @@ async def _handle_status(ctx, msg):
         # enabled, logged in, and still correctly posting nothing — so they
         # belong here, where the question gets asked.
         lurk = "done" if status['lurk_ready'] else f"reading ({status['lurk_detail']})"
-        await msg.channel.send(
-            f"```\n"
-            f"Forum Status\n"
-            f"  logged in: {status['logged_in']}\n"
-            f"  off-topic posting: {status['enabled']}\n"
-            f"  tech support posting: {status['tech_support']}\n"
-            f"  auto-reply: {status['auto_reply']}\n"
-            f"  posting window: {status['window']}\n"
-            f"  lurking: {lurk}\n"
-            f"  posts today: {status['posts_today']}/{status['max_posts_per_day']}\n"
-            f"  min hours between posts: {status['min_hours_between_posts']}\n"
-            f"  last post: {status['last_post']}\n"
-            f"  url: {status['base_url']}\n"
-            f"```"
-        )
+        embed = box("🧵  Forum status", footer=str(status['base_url']))
+        for name, value in (
+                ("Logged in", status['logged_in']), ("Off-topic posting", status['enabled']),
+                ("Tech support", status['tech_support']), ("Auto-reply", status['auto_reply']),
+                ("Posting window", status['window']), ("Lurking", lurk),
+                ("Posts today", f"{status['posts_today']}/{status['max_posts_per_day']}"),
+                ("Min hours between", status['min_hours_between_posts']),
+                ("Last post", status['last_post'])):
+            add_field(embed, name, str(value), inline=True)
+        await msg.channel.send(embed=embed)
     except Exception as e:
         log_error(f"Forum status error: {e}")
-        await msg.channel.send(f"```\nerror getting forum status: {e}\n```")
+        await msg.channel.send(embed=notice(f"error getting forum status: {e}", error=True))
 
 
 async def _handle_stats(ctx, msg):
@@ -110,25 +104,24 @@ async def _handle_stats(ctx, msg):
         try:
             client = await get_forum_client()
             if not client:
-                await msg.channel.send("```\nforum not configured.\n```")
+                await msg.channel.send(embed=notice("forum not configured."))
                 return
 
             stats = await client.get_global_stats()
             
-            await msg.channel.send(
-                f"```\n"
-                f"Forum Global Stats\n"
-                f"  threads listed: {stats['last_listing_count']} (latest snapshot)\n"
-                f"  threads scraped: {stats['total_threads']}\n"
-                f"  posts collected: {stats['total_posts']}\n"
-                f"  users indexed: {stats['total_users']}\n"
-                f"  profiles generated: {stats['total_profiles']}\n"
-                f"  disk usage: {stats['disk_usage_mb']:.2f} MB\n"
-                f"```"
-            )
+            embed = box("🧵  Forum stats")
+            for name, value in (
+                    ("Threads listed", f"{stats['last_listing_count']} (latest snapshot)"),
+                    ("Threads scraped", stats['total_threads']),
+                    ("Posts collected", stats['total_posts']),
+                    ("Users indexed", stats['total_users']),
+                    ("Profiles", stats['total_profiles']),
+                    ("Disk", f"{stats['disk_usage_mb']:.2f} MB")):
+                add_field(embed, name, str(value), inline=True)
+            await msg.channel.send(embed=embed)
         except Exception as e:
             log_error(f"Forum stats error: {e}")
-            await msg.channel.send(f"```\nerror getting forum stats: {e}\n```")
+            await msg.channel.send(embed=notice(f"error getting forum stats: {e}", error=True))
 
 
 async def _handle_scrape(ctx, msg):
@@ -158,12 +151,12 @@ async def _handle_scrape(ctx, msg):
     }
     forum_name = forum_names.get(target_forum_id, f"Forum {target_forum_id}") if target_forum_id else "Off Topic"
 
-    await msg.channel.send(f"```\nscraping {forum_name}...\n```")
+    await msg.channel.send(embed=notice(f"scraping {forum_name}..."))
 
     try:
         client = await get_forum_client()
         if not client:
-            await msg.channel.send("```\nforum not configured or login failed.\n```")
+            await msg.channel.send(embed=notice("forum not configured or login failed.", error=True))
             return
 
         async with msg.channel.typing():
@@ -271,21 +264,16 @@ async def _handle_scrape(ctx, msg):
             # Trigger reindex
             request_reindex()
 
-        await msg.channel.send(
-            f"```\n"
-            f"scrape complete.\n"
-            f"  threads listed: {len(threads)}\n"
-            f"  threads scraped: {scraped_threads}\n"
-            f"  posts collected: {len(all_posts)}\n"
-            f"  users deep-scraped: {users_scraped}\n"
-            f"  saved to: knowledge_base/forum_posts/\n"
-            f"```"
-        )
+        embed = box("🧵  Scrape complete", footer="saved to knowledge_base/forum_posts/")
+        for name, value in (("Threads listed", len(threads)), ("Threads scraped", scraped_threads),
+                            ("Posts collected", len(all_posts)), ("Users deep-scraped", users_scraped)):
+            add_field(embed, name, str(value), inline=True)
+        await msg.channel.send(embed=embed)
         log_action(f"Forum scrape complete: {len(threads)} threads, {len(all_posts)} posts")
 
     except Exception as e:
         log_error(f"Forum scrape error: {e}")
-        await msg.channel.send(f"```\nscrape failed: {e}\n```")
+        await msg.channel.send(embed=notice(f"scrape failed: {e}", error=True))
 
 
 async def _handle_read(ctx, msg, thread_id: int):
@@ -298,35 +286,30 @@ async def _handle_read(ctx, msg, thread_id: int):
 
         client = await get_forum_client()
         if not client:
-            await msg.channel.send("```\nforum not configured or login failed.\n```")
+            await msg.channel.send(embed=notice("forum not configured or login failed.", error=True))
             return
 
         async with msg.channel.typing():
             thread_data = await client.scrape_thread(thread_id, last_n_posts=10, full_scrape=full_scrape)
 
         if not thread_data.get('posts'):
-            await msg.channel.send(f"```\nno posts found in thread {thread_id}.\n```")
+            await msg.channel.send(embed=notice(f"no posts found in thread {thread_id}."))
             return
 
         # Build a readable summary
         title = thread_data.get('title', f'Thread {thread_id}')
         posts = thread_data['posts']
 
-        lines = [f"Thread: {title}", f"Page: {thread_data.get('page', '?')}", ""]
-        for p in posts[-5:]:  # Show last 5 in Discord
+        # Scraped posts are strangers' text: cleaned into fields, never
+        # wrapped in a code block they could close.
+        embed = box(f"🧵  {clean(title, 200)}", f"Page {thread_data.get('page', '?')} · "
+                    f"last {min(5, len(posts))} of {len(posts)} posts", COLOR_INFO,
+                    footer=f"thread {thread_id}")
+        for p in posts[-5:]:
             post = p if isinstance(p, dict) else p.to_dict()
-            author = post.get('author', '?')
-            content = post.get('content', '')[:300]
-            lines.append(f"#{post.get('post_number', '?')} {author}:")
-            lines.append(f"  {content}")
-            lines.append("")
-
-        # Truncate to fit Discord's 2000 char limit
-        output = '\n'.join(lines)
-        if len(output) > 1900:
-            output = output[:1900] + "\n..."
-
-        await msg.channel.send(f"```\n{output}\n```")
+            add_field(embed, f"#{post.get('post_number', '?')} · {clean(post.get('author', '?'), 60)}",
+                      clean(post.get('content', ''), 300) or "(empty)")
+        await msg.channel.send(embed=embed)
 
         # Also save the full scrape
         client.save_thread_scrape(thread_data)
@@ -334,7 +317,7 @@ async def _handle_read(ctx, msg, thread_id: int):
 
     except Exception as e:
         log_error(f"Forum read error: {e}")
-        await msg.channel.send(f"```\nerror reading thread: {e}\n```")
+        await msg.channel.send(embed=notice(f"error reading thread: {e}", error=True))
 
 
 async def _handle_reply(ctx, msg, thread_id: int):
@@ -348,7 +331,7 @@ async def _handle_reply(ctx, msg, thread_id: int):
 
     client = await get_forum_client()
     if not client:
-        await msg.channel.send("```\nforum client not available.\n```")
+        await msg.channel.send(embed=notice("forum client not available."))
         return
 
     async with msg.channel.typing():
@@ -356,7 +339,7 @@ async def _handle_reply(ctx, msg, thread_id: int):
             thread_data = await client.scrape_thread(thread_id, last_n_posts=15)
             posts = thread_data.get('posts') or []
             if not posts:
-                await msg.channel.send(f"```\ncouldn't find content for thread {thread_id}.\n```")
+                await msg.channel.send(embed=notice(f"couldn't find content for thread {thread_id}.", error=True))
                 return
 
             # Save so RAG sees it
@@ -365,7 +348,7 @@ async def _handle_reply(ctx, msg, thread_id: int):
 
             draft = await draft_forum_reply(ctx, thread_id=thread_id, title=title, posts=posts)
             if not draft:
-                await msg.channel.send("```\nno reply drafted — see the log for why.\n```")
+                await msg.channel.send(embed=notice("no reply drafted — see the log for why."))
                 return
 
             quote_post = draft['quote']
@@ -380,15 +363,16 @@ async def _handle_reply(ctx, msg, thread_id: int):
             # Discord caps a message at 2,000 characters. Trim the preview only;
             # the button posts the full reply.
             shown = ai_reply if len(ai_reply) <= 1800 else ai_reply[:1800] + "…"
-            preview_text = f"```\nReply preview for '{title[:80]}':\n\n{shown}\n```"
+            preview = box(f"🧵  Reply preview · {clean(title, 150)}", clean_block(shown, 3900),
+                          footer=f"thread {thread_id} · the full reply is what gets posted")
             view = _ForumReplyConfirmView(client, thread_id, title, ai_reply, msg.author.id)
-            await msg.channel.send(preview_text, view=view)
+            await msg.channel.send(embed=preview, view=view)
 
         except Exception as e:
             log_error(f"AI forum reply failed: {e}")
             import traceback
             log_debug(traceback.format_exc())
-            await msg.channel.send(f"```\nerror generating reply: {e}\n```")
+            await msg.channel.send(embed=notice(f"error generating reply: {e}", error=True))
 
 
 class _ForumReplyConfirmView:
@@ -416,17 +400,17 @@ class _ForumReplyConfirmView:
             await interaction.response.defer()
             success = await client.post_reply(thread_id, reply_text)
             if success:
-                await interaction.followup.send(f"```\n✅ posted to '{title[:80]}'.\n```")
+                await interaction.followup.send(embed=notice(f"✅ posted to '{title[:80]}'."))
                 log_success(f"Forum reply posted to thread {thread_id}")
             else:
-                await interaction.followup.send("```\n❌ failed to post. check rate limits.\n```")
+                await interaction.followup.send(embed=notice("❌ failed to post. check rate limits.", error=True))
             view.stop()
 
         async def _cancel(interaction: discord.Interaction):
             if interaction.user.id != author_id:
                 await interaction.response.send_message("not your button.", ephemeral=True)
                 return
-            await interaction.response.edit_message(content="```\ncancelled.\n```", view=None)
+            await interaction.response.edit_message(content=None, embed=notice("cancelled."), view=None)
             view.stop()
 
         async def _regen(interaction: discord.Interaction):
@@ -434,7 +418,7 @@ class _ForumReplyConfirmView:
                 await interaction.response.send_message("not your button.", ephemeral=True)
                 return
             await interaction.response.edit_message(
-                content="```\nregenerating... use !forum reply again.\n```", view=None
+                content=None, embed=notice("discarded. use `!forum reply` again for a new draft."), view=None
             )
             view.stop()
 
@@ -456,10 +440,10 @@ async def _handle_user(ctx, msg, user_id: int):
     try:
         client = await get_forum_client()
         if not client:
-            await msg.channel.send("```\nforum not configured or login failed.\n```")
+            await msg.channel.send(embed=notice("forum not configured or login failed.", error=True))
             return
 
-        await msg.channel.send(f"```\ndeep-scraping user {user_id}...\n```")
+        await msg.channel.send(embed=notice(f"deep-scraping user {user_id}..."))
 
         async with msg.channel.typing():
             # Scrape profile metadata
@@ -470,7 +454,7 @@ async def _handle_user(ctx, msg, user_id: int):
             posts = await client.scrape_user_post_history(user_id, username, max_pages=20)
 
             # visit top threads for FULL context (Deep Crawl)
-            await msg.channel.send(f"```\ndeep-crawling threads for full content...\n```")
+            await msg.channel.send(embed=notice(f"deep-crawling threads for full content..."))
             full_posts = await client.deep_crawl_user_posts(user_id, username, posts)
             
             # Scrape threads started
@@ -491,7 +475,7 @@ async def _handle_user(ctx, msg, user_id: int):
                 client.update_forum_user_profiles(post_infos, profile)
                 
                 # Visit the AI to generate a proper personality profile
-                await msg.channel.send(f"```\ngenerating AI personality profile...\n```")
+                await msg.channel.send(embed=notice(f"generating AI personality profile..."))
                 await client.generate_personality_profile(username, user_id, all_results, profile)
                 
                 # Save the big history file
@@ -506,23 +490,18 @@ async def _handle_user(ctx, msg, user_id: int):
         # IDENTITY LINKING: Check for linked Discord ID
         from utils.social.kaia_identities import registry
         linked_discord = registry.get_discord_id(user_id)
-        linked_info = f"  linked discord: {linked_discord}\n" if linked_discord else ""
-
-        await msg.channel.send(
-            f"```\n"
-            f"user: {username}\n"
-            f"  rank: {rank}\n"
-            f"  total forum posts: {total}\n"
-            f"  joined: {joined}\n"
-            f"{linked_info}"
-            f"  posts scraped: {len(posts)}\n"
-            f"  saved to: knowledge_base/user_logs/forum_{username}_{user_id}/\n"
-            f"```"
-        )
+        embed = box(f"👤  {clean(username, 100)}",
+                    footer=f"saved to knowledge_base/user_logs/forum_{username}_{user_id}/")
+        for name, value in (("Rank", clean(str(rank), 100)), ("Forum posts", total),
+                            ("Joined", joined), ("Posts scraped", len(posts))):
+            add_field(embed, name, str(value), inline=True)
+        if linked_discord:
+            add_field(embed, "Linked Discord", str(linked_discord), inline=True)
+        await msg.channel.send(embed=embed)
 
     except Exception as e:
         log_error(f"Forum user scrape error: {e}")
-        await msg.channel.send(f"```\nuser scrape failed: {e}\n```")
+        await msg.channel.send(embed=notice(f"user scrape failed: {e}", error=True))
 
 
 async def _handle_link(ctx, msg, forum_id: int):
@@ -535,7 +514,7 @@ async def _handle_link(ctx, msg, forum_id: int):
     try:
         client = await get_forum_client()
         if not client:
-            await msg.channel.send("```\nforum client failure\n```")
+            await msg.channel.send(embed=notice("forum client failure", error=True))
             return
 
         # Optional: Verify user exists on forum
@@ -544,16 +523,13 @@ async def _handle_link(ctx, msg, forum_id: int):
         
         registry.link_discord_to_forum(discord_id, forum_id)
         
-        await msg.channel.send(
-            f"```\n"
-            f"identity linked:\n"
-            f"  discord: {discord_id}\n"
-            f"  forum: {forum_name} ({forum_id})\n"
-            f"```"
-        )
+        embed = box("🔗  Identity linked")
+        add_field(embed, "Discord", str(discord_id), inline=True)
+        add_field(embed, "Forum", f"{clean(forum_name, 100)} ({forum_id})", inline=True)
+        await msg.channel.send(embed=embed)
     except Exception as e:
         log_error(f"Identity link error: {e}")
-        await msg.channel.send(f"```\nlink failed: {e}\n```")
+        await msg.channel.send(embed=notice(f"link failed: {e}", error=True))
 
 
 async def _handle_post(ctx, msg, parts):
@@ -562,7 +538,7 @@ async def _handle_post(ctx, msg, parts):
 
     # Parse: !forum post <thread_id> <message>
     if len(parts) < 3:
-        await msg.channel.send("```\nusage: !forum post <thread_id> <message>\n```")
+        await msg.channel.send(embed=notice("usage: `!forum post <thread_id> <message>`"))
         return
 
     # Re-split to get thread_id and message properly
@@ -572,7 +548,7 @@ async def _handle_post(ctx, msg, parts):
 
     post_parts = remainder.split(None, 1)
     if len(post_parts) < 2 or not post_parts[0].isdigit():
-        await msg.channel.send("```\nusage: !forum post <thread_id> <message>\n```")
+        await msg.channel.send(embed=notice("usage: `!forum post <thread_id> <message>`"))
         return
 
     thread_id = int(post_parts[0])
@@ -581,17 +557,17 @@ async def _handle_post(ctx, msg, parts):
     try:
         client = await get_forum_client()
         if not client:
-            await msg.channel.send("```\nforum not configured or login failed.\n```")
+            await msg.channel.send(embed=notice("forum not configured or login failed.", error=True))
             return
 
         async with msg.channel.typing():
             success = await client.post_reply(thread_id, message)
 
         if success:
-            await msg.channel.send(f"```\nposted to thread {thread_id}.\n```")
+            await msg.channel.send(embed=notice(f"posted to thread {thread_id}."))
         else:
-            await msg.channel.send(f"```\nfailed to post. check rate limits or thread permissions.\n```")
+            await msg.channel.send(embed=notice(f"failed to post. check rate limits or thread permissions.", error=True))
 
     except Exception as e:
         log_error(f"Forum post error: {e}")
-        await msg.channel.send(f"```\npost failed: {e}\n```")
+        await msg.channel.send(embed=notice(f"post failed: {e}", error=True))

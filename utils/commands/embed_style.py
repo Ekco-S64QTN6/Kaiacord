@@ -146,3 +146,22 @@ def describe_source(source: str) -> str:
     icons = {"wiki": "📚", "troubleshooting": "🛠️", "transcripts": "🎬",
              "documents": "📄", "runtime": "🗂️"}
     return f"{icons.get(top, '📄')} {shorten(stem, 70)}"
+
+
+def notice(text: str, error: bool = False, title: str = "") -> discord.Embed:
+    """A one-message box: a status line, a refusal, a usage hint.
+
+    The text is ours, not quoted content, so it is not passed through `clean`
+    and keeps its inline code; anything interpolated into it from outside
+    (an exception, a URL) should be `clean`-ed by the caller.
+    """
+    return box(title, text, COLOR_ERROR if error else COLOR_INFO)
+
+
+def clean_block(text: str, limit: int = 3500) -> str:
+    """Like `clean`, but keeps line breaks — for a draft or a post shown whole."""
+    text = _ANSI.sub("", str(text or ""))
+    text = _FENCE.sub("", text).replace("`", "'")
+    text = discord.utils.escape_markdown(text, as_needed=True)
+    text = re.sub(r"\n{3,}", "\n\n", text).strip()
+    return text if len(text) <= limit else text[: limit - 1].rstrip() + "…"

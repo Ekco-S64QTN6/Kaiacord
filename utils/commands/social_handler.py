@@ -1,5 +1,6 @@
 import time
 from utils.infrastructure.logging.kaia_logger import log_action, log_error, log_debug
+from utils.commands.embed_style import notice
 
 async def handle_quip_command(ctx, msg):
     """Handle the !quip command"""
@@ -13,11 +14,11 @@ async def handle_quip_command(ctx, msg):
         remaining = 600 - (current_time - last_quip)
         
         if remaining > 0 and not is_owner:
-            await msg.channel.send(f"```\nwait {int(remaining/60)}m {int(remaining%60)}s before quipping again.\n```")
+            await msg.channel.send(embed=notice(f"wait {int(remaining/60)}m {int(remaining%60)}s before quipping again.", error=True))
             return
 
         log_action(f"Manual quip request from {msg.author}")
-        await msg.channel.send("```\nokay posting a skeet\n```")
+        await msg.channel.send(embed=notice("okay posting a skeet"))
         
         # Reset quips counter if manual
         ctx.bot_state.reset_quips()
@@ -32,4 +33,4 @@ async def handle_quip_command(ctx, msg):
         log_error(f"Manual quip failed: {e}")
         import traceback
         log_debug(traceback.format_exc())
-        await msg.channel.send("```\nquip failed. check logs.\n```")
+        await msg.channel.send(embed=notice("quip failed. check logs.", error=True))

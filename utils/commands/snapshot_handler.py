@@ -11,6 +11,7 @@ import re
 from datetime import datetime
 from pathlib import Path
 from utils.infrastructure.logging.kaia_logger import log_action, log_info, log_error, log_success
+from utils.commands.embed_style import notice
 
 
 async def handle_snapshot_command(ctx, msg, send_kaia_response):
@@ -19,7 +20,7 @@ async def handle_snapshot_command(ctx, msg, send_kaia_response):
 
     is_owner = config.is_owner(msg.author.name, msg.author.display_name, str(msg.author.id))
     if not is_owner:
-        await msg.channel.send("```\nyou aren't my architect. restricted.\n```")
+        await msg.channel.send(embed=notice("you aren't my architect. restricted.", error=True))
         return
 
     if not config.get('features.snapshots_enabled', True):

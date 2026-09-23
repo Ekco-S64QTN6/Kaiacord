@@ -4,6 +4,7 @@ import json
 import asyncio
 import discord
 from utils.infrastructure.logging.kaia_logger import log_action
+from utils.commands.embed_style import notice
 
 async def handle_memory_command(msg, sanitized_content, run_rag, rag):
     """Handle the 'kaia remember' command"""
@@ -17,11 +18,11 @@ async def handle_memory_command(msg, sanitized_content, run_rag, rag):
             if run_rag and rag:
                 success = await run_rag(rag.add_memory, msg.author.id, msg.author.display_name, memory_content)
                 if success:
-                    await msg.channel.send("```\nLogged it.\n```")
+                    await msg.channel.send(embed=notice("Logged it."))
                 else:
-                    await msg.channel.send("```\nMemory buffer error. Try again.\n```")
+                    await msg.channel.send(embed=notice("Memory buffer error. Try again.", error=True))
         else:
-            await msg.channel.send("```\nRemember what? I'm not a mind reader.\n```")
+            await msg.channel.send(embed=notice("Remember what? I'm not a mind reader."))
         return True
     return False
 
@@ -53,7 +54,7 @@ async def handle_memory_cmd(ctx, msg, send_kaia_response):
     """Handle the !memory command (Admin only)"""
     is_owner = ctx.config.is_owner(msg.author.name, msg.author.display_name, str(msg.author.id))
     if not is_owner:
-        await msg.channel.send("```\nyou aren't my architect. restricted.\n```")
+        await msg.channel.send(embed=notice("you aren't my architect. restricted.", error=True))
         return
 
     parts = msg.content.strip().split()

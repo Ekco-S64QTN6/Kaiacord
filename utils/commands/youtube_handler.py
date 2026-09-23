@@ -21,6 +21,7 @@ from pathlib import Path
 
 from utils.infrastructure.logging.kaia_logger import log_action, log_error, log_warning
 from utils.core.atomic_write import write_atomic
+from utils.commands.embed_style import COLOR_INFO, add_field, box, clean, notice
 
 INGRESS = Path("knowledge_base/_ingress")
 
@@ -38,10 +39,8 @@ async def handle_youtube_command(ctx, msg, send_kaia_response):
     """Handle !youtube <url>."""
     parts = msg.content.strip().split(None, 1)
     if len(parts) < 2 or not parts[1].strip():
-        await msg.channel.send(
-            "```\nusage: !youtube <url>\n"
-            "pulls the transcript and queues it for the knowledge base\n```"
-        )
+        await msg.channel.send(embed=notice(
+            "usage: `!youtube <url>`\npulls the transcript and queues it for the knowledge base"))
         return
 
     now = time.time()
@@ -61,7 +60,7 @@ async def handle_youtube_command(ctx, msg, send_kaia_response):
     try:
         video_id = extract_video_id(url)
     except YouTubeError as e:
-        await msg.channel.send(f"```\n{e}\n```")
+        await msg.channel.send(embed=notice(clean(str(e), 400), error=True))
         return
 
     placeholder = None
@@ -138,24 +137,16 @@ async def handle_youtube_command(ctx, msg, send_kaia_response):
     minutes, seconds = divmod(rem, 60)
     length = f"{hours}h{minutes:02d}m" if hours else f"{minutes}m{seconds:02d}s"
 
-    lines = [
-        "staged for the knowledge base.",
-        f"  {stats['title'][:70]}",
-    ]
+    embed = box(f"🎬  {clean(stats['title'], 200)}", "staged for the knowledge base.",
+                COLOR_INFO, footer="filed on the next ingest pass (hourly)")
     if stats.get("channel"):
-        lines.append(f"  channel: {stats['channel']}")
-    lines += [
-        f"  length: {length}   words: ~{stats['words']:,}",
-    ]
+        add_field(embed, "Channel", clean(stats["channel"], 100), inline=True)
+    add_field(embed, "Length", length, inline=True)
+    add_field(embed, "Words", f"~{stats['words']:,}", inline=True)
     if counts:
         from tools.maintenance.transcript_names import describe
-        lines.append(f"  fixed misheard names: {describe(counts, corrections, limit=4)}")
-    lines += [
-        f"  destination: knowledge_base/transcripts",
-        "",
-        "it gets filed on the next ingest pass (hourly).",
-    ]
-    await msg.channel.send("```\n" + "\n".join(lines) + "\n```")
+        add_field(embed, "Fixed misheard names", clean(describe(counts, corrections, limit=4), 900))
+    await msg.channel.send(embed=embed)
     log_action(
         f"Staged YouTube transcript {stats['url']} "
         f"({stats['words']} words) by {msg.author.display_name}"
@@ -213,6 +204,6 @@ async def _fail(msg, placeholder, text: str):
         except Exception:
             pass
     try:
-        await msg.channel.send(f"```\n{text}\n```")
+        await msg.channel.send(embed=notice(text, error=True))
     except Exception:
         log_warning(f"[youtube] could not report failure: {text}")

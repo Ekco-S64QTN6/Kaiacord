@@ -10,13 +10,14 @@ spawning a subprocess, preventing VRAM collisions with the main bot process.
 
 import os
 from utils.infrastructure.logging.kaia_logger import log_info, log_error
+from utils.commands.embed_style import notice
 
 
 async def handle_selfmodel_command(ctx, msg, send_kaia_response):
     """Handle the !selfmodel command to trigger self-model regeneration."""
     is_owner = ctx.config.is_owner(msg.author.name, msg.author.display_name, str(msg.author.id))
     if not is_owner:
-        await msg.channel.send("```\nyou aren't my architect. restricted.\n```")
+        await msg.channel.send(embed=notice("you aren't my architect. restricted.", error=True))
         return
 
     await send_kaia_response(msg.channel, "Reflecting on recent memories... Regenerating self-model. This may take a moment.")

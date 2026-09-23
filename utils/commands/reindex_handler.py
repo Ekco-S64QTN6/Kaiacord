@@ -10,6 +10,7 @@ RAG Reindex Command
 import asyncio
 import time
 from utils.infrastructure.logging.kaia_logger import log_action, log_error, log_info, log_success
+from utils.commands.embed_style import box, notice
 
 
 async def handle_reindex_command(ctx, msg, send_kaia_response):
@@ -17,12 +18,12 @@ async def handle_reindex_command(ctx, msg, send_kaia_response):
 
     is_owner = ctx.config.is_owner(msg.author.name, msg.author.display_name, str(msg.author.id))
     if not is_owner:
-        await msg.channel.send("```\nrestricted. admins only.\n```")
+        await msg.channel.send(embed=notice("restricted. admins only.", error=True))
         return
 
     rag = ctx.rag
     if not rag or not getattr(rag, '_initialized', False):
-        await msg.channel.send("```\nRAG not initialized yet. try again in a moment.\n```")
+        await msg.channel.send(embed=notice("RAG not initialized yet. try again in a moment.", error=True))
         return
 
     parts = msg.content.strip().split()
@@ -80,9 +81,9 @@ async def handle_reindex_command(ctx, msg, send_kaia_response):
                 f"Files in manifest: {after} (+{added} new/changed)."
             )
 
-        await status_msg.edit(content=f"✅ **Reindex Complete**\n```\n{summary}\n```")
+        await status_msg.edit(content=None, embed=box("✅  Reindex complete", summary))
         log_success(f"!reindex complete — {summary.replace(chr(10), ' ')}")
 
     except Exception as e:
         log_error(f"!reindex failed: {e}")
-        await status_msg.edit(content=f"```\nreindex failed: {type(e).__name__}: {e}\n```")
+        await status_msg.edit(content=None, embed=notice(f"reindex failed: {type(e).__name__}: {e}", error=True))

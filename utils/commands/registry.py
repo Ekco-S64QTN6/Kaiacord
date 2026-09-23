@@ -31,6 +31,7 @@ from utils.commands.selfmodel_handler import handle_selfmodel_command
 from utils.commands.snapshot_handler import handle_snapshot_command
 from utils.commands.social_handler import handle_quip_command
 from utils.commands.sysmon_handler import handle_sysmon_command
+from utils.commands.embed_style import notice
 from utils.infrastructure.logging.kaia_logger import log_debug, log_error
 
 
@@ -216,7 +217,7 @@ async def dispatch_command(ctx, msg, load_persona_async, send_kaia_response):
         import traceback
         log_error(f"Command !{cmd.name} raised: {e}\n{traceback.format_exc()}")
         try:
-            await msg.channel.send(f"```\n!{cmd.name} failed. check the logs.\n```")
+            await msg.channel.send(embed=notice(f"`!{cmd.name}` failed. check the logs.", error=True))
         except Exception:
             pass
     else:

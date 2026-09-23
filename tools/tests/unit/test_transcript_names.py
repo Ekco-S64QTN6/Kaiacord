@@ -114,7 +114,10 @@ def test_youtube_command_stages_the_corrected_transcript(monkeypatch, tmp_path):
 
     class Channel:
         id = 1
-        async def send(self, text=None, **_):
+        async def send(self, text=None, embed=None, **_):
+            if embed is not None:
+                text = "\n".join([embed.title or "", embed.description or ""]
+                                 + [f"{f.name}: {f.value}" for f in embed.fields])
             sent.append(text)
             return types.SimpleNamespace(delete=_noop, edit=_noop)
 

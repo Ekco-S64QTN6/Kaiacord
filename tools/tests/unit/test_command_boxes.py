@@ -107,3 +107,16 @@ def test_news_number_opens_the_story_the_list_numbered(tmp_path, monkeypatch):
     story = msg.channel.send.call_args.kwargs["embed"]
     assert story.title == "📰  Story 3 · Science And Health"
     assert "AMOC" in story.description
+
+
+def test_command_handlers_reply_in_the_box_not_raw_code_blocks():
+    """A reply built as a code block around text is one fence away from breaking."""
+    import re
+    from pathlib import Path
+    send = re.compile(r"""(?:send|send_message|edit(?:_message)?)\(\s*(?:content=)?f?["']```""")
+    offenders = []
+    for path in sorted(Path("utils/commands").glob("*.py")):
+        for n, line in enumerate(path.read_text(encoding="utf-8").splitlines(), 1):
+            if send.search(line) and not line.lstrip().startswith("#"):
+                offenders.append(f"{path}:{n}")
+    assert offenders == []

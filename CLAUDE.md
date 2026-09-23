@@ -549,6 +549,15 @@ need at 0.0 on any active server, which caps pressure at 0.16 — so a threshold
 she never speaks first, and at 0.55 she did so once in 102 evaluations. Both the threshold and
 the gate itself are configurable (`desires.initiate_threshold`, `desires.gate_enabled`).
 
+### Command replies
+
+Every `!` command answers in the embed box `!help` uses — `utils/commands/embed_style.py`
+(`box`, `add_field`, `notice`). Text quoted from a user, a document or a scrape goes through
+`clean` (one line) or `clean_block` (keeps line breaks) first. A reply built as a code block
+around such text is one fence away from breaking: `!explain 1` on a query that contained a
+pasted ```` ```ansi ```` block closed the block early and rendered the rest as escape codes.
+`test_command_handlers_reply_in_the_box_not_raw_code_blocks` keeps new ones out.
+
 ---
 
 ## 9. Logging

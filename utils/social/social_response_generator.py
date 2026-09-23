@@ -520,7 +520,8 @@ async def generate_quip(ctx, is_manual=False, target_channel=None, on_message_fu
         current_model = ModelContextMonitor.get_current_model()
         if current_model != config.chat_model:
             log_action(f"ACTION: Model {config.chat_model} is cold. Waking up for quip (this may take a moment)...")
-            await channel.send("```\njust a second, waking up my brain...\n```")
+            from utils.commands.embed_style import notice
+            await channel.send(embed=notice("just a second, waking up my brain..."))
 
         log_action(f"Generating quip via main engine in #{channel.name}...")
         

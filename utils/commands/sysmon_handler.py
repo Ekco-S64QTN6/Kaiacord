@@ -25,6 +25,7 @@ from utils.infrastructure.system.kaia_sysmon import (
 )
 from utils.infrastructure.monitoring.stats_poller import stats_poller
 from utils.infrastructure.monitoring.stats_tracker import stats_tracker
+from utils.commands.embed_style import notice
 
 # Where snapshots go for RAG indexing
 _SYSMON_LOG_DIR = Path("knowledge_base/runtime/system_logs")
@@ -107,7 +108,7 @@ async def handle_sysmon_command(ctx, msg, send_kaia_response):
         msg.author.name, msg.author.display_name, str(msg.author.id)
     )
     if not is_owner:
-        await msg.channel.send("```\nrestricted. admins only.\n```")
+        await msg.channel.send(embed=notice("restricted. admins only.", error=True))
         return
 
     log_action(f"!sysmon requested by {msg.author.display_name}")

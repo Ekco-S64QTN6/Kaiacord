@@ -198,8 +198,8 @@ def test_a_failing_handler_does_not_fall_through_to_chat():
 
     sent = []
 
-    async def send(content=None, **_):
-        sent.append(content)
+    async def send(content=None, embed=None, **_):
+        sent.append(content if embed is None else embed.description)
 
     msg = MagicMock()
     msg.content = "!news"

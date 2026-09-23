@@ -1,4 +1,5 @@
 import discord
+from utils.commands.embed_style import notice
 
 
 async def handle_dreams_command(ctx, msg, load_persona_async):
@@ -7,7 +8,7 @@ async def handle_dreams_command(ctx, msg, load_persona_async):
     is_owner = ctx.config.is_owner(msg.author.name, msg.author.display_name, str(msg.author.id))
     
     if not is_owner:
-        await msg.channel.send("```\nyou aren't my architect. restricted.\n```")
+        await msg.channel.send(embed=notice("you aren't my architect. restricted.", error=True))
         return
         
     parts = msg.content.strip().split()

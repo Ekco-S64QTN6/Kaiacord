@@ -4,6 +4,9 @@ import os
 import re
 from pathlib import Path
 from utils.infrastructure.logging.kaia_logger import log_action, log_error, log_info
+from utils.commands.embed_style import box, notice
+
+FENCE = "`" * 3
 
 async def handle_enrich_command(ctx, msg, send_kaia_response):
     """Handle the !enrich command (Admin only) — trigger metadata enrichment for the knowledge base."""
@@ -12,7 +15,7 @@ async def handle_enrich_command(ctx, msg, send_kaia_response):
     is_owner = ctx.config.is_owner(msg.author.name, msg.author.display_name, str(msg.author.id))
     
     if not is_owner:
-        await msg.channel.send("```\nrestricted. this command is for admins only.\n```")
+        await msg.channel.send(embed=notice("restricted. this command is for admins only.", error=True))
         return
 
     parts = msg.content.strip().split()
@@ -30,7 +33,7 @@ async def handle_enrich_command(ctx, msg, send_kaia_response):
             if idx + 1 < len(parts):
                 category = parts[idx + 1].lower()
                 if category not in ["all", "knowledge", "logs"]:
-                    await msg.channel.send("```\ninvalid category. use 'all', 'knowledge', or 'logs'.\n```")
+                    await msg.channel.send(embed=notice("invalid category. use 'all', 'knowledge', or 'logs'.", error=True))
                     return
         except ValueError:
             pass
@@ -52,7 +55,7 @@ async def handle_enrich_command(ctx, msg, send_kaia_response):
         script_path = project_root / "tools" / "maintenance" / "enrich_metadata.py"
         
         if not script_path.exists():
-            await status_msg.edit(content="```\nerror: enrichment script not found at tools/maintenance/enrich_metadata.py\n```")
+            await status_msg.edit(content=None, embed=notice("error: enrichment script not found at tools/maintenance/enrich_metadata.py", error=True))
             return
 
         # Build command
@@ -130,9 +133,12 @@ async def handle_enrich_command(ctx, msg, send_kaia_response):
         if not summary:
             summary = "Enrichment completed, but no output was captured."
 
-        await status_msg.edit(content=f"✅ **Enrichment Complete**\n```\n{summary}\n```")
+        # The tool's own output, kept monospaced; a stray fence in it cannot
+        # close the block early.
+        body = summary.replace(FENCE, "ˋˋˋ")[-3800:]
+        await status_msg.edit(content=None, embed=box("✅  Enrichment complete", f"{FENCE}\n{body}\n{FENCE}"))
         log_info(f"!enrich completed for {msg.author.display_name}")
 
     except Exception as e:
         log_error(f"Failed to run !enrich command: {e}")
-        await status_msg.edit(content=f"```\nerror during enrichment: {type(e).__name__}: {str(e)}\n```")
+        await status_msg.edit(content=None, embed=notice(f"error during enrichment: {type(e).__name__}: {str(e)}", error=True))
