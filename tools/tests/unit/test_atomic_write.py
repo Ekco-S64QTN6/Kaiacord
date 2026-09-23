@@ -94,3 +94,28 @@ def test_writers_that_run_unattended_are_atomic(path):
     an interrupted write is found weeks later as a short document."""
     src = Path(path).read_text(encoding="utf-8")
     assert "write_atomic" in src, f"{path} no longer writes atomically"
+
+
+def test_threads_writing_one_file_do_not_share_a_temporary(tmp_path):
+    """Writer threads in one process need their own temporary: with the pid
+    alone, one thread's os.replace moved the file the other was still writing."""
+    import threading
+    target = tmp_path / "stats.json"
+    errors = []
+
+    def writer(n):
+        try:
+            for _ in range(50):
+                write_atomic(target, f"writer {n}\n" * 200)
+        except Exception as e:  # pragma: no cover - the failure being tested
+            errors.append(e)
+
+    threads = [threading.Thread(target=writer, args=(i,)) for i in range(8)]
+    for t in threads:
+        t.start()
+    for t in threads:
+        t.join()
+    assert not errors
+    lines = set(target.read_text(encoding="utf-8").splitlines())
+    assert len(lines) == 1  # one writer's whole text, never a mix
+    assert not list(tmp_path.glob(".*.tmp"))

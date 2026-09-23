@@ -11,6 +11,7 @@ beside its destination rather than in `/tmp`.
 from __future__ import annotations
 
 import os
+import threading
 from pathlib import Path
 from typing import Union
 
@@ -24,9 +25,11 @@ def write_atomic(path: PathLike, text: str, encoding: str = "utf-8") -> Path:
     """
     dest = Path(path)
     dest.parent.mkdir(parents=True, exist_ok=True)
-    # A fixed `.tmp` suffix collides when two writers touch one file at once;
-    # the pid keeps concurrent passes from clobbering each other's temporary.
-    tmp = dest.with_name(f".{dest.name}.{os.getpid()}.tmp")
+    # A fixed `.tmp` suffix collides when two writers touch one file at once.
+    # The pid separates processes and the thread id separates writer threads
+    # inside one: with the pid alone, two threads shared a temporary, and the
+    # loser's os.replace found it already moved.
+    tmp = dest.with_name(f".{dest.name}.{os.getpid()}.{threading.get_ident()}.tmp")
     try:
         with open(tmp, "w", encoding=encoding) as fh:
             fh.write(text)

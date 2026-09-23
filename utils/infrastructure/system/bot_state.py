@@ -234,30 +234,28 @@ class BotState:
                     'saved_at': time.time()
                 }
                 
-                # Offload the actual I/O to a reusable background thread to prevent loop stalls
-                self._executor.submit(self._persist_to_disk, state)
+                # Serialised here, under the lock, so the snapshot is consistent.
+                # `state` holds the live relationships, curiosity and
+                # afterthought containers; handing the dict to the writer
+                # thread let json.dump iterate them while the loop changed them
+                # ("dictionary changed size during iteration"), and that save
+                # was dropped. The text is ~25 KB and serialises in 0.1 ms.
+                payload = json.dumps(state, indent=2)
+
+            # Only the disk write goes to the background thread. One worker, so
+            # writes land in the order save() was called.
+            self._executor.submit(self._persist_to_disk, payload)
         except Exception as e:
             log_warning(f"Failed to initiate bot state save: {e}")
 
-    def _persist_to_disk(self, state: dict):
-        """Actual disk I/O performed in background thread.
-        
-        Uses a dedicated write lock + atomic temp-file swap to prevent
-        concurrent writes from corrupting the file.
-        """
-        if not self._write_lock.acquire(blocking=False):
-            # Another write is already in progress — skip this one.
-            # The next save() call will capture fresher state anyway.
-            return
+    def _persist_to_disk(self, payload: str):
+        """Write an already-serialised snapshot, atomically, on the writer thread."""
         try:
-            tmp_path = self.state_file + ".tmp"
-            with open(tmp_path, 'w') as f:
-                json.dump(state, f, indent=2)
-            os.replace(tmp_path, self.state_file)
+            from utils.core.atomic_write import write_atomic
+            with self._write_lock:
+                write_atomic(self.state_file, payload)
         except Exception as e:
             log_warning(f"Background save failed for bot state: {e}")
-        finally:
-            self._write_lock.release()
 
     def reset_quips(self):
         """Reset consecutive quips counter"""

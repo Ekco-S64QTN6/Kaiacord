@@ -73,17 +73,12 @@ class StatsTracker:
     def _persist_to_disk(self, stats_file, save_data):
         """Actual disk I/O in background thread"""
         try:
-            import os
-            tmp_file = stats_file + ".tmp"
-            with open(tmp_file, 'w') as f:
-                json.dump(save_data, f, indent=2)
-                f.flush()
-                os.fsync(f.fileno())
-            os.replace(tmp_file, stats_file)
+            from utils.core.atomic_write import write_atomic
+            write_atomic(stats_file, json.dumps(save_data, indent=2))
         except Exception as e:
             from utils.infrastructure.logging.kaia_logger import log_error
             log_error(f"Background stats save failed: {e}")
-            
+
     def increment_forum_drafts(self):
         """Increment forum drafts count"""
         with self.lock:
