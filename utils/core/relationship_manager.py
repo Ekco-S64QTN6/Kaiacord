@@ -12,12 +12,15 @@ into a 1-2 line injection for the system prompt.
 """
 
 import os
+import re
 import json
 import time
 import asyncio
+import threading
 from dataclasses import dataclass, field, asdict
 from typing import List, Optional
 
+from utils.core.atomic_write import write_atomic
 from utils.infrastructure.logging.kaia_logger import log_debug, log_warning, log_error
 
 
@@ -95,8 +98,18 @@ def load_events(user_id: str) -> List[RelationshipEvent]:
         return []
 
 
+# save_event runs on worker threads; two turns from one person must not both
+# read the old list and each write back their own append.
+_save_lock = threading.Lock()
+
+
 def save_event(user_id: str, event: RelationshipEvent):
     """Append a relationship event and persist atomically."""
+    with _save_lock:
+        _save_event_locked(user_id, event)
+
+
+def _save_event_locked(user_id: str, event: RelationshipEvent):
     events = load_events(user_id)
     events.append(event)
 
@@ -121,12 +134,8 @@ def save_event(user_id: str, event: RelationshipEvent):
         events = events[:80]  # Trim to 80 to avoid constant pruning
         events.sort(key=lambda e: e.timestamp)  # restore chronological order on disk
 
-    path = _user_file(user_id)
-    tmp_path = path + ".tmp"
     try:
-        with open(tmp_path, 'w', encoding='utf-8') as f:
-            json.dump([asdict(e) for e in events], f, indent=2)
-        os.replace(tmp_path, path)
+        write_atomic(_user_file(user_id), json.dumps([asdict(e) for e in events], indent=2))
     except Exception as e:
         log_error(f"Failed to save relationship event for {user_id}: {e}")
 
@@ -202,31 +211,52 @@ def estimate_sentiment(text: str) -> float:
     return min(1.0, max(0.0, 0.5 + (pos - neg) * 0.15))
 
 
+# Signals are whole phrases matched on word boundaries, against the speaker's
+# own words only. Substring matching made "actually" a correction and "enough"
+# (as in "fair enough") friction, and scanned fetched web pages and forum
+# threads as if the user had written them: of 190 stored repair and friction
+# events, most were ordinary remarks or someone else's text. A repair event
+# carries the heaviest weight and tops the relationship notes in her prompt,
+# so a false one is not harmless.
+_REPAIR = re.compile(
+    r"\b(?:that'?s (?:wrong|not right|incorrect|not what i (?:meant|said|asked))"
+    r"|you'?re wrong|you got (?:it|that) wrong|not what i meant|i meant"
+    r"|correction:)", re.I)
+_FRICTION = re.compile(
+    r"\b(?:shut up|useless|wrong again|not helpful|(?:i'?m|so) frustrated"
+    r"|stop (?:it|that|doing|replying|posting|saying|talking)"
+    r"|that'?s enough(?! for)|enough already)\b", re.I)
+_POSITIVE = re.compile(
+    r"\b(?:thank you|thanks|awesome|perfect|love it|great job|well done|amazing"
+    r"|appreciat\w*|exactly what i needed)\b", re.I)
+
+# Anything a pipeline stage appended after the user's message.
+_APPENDED = re.compile(r"\n\s*\[(?:LINKED_WEB_CONTENT|[A-Z_]{4,})[\]:]")
+
+
+def _own_words(user_text: str) -> Optional[str]:
+    """The part of the turn the speaker actually wrote, or None for a thread dump."""
+    text = user_text or ""
+    if text.startswith("THREAD TITLE:"):
+        return None
+    m = _APPENDED.search(text)
+    if m:
+        text = text[:m.start()]
+    # A pasted link is a link, not a remark.
+    return re.sub(r"https?://\S+", " ", text)
+
+
 def detect_event_type(user_text: str, bot_text: str) -> Optional[str]:
     """Detect if the interaction contains a notable relationship event.
     Returns event_type string or None if unremarkable.
     """
-    user_lower = user_text.lower()
-    bot_lower = bot_text.lower()
-
-    # Repair: user corrects Kaia
-    correction_signals = ['actually', 'no that\'s wrong', 'that\'s not right',
-                          'you\'re wrong', 'incorrect', 'not what i meant',
-                          'i meant', 'correction']
-    if any(sig in user_lower for sig in correction_signals):
+    words = _own_words(user_text)
+    if not words:
+        return None
+    if _REPAIR.search(words):
         return 'repair'
-
-    # Friction: user expresses frustration
-    friction_signals = ['stop', 'enough', 'shut up', 'useless', 'broken',
-                        'not helpful', 'wrong again', 'frustrated']
-    if any(sig in user_lower for sig in friction_signals):
+    if _FRICTION.search(words):
         return 'friction'
-
-    # Positive: gratitude or praise
-    positive_signals = ['thank you', 'thanks', 'awesome', 'perfect',
-                        'love it', 'great job', 'well done', 'amazing',
-                        'appreciate', 'exactly what i needed']
-    if any(sig in user_lower for sig in positive_signals):
+    if _POSITIVE.search(words):
         return 'positive'
-
     return None  # Unremarkable interaction
