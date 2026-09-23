@@ -489,3 +489,30 @@ def test_excision_broke_grammar_sees_a_fused_word():
     # A clean removal invents nothing and must not be flagged.
     assert not excision_broke_grammar("sorry about that, the cron job failed",
                                       "the cron job failed")
+
+
+@pytest.mark.parametrize("wrote, fragment, kept", [
+    # APOLOGY_GUARD — the object of the apology, shipped to Starkind on Sept 21.
+    ("i apologize for the unwarranted accusation. the logs show otherwise.",
+     "the unwarranted accusation", "the logs show otherwise."),
+    # SYCOPHANCY_GUARD — the second half of the predicate it cut.
+    ("your observation regarding the rust is astute and technically sound. "
+     "brass does not corrode that way.",
+     "technically sound", "brass does not corrode that way."),
+    # SYCOPHANCY_GUARD — the noun the praise was attached to.
+    ("that's an astute observation. the port was wrong.",
+     "observation", "the port was wrong."),
+    ("that's an excellent suggestion—the dataset provides a fast lookup.",
+     "suggestion", "the dataset provides a fast lookup."),
+])
+def test_clause_excision_takes_what_belonged_to_the_offence(wrote, fragment, kept):
+    """Each of these shipped as a fragment while logging "kept substance"."""
+    out = BotSpeakFilter.harden(wrote)
+    assert fragment not in out
+    assert kept in out
+
+
+def test_clause_excision_keeps_a_clause_after_a_semicolon():
+    """A dangling tail can still carry real substance past a semicolon."""
+    out = BotSpeakFilter.harden("you're right to push back; the logs were stale.")
+    assert out == "the logs were stale."

@@ -600,7 +600,11 @@ class BotSpeakFilter:
                    r"|compelling|invaluable|illuminating|nuanced|remarkable|fascinating")
 
     SYCOPHANCY_PATTERNS = [
-        r"(?:that(?:'|\u2019)?s|what)\s+(?:a\s+|an\s+)?(?:really\s+|very\s+|quite\s+|truly\s+)?(?:astute|perceptive|insightful|clever|pertinent|evocative|thoughtful|profound|excellent|great|fantastic|wonderful|brilliant|incisive|sharp|keen|impressive)\b",
+        # The noun is taken with the adjective. Stopping at "astute" left
+        # "that's an astute observation, a projection..." as "observation, a
+        # projection...".
+        r"(?:that(?:'|\u2019)?s|what)\s+(?:a\s+|an\s+)?(?:really\s+|very\s+|quite\s+|truly\s+)?(?:astute|perceptive|insightful|clever|pertinent|evocative|thoughtful|profound|excellent|great|fantastic|wonderful|brilliant|incisive|sharp|keen|impressive)\b"
+        r"(?:\s+(?:observation|point|question|insight|thought|take|distinction|analysis|framing|perspective|assessment|idea|suggestion|catch)s?\b)?",
         r"(?:you(?:'|\u2019)?re|you\s+are)\s+(?:really\s+|very\s+|quite\s+)?(?:astute|perceptive|insightful|clever|thoughtful|sharp|keen|right\s+to\s+(?:point|notice|ask|wonder))",
         # Praise attached to the user's *analysis* rather than to the user —
         # "your interpretation is astute", "your framing is compelling" — which
@@ -964,7 +968,9 @@ class BotSpeakFilter:
     # Clause boundary following an offending phrase. Excising up to here turns
     # "you're right; the cron job was the culprit" into "the cron job was the culprit"
     # rather than deleting the whole sentence.
-    _CLAUSE_BREAK = re.compile(r'\s*[,;:\u2014\u2013-]\s+|\s+(?=that\b|and\b|but\b|so\b)')
+    # An em or en dash needs no space around it — "suggestion\u2014the dataset" is
+    # how she writes one — where a bare hyphen without a space is inside a word.
+    _CLAUSE_BREAK = re.compile(r'\s*(?:[,;:-]\s+|[\u2014\u2013]\s*)|\s+(?=that\b|and\b|but\b|so\b)')
 
     # A tail beginning with one of these is the *continuation* of the clause just
     # removed, not a sentence standing on its own: "you're right to point that
@@ -1059,6 +1065,8 @@ class BotSpeakFilter:
             # otherwise the unit goes with the offence it belongs to.
             after = re.split(r'[,;]\s+', stripped_tail, maxsplit=1)
             candidate = after[1].strip() if len(after) > 1 else ''
+            # The connector joined the rescued clause to the offence, which is gone.
+            candidate = re.sub(r'^(?:and|but|so|yet)\s+', '', candidate, flags=re.IGNORECASE)
             tail = candidate if cls._FINITE_VERB.search(candidate) else ''
         elif not head.strip() and stripped_tail:
             # "that's a great point, and the chain is weak" — the praised noun is
@@ -1066,6 +1074,13 @@ class BotSpeakFilter:
             if re.match(r'^\w+\s*,\s+(?:and|but|so|though|although)\b', stripped_tail):
                 rest = re.split(r',\s+', stripped_tail, maxsplit=1)[1].strip()
                 tail = re.sub(r'^(?:and|but|so)\s+', '', rest)
+            # "your observation ... is astute and technically sound." A tail
+            # opening on a conjunction with no verb of its own is the rest of
+            # the predicate just removed, and shipped as "and technically
+            # sound." With a verb it is a clause, and only the conjunction goes.
+            elif re.match(r'^(?:and|but|or|yet|nor)\b', stripped_tail, re.IGNORECASE):
+                rest = re.sub(r'^(?:and|but|or|yet|nor)\s+', '', stripped_tail, flags=re.IGNORECASE)
+                tail = rest if cls._FINITE_VERB.search(rest) else ""
 
         # Punctuation is not survival: `tail.strip()` on a bare "." is truthy, so
         # a plain truthiness test skips the repair whenever the offence runs to the
