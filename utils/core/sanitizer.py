@@ -19,11 +19,16 @@ def sanitize_prompt(prompt: str, max_length: int = 2000) -> str:
     if any(inj in prompt_lower for inj in injections):
         prompt = re.sub(r'```[\s\S]*?```', '[codeblock removed for safety]', prompt)
     
-    # Limit length
-    if len(prompt) > max_length:
-        prompt = prompt[:max_length] + "..."
-    
-    return prompt.strip()
+    # Limit what the user typed. Enricher blocks after it (a scraped page, an
+    # embed, a linked message) carry their own caps — url_max_content_length
+    # is 8000 per link — and cutting the whole string at 2000 threw away most
+    # of the page and always the brevity directive that closes it.
+    m = RUNTIME_SCAFFOLDING.search(prompt)
+    head, tail = (prompt[:m.start()], prompt[m.start():]) if m else (prompt, "")
+    if len(head) > max_length:
+        head = head[:max_length] + "..."
+
+    return (head + tail).strip()
 
 
 # Scaffolding context_enricher appends to a user's message so the model has
