@@ -35,17 +35,6 @@ from utils.ttrpg.broadcast import (
     _boss_approach_flavor
 )
 
-def _make_interaction_send(interaction: discord.Interaction):
-    async def _send(channel, text, use_code_block=None):
-        if use_code_block is None: use_code_block = False
-        await interaction.followup.send(text)
-    return _send
-
-class _InteractionMsg:
-    def __init__(self, interaction: discord.Interaction):
-        self.channel = interaction.channel
-        self.author = interaction.user
-
 __all__ = [
     '_LOCATION_BUTTONS',
     '_make_inventory_view',
@@ -124,14 +113,6 @@ async def _handle_hunt(*args, **kwargs):
 
 async def _handle_hunts(*args, **kwargs):
     from utils.ttrpg.rpg_combat_handler import _handle_hunts as _f
-    return await _f(*args, **kwargs)
-
-async def _dungeon_combat_flee(*args, **kwargs):
-    from utils.ttrpg.rpg_combat_handler import _dungeon_combat_flee as _f
-    return await _f(*args, **kwargs)
-
-async def _dungeon_move(*args, **kwargs):
-    from utils.ttrpg.rpg_combat_handler import _dungeon_move as _f
     return await _f(*args, **kwargs)
 
 async def _dungeon_combat_round(*args, **kwargs):
@@ -377,10 +358,6 @@ async def _handle_bank_deposit(*args, **kwargs):
 
 async def _handle_bank_withdraw(*args, **kwargs):
     from utils.ttrpg.rpg_core_handler import _handle_bank_withdraw as _f
-    return await _f(*args, **kwargs)
-
-async def _handle_bank(*args, **kwargs):
-    from utils.ttrpg.rpg_core_handler import _handle_bank as _f
     return await _f(*args, **kwargs)
 
 async def _handle_weather(*args, **kwargs):

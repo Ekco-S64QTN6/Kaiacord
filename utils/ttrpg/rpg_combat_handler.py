@@ -2,6 +2,7 @@ PENDING_DUELS = {}
 
 from utils.ttrpg.narration import finish_cleanly
 from utils.ttrpg.session_manager import serialize_combat_action
+from utils.infrastructure.monitoring.async_task_registry import task_registry
 import asyncio
 import time
 import uuid as _uuid
@@ -322,12 +323,12 @@ async def _dungeon_combat_round(ctx_obj, interaction, uid, uname, is_owner):
             combat_log = state.get("dungeon_combat_log", [])
             state["dungeon_combat_log"] = []
             if combat_log:
-                asyncio.ensure_future(
+                task_registry.register(f"combat_narration_{uid}", asyncio.create_task(
                     _narrate_combat_summary(
                         ctx_obj, interaction.channel, uid, uname, sheet,
                         combat_log, player_won=True
                     )
-                )
+                ))
             await _dungeon_complete(ctx_obj, interaction, uid, uname, is_owner,
                                     state, sheet, leveled, new_level)
         else:
@@ -418,12 +419,12 @@ async def _dungeon_combat_round(ctx_obj, interaction, uid, uname, is_owner):
         combat_log = state.get("dungeon_combat_log", [])
         state["dungeon_combat_log"] = []
         if combat_log:
-            asyncio.ensure_future(
+            task_registry.register(f"combat_narration_{uid}", asyncio.create_task(
                 _narrate_combat_summary(
                     ctx_obj, interaction.channel, uid, uname, sheet,
                     combat_log, player_won=False
                 )
-            )
+            ))
 
     else:
         # Combat continues — update monster HP in state
