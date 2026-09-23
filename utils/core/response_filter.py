@@ -387,7 +387,10 @@ class BotSpeakFilter:
     # as a clause and the substance is kept.
     APOLOGY_PREFIX_PATTERNS = [
         r"my\s+apologies",
-        r"i\s+apologi[sz]e\s+for",
+        # "for" is a lookahead so it stays in the tail, where the dangling-tail
+        # check sees it. Consumed here, "i apologize for the unwarranted
+        # accusation." shipped as "the unwarranted accusation."
+        r"i\s+apologi[sz]e(?=\s+for\b)",
         r"you\s+are\s+(absolutely\s+)?correct",
         r"you\s+are\s+(absolutely\s+)?right",
         r"you[’'\u2019]?re\s+(absolutely\s+)?right",
@@ -1054,7 +1057,7 @@ class BotSpeakFilter:
             # corpus it produced "not an anomaly." the same way. So the
             # remainder has to carry a finite verb to be promoted, and
             # otherwise the unit goes with the offence it belongs to.
-            after = re.split(r',\s+', stripped_tail, maxsplit=1)
+            after = re.split(r'[,;]\s+', stripped_tail, maxsplit=1)
             candidate = after[1].strip() if len(after) > 1 else ''
             tail = candidate if cls._FINITE_VERB.search(candidate) else ''
         elif not head.strip() and stripped_tail:
