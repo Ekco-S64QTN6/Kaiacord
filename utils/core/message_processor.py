@@ -939,7 +939,7 @@ class MessageProcessor:
                     query_words -= stop_words
 
                     matching = []
-                    touched_beliefs = False  # did this turn actually bump any access_count?
+                    touched_topics = []  # beliefs this turn used, counted once below
                     high_conf_stances = []  # For conversational stance (confidence > 0.7)
                     for b in all_beliefs:
                         topic = b.get('topic', '').lower()
@@ -963,8 +963,7 @@ class MessageProcessor:
                                 matched = True
 
                         if matched:
-                            b['access_count'] = b.get('access_count', 0) + 1
-                            touched_beliefs = True
+                            touched_topics.append(b.get('topic', ''))
                             if conf > 0.7:
                                 high_conf_stances.append(b)
                             else:
@@ -986,17 +985,13 @@ class MessageProcessor:
                     if matching:
                         ctx.system_prompt = ctx.system_prompt + f"\n\n[current stances: {'; '.join(matching[:3])}]"
 
-                    # Write back only when THIS turn actually incremented something.
-                    # The old condition (`any(access_count > 0)`) became permanently true
-                    # after the first ever belief match, so a 37 KB JSON file was
-                    # re-serialised and re-written on every single message, matches or not.
-                    if touched_beliefs:
-                        def _write_beliefs():
-                            tmp_path = beliefs_path + ".tmp"
-                            with open(tmp_path, 'w', encoding='utf-8') as bf:
-                                json.dump(all_beliefs, bf, indent=2)
-                            os.replace(tmp_path, beliefs_path)
-                        await asyncio.to_thread(_write_beliefs)
+                    # Count the use against a fresh read, under the store's lock.
+                    # Writing back the copy read at the top of this block put a
+                    # stale file over any belief the dream engine had formed or
+                    # revised in between.
+                    if touched_topics:
+                        from utils.core import beliefs_store
+                        await asyncio.to_thread(beliefs_store.bump_access, touched_topics)
         except Exception:
             pass  # Never let beliefs injection break generation
 

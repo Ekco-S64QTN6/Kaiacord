@@ -454,9 +454,8 @@ VOICE AND FORMAT RULES (always apply regardless of dream type):
 
     def _save_history(self):
         try:
-            self.history_file.parent.mkdir(parents=True, exist_ok=True)
-            with open(self.history_file, 'w') as f:
-                json.dump(self._history, f)
+            from utils.core.atomic_write import write_atomic
+            write_atomic(self.history_file, json.dumps(self._history))
         except Exception as e:
             log_error(f"Failed to save dream history: {e}")
 
@@ -502,9 +501,11 @@ VOICE AND FORMAT RULES (always apply regardless of dream type):
         """Perform the nightly dream generation cycle"""
         log_info("Starting nightly dream processing...")
         
-        dream_cfg = getattr(self.config, 'dream_mode', {})
-        min_days = dream_cfg.get('dream_age_min_days', 2)
-        dreams_per_scan = dream_cfg.get('dreams_per_scan', 10)
+        # Through config.get. `getattr(self.config, 'dream_mode', {})` always
+        # returned {} — the config object has no such attribute — so these two
+        # settings were never read and the defaults always applied.
+        min_days = int(self.config.get('dream_mode.dream_age_min_days', 2))
+        dreams_per_scan = int(self.config.get('dream_mode.dreams_per_scan', 10))
         
         # 1. Scan for older files using fast manifest lookup
         categorized_files = await self.scan_knowledge_base_fast(min_days=min_days)
@@ -639,13 +640,18 @@ VOICE AND FORMAT RULES (always apply regardless of dream type):
                     dream_filename = f"dream_{date_str}_{safe_name}.md"
                     dream_file_path = target_dir / dream_filename
                     
-                    with open(dream_file_path, 'w', encoding='utf-8') as df:
-                        df.write(f"---\nsource_type: kaia_reflection\n---\n\n")
-                        df.write(f"# Dream Reflection: {display_path}\n")
-                        df.write(f"Source: {display_path}\n")
-                        df.write(f"Generated: {datetime.now().isoformat()}\n\n")
-                        df.write(f"## Original Fragment\n> {snippet[:2000]}...\n\n")
-                        df.write(f"## Kaia's Reflection\n{reflection}\n")
+                    # Atomic and off the loop: this file is indexed as something
+                    # she thought, so a half-written one is a half-thought.
+                    from utils.core.atomic_write import write_atomic
+                    dream_text = (
+                        "---\nsource_type: kaia_reflection\n---\n\n"
+                        f"# Dream Reflection: {display_path}\n"
+                        f"Source: {display_path}\n"
+                        f"Generated: {datetime.now().isoformat()}\n\n"
+                        f"## Original Fragment\n> {snippet[:2000]}...\n\n"
+                        f"## Kaia's Reflection\n{reflection}\n"
+                    )
+                    await asyncio.to_thread(write_atomic, dream_file_path, dream_text)
 
                     async with self._history_lock: # Thread-safe write for history
                         self._history[str(file_path)] = datetime.now().isoformat()
@@ -696,7 +702,8 @@ VOICE AND FORMAT RULES (always apply regardless of dream type):
             growth_context = ""
             try:
                 if self.GROWTH_LOG_PATH.exists():
-                    lines = self.GROWTH_LOG_PATH.read_text(encoding='utf-8').strip().splitlines()
+                    text = await asyncio.to_thread(self.GROWTH_LOG_PATH.read_text, encoding='utf-8')
+                    lines = text.strip().splitlines()
                     recent_events = []
                     for line in lines[-5:]:
                         try:
@@ -939,17 +946,6 @@ VOICE AND FORMAT RULES (always apply regardless of dream type):
         Beliefs are revisable — if a topic already exists, the position
         and confidence are updated rather than duplicated.
         """
-        beliefs_path = Path("memory") / "beliefs.json"
-        beliefs_path.parent.mkdir(parents=True, exist_ok=True)
-
-        beliefs = []
-        if beliefs_path.exists():
-            try:
-                with open(beliefs_path, 'r', encoding='utf-8') as f:
-                    beliefs = json.load(f)
-            except Exception:
-                beliefs = []
-
         topic = belief.get('topic', '').strip().lower()
         position = belief.get('position', '').strip()
         confidence = float(belief.get('confidence', 0.5))
@@ -959,22 +955,20 @@ VOICE AND FORMAT RULES (always apply regardless of dream type):
         if not topic or not position:
             return
 
-        # Update existing belief or append new one
-        updated = False
-        old_position = None
-        for b in beliefs:
-            if b.get('topic', '').lower() == topic:
-                old_position = b.get('position', '')
-                b['position'] = position
-                b['confidence'] = confidence
-                b['last_updated'] = time.time()
-                b['source'] = 'dream'
-                if aliases:
-                    b['aliases'] = aliases
-                updated = True
-                break
+        def _apply(beliefs):
+            """Update or append under the store's lock; returns (updated, old_position)."""
+            for b in beliefs:
+                if b.get('topic', '').lower() == topic:
+                    old = b.get('position', '')
+                    b['position'] = position
+                    b['confidence'] = confidence
+                    b['last_updated'] = time.time()
+                    b['source'] = 'dream'
+                    if aliases:
+                        b['aliases'] = aliases
+                    _evict_weakest(beliefs)
+                    return True, old
 
-        if not updated:
             new_belief = {
                 'topic': topic,
                 'position': position,
@@ -985,17 +979,20 @@ VOICE AND FORMAT RULES (always apply regardless of dream type):
             if aliases:
                 new_belief['aliases'] = aliases
             beliefs.append(new_belief)
+            _evict_weakest(beliefs)
+            return False, None
 
-        # Cap at 100 beliefs.
-        #
-        # Scored on confidence reinforced by use and decayed by age, mirroring
-        # the anchor decay in memory_anchors.py. Confidence alone is
-        # recency-hostile: a belief formed minutes ago starts around 0.7-0.8 and
-        # loses to a fortnight-old 0.95 nothing has referenced since.
-        #
-        # Evicts the single weakest entry, so a burst of new beliefs cannot wipe
-        # a block, and leaves file order alone.
-        if len(beliefs) > 100:
+        def _evict_weakest(beliefs):
+            # Cap at 100 beliefs.
+            #
+            # Scored on confidence reinforced by use and decayed by age,
+            # mirroring the anchor decay in memory_anchors.py. Confidence alone
+            # is recency-hostile: a belief formed minutes ago starts around
+            # 0.7-0.8 and loses to a fortnight-old 0.95 nothing has referenced
+            # since. Evicts the single weakest entry, so a burst of new beliefs
+            # cannot wipe a block, and leaves file order alone.
+            if len(beliefs) <= 100:
+                return
             now = time.time()
 
             def _retention_score(b):
@@ -1013,14 +1010,12 @@ VOICE AND FORMAT RULES (always apply regardless of dream type):
                 f"conf={evicted.get('confidence')} accesses={evicted.get('access_count', 0)}"
             )
 
-        # Atomic write
-        tmp_path = str(beliefs_path) + ".tmp"
+        from utils.core import beliefs_store
         try:
-            with open(tmp_path, 'w', encoding='utf-8') as f:
-                json.dump(beliefs, f, indent=2)
-            os.replace(tmp_path, str(beliefs_path))
+            updated, old_position = beliefs_store.update(_apply)
         except Exception as e:
             log_warning(f"Failed to save beliefs: {e}")
+            return
 
         # Log to growth arc
         if updated and old_position:
