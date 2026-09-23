@@ -10,15 +10,19 @@ associative memory beyond raw keyword RAG retrieval.
 Storage: memory/anchors.json — list of anchor dicts
 Cap: 100 anchors max, oldest pruned first
 Decay: weight reduces by 0.1 per 30 days
-Writes: atomic (tmp → os.replace)
+Writes: atomic, and every read-modify-write holds one lock — the dream engine
+saves anchors on a worker thread while chat turns update access counts.
 """
 
 import json
 import os
+import re
+import threading
 import time
 from typing import Optional, List, Dict
 from datetime import datetime
 
+from utils.core.atomic_write import write_atomic
 from utils.infrastructure.logging.kaia_logger import log_debug, log_info, log_warning
 
 ANCHORS_PATH = os.path.join("memory", "anchors.json")
@@ -26,6 +30,9 @@ MAX_ANCHORS = 100
 DECAY_RATE = 0.1        # weight reduction per 30-day period
 DECAY_PERIOD = 30 * 86400  # 30 days in seconds
 MATCH_THRESHOLD = 0.15  # minimum overlap score to trigger injection
+MIN_OVERLAP = 2         # distinct content words the message and anchor share
+
+_lock = threading.RLock()
 
 # Common stop words stripped before overlap matching
 _STOP_WORDS = frozenset({
@@ -55,19 +62,28 @@ def _load_anchors() -> List[Dict]:
 def _save_anchors(anchors: List[Dict]) -> None:
     """Atomically save anchors to disk."""
     try:
-        os.makedirs(os.path.dirname(ANCHORS_PATH), exist_ok=True)
-        tmp_path = ANCHORS_PATH + ".tmp"
-        with open(tmp_path, 'w', encoding='utf-8') as f:
-            json.dump(anchors, f, indent=2)
-        os.replace(tmp_path, ANCHORS_PATH)
+        write_atomic(ANCHORS_PATH, json.dumps(anchors, indent=2))
     except Exception as e:
         log_warning(f"Failed to save anchors: {e}")
 
 
+_WORD = re.compile(r"[a-z0-9]+(?:'[a-z]+)?")
+
+
 def _tokenize(text: str) -> set:
-    """Extract meaningful words from text, stripping stop words."""
-    words = set(text.lower().split())
-    return words - _STOP_WORDS
+    """Meaningful words, stop words removed.
+
+    Words, not whitespace runs: splitting on spaces kept the punctuation, so
+    "points." in an anchor never met "points" in a message, and a theme like
+    "systems_awareness" was one token nothing could match.
+    """
+    words = _WORD.findall((text or "").lower().replace("\u2019", "'").replace("_", " "))
+    # Contractions and short words are function words whatever the list says.
+    return {w for w in words if len(w) >= 4 and "'" not in w} - _STOP_WORDS
+
+
+def _anchor_words(anchor: Dict) -> set:
+    return _tokenize(f"{anchor.get('theme', '')} {anchor.get('anchor_text', '')}")
 
 
 def _apply_decay(anchors: List[Dict]) -> List[Dict]:
@@ -125,42 +141,49 @@ def save_anchor(
     if not theme or not anchor_text:
         return
 
-    anchors = _load_anchors()
+    # The dream engine's salience is an open-ended triage score (0.5 for
+    # reading, 1.0 and up for user logs); decay wants 0–1.
+    salience = max(0.0, min(1.0, float(salience)))
+    theme = theme.lower().strip()
+    anchor_text = anchor_text.strip()[:200]
 
-    # Deduplicate: if an anchor with the same theme+user exists, update it
-    for existing in anchors:
-        if (existing.get('theme', '').lower() == theme.lower()
-                and existing.get('user_id') == user_id):
-            existing['anchor_text'] = anchor_text
-            existing['weight'] = weight
-            existing['salience'] = salience
-            existing['updated_at'] = time.time()
-            if user_name:
-                existing['user_name'] = user_name
-            log_debug(f"Updated existing anchor: {theme} for user {user_name or user_id}")
-            _save_anchors(anchors)
-            return
+    with _lock:
+        anchors = _load_anchors()
 
-    # New anchor
-    new_anchor = {
-        'theme': theme.lower().strip(),
-        'anchor_text': anchor_text.strip()[:200],
-        'user_id': user_id,
-        'user_name': user_name,
-        'weight': weight,
-        'salience': salience,
-        'created_at': time.time(),
-        'updated_at': time.time(),
-        'keywords': list(_tokenize(f"{theme} {anchor_text}"))[:20],
-    }
-    anchors.append(new_anchor)
+        # Deduplicate: if an anchor with the same theme+user exists, update it
+        for existing in anchors:
+            if (existing.get('theme', '').lower() == theme
+                    and existing.get('user_id') == user_id):
+                existing['anchor_text'] = anchor_text
+                existing['weight'] = weight
+                existing['salience'] = salience
+                existing['updated_at'] = time.time()
+                existing['keywords'] = sorted(_tokenize(f"{theme} {anchor_text}"))
+                if user_name:
+                    existing['user_name'] = user_name
+                _save_anchors(anchors)
+                log_debug(f"Updated existing anchor: {theme} for user {user_name or user_id}")
+                return
 
-    # Cap enforcement — prune oldest first
-    if len(anchors) > MAX_ANCHORS:
-        anchors.sort(key=lambda a: a.get('created_at', 0))
-        anchors = anchors[-MAX_ANCHORS:]
+        now = time.time()
+        anchors.append({
+            'theme': theme,
+            'anchor_text': anchor_text,
+            'user_id': user_id,
+            'user_name': user_name,
+            'weight': weight,
+            'salience': salience,
+            'created_at': now,
+            'updated_at': now,
+            'keywords': sorted(_tokenize(f"{theme} {anchor_text}")),
+        })
 
-    _save_anchors(anchors)
+        # Cap enforcement — prune oldest first
+        if len(anchors) > MAX_ANCHORS:
+            anchors.sort(key=lambda a: a.get('created_at', 0))
+            anchors = anchors[-MAX_ANCHORS:]
+
+        _save_anchors(anchors)
     log_debug(f"Saved new anchor: {theme} for user {user_name or user_id}")
 
 
@@ -182,56 +205,46 @@ def find_matching_anchors(
     Returns:
         List of matching anchor dicts, sorted by score descending.
     """
-    anchors = _load_anchors()
-    if not anchors:
-        return []
-
-    # Apply decay
-    anchors = _apply_decay(anchors)
-
     message_words = _tokenize(message_text)
     if len(message_words) < 2:
         return []
 
-    scored = []
-    for anchor in anchors:
-        anchor_keywords = set(anchor.get('keywords', []))
-        if not anchor_keywords:
-            anchor_keywords = _tokenize(
-                f"{anchor.get('theme', '')} {anchor.get('anchor_text', '')}"
-            )
+    with _lock:
+        anchors = _load_anchors()
+        if not anchors:
+            return []
+        anchors = _apply_decay(anchors)
 
-        # Jaccard-like overlap score
-        overlap = message_words & anchor_keywords
-        if not overlap:
-            continue
+        scored = []
+        for anchor in anchors:
+            # Always from the text: stored keyword lists predate the tokenizer
+            # fix and were an arbitrary 20 of a set, punctuation included.
+            anchor_keywords = _anchor_words(anchor)
+            overlap = message_words & anchor_keywords
+            # One shared word is coincidence: against a six-word anchor it
+            # cleared the threshold alone. And the message has to touch what
+            # the anchor is *about* — two filler words ("being", "little")
+            # shared with its text matched a tenth of all chat.
+            if len(overlap) < MIN_OVERLAP or not (overlap & _tokenize(anchor.get('theme', ''))):
+                continue
 
-        # Score = overlap proportion relative to anchor keywords
-        score = len(overlap) / max(len(anchor_keywords), 1)
+            # Share of the anchor's words the message touches
+            score = len(overlap) / max(len(anchor_keywords), 1)
+            if user_id and anchor.get('user_id') == str(user_id):
+                score *= 1.5
+            score *= anchor.get('effective_weight', anchor.get('weight', 0.5))
 
-        # Boost for user-specific anchors
-        if user_id and anchor.get('user_id') == str(user_id):
-            score *= 1.5
+            if score >= MATCH_THRESHOLD:
+                scored.append((score, anchor))
 
-        # Weight by anchor importance
-        effective_weight = anchor.get('effective_weight', anchor.get('weight', 0.5))
-        score *= effective_weight
-
-        if score >= MATCH_THRESHOLD:
-            scored.append((score, anchor))
-
-    # Sort by score descending
-    scored.sort(key=lambda x: x[0], reverse=True)
-
-    results = [anchor for _, anchor in scored[:max_results]]
-    if results:
-        any_updated = False
-        for matched in results:
-            for a in anchors:
-                if a.get('theme') == matched.get('theme') and a.get('user_id') == matched.get('user_id'):
-                    a['access_count'] = a.get('access_count', 0) + 1
-                    any_updated = True
-        if any_updated:
+        scored.sort(key=lambda x: x[0], reverse=True)
+        results = [anchor for _, anchor in scored[:max_results]]
+        if results:
+            # The matched dicts are elements of `anchors`, so this updates
+            # what is saved. Decay has also dropped anchors whose weight ran
+            # out; saving here is what prunes them.
+            for matched in results:
+                matched['access_count'] = matched.get('access_count', 0) + 1
             _save_anchors(anchors)
 
     return results
@@ -243,9 +256,9 @@ def format_anchor_injection(anchor: Dict) -> str:
     Returns a bracketed directive that guides Kaia to make an
     associative callback without forcing it.
     """
-    theme = anchor.get('theme', 'something')
+    theme = (anchor.get('theme') or 'something').replace('_', ' ')
     text = anchor.get('anchor_text', '')
-    user_name = anchor.get('user_name', 'someone')
+    user_name = anchor.get('user_name')
     created = anchor.get('created_at', time.time())
 
     # Human-readable time delta
@@ -261,8 +274,16 @@ def format_anchor_injection(anchor: Dict) -> str:
     else:
         time_ref = f"about {days_ago // 30} month{'s' if days_ago > 60 else ''} ago"
 
+    # Most anchors come from dreams about reading, not about a person, and
+    # have no user. Those printed "you remember None talking about ...".
+    if user_name:
+        return (
+            f"[memory anchor: you remember {user_name} talking about {theme} "
+            f"{time_ref} — \"{text}\". if it connects to what they're saying now, "
+            f"reference it naturally. don't force it.]"
+        )
     return (
-        f"[memory anchor: you remember {user_name} talking about {theme} "
-        f"{time_ref} — \"{text}\". if it connects to what they're saying now, "
+        f"[memory anchor: {time_ref} you were thinking about {theme} — "
+        f"\"{text}\". if it connects to what they're saying now, "
         f"reference it naturally. don't force it.]"
     )
