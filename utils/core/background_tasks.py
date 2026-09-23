@@ -942,17 +942,22 @@ class CoreTaskManager:
                 state["last_tick"] = time.time()
                 await async_save_world_state(state)
 
+                # Through character_manager's own load/save: they hold the lock
+                # every other sheet write holds, and share its temp file. A
+                # write of our own here raced them on that same `.tmp`.
+                from utils.ttrpg.character_manager import _load_sync, _save_sync
+
                 def _process_characters():
                     files = [f for f in os.listdir(characters_dir) if f.endswith(".json")]
                     r_count = 0
                     t_interest = 0
 
                     for fname in files:
-                        path = os.path.join(characters_dir, fname)
                         try:
-                            with open(path, 'r', encoding='utf-8') as f:
-                                sheet = json.load(f)
-                            
+                            sheet = _load_sync(fname[:-len(".json")])
+                            if not sheet:
+                                continue
+
                             modified = False
                             # Reset hunts
                             if sheet.get("hunts_today", 0) > 0:
@@ -987,10 +992,7 @@ class CoreTaskManager:
                             # Bank Interest (2%, max 10g + bonus) has been removed
                             
                             if modified:
-                                tmp = path + ".tmp"
-                                with open(tmp, 'w', encoding='utf-8') as f:
-                                    json.dump(sheet, f, indent=2)
-                                os.replace(tmp, path)
+                                _save_sync(sheet)
 
                         except Exception as e:
                             log_warning(f"[dawn] Failed to process {fname}: {e}")
@@ -1662,6 +1664,31 @@ class CoreTaskManager:
 
         return forum_tech_support_task
 
+    #: Ceiling on each news subprocess. Both make network calls, and a
+    #: `communicate()` with no bound on a hung one blocks this 12-hour loop
+    #: until the bot restarts.
+    NEWS_SUBPROCESS_TIMEOUT = 1800
+
+    async def _communicate_or_kill(self, process, label: str):
+        try:
+            return await asyncio.wait_for(process.communicate(),
+                                          timeout=self.NEWS_SUBPROCESS_TIMEOUT)
+        except asyncio.TimeoutError:
+            log_error(f"{label} still running after {self.NEWS_SUBPROCESS_TIMEOUT}s; killing it.")
+            # Both scripts start in their own session, so the whole tree goes —
+            # a scraper's browser or a worker it spawned would otherwise
+            # outlive it and keep the pipes open.
+            try:
+                import signal as _signal
+                os.killpg(process.pid, _signal.SIGKILL)
+            except (ProcessLookupError, PermissionError, OSError):
+                process.kill()
+            # Bounded as well, in case something still holds the pipes.
+            try:
+                return await asyncio.wait_for(process.communicate(), timeout=10)
+            except asyncio.TimeoutError:
+                return b"", b""
+
     async def run_news_update(self):
         """Run integrated news refresh."""
         if not self.ctx: return
@@ -1679,10 +1706,11 @@ class CoreTaskManager:
                     sys.executable, script_path, "--skip-backfill", "--no-prompt",
                     stdout=asyncio.subprocess.PIPE,
                     stderr=asyncio.subprocess.PIPE,
-                    env=os.environ.copy()
+                    env=os.environ.copy(),
+                    start_new_session=True,
                 )
-                stdout, stderr = await process.communicate()
-                
+                stdout, stderr = await self._communicate_or_kill(process, "news update")
+
                 if process.returncode == 0:
                      log_success("External news update process completed successfully.")
                      if stdout:
@@ -1707,9 +1735,10 @@ class CoreTaskManager:
                     sys.executable, tech_scraper_path,
                     stdout=asyncio.subprocess.PIPE,
                     stderr=asyncio.subprocess.PIPE,
-                    env=os.environ.copy()
+                    env=os.environ.copy(),
+                    start_new_session=True,
                 )
-                ts_stdout, ts_stderr = await tech_process.communicate()
+                ts_stdout, ts_stderr = await self._communicate_or_kill(tech_process, "tech news aggregator")
                 if tech_process.returncode == 0:
                     log_success("Daily tech news aggregator completed successfully.")
                     if ts_stdout:
