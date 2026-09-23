@@ -499,6 +499,11 @@ class RelevanceFeedback:
             except Exception as e:
                 log_error(f"Error adding feedback to RAG: {e}")
 
+_TECH_WORDS = re.compile(
+    r"\b(?:how|why|code|implement\w*|system\w*|architecture|errors?|bugs?|"
+    r"terminal|logs?)\b", re.IGNORECASE)
+
+
 class PersonalizationEngine:
     """Learn user preferences and adapt responses."""
     _DEFAULT_TRAITS = {
@@ -573,9 +578,10 @@ class PersonalizationEngine:
             traits['conciseness'] = 0.9 * traits['conciseness'] + 0.1 * target_conciseness
             traits_changed = True
         
-        # Technicality: detect technical keywords in query
-        tech_keywords = ['how', 'why', 'code', 'implement', 'system', 'architecture', 'error', 'bug', 'terminal', 'logs']
-        has_tech = any(kw in query.lower() for kw in tech_keywords)
+        # Technicality: technical words in the query. Whole words — as
+        # substrings "how" hit "show" and "somehow", "logs" hit "blogs" and
+        # "error" hit "terror", and the profile drifted technical on small talk.
+        has_tech = bool(_TECH_WORDS.search(query))
         target_tech = 0.8 if has_tech else 0.4
         if abs(traits['technicality'] - (0.9 * traits['technicality'] + 0.1 * target_tech)) > 0.01:
             traits['technicality'] = 0.9 * traits['technicality'] + 0.1 * target_tech
@@ -616,36 +622,30 @@ class PersistentStateManager:
                 'saved_at': time.time()
             }
             
-            # Atomic write for general state
-            current_state_str = json.dumps(state, sort_keys=True)
-            temp_path = self.state_path + ".tmp"
-            with open(temp_path, 'w') as f:
-                f.write(current_state_str)
-            os.replace(temp_path, self.state_path)
+            from utils.core.atomic_write import write_atomic
+            write_atomic(self.state_path, json.dumps(state, sort_keys=True))
 
-            # 2. Save User Profiles individually for scalability
+            # 2. The profiles that changed since the last save — only those.
+            # Rewriting every profile when nothing was dirty is what logged
+            # "Saved 10 profiles" every fifteen minutes.
+            dirty = getattr(personalization, 'dirty_profiles', set())
             saved_count = 0
-            # Determine which profiles to save
-            targets = list(personalization.user_profiles.keys())
-            # If we have dirty tracking, use it
-            if hasattr(personalization, 'dirty_profiles') and personalization.dirty_profiles:
-                targets = list(personalization.dirty_profiles)
+            for user_id in list(dirty):
+                profile = personalization.user_profiles.get(user_id)
+                # Evicted from the in-memory LRU since it was touched. Indexing
+                # it raised KeyError, aborted the save and left the dirty set
+                # uncleared, so every save after that failed the same way.
+                if profile is not None:
+                    safe_id = "".join(c for c in str(user_id) if c.isalnum() or c in ('-', '_'))
+                    write_atomic(os.path.join(self.profiles_dir, f"{safe_id}.json"),
+                                 json.dumps(profile))
+                    saved_count += 1
+            dirty.clear()
 
-            for user_id in targets:
-                profile = personalization.user_profiles[user_id]
-                # Sanitize ID for filename
-                safe_id = "".join([c for c in str(user_id) if c.isalnum() or c in ('-', '_')])
-                profile_path = os.path.join(self.profiles_dir, f"{safe_id}.json")
-                
-                with open(profile_path, 'w') as f:
-                    json.dump(profile, f)
-                saved_count += 1
-                
-            # Clear dirty tracking after successful save
-            if hasattr(personalization, 'dirty_profiles'):
-                personalization.dirty_profiles.clear()
-
-            log_success(f"Cold state persisted. Saved {saved_count} profiles.")
+            if saved_count:
+                log_success(f"Cold state persisted. Saved {saved_count} profile(s).")
+            else:
+                log_debug("Cold state persisted. No profiles changed.")
         except Exception as e:
             log_error(f"Failed to save state: {e}")
 

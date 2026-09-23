@@ -34,12 +34,32 @@ def test_state_round_trips_user_profiles(tmp_path):
         "conciseness": 0.8, "technicality": 0.2,
         "formality": 0.5, "humor": 0.5,
     }
+    personalization.dirty_profiles.add("123")     # what learn_from_interaction does
     monitor.metrics["cache_hits"] = 10
     manager.save_state(personalization, monitor)
 
     restored = PersonalizationEngine()
     assert manager.load_state(restored, PerformanceMonitor()) is True
     assert restored.user_profiles["123"]["conciseness"] == 0.8
+
+
+def test_only_changed_profiles_are_rewritten(tmp_path):
+    """Every fifteen minutes the save rewrote every profile whether or not
+    anything had changed; and a dirty id evicted from the LRU raised KeyError,
+    aborted the save and was never cleared, so every later save failed too."""
+    import os
+    personalization = PersonalizationEngine()
+    manager = PersistentStateManager(state_dir=str(tmp_path / "state"))
+    personalization.user_profiles["123"] = {"conciseness": 0.5, "technicality": 0.5,
+                                            "formality": 0.5, "humor": 0.5}
+    personalization.dirty_profiles.update({"123", "evicted"})
+    manager.save_state(personalization, PerformanceMonitor())
+    path = os.path.join(manager.profiles_dir, "123.json")
+    assert os.path.exists(path) and not personalization.dirty_profiles
+
+    before = os.stat(path).st_mtime_ns
+    manager.save_state(personalization, PerformanceMonitor())
+    assert os.stat(path).st_mtime_ns == before, "an unchanged profile was rewritten"
 
 
 def test_load_state_reports_failure_on_empty_dir(tmp_path):
