@@ -55,6 +55,7 @@ NOT_CORPUS = {"_ingress", "_quarantine", "forum_posts"}
 # answers exactly like one anywhere else — and 4,516 files were invisible to
 # every check. The integrity checks below run over it; the quality ones do not.
 MECHANICAL_ONLY = {"forum_posts"}
+QUICK_REFERENCE = "news_summary_"
 
 # Below this a page carries no answer worth retrieving.
 MIN_BODY_WORDS = 60
@@ -94,11 +95,13 @@ def corpus_files():
         for f in sorted(d.rglob("*.md")):
             if any(p.startswith(".") for p in f.relative_to(KB).parts):
                 continue
+            if f.name.startswith(QUICK_REFERENCE):
+                continue
             yield d.name, f
 
 
 def mechanical_only_files():
-    """Indexed folders that the quality checks deliberately skip."""
+    """Files the quality checks deliberately skip but the integrity checks cover."""
     for name in sorted(MECHANICAL_ONLY):
         d = KB / name
         if not d.is_dir():
@@ -107,6 +110,9 @@ def mechanical_only_files():
             if any(p.startswith(".") for p in f.relative_to(KB).parts):
                 continue
             yield name, f
+    # The !news quick reference: not indexed, read line by line, no frontmatter.
+    for f in sorted((KB / "news").rglob(f"{QUICK_REFERENCE}*.md")):
+        yield "news", f
 
 
 def split_frontmatter(text: str):
