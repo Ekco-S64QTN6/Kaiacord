@@ -426,7 +426,10 @@ async def on_ready():
         log_error(f"Failed to start LoopWatchdog: {e}")
 
     # ── PHASE 3: Heavy background init (non-blocking) ───────────────────────
-    asyncio.create_task(_phase3_background_init())
+    # Registered, not bare: asyncio keeps only a weak reference to a task, and
+    # this one starts every background loop the bot has.
+    task_registry.register("phase3_background_init",
+                           asyncio.create_task(_phase3_background_init()))
 
 
 async def _phase3_background_init():
@@ -598,7 +601,7 @@ def main():
                         break
                     await asyncio.sleep(1)
                 await run_rag(ctx.rag.pre_warm)
-            asyncio.create_task(_eager_bm25())
+            task_registry.register("eager_bm25_warm", asyncio.create_task(_eager_bm25()))
 
     env_mode = os.environ.get("KAIA_DASHBOARD", "curses").lower()
     mode = "simple" if args.no_gui else env_mode
