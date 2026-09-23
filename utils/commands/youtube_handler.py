@@ -10,7 +10,9 @@ indexer skips, so nothing a user submits is retrievable until the hourly ingest
 pass has processed it.
 
 The conversion itself lives in `tools/maintenance/youtube_to_kb_md.py` so the
-same code serves the command, the CLI and `kaia-tools.sh`.
+same code serves the command, the CLI and `kaia-tools.sh`. Misheard names are
+corrected before staging by `tools/maintenance/transcript_names.py`, which also
+runs on its own over transcripts already in the corpus.
 """
 import asyncio
 import json
@@ -84,6 +86,15 @@ async def handle_youtube_command(ctx, msg, send_kaia_response):
         await _fail(msg, placeholder, "something went wrong pulling that transcript.")
         return
 
+    # Auto-captions mishear names ("house ATT treaties" for House Atreides), and
+    # names are what retrieval keys on. Best effort: a failure here stages the
+    # transcript as fetched.
+    corrections, counts = {}, {}
+    try:
+        corrections, counts, markdown = await _correct_names(ctx, markdown, stats, placeholder)
+    except Exception as e:
+        log_warning(f"[youtube] name correction skipped: {type(e).__name__}: {e}")
+
     try:
         INGRESS.mkdir(parents=True, exist_ok=True)
         path = INGRESS / safe_filename(stats["title"])
@@ -95,7 +106,7 @@ async def handle_youtube_command(ctx, msg, send_kaia_response):
         # preformatted: the converter already produced knowledge-base Markdown
         # with frontmatter, headings and timestamp anchors. Running the ingress
         # normaliser over it would reflow the paragraphs and destroy them.
-        path.with_suffix(".meta.json").write_text(json.dumps({
+        write_atomic(path.with_suffix(".meta.json"), json.dumps({
             "title": stats["title"],
             "author": stats.get("channel", ""),
             "source_url": stats["url"],
@@ -107,7 +118,10 @@ async def handle_youtube_command(ctx, msg, send_kaia_response):
             "document_type": "video_transcript",
             "content_type": "youtube",
             "preformatted": True,
-        }, indent=2), encoding="utf-8")
+            # What was changed from the captions, so a bad correction can be
+            # found and reversed.
+            "name_corrections": {h: corrections[h] for h in counts},
+        }, indent=2))
     except Exception as e:
         log_error(f"[youtube] staging failed: {e}")
         await _fail(msg, placeholder, "got the transcript but couldn't stage it.")
@@ -132,6 +146,11 @@ async def handle_youtube_command(ctx, msg, send_kaia_response):
         lines.append(f"  channel: {stats['channel']}")
     lines += [
         f"  length: {length}   words: ~{stats['words']:,}",
+    ]
+    if counts:
+        from tools.maintenance.transcript_names import describe
+        lines.append(f"  fixed misheard names: {describe(counts, corrections, limit=4)}")
+    lines += [
         f"  destination: knowledge_base/transcripts",
         "",
         "it gets filed on the next ingest pass (hourly).",
@@ -141,6 +160,50 @@ async def handle_youtube_command(ctx, msg, send_kaia_response):
         f"Staged YouTube transcript {stats['url']} "
         f"({stats['words']} words) by {msg.author.display_name}"
     )
+
+
+async def _correct_names(ctx, markdown: str, stats: dict, placeholder):
+    """Fix misheard names through the local model. Returns (glossary, counts, text)."""
+    import uuid
+    from tools.maintenance.transcript_names import (
+        apply_corrections, find_corrections, prose_chunks,
+    )
+    from utils.infrastructure.gpu.gpu_manager import (
+        GPUTaskPriority, chat_options, gpu_memory_manager,
+    )
+
+    model = ctx.config.chat_model
+    chunks = len(prose_chunks(markdown))
+    if placeholder:
+        try:
+            await placeholder.edit(content=f"checking names in the transcript ({chunks} part(s))...")
+        except Exception:
+            pass
+
+    async def ask(prompt: str) -> str:
+        resp = await gpu_memory_manager.run_with_gpu_guard(
+            model_name=model,
+            priority=GPUTaskPriority.BACKGROUND,
+            coro=asyncio.wait_for(
+                ctx.ollama_client.chat(
+                    model=model,
+                    messages=[{"role": "user", "content": prompt}],
+                    options=chat_options(temperature=0.1, num_predict=600),
+                    format="json",
+                    keep_alive=-1,
+                ),
+                timeout=120,
+            ),
+            task_id=f"yt_names_{uuid.uuid4().hex[:8]}",
+        )
+        return resp["message"]["content"]
+
+    glossary = await find_corrections(markdown, stats["title"], stats.get("channel", ""), ask)
+    fixed, counts = apply_corrections(markdown, glossary)
+    if counts:
+        log_action(f"[youtube] corrected {len(counts)} misheard name(s) in "
+                   f"'{stats['title'][:60]}' ({sum(counts.values())} replacements)")
+    return glossary, counts, fixed
 
 
 async def _fail(msg, placeholder, text: str):
