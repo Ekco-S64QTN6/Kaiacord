@@ -140,8 +140,10 @@ Kaiacord/
 |:-------|:--------|
 | `kaia_mood.py` | Persistent emotional state vector (valence/arousal/energy) with 6h decay |
 | `kaia_monologue.py` | Private thought stream from passive channel observation |
-| `kaia_proactive.py` | Autonomous conversation initiation (7-source trigger engine) |
+| `kaia_proactive.py` | Autonomous conversation initiation (9 candidate sources plus the absence check, gated by `kaia_desires`) |
+| `unprompted.py` | The one gate, label picker and sender for everything she says unasked (daily cap, gap, quiet hours, Bluesky cross-post) |
 | `memory_anchors.py` | Dream-extracted thematic anchors (100-cap) for cross-session callbacks |
+| `beliefs_store.py` | The single reader/writer of `memory/beliefs.json` (dream engine and chat share one lock) |
 | `kaia_presence.py` | Mood-aware Discord status driven by emotional arc + engagement |
 | `bot_state.py` | Relationship stages (stranger→inner_circle), 100-cap beliefs, user dossiers |
 | `timezone_helper.py` | 4-clock Newsroom Wall timezone engine (12-hour format, IANA DST/leap-year safety) |

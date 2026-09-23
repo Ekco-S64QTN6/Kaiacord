@@ -179,6 +179,13 @@ Verified 2026-09-20: **369 monsters**, **395 gear + 58 consumables = 453 items**
   `asyncio.to_thread()`. This is not theoretical — vision image preparation was found running
   full-resolution PIL decode and base64 synchronously on the loop, stalling every other
   coroutine.
+- **Shared JSON state has one read-modify-write path, under a lock.** `memory/beliefs.json`
+  goes through `beliefs_store.update()`; `anchors.json` and `memory/relationships/` hold a
+  module lock around load-change-save. Each was being rewritten from two threads (the dream
+  engine and a chat turn), and whichever read first put its stale copy back last. Snapshot
+  before handing anything to a writer thread: `BotState.save()` serialises on the caller's
+  thread, because `json.dump` over live dicts on the writer raised mid-iteration and dropped
+  the save. `write_atomic` names its temporary per process *and* thread for the same reason.
 - **GPU is reserved for Ollama.** No CUDA, Numba, or PyCUDA for non-LLM work. CPU + NumPy only.
   All Ollama calls go through `gpu_memory_manager` with an appropriate `GPUTaskPriority`
   (`grep -rc run_with_gpu_guard utils/` for current call sites). The bot process itself holds
@@ -221,6 +228,21 @@ Verified 2026-09-20: **369 monsters**, **395 gear + 58 consumables = 453 items**
 - **Trace the actual call path before editing.** Several paths bypass `MessageProcessor`
   entirely — see [§6](#6-llm-call-paths). Modifying `message_processor.py` will not change forum,
   social, dream, or monologue behaviour.
+
+### Heuristics read the user's words, not the turn
+
+`ctx.sanitized_content` is the *enriched* message: quoted reply context before
+`[USER_MESSAGE]`, then any scraped page, embed or linked message. A keyword heuristic run over
+it attributes all of that to the speaker. Relationship events did — most of 190 stored
+repair/friction events were a fetched article, a forum thread dump, or "actually" in passing,
+and repair is the heaviest-weighted line in her relationship notes. Use
+`sanitizer.user_authored_text()`, match whole phrases on word boundaries, and check the
+result against real data (`memory/relationships/`, `knowledge_base/user_logs/`) before
+trusting it. The same audit found the curiosity scanner reading the user's *forum* folder and
+quoting Kaia's own lines back as theirs, and memory anchors injecting "you remember None".
+
+The 2000-character cap in `sanitize_prompt` applies to what the user typed. Enricher blocks
+carry their own caps (`url_max_content_length`); cutting the whole string cut the page.
 
 ### Token budget
 
@@ -668,6 +690,10 @@ message actually sent, a guard's verdict against its own return value.
 - **Do not fabricate chapter headings.** Several books have no chapter markers in their text; a
   heading at a guessed position attaches a chapter name to the wrong passage and retrieves worse
   than no heading at all.
+- **Request a RAG refresh with `rag_utils.request_reindex()`**, never by touching a path. The
+  bot watches `knowledge_base/.trigger_reindex` (`reindex_trigger_path()`); writers had
+  scattered between that, the repo root and the cwd, and a trigger in the wrong place is
+  silently never seen.
 - `knowledge_base/_ingress/` is a **staging area**, excluded from RAG indexing. `!download` and
   `!youtube` write there with a `.meta.json` sidecar; `tools/maintenance/process_ingress.py` (hourly, and from
   `kaia-tools.sh` → Documents & Ingestion) normalises, adds frontmatter and provenance, and files

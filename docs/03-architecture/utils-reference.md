@@ -34,8 +34,10 @@ Core utility modules used by Kaiacord.
 | `kaia_desires.py` | Needs vector (social/intellectual/creative/rest) driving whether she initiates |
 | `kaia_monologue.py` | Private thought stream from passive channel observation |
 | `kaia_proactive.py` | Autonomous conversation initiation (9-source trigger engine, gated by `kaia_desires`) |
+| `unprompted.py` | The one gate, label picker and sender for everything she says unasked (daily cap, gap, quiet hours, Bluesky cross-post) |
 | `kaia_presence.py` | Mood-aware Discord status driven by emotional arc |
 | `memory_anchors.py` | Dream-extracted thematic anchors (100-cap) for cross-session callbacks |
+| `beliefs_store.py` | The single reader/writer of `memory/beliefs.json` (dream engine and chat share one lock) |
 | `relationship_manager.py` | Per-user relationship event store and staging (100-event cap) |
 | `curiosity_scanner.py` | Unresolved mention detection and follow-up generation |
 
