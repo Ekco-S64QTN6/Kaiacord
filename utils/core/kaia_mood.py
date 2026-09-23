@@ -173,6 +173,12 @@ class EmotionalArc:
         regen = hours_idle * ENERGY_REGEN_PER_HOUR * (0.5 + ce) # regenerates faster when biological energy is high
         self._mood.social_energy = min(1.0, self._mood.social_energy + regen)
 
+        # The interval just applied is spent. Without this, every reader between
+        # two interactions — the per-turn prompt injection, the proactive opener,
+        # update() itself — decayed and regenerated over the same span again,
+        # so mood depended on how often it was asked about rather than on time.
+        self._mood.last_updated = now
+
         # Daily counter reset
         from datetime import date
         today = date.today().isoformat()
