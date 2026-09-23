@@ -162,7 +162,7 @@ async def handle_art_command(ctx, msg, send_kaia_response):
                 f"speak as kaia. lowercase only. no asterisks."
             )
 
-        from utils.infrastructure.gpu.gpu_manager import gpu_memory_manager, GPUTaskPriority
+        from utils.infrastructure.gpu.gpu_manager import gpu_memory_manager, GPUTaskPriority, chat_options
         
         # Centralized GPU guard (resolves F-02 race condition)
         response = await gpu_memory_manager.run_with_gpu_guard(
@@ -175,7 +175,8 @@ async def handle_art_command(ctx, msg, send_kaia_response):
                         {"role": "system", "content": "you are kaia. lowercase only. one or two sentences max."},
                         {"role": "user", "content": comment_prompt}
                     ],
-                    options={"num_predict": 80}
+                    options=chat_options(num_predict=80),
+                    keep_alive=-1,
                 ),
                 timeout=15.0
             ),

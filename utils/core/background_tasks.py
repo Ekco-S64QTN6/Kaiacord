@@ -142,7 +142,7 @@ class CoreTaskManager:
                         return
                     
                     from utils.social.kaia_social_responder import load_persona_async
-                    from utils.infrastructure.gpu.gpu_memory_manager import gpu_memory_manager, GPUTaskPriority
+                    from utils.infrastructure.gpu.gpu_manager import gpu_memory_manager, GPUTaskPriority, chat_options
                     import uuid
                     
                     persona = await load_persona_async()
@@ -206,7 +206,7 @@ class CoreTaskManager:
                                         {"role": "system", "content": system_prompt},
                                         {"role": "user", "content": prompt}
                                     ],
-                                    options={"temperature": 0.75, "num_ctx": config.max_context_tokens, "num_gpu": 99},
+                                    options=chat_options(temperature=0.75),
                                     keep_alive=-1
                                 ),
                                 timeout=45.0
@@ -1435,7 +1435,7 @@ class CoreTaskManager:
             try:
                 from utils.social.kaia_forum import get_forum_client, ForumDraftReviewView
                 from utils.social.kaia_social_responder import load_persona_async
-                from utils.infrastructure.gpu.gpu_memory_manager import gpu_memory_manager, GPUTaskPriority
+                from utils.infrastructure.gpu.gpu_manager import gpu_memory_manager, GPUTaskPriority, chat_options
                 from utils.social.forum_participation import lurk_progress
                 import discord
                 import secrets
@@ -1589,7 +1589,7 @@ class CoreTaskManager:
                                 {"role": "system", "content": forum_system},
                                 {"role": "user", "content": user_msg}
                             ],
-                            options={"temperature": 0.5, "num_ctx": config.max_context_tokens, "num_gpu": 99},
+                            options=chat_options(temperature=0.5),
                             keep_alive=-1
                         ),
                         timeout=150.0

@@ -307,33 +307,54 @@ class OllamaGPUManager:
     
     def get_gpu_options(self, for_chat: bool = True, num_ctx: Optional[int] = None) -> Dict[str, Any]:
         """Get optimal GPU options based on context, ensuring consistency for VRAM lock."""
-        from utils.infrastructure.system.yaml_config import config
-        if num_ctx is None:
-            num_ctx = config.max_context_tokens
-            
-        # [CONSISTENCY GUARD]: We include num_thread and main_gpu in ALL calls (even if default)
-        # to prevent Ollama from seeing different options objects and triggering re-loads.
-        base_options = {
-            'num_gpu': 99,
-            'num_thread': config.num_thread,
-            'main_gpu': 0, # Explicit 0 to keep fingerprint same
-        }
-        log_debug(f"[GPUMgr] Generated options (for_chat={for_chat}): {base_options}")
+        return gpu_options(for_chat=for_chat, num_ctx=num_ctx)
+
+
+def chat_options(**overrides) -> Dict[str, Any]:
+    """Options for a call to the chat model, with per-call overrides.
+
+    Every call to the chat model must send the same runner options — num_ctx,
+    num_gpu, num_thread, main_gpu — or Ollama reloads the model to match. A
+    call that builds its own dict and leaves num_ctx out is served at Ollama's
+    default context, which evicts the chat runner; the next chat turn then pays
+    a full reload to get it back. Override sampling options (temperature,
+    num_predict, ...) here, never the runner ones.
+    """
+    opts = gpu_options(for_chat=True)
+    opts.update(overrides)
+    return opts
+
+
+def gpu_options(for_chat: bool = True, num_ctx: Optional[int] = None) -> Dict[str, Any]:
+    """Runner and sampling options shared by every call to the chat model."""
+    from utils.infrastructure.system.yaml_config import config
+    if num_ctx is None:
+        num_ctx = config.max_context_tokens
         
-        if for_chat:
-            max_tokens = getattr(config, 'max_response_tokens', 2048)
-            base_options.update({
-                'num_ctx': num_ctx, 
-                'num_predict': max_tokens,
-                'temperature': getattr(config, 'generation_base_temperature', 0.8),
-                'top_p': 0.9,
-            })
-        else:
-            base_options.update({
-                'num_ctx': num_ctx,
-            })
-        
-        return base_options
+    # [CONSISTENCY GUARD]: We include num_thread and main_gpu in ALL calls (even if default)
+    # to prevent Ollama from seeing different options objects and triggering re-loads.
+    base_options = {
+        'num_gpu': 99,
+        'num_thread': config.num_thread,
+        'main_gpu': 0, # Explicit 0 to keep fingerprint same
+    }
+    log_debug(f"[GPUMgr] Generated options (for_chat={for_chat}): {base_options}")
+    
+    if for_chat:
+        max_tokens = getattr(config, 'max_response_tokens', 2048)
+        base_options.update({
+            'num_ctx': num_ctx, 
+            'num_predict': max_tokens,
+            'temperature': getattr(config, 'generation_base_temperature', 0.8),
+            'top_p': 0.9,
+        })
+    else:
+        base_options.update({
+            'num_ctx': num_ctx,
+        })
+    
+    return base_options
+
 
 class GPUMemoryManager:
     """

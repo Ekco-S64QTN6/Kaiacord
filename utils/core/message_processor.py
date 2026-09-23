@@ -2420,7 +2420,7 @@ class MessageProcessor:
                                 f"preserving key facts, decisions, and emotional tone. "
                                 f"No headers, no bullet points, no roleplay:\n\n{history_text}"
                             )
-                            from utils.infrastructure.gpu.gpu_manager import gpu_memory_manager, GPUTaskPriority
+                            from utils.infrastructure.gpu.gpu_manager import gpu_memory_manager, GPUTaskPriority, chat_options
                             import uuid as _uuid_sum
                             resp = await gpu_memory_manager.run_with_gpu_guard(
                                 model_name=self.config.chat_model,
@@ -2429,7 +2429,7 @@ class MessageProcessor:
                                     self.ollama_client.chat(
                                         model=self.config.chat_model,
                                         messages=[{"role": "user", "content": summary_prompt}],
-                                        options={"num_predict": 200, "temperature": 0.3},
+                                        options=chat_options(num_predict=200, temperature=0.3),
                                         keep_alive=-1
                                     ),
                                     timeout=30.0
