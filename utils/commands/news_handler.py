@@ -51,6 +51,14 @@ async def handle_news_command(ctx, msg, send_kaia_response):
                     summary_content = most_recent.read_text()
 
             if summary_content:
+                # The nightly enrichment gives some summaries a frontmatter
+                # block; its keys are not headlines.
+                try:
+                    from utils.core.frontmatter import parse_frontmatter
+                    _, summary_content = parse_frontmatter(summary_content)
+                except Exception:
+                    if summary_content.startswith("---\n"):
+                        summary_content = summary_content.split("---\n", 2)[-1]
                 # Filter items: remove metadata and headers
                 lines = summary_content.split('\n')
                 filtered_items = []

@@ -290,6 +290,10 @@ def gather_files(base_dir: str, category_flag: str) -> list[tuple[Path, str]]:
             folder = kb_path / subdir
             if folder.exists():
                 for p in folder.rglob("*.md"):
+                    # The !news quick reference is not indexed, and !news
+                    # reads it line by line; metadata only costs a model call.
+                    if p.name.startswith("news_summary_"):
+                        continue
                     files.append((p, 'knowledge'))
                 
     # knowledge_base/user_logs

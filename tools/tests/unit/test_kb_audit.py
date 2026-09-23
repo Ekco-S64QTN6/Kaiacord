@@ -176,3 +176,17 @@ def test_a_template_summary_does_not_count_as_enriched():
     assert mod.is_eligible_for_enrichment(stamped, body)
     real = {"summary": "Starkind and Kaia argue about moral equivalence.", "keywords": ["ethics"]}
     assert not mod.is_eligible_for_enrichment(real, body)
+
+
+def test_enrichment_leaves_the_news_quick_reference_alone(tmp_path):
+    import importlib.util
+    spec = importlib.util.spec_from_file_location("enrich_metadata_gather",
+                                                  "tools/maintenance/enrich_metadata.py")
+    mod = importlib.util.module_from_spec(spec)
+    spec.loader.exec_module(mod)
+    daily = tmp_path / "news" / "daily"
+    daily.mkdir(parents=True)
+    (daily / "news_brief_20260915.md").write_text("x")
+    (daily / "news_summary_20260915.md").write_text("x")
+    names = [p.name for p, _ in mod.gather_files(str(tmp_path), "knowledge")]
+    assert names == ["news_brief_20260915.md"]
