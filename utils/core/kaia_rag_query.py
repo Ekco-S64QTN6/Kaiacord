@@ -42,6 +42,32 @@ from utils.core.kaia_rag_retriever import (
 from utils.core.context_optimizer import Intent
 
 
+# Knowledge candidates fetched for a news turn, so recency has a field to rank.
+NEWS_CANDIDATE_POOL = 30
+# The newest briefs offered to a news turn regardless of similarity.
+LATEST_NEWS_FILES = 3
+# A news turn asking for what is current, not for a period it names.
+_FRESH_NEWS = re.compile(r"\b(?:latest|today|tonight|recent(?:ly)?|current|this week|now|new|yesterday|breaking)\b", re.I)
+# A question that names when, so age is not a reason to rank news down.
+_NAMED_PERIOD = re.compile(
+    r"\b(?:january|february|march|april|may|june|july|august|september|october|"
+    r"november|december|jan|feb|mar|apr|jun|jul|aug|sep|sept|oct|nov|dec|"
+    r"last (?:week|month|year|spring|summer|autumn|fall|winter)|20\d\d|\d+ (?:days|weeks|months) ago)\b", re.I)
+_QUESTION_OPENER = re.compile(r"\s*(?:kaia[,\s]+)?(?:who|what|when|where|why|how|which|tell me|explain|define|describe)\b")
+# Words of five letters or more that are small talk, not a topic.
+_CHATTER = frozenset("""
+hello there thanks thank sorry night morning evening today tonight doing going
+really right sleep tired about think where which whats what's still again maybe
+anyone anybody someone thoughts okay sounds guess
+""".split())
+# Words in a news question that are not its topic.
+_NEWS_FILLER = frozenset("""
+news headlines headline latest today tonight recent recently current events this week now new
+yesterday breaking what what's whats about any anything happening happened going with the
+tell give show and for are there has have been kaia you your me some from over
+""".split())
+
+
 class RAGQueryMixin:
     """Mixin class providing retrieval and query methods for KaiaRAG."""
 
@@ -89,7 +115,8 @@ class RAGQueryMixin:
         is_dream_query = (category == "dream")
         is_entity_query = (category == "entity")
         is_news_query = (category == "news")
-        is_casual = (category == "casual" or category == "greeting" or len(query_lower.split()) <= 4)
+        is_casual = (category == "casual" or category == "greeting"
+                     or (len(query_lower.split()) <= 4 and not self._is_short_question(query_lower)))
 
         # Detect explicit document/file review or summarization requests
         is_doc_query = False
@@ -596,8 +623,11 @@ class RAGQueryMixin:
                 if any(m in fname_lower for m in LITERARY_MARKERS):
                     final_score *= 0.75  # Soft dampening — allows literature to surface when relevant
 
-            # Apply recency decay (only affects user_logs, news, dreams)
-            final_score *= _recency_decay(file_path, source_type, metadata)
+            # Apply recency decay (only affects user_logs, news, dreams) —
+            # except to news when the question names its own period ("in
+            # June"): decaying by age then buries exactly what was asked for.
+            if not (source_type == 'news' and routing.get('names_period')):
+                final_score *= _recency_decay(file_path, source_type, metadata)
 
             # Balanced same-user boost for logs (0.15 instead of 0.30 to avoid drowning out curated documentation)
             if source_type == 'user_logs':
@@ -689,6 +719,59 @@ class RAGQueryMixin:
         return top_results
 
     @thread_safe_rag_operation
+    def _latest_news_candidates(self, pool, query_lower: str = "", n_files: int = LATEST_NEWS_FILES):
+        """The newest briefs' chunks on the question's topic, at the pool's median score.
+
+        Similarity cannot see "latest": in a year of coverage the best match
+        for a topic is whichever month covered it most, and this week's brief
+        never reached the pool. Offering the newest few at a middling score
+        lets recency and relevance decide, rather than forcing them in. A chunk
+        must name one of the question's topic words; a question with none
+        ("any news today?") takes them all.
+        """
+        topic = [w for w in re.findall(r"[a-z][a-z0-9'-]{2,}", query_lower)
+                 if w not in _NEWS_FILLER]
+        topic_re = re.compile(r"\b(?:" + "|".join(map(re.escape, topic)) + r")\b", re.I) if topic else None
+        from llama_index.core.schema import NodeWithScore
+        index = self.indices.get('knowledge')
+        if index is None:
+            return []
+        dated = []
+        for path, entry in self.indexed_files.items():
+            if '/news/' in path.replace('\\', '/') and entry.get('nodes'):
+                ts = self._dated_filename_ts(path)
+                if ts:
+                    dated.append((ts, path))
+        dated.sort(reverse=True)
+
+        scores = sorted(float(getattr(n, 'score', 0) or 0) for n in pool)
+        base = scores[len(scores) // 2] if scores else 0.5
+        held = {getattr(getattr(n, 'node', n), 'node_id', None) for n in pool}
+        out = []
+        for _, path in dated[:n_files]:
+            for node_id in self.indexed_files[path]['nodes']:
+                if node_id in held:
+                    continue
+                node = index.docstore.get_node(node_id, raise_error=False)
+                if node is not None and (topic_re is None or topic_re.search(node.text or "")):
+                    node.metadata['_retrieval_method'] = 'recent'
+                    out.append(NodeWithScore(node=node, score=base))
+        return out
+
+    @staticmethod
+    def _is_short_question(query_lower: str) -> bool:
+        """A short turn that asks about something, rather than small talk.
+
+        Four words or fewer used to mean casual, and casual searches only
+        profiles and logs — so "who wrote Neuromancer?" never reached the book
+        it names. A question with a topic word (five letters or more, not
+        chatter) is searched like any other.
+        """
+        query_lower = re.sub(r"\S+://\S+", " ", query_lower)
+        asks = "?" in query_lower or bool(_QUESTION_OPENER.match(query_lower))
+        return asks and any(len(w) >= 5 and w not in _CHATTER
+                            for w in re.findall(r"[a-z]+", query_lower))
+
     async def get_context_for_hallucination_check(self, query: str) -> str:
         """Fetch raw RAG nodes related to a query for factual verification."""
         # We bypass the complex routing and just grab raw knowledge
@@ -708,8 +791,12 @@ class RAGQueryMixin:
         try:
             query_lower = query.lower()
             routing = self._route_retrieval_strategy(category, query_lower, intent)
-            
-            
+            if include_news:
+                # A news turn is not small talk, however short: "any news
+                # today?" routed as casual searched profiles and logs only.
+                routing["is_news_query"] = True
+                routing["is_casual"] = False
+                routing["names_period"] = bool(_NAMED_PERIOD.search(query_lower))
 
             if routing["strategy"] == "SUMMARIZATION":
                 results = self._get_summarization_nodes(query_lower)
@@ -851,7 +938,15 @@ class RAGQueryMixin:
 
             # Retrieval
             target_itypes, retrieve_count = self._target_indices(routing, top_k)
-            tasks = [self._execute_hybrid_retrieval(itype, enriched_query, retrieve_count) for itype in target_itypes if itype in self.indices]
+            if include_news and 'knowledge' not in target_itypes:
+                target_itypes = target_itypes + ['knowledge']
+            # A news turn wants the *latest* briefs, but candidates are chosen
+            # by similarity alone and recency only re-ranks what came back. A
+            # pool of eight held June's briefs and none from this week.
+            counts = {itype: (max(retrieve_count, NEWS_CANDIDATE_POOL)
+                              if include_news and itype == 'knowledge' else retrieve_count)
+                      for itype in target_itypes}
+            tasks = [self._execute_hybrid_retrieval(itype, enriched_query, counts[itype]) for itype in target_itypes if itype in self.indices]
             all_results_raw = await asyncio.gather(*tasks, return_exceptions=True)
             all_node_results = []
             for i, sublist in enumerate(all_results_raw):
@@ -859,6 +954,8 @@ class RAGQueryMixin:
                     log_warning(f"Retrieval task {i} failed: {sublist}")
                     continue
                 all_node_results.extend(sublist)
+            if include_news and _FRESH_NEWS.search(query_lower):
+                all_node_results.extend(self._latest_news_candidates(all_node_results, query_lower))
             # Cache raw results BEFORE filtering for !explain
             self._last_raw_results = all_node_results
             

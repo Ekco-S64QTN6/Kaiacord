@@ -934,9 +934,12 @@ class RAGIndexerMixin:
             # `user_profile.md` is untouched — it goes to the separate
             # `user_profiles` index. The excluded files stay on disk; forum
             # drafting reads them directly rather than through RAG.
-            is_forum_user_dir = "/user_logs/forum_" in norm_root
             for file in files:
-                if is_forum_user_dir and file != "user_profile.md":
+                # The file rule as well as the directory rule: without it a
+                # file-level exclusion (a forum post history, the news quick
+                # reference) was indexed by the scan and only removed by the
+                # next refresh's prune.
+                if self._is_excluded_path(os.path.join(norm_root, file)):
                     continue
                 ext = os.path.splitext(file)[1].lower()
                 if ext in supported_exts:
