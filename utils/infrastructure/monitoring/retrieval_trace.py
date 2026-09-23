@@ -46,6 +46,20 @@ def _source_of(metadata: Dict[str, Any]) -> str:
     return os.path.basename(path)
 
 
+def _head(content: Any) -> str:
+    """The opening of a node's text, after any frontmatter block.
+
+    For most files the first HEAD_CHARS are nothing but `summary:` and
+    `keywords:`, which identifies no passage at all.
+    """
+    text = str(content or "").lstrip()
+    if text.startswith("---"):
+        end = text.find("\n---", 3)
+        if end != -1:
+            text = text[end + 4:]
+    return " ".join(text.split())[:HEAD_CHARS]
+
+
 def record(query: str, confidence: float, nodes: List[Dict[str, Any]]) -> None:
     """Append one retrieval to the trace. Never raises."""
     try:
@@ -59,7 +73,8 @@ def record(query: str, confidence: float, nodes: List[Dict[str, Any]]) -> None:
                     "score": float(node.get("score", 0.0) or 0.0),
                     "source": _source_of(node.get("metadata") or {}),
                     "category": (node.get("metadata") or {}).get("source_type", "unknown"),
-                    "head": " ".join(str(node.get("content", "")).split())[:HEAD_CHARS],
+                    "method": (node.get("metadata") or {}).get("retrieval_method", ""),
+                    "head": _head(node.get("content", "")),
                 }
                 for node in (nodes or [])[:8]
             ],

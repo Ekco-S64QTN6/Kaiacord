@@ -84,7 +84,7 @@ COMMANDS = (
     # privileged state and no mutation.
     Command("explain", handle_explain_command, GROUP_CORE, extra=RESPONDER,
             usage="!explain [n]",
-            summary="RAG provenance and source scores "
+            summary="Which sources informed a reply "
                     "(`!explain 3` = third-most-recent)"),
     Command("flag", handle_flag_command, GROUP_CORE, extra=RESPONDER,
             owner_only=True, usage="!flag <construct>",
@@ -139,7 +139,8 @@ COMMANDS = (
 
     # ── Media & Operations ───────────────────────────────────────────
     Command("news", handle_news_command, GROUP_MEDIA, extra=RESPONDER,
-            summary="Fetch and summarize latest news"),
+            usage="!news [n | category]",
+            summary="Today's headlines; `!news 3` opens story 3 with its background"),
     Command("quip", handle_quip_command, GROUP_MEDIA,
             summary="Draft a social post (10-minute cooldown; owners exempt)"),
     Command("art", handle_art_command, GROUP_MEDIA, extra=RESPONDER,
