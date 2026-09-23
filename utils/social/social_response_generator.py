@@ -44,6 +44,28 @@ X_CHAR_LIMIT = 280
 MAX_THREAD_POSTS = 5
 
 
+
+DISCORD_LIMIT = 2000
+
+
+def thread_messages(posts, label: str = "", limit: int = DISCORD_LIMIT) -> list:
+    """A thread as chat messages: the label once, the posts a blank line apart.
+
+    Split only when Discord's limit forces it, and then between posts, so no
+    post is cut in half.
+    """
+    messages, current = [], label
+    for post in (p.strip() for p in posts if p and p.strip()):
+        post = post[:limit - 1]
+        sep = (" " if current == label else "\n\n") if current else ""
+        if current and len(current) + len(sep) + len(post) > limit:
+            messages.append(current)
+            current, sep = "", ""
+        current += sep + post
+    if current and current != label:
+        messages.append(current)
+    return messages
+
 async def get_random_memories(limit=20):
     """Get random interaction snippets from any user log in the knowledge base.
     
@@ -565,10 +587,11 @@ async def generate_quip(ctx, is_manual=False, target_channel=None, on_message_fu
             posts = await generate_social_thread(ctx, reflection_target, context_type)
             
             if posts and len(posts) > 1:
-                # Post thread to Discord
-                for i, post in enumerate(posts):
-                    await channel.send(f"**[Thread {i+1}/{len(posts)}]**\n```\n{post}\n```")
-                    await asyncio.sleep(1) # Slight visual delay
+                # One labelled message, like the other things she says
+                # unprompted — not a numbered code block per post.
+                label = config.get("quip.thread_prefix", "🧵 **Train of thought:**")
+                for part in thread_messages(posts, label):
+                    await channel.send(part)
                 
                 # Cross-post thread. The two feeds are independent: each has its
                 # own enable check and its own try, so one being off or failing

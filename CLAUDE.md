@@ -482,7 +482,7 @@ with the on/off switch as the first key. All four are also in `kaia.yaml`.
 | 💭 **Observation:** | `observation:` | `observation.broadcast_digest` | `#kaia-opolis` | The summary is spoken **verbatim**, not re-generated from. |
 | 🧠 **Inner monologue:** | `monologue:` | `monologue.broadcast_to_chat` | `#kaia-opolis` | Its own daily cap and minimum gap. `monologue.respect_quiet_hours` decides whether the clock applies. The gate state is persisted — see below. |
 | ☕ **Apropos of nothing:** | `proactive:` | `proactive.max_per_day` (`0` = off) | most recent channel | Also gated by the desire gate. `proactive.min_interval_minutes` is the gap. `proactive.respect_quiet_hours` decides whether `quiet_hour_start`/`end` apply. |
-| 💬 **Passing thought:** | `quip:` | `quip.enabled` | most recent channel | Was `features.idle_quips_enabled`, which sat 80 lines from the rest of the quip settings; the old spelling is still read as a fallback. Timer: `performance.idle_quip_timeout_minutes`. |
+| 💬 **Passing thought:** | `quip:` | `quip.enabled` | most recent channel | Was `features.idle_quips_enabled`, which sat 80 lines from the rest of the quip settings; the old spelling is still read as a fallback. Timer: `performance.idle_quip_timeout_minutes`. A quip that runs to several posts goes out as one message under `quip.thread_prefix` (🧵 **Train of thought:**) and to Bluesky as a thread. |
 
 **A broadcast gate has to be persisted or a restart resets it.** `BotState`
 names every saved field in three places — the attribute, `load()` and `save()`

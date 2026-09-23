@@ -362,6 +362,7 @@ monologue:
 # "Passing thought" — a remark when a channel goes quiet
 # ============================================================================
 # Appears in chat as:  💬 **Passing thought:** <the remark>
+#        or, as a thread:  🧵 **Train of thought:** <several posts, one message>
 # Goes to the most recently active channel, on a timer.
 # Timer: performance.idle_quip_timeout_minutes.
 quip:
@@ -372,6 +373,10 @@ quip:
 
   # The label on the front of the message. Set "" for no label.
   broadcast_prefix: "\U0001f4ac **Passing thought:**"
+
+  # Sometimes the thought runs to several posts. Those go to chat as one
+  # message under this label, and to Bluesky as a thread. Set "" for no label.
+  thread_prefix: "🧵 **Train of thought:**"
 
 # ============================================================================
 # "Observation" — a summary of a conversation she watched
