@@ -211,11 +211,19 @@ class DesireEngine:
             from utils.infrastructure.system.yaml_config import config
             if not config.get("desires.gate_enabled", True):
                 return True
-            threshold = float(config.get("desires.initiate_threshold",
-                                         self.INITIATE_THRESHOLD))
         except Exception:
-            threshold = self.INITIATE_THRESHOLD
-        return self.pressure() >= threshold
+            pass
+        return self.pressure() >= self.initiate_threshold()
+
+    def initiate_threshold(self) -> float:
+        """The threshold `wants_to_initiate` compares against — configured, or
+        the class default. Anything reporting the gate should read this, not
+        INITIATE_THRESHOLD, or it prints a number the gate did not use."""
+        try:
+            from utils.infrastructure.system.yaml_config import config
+            return float(config.get("desires.initiate_threshold", self.INITIATE_THRESHOLD))
+        except Exception:
+            return self.INITIATE_THRESHOLD
 
     def dominant_need(self) -> str:
         c = self.current()

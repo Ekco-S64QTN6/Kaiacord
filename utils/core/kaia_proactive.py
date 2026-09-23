@@ -306,6 +306,10 @@ class ProactiveEngine:
                                 ),
                                 target_user=user_name,
                                 source_category="absence",
+                                # The cooldown is stamped by id. A user with no
+                                # display name is named "user 1234" above, which
+                                # matched no relationship, so it was never set.
+                                content_id=f"absence:{user_id}",
                             )
         except Exception as e:
             log_debug(f"Absence trigger check failed (non-fatal): {e}")
@@ -956,14 +960,9 @@ class ProactiveEngine:
         try:
             from utils.core.kaia_desires import desire_engine
             if not desire_engine.wants_to_initiate():
-                log_debug(
-                    f"Proactive: nothing pressing (pressure="
-                    f"{desire_engine.pressure():.2f} < "
-                    f"{desire_engine.INITIATE_THRESHOLD})"
-                )
                 self.last_skip_reason = (
                     f"desire gate closed (pressure {desire_engine.pressure():.2f}"
-                    f" < {desire_engine.INITIATE_THRESHOLD})"
+                    f" < {desire_engine.initiate_threshold()})"
                 )
                 return None
         except Exception as e:
@@ -1013,7 +1012,7 @@ class ProactiveEngine:
         proactive system prompt.
 
         Mirrors the most impactful features from message_processor's
-        28-feature pipeline without overwhelming the short-form output.
+        injections without overwhelming the short-form output.
         Each injection is wrapped in try/except to ensure non-critical
         features never prevent message generation.
         """
@@ -1400,12 +1399,15 @@ class ProactiveEngine:
         bot_state.last_proactive_date = datetime.now().strftime('%Y-%m-%d')
 
         # For absence triggers, record per-user to avoid spamming
-        if trigger.trigger_type == "absence" and trigger.target_user:
-            for user_id, rel in bot_state.relationships.items():
-                name = rel.get('display_name', '')
-                if name == trigger.target_user:
-                    rel['last_proactive_checkin'] = now
-                    break
+        if trigger.trigger_type == "absence":
+            rel = None
+            if trigger.content_id.startswith("absence:"):
+                rel = bot_state.relationships.get(trigger.content_id[len("absence:"):])
+            if rel is None and trigger.target_user:
+                rel = next((r for r in bot_state.relationships.values()
+                            if r.get('display_name', '') == trigger.target_user), None)
+            if rel is not None:
+                rel['last_proactive_checkin'] = now
 
         self._last_trigger_type = trigger.trigger_type
         bot_state.save()
