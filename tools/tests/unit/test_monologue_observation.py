@@ -461,3 +461,28 @@ def test_the_opener_is_labelled_but_a_checkin_is_not():
 
 
 _CHANNEL = None
+
+
+def test_a_failed_thought_is_retried_on_the_same_conversation():
+    """The window was marked as thought about before the model was called, so
+    one timeout meant that conversation was never thought about at all."""
+    import asyncio
+    from collections import deque
+
+    from utils.core.kaia_monologue import InnerMonologue
+
+    calls = {"n": 0}
+
+    class Flaky:
+        async def chat(self, **_):
+            calls["n"] += 1
+            if calls["n"] == 1:
+                raise asyncio.TimeoutError()
+            return {"message": {"content": "i notice ekco keeps coming back to the same bug."}}
+
+    memory = {1: deque([{"role": "user", "content": "Ekco: the cron job failed again",
+                         "timestamp": 1.0}])}
+    mono = InnerMonologue()
+    first = asyncio.run(mono.generate_thought(memory, None, Flaky(), "m"))
+    second = asyncio.run(mono.generate_thought(memory, None, Flaky(), "m"))
+    assert first is None and second and "bug" in second

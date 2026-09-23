@@ -1156,7 +1156,7 @@ class RAGIndexerMixin:
                 
         except Exception as e:
             log_error(f"Error in parallel RAG refresh: {e}")
-            traceback.print_exc()
+            log_debug(traceback.format_exc())
         finally:
             self._indexing_in_progress = False
             self._index_lock.release()

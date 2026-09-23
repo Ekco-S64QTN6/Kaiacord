@@ -121,8 +121,10 @@ def load_world_state() -> Dict[str, Any]:
                 
             return state.copy()
         except (OSError, json.JSONDecodeError, ValueError, KeyError) as e:
-            import sys
-            print(f"[world_state] Failed to load {WORLD_STATE_PATH}: {e}", file=sys.stderr)
+            # Logged, not printed: stderr is the terminal the dashboard draws on,
+            # and a world state silently reset to defaults is worth seeing.
+            from utils.infrastructure.logging.kaia_logger import log_warning
+            log_warning(f"[world_state] Failed to load {WORLD_STATE_PATH}, using defaults: {e}")
             return DEFAULT_STATE.copy()
 
 def save_world_state(state: Dict[str, Any]):

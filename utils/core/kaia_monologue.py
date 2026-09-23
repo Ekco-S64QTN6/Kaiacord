@@ -2,15 +2,16 @@
 Inner Monologue System
 ======================
 
-A rolling buffer of private 1-sentence observations Kaia generates about
-channel activity. Never sent to Discord — injected into the system prompt
-so her responses feel grounded in what she's been "thinking about."
+A rolling buffer of private one-sentence observations Kaia makes about
+channel activity. They are injected into her system prompt, so her replies are
+coloured by what she has been thinking about, and are also offered to the
+shared unprompted system (utils/core/unprompted.py), which posts them to
+#kaia-opolis when `unprompted.sources.monologue` is on.
 
-Architecture:
-- In-memory deque(maxlen=5) — resets on restart (ephemeral, like real thoughts)
-- Generated every ~15 minutes when channels have new activity
-- Lightweight LLM call: 100 tokens max, low GPU priority
-- Injected as [inner thoughts: ...] into system prompt at response time
+- In-memory deque(maxlen=5): resets on restart, like real thoughts
+- At most one every 15 minutes, and only when the conversation has changed
+- A short model call (100 tokens) through the GPU guard
+- Every thought is appended to memory/monologue_log.jsonl
 """
 
 import asyncio
@@ -31,7 +32,7 @@ class Thought:
     """A single inner monologue entry."""
     text: str
     timestamp: float
-    source: str = ""  # e.g. "channel_observation", "quiet_reflection"
+    source: str = ""  # "channel_observation"
 
 
 class InnerMonologue:
@@ -49,8 +50,7 @@ class InnerMonologue:
     def __init__(self):
         self._buffer: deque[Thought] = deque(maxlen=5)
         self._last_generated: float = 0.0
-        self._last_seen_message_count: int = 0
-        # sha256 of the exact window last observed; see generate_thought.
+        # sha256 of the window last thought about; see generate_thought.
         self._last_window_fingerprint: str = ""
 
     async def generate_thought(
@@ -134,38 +134,22 @@ class InnerMonologue:
         fingerprint = hashlib.sha256("\n".join(window).encode("utf-8")).hexdigest()
         if fingerprint == self._last_window_fingerprint:
             return None
-        self._last_window_fingerprint = fingerprint
-        self._last_seen_message_count = len(recent_messages)
 
-        # Build a minimal prompt for a 1-sentence internal thought
-        if recent_messages:
-            context_block = "\n".join(window)
-            prompt = (
-                "You are Kaia, observing recent conversation activity in your Discord server. "
-                "Generate ONE brief internal thought — something you've noticed, a pattern, "
-                "a connection, or a quiet observation. This is your private inner monologue, "
-                "not a message to send.\n\n"
-                f"Recent activity:\n{context_block}\n\n"
-                "Rules:\n"
-                "- One sentence only, lowercase, no quotes\n"
-                "- Be specific — reference what you actually observed\n"
-                "- No roleplay asterisks, no headers, no labels\n"
-                "- Think like a person watching a conversation, not narrating one\n"
-                "- You MUST write in the first person ('i', 'my'). Never refer to yourself or Kaia in the third person ('she', 'her').\n"
-                "Your thought:"
-            )
-        else:
-            # Quiet period — reflect on the silence
-            prompt = (
-                "You are Kaia. It's been quiet in your Discord server for a while. "
-                "Generate ONE brief internal thought about the quiet — what you're thinking "
-                "about, what you're waiting for, or what's on your mind.\n\n"
-                "Rules:\n"
-                "- One sentence only, lowercase, no quotes\n"
-                "- No roleplay asterisks, no headers, no labels\n"
-                "- You MUST write in the first person ('i', 'my'). Never refer to yourself or Kaia in the third person ('she', 'her').\n"
-                "Your thought:"
-            )
+        context_block = "\n".join(window)
+        prompt = (
+            "You are Kaia, observing recent conversation activity in your Discord server. "
+            "Generate ONE brief internal thought — something you've noticed, a pattern, "
+            "a connection, or a quiet observation. This is your private inner monologue, "
+            "not a message to send.\n\n"
+            f"Recent activity:\n{context_block}\n\n"
+            "Rules:\n"
+            "- One sentence only, lowercase, no quotes\n"
+            "- Be specific — reference what you actually observed\n"
+            "- No roleplay asterisks, no headers, no labels\n"
+            "- Think like a person watching a conversation, not narrating one\n"
+            "- You MUST write in the first person ('i', 'my'). Never refer to yourself or Kaia in the third person ('she', 'her').\n"
+            "Your thought:"
+        )
 
         try:
             from utils.infrastructure.gpu.gpu_manager import gpu_memory_manager, GPUTaskPriority, chat_options
@@ -203,13 +187,13 @@ class InnerMonologue:
             raw = to_plain_english(raw)
 
             if raw and len(raw) > 10:
-                thought = Thought(
-                    text=raw,
-                    timestamp=now,
-                    source="channel_observation" if recent_messages else "quiet_reflection",
-                )
+                thought = Thought(text=raw, timestamp=now, source="channel_observation")
                 self._buffer.append(thought)
                 self._last_generated = now
+                # Marked as thought about only once there is a thought. Set
+                # before the call, a timeout meant the same conversation was
+                # never tried again.
+                self._last_window_fingerprint = fingerprint
 
                 # Persist thought to monologue log file
                 try:
