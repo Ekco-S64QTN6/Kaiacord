@@ -145,8 +145,8 @@ COMMANDS = (
     Command("quip", handle_quip_command, GROUP_MEDIA,
             summary="Draft a social post (10-minute cooldown; owners exempt)"),
     Command("art", handle_art_command, GROUP_MEDIA, extra=RESPONDER,
-            usage="!art [--seed N] [--palette NAME]",
-            summary="Render fractal flame art"),
+            usage="!art [what to make] [--seed N] [--palette NAME]",
+            summary="Kaia makes a fractal — from your words, her mood, or an attached image's colours"),
     # Not owner_only: `!forum link <uid>` returns before the owner gate, so any
     # user can link their account. Every other subcommand is admin. Marking the
     # whole command admin hid the one part users are meant to reach.
@@ -155,9 +155,9 @@ COMMANDS = (
             summary="Link your forum account "
                     "(other `!forum` subcommands are admin-only)"),
     Command("music", handle_music_command, GROUP_MEDIA, extra=RESPONDER,
-            usage="!music on [--genre] | off | status | genres",
-            summary="Live-coded set in your voice channel "
-                    "(`!music genres` for the list)"),
+            usage="!music on [--genre] | off | status | <request>",
+            summary="Kaia DJs a live-coded set in your voice channel; "
+                    "take requests with `!music darker`, `!music drop` … (`!music help`)"),
     Command("sysmon", handle_sysmon_command, GROUP_MEDIA, extra=RESPONDER,
             owner_only=True,
             summary="Live system/hardware monitoring dashboard"),

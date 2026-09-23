@@ -6,6 +6,9 @@ Based on the Draves/Reckase algorithm (flam3.com/flame_draves.pdf).
 import math
 import time
 import zlib
+from dataclasses import dataclass, field
+from typing import List, Optional
+
 import numpy as np
 from PIL import Image
 from scipy.ndimage import gaussian_filter
@@ -386,6 +389,37 @@ def _iterations_for_span(span: float, requested: int | None = None) -> int:
     return int(np.clip(256 + 210 * depth, 256, 2600))
 
 
+# How many transforms each complexity asks for.
+COMPLEXITY_TRANSFORMS = {"simple": 2, "balanced": 3, "intricate": 4}
+SYMMETRIES = (2, 3, 4, 5, 6, 8)
+
+
+@dataclass
+class ArtIntent:
+    """What Kaia chose to make, before any geometry is drawn.
+
+    Every field is optional; an empty intent renders exactly what the seed
+    alone would. Values are validated against the renderer's own menus by
+    whoever builds the intent (`utils.core.kaia_art_intent`), and the renderer
+    ignores anything that is not on them.
+    """
+    title: str = ""
+    feeling: str = ""
+    prompt: str = ""
+    palette: Optional[str] = None
+    symmetry: Optional[int] = None
+    shapes: List[str] = field(default_factory=list)
+    complexity: Optional[str] = None
+    lut: Optional[np.ndarray] = None       # a colour ramp taken from an image
+    chosen_by: str = ""                    # "kaia", "words", "mood", "image"
+
+    def to_dict(self) -> dict:
+        return {"title": self.title, "feeling": self.feeling, "prompt": self.prompt,
+                "palette": self.palette, "symmetry": self.symmetry,
+                "shapes": list(self.shapes), "complexity": self.complexity,
+                "from_image": self.lut is not None, "chosen_by": self.chosen_by}
+
+
 class FractalFlameRenderer:
     """
     Pure NumPy fractal flame renderer.
@@ -451,7 +485,7 @@ class FractalFlameRenderer:
     # composition; this rejects the flattest results.
     MIN_DENSITY_CONTRAST = 0.28
 
-    def generate(self, seed=None, palette_name=None):
+    def generate(self, seed=None, palette_name=None, intent=None):
         """
         Generate a fractal flame image, screening parameters before rendering.
 
@@ -465,10 +499,14 @@ class FractalFlameRenderer:
         Args:
             seed: Random seed for reproducibility. None = random.
             palette_name: Force a specific palette. None = random.
+            intent: An `ArtIntent` — what Kaia chose to make. It steers the
+                palette, symmetry, shapes and complexity; the geometry is
+                still drawn from the seed.
 
         Returns:
             (PIL.Image.Image, dict) — the rendered image and its parameter dict.
         """
+        self.intent = intent
         best_seed, best_score, best_stats = None, -1.0, None
 
         # Retry seeds are derived from the caller's seed, so `!art --seed 42`
@@ -573,15 +611,32 @@ class FractalFlameRenderer:
         rng = np.random.default_rng(seed)
         actual_seed = seed if seed is not None else rng.bit_generator.seed_seq.entropy
 
+        intent = getattr(self, "intent", None)
+        # The main-stream draws happen in the same order whatever the intent,
+        # so an unsteered seed renders exactly what it always has.
+        drawn_palette = None if (palette_name and palette_name in PALETTES) else self._mood_palette(rng)
+        drawn_symmetry = int(rng.choice([3, 4, 5, 5, 6]))
+        drawn_transforms = int(rng.integers(2, 5))
+
+        palette_fn = None
         if palette_name and palette_name in PALETTES:
             pal_name = palette_name
+        elif intent is not None and intent.lut is not None:
+            pal_name = "from the image"
+            lut = intent.lut
+            palette_fn = lambda t, _lut=lut: _lut_palette(t, _lut)
+        elif intent is not None and intent.palette in PALETTES:
+            pal_name = intent.palette
         else:
-            pal_name = self._mood_palette(rng)
+            pal_name = drawn_palette
 
-        # Always use rotational symmetry — k=1 produces sparse, uninteresting flames
-        symmetry_k = int(rng.choice([3, 4, 5, 5, 6]))
-        n_transforms = int(rng.integers(2, 5))
-        transforms, weights, color_speed = self._random_transforms(rng, n_transforms)
+        # Always rotational symmetry: k=1 produces sparse, uninteresting flames.
+        symmetry_k = intent.symmetry if intent is not None and intent.symmetry else drawn_symmetry
+        n_transforms = (COMPLEXITY_TRANSFORMS[intent.complexity]
+                        if intent is not None and intent.complexity in COMPLEXITY_TRANSFORMS
+                        else drawn_transforms)
+        shapes = [v for v in (intent.shapes if intent is not None else []) if v in PRIMARY_VARIATIONS]
+        transforms, weights, color_speed = self._random_transforms(rng, n_transforms, shapes)
 
         # The post-affine is passed through. `_random_transforms` generates one
         # for ~40% of transforms, and dropping it here means it is computed and
@@ -591,7 +646,7 @@ class FractalFlameRenderer:
             for affine, var_names, color_i, post_affine, var_weights in transforms
         ]
         return dict(rng=rng, actual_seed=actual_seed, pal_name=pal_name,
-                    palette_fn=PALETTES[pal_name], symmetry_k=symmetry_k,
+                    palette_fn=palette_fn or PALETTES[pal_name], symmetry_k=symmetry_k,
                     n_transforms=n_transforms, transforms=transforms,
                     compiled=compiled, weights=weights, color_speed=color_speed)
 
@@ -696,6 +751,9 @@ class FractalFlameRenderer:
             "occupancy": round(render_stats["occupancy"], 4),
             "density_contrast": round(render_stats["density_contrast"], 4),
         }
+        intent = getattr(self, "intent", None)
+        if intent is not None:
+            params["intent"] = intent.to_dict()
 
         return img, params
 
@@ -854,7 +912,7 @@ class FractalFlameRenderer:
     # frame with uniform noise, which is density without structure.
     _DENSE_VARIATIONS = {'julia', 'swirl', 'waves', 'eyefish', 'curl', 'linear'}
 
-    def _random_transforms(self, rng, n_transforms=3):
+    def _random_transforms(self, rng, n_transforms=3, shapes=None):
         """Generate variations matching true flam3 xml structure.
         
         Ensures at least one transform uses a 'dense' variation to prevent
@@ -899,6 +957,14 @@ class FractalFlameRenderer:
             # rest act as accents.
             n_vars = int(rng.choice([1, 2, 2, 3]))
             var_names = list(rng.choice(PRIMARY_VARIATIONS, size=n_vars, replace=False))
+            # A chosen shape leads most transforms: it replaces the dominant
+            # variation (the first, which the Dirichlet below usually weights
+            # heaviest), so the piece reads as what was asked for while the
+            # accents stay free.
+            if shapes and rng.random() < 0.75:
+                lead = str(rng.choice(shapes))
+                var_names = [lead] + [v for v in var_names if v != lead][: n_vars - 1]
+                n_vars = len(var_names)
             # A Dirichlet with alpha < 1 concentrates mass on one component.
             var_weights = rng.dirichlet(np.full(n_vars, 0.6))
             # ACCENT_VARIATIONS are excluded from selection entirely. `blur`

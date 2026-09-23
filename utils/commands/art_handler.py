@@ -1,234 +1,252 @@
 """
-Kaia Art Command Handler
-Handles !art command — generates fractal flames and posts them to Discord.
+!art — Kaia makes a fractal and posts it.
+
+    !art                         whatever she feels like making
+    !art <words>                 a piece from a prompt: "!art a lighthouse at the end of the world"
+    !art  + an attached image    painted in that picture's colours
+    !art mandelbrot | <weirdly.net link>
+    !art --seed N --palette NAME reproduce or force a render
+
+She decides the piece before it is drawn (`kaia_art_intent.decide`), titles it,
+says what she sees in the result, and remembers having made it.
 """
 import asyncio
 import io
 import json
 import time
 import uuid
-import re
 from pathlib import Path
 
 import discord
 
-from utils.infrastructure.logging.kaia_logger import log_info, log_debug, log_warning, log_error
+from utils.commands.embed_style import COLOR_INFO, box, clean, notice
 from utils.core.kaia_art import FractalFlameRenderer, parse_mandelbrot_url
+from utils.infrastructure.logging.kaia_logger import log_debug, log_error, log_info, log_warning
 
 ART_DIR = Path("memory/art")
+COLOR_ART = 0xA78BFA
 
-# Rate limiting: channel_id → timestamp
 _last_art_time: dict[int, float] = {}
 _COOLDOWN_S = 30
+_IMAGE_TYPES = (".png", ".jpg", ".jpeg", ".webp", ".gif")
 
 
-async def handle_art_command(ctx, msg, send_kaia_response):
-    """Handle !art command — generate fractal flame and post to Discord."""
-    channel_id = msg.channel.id
-
-    # ── Rate limiting ─────────────────────────────────────────────────────────
-    now = time.time()
-    if now - _last_art_time.get(channel_id, 0) < _COOLDOWN_S:
-        await send_kaia_response(msg.channel, "still cooling down from the last one.")
-        return
-    _last_art_time[channel_id] = now
-
-    # ── Parse arguments ───────────────────────────────────────────────────────
-    content = msg.content.strip()
-    args = content.split()
-
-    art_type = "flame"      # default
-    seed = None
-    palette_name = None
-    viewport = None         # explicit mandelbrot coordinates, from a shared link
-    bad_url = False
-
-    i = 1  # skip "!art"
+def parse_args(content: str) -> dict:
+    """Split `!art ...` into flags, a link, a type and the free-text prompt."""
+    args = content.strip().split()[1:]
+    out = {"type": "flame", "seed": None, "palette": None, "viewport": None,
+           "bad_url": False, "bad_seed": False, "prompt": ""}
+    words = []
+    i = 0
     while i < len(args):
-        arg = args[i].lower()
-
-        if arg.startswith("http://") or arg.startswith("https://"):
-            # Starkind shared a weirdly.net link to a location eleven orders of
-            # magnitude deeper than anything in the target list, and the only
-            # thing to do with it was read the numbers out by hand. Render it.
-            viewport = parse_mandelbrot_url(args[i])
-            if viewport:
-                art_type = "mandelbrot"
+        raw, arg = args[i], args[i].lower()
+        if arg.startswith(("http://", "https://")):
+            out["viewport"] = parse_mandelbrot_url(raw)
+            if out["viewport"]:
+                out["type"] = "mandelbrot"
             else:
-                bad_url = True
-        elif arg == "mandelbrot":
-            art_type = "mandelbrot"
-        elif arg == "flame":
-            art_type = "flame"
+                out["bad_url"] = True
+        elif arg in ("mandelbrot", "flame") and not words:
+            out["type"] = arg
         elif arg in ("--seed", "-s") and i + 1 < len(args):
             i += 1
             try:
-                seed = int(args[i])
+                out["seed"] = int(args[i])
             except ValueError:
-                await send_kaia_response(msg.channel, "seed needs to be a number.")
-                return
+                out["bad_seed"] = True
         elif arg in ("--palette", "-p") and i + 1 < len(args):
             i += 1
-            palette_name = args[i].lower()
-
-        i += 1
-
-    if bad_url and not viewport:
-        await send_kaia_response(
-            msg.channel,
-            "i can read a weirdly.net mandelbrot link — the `?config=v1,x,y,...` kind. "
-            "that one i couldn't parse. rendering my own instead.")
-
-    # ── Send placeholder ──────────────────────────────────────────────────────
-    placeholder = None
-    try:
-        placeholder = await msg.channel.send("generating...")
-    except Exception:
-        pass
-
-    # ── Render ────────────────────────────────────────────────────────────────
-    renderer = FractalFlameRenderer()
-    try:
-        if art_type == "mandelbrot":
-            kwargs = {"seed": seed, "palette_name": palette_name}
-            if viewport:
-                kwargs.update(center=viewport["center"], span=viewport["span"],
-                              max_iter=viewport["max_iter"],
-                              location_name="shared coordinates")
-            image, params = await asyncio.to_thread(
-                renderer.generate_mandelbrot, **kwargs
-            )
+            out["palette"] = args[i].lower()
         else:
-            image, params = await asyncio.to_thread(
-                renderer.generate, seed=seed, palette_name=palette_name
-            )
-    except Exception as e:
-        log_error(f"[art] Render failed: {e}")
-        await send_kaia_response(msg.channel, "something went wrong rendering. try again?")
-        if placeholder:
-            try: await placeholder.delete()
-            except Exception: pass
-        return
+            words.append(raw)
+        i += 1
+    out["prompt"] = " ".join(words)[:300]
+    return out
 
-    # Making something discharges the creative need (roadmap 55-4).
-    try:
-        from utils.core.kaia_desires import desire_engine
-        desire_engine.observe_creation()
-    except Exception:
-        pass
 
-    # ── Save to disk ──────────────────────────────────────────────────────────
-    ART_DIR.mkdir(parents=True, exist_ok=True)
-    file_id = uuid.uuid4().hex[:12]
-    img_path = ART_DIR / f"{file_id}.png"
-    json_path = ART_DIR / f"{file_id}.json"
+def _title_for(intent, params) -> str:
+    if intent is not None and intent.title:
+        return intent.title
+    if intent is not None and intent.prompt:
+        return clean(intent.prompt.lower(), 60)
+    if params.get("type") == "mandelbrot":
+        return str(params.get("location", "the mandelbrot set"))
+    return f"untitled, {intent.feeling}" if intent is not None and intent.feeling else "untitled"
 
-    try:
-        image.save(str(img_path), format="PNG")
-        with open(json_path, 'w', encoding='utf-8') as f:
-            json.dump(params, f, indent=2)
-        log_debug(f"[art] Saved to {img_path}")
-    except Exception as e:
-        log_warning(f"[art] Failed to save art to disk: {e}")
 
-    # ── Generate Kaia's comment via Ollama ────────────────────────────────────
-    comment = ""
-    try:
-        variations_used = set()
-        for t in params.get("transforms", []):
-            for v in t.get("variations", []):
-                variations_used.add(v)
+def _footer_for(params) -> str:
+    if params.get("type") == "mandelbrot":
+        return (f"{params.get('location', '?')} · {params.get('zoom', '?')}x · "
+                f"{params.get('max_iter', '?')} iterations · {params.get('palette', '?')} · "
+                f"{params.get('render_time_s', '?')}s")
+    return (f"{params.get('palette', '?')} · {params.get('symmetry_k', '?')}-fold · "
+            f"seed {params.get('seed', '?')} · {params.get('render_time_s', '?')}s")
 
-        comment_prompt = (
-            f"you just generated a fractal flame image. "
-            f"it used {params.get('n_transforms', '?')} transforms, "
-            f"variations: {', '.join(variations_used) if variations_used else 'unknown'}, "
-            f"palette: {params.get('palette', 'unknown')}. "
-            f"describe what you see in it in one or two sentences. "
-            f"be specific and a little strange. no 'it is a fractal' — you know what it is. "
-            f"speak as kaia. lowercase only. no asterisks."
-        )
 
-        if params.get("type") == "mandelbrot":
-            comment_prompt = (
-                f"you just rendered the mandelbrot set at "
-                f"{params.get('location', 'a location')}, "
-                f"magnification {params.get('zoom', 'unknown')}, "
-                f"{params.get('max_iter', '?')} iterations, "
-                f"palette: {params.get('palette', 'unknown')}. "
+def _comment_prompt(params, intent, viewport) -> str:
+    if params.get("type") == "mandelbrot":
+        return (f"you just rendered the mandelbrot set at {params.get('location', 'a location')}, "
+                f"magnification {params.get('zoom', 'unknown')}, palette {params.get('palette', 'unknown')}. "
                 f"{'the coordinates came from a link someone shared with you. ' if viewport else ''}"
-                f"describe what you see in it in one or two sentences. "
-                f"be specific and a little strange. "
-                f"speak as kaia. lowercase only. no asterisks."
-            )
+                "describe what you see in it in one or two sentences. be specific and a little strange.")
+    shapes = set()
+    for t in params.get("transforms", []):
+        shapes.update(t.get("variations", []))
+    why = ""
+    if intent is not None:
+        if intent.prompt:
+            why += f'someone asked for "{intent.prompt}". '
+        if intent.title:
+            why += f'you titled it "{intent.title}". '
+        if intent.feeling:
+            why += f"you made it feeling {intent.feeling}. "
+        if intent.lut is not None:
+            why += "it is painted in the colours of a picture they sent. "
+    return (f"you just made a fractal flame. {why}"
+            f"it has {params.get('symmetry_k', '?')}-fold symmetry, shapes: {', '.join(sorted(shapes)) or 'unknown'}, "
+            f"palette: {params.get('palette', 'unknown')}. "
+            "in one or two sentences, say what you see in it or what you were reaching for. "
+            "be specific and a little strange; don't explain the maths.")
 
-        from utils.infrastructure.gpu.gpu_manager import gpu_memory_manager, GPUTaskPriority, chat_options
-        
-        # Centralized GPU guard (resolves F-02 race condition)
+
+async def _comment(ctx, prompt: str) -> str:
+    try:
+        from utils.infrastructure.gpu.gpu_manager import GPUTaskPriority, chat_options, gpu_memory_manager
         response = await gpu_memory_manager.run_with_gpu_guard(
             model_name=ctx.config.chat_model,
             priority=GPUTaskPriority.CHAT,
             coro=asyncio.wait_for(
                 ctx.ollama_client.chat(
                     model=ctx.config.chat_model,
-                    messages=[
-                        {"role": "system", "content": "you are kaia. lowercase only. one or two sentences max."},
-                        {"role": "user", "content": comment_prompt}
-                    ],
-                    options=chat_options(num_predict=80),
-                    keep_alive=-1,
-                ),
-                timeout=15.0
-            ),
-            task_id=f"art_comment_{uuid.uuid4().hex[:8]}"
-        )
-        
-        comment = response['message']['content'].strip()
-        # Strip any asterisks that leaked through
-        comment = comment.replace("*", "")
-        log_debug(f"[art] Kaia comment: {comment}")
-
+                    messages=[{"role": "system", "content": "you are kaia. lowercase only. one or two sentences max. no asterisks."},
+                              {"role": "user", "content": prompt}],
+                    options=chat_options(num_predict=90),
+                    keep_alive=-1),
+                timeout=15.0),
+            task_id=f"art_comment_{uuid.uuid4().hex[:8]}")
+        return response["message"]["content"].strip().replace("*", "")
     except Exception as e:
-        log_warning(f"[art] Ollama comment generation failed (non-fatal): {e}")
-        comment = ""
+        log_warning(f"[art] comment generation failed (non-fatal): {e}")
+        return ""
 
-    # ── Post to Discord ───────────────────────────────────────────────────────
+
+async def _image_palette(msg):
+    """The attached picture's colours as a palette, or None."""
+    for att in getattr(msg, "attachments", None) or []:
+        name = (getattr(att, "filename", "") or "").lower()
+        if name.endswith(_IMAGE_TYPES) and getattr(att, "size", 0) <= 12 * 1024 * 1024:
+            try:
+                from utils.core.kaia_art_intent import palette_from_image
+                data = await att.read()
+                return await asyncio.to_thread(palette_from_image, data)
+            except Exception as e:
+                log_warning(f"[art] couldn't read the attached image: {e}")
+    return None
+
+
+def _save(image, params, intent) -> None:
+    """Keep the piece and what went into it. Blocking."""
+    from utils.core.atomic_write import write_atomic
+    ART_DIR.mkdir(parents=True, exist_ok=True)
+    file_id = uuid.uuid4().hex[:12]
+    image.save(str(ART_DIR / f"{file_id}.png"), format="PNG")
+    write_atomic(ART_DIR / f"{file_id}.json", json.dumps(params, indent=2, default=str))
+
+
+async def handle_art_command(ctx, msg, send_kaia_response):
+    """Handle !art — decide, render, title, comment, post, remember."""
+    channel_id = msg.channel.id
+    now = time.time()
+    if now - _last_art_time.get(channel_id, 0) < _COOLDOWN_S:
+        await msg.channel.send(embed=notice("still cooling down from the last one."))
+        return
+    _last_art_time[channel_id] = now
+
+    opts = parse_args(msg.content)
+    if opts["bad_seed"]:
+        await msg.channel.send(embed=notice("seed needs to be a number.", error=True))
+        return
+    if opts["bad_url"] and not opts["viewport"]:
+        await msg.channel.send(embed=notice(
+            "i can read a weirdly.net mandelbrot link — the `?config=v1,x,y,...` kind. "
+            "that one i couldn't parse, so i'm making my own."))
+
+    placeholder = None
+    try:
+        placeholder = await msg.channel.send(embed=notice("thinking about what to make..."))
+    except Exception:
+        pass
+
+    intent = None
+    renderer = FractalFlameRenderer()
+    try:
+        if opts["type"] == "mandelbrot":
+            kwargs = {"seed": opts["seed"], "palette_name": opts["palette"]}
+            if opts["viewport"]:
+                v = opts["viewport"]
+                kwargs.update(center=v["center"], span=v["span"], max_iter=v["max_iter"],
+                              location_name="shared coordinates")
+            image, params = await asyncio.to_thread(renderer.generate_mandelbrot, **kwargs)
+        else:
+            from utils.core.kaia_art_intent import decide
+            lut = await _image_palette(msg)
+            intent = await decide(opts["prompt"], ctx=ctx, image_lut=lut)
+            log_info(f"[art] intent ({intent.chosen_by}): title={intent.title!r} "
+                     f"palette={intent.palette or ('image' if intent.lut is not None else '-')} "
+                     f"symmetry={intent.symmetry} shapes={intent.shapes} complexity={intent.complexity}")
+            if placeholder:
+                try:
+                    await placeholder.edit(embed=notice(
+                        f"making *{clean(intent.title, 80)}*..." if intent.title else "drawing it..."))
+                except Exception:
+                    pass
+            image, params = await asyncio.to_thread(
+                renderer.generate, seed=opts["seed"], palette_name=opts["palette"], intent=intent)
+    except Exception as e:
+        log_error(f"[art] Render failed: {e}")
+        await msg.channel.send(embed=notice("something went wrong rendering. try again?", error=True))
+        if placeholder:
+            try: await placeholder.delete()
+            except Exception: pass
+        return
+
+    try:
+        from utils.core.kaia_desires import desire_engine
+        desire_engine.observe_creation()
+    except Exception:
+        pass
+
+    try:
+        await asyncio.to_thread(_save, image, params, intent)
+    except Exception as e:
+        log_warning(f"[art] Failed to save art to disk: {e}")
+
+    comment = await _comment(ctx, _comment_prompt(params, intent, opts["viewport"]))
+    title = _title_for(intent, params)
+
     try:
         buf = io.BytesIO()
-        image.save(buf, format="PNG")
+        await asyncio.to_thread(image.save, buf, "PNG")
         buf.seek(0)
-
-        msg_text = ""
-        if comment:
-            msg_text = comment
-
-        seed_display = params.get("seed", "?")
-        if params.get("type") == "mandelbrot":
-            # A mandelbrot frame is defined by where it is, not by its seed —
-            # the seed only picked the location, and with shared coordinates it
-            # did not even do that.
-            footer = (f"`{params.get('location', '?')} | {params.get('zoom', '?')}x | "
-                      f"{params.get('max_iter', '?')} iters | "
-                      f"palette: {params.get('palette', '?')} | "
-                      f"{params.get('render_time_s', '?')}s`")
-        else:
-            footer = (f"`seed: {seed_display} | palette: {params.get('palette', '?')} | "
-                      f"{params.get('render_time_s', '?')}s`")
-
-        full_text = f"{msg_text}\n{footer}" if msg_text else footer
-
-        await msg.channel.send(
-            content=full_text,
-            file=discord.File(buf, filename="kaia_art.png")
-        )
+        embed = box(f"🎨  {clean(title, 200)}", clean(comment, 900) if comment else "",
+                    COLOR_ART, footer=_footer_for(params))
+        embed.set_image(url="attachment://kaia_art.png")
+        await msg.channel.send(embed=embed, file=discord.File(buf, filename="kaia_art.png"))
     except discord.errors.DiscordServerError as e:
         log_warning(f"[art] Discord server error posting art: {e}")
-        await send_kaia_response(msg.channel, "discord choked on the upload. the image was saved locally though.")
+        await msg.channel.send(embed=notice("discord choked on the upload. it's saved locally though.", error=True))
     except Exception as e:
         log_error(f"[art] Failed to post art to Discord: {e}")
-        await send_kaia_response(msg.channel, "couldn't post the image. something broke.")
+        await msg.channel.send(embed=notice("couldn't post the image. something broke.", error=True))
+    else:
+        from utils.core.kaia_expression import remember
+        asked = f' for "{intent.prompt}"' if intent is not None and intent.prompt else ""
+        remember("art", f'[i made a piece called "{title}"{asked}. {comment}]'.strip(),
+                 channel_id=channel_id, title=title,
+                 detail={"seed": params.get("seed"), "palette": params.get("palette"),
+                         "requested_by": getattr(msg.author, "display_name", "")})
+        log_debug(f"[art] posted '{title}'")
 
-    # ── Cleanup placeholder ───────────────────────────────────────────────────
     if placeholder:
         try:
             await placeholder.delete()

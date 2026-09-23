@@ -96,7 +96,8 @@ class KaiaPresenceManager:
         try:
             from pathlib import Path
             import json
-            growth_log = Path("memory") / "growth_log.jsonl"
+            from utils.infrastructure.monitoring.telemetry_paths import telemetry_path
+            growth_log = Path(telemetry_path("memory/growth_log.jsonl"))
             if not growth_log.exists():
                 return None
             
@@ -120,6 +121,13 @@ class KaiaPresenceManager:
                         topic = evt.get('topic', '')
                         if topic:
                             return f"thinking about {topic.lower()}."
+                    elif evt.get('type') == 'creation' and time.time() - evt.get('ts', 0) < 3 * 3600:
+                        # Something she made in the last few hours.
+                        title = evt.get('title', '')
+                        if evt.get('kind') == 'music':
+                            return f"just played {title}." if title else "just finished a set."
+                        if title:
+                            return f"just made “{title.lower()[:60]}”."
                     elif evt.get('type') == 'relationship_insight':
                         # The dream engine logs these under "user".
                         user = evt.get('user') or evt.get('user_name', '')

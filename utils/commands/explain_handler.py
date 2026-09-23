@@ -5,10 +5,8 @@ Knowledge Source Provenance Display
 !explain     — the sources behind the latest retrieval.
 !explain N   — the sources behind the Nth-most-recent one.
 
-Both render the same box: the question, how confident retrieval was, and each
-source by name with a short cleaned excerpt. Both used to build raw code blocks
-around the query and the node text, and a query that carried its own ``` fence
-ended the block early and spilled the rest as escape codes.
+Both render the same box: the question, how long ago it was asked, how strong
+the match was, and each source it drew on by name.
 """
 
 import time
@@ -16,7 +14,7 @@ import time
 import discord
 
 from utils.commands.embed_style import (
-    COLOR_ERROR, COLOR_SOURCES, add_field, box, clean, describe_source, shorten)
+    COLOR_ERROR, COLOR_SOURCES, box, clean, describe_source, shorten)
 from utils.infrastructure.logging.kaia_logger import log_info
 
 #: Sources shown per retrieval. The trace keeps eight.
