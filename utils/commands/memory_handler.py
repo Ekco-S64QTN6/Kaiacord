@@ -10,8 +10,12 @@ async def handle_memory_command(msg, sanitized_content, run_rag, rag):
     """Handle the 'kaia remember' command"""
     # This regex ensures that only explicit "kaia remember [this/that]:" triggers the log
     # It prevents "remember when..." questions from being logged.
-    remember_match = re.match(r"kaia remember (?:this|that|to|the following)?:?\s*(.*)", sanitized_content, re.IGNORECASE)
-    if remember_match and not re.search(r"\bwhen\b|\bif\b|\bhow\b", sanitized_content, re.IGNORECASE):
+    # Only what the user typed: a quoted reply or a fetched page is not theirs
+    # to have remembered, and a "when" inside the quote is not a question.
+    from utils.core.sanitizer import user_authored_text
+    own = user_authored_text(sanitized_content)
+    remember_match = re.match(r"kaia remember (?:this|that|to|the following)?:?\s*(.*)", own, re.IGNORECASE | re.DOTALL)
+    if remember_match and not re.search(r"\bwhen\b|\bif\b|\bhow\b", own, re.IGNORECASE):
         memory_content = remember_match.group(1).strip()
         if memory_content:
             log_action(f"Storing memory: {memory_content}")
