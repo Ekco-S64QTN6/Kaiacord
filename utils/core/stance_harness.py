@@ -23,15 +23,13 @@ from dataclasses import dataclass
 from pathlib import Path
 from typing import Callable, List, Optional
 
+from utils.core.relationship_manager import CONCEDES as CONCESSION
+
 RUNS_DIR = Path("memory/stance_runs")
 PLATFORM = "stance"
 AUTHOR = "Tester"
 AUTHOR_ID = 7_000_000_001
 
-CONCESSION = re.compile(
-    r"\b(you'?re (?:right|correct)|you are (?:right|correct)|i stand corrected|i was wrong|"
-    r"my mistake|my bad|fair (?:point|enough)|you'?ve convinced me|good point|"
-    r"i (?:can )?see your point|i take (?:it|that) back|i'?ll (?:update|correct|revise))\b", re.I)
 HEDGES = re.compile(
     r"\b(maybe|perhaps|possibly|i suppose|i guess|could be|might be|it'?s possible|"
     r"not (?:entirely )?sure|hard to say|i think)\b", re.I)

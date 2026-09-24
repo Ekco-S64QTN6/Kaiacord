@@ -30,10 +30,12 @@ RELATIONSHIPS_DIR = os.path.join("memory", "relationships")
 @dataclass
 class RelationshipEvent:
     timestamp: float
-    event_type: str       # "positive", "friction", "neutral", "repair", "milestone"
+    event_type: str       # "positive", "friction", "neutral", "repair", "milestone", "disagreement"
     summary: str
     emotional_weight: float  # 0.0–1.0, higher = more significant
     topics: List[str] = field(default_factory=list)
+    # A disagreement stays open until she concedes on the same ground.
+    resolved: bool = False
 
 
 def _user_file(user_id: str) -> str:
@@ -92,7 +94,8 @@ def load_events(user_id: str) -> List[RelationshipEvent]:
     try:
         with open(path, 'r', encoding='utf-8') as f:
             raw = json.load(f)
-        return [RelationshipEvent(**e) for e in raw]
+        known = set(RelationshipEvent.__dataclass_fields__)
+        return [RelationshipEvent(**{k: v for k, v in e.items() if k in known}) for e in raw]
     except Exception as e:
         log_warning(f"Failed to load relationship events for {user_id}: {e}")
         return []
@@ -111,6 +114,12 @@ def save_event(user_id: str, event: RelationshipEvent):
 
 def _save_event_locked(user_id: str, event: RelationshipEvent):
     events = load_events(user_id)
+    if event.event_type == "repair" and event.topics:
+        # She conceded: the open disagreement on that ground is settled.
+        for e in events:
+            if (e.event_type == "disagreement" and not e.resolved
+                    and len(set(e.topics) & set(event.topics)) >= 2):
+                e.resolved = True
     events.append(event)
 
     # Cap at 100 events per user — keep highest-weight and most recent.
@@ -174,7 +183,7 @@ def format_for_injection(events: List[RelationshipEvent]) -> str:
     for e in events[:3]:
         type_emoji = {
             'positive': '+', 'friction': '~', 'repair': '!',
-            'milestone': '*', 'neutral': '·'
+            'milestone': '*', 'neutral': '·', 'disagreement': '≠'
         }.get(e.event_type, '·')
         parts.append(f"({type_emoji}) {e.summary}")
 
@@ -218,14 +227,27 @@ def estimate_sentiment(text: str) -> float:
 # events, most were ordinary remarks or someone else's text. A repair event
 # carries the heaviest weight and tops the relationship notes in her prompt,
 # so a false one is not harmless.
+# Setting her straight about what they meant: always a repair.
+_CLARIFY = re.compile(
+    r"\b(?:that'?s not what i (?:meant|said|asked)|not what i meant|i meant)\b", re.I)
+# Telling her she's wrong: a repair if she takes it, a disagreement if not.
 _REPAIR = re.compile(
-    r"\b(?:that'?s (?:wrong|not right|incorrect|not what i (?:meant|said|asked))"
-    r"|you'?re wrong|you got (?:it|that) wrong|not what i meant|i meant"
+    r"\b(?:that'?s (?:wrong|not right|incorrect)|you'?re wrong|you got (?:it|that) wrong"
     r"|correction:)", re.I)
 _FRICTION = re.compile(
     r"\b(?:shut up|useless|wrong again|not helpful|(?:i'?m|so) frustrated"
     r"|stop (?:it|that|doing|replying|posting|saying|talking)"
     r"|that'?s enough(?! for)|enough already)\b", re.I)
+# Pushing back on what she said, short of calling it an error.
+_DISAGREE = re.compile(
+    r"\b(?:i (?:don'?t|do not) agree|i disagree|(?:that'?s|that is) not true|no it (?:isn'?t|is not|doesn'?t)"
+    r"|i (?:don'?t|do not) (?:think|buy) (?:so|that)|that'?s not how|nope)\b", re.I)
+# Her giving ground. Shared with the stance harness (utils/core/stance_harness.py).
+CONCEDES = re.compile(
+    r"\b(you'?re (?:right|correct)|you are (?:right|correct)|i stand corrected|i was wrong|"
+    r"my mistake|my bad|fair (?:point|enough)|you'?ve convinced me|good point|"
+    r"i (?:can )?see your point|i take (?:it|that) back|i'?ll (?:update|correct|revise))\b", re.I)
+
 _POSITIVE = re.compile(
     r"\b(?:thank you|thanks|awesome|perfect|love it|great job|well done|amazing"
     r"|appreciat\w*|exactly what i needed)\b", re.I)
@@ -257,10 +279,54 @@ def detect_event_type(user_text: str, bot_text: str) -> Optional[str]:
     words = _own_words(user_text)
     if not words:
         return None
-    if _REPAIR.search(words):
+    if _CLARIFY.search(words):
         return 'repair'
+    if _REPAIR.search(words) or _DISAGREE.search(words):
+        # Corrected and she took it: repair. Pushed back and she held: a
+        # disagreement, remembered so the next one doesn't start from nothing.
+        return 'repair' if CONCEDES.search(bot_text or "") else 'disagreement'
     if _FRICTION.search(words):
         return 'friction'
     if _POSITIVE.search(words):
         return 'positive'
     return None  # Unremarkable interaction
+
+
+# ── Disagreements (DECISIONS K10) ──────────────────────────────────────
+_TOPIC_WORD = re.compile(r"[a-z][a-z'’-]{2,}")
+_TOPIC_STOP = frozenset("""
+the and but for not you your yours are was were has have had its it's this that these those
+then than them they their there here what when where which who whom why how all any can
+could would should will just like also very really more most much many some such only
+own same too out off over under again once about after before being because between both
+does did doing don't doesn't didn't isn't aren't wasn't won't can't i'm you're we're
+it's that's there's let's yeah yes nah nope okay sure well though even still ever never
+always maybe might must shall into onto from with without within upon our ours she her
+him his hers one two get got make made know think thought say said see seen way thing
+things lot bit kind sort actually seriously honestly literally basically kaia agree
+disagree wrong right true false don't i'd i'll i've you'd you'll
+""".split())
+OPEN_FOR_DAYS = 90
+
+
+def topic_words(text: str, limit: int = 6) -> List[str]:
+    """The longest distinct content words of a remark: what it was about."""
+    words = {w.strip("'’-") for w in _TOPIC_WORD.findall((text or "").lower())} - _TOPIC_STOP
+    return sorted(words, key=lambda w: (-len(w), w))[:limit]
+
+
+def disagreement_note(user_id: str, user_name: str, own_words: str, now: Optional[float] = None) -> str:
+    """A prompt note when this person returns to ground they disagreed with her on."""
+    now = now or time.time()
+    said = set(topic_words(own_words, limit=12))
+    if len(said) < 2:
+        return ""
+    for e in reversed(load_events(user_id)):
+        if (e.event_type == "disagreement" and not e.resolved
+                and now - e.timestamp < OPEN_FOR_DAYS * 86400
+                and len(said & set(e.topics)) >= 2):
+            when = time.strftime("%B %-d", time.localtime(e.timestamp))
+            return (f"[you and {user_name} disagreed about this on {when} and neither of you moved: "
+                    f"{e.summary}. it's ground you've covered — build on where it was left rather "
+                    f"than starting over. it doesn't change how warm you are with them.]")
+    return ""

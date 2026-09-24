@@ -910,6 +910,13 @@ class MessageProcessor:
                     events_line = format_for_injection(top_events)
                     if events_line:
                         ctx.system_prompt = ctx.system_prompt + f"\n\n{events_line}"
+
+                # An open disagreement this turn returns to (K10)
+                from utils.core.relationship_manager import disagreement_note
+                _disagreed = await asyncio.to_thread(
+                    disagreement_note, ctx.author_id, ctx.author_name, ctx.own_words)
+                if _disagreed:
+                    ctx.system_prompt = ctx.system_prompt + f"\n\n{_disagreed}"
         except Exception as _rel_err:
             log_debug(f"Relationship injection error (non-fatal): {_rel_err}")
 
@@ -2546,9 +2553,15 @@ class MessageProcessor:
                         summary = _own[:120]
                         if len(_own) > 120:
                             summary += "..."
-                        topics = []  # Could extract from intent/category later
+                        topics = []
+                        if event_type in ('disagreement', 'repair'):
+                            from utils.core.relationship_manager import topic_words
+                            topics = topic_words(_own)
+                        if event_type == 'disagreement':
+                            _held = re.split(r"(?<=[.!?])\s", bot_response.strip(), maxsplit=1)[0][:120]
+                            summary = f'they said "{summary}"; you held "{_held}"'
                         weight_map = {
-                            'positive': 0.6, 'friction': 0.8,
+                            'positive': 0.6, 'friction': 0.8, 'disagreement': 0.85,
                             'repair': 0.9, 'milestone': 1.0, 'neutral': 0.3
                         }
                         event = RelationshipEvent(
