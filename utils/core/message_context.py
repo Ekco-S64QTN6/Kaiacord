@@ -43,6 +43,16 @@ class MessageContext:
     response_text: Optional[str] = None
     
     @property
+    def own_words(self) -> str:
+        """What the speaker typed, without quoted posts or fetched pages.
+
+        Heuristics that judge the speaker read this; the prompt, retrieval and
+        the token budget read `sanitized_content`, which carries the context.
+        """
+        from utils.core.sanitizer import user_authored_text
+        return user_authored_text(self.sanitized_content)
+
+    @property
     def author_id(self) -> str:
         author = getattr(self.message, 'author', None) if self.message else None
         return str(getattr(author, 'id', '0')) if author else "0"
