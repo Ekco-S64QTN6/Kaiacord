@@ -83,3 +83,24 @@ def test_chat_logs_keep_their_weight_when_the_conversation_is_the_question():
     from utils.core.kaia_rag_query import _CONVERSATION_CUE
     assert _CONVERSATION_CUE.search("what did we say about the iran news")
     assert not _CONVERSATION_CUE.search("tell me about recent hacker news")
+
+
+import pytest
+
+
+@pytest.mark.parametrize("text, about_her", [
+    ("kaia tell me about neuromancer", False),
+    ("kaia, who is ekco", False),
+    ("tell me about the whole raid", False),
+    ("kaia who are you", True),
+    ("kaia what is your favourite book", True),
+    ("tell me about yourself", True),
+])
+def test_precise_recall_is_about_her_only_when_she_is_the_subject(text, about_her):
+    """Addressing her by name is not asking about her."""
+    from types import SimpleNamespace
+    from utils.core.kaia_rag import KaiaRAG
+    rag = KaiaRAG.__new__(KaiaRAG)
+    r = rag._route_retrieval_strategy("general", text, SimpleNamespace(suggested_strategy="PRECISE_RECALL"), text)
+    assert r["is_kaia_query"] is about_her
+    assert r["is_entity_query"] is (not about_her)

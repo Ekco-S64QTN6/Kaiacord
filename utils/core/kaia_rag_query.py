@@ -168,7 +168,13 @@ class RAGQueryMixin:
             strategy = "SUMMARIZATION"
 
         if strategy == "PRECISE_RECALL":
-            if any(x in query_lower for x in ["who", "what", "kaia", "yourself"]):
+            # About her only when she is the subject. Nearly every message
+            # opens by addressing her, so "kaia" at the start says nothing, and
+            # "who"/"what" as substrings matched "whole" and "whatever": "kaia,
+            # tell me about Neuromancer" was routed as a question about Kaia,
+            # which damps book prose.
+            subject = re.sub(r"^\W*kaia\b\W*", "", own)
+            if re.search(r"\b(you|your|yours|yourself|kaia)\b", subject):
                 is_kaia_query = True
             else:
                 is_entity_query = True

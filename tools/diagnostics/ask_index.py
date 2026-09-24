@@ -37,7 +37,14 @@ async def ask(query: str, top: int, news: bool, show: int) -> int:
         shutil.copytree(live, snapshot)
         rag = KaiaRAG(persist_dir=str(snapshot))
         await rag.initialize_async()
-        results = await rag.retrieve(query, top_k=top, include_news=news)
+        # Classified the way a chat turn is, so routing matches what she does.
+        from utils.core.intent_classifier import IntentParser
+        from utils.core.message_processor import MessageProcessor
+        intent = IntentParser().fast_parse(query)
+        category = MessageProcessor._derive_legacy_category(None, intent) if intent else "general"
+        print(f"intent: {intent.suggested_strategy if intent else 'none'} ({category})")
+        results = await rag.retrieve(query, top_k=top, include_news=news,
+                                     category=category, intent=intent)
 
     if not results:
         print("Nothing retrieved.")
