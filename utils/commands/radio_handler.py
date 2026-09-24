@@ -334,7 +334,9 @@ async def handle_radio_command(ctx, msg, send_kaia_response=None):
                    "squelch": watch.SQUELCH_DB}
             bot = getattr(ctx, "bot", None)
             import asyncio
-            asyncio.create_task(watch.run_job(job, (lambda e: post_entry(bot, e)) if bot else None))
+            from utils.infrastructure.monitoring.async_task_registry import task_registry
+            task_registry.register(f"radio_listen_{int(time.time())}", asyncio.create_task(
+                watch.run_job(job, (lambda e: post_entry(bot, e)) if bot else None)))
             await msg.channel.send(embed=box("📡  Listening", f"on 8992 kHz for {minutes} minutes. Anything that "
                                              "sounds like an EAM goes to the log and #kaia-opolis.", COLOR_RADIO,
                                              footer=_others('radio')))
@@ -521,7 +523,8 @@ async def handle_beacons_command(ctx, msg, send_kaia_response=None):
             await msg.channel.send(embed=box("🗼  Beacons", f"couldn't get a clean listen — {clean(str(e), 200)}", COLOR_ERROR))
         except Exception as e:
             log_error(f"[radio] !beacons listen failed: {e}")
-    asyncio.create_task(listen_and_report())
+    from utils.infrastructure.monitoring.async_task_registry import task_registry
+    task_registry.register(f"beacons_listen_{int(time.time())}", asyncio.create_task(listen_and_report()))
 
 
 nightshift.register("beacons")

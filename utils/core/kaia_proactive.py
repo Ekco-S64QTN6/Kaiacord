@@ -20,6 +20,7 @@ What stays here is what is particular to starting a conversation:
 
 import asyncio
 import json
+import re
 import os
 import time
 import uuid
@@ -172,7 +173,7 @@ class ProactiveEngine:
             if now - ts < 86400  # Active in last 24h
         ]
         if not candidates:
-            self.last_skip_reason = "no source produced a candidate"
+            self.last_skip_reason = "no channel active in the last 24 h"
             return None
 
         candidates.sort(key=lambda x: x[1], reverse=True)
@@ -272,8 +273,10 @@ class ProactiveEngine:
             for user_dir in user_logs_dir.iterdir():
                 if not user_dir.is_dir() or user_dir.name.startswith('.'):
                     continue
-                # Skip social/bluesky log dirs
-                if user_dir.name.startswith('social_'):
+                # People she has talked with here: not social feeds, forum
+                # posters (whose logs are their public posts, not a
+                # conversation with her) or her own channel log.
+                if user_dir.name.startswith(('social_', 'forum_', 'Kaia-')):
                     continue
                 for log_file in user_dir.glob("interactions_*.md"):
                     try:
@@ -307,26 +310,29 @@ class ProactiveEngine:
 
             log_file, user_dir_name, _ = candidates[chosen_idx]
             # Extract display name from directory name (format: Name_ID)
-            display_name = user_dir_name.rsplit('_', 1)[0] if '_' in user_dir_name else user_dir_name
+            display_name = (user_dir_name.rsplit('_', 1)[0] if '_' in user_dir_name
+                            else user_dir_name).replace('_', ' ')
 
             # Read and find a substantive exchange
             text = log_file.read_text(encoding='utf-8', errors='ignore')
+            def _said(ln):
+                # The words after "[timestamp] Name: ", without links.
+                body = ln.split('] ', 1)[1] if '] ' in ln else ln
+                body = body.split(': ', 1)[1] if ': ' in body else body
+                return re.sub(r'https?://\S+', '', body).strip()
+
             lines = [
                 ln for ln in text.splitlines()
-                if ln.startswith('[') and '] ' in ln and len(ln) > 40
+                if ln.startswith('[') and '] ' in ln
                 and 'Kaia:' not in ln[:60]  # User lines, not Kaia's
+                and '[REMEMBER_COMMAND]' not in ln
+                and len(_said(ln)) > 30      # something said, not a pasted link
             ]
 
             if not lines:
                 return None
 
-            # Pick a random substantive line
-            line = secrets.choice(lines)
-            # Strip timestamp prefix
-            if '] ' in line:
-                content = line.split('] ', 1)[1]
-            else:
-                content = line
+            content = _said(secrets.choice(lines))
 
             context = (
                 f"You're thinking about a past conversation with {display_name}. "

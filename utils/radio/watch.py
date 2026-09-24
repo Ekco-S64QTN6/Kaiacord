@@ -224,7 +224,8 @@ async def tick(poster=None, now: Optional[datetime] = None) -> None:
             continue                   # the next tick retries while the window is open
         launched.add(job["kind"])
         _mark_done(job["key"])
-        asyncio.create_task(run_job(job, poster))
+        from utils.infrastructure.monitoring.async_task_registry import task_registry
+        task_registry.register(f"radio_job_{job['key']}", asyncio.create_task(run_job(job, poster)))
 
 
 # ── the cross-check ─────────────────────────────────────────────────────────
