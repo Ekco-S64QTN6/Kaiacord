@@ -1071,37 +1071,16 @@ class MessageProcessor:
         except Exception:
             pass
 
-        # 8g. Opinion Evolution — reference belief changes when relevant
+        # 8g. Her own growth — a revised belief in play, or an identity shift
+        # the speaker's words touch (utils/core/growth_recall.py).
         try:
-            if matching:  # From beliefs injection (8c)
-                from pathlib import Path as _Path
-                _gl = _Path("memory") / "growth_log.jsonl"
-                if _gl.exists():
-                    # Tail-read: only last ~3KB to avoid loading the full file
-                    def _tail_read_growth_log():
-                        with open(_gl, 'r', encoding='utf-8') as _gf:
-                            _gf.seek(0, 2)
-                            _sz = _gf.tell()
-                            _gf.seek(max(0, _sz - 3072))
-                            if _sz > 3072:
-                                _gf.readline()  # Discard partial first line
-                            return _gf.readlines()[-20:]
-                    _lines = await asyncio.to_thread(_tail_read_growth_log)
-                    for _line in reversed(_lines):
-                        try:
-                            _evt = json.loads(_line)
-                            if _evt.get('type') == 'belief_revised':
-                                _topic = _evt.get('topic', '')
-                                # Check if this revised belief is one of the matching ones
-                                if any(_topic.lower() in m.lower() for m in matching):
-                                    ctx.system_prompt = ctx.system_prompt + (
-                                        f"\n\n[your stance on \"{_topic}\" has evolved. "
-                                        f"you previously thought: \"{_evt.get('old_position', '')[:80]}\". "
-                                        f"if natural, you may reference this shift.]"
-                                    )
-                                    break
-                        except json.JSONDecodeError:
-                            continue
+            from utils.core import growth_recall
+            _note = await asyncio.to_thread(growth_recall.belief_revision_for, matching)
+            if not _note:
+                _note = await asyncio.to_thread(
+                    growth_recall.identity_shift_for, ctx.own_words, ctx.channel_id)
+            if _note:
+                ctx.system_prompt = ctx.system_prompt + f"\n\n{_note}"
         except Exception:
             pass
 
