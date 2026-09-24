@@ -215,6 +215,34 @@ class StrudelEngine:
                 break
             time.sleep(0.5)
         self.stop()
+        self._settle_downloads(deadline=time.time() + 60.0)
+
+    def _settle_downloads(self, deadline: float) -> None:
+        """Wait until the warm-up's sample fetches have finished.
+
+        They all come from one host, so while they are in flight the browser's
+        per-host connection limit queues every other fetch behind them — and the
+        first program of a set, whose kick loads from that host too, played its
+        opening bars silent. Done when no resource has finished for 3 s.
+        """
+        import time
+        count, quiet_since = -1, time.time()
+        try:    # the default buffer stops counting at 250 entries
+            self._call(lambda: self._page.evaluate(
+                "() => performance.setResourceTimingBufferSize(100000)"))
+        except Exception:
+            return
+        while time.time() < deadline:
+            try:
+                n = int(self._call(lambda: self._page.evaluate(
+                    "() => performance.getEntriesByType('resource').length")))
+            except Exception:
+                return
+            if n != count:
+                count, quiet_since = n, time.time()
+            elif time.time() - quiet_since >= 3.0:
+                return
+            time.sleep(0.5)
 
     def play(self, code: str) -> bool:
         """Evaluate a pattern. Returns False if Strudel reported an error."""

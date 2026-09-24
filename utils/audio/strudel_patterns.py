@@ -162,7 +162,7 @@ TECHNO = Track(
         Part("acid", 'n("0 0 12 0 [0 3] 0 7 [0 10]").scale("@KEY@2:minor").s("sawtooth").lpq(16).lpenv(3.5).lpd(0.11)'
              '.decay(0.13).sustain(0.1).distort(0.45).gain(0.3).o(4)',
              play="drop2", auto={"lpf": {"drop2": (500, 3200)}}, say="acid"),
-        Part("pad", 'n("<[0,2,4,6] [0,2,4,6] [-2,0,2,4] [-2,0,2,4]>").scale("@KEY@3:minor").s("gm_pad_sweep").attack(1).release(4)'
+        Part("pad", 'n("<[0,2,4,6] [0,2,4,6] [-2,0,2,4] [-2,0,2,4]>").scale("@KEY@3:minor").s("gm_pad_sweep:3").attack(1).release(4)'
              '.room(0.8).roomsize(5).gain(0.4).o(5)',
              play="break build2", say="pad"),
         snare_roll("RolandTR909"), riser(), crash("RolandTR909"),
@@ -183,7 +183,7 @@ HOUSE = Track(
         Part("bass", [
             'n("<[0 ~ 0 ~ ~ 0 ~ 0] [~ 0 ~ 7 ~ 0 ~ ~]>").scale("@KEY@2:minor").s("sawtooth").lpf(700).lpq(7)'
             '.lpenv(2).lpd(0.15).decay(0.22).sustain(0.1).release(0.1).gain(0.78).duck("1").duckdepth(0.55).o(3)',
-            'n("<[0 ~ ~ 0 ~ 0 ~ ~] [3 ~ ~ 3 ~ 3 ~ 5]>").scale("@KEY@2:minor").s("gm_synth_bass_1").lpf(1400)'
+            'n("<[0 ~ ~ 0 ~ 0 ~ ~] [3 ~ ~ 3 ~ 3 ~ 5]>").scale("@KEY@2:minor").s("gm_synth_bass_1:1").lpf(1400)'
             '.gain(0.9).duck("1").duckdepth(0.5).o(3)',
         ], play=GROOVE_UP, say="bass"),
         Part("piano", [
@@ -193,10 +193,10 @@ HOUSE = Track(
             '.s("piano").room(0.3).gain(0.55).o(4)',
         ], play="groove build drop break build2 drop2",
             auto={"lpf": {"groove": (800, 6000), "break": 3000, "default": 7000}}, say="piano"),
-        Part("choir", 'n("<[0,2,4] [3,5,7] [5,7,9] [4,6,8]>").scale("@KEY@4:minor").s("gm_choir_aahs")'
+        Part("choir", 'n("<[0,2,4] [3,5,7] [5,7,9] [4,6,8]>").scale("@KEY@4:minor").s("gm_choir_aahs:3")'
              '.attack(0.4).release(2).room(0.8).roomsize(5).gain(0.45).o(5)',
              play="break build2 drop2", say="choir"),
-        Part("top", 'n("<[7 ~ 9 ~] [11 ~ 9 7]>*2").scale("@KEY@5:minor").s("gm_kalimba").delay(0.4).delaytime(0.1875)'
+        Part("top", 'n("<[7 ~ 9 ~] [11 ~ 9 7]>*2").scale("@KEY@5:minor").s("kalimba").delay(0.4).delaytime(0.1875)'
              '.delayfeedback(0.5).room(0.5).gain(0.4).pan(sine.slow(3)).o(5)',
              play="drop2", say="kalimba"),
         snare_roll("RolandTR909", "cp"), riser(), crash("RolandTR909"),
@@ -218,13 +218,13 @@ DEEPHOUSE = Track(
              '.sustain(0.3).release(0.2).gain(0.95).duck("1").duckdepth(0.5).o(3)',
              play=GROOVE_UP, say="sub"),
         Part("keys", 'n("<[0,2,4,6,8] [-2,0,2,4,6] [-3,-1,1,3,5] [-1,1,3,5,7]>").scale("@KEY@3:minor")'
-             '.struct("~ [~ x] ~ ~ x ~ ~ ~").s("gm_epiano1").room(0.4).gain(0.6).o(4)',
+             '.struct("~ [~ x] ~ ~ x ~ ~ ~").s("gm_epiano1:4").room(0.4).gain(0.6).o(4)',
              play="groove build drop break build2 drop2",
              auto={"lpf": {"groove": (900, 5000), "break": 2500, "default": 5000}}, say="rhodes"),
         Part("pluck", 'n("{0 4 7 9 11}%8").scale("@KEY@4:minor").s("triangle").decay(0.15).sustain(0)'
              '.delay(0.5).delaytime(0.375).delayfeedback(0.5).room(0.5).gain(0.25).pan(sine.slow(5)).o(5)',
              play="drop break drop2", say="pluck"),
-        Part("pad", 'n("<[0,2,4] [0,2,4] [-2,0,2] [-2,0,2]>").scale("@KEY@3:minor").s("gm_pad_warm").attack(1.5).release(3)'
+        Part("pad", 'n("<[0,2,4] [0,2,4] [-2,0,2] [-2,0,2]>").scale("@KEY@3:minor").s("gm_pad_warm:4").attack(1.5).release(3)'
              '.room(0.7).gain(0.35).o(5)', play="break build2 drop2", say="pad"),
         snare_roll("RolandTR808", "cp"), riser(), crash("RolandTR909"),
     ])
@@ -256,7 +256,7 @@ TRANCE = Track(
             '.s("supersaw").detune(0.5).attack(0.01).decay(0.2).sustain(0.4).release(0.3).lpf(5000)'
             '.delay(0.3).delaytime(0.1875).delayfeedback(0.4).room(0.4).gain(0.36).o(4)',
         ], play="drop break drop2", auto={"lpf": {"break": (1200, 4000), "default": 5000}}, say="lead"),
-        Part("pad", 'n("<[0,2,4] [0,2,4] [-2,0,2] [-4,-2,0]>").scale("@KEY@3:minor").s("gm_synth_strings_1")'
+        Part("pad", 'n("<[0,2,4] [0,2,4] [-2,0,2] [-4,-2,0]>").scale("@KEY@3:minor").s("gm_synth_strings_1:1")'
              '.attack(1).release(3).room(0.8).roomsize(6).gain(0.4).o(5)',
              play="break build2 drop2", say="strings"),
         snare_roll("RolandTR909"), riser(), crash("RolandTR909"),
@@ -285,12 +285,12 @@ DRUMNBASS = Track(
             auto={"lpf": {"build": (300, 1400), "build2": (300, 1600), "default": 340}}, say="reese"),
         Part("sub", 'n("<0 0 -2 -4>").scale("@KEY@1:minor").s("sine").gain(0.75).duck("1").duckdepth(0.6).o(3)',
              play=GROOVE_UP, say="sub"),
-        Part("keys", 'n("<[0,2,4,6] [0,2,4,6] [-2,0,2,4] [-2,0,2,4] [-4,-2,0,2] [-4,-2,0,2] [-3,-1,1,3] [-3,-1,1,3]>").scale("@KEY@3:minor").s("gm_epiano1")'
+        Part("keys", 'n("<[0,2,4,6] [0,2,4,6] [-2,0,2,4] [-2,0,2,4] [-4,-2,0,2] [-4,-2,0,2] [-3,-1,1,3] [-3,-1,1,3]>").scale("@KEY@3:minor").s("gm_epiano1:4")'
              '.struct("x ~ ~ x ~ ~ ~ ~").room(0.5).gain(0.5).o(4)',
              play="intro break build2 drop2", say="keys"),
-        Part("pad", 'n("<[0,2,4] [0,2,4] [-2,0,2] [-2,0,2]>").scale("@KEY@3:minor").s("gm_pad_halo").attack(1).release(3)'
+        Part("pad", 'n("<[0,2,4] [0,2,4] [-2,0,2] [-2,0,2]>").scale("@KEY@3:minor").s("gm_pad_halo:2").attack(1).release(3)'
              '.room(0.8).gain(0.4).o(5)', play="break build2", say="pad"),
-        Part("bells", 'n("{0 4 7 11 9}%8").scale("@KEY@5:minor").s("gm_tubular_bells").room(0.6)'
+        Part("bells", 'n("{0 4 7 11 9}%8").scale("@KEY@5:minor").s("tubularbells").room(0.6)'
              '.delay(0.4).delaytime(0.1875).gain(0.25).o(5)', play="drop2", say="bells"),
         snare_roll("RolandTR909"), riser(), crash("RolandTR909"),
     ])
@@ -340,7 +340,7 @@ BREAKBEAT = Track(
         Part("hoover", 'n("<[0 ~ ~ 0] [3 ~ ~ 2]>").scale("@KEY@3:minor").s("supersaw").detune(0.9).decay(0.25)'
              '.sustain(0.3).lpf(3000).room(0.4).gain(0.32).o(4)',
              play="drop drop2", say="hoover"),
-        Part("pad", 'n("<[0,2,4] [0,2,4] [-2,0,2] [-2,0,2]>").scale("@KEY@3:minor").s("gm_pad_sweep").attack(1).release(3)'
+        Part("pad", 'n("<[0,2,4] [0,2,4] [-2,0,2] [-2,0,2]>").scale("@KEY@3:minor").s("gm_pad_sweep:3").attack(1).release(3)'
              '.room(0.7).gain(0.4).o(5)', play="break build2", say="pad"),
         Part("fx", 'n("<0 ~ ~ ~>").scale("@KEY@5:minor").s("square").fm(8).fmh(3.3).decay(0.4).sustain(0)'
              '.delay(0.6).delaytime(0.375).delayfeedback(0.65).room(0.6).gain(0.2).o(5)',
@@ -363,7 +363,7 @@ DUB = Track(
                       'n("<[0 ~ ~ 0 ~ 3 ~ ~] [5 ~ 3 ~ 2 ~ 0 ~]>").scale("@KEY@1:minor").s("sine").decay(0.35)'
                       '.sustain(0.5).gain(1.0).o(3)'],
              play="a b break a2 b2", say="bassline"),
-        Part("skank", 'n("[~ [0,2,4]]*2").scale("@KEY@3:minor").s("gm_drawbar_organ").decay(0.12).sustain(0)'
+        Part("skank", 'n("[~ [0,2,4]]*2").scale("@KEY@3:minor").s("gm_drawbar_organ:4").decay(0.12).sustain(0)'
              '.delay(0.45).delaytime(0.375).delayfeedback(0.55).room(0.3).gain(0.45).o(4)',
              play="intro a b a2 b2", auto={"delayfeedback": {"b": 0.65, "b2": 0.7, "default": 0.55}},
              say="skank"),
@@ -389,13 +389,13 @@ LOFI = Track(
         Part("hats", 's("hh*8").bank("AkaiMPC60").gain("0.2 0.1").swingBy(1/6, 4).lpf(6000).o(2)',
              play="a b a2 b2 outro", say="hats"),
         Part("keys", ['n("<[0,2,4,6,8] [-3,-1,1,3,5] [-2,0,2,4,6] [-4,-2,0,2,4]>").scale("@KEY@3:dorian")'
-                      '.struct("x ~ ~ [~ x] ~ ~ x ~").s("gm_epiano1").lpf(2200).room(0.35).gain(0.6).o(4)',
+                      '.struct("x ~ ~ [~ x] ~ ~ x ~").s("gm_epiano1:4").lpf(2200).room(0.35).gain(0.6).o(4)',
                       'n("<[0,2,4,6] [3,5,7,9] [1,3,5,7] [4,6,8,10]>").scale("@KEY@3:dorian")'
-                      '.struct("x ~ ~ x ~ [~ x] ~ ~").s("gm_epiano1").lpf(2200).room(0.35).gain(0.6).o(4)'],
+                      '.struct("x ~ ~ x ~ [~ x] ~ ~").s("gm_epiano1:4").lpf(2200).room(0.35).gain(0.6).o(4)'],
              play="all", say="rhodes"),
-        Part("bass", 'n("<[0 ~ ~ 4] [-3 ~ ~ 1] [-2 ~ 2 ~] [-4 ~ ~ -1]>").scale("@KEY@1:dorian").s("gm_acoustic_bass")'
+        Part("bass", 'n("<[0 ~ ~ 4] [-3 ~ ~ 1] [-2 ~ 2 ~] [-4 ~ ~ -1]>").scale("@KEY@1:dorian").s("gm_acoustic_bass:1")'
              '.gain(0.9).o(3)', play="a b break a2 b2", say="upright bass"),
-        Part("melody", 'n("<[~ 4 ~ ~ 6 ~ 4 ~] ~ [~ 2 ~ 4 ~ ~ 1 ~] ~>").scale("@KEY@4:dorian").s("gm_vibraphone")'
+        Part("melody", 'n("<[~ 4 ~ ~ 6 ~ 4 ~] ~ [~ 2 ~ 4 ~ ~ 1 ~] ~>").scale("@KEY@4:dorian").s("vibraphone")'
              '.room(0.5).delay(0.3).delaytime(0.375).gain(0.4).o(5)', play="b b2", say="vibes"),
         Part("crackle", 's("white*16").degradeBy(0.88).decay(0.004).sustain(0).hpf(3500).gain(0.12).o(6)',
              play="all", say="vinyl"),
@@ -410,11 +410,11 @@ TRIPHOP = Track(
         Part("kick", 's("bd ~ ~ ~ ~ ~ bd ~").bank("RolandTR808").gain(0.85).o(1)', play="a b a2 b2", say="kick"),
         Part("bass", 'n("<[0 ~ ~ ~ ~ ~ -2 ~] [-3 ~ ~ ~ -2 ~ ~ ~]>").scale("@KEY@1:minor").s("sine").decay(0.6)'
              '.sustain(0.6).gain(1.0).o(3)', play="a b break a2 b2", say="sub"),
-        Part("strings", 'n("<[0,2,4] [-2,0,3] [-3,0,2] [-1,1,4]>").scale("@KEY@3:minor").s("gm_string_ensemble_1")'
+        Part("strings", 'n("<[0,2,4] [-2,0,3] [-3,0,2] [-1,1,4]>").scale("@KEY@3:minor").s("gm_string_ensemble_1:3")'
              '.attack(0.8).release(2.5).room(0.7).gain(0.4).o(4)', play="intro b break b2 outro", say="strings"),
-        Part("keys", 'n("<[0,2,4,6] ~ [-2,0,2,4] ~>").scale("@KEY@3:minor").s("gm_epiano2").room(0.5)'
+        Part("keys", 'n("<[0,2,4,6] ~ [-2,0,2,4] ~>").scale("@KEY@3:minor").s("gm_epiano2:4").room(0.5)'
              '.delay(0.35).delaytime(0.5).delayfeedback(0.45).gain(0.5).o(4)', play="a a2 b2", say="rhodes"),
-        Part("bells", 'n("<[4 ~ ~ ~] [~ ~ 7 ~] [6 ~ ~ ~] [~ ~ 2 ~]>").scale("@KEY@5:minor").s("gm_celesta")'
+        Part("bells", 'n("<[4 ~ ~ ~] [~ ~ 7 ~] [6 ~ ~ ~] [~ ~ 2 ~]>").scale("@KEY@5:minor").s("gm_celesta:4")'
              '.room(0.8).delay(0.5).delaytime(0.75).delayfeedback(0.5).gain(0.35).o(5)', play="b break b2", say="celesta"),
         Part("crackle", 's("white*16").degradeBy(0.9).decay(0.004).sustain(0).hpf(3000).gain(0.14).o(6)',
              play="all", say="crackle"),
@@ -433,10 +433,10 @@ SYNTHWAVE = Track(
              '.lpf(900).lpq(4).decay(0.12).sustain(0.2).gain(0.55).duck("1").duckdepth(0.4).o(3)',
              play=GROOVE_UP, auto={"lpf": {"intro": (400, 900), "build": (900, 2000), "default": 1000}},
              say="octave bass"),
-        Part("pad", 'n("<[0,2,4] [0,2,4] [-4,-2,0] [-2,0,2]>").scale("@KEY@3:minor").s("gm_synth_strings_1")'
+        Part("pad", 'n("<[0,2,4] [0,2,4] [-4,-2,0] [-2,0,2]>").scale("@KEY@3:minor").s("gm_synth_strings_1:1")'
              '.attack(0.5).release(2).room(0.6).gain(0.42).o(5)', play="groove drop break build2 drop2", say="pad"),
         Part("lead", ['n("<[4 ~ 2 ~ 0 ~ 2 4] [7 ~ ~ 4 ~ ~ 2 ~] [0 ~ -1 ~ 0 ~ 2 ~] [4 ~ ~ ~ ~ ~ ~ ~]>")'
-                      '.scale("@KEY@4:minor").s("gm_lead_2_sawtooth").room(0.5).delay(0.35).delaytime(0.375)'
+                      '.scale("@KEY@4:minor").s("gm_lead_2_sawtooth:4").room(0.5).delay(0.35).delaytime(0.375)'
                       '.delayfeedback(0.4).gain(0.45).o(4)'],
              play="drop break drop2", say="lead"),
         Part("arp", 'n("[0 2 4 7]*4").scale("@KEY@4:minor").s("square").decay(0.08).sustain(0).lpf(3000)'
@@ -459,9 +459,9 @@ BERLINSCHOOL = Track(
         Part("pulse", 'n("0*8").scale("@KEY@1:minor").s("sawtooth").lpf(300).decay(0.1).sustain(0.2).gain(0.6).o(3)',
              play="bloom deep glow bloom2", say="pulse"),
         Part("kick", 's("bd*4").bank("RolandTR808").lpf(600).gain(0.85).o(1)', play="glow bloom2", say="kick"),
-        Part("pad", 'n("<[0,2,4] [0,2,4] [-2,0,2] [-2,0,2] [-3,0,2] [-3,0,2] [-1,1,3] [-1,1,3]>").scale("@KEY@3:minor").s("gm_pad_poly")'
+        Part("pad", 'n("<[0,2,4] [0,2,4] [-2,0,2] [-2,0,2] [-3,0,2] [-3,0,2] [-1,1,3] [-1,1,3]>").scale("@KEY@3:minor").s("gm_pad_poly:3")'
              '.attack(2).release(4).room(0.8).roomsize(6).gain(0.45).o(5)', play="all", say="pad"),
-        Part("choir", 'n("<[0,4] [0,4] [0,4] [0,4] [2,6] [2,6] [2,6] [2,6]>").scale("@KEY@4:minor").s("gm_synth_choir").attack(3).release(4)'
+        Part("choir", 'n("<[0,4] [0,4] [0,4] [0,4] [2,6] [2,6] [2,6] [2,6]>").scale("@KEY@4:minor").s("gm_synth_choir:3").attack(3).release(4)'
              '.room(0.9).gain(0.3).o(6)', play="deep bloom2", say="choir"),
     ])
 
@@ -470,11 +470,11 @@ AMBIENT = Track(
     blurb="ambient: drones and bowed pads, glass and bells drifting, wind, a few piano notes",
     form=DRIFT, labels=DRIFT_LABELS,
     parts=[
-        Part("drone", 'n("<[0,4] [0,4] [0,4] [0,4] [-2,2] [-2,2] [-3,2] [-3,2]>").scale("@KEY@2:major").s("gm_pad_bowed").attack(3).release(6)'
+        Part("drone", 'n("<[0,4] [0,4] [0,4] [0,4] [-2,2] [-2,2] [-3,2] [-3,2]>").scale("@KEY@2:major").s("gm_pad_bowed:2").attack(3).release(6)'
              '.room(0.9).roomsize(8).gain(0.5).o(3)', play="all", say="drone"),
-        Part("halo", 'n("<[0,2,4,6] [0,2,4,6] [0,2,4,6] [0,2,4,6] [-1,1,3,5] [-1,1,3,5] [-1,1,3,5] [-1,1,3,5]>").scale("@KEY@3:major").s("gm_pad_halo").attack(4).release(6)'
+        Part("halo", 'n("<[0,2,4,6] [0,2,4,6] [0,2,4,6] [0,2,4,6] [-1,1,3,5] [-1,1,3,5] [-1,1,3,5] [-1,1,3,5]>").scale("@KEY@3:major").s("gm_pad_halo:2").attack(4).release(6)'
              '.room(0.9).gain(0.35).o(4)', play="bloom deep glow bloom2", say="halo"),
-        Part("bells", 'n("{0 4 2 6 7 4 9}%4").scale("@KEY@5:major").s("gm_vibraphone").degradeBy(0.35)'
+        Part("bells", 'n("{0 4 2 6 7 4 9}%4").scale("@KEY@5:major").s("vibraphone").degradeBy(0.35)'
              '.room(0.9).delay(0.5).delaytime(0.75).delayfeedback(0.55).pan(sine.slow(7)).gain(0.32).o(5)',
              play="bloom glow bloom2", say="bells"),
         Part("glass", 'n("<[0,4] [2,6] [4,7] [2,5]>").scale("@KEY@5:major").s("gm_tinkle_bell").room(0.9)'
@@ -518,12 +518,23 @@ def warmup_program() -> str:
             for sound in ([part.sound] if isinstance(part.sound, str) else part.sound):
                 for m in re.finditer(r'\bs\("([^"]+)"\)', sound):
                     for tok in re.split(r"[\s,\[\]<>*~]+", m.group(1)):
-                        tok = re.sub(r"[:(!].*$", "", tok)
-                        if tok and not tok[0].isdigit() and tok not in _SYNTHS | _KIT:
+                        # Keep a soundfont's `:k`: each variant is its own file,
+                        # and warming variant 0 leaves the one that plays cold.
+                        tok = re.sub(r"[(!].*$", "", tok)
+                        if tok and not tok[0].isdigit() and tok.split(":")[0] not in _SYNTHS | _KIT:
                             names.add(tok)
     listed = " ".join(sorted(names))
-    return "\n".join([DIRT, "setcpm(60/4)",
-                      f'$: s("[{listed}]").gain(0.0001)'])
+    # A sampled instrument (piano, VCSL) is one file per note zone, fetched the
+    # first time a note needs it; one trigger loads one zone, and the rest of
+    # the melody played silence while its zones downloaded. A chromatic run
+    # through each of them touches every zone the tracks can reach.
+    sampled = " ".join(sorted(n for n in names if not n.startswith(("gm_", "breaks"))))
+    chromatic = " ".join(f"{p}{o}" for o in range(2, 7)
+                         for p in ("c", "c#", "d", "d#", "e", "f", "f#", "g", "g#", "a", "a#", "b"))
+    lines = [DIRT, "setcpm(60/4)", f'$: s("[{listed}]").gain(0.0001)']
+    if sampled:
+        lines.append(f'$: note("{chromatic}").s("[{sampled.replace(" ", ",")}]").gain(0.0001)')
+    return "\n".join(lines)
 
 
 def genre_names() -> list[str]:

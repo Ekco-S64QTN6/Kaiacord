@@ -147,3 +147,18 @@ def test_the_drop_is_the_loudest_part_of_a_dance_track(track):
     p.energy = False
     p.reanchor(0)
     assert ".velocity(" not in p.code()
+
+
+def test_every_soundfont_names_its_variant():
+    """A bare `gm_*` name plays variant 0 — scale() strips `n` — and variant 0 is
+    JCLive, Aspirin or Chaos for every instrument the tracks use: the thinnest
+    banks in the set. Name the GeneralUserGS or FluidR3 variant instead."""
+    import re
+    from utils.audio import strudel_patterns as sp
+    bare = set()
+    for t in sp.TRACKS:
+        for part in t.parts:
+            for src in ([part.sound] if isinstance(part.sound, str) else part.sound):
+                bare |= {m for m in re.findall(r'\bs\("(gm_[a-z0-9_]+)"\)', src)
+                         if m != "gm_tinkle_bell"}      # only JCLive/Aspirin exist
+    assert not bare, f"soundfonts with no variant chosen: {sorted(bare)}"
