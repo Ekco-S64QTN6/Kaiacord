@@ -258,12 +258,13 @@ async def post_thread_to_bluesky(chunks: list[str]) -> tuple[bool, Optional[str]
             return True, root[0]
 
         except Exception as e:
-            last_error = str(e)
+            # A timeout's str() is empty; the type is the information.
+            last_error = f"{type(e).__name__}: {e}" if str(e) else type(e).__name__
             if attempt == 0:
                 where = "posting" if root is None else f"at chunk {next_index + 1}/{len(chunks)}"
-                log_warning(f"Bluesky post failed ({where}), retrying with fresh session: {e}")
+                log_warning(f"Bluesky post failed ({where}), retrying with fresh session: {last_error}")
                 continue
-            log_error(f"Bluesky post failed after retry: {e}")
+            log_error(f"Bluesky post failed after retry: {last_error}")
             break
 
     if root is not None:
