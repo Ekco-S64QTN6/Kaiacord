@@ -82,6 +82,28 @@ def _trace_whole_document(query: str, results, channel=None) -> None:
         pass
 
 
+# Days for a source's weight to halve with age. A news brief is stale in
+# weeks, a conversation in months, a dream's reflection slower still.
+# `performance.rag_recency_half_life_days` sets the chat-log value;
+# `performance.rag_recency_half_life_by_type` overrides any type.
+RECENCY_HALF_LIFE_DAYS = {"user_logs": 90, "news": 30, "dream": 180, "kaia_reflection": 180}
+
+
+def recency_half_lives(config) -> dict:
+    lives = dict(RECENCY_HALF_LIFE_DAYS)
+    number = lambda v: isinstance(v, (int, float)) and not isinstance(v, bool) and v > 0
+    try:
+        logs = config.get("performance.rag_recency_half_life_days", None)
+        if number(logs):
+            lives["user_logs"] = float(logs)
+        by_type = config.get("performance.rag_recency_half_life_by_type", None)
+        if isinstance(by_type, dict):
+            lives.update({str(k): float(v) for k, v in by_type.items() if number(v)})
+    except Exception:
+        pass
+    return lives
+
+
 class RAGQueryMixin:
     """Mixin class providing retrieval and query methods for KaiaRAG."""
 
@@ -534,11 +556,12 @@ class RAGQueryMixin:
 
         # Pre-compute current time for recency decay calculations
         _now_ts = time.time()
+        _half_lives = recency_half_lives(config)
 
         def _recency_decay(file_path: str, source_type: str, metadata: dict = None) -> float:
             """Returns a 0.2–1.0 multiplier. Recent = 1.0. Old = 0.2 floor.
             
-            Half-life is configurable. Default: 90 days.
+            Half-life per source type (RECENCY_HALF_LIFE_DAYS).
             Only applied to user_logs, news, and dreams — knowledge docs and persona are timeless.
             """
             if source_type not in ('user_logs', 'news', 'dream', 'kaia_reflection'):
@@ -562,7 +585,7 @@ class RAGQueryMixin:
                     ts = os.path.getmtime(file_path)
                 if ts:
                     age_days = (_now_ts - ts) / 86400.0
-                    half_life = getattr(config, 'rag_recency_half_life_days', 90)
+                    half_life = _half_lives.get(source_type, _half_lives['user_logs'])
                     decay = math.exp(-age_days * math.log(2) / half_life)
                     return max(0.2, decay)
             except Exception:
