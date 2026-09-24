@@ -41,6 +41,9 @@ def test_the_overnight_log_may_not_invent_numbers():
     facts = ["asteroid 2026 SC will pass Earth at 1.7 lunar distances (25 Sep 13:47 UTC)"]
     assert overnight.invented_numbers("2026 sc will pass at 1.7 lunar distances, 13:47 utc", facts) == set()
     assert overnight.invented_numbers("it passed at 3.2 lunar distances", facts) == {"3.2"}
+    # the same number written another way is not an invention
+    facts = ["you recorded E11 at 08:05 UTC", "an E-6B was broadcasting at 1,250 ft"]
+    assert overnight.invented_numbers("e11 at 8:05, and a plane at 1250 ft", facts) == set()
 
 
 def test_the_overnight_log_is_due_once_a_morning():

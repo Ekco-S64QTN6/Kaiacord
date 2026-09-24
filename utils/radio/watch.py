@@ -40,7 +40,22 @@ MIN_TRANSMISSION_S = 25        # an EAM broadcast runs well over a minute
 SQUELCH_DB = 12
 STATE_CACHE = "watch_state"
 
-_busy = asyncio.Lock()
+#: One listen of each kind at a time: an HFGCS watch holds its lock for twenty
+#: minutes, and a number station falling inside it must not be skipped.
+_busy = {"hfgcs": asyncio.Lock(), "numbers": asyncio.Lock()}
+
+
+def _lock_for(job: dict) -> asyncio.Lock:
+    return _busy.get(job["kind"]) or _busy.setdefault(job["kind"], asyncio.Lock())
+
+
+def heard_at(wav: Path, fallback: datetime) -> datetime:
+    """kiwirecorder names each file for when it started — per squelch opening,
+    not per watch — so the log and the cross-check get the real time."""
+    try:
+        return datetime.strptime(wav.name[:16], "%Y%m%dT%H%M%SZ").replace(tzinfo=timezone.utc)
+    except ValueError:
+        return fallback
 
 
 def _cfg(key, default):
@@ -131,7 +146,9 @@ async def process(job: dict, wav: Path, receiver: kiwi.Receiver, started: dateti
             log_warning(f"[radio] transcription failed for {wav.name}: {e}")
     parsed = None
     if job["kind"] == "hfgcs":
-        if transcript and not looks_like_eam(transcript):
+        # Without a transcript nothing separates an EAM from a burst of noise,
+        # and every squelch opening would be posted.
+        if not transcript or not looks_like_eam(transcript):
             wav.unlink(missing_ok=True)          # a squelch opening on voice that is not an EAM
             return None
         if transcript:
@@ -156,7 +173,7 @@ async def run_job(job: dict, poster=None) -> list[dict]:
     if not kiwi.available():
         log_debug("[radio] kiwiclient not installed; skipping a scheduled listen")
         return []
-    async with _busy:
+    async with _lock_for(job):
         receivers = kiwi.choose(await kiwi.directory(), job["khz"], job["region"])
         if not receivers:
             log_warning(f"[radio] no free {job['region']} receiver covers {job['khz']:g} kHz")
@@ -178,7 +195,7 @@ async def run_job(job: dict, poster=None) -> list[dict]:
                  f"{len(wavs)} recording(s)")
         entries = []
         for wav in wavs:
-            entry = await process(job, wav, receiver, started)
+            entry = await process(job, wav, receiver, heard_at(wav, started))
             if entry:
                 entries.append(entry)
                 if poster:
@@ -198,12 +215,16 @@ async def tick(poster=None, now: Optional[datetime] = None) -> None:
     from utils.radio import priyom
     now = now or datetime.now(timezone.utc)
     schedule = priyom.upcoming(read_cache(priyom.CACHE), hours=1, now=now - timedelta(minutes=5))
+    launched: set[str] = set()
     for job in due_jobs(now, schedule, _done()):
-        if _busy.locked():
-            continue                   # one listen at a time; the next tick retries within its window
+        # One of each kind at a time. The lock is only taken once the task
+        # runs, so a second job of a kind started this tick would pass the
+        # check and then wait out the first — starting long after its window.
+        if job["kind"] in launched or _lock_for(job).locked():
+            continue                   # the next tick retries while the window is open
+        launched.add(job["kind"])
         _mark_done(job["key"])
         asyncio.create_task(run_job(job, poster))
-        return
 
 
 # ── the cross-check ─────────────────────────────────────────────────────────

@@ -176,3 +176,21 @@ def test_no_radio_subprocess_writes_to_the_bots_terminal():
         src = (root / name).read_text(encoding="utf-8")
         for call in src.split("subprocess.run(")[1:]:
             assert "capture_output=True" in call.split(")\n")[0] + call[:400], name
+
+
+def test_a_recording_is_dated_by_its_own_file_not_the_watch():
+    start = datetime(2026, 9, 24, 3, 10, tzinfo=timezone.utc)
+    assert watch.heard_at(Path("20260924T031742Z_8992000_hfgcs_usb.wav"), start) == \
+        datetime(2026, 9, 24, 3, 17, 42, tzinfo=timezone.utc)
+    assert watch.heard_at(Path("odd.wav"), start) == start
+
+
+@pytest.mark.skipif(not shutil.which("ffmpeg"), reason="needs ffmpeg")
+def test_without_a_transcript_an_hfgcs_opening_is_not_kept(tmp_path):
+    p = tmp_path / "t.wav"
+    subprocess.run(["ffmpeg", "-loglevel", "error", "-y", "-f", "lavfi", "-i", "sine=duration=40",
+                    "-ar", "12000", str(p)], check=True)
+    rec = kiwi.Receiver("h", 8073, "n", "loc", 0, 0, 0, 8, 10, 0, 30_000_000)
+    with patch.object(watch.transcribe, "available", return_value=False):
+        assert asyncio.run(watch.process({"kind": "hfgcs", "station": "HFGCS", "khz": 8992.0, "mode": "usb"},
+                                         p, rec, datetime.now(timezone.utc))) is None

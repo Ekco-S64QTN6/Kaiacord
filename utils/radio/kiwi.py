@@ -28,7 +28,7 @@ from utils.radio.fetch import FeedError, USER_AGENT, is_stale, read_cache, write
 
 DIRECTORY_URL = "http://rx.linkfanel.net/kiwisdr_com.js"
 DIRECTORY_CACHE = "kiwi_directory"
-DIRECTORY_MAX_AGE_S = 24 * 3600
+DIRECTORY_MAX_AGE_S = 3 * 3600       # slot counts go stale well inside a day
 ROOT = Path(__file__).resolve().parents[2]
 KIWICLIENT = ROOT / "assets" / "kiwiclient"
 RECORDER = KIWICLIENT / "kiwirecorder.py"
@@ -147,11 +147,6 @@ def choose(receivers: list[Receiver], khz: float, region: str = "na",
             and r.covers(khz) and r.free >= 1 and r.host not in avoid]
     pool.sort(key=lambda r: (r.snr, r.free), reverse=True)
     return pool[:n]
-
-
-def region_for(khz: float, station: str = "") -> str:
-    """HFGCS from North America; number stations from Europe."""
-    return "eu" if station and not station.upper().startswith("HFGCS") else "na"
 
 
 def available() -> bool:

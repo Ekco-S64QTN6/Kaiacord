@@ -91,6 +91,8 @@ def _remember(found: list[Sighting]) -> None:
         return
     seen = read_cache(SEEN).get("last") or {}
     for s in found:
+        if s.seen_at < (seen.get(s.kind) or {}).get("at", 0):
+            continue                    # two of a kind in one answer: keep the most recent
         seen[s.kind] = {"at": s.seen_at, "callsign": s.callsign, "registration": s.registration,
                         "lat": s.lat, "lon": s.lon, "altitude_ft": s.altitude_ft}
     write_cache(SEEN, {"last": seen})

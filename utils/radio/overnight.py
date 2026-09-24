@@ -117,8 +117,11 @@ _NUMBER = re.compile(r"\d+(?:[.,]\d+)?")
 
 def invented_numbers(text: str, facts: list[str]) -> set[str]:
     """Numbers in the write-up that no fact contains: the check that it made nothing up."""
-    have = set(_NUMBER.findall(" ".join(facts)))
-    return {n for n in _NUMBER.findall(text) if n not in have}
+    def norm(n: str) -> str:            # "1,234" is 1234 and "08" is 8
+        n = n.replace(",", "")
+        return n.lstrip("0") or "0" if "." not in n else n
+    have = {norm(n) for n in _NUMBER.findall(" ".join(facts))}
+    return {n for n in _NUMBER.findall(text) if norm(n) not in have}
 
 
 async def write(ctx, facts: list[str]) -> str:
