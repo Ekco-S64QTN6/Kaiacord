@@ -68,6 +68,7 @@ def _msg(content):
     msg = MagicMock()
     msg.content = content
     msg.author.name = "Ekco"
+    msg.channel.id = 7
     msg.channel.send = AsyncMock()
     return msg
 
@@ -79,12 +80,45 @@ def test_explain_n_sends_an_embed_even_for_a_fenced_query():
     retrieval_trace.record("look ```ansi\n\x1b[1;37mx\x1b[0m``` here", 0.8, [
         {"score": 2.0, "content": "---\nsummary: x\n---\n[2026-09-15 00:22:17] Ekco: hello there",
          "metadata": {"file_path": "/k/knowledge_base/user_logs/Ekco_1/interactions_20260915.md",
-                      "source_type": "user_logs", "retrieval_method": "hybrid"}}])
+                      "source_type": "user_logs", "retrieval_method": "hybrid"}}], channel=7)
     msg = _msg("!explain 1")
     asyncio.run(handle_explain_command(MagicMock(), msg, AsyncMock()))
     embed = msg.channel.send.call_args.kwargs["embed"]
     assert "```" not in embed.description and "\x1b" not in embed.description
     assert "**1.** 💬 Ekco · chat · Sep 15" in embed.description
+    retrieval_trace.clear()
+
+
+def test_explain_shows_only_what_was_asked_in_its_own_channel():
+    from utils.commands.explain_handler import handle_explain_command
+    from utils.infrastructure.monitoring import retrieval_trace
+    retrieval_trace.clear()
+    retrieval_trace.record("asked here", 0.8, [], channel="7")
+    retrieval_trace.record("asked in another channel", 0.8, [], channel="8")
+    retrieval_trace.record("a background retrieval", 0.8, [], channel="global")
+    for command in ("!explain", "!explain 0"):
+        msg = _msg(command)
+        asyncio.run(handle_explain_command(MagicMock(), msg, AsyncMock()))
+        embed = msg.channel.send.call_args.kwargs["embed"]
+        assert "asked here" in embed.description and "another" not in embed.description
+    retrieval_trace.clear()
+
+
+def test_flag_flags_the_sources_this_channel_was_shown():
+    from utils.commands.audit_handler import handle_flag_command
+    from utils.infrastructure.monitoring import retrieval_trace
+    retrieval_trace.clear()
+    retrieval_trace.record("q", 0.8, [{"node_id": "a", "metadata": {}},
+                                      {"node_id": "b", "metadata": {}}], channel=7)
+    retrieval_trace.record("elsewhere", 0.8, [{"node_id": "z", "metadata": {}}], channel=8)
+    ctx = MagicMock()
+    ctx.config.get = lambda key, default=None: default
+    ctx.config.is_owner.return_value = True
+    ctx.rag.flag_nodes.return_value = 2
+    msg = _msg("!flag hedge density")
+    asyncio.run(handle_flag_command(ctx, msg, AsyncMock()))
+    ctx.rag.flag_nodes.assert_called_once_with(["a", "b"], "hedge_density")
+    assert msg.channel.send.call_args.kwargs["embed"].title == "🏷️  Flagged"
     retrieval_trace.clear()
 
 
@@ -141,3 +175,40 @@ def test_a_pasted_link_is_not_a_request_for_a_stored_document():
     assert not RAGQueryMixin._is_document_request(own)
     assert RAGQueryMixin._is_document_request(
         RAGQueryMixin._own_words("kaia summarize the HyMem paper"))
+
+
+def test_snapshot_writes_local_times_and_names_not_mention_ids(tmp_path, monkeypatch):
+    from datetime import datetime, timezone
+    from utils.commands import snapshot_handler
+    from utils.core import rag_utils
+    from utils.infrastructure.system.yaml_config import config
+    monkeypatch.setattr(config, "is_owner", lambda *a, **k: True)
+    real_get = config.get
+    monkeypatch.setattr(config, "get", lambda key, default=None:
+                        str(tmp_path) if key == "paths.knowledge_base" else real_get(key, default))
+    monkeypatch.setattr(rag_utils, "request_reindex", lambda: None)
+
+    when = datetime(2026, 9, 24, 18, 5, tzinfo=timezone.utc)
+    history = []
+    for i in range(3):
+        m = MagicMock()
+        m.content = "hey <@123> look at this long enough message"
+        m.clean_content = "hey @Starkind look at this long enough message"
+        m.created_at = when
+        m.author.display_name, m.author.bot = "Ekco", False
+        history.append(m)
+
+    async def _history(limit):
+        for m in history:
+            yield m
+
+    msg = _msg("!snapshot")
+    msg.channel.history = _history
+    msg.channel.name = "general"
+    asyncio.run(snapshot_handler.handle_snapshot_command(MagicMock(), msg, AsyncMock()))
+
+    [saved] = (tmp_path / "runtime" / "snapshots").glob("*.md")
+    text = saved.read_text(encoding="utf-8")
+    assert "<@123>" not in text and "@Starkind" in text
+    assert f"[{when.astimezone().strftime('%H:%M')}] Ekco:" in text
+    assert msg.channel.send.call_args.kwargs["embed"].title == "📸  Snapshot"

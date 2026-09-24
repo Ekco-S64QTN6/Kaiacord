@@ -69,7 +69,7 @@ tell give show and for are there has have been kaia you your me some from over
 """.split())
 
 
-def _trace_whole_document(query: str, results) -> None:
+def _trace_whole_document(query: str, results, channel=None) -> None:
     """Record a whole-document retrieval in the !explain trace.
 
     These paths return before the ordinary record, so `!explain` showed the
@@ -77,7 +77,7 @@ def _trace_whole_document(query: str, results) -> None:
     """
     try:
         from utils.infrastructure.monitoring.retrieval_trace import record
-        record(query, 1.0, results)
+        record(query, 1.0, results, channel=channel)
     except Exception:
         pass
 
@@ -742,7 +742,9 @@ class RAGQueryMixin:
             # Store retrieval method in metadata to make it accessible to !explain
             metadata["retrieval_method"] = retrieval_method
             
-            scored_nodes.append({"content": content, "metadata": metadata, "label": label, "score": final_score})
+            scored_nodes.append({"content": content, "metadata": metadata, "label": label,
+                                 "score": final_score,
+                                 "node_id": getattr(node, 'node_id', None) or getattr(node, 'id_', None)})
 
         scored_nodes.sort(key=lambda x: x["score"], reverse=True)
 
@@ -847,10 +849,9 @@ class RAGQueryMixin:
                 results = self._get_summarization_nodes(own_lower)
                 if results:
                     self._last_retrieval_results = results
-                    self._last_retrieval_node_ids = []
                     self._last_retrieval_confidence = 1.0
                     self._last_retrieval_node_count = len(results)
-                    _trace_whole_document(query, results)
+                    _trace_whole_document(query, results, self._get_channel_key())
                     return results
             
             # Manifest title fast path: match query words against indexed
@@ -939,11 +940,10 @@ class RAGQueryMixin:
                     )
                     if _fname_results:
                         self._last_retrieval_results = _fname_results
-                        self._last_retrieval_node_ids = []
                         self._last_retrieval_confidence = 1.0
                         self._last_retrieval_node_count = len(_fname_results)
                         log_success(f"Manifest title fast path resolved {len(_fname_results)} nodes")
-                        _trace_whole_document(query, _fname_results)
+                        _trace_whole_document(query, _fname_results, self._get_channel_key())
                         return _fname_results
 
             # Filename-reference fast path — runs regardless of routing strategy, but skipped on raw logs/code.
@@ -959,11 +959,10 @@ class RAGQueryMixin:
                             _fname_results = self._get_summarization_nodes(_hint)
                             if _fname_results:
                                 self._last_retrieval_results = _fname_results
-                                self._last_retrieval_node_ids = []
                                 self._last_retrieval_confidence = 1.0
                                 self._last_retrieval_node_count = len(_fname_results)
                                 log_success(f"Filename fast path resolved {len(_fname_results)} nodes for '{_hint}'")
-                                _trace_whole_document(query, _fname_results)
+                                _trace_whole_document(query, _fname_results, self._get_channel_key())
                                 return _fname_results
                         break
             
@@ -1019,15 +1018,10 @@ class RAGQueryMixin:
             # to investigate is overwritten by the next thing anyone says.
             try:
                 from utils.infrastructure.monitoring.retrieval_trace import record
-                record(query, self._last_retrieval_confidence, results)
+                record(query, self._last_retrieval_confidence, results,
+                       channel=self._get_channel_key())
             except Exception:
                 pass
-            self._last_retrieval_node_ids = []
-            for node_result in all_node_results[:top_k * 2]:
-                node = node_result.node if hasattr(node_result, 'node') else node_result
-                node_id = getattr(node, 'node_id', None) or getattr(node, 'id_', None)
-                if node_id:
-                    self._last_retrieval_node_ids.append(node_id)
 
             return results
 

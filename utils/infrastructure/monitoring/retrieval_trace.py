@@ -10,8 +10,10 @@ corpus text and user queries, so writing them to disk would put user content in
 a second place that nobody prunes; a restart clearing the trace is the correct
 trade.
 
-`!explain 3` reads the third-most-recent entry. `!explain` with no argument
-still reads the live cache, which is richer.
+`!explain 3` reads the third-most-recent entry. Each entry carries the channel
+it was retrieved for, and `!explain` and `!flag` read only their own channel's:
+the trace quotes the question, and one channel should not see what was asked in
+another. Background retrievals have no channel and are never shown.
 """
 from __future__ import annotations
 
@@ -60,16 +62,18 @@ def _head(content: Any) -> str:
     return " ".join(text.split())[:HEAD_CHARS]
 
 
-def record(query: str, confidence: float, nodes: List[Dict[str, Any]]) -> None:
+def record(query: str, confidence: float, nodes: List[Dict[str, Any]], channel: Any = None) -> None:
     """Append one retrieval to the trace. Never raises."""
     try:
         entry = {
             "ts": time.time(),
+            "channel": str(channel) if channel not in (None, "", "global") else None,
             "query": str(query or "")[:300],
             "confidence": round(float(confidence or 0.0), 3),
             "n": len(nodes or []),
             "nodes": [
                 {
+                    "id": node.get("node_id"),
                     "score": float(node.get("score", 0.0) or 0.0),
                     "source": _source_of(node.get("metadata") or {}),
                     "category": (node.get("metadata") or {}).get("source_type", "unknown"),
@@ -86,10 +90,12 @@ def record(query: str, confidence: float, nodes: List[Dict[str, Any]]) -> None:
         _traces.appendleft(entry)
 
 
-def recent(count: int = 1) -> List[Dict[str, Any]]:
-    """The `count` most recent retrievals, newest first."""
+def recent(count: int = 1, channel_id: Any = None) -> List[Dict[str, Any]]:
+    """The `count` most recent retrievals, newest first; one channel's if given."""
+    want = None if channel_id is None else str(channel_id)
     with _lock:
-        return list(_traces)[:max(0, int(count))]
+        rows = [t for t in _traces if want is None or t.get("channel") == want]
+    return rows[:max(0, int(count))]
 
 
 def clear() -> None:

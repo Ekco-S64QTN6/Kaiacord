@@ -87,11 +87,6 @@ class TestAuditFlagPenalty:
 class TestSnapshotHandler:
     """Test snapshot content generation."""
 
-    def test_yaml_escaping(self):
-        from utils.commands.snapshot_handler import _escape_yaml
-        assert _escape_yaml('Hello "world"') == 'Hello \\"world\\"'
-        assert _escape_yaml("Line1\nLine2") == "Line1 Line2"
-
     def test_trigger_reindex_writes_where_the_bot_looks(self):
         """!snapshot touched a file at the repo root; the maintenance loop only
         checks knowledge_base/.trigger_reindex, so it never fired."""
@@ -183,12 +178,13 @@ class TestProvenanceFormatting:
             })
         from utils.infrastructure.monitoring import retrieval_trace
         retrieval_trace.clear()
-        retrieval_trace.record("a question", 0.88, nodes)
+        retrieval_trace.record("a question", 0.88, nodes, channel=7)
 
         msg = AsyncMock()
         msg.author.name = "Ekco"
         msg.author.display_name = "Ekco"
         msg.author.id = 12345
+        msg.channel.id = 7
         msg.channel.send = AsyncMock()
 
         asyncio.run(handle_explain_command(ctx, msg, AsyncMock()))

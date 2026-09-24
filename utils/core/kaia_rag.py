@@ -161,7 +161,6 @@ class KaiaRAG(RAGIndexerMixin, RAGPersistenceMixin, RAGQueryMixin):
 
         # Context-isolated RAG state storage (🔴-1)
         self._channel_retrieval_results = {}
-        self._channel_retrieval_node_ids = {}
         self._channel_retrieval_confidence = {}
         self._channel_retrieval_node_count = {}
         self._channel_retrieval_time = {}
@@ -307,22 +306,6 @@ class KaiaRAG(RAGIndexerMixin, RAGPersistenceMixin, RAGQueryMixin):
             if key != "global":
                 self._last_active_channel = key
             self._channel_retrieval_results[key] = val
-
-    @property
-    def _last_retrieval_node_ids(self) -> List[str]:
-        key = self._get_channel_key()
-        with self._channel_state_lock:
-            if key == "global" and self._last_active_channel in self._channel_retrieval_node_ids:
-                return self._channel_retrieval_node_ids[self._last_active_channel]
-            return self._channel_retrieval_node_ids.get(key, [])
-
-    @_last_retrieval_node_ids.setter
-    def _last_retrieval_node_ids(self, val: List[str]):
-        key = self._get_channel_key()
-        with self._channel_state_lock:
-            if key != "global":
-                self._last_active_channel = key
-            self._channel_retrieval_node_ids[key] = val
 
     @property
     def _last_retrieval_confidence(self) -> float:

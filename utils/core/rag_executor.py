@@ -1,5 +1,6 @@
 import asyncio
 import concurrent.futures
+import contextvars
 import inspect
 
 # Two separate semaphores keep indexing and retrieval independent.
@@ -18,6 +19,12 @@ retrieval_semaphore = asyncio.Semaphore(4)
 # RAG Executor Helper
 rag_executor = concurrent.futures.ThreadPoolExecutor(max_workers=4, thread_name_prefix='rag_worker')
 
+def _in_context(fn, args, kwargs):
+    """The call, carrying the caller's context variables (the channel) into the worker thread."""
+    ctx = contextvars.copy_context()
+    return lambda: ctx.run(fn, *args, **kwargs)
+
+
 async def run_rag(fn, *args, **kwargs):
     """
     Run write-heavy RAG operations (indexing, memory writes).
@@ -27,7 +34,7 @@ async def run_rag(fn, *args, **kwargs):
         if inspect.iscoroutinefunction(fn):
             return await fn(*args, **kwargs)
         loop = asyncio.get_running_loop()
-        return await loop.run_in_executor(rag_executor, lambda: fn(*args, **kwargs))
+        return await loop.run_in_executor(rag_executor, _in_context(fn, args, kwargs))
 
 async def run_rag_retrieval(fn, *args, **kwargs):
     """
@@ -38,7 +45,7 @@ async def run_rag_retrieval(fn, *args, **kwargs):
         if inspect.iscoroutinefunction(fn):
             return await fn(*args, **kwargs)
         loop = asyncio.get_running_loop()
-        return await loop.run_in_executor(rag_executor, lambda: fn(*args, **kwargs))
+        return await loop.run_in_executor(rag_executor, _in_context(fn, args, kwargs))
 
 def shutdown_rag_executor():
     """Shutdown the thread pool executor gracefully."""

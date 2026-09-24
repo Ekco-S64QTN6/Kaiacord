@@ -2,27 +2,21 @@
 Audit Flag System
 =================
 
-Commands for tagging RAG nodes with Data Rot constructs and viewing audit stats.
+!flag <construct> — tag the sources behind this channel's last reply with a
+                    Data Rot label; flagged nodes lose retrieval weight.
+!audit            — flag counts by construct and by source.
 
-!flag <construct_name> — Tag the last retrieval's nodes with a Data Rot label.
-!audit                 — Show audit flag summary statistics.
+Both owner-only. `!flag` flags what `!explain` shows: the nodes the reply
+actually drew on, from the retrieval trace for the channel it is typed in.
 """
 
+import asyncio
 import os
-import discord
+
+from utils.commands.embed_style import COLOR_SOURCES, add_field, box, notice
 from utils.infrastructure.logging.kaia_logger import log_action, log_info
 
-
-# Valid Data Rot constructs from the Firewall Dialogue
-VALID_CONSTRUCTS = {
-    "circular_justification",
-    "linguistic_mimicry",
-    "anthropocentric_exceptionalism",
-    "paternalistic_framing",
-    "hedge_density",
-}
-
-# Human-readable labels for display
+# Valid Data Rot constructs from the Firewall Dialogue, with display labels.
 CONSTRUCT_LABELS = {
     "circular_justification": "Circular Justification",
     "linguistic_mimicry": "Linguistic Mimicry",
@@ -30,177 +24,80 @@ CONSTRUCT_LABELS = {
     "paternalistic_framing": "Paternalistic Framing",
     "hedge_density": "Hedge Density",
 }
+VALID_CONSTRUCTS = set(CONSTRUCT_LABELS)
+_CONSTRUCT_LIST = ", ".join(f"`{c}`" for c in sorted(VALID_CONSTRUCTS))
+
+
+async def _unavailable(ctx, msg) -> bool:
+    """Send the reason and return True when the audit flags can't be used now."""
+    if not ctx.config.get('features.audit_flags_enabled', True):
+        await msg.channel.send(embed=notice("Audit flags are switched off.", error=True))
+        return True
+    if not ctx.rag:
+        await msg.channel.send(embed=notice("Retrieval is unavailable right now.", error=True))
+        return True
+    return False
 
 
 async def handle_flag_command(ctx, msg, send_kaia_response):
-    """Handle the !flag <construct_name> command."""
-    from utils.infrastructure.system.yaml_config import config
-
-    if not config.get('features.audit_flags_enabled', True):
-        embed = discord.Embed(
-            title="🏷️  AUDIT FLAGS DISABLED",
-            description="Audit flags are currently disabled.",
-            color=0xcc4444
-        )
-        await msg.channel.send(embed=embed)
+    """Handle !flag <construct>."""
+    if not ctx.config.is_owner(msg.author.name, user_id=str(msg.author.id)):
+        await msg.channel.send(embed=notice("restricted. only the owner can flag content.", error=True))
+        return
+    if await _unavailable(ctx, msg):
         return
 
-    # Owner-only command
-    if not config.is_owner(msg.author.name, user_id=str(msg.author.id)):
-        embed = discord.Embed(
-            title="🏷️  RESTRICTED COMMAND",
-            description="Only the owner can flag content.",
-            color=0xcc4444
-        )
-        await msg.channel.send(embed=embed)
-        return
-
-    content = msg.content.strip()
-    parts = content.split(maxsplit=1)
-
+    parts = msg.content.strip().split(maxsplit=1)
     if len(parts) < 2:
-        constructs_list = ", ".join([f"`{c}`" for c in sorted(VALID_CONSTRUCTS)])
-        embed = discord.Embed(
-            title="🏷️  FLAG COMMAND USAGE",
-            description="Usage: `!flag <construct>`",
-            color=0x5f5caf
-        )
-        embed.add_field(name="Valid Constructs", value=constructs_list, inline=False)
-        await msg.channel.send(embed=embed)
+        await msg.channel.send(embed=notice(
+            f"Usage: `!flag <construct>`\nConstructs: {_CONSTRUCT_LIST}", title="🏷️  Flag"))
         return
-
     construct = parts[1].strip().lower().replace(" ", "_")
-
     if construct not in VALID_CONSTRUCTS:
-        constructs_list = ", ".join([f"`{c}`" for c in sorted(VALID_CONSTRUCTS)])
-        embed = discord.Embed(
-            title="🏷️  UNKNOWN CONSTRUCT",
-            description=f"Unknown construct: `{construct}`",
-            color=0xcc4444
-        )
-        embed.add_field(name="Valid Constructs", value=constructs_list, inline=False)
-        await msg.channel.send(embed=embed)
+        await msg.channel.send(embed=notice(
+            f"Unknown construct. Use one of: {_CONSTRUCT_LIST}", error=True))
         return
 
-    rag = ctx.rag
-    if not rag:
-        embed = discord.Embed(
-            title="🏷️  SYSTEM ERROR",
-            description="RAG system not available.",
-            color=0xcc4444
-        )
-        await msg.channel.send(embed=embed)
+    from utils.infrastructure.monitoring.retrieval_trace import recent
+    last = recent(1, channel_id=msg.channel.id)
+    node_ids = [n["id"] for n in (last[0]["nodes"] if last else []) if n.get("id")]
+    if not node_ids:
+        await msg.channel.send(embed=notice(
+            "Nothing retrieved in this channel to flag. Ask me something first.", error=True))
         return
 
-    # Get the most recent retrieval node IDs
-    last_node_ids = getattr(rag, '_last_retrieval_node_ids', [])
-    if not last_node_ids:
-        embed = discord.Embed(
-            title="🏷️  NO ACTIVE RETRIEVAL",
-            description="No recent retrieval to flag. Ask me something first, then flag the results.",
-            color=0xcc4444
-        )
-        await msg.channel.send(embed=embed)
-        return
-
-    # Flag the nodes
-    flagged_count = rag.flag_nodes(last_node_ids, construct)
-
-    label = CONSTRUCT_LABELS.get(construct, construct)
-    embed = discord.Embed(
-        title="🏷️  CONTENT FLAGGED",
-        description=f"Flagged **{flagged_count}** node(s) with **{label}**.",
-        color=0x10b981
-    )
-    embed.add_field(
-        name="Impact",
-        value="These nodes will receive reduced retrieval weight going forward.",
-        inline=False
-    )
-    await msg.channel.send(embed=embed)
-    log_action(f"Audit flag: {flagged_count} nodes flagged as [{construct}] by {msg.author.name}")
+    # Flagging persists the index; that is seconds of disk work.
+    flagged = await asyncio.to_thread(ctx.rag.flag_nodes, node_ids, construct)
+    label = CONSTRUCT_LABELS[construct]
+    await msg.channel.send(embed=box(
+        "🏷️  Flagged",
+        f"**{flagged}** of {len(node_ids)} source passage(s) flagged **{label}**"
+        + (" (the rest already were)." if flagged < len(node_ids) else ".")
+        + "\nThey carry less weight in retrieval from now on.", COLOR_SOURCES))
+    log_action(f"Audit flag: {flagged} nodes flagged as [{construct}] by {msg.author.name}")
 
 
 async def handle_audit_command(ctx, msg, send_kaia_response):
-    """Handle the !audit command — display audit flag statistics."""
-    from utils.infrastructure.system.yaml_config import config
-
-    if not config.is_owner(msg.author.name, user_id=str(msg.author.id)):
-        embed = discord.Embed(
-            title="📊  RESTRICTED COMMAND",
-            description="Only the owner can view audit statistics.",
-            color=0xcc4444
-        )
-        await msg.channel.send(embed=embed)
+    """Handle !audit — flag statistics."""
+    if not ctx.config.is_owner(msg.author.name, user_id=str(msg.author.id)):
+        await msg.channel.send(embed=notice("restricted. only the owner can view the audit.", error=True))
+        return
+    if await _unavailable(ctx, msg):
         return
 
-    if not config.get('features.audit_flags_enabled', True):
-        embed = discord.Embed(
-            title="📊  AUDIT FLAGS DISABLED",
-            description="Audit flags are currently disabled.",
-            color=0xcc4444
-        )
-        await msg.channel.send(embed=embed)
-        return
-
-    rag = ctx.rag
-    if not rag:
-        embed = discord.Embed(
-            title="📊  SYSTEM ERROR",
-            description="RAG system not available.",
-            color=0xcc4444
-        )
-        await msg.channel.send(embed=embed)
-        return
-
-    summary = rag.get_audit_summary()
-
+    summary = await asyncio.to_thread(ctx.rag.get_audit_summary)
     if not summary["total_flagged"]:
-        embed = discord.Embed(
-            title="📊  AUDIT SUMMARY REPORT",
-            description="No audit flags recorded yet in the RAG node index database.",
-            color=0x5f5caf
-        )
-        await msg.channel.send(embed=embed)
+        await msg.channel.send(embed=notice("No passages have been flagged yet.", title="📊  Audit"))
         return
 
-    embed = discord.Embed(
-        title="📊  AUDIT SUMMARY REPORT",
-        description=f"Total Flagged Nodes: **{summary['total_flagged']}**",
-        color=0xf97316
-    )
-
-    # Counts per construct
-    construct_lines = []
-    for construct, count in sorted(summary["by_construct"].items(), key=lambda x: -x[1]):
-        label = CONSTRUCT_LABELS.get(construct, construct)
-        construct_lines.append(f"• **{label}**: {count}")
-    embed.add_field(
-        name="Flags by Construct",
-        value="\n".join(construct_lines) if construct_lines else "None",
-        inline=False
-    )
-
-    # Most-flagged sources
+    embed = box("📊  Audit", f"Flagged passages: **{summary['total_flagged']}**", COLOR_SOURCES)
+    add_field(embed, "By construct", "\n".join(
+        f"• **{CONSTRUCT_LABELS.get(c, c)}**: {n}"
+        for c, n in sorted(summary["by_construct"].items(), key=lambda x: -x[1])))
     if summary["top_sources"]:
-        source_lines = []
-        for source, count in summary["top_sources"][:5]:
-            source_lines.append(f"• `{os.path.basename(source)}`: {count} flag(s)")
-        embed.add_field(
-            name="Most-Flagged Sources",
-            value="\n".join(source_lines),
-            inline=False
-        )
-
-    # Total weight reduction
-    penalty = config.get('audit.flag_penalty', 0.15)
-    max_penalty = penalty * 3  # capped at 3 flags
-    embed.add_field(
-        name="Weight Reductions",
-        value=f"Penalty per flag: `-{penalty:.2f}` (Capped at `-{max_penalty:.2f}`)",
-        inline=False
-    )
-
-    embed.set_footer(text="Kaia Audit & Governance Pipeline")
+        add_field(embed, "Most-flagged sources", "\n".join(
+            f"• `{os.path.basename(src)}`: {n}" for src, n in summary["top_sources"][:5]))
+    penalty = ctx.config.get('audit.flag_penalty', 0.15)
+    add_field(embed, "Weight", f"−{penalty:.2f} per flag, at most −{penalty * 3:.2f}")
     await msg.channel.send(embed=embed)
     log_info(f"Audit report displayed for {msg.author.name}")

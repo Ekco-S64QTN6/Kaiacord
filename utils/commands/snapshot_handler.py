@@ -9,7 +9,7 @@ Conversation Memory Snapshots
 import os
 from datetime import datetime
 from utils.infrastructure.logging.kaia_logger import log_error, log_success
-from utils.commands.embed_style import notice
+from utils.commands.embed_style import clean, notice
 
 
 async def handle_snapshot_command(ctx, msg, send_kaia_response):
@@ -22,7 +22,7 @@ async def handle_snapshot_command(ctx, msg, send_kaia_response):
         return
 
     if not config.get('features.snapshots_enabled', True):
-        await send_kaia_response(msg.channel, "Snapshots are currently disabled.")
+        await msg.channel.send(embed=notice("Snapshots are switched off.", error=True))
         return
 
     message_count = config.get('snapshots.message_count', 50)
@@ -36,7 +36,7 @@ async def handle_snapshot_command(ctx, msg, send_kaia_response):
         messages.reverse()  # Oldest first
 
         if len(messages) < 3:
-            await send_kaia_response(msg.channel, "Not enough conversation to snapshot.")
+            await msg.channel.send(embed=notice("Not enough conversation to snapshot.", error=True))
             return
 
         # Extract participants
@@ -47,16 +47,13 @@ async def handle_snapshot_command(ctx, msg, send_kaia_response):
         for m in messages[:10]:
             if m.author.bot:
                 continue
-            text = m.content.strip()
+            text = m.clean_content.strip()
             if not text.startswith("!") and len(text) > 20:
                 # Use first ~80 chars as topic summary
                 topic = text[:80].replace("\n", " ")
                 if len(text) > 80:
                     topic += "..."
                 break
-
-        # Sanitize topic for safe insertion into confirmation block
-        topic_safe = topic.replace("`", "'").replace("*", "").replace("_", "")
 
         # Build the snapshot content
         channel_name = getattr(msg.channel, 'name', 'DM')
@@ -89,11 +86,11 @@ async def handle_snapshot_command(ctx, msg, send_kaia_response):
             "",
         ]
 
-        # Add conversation content
+        # Local times, to match the header; mentions as names, not <@id>.
         for m in messages:
-            msg_time = m.created_at.strftime("%H:%M")
+            msg_time = m.created_at.astimezone().strftime("%H:%M")
             author = m.author.display_name
-            content = m.content.replace("\n", "\n> ")
+            content = m.clean_content.replace("\n", "\n> ")
             lines.append(f"**[{msg_time}] {author}:** {content}")
             lines.append("")
 
@@ -115,21 +112,14 @@ async def handle_snapshot_command(ctx, msg, send_kaia_response):
         # Trigger reindex
         _trigger_reindex()
 
-        await send_kaia_response(
-            msg.channel,
-            f"snapshot saved — {len(messages)} messages captured.\n"
-            f"participants: {', '.join(participants)}\n"
-            f"topic: {topic_safe}"
-        )
+        await msg.channel.send(embed=notice(
+            f"{len(messages)} messages saved.\n"
+            f"**Participants:** {clean(', '.join(participants), 300)}\n"
+            f"**Topic:** {clean(topic, 120)}", title="📸  Snapshot"))
 
     except Exception as e:
         log_error(f"Snapshot failed: {e}")
-        await send_kaia_response(msg.channel, "Failed to create snapshot. Check logs.")
-
-
-def _escape_yaml(text: str) -> str:
-    """Escape text for safe YAML string values."""
-    return text.replace('"', '\\"').replace("\n", " ")
+        await msg.channel.send(embed=notice("The snapshot failed; the log has the reason.", error=True))
 
 
 def _trigger_reindex():

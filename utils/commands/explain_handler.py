@@ -80,8 +80,8 @@ def render_sources(title: str, query: str, confidence: float, total: int,
 async def handle_explain_command(ctx, msg, send_kaia_response):
     """Handle the !explain command — display provenance of a RAG retrieval.
 
-    Open to everyone. It reports which knowledge-base nodes informed an answer
-    and how they scored; it exposes no privileged state and changes nothing.
+    Open to everyone, and scoped to the channel it is typed in: the box quotes
+    the question, so it shows only what was asked there.
     """
     rag = ctx.rag
     if not rag:
@@ -91,22 +91,22 @@ async def handle_explain_command(ctx, msg, send_kaia_response):
 
     raw = getattr(msg, "content", "")
     parts = raw.split() if isinstance(raw, str) else []
-    nth = int(parts[1]) if len(parts) > 1 and parts[1].isdigit() else 1
+    nth = max(1, int(parts[1])) if len(parts) > 1 and parts[1].isdigit() else 1
 
     # Always the trace: it carries the question and the time. The live cache
     # carried neither, so after a reply that searched nothing, `!explain`
     # showed the retrieval before it as if it were that reply's sources.
     from utils.infrastructure.monitoring.retrieval_trace import recent
-    history = recent(nth)
+    history = recent(nth, channel_id=msg.channel.id)
     if not history:
         await msg.channel.send(embed=box(
-            "📚  Sources", "Nothing retrieved since the last restart. Ask me something first.",
+            "📚  Sources", "Nothing retrieved in this channel since the last restart. Ask me something first.",
             COLOR_SOURCES))
         return
     if len(history) < nth:
         await msg.channel.send(embed=box(
             "📚  Sources",
-            f"Only {len(history)} retrieval(s) since the last restart — "
+            f"Only {len(history)} retrieval(s) in this channel since the last restart — "
             f"try `!explain {len(history)}`.", COLOR_ERROR))
         return
 
