@@ -1,28 +1,13 @@
-import asyncio
 import time
-import uuid as _uuid
-import os
-import json
-import traceback
 import discord
-import secrets
-from utils.infrastructure.logging.kaia_logger import log_info, log_error, log_warning
-from utils.infrastructure.system.yaml_config import config
-from utils.ttrpg.world_state import get_current_state
-from utils.ttrpg.character_manager import load, save, create, format_sheet, load_all
-from utils.ttrpg.session_manager import load_session, save_session, create_session, end_session
-from utils.ttrpg.progression import check_and_reset_hunts, hunts_remaining, check_level_up, MAX_HUNTS_PER_DAY, get_max_hunts, xp_to_next_level, XP_THRESHOLDS
+from utils.ttrpg.character_manager import load, save
+from utils.ttrpg.progression import hunts_remaining, check_level_up
 from utils.ttrpg.class_advancement import (
     apply_advanced_class_to_combat, apply_advanced_class_to_sheet,
     get_advanced_options, get_title, ADVANCED_CLASSES
 )
-from utils.ttrpg.dungeon import _scale_boss_to_level, load_dungeon, save_dungeon
-from utils.ttrpg.rpg_ui import TIER_ICONS, colored_bar, hp_bar, hp_label, CLASS_ICONS, LOCATION_ICONS, ANSI_GREEN, ANSI_RESET
-from utils.social.kaia_social_responder import load_persona_async
 from utils.ttrpg.world import LOCATION_DATA
-from utils.ttrpg.encounter_tables import random_encounter
 import utils.ttrpg.dice_engine as dice_engine
-from utils.ttrpg.monster_registry import get as get_monster
 from utils.ttrpg.shop import find_item
 from utils.ttrpg.loot_tables import get_loot
 from utils.ttrpg.broadcast import (
@@ -131,7 +116,7 @@ async def _handle_seed_shop(ctx, msg, send, rest, uid, uname, is_owner):
 
 async def _handle_brew(ctx, msg, send, rest, uid, uname, is_owner):
     from utils.ttrpg.world import LOCATION_DATA
-    from utils.ttrpg.alchemy import brew, get_recipe, ALCHEMY_RECIPES
+    from utils.ttrpg.alchemy import brew, get_recipe
     
     sheet = await load(uid)
     if not sheet: return await no_character(msg)
@@ -830,7 +815,7 @@ async def _handle_buy_pet(ctx, msg, send, rest, uid, uname, is_owner):
 
 
 async def _handle_feed_pet(ctx, msg, send, rest, uid, uname, is_owner):
-    from utils.ttrpg.pets import PET_REGISTRY, PET_FOOD_NAMES
+    from utils.ttrpg.pets import PET_REGISTRY
     from utils.ttrpg.housing import load_housing, save_housing
 
     sheet = await load(uid)

@@ -1,5 +1,4 @@
 import secrets
-from datetime import date
 
 
 def resolve_event(event_key: str, sheet: dict) -> dict:

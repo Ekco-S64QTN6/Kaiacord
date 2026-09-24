@@ -1,4 +1,3 @@
-import asyncio
 import time
 from discord.ext import tasks
 from utils.infrastructure.logging.kaia_logger import log_error, log_action

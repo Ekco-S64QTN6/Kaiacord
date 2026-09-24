@@ -7,7 +7,6 @@ RAG Reindex Command
                      WARNING: slow. use only to fix orphaned/corrupt index nodes.
 """
 
-import asyncio
 import time
 from utils.infrastructure.logging.kaia_logger import log_action, log_error, log_info, log_success
 from utils.commands.embed_style import box, notice

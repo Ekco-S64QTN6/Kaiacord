@@ -19,7 +19,7 @@ Usage:
 import asyncio
 import threading
 import time
-from typing import Dict, Optional, Set
+from typing import Dict
 from utils.infrastructure.logging.unified_logging import logger
 
 

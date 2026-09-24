@@ -2,7 +2,7 @@
 All dice resolution. Pure deterministic Python. No LLM path.
 """
 import secrets
-from typing import Tuple, Optional
+from typing import Tuple
 
 STAT_MODIFIER = lambda stat: (stat - 10) // 2
 

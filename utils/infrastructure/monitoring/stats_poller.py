@@ -3,7 +3,6 @@ import time
 import psutil
 import os
 import json
-import traceback
 from collections import deque
 
 class RealTimeStatsPoller:

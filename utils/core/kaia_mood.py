@@ -24,7 +24,6 @@ import math
 import os
 import time
 from dataclasses import dataclass, asdict
-from typing import Optional
 
 from utils.infrastructure.logging.kaia_logger import log_debug, log_info, log_warning
 

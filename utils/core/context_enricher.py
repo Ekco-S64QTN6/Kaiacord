@@ -3,8 +3,7 @@ import asyncio
 import discord
 import aiohttp
 from bs4 import BeautifulSoup
-from typing import List, Optional
-from utils.infrastructure.logging.kaia_logger import log_info, log_debug, log_warning
+from utils.infrastructure.logging.kaia_logger import log_debug, log_warning
 from utils.infrastructure.system.yaml_config import config
 from utils.core.sanitizer import is_safe_url, public_only_connector, read_capped
 

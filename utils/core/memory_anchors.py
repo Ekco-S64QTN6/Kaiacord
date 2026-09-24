@@ -20,10 +20,9 @@ import re
 import threading
 import time
 from typing import Optional, List, Dict
-from datetime import datetime
 
 from utils.core.atomic_write import write_atomic
-from utils.infrastructure.logging.kaia_logger import log_debug, log_info, log_warning
+from utils.infrastructure.logging.kaia_logger import log_debug, log_warning
 
 ANCHORS_PATH = os.path.join("memory", "anchors.json")
 MAX_ANCHORS = 100

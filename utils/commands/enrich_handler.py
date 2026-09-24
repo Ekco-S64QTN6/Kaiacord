@@ -1,6 +1,5 @@
 import asyncio
 import sys
-import os
 import re
 from pathlib import Path
 from utils.infrastructure.logging.kaia_logger import log_action, log_error, log_info

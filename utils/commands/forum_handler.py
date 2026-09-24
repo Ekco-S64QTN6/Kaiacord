@@ -1,6 +1,4 @@
-import asyncio
 from utils.infrastructure.logging.kaia_logger import log_action, log_error, log_info, log_success, log_debug
-from pathlib import Path
 from utils.core.rag_utils import request_reindex
 from utils.commands.embed_style import COLOR_INFO, add_field, box, clean, clean_block, notice
 

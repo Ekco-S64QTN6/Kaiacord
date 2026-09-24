@@ -6,30 +6,28 @@ from utils.infrastructure.monitoring.async_task_registry import task_registry
 import asyncio
 import time
 import uuid as _uuid
-import os
-import json
-import traceback
 import discord
 import secrets
-from utils.infrastructure.logging.kaia_logger import log_info, log_error, log_warning
+from utils.infrastructure.logging.kaia_logger import log_error
 from utils.infrastructure.system.yaml_config import config
 from utils.ttrpg.world_state import get_current_state
-from utils.ttrpg.character_manager import load, save, create, format_sheet, load_all
-from utils.ttrpg.session_manager import load_session, save_session, create_session, end_session
-from utils.ttrpg.progression import harvest_bonus, streak_bonus, golden_tongue_bonus, check_and_reset_hunts, hunts_remaining, check_level_up, MAX_HUNTS_PER_DAY, get_max_hunts, xp_to_next_level, XP_THRESHOLDS
+from utils.ttrpg.character_manager import load, save
+from utils.ttrpg.session_manager import load_session, save_session
+from utils.ttrpg.progression import (
+    harvest_bonus, streak_bonus, golden_tongue_bonus, check_and_reset_hunts, hunts_remaining, check_level_up, get_max_hunts, xp_to_next_level,
+)
 from utils.ttrpg.class_advancement import (
     apply_advanced_class_to_combat, apply_advanced_class_to_sheet,
     get_advanced_options, get_title, ADVANCED_CLASSES
 )
-from utils.ttrpg.dungeon import _scale_boss_to_level, load_dungeon, save_dungeon
-from utils.ttrpg.rpg_ui import TIER_ICONS, colored_bar, hp_bar, hp_label, CLASS_ICONS, LOCATION_ICONS, ANSI_GREEN, ANSI_RESET
+from utils.ttrpg.dungeon import load_dungeon, save_dungeon
+from utils.ttrpg.rpg_ui import TIER_ICONS
 from utils.social.kaia_social_responder import load_persona_async
 from utils.ttrpg.world import LOCATION_DATA
 from utils.ttrpg.encounter_tables import random_encounter
 import utils.ttrpg.dice_engine as dice_engine
 from utils.ttrpg.monster_registry import get as get_monster
 from utils.ttrpg.shop import find_item
-from utils.ttrpg.loot_tables import get_loot
 from utils.ttrpg.broadcast import (
     log_world_event as _log_world_event,
     broadcast_world_event as _broadcast_world_event,
@@ -49,9 +47,7 @@ from utils.ttrpg.rpg_views import *
 # reached from the dungeon view's Attack button — so the same race.
 @serialize_combat_action
 async def _dungeon_combat_round(ctx_obj, interaction, uid, uname, is_owner):
-    from utils.ttrpg.dungeon import _key
     from utils.ttrpg.combat_engine import _resolve_combat
-    from utils.ttrpg.loot_tables import get_loot
     from utils.ttrpg.shop import find_item
     from utils.ttrpg.progression import check_level_up, xp_to_next_level
     from utils.ttrpg.world_state import get_current_state
@@ -837,9 +833,7 @@ async def _handle_hunt(ctx, msg, send, rest, uid, uname, is_owner):
 @serialize_combat_action
 async def _handle_attack(ctx, msg, send, rest, uid, uname, is_owner):
     from utils.ttrpg.combat_engine import _resolve_combat
-    from utils.ttrpg.rpg_prompt_builder import build_combat_prompt
     from utils.infrastructure.gpu.gpu_manager import OllamaGPUManager, gpu_memory_manager, GPUTaskPriority
-    from utils.ttrpg.loot_tables import get_loot
     from utils.ttrpg.calendar import get_weather
     
     sheet = await load(uid)

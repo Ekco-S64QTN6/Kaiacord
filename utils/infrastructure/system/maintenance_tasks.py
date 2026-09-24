@@ -1,10 +1,10 @@
 import asyncio
 import psutil
-import sys
 import os
 from discord.ext import tasks
-from utils.infrastructure.logging.kaia_logger import log_info, log_debug, log_warning, log_error, log_action, log_success
-from utils.infrastructure.system.bot_state import bot_state
+from utils.infrastructure.logging.kaia_logger import (
+    log_info, log_debug, log_error, log_action, log_success,
+)
 
 # Dependencies managed via AppContext
 ctx = None

@@ -1,10 +1,9 @@
-import os
 import json
 import time
 import asyncio
 from pathlib import Path
 from collections import deque
-from typing import Set, Dict, List, Optional, Any
+from typing import Set, Dict, Optional
 from utils.infrastructure.logging.kaia_logger import log_info, log_debug, log_warning, log_error
 
 class SocialTracker:

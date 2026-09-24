@@ -29,7 +29,9 @@ from typing import Optional, List, Dict, Any, Tuple, Set
 import pypdf
 import docx2txt
 
-from llama_index.core import VectorStoreIndex, SimpleDirectoryReader, StorageContext, Settings, load_index_from_storage, Document
+from llama_index.core import (
+    VectorStoreIndex, SimpleDirectoryReader, StorageContext, load_index_from_storage, Document,
+)
 from llama_index.core.node_parser import SentenceSplitter, CodeSplitter
 
 from utils.infrastructure.logging.kaia_logger import (

@@ -97,15 +97,20 @@ def test_bm25_retriever_tokenize_node_imports():
 
 
 def test_module_global_imports_exist():
-    """Verify standard modules are properly imported in modules that use them."""
-    import utils.commands.forum_handler as fh
-    import utils.social.kaia_forum as kf
-    import utils.core.kaia_rag_retriever as krr
-    import utils.social.kaia_social_responder as ksr
+    """A module that uses a standard module imports it.
 
-    assert hasattr(fh, 'asyncio')
-    assert hasattr(kf, 'traceback')
-    assert hasattr(krr, 'os')
-    assert hasattr(ksr, 'get_x_client') or 'get_x_client' in ksr.check_and_reply_mentions.__code__.co_names
+    Unused-import cleanups are how these go missing, and a NameError only
+    shows when the path runs.
+    """
+    import importlib
+    import re
+    for mod_name in ("utils.commands.forum_handler", "utils.social.kaia_forum",
+                     "utils.core.kaia_rag_retriever", "utils.social.kaia_social_responder"):
+        mod = importlib.import_module(mod_name)
+        src = open(mod.__file__, encoding="utf-8").read()
+        for std in ("asyncio", "traceback", "os", "json", "re", "time"):
+            if re.search(rf"(?<![\w.]){std}\.\w", src):
+                imported = hasattr(mod, std) or re.search(rf"^\s*import {std}\b", src, re.M)
+                assert imported, f"{mod_name} uses {std}. without importing it"
 
 

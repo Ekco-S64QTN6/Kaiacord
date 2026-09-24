@@ -16,21 +16,17 @@ Contains:
 - generate_quip: Generate social posts via the full Kaia engine
 """
 
-import os
 import asyncio
 import re
 import random
 import time
 import traceback
-import uuid
 import html
 from pathlib import Path
-from typing import Optional, List, Dict, Any
 
 from utils.infrastructure.logging.kaia_logger import (
     log_info, log_success, log_warning, log_error, log_action, log_debug
 )
-from utils.core.response_filter import BotSpeakFilter
 from utils.infrastructure.system.shutdown_fixed import shutdown_manager
 from utils.social.forum_participation import looks_repetitive
 
@@ -51,7 +47,6 @@ async def get_random_memories(limit=20):
     Offloaded to a thread to prevent blocking the event loop during directory scans.
     """
     def _fetch_memories():
-        import os
         import random
         from pathlib import Path
         
@@ -126,7 +121,6 @@ async def get_random_dream_reflection(limit=5):
     Offloaded to a thread to prevent blocking the event loop.
     """
     def _fetch_dreams():
-        import os
         import random
         from pathlib import Path
         

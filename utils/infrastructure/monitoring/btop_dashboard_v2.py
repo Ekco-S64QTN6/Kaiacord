@@ -15,15 +15,12 @@ import curses
 import re
 import time
 import sys
-import os
 import threading
-import signal
 from utils.infrastructure.system.shutdown_fixed import shutdown_manager
 from dataclasses import dataclass, field
 from typing import List, Dict, Optional, Tuple, Deque
 from collections import deque
 from datetime import datetime
-import copy
 
 
 _CONTROL = re.compile(r"\x1b\[[0-9;?]*[A-Za-z]|[\x00-\x1f\x7f]")

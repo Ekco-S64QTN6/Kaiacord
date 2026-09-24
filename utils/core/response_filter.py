@@ -1,9 +1,7 @@
 import re
 from typing import List, Optional
-from datetime import datetime
 from utils.infrastructure.logging.kaia_logger import log_warning
 
-from utils.core.hallucination_detector import HallucinationDetector
 
 class EmergencyContaminationFilter:
     """Emergency filter to prevent specifically fake-sounding news prose or hallucinations."""

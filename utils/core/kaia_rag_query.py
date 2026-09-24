@@ -23,10 +23,9 @@ import re
 import asyncio
 import time
 import math
-import heapq
 import random
 import traceback
-from datetime import datetime, timedelta
+from datetime import datetime
 from typing import Optional, List, Dict, Any, Tuple, Set
 
 from llama_index.core.schema import NodeWithScore
@@ -35,7 +34,6 @@ from utils.infrastructure.logging.kaia_logger import (
     log_success, log_info, log_warning, log_error, log_action, log_debug
 )
 from utils.infrastructure.system.yaml_config import config
-from utils.core.hallucination_detector import HallucinationDetector
 from utils.core.kaia_rag_retriever import (
     SimpleBM25Retriever, HybridRetriever, thread_safe_rag_operation
 )

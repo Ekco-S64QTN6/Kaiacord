@@ -13,9 +13,9 @@ import time
 import json
 import threading
 from datetime import datetime
-from typing import Optional, Tuple, Dict, Any, List
+from typing import Optional, Tuple, List
 
-from utils.infrastructure.logging.kaia_logger import log_info, log_warning, log_debug
+from utils.infrastructure.logging.kaia_logger import log_warning, log_debug
 from utils.core.hallucination_detector import HallucinationDetector
 from utils.core.response_filter import (EmergencyContaminationFilter, BotSpeakFilter,
                                         excision_broke_grammar)

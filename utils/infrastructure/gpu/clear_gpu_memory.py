@@ -1,4 +1,4 @@
-from utils.infrastructure.logging.kaia_logger import log_info, log_error
+from utils.infrastructure.logging.kaia_logger import log_info
 #!/usr/bin/env python3
 """
 Utility script to aggressively clear GPU memory when Kaiacord has OOM issues.
@@ -6,7 +6,6 @@ Run this script to reset PyTorch's CUDA allocator without restarting the bot.
 """
 
 import gc
-import sys
 
 
 def clear_gpu_memory(silent: bool = False):

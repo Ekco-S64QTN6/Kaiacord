@@ -19,7 +19,7 @@ from pathlib import Path
 
 import discord
 
-from utils.commands.embed_style import COLOR_INFO, box, clean, notice
+from utils.commands.embed_style import box, clean, notice
 from utils.core.kaia_art import FractalFlameRenderer, parse_mandelbrot_url
 from utils.infrastructure.logging.kaia_logger import log_debug, log_error, log_info, log_warning
 

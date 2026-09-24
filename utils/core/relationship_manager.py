@@ -21,7 +21,7 @@ from dataclasses import dataclass, field, asdict
 from typing import List, Optional
 
 from utils.core.atomic_write import write_atomic
-from utils.infrastructure.logging.kaia_logger import log_debug, log_warning, log_error
+from utils.infrastructure.logging.kaia_logger import log_warning, log_error
 
 
 RELATIONSHIPS_DIR = os.path.join("memory", "relationships")

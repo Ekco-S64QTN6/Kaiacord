@@ -7,8 +7,7 @@ Called by fishing_handler.py.
 import secrets
 import os
 import json
-from datetime import date, datetime
-from typing import Optional
+from datetime import date
 
 from utils.ttrpg.fishing import (
     FISH, BAIT, POLES, CATEGORY_RARITY_WEIGHT, CATEGORY_WEIGHT_BONUS,

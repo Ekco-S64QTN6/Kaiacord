@@ -7,10 +7,8 @@ Conversation Memory Snapshots
 """
 
 import os
-import re
 from datetime import datetime
-from pathlib import Path
-from utils.infrastructure.logging.kaia_logger import log_action, log_info, log_error, log_success
+from utils.infrastructure.logging.kaia_logger import log_error, log_success
 from utils.commands.embed_style import notice
 
 

@@ -17,13 +17,13 @@ import asyncio
 import copy
 import aiohttp
 import traceback
-from datetime import datetime, timedelta
+from datetime import datetime
 from pathlib import Path
 import threading
 
 _moderation_log_lock = threading.Lock()
 from typing import Optional, List, Dict, Any
-from urllib.parse import urljoin, urlparse, parse_qs, urlencode
+from urllib.parse import urljoin, urlencode
 import discord
 
 from bs4 import BeautifulSoup

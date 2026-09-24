@@ -5,7 +5,6 @@ import re
 import time
 import sys
 import os
-from dataclasses import dataclass, field
 from datetime import datetime, timedelta
 from pathlib import Path
 import discord
@@ -2290,7 +2289,7 @@ async def run_village_raid(bot_ctx, channel):
     import time
     from utils.ttrpg.character_manager import get_active_town_defenders, save
     from utils.ttrpg.monster_registry import get as get_monster
-    from utils.ttrpg.progression import check_level_up, xp_to_next_level
+    from utils.ttrpg.progression import check_level_up
     from utils.ttrpg.broadcast import log_world_event as _log_world_event, broadcast_world_event, raid_outcome_flavor
     from utils.ttrpg.world_state import load_world_state, save_world_state
     from utils.ttrpg.dungeon import DUNGEON_THEMES
@@ -2687,7 +2686,7 @@ async def run_moogle_festival(bot_ctx, channel):
 async def run_aeridorian_tremor(bot_ctx, channel):
     import discord, secrets
     from utils.ttrpg.character_manager import load_all, save
-    from utils.ttrpg.progression import check_level_up, xp_to_next_level
+    from utils.ttrpg.progression import check_level_up
     from utils.ttrpg.broadcast import log_world_event as _log_world_event
 
     TOWN_LOCATIONS = {
@@ -3472,7 +3471,7 @@ async def run_construct_breach(bot_ctx, channel):
     import time
     from utils.ttrpg.character_manager import get_active_town_defenders, save
     from utils.ttrpg.monster_registry import get as get_monster
-    from utils.ttrpg.progression import check_level_up, xp_to_next_level
+    from utils.ttrpg.progression import check_level_up
     from utils.ttrpg.broadcast import log_world_event as _log_world_event, broadcast_world_event, raid_outcome_flavor
     from utils.ttrpg.world_state import load_world_state, save_world_state
     from utils.ttrpg.dungeon import DUNGEON_THEMES
@@ -3703,7 +3702,7 @@ async def run_caravan_ambush(bot_ctx, channel):
     import time
     from utils.ttrpg.character_manager import get_active_town_defenders, save
     from utils.ttrpg.monster_registry import get as get_monster
-    from utils.ttrpg.progression import check_level_up, xp_to_next_level
+    from utils.ttrpg.progression import check_level_up
     from utils.ttrpg.broadcast import log_world_event as _log_world_event, broadcast_world_event, raid_outcome_flavor
     from utils.ttrpg.world_state import load_world_state, save_world_state
     from utils.ttrpg.dungeon import DUNGEON_THEMES
@@ -4092,7 +4091,7 @@ async def run_construct_incursion(bot_ctx, channel):
     import time
     from utils.ttrpg.character_manager import get_active_town_defenders, save
     from utils.ttrpg.monster_registry import get as get_monster
-    from utils.ttrpg.progression import check_level_up, xp_to_next_level
+    from utils.ttrpg.progression import check_level_up
     from utils.ttrpg.broadcast import log_world_event as _log_world_event, broadcast_world_event
     from utils.ttrpg.world_state import load_world_state, save_world_state
     from utils.ttrpg.dungeon import DUNGEON_THEMES

@@ -2,7 +2,6 @@ import asyncio
 from dataclasses import dataclass, field
 from typing import Optional, Any
 import ollama
-import discord
 from discord.ext import commands
 import psutil
 

@@ -16,7 +16,7 @@ import re
 import glob
 import time
 from typing import Optional
-from utils.infrastructure.logging.kaia_logger import log_debug, log_info
+from utils.infrastructure.logging.kaia_logger import log_info
 
 # Patterns that suggest something unresolved — user expressed intent or pending action
 _UNRESOLVED_PATTERNS = [

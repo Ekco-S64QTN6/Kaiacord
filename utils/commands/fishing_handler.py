@@ -14,9 +14,8 @@ from utils.ttrpg.broadcast import (
     log_world_event as _log_world_event,
     broadcast_world_event as _broadcast_world_event
 )
-from utils.infrastructure.logging.kaia_logger import log_error
 from utils.ttrpg.character_manager import load, save
-from utils.ttrpg.fishing import FISH, BAIT, POLES, BAG_UPGRADES, DEFAULT_BAG_CAPACITY, get_time_of_day
+from utils.ttrpg.fishing import FISH, BAIT, POLES, BAG_UPGRADES, get_time_of_day
 from utils.ttrpg.fishing_engine import (
     roll_catch,
     roll_fish_weight,

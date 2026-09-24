@@ -18,7 +18,6 @@ from __future__ import annotations
 
 import time
 from dataclasses import dataclass
-from datetime import datetime, timezone
 from typing import Optional
 
 from utils.radio.fetch import FeedError, get_json, is_stale, read_cache, write_cache

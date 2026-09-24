@@ -2,15 +2,12 @@
 Forum background tasks — periodic scraping of the Off Topic forum.
 """
 
-import asyncio
 import os
-import time
-from pathlib import Path
 from discord.ext import tasks
 from utils.infrastructure.logging.kaia_logger import (
     log_error, log_action, log_info, log_debug, log_success, log_warning,
 )
-from utils.social.forum_participation import PostLedger, PostingWindow
+from utils.social.forum_participation import PostLedger
 from utils.infrastructure.system.yaml_config import config
 from utils.infrastructure.system.shutdown_fixed import shutdown_manager
 

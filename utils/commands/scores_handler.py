@@ -14,7 +14,6 @@ Displays a high-tech, gamified Discord Embed window with interactive category se
 import os
 import json
 import asyncio
-import time
 from typing import List, Dict, Any
 import discord
 from discord.ui import View, Select

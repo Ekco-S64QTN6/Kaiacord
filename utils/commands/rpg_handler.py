@@ -3,16 +3,9 @@
 (ROUTER ONLY — Domains extracted to rpg_*_handler.py components)
 """
 
-import asyncio
-import time
-import uuid as _uuid
-import os
-import json
-import traceback
 import discord
-import secrets
 
-from utils.infrastructure.logging.kaia_logger import log_info, log_error, log_warning
+from utils.infrastructure.logging.kaia_logger import log_error
 from utils.infrastructure.system.yaml_config import config
 
 import utils.ttrpg.rpg_social_handler as soc
