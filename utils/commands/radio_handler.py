@@ -21,20 +21,23 @@ from utils.radio import eam_watch, priyom
 from utils.radio.fetch import FeedError
 
 COLOR_RADIO = 0x3B8B5A
+DEFAULT_POLL_HOURS = 6
 
-#: The radio commands, for the small print under each box.
-RADIO_COMMANDS = {
-    "skyking": "!skyking — latest EAMs",
-    "detail": "!skyking <n> — one in full",
-    "classic": "!skyking classic — an old Skyking",
-    "numbers": "!numbers [station] [hours] — number stations",
-    "radio": "!radio — what Kaia heard · !radio hfgcs — listen live",
+from utils.commands import nightshift
+
+_SUB_HINTS = {
+    "skyking": "!skyking <n> · !skyking classic",
+    "detail": "!skyking — the list · !skyking classic",
+    "classic": "!skyking — the latest",
 }
 
 
-def _others(*leave_out: str) -> str:
-    return " · ".join(v for k, v in RADIO_COMMANDS.items() if k not in leave_out)
-DEFAULT_POLL_HOURS = 6
+def _others(key: str, *_ignored: str) -> str:
+    """Small print: the theme's other commands (utils/commands/nightshift.py)."""
+    main = "skyking" if key in ("detail", "classic") else key
+    hint = _SUB_HINTS.get(key)
+    rest = nightshift.others(main)
+    return f"{hint} · {rest}" if hint else rest
 
 
 def poll_seconds() -> float:
@@ -185,6 +188,9 @@ async def handle_numbers_command(ctx, msg, send_kaia_response=None):
 # ── !radio ──────────────────────────────────────────────────────────────────
 
 LIVE_PRESETS = {
+    "buzzer": (4625.0, "usb", "eu", "UVB-76"),
+    "uvb76": (4625.0, "usb", "eu", "UVB-76"),
+    "4625": (4625.0, "usb", "eu", "UVB-76"),
     "hfgcs": (8992.0, "usb", "na", "HFGCS"),
     "8992": (8992.0, "usb", "na", "HFGCS"),
     "11175": (11175.0, "usb", "na", "HFGCS"),
@@ -335,13 +341,6 @@ async def handle_radio_command(ctx, msg, send_kaia_response=None):
             return
 
         # Live: a preset, a station, or a frequency in kHz.
-        if msg.guild is None or not getattr(msg.author, "voice", None) or not msg.author.voice.channel:
-            await msg.channel.send(embed=box("📡  Radio", "join a voice channel first, then `!radio hfgcs`.", COLOR_ERROR))
-            return
-        from utils.audio.strudel_session import get_session as music_session
-        if music_session(msg.guild.id):
-            await msg.channel.send(embed=box("📡  Radio", "the music's playing — `!music off` first.", COLOR_ERROR))
-            return
         if verb in LIVE_PRESETS:
             khz, mode, region, label = LIVE_PRESETS[verb]
         elif verb.replace(".", "", 1).isdigit():
@@ -359,15 +358,108 @@ async def handle_radio_command(ctx, msg, send_kaia_response=None):
                 return
             t = onair[0]
             khz, mode, region, label = t.khz, (t.mode or "usb").lower(), "eu", t.station
-        s = await live.start(msg.author.voice.channel, khz, mode, region, label, str(msg.author.display_name))
-        await msg.channel.send(embed=box(f"📡  Live · {label}", f"{khz:g} kHz {mode.upper()} from "
-                                         f"**{clean(s.receiver.location or s.receiver.host, 80)}**. "
-                                         f"`!radio off` to stop; I leave after "
-                                         f"{config.get('radio.live_max_minutes', 60)} minutes or when the channel empties.",
-                                         COLOR_RADIO, footer=_others('radio')))
+        await go_live(msg, khz, mode, region, label, "radio")
     except FeedError as e:
         log_warning(f"[radio] {e}")
         await msg.channel.send(embed=box("📡  Radio", f"couldn't reach the receivers — {clean(str(e), 200)}", COLOR_ERROR))
     except Exception as e:
         log_error(f"[radio] !radio failed: {e}")
         await msg.channel.send(embed=box("📡  Radio", "Something went wrong with the radio. It's in the log.", COLOR_ERROR))
+
+
+# ── !tacamo ─────────────────────────────────────────────────────────────────
+
+def tacamo_embed(found, last: dict, cache: dict):
+    from utils.radio import adsb
+    if found:
+        lines = []
+        for s in found:
+            where = f"{s.lat:.1f}, {s.lon:.1f}" if s.lat is not None else "position withheld"
+            alt = f"{s.altitude_ft:,} ft" if s.altitude_ft else "on the ground"
+            name = s.callsign or s.registration or s.hex
+            lines.append(f"**{s.label}** · `{clean(name, 20)}` · {alt} · {where} · [track]({s.map_url})")
+        desc = "\n".join(lines)
+    else:
+        desc = ("None broadcasting right now. They often fly with ADS-B switched off, "
+                "so this means none *visible*, not none flying.")
+    embed = box("✈️  The EAM relay planes", desc, COLOR_RADIO,
+                footer=f"E-6B TACAMO relays EAMs to submarines · via adsb.lol (ODbL) · {_age(cache)}\n"
+                       f"{_others('tacamo')}")
+    if not found and last:
+        add_field(embed, "Last seen", "\n".join(
+            f"**{adsb.TYPES.get(k, k)}** · {adsb.ago(v['at'])}"
+            + (f" · `{v['callsign']}`" if v.get('callsign') else "")
+            + (f" · {v['altitude_ft']:,} ft" if v.get('altitude_ft') else "")
+            for k, v in last.items()))
+    return embed
+
+
+async def handle_tacamo_command(ctx, msg, send_kaia_response=None):
+    from utils.radio import adsb
+    log_action(f"!tacamo for {msg.author}")
+    if not radio_enabled():
+        await msg.channel.send(embed=box("✈️  TACAMO", "The radio feeds are switched off (`radio.enabled`).", COLOR_ERROR))
+        return
+    try:
+        cache = await adsb.refresh()
+        await msg.channel.send(embed=tacamo_embed(adsb.sightings(cache), adsb.last_seen(), cache))
+    except FeedError as e:
+        log_warning(f"[radio] adsb.lol: {e}")
+        await msg.channel.send(embed=box("✈️  TACAMO", f"adsb.lol didn't answer as expected — {clean(str(e), 200)}", COLOR_ERROR))
+    except Exception as e:
+        log_error(f"[radio] !tacamo failed: {e}")
+        await msg.channel.send(embed=box("✈️  TACAMO", "Something went wrong. It's in the log.", COLOR_ERROR))
+
+
+nightshift.register("tacamo")
+
+
+async def go_live(msg, khz: float, mode: str, region: str, label: str, family_key: str,
+                  blurb: str = "") -> None:
+    """Join the caller's voice channel and play a receiver there."""
+    from utils.radio import live
+    if msg.guild is None or not getattr(msg.author, "voice", None) or not msg.author.voice.channel:
+        await msg.channel.send(embed=box("📡  Radio", f"join a voice channel first, then `!{family_key}`.",
+                                         COLOR_ERROR, footer=_others(family_key)))
+        return
+    from utils.audio.strudel_session import get_session as music_session
+    if music_session(msg.guild.id):
+        await msg.channel.send(embed=box("📡  Radio", "the music's playing — `!music off` first.", COLOR_ERROR))
+        return
+    s = await live.start(msg.author.voice.channel, khz, mode, region, label, str(msg.author.display_name))
+    await msg.channel.send(embed=box(
+        f"📡  Live · {label}",
+        (f"{blurb}\n\n" if blurb else "")
+        + f"{khz:g} kHz {mode.upper()} from **{clean(s.receiver.location or s.receiver.host, 80)}**. "
+          f"`!radio off` to stop; I leave after {config.get('radio.live_max_minutes', 60)} minutes "
+          f"or when the channel empties.",
+        COLOR_RADIO, footer=_others(family_key)))
+
+
+BUZZER_BLURB = ("UVB-76, *The Buzzer* — a buzz every couple of seconds on 4625 kHz since the 1970s, "
+                "broken a few times a year by a voice reading Russian names and numbers. "
+                "Nobody outside knows what it's for.")
+
+
+async def handle_buzzer_command(ctx, msg, send_kaia_response=None):
+    log_action(f"!buzzer for {msg.author}")
+    if not radio_enabled():
+        await msg.channel.send(embed=box("📡  Radio", "The radio feeds are switched off (`radio.enabled`).", COLOR_ERROR))
+        return
+    parts = msg.content.strip().split()
+    if len(parts) > 1 and parts[1].lower() == "off":
+        from utils.radio import live
+        stopped = msg.guild and await live.stop(msg.guild.id)
+        await msg.channel.send(embed=box("📡  Radio", "off the air." if stopped else "nothing was playing.", COLOR_RADIO))
+        return
+    try:
+        khz, mode, region, label = LIVE_PRESETS["buzzer"]
+        await go_live(msg, khz, mode, region, label, "buzzer", BUZZER_BLURB)
+    except FeedError as e:
+        await msg.channel.send(embed=box("📡  Radio", f"couldn't reach the receivers — {clean(str(e), 200)}", COLOR_ERROR))
+    except Exception as e:
+        log_error(f"[radio] !buzzer failed: {e}")
+        await msg.channel.send(embed=box("📡  Radio", "Something went wrong with the radio. It's in the log.", COLOR_ERROR))
+
+
+nightshift.register("buzzer")

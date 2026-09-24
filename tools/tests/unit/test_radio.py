@@ -169,3 +169,39 @@ def test_help_lists_the_radio_commands():
     from utils.commands.registry import COMMANDS
     names = {c.name for c in COMMANDS}
     assert {"skyking", "numbers"} <= names
+
+
+def test_tacamo_says_invisible_not_absent_and_remembers_sightings():
+    from utils.radio import adsb
+    for n in (adsb.CACHE, adsb.SEEN):
+        fetch.cache_path(n).unlink(missing_ok=True)
+    e6 = {"ac": [{"hex": "ae041c", "flight": "IRON17 ", "r": "164404", "lat": 41.2, "lon": -96.1,
+                  "alt_baro": 29000, "gs": 410.0, "seen": 3}]}
+    with patch.object(adsb, "get_json", AsyncMock(side_effect=[e6, {"ac": []}])):
+        m = _msg("!tacamo")
+        asyncio.run(rh.handle_tacamo_command(None, m))
+    embed = _sent(m)
+    assert "IRON17" in embed.description and "29,000 ft" in embed.description
+    assert adsb.last_seen()["E6"]["callsign"] == "IRON17"
+    fetch.cache_path(adsb.CACHE).unlink()
+    with patch.object(adsb, "get_json", AsyncMock(side_effect=[{"ac": []}, {"ac": []}])):
+        m = _msg("!tacamo")
+        asyncio.run(rh.handle_tacamo_command(None, m))
+    embed = _sent(m)
+    assert "not none flying" in embed.description
+    assert any(f.name == "Last seen" and "IRON17" in f.value for f in embed.fields)
+    for n in (adsb.CACHE, adsb.SEEN):
+        fetch.cache_path(n).unlink(missing_ok=True)
+
+
+def test_buzzer_asks_for_a_voice_channel_and_nightshift_lists_the_theme():
+    from utils.commands import nightshift
+    m = _msg("!buzzer")
+    m.author.voice = None
+    asyncio.run(rh.handle_buzzer_command(None, m))
+    assert "voice channel" in _sent(m).description
+    idx = nightshift.index_embed()
+    body = " ".join(f.value for f in idx.fields)
+    for cmd in ("!skyking", "!numbers", "!radio", "!tacamo", "!buzzer"):
+        assert cmd in body
+    assert "!nightshift" in rh._others("tacamo")

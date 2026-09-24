@@ -24,7 +24,9 @@ from utils.commands.youtube_handler import handle_youtube_command
 from utils.commands.memory_handler import handle_memory_cmd
 from utils.commands.music_handler import handle_music_command
 from utils.commands.news_handler import handle_news_command
-from utils.commands.radio_handler import handle_numbers_command, handle_radio_command, handle_skyking_command
+from utils.commands.radio_handler import (handle_buzzer_command, handle_numbers_command, handle_radio_command,
+                                          handle_skyking_command, handle_tacamo_command)
+from utils.commands.nightshift import handle_nightshift_command
 from utils.commands.reindex_handler import handle_reindex_command
 from utils.commands.rpg_handler import handle_rpg_command
 from utils.commands.scores_handler import handle_scores_command
@@ -153,6 +155,13 @@ COMMANDS = (
     Command("radio", handle_radio_command, GROUP_MEDIA, extra=RESPONDER,
             usage="!radio [hfgcs | <kHz> | <station> | log [n] | listen | off]",
             summary="What Kaia has heard on shortwave; `!radio hfgcs` plays the HFGCS net live in your voice channel"),
+    Command("tacamo", handle_tacamo_command, GROUP_MEDIA, extra=RESPONDER,
+            summary="Are the EAM relay planes (E-6B TACAMO, E-4B) broadcasting on ADS-B?"),
+    Command("buzzer", handle_buzzer_command, GROUP_MEDIA, extra=RESPONDER, aliases=("uvb76",),
+            usage="!buzzer [off]",
+            summary="UVB-76, The Buzzer, live in your voice channel"),
+    Command("nightshift", handle_nightshift_command, GROUP_MEDIA, extra=RESPONDER,
+            summary="Every radio and sky command Kaia has, in one list"),
     Command("quip", handle_quip_command, GROUP_MEDIA,
             summary="Draft a social post (10-minute cooldown; owners exempt)"),
     Command("art", handle_art_command, GROUP_MEDIA, extra=RESPONDER,

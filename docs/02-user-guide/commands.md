@@ -15,6 +15,9 @@ All commands are prefixed with `!`. Admin commands are restricted to the project
 | `!skyking [n \| classic]` | Latest military Emergency Action Messages (eam.watch) | All |
 | `!numbers [station] [hours]` | Number stations on the air soon, with listen links (Priyom) | All |
 | `!radio [hfgcs \| <kHz> \| <station> \| log [n] \| listen \| off]` | What Kaia has heard on shortwave; play a receiver live in voice | All |
+| `!tacamo` | Are the EAM relay planes (E-6B, E-4B) broadcasting on ADS-B? | All |
+| `!buzzer [off]` | UVB-76, The Buzzer, live in your voice channel (`!uvb76`) | All |
+| `!nightshift` | Every radio and sky command in one list | All |
 | `!download <url>` | Submit a URL for the knowledge base (staged, filed hourly) | All |
 | `!youtube <url>` | Pull a video's transcript into the knowledge base, correcting misheard names (`!yt`) | All |
 | `!quip` | Trigger a social media quip (10m cooldown) | All |
@@ -61,7 +64,7 @@ Fetches news by category from auto-generated daily briefs. Requires `GEMINI_API_
 
 **Categories:** `today`, `technology`, `security`, `hacking`, `politics`, `business`, `science`, `culture`, `general`
 
-### 📻 Shortwave (`!skyking` / `!eam`, `!numbers`, `!radio`)
+### 📻 Shortwave (`!skyking` / `!eam`, `!numbers`, `!radio`, `!tacamo`, `!buzzer`, `!nightshift`)
 - `!skyking` — the latest five Emergency Action Messages logged off the USAF HFGCS net
   (8992 / 11175 kHz USB) at [eam.watch](https://eam.watch/), with callsign, preamble and message.
   Messages are encrypted; Kaia shows them, she doesn't decode them.
@@ -80,6 +83,11 @@ Fetches news by category from auto-generated daily briefs. Requires `GEMINI_API_
   the air now, or tells you when it is next. `!radio off` to stop; she leaves after an hour or
   when the channel empties.
 - `!radio listen [minutes]` — run an HFGCS watch now (she also does this four times a day).
+- `!tacamo` — whether an E-6B Mercury (the TACAMO planes that relay EAMs to submarines) or an
+  E-4B Nightwatch is broadcasting on ADS-B, via adsb.lol. They often fly with it off, so "none"
+  means none visible; Kaia remembers when she last saw one.
+- `!buzzer` — UVB-76 on 4625 kHz, live from a European receiver. `!buzzer off` to stop.
+- `!nightshift` — the whole theme in one box.
 
 Recording and transcription need a one-time `python tools/maintenance/fetch_radio_assets.py`.
 
@@ -200,7 +208,7 @@ Kaia responds naturally to specific phrases when mentioned or addressed — no `
 
 | Role | Commands |
 |:---|:---|
-| **All Users** | `!scores`, `!art`, `!rpg`, `!help`, `!news`, `!skyking`, `!numbers`, `!radio`, `!quip`, `!forum link` |
+| **All Users** | `!scores`, `!art`, `!rpg`, `!help`, `!news`, `!skyking`, `!numbers`, `!radio`, `!tacamo`, `!buzzer`, `!nightshift`, `!quip`, `!forum link` |
 | **Admin (Owner)** | All of the above, plus `!dream`, `!memory`, `!flag`, `!audit`, `!reindex`, `!enrich`, `!snapshot`, `!selfmodel`, `!sysmon`, `!forum (status/stats/scrape/read/post/reply/user)` |
 
 Rate limiting applies to all users (configurable via `performance.requests_per_minute` in `kaia.yaml`).

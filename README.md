@@ -414,6 +414,9 @@ Kaia keeps an ear on the strange end of the HF bands.
 !numbers e11               # when the "Oracle" is next on
 !radio hfgcs               # play the HFGCS net live in your voice channel
 !radio                     # what Kaia has heard, and how right she was
+!tacamo                    # are the EAM relay planes up?
+!buzzer                    # UVB-76, The Buzzer, live
+!nightshift                # everything in this theme
 ```
 
 EAMs come from [eam.watch](https://eam.watch/)'s volunteer log of the USAF High Frequency Global
