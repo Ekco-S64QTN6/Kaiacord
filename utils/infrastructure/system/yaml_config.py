@@ -22,8 +22,12 @@ from pathlib import Path
 from typing import Any, Dict, Optional
 from dataclasses import dataclass, field, fields
 
+# Paths are anchored to the checkout, not the working directory: a tool run
+# from anywhere else found neither YAML file and failed validation.
+ROOT = Path(__file__).resolve().parents[3]
+
 # Load environment variables from .env
-load_dotenv()
+load_dotenv(ROOT / ".env")
 
 
 def load_yaml_file(path: Path) -> Dict[str, Any]:
@@ -83,11 +87,11 @@ def load_hierarchical_config() -> Dict[str, Any]:
     3. Override with environment variables
     """
     # Load default config
-    default_path = Path("config/default_config.yaml")
+    default_path = ROOT / "config" / "default_config.yaml"
     config = load_yaml_file(default_path)
     
     # Merge user config
-    user_path = Path("config/kaia.yaml")
+    user_path = ROOT / "config" / "kaia.yaml"
     if user_path.exists():
         user_config = load_yaml_file(user_path)
         config = deep_merge(config, user_config)
