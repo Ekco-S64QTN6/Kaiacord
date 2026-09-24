@@ -72,10 +72,8 @@ class HallucinationDetector:
                 with open(log_path, 'r', encoding='utf-8') as f:
                     lines = f.readlines()
                 if len(lines) > 500:
-                    tmp_path = log_path + ".tmp"
-                    with open(tmp_path, 'w', encoding='utf-8') as f:
-                        f.writelines(lines[-500:])
-                    os.replace(tmp_path, log_path)
+                    from utils.core.atomic_write import write_atomic
+                    write_atomic(log_path, "".join(lines[-500:]))
             log_warning(
                 f"⚠️ Hallucination Detector: pattern '{pattern_matched}' detected. "
                 f"Action taken: {action_taken}."

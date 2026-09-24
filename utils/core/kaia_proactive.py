@@ -96,10 +96,8 @@ def mark_digest_broadcast(content_id: str) -> None:
                 break
         if not changed:
             return
-        tmp = digest_path + ".tmp"
-        with open(tmp, "w", encoding="utf-8") as f:
-            json.dump(history, f, indent=4)
-        os.replace(tmp, digest_path)
+        from utils.core.atomic_write import write_atomic
+        write_atomic(digest_path, json.dumps(history, indent=4))
     except Exception as e:
         log_debug(f"Marking digest as broadcast failed (non-fatal): {e}")
 
@@ -197,10 +195,8 @@ class ProactiveEngine:
         """Atomically save the diversity log."""
         try:
             os.makedirs(os.path.dirname(DIVERSITY_LOG_PATH), exist_ok=True)
-            tmp = DIVERSITY_LOG_PATH + ".tmp"
-            with open(tmp, 'w', encoding='utf-8') as f:
-                json.dump({"history": history[-MAX_DIVERSITY_HISTORY:]}, f, indent=2)
-            os.replace(tmp, DIVERSITY_LOG_PATH)
+            from utils.core.atomic_write import write_atomic
+            write_atomic(DIVERSITY_LOG_PATH, json.dumps({"history": history[-MAX_DIVERSITY_HISTORY:]}, indent=2))
         except Exception as e:
             log_debug(f"Diversity log save failed (non-fatal): {e}")
 

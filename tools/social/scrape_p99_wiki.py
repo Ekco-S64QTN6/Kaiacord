@@ -6,7 +6,8 @@ import os
 import sys
 
 # Add project root to path
-sys.path.append(os.getcwd())
+sys.path.insert(0, str(Path(__file__).resolve().parents[2]))
+from utils.core.atomic_write import write_atomic
 from utils.infrastructure.logging.kaia_logger import log_info, log_error
 
 WIKI_URLS = [
@@ -116,10 +117,7 @@ def scrape_wiki():
             filename = f"wiki_{title.replace(' ', '_').replace('/', '_')}.md"
             filepath = output_dir / filename
             
-            with open(filepath, 'w', encoding='utf-8') as f:
-                f.write(f"# {title}\n")
-                f.write(f"Source: {url}\n\n")
-                f.write(final_text)
+            write_atomic(filepath, f"# {title}\nSource: {url}\n\n{final_text}")
                 
             print(f"  ✓ Saved to {filename}")
             

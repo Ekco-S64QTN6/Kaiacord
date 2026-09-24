@@ -66,8 +66,8 @@ class RAGPersistenceMixin:
                 
                 log_text = f"User ({user_name}): Remember this: {text}\nKaia: Logged it. I'll remember that.\n"
                 
-                with open(log_file, "w", encoding="utf-8") as f:
-                    f.write(log_text)
+                from utils.core.atomic_write import write_atomic
+                write_atomic(log_file, log_text)
                     
                 log_success(f"Separate memory file created: injected_{timestamp}.txt")
                 return True

@@ -8,7 +8,8 @@ import sys
 import time
 
 # Add project root to path
-sys.path.append(os.getcwd())
+sys.path.insert(0, str(Path(__file__).resolve().parents[2]))
+from utils.core.atomic_write import write_atomic
 
 from utils.social.kaia_forum import get_forum_client, ForumClient
 from utils.infrastructure.logging.kaia_logger import log_info, log_error
@@ -93,22 +94,21 @@ async def scrape_tech_discussion(max_pages: int = 577):
                 json_data = thread_data.copy()
                 json_data['posts'] = [p.to_dict() if hasattr(p, 'to_dict') else p for p in thread_data['posts']]
                 
-                with open(file_path, 'w', encoding='utf-8') as f:
-                    json.dump(json_data, f, indent=2, ensure_ascii=False)
+                write_atomic(file_path, json.dumps(json_data, indent=2, ensure_ascii=False))
                 
                 # Also save as markdown for RAG
                 md_filename = f"thread_{thread.thread_id}_{safe_title}.md"
                 md_path = output_dir / md_filename
-                with open(md_path, 'w', encoding='utf-8') as f:
-                    f.write(f"# {thread_data['title']}\n\n")
-                    f.write(f"Thread ID: {thread_data['thread_id']}\n")
-                    f.write(f"URL: {client.base_url}/showthread.php?t={thread_data['thread_id']}\n\n")
-                    for post in json_data['posts']:
-                        f.write(f"---\n")
-                        f.write(f"Post ID: {post.get('post_id', '')}\n")
-                        f.write(f"Author: {post.get('author', '')}\n")
-                        f.write(f"Date: {post.get('timestamp', '')}\n\n")
-                        f.write(f"{post.get('content', '')}\n\n")
+                md = [f"# {thread_data['title']}\n\n",
+                      f"Thread ID: {thread_data['thread_id']}\n",
+                      f"URL: {client.base_url}/showthread.php?t={thread_data['thread_id']}\n\n"]
+                for post in json_data['posts']:
+                    md += ["---\n",
+                           f"Post ID: {post.get('post_id', '')}\n",
+                           f"Author: {post.get('author', '')}\n",
+                           f"Date: {post.get('timestamp', '')}\n\n",
+                           f"{post.get('content', '')}\n\n"]
+                write_atomic(md_path, "".join(md))
                 
                 seen_thread_ids.add(thread.thread_id)
             else:

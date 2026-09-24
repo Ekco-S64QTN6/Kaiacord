@@ -107,8 +107,8 @@ async def handle_snapshot_command(ctx, msg, send_kaia_response):
         filename = f"snapshot_{file_date}.md"
         filepath = os.path.join(snapshot_dir, filename)
 
-        with open(filepath, "w", encoding="utf-8") as f:
-            f.write(snapshot_text)
+        from utils.core.atomic_write import write_atomic
+        write_atomic(filepath, snapshot_text)
 
         log_success(f"Snapshot saved: {filename}")
 

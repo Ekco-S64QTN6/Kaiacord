@@ -26,7 +26,8 @@ from pathlib import Path
 import sys
 
 # Add project root to path
-sys.path.append(os.getcwd())
+sys.path.insert(0, str(Path(__file__).resolve().parents[2]))
+from utils.core.atomic_write import write_atomic
 
 from ollama import Client
 from utils.infrastructure.gpu.gpu_manager import OllamaGPUManager
@@ -341,17 +342,14 @@ async def stage3_and_4_consolidate(client, model_name, options, grouped_issues):
                             f"report{plural} and wiki pages."),
                 "keywords": list(keywords),
             }) + "\n"
-            tmp = output_file.with_suffix(".tmp")
-            with open(tmp, 'w', encoding='utf-8') as f:
-                f.write(fm)
-                f.write(f"# P99 Troubleshooting: {readable}\n\n")
-                f.write(f"Consolidated from {len(issues)} community "
-                        f"report{'s' if len(issues) != 1 else ''}.\n\n")
-                for section in all_synthesized_sections:
-                    cleaned = strip_model_preamble(section)
-                    if cleaned:
-                        f.write(cleaned + "\n\n---\n\n")
-            os.replace(tmp, output_file)      # atomic write, CLAUDE.md §4
+            parts = [fm, f"# P99 Troubleshooting: {readable}\n\n",
+                     f"Consolidated from {len(issues)} community "
+                     f"report{'s' if len(issues) != 1 else ''}.\n\n"]
+            for section in all_synthesized_sections:
+                cleaned = strip_model_preamble(section)
+                if cleaned:
+                    parts.append(cleaned + "\n\n---\n\n")
+            write_atomic(output_file, "".join(parts))
             print(f"  Created {output_file.name}")
 
 async def main():

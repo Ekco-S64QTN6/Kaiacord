@@ -2615,10 +2615,8 @@ class MessageProcessor:
                                         with open(growth_log, 'r', encoding='utf-8') as gl:
                                             lines = gl.readlines()
                                         if len(lines) > 2000:
-                                            tmp_path = str(growth_log) + ".tmp"
-                                            with open(tmp_path, 'w', encoding='utf-8') as gl:
-                                                gl.writelines(lines[-2000:])
-                                            os.replace(tmp_path, str(growth_log))
+                                            from utils.core.atomic_write import write_atomic
+                                            write_atomic(growth_log, "".join(lines[-2000:]))
                                     except Exception:
                                         pass
                             await asyncio.to_thread(_write_and_rotate_growth_log)
@@ -2725,10 +2723,8 @@ class MessageProcessor:
                                 with open(gen_log_path, 'r', encoding='utf-8') as glf:
                                     lines = glf.readlines()
                                 if len(lines) > 5000:
-                                    tmp_path = gen_log_path + ".tmp"
-                                    with open(tmp_path, 'w', encoding='utf-8') as glf:
-                                        glf.writelines(lines[-5000:])
-                                    os.replace(tmp_path, gen_log_path)
+                                    from utils.core.atomic_write import write_atomic
+                                    write_atomic(gen_log_path, "".join(lines[-5000:]))
                             except Exception:
                                 pass
                     await asyncio.to_thread(_write_and_rotate_gen_log)

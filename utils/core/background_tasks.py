@@ -2055,11 +2055,8 @@ class CoreTaskManager:
                 # Cap at max 5 entries
                 history = history[-5:]
 
-                # Atomic write
-                tmp_path = digest_path.with_suffix(".tmp")
-                with open(tmp_path, "w", encoding="utf-8") as f:
-                    json.dump(history, f, indent=4)
-                os.replace(tmp_path, digest_path)
+                from utils.core.atomic_write import write_atomic
+                write_atomic(digest_path, json.dumps(history, indent=4))
 
                 log_success(f"Generated new passive observation digest: '{digest_text}'")
 

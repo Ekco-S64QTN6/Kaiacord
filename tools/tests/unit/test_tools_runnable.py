@@ -213,7 +213,7 @@ def test_no_corpus_write_bypasses_the_atomic_helper():
     import ast
     import re
 
-    CORPUS = re.compile(r"knowledge_base|KNOWLEDGE_DIR|KB_DIR")
+    CORPUS = re.compile(r"knowledge_base|KNOWLEDGE_DIR|KB_DIR|corpus_dir|[\"'/]memory[/\"']")
 
     offenders = []
     for root in (Path("utils"), Path("tools")):
@@ -249,9 +249,19 @@ def test_no_corpus_write_bypasses_the_atomic_helper():
                     if isinstance(target, ast.Constant) and isinstance(target.value, str):
                         near = target.value
                     elif isinstance(target, ast.Name):
-                        near = "\n".join(
-                            ln for ln in lines[:node.lineno]
-                            if re.match(rf"\s*{re.escape(target.id)}\s*=", ln))
+                        # Follow the assignments back a few steps: the path is
+                        # usually joined from a variable that names the corpus
+                        # (`log_file = join(user_log_dir, ...)`, and
+                        # `user_log_dir = join(corpus_dir(...), ...)` above it).
+                        near, names, seen = "", {target.id}, set()
+                        for _ in range(4):
+                            found = [ln for ln in lines[:node.lineno] for nm in names - seen
+                                     if re.match(rf"\s*{re.escape(nm)}\s*=", ln)]
+                            seen |= names
+                            near += "\n".join(found)
+                            names = set(re.findall(r"\b([a-z_][a-z0-9_]*)\b", "\n".join(found))) - seen
+                            if not names:
+                                break
                     else:
                         near = ast.unparse(target)
                 else:

@@ -103,8 +103,8 @@ async def get_x_client(force_new: bool = False):
                             _cookies_path.parent.mkdir(exist_ok=True)
                             
                             def _save_injected_cookies():
-                                with open(_cookies_path, 'w') as f:
-                                    json.dump(cookie_dict, f, indent=2)
+                                from utils.core.atomic_write import write_atomic
+                                write_atomic(_cookies_path, json.dumps(cookie_dict, indent=2))
                             
                             await asyncio.to_thread(_save_injected_cookies)
                             
