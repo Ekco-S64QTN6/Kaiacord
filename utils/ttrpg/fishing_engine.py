@@ -100,7 +100,9 @@ def roll_catch(
 
     if not weighted_pool:
         # Absolute fallback to any common fish
-        fallback_pool = [(k, v, 1) for k, v in FISH.items() if v["category"] == "common"]
+        from utils.ttrpg.fishing import TAINTED_ONLY
+        fallback_pool = [(k, v, 1) for k, v in FISH.items()
+                         if v["category"] == "common" and k not in TAINTED_ONLY]
         weighted_pool = fallback_pool
 
     total_w = sum(w for _, _, w in weighted_pool)

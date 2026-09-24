@@ -151,7 +151,7 @@ exec(open('utils/ttrpg/equipment_registry.py').read())
 print('gear', sum(len(d) for d in (WEAPONS,ARMOR,HEADGEAR,BOOTS,ACCESSORIES)), '+ consumables', len(CONSUMABLES))"
 ```
 
-Verified 2026-09-20: **369 monsters**, **395 gear + 58 consumables = 453 items**, 253 fish,
+Verified 2026-09-24: **369 monsters**, **395 gear + 58 consumables = 453 items**, 248 fish (`len(FISH)`),
 12 quests, 10 classes.
 
 ---

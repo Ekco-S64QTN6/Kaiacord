@@ -1720,7 +1720,14 @@ BAIT_RARITY_CEILING = {
 _FISH_INDEX = {}
 _CAT_FALLBACK = {c: [] for c in CATEGORY_RARITY_WEIGHT.keys()}
 
+# Caught only from tainted water: the Silverstream blackwater branch in
+# fishing_handler picks them by key. Left in the ordinary tables they turned
+# up in clean water on ~2% of casts, at double the sell value.
+TAINTED_ONLY = frozenset({"voidfin_carp", "blackwater_eel", "sludge_catfish"})
+
 for _key, _fish in FISH.items():
+    if _key in TAINTED_ONLY:
+        continue
     _cat = _fish["category"]
     _CAT_FALLBACK[_cat].append((_key, _fish))
     for _season in _fish.get("seasons", []):

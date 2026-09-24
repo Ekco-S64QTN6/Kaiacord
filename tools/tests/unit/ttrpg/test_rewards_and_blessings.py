@@ -65,3 +65,42 @@ def test_heat_costs_heavy_armor_two_def_once():
 def test_the_dawn_task_does_not_also_take_the_heat_off_def():
     src = (Path(__file__).resolve().parents[4] / "utils" / "core" / "background_tasks.py").read_text(encoding="utf-8")
     assert 'state["def_mod"] = state.get("def_mod", 0) + effect_value' not in src
+
+
+def test_tainted_water_fish_are_not_caught_in_clean_water():
+    """voidfin carp, blackwater eel and sludge catfish belong to the blackwater
+    event; they were in the ordinary tables and landed on ~2% of casts."""
+    from utils.ttrpg.fishing import TAINTED_ONLY, get_available_fish, _CAT_FALLBACK
+    from utils.ttrpg import fishing_engine as fe
+    for bait in ("earthworm", "crystal_bait"):
+        for season in ("spring", "summer", "autumn", "winter"):
+            for tod in ("dawn", "morning", "midday", "afternoon", "evening", "night"):
+                pools = get_available_fish(season, tod, bait)
+                assert not {k for p in pools.values() for k, _ in p} & TAINTED_ONLY
+    assert not {k for p in _CAT_FALLBACK.values() for k, _ in p} & TAINTED_ONLY
+
+
+def test_a_second_cast_while_the_line_is_out_is_refused():
+    """Both casts passed the bait check before the bite wait: one bait, two casts."""
+    import asyncio
+    from unittest.mock import AsyncMock, MagicMock
+    import utils.commands.fishing_handler as fh
+
+    runs = []
+
+    async def slow_cast(*a, **k):
+        runs.append(1)
+        await asyncio.sleep(0.05)
+
+    async def both():
+        inter = MagicMock()
+        inter.followup.send = AsyncMock()
+        with patch.object(fh, "_cast", slow_cast):
+            await asyncio.gather(fh._handle_cast(None, inter, "u1", "U", False),
+                                 fh._handle_cast(None, inter, "u1", "U", False))
+            await fh._handle_cast(None, inter, "u1", "U", False)       # after it lands: allowed
+        return inter
+
+    inter = asyncio.run(both())
+    assert len(runs) == 2
+    assert inter.followup.send.await_count == 1

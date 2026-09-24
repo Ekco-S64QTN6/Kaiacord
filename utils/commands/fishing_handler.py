@@ -399,8 +399,25 @@ class BiteView(discord.ui.View):
 
 # ── Handler Functions ─────────────────────────────────────────────────────────
 
+# Players with a line in the water. The bait and bag checks run before the
+# bite wait and the bait is spent after it, so a second press of Cast during
+# the wait passed both checks too: one bait bought two casts.
+_LINES_OUT: set[str] = set()
+
+
 async def _handle_cast(ctx, interaction: discord.Interaction, uid: str, uname: str, is_owner: bool):
     """Core cast mechanic: validate → cast embed → sleep → bite/miss."""
+    if uid in _LINES_OUT:
+        await interaction.followup.send(embed=notice("your line is already in the water."), ephemeral=True)
+        return
+    _LINES_OUT.add(uid)
+    try:
+        await _cast(ctx, interaction, uid, uname, is_owner)
+    finally:
+        _LINES_OUT.discard(uid)
+
+
+async def _cast(ctx, interaction: discord.Interaction, uid: str, uname: str, is_owner: bool):
     sheet = await load(uid)
     if not sheet:
         await interaction.followup.send("No character found.", ephemeral=True)
