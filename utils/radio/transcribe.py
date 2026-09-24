@@ -65,7 +65,8 @@ def release_if_idle() -> None:
 
 def prepare(src: Path, dst: Path) -> Path:
     subprocess.run(["ffmpeg", "-hide_banner", "-loglevel", "error", "-y", "-i", str(src),
-                    "-af", PREPROCESS, "-ar", "16000", "-ac", "1", str(dst)], check=True, timeout=120)
+                    "-af", PREPROCESS, "-ar", "16000", "-ac", "1", str(dst)], check=True, timeout=120,
+                   capture_output=True)   # never onto the dashboard's terminal
     return dst
 
 

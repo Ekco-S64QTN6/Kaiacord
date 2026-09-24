@@ -8,6 +8,7 @@ channel empties, or on `!radio off`.
 from __future__ import annotations
 
 import asyncio
+import subprocess
 import time
 from dataclasses import dataclass, field
 from typing import Optional
@@ -19,6 +20,20 @@ from utils.infrastructure.system.yaml_config import config
 from utils.radio import kiwi
 
 _sessions: dict[int, "LiveSession"] = {}
+STALL_S = 30
+
+
+class _CountingReader:
+    """The stream's stdout, remembering when audio last arrived."""
+    def __init__(self, raw):
+        self.raw = raw
+        self.last = time.time()
+
+    def read(self, n=-1):
+        data = self.raw.read(n)
+        if data:
+            self.last = time.time()
+        return data
 
 
 @dataclass
@@ -33,6 +48,7 @@ class LiveSession:
     requested_by: str
     started: float = field(default_factory=time.time)
     watchdog: Optional[asyncio.Task] = None
+    reader: Optional[_CountingReader] = None
 
     @property
     def minutes(self) -> float:
@@ -51,19 +67,34 @@ async def start(channel, khz: float, mode: str, region: str, label: str, request
     guild_id = channel.guild.id
     if guild_id in _sessions:
         await stop(guild_id)
-    receivers = kiwi.choose(await kiwi.directory(), khz, region)
+    receivers = kiwi.choose(await kiwi.directory(), khz, region, n=4)
     if not receivers:
         raise RuntimeError(f"no free receiver covers {khz:g} kHz right now")
-    receiver = receivers[0]
-    proc = kiwi.open_stream(receiver, khz, mode)
-    source = discord.FFmpegPCMAudio(proc.stdout, pipe=True, before_options="-f s16le -ar 12000 -ac 1")
+    # Join voice only once a receiver is actually sending audio: one that
+    # accepts the connection and never streams played silence into the channel.
+    proc = receiver = None
+    for r in receivers:
+        p = kiwi.open_stream(r, khz, mode)
+        if await asyncio.to_thread(kiwi.first_audio, p):
+            proc, receiver = p, r
+            break
+        log_debug(f"[radio] {r.host} sent no audio; trying the next receiver")
+        kiwi.close_stream(p)
+    if proc is None:
+        raise RuntimeError(f"none of {len(receivers)} receivers sent audio on {khz:g} kHz")
+    reader = _CountingReader(proc.stdout)
+    # stderr to /dev/null: left alone, ffmpeg inherits the bot's real terminal
+    # (fd 2, beneath the logging redirect) and its warnings land on the curses
+    # dashboard, which then cannot redraw.
+    source = discord.FFmpegPCMAudio(reader, pipe=True, before_options="-f s16le -ar 12000 -ac 1",
+                                    stderr=subprocess.DEVNULL)
     vc = channel.guild.voice_client
     if vc and vc.is_connected():
         await vc.move_to(channel)
     else:
         vc = await channel.connect(timeout=30.0, reconnect=True)
     vc.play(source, after=lambda e: log_error(f"[radio] playback error: {e}") if e else None)
-    session = LiveSession(guild_id, vc, proc, receiver, khz, mode, label, requested_by)
+    session = LiveSession(guild_id, vc, proc, receiver, khz, mode, label, requested_by, reader=reader)
     session.watchdog = asyncio.create_task(_watch(session))
     _sessions[guild_id] = session
     log_action(f"[radio] live {label} {khz:g} kHz {mode} via {receiver.host} in {channel.name} for {requested_by}")
@@ -72,12 +103,19 @@ async def start(channel, khz: float, mode: str, region: str, label: str, request
 
 async def _watch(s: LiveSession) -> None:
     limit = float(config.get("radio.live_max_minutes", 60))
+    empty_checks = 0
     try:
         while s.guild_id in _sessions:
             await asyncio.sleep(20)
-            humans = [m for m in getattr(s.vc.channel, "members", []) if not m.bot]
-            if s.minutes >= limit or not humans or s.proc.poll() is not None:
-                log_debug(f"[radio] live session ending ({s.minutes:.0f} min, {len(humans)} listening)")
+            humans = [m for m in (getattr(s.vc.channel, "members", []) or []) if not m.bot]
+            empty_checks = empty_checks + 1 if not humans else 0
+            reason = ("time limit" if s.minutes >= limit
+                      else "the channel emptied" if empty_checks >= 2
+                      else "the receiver stream ended" if s.proc.poll() is not None
+                      else f"no audio for {STALL_S}s" if s.reader and time.time() - s.reader.last > STALL_S
+                      else "")
+            if reason:
+                log_action(f"[radio] live session ending: {reason} ({s.minutes:.0f} min)")
                 await stop(s.guild_id)
                 return
     except asyncio.CancelledError:
@@ -89,10 +127,14 @@ async def stop(guild_id: int) -> bool:
     if not s:
         return False
     try:
+        # Stream first: discord.py's pipe writer then reads end-of-stream and
+        # exits on its own. Stopping playback first blanks its handles while
+        # it is still blocked reading, and the thread dies with a traceback.
+        await asyncio.to_thread(kiwi.close_stream, s.proc)
+        await asyncio.sleep(0.5)
         if s.vc.is_playing():
             s.vc.stop()
     finally:
-        kiwi.close_stream(s.proc)
         if s.vc.is_connected():
             await s.vc.disconnect(force=True)
         if s.watchdog and s.watchdog is not asyncio.current_task():

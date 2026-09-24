@@ -58,20 +58,24 @@ DIRECTORY = """// header
 var kiwisdr_com =
 [
  {"status":"active","offline":"no","name":"A","sdr_hw":"KiwiSDR 2 ⏳🚫 Limits","bands":"0-30000000",
-  "users":"1","users_max":"8","gps":"(38.9, -94.8)","snr":"30,33","loc":"Olathe, KS","url":"http://a.proxy.kiwisdr.com"},
+  "users":"1","users_max":"8","ext_api":"4","gps":"(38.9, -94.8)","snr":"30,33","loc":"Olathe, KS","url":"http://a.proxy.kiwisdr.com"},
+ {"status":"active","offline":"no","name":"E","sdr_hw":"KiwiSDR 2","bands":"0-30000000",
+  "users":"0","users_max":"8","ext_api":"0","gps":"(38.0, -97.0)","snr":"60,60","loc":"no API clients","url":"http://e.example:8073"},
  {"status":"active","offline":"no","name":"B","sdr_hw":"KiwiSDR 1 ⏳ Limits","bands":"0-30000000",
-  "users":"0","users_max":"4","gps":"(39.0, -95.0)","snr":"40,40","loc":"limited","url":"http://b.example:8073"},
+  "users":"0","users_max":"4","ext_api":"4","gps":"(39.0, -95.0)","snr":"40,40","loc":"limited","url":"http://b.example:8073"},
  {"status":"active","offline":"no","name":"C","sdr_hw":"KiwiSDR 2","bands":"0-30000000",
-  "users":"8","users_max":"8","gps":"(40.0, -100.0)","snr":"45,45","loc":"full","url":"http://c.example:8073"},
+  "users":"8","users_max":"8","ext_api":"4","gps":"(40.0, -100.0)","snr":"45,45","loc":"full","url":"http://c.example:8073"},
  {"status":"active","offline":"no","name":"D","sdr_hw":"KiwiSDR 2","bands":"0-30000000",
-  "users":"0","users_max":"8","gps":"(52.0, 5.0)","snr":"50,50","loc":"Netherlands","url":"http://d.example:8174"},
+  "users":"0","users_max":"8","ext_api":"4","gps":"(52.0, 5.0)","snr":"50,50","loc":"Netherlands","url":"http://d.example:8174"},
 ]
 """
 
 
-def test_the_directory_skips_limited_and_full_receivers_and_ranks_by_snr():
+def test_the_directory_skips_limited_full_and_api_closed_receivers():
+    """ext_api 0: the receiver accepts a recorder, sends nothing, and closes it
+    ten seconds later — silent !radio and empty recordings, all night."""
     rs = kiwi.parse_directory(DIRECTORY)
-    assert {r.name for r in rs} == {"A", "C", "D"}          # B enforces a time limit
+    assert {r.name for r in rs} == {"A", "C", "D"}          # B: time limit; E: no API clients
     na = kiwi.choose(rs, 8992, "na")
     assert [r.name for r in na] == ["A"]                   # C has no free slot
     assert na[0].port == 8073                              # proxies are listed without one
@@ -159,3 +163,16 @@ def test_radio_status_and_live_refusals():
     m = _msg("!radio hfgcs", in_voice=False)
     asyncio.run(rh.handle_radio_command(MagicMock(), m))
     assert "voice channel" in m.channel.send.await_args.kwargs["embed"].description
+
+
+def test_no_radio_subprocess_writes_to_the_bots_terminal():
+    """ffmpeg inherits fd 2 unless told otherwise — beneath the logging
+    redirect — and its output broke the curses dashboard."""
+    from pathlib import Path
+    root = Path(__file__).resolve().parents[3] / "utils" / "radio"
+    live_src = (root / "live.py").read_text(encoding="utf-8")
+    assert "stderr=subprocess.DEVNULL" in live_src
+    for name in ("watch.py", "transcribe.py"):
+        src = (root / name).read_text(encoding="utf-8")
+        for call in src.split("subprocess.run(")[1:]:
+            assert "capture_output=True" in call.split(")\n")[0] + call[:400], name

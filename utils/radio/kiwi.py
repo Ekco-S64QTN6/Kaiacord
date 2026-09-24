@@ -56,6 +56,8 @@ class Receiver:
     snr: int
     low_hz: int
     high_hz: int
+    ext_api: int = 0          # listener slots the owner allows non-browser clients
+
 
     def covers(self, khz: float) -> bool:
         return self.low_hz <= khz * 1000 <= self.high_hz
@@ -90,11 +92,18 @@ def parse_directory(text: str) -> list[Receiver]:
             lat, lon = (float(v) for v in str(r["gps"]).strip("() ").split(","))
             low, high = (int(float(v)) for v in str(r.get("bands") or "0-30000000").split("-")[:2])
             snr_parts = [int(p) for p in str(r.get("snr") or "0").split(",") if p.strip().lstrip("-").isdigit()]
+            # A receiver that allows no API clients accepts the connection and
+            # closes it ~10 s later without sending audio; kiwirecorder then
+            # reconnects forever, silently. 140 of 851 in the directory do this.
+            ext_api = int(r.get("ext_api") or 0)
+            if ext_api < 1:
+                continue
             host, port = _host_port(r["url"])
             out.append(Receiver(host=host, port=port, name=str(r.get("name") or host),
                                 location=str(r.get("loc") or ""), lat=lat, lon=lon,
                                 users=int(r.get("users") or 0), users_max=int(r.get("users_max") or 0),
-                                snr=snr_parts[-1] if snr_parts else 0, low_hz=low, high_hz=high))
+                                snr=snr_parts[-1] if snr_parts else 0, low_hz=low, high_hz=high,
+                                ext_api=ext_api))
         except (KeyError, TypeError, ValueError):
             continue
     return out
@@ -151,7 +160,10 @@ def available() -> bool:
 
 def _recorder_cmd(r: Receiver, khz: float, mode: str) -> list[str]:
     return [sys.executable, "-u", str(RECORDER), "-s", r.host, "-p", str(r.port),
-            "-f", f"{khz:g}", "-m", mode.lower(), "-u", KIWI_USER, "-q"]
+            "-f", f"{khz:g}", "-m", mode.lower(), "-u", KIWI_USER, "-q",
+            # info level: connection failures are logged there, and -q alone
+            # makes a refused connection completely silent.
+            "--log_level=info"]
 
 
 async def _stop(proc: asyncio.subprocess.Process, grace: float = 8.0) -> None:
@@ -186,18 +198,42 @@ async def record(receiver: Receiver, khz: float, mode: str, seconds: float, out_
     proc = await asyncio.create_subprocess_exec(*cmd, cwd=str(KIWICLIENT),
                                                 stdout=asyncio.subprocess.DEVNULL,
                                                 stderr=asyncio.subprocess.PIPE)
-    try:
-        await asyncio.wait_for(proc.wait(), seconds + 20)
-    except asyncio.TimeoutError:
-        pass
-    finally:
-        await _stop(proc)
-    err = (await proc.stderr.read()).decode("utf-8", "replace") if proc.stderr else ""
+    refused = await _watch_stderr(proc, seconds + 20)
+    await _stop(proc)
     written = sorted(set(out_dir.glob("*.wav")) - before)
-    if not written and "Failed to connect" in err:
-        raise FeedError(f"{receiver.host} refused the connection")
+    if refused and not written:
+        raise FeedError(f"{receiver.host} {refused}")
     # Drop a squelch opening that is only noise-length.
     return [p for p in written if p.stat().st_size > SAMPLE_RATE * 2 * 3]
+
+
+_REFUSALS = ("Failed to connect", "server closed the connection", "Too busy", "too many users",
+             "Password", "banned")
+
+
+async def _watch_stderr(proc, deadline_s: float) -> str:
+    """Read kiwirecorder's log as it arrives (a full pipe would block it) until
+    it exits or the deadline passes. A receiver that refuses us twice is given
+    up on at once instead of after the whole window. Returns why, or ''."""
+    strikes, reason = 0, ""
+    loop = asyncio.get_running_loop()
+    end = loop.time() + deadline_s
+    while proc.returncode is None and loop.time() < end:
+        try:
+            line = await asyncio.wait_for(proc.stderr.readline(), max(0.1, end - loop.time()))
+        except asyncio.TimeoutError:
+            break
+        if not line:
+            await proc.wait()
+            break
+        text = line.decode("utf-8", "replace")
+        hit = next((r for r in _REFUSALS if r.lower() in text.lower()), None)
+        if hit:
+            strikes += 1
+            reason = f"refused the connection ({hit})"
+            if strikes >= 2:
+                break
+    return reason
 
 
 def open_stream(receiver: Receiver, khz: float, mode: str):
@@ -209,6 +245,13 @@ def open_stream(receiver: Receiver, khz: float, mode: str):
         raise FeedError("kiwiclient is not installed — run tools/maintenance/fetch_radio_assets.py")
     return subprocess.Popen(_recorder_cmd(receiver, khz, mode) + ["--nc"], cwd=str(KIWICLIENT),
                             stdout=subprocess.PIPE, stderr=subprocess.DEVNULL)
+
+
+def first_audio(proc, timeout: float = 12.0) -> bool:
+    """Block until the stream delivers audio, or give up. Run it in a thread."""
+    import select
+    ready, _, _ = select.select([proc.stdout], [], [], timeout)
+    return bool(ready) and proc.poll() is None
 
 
 def close_stream(proc) -> None:

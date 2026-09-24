@@ -97,7 +97,7 @@ def _seconds(path: Path) -> float:
 def _to_opus(wav: Path, dest: Path) -> Path:
     subprocess.run(["ffmpeg", "-hide_banner", "-loglevel", "error", "-y", "-i", str(wav),
                     "-af", transcribe.PREPROCESS, "-c:a", "libopus", "-b:a", "24k", str(dest)],
-                   check=True, timeout=120)
+                   check=True, timeout=120, capture_output=True)   # never onto the dashboard's terminal
     return dest
 
 
