@@ -38,7 +38,7 @@ def test_split_into_thread_no_sentence_boundary():
     chunks = _split_into_thread(text, max_chars=100)
     assert len(chunks) > 4
     for c in chunks[:-1]:
-        assert c.endswith("...")
+        assert c.endswith("…")
         assert len(c) <= 100
 
 def test_needs_thread_expansion():

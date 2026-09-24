@@ -93,61 +93,70 @@ async def get_bluesky_client(force_new: bool = False):
 
 
 def _split_into_thread(text: str, max_chars: int = 300, max_posts: int = 5) -> list[str]:
+    """Split text into posts of at most `max_chars`, at sentence boundaries.
+
+    A post keeps the whitespace between its sentences, so a paragraph break
+    stays a paragraph break. A sentence too long for one post is cut between
+    words, and a single token too long for one post (a URL) is cut outright:
+    Bluesky rejects an oversized post, which would leave the thread without
+    its tail. Anything past `max_posts` is dropped, and the last post says so
+    with an ellipsis rather than ending as if the thought were complete.
     """
-    Split long text into thread-friendly chunks at natural sentence boundaries.
-    
-    Returns a list of strings, each under max_chars, up to max_posts.
-    """
+    import re
 
     text = text.strip()
     if len(text) <= max_chars:
         return [text]
-    
-    import re
-    # Split on sentence endings while keeping the punctuation
-    # Improved regex to handle various sentence terminators
-    sentences = re.split(r'(?<=[.!?])\s+', text)
-    
-    chunks = []
-    current_chunk = ""
-    
-    for sentence in sentences:
-        if not sentence: continue
-        
-        # Check if adding this sentence would exceed the limit
-        candidate = (current_chunk + " " + sentence).strip() if current_chunk else sentence
-        
-        if len(candidate) <= max_chars:
-            current_chunk = candidate
-        else:
-            # Save current chunk if it has content
-            if current_chunk:
-                chunks.append(current_chunk)
-            
-            # If single sentence exceeds limit, split mid-sentence at word boundary
-            if len(sentence) > max_chars:
-                words = sentence.split()
-                current_chunk = ""
-                for word in words:
-                    candidate = (current_chunk + " " + word).strip() if current_chunk else word
-                    if len(candidate) <= max_chars - 4:  # Leave room for "..."
-                        current_chunk = candidate
-                    else:
-                        if current_chunk:
-                            # Add ellipsis if we're cutting mid-thought
-                            if not current_chunk.endswith(('.', '!', '?')):
-                                chunks.append(current_chunk + "...")
-                            else:
-                                chunks.append(current_chunk)
-                        current_chunk = word
+
+    # Units are (separator-before, sentence); the separator is kept verbatim.
+    parts = re.split(r"(?<=[.!?])(\s+)", text)
+    units = [("", parts[0])] + [(parts[i], parts[i + 1]) for i in range(1, len(parts) - 1, 2)]
+
+    def pieces(sentence: str) -> list[str]:
+        """A sentence as pieces that each fit, cut between words when needed."""
+        if len(sentence) <= max_chars:
+            return [sentence]
+        out, cur = [], ""
+        for word in sentence.split():
+            while len(word) > max_chars - 1:           # a token longer than a post
+                if cur:
+                    out.append(cur + "…")
+                    cur = ""
+                out.append(word[:max_chars - 1] + "…")
+                word = word[max_chars - 1:]
+            cand = f"{cur} {word}" if cur else word
+            if len(cand) <= max_chars - 1:
+                cur = cand
             else:
-                current_chunk = sentence
-    
-    # Don't forget the last chunk
-    if current_chunk:
-        chunks.append(current_chunk)
-    
-    return chunks[:max_posts]
+                out.append(cur + "…")
+                cur = word
+        if cur:
+            out.append(cur)
+        return out
+
+    chunks: list[str] = []
+    cur = ""
+    for sep, sentence in units:
+        if not sentence.strip():
+            continue
+        cand = cur + sep + sentence if cur else sentence
+        if len(cand) <= max_chars:
+            cur = cand
+            continue
+        if cur:
+            chunks.append(cur.rstrip())
+        split = pieces(sentence)
+        chunks.extend(split[:-1])
+        cur = split[-1]
+    if cur:
+        chunks.append(cur.rstrip())
+
+    if len(chunks) > max_posts:
+        log_warning(f"Bluesky thread cut to {max_posts} of {len(chunks)} posts")
+        chunks = chunks[:max_posts]
+        last = chunks[-1].rstrip("…")
+        chunks[-1] = (last if len(last) < max_chars else last[:max_chars - 1].rstrip()) + "…"
+    return chunks
 
 
 
