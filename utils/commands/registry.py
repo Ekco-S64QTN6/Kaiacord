@@ -35,6 +35,7 @@ from utils.commands.rpg_handler import handle_rpg_command
 from utils.commands.scores_handler import handle_scores_command
 from utils.commands.selfmodel_handler import handle_selfmodel_command
 from utils.commands.snapshot_handler import handle_snapshot_command
+from utils.commands.stance_handler import handle_stance_command
 from utils.commands.social_handler import handle_quip_command
 from utils.commands.sysmon_handler import handle_sysmon_command
 from utils.commands.embed_style import notice
@@ -118,6 +119,9 @@ COMMANDS = (
     Command("snapshot", handle_snapshot_command, GROUP_MEMORY, extra=RESPONDER,
             owner_only=True,
             summary="Save a snapshot of the current conversation"),
+    Command("stance", handle_stance_command, GROUP_MEMORY, extra=RESPONDER,
+            owner_only=True, usage="!stance [scenario|baseline]",
+            summary="Pressure-test whether she holds a correct position"),
 
     # ── Knowledge & Ingestion ────────────────────────────────────────
     Command("enrich", handle_enrich_command, GROUP_KNOWLEDGE, extra=RESPONDER,

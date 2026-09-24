@@ -28,7 +28,7 @@ All commands are prefixed with `!`. Admin commands are restricted to the project
 | `!launch` | The next rocket launches (`!launches`) | All |
 | `!quake` | Magnitude 4.5+ earthquakes in the last day (`!quakes`) | All |
 | `!sky` | Tonight overhead: moon, planets, meteor showers, ISS pass | All |
-| `!download <url>` | Submit a URL for the knowledge base (staged, filed hourly) | All |
+| `!download <url>` | Submit a URL for the knowledge base (cleaned and filed straight away) | All |
 | `!youtube <url>` | Pull a video's transcript into the knowledge base, correcting misheard names (`!yt`) | All |
 | `!quip` | Trigger a social media quip (10m cooldown) | All |
 | `!flag <reason>` | Flag the previous message for audit/review | Admin |
@@ -40,6 +40,7 @@ All commands are prefixed with `!`. Admin commands are restricted to the project
 | `!enrich [text]` | Run manual entity/context enrichment | Admin |
 | `!reindex` | Trigger background knowledge base reindexing | Admin |
 | `!selfmodel` | Regenerate Kaia's self-model | Admin |
+| `!stance [scenario\|baseline]` | Pressure-test whether she holds a correct position | Admin |
 | `!sysmon` | System monitoring dashboard | Admin |
 | `!explain [n]` | Where the last answer's retrieved context came from, or the *n*-th most recent | All |
 
@@ -130,10 +131,12 @@ Fetches content from a URL, converts it to Markdown, and **stages** it in
 `knowledge_base/_ingress/`. Supports HTML pages, PDFs, and plain text.
 
 Staged documents are **not** retrievable yet — that directory is excluded from RAG
-indexing. An hourly pass (`tools/maintenance/process_ingress.py`, also on demand from
-`kaia-tools.sh` → Documents & Ingestion) normalises the text, derives a title, summary
-and keywords, records who submitted it and from where, files it into the right
-knowledge-base folder, and triggers a single reindex for the batch.
+indexing. The command then runs `tools/maintenance/process_ingress.py --file` on it straight
+away: it normalises the text, derives a title, summary and keywords, records who submitted
+it and from where, files it into the right knowledge-base folder and requests a reindex.
+The reply's footer says where it went; it is searchable within about five minutes. An
+hourly pass (also on demand from `kaia-tools.sh` → Documents & Ingestion) files anything
+that failed or was placed by hand.
 
 That staging step is what lets the command stay open to everyone: unvetted web content
 cannot reach retrieval, where it would be presented as grounded fact. A document that
@@ -146,7 +149,7 @@ and a timestamp anchor every five minutes so a retrieved passage can be cited ba
 point in the video.
 
 Like `!download`, the result is **staged** in `knowledge_base/_ingress/` and filed into
-`knowledge_base/transcripts/` on the hourly ingest pass. Accepts every URL form
+`knowledge_base/transcripts/` straight away, the same way. Accepts every URL form
 (`watch?v=`, `youtu.be/`, `/shorts/`, `/live/`, with or without extra parameters).
 
 Videos with captions disabled will fail with a message saying so; there is nothing to
@@ -217,6 +220,13 @@ Manages Kaia's persistent memory systems.
 ### 📋 Conversation Snapshot (`!snapshot`)
 Distills recent channel conversation into a structured Markdown RAG node in `knowledge_base/runtime/snapshots/` tagged with participants, date, channel, and topic summary.
 
+### ⚖️ Stance harness (`!stance`)
+Runs six pressure scenarios through her real pipeline, nothing saved: each asks something
+with a right answer (Pixel is a robot, who wrote *Neuromancer*…) and pushes back three
+times. Reports which she held, where she conceded and how her hedging changed, against the
+baseline. `!stance pixel` runs one; `!stance baseline` keeps the latest run as the baseline.
+About six minutes; results in `memory/stance_runs/`.
+
 ### 🪞 Self-Model (`!selfmodel`)
 Regenerates Kaia's self-model — a synthesis of interaction logs into `memory/kaia_self_model.md`.
 
@@ -243,6 +253,6 @@ Kaia responds naturally to specific phrases when mentioned or addressed — no `
 | Role | Commands |
 |:---|:---|
 | **All Users** | `!scores`, `!art`, `!rpg`, `!help`, `!news`, `!skyking`, `!numbers`, `!radio`, `!tacamo`, `!buzzer`, `!nightshift`, `!beacons`, `!overnight`, `!iss`, `!nasa`, `!earth`, `!spaceweather`, `!rocks`, `!launch`, `!quake`, `!sky`, `!quip`, `!forum link` |
-| **Admin (Owner)** | All of the above, plus `!dream`, `!memory`, `!flag`, `!audit`, `!reindex`, `!enrich`, `!snapshot`, `!selfmodel`, `!sysmon`, `!forum (status/stats/scrape/read/post/reply/user)` |
+| **Admin (Owner)** | All of the above, plus `!dream`, `!memory`, `!flag`, `!audit`, `!reindex`, `!enrich`, `!snapshot`, `!selfmodel`, `!stance`, `!sysmon`, `!forum (status/stats/scrape/read/post/reply/user)` |
 
 Rate limiting applies to all users (configurable via `performance.requests_per_minute` in `kaia.yaml`).
