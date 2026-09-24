@@ -70,12 +70,18 @@ class IntentParser:
                 r"^\s*(kaia\s+)?who (is|are|was|were|am) ",
                 r"^\s*(kaia\s+)?what (is|are|was|were) ",
                 r"\b(dossier on|tell me about|biography of|background on)\b",
-                r"\b(mark|elara|thorne|jules|elias)\b"
+                r"\b(elara|thorne|jules|elias)\b"
             ],
             "DIAGNOSTIC_DEEP_DIVE": [
-                r"\b(error|bug|fail|crash|exception|traceback|fix|broken|dogshit)\b",
-                r"\b(logs?|status|restart|boot|system|debug)\b",
-                r"\b(why is it slow|latency|lag|responsive|hang|lockup)\b"
+                # About her or a program, not the words in passing: "the solar
+                # system", "the status quo", "fix your hair", "hang out" and
+                # every x.com link (…/status/…) were all diagnostics, which
+                # searches chat logs only and runs the turn at the grounded
+                # temperature.
+                r"\b(errors?|bugs?|crash(ed|es|ing)?|exceptions?|traceback|dogshit)\b",
+                r"\b(your|kaia'?s)\s+(logs?|status|system|code|memory|filters?|pipeline)\b",
+                r"\b(restart|reboot|debug(ging)?)\b",
+                r"\b(why is it slow|latency|lockup)\b"
             ],
             "RECAP_QUERY": [
                 r"recap\b.*\b\d+\s*(hours?|days?|minutes?|hrs?)",
@@ -137,7 +143,13 @@ class IntentParser:
     
     def fast_parse(self, query: str) -> Optional[Intent]:
         """Layer 1: Fast Pattern Detection"""
-        query_lower = query.lower().strip()
+        # A pasted URL is not the question: its path words ("status",
+        # "system", "debug") matched intents on every shared link.
+        query_lower = re.sub(r"https?://\S+", " ", query).lower().strip()
+        # "Kaia, <link>" is sharing the link, not saying hello; the greeting
+        # shortcut would skip retrieval for it.
+        if query_lower != query.lower().strip() and re.fullmatch(r"\W*(kaia)?\W*", query_lower):
+            return None
         
         # Fast-path for explicit file/document review intent.
         # Fix #10: Only match explicit file-reference phrases and extensions to avoid

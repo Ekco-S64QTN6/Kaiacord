@@ -57,3 +57,32 @@ def test_the_llm_second_pass_is_gone():
     parser = IntentParser()
     assert not hasattr(parser, "_analyze_with_llm")
     assert not hasattr(parser, "parse_intent")
+
+
+import pytest
+
+
+@pytest.mark.parametrize("text", [
+    "kaia what do you think about the solar system?",
+    "the status quo is boring",
+    "kaia did you fix your hair",
+    "kaia mark my words, it will rain",
+    "we should hang out later",
+    "Kaia, https://x.com/SoIL_Ops/status/2102768975125868609?s=20",
+])
+def test_words_in_passing_are_not_a_diagnosis_or_a_greeting(text):
+    """Diagnostics search chat logs only and run at the grounded temperature;
+    a greeting skips retrieval. Neither fits these."""
+    from utils.core.intent_classifier import IntentParser
+    intent = IntentParser().fast_parse(text)
+    assert intent is None or intent.suggested_strategy not in (
+        "DIAGNOSTIC_DEEP_DIVE", "SOCIAL_GREETING", "PRECISE_RECALL")
+
+
+@pytest.mark.parametrize("text", [
+    "how do I fix a CUDA error in pytorch?", "kaia check your logs",
+    "kaia restart", "kaia why is it slow", "there's a traceback in the output",
+])
+def test_real_diagnostics_still_are(text):
+    from utils.core.intent_classifier import IntentParser
+    assert IntentParser().fast_parse(text).suggested_strategy == "DIAGNOSTIC_DEEP_DIVE"

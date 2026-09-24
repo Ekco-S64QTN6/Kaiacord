@@ -584,7 +584,7 @@ class MessageProcessor:
 
         # 1. Fast Path
         # A turn that only points at a message is classified by that message.
-        fast_intent = self.intent_parser.fast_parse(ctx.pointed_at or ctx.sanitized_content)
+        fast_intent = self.intent_parser.fast_parse(ctx.pointed_at or ctx.own_words)
         
         if fast_intent:
             ctx.intent = fast_intent
