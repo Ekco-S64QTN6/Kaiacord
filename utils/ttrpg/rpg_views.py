@@ -739,9 +739,6 @@ class RPGFullLocationView(discord.ui.View):
         btn.callback = cb
         self.add_item(btn)
 
-    async def on_timeout(self):
-        pass
-
 
 class RPGCombatView(discord.ui.View):
     """Attack / Flee buttons shown during active combat.
@@ -926,9 +923,6 @@ class RPGCombatView(discord.ui.View):
 
         use_btn.callback = _use_item_cb
         self.add_item(use_btn)
-
-    async def on_timeout(self):
-        pass
 
 
 def _make_status_btn(ctx, uid, uname, is_owner, row=None):
@@ -1356,9 +1350,6 @@ class BossApproachView(discord.ui.View):
         view = DungeonView(self._ctx, self._uid, self._uname, self._is_owner, state)
         await interaction.followup.send(embed=embed, view=view)
 
-    async def on_timeout(self):
-        pass
-
 class SpineLiftView(discord.ui.View):
     def __init__(self, ctx_obj, uid, uname, is_owner, sheet, max_floor_defeated, has_lightstone=True):
         super().__init__(timeout=120)
@@ -1724,9 +1715,6 @@ class DungeonCombatView(discord.ui.View):
         use_btn.callback = _use_cb
         self.add_item(use_btn)
 
-    async def on_timeout(self):
-        pass
-
 
 class MailMenuView(discord.ui.View):
     def __init__(self, ctx, msg, uid, uname, is_owner, sheet):
@@ -1967,9 +1955,6 @@ class ConsumableQuantityView(discord.ui.View):
             )
         custom_btn.callback = _custom_cb
         self.add_item(custom_btn)
-
-    async def on_timeout(self):
-        pass
 
 
 class ConsumablePurchaseModal(discord.ui.Modal):

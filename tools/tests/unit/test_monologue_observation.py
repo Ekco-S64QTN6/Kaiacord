@@ -250,44 +250,25 @@ def test_only_the_absence_checkin_goes_out_unlabelled():
 
 def test_every_broadcast_gate_field_survives_a_restart():
     """`BotState` names each persisted field in three places — the attribute,
-    `load()` and `save()` — and the monologue gate was in none of them.
-
-    `_broadcast_monologue` wrote `monologue_broadcast_last_sent` and
-    `monologue_broadcast_count` onto the object and called `save()`, which
-    dropped them. On the next boot the gap read 0.0 and the count read 0, so
-    she aired a thought about two minutes after every restart regardless of
-    `broadcast_min_interval_minutes` (90) and started the daily cap again. In
-    one log: aired 12:19:50, restarted 12:31:15, aired again 12:33:40.
-
-    Asserted over the whole family rather than the one field, because a fixed
-    key list is exactly the thing that loses the next one too.
+    `load()` and `save()`. The monologue's own gate fields were once in none of
+    them, so she aired a thought two minutes after every restart against a
+    90-minute minimum. The shared unprompted gate is the one left; check it.
     """
     import inspect
 
     from utils.infrastructure.system.bot_state import BotState
 
     src = inspect.getsource(BotState)
-    missing = []
-    for prefix in ("digest", "monologue", "proactive"):
-        for field in (f"{prefix}_broadcast_last_sent", f"{prefix}_broadcast_count",
-                      f"{prefix}_broadcast_date"):
-            if prefix == "proactive":          # named differently, checked below
-                continue
-            # declared, loaded and saved: three mentions minimum
-            if src.count(field) < 3:
-                missing.append(f"{field} ({src.count(field)} mention(s), needs 3)")
+    missing = [f"{f} ({src.count(f)} mention(s), needs 3)"
+               for f in ("unprompted_last_sent", "unprompted_count", "unprompted_date")
+               if src.count(f) < 3]
     assert not missing, f"broadcast gate fields not round-tripped: {missing}"
 
 
-def test_the_monologue_gate_actually_round_trips(tmp_path):
+def test_the_unprompted_gate_actually_round_trips(tmp_path):
     """The source check above cannot see a typo'd key string. This writes the
-    state, reads it back from disk, and compares.
-
-    The path goes through the constructor argument. `BotState()` with no
-    argument opens `memory/bot_state.json` — the live file the running bot is
-    using — and `save()` writes to it; an earlier version of this test patched
-    a `STATE_FILE` class attribute that does not exist and put its fixture
-    values into production state.
+    state, reads it back from disk, and compares — through the constructor
+    argument, never the live memory/bot_state.json.
     """
     import json
 
@@ -295,20 +276,17 @@ def test_the_monologue_gate_actually_round_trips(tmp_path):
 
     path = tmp_path / "bot_state.json"
     s = BotState(state_file=str(path))
-    s.monologue_broadcast_last_sent = 1234.5
-    s.monologue_broadcast_count = 4
-    s.monologue_broadcast_date = "2026-09-21"
+    s.unprompted_last_sent = 1234.5
+    s.unprompted_count = 4
+    s.unprompted_date = "2026-09-21"
     s.save()
-    # save() offloads the write to a single-worker executor, so the file does
-    # not exist yet when save() returns. Wait for that worker to drain.
+    # save() offloads the write to a single-worker executor; wait for it.
     s._executor.shutdown(wait=True)
 
     raw = json.loads(path.read_text()) if path.exists() else {}
-    assert raw.get("monologue_broadcast_last_sent") == 1234.5, \
-        f"not written to disk: {sorted(raw)[:12]}"
-    assert raw.get("monologue_broadcast_count") == 4
-    assert raw.get("monologue_broadcast_date") == "2026-09-21"
-
+    assert raw.get("unprompted_last_sent") == 1234.5, f"not written to disk: {sorted(raw)[:12]}"
+    assert raw.get("unprompted_count") == 4
+    assert raw.get("unprompted_date") == "2026-09-21"
 
 
 # ── Posting through the shared unprompted system ────────────────────────────

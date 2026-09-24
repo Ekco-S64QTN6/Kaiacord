@@ -76,29 +76,9 @@ class BotState:
         # Per-channel last-activity timestamps for afterthought silence checks
         self.channel_last_activity: Dict[int, float] = {}
 
-        # Proactive initiation tracking — rate-limits unprompted messages
-        self.proactive_last_sent: float = 0.0
-        self.proactive_daily_count: int = 0
-        self.last_proactive_date: str = ""
-
-        # Observation-digest broadcasts — tracked separately from the general
-        # proactive budget so airing what Kaia overheard does not consume the
-        # allowance the other proactive sources share.
-        self.digest_broadcast_last_sent: float = 0.0
-        self.digest_broadcast_count: int = 0
-        self.digest_broadcast_date: str = ""
-
-        # Inner-monologue broadcasts, on their own budget for the same reason.
-        # These must be saved and loaded like the digest ones: the gate reads
-        # them back to enforce monologue.broadcast_min_interval_minutes and
-        # max_broadcasts_per_day, so losing them on restart means she airs a
-        # thought within two minutes of every boot no matter when the last one
-        # went out, and the daily count starts again from zero.
-        self.monologue_broadcast_last_sent: float = 0.0
-        self.monologue_broadcast_count: int = 0
-        self.monologue_broadcast_date: str = ""
         # The shared allowance for everything she says unprompted
-        # (utils/core/unprompted.py): one daily count and one gap for all four.
+        # (utils/core/unprompted.py): one daily count and one gap for every source.
+        # Saved and loaded like everything else here, or a restart resets the gap.
         self.unprompted_last_sent: float = 0.0
         self.unprompted_count: int = 0
         self.unprompted_date: str = ""
@@ -133,15 +113,6 @@ class BotState:
                         self.forum_reply_times = state.get('forum_reply_times', {})
                         self.relationships = state.get('relationships', {})
                         self.pending_afterthoughts = state.get('pending_afterthoughts', [])
-                        self.proactive_last_sent = float(state.get('proactive_last_sent', 0.0))
-                        self.proactive_daily_count = int(state.get('proactive_daily_count', 0))
-                        self.last_proactive_date = state.get('last_proactive_date', '')
-                        self.digest_broadcast_last_sent = float(state.get('digest_broadcast_last_sent', 0.0))
-                        self.digest_broadcast_count = int(state.get('digest_broadcast_count', 0))
-                        self.digest_broadcast_date = state.get('digest_broadcast_date', '')
-                        self.monologue_broadcast_last_sent = float(state.get('monologue_broadcast_last_sent', 0.0))
-                        self.monologue_broadcast_count = int(state.get('monologue_broadcast_count', 0))
-                        self.monologue_broadcast_date = state.get('monologue_broadcast_date', '')
                         self.unprompted_last_sent = float(state.get('unprompted_last_sent', 0.0))
                         self.unprompted_count = int(state.get('unprompted_count', 0))
                         self.unprompted_date = state.get('unprompted_date', '')
@@ -211,15 +182,6 @@ class BotState:
                     'relationships': self.relationships,
                     'pending_afterthoughts': self.pending_afterthoughts,
                     'channel_last_activity': {str(k): v for k, v in self.channel_last_activity.items()},
-                    'proactive_last_sent': self.proactive_last_sent,
-                    'proactive_daily_count': self.proactive_daily_count,
-                    'last_proactive_date': self.last_proactive_date,
-                    'digest_broadcast_last_sent': self.digest_broadcast_last_sent,
-                    'digest_broadcast_count': self.digest_broadcast_count,
-                    'digest_broadcast_date': self.digest_broadcast_date,
-                    'monologue_broadcast_last_sent': self.monologue_broadcast_last_sent,
-                    'monologue_broadcast_count': self.monologue_broadcast_count,
-                    'monologue_broadcast_date': self.monologue_broadcast_date,
                     'unprompted_last_sent': self.unprompted_last_sent,
                     'unprompted_count': self.unprompted_count,
                     'unprompted_date': self.unprompted_date,

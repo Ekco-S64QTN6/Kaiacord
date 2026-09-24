@@ -33,6 +33,7 @@ from typing import Optional, List, Tuple
 from utils.infrastructure.logging.kaia_logger import (
     log_debug, log_info, log_warning, log_success,
 )
+from utils.core.sanitizer import user_authored_text
 
 # The daily limit, the gap and the posting hours are the shared unprompted
 # allowance's — see utils/core/unprompted.py and `unprompted:` in config.
@@ -103,6 +104,12 @@ def mark_digest_broadcast(content_id: str) -> None:
         log_debug(f"Marking digest as broadcast failed (non-fatal): {e}")
 
 
+def _same_person(a: str, b: str) -> bool:
+    """Whole-name match; log folders spell spaces as underscores. "Al" is not "Alice"."""
+    norm = lambda n: " ".join((n or "").replace("_", " ").split()).casefold()
+    return bool(norm(a)) and norm(a) == norm(b)
+
+
 @dataclass
 class ProactiveTrigger:
     """A resolved trigger that should produce a proactive message."""
@@ -119,9 +126,6 @@ class ProactiveEngine:
 
     # Why the last evaluate_triggers() call declined, for the task to log.
     last_skip_reason: "str | None" = None
-
-    def __init__(self):
-        self._last_trigger_type: Optional[str] = None
 
     # ── Time & Rate Checks ──────────────────────────────────────────
 
@@ -707,17 +711,12 @@ class ProactiveEngine:
                     ts = msg.get('timestamp', 0)
                     if ts < cutoff:
                         continue
-                    content = msg.get('content', '')
-                    # Skip very short messages (reactions, links, emojis)
-                    if len(content) < 60:
-                        continue
-                    # Extract author name from "Author: message" format
-                    author = ''
-                    if ':' in content:
-                        author = content.split(':', 1)[0].strip()
-                        content = content.split(':', 1)[1].strip()
-                    # Skip Kaia-Autonomous channel logs
-                    if author.lower().startswith('kaia'):
+                    # "Author: <enriched message>" — keep only what they typed,
+                    # without the quoted post, fetched page or links.
+                    author, _, content = msg.get('content', '').partition(': ')
+                    content = re.sub(r'https?://\S+', '', user_authored_text(content)).strip()
+                    # Skip reactions, pasted links, and Kaia's own channel logs
+                    if len(content) < 60 or author.lower().startswith('kaia'):
                         continue
                     substantive_msgs.append({
                         'author': author,
@@ -924,6 +923,7 @@ class ProactiveEngine:
         candidates = self._gather_candidate_sources(bot_state)
 
         if not candidates:
+            self.last_skip_reason = "no source had anything to offer"
             return None
 
         selection = self._select_diverse_source(candidates)
@@ -982,7 +982,9 @@ class ProactiveEngine:
                             if role == 'assistant':
                                 lines.append(f"  Kaia: {content}")
                             elif role == 'user':
-                                lines.append(f"  {content}")
+                                # "Author: <enriched>" — their words, not the quote or page.
+                                author, _, said = msg.get('content', '').partition(': ')
+                                lines.append(f"  {author}: {user_authored_text(said)[:200]}")
                             elif role == 'system' and '[summary' in content.lower():
                                 lines.append(f"  {content[:150]}")
                         if lines:
@@ -997,13 +999,9 @@ class ProactiveEngine:
         # 3. Relationship Stage — familiarity with target user
         try:
             if bot_state and trigger.target_user:
-                # Find the user_id for the target user
+                # Find the user_id for the target user, by whole name
                 for user_id, rel in bot_state.relationships.items():
-                    name = rel.get('display_name', '')
-                    if name and (
-                        trigger.target_user.lower() in name.lower()
-                        or name.lower() in trigger.target_user.lower()
-                    ):
+                    if _same_person(rel.get('display_name', ''), trigger.target_user):
                         stage_line = bot_state.get_stage_injection(
                             int(user_id), trigger.target_user
                         )
@@ -1128,8 +1126,7 @@ class ProactiveEngine:
                             break
         
         if active_user_name and trigger.target_user:
-            if trigger.target_user.lower() in active_user_name.lower() or active_user_name.lower() in trigger.target_user.lower():
-                is_active_user = True
+            is_active_user = _same_person(trigger.target_user, active_user_name)
 
         # Source-specific voice guidance
         voice_hints = {
@@ -1333,11 +1330,6 @@ class ProactiveEngine:
         """Record that a proactive message was sent, updating cooldowns
         and diversity log."""
         now = time.time()
-        bot_state.proactive_last_sent = now
-        bot_state.proactive_daily_count = (
-            getattr(bot_state, 'proactive_daily_count', 0) + 1
-        )
-        bot_state.last_proactive_date = datetime.now().strftime('%Y-%m-%d')
 
         # For absence triggers, record per-user to avoid spamming
         if trigger.trigger_type == "absence":
@@ -1350,7 +1342,6 @@ class ProactiveEngine:
             if rel is not None:
                 rel['last_proactive_checkin'] = now
 
-        self._last_trigger_type = trigger.trigger_type
         bot_state.save()
 
         # Update diversity log

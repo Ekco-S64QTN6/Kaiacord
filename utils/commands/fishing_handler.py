@@ -216,9 +216,6 @@ class FishingMenuView(discord.ui.View):
         await interaction.response.defer()
         await _handle_sell_catch(self._ctx, interaction, self._uid, self._uname, self._is_owner)
 
-    async def on_timeout(self):
-        pass
-
 
 # ── Bite View (Reel mechanic) ─────────────────────────────────────────────────
 
@@ -1196,9 +1193,6 @@ class FishingShopView(discord.ui.View):
 
         sell_btn.callback = _sell_cb
         self.add_item(sell_btn)
-
-    async def on_timeout(self):
-        pass
 
 
 # ── Main entry points for rpg_handler.py dispatch ────────────────────────────
