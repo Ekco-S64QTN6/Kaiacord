@@ -152,17 +152,19 @@ def test_numbers_command_links_each_station():
     assert "tune=13470usb" in _sent(m).description
 
 
-def test_each_box_names_the_other_radio_commands_in_its_footer():
+def test_each_box_points_to_the_index_instead_of_listing_its_siblings():
+    """One pointer to !nightshift; the sibling list under every answer read as clutter."""
     with patch.object(ew, "get_json", AsyncMock(return_value=PAGE)):
         m = _msg("!skyking")
         asyncio.run(rh.handle_skyking_command(None, m))
     footer = _sent(m).footer.text
-    assert "!numbers" in footer and "!skyking classic" in footer
+    assert "!nightshift" in footer and "!skyking classic" in footer and "!numbers" not in footer
     items = {"items": []}
     with patch.object(priyom, "get_json", AsyncMock(return_value=items)):
         m = _msg("!numbers")
         asyncio.run(rh.handle_numbers_command(None, m))
-    assert "!skyking" in _sent(m).footer.text
+    footer = _sent(m).footer.text
+    assert "!nightshift" in footer and "!skyking" not in footer
 
 
 def test_help_lists_the_radio_commands():

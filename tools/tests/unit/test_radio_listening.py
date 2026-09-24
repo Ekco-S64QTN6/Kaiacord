@@ -159,7 +159,7 @@ def test_radio_status_and_live_refusals():
     m = _msg("!radio")
     asyncio.run(rh.handle_radio_command(MagicMock(), m))
     embed = m.channel.send.await_args.kwargs["embed"]
-    assert "What Kaia has heard" in embed.title and "!skyking" in embed.footer.text
+    assert "What Kaia has heard" in embed.title and "!nightshift" in embed.footer.text
     m = _msg("!radio hfgcs", in_voice=False)
     asyncio.run(rh.handle_radio_command(MagicMock(), m))
     assert "voice channel" in m.channel.send.await_args.kwargs["embed"].description

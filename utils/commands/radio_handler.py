@@ -33,7 +33,7 @@ _SUB_HINTS = {
 
 
 def _others(key: str, *_ignored: str) -> str:
-    """Small print: the theme's other commands (utils/commands/nightshift.py)."""
+    """Footer: this command's own variants, if any, then the pointer to !nightshift."""
     main = "skyking" if key in ("detail", "classic") else key
     hint = _SUB_HINTS.get(key)
     rest = nightshift.others(main)

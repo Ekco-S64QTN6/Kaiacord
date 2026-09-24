@@ -1,8 +1,9 @@
-"""Kaia's night shift: the radio and sky commands, and how they point at each other.
+"""Kaia's night shift: the radio and sky commands, and the index that lists them.
 
-Every box in the theme ends with small print naming its nearest siblings and
-`!nightshift`, which lists them all. The table here is that small print's one
-source, so a new command is added once and shows up everywhere it belongs.
+Every box in the theme ends with one short pointer to `!nightshift`; the index
+is the only place the whole set is listed. A list of siblings under every
+answer read as clutter and buried the answer's own footer. THEME is the index's
+one source, so a new command is added once.
 """
 from __future__ import annotations
 
@@ -37,15 +38,12 @@ def register(*keys: str) -> None:
     LIVE.update(keys)
 
 
-def others(this: str, *also_skip: str, limit: int = 4) -> str:
-    """Small print for a box: its family's other commands, then the index."""
-    family = THEME.get(this, ("", "", "radio"))[2]
-    skip = {this, *also_skip}
-    near = [k for k, (_, _, f) in THEME.items() if f == family and k in LIVE and k not in skip]
-    far = [k for k in THEME if k in LIVE and k not in skip and k not in near]
-    picks = (near + far)[:limit]
-    parts = [f"!{k} — {THEME[k][1]}" for k in picks]
-    return " · ".join(parts + ["!nightshift — all of them"])
+POINTER = "More in !nightshift"
+
+
+def others(this: str = "", *_ignored: str, **_kw) -> str:
+    """The footer line every box in the theme ends with."""
+    return POINTER
 
 
 def index_embed():
