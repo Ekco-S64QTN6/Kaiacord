@@ -15,6 +15,9 @@ below preserves all three; a pass that would remove a turn marker is a bug.
 
 Passes, in order:
 
+  0. flattened     — several turns run together on one line
+                     (`[ts] Ekco: hi [ts] Kaia: hello`), left by an old repair.
+                     Split at the line's own later markers; no word changes.
   1. scaffolding   — drop the blocks context_enricher appends to the *prompt*
                      ([ATTACHED_EMBED_CONTEXT], [LINKED_WEB_CONTENT],
                      [CORE_DIRECTIVE], scrape warnings), keeping the page title
@@ -54,6 +57,8 @@ TURN = re.compile(r"^(\[\d{4}-\d\d-\d\d \d\d:\d\d:\d\d\] [^:\n]+: )(.*?)(?=^\[\d
                   re.M | re.S)
 TURN_MARKER = re.compile(r"^\[\d{4}-\d\d-\d\d \d\d:\d\d:\d\d\] [^:\n]+: ", re.M)
 URL = re.compile(r"https?://\S+")
+# A turn marker in the middle of a line, preceded by the space it will replace.
+INLINE_MARKER = re.compile(r" (?=\[(\d{4}-\d\d-\d\d \d\d:\d\d:\d\d)\] ([^:\n\]]{1,40}): )")
 
 PREAMBLE = re.compile(
     r"^[ \t]*(?:okay,?\s*)?(?:here'?s|here is|below is)\b[^\n]*"
@@ -125,10 +130,47 @@ def drop_fragments(body: str) -> str:
     return "\n".join(keep)
 
 
+def split_flattened(text: str) -> tuple[str, int]:
+    """Put run-together turns back on their own lines.
+
+    A mid-line marker counts only when it continues the conversation: at or
+    after the previous turn's time, within a day of it, and spoken by someone
+    who speaks at the start of a line in this file, or Kaia. A log excerpt someone
+    pasted quotes earlier times, so it stays where it is.
+    """
+    from datetime import datetime, timedelta
+    speakers = {"Kaia"} | {speaker_of(m.group(0)) for m in TURN_MARKER.finditer(text)}
+    splits = 0
+    out = []
+    for line in text.split("\n"):
+        head = TURN_MARKER.match(line)
+        if not head:
+            out.append(line)
+            continue
+        prev = datetime.strptime(line[1:20], "%Y-%m-%d %H:%M:%S")
+        cuts = []
+        for m in INLINE_MARKER.finditer(line, head.end()):
+            ts = datetime.strptime(m.group(1), "%Y-%m-%d %H:%M:%S")
+            if prev <= ts <= prev + timedelta(days=1) and m.group(2).strip() in speakers:
+                cuts.append(m.start())
+                prev = ts
+        start = 0
+        for cut in cuts:
+            out.append(line[start:cut].rstrip())
+            out.extend(["", ""])
+            start = cut + 1
+        out.append(line[start:])
+        splits += len(cuts)
+    return "\n".join(out), splits
+
+
 def compact_text(text: str) -> tuple[str, Counter]:
     from utils.core.sanitizer import summarize_link_context
 
     stats = Counter()
+    text, splits = split_flattened(text)
+    if splits:
+        stats["flattened"] = splits
     before_markers = len(TURN_MARKER.findall(text))
 
     text = CLEANED_HEADER.sub("", text)
@@ -214,7 +256,7 @@ def main() -> int:
             write_atomic(f, new_text)
     print(f"scanned {files} transcripts, {touched} would change" if not args.apply
           else f"scanned {files} transcripts, {touched} changed")
-    for k in ("scaffolding", "link_dump", "fragments", "preamble"):
+    for k in ("flattened", "scaffolding", "link_dump", "fragments", "preamble"):
         if totals[k]:
             print(f"  {k:12} {totals[k]} turns")
     print(f"  {saved:,} characters removed")

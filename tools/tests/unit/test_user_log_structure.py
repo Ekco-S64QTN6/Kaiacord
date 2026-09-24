@@ -128,6 +128,26 @@ def test_compaction_is_idempotent():
     assert twice == once and not stats
 
 
+def test_flattened_turns_go_back_on_their_own_lines():
+    """Split at the line's own later markers; words and markers unchanged."""
+    m = _tool()
+    text = ("[2026-09-04 20:14:23] Starkind: ask me. [2026-09-04 20:14:23] Kaia: fine. "
+            "[2026-09-04 20:15:46] Starkind: what matters? [2026-09-04 20:15:50] Kaia: continuity.\n")
+    out, stats = m.compact_text(text)
+    assert stats["flattened"] == 3
+    assert [l for l in out.split("\n") if l] == [
+        "[2026-09-04 20:14:23] Starkind: ask me.", "[2026-09-04 20:14:23] Kaia: fine.",
+        "[2026-09-04 20:15:46] Starkind: what matters?", "[2026-09-04 20:15:50] Kaia: continuity."]
+    assert m.compact_text(out)[0] == out
+
+
+def test_a_pasted_older_excerpt_stays_inside_the_turn():
+    m = _tool()
+    text = ("[2026-09-04 20:14:23] Ekco: you said this: [2026-06-01 10:00:00] Kaia: old words\n")
+    out, stats = m.compact_text(text)
+    assert out == text and not stats
+
+
 def test_kaias_own_turns_are_never_rewritten():
     m = _tool()
     text = ("[2026-06-29 00:01:00] Kaia: here is https://example.com/a and then "
