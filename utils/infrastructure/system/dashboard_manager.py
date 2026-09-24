@@ -495,7 +495,9 @@ class DashboardManager:
                 await initialize_logic_layer()
             else:
                 initialize_logic_layer()
-            await run_bot_async(sp)
+            # The stop event is what a SIGTERM sets. Without it nothing here
+            # closes the client, and the process never exits.
+            await run_bot_async(sp, self.stop_event)
         except Exception as e:
             # Check if it's just the expected cascade from the inner loop cancellation
             if not isinstance(e, asyncio.CancelledError):
