@@ -111,3 +111,13 @@ def test_there_is_no_llm_second_pass():
     assert not hasattr(parser, "classification_model")
     # the regex path is the classifier, and still works
     assert parser.fast_parse("hi kaia").suggested_strategy == "SOCIAL_GREETING"
+
+
+def test_a_linked_page_does_not_teach_technicality():
+    """Traits are learned from the user's own words, not the enrichment."""
+    import asyncio
+    eng = PersonalizationEngine()
+    page = "\n\n[LINKED_WEB_CONTENT]\nthe system logs show code errors in the architecture " * 5
+    for _ in range(20):
+        asyncio.run(eng.learn_from_interaction("42", "lol nice one" + page, "ha, thanks"))
+    assert eng.user_profiles["42"]["technicality"] < 0.5

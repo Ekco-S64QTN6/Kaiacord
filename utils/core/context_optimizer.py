@@ -8,7 +8,6 @@ Contains:
 - Intent, ContextCtx dataclasses (shared types)
 - ContextOptimizer: Model-aware token allocation and context trimming
 - ContextWeaver: Constructs ContextCtx from raw bot state
-- RelevanceFeedback: retired; kept as the interface Kaiacord.py constructs
 - PersonalizationEngine: User preference tracking
 - PersistentStateManager: State serialization/deserialization
 """
@@ -453,22 +452,6 @@ class ContextOptimizer:
                 pass
         return ""
 
-class RelevanceFeedback:
-    """Kept as the interface the bot constructs; it no longer writes to RAG.
-
-    It inserted every fifty exchanges into the logs index as synthetic
-    "User Query / Kaia Response" documents. The same exchanges are already
-    indexed from knowledge_base/user_logs/, so this only duplicated them —
-    with no source file, so nothing could prune them, and with her own
-    answers fed back as retrievable context whether or not they were right.
-    """
-    def __init__(self, rag):
-        self.rag = rag
-
-    async def log_interaction(self, query, response, user_id, user_name="Unknown"):
-        return None
-
-
 _TECH_WORDS = re.compile(
     r"\b(?:how|why|code|implement\w*|system\w*|architecture|errors?|bugs?|"
     r"terminal|logs?)\b", re.IGNORECASE)
@@ -504,10 +487,6 @@ class PersonalizationEngine:
             hints.append("Technical depth is welcome. Be precise.")
         if traits.get('conciseness', 0.5) > 0.65:
             hints.append("Keep responses short. This user prefers brevity.")
-        if traits.get('humor', 0.5) > 0.70:
-            hints.append("This user appreciates wit and dry humor.")
-        if traits.get('formality', 0.5) < 0.30:
-            hints.append("Casual register is fine. Relax.")
         if hints:
             system_prompt += "\n\n[USER PREFERENCE: " + " ".join(hints) + "]"
         return system_prompt
@@ -532,7 +511,13 @@ class PersonalizationEngine:
             pass # Fallback to original ID if registry fails
 
         traits = await self.get_user_traits(canonical_id)
-        
+
+        # Their own words only: a quoted post or a fetched page is not how
+        # this person writes, and an article full of "system" and "code"
+        # made small talk read as technical.
+        from utils.core.sanitizer import user_authored_text
+        query = user_authored_text(query)
+
         # Simple heuristics for learning
         word_count = len(response.split())
         
