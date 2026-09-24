@@ -153,6 +153,18 @@ def available() -> bool:
     return RECORDER.is_file()
 
 
+def _die_with_parent() -> None:
+    """Runs in the child before exec: the kernel sends SIGTERM when the process
+    that started it dies. A recorder holds a slot on someone else's receiver,
+    and one orphaned by a crash or a killed script kept two slots for six hours
+    with nothing left to stop it."""
+    try:
+        import ctypes
+        ctypes.CDLL("libc.so.6", use_errno=True).prctl(1, signal.SIGTERM)  # PR_SET_PDEATHSIG
+    except Exception:
+        pass
+
+
 def _recorder_cmd(r: Receiver, khz: float, mode: str) -> list[str]:
     return [sys.executable, "-u", str(RECORDER), "-s", r.host, "-p", str(r.port),
             "-f", f"{khz:g}", "-m", mode.lower(), "-u", KIWI_USER, "-q",
@@ -192,7 +204,8 @@ async def record(receiver: Receiver, khz: float, mode: str, seconds: float, out_
     log_debug(f"[radio] recording {khz:g} kHz {mode} from {receiver.host} for {seconds:.0f}s")
     proc = await asyncio.create_subprocess_exec(*cmd, cwd=str(KIWICLIENT),
                                                 stdout=asyncio.subprocess.DEVNULL,
-                                                stderr=asyncio.subprocess.PIPE)
+                                                stderr=asyncio.subprocess.PIPE,
+                                                preexec_fn=_die_with_parent)
     refused = await _watch_stderr(proc, seconds + 20)
     await _stop(proc)
     written = sorted(set(out_dir.glob("*.wav")) - before)
@@ -245,7 +258,8 @@ async def smeter(receiver: Receiver, khz: float, mode: str, seconds: float) -> l
            # the frequency is the centre of the passband, so the carrier sits in it
            "--pbc"]
     proc = await asyncio.create_subprocess_exec(*cmd, cwd=str(KIWICLIENT), stdout=asyncio.subprocess.PIPE,
-                                                stderr=asyncio.subprocess.DEVNULL)
+                                                stderr=asyncio.subprocess.DEVNULL,
+                                                preexec_fn=_die_with_parent)
     try:
         out, _ = await asyncio.wait_for(proc.communicate(), seconds + 30)
     except asyncio.TimeoutError:
@@ -270,7 +284,8 @@ def open_stream(receiver: Receiver, khz: float, mode: str):
     if not available():
         raise FeedError("kiwiclient is not installed — run tools/maintenance/fetch_radio_assets.py")
     return subprocess.Popen(_recorder_cmd(receiver, khz, mode) + ["--nc"], cwd=str(KIWICLIENT),
-                            stdout=subprocess.PIPE, stderr=subprocess.DEVNULL)
+                            stdout=subprocess.PIPE, stderr=subprocess.DEVNULL,
+                            preexec_fn=_die_with_parent)
 
 
 def first_audio(proc, timeout: float = 12.0) -> bool:

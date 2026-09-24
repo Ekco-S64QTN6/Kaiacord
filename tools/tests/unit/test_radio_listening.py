@@ -194,3 +194,36 @@ def test_without_a_transcript_an_hfgcs_opening_is_not_kept(tmp_path):
     with patch.object(watch.transcribe, "available", return_value=False):
         assert asyncio.run(watch.process({"kind": "hfgcs", "station": "HFGCS", "khz": 8992.0, "mode": "usb"},
                                          p, rec, datetime.now(timezone.utc))) is None
+
+
+def test_a_recorder_dies_with_the_process_that_started_it(tmp_path):
+    """A recorder holds a slot on someone else's receiver. Orphaned by a crash
+    or a killed script, two kept their slots for six hours."""
+    import os, signal, subprocess, sys, textwrap, time
+    script = tmp_path / "parent.py"
+    script.write_text(textwrap.dedent(f"""
+        import subprocess, sys, time
+        sys.path.insert(0, {str(Path.cwd())!r})
+        from utils.radio.kiwi import _die_with_parent
+        p = subprocess.Popen(["sleep", "60"], preexec_fn=_die_with_parent)
+        print(p.pid, flush=True)
+        time.sleep(60)
+    """))
+    parent = subprocess.Popen([sys.executable, str(script)], stdout=subprocess.PIPE, text=True)
+    child = int(parent.stdout.readline())
+    parent.kill()
+    parent.wait()
+    for _ in range(20):
+        try:
+            os.kill(child, 0)
+        except ProcessLookupError:
+            return
+        time.sleep(0.1)
+    os.kill(child, signal.SIGKILL)
+    raise AssertionError("the recorder outlived its parent")
+
+
+def test_every_recorder_spawn_dies_with_its_parent():
+    src = Path("utils/radio/kiwi.py").read_text(encoding="utf-8")
+    spawns = src.count("create_subprocess_exec(") + src.count("subprocess.Popen(")
+    assert spawns and src.count("preexec_fn=_die_with_parent") == spawns
