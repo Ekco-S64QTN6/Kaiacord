@@ -4,7 +4,7 @@ Kaia Intelligence — Compatibility Facade
 
 Phase 28 / CQ-01: This file was split into focused modules.
 All logic now lives in:
-  - utils.core.context_optimizer  (ContextOptimizer, ContextWeaver, RelevanceFeedback,
+  - utils.core.context_optimizer  (ContextOptimizer, ContextWeaver,
                                    PersonalizationEngine, PersistentStateManager,
                                    Intent, ContextCtx dataclasses)
   - utils.core.intent_classifier  (IntentParser, QueryClassifier)
@@ -22,7 +22,6 @@ from utils.core.context_optimizer import Intent, ContextCtx                     
 from utils.core.context_optimizer import (                                          # noqa: F401
     ContextOptimizer,
     ContextWeaver,
-    RelevanceFeedback,
     PersonalizationEngine,
     PersistentStateManager,
 )

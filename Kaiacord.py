@@ -55,7 +55,7 @@ load_dotenv()
 # Internal Modules
 from utils.core.background_tasks import run_news_update
 from utils.core.kaia_dream import DreamEngine
-from utils.core.kaia_intelligence import ContextOptimizer, IntentParser, RelevanceFeedback
+from utils.core.kaia_intelligence import ContextOptimizer, IntentParser
 from utils.core.kaia_rag import KaiaRAG
 from utils.core.message_processor import MessageProcessor
 from utils.infrastructure.logging.kaia_logger import log_action, log_debug, log_error, log_info, log_success, log_warning
@@ -127,7 +127,6 @@ def _build_logic_layer_sync():
     ctx.rag = KaiaRAG()
     shutdown_manager.register_rag(ctx.rag)
     ctx.dream_engine = DreamEngine(config, ctx.rag)
-    relevance_feedback = RelevanceFeedback(ctx.rag)
 
     ctx.personalization_engine = PersonalizationEngine()
     ctx.persistent_state_manager = PersistentStateManager()
@@ -135,7 +134,6 @@ def _build_logic_layer_sync():
     ctx.message_processor = MessageProcessor(
         ctx=ctx,
         context_optimizer=context_optimizer,
-        relevance_feedback=relevance_feedback,
         news_enhancer=ctx.news_enhancer,
         rag_enhancer=ctx.rag_enhancer,
     )

@@ -117,7 +117,6 @@ def test_setup_retrieval_tasks_recap_routing(mock_load_persona, mock_create_task
     processor = MessageProcessor(
         ctx=ctx_mock,
         context_optimizer=MagicMock(),
-        relevance_feedback=MagicMock(),
         news_enhancer=MagicMock(),
         rag_enhancer=MagicMock()
     )

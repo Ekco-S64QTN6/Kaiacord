@@ -223,7 +223,7 @@ class MessageProcessor:
     """
     Modular message processor that decomposes the complex on_message logic.
     """
-    def __init__(self, ctx, context_optimizer, relevance_feedback,
+    def __init__(self, ctx, context_optimizer,
                  news_enhancer, rag_enhancer):
         self.ctx = ctx
         self.bot = ctx.bot
@@ -238,7 +238,6 @@ class MessageProcessor:
         self.personalization_engine = ctx.personalization_engine
         
         self.context_optimizer = context_optimizer
-        self.relevance_feedback = relevance_feedback
         self.news_enhancer = news_enhancer
         self.rag_enhancer = rag_enhancer
         
@@ -557,11 +556,7 @@ class MessageProcessor:
         c_dur = time.perf_counter() - c_start
         log_debug(f"METRIC: Classification took {c_dur:.3f}s")
 
-        # 3. Cache Check
-        if await self._check_cache(ctx):
-            return
-
-        # 4. Retrieval & Response Generation (Stage 3)
+        # 3. Retrieval & Response Generation (Stage 3)
         # Human-like reading pause — delay before typing indicator to simulate reading
         import secrets as _secrets
         _read_time = 0.8 + (len(ctx.sanitized_content) / 200)  # ~1s base + 1s per 200 chars
@@ -636,12 +631,6 @@ class MessageProcessor:
         if strategy == "EXPLORATORY_DIALOGUE": return "general"
         return "general"
 
-    async def _check_cache(self, ctx: MessageContext):
-        """Check the semantic cache for similar recent queries."""
-        # Semantic mapping moved to KaiaRAG for better contextual awareness
-        # and easier testing.
-        # noqa: SC001 - Stub intentional until cache re-implementation
-        return False
 
 
     async def _retrieve_and_generate(self, ctx: MessageContext):
@@ -2494,9 +2483,7 @@ class MessageProcessor:
                     self.bot_state.channel_memory[ctx.channel_id].append({"role": "assistant", "content": bot_response, "timestamp": time.time()})
                 # ----------------------------------------------------
                 
-                # Update personalization and relevance feedback
                 await self.personalization_engine.learn_from_interaction(ctx.author_id, ctx.sanitized_content, bot_response)
-                await self.relevance_feedback.log_interaction(ctx.sanitized_content, bot_response, ctx.author_id, ctx.author_name)
                 
                 # Log for RAG — SKIP if style-drifted to prevent poisoning disk logs
                 if not _is_style_drifted:

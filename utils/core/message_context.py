@@ -22,7 +22,6 @@ class MessageContext:
     history: List[Dict[str, str]] = field(default_factory=list)
     
     # Retrieval & Intelligence
-    cached_response: Optional[str] = None
     retrieved_context: str = ""
     status_context: str = ""
     retrieval_confidence: float = 0.0   # 0.0–1.0 avg score of retrieved nodes; 0 = nothing found
