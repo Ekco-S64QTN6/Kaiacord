@@ -32,7 +32,7 @@ ASSERTLESS_ALLOWLIST: set[str] = {
 
 def _collected_test_files():
     for sub in COLLECTED_DIRS:
-        for path in sorted((TESTS_ROOT / sub).glob("test_*.py")):
+        for path in sorted((TESTS_ROOT / sub).rglob("test_*.py")):
             yield path
 
 
@@ -157,7 +157,7 @@ def test_pytest_ini_declares_every_marker_in_use():
 
     used = set()
     for sub in COLLECTED_DIRS:
-        for path in (TESTS_ROOT / sub).glob("test_*.py"):
+        for path in (TESTS_ROOT / sub).rglob("test_*.py"):
             tree, _ = _parse(path)
             for node in ast.walk(tree):
                 if isinstance(node, ast.Attribute) and isinstance(node.value, ast.Attribute):
