@@ -774,6 +774,12 @@ class CoreTaskManager:
                             await relationship_impressions.refresh_all(self.ctx)
                         except Exception as imp_err:
                             log_warning(f"Relationship impressions skipped: {imp_err}")
+                        try:
+                            from utils.core import conversation_beliefs
+                            await conversation_beliefs.nightly_review(
+                                self.ctx, self.ctx.dream_engine._log_growth_event)
+                        except Exception as rev_err:
+                            log_warning(f"Conversation belief review skipped: {rev_err}")
                         
                         from utils.core.rag_executor import run_rag as run_rag_func
                         

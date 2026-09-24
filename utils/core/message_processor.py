@@ -2596,6 +2596,16 @@ class MessageProcessor:
                 except Exception as _rel_err:
                     log_debug(f"Relationship update error (non-fatal): {_rel_err}")
 
+                # An argued point about one of her beliefs, kept for the nightly
+                # review (K9). Discord only: strangers on a public feed don't
+                # get to move what she thinks.
+                if not ctx.is_social:
+                    try:
+                        from utils.core.conversation_beliefs import note_argument
+                        await asyncio.to_thread(note_argument, ctx.author_id, ctx.author_name, _own)
+                    except Exception as _arg_err:
+                        log_debug(f"Belief argument not recorded (non-fatal): {_arg_err}")
+
                 # ── Emotional Arc Update ───────────────────────────────────────
                 try:
                     from utils.core.kaia_mood import emotional_arc
