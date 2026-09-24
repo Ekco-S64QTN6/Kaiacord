@@ -69,7 +69,12 @@ class ContextEnricher:
         if config.url_fetching_enabled:
             url_context = await self.resolve_external_urls(msg)
             if url_context:
-                content += f"\n\n[LINKED_WEB_CONTENT]\n{url_context}\n\n[CORE_DIRECTIVE: Keep your response brutally concise. Do not write a long essay or summarize the entire article unless explicitly asked.]"
+                # No length instruction here. One ("keep your response brutally
+                # concise") sat after the page for months without effect, because
+                # the whole message was cut at 2,000 characters before it; once
+                # pages arrived whole it reached the model, and replies to links
+                # fell to a sentence or two.
+                content += f"\n\n[LINKED_WEB_CONTENT]\n{url_context}"
             
         return content
 

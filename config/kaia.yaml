@@ -29,7 +29,7 @@ performance:
   idle_quip_timeout_minutes: 160
 
   # Characters kept from a URL fetched out of chat.
-  url_max_content_length: 8000
+  url_max_content_length: 24000
 
   # Turns kept per channel. The history budget is what actually limits how far
   # back she can see, but this caps how many turns exist to choose from.

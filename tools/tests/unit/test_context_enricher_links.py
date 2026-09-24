@@ -139,3 +139,21 @@ def test_a_page_sent_in_pieces_is_read_whole():
 
     out = asyncio.run(run())
     assert "part0" in out and "part19" in out
+
+
+def test_a_linked_page_carries_no_length_instruction():
+    """A 'keep your response brutally concise' directive rode after every page.
+    Once pages stopped being cut at 2,000 characters it reached the model, and
+    replies to links fell to a sentence or two."""
+    enricher = ContextEnricher(MagicMock())
+
+    async def _scrape(url):
+        return f"Source: {url}\n" + "words " * 50
+    enricher._scrape_single_url = _scrape
+    msg = MagicMock()
+    msg.content = "what do you think https://example.com/article"
+    msg.embeds, msg.mentions, msg.reference = [], [], None
+    with patch.object(type(ce.config), "url_fetching_enabled", True, create=True):
+        out = asyncio.run(enricher.enrich_content(msg))
+    assert "[LINKED_WEB_CONTENT]" in out
+    assert "concise" not in out.lower() and "CORE_DIRECTIVE" not in out
