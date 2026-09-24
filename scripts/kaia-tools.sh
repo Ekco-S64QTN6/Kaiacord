@@ -552,13 +552,12 @@ menu_rag() {
     while true; do
         CHOICE=$(ui_dialog --title "Kaiacord Tools — RAG Management" --menu \
             "$(status_line)\n\nChoose an operation:" \
-            "$(menu_height 7)" "$(menu_width 66)" 7 \
+            "$(menu_height 6)" "$(menu_width 66)" 6 \
             "1" "Incremental refresh  (signal live bot via .trigger_reindex)" \
             "2" "Re-index specific file  (targeted file update)" \
             "3" "Full RAG rebuild  (clear storage & reindex all files)" \
             "4" "Index & manifest health  (document counts & file integrity)" \
-            "5" "Embedding pipeline diagnostics" \
-            "6" "Full RAG deep-dive debug" \
+            "5" "Ask the index a question  (what retrieval returns)" \
             "b" "← Back" \
             3>&1 1>&2 2>&3) || return
 
@@ -594,10 +593,11 @@ menu_rag() {
             run_tool "Indexing Health Check" tools/diagnostics/check_indexing_health.py
             ;;
         5)
-            run_tool "Embedding Diagnostics" tools/diagnostics/diagnose_embeddings.py
-            ;;
-        6)
-            run_tool "Full RAG Debug" tools/diagnostics/diagnose_rag.py
+            Q=$(ui_dialog --title "Ask the Index" \
+                --inputbox "Question, as someone would ask it in chat:" \
+                9 72 3>&1 1>&2 2>&3) || continue
+            [[ -z "$Q" ]] && continue
+            run_tool "Ask the Index" tools/diagnostics/ask_index.py "$Q"
             ;;
         b|B) return ;;
         esac
@@ -612,35 +612,30 @@ menu_knowledge_base() {
     while true; do
         CHOICE=$(ui_dialog --title "Kaiacord Tools — Knowledge Base" --menu \
             "Choose an operation:" "$(menu_height 11)" "$(menu_width 66)" 11 \
-            "1" "Scan KB for issues  (corrupted files, bad nodes)" \
-            "2" "Clean OCR artifacts  (fix encoding issues in books/docs)" \
-            "3" "Sanitize user logs  (strip internal runtime tags from logs)" \
-            "4" "Compact user logs  (link dumps + scrape debris, no LLM)" \
-            "5" "Roll up + index user folders  (monthly archives, READMEs)" \
-            "6" "Rebuild all user profiles  (regenerate from interaction logs)" \
-            "7" "Find contamination  (scan for hallucinated content)" \
-            "8" "Delete logs for specific date  (targeted contamination removal)" \
-            "9" "Scrape P99 Wiki  (crawls verified wiki articles to KB)" \
-            "10" "Run Support Synthesis  (compile all tech support forum threads)" \
-            "11" "Backfill P99 Off-Topic  (lets Kaia start posting there sooner)" \
+            "1" "Audit the corpus  (every known fault class, read-only)" \
+            "2" "Repair frontmatter  (invalid YAML, fused fences)" \
+            "3" "Compact user logs  (link dumps + scrape debris, no LLM)" \
+            "4" "Roll up + index user folders  (monthly archives, READMEs)" \
+            "5" "Rebuild all user profiles  (regenerate from interaction logs)" \
+            "6" "Find contamination  (scan for hallucinated content)" \
+            "7" "Delete logs for specific date  (targeted contamination removal)" \
+            "8" "Scrape P99 Wiki  (crawls verified wiki articles to KB)" \
+            "9" "Run Support Synthesis  (compile all tech support forum threads)" \
+            "10" "Backfill P99 Off-Topic  (lets Kaia start posting there sooner)" \
             "b" "← Back" \
             3>&1 1>&2 2>&3) || return
 
         case "$CHOICE" in
         1)
-            run_tool "Scan Knowledge Base" tools/diagnostics/scan_knowledge_base.py
+            run_tool "Corpus Audit" tools/maintenance/audit_knowledge_base.py
             ;;
         2)
-            DIR=$(ui_dialog --title "Clean OCR Artifacts" \
-                --inputbox "Directory to clean (default: knowledge_base):" \
-                8 60 "knowledge_base" 3>&1 1>&2 2>&3) || continue
-            [[ -z "$DIR" ]] && DIR="knowledge_base"
-            run_tool "Clean KB Artifacts" tools/maintenance/cleanup_kb.py "$DIR"
+            run_tool "Repair Frontmatter (dry run)" tools/maintenance/repair_frontmatter.py
+            if confirm "Apply these repairs?"; then
+                run_tool "Repair Frontmatter (apply)" tools/maintenance/repair_frontmatter.py --apply
+            fi
             ;;
         3)
-            run_tool "Sanitize User Logs" tools/maintenance/sanitize_logs.py
-            ;;
-        4)
             # Replaces the LLM log cleaner, which asked a model to reformat the
             # transcripts and got exactly that: it rewrote the
             # "[timestamp] Ekco:" turn markers into "User:" across 774 files,
@@ -653,7 +648,7 @@ menu_knowledge_base() {
                 run_tool "Compact User Logs (apply)" tools/maintenance/compact_user_logs.py --apply
             fi
             ;;
-        5)
+        4)
             # A day is the wrong unit for chunking: 533 of 1,112 daily files
             # held fewer than the splitter's 6 turns, so half the corpus was
             # chunked below the intended granularity. Closed months roll into
@@ -667,13 +662,13 @@ menu_knowledge_base() {
             fi
             run_tool "Rebuild Folder Indexes" tools/maintenance/build_user_folder_index.py --apply
             ;;
-        6)
+        5)
             run_tool "Rebuild User Profiles" tools/maintenance/generate_user_profiles.py
             ;;
-        7)
+        6)
             run_tool "Find Contamination (scan only)" tools/maintenance/clean_hallucinations.py --dry-run
             ;;
-        8)
+        7)
             DATE=$(ui_dialog --title "Delete Logs by Date" \
                 --inputbox "Enter date to purge (YYYYMMDD format):\n(e.g. $(date '+%Y%m%d') for today)" \
                 9 55 "$(date '+%Y%m%d')" 3>&1 1>&2 2>&3) || continue
@@ -692,13 +687,13 @@ menu_knowledge_base() {
                 pause
             fi
             ;;
-        9)
+        8)
             run_tool "Scrape P99 Wiki" tools/social/scrape_p99_wiki.py
             ;;
-        10)
+        9)
             run_tool "Forum Technical Support Synthesis" tools/social/synthesize_technical_knowledge.py
             ;;
-        11)
+        10)
             # Kaia will not post to a forum she has not been reading. The
             # periodic scrape fills that corpus at five threads per half hour,
             # so from empty it is about a day; this clears it in one run.

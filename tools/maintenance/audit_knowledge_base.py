@@ -73,6 +73,11 @@ WANT_FRONTMATTER = {"books", "documents", "news", "wiki", "troubleshooting",
 # reason: mixed in with the real findings it would drown them.
 BACKFILL_PENDING = {"user_logs", "kaia_dreams"}
 
+# Converted prose, where a private-use codepoint is a font's ligature the
+# extraction lost. Transcripts and forum posts are left out: users paste
+# terminal prompts, and Powerline glyphs there are what they typed.
+PROSE = {"books", "documents", "wiki", "transcripts"}
+
 # A file younger than this with blank metadata has not met a nightly pass yet.
 FRESH_S = 36 * 3600
 
@@ -84,7 +89,9 @@ FIXES = {
     "replacement_char": "re-ingest the source; errors='replace' bakes the loss in permanently",
     "no_frontmatter": "tools/maintenance/enrich_metadata.py --category all --apply",
     "empty_metadata": "tools/maintenance/enrich_metadata.py --category all --apply",
-    "fused_frontmatter": "tools/maintenance/repair_kb.py",
+    "fused_frontmatter": "tools/maintenance/repair_frontmatter.py --apply",
+    "private_use_glyph": "a PDF font's ligatures (fi, fl, ff) extracted as private-use "
+                         "codepoints; map them from context and rewrite the file",
     "malformed_frontmatter": "tools/maintenance/repair_frontmatter.py --apply "
                              "(what it declines needs a person)",
     "not_a_reflection": "tools/maintenance/triage_dreams.py --apply",
@@ -171,6 +178,11 @@ def audit():
 
         if lost_here(rel, text):
             findings["replacement_char"].append(f"{rel} ({lost_here(rel, text)})")
+
+        if folder in PROSE:
+            pua = len(re.findall(r"[\ue000-\uf8ff]", body))
+            if pua:
+                findings["private_use_glyph"].append(f"{rel} ({pua})")
 
         # The closing fence sharing a line with the first line of content.
         if text.lstrip().startswith("---"):

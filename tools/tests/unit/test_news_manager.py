@@ -1,57 +1,40 @@
-import sys
-import os
+"""NewsManager parses the filed briefs into plain-text items per category."""
 from pathlib import Path
 
-# Add project root to sys.path
-# Add project root to path
-sys.path.insert(0, os.path.abspath(os.path.join(os.path.dirname(__file__), '../../../')))
+import pytest
 
 from utils.news.kaia_news import NewsManager
 
-
-def test_news_manager():
-    print("Testing NewsManager...")
-    # Use absolute path for base_path to be safe
-    base_path = os.path.join(os.path.dirname(os.path.dirname(os.path.dirname(os.path.dirname(os.path.abspath(__file__))))), "knowledge_base", "news")
+NEWS = Path(__file__).resolve().parents[3] / "knowledge_base" / "news"
 
 
-    nm = NewsManager(base_path=base_path)
+@pytest.fixture(scope="module")
+def manager():
+    if not any(NEWS.glob("**/news_brief_*.md")):
+        pytest.skip("no news briefs filed in this checkout")
+    nm = NewsManager(base_path=str(NEWS))
     nm.refresh()
-    
-    print(f"Total items in cache: {sum(len(items) for items in nm.news_cache.values())}")
-    for cat, items in nm.news_cache.items():
-        print(f"Category '{cat}': {len(items)} items")
-    
-    # Verify that items are strings and not dicts (common parsing error)
-    for cat, items in nm.news_cache.items():
+    return nm
+
+
+def test_briefs_parse_into_items(manager):
+    assert sum(len(v) for v in manager.news_cache.values()) > 0
+
+
+def test_items_are_text_not_stringified_dicts(manager):
+    for cat, items in manager.news_cache.items():
         for item in items:
-            if not isinstance(item.get('text'), str):
-                print(f"❌ Error: Item in category '{cat}' has non-string text: {type(item.get('text'))}")
-                sys.exit(1)
-            if item.get('text').startswith('{'):
-                print(f"❌ Error: Item in category '{cat}' looks like a stringified dict: {item.get('text')[:50]}...")
-                sys.exit(1)
-            
-            # Check for excluded content
-            excluded_keywords = ['Reuters', 'The Record', 'BleepingComputer', 'Financial Times', '404 Media']
-            if item.get('text') in excluded_keywords:
-                print(f"❌ Error: Found excluded source '{item.get('text')}' in category '{cat}'")
-                sys.exit(1)
-                
-    print("\nTesting get_news('culture')...")
-    news = nm.get_news('culture', limit=5)
-    if not news:
-        print(f"❌ Error: get_news('culture') returned 0 items")
-        sys.exit(1)
-    else:
-        print(f"✅ get_news('culture') correctly returned {len(news)} items.")
+            text = item.get("text")
+            assert isinstance(text, str), (cat, type(text))
+            assert not text.startswith("{"), (cat, text[:60])
 
-    print("\nTesting get_news('hacker')...")
-    news = nm.get_news('hacker', limit=5)
-    print(f"Got {len(news)} hacker news items")
-    for i, item in enumerate(news, 1):
-        print(f"{i}. [{item.get('date')}] {item.get('text')[:100]}...")
 
-    print("\n✅ All news manager tests passed.")
-if __name__ == "__main__":
-    test_news_manager()
+def test_a_bare_source_name_is_not_an_item(manager):
+    sources = {"Reuters", "The Record", "BleepingComputer", "Financial Times", "404 Media"}
+    for cat, items in manager.news_cache.items():
+        assert not [i["text"] for i in items if i["text"] in sources], cat
+
+
+def test_get_news_returns_items_for_a_populated_category(manager):
+    cat = next(c for c, v in manager.news_cache.items() if v)
+    assert manager.get_news(cat, limit=5)

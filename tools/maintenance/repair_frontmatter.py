@@ -28,6 +28,10 @@ indexer reads frontmatter with line regexes rather than a YAML parser, so
 retrieval still works, but nothing that *does* parse the block can read them:
 they are permanently skipped by enrichment and invisible to any metadata pass.
 
+**A fused fence.** The closing `---` sharing a line with the first line of the
+body (`---User: speeding ticket...`), so the body's first line reads as part
+of the block. It is moved onto its own line.
+
     python tools/maintenance/repair_frontmatter.py
     python tools/maintenance/repair_frontmatter.py --apply
 """
@@ -238,8 +242,26 @@ def reconstruct(raw_yaml: str):
     return data
 
 
+def unfuse(text: str) -> str:
+    """Put a closing fence that shares a line with the body back on its own line."""
+    head = len(text) - len(text.lstrip())
+    t = text[head:]
+    if not t.startswith("---"):
+        return text
+    end = t.find("\n---", 3)
+    if end == -1:
+        return text
+    rest = t[end + 4:]
+    if rest.startswith(("\n", "\r")) or not rest.strip() or rest.startswith("-"):
+        return text
+    return text[:head] + t[:end + 4] + "\n" + rest
+
+
 def repair(text: str):
     """Return the repaired text, or None if there is nothing this tool fixes."""
+    fixed = unfuse(text)
+    if fixed != text:
+        return repair(fixed) or fixed
     found = find_stacked(text)
     if not found:
         return repair_unparseable(text)

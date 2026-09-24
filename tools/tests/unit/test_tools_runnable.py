@@ -29,9 +29,8 @@ TOOLS = sorted(
 
 
 # Exercising a tool by running `python tool.py --help` is NOT safe. Sixteen of
-# these have no argparse, so the argument is ignored and the script simply RUNS
-# — `sanitize_logs`, `kb_cleanse_user_logs`, `repair_kb` and
-# `precision_repair_kb` all rewrite `knowledge_base/user_logs/` in place. An
+# these had no argparse, so the argument was ignored and the script simply RAN
+# — four of them rewrote `knowledge_base/user_logs/` in place. An
 # earlier version of this file did exactly that and stripped the identity
 # frontmatter off every forum profile, twice, while claiming to be a read-only
 # check.

@@ -220,7 +220,7 @@ def main() -> int:
     print(f"  {saved:,} characters removed")
     if args.apply:
         print(f"\noriginals copied to {BACKUP}")
-        print("Run a reindex (tools/trigger_reindex.py) to pick up the changes.")
+        print("Run a reindex (tools/maintenance/reindex_rag.py --trigger) to pick up the changes.")
     else:
         print("\n(dry run — nothing written. re-run with --apply)")
     return 0

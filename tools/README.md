@@ -1,69 +1,108 @@
-# Kaiacord Tools Directory
+# Tools
 
-Production maintenance, diagnostic, development, simulation, and test automation suite for Kaiacord.
+Standalone scripts for maintaining Kaia's corpus and index, diagnosing her,
+and fetching what the optional subsystems need. None of them run inside the
+bot; the nightly and weekly passes she runs herself call a few of these as
+subprocesses. Most are also reachable from `bash scripts/kaia-tools.sh`.
 
----
-
-## 📁 Directory Structure
-
-```
-tools/
-├── maintenance/     # Production maintenance, health validation & KB cleaner tools
-├── diagnostics/     # RAG index diagnostics, knowledge base & model probes
-├── development/     # World build generators (Spine layouts), self-model & profile utilities
-├── social/          # Project 1999 Forum scrapers, wiki indexers & social cookie managers
-├── simulation/      # Aethelgard TTRPG game balance simulation & audit tools
-└── tests/           # Automated test suite (unit & integration)
-    ├── unit/        # Isolated unit tests for core & TTRPG subsystems
-    └── integration/ # End-to-end integration & boot verification
-```
-
----
-
-## 🛠️ Key Utilities & Execution Guide
-
-### 1. System Health & Maintenance (`tools/maintenance/`)
-
-| Script | Purpose | Execution |
-|:-------|:--------|:----------|
-| `health_check.py` | Validates Ollama models, GPU VRAM, RAG indices, and config | `python3 tools/maintenance/health_check.py` |
-| `reindex_rag.py` | Rebuilds BM25 and vector RAG indices | `python3 tools/maintenance/reindex_rag.py` |
-| `update_kaia_news.py` | Fetches, synthesizes, and indexes daily news briefs | `python3 tools/maintenance/update_kaia_news.py` |
-| `generate_user_profiles.py` | Synthesizes episodic user profile summaries | `python3 tools/maintenance/generate_user_profiles.py` |
-| `clean_hallucinations.py` | Cleans hallucinated logs and sanitizes memory streams | `python3 tools/maintenance/clean_hallucinations.py` |
-| `enrich_metadata.py` | Auto-enriches document metadata using LLM tagging | `python3 tools/maintenance/enrich_metadata.py` |
-
-### 2. Diagnostics (`tools/diagnostics/`)
-
-| Script | Purpose | Execution |
-|:-------|:--------|:----------|
-| `diagnose_rag.py` | Deep diagnostic of RAG document retrieval & node scoring | `python3 tools/diagnostics/diagnose_rag.py` |
-| `check_indexing_health.py` | Validates document manifest integrity and file counts | `python3 tools/diagnostics/check_indexing_health.py` |
-| `check_gemini_models.py` | Queries active Gemini API endpoint models and quotas | `python3 tools/diagnostics/check_gemini_models.py` |
-
-### 3. Development Utilities (`tools/development/`)
-
-| Script | Purpose | Execution |
-|:-------|:--------|:----------|
-| `generate_spine_layouts.py` | Pre-computes 77-floor Spine of the World mega-dungeon layouts | `python3 tools/development/generate_spine_layouts.py` |
-| `generate_self_model.py` | Auto-regenerates Kaia's 30-day identity self-model document | `python3 tools/development/generate_self_model.py` |
-| `profile_imports.py` | Analyzes module import performance & boot latency | `python3 tools/development/profile_imports.py` |
-
-### 4. Social & Forum Integrations (`tools/social/`)
-
-| Script | Purpose | Execution |
-|:-------|:--------|:----------|
-| `scrape_p99_wiki.py` | Crawls & indexes Project 1999 Wiki knowledge base | `python3 tools/social/scrape_p99_wiki.py` |
-| `scrape_technical_discussion.py` | Scrapes P99 technical discussion forums for troubleshooting | `python3 tools/social/scrape_technical_discussion.py` |
-| `synthesize_technical_knowledge.py` | Synthesizes tech support troubleshooting cheatsheets | `python3 tools/social/synthesize_technical_knowledge.py` |
-| `export_x_cookies.py` | Export and format headless browser cookies for X social post dispatch | `python3 tools/social/export_x_cookies.py` |
-
-### 5. Automated Test Suite (`tools/tests/`)
+Run everything with the project interpreter from the repo root:
 
 ```bash
-# Run unit test suite (Safe for live environment)
-venv/bin/python3 -m pytest tools/tests/unit/ -v
-
-# Run integration test suite
-venv/bin/python3 -m pytest tools/tests/integration/ -v
+venv/bin/python3 tools/<folder>/<script>.py --help
 ```
+
+**Anything that writes across the corpus is a dry run by default** and needs
+`--apply`. Tools that load the model send the shared runner options
+(`gpu_manager.chat_options`) and `keep_alive=-1`, so they do not reload the
+bot's model; they still queue behind her in Ollama, so run long batches when
+nobody is talking to her.
+
+## maintenance/
+
+**Corpus health**
+
+| Script | What it does |
+|:--|:--|
+| `audit_knowledge_base.py` | Read-only check for every fault class that has occurred; names the fix for each. `--check` exits non-zero. |
+| `repair_frontmatter.py` | Repairs frontmatter that does not parse: stacked blocks, flow sequences holding block entries, a fence fused to the body. |
+| `enrich_metadata.py` | Backfills `summary` and `keywords` with the model. Runs nightly. |
+| `enrich_kb_metadata.py` | Normalises frontmatter on forum posts and user logs, no model. |
+| `retitle_documents.py` | Gives badly named documents a real topic and title. |
+| `repair_kb_book_structure.py` | Repairs structure in already-converted books. |
+| `triage_dreams.py` | Quarantines anything in `kaia_dreams/` that is not a reflection. |
+| `consolidate_dreams.py` | Merges nightly reflections into one document per subject. |
+| `tidy_troubleshooting.py` | Regenerates frontmatter on the generated troubleshooting guides. |
+
+**User logs and profiles**
+
+| Script | What it does |
+|:--|:--|
+| `compact_user_logs.py` | Deterministic cleanup of transcripts: link dumps, scrape debris, fragments. |
+| `rollup_user_logs.py` | Rolls closed months of daily transcripts into one archive each. |
+| `build_user_folder_index.py` | Writes a README into each user folder. |
+| `clean_hallucinations.py` | Reports contaminated phrasing; with `--apply` touches only Kaia's lines. |
+| `generate_user_profiles.py` | Rebuilds each user's `user_profile.md` from their logs. |
+| `compact_forum_profiles.py` | Folds a forum user's scattered logs into one profile. `--repair-identity` restores Kaia's own. |
+| `refresh_forum_profiles.py` | Deep-scrapes forum users the periodic scraper missed. |
+| `prune_relationship_events.py` | Drops stored relationship events the current detector would not record. |
+
+**Ingestion and news**
+
+| Script | What it does |
+|:--|:--|
+| `ebook_to_kb_md.py` | EPUB / PDF / TXT / HTML to knowledge-base Markdown. |
+| `youtube_to_kb_md.py` | A YouTube transcript to Markdown with timestamp anchors. |
+| `transcript_names.py` | Corrects names speech recognition misheard in a transcript. |
+| `process_ingress.py` | Files what `!download` and `!youtube` staged in `_ingress/`. Runs hourly. |
+| `update_kaia_news.py` | Writes the daily brief through Gemini with search grounding. |
+| `ingest_manual_news.py` | Files a brief written by hand into `news/daily/`. |
+| `scrape_tech_news.py` | Writes the daily tech digest. |
+| `backfill_forum_corpus.py` | Pre-fills the Project 1999 Off-Topic corpus. |
+
+**Index, system and assets**
+
+| Script | What it does |
+|:--|:--|
+| `reindex_rag.py` | `--trigger` asks the running bot to refresh; `--clear` rebuilds from scratch (bot stopped). |
+| `health_check.py` | Python, GPU, Ollama models, token, config, permissions, dependencies. |
+| `fetch_music_assets.py` | Fetches Strudel and the samples `!music` needs. Run once after cloning. |
+| `fetch_radio_assets.py` | Fetches kiwiclient for `!radio`. Run once. |
+| `audition_tracks.py` | Plays each `!music` track and measures every part; `--calibrate` writes `levels.json`. |
+| `check_md_anchors.py` | Validates in-page Markdown anchors against GitHub's slug rules. |
+
+## diagnostics/
+
+| Script | What it does |
+|:--|:--|
+| `ask_index.py` | Asks the RAG index a question the way a chat turn does and prints what comes back. Reads a copy of the index. |
+| `check_indexing_health.py` | Manifest against the files on disk. |
+| `jspace_probe.py` | Replays prompts through Ollama persona'd, bare and fine-tuned. Bot stopped. |
+| `list_gemini_models.py` | Lists the Gemini models this API key can call. |
+
+## development/
+
+| Script | What it does |
+|:--|:--|
+| `generate_self_model.py` | Kaia's first-person self-model from her recent logs and dreams. |
+| `generate_spine_layouts.py` | Pre-computes the 77-floor Spine of the World layouts. |
+
+## social/
+
+| Script | What it does |
+|:--|:--|
+| `scrape_p99_wiki.py` | Crawls the Project 1999 wiki into `wiki/`. |
+| `scrape_technical_discussion.py` | Scrapes the technical forum, resumably. |
+| `synthesize_technical_knowledge.py` | Turns the technical forum and wiki into troubleshooting guides. |
+| `scrape_music_thread.py` | The "What Are You Listening To?" thread to a Google Sheet. |
+| `export_x_cookies.py` | Writes `memory/x_cookies.json` for twikit from a browser session, a profile file, or two pasted cookies. |
+| `smoke_test_x.py` | Logs into X and reads the account back. |
+
+## simulation/
+
+| Script | What it does |
+|:--|:--|
+| `game_audit.py` | Simulates hunts per class and reports win rate, deaths and rewards. |
+
+## tests/
+
+The test suite. See [`tests/README.md`](tests/README.md).

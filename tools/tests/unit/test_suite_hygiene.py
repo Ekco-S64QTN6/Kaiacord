@@ -16,8 +16,6 @@ import pytest
 TESTS_ROOT = pathlib.Path(__file__).resolve().parent.parent
 REPO_ROOT = TESTS_ROOT.parent.parent
 
-# Collected test modules only: `verification/` holds manual diagnostic scripts
-# that pytest does not pick up, and `archive/` is kept for reference.
 COLLECTED_DIRS = ("unit", "integration")
 
 # Smoke tests: their whole job is to prove a path runs end to end without
@@ -29,14 +27,6 @@ COLLECTED_DIRS = ("unit", "integration")
 # should carry a reason on the same line.
 ASSERTLESS_ALLOWLIST: set[str] = {
     "test_embed_device.py",     # asserts nothing; proves embeddings stay on CPU
-    "test_exact_rag.py",        # exact-match retrieval against the live index
-    "test_md_logging.py",       # markdown interaction logging round-trip
-    "test_memory.py",           # RAG memory recall against the live index
-    "test_news_manager.py",     # fetches and parses live feeds
-    "test_news_parsing.py",     # parses a live feed payload
-    "test_quip_samples.py",     # generates quips through Ollama
-    "test_quips.py",            # quip smoke test through Ollama
-    "test_loop_responsiveness.py",  # timing probe on the logging bridge
 }
 
 

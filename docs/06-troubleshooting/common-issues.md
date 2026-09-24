@@ -171,13 +171,16 @@ python Kaiacord.py
 
 **Solution**:
 ```bash
-# 1. Scan and clean hallucinated patterns from transcripts
+# 1. Find contaminated phrasing in the transcripts (report only)
 venv/bin/python3 tools/maintenance/clean_hallucinations.py
 
-# 2. Run KB cleanup and normalization
-venv/bin/python3 tools/maintenance/cleanup_kb.py
+# 2. Remove Kaia's own matching lines (user lines are never touched)
+venv/bin/python3 tools/maintenance/clean_hallucinations.py --apply
 
-# 3. Trigger a RAG re-index
+# 3. Check the rest of the corpus
+venv/bin/python3 tools/maintenance/audit_knowledge_base.py
+
+# 4. Trigger a RAG re-index
 venv/bin/python3 tools/maintenance/reindex_rag.py --trigger
 ```
 

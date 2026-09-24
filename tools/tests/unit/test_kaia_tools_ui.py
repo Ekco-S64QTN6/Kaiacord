@@ -162,3 +162,13 @@ def test_every_dialog_goes_through_the_layer():
     stray = [l.strip() for l in src.splitlines()
              if "whiptail --title" in l and "command whiptail" not in l]
     assert not stray, f"call sites bypassing ui_dialog: {stray}"
+
+
+def test_every_tool_the_menus_run_exists():
+    """A deleted tool left in a menu fails only when someone picks it."""
+    import re
+    from pathlib import Path
+    src = Path("scripts/kaia-tools.sh").read_text(encoding="utf-8")
+    missing = sorted({t for t in re.findall(r"\b(?:tools|scripts)/[\w/.-]+\.(?:py|sh)\b", src)
+                      if not Path(t).exists()})
+    assert not missing, missing

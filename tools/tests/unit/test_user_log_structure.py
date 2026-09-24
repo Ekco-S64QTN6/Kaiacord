@@ -1,6 +1,6 @@
 """The transcript format retrieval depends on.
 
-`kb_cleanse_user_logs.py` asked a model to rewrite each log into a "clean
+A model-driven cleaner (since deleted) asked a model to rewrite each log into a "clean
 'User: ...' / 'Kaia: ...' pattern". It complied across 774 files and in doing
 so removed the three things the retrieval layer runs on:
 
@@ -62,33 +62,6 @@ def test_the_splitter_finds_turns_in_a_repaired_file():
     sample = files[0].read_text(encoding="utf-8", errors="replace")
     parts = ConversationTurnSplitter._TURN_PATTERN.split(sample)
     assert (len(parts) - 1) // 2 >= 2, "splitter found no turns to chunk on"
-
-
-def test_the_cleanser_cannot_flatten_a_log_again():
-    """The prompt now forbids reformatting, and the result is checked."""
-    src = Path("tools/maintenance/kb_cleanse_user_logs.py").read_text(encoding="utf-8")
-    assert "NEVER change the line format" in src
-    assert "Do not replace a" in src and "'User'" in src
-    assert "rejected rewrite" in src, "no post-check guarding the rewrite"
-
-
-def test_the_repair_declares_reconstructed_timestamps():
-    """A repaired file carries synthetic within-day times, and says so, because
-    nothing downstream should mistake them for original precision.
-
-    This used to assert that *some file in the corpus* carried the marker, which
-    made it a test of corpus state rather than of the tool. `rollup_user_logs`
-    merges closed months into one archive and writes fresh frontmatter, so the
-    marker legitimately disappears once every repaired daily file has been
-    rolled up — and then this failed with nothing wrong. The durable claim is
-    that the tool writes it.
-    """
-    src = Path("tools/maintenance/repair_flattened_user_logs.py").read_text(encoding="utf-8")
-    assert "reconstructed_times: true" in src, (
-        "the repair no longer declares that it rebuilt the timestamps")
-    # And it must add the key when the frontmatter lacks it, rather than only
-    # when it happens to be there already.
-    assert 'if "reconstructed_times:" not in front' in src
 
 
 # ── The compaction tool ──────────────────────────────────────────────
@@ -280,18 +253,3 @@ def test_compaction_is_idempotent_and_keeps_the_citation():
     twice = compact_link_dump(once)
     assert twice == once, "second pass changed an already-compacted turn"
     assert "[shared link:" in twice, "the re-run dropped the recovered title"
-
-
-def test_the_standalone_tool_carries_the_same_guard():
-    """compact_link_dumps.py predates the consolidated pass and is still
-    runnable by hand; it must not be the lossy copy."""
-    from tools.maintenance.compact_link_dumps import compact_turn
-
-    body = ("this is the piece i mentioned, worth the read in full. " * 18 +
-            "\nhttps://example.com/piece\n"
-            "A Title That Should Survive Both Passes\nmore body\n")
-    once, changed = compact_turn(body)
-    assert changed and "[shared link:" in once
-    twice, changed_again = compact_turn(once)
-    assert not changed_again, "an already-compacted turn was reported as changed"
-    assert twice == once

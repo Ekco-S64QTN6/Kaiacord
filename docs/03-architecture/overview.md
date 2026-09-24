@@ -47,22 +47,24 @@ graph TB
 
 ```
 Kaiacord/
-├── Kaiacord.py              # Minimal Orchestrator (~170 lines)
-├── utils/                   # Deeply modularized components
-│   ├── core/                # RAG, Intelligence, Dream, Cognitive Pipeline, MessageProcessor
-│   ├── infrastructure/      # AppContext, DashboardManager, Config, Monitoring
-│   ├── social/              # Twitter/X, Bluesky, Social Responder & Project 1999 Forum Client/Scraper
-│   ├── commands/            # Specialized command handlers
-│   └── news/                # News retrieval & management
-├── config/                  # Configuration & Bot Persona
-├── knowledge_base/          # RAG text storage (News, Interaction Logs)
-├── memory/                  # Persistent data (bot_state.json, rag_storage/)
-├── tools/                   # Utility & Maintenance Scripts
-│   ├── maintenance/         # News, Indexing, Health checks
-│   ├── diagnostics/         # RAG & Embedding verification
-│   ├── recovery/            # Contamination & Hallucination fixes
-│   └── tests/               # Pytest suite
-├── docs/                    # Detailed technical documentation
+├── Kaiacord.py              # Orchestrator: boot, events, shutdown
+├── utils/
+│   ├── core/                # Message pipeline, RAG, safety filters, mood, dreams, art
+│   ├── infrastructure/      # AppContext, config, GPU guard, logging, monitoring
+│   ├── commands/            # ! command handlers and the embed style
+│   ├── social/              # Bluesky, X, Project 1999 forum client and drafting
+│   ├── news/                # Reading the filed news briefs
+│   ├── ttrpg/               # Aethelgard: combat, registries, world
+│   ├── audio/               # !music: Strudel engine, tracks, DJ
+│   ├── radio/               # !skyking, !numbers, !radio
+│   └── sky/                 # !iss, !nasa, !sky and the other sky commands
+├── config/                  # default_config.yaml and your kaia.yaml overrides
+├── knowledge_base/          # The corpus: books, documents, news, user logs, dreams
+├── memory/                  # Runtime state: bot_state.json, rag_storage/, radio/
+├── tools/                   # Maintenance, diagnostics and the test suite (tools/README.md)
+├── finetune/                # Persona LoRA pipeline, off the runtime path
+├── scripts/                 # kaia-tools.sh and shell wrappers
+├── docs/                    # Technical documentation
 └── logs/                    # Consolidated logging (kaiacord.log)
 ```
 

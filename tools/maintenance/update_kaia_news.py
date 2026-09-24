@@ -395,78 +395,15 @@ RULES:
         if request_reindex():
             print("[DEBUG] Reindex requested")
 
-# Manual version for when you don't have Gemini API
-def manual_news_update():
-    """Manual method: copy/paste the prompt into Gemini web interface"""
-    
-    prompt = f"""
-    Go to https://gemini.google.com/
-    
-    Paste this exact prompt:
-    
-    ```
-    Generate today's ({datetime.datetime.now().strftime("%Y-%m-%d")}) daily news digest for Kaia using the format and rules specified.
-    
-    Kaia is a systems analyst/hacker persona who needs factual, technical updates without commentary.
-    
-    Focus on:
-    - Infrastructure outages and tech failures
-    - Cybersecurity incidents and vulnerabilities
-    - Internet governance and network events
-    - AI/ML developments with practical implications
-    - **US Politics**: Legislation, elections, policy changes affecting tech/society
-    - **Global Geopolitics**: Conflicts, treaties, international relations
-    - **Hacker Culture**: Leaks, Defcon, community events
-    - **General Tech**: Social media, crypto, science
-    
-    Use technical details where relevant (version numbers, CVEs, protocols).
-    Present facts without opinion or sensationalism.
-    Include concrete data points and statistics.
-    
-    **CRITICAL**: Generate at least 40 bullet points total. Cover all sections.
-    Do NOT include a "SOURCES" or "REFERENCES" section at the end.
-    
-    Now generate the daily brief for {datetime.datetime.now().strftime("%Y-%m-%d")}.
-    ```
-    
-    Copy the output and save it as: ./knowledge_base/news_brief_{datetime.datetime.now().strftime("%Y%m%d")}.md
-    """
-    
-    print(prompt)
-    
-    # Create a simple script to help
-    script = f"""#!/bin/bash
-# Save this as update_kaia.sh
-echo "1. Go to: https://gemini.google.com/"
-echo "2. Copy the prompt from: daily_prompt.txt"
-echo "3. Paste into Gemini and copy the output"
-echo "4. Save output to: knowledge_base/news_brief_{datetime.datetime.now().strftime("%Y%m%d")}.md"
-echo "5. Restart Kaia or wait for auto-reindex"
-"""
-    
-    with open("update_kaia_manual.sh", "w") as f:
-        f.write(script)
-    
-    print(f"\n📋 Manual update script created: update_kaia_manual.sh")
-
 if __name__ == "__main__":
     import sys
-    
-    if len(sys.argv) > 1 and sys.argv[1] == "--manual":
-        manual_news_update()
-    else:
-        # Check for Gemini API key
-        api_key = os.getenv("GEMINI_API_KEY")
-        
-        if not api_key:
-            print("❌ GEMINI_API_KEY environment variable not set")
-            print("\nEither:")
-            print("1. Set GEMINI_API_KEY and run: python update_kaia_news.py")
-            print("2. Run manual version: python update_kaia_news.py --manual")
-            sys.exit(1)
-        
-        # Check for --backfill flag
-        do_backfill = "--backfill" in sys.argv
-        
-        updater = KaiaNewsUpdater(api_key)
-        updater.run(skip_backfill=not do_backfill)
+
+    api_key = os.getenv("GEMINI_API_KEY")
+    if not api_key:
+        print("❌ GEMINI_API_KEY environment variable not set")
+        print("Set it in .env, or write the brief by hand into "
+              "knowledge_base/news/daily/ and run tools/maintenance/ingest_manual_news.py")
+        sys.exit(1)
+
+    updater = KaiaNewsUpdater(api_key)
+    updater.run(skip_backfill="--backfill" not in sys.argv)

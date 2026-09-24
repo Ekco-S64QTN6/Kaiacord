@@ -146,7 +146,7 @@ def main() -> int:
           f"({turns_total} turns preserved)")
     if args.apply:
         print(f"originals copied to {BACKUP}")
-        print("Run a reindex (tools/trigger_reindex.py) to pick up the new layout.")
+        print("Run a reindex (tools/maintenance/reindex_rag.py --trigger) to pick up the new layout.")
     else:
         print("(dry run — nothing written. re-run with --apply)")
     return 0

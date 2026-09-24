@@ -16,15 +16,14 @@ Kaiacord uses [twikit](https://github.com/d60/twikit) for X/Twitter integration.
 | `x_cookies.json` | ✅ `.gitignore` | Alternate cookie filename |
 | `*.cookies` | ✅ `.gitignore` | Catch-all for cookie exports |
 
-## Cookie Helper Scripts
+## Cookie Helper
 
-These scripts in `tools/social/` are utilities for extracting/managing X cookies:
-
-- `export_x_cookies.py` — Exports cookies from browser via `browser_cookie3`
-- `extract_firedragon_cookies.py` — Extracts cookies from Firedragon browser
-- `manual_x_cookies.py` — Manual cookie entry tool
-
-These scripts are **safe to commit** — they don't contain credentials, only the logic to extract them.
+`tools/social/export_x_cookies.py` writes `memory/x_cookies.json` from a
+logged-in browser session. With no arguments it tries Chrome, Firefox, Edge and
+Chromium; `--cookie-file <cookies.sqlite>` reads one Firefox-family profile
+(Firedragon, LibreWolf); `--manual <auth_token> <ct0>` writes the two cookies
+that matter, copied from the browser's dev tools. The script holds no
+credentials and is safe to commit; its output is not.
 
 ## If Cookies Are Compromised
 

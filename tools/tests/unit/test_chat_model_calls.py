@@ -13,16 +13,12 @@ from pathlib import Path
 
 ROOT = Path(__file__).resolve().parents[3]
 SCANNED = ("utils", "tools/maintenance")
-# Deliberately loads at other sizes to measure them.
-EXEMPT = {"tools/maintenance/sweep_ctx.py"}
 
 
 def _model_calls():
     for root in SCANNED:
         for path in (ROOT / root).rglob("*.py"):
             rel = str(path.relative_to(ROOT))
-            if rel in EXEMPT:
-                continue
             tree = ast.parse(path.read_text(encoding="utf-8"))
             for node in ast.walk(tree):
                 if not isinstance(node, ast.Call):

@@ -4,19 +4,16 @@
 tools/tests/
 ├── unit/           # Fast, isolated tests — no network, no Ollama, no GPU
 ├── integration/    # More than one subsystem together, and anything that needs a live service
-├── verification/   # Manual diagnostics — collected, but marker-gated (see below)
-├── archive/        # One-off scripts from past debugging, kept for reference
 └── conftest.py     # Shared fixtures
 ```
 
 Configuration lives in `pytest.ini` at the repo root: `testpaths`, marker
 declarations, `--strict-markers`, and the asyncio loop scope.
 
-`verification/` **is** collected — `testpaths` covers all of `tools/tests`. What keeps
-it out of an ordinary run is its markers: `test_gemma3_vram.py` carries `gpu`, `ollama`
-and `slow`, so `-m "not ollama and not gpu and not slow"` deselects it. Anything added
-there must carry the same markers, or a suite run will load a model and evict
-`gemma3:12b` from VRAM.
+Everything under `tools/tests` named `test_*.py` is collected. What keeps a test
+that needs Ollama or the GPU out of an ordinary run is its markers, so anything
+that reaches the daemon must carry `ollama` (and `gpu`/`slow` as they apply), or a
+suite run will load a model and evict `gemma3:12b` from VRAM.
 
 The same holds anywhere in the tree. `test_embed_device.py` and `test_bm25_cache.py`
 sat in `unit/` with no marker and embedded through the bot's own Ollama on every
@@ -64,7 +61,7 @@ The checks:
 - **No hardcoded home directories.** Nine files contained `/home/<user>/...`,
   so the suite ran on exactly one machine. `/home/user/...` inside synthetic
   fixture data is fine — it is a path shape, never opened.
-- **No module-level execution.** `verification/test_vram.py` called
+- **No module-level execution.** A VRAM probe (since deleted) called
   `asyncio.run(main())` at import, which pytest runs during *collection* — so
   every suite run unloaded and reloaded `gemma3:12b`, evicting the production
   model from VRAM. Guard scripts with `if __name__ == "__main__":`.

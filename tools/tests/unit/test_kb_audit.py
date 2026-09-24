@@ -41,6 +41,39 @@ def test_a_file_without_frontmatter_is_all_body():
     assert fm == "" and body.startswith("# Just a heading")
 
 
+def test_the_named_fix_for_a_fused_fence_repairs_it():
+    """The audit sends a fused fence to repair_frontmatter, which must fix it
+    without touching the body's first line."""
+    rf = _load("_repair_fm", "tools/maintenance/repair_frontmatter.py")
+    fixed = rf.repair('---\ntitle: x\n---User: speeding ticket\nKaia: hm\n')
+    assert fixed == '---\ntitle: x\n---\nUser: speeding ticket\nKaia: hm\n'
+    assert rf.repair('---\ntitle: x\n---\nbody\n') is None
+    assert "repair_frontmatter" in audit.FIXES["fused_frontmatter"]
+
+
+def test_every_named_fix_exists():
+    """A finding that points at a deleted tool is a dead end."""
+    import re
+    for name, fix in audit.FIXES.items():
+        for tool in re.findall(r"tools/[\w/]+\.py", fix):
+            assert Path(tool).exists(), f"{name} names {tool}, which does not exist"
+
+
+def test_private_use_glyphs_are_reported_in_prose_only(tmp_path, monkeypatch):
+    """A PDF font's ligatures extracted as private-use codepoints ("sacri\ue057ce")
+    are a defect in a book; Powerline glyphs a user pasted into chat are not."""
+    kb = tmp_path / "knowledge_base"
+    for folder, name in (("books", "b.md"), ("user_logs", "u.md")):
+        (kb / folder).mkdir(parents=True)
+        (kb / folder / name).write_text("---\ntitle: t\nsummary: s\n---\n"
+                                        "if you sacri\ue057ce everything \ue0b0 ~/build " * 20)
+    monkeypatch.setattr(audit, "KB", kb)
+    findings, _ = audit.audit()
+    flagged = findings.get("private_use_glyph", [])
+    assert any(f.startswith("books/b.md") for f in flagged)
+    assert not any("user_logs" in f for f in flagged)
+
+
 @pytest.mark.skipif(not KB.exists(), reason="no corpus in this checkout")
 def test_the_audit_runs_over_the_real_corpus():
     findings, counts = audit.audit()
