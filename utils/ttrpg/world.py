@@ -101,7 +101,7 @@ LOCATION_DATA = {
     "housing_district": {
         "name": "Oakhaven Housing District",
         "short": "A quiet lane east of the square. Smoke from hearths, the smell of turned earth. People built lives here.",
-        "exits": ["oakhaven", "tricklebrook_pond"],   # Only exit is back to Oakhaven — player plots are sub-locations
+        "exits": ["oakhaven", "tricklebrook_pond"],   # player plots are sub-locations, not exits
         "atmosphere": "settled, domestic, oddly peaceful. The Whisperwood is visible but distant.",
         "hunting": False,
     },

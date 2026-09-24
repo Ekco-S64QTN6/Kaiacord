@@ -28,27 +28,32 @@ def trigger_micro_event(sheet: dict) -> tuple[bool, str]:
     handler = secrets.choice(events)
     return handler(sheet)
 
-def _has_space(sheet: dict) -> bool:
-    return len(sheet.get("inventory", [])) < 50
+def _has_space(sheet: dict, item: str) -> bool:
+    """The inventory's rule: a cap on unique item types, not on stack size."""
+    from utils.ttrpg.character_manager import INVENTORY_LIMIT
+    inv = sheet.get("inventory", [])
+    return item in inv or len(set(inv)) < INVENTORY_LIMIT
 
 def _weather_discovery(sheet: dict) -> tuple[bool, str]:
     weather = get_weather()
-    w_type = weather.get("name", "Clear") if weather else "Clear"
-    
-    if w_type in ("Storming", "Raining") and _has_space(sheet):
+    w_key = weather.get("key", "clear") if weather else "clear"
+
+    # Keyed on the weather key: names differ by season ("Raining" in spring,
+    # "Rain" otherwise), so matching the name missed most rain.
+    if w_key in ("storm", "rain") and _has_space(sheet, "aeridor_shard"):
         sheet.setdefault("inventory", []).append("aeridor_shard")
         return True, (
             "⚡ *A flash of lightning strikes an ancient mossy trunk ahead. "
             "With a deafening crack, the wood splits, dislodging a glowing Aeridor Crystal Shard "
             "which you quickly pocket.*"
         )
-    elif w_type == "Foggy" and _has_space(sheet):
+    elif w_key == "fog" and _has_space(sheet, "lucky_charm"):
         sheet.setdefault("inventory", []).append("lucky_charm")
         return True, (
             "🌫️ *Navigating through the thick grey fog, your foot kicks a small metallic object. "
             "It is a copper Lucky Charm, half-buried in the damp soil.*"
         )
-    elif _has_space(sheet):
+    elif w_key in ("clear", "hot") and _has_space(sheet, "copper_ring"):
         sheet.setdefault("inventory", []).append("copper_ring")
         return True, (
             "☀️ *The warm afternoon sun gleams off a reflective metallic circle in the dust. "
@@ -58,7 +63,7 @@ def _weather_discovery(sheet: dict) -> tuple[bool, str]:
 
 def _wanderer_encounter(sheet: dict) -> tuple[bool, str]:
     roll = secrets.randbelow(2)
-    if roll == 0 and _has_space(sheet):
+    if roll == 0 and _has_space(sheet, "tonic"):
         sheet.setdefault("inventory", []).append("tonic")
         return True, (
             "🧭 *You cross paths with a wandering merchant on the Trade Road. "
@@ -86,7 +91,7 @@ def _streak_recognition(sheet: dict) -> tuple[bool, str]:
             f"🔥 *Your momentum is legendary! You pause to catch your breath, reflecting on your "
             f"consecutive victories. Your focus sharpens (+{bonus_xp} XP, +{bonus_gil} Gil).*"
         )
-    elif streak >= 30 and _has_space(sheet):
+    elif streak >= 30 and _has_space(sheet, "hi_potion"):
         sheet.setdefault("inventory", []).append("hi_potion")
         return True, (
             f"⚔️ *A Watchtower guard patrolling the path recognizes you. 'I've heard of your streak, "
@@ -105,7 +110,7 @@ def _time_of_day_event(sheet: dict) -> tuple[bool, str]:
             f"over your minor cuts before drifting away (+{heal} HP).*")
     # Night
     elif hour >= 18 or hour < 6:
-        if _has_space(sheet):
+        if _has_space(sheet, "lucky_charm"):
             sheet.setdefault("inventory", []).append("lucky_charm")
             return True, (
                 "🌠 *A brilliant shooting star cuts across the dark night canopy. "

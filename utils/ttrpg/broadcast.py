@@ -23,10 +23,8 @@ async def log_world_event(event_text):
         events.append(event_text)
         if len(events) > 10:
             events = list(events)[-10:]
-        tmp = path + ".tmp"
-        with open(tmp, 'w', encoding='utf-8') as f:
-            json.dump(events, f, indent=2)
-        os.replace(tmp, path)
+        from utils.core.atomic_write import write_atomic
+        write_atomic(path, json.dumps(events, indent=2))
     await asyncio.to_thread(functools.partial(_sync_log, event_text))
 
 async def broadcast_world_event(ctx, embed: discord.Embed):
