@@ -205,8 +205,9 @@ Verified 2026-09-24: **369 monsters**, **395 gear + 58 consumables = 453 items**
   job from colliding with live chat is the Ollama daemon queueing per model — so the cost is
   **latency, not corruption**: a message arriving mid-batch waits for the in-flight generation.
   Run long batches when nobody is talking to her, and keep every one of them resumable.
-  `docs/03-architecture/gpu-management.md` said BACKGROUND priority "yields to live chat" and made
-  this sound safer than it is; it is true inside the bot and false for every tool in `tools/`.
+  `GPUTaskPriority` does not reorder anything, inside the bot or out: `run_with_gpu_guard` only
+  logs it, and the semaphore serves callers first come, first served. A chat turn queued behind a
+  dream or an overnight write waits for both. `gpu_queue_depth()` is how many are waiting.
 - **A decay applied on read must advance its own clock.** `kaia_mood._apply_decay` decayed mood
   over the span since the last *interaction* and never moved that mark, so every reader between
   two interactions — the prompt injection, the proactive opener, `update()` itself — applied the

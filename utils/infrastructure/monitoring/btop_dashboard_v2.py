@@ -12,6 +12,7 @@ Author: Kaiacord Team
 """
 
 import curses
+import re
 import time
 import sys
 import os
@@ -23,6 +24,15 @@ from typing import List, Dict, Optional, Tuple, Deque
 from collections import deque
 from datetime import datetime
 import copy
+
+
+_CONTROL = re.compile(r"\x1b\[[0-9;?]*[A-Za-z]|[\x00-\x1f\x7f]")
+
+
+def _one_line(text: str) -> str:
+    """Text safe to draw on one curses line: escapes dropped, line breaks and
+    other control characters become spaces."""
+    return _CONTROL.sub(lambda m: "" if m.group(0).startswith("\x1b[") else " ", str(text))
 
 
 # ==================== DATACLASSES ====================
@@ -390,13 +400,16 @@ class BtopDashboardV2:
         import concurrent.futures
         
         # Get system metrics with timeout (isolated in dashboard process)
+        # Not a `with` block: its exit waits for the worker, so a hung psutil
+        # call (a stale mount under disk_usage) would hang the frame anyway.
         metrics = None
-        with concurrent.futures.ThreadPoolExecutor(max_workers=1) as executor:
-            future = executor.submit(self._get_system_metrics)
-            try:
-                metrics = future.result(timeout=1.0)
-            except concurrent.futures.TimeoutError:
-                pass
+        executor = concurrent.futures.ThreadPoolExecutor(max_workers=1)
+        try:
+            metrics = executor.submit(self._get_system_metrics).result(timeout=1.0)
+        except concurrent.futures.TimeoutError:
+            pass
+        finally:
+            executor.shutdown(wait=False)
         
         if metrics:
             cpu_percent = metrics['cpu_percent']
@@ -494,14 +507,17 @@ class BtopDashboardV2:
         now = time.time()
         net_sent_kbs = 0.0
         net_recv_kbs = 0.0
-        if self._prev_net_time > 0:
-            elapsed = now - self._prev_net_time
-            if elapsed > 0.1:
-                net_sent_kbs = (net.bytes_sent - self._prev_net_sent) / 1024.0 / elapsed
-                net_recv_kbs = (net.bytes_recv - self._prev_net_recv) / 1024.0 / elapsed
-        self._prev_net_sent = net.bytes_sent
-        self._prev_net_recv = net.bytes_recv
-        self._prev_net_time = now
+        if metrics:
+            # A frame without metrics has zeroed counters; recording them would
+            # make the next frame show the whole cumulative total as one second.
+            if self._prev_net_time > 0:
+                elapsed = now - self._prev_net_time
+                if elapsed > 0.1:
+                    net_sent_kbs = (net.bytes_sent - self._prev_net_sent) / 1024.0 / elapsed
+                    net_recv_kbs = (net.bytes_recv - self._prev_net_recv) / 1024.0 / elapsed
+            self._prev_net_sent = net.bytes_sent
+            self._prev_net_recv = net.bytes_recv
+            self._prev_net_time = now
 
         # Helper: pick first non-None value from sources
         def _pick(key, *sources, default=None):
@@ -669,8 +685,10 @@ class BtopDashboardV2:
             max_y, max_x = self.stdscr.getmaxyx()
             if y >= max_y or x >= max_x:
                 return
-            # Truncate text to fit
-            text = text[:max_x - x - 1]
+            # One screen line per call: a newline, tab or escape sequence in a
+            # log message (a traceback, ffmpeg output) moves the cursor and
+            # draws over the neighbouring panes.
+            text = _one_line(text)[:max_x - x - 1]
             if attr:
                 self.stdscr.addstr(y, x, text, attr)
             else:

@@ -62,8 +62,9 @@ Kaia is optimized for continuous presence on a single 12GB GPU. Unlike previous 
 The system uses a global `asyncio.Semaphore(1)` to prevent concurrent GPU access:
 - All GPU-bound operations (chat, dream generation, dream consolidation, forum drafting,
   metadata enrichment) acquire the semaphore before calling Ollama.
-- Every call carries a `GPUTaskPriority`, and inside the bot process `BACKGROUND` work yields
-  to live chat.
+- Every call carries a `GPUTaskPriority`, but it is only logged: the semaphore is first come,
+  first served, so live chat does not jump ahead of queued `BACKGROUND` work. The number waiting
+  (`gpu_queue_depth()`) is the queue size in `!sysmon` and on the dashboard.
 
 **The semaphore does not span processes.** `gpu_semaphore = asyncio.Semaphore(1)` is a
 module-level object, so a standalone tool — `consolidate_dreams.py`, `enrich_metadata.py`,

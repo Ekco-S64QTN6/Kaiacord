@@ -9,6 +9,9 @@ from collections import defaultdict, deque
 class StatsTracker:
     def __init__(self):
         self.lock = threading.RLock()
+        self._persist_lock = threading.Lock()
+        self._save_seq = 0
+        self._written_seq = 0
         self.stats = {
             'users': 0,
             'active_users': set(),
@@ -51,7 +54,6 @@ class StatsTracker:
     def save_stats(self):
         """Save stats to disk"""
         try:
-            os.makedirs("./memory", exist_ok=True)
             stats_file = telemetry_path("memory/stats.json")
             
             with self.lock:
@@ -63,18 +65,26 @@ class StatsTracker:
                     'forum_rejected': self.stats.get('forum_rejected', 0),
                     'last_saved': datetime.now().isoformat()
                 }
+                self._save_seq += 1
+                seq = self._save_seq
             
             # Offload to background thread to prevent loop stalls
-            threading.Thread(target=self._persist_to_disk, args=(stats_file, save_data), daemon=True).start()
+            threading.Thread(target=self._persist_to_disk, args=(stats_file, save_data, seq), daemon=True).start()
         except Exception as e:
             from utils.infrastructure.logging.kaia_logger import log_error
             log_error(f"Error initiating stats save: {e}")
 
-    def _persist_to_disk(self, stats_file, save_data):
-        """Actual disk I/O in background thread"""
+    def _persist_to_disk(self, stats_file, save_data, seq=None):
+        """Disk I/O on a worker thread. Saves can finish out of order; an older
+        snapshot never overwrites a newer one."""
         try:
             from utils.core.atomic_write import write_atomic
-            write_atomic(stats_file, json.dumps(save_data, indent=2))
+            with self._persist_lock:
+                if seq is not None and seq <= self._written_seq:
+                    return
+                write_atomic(stats_file, json.dumps(save_data, indent=2))
+                if seq is not None:
+                    self._written_seq = seq
         except Exception as e:
             from utils.infrastructure.logging.kaia_logger import log_error
             log_error(f"Background stats save failed: {e}")
@@ -159,6 +169,12 @@ class StatsTracker:
         with self.lock:
             stats_copy = self.stats.copy()
             
+            try:
+                from utils.infrastructure.gpu.gpu_manager import gpu_queue_depth
+                stats_copy['queue_size'] = gpu_queue_depth()
+            except Exception:
+                pass
+
             # Calculate uptime
             stats_copy['uptime_minutes'] = (time.time() - stats_copy['uptime_start']) / 60
             stats_copy['uptime_hours'] = stats_copy['uptime_minutes'] / 60

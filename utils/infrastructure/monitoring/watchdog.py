@@ -17,6 +17,8 @@ class LoopWatchdog:
         self._stop_event = threading.Event()
         self._monitor_thread = None
         self._loop = None
+        self._suppressed = 0
+        self._stalled_since = None
 
     async def _tick_task(self):
         """Task that runs in the event loop to update the heartbeat."""
@@ -31,8 +33,16 @@ class LoopWatchdog:
             
             # Check if the last tick was too long ago
             stale_duration = time.time() - self._last_tick
-            if stale_duration > self.threshold:
-                # Loop is likely blocked!
+            if self._suppressed:
+                continue
+            if stale_duration <= self.threshold:
+                if self._stalled_since is not None:
+                    log_warning(f"EVENT LOOP STALL ended after {time.time() - self._stalled_since:.1f}s")
+                    self._stalled_since = None
+                continue
+            if self._stalled_since is None:
+                # One line when a stall starts and one when it ends, not one per check.
+                self._stalled_since = self._last_tick
                 log_warning(f"EVENT LOOP STALL DETECTED: Loop has been unresponsive for {stale_duration:.2f}s")
                 
                 # Attempt to get the stack trace of the main thread
@@ -79,13 +89,18 @@ class LoopWatchdog:
         log_debug(f"LoopWatchdog started (threshold={self.threshold}s)")
 
     def suppress(self):
-        """Context manager to temporarily suppress stall alerts (e.g. during known-slow init)."""
+        """Context manager that silences stall alerts for a known-slow block (e.g. init)."""
         import contextlib
         @contextlib.contextmanager
         def _suppress():
-            yield
-            # Reset tick to now so the time spent in the suppressed block doesn't count
-            self._last_tick = time.time()
+            self._suppressed += 1
+            try:
+                yield
+            finally:
+                # The time spent inside the block does not count as a stall afterwards.
+                self._last_tick = time.time()
+                self._stalled_since = None
+                self._suppressed -= 1
         return _suppress()
 
     def stop(self):

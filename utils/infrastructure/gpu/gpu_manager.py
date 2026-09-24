@@ -19,6 +19,16 @@ from utils.infrastructure.logging.kaia_logger import log_debug, log_action, log_
 # DO NOT re-implement "reservation" logic unless adding multi-model vision swapping.
 gpu_semaphore = asyncio.Semaphore(1)
 
+# Calls waiting for the guard, not counting the one inside it.
+_waiting = 0
+
+
+def gpu_queue_depth() -> int:
+    """How many model calls are queued behind the one running. Shown as the
+    queue size in !sysmon and the dashboard."""
+    return _waiting
+
+
 # Track if the current task is already inside a GPU-guarded block
 gpu_context_active = ContextVar('gpu_context_active', default=False)
 
@@ -40,15 +50,23 @@ async def run_with_gpu_guard(model_name: str, coro, task_id: str = None, priorit
     if gpu_context_active.get():
         return await coro
 
+    global _waiting
     token = gpu_context_active.set(True)
     try:
-        async with gpu_semaphore:
+        _waiting += 1
+        try:
+            await gpu_semaphore.acquire()
+        finally:
+            _waiting -= 1
+        try:
             await ModelContextMonitor.set_model(model_name)
             t_start = time.perf_counter()
             log_debug(f"[{task_id}] Executing protected GPU coro: {model_name} (Priority: {priority.name})")
             result = await coro
             log_debug(f"[{task_id}] Finished in {time.perf_counter() - t_start:.2f}s")
             return result
+        finally:
+            gpu_semaphore.release()
     finally:
         gpu_context_active.reset(token)
 

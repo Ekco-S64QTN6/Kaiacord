@@ -515,7 +515,7 @@ class MessageProcessor:
             log_debug("Interaction clock not stamped: message came from an external platform.")
         
         # Direct metrics: count processed messages (replaces log-scraping)
-        self.stats_tracker.increment_messages()
+        self.stats_tracker.increment_messages(getattr(msg.author, "id", None))
 
 
 
