@@ -67,6 +67,7 @@ class CoreTaskManager:
         self.dream_curation_task = self._make_dream_curation_task()
         self.corpus_hygiene_task = self._make_corpus_hygiene_task()
         self.ingress_task = self._make_ingress_task()
+        self.radio_task = self._make_radio_task()
         
     def _make_news_refresh_task(self):
         @tasks.loop(hours=12)
@@ -1865,6 +1866,41 @@ class CoreTaskManager:
 
         return ingress_task
 
+    def _make_radio_task(self):
+        """Refresh the shortwave feeds (eam.watch, Priyom) for !skyking and !numbers.
+
+        Checks hourly and fetches only what is older than `radio.poll_hours`
+        (6 by default): these are volunteer-run services and a novelty feed.
+        """
+        @tasks.loop(hours=1)
+        async def radio_task():
+            if shutdown_manager.shutting_down:
+                return
+            from utils.commands.radio_handler import poll_seconds, radio_enabled
+            if not radio_enabled():
+                return
+            from utils.radio import eam_watch, priyom
+            from utils.radio.fetch import FeedError
+            for name, refresh in (("eam.watch", eam_watch.refresh), ("priyom", priyom.refresh)):
+                try:
+                    await refresh(poll_seconds())
+                except FeedError as e:
+                    log_warning(f"[radio] {name} refresh failed: {e}")
+                except Exception as e:
+                    log_error(f"[radio] {name} refresh error: {e}")
+
+        @radio_task.before_loop
+        async def before_radio():
+            if getattr(self.ctx, 'bot', None):
+                await self.ctx.bot.wait_until_ready()
+                await asyncio.sleep(240)
+
+        @radio_task.error
+        async def radio_error(error):
+            log_error(f"CRITICAL: Radio task died: {error}")
+
+        return radio_task
+
     def _make_observation_digest_task(self):
         @tasks.loop(minutes=self.OBS_DIGEST_POLL_MINUTES)
         async def observation_digest_task():
@@ -2177,6 +2213,9 @@ class CoreTaskManager:
         self.ingress_task.start()
         if self.ingress_task.get_task():
             task_registry.register("ingress_task", self.ingress_task.get_task())
+        self.radio_task.start()
+        if self.radio_task.get_task():
+            task_registry.register("radio_task", self.radio_task.get_task())
 
         log_action("Core background tasks started via CoreTaskManager.")
 
@@ -2203,6 +2242,7 @@ class CoreTaskManager:
         self.dream_curation_task.stop()
         self.corpus_hygiene_task.stop()
         self.ingress_task.stop()
+        self.radio_task.stop()
 
 # Helper for backward compatibility
 _task_manager = None

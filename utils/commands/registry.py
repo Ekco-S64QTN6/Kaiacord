@@ -24,6 +24,7 @@ from utils.commands.youtube_handler import handle_youtube_command
 from utils.commands.memory_handler import handle_memory_cmd
 from utils.commands.music_handler import handle_music_command
 from utils.commands.news_handler import handle_news_command
+from utils.commands.radio_handler import handle_numbers_command, handle_skyking_command
 from utils.commands.reindex_handler import handle_reindex_command
 from utils.commands.rpg_handler import handle_rpg_command
 from utils.commands.scores_handler import handle_scores_command
@@ -142,6 +143,13 @@ COMMANDS = (
     Command("news", handle_news_command, GROUP_MEDIA, extra=RESPONDER,
             usage="!news [n | category]",
             summary="Today's headlines; `!news 3` opens story 3 with its background"),
+    Command("skyking", handle_skyking_command, GROUP_MEDIA, extra=RESPONDER, aliases=("eam",),
+            usage="!skyking [n | classic]",
+            summary="The latest military Emergency Action Messages off the HFGCS net; "
+                    "`!skyking classic` for an old Skyking broadcast"),
+    Command("numbers", handle_numbers_command, GROUP_MEDIA, extra=RESPONDER,
+            usage="!numbers [station] [hours]",
+            summary="Number stations on the air soon, with links to listen live"),
     Command("quip", handle_quip_command, GROUP_MEDIA,
             summary="Draft a social post (10-minute cooldown; owners exempt)"),
     Command("art", handle_art_command, GROUP_MEDIA, extra=RESPONDER,

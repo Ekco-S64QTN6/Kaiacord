@@ -329,7 +329,7 @@ in Python; the LLM is used only for narration.
 
 - **77-floor mega-dungeon** ("Spine of the World") with Resonance Lift checkpoints and per-floor
   encounter pools.
-- **369 monsters** (44 bosses), **453 equipment items** across 7 tiers, 253 fish, 12 quests.
+- **369 monsters** (44 bosses), **453 equipment items** across 7 tiers, 248 fish, 12 quests.
 - **10 classes** with distinct progression, passive buffs, and triggerable combat procs.
 - Housing, procedural farming, pets, and alchemy.
 - Defence soft-cap `min(10, raw) + max(0, raw - 10) // 2` and absolute stat budgets prevent
@@ -345,8 +345,10 @@ See [`docs/ttrpg/aethelgard_system.md`](docs/ttrpg/aethelgard_system.md).
 <br>
 
 A CPU-rendered fractal flame generator based on the Electric Sheep algorithm: 20 variation
-functions, 10 curated colour LUTs, and adaptive density estimation. Each image is accompanied by
-commentary driven by Kaia's current emotional vector.
+functions, 10 curated colour LUTs, adaptive density estimation, 1080² output. Kaia **decides a
+piece before it is drawn**: from your words, her mood, or the colours of an attached image she
+picks a palette, symmetry, lead shapes and a title from the renderer's own menus — then
+remembers what she made.
 
 `!art mandelbrot` renders the Mandelbrot set instead, with the iteration budget scaled to the
 zoom depth, mirrored palette cycling, and 2x2 supersampling. Pass a
@@ -354,8 +356,9 @@ zoom depth, mirrored palette cycling, and 2x2 supersampling. Pass a
 those exact coordinates, so a location someone shares can be reproduced rather than transcribed.
 
 ```
-!art                          # fractal flame, random seed
-!art mandelbrot               # a random location, from shallow postcard views to 1e11 deep
+!art                          # her choice, from her mood
+!art a cold storm over the sea  # she reads the brief and picks to match
+!art                          # with an image attached: its colours, her composition
 !art mandelbrot --palette void --seed 42
 !art http://weirdly.net/webtoys/mandelbrot/index.html?config=v1,-1.768941,...
 ```
@@ -367,34 +370,57 @@ those exact coordinates, so a location someone shares can be reproduced rather t
 
 <br>
 
-`!music on` puts Kaia in a voice channel *performing* a set. She doesn't loop a pattern — she
-builds a track the way a live coder does: brings a part in, chains an effect onto a line that's
-already playing, nudges one number, solos something, strips it back, rebuilds.
+`!music on` puts Kaia in a voice channel **DJing a live-coded set**. Every genre is an arranged
+track with a full groove from bar one: intro, groove, a build with a snare roll and riser, the
+kick cutting out before the drop, a breakdown, a second build and a bigger drop. Levels are
+measured, not guessed — every part was soloed and calibrated in the real engine — and an energy
+curve makes the drops the loudest thing in the track.
 
 ```
-!music on --house          # join your voice channel and start
+!music on                  # she picks a genre for her mood and the hour, and says why
+!music on --psytrance      # or you pick
 !music techno              # switch genre without leaving
-!music status              # genre, current move, what's playing
-!music genres              # list them
-!music off                 # stop and leave
+!music darker · faster · drop · more bass · bring in the vocals   # requests
+!music status · genres · off
 ```
 
 Fourteen genres — `acid` `ambient` `berlinschool` `breakbeat` `deephouse` `drumnbass` `dub`
-`house` `lofi` `psytrance` `synthwave` `techno` `trance` `triphop` — each a 16–34 move script
-running 5–9.5 minutes, then a fresh pass with re-jittered timings. Six carry chopped vocal lanes.
+`house` `lofi` `psytrance` `synthwave` `techno` `trance` `triphop`. Her arousal nudges the tempo;
+requests edit the parts that are playing without losing the song's place.
 
 The sound engine is [Strudel](https://codeberg.org/uzu/strudel) (AGPL-3.0), running its own REPL
 in a local browser and captured off a PipeWire null sink into Discord voice. Strudel is fetched
-at install time — none of it is vendored here.
-
-**You can play along.** The page is the real Strudel editor: it shows the code, highlights
-whichever pattern is currently sounding, and draws the scope and piano roll. Every genre exposes
-`slider(...)` controls you can grab mid-set, and Kaia holds her next move while you're typing
-rather than overwriting your edit. `music.show_window: true` to watch.
+at install time — none of it is vendored here. `music.show_window: true` to watch the code play.
 
 **GPU cost is zero** — synthesis happens in the browser, so the chat model keeps all of its VRAM.
 
 Setup: `venv/bin/python3 tools/maintenance/fetch_music_assets.py` (needs `ffmpeg` and `pactl`).
+Tuning: `tools/maintenance/audition_tracks.py` plays, measures and calibrates every part.
+
+</details>
+
+<details>
+<summary><b>📻 Shortwave — EAMs and number stations</b></summary>
+
+<br>
+
+Kaia keeps an ear on the strange end of the HF bands.
+
+```
+!skyking                   # latest military Emergency Action Messages off the HFGCS net
+!skyking 3                 # one in full, with a recording when someone captured it
+!skyking classic           # an old Skyking broadcast from the archive, read the way it sounded
+!numbers                   # number stations on the air in the next 6 hours, with listen links
+!numbers e11               # when the "Oracle" is next on
+```
+
+EAMs come from [eam.watch](https://eam.watch/)'s volunteer log of the USAF High Frequency Global
+Communications System (8992 / 11175 kHz USB) — callsign, preamble and the encrypted message.
+Skyking itself is defunct; the command is an homage. The number-station schedule comes from
+[Priyom](https://priyom.org/), and every listen link opens the
+[UTwente WebSDR](http://websdr.ewi.utwente.nl:8901/) already tuned. Both feeds are read-only,
+polled every 6 hours and cached — they are volunteer services. Nothing here decodes anything:
+the messages are encrypted, and Kaia says so.
 
 </details>
 
@@ -407,7 +433,7 @@ Periodic scraping of Off-Topic and Technical Discussion forums, with a Discord m
 offering Accept/Reject on drafted replies, RAG-grounded support answers, and profile caching to
 model active users.
 
-added a tech-knowledge synthesiser that extracts and categorises issues from
+It also has a tech-knowledge synthesiser that extracts and categorises issues from
 Technical Discussion threads into the knowledge base, profile compaction that distils scattered
 forum-user logs into single grounded cards, and scrape-watermark persistence so compacted users
 are not redundantly re-scraped.
@@ -460,7 +486,8 @@ Kaiacord/
 │   ├── ttrpg/                Combat, dungeon, housing state
 │   ├── commands/             Discord command routers
 │   ├── social/               Forum crawler & social responders
-│   ├── audio/                Strudel pattern generation for !music
+│   ├── audio/                !music: arranged tracks, the DJ, the Strudel engine
+│   ├── radio/                !skyking and !numbers: eam.watch and Priyom feeds
 │   └── infrastructure/       DI context, dashboard, logging, GPU pinning
 ├── tools/
 │   ├── maintenance/          Health checks, re-indexing, KB ingestion, dream curation,

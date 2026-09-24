@@ -11,7 +11,9 @@ All commands are prefixed with `!`. Admin commands are restricted to the project
 | `!music` | Perform a live-coded set in your voice channel | All |
 | `!rpg` | Open the Aethelgard TTRPG HUD and play | All |
 | `!help` | Display interactive command and feature guide | All |
-| `!news [category]` | Fetch news by category | All |
+| `!news [n \| category]` | Today's headlines; `!news 3` opens story 3 | All |
+| `!skyking [n \| classic]` | Latest military Emergency Action Messages (eam.watch) | All |
+| `!numbers [station] [hours]` | Number stations on the air soon, with listen links (Priyom) | All |
 | `!download <url>` | Submit a URL for the knowledge base (staged, filed hourly) | All |
 | `!youtube <url>` | Pull a video's transcript into the knowledge base, correcting misheard names (`!yt`) | All |
 | `!quip` | Trigger a social media quip (10m cooldown) | All |
@@ -57,6 +59,18 @@ Key subcommands:
 Fetches news by category from auto-generated daily briefs. Requires `GEMINI_API_KEY` for brief generation.
 
 **Categories:** `today`, `technology`, `security`, `hacking`, `politics`, `business`, `science`, `culture`, `general`
+
+### 📻 Shortwave (`!skyking` / `!eam`, `!numbers`)
+- `!skyking` — the latest five Emergency Action Messages logged off the USAF HFGCS net
+  (8992 / 11175 kHz USB) at [eam.watch](https://eam.watch/), with callsign, preamble and message.
+  Messages are encrypted; Kaia shows them, she doesn't decode them.
+- `!skyking 3` — message 3 in full, with a recording link when one exists.
+- `!skyking classic` — an old Skyking broadcast from the archive, read the way it sounded.
+  Skyking itself is defunct; the command is named for it as an homage.
+- `!numbers` — number stations scheduled in the next 6 hours ([Priyom](https://priyom.org/)),
+  each with a link that opens the UTwente WebSDR already tuned. `!numbers e11` for one station,
+  `!numbers 12` for a longer window.
+- The feeds are volunteer-run and polled every 6 hours, so this is a few hours behind by design.
 
 ### 📥 Download (`!download <url>`)
 Fetches content from a URL, converts it to Markdown, and **stages** it in
@@ -175,7 +189,7 @@ Kaia responds naturally to specific phrases when mentioned or addressed — no `
 
 | Role | Commands |
 |:---|:---|
-| **All Users** | `!scores`, `!art`, `!rpg`, `!help`, `!news`, `!quip`, `!forum link` |
+| **All Users** | `!scores`, `!art`, `!rpg`, `!help`, `!news`, `!skyking`, `!numbers`, `!quip`, `!forum link` |
 | **Admin (Owner)** | All of the above, plus `!dream`, `!memory`, `!flag`, `!audit`, `!reindex`, `!enrich`, `!snapshot`, `!selfmodel`, `!sysmon`, `!forum (status/stats/scrape/read/post/reply/user)` |
 
 Rate limiting applies to all users (configurable via `performance.requests_per_minute` in `kaia.yaml`).
