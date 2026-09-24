@@ -6,7 +6,16 @@ from bs4 import BeautifulSoup
 from typing import List, Optional
 from utils.infrastructure.logging.kaia_logger import log_info, log_debug, log_warning
 from utils.infrastructure.system.yaml_config import config
-from utils.core.sanitizer import is_safe_url
+from utils.core.sanitizer import is_safe_url, public_only_connector
+
+# A page is read at most this far before parsing; the prompt keeps far less
+# (url_max_content_length). Without a cap a linked multi-gigabyte file served
+# as text/html was read whole into memory.
+MAX_PAGE_BYTES = 2_000_000
+# Entries older than the TTL are dropped once a cache grows past this.
+CACHE_MAX_ENTRIES = 256
+_TRAILING_PUNCT = '.,;:!?)]}\'"'
+
 
 class ContextEnricher:
     """
@@ -233,7 +242,8 @@ class ContextEnricher:
         # Limit to 3 links to prevent abuse/latency
         tasks = []
         for guild_id, channel_id, message_id in matches[:3]:
-            tasks.append(self._resolve_single_link(int(channel_id), int(message_id)))
+            tasks.append(self._resolve_single_link(int(channel_id), int(message_id),
+                                                   requester=msg.author, guild_id=int(guild_id)))
             
         results = await asyncio.gather(*tasks, return_exceptions=True)
         
@@ -246,7 +256,32 @@ class ContextEnricher:
                 
         return "\n\n".join(resolved_texts)
 
-    async def _resolve_single_link(self, channel_id: int, message_id: int) -> str:
+    async def _requester_can_read(self, channel, requester, guild_id: int) -> bool:
+        """Only what the person who pasted the link could read themselves.
+
+        The bot reads with its own access, which covers private channels, the
+        moderation queue and every other server it is in. Resolving a link on
+        the bot's authority would put any of that in front of whoever asked.
+        """
+        guild = getattr(channel, "guild", None)
+        if guild is None or guild.id != guild_id or requester is None:
+            return False
+        member = guild.get_member(requester.id)
+        if member is None:
+            try:
+                member = await guild.fetch_member(requester.id)
+            except Exception:
+                return False
+        perms = channel.permissions_for(member)
+        return bool(perms.view_channel and perms.read_message_history)
+
+    def _prune(self, cache: dict, now: float) -> None:
+        if len(cache) > CACHE_MAX_ENTRIES:
+            for key in [k for k, (ts, _) in cache.items() if now - ts >= self._cache_ttl]:
+                del cache[key]
+
+    async def _resolve_single_link(self, channel_id: int, message_id: int,
+                                   requester=None, guild_id: int = 0) -> str:
         """Resolve a single message link with caching."""
         now = asyncio.get_running_loop().time()
         
@@ -262,12 +297,17 @@ class ContextEnricher:
             if not channel:
                 try:
                     channel = await self.bot.fetch_channel(channel_id)
+                    self._prune(self._channel_cache, now)
                     self._channel_cache[channel_id] = (now, channel)
                 except Exception as e:
                     log_debug(f"Failed to fetch channel {channel_id}: {e}")
                     return ""
 
         if not channel:
+            return ""
+
+        if not await self._requester_can_read(channel, requester, guild_id):
+            log_debug(f"Linked message {message_id} not resolved: the requester cannot read #{getattr(channel, 'name', channel_id)}")
             return ""
 
         # 2. Get/Fetch Message
@@ -281,6 +321,7 @@ class ContextEnricher:
         try:
             linked_msg = await channel.fetch_message(message_id)
             if linked_msg:
+                self._prune(self._message_cache, now)
                 self._message_cache[message_id] = (now, linked_msg)
                 author = linked_msg.author.display_name
                 return f"Message from {author} in #{channel.name}:\n{linked_msg.content}"
@@ -295,8 +336,10 @@ class ContextEnricher:
         if not matches:
             return ""
             
+        # A link at the end of a sentence carries its full stop or bracket.
+        matches = [m.rstrip(_TRAILING_PUNCT) for m in matches]
         # Remove duplicates and limit to 2 links to prevent abuse/stall
-        unique_urls = list(dict.fromkeys(matches))[:2]
+        unique_urls = list(dict.fromkeys(m for m in matches if m))[:2]
         
         tasks = []
         for url in unique_urls:
@@ -335,7 +378,8 @@ class ContextEnricher:
         now = asyncio.get_running_loop().time()
         
         # 1. SSRF Guard Check
-        if not is_safe_url(url):
+        # getaddrinfo blocks; keep it off the event loop.
+        if not await asyncio.to_thread(is_safe_url, url):
             log_debug(f"URL {url} blocked by SSRF safety guard (private/loopback/metadata IP)")
             return ""
 
@@ -353,7 +397,8 @@ class ContextEnricher:
         }
         
         try:
-            async with aiohttp.ClientSession(timeout=timeout, headers=headers) as session:
+            async with aiohttp.ClientSession(timeout=timeout, headers=headers,
+                                             connector=public_only_connector()) as session:
                 max_redirects = 5
                 current_url = url
                 response = None
@@ -366,7 +411,7 @@ class ContextEnricher:
                             break
                         from urllib.parse import urljoin
                         redirect_target = urljoin(current_url, redirect_target)
-                        if not is_safe_url(redirect_target):
+                        if not await asyncio.to_thread(is_safe_url, redirect_target):
                             resp.close()
                             log_debug(f"URL {redirect_target} blocked by SSRF redirect safety guard")
                             return ""
@@ -390,7 +435,11 @@ class ContextEnricher:
                         log_debug(f"URL {url} skipped due to content type: {content_type}")
                         return ""
                         
-                    html = await response.text()
+                    raw = await response.content.read(MAX_PAGE_BYTES)
+                    try:
+                        html = raw.decode(response.charset or "utf-8", errors="replace")
+                    except LookupError:          # a charset Python does not know
+                        html = raw.decode("utf-8", errors="replace")
                     
                     # 3. Parse with BeautifulSoup
                     # Run in an executor since massive HTML trees can block the event loop
@@ -420,6 +469,7 @@ class ContextEnricher:
                         parsed_text = parsed_text[:max_len] + "... [TRUNCATED]"
                         
                     final_result = f"Source: {url}\n{parsed_text}"
+                    self._prune(self._url_cache, now)
                     self._url_cache[url] = (now, final_result)
                     
                     return final_result

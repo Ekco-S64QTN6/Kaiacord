@@ -8,7 +8,7 @@ from pathlib import Path
 from urllib.parse import urlparse, unquote
 
 from utils.infrastructure.logging.kaia_logger import log_action, log_error, log_warning, log_debug
-from utils.core.sanitizer import is_safe_url
+from utils.core.sanitizer import is_safe_url, public_only_connector
 from utils.core.atomic_write import write_atomic
 from utils.commands.embed_style import COLOR_INFO, add_field, box, clean, notice
 
@@ -67,7 +67,7 @@ async def handle_download_command(ctx, msg, send_kaia_response):
         if not parsed.netloc:
             await msg.channel.send(embed=notice("that doesn't look like a valid url.", error=True))
             return
-        if not is_safe_url(url):
+        if not await asyncio.to_thread(is_safe_url, url):     # getaddrinfo blocks
             await msg.channel.send(embed=notice("access denied: internal/private IP targets are restricted.", error=True))
             return
     except Exception:
@@ -112,7 +112,8 @@ async def _download_and_convert(url: str, username: str, user_id: str) -> dict:
         'User-Agent': 'Mozilla/5.0 (compatible; KaiaBot/1.0; +knowledge-base-ingestion)'
     }
     
-    async with aiohttp.ClientSession(timeout=timeout, headers=headers) as session:
+    async with aiohttp.ClientSession(timeout=timeout, headers=headers,
+                                     connector=public_only_connector()) as session:
         # Prevent SSRF redirect bypass (🔴-2)
         max_redirects = 5
         current_url = url
@@ -126,7 +127,7 @@ async def _download_and_convert(url: str, username: str, user_id: str) -> dict:
                     break
                 from urllib.parse import urljoin
                 redirect_target = urljoin(current_url, redirect_target)
-                if not is_safe_url(redirect_target):
+                if not await asyncio.to_thread(is_safe_url, redirect_target):
                     resp.close()
                     raise DownloadError("ssrf block: redirecting to unsafe address")
                 current_url = redirect_target

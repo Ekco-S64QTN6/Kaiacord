@@ -120,6 +120,36 @@ def strip_runtime_scaffolding(text: str) -> str:
     return re.sub(r"\n{3,}", "\n\n", cleaned).strip()
 
 
+def _is_public_ip(ip_str: str) -> bool:
+    import ipaddress
+    ip = ipaddress.ip_address(ip_str.split("%", 1)[0])
+    return not (ip.is_private or ip.is_loopback or ip.is_link_local or ip.is_reserved
+                or ip.is_multicast or ip.is_unspecified)
+
+
+def public_only_connector():
+    """A connector that refuses to open a socket to a non-public address.
+
+    `is_safe_url` checks a URL when it is received, but the HTTP client
+    resolves the name again when it connects, and a name can answer
+    differently the second time. Checking the addresses actually connected to
+    closes that gap and covers every redirect as well. IP literals skip the
+    resolver, which is why `is_safe_url` is still checked first.
+    """
+    import aiohttp
+    from aiohttp.resolver import ThreadedResolver
+
+    class _PublicOnlyResolver(ThreadedResolver):
+        async def resolve(self, host, port=0, family=0):
+            results = await super().resolve(host, port, family)
+            for r in results:
+                if not _is_public_ip(r["host"]):
+                    raise OSError(f"{host} resolves to a non-public address")
+            return results
+
+    return aiohttp.TCPConnector(resolver=_PublicOnlyResolver())
+
+
 def is_safe_url(url: str) -> bool:
     """
     Validate that a URL uses http/https and does not resolve to private,
@@ -146,9 +176,7 @@ def is_safe_url(url: str) -> bool:
             return False
 
         for _, _, _, _, sockaddr in addr_info:
-            ip_str = sockaddr[0]
-            ip = ipaddress.ip_address(ip_str)
-            if ip.is_private or ip.is_loopback or ip.is_link_local or ip.is_reserved or ip.is_multicast:
+            if not _is_public_ip(sockaddr[0]):
                 return False
 
         return True
