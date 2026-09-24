@@ -27,11 +27,18 @@ from utils.infrastructure.logging.kaia_logger import log_debug, log_warning
 # Internal helpers
 # ---------------------------------------------------------------------------
 
+def _noninteractive(cmd: list[str]) -> list[str]:
+    """`sudo -n`: fail instead of asking. A password prompt goes to the
+    terminal itself, over the curses dashboard, and then hangs to the timeout."""
+    return ["sudo", "-n", *cmd[1:]] if cmd[:1] == ["sudo"] and cmd[1:2] != ["-n"] else cmd
+
+
 def _run_cmd(cmd: list[str], timeout: int = 5) -> str:
     """Run a shell command, return stdout string or empty string on failure."""
     try:
         result = subprocess.run(
-            cmd, capture_output=True, text=True, timeout=timeout
+            _noninteractive(cmd), capture_output=True, text=True, timeout=timeout,
+            stdin=subprocess.DEVNULL,
         )
         return result.stdout.strip()
     except Exception:
@@ -42,7 +49,8 @@ async def _run_cmd_async(cmd: list[str], timeout: int = 5) -> str:
     """Run a shell command async — never blocks the event loop."""
     try:
         proc = await asyncio.create_subprocess_exec(
-            *cmd,
+            *_noninteractive(cmd),
+            stdin=asyncio.subprocess.DEVNULL,
             stdout=asyncio.subprocess.PIPE,
             stderr=asyncio.subprocess.DEVNULL,
         )

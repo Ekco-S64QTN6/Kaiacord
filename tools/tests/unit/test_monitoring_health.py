@@ -60,3 +60,10 @@ def test_a_traceback_draws_on_one_dashboard_line():
     drawn = _one_line("Traceback (most recent call last):\n  File \"x.py\"\tline 3\x1b[31m\r")
     assert "\n" not in drawn and "\t" not in drawn and "\x1b" not in drawn and "\r" not in drawn
     assert drawn.startswith("Traceback (most recent call last):   File")
+
+
+def test_sysmon_never_lets_sudo_ask_for_a_password():
+    from utils.infrastructure.system.kaia_sysmon import _noninteractive
+    assert _noninteractive(["sudo", "tail", "-n", "6", "/var/log/auth.log"])[:2] == ["sudo", "-n"]
+    assert _noninteractive(["sudo", "-n", "ss"]) == ["sudo", "-n", "ss"]
+    assert _noninteractive(["uptime"]) == ["uptime"]

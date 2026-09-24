@@ -404,6 +404,16 @@ async def handle_scores_command(ctx, msg):
             asyncio.to_thread(_gather_system_telemetry)
         )
         
+        # Mood decays on read; the file holds its value as of the last
+        # interaction, which can be hours stale. Read the live arc instead.
+        try:
+            from utils.core.kaia_mood import emotional_arc
+            emotional_arc._apply_decay()
+            telemetry_data.update(valence=emotional_arc.valence, arousal=emotional_arc.arousal,
+                                  social_energy=emotional_arc.social_energy)
+        except Exception as e:
+            log_debug(f"!scores: live mood unavailable, showing the saved one: {e}")
+
         initial_embed = _build_affinity_embed(affinity_data)
         view = KaiaScoresView(affinity_data, mind_data, telemetry_data)
         
