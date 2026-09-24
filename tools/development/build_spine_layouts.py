@@ -617,7 +617,8 @@ def main():
     for zone, creatures in zone_creature_counts.items():
         print(f"  {zone}: {len(creatures)} unique creatures across its floors")
 
-    with open("utils/ttrpg/spine_layouts.json", "w") as f:
+    root = os.path.dirname(os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
+    with open(os.path.join(root, "utils", "ttrpg", "spine_layouts.json"), "w") as f:
         json.dump(floors, f, indent=2)
     print(f"\nWrote spine_layouts.json for 77 floors")
 

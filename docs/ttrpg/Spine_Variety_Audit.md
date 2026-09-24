@@ -37,7 +37,7 @@ The Aethelgard TTRPG is in **strong operational health overall**, but the Spine 
 | Field | Detail |
 |---|---|
 | **Severity** | 🟡 Major — content degradation, not a crash |
-| **File** | [build_spine_layouts.py](../../utils/ttrpg/build_spine_layouts.py) |
+| **File** | [build_spine_layouts.py](../../tools/development/build_spine_layouts.py) |
 | **Description** | The 5 floor templates (`F1M` through `F5M`) hardcode `monster_key` values like `"hydra"`, `"iron_golem"`, `"dark_rider"`. Since all 77 floors reuse these 5 templates (floors 1-15 all use F1M, 16-30 all use F2M, etc.), the same 3-4 creatures repeat on every floor within a zone. |
 | **Data** | Only **16 unique monster keys** across all **663 combat rooms** in 77 floors. `iron_golem` appears in **90 rooms**. Meanwhile, the `ENCOUNTER_TABLES["spine_of_the_world"]` has **45 unique creatures** in 5 zone-specific pools — but they're never used for dungeon rooms. |
 | **Fix** | Modify `build_spine_layouts.py` to **randomly assign `monster_key` from the zone's encounter pool** instead of hardcoding from the template. Each floor should draw from its zone's pool in `ENCOUNTER_TABLES["spine_of_the_world"]`. See Proposed Changes below. |
@@ -164,7 +164,7 @@ Add `is_spine = state.get("is_spine", False)` after the state is loaded (around 
 
 ### Fix 2: Dynamic monster assignment in `build_spine_layouts.py`
 
-#### [MODIFY] [build_spine_layouts.py](../../utils/ttrpg/build_spine_layouts.py)
+#### [MODIFY] [build_spine_layouts.py](../../tools/development/build_spine_layouts.py)
 
 Instead of using the hardcoded `monster_key` from template metadata, the `build()` function should randomly select from the appropriate zone's encounter pool for each combat room. The zone is determined by floor number.
 
@@ -228,7 +228,7 @@ else:
 
 ### Automated
 1. `python3 -c "import ast; ast.parse(open('utils/ttrpg/rpg_views.py').read())"` — syntax check
-2. `python3 -c "import ast; ast.parse(open('utils/ttrpg/build_spine_layouts.py').read())"` — syntax check
+2. `python3 -c "import ast; ast.parse(open('tools/development/build_spine_layouts.py').read())"` — syntax check
 3. `python3 -c "import ast; ast.parse(open('utils/ttrpg/monster_registry.py').read())"` — syntax check
 4. Regenerate `spine_layouts.json` and verify:
    - All `monster_key` values in combat rooms resolve in `MONSTERS`

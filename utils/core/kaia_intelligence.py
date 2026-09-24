@@ -7,7 +7,7 @@ All logic now lives in:
   - utils.core.context_optimizer  (ContextOptimizer, ContextWeaver, RelevanceFeedback,
                                    PersonalizationEngine, PersistentStateManager,
                                    Intent, ContextCtx dataclasses)
-  - utils.core.intent_classifier  (IntentParser, ModelWarmPool, QueryClassifier)
+  - utils.core.intent_classifier  (IntentParser, QueryClassifier)
 
 This facade re-exports all public symbols so that existing imports
 (e.g. `from utils.core.kaia_intelligence import Intent`) continue to work.
@@ -30,6 +30,5 @@ from utils.core.context_optimizer import (                                      
 # ── Intent Classification ─────────────────────────────────────────────────
 from utils.core.intent_classifier import (                                          # noqa: F401
     IntentParser,
-    ModelWarmPool,
     QueryClassifier,
 )

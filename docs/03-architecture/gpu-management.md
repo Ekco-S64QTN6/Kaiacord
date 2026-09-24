@@ -86,21 +86,23 @@ this repository is resumable and idempotent for that reason.
 ### 4. Boot Sequence (Phase 1/2/3)
 On startup, `on_ready()` runs a sequenced boot:
 - **Phase 1**: `gemma3:12b` loaded exclusively via direct `ollama.generate()` under `_gpu_startup_lock`. Timeout: `model_load_seconds` (default 240s). A 5s recovery delay after Ollama cleanup ensures the daemon is ready.
-- **Phase 1.5**: `ModelWarmPool` and `IntentParser` (regex, no model) initialized AFTER GPU is claimed.
+- **Phase 1.5**: `IntentParser` (regex, no model) is attached to the message processor.
 - **Phase 2**: Bot marked ready to serve messages.
 - **Phase 3**: RAG init and knowledge refresh — background, non-blocking. There is no
   classifier to warm.
 
-## Adaptive Performance Monitoring
+## Performance Monitoring
 
-Kaia monitors response times and memory pressure through the `PerformanceMonitor`.
+`stats_tracker` records every turn's response time, which the dashboard shows
+alongside VRAM, and a message that takes longer than 30 s to handle logs a
+`Slow response` warning (`timed_response` on `on_message`).
 
 ### Performance Indicators
 | Metric | Healthy Range | Action on Degradation |
 |:---|:---|:---|
 | **Chat Latency** | < 10.0s | Check for background model updates or GPU temperature. |
 | **RAG Retrieval** | < 2.0s | Verify vector index integrity or disk I/O speed. |
-| **Memory Pressure** | < 11.5GB | If VRAM exceeded, the system will trigger a graceful model reload. |
+| **Memory Pressure** | < 11.5GB | Check `nvidia-smi` for another process holding VRAM; see `max_context_tokens` in `kaia.yaml`. |
 
 ## Graceful Shutdown & VRAM Teardown
 

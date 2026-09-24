@@ -22,8 +22,6 @@ class AppContext:
     # Core Components
     rag: Any = None
     dream_engine: Any = None
-    performance_monitor: Any = None
-    model_warm_pool: Any = None
     intent_parser: Any = None
     persistent_state_manager: Any = None
     

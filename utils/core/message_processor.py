@@ -222,7 +222,7 @@ class MessageProcessor:
     """
     Modular message processor that decomposes the complex on_message logic.
     """
-    def __init__(self, ctx, response_optimizer, context_optimizer, relevance_feedback,
+    def __init__(self, ctx, context_optimizer, relevance_feedback,
                  news_enhancer, rag_enhancer):
         self.ctx = ctx
         self.bot = ctx.bot
@@ -230,14 +230,12 @@ class MessageProcessor:
         self.rag = ctx.rag
         self.config = ctx.config
         self.bot_state = ctx.bot_state
-        self.performance_monitor = ctx.performance_monitor
         self.intent_parser = ctx.intent_parser
         self.stats_tracker = ctx.stats_tracker
         self.rate_limiter = ctx.rate_limiter
         self.shutdown_manager = ctx.shutdown_manager
         self.personalization_engine = ctx.personalization_engine
         
-        self.response_optimizer = response_optimizer
         self.context_optimizer = context_optimizer
         self.relevance_feedback = relevance_feedback
         self.news_enhancer = news_enhancer
@@ -730,8 +728,6 @@ class MessageProcessor:
         
         # Re-map results back to a dict
         results = dict(zip(task_names, raw_results))
-        
-        self.performance_monitor.stop_timer('retrieval', 'retrieval_time')
         
         # 4. Process Results & Diversify
         await self._process_retrieval_results(ctx, results, ask_whats_new, is_news_query, clean_query)
@@ -2511,8 +2507,6 @@ class MessageProcessor:
                     await self.rag.log_user_interaction_async(
                         ctx.author_id, ctx.author_name,
                         summarize_link_context(ctx.sanitized_content), bot_response)
-                
-                self.performance_monitor.stop_timer('total', 'response_time')
                 
                 # Direct metrics
                 response_time = time.time() - ctx.start_time

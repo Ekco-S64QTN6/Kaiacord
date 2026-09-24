@@ -176,7 +176,7 @@ class DashboardManager:
     """Manages the lifecycle of the bot's terminal dashboard and run modes."""
     
     def __init__(self, ctx, bot, config, bot_state, stats_tracker, stats_poller, 
-                 logger, model_warm_pool, intent_parser):
+                 logger):
         self.ctx = ctx
         self.bot = bot
         self.config = config
@@ -184,8 +184,6 @@ class DashboardManager:
         self.stats_tracker = stats_tracker
         self.stats_poller = stats_poller
         self.logger = logger
-        self.model_warm_pool = model_warm_pool
-        self.intent_parser = intent_parser
         
         # Internal state
         self.dashboard = None

@@ -1,166 +1,27 @@
 """
-Intent Classification & Model Warm Pool
-=========================================
+Intent Classification
+=====================
 
 Extracted from kaia_intelligence.py (Phase 28 / CQ-01).
 
 Contains:
-- ModelWarmPool: Keep models warm between uses to prevent cold starts
 - IntentParser: Advanced intent understanding engine with fast-path triggers and LLM analysis
 - QueryClassifier: Legacy alias for IntentParser
 """
 
-import time
-import asyncio
 import re
 import json
 from typing import Optional
 
 from utils.infrastructure.logging.kaia_logger import (
-    log_info, log_action, log_success, log_error, log_warning, log_debug
+    log_info, log_success, log_debug
 )
-from utils.core.context_optimizer import Intent, ContextCtx
+from utils.core.context_optimizer import Intent
 
 # Pre-compiled regex patterns used by IntentParser
 RE_MD_JSON_BLOCK_START = re.compile(r'```json\s*')
 RE_MD_BLOCK_BACKTICKS = re.compile(r'```')
 RE_THINK_BLOCK = re.compile(r'<think>[\s\S]*?</think>')
-
-
-class ModelWarmPool:
-    """Keep models warm between uses to prevent cold starts."""
-    def __init__(self, ollama_client):
-        self.ollama_client = ollama_client
-        self.pool = {}
-        self._scheduler_task = None
-        self._cached_options = {}  # model_name -> gpu_options (avoids re-instantiation)
-        
-    async def pre_warm(self, model_name):
-        if not model_name: return
-        if model_name in self.pool:
-            self.pool[model_name]['last_used'] = time.time()
-            return
-
-        log_action(f"Adding {model_name} to keep-alive pool...")
-        self.pool[model_name] = {'last_used': time.time()}
-        
-        # Initial warm.
-        #
-        # This loads a model into VRAM and pins it there (keep_alive=-1), so it
-        # must go through the GPU guard like every other model load — otherwise
-        # it can collide with an in-flight chat. It also needs a timeout: the
-        # bare `except Exception: pass` below would swallow a hang completely.
-        #
-        # for_chat is False so a CPU-only model is not forced onto the GPU by
-        # the warm-up. get_gpu_options(for_chat=True) returns num_gpu: 99
-        # regardless of the model.
-        try:
-            from utils.infrastructure.gpu.gpu_manager import (
-                OllamaGPUManager, gpu_memory_manager, GPUTaskPriority,
-            )
-            gpu_mgr = OllamaGPUManager(model_name)
-            options = gpu_mgr.get_gpu_options(for_chat=False)
-
-            async def _warm():
-                return await self.ollama_client.generate(
-                    model=model_name, prompt=".", options=options, keep_alive=-1
-                )
-
-            await gpu_memory_manager.run_with_gpu_guard(
-                model_name=model_name,
-                priority=GPUTaskPriority.BACKGROUND,
-                coro=asyncio.wait_for(_warm(), timeout=120.0),
-                task_id=f"warm_{model_name.replace(':', '_')}",
-            )
-        except Exception as e:
-            log_warning(f"[ModelWarmPool] Warm-up of {model_name} failed: {e}")
-
-        if not self._scheduler_task or self._scheduler_task.done():
-            self._scheduler_task = asyncio.create_task(self._scheduler_loop())
-            try:
-                from utils.infrastructure.monitoring.async_task_registry import task_registry
-                task_registry.register("model_warm_scheduler", self._scheduler_task)
-            except Exception: pass
-            
-        # Execute tiny generation to force load into VRAM with full cache
-        # Max 300s (5 mins) per attempt. If CPU is busy (e.g. embedding indexing),
-        # retry once after a cooldown to let embeddings finish.
-        max_attempts = 2
-        try:
-            from utils.infrastructure.system.yaml_config import config
-            max_ctx = config.max_context_tokens
-            # Load with full context size from config
-            options = {
-                "num_gpu": 99,
-                "num_ctx": max_ctx,
-                "num_predict": 1
-            }
-            # Cache these options for keep_alive reuse
-            self._cached_options[model_name] = options.copy()
-            
-            for attempt in range(1, max_attempts + 1):
-                try:
-                    # Execute tiny generation to force load into VRAM with full cache
-                    # Max 600s (10 mins) per attempt. If CPU is busy (e.g. embedding indexing),
-                    # retry once after a cooldown to let embeddings finish.
-                    await asyncio.wait_for(
-                        self.ollama_client.generate(model=model_name, prompt=".", options=options, keep_alive=-1),
-                        timeout=120.0  # Reduced from 600s
-                    )
-                    self.pool[model_name] = {'last_used': time.time(), 'status': 'ready'}
-                    return True
-                except asyncio.TimeoutError:
-                    if attempt < max_attempts:
-                        log_warning(f"Model {model_name} pre-warm timed out (attempt {attempt}/{max_attempts}). "
-                                    f"CPU may be busy with embeddings. Retrying in 10s...")
-                        await asyncio.sleep(10)
-                    else:
-                        log_error(f"CRITICAL FAILURE: Model {model_name} failed to pre-warm after {max_attempts} attempts (total ~12 min).")
-                        return False
-        except Exception as e:
-            import traceback
-            error_details = traceback.format_exc()
-            log_error(f"Failed to pre-warm model {model_name}: {e}")
-            log_debug(f"Pre-warm details (Full Traceback):\n{error_details}")
-            return False
-    
-    async def _scheduler_loop(self):
-        """Centralized scheduler to keep all pooled models warm."""
-        log_debug("Model warm pool scheduler started.")
-        while self.pool:
-            await asyncio.sleep(600) # Increased to 10m
-            now = time.time()
-            models_to_remove = []
-            
-            # Use list of keys to allow modification during iteration
-            for model_name, info in list(self.pool.items()):
-                idle_sec = now - info['last_used']
-                # LRU Eviction: 30m idle
-                if idle_sec > 1800:
-                    log_info(f"Model {model_name} idle for 30m, stopping keep-alive.")
-                    models_to_remove.append(model_name)
-                    continue
-                
-                # Only tickle if idle for at least 5m
-                if idle_sec < 300:
-                    continue
-
-                try:
-                    from utils.infrastructure.gpu.gpu_manager import OllamaGPUManager
-                    gpu_mgr = OllamaGPUManager(model_name)
-                    # For shared chat models in the pool, use full chat options
-                    options = gpu_mgr.get_gpu_options(for_chat=True)
-                    # Lighter: generate(prompt=".") instead of chat()
-                    await self.ollama_client.generate(model=model_name, prompt=".", options=options, keep_alive=3600)
-                    log_debug(f"Tickled model: {model_name}")
-                except Exception as e:
-                    log_warning(f"Failed to tickle {model_name}: {e}")
-                    models_to_remove.append(model_name)
-            
-            for m in models_to_remove:
-                if m in self.pool: del self.pool[m]
-                
-        log_debug("Model warm pool scheduler stopped (pool empty).")
 
 
 class IntentParser:

@@ -10,7 +10,6 @@ import os
 
 import pytest
 
-from utils.core.performance_monitor import PerformanceMonitor
 from utils.core.kaia_intelligence import (
     PersonalizationEngine,
     PersistentStateManager,
@@ -27,7 +26,6 @@ needs_ollama = pytest.mark.skipif(
 
 def test_state_round_trips_user_profiles(tmp_path):
     personalization = PersonalizationEngine()
-    monitor = PerformanceMonitor()
     manager = PersistentStateManager(state_dir=str(tmp_path / "state"))
 
     personalization.user_profiles["123"] = {
@@ -35,11 +33,10 @@ def test_state_round_trips_user_profiles(tmp_path):
         "formality": 0.5, "humor": 0.5,
     }
     personalization.dirty_profiles.add("123")     # what learn_from_interaction does
-    monitor.metrics["cache_hits"] = 10
-    manager.save_state(personalization, monitor)
+    manager.save_state(personalization)
 
     restored = PersonalizationEngine()
-    assert manager.load_state(restored, PerformanceMonitor()) is True
+    assert manager.load_state(restored) is True
     assert restored.user_profiles["123"]["conciseness"] == 0.8
 
 
@@ -53,12 +50,12 @@ def test_only_changed_profiles_are_rewritten(tmp_path):
     personalization.user_profiles["123"] = {"conciseness": 0.5, "technicality": 0.5,
                                             "formality": 0.5, "humor": 0.5}
     personalization.dirty_profiles.update({"123", "evicted"})
-    manager.save_state(personalization, PerformanceMonitor())
+    manager.save_state(personalization)
     path = os.path.join(manager.profiles_dir, "123.json")
     assert os.path.exists(path) and not personalization.dirty_profiles
 
     before = os.stat(path).st_mtime_ns
-    manager.save_state(personalization, PerformanceMonitor())
+    manager.save_state(personalization)
     assert os.stat(path).st_mtime_ns == before, "an unchanged profile was rewritten"
 
 
@@ -66,7 +63,7 @@ def test_load_state_reports_failure_on_empty_dir(tmp_path):
     """A missing state directory must be reported, not silently treated as a
     successful load of empty state."""
     manager = PersistentStateManager(state_dir=str(tmp_path / "nothing-here"))
-    assert manager.load_state(PersonalizationEngine(), PerformanceMonitor()) is False
+    assert manager.load_state(PersonalizationEngine()) is False
 
 
 def test_saved_state_stays_inside_the_configured_dir(tmp_path):
@@ -75,7 +72,8 @@ def test_saved_state_stays_inside_the_configured_dir(tmp_path):
     manager = PersistentStateManager(state_dir=str(state_dir))
     personalization = PersonalizationEngine()
     personalization.user_profiles["9"] = {"conciseness": 0.1}
-    manager.save_state(personalization, PerformanceMonitor())
+    personalization.dirty_profiles.add("9")
+    manager.save_state(personalization)
     assert state_dir.exists()
     assert any(state_dir.rglob("*.json"))
 

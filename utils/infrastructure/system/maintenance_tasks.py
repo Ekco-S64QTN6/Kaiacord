@@ -101,7 +101,7 @@ async def memory_audit_task():
         ctx.rate_limiter.cleanup()
         
         # Save state (Offload to thread to prevent blocking the loop)
-        await ctx.persistent_state_manager.save_state_async(ctx.personalization_engine, ctx.performance_monitor)
+        await ctx.persistent_state_manager.save_state_async(ctx.personalization_engine)
             
     except Exception as e:
         log_error(f"Memory audit task failed: {e}")

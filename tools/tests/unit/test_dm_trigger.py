@@ -32,7 +32,6 @@ def mock_processor():
     
     processor = MessageProcessor(
         ctx=ctx_mock,
-        response_optimizer=MagicMock(),
         context_optimizer=MagicMock(),
         relevance_feedback=MagicMock(),
         news_enhancer=MagicMock(),

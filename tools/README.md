@@ -84,7 +84,7 @@ nobody is talking to her.
 | Script | What it does |
 |:--|:--|
 | `generate_self_model.py` | Kaia's first-person self-model from her recent logs and dreams. |
-| `generate_spine_layouts.py` | Pre-computes the 77-floor Spine of the World layouts. |
+| `build_spine_layouts.py` | Regenerates `utils/ttrpg/spine_layouts.json`, the 77 Spine of the World floors. Random per run. |
 
 ## social/
 

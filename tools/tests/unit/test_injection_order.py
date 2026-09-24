@@ -25,7 +25,6 @@ async def test_injection_order_constitution_first(mock_log_debug, mock_log_info)
 
     processor = MessageProcessor(
         ctx=ctx_mock,
-        response_optimizer=MagicMock(),
         context_optimizer=MagicMock(),
         relevance_feedback=MagicMock(),
         news_enhancer=MagicMock(),

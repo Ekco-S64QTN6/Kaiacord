@@ -1,19 +1,12 @@
 # Standard Library
 import argparse
 import asyncio
-import concurrent.futures
-import logging
 import os
-import random
-import re
 import sys
-import threading
 import time
-import traceback
 import warnings
-from datetime import datetime
 from pathlib import Path
-from typing import Any, Dict, List, Optional
+from typing import Any
 
 # ── Interpreter guard ────────────────────────────────────────────────
 # Re-exec into venv/bin/python when started under anything else. A stray set of
@@ -56,17 +49,15 @@ import discord
 from discord.ext import commands
 from dotenv import load_dotenv
 import ollama
-import psutil
 
 load_dotenv()
 
 # Internal Modules
 from utils.core.background_tasks import run_news_update
 from utils.core.kaia_dream import DreamEngine
-from utils.core.kaia_intelligence import ContextOptimizer, IntentParser, ModelWarmPool, RelevanceFeedback
+from utils.core.kaia_intelligence import ContextOptimizer, IntentParser, RelevanceFeedback
 from utils.core.kaia_rag import KaiaRAG
 from utils.core.message_processor import MessageProcessor
-from utils.core.performance_monitor import PerformanceMonitor
 from utils.infrastructure.logging.kaia_logger import log_action, log_debug, log_error, log_info, log_success, log_warning
 from utils.infrastructure.logging.unified_logging import logger, replace_all_logging
 from utils.infrastructure.monitoring.async_task_registry import task_registry
@@ -74,8 +65,7 @@ from utils.infrastructure.monitoring.stats_tracker import stats_tracker
 from utils.infrastructure.system.app_context import AppContext
 from utils.infrastructure.system.bot_state import bot_state
 from utils.infrastructure.system.dashboard_manager import DashboardManager
-from utils.infrastructure.system.messaging import send_kaia_response
-from utils.infrastructure.system.performance_optimizer import ResponseOptimizer, timed_response
+from utils.infrastructure.system.performance_optimizer import timed_response
 from utils.infrastructure.system.rate_limiter import RateLimiter
 from utils.infrastructure.system.shutdown_fixed import shutdown_manager
 from utils.infrastructure.system.yaml_config import config
@@ -127,13 +117,9 @@ def _build_logic_layer_sync():
     """
     from utils.core.kaia_intelligence import PersonalizationEngine, PersistentStateManager
 
-    ctx.performance_monitor = PerformanceMonitor()
-    # ModelWarmPool and IntentParser moved to on_ready (Phase 1.5) 
-    # to avoid early VRAM consumption during boot.
-    ctx.model_warm_pool = None
+    # Set in on_ready (Phase 1.5).
     ctx.intent_parser = None
 
-    response_optimizer = ResponseOptimizer()
     context_optimizer = ContextOptimizer(
         model_name=config.chat_model, max_tokens=config.max_context_tokens
     )
@@ -148,7 +134,6 @@ def _build_logic_layer_sync():
 
     ctx.message_processor = MessageProcessor(
         ctx=ctx,
-        response_optimizer=response_optimizer,
         context_optimizer=context_optimizer,
         relevance_feedback=relevance_feedback,
         news_enhancer=ctx.news_enhancer,
@@ -170,7 +155,7 @@ def _build_logic_layer_sync():
 
 
 
-from utils.core.rag_executor import run_rag, run_rag_retrieval
+from utils.core.rag_executor import run_rag
 from utils.infrastructure.system.external_mention import process_external_mention as _process_external_mention
 
 
@@ -390,11 +375,7 @@ async def on_ready():
                   f"Running on CPU — responses will be very slow. "
                   f"Run `ollama ps` and `nvidia-smi` to investigate.")
 
-    # ── PHASE 1.5: Late-initialize CPU models ───────────────────────────────
-    # We build these AFTER the chat model has claimed the GPU to prevent
-    # VRAM contention during the initial load window.
-    log_action("[Phase 1.5] Initializing secondary models...")
-    ctx.model_warm_pool = ModelWarmPool(ctx.ollama_client)
+    # ── PHASE 1.5: Intent parser ────────────────────────────────────────────
     # Regex only — no model, nothing to load. See IntentParser.__init__.
     ctx.intent_parser = IntentParser()
     if ctx.message_processor:
@@ -450,9 +431,7 @@ async def _phase3_background_init():
     # 3b-i. Load persistent state
     log_action("[Phase 3] Loading persistent state …")
     try:
-        await ctx.persistent_state_manager.load_state_async(
-            ctx.personalization_engine, ctx.performance_monitor
-        )
+        await ctx.persistent_state_manager.load_state_async(ctx.personalization_engine)
         log_success("[Phase 3] Persistent state loaded.")
     except Exception as e:
         log_error(f"[Phase 3] Persistent state load error: {e}")
@@ -573,12 +552,9 @@ def main():
         stats_tracker=stats_tracker,
         stats_poller=stats_poller,
         logger=logger,
-        model_warm_pool=None,
-        intent_parser=None,
     )
 
     async def run_bot_wrapper(sp, stop_event=None):
-        dm.intent_parser = ctx.intent_parser
         await dm.run_bot_async(sp, None, dm_sequenced_boot, stop_event)
 
     async def dm_sequenced_boot():

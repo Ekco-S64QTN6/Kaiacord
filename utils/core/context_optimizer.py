@@ -67,8 +67,6 @@ class ContextCtx:
 
 # NOTE: config is imported lazily in ContextOptimizer.__init__ to avoid circular import
 
-# PerformanceMonitor and SemanticCache have been moved to dedicated utility modules.
-# Semantic cache was removed (never worked reliably). Caching is decommissioned.
 
 
 class ContextOptimizer:
@@ -576,29 +574,17 @@ class PersistentStateManager:
         self.state_dir = state_dir
         self.profiles_dir = os.path.join(self.state_dir, "profiles")
         os.makedirs(self.profiles_dir, exist_ok=True)
-        self.state_path = os.path.join(self.state_dir, "kaia_state.json")
         
-    async def save_state_async(self, personalization, monitor, cache=None):
+    async def save_state_async(self, personalization):
         """Async wrapper for save_state."""
-        await asyncio.to_thread(self.save_state, personalization, monitor, cache)
+        await asyncio.to_thread(self.save_state, personalization)
 
-    def save_state(self, personalization, monitor, cache=None):
-        """Atomic save of critical state (Thread-safe synchronous version)."""
+    def save_state(self, personalization):
+        """Write the user profiles that changed since the last save."""
         try:
-            # 1. Save general metrics
-            state = {
-                'performance_metrics': {
-                    'cache_hits': monitor.metrics.get('cache_hits', 0),
-                    'cache_misses': monitor.metrics.get('cache_misses', 0),
-                    'exact_hits': monitor.metrics.get('exact_hits', 0)
-                },
-                'saved_at': time.time()
-            }
-            
             from utils.core.atomic_write import write_atomic
-            write_atomic(self.state_path, json.dumps(state, sort_keys=True))
 
-            # 2. The profiles that changed since the last save — only those.
+            # Only the profiles that changed since the last save.
             # Rewriting every profile when nothing was dirty is what logged
             # "Saved 10 profiles" every fifteen minutes.
             dirty = getattr(personalization, 'dirty_profiles', set())
@@ -622,29 +608,12 @@ class PersistentStateManager:
         except Exception as e:
             log_error(f"Failed to save state: {e}")
 
-    async def load_state_async(self, personalization, monitor, cache=None):
+    async def load_state_async(self, personalization):
         """Async wrapper for load_state."""
-        return await asyncio.to_thread(self.load_state, personalization, monitor, cache)
+        return await asyncio.to_thread(self.load_state, personalization)
 
-    def load_state(self, personalization, monitor, cache=None):
-        """Load state if not too stale (Thread-safe synchronous version)."""
-        # 1. Load general metrics
-        if os.path.exists(self.state_path):
-            try:
-                with open(self.state_path, 'r') as f:
-                    state = json.load(f)
-                
-                # 48h stale check for metrics (more lenient than before)
-                if time.time() - state.get('saved_at', 0) < 172800:
-                    metrics = state.get('performance_metrics', {})
-                    monitor.metrics['cache_hits'] = metrics.get('cache_hits', 0)
-                    monitor.metrics['cache_misses'] = metrics.get('cache_misses', 0)
-                    monitor.metrics['exact_hits'] = metrics.get('exact_hits', 0)
-                    log_debug("Loaded performance metrics from state.")
-            except Exception as e:
-                log_warning(f"Failed to load metrics state: {e}")
-
-        # 2. Load User Profiles from individual files
+    def load_state(self, personalization):
+        """Load every saved user profile. True if any were loaded."""
         try:
             profile_files = os.listdir(self.profiles_dir)
             loaded_count = 0
