@@ -33,16 +33,9 @@ from utils.ttrpg.broadcast import (
     _boss_approach_flavor
 )
 
-def _make_interaction_send(interaction: discord.Interaction):
-    async def _send(channel, text, use_code_block=None):
-        if use_code_block is None: use_code_block = False
-        await interaction.followup.send(text)
-    return _send
-
-class _InteractionMsg:
-    def __init__(self, interaction: discord.Interaction):
-        self.channel = interaction.channel
-        self.author = interaction.user
+# One shim for every button path: it carries embeds and views, and
+# answers msg.content / msg.mentions for handlers that read them.
+from utils.ttrpg.rpg_views import _make_interaction_send, _InteractionMsg, no_character, no_house  # noqa: E402
 
 
 from utils.ttrpg.rpg_views import *
@@ -52,7 +45,7 @@ async def _handle_seed_shop(ctx, msg, send, rest, uid, uname, is_owner):
     from utils.ttrpg.farming import CROPS
     
     sheet = await load(uid)
-    if not sheet: return
+    if not sheet: return await no_character(msg)
 
     if sheet.get("location") != "herbalists_hut":
         return await msg.channel.send(embed=discord.Embed(
@@ -141,7 +134,7 @@ async def _handle_brew(ctx, msg, send, rest, uid, uname, is_owner):
     from utils.ttrpg.alchemy import brew, get_recipe, ALCHEMY_RECIPES
     
     sheet = await load(uid)
-    if not sheet: return
+    if not sheet: return await no_character(msg)
     
     loc = sheet.get("location", "oakhaven")
     from utils.ttrpg.housing import load_housing_async
@@ -215,7 +208,7 @@ async def _handle_my_home(ctx, msg, send, rest, uid, uname, is_owner):
     from utils.ttrpg.furniture import FURNITURE, get_home_bonuses
 
     sheet = await load(uid)
-    if not sheet: return
+    if not sheet: return await no_character(msg)
 
     if sheet.get("location") != "housing_district":
         sheet["location"] = "housing_district"
@@ -386,8 +379,8 @@ async def _handle_my_home(ctx, msg, send, rest, uid, uname, is_owner):
 
 
 async def _handle_buy_house(ctx, msg, send, rest, uid, uname, is_owner):
-    """Stub — logic is mostly inside _handle_my_home for the first purchase."""
-    pass
+    """The first purchase is offered by `!rpg home`, with its confirm button."""
+    await _handle_my_home(ctx, msg, send, rest, uid, uname, is_owner)
 
 
 async def _handle_upgrade_house(ctx, msg, send, rest, uid, uname, is_owner):
@@ -395,7 +388,8 @@ async def _handle_upgrade_house(ctx, msg, send, rest, uid, uname, is_owner):
     
     sheet = await load(uid)
     housing = load_housing(uid)
-    if not sheet or not housing: return
+    if not sheet: return await no_character(msg)
+    if not housing: return await no_house(msg)
 
     can_up, err = can_afford_upgrade(sheet, housing)
     if not can_up:
@@ -457,7 +451,8 @@ async def _handle_farm_view(ctx, msg, send, rest, uid, uname, is_owner):
 
     sheet = await load(uid)
     housing = load_housing(uid)
-    if not sheet or not housing: return
+    if not sheet: return await no_character(msg)
+    if not housing: return await no_house(msg)
 
     tier_data = get_tier_data(housing["tier"])
     max_plots = tier_data["farming_plots"]
@@ -551,7 +546,8 @@ async def _handle_farm_treat(ctx, msg, send, rest, uid, uname, is_owner):
     sheet = await load(uid)
     from utils.ttrpg.housing import load_housing, save_housing
     housing = load_housing(uid)
-    if not sheet or not housing: return
+    if not sheet: return await no_character(msg)
+    if not housing: return await no_house(msg)
 
     plots = housing.get("farming", {}).get("plots", [])
     blighted_plots = [p for p in plots if p.get("blighted")]
@@ -623,7 +619,8 @@ async def _handle_plant_crop(ctx, msg, send, rest, uid, uname, is_owner):
 
     sheet = await load(uid)
     housing = load_housing(uid)
-    if not sheet or not housing: return
+    if not sheet: return await no_character(msg)
+    if not housing: return await no_house(msg)
 
     crop_input = rest.strip().lower().replace(" ", "_")
     SEED_ALIASES = {
@@ -680,7 +677,7 @@ async def _handle_plant_crop(ctx, msg, send, rest, uid, uname, is_owner):
 async def _handle_water_crops(ctx, msg, send, rest, uid, uname, is_owner):
     from utils.ttrpg.housing import load_housing, save_housing
     housing = load_housing(uid)
-    if not housing: return
+    if not housing: return await no_house(msg)
     
     plots = housing.get("farming", {}).get("plots", [])
     watered_count = 0
@@ -711,7 +708,8 @@ async def _handle_harvest_crops(ctx, msg, send, rest, uid, uname, is_owner):
 
     sheet = await load(uid)
     housing = load_housing(uid)
-    if not sheet or not housing: return
+    if not sheet: return await no_character(msg)
+    if not housing: return await no_house(msg)
 
     from utils.ttrpg.character_manager import INVENTORY_LIMIT
     current_unique = set(sheet.get("inventory", []))
@@ -790,11 +788,13 @@ async def _handle_buy_pet(ctx, msg, send, rest, uid, uname, is_owner):
 
     sheet = await load(uid)
     housing = load_housing(uid)
-    if not sheet or not housing: return
+    if not sheet: return await no_character(msg)
+    if not housing: return await no_house(msg)
 
     pet_key = rest.strip()
     pet_data = PET_REGISTRY.get(pet_key)
-    if not pet_data: return
+    if not pet_data:
+        return await send(msg.channel, f"No pet called `{pet_key or '?'}`. See `!rpg pet_shop`.")
 
     tier_data = get_tier_data(housing["tier"])
     existing_pets = housing.get("pets", [])
@@ -835,7 +835,8 @@ async def _handle_feed_pet(ctx, msg, send, rest, uid, uname, is_owner):
 
     sheet = await load(uid)
     housing = load_housing(uid)
-    if not sheet or not housing: return
+    if not sheet: return await no_character(msg)
+    if not housing: return await no_house(msg)
 
     pets = housing.get("pets", [])
     if not pets:
@@ -935,11 +936,13 @@ async def _handle_buy_furniture(ctx, msg, send, rest, uid, uname, is_owner):
 
     sheet = await load(uid)
     housing = load_housing(uid)
-    if not sheet or not housing: return
+    if not sheet: return await no_character(msg)
+    if not housing: return await no_house(msg)
 
     furn_key = rest.strip()
     f_data = FURNITURE.get(furn_key)
-    if not f_data: return
+    if not f_data:
+        return await send(msg.channel, f"No furniture called `{furn_key or '?'}`. See `!rpg furniture_shop`.")
 
     tier_data = get_tier_data(housing["tier"])
     if len(housing.get("furniture", [])) >= tier_data["furniture_slots"]:
@@ -1037,7 +1040,7 @@ async def _handle_rename_house(ctx, msg, send, rest, uid, uname, is_owner):
         return await send(msg.channel, "Usage: `!rpg rename_house <New Name>`")
     
     housing = load_housing(uid)
-    if not housing: return
+    if not housing: return await no_house(msg)
     
     housing["house_name"] = new_name[:50]
     save_housing(housing)
@@ -1052,7 +1055,8 @@ async def _handle_home_training(ctx, msg, send, rest, uid, uname, is_owner):
 
     sheet = await load(uid)
     housing = load_housing(uid)
-    if not sheet or not housing: return
+    if not sheet: return await no_character(msg)
+    if not housing: return await no_house(msg)
 
     bonuses = get_home_bonuses(housing)
     if not bonuses.get("daily_training"):

@@ -127,16 +127,17 @@ def load_world_state() -> Dict[str, Any]:
             log_warning(f"[world_state] Failed to load {WORLD_STATE_PATH}, using defaults: {e}")
             return DEFAULT_STATE.copy()
 
-def save_world_state(state: Dict[str, Any]):
+def _write_world_state(state: Dict[str, Any], text: str):
     global _cache, _cache_date
+    from utils.core.atomic_write import write_atomic
     with _lock:
-        os.makedirs(os.path.dirname(WORLD_STATE_PATH), exist_ok=True)
-        tmp = WORLD_STATE_PATH + ".tmp"
-        with open(tmp, "w", encoding="utf-8") as f:
-            json.dump(state, f, indent=2)
-        os.replace(tmp, WORLD_STATE_PATH)
-        _cache = state.copy()
+        write_atomic(WORLD_STATE_PATH, text)
+        _cache = state
         _cache_date = os.path.getmtime(WORLD_STATE_PATH)
+
+
+def save_world_state(state: Dict[str, Any]):
+    _write_world_state(state.copy(), json.dumps(state, indent=2))
 
 def get_current_state() -> Dict[str, Any]:
     return load_world_state()
@@ -147,5 +148,6 @@ async def async_load_world_state() -> Dict[str, Any]:
 
 async def async_save_world_state(state: Dict[str, Any]):
     import asyncio
-    await asyncio.to_thread(save_world_state, state)
+    # Serialised and copied on the caller's thread; the dict is live.
+    await asyncio.to_thread(_write_world_state, state.copy(), json.dumps(state, indent=2))
 

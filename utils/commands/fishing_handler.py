@@ -777,6 +777,9 @@ async def _handle_sell_catch(ctx, interaction: discord.Interaction, uid: str, un
     """Sell all fish in bag to Gregor."""
     sheet = await load(uid)
     if not sheet:
+        await interaction.followup.send(embed=discord.Embed(
+            description="You do not exist in Aethelgard. Type `!rpg new <Name> <Race> <Class>` to begin.",
+            color=0xcc4444))
         return
 
     if sheet.get("location") != "tricklebrook_pond":
@@ -1215,7 +1218,8 @@ async def handle_fish_shop_command(ctx, msg, send, rest, uid, uname, is_owner):
     """Entry Point for Gregor's Shop from RPG UI buttons or !rpg fish shop."""
     sheet = await load(uid)
     if not sheet:
-        return
+        from utils.ttrpg.rpg_views import no_character
+        return await no_character(msg)
     embed, view = _build_fishing_shop_ui(ctx, uid, uname, is_owner, sheet)
     await msg.channel.send(embed=embed, view=view)
 

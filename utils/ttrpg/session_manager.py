@@ -107,19 +107,20 @@ async def load_session(channel_id: str) -> dict | None:
     async with lock:
         return await asyncio.to_thread(functools.partial(_load_session_sync, channel_id))
 
-def _save_session_sync(session: dict) -> None:
-    p = _path(str(session["channel_id"]))
-    tmp = p + ".tmp"
+def _write_session_sync(channel_id: str, text: str) -> None:
+    from utils.core.atomic_write import write_atomic
     with _lock:
-        with open(tmp, 'w') as f:
-            json.dump(session, f, indent=2)
-        os.replace(tmp, p)
+        write_atomic(_path(channel_id), text)
+
+def _save_session_sync(session: dict) -> None:
+    _write_session_sync(str(session["channel_id"]), json.dumps(session, indent=2))
 
 async def save_session(session: dict) -> None:
     chan_id = str(session["channel_id"])
+    text = json.dumps(session, indent=2)      # on the caller's thread: the session is live
     lock = await get_session_lock(chan_id)
     async with lock:
-        await asyncio.to_thread(functools.partial(_save_session_sync, session))
+        await asyncio.to_thread(_write_session_sync, chan_id, text)
 
 async def create_session(channel_id: str, scene: str) -> dict:
     session = {

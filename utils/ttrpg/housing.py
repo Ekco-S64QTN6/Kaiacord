@@ -112,15 +112,20 @@ def load_housing(user_id: str) -> dict | None:
         
     return data
 
-def save_housing(housing: dict) -> None:
-    import time
-    p = _housing_path(str(housing["user_id"]))
-    housing["last_updated"] = time.time()
-    tmp = p + ".tmp"
+def _write_housing(user_id: str, text: str) -> None:
+    from utils.core.atomic_write import write_atomic
     with _lock:
-        with open(tmp, 'w', encoding='utf-8') as f:
-            json.dump(housing, f, indent=2)
-        os.replace(tmp, p)
+        write_atomic(_housing_path(user_id), text)
+
+
+def _serialise_housing(housing: dict) -> str:
+    import time
+    housing["last_updated"] = time.time()
+    return json.dumps(housing, indent=2)
+
+
+def save_housing(housing: dict) -> None:
+    _write_housing(str(housing["user_id"]), _serialise_housing(housing))
 
 async def load_housing_async(user_id: str) -> dict | None:
     import asyncio
@@ -128,7 +133,8 @@ async def load_housing_async(user_id: str) -> dict | None:
 
 async def save_housing_async(housing: dict) -> None:
     import asyncio
-    await asyncio.to_thread(save_housing, housing)
+    # Serialised on the caller's thread; the dict is live.
+    await asyncio.to_thread(_write_housing, str(housing["user_id"]), _serialise_housing(housing))
 
 def load_all_housing() -> list[dict]:
     os.makedirs(HOUSING_DIR, exist_ok=True)

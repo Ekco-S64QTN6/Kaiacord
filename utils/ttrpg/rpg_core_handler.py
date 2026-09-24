@@ -35,16 +35,9 @@ from utils.ttrpg.broadcast import (
     _boss_approach_flavor
 )
 
-def _make_interaction_send(interaction: discord.Interaction):
-    async def _send(channel, text, use_code_block=None):
-        if use_code_block is None: use_code_block = False
-        await interaction.followup.send(text)
-    return _send
-
-class _InteractionMsg:
-    def __init__(self, interaction: discord.Interaction):
-        self.channel = interaction.channel
-        self.author = interaction.user
+# One shim for every button path: it carries embeds and views, and
+# answers msg.content / msg.mentions for handlers that read them.
+from utils.ttrpg.rpg_views import _make_interaction_send, _InteractionMsg, no_character  # noqa: E402
 
 
 from utils.ttrpg.rpg_views import *
@@ -845,7 +838,7 @@ async def _handle_look(ctx, msg, send, rest, uid, uname, is_owner):
     from utils.infrastructure.gpu.gpu_manager import OllamaGPUManager, gpu_memory_manager, GPUTaskPriority
     
     sheet = await load(uid)
-    if not sheet: return
+    if not sheet: return await no_character(msg)
     
     loc = sheet.get("location", "oakhaven")
     data = LOCATION_DATA.get(loc, {})
@@ -944,7 +937,7 @@ async def _handle_map(ctx, msg, send, rest, uid, uname, is_owner):
     from utils.ttrpg.world import LOCATION_DATA
 
     sheet = await load(uid)
-    if not sheet: return
+    if not sheet: return await no_character(msg)
 
     current_loc_key = sheet.get("location", "oakhaven")
     current_loc = LOCATION_DATA.get(current_loc_key, {})
@@ -977,7 +970,7 @@ async def _handle_map(ctx, msg, send, rest, uid, uname, is_owner):
 
 async def _handle_rest(ctx, msg, send, rest, uid, uname, is_owner):
     sheet = await load(uid)
-    if not sheet: return
+    if not sheet: return await no_character(msg)
     
     loc = sheet.get("location")
     if loc != "stone_hearth":
@@ -1166,7 +1159,7 @@ async def _handle_inventory(ctx, msg, send, rest, uid, uname, is_owner):
     from collections import Counter
 
     sheet = await load(uid)
-    if not sheet: return
+    if not sheet: return await no_character(msg)
 
     # ── Equipped gear summary ────────────────────────────────────────────────
     def _eq_name(slot_val, registry):
@@ -1342,7 +1335,7 @@ async def _handle_inventory(ctx, msg, send, rest, uid, uname, is_owner):
 async def _handle_equip(ctx, msg, send, rest, uid, uname, is_owner):
     from utils.ttrpg.shop import find_item
     sheet = await load(uid)
-    if not sheet: return
+    if not sheet: return await no_character(msg)
     
     if not rest.strip():
         return await msg.channel.send(embed=discord.Embed(description="Equip what? `!rpg equip <item>`", color=0x888888))
@@ -1401,7 +1394,7 @@ async def _handle_unequip(ctx, msg, send, rest, uid, uname, is_owner):
     from utils.ttrpg.equipment_registry import WEAPONS, ARMOR as ARMOR_REG, HEADGEAR, BOOTS, ACCESSORIES
 
     sheet = await load(uid)
-    if not sheet: return
+    if not sheet: return await no_character(msg)
 
     slot_aliases = {
         "weapon": "weapon", "sword": "weapon", "bow": "weapon", "axe": "weapon",
@@ -1503,7 +1496,7 @@ async def _handle_unequip(ctx, msg, send, rest, uid, uname, is_owner):
 async def _handle_use(ctx, msg, send, rest, uid, uname, is_owner):
     from utils.ttrpg.shop import find_item
     sheet = await load(uid)
-    if not sheet: return
+    if not sheet: return await no_character(msg)
     
     item_key = rest.strip().lower().replace(" ", "_")
     from utils.ttrpg.equipment_registry import ALIASES
@@ -1627,7 +1620,7 @@ async def _handle_use(ctx, msg, send, rest, uid, uname, is_owner):
 async def _handle_purify(ctx, msg, send, rest, uid, uname, is_owner):
     """Purify Tricklebrook Pond when fishing waters are tainted."""
     sheet = await load(uid)
-    if not sheet: return
+    if not sheet: return await no_character(msg)
 
     from utils.ttrpg.world_state import load_world_state, save_world_state
     wstate = load_world_state()
@@ -1983,7 +1976,7 @@ async def _handle_offer(ctx, msg, send, rest, uid, uname, is_owner):
     from datetime import date
 
     sheet = await load(uid)
-    if not sheet: return
+    if not sheet: return await no_character(msg)
 
     if sheet.get("location") != "shrine":
         return await msg.channel.send(embed=discord.Embed(
@@ -2294,7 +2287,7 @@ async def _handle_scout(ctx, msg, send, rest, uid, uname, is_owner):
 
 async def _handle_bank_deposit(ctx, msg, send, rest, uid, uname, is_owner):
     sheet = await load(uid)
-    if not sheet: return
+    if not sheet: return await no_character(msg)
     embed = discord.Embed(
         title="🏦 Deposit Gil",
         description=f"**Balance:** {sheet.get('bank_balance', 0)}g  ·  **On Hand:** {sheet.get('gil', 0)}g",
@@ -2336,7 +2329,7 @@ async def _handle_bank_deposit(ctx, msg, send, rest, uid, uname, is_owner):
 
 async def _handle_bank_withdraw(ctx, msg, send, rest, uid, uname, is_owner):
     sheet = await load(uid)
-    if not sheet: return
+    if not sheet: return await no_character(msg)
     balance = sheet.get("bank_balance", 0)
     embed = discord.Embed(
         title="🏦 Withdraw Gil",
@@ -2381,7 +2374,7 @@ async def _handle_bank_withdraw(ctx, msg, send, rest, uid, uname, is_owner):
 async def _handle_bank(ctx, msg, send, rest, uid, uname, is_owner):
     # Keep the legacy !rpg bank for balance checking
     sheet = await load(uid)
-    if not sheet: return
+    if not sheet: return await no_character(msg)
     balance = sheet.get("bank_balance", 0)
     await msg.channel.send(embed=discord.Embed(
         title="🏦 OakHaven Bank",
@@ -2422,7 +2415,7 @@ async def _handle_give(ctx, msg, send, rest, uid, uname, is_owner):
     args = rest.strip().split()
     if not args: return
     sheet = await load(str(msg.mentions[0].id) if msg.mentions else uid)
-    if not sheet: return
+    if not sheet: return await no_character(msg)
     item = find_item(args[0])
     if item:
         sheet["inventory"].append(args[0])
@@ -2436,7 +2429,7 @@ async def _handle_give(ctx, msg, send, rest, uid, uname, is_owner):
 async def _handle_heal(ctx, msg, send, rest, uid, uname, is_owner):
     if not is_owner: return
     sheet = await load(str(msg.mentions[0].id) if msg.mentions else uid)
-    if not sheet: return
+    if not sheet: return await no_character(msg)
     sheet["hp"]["current"] = sheet["hp"]["max"]
     await save(sheet)
     await msg.channel.send(embed=discord.Embed(

@@ -131,7 +131,11 @@ async def handle_rpg_command(ctx, msg, send_kaia_response):
         "farm_treat":     hou._handle_farm_treat,
         "treat":          hou._handle_farm_treat,
     }
-    async def _auto_send(channel, text, use_code_block=None):
+    async def _auto_send(channel, text="", use_code_block=None, **kwargs):
+        # An embed or a view goes to Discord as it is; Kaia's text splitter
+        # only carries text, and handlers that pass one crashed here.
+        if kwargs:
+            return await channel.send(content=text or None, **kwargs)
         if use_code_block is None:
             use_code_block = "```" not in str(text)
         return await send_kaia_response(channel, text, use_code_block=use_code_block)

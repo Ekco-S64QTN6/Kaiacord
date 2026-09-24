@@ -34,16 +34,9 @@ from utils.ttrpg.broadcast import (
     _boss_approach_flavor
 )
 
-def _make_interaction_send(interaction: discord.Interaction):
-    async def _send(channel, text, use_code_block=None):
-        if use_code_block is None: use_code_block = False
-        await interaction.followup.send(text)
-    return _send
-
-class _InteractionMsg:
-    def __init__(self, interaction: discord.Interaction):
-        self.channel = interaction.channel
-        self.author = interaction.user
+# One shim for every button path: it carries embeds and views, and
+# answers msg.content / msg.mentions for handlers that read them.
+from utils.ttrpg.rpg_views import _make_interaction_send, _InteractionMsg, no_character  # noqa: E402
 
 
 from utils.ttrpg.rpg_views import *
@@ -487,7 +480,7 @@ async def _handle_notices(ctx, msg, send, rest, uid, uname, is_owner):
 
 async def _handle_quests(ctx, msg, send, rest, uid, uname, is_owner):
     sheet = await load(uid)
-    if not sheet: return
+    if not sheet: return await no_character(msg)
     
     active = sheet.get("active_quests", [])
     completed = sheet.get("completed_quests", [])
@@ -579,7 +572,7 @@ async def _handle_abandon(ctx, msg, send, rest, uid, uname, is_owner):
 async def _handle_quest_detail(ctx, msg, send, rest, uid, uname, is_owner):
     # !rpg quest <quest_id> or just !rpg quest for current
     sheet = await load(uid)
-    if not sheet: return
+    if not sheet: return await no_character(msg)
     
     quest_id = rest.strip().lower()
     if not quest_id:
@@ -605,7 +598,7 @@ async def _handle_quest_detail(ctx, msg, send, rest, uid, uname, is_owner):
 async def _handle_mail(ctx, msg, send, rest, uid, uname, is_owner):
     """!rpg mail — Moogle Mail system in Oakhaven."""
     sheet = await load(uid)
-    if not sheet: return
+    if not sheet: return await no_character(msg)
 
     if sheet.get("location") not in ("oakhaven", "stone_hearth"):
         return await msg.channel.send(embed=discord.Embed(

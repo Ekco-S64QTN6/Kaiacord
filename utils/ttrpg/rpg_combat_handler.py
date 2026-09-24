@@ -38,16 +38,9 @@ from utils.ttrpg.broadcast import (
     _boss_approach_flavor
 )
 
-def _make_interaction_send(interaction: discord.Interaction):
-    async def _send(channel, text, use_code_block=None):
-        if use_code_block is None: use_code_block = False
-        await interaction.followup.send(text)
-    return _send
-
-class _InteractionMsg:
-    def __init__(self, interaction: discord.Interaction):
-        self.channel = interaction.channel
-        self.author = interaction.user
+# One shim for every button path: it carries embeds and views, and
+# answers msg.content / msg.mentions for handlers that read them.
+from utils.ttrpg.rpg_views import _make_interaction_send, _InteractionMsg, no_character  # noqa: E402
 
 
 from utils.ttrpg.rpg_views import *
@@ -451,7 +444,7 @@ async def _handle_dungeon(ctx, msg, send, rest, uid, uname, is_owner):
     from utils.ttrpg.spine_dungeon import load_spine_dungeon, save_spine_dungeon, generate_spine_floor
 
     sheet = await load(uid)
-    if not sheet: return
+    if not sheet: return await no_character(msg)
     loc = sheet.get("location", "whisperwood_edge")
 
     if loc == "aeridor_ruins":
@@ -563,7 +556,7 @@ async def _handle_dungeon(ctx, msg, send, rest, uid, uname, is_owner):
 
 async def _handle_hunts(ctx, msg, send, rest, uid, uname, is_owner):
     sheet = await load(uid)
-    if not sheet: return
+    if not sheet: return await no_character(msg)
     view = _make_hunt_status_view(ctx, msg, uid, uname, is_owner)
     await msg.channel.send(embed=discord.Embed(
         description=f"**{sheet['character_name']}** has {hunts_remaining(sheet)} hunts remaining today. Reset is at midnight server time.",
@@ -577,7 +570,7 @@ async def _handle_hunt(ctx, msg, send, rest, uid, uname, is_owner):
     from utils.ttrpg.calendar import get_weather
     
     sheet = await load(uid)
-    if not sheet: return
+    if not sheet: return await no_character(msg)
 
     # Weather Check (e.g. Blizzard level gate)
     weather = get_weather()
@@ -847,7 +840,7 @@ async def _handle_attack(ctx, msg, send, rest, uid, uname, is_owner):
     from utils.ttrpg.calendar import get_weather
     
     sheet = await load(uid)
-    if not sheet: return
+    if not sheet: return await no_character(msg)
     loc = sheet.get("location", "oakhaven")
     if sheet["hp"]["current"] <= 0:
         view = _make_status_view(ctx, msg, uid, uname, is_owner)
@@ -1242,7 +1235,8 @@ async def _handle_attack(ctx, msg, send, rest, uid, uname, is_owner):
 async def _handle_flee(ctx, msg, send, rest, uid, uname, is_owner):
 
     s = await load_session(str(msg.channel.id))
-    if not s or not s.get("combat_active"): return
+    if not s or not s.get("combat_active"):
+        return await send(msg.channel, "There is no fight here to flee from.")
     
     to_flee = -1
     for i, m in enumerate(s.get("monsters", [])):
@@ -1296,7 +1290,7 @@ async def _handle_duel(ctx, msg, send, rest, uid, uname, is_owner):
         return await send(msg.channel, f"{target.display_name} has no character in Aethelgard.")
         
     sheet = await load(uid)
-    if not sheet: return
+    if not sheet: return await no_character(msg)
     
     if sheet.get("location") != target_sheet.get("location"):
         return await send(msg.channel, "You must be in the same location to duel.")
@@ -1712,7 +1706,7 @@ async def _dungeon_complete(ctx_obj, interaction, uid, uname, is_owner,
 async def _handle_raid_blockade(ctx, msg, send, rest, uid, uname, is_owner):
     """Assault the Bandit Blockade to eliminate price inflation and loot stolen crates."""
     sheet = await load(uid)
-    if not sheet: return
+    if not sheet: return await no_character(msg)
 
     from utils.ttrpg.world_state import load_world_state
     wstate = load_world_state()
@@ -1780,7 +1774,7 @@ async def _handle_raid_blockade(ctx, msg, send, rest, uid, uname, is_owner):
 async def _handle_rob_bandits(ctx, msg, send, rest, uid, uname, is_owner):
     """Infiltrate the bandit camp to steal contraband and undermine the blockade."""
     sheet = await load(uid)
-    if not sheet: return
+    if not sheet: return await no_character(msg)
 
     from utils.ttrpg.world_state import load_world_state, save_world_state
     wstate = load_world_state()

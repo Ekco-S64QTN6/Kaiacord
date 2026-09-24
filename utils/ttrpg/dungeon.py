@@ -833,14 +833,9 @@ def render_map(state: dict) -> str:
 import asyncio
 
 async def save_dungeon(user_id: str, state: dict):
-    def _save():
-        os.makedirs(DUNGEON_DIR, exist_ok=True)
-        path = os.path.join(DUNGEON_DIR, f"{user_id}.json")
-        tmp = path + ".tmp"
-        with open(tmp, "w") as f:
-            json.dump(state, f, indent=2)
-        os.replace(tmp, path)
-    await asyncio.to_thread(_save)
+    from utils.core.atomic_write import write_atomic
+    text = json.dumps(state, indent=2)        # on the caller's thread: the state is live
+    await asyncio.to_thread(write_atomic, os.path.join(DUNGEON_DIR, f"{user_id}.json"), text)
 
 
 async def load_dungeon(user_id: str) -> Optional[dict]:

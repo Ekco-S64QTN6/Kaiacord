@@ -442,6 +442,22 @@ class _InteractionMsg:
         self.mentions = []
 
 
+async def no_character(msg):
+    """The reply to anyone who has not made a character yet."""
+    await msg.channel.send(embed=discord.Embed(
+        description="You do not exist in Aethelgard. Type `!rpg new <Name> <Race> <Class>` to begin.",
+        color=0xcc4444,
+    ))
+
+
+async def no_house(msg):
+    """The reply to a housing command from someone without a home."""
+    await msg.channel.send(embed=discord.Embed(
+        description="You don't own a home yet. Type `!rpg home` to see the plot for sale.",
+        color=0xcc4444,
+    ))
+
+
 def _make_interaction_send(interaction: discord.Interaction):
     """Return a send callable that routes through interaction.followup.
 
@@ -449,7 +465,7 @@ def _make_interaction_send(interaction: discord.Interaction):
     send(channel, text) instead of msg.channel.send(embed=...).
     """
     async def _send(channel, text=None, use_code_block=None, **kwargs):
-        if text is not None:
+        if text is not None and str(text).strip():
             if use_code_block is None:
                 use_code_block = "```" not in str(text)
             if use_code_block:

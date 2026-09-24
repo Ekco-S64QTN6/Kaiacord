@@ -33,16 +33,9 @@ from utils.ttrpg.broadcast import (
     _boss_approach_flavor
 )
 
-def _make_interaction_send(interaction: discord.Interaction):
-    async def _send(channel, text, use_code_block=None):
-        if use_code_block is None: use_code_block = False
-        await interaction.followup.send(text)
-    return _send
-
-class _InteractionMsg:
-    def __init__(self, interaction: discord.Interaction):
-        self.channel = interaction.channel
-        self.author = interaction.user
+# One shim for every button path: it carries embeds and views, and
+# answers msg.content / msg.mentions for handlers that read them.
+from utils.ttrpg.rpg_views import _make_interaction_send, _InteractionMsg, no_character  # noqa: E402
 
 
 from utils.ttrpg.rpg_views import *
@@ -50,6 +43,7 @@ from utils.ttrpg.rpg_views import *
 async def _handle_shop(ctx, msg, send, rest, uid, uname, is_owner):
     from utils.ttrpg.shop import get_shop_inventory
     sheet = await load(uid)
+    if not sheet: return await no_character(msg)
     loc = sheet.get("location", "hemlocks_store")
     weapons, armor, headgear, boots, accessories, consumables = get_shop_inventory(loc)
 
@@ -118,7 +112,7 @@ async def _handle_buy(ctx, msg, send, rest, uid, uname, is_owner):
     from utils.ttrpg.shop import process_purchase
     
     sheet = await load(uid)
-    if not sheet: return
+    if not sheet: return await no_character(msg)
     if sheet.get("location") not in ("hemlocks_store", "caravan"):
         return await msg.channel.send(embed=discord.Embed(description="You must be at a merchant location to buy items.", color=0xcc4444))
         
@@ -173,7 +167,7 @@ async def _handle_sell(ctx, msg, send, rest, uid, uname, is_owner):
     from utils.ttrpg.shop import process_sell, find_item as _find_item
     
     sheet = await load(uid)
-    if not sheet: return
+    if not sheet: return await no_character(msg)
     if sheet.get("location") not in ("hemlocks_store", "caravan"):
         return await msg.channel.send(embed=discord.Embed(description="You must remain at a merchant location to sell items.", color=0xcc4444))
         
@@ -214,7 +208,7 @@ async def _handle_sell_all_gear(ctx, msg, send, rest, uid, uname, is_owner):
     from utils.ttrpg.shop import find_item as _find_item
 
     sheet = await load(uid)
-    if not sheet: return
+    if not sheet: return await no_character(msg)
 
     if sheet.get("location") not in ("hemlocks_store", "caravan"):
         return await msg.channel.send(embed=discord.Embed(

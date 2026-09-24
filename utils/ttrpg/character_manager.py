@@ -142,21 +142,31 @@ def _load_all_sync() -> List[Dict[str, Any]]:
                 continue
     return sheets
 
-def _save_sync(sheet: Dict[str, Any]) -> None:
-    p = _path(str(sheet["user_id"]))
+def _serialise(sheet: Dict[str, Any]) -> str:
     sheet["last_updated"] = time.time()
-    tmp = p + ".tmp"
+    return json.dumps(sheet, indent=2)
+
+
+def _write_sync(user_id: str, text: str) -> None:
+    from utils.core.atomic_write import write_atomic
     with _lock:
-        with open(tmp, 'w', encoding='utf-8') as f:
-            json.dump(sheet, f, indent=2)
-        os.replace(tmp, p)
+        write_atomic(_path(user_id), text)
+
+
+def _save_sync(sheet: Dict[str, Any]) -> None:
+    _write_sync(str(sheet["user_id"]), _serialise(sheet))
 
 async def save(sheet: Dict[str, Any]) -> None:
-    """Async save with per-user locking."""
+    """Async save with per-user locking.
+
+    The sheet is serialised here, on the caller's thread: it is a live dict
+    that other coroutines keep changing while the writer thread runs.
+    """
     user_id = str(sheet["user_id"])
+    text = _serialise(sheet)
     lock = await get_user_lock(user_id)
     async with lock:
-        await asyncio.to_thread(functools.partial(_save_sync, sheet))
+        await asyncio.to_thread(_write_sync, user_id, text)
 
 async def create(user_id: str, user_name: str, character_name: str,
            race: str, class_name: str, stats: Dict[str, int]) -> Dict[str, Any]:
