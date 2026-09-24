@@ -930,7 +930,7 @@ become an incident log — dated anecdotes, transcript excerpts, the tuning hist
 thresholds, internal phase and ticket numbers. That material goes stale where nobody updates it
 and makes the code harder to read. Say what the guard or option *is* and which constraint gives
 it its shape; the story of what went wrong belongs in `docs/reports/`, where
-`04-audits/comment_provenance.md` holds what was removed. The same applies to config comments
+`reference/comment-provenance.md` holds what was removed. The same applies to config comments
 and to this file: neither should assert what an option is currently set to, because the file
 itself is right there.
 
@@ -1018,9 +1018,11 @@ it here.
 | Shell tooling | `scripts/README.md` — what `kaia-tools.sh` exposes |
 | Contributing | `CONTRIBUTING.md` — human-facing PR workflow |
 
-> `docs/reports/` (audit reports, master report, history) is **git-ignored** — it contains
-> transcript excerpts and runtime telemetry. It exists in a working checkout but not on GitHub,
-> so do not link it from tracked documentation.
+> `docs/reports/` is **git-ignored** — it contains transcript excerpts and runtime telemetry. It
+> exists in a working checkout but not on GitHub, so do not link it from tracked documentation.
+> Start at `STATUS.md` (where each subsystem stands) and `DECISIONS.md` (the only list of unbuilt
+> work — anything you find and do not fix goes there, with an ID). Record what you did as a new
+> phase in `log/engineering-log.md`, and update `STATUS.md` when a subsystem's state changes.
 
 ---
 

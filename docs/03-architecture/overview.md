@@ -228,6 +228,7 @@ Kaia implements a 3-pass self-healing generation loop:
 
 ## References
 
-- `docs/reports/01-status/master_report.md` *(local only — `docs/reports/` is
-  git-ignored, so it is referenced by path rather than linked)*
-- `docs/reports/01-status/audit_report.md` *(local only)*
+- `docs/reports/STATUS.md` *(local only — `docs/reports/` is
+  git-ignored, so it is referenced by path rather than linked)* — where each subsystem stands;
+  `DECISIONS.md` beside it holds everything proposed and not built
+- `docs/reports/log/engineering-log.md` *(local only)* — the engineering log
