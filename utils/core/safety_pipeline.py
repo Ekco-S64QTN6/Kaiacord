@@ -297,7 +297,17 @@ class PostGenerationSafetyPipeline:
         return text
 
     @classmethod
-    def process_attempt(
+    def process_attempt(cls, content: str, attempt: int, **kwargs) -> Tuple[Optional[str], Optional[str]]:
+        """Run the layers below over the prose; code blocks are set aside and put back unchanged."""
+        from utils.core import code_blocks
+        prose, blocks = code_blocks.stash(content or "")
+        if blocks and not prose.replace("kaiacodeblock", "").strip("0123456789 \n"):
+            return code_blocks.restore(prose, blocks), None      # nothing but code
+        cleaned, reason = cls._process_prose(prose, attempt, **kwargs)
+        return (code_blocks.restore(cleaned, blocks) if cleaned else cleaned), reason
+
+    @classmethod
+    def _process_prose(
         cls,
         content: str,
         attempt: int,

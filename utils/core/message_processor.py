@@ -2370,6 +2370,10 @@ class MessageProcessor:
             except Exception as _wd_err:
                 log_debug(f"Watchdog stance correction skipped (non-fatal): {_wd_err}")
         
+        # The prose passes below leave code alone (utils/core/code_blocks.py).
+        from utils.core import code_blocks
+        ctx.response_text, _code = code_blocks.stash(ctx.response_text)
+
         # Run Ellipsis & Em Dash Collapsers via Safety Pipeline (💡-4)
         from utils.core.safety_pipeline import PostGenerationSafetyPipeline
         ctx.response_text = PostGenerationSafetyPipeline.apply_style_collapsers(ctx.response_text)
@@ -2399,6 +2403,7 @@ class MessageProcessor:
                     ctx.response_text, _true_time)
         except Exception as _tg_err:
             log_debug(f"Time guard skipped (non-fatal): {_tg_err}")
+        ctx.response_text = code_blocks.restore(ctx.response_text, _code)
 
         # 2. SEND RESPONSE
         await self._send_response(channel=ctx.message.channel, text=ctx.response_text)
@@ -2759,10 +2764,12 @@ class MessageProcessor:
         """Helper to send response via messaging utility."""
         from utils.infrastructure.system.messaging import send_kaia_response
         
-        # FINAL SAFETY: Strip any extra backticks that might cause double-wrapping
-        # if they slipped through the generation loop pre-processing.
+        # A reply wrapped whole in a fence is prose in a box; unwrap it. A
+        # reply that is only code keeps its fence.
+        from utils.core.code_blocks import looks_like_code
         clean_text = text.strip()
-        while clean_text.startswith("```") and clean_text.endswith("```"):
+        while (clean_text.startswith("```") and clean_text.endswith("```")
+               and len(clean_text) > 6 and not looks_like_code(clean_text[3:-3])):
             clean_text = clean_text[3:-3].strip()
             # Handle language tags
             if "\n" in clean_text:
