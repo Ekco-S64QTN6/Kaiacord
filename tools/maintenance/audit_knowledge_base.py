@@ -35,6 +35,7 @@ from __future__ import annotations
 import argparse
 import hashlib
 import re
+import time
 import sys
 
 import yaml
@@ -71,6 +72,9 @@ WANT_FRONTMATTER = {"books", "documents", "news", "wiki", "troubleshooting",
 # to watch shrink rather than a defect. It is reported separately for that
 # reason: mixed in with the real findings it would drown them.
 BACKFILL_PENDING = {"user_logs", "kaia_dreams"}
+
+# A file younger than this with blank metadata has not met a nightly pass yet.
+FRESH_S = 36 * 3600
 
 FIXES = {
     "duplicates": "kaia_forum dedup now spans every dated file; "
@@ -126,6 +130,16 @@ def split_frontmatter(text: str):
     return t[3:end], t[end + 4:].lstrip("-").lstrip("\n")
 
 
+def lost_here(rel: str, text: str) -> int:
+    """U+FFFD this pipeline introduced. Project 1999's forum itself serves an
+    emoji its database could not store as `&#65533;&#65533;`, so in anything
+    scraped from it a *pair* is the source's loss, not ours, and no re-scrape
+    recovers it. Everything else counts."""
+    if rel.startswith(("forum_posts/", "user_logs/forum_")):
+        text = text.replace("\ufffd\ufffd", "")
+    return text.count("\ufffd")
+
+
 def audit():
     findings = defaultdict(list)
     by_hash = {}
@@ -155,8 +169,8 @@ def audit():
             else:
                 by_hash[h] = rel
 
-        if "�" in text:
-            findings["replacement_char"].append(f"{rel} ({text.count(chr(0xfffd))})")
+        if lost_here(rel, text):
+            findings["replacement_char"].append(f"{rel} ({lost_here(rel, text)})")
 
         # The closing fence sharing a line with the first line of content.
         if text.lstrip().startswith("---"):
@@ -189,7 +203,9 @@ def audit():
                 blank_summary = re.search(r'^summary:\s*(""|\'\')?\s*$', fm, re.M)
                 blank_keywords = re.search(r"^keywords:\s*\[\]\s*$", fm, re.M)
                 if blank_summary or blank_keywords or "summary:" not in fm:
-                    findings["empty_metadata"].append(rel)
+                    # Filed since the last nightly enrichment: waiting, not wrong.
+                    fresh = time.time() - f.stat().st_mtime < FRESH_S
+                    findings["_backfill_pending" if fresh else "empty_metadata"].append(rel)
 
         if "intended to disambiguate" in low or low.strip().startswith("#redirect"):
             findings["disambiguation"].append(rel)
@@ -208,8 +224,8 @@ def audit():
             text = f.read_bytes().decode("utf-8", errors="replace")
         except OSError:
             continue
-        if "\ufffd" in text:
-            findings["replacement_char"].append(f"{rel} ({text.count(chr(0xfffd))})")
+        if lost_here(rel, text):
+            findings["replacement_char"].append(f"{rel} ({lost_here(rel, text)})")
         fm, _body = split_frontmatter(text)
         if fm:
             try:

@@ -131,6 +131,7 @@ def derive_topic_and_title(body: str, fallback_title: str, client=None,
         return "Reference", fallback_title, "", []
     try:
         from ollama import Client
+        from utils.infrastructure.gpu.gpu_manager import chat_options
         from utils.infrastructure.system.yaml_config import config
         model = model or config.chat_model
         client = client or Client()
@@ -138,7 +139,8 @@ def derive_topic_and_title(body: str, fallback_title: str, client=None,
             topics=", ".join(KNOWN_TOPICS), sample=sample)
         resp = client.chat(model=model,
                            messages=[{"role": "user", "content": prompt}],
-                           options={"temperature": 0.2, "num_predict": 120})
+                           options=chat_options(temperature=0.2, num_predict=120),
+                           keep_alive=-1)
         text = resp["message"]["content"].strip()
         if "```" in text:
             text = text.split("```")[1].lstrip("json").strip()

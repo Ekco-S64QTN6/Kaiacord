@@ -200,6 +200,10 @@ Verified 2026-09-24: **369 monsters**, **395 gear + 58 consumables = 453 items**
   `num_predict`) only. Six call sites built their own dicts, and the monologue, sending no
   `num_ctx` at all, reloaded gemma3 at 4,096 context every 15 minutes; the next chat turn paid a
   full reload back. `journalctl -u ollama | grep "n_ctx  "` shows every reload and its size.
+  Send `keep_alive=-1` too: this Ollama sets no `OLLAMA_KEEP_ALIVE`, so a request without it
+  resets the loaded model to a five-minute expiry. Nine maintenance tools omitted it, and dream
+  consolidation also sent no `num_ctx` — a 4,096 reload at 05:00, then back to 32,768 on the next
+  message. `test_chat_model_calls.py` enforces both.
 - **That guard is process-local.** `gpu_semaphore` is a module-level `asyncio.Semaphore(1)`, so a
   standalone tool gets its own and coordinates with nothing the bot is doing. What keeps a batch
   job from colliding with live chat is the Ollama daemon queueing per model — so the cost is

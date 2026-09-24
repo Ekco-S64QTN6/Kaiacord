@@ -236,7 +236,8 @@ def generate_summary(full_brief, target_date, summary_path):
                 {'role': 'system', 'content': 'You extract concise technical bullet points from news briefs.'},
                 {'role': 'user', 'content': summary_prompt}
             ],
-            options=options
+            options=options,
+            keep_alive=-1,
         )
         
         summary = response['message']['content']

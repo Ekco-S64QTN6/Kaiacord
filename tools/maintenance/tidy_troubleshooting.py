@@ -65,7 +65,7 @@ def derive(headings: str, excerpt: str) -> tuple:
     model = config.chat_model
     opts = OllamaGPUManager(model).get_gpu_options(for_chat=True)
     resp = Client().chat(
-        model=model, options={**opts, "temperature": 0.2},
+        model=model, options={**opts, "temperature": 0.2}, keep_alive=-1,
         messages=[{"role": "user",
                    "content": PROMPT.format(headings=headings[:2500],
                                             excerpt=excerpt[:2500])}])

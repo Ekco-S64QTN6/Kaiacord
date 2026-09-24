@@ -179,7 +179,7 @@ def build_profile(name: str, material: str, words: int, sources: int) -> str:
     model = config.chat_model
     opts = OllamaGPUManager(model).get_gpu_options(for_chat=True)
     resp = Client().chat(
-        model=model, options={**opts, "temperature": 0.4, "num_predict": 900},
+        model=model, options={**opts, "temperature": 0.4, "num_predict": 900}, keep_alive=-1,
         messages=[{"role": "user", "content": PROMPT.format(
             name=name, words=words, sources=sources, material=material[-22000:])}])
     return resp["message"]["content"].strip()

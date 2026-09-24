@@ -354,7 +354,7 @@ def _trim_dangling(t: str, max_fragment: int = 120) -> str:
 
 
 async def guarded_chat(client, model, prompt, tag):
-    from utils.infrastructure.gpu.gpu_manager import gpu_memory_manager, GPUTaskPriority
+    from utils.infrastructure.gpu.gpu_manager import chat_options, gpu_memory_manager, GPUTaskPriority
     return await gpu_memory_manager.run_with_gpu_guard(
         model_name=model, priority=GPUTaskPriority.BACKGROUND,
         coro=asyncio.to_thread(
@@ -363,7 +363,7 @@ async def guarded_chat(client, model, prompt, tag):
             # 900 cut the Do Androids Dream synthesis off mid-clause ("it feels
             # too. deliberate. Like…"). 42 reflections do not fold into 675
             # words without losing something.
-            options={"temperature": 0.6, "num_predict": 1600}),
+            options=chat_options(temperature=0.6, num_predict=1600), keep_alive=-1),
         task_id=tag,
     )
 

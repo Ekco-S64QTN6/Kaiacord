@@ -9,6 +9,7 @@ import asyncio
 import ollama
 from pathlib import Path
 from utils.infrastructure.system.yaml_config import config
+from utils.infrastructure.gpu.gpu_manager import chat_options
 from utils.infrastructure.logging.kaia_logger import log_info, log_success, log_error
 
 # Configuration
@@ -44,7 +45,8 @@ async def cleanse_content_with_llm(client, content):
         response = await client.chat(
             model=config.chat_model,
             messages=[{"role": "user", "content": prompt}],
-            options={"temperature": 0.1}
+            options=chat_options(temperature=0.1),
+            keep_alive=-1,
         )
         cleaned = response['message']['content'].strip()
 
@@ -80,7 +82,8 @@ async def generate_metadata(client, content):
         response = await client.chat(
             model=config.chat_model,
             messages=[{"role": "user", "content": prompt}],
-            options={"temperature": 0.1},
+            options=chat_options(temperature=0.1),
+            keep_alive=-1,
             format="json"
         )
         data = json.loads(response['message']['content'])

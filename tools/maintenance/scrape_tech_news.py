@@ -161,7 +161,8 @@ class TechNewsScraper:
                     {'role': 'system', 'content': 'You compile brief summaries of technical development digests.'},
                     {'role': 'user', 'content': prompt}
                 ],
-                options=options
+                options=options,
+                keep_alive=-1,
             )
             summary = response['message']['content'].strip()
             if summary:
@@ -204,7 +205,13 @@ class TechNewsScraper:
         # Generate summary using the formatted body content
         exec_summary = self.generate_executive_summary(body_content)
         
+        # Frontmatter at creation, so the file is never in the corpus without
+        # it; the nightly enrichment still refines summary and keywords.
+        from utils.core.frontmatter import dump_frontmatter
+        front = dump_frontmatter({"title": f"Tech Digest: {self.today}", "summary": "",
+                                  "keywords": [], "document_type": "Technical Summary"})
         header_lines = [
+            front,
             f"# Tech Digest: {self.today}",
             "**Document Type**: Technical Summary",
             f"**Ingested**: {datetime.datetime.now().strftime('%Y-%m-%dT%H:%M:%SZ')}\n",
@@ -228,8 +235,8 @@ class TechNewsScraper:
         markdown_content, count = self.generate_digest_markdown(all_items)
         output_file = self.output_dir / f"tech_digest_{self.today.replace('-', '')}.md"
         
-        with open(output_file, 'w', encoding='utf-8') as f:
-            f.write(markdown_content)
+        from utils.core.atomic_write import write_atomic
+        write_atomic(output_file, markdown_content)
             
         print(f"💾 Saved {count} technical digest entries to {output_file}")
 
