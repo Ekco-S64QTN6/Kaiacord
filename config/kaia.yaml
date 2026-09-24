@@ -216,3 +216,10 @@ forum:
   # Unsolicited answers in Technical Discussion. The grounding is not
   # reliable — see default_config.yaml.
   tech_support_enabled: false
+
+# ============================================================================
+# SKY (!iss passes, !sky)
+# ============================================================================
+sky:
+  # Observer for visible ISS passes and tonight's sky: a city is enough.
+  location: "32.78, -96.80"   # Dallas, Texas
